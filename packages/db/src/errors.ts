@@ -131,7 +131,7 @@ export function wrapBindingForCorruption(
           return result;
         };
       }
-      // Bind plain methods (e.g. computeBkn, closeDb) to the real target so
+      // Bind plain methods (e.g. closeDb) to the real target so
       // `this` stays correct on the napi object.
       return fn.bind(target);
     },

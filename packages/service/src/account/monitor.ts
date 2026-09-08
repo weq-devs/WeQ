@@ -9,7 +9,7 @@
  *   start() →  poll `resolveQqPid(uin)` until a QQ instance for this account
  *              appears (db-lock probe: who holds the account's nt_msg.db)
  *           →  record { qqOnline: true, qqPid } into the account config
- *           →  inject the hook once + `fetchDownloadRkeys` → store rkeys
+ *           →  inject the hook once + fetch rkeys / clientKey → store them
  *           →  keep resolving the pid; when the QQ instance disappears, clear
  *              pid + mark offline and fall back to login-polling
  *   stop()  →  ends all polling.
@@ -21,10 +21,11 @@
 
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
+import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectInjectHook, type InjectHook } from '../bootstrap/inject';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
+import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** How often to poll for the account becoming logged in. */
@@ -95,8 +96,7 @@ export class AccountMonitorService {
     if (pid === null) return false;
     try {
       await this.ensureInjected(pid);
-      const raw = await this.nt.fetchDownloadRkeys(pid);
-      const rkeys = parseRkeys(raw);
+      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
       this.logger.info('harvested rkeys on demand', {
@@ -250,8 +250,7 @@ export class AccountMonitorService {
     if (!this.shouldAutoInject()) return;
     try {
       await this.ensureInjected(pid);
-      const raw = await this.nt.fetchDownloadRkeys(pid);
-      const rkeys = parseRkeys(raw);
+      const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
       if (rkeys.length > 0) {
         this.logger.info('harvested download rkeys', {
@@ -260,16 +259,13 @@ export class AccountMonitorService {
           count: rkeys.length,
         });
       }
-      const rawCk = await this.nt.fetchClientKey(pid);
-      const key = parseClientKey(rawCk);
-      if (key) this.accountConfig.setClientKey(key);
-      if (key) {
-        this.logger.info('harvested client key', {
-          event: 'harvest-client-key',
-          pid,
-          ttlSeconds: key.ttlSeconds,
-        });
-      }
+      const key = await fetchClientKey(this.nt, pid);
+      this.accountConfig.setClientKey({ ...key, fetchedAt: Date.now() });
+      this.logger.info('harvested client key', {
+        event: 'harvest-client-key',
+        pid,
+        ttlSeconds: key.ttlSeconds,
+      });
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
       void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
         .then(async (dress) => {
@@ -312,52 +308,7 @@ export class AccountMonitorService {
   }
 }
 
-/**
- * Normalise the native `fetchDownloadRkeys` JSON into {@link DownloadRkey}s.
- * Filters out video (12/22) and voice (14/24) rkeys — they're not used and
- * clutter the account-config record.
- */
-function parseRkeys(raw: string): DownloadRkey[] {
-  let arr: unknown;
-  try {
-    arr = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(arr)) return [];
-  const out: DownloadRkey[] = [];
-  for (const x of arr) {
-    if (!x || typeof x !== 'object') continue;
-    const o = x as Record<string, unknown>;
-    if (typeof o.rkey !== 'string') continue;
-    const type = typeof o.type_ === 'number' ? o.type_ : 0;
-    // Only keep image rkeys (10/20); drop video (12/22) & voice (14/24).
-    if (type !== 10 && type !== 20) continue;
-    out.push({
-      rkey: o.rkey,
-      type,
-      ttlSeconds: typeof o.ttl_seconds === 'number' ? o.ttl_seconds : 0,
-      createTime: typeof o.create_time === 'number' ? o.create_time : 0,
-    });
-  }
-  return out;
-}
-
-/** Normalise the native `fetchClientKey` JSON into {@link ClientKey}. */
-function parseClientKey(raw: string): ClientKey | null {
-  let obj: unknown;
-  try {
-    obj = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!obj || typeof obj !== 'object') return null;
-  const o = obj as Record<string, unknown>;
-  if (typeof o.client_key !== 'string' || !o.client_key) return null;
-  return {
-    clientKey: o.client_key,
-    keyIndex: typeof o.key_index === 'string' ? o.key_index : '',
-    ttlSeconds: typeof o.expire_time === 'string' ? parseInt(o.expire_time, 10) || 0 : 0,
-    fetchedAt: Date.now(),
-  };
+/** Keep only image rkeys (10/20); drop anything else the server may return. */
+function imageRkeys(rkeys: DownloadRkey[]): DownloadRkey[] {
+  return rkeys.filter((r) => r.type === 10 || r.type === 20);
 }

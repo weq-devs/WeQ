@@ -1,8 +1,9 @@
 /**
  * web cgi 凭证层的纯函数单测。
  *
- * `computeBkn` 与 native 侧 `computeBkn` 是双实现（TS 侧为了错误可定位），两边
- * 必须一致 —— 这里钉死 djb2 → 31-bit 的公式和几个金标准值。
+ * `computeBkn` 的唯一实现现在在 TS 侧（`credential.ts`）；原先 native 里的
+ * `computeBkn` 已随 `protocol/service` 一并移除。这里钉死 djb2 → 31-bit 的
+ * 公式和几个金标准值。
  */
 
 import { describe, expect, it } from 'vitest';

@@ -311,9 +311,6 @@ export interface NtHelperBinding {
   verifyWindowsHello(message: string, hwnd?: bigint | number | null): WindowsHelloVerifyInfo;
 
   // --- key acquisition ---
-  /** "Instance" path: ask a running, logged-in QQ for the db key via OIDB. */
-  requestDecryptKey(pid: number, dbPath: string): Promise<string>;
-
   /**
    * Derive the SQLCipher key for a QQ Channel (频道 / guild) database.
    * Guild databases (`gpro_v1-6_u_*.db`) use a per-file key derived from the
@@ -386,13 +383,6 @@ export interface NtHelperBinding {
   // --- bulk decrypt ---
   fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
-
-  // --- OIDB service helpers (JSON-stringified results) ---
-  fetchDownloadRkeys(pid: number): Promise<string>;
-  fetchClientKey(pid: number): Promise<string>;
-  fetchSkey(pid: number, uin: string): Promise<string>;
-  fetchPskey(pid: number, uin: string, domain: string): Promise<string>;
-  computeBkn(skey: string): number;
 
   // --- custom packet send (protobuf-encoded body in, raw reply body out) ---
   /**

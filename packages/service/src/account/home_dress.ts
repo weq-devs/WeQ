@@ -27,8 +27,8 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { NtHelperBinding } from '@weq/native';
 import { WebCredentialProvider } from './web/credential';
+import type { WebNative } from './web/credential';
 import type { FriendDress } from './web/friend_dress';
 import { getSelfDress } from './web/self_dress';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -125,15 +125,7 @@ async function resolveCardVideoUrl(itemId: number): Promise<string> {
  * @param pid      已注入的 QQ 进程 pid
  */
 export async function fetchHomeDress(
-  nt: Pick<
-    NtHelperBinding,
-    | 'fetchSkey'
-    | 'fetchPskey'
-    | 'fetchClientKey'
-    | 'probePtLoginPort'
-    | 'ptFetchSkey'
-    | 'ptFetchPskey'
-  >,
+  nt: WebNative,
   session: AccountSession,
   pid: number,
   seedPskey?: Record<string, string>,
@@ -234,15 +226,7 @@ export async function fetchHomeDress(
 
 /** vip.qq.com 的凭证。`seedPskey` 为空时强制走活 hook。 */
 async function resolveCred(
-  nt: Pick<
-    NtHelperBinding,
-    | 'fetchSkey'
-    | 'fetchPskey'
-    | 'fetchClientKey'
-    | 'probePtLoginPort'
-    | 'ptFetchSkey'
-    | 'ptFetchPskey'
-  >,
+  nt: WebNative,
   uin: string,
   pid: number,
   seedPskey: Record<string, string> | undefined,

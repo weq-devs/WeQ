@@ -32,6 +32,7 @@ import {
   type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
+import { requestDecryptKeyFromInstance } from '../account/online_ticket';
 
 /** What every key flow returns when it finishes. */
 export interface KeyResult {
@@ -130,7 +131,7 @@ export class Win32KeyService {
       dbPath,
     });
     try {
-      const dbkey = await this.platform.native.ntHelper.requestDecryptKey(pid, dbPath);
+      const dbkey = await requestDecryptKeyFromInstance(this.platform.native.ntHelper, pid, dbPath);
       this.logger.info('fetched database key from running instance', {
         event: 'fetch-key-from-instance-success',
         pid,

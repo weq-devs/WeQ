@@ -3,7 +3,7 @@
 //
 //   1. probe a live QQ pid                                    (unprivileged)
 //   2. pkexec env ELECTRON_RUN_AS_NODE=1 <electron> injectWorker.mjs  (ROOT)
-//   3. fetchClientKey                                         (unprivileged)
+//   3. sendOidbPacket 0x102A_1 (clientKey)                     (unprivileged)
 //
 // This mirrors the unprivileged-host branch of createLinuxInjectHook. Run it AFTER
 // `electron-vite build` (needs out/main/injectWorker.mjs). Requires a graphical
@@ -58,10 +58,10 @@ async function main() {
   log('--- [1] pkexec inject (root, electron-as-node) ---');
   await pkexecInject(pid, uin);
 
-  log('--- [2] fetchClientKey (unprivileged) ---');
-  const ck = await nt.fetchClientKey(pid);
-  log('fetchClientKey OK:', ck);
-  log('>>> FULL FLOW CONFIRMED: elevated inject + unprivileged fetch <<<');
+  log('--- [2] sendOidbPacket 0x102A_1 (unprivileged) ---');
+  const body = await nt.sendOidbPacket(pid, 0x102a, 1, Buffer.alloc(0), false);
+  log('clientKey OIDB OK:', `${body.length}B ${Buffer.from(body).toString('hex')}`);
+  log('>>> FULL FLOW CONFIRMED: elevated inject + unprivileged packet send <<<');
 }
 
 main().catch((e) => {
