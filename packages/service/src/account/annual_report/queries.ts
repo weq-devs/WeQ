@@ -72,6 +72,17 @@ export function createReportQueries(
   >();
   const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   const interactionCache = new Map<string, Promise<import('@weq/db').GroupInteractionTally>>();
+  let memberSweepCache: Promise<
+    Array<{
+      groupCode: string;
+      uid: string;
+      uin: string;
+      nick: string;
+      card: string;
+    }>
+  > | null = null;
+  let buddyListCache: Promise<Array<{ uid: string; uin: string }>> | null = null;
+  let botUidsCache: Promise<Set<string>> | null = null;
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -399,6 +410,28 @@ export function createReportQueries(
         }
         return rows;
       },
+      /**
+       * 跨群重合度页的成员素材。结果按群号在 compute 里分桶；同一个 session
+       * 只扫一次全表，翻页 / 重算共用。
+       */
+      allActiveMembers() {
+        if (!memberSweepCache) {
+          memberSweepCache = session.groupMembers.listAllActiveMemberBriefs().then((rows) =>
+            rows.map((row) => ({
+              groupCode: String(row.groupCode),
+              uid: String(row.uid ?? ''),
+              uin: String(row.uin ?? ''),
+              nick: String(row.nick ?? ''),
+              card: String(row.card ?? ''),
+            })),
+          );
+          // 失败时清掉缓存，页面重试可以重新扫。
+          void memberSweepCache.catch(() => {
+            memberSweepCache = null;
+          });
+        }
+        return memberSweepCache;
+      },
     },
     c2c: {
       /**
@@ -464,6 +497,23 @@ export function createReportQueries(
         }));
       },
     },
+    buddies: {
+      /** 好友名册（buddy_list）的 uid/uin。与消息量无关，是“是不是好友”的权威来源。 */
+      list() {
+        if (!buddyListCache) {
+          buddyListCache = session.buddies.listBuddies().then((rows) =>
+            rows.map((row) => ({
+              uid: String(row.uid ?? ''),
+              uin: row.uin !== undefined && row.uin !== null ? String(row.uin) : '',
+            })),
+          );
+          void buddyListCache.catch(() => {
+            buddyListCache = null;
+          });
+        }
+        return buddyListCache;
+      },
+    },
     rhythm: {
       /**
        * 与 peerDayTallies 同款的 per-window 记忆化：availability 只问一次方向，
@@ -502,6 +552,20 @@ export function createReportQueries(
        * report years. Two DISTINCT-year scans, cached here for the session.
        */
       sentYears,
+      /** 账号自身身份（uid 优先、uin 兜底）——给跨群重合页筛掉“自己”。 */
+      selfIdentity() {
+        return Promise.resolve({ uid: selfUid, uin: String(selfUin) });
+      },
+      /** 机器人 uid 集合。profile_info 的 21000 大列预过滤只解疑似行。 */
+      botUids() {
+        if (!botUidsCache) {
+          botUidsCache = session.profileInfo.botUids();
+          void botUidsCache.catch(() => {
+            botUidsCache = null;
+          });
+        }
+        return botUidsCache;
+      },
     },
   };
 }

@@ -4927,9 +4927,839 @@ html[data-theme="dark"] .weq-report-root {
     transform: none !important;
   }
 
+  .weq-mo-month,
+  .weq-mt-more-item {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .weq-mt-orbit {
+    opacity: 1 !important;
+    transform: translate(-50%, -50%) scale(1) !important;
+  }
+
   /* 光环与火种是这一页仅有的两个常驻动画，减少动态时都停在静止的那一帧。 */
   .weq-fr-face.is-champion,
   .weq-fr-fuse-ember {
     animation: none !important;
+  }
+
+  .weq-mo-face.is-champion {
+    animation: none !important;
+  }
+}
+
+/* ══ 陪你走过 12 个月页 ════════════════════════════════════════════════
+ *
+ * 这一页不是又一张好友榜，而是把「时间怎么筛人」摊成月历。唯一的主体是
+ * 霸榜最多的年度聊伴：大头像、大名字、一个巨数（TA 拿过几个月的第一），
+ * 十二格月历收在脚下当证据链 —— 属于 TA 的月份描亮，其余月份安静退到纸面。
+ * 颜色取一管玫瑰旧胭脂，是整份报告里最像「告白」的一页。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  --rp-mo: #b04864;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-mo: #eba3b7;
+}
+
+.weq-mo {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.weq-mo-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 2px;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-align: left;
+}
+
+.weq-mo-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.weq-mo-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-mo-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 年度聊伴：版心唯一主体 ────────────────────────────────────── */
+
+.weq-mo-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.weq-mo-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-wrap: balance;
+}
+
+.weq-mo-face {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.weq-mo-face.is-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--rp-mo) 76%, var(--rp-ink));
+  color: var(--rp-paper);
+  font-family: var(--rp-serif);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.weq-mo-face.is-champion {
+  width: 72px;
+  height: 72px;
+  margin-top: 7px;
+  outline: 1px solid color-mix(in srgb, var(--rp-mo) 58%, transparent);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 8px color-mix(in srgb, var(--rp-mo) 10%, transparent),
+    0 0 30px color-mix(in srgb, var(--rp-mo) 20%, transparent);
+  animation: rp-mo-halo 5.4s ease-in-out infinite;
+}
+
+.weq-mo-face.is-champion.is-initial {
+  font-size: 32px;
+}
+
+@keyframes rp-mo-halo {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rp-mo) 60%, transparent),
+      0 0 0 7px color-mix(in srgb, var(--rp-mo) 9%, transparent),
+      0 0 26px color-mix(in srgb, var(--rp-mo) 18%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rp-mo) 80%, transparent),
+      0 0 0 12px color-mix(in srgb, var(--rp-mo) 6%, transparent),
+      0 0 38px color-mix(in srgb, var(--rp-mo) 28%, transparent);
+  }
+}
+
+.weq-mo-name {
+  margin: 10px 0 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.06;
+  white-space: nowrap;
+}
+
+.weq-mo-name.is-long {
+  font-size: 31px;
+}
+
+.weq-mo-name.is-xl {
+  font-size: 26px;
+}
+
+.weq-mo-countline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  margin: 4px 0 0;
+}
+
+.weq-mo-count {
+  color: var(--rp-mo);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 96px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.94;
+}
+
+.weq-mo-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.weq-mo-unit b {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.weq-mo-unit i {
+  margin-top: 1px;
+  color: var(--rp-ink-muted);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+.weq-mo-note {
+  margin: 3px 0 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+/* ── 脚下的月历：证据链，不是面板 ──────────────────────────────── */
+
+.weq-mo-calendar {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-mo-calendar-head {
+  margin: 0 0 5px;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.32em;
+}
+
+.weq-mo-months {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-mo-month {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 2px 4px;
+  border-bottom: 1px solid var(--rp-hair);
+  opacity: 0;
+  transform: translateY(9px);
+  transition:
+    opacity 700ms var(--rp-ease-drop),
+    transform 800ms var(--rp-ease-drop);
+  transition-delay: calc(560ms + var(--j, 0) * 52ms);
+}
+
+.weq-report-page[data-enter="in"] .weq-mo-month {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-mo-month-label {
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+.weq-mo-month-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rp-ink-muted);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mo-month-count {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* 聊伴赢下的月份：头像与计数都被点亮，名字也换成正色。 */
+.weq-mo-month.is-ours {
+  border-bottom-color: color-mix(in srgb, var(--rp-mo) 52%, transparent);
+}
+
+.weq-mo-month.is-ours .weq-mo-face {
+  outline: 1px solid color-mix(in srgb, var(--rp-mo) 42%, transparent);
+  outline-offset: 1px;
+}
+
+.weq-mo-month.is-ours .weq-mo-month-name {
+  color: var(--rp-ink-soft);
+}
+
+.weq-mo-month.is-ours .weq-mo-month-count {
+  color: var(--rp-mo);
+  font-size: 12px;
+}
+
+/* 一整月没有双向来往：空心点，不硬画一张脸。 */
+.weq-mo-month.is-quiet {
+  border-bottom-style: dashed;
+  border-bottom-color: color-mix(in srgb, var(--rp-hair) 55%, transparent);
+}
+
+.weq-mo-month-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+}
+
+.weq-mo-month-quiet i {
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--rp-ink-faint);
+  border-radius: 50%;
+}
+
+/* ── 收束 ─────────────────────────────────────────────────────── */
+
+.weq-mo-mood {
+  margin: 10px auto 0;
+  max-width: 62ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.weq-mo-empty {
+  margin: auto;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  line-height: 2;
+}
+
+.weq-mo-empty-sub {
+  color: var(--rp-ink-faint);
+  font-size: 11px;
+}
+
+/* 窄画幅：月历六列仍是六列，收紧字号与行高；主角数字收一档。 */
+@media (max-width: 1000px) {
+  .weq-mo-face.is-champion {
+    width: 62px;
+    height: 62px;
+  }
+
+  .weq-mo-name {
+    font-size: 33px;
+  }
+
+  .weq-mo-name.is-long {
+    font-size: 27px;
+  }
+
+  .weq-mo-name.is-xl {
+    font-size: 23px;
+  }
+
+  .weq-mo-count {
+    font-size: 82px;
+  }
+
+  .weq-mo-months {
+    gap: 4px 6px;
+  }
+}
+
+/* ══ 还没加好友的同路人页 ════════════════════════════════════════════
+ *
+ * 这一页只有一个人配当主体：跨群加权重合最高的非好友。TA 的头像顶在版心，
+ * 一圈慢转的粒子围成光环 —— 每一颗都是一次「在某个群里遇见」；名字和
+ * 「N 个群」的巨数压住画面，共同群名单收在脚下当证据。冠军之外补几位小卡，
+ * 让「值得扩列」不止停在一个名字上。颜色取一管青玉色，在这份暖调报告里
+ * 像一条新的支线。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  --rp-mt: #3e7f77;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-mt: #77cfc2;
+}
+
+.weq-mt {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.weq-mt-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-align: left;
+}
+
+.weq-mt-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.weq-mt-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-mt-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 重逢光环：一圈只负责氛围的慢转粒子 ───────────────────────── */
+
+.weq-mt-orbit {
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  z-index: 0;
+  width: 430px;
+  height: 430px;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.92);
+  transition:
+    opacity 1600ms var(--rp-ease-drop),
+    transform 1800ms var(--rp-ease-drop);
+  pointer-events: none;
+}
+
+.weq-mt-orbit[data-enter="in"] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.weq-mt-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--rp-mt) 26%, transparent);
+  border-radius: 50%;
+}
+
+.weq-mt-orbit[data-enter="in"] .weq-mt-ring.is-a {
+  animation: rp-mt-spin 64s linear infinite;
+}
+
+.weq-mt-ring.is-b {
+  inset: 48px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--rp-mt) 18%, transparent);
+}
+
+.weq-mt-orbit[data-enter="in"] .weq-mt-ring.is-b {
+  animation: rp-mt-spin-rev 38s linear infinite;
+}
+
+@keyframes rp-mt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rp-mt-spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.weq-mt-node {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rp-mt) calc(35% + var(--k) * 25%), transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--rp-mt) 45%, transparent);
+  transform: rotate(calc(var(--n) * 36deg)) translateY(-171px)
+    rotate(calc(var(--n) * -36deg));
+}
+
+/* ── 主体：大头像 + 名字 + 一个「N 个群」 ─────────────────────── */
+
+.weq-mt-hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.weq-mt-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-wrap: balance;
+}
+
+.weq-mt-face-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 7px;
+}
+
+.weq-mt-face {
+  display: inline-block;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  object-fit: cover;
+  outline: 1px solid color-mix(in srgb, var(--rp-mt) 64%, transparent);
+  outline-offset: 4px;
+  box-shadow:
+    0 0 0 10px color-mix(in srgb, var(--rp-mt) 9%, transparent),
+    0 0 34px color-mix(in srgb, var(--rp-mt) 24%, transparent);
+}
+
+.weq-mt-face.is-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--rp-mt) 78%, var(--rp-ink));
+  color: var(--rp-paper);
+  font-family: var(--rp-serif);
+  font-size: 38px;
+  line-height: 1;
+}
+
+.weq-mt-name {
+  margin: 10px 0 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.02;
+  white-space: nowrap;
+}
+
+.weq-mt-name.is-long {
+  font-size: 38px;
+}
+
+.weq-mt-name.is-xl {
+  font-size: 31px;
+}
+
+.weq-mt-countline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  margin: 1px 0 0;
+}
+
+.weq-mt-count {
+  color: var(--rp-mt);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 112px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.95;
+}
+
+.weq-mt-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.weq-mt-unit b {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.weq-mt-unit i {
+  margin-top: 1px;
+  color: var(--rp-ink-muted);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+.weq-mt-note {
+  margin: 2px 0 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.weq-mt-note b {
+  color: var(--rp-mt);
+  font-weight: 600;
+}
+
+/* ── 共同群证据 + 后续小卡 ───────────────────────────────────── */
+
+.weq-mt-cluster {
+  position: relative;
+  z-index: 1;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-mt-cluster-in {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+}
+
+.weq-mt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  margin: 5px 0 0;
+}
+
+.weq-mt-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 26ch;
+  overflow: hidden;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mt-chip i {
+  color: var(--rp-mt);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.weq-mt-chip.is-more {
+  color: var(--rp-ink-muted);
+}
+
+.weq-mt-more {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin: 5px 0 0;
+  padding: 6px 0 0;
+  list-style: none;
+}
+
+.weq-mt-more-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  opacity: 0;
+  transform: translateY(7px);
+  transition:
+    opacity 700ms var(--rp-ease-drop),
+    transform 800ms var(--rp-ease-drop);
+}
+
+.weq-report-page[data-enter="in"] .weq-mt-more-item {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-mt-more-rank {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.weq-mt-more .weq-mt-face {
+  width: 22px;
+  height: 22px;
+  outline: 0;
+  box-shadow: none;
+}
+
+.weq-mt-more .weq-mt-face.is-initial {
+  font-size: 10px;
+}
+
+.weq-mt-more-name {
+  max-width: 90px;
+  overflow: hidden;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mt-more-track {
+  width: 58px;
+  height: 1px;
+  overflow: hidden;
+  background: var(--rp-hair);
+}
+
+.weq-mt-more-track i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--rp-mt) 62%, transparent);
+}
+
+.weq-mt-more-val {
+  color: var(--rp-mt);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.weq-mt-more-unit {
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+/* ── 收束 ─────────────────────────────────────────────────────── */
+
+.weq-mt-mood {
+  position: relative;
+  z-index: 1;
+  margin: 8px auto 0;
+  max-width: 64ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.weq-mt-empty {
+  margin: auto;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  line-height: 2;
+}
+
+.weq-mt-empty-sub {
+  color: var(--rp-ink-faint);
+  font-size: 11px;
+}
+
+/* 窄画幅：主体与光环各收一档，后续小卡让轨道让步。 */
+@media (max-width: 1000px) {
+  .weq-mt-orbit {
+    width: 350px;
+    height: 350px;
+  }
+
+  .weq-mt-node {
+    transform: rotate(calc(var(--n) * 36deg)) translateY(-138px)
+      rotate(calc(var(--n) * -36deg));
+  }
+
+  .weq-mt-face {
+    width: 78px;
+    height: 78px;
+  }
+
+  .weq-mt-name {
+    font-size: 38px;
+  }
+
+  .weq-mt-name.is-long {
+    font-size: 32px;
+  }
+
+  .weq-mt-name.is-xl {
+    font-size: 27px;
+  }
+
+  .weq-mt-count {
+    font-size: 92px;
+  }
+
+  .weq-mt-more {
+    gap: 12px;
   }
 }

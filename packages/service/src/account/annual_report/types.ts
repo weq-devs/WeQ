@@ -225,6 +225,28 @@ export type ReportQueries = {
       uids: string[],
       uins: string[],
     ): Promise<Array<{ uid: string; uin: string; card: string; nick: string }>>;
+    /**
+     * 一次扫描把本地全部「在群成员」关系取回来（群号 × uid/uin + 展示名），
+     * 供跨群重合度页在内存里按群分桶。表很小（几万行），单次无 JOIN / ORDER
+     * 扫描比「每群一条查询」快得多。返回数组是共享只读的，调用方不得原地修改。
+     */
+    allActiveMembers(): Promise<
+      Array<{
+        groupCode: string;
+        uid: string;
+        uin: string;
+        nick: string;
+        card: string;
+      }>
+    >;
+  };
+  /**
+   * 好友名册 —— 权威的好友判定来源是 `buddy_list`（profile_info.db），不是
+   * 消息往来。生态位页用它把「已经是好友」的群友挡在推荐之外。
+   */
+  buddies: {
+    /** 全部好友的 uid / uin。只读共享数组，调用方不得修改。 */
+    list(): Promise<Array<{ uid: string; uin: string }>>;
   };
   /** Engine-level metadata, not page data. */
   meta: {
@@ -240,6 +262,16 @@ export type ReportQueries = {
      * selectable report years: a year you never spoke in has no report.
      */
     sentYears(): Promise<number[]>;
+    /**
+     * 当前账号自己的 uid / uin（uid 缺失时为空串）。跨群重合度页要从成员里
+     * 把自己摘出去。
+     */
+    selfIdentity(): Promise<{ uid: string; uin: string }>;
+    /**
+     * 本地资料缓存里判定为机器人账号的 uid 集合 —— 群成员扫描会撞见群机器人，
+     * 它们不是「可以加好友的群友」，生态位页要把它们筛掉。
+     */
+    botUids(): Promise<Set<string>>;
   };
   /**
    * 私聊专用聚合 —— 年度报告「私聊火花」页的素材。SQL 全部封装在

@@ -55,6 +55,10 @@ function computationDescription(pageId: string): string {
       return '正在统计各群发言量，并读取说得最多的那个群的正文';
     case 'interactions':
       return '正在扫描群消息正文，统计戳一戳、@ 与复读回合';
+    case 'months':
+      return '正在把私聊按月分桶，排出每个月的聊天第一名';
+    case 'mate':
+      return '正在扫群成员与好友名册，计算跨群兴趣重合度';
     case 'end':
       return '正在收尾这一份报告';
     default:

@@ -468,6 +468,83 @@ const CSS = `
   @media (prefers-color-scheme: dark) {
     .it { --buzz: #e79a74; }
   }
+  /* 陪你走过 12 个月页。静态产物画不了头像贴图，年度聊伴退成排版里的大名 +
+     一枚衬线数字；月历仍排成六列两行 —— 属于聊伴的月份染成胭脂色。 */
+  .mo { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .mo { --mo: #a2435d; }
+  .mo-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mo-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .mo-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .mo-lede { margin-top: 10mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mo-avatar { display: flex; align-items: center; justify-content: center; width: 32mm; height: 32mm; margin: 7mm auto 0; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mo) 72%, transparent); box-shadow: 0 0 0 3mm color-mix(in srgb, var(--mo) 8%, transparent), 0 0 8mm color-mix(in srgb, var(--mo) 22%, transparent); font-family: var(--serif); font-size: 15mm; color: var(--ink); }
+  .mo-name { margin-top: 4mm; font-family: var(--serif); font-size: 46pt; font-weight: 600; line-height: 1.1; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
+  .mo-name.long { font-size: 34pt; }
+  .mo-name.xl { font-size: 28pt; }
+  .mo-countline { display: flex; justify-content: center; align-items: center; gap: 5mm; margin-top: 1mm; }
+  .mo-count { font-family: var(--serif); font-size: 86pt; font-weight: 600; line-height: 1; letter-spacing: -3px; color: var(--mo); }
+  .mo-unit { display: flex; flex-direction: column; align-items: flex-start; gap: 1mm; text-align: left; }
+  .mo-unit b { font-family: var(--serif); font-size: 15pt; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
+  .mo-unit i { font-size: 7pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
+  .mo-note { margin-top: 2mm; font-family: var(--serif); font-size: 10pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .mo-calendar { margin-top: 10mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .mo-calendar-head { font-size: 7.5pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .mo-months { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6mm 5mm; margin-top: 4mm; padding: 0; list-style: none; }
+  .mo-month { display: flex; flex-direction: column; align-items: center; gap: 1.2mm; padding-bottom: 2mm; border-bottom: 0.25mm solid var(--hair); }
+  .mo-month-label { font-size: 7pt; font-weight: 600; letter-spacing: 3px; color: var(--ink-faint); }
+  .mo-mini { display: flex; align-items: center; justify-content: center; width: 9mm; height: 9mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mo) 38%, transparent); font-family: var(--serif); font-size: 4mm; color: var(--ink-muted); }
+  .mo-month-name { max-width: 100%; overflow: hidden; font-size: 7pt; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .mo-month-count { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
+  .mo-month.ours { border-bottom-color: color-mix(in srgb, var(--mo) 58%, transparent); }
+  .mo-month.ours .mo-mini { border-color: color-mix(in srgb, var(--mo) 78%, transparent); color: var(--mo); }
+  .mo-month.ours .mo-month-count { color: var(--mo); }
+  .mo-month.quiet { border-bottom-style: dashed; }
+  .mo-month.quiet .mo-mini { border-color: var(--hair); }
+  .mo-mood { margin: 8mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
+  @media (prefers-color-scheme: dark) {
+    .mo { --mo: #eba3b7; }
+  }
+  /* 还没加好友的同路人页。静态产物没有慢转粒子，光环退成两圈静置的衬线圆；
+     主体仍是冠军大头名 + 「N 个群」巨数，共同群名单和后续推荐排成发丝线内
+     的证据，不画成卡片。 */
+  .mt { flex: 1; display: flex; flex-direction: column; justify-content: center; position: relative; text-align: center; }
+  .mt { --mt: #3f7f77; }
+  .mt-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mt-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .mt-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .mt-orbit { position: absolute; left: 50%; top: 45%; z-index: 0; width: 148mm; height: 148mm; transform: translate(-50%, -50%); opacity: 0.9; pointer-events: none; }
+  .mt-ring { position: absolute; inset: 0; border: 0.3mm solid color-mix(in srgb, var(--mt) 24%, transparent); border-radius: 50%; }
+  .mt-ring.b { inset: 18mm; border-style: dashed; border-color: color-mix(in srgb, var(--mt) 16%, transparent); }
+  .mt-dot { position: absolute; left: 50%; top: 50%; width: 1mm; height: 1mm; border-radius: 50%; background: color-mix(in srgb, var(--mt) 72%, transparent); box-shadow: 0 0 2mm color-mix(in srgb, var(--mt) 46%, transparent); }
+  .mt-hero { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+  .mt-lede { font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mt-avatar { display: flex; align-items: center; justify-content: center; width: 36mm; height: 36mm; margin-top: 6mm; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mt) 76%, transparent); box-shadow: 0 0 0 3.5mm color-mix(in srgb, var(--mt) 8%, transparent), 0 0 9mm color-mix(in srgb, var(--mt) 22%, transparent); font-family: var(--serif); font-size: 16mm; color: var(--ink); }
+  .mt-name { margin-top: 4mm; font-family: var(--serif); font-size: 50pt; font-weight: 600; line-height: 1.08; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
+  .mt-name.long { font-size: 38pt; }
+  .mt-name.xl { font-size: 30pt; }
+  .mt-countline { display: flex; justify-content: center; align-items: center; gap: 5mm; margin-top: 1mm; }
+  .mt-count { font-family: var(--serif); font-size: 92pt; font-weight: 600; line-height: 1; letter-spacing: -3px; color: var(--mt); }
+  .mt-unit { display: flex; flex-direction: column; align-items: flex-start; gap: 1mm; text-align: left; }
+  .mt-unit b { font-family: var(--serif); font-size: 16pt; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
+  .mt-unit i { font-size: 7pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
+  .mt-note { margin-top: 2mm; font-family: var(--serif); font-size: 10.5pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .mt-note b { color: var(--mt); }
+  .mt-cluster { position: relative; z-index: 1; margin-top: 9mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .mt-cluster-in { font-size: 7.5pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .mt-chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2.5mm 8mm; margin-top: 3mm; }
+  .mt-chip { max-width: 56mm; overflow: hidden; font-family: var(--serif); font-size: 10.5pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-chip i { margin-right: 1.5mm; font-family: var(--serif); font-size: 8pt; font-weight: 600; font-style: normal; color: var(--mt); }
+  .mt-chip.more { color: var(--ink-muted); }
+  .mt-more { position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; gap: 10mm; margin-top: 5mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); list-style: none; }
+  .mt-more-item { display: flex; align-items: center; gap: 1.6mm; min-width: 0; }
+  .mt-rank { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
+  .mt-mini { display: flex; align-items: center; justify-content: center; width: 6mm; height: 6mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mt) 44%, transparent); font-family: var(--serif); font-size: 2.8mm; color: var(--ink-muted); }
+  .mt-more-name { max-width: 40mm; overflow: hidden; font-family: var(--serif); font-size: 11pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-more-val { font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--mt); }
+  .mt-more-unit { font-size: 7pt; color: var(--ink-faint); }
+  .mt-mood { position: relative; z-index: 1; margin: 7mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
+  @media (prefers-color-scheme: dark) {
+    .mt { --mt: #77cfc2; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -1566,6 +1643,205 @@ function homeSlide(data: Record<string, unknown>): string {
     </div>${slideFoot(`${reportPeriodLabel(year)} · HOME`)}`;
 }
 
+/**
+ * 陪你走过 12 个月页的导出版。
+ *
+ * 与屏幕版同一主体结构：年度聊伴的名字与「N 个月」巨数占住版心，十二格月历
+ * 收在页底。静态产物画不了头像，所以主角退回一枚衬线首字 + 描边圆；属于聊伴
+ * 的月份在月历里染成胭脂色，一眼就能看出谁「一路都在」。
+ */
+function monthsSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const champion = (data.champion ?? null) as {
+    peerUid?: string;
+    peerName?: string;
+    messages?: number;
+  } | null;
+  const championCells = Number(data.championMonths ?? 0);
+  const monthCount = Number(data.monthCount ?? 0);
+  const months = (data.months ?? []) as Array<{
+    month?: number;
+    monthMessages?: number;
+    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+  }>;
+  const monthLabels = [
+    '一月',
+    '二月',
+    '三月',
+    '四月',
+    '五月',
+    '六月',
+    '七月',
+    '八月',
+    '九月',
+    '十月',
+    '十一月',
+    '十二月',
+  ];
+  const initial = (name: string): string => Array.from(name)[0] ?? '?';
+  const nameClass = (name: string): string => {
+    const width = [...name].reduce(
+      (sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.6),
+      0,
+    );
+    return width > 9 ? ' xl' : width > 6 ? ' long' : '';
+  };
+
+  const calendar = months
+    .map((cell) => {
+      const top = cell.top ?? null;
+      const label = monthLabels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`;
+      const ours = champion && top && top.peerUid === champion.peerUid ? ' ours' : '';
+      const quiet = top ? '' : ' quiet';
+      const face = top ? initial(String(top.peerName ?? '')) : '·';
+      return `<li class="mo-month${ours}${quiet}">
+        <span class="mo-month-label">${escapeHtml(label)}</span>
+        <span class="mo-mini">${escapeHtml(face)}</span>
+        ${top ? `<span class="mo-month-name">${escapeHtml(String(top.peerName ?? ''))}</span>` : ''}
+        ${top ? `<span class="mo-month-count">${fmt(Number(top.messages ?? 0))}</span>` : ''}
+      </li>`;
+    })
+    .join('');
+
+  return `${slideOpen(String(year))}
+    <div class="mo">
+      <div class="mo-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 陪你走过12个月</span>
+        <span class="mo-kicker-meta"><b>${fmt(Number(data.friendCount ?? 0))}</b> 位好友 / <b>${fmt(
+          Number(data.totalMessages ?? 0),
+        )}</b> 条私聊</span>
+      </div>
+      ${
+        champion
+          ? `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}，每个月聊得最多的人一直在换，
+            可最后站在你身边的是——</div>
+            <div class="mo-avatar">${escapeHtml(initial(String(champion.peerName ?? '')))}</div>
+            <h2 class="mo-name${nameClass(String(champion.peerName ?? ''))}">${escapeHtml(
+              String(champion.peerName ?? ''),
+            )}</h2>
+            <div class="mo-countline">
+              <span class="mo-count">${fmt(championCells)}</span>
+              <span class="mo-unit"><b>个月</b><i>的聊天第一名</i></span>
+            </div>
+            <p class="mo-note">${
+              championCells >= monthCount
+                ? '整整一路，TA 都没有把第一让给别人。'
+                : `TA 拿下了 ${fmt(championCells)} 个月的第一，全年和你聊了 ${fmt(
+                    Number(champion.messages ?? 0),
+                  )} 条。`
+            }</p>
+            <div class="mo-calendar">
+              <p class="mo-calendar-head">每月的聊天第一名</p>
+              <ol class="mo-months">${calendar}</ol>
+            </div>
+            <p class="mo-mood">真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。</p>`
+          : `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}，这一年还没有足够多的双向私聊，
+              讲不出「谁陪你走过」的故事。</div>`
+      }
+    </div>${slideFoot(`${reportPeriodLabel(year)} · MONTHS`)}`;
+}
+
+/**
+ * 还没加好友的同路人页的导出版。
+ *
+ * 静态产物同样把冠军顶成主体：衬线首字圆 + 大名字 + 「N 个群」巨数；共同群
+ * 名单排成页底一行可读的群名，冠军之外的推荐收进发丝线以上的小卡。数据与
+ * 屏幕版同源，不做二次统计。
+ */
+function mateSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const top = (data.top ?? null) as {
+    uid?: string;
+    uin?: string;
+    name?: string;
+    sharedCount?: number;
+    groups?: Array<{ groupName?: string }>;
+  } | null;
+  const more = (data.more ?? []) as Array<{
+    uid?: string;
+    uin?: string;
+    name?: string;
+    sharedCount?: number;
+  }>;
+  const initial = (name: string): string => Array.from(name)[0] ?? '?';
+  const nameClass = (name: string): string => {
+    const width = [...name].reduce(
+      (sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.6),
+      0,
+    );
+    return width > 9 ? ' xl' : width > 6 ? ' long' : '';
+  };
+
+  const dots = Array.from({ length: 8 }, (_, index) => {
+    const angle = index * 45;
+    return `<i class="mt-dot" style="transform: rotate(${angle}deg) translateY(-66mm) rotate(${-angle}deg)"></i>`;
+  }).join('');
+  const chips = (top?.groups ?? [])
+    .slice(0, 5)
+    .map(
+      (group, index) =>
+        `<span class="mt-chip"><i>${String(index + 1).padStart(2, '0')}</i>${escapeHtml(
+          String(group.groupName ?? ''),
+        )}</span>`,
+    )
+    .join('');
+  const chipsPlus =
+    (top?.sharedCount ?? 0) > (top?.groups ?? []).length
+      ? `<span class="mt-chip more">+${fmt(
+          Number(top?.sharedCount ?? 0) - (top?.groups ?? []).length,
+        )}</span>`
+      : '';
+  const moreHtml = more
+    .map(
+      (candidate, index) => `<li class="mt-more-item">
+        <span class="mt-rank">0${index + 2}</span>
+        <span class="mt-mini">${escapeHtml(initial(String(candidate.name ?? '')))}</span>
+        <span class="mt-more-name">${escapeHtml(String(candidate.name ?? ''))}</span>
+        <b class="mt-more-val">${fmt(Number(candidate.sharedCount ?? 0))}</b>
+        <span class="mt-more-unit">个群</span>
+      </li>`,
+    )
+    .join('');
+
+  return `${slideOpen('缘')}
+    <div class="mt">
+      <div class="mt-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 还没加好友的同路人</span>
+        <span class="mt-kicker-meta"><b>${fmt(Number(data.groupCount ?? 0))}</b> 个群 / <b>${fmt(
+          Number(data.personCount ?? 0),
+        )}</b> 位未加好友的群友</span>
+      </div>
+      ${
+        top
+          ? `<div class="mt-orbit">
+              <i class="mt-ring"></i>
+              <i class="mt-ring b"></i>
+              ${dots}
+            </div>
+            <div class="mt-hero">
+              <p class="mt-lede">有些人你以为不认识，其实已经在群里见过很多面了——</p>
+              <div class="mt-avatar">${escapeHtml(initial(String(top.name ?? '')))}</div>
+              <h2 class="mt-name${nameClass(String(top.name ?? ''))}">${escapeHtml(
+                String(top.name ?? ''),
+              )}</h2>
+              <div class="mt-countline">
+                <span class="mt-count">${fmt(Number(top.sharedCount ?? 0))}</span>
+                <span class="mt-unit"><b>个群</b><i>里有 TA</i></span>
+              </div>
+              <p class="mt-note">你们还没有加好友——但同一个圈子里，已经重逢了
+                <b>${fmt(Number(top.sharedCount ?? 0))}</b> 次。</p>
+            </div>
+            <div class="mt-cluster">
+              <p class="mt-cluster-in">这些群，就是 TA 的「生态位」</p>
+              <p class="mt-chips">${chips}${chipsPlus}</p>
+            </div>
+            ${more.length > 0 ? `<ol class="mt-more">${moreHtml}</ol>` : ''}
+            <p class="mt-mood">世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。</p>`
+          : `<p class="mt-lede">在这些群里，还没有一个值得专门加好友的「重逢」。</p>`
+      }
+    </div>${slideFoot(`${reportPeriodLabel(year)} · MATE`)}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -1604,6 +1880,8 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'voice') return voiceSlide(data);
       if (slide.page.id === 'home') return homeSlide(data);
       if (slide.page.id === 'interactions') return interactionsSlide(data);
+      if (slide.page.id === 'months') return monthsSlide(data);
+      if (slide.page.id === 'mate') return mateSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

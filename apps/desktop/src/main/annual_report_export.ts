@@ -58,6 +58,8 @@ const PALETTE = {
   voice: '#e0a878',
   home: '#e6b866',
   buzz: '#e79a74',
+  rose: '#eba3b7',
+  jade: '#77cfc2',
 };
 
 function fmt(n: number): string {
@@ -1910,6 +1912,25 @@ function nameVisualWidth(name: string): number {
   return [...name].reduce((sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.62), 0);
 }
 
+/** 名字/群名按“可视宽度”截断，超长部分换成省略号。 */
+function fitName(text: string, maxVisual = 14): string {
+  if (nameVisualWidth(text) <= maxVisual) return text;
+  let out = '';
+  let width = 0;
+  for (const char of text) {
+    const w = /\p{Script=Han}/u.test(char) ? 1 : 0.62;
+    if (width + w > maxVisual - 1) break;
+    out += char;
+    width += w;
+  }
+  return `${out}…`;
+}
+
+/** 展示名的首字（兜底问号），导出版画不了头像贴图。 */
+function nameInitial(name: string): string {
+  return Array.from(name || '')[0] ?? '?';
+}
+
 /** '#rrggbb' + alpha → rgba()。satori 不支持 color-mix，只能拼字符串。 */
 function rgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '');
@@ -2253,6 +2274,558 @@ function interactionsTree(data: Record<string, unknown>): El {
   return slideFrame([body], heroGhost);
 }
 
+/**
+ * 陪你走过 12 个月页的长图版。
+ *
+ * 长图没有屏幕版的翻页动画，所以「年度聊伴」的名字 + 霸榜月数巨数直接占住
+ * 版心；十二格月历收在页中偏下的两行里 —— 属于聊伴的月份用胭脂色描边。
+ * 数据与屏幕版同源，只做排印不做二次统计。
+ */
+function monthsTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const champion = (data.champion ?? null) as {
+    peerUid?: string;
+    peerName?: string;
+    messages?: number;
+  } | null;
+  const championCells = Number(data.championMonths ?? 0);
+  const monthCount = Number(data.monthCount ?? 0);
+  const months = (data.months ?? []) as Array<{
+    month?: number;
+    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+  }>;
+  const labels = [
+    '一月',
+    '二月',
+    '三月',
+    '四月',
+    '五月',
+    '六月',
+    '七月',
+    '八月',
+    '九月',
+    '十月',
+    '十一月',
+    '十二月',
+  ];
+
+  const monthCell = (cell: (typeof months)[number]): El => {
+    const top = cell.top ?? null;
+    const ours = Boolean(champion) && Boolean(top) && top!.peerUid === champion?.peerUid;
+    const ringColor = ours ? rgba(PALETTE.rose, 0.78) : rgba(PALETTE.hair, 1);
+    const textColor = ours ? PALETTE.rose : PALETTE.inkMuted;
+    return el(
+      'div',
+      {
+        width: 132,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: ours ? rgba(PALETTE.rose, 0.62) : PALETTE.hair,
+        borderBottomStyle: top ? 'solid' : 'dashed',
+        paddingBottom: 10,
+      },
+      [
+        el(
+          'div',
+          { fontSize: 13, color: PALETTE.inkFaint, letterSpacing: 3, fontWeight: 600 },
+          labels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`,
+        ),
+        el(
+          'div',
+          {
+            marginTop: 8,
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            backgroundColor: rgba(ours ? PALETTE.rose : PALETTE.paper, 0.9),
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: ringColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+          el(
+            'div',
+            { fontSize: 20, fontWeight: 600, color: textColor },
+            top ? nameInitial(String(top.peerName ?? '')) : '·',
+          ),
+        ),
+        ...(top
+          ? [
+              el(
+                'div',
+                {
+                  marginTop: 6,
+                  maxWidth: 132,
+                  fontSize: 12,
+                  color: ours ? PALETTE.inkSoft : PALETTE.inkMuted,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                },
+                fitName(String(top.peerName ?? ''), 13),
+              ),
+              el(
+                'div',
+                { marginTop: 2, fontSize: 13, fontWeight: 600, color: textColor },
+                fmt(Number(top.messages ?? 0)),
+              ),
+            ]
+          : []),
+      ],
+    );
+  };
+
+  const rows: El[] = [];
+  for (let offset = 0; offset < months.length; offset += 6) {
+    rows.push(
+      el(
+        'div',
+        { display: 'flex', justifyContent: 'center', gap: 24 },
+        months.slice(offset, offset + 6).map((cell) => monthCell(cell)),
+      ),
+    );
+  }
+
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 陪你走过12个月`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(Number(data.friendCount ?? 0))} 位好友 / ${fmt(Number(data.totalMessages ?? 0))} 条私聊`,
+        ),
+      ]),
+      ...(champion
+        ? [
+            el(
+              'div',
+              { marginTop: 52, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+              `${reportEraLabel(year)}，每个月聊得最多的人一直在换，可最后站在你身边的是——`,
+            ),
+            el(
+              'div',
+              {
+                marginTop: 26,
+                width: 132,
+                height: 132,
+                borderRadius: 66,
+                backgroundColor: rgba(PALETTE.rose, 0.12),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: rgba(PALETTE.rose, 0.7),
+              },
+              el(
+                'div',
+                { fontSize: 58, fontWeight: 600, color: PALETTE.ink },
+                nameInitial(String(champion.peerName ?? '')),
+              ),
+            ),
+            el(
+              'div',
+              {
+                marginTop: 24,
+                fontSize: 52,
+                fontWeight: 600,
+                color: PALETTE.ink,
+                letterSpacing: 2,
+              },
+              fitName(String(champion.peerName ?? ''), 11),
+            ),
+            el('div', { marginTop: 8, display: 'flex', alignItems: 'center' }, [
+              el(
+                'div',
+                {
+                  fontSize: championCells >= 100 ? 112 : championCells >= 10 ? 136 : 158,
+                  fontWeight: 700,
+                  color: PALETTE.rose,
+                  lineHeight: 1,
+                  letterSpacing: -3,
+                },
+                fmt(championCells),
+              ),
+              el(
+                'div',
+                {
+                  marginLeft: 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                },
+                [
+                  el('div', { fontSize: 34, fontWeight: 600, color: PALETTE.ink }, '个月'),
+                  el(
+                    'div',
+                    { marginTop: 6, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 5 },
+                    '的聊天第一名',
+                  ),
+                ],
+              ),
+            ]),
+            el(
+              'div',
+              { marginTop: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+              championCells >= monthCount
+                ? '整整一路，TA 都没有把第一让给别人。'
+                : `TA 拿下了 ${fmt(championCells)} 个月的第一，全年和你聊了 ${fmt(
+                    Number(champion.messages ?? 0),
+                  )} 条。`,
+            ),
+          ]
+        : [
+            el(
+              'div',
+              { marginTop: 110, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 3 },
+              `${reportEraLabel(year)}，这一年还没有足够多的双向私聊，讲不出「谁陪你走过」的故事。`,
+            ),
+          ]),
+      ...(champion
+        ? [
+            el(
+              'div',
+              { marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el(
+                  'div',
+                  { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
+                  '每月的聊天第一名',
+                ),
+                el(
+                  'div',
+                  { marginTop: 24, display: 'flex', flexDirection: 'column', gap: 20 },
+                  rows,
+                ),
+              ],
+            ),
+            el(
+              'div',
+              {
+                marginTop: 42,
+                maxWidth: 760,
+                fontSize: 24,
+                color: PALETTE.inkSoft,
+                lineHeight: 1.9,
+                letterSpacing: 3,
+                textAlign: 'center',
+              },
+              '真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。',
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([center], String(year));
+}
+
+/**
+ * 还没加好友的同路人页的长图版。
+ *
+ * 静态产物里冠军的「大头名 + N 个群」占住版心，光环退成两圈同心衬线；
+ * 共同群名单收在页底当证据，冠军之外再排三位小推荐。数据与屏幕版同源。
+ */
+function mateTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const top = (data.top ?? null) as {
+    name?: string;
+    sharedCount?: number;
+    groups?: Array<{ groupName?: string }>;
+  } | null;
+  const more = (data.more ?? []) as Array<{
+    name?: string;
+    sharedCount?: number;
+  }>;
+
+  const ringDots: El[] = [];
+  for (let index = 0; index < 8; index++) {
+    const angle = (index / 8) * Math.PI * 2;
+    const radius = 196;
+    ringDots.push(
+      el('div', {
+        position: 'absolute',
+        left: SLIDE_W / 2 + Math.cos(angle) * radius - 4,
+        top: 300 + Math.sin(angle) * radius - 4,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: rgba(PALETTE.jade, index % 2 === 0 ? 0.48 : 0.22),
+      }),
+    );
+  }
+  const outerRing: El = el('div', {
+    position: 'absolute',
+    left: SLIDE_W / 2 - 252,
+    top: 300 - 252,
+    width: 504,
+    height: 504,
+    borderRadius: 252,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: rgba(PALETTE.jade, 0.2),
+  });
+  const innerRing: El = el('div', {
+    position: 'absolute',
+    left: SLIDE_W / 2 - 164,
+    top: 300 - 164,
+    width: 328,
+    height: 328,
+    borderRadius: 164,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: rgba(PALETTE.jade, 0.14),
+  });
+
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 还没加好友的同路人`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(Number(data.groupCount ?? 0))} 个群 / ${fmt(Number(data.personCount ?? 0))} 位未加好友的群友`,
+        ),
+      ]),
+      ...(top
+        ? [
+            el(
+              'div',
+              { marginTop: 54, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+              '有些人你以为不认识，其实已经在群里见过很多面了——',
+            ),
+            el(
+              'div',
+              {
+                marginTop: 26,
+                width: 152,
+                height: 152,
+                borderRadius: 76,
+                backgroundColor: rgba(PALETTE.jade, 0.12),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: rgba(PALETTE.jade, 0.72),
+              },
+              el(
+                'div',
+                { fontSize: 64, fontWeight: 600, color: PALETTE.ink },
+                nameInitial(String(top.name ?? '')),
+              ),
+            ),
+            el(
+              'div',
+              {
+                marginTop: 22,
+                fontSize: 54,
+                fontWeight: 600,
+                color: PALETTE.ink,
+                letterSpacing: 2,
+              },
+              fitName(String(top.name ?? ''), 11),
+            ),
+            el('div', { marginTop: 6, display: 'flex', alignItems: 'center' }, [
+              el(
+                'div',
+                {
+                  fontSize: Number(top.sharedCount ?? 0) >= 100 ? 118 : 150,
+                  fontWeight: 700,
+                  color: PALETTE.jade,
+                  lineHeight: 1,
+                  letterSpacing: -3,
+                },
+                fmt(Number(top.sharedCount ?? 0)),
+              ),
+              el(
+                'div',
+                {
+                  marginLeft: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                },
+                [
+                  el('div', { fontSize: 36, fontWeight: 600, color: PALETTE.ink }, '个群'),
+                  el(
+                    'div',
+                    { marginTop: 6, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 5 },
+                    '里有 TA',
+                  ),
+                ],
+              ),
+            ]),
+            el(
+              'div',
+              { marginTop: 14, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+              `你们还没有加好友——但同一个圈子里，已经重逢了 ${fmt(
+                Number(top.sharedCount ?? 0),
+              )} 次。`,
+            ),
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              { marginTop: 26, fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
+              '这些群，就是 TA 的「生态位」',
+            ),
+            el(
+              'div',
+              {
+                marginTop: 18,
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                alignItems: 'baseline',
+                gap: 14,
+              },
+              (top.groups ?? []).slice(0, 5).map((group, index) =>
+                el(
+                  'div',
+                  {
+                    maxWidth: 300,
+                    fontSize: 24,
+                    color: PALETTE.inkSoft,
+                    letterSpacing: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  },
+                  `${String(index + 1).padStart(2, '0')}  ${fitName(
+                    String(group.groupName ?? ''),
+                    20,
+                  )}`,
+                ),
+              ),
+            ),
+          ]
+        : [
+            el(
+              'div',
+              { marginTop: 120, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 3 },
+              '在这些群里，还没有一个值得专门加好友的「重逢」。',
+            ),
+          ]),
+      ...(more.length > 0
+        ? [
+            el(
+              'div',
+              { marginTop: 34, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el('div', {
+                  width: SLIDE_W - 144,
+                  height: 1,
+                  backgroundColor: PALETTE.hair,
+                }),
+                el(
+                  'div',
+                  {
+                    marginTop: 28,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: 54,
+                  },
+                  more.slice(0, 3).map((candidate, index) =>
+                    el('div', { display: 'flex', alignItems: 'center', gap: 12 }, [
+                      el(
+                        'div',
+                        { fontSize: 18, fontWeight: 600, color: PALETTE.inkFaint },
+                        `0${index + 2}`,
+                      ),
+                      el(
+                        'div',
+                        {
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          borderWidth: 1,
+                          borderStyle: 'solid',
+                          borderColor: rgba(PALETTE.jade, 0.48),
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        },
+                        el(
+                          'div',
+                          { fontSize: 20, fontWeight: 600, color: PALETTE.inkSoft },
+                          nameInitial(String(candidate.name ?? '')),
+                        ),
+                      ),
+                      el(
+                        'div',
+                        {
+                          maxWidth: 180,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 22,
+                          color: PALETTE.inkSoft,
+                          letterSpacing: 1,
+                        },
+                        fitName(String(candidate.name ?? ''), 10),
+                      ),
+                      el(
+                        'div',
+                        { fontSize: 28, fontWeight: 700, color: PALETTE.jade },
+                        fmt(Number(candidate.sharedCount ?? 0)),
+                      ),
+                      el(
+                        'div',
+                        { fontSize: 16, color: PALETTE.inkFaint, letterSpacing: 2 },
+                        '个群',
+                      ),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ]
+        : []),
+      ...(top
+        ? [
+            el(
+              'div',
+              {
+                marginTop: 42,
+                maxWidth: 800,
+                fontSize: 24,
+                color: PALETTE.inkSoft,
+                lineHeight: 1.9,
+                letterSpacing: 3,
+                textAlign: 'center',
+              },
+              '世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。',
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([outerRing, innerRing, ...ringDots, center], '缘');
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -2334,6 +2907,8 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'voice') return voiceTree(data);
   if (slide.pageId === 'home') return homeTree(data);
   if (slide.pageId === 'interactions') return interactionsTree(data);
+  if (slide.pageId === 'months') return monthsTree(data);
+  if (slide.pageId === 'mate') return mateTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }
