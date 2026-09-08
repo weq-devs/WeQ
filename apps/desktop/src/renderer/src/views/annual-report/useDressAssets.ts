@@ -39,22 +39,46 @@ const EMPTY: DressAssets = {
 /** 每类最多预热多少款 —— 与 IPC 侧的 max(60) 对齐，兜住异常庞大的榜单。 */
 const MAX_PER_KIND = 60;
 
+/**
+ * 装扮页新增了「单品展柜」：除整套穿的 outfit 外，单类榜前几款也可能不在
+ * 截断后的 outfit 列表里。这里多预热前 8 款，让展柜陈列所需的 id 也有资源。
+ */
+const PREFETCH_CASE_ITEMS = 8;
+
 export function useDressAssets(data: DressPageData | null): DressAssets {
   const [assets, setAssets] = useState<DressAssets>(EMPTY);
 
-  // 要预热的 id 全部从「套装」里取 —— 页面画的就是套装，单类榜只用来算数量。
+  // 要预热的 id 从「套装」与单类榜前几款里并集取出 —— 主体画套装，展柜画单品。
   // 这里只算出三条**字符串**当依赖：id 列表本身每次渲染都是新数组，直接依赖会让
   // 预热在每次重渲时重跑（真正的 id 列表在 effect 内部重新取）。
-  const bubbleKey = unique(data?.outfits.map((o) => o.bubbleId) ?? []).join(',');
-  const fontKey = unique(data?.outfits.map((o) => o.fontId) ?? []).join(',');
-  const widgetKey = unique(data?.outfits.map((o) => o.widgetId) ?? []).join(',');
+  const bubbleKey = unique([
+    ...(data?.outfits ?? []).map((o) => o.bubbleId),
+    ...(data?.bubble.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+  ]).join(',');
+  const fontKey = unique([
+    ...(data?.outfits ?? []).map((o) => o.fontId),
+    ...(data?.font.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+  ]).join(',');
+  const widgetKey = unique([
+    ...(data?.outfits ?? []).map((o) => o.widgetId),
+    ...(data?.widget.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+  ]).join(',');
 
   useEffect(() => {
     if (!data) return undefined;
     let cancelled = false;
-    const bubbleIds = unique(data.outfits.map((o) => o.bubbleId));
-    const fontIds = unique(data.outfits.map((o) => o.fontId));
-    const widgetIds = unique(data.outfits.map((o) => o.widgetId));
+    const bubbleIds = unique([
+      ...data.outfits.map((o) => o.bubbleId),
+      ...data.bubble.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+    ]);
+    const fontIds = unique([
+      ...data.outfits.map((o) => o.fontId),
+      ...data.font.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+    ]);
+    const widgetIds = unique([
+      ...data.outfits.map((o) => o.widgetId),
+      ...data.widget.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
+    ]);
 
     void (async () => {
       let resolved: Awaited<ReturnType<typeof client.account.annualReport.prefetchDress.mutate>>;

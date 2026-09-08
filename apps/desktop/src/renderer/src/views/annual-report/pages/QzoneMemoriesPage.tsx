@@ -1,9 +1,17 @@
-import { useMemo, useState, type CSSProperties, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from 'react';
 import { Heart, Lock, Play, Quote } from 'lucide-react';
 import type { QzoneMemoriesPageData, ReportQzonePost } from '@weq/service';
 import { isAllTimeYear, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
-import { Odometer } from '../Odometer';
+import { Odometer, usePrefersReducedMotion } from '../Odometer';
 import { albumMediaUrl } from '../../../lib/resourceUrl';
 
 function fmt(n: number): string {
@@ -55,10 +63,11 @@ function coverOf(post: ReportQzonePost): string {
  * QQ 空间回忆 —— 年度报告正文的最后一页（end 之前）。
  *
  * 主体不是一张数据卡，而是「你一共写过 N 条说说」这个巨大的 N：它被 Odometer
- * 一格一格摇出来，像把空间那本老相册重新翻了一遍。下面一条窄窄的「时光胶片」
- * 无限跑动，把最近/最早的说说混成一帧帧画面 —— 有图的看图，没图的看字，全部
- * 都只是当年那个你的碎片。颜色取 QQ 空间一贯的云海蓝，收在整份暖调报告的末段，
- * 像合上相册前最后一眼远方的天空。
+ * 一格一格摇出来，像把空间那本老相册重新翻了一遍。下面是一条会呼吸的「时光
+ * 画廊」：帧片自动放映，悬停即暂停，还可以左右拖动回看 —— 滑到哪一帧，顶上的
+ * 小注就跟着念出那一天的日期与体裁。有图的看图，没图的看字，全部都是当年那个
+ * 你的碎片。颜色取 QQ 空间一贯的云海蓝，收在整份暖调报告的末段，像合上相册前
+ * 最后一眼远方的天空。
  */
 export function QzoneMemoriesPage({
   page,
@@ -150,24 +159,7 @@ export function QzoneMemoriesPage({
         )}
 
         {gallery.length > 0 ? (
-          <section className="weq-qz-reel weq-report-line" style={{ '--i': 6 } as CSSProperties}>
-            <p className="weq-qz-reel-in">
-              时光胶片 · {allTime ? '往回翻，每一帧都是你' : `这一年，你留在空间里的画面`}
-            </p>
-            <div className="weq-qz-reel-mask">
-              <div className="weq-qz-reel-track" data-enter={active ? 'in' : 'out'} aria-hidden>
-                {[0, 1].map((copy) =>
-                  gallery.map(({ post, instance }) => (
-                    <ReelCard
-                      key={`${copy}:${post.tid}:${instance}`}
-                      post={post}
-                      showYear={allTime}
-                    />
-                  )),
-                )}
-              </div>
-            </div>
-          </section>
+          <QzoneReel items={gallery} active={active} allTime={allTime} />
         ) : null}
       </div>
     </PageFrame>
@@ -206,15 +198,253 @@ function GemCover({
   );
 }
 
+/** 画廊里的一格。 */
+type ReelItem = { post: ReportQzonePost; instance: number };
+
+/** 自动放映速度（px/s）—— 慢到能看清每一帧，又不停成一张海报。 */
+const REEL_SPEED = 24;
+/** 横向拖动超过这个像素数才算「回看」，普通点击不抢事件。 */
+const REEL_DRAG_START = 5;
+
+/** 一帧的体裁标签：顶上的小注随焦点帧更新。 */
+function postKindLabel(post: ReportQzonePost): string {
+  if (post.images.length > 0) return '照片';
+  if (post.hasVideo) return '视频';
+  return '文字';
+}
+
+/**
+ * 时光画廊 —— 一条能停下来、能往回翻的「放映带」。
+ *
+ * 自动放映用 rAF 推进而不是 CSS 动画：悬停 / 拖动时随时暂停，拖动增量与放映增量
+ * 落在同一个偏移量上，松手后从当前帧继续，不会跳回动画起点。轨道画两遍同样的
+ * 帧实现无缝循环；偏移量始终锁在中间一份副本附近，左右都能拖而不露底。
+ *
+ * 焦点帧（正在经过画廊中央的那一格）会轻轻浮起，顶上的小注同步念出它的日期与
+ * 体裁 —— 画廊不再是纯装饰，而是这页最后一段可以「翻着看」的回忆。
+ */
+function QzoneReel({
+  items,
+  active,
+  allTime,
+}: {
+  items: ReelItem[];
+  active: boolean;
+  allTime: boolean;
+}): ReactElement {
+  const reduce = usePrefersReducedMotion();
+  const maskRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  /** 相对「中间那份副本起点」的偏移（px）。正数表示轨道向左放映。 */
+  const rawRef = useRef(0);
+  const geometryRef = useRef<{ perCopy: number; step: number; viewWidth: number } | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startRaw: number;
+    moved: boolean;
+  } | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [focusIndex, setFocusIndex] = useState(0);
+
+  const reel = useMemo(() => [...items, ...items], [items]);
+  const count = items.length;
+  const total = reel.length;
+
+  const applyTransform = useCallback(() => {
+    const track = trackRef.current;
+    const mask = maskRef.current;
+    if (!track || !mask || count === 0) return;
+
+    let geometry = geometryRef.current;
+    if (!geometry) {
+      const scrollWidth = track.scrollWidth;
+      if (!scrollWidth || scrollWidth <= 0) return;
+      geometry = {
+        perCopy: scrollWidth / 2,
+        step: scrollWidth / 2 / count,
+        viewWidth: mask.clientWidth,
+      };
+      geometryRef.current = geometry;
+    }
+
+    // 只让偏移在中间那份副本附近游走：到边界就折回，轨道两端的画面本是一样。
+    const edge = geometry.perCopy * 0.48;
+    let raw = rawRef.current;
+    if (raw > edge) raw -= geometry.perCopy;
+    else if (raw < -edge) raw += geometry.perCopy;
+    rawRef.current = raw;
+
+    const translate = geometry.perCopy + raw;
+    track.style.transform = `translate3d(${-translate}px, 0, 0)`;
+
+    // 画廊中央对应的帧。夹在 [0, total) 内，跨过副本边界时焦点自然交给下一份。
+    const centerX = translate + geometry.viewWidth / 2;
+    const rawIndex = Math.round(centerX / geometry.step - 0.5);
+    const next = Math.max(0, Math.min(total - 1, rawIndex));
+    setFocusIndex((prev) => (prev === next ? prev : next));
+  }, [count, total]);
+
+  // 页激活 / 系统减少动态变化时：回到中间副本并停下或开始放映。
+  useEffect(() => {
+    geometryRef.current = null;
+    rawRef.current = 0;
+    setFocusIndex(0);
+    if (active && count > 0) applyTransform();
+    setPlaying(active && !reduce && count > 0);
+  }, [active, reduce, count, applyTransform]);
+
+  // 放映循环：悬停 / 拖动时暂停，离开或松手后接着当前帧继续。
+  useEffect(() => {
+    if (!playing || hovering || dragging) return undefined;
+    let raf = 0;
+    let last = performance.now();
+    const frame = (now: number): void => {
+      const dt = Math.min(now - last, 80);
+      last = now;
+      rawRef.current += (dt / 1000) * REEL_SPEED;
+      applyTransform();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, hovering, dragging, applyTransform]);
+
+  // 画幅变化（窗口 / 导出尺寸）后重新测量帧宽，偏移不漂。
+  useEffect(() => {
+    const mask = maskRef.current;
+    if (!mask) return undefined;
+    const observer = new ResizeObserver(() => {
+      geometryRef.current = null;
+      applyTransform();
+    });
+    observer.observe(mask);
+    return () => observer.disconnect();
+  }, [applyTransform]);
+
+  function onPointerDown(event: React.PointerEvent<HTMLElement>): void {
+    if (event.button !== 0) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startRaw: rawRef.current,
+      moved: false,
+    };
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLElement>): void {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(dx) < REEL_DRAG_START) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }
+    // 已确认为画廊内横向拖动：不再让舞台把这串事件误判成上下翻页手势。
+    event.stopPropagation();
+    rawRef.current = drag.startRaw - dx;
+    applyTransform();
+  }
+
+  function endDrag(event: React.PointerEvent<HTMLElement>): void {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    setDragging(false);
+  }
+
+  const focusItem = reel[Math.max(0, Math.min(total - 1, focusIndex))];
+  const liveLabel = focusItem
+    ? `${fmtMonthDay(focusItem.post.time, allTime)} · ${postKindLabel(focusItem.post)}`
+    : allTime
+      ? '往回翻，每一帧都是你'
+      : '这一年，你留在空间里的画面';
+
+  return (
+    <section
+      className="weq-qz-reel weq-report-line"
+      style={{ '--i': 6 } as CSSProperties}
+      data-hovering={hovering ? 'yes' : 'no'}
+      data-dragging={dragging ? 'yes' : 'no'}
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'mouse') setHovering(true);
+      }}
+      onPointerLeave={() => {
+        setHovering(false);
+        setHoverIndex(null);
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
+      <p className="weq-qz-reel-in">
+        <span className="weq-qz-reel-title">时光画廊</span>
+        <span className="weq-qz-reel-live" aria-live="polite">
+          {liveLabel}
+        </span>
+        <span className="weq-qz-reel-hint" aria-hidden>
+          悬停暂停 · 拖动回看
+        </span>
+      </p>
+      <div className="weq-qz-reel-mask" ref={maskRef}>
+        <div className="weq-qz-reel-track" ref={trackRef} aria-hidden>
+          {[0, 1].map((copy) =>
+            items.map(({ post, instance }, index) => {
+              const cardIndex = copy * count + index;
+              return (
+                <ReelCard
+                  key={`${copy}:${post.tid}:${instance}`}
+                  post={post}
+                  showYear={allTime}
+                  focused={focusIndex === cardIndex}
+                  hovered={hoverIndex === cardIndex}
+                  onHoverEnter={() => setHoverIndex(cardIndex)}
+                  onHoverLeave={() => setHoverIndex((prev) => (prev === cardIndex ? null : prev))}
+                />
+              );
+            }),
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** 胶片上的一帧：有图看图，没图时文字与引号本身就是画面。 */
-function ReelCard({ post, showYear }: { post: ReportQzonePost; showYear: boolean }): ReactElement {
+function ReelCard({
+  post,
+  showYear,
+  focused,
+  hovered,
+  onHoverEnter,
+  onHoverLeave,
+}: {
+  post: ReportQzonePost;
+  showYear: boolean;
+  focused: boolean;
+  hovered: boolean;
+  onHoverEnter: () => void;
+  onHoverLeave: () => void;
+}): ReactElement {
   const [broken, setBroken] = useState(false);
   const src = coverOf(post);
   const hasCover = src !== '' && !broken;
   const liked = post.likeCount != null && post.likeCount > 0;
 
   return (
-    <figure className={`weq-qz-frame${hasCover ? ' has-cover' : ' is-text'}`}>
+    <figure
+      className={`weq-qz-frame${hasCover ? ' has-cover' : ' is-text'}`}
+      data-focus={focused ? 'yes' : 'no'}
+      data-hover={hovered ? 'yes' : 'no'}
+      onPointerEnter={onHoverEnter}
+      onPointerLeave={onHoverLeave}
+    >
       {hasCover ? (
         <>
           <img src={albumMediaUrl(src)} alt="" loading="lazy" onError={() => setBroken(true)} />

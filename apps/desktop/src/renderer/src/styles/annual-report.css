@@ -1402,18 +1402,18 @@ html[data-theme="dark"] .weq-report-root {
 
 /* ══ 年度装扮页 ═══════════════════════════════════════════════════════
  *
- * 这一页不是数据面板，是「把那一年的自己摆回画面里」。版面从上到下四段，只读一遍：
- *  - **样张** —— 最爱的那一套穿回自己身上（头像 + 真气泡），回答「长什么样」；
- *  - **巨数** —— 穿这一身发出的消息条数，抄总览页的巨型里程表（见 .weq-ov-hero）；
- *  - **数据带** —— 气泡 / 字体 / 挂件各用了几款 + 全年装扮率，抄总览页底部三格；
- *  - **注脚行** —— 款名与「也拿来写这份报告？」换字交互。
+ * 这一页不是数据面板，是「把那一年的自己摆回橱窗里」。左栏仍是穿在身上的那套
+ * 样张 + 巨数（抄总览页 .weq-ov-hero 的巨型里程表），右栏是三类单品展柜：
+ *  - **气泡** —— 只画空泡，不装字；
+ *  - **字体** —— 用款名自己写自己，不写真消息；
+ *  - **挂件** —— 只挂挂件，不带头像。
+ * 行末保留款名注脚与「也拿来写这份报告？」换字交互。
  *
  * 通篇不出现装扮编号：能看的是气泡的样子和字的形状，itemId 谁也读不懂。
  * 任何一件资源拿不到就静默退化（气泡成描边框 / 字回衬线 / 挂件不画），版式不塌。
  * ═══════════════════════════════════════════════════════════════════ */
 
-/* 整页像总览页一样在画幅高度内垂直居中：样张、巨数、数据带、注脚按序往下排。
-   四段本身已是这条叙事线的全部，不需要再在上下留两段等高空白来衬托谁。 */
+/* 整页像总览页一样在画幅高度内垂直居中：样张 + 展柜同框，注脚收在行末。 */
 .weq-dress {
   display: flex;
   height: 100%;
@@ -1644,63 +1644,8 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.12em;
 }
 
-/* ══ 数据带：三类各用了几款 + 换过几身 + 全年装扮率 ══════════════════
- *
- * 版式抄总览页 .weq-ov-band：上边一根发丝线、五格、格间竖发丝线、小字类目在上、
- * 33px 衬线数字在下。总览页三格，这里五格（三分类 + 换过几身 + 装扮率）—— 类目名
- * 都是两个字以内，五格依然站得开。0 款照常显示 —— 空掉一格反而更像数据缺失。
- * ═══════════════════════════════════════════════════════════════════ */
-
-.weq-dress-band {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  margin: 24px 0 0;
-  border-top: 1px solid var(--rp-hair);
-}
-
-.weq-dress-band-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 16px 20px 0 0;
-}
-
-.weq-dress-band-cell + .weq-dress-band-cell {
-  padding-left: 20px;
-  border-left: 1px solid var(--rp-hair);
-}
-
-.weq-dress-band-cell dt {
-  color: var(--rp-ink-faint);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  white-space: nowrap;
-}
-
-.weq-dress-band-cell dd {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 0;
-}
-
-.weq-dress-band-cell dd .weq-number {
-  color: var(--rp-ink);
-  font-family: var(--rp-serif) !important;
-  font-size: 33px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.weq-dress-band-cell dd i {
-  color: var(--rp-ink-muted);
-  font-size: 12px;
-  font-style: normal;
-  letter-spacing: 0.14em;
-}
-
-/* 注脚行：左端这套的款名，右端「也拿来写这份报告？」。与数据带之间留一小段，
-   不另起发丝线 —— 数据带已经是这根线的句号，注脚只是行末的小字。 */
+/* 注脚行：左端这套的款名，右端「也拿来写这份报告？」。与上方橱窗之间留一小段，
+   不另起发丝线 —— 橱窗已经收住了主体，注脚只是行末的小字。 */
 .weq-dress-foot {
   display: flex;
   align-items: baseline;
@@ -1784,7 +1729,7 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
-/* 窄画幅：样张和巨数各收一档，数据带折成两行两格 —— 巨型数字优先保住冲击力。 */
+/* 窄画幅：样张和巨数各收一档（完整的新版橱窗布局在下方补充）。 */
 @media (max-width: 1000px) {
   .weq-dress-face.is-hero {
     --sz: 64px;
@@ -1803,28 +1748,392 @@ html[data-theme="dark"] .weq-report-root {
     font-size: 104px;
   }
 
-  .weq-dress-band {
-    grid-template-columns: repeat(2, 1fr);
-    margin-top: 18px;
-  }
-
-  .weq-dress-band-cell {
-    padding: 12px 14px 0 0;
-  }
-
-  .weq-dress-band-cell + .weq-dress-band-cell {
-    padding-left: 14px;
-  }
-
-  .weq-dress-band-cell:nth-child(odd) {
-    border-left: 0;
-    padding-left: 0;
-  }
-
   .weq-dress-foot {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+}
+
+/* ── 装扮展柜：主体 + 三类单品同框 ──────────────────────────────────
+ *
+ * 旧版面（样张 → 巨数 → 数据带）收进左栏，右边补上真正的「商品展柜」：
+ * 每一类一格，气泡只画空泡、字体用款名自写、挂件不挂头像。版式仍是发丝线 +
+ * 衬线数字那一套，柜子只加一圈细边框与一条非常轻的纸色底，避免变成面板堆叠。
+ */
+
+.weq-dress {
+  gap: 18px;
+}
+
+.weq-dress-window {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(246px, 0.78fr) minmax(0, 1.22fr);
+  align-items: center;
+  gap: 36px;
+  /* 橱窗整体晚于抬头一点点进来；三类展柜再靠内部分隔自然展开。 */
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 850ms 260ms var(--rp-ease-drop),
+    transform 1100ms 260ms var(--rp-ease-drop);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-window {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 左栏：样张收小一档，让出宽度给巨数与右侧柜子。 */
+.weq-dress-hero-col {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.weq-dress-hero-col .weq-dress-say {
+  gap: 13px;
+}
+
+.weq-dress-hero-col .weq-dress-face.is-hero {
+  --sz: 54px;
+}
+
+.weq-dress-hero-col .weq-dress-bubble.is-hero {
+  max-width: 228px;
+  font-size: 16px;
+  line-height: 1.48;
+}
+
+.weq-dress-hero-col .weq-dress-bubble.is-hero.is-bare {
+  min-width: 170px;
+  min-height: 64px;
+  padding: 15px 18px;
+}
+
+.weq-dress-hero-col .weq-dress-punch {
+  margin-top: 13px;
+  gap: 12px;
+}
+
+/* 巨数在左栏的体量：按消息量给三档，再多位数也不顶破橱窗。 */
+.weq-dress-hero-col .weq-dress-hero-num {
+  font-size: 78px;
+}
+
+.weq-dress-hero-col .weq-dress-hero-num.is-long {
+  font-size: 62px;
+}
+
+.weq-dress-hero-col .weq-dress-hero-num.is-xl {
+  font-size: 50px;
+}
+
+.weq-dress-hero-col .weq-dress-hero-unit {
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.weq-dress-hero-mini {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.weq-dress-hero-mini b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-dress-hero-mini i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 展柜 ───────────────────────────────────────────────────────── */
+
+.weq-dress-showcase {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 13px 16px 7px;
+  border: 1px solid color-mix(in srgb, var(--rp-accent) 20%, var(--rp-hair));
+  background:
+    linear-gradient(180deg, rgba(var(--rp-accent-rgb), 0.045), transparent 34%),
+    color-mix(in srgb, var(--rp-paper-deep) 88%, transparent);
+}
+
+.weq-dress-showcase-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.weq-dress-showcase-head b {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+}
+
+.weq-dress-showcase-head span {
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+}
+
+.weq-dress-shelf {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 8px;
+}
+
+.weq-dress-shelf + .weq-dress-shelf {
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-dress-shelf-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.weq-dress-shelf-label b {
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+
+.weq-dress-shelf-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.weq-dress-shelf-count .weq-number {
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-dress-shelf-items {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-dress-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+}
+
+.weq-dress-item-art {
+  display: flex;
+  width: 100%;
+  height: 58px;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 气泡单品：只画空泡。拿不到资源时 DressBubble 自带描边兜底。 */
+.weq-dress-item-art.is-bubble {
+  overflow: visible;
+}
+
+.weq-dress-item-art.is-bubble .weq-dress-bubble.is-case {
+  max-width: 100%;
+  filter: none;
+}
+
+.weq-dress-item-art.is-bubble .weq-dress-bubble.is-case.is-bare {
+  min-width: 52px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 9px 9px 9px 2px;
+}
+
+/* 字体单品：款名自己写自己，不写真消息。 */
+.weq-dress-item-sample {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rp-ink);
+  font-size: 19px;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 挂件单品：只挂挂件不挂头像，底下放一条很轻的「展台影」。 */
+.weq-dress-item-art.is-widget {
+  --sz: 32px;
+  position: relative;
+  height: 66px;
+}
+
+.weq-dress-item-art.is-widget::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 48px;
+  height: 2px;
+  border-radius: 50%;
+  background: radial-gradient(
+    50% 100% at 50% 0,
+    rgba(0, 0, 0, 0.2),
+    transparent 72%
+  );
+  transform: translateX(-50%);
+}
+
+.weq-dress-item-art.is-widget .weq-dress-face-pendant.is-case {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--sz) * 2.05);
+  height: calc(var(--sz) * 2.05);
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  transform: translate(-50%, calc(-50% - 2px));
+  pointer-events: none;
+  /* 商品陈列保持静止；注入的帧动画规则优先级更高，这里显式停掉。 */
+  animation: none !important;
+}
+
+.weq-dress-item-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin: 4px 0 0;
+  color: var(--rp-ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+
+.weq-dress-item-meta em {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rp-ink-muted);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-item-meta i {
+  height: 10px;
+}
+
+.weq-dress-item-meta span {
+  white-space: nowrap;
+}
+
+.weq-dress-item.is-more {
+  justify-content: center;
+  gap: 2px;
+  color: var(--rp-ink-faint);
+}
+
+.weq-dress-item.is-more b {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-dress-item.is-more span {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+/* 某类今年没换过：留一句空柜文案，而不是一排空白格。 */
+.weq-dress-shelf.is-empty {
+  grid-template-columns: 58px minmax(0, 1fr);
+}
+
+.weq-dress-shelf-empty {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* 注脚与展柜之间留一点间距；旧数据带已并入展柜，这里只压收尾。 */
+.weq-dress-foot {
+  margin-top: 12px;
+}
+
+/* 窄画幅：柜子退到主体下面单列，主体回到居中叙事。 */
+@media (max-width: 1000px) {
+  .weq-dress-window {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .weq-dress-hero-col {
+    align-items: center;
+    text-align: center;
+  }
+
+  .weq-dress-hero-col .weq-dress-say {
+    justify-content: center;
+  }
+
+  .weq-dress-hero-col .weq-dress-hero-num {
+    font-size: 96px;
+  }
+
+  .weq-dress-hero-col .weq-dress-hero-num.is-long {
+    font-size: 78px;
+  }
+
+  .weq-dress-hero-col .weq-dress-hero-num.is-xl {
+    font-size: 64px;
+  }
+
+  .weq-dress-showcase {
+    width: 100%;
   }
 }
 
@@ -6219,7 +6528,7 @@ html[data-theme="dark"] .weq-report-root {
   font-weight: 600;
 }
 
-/* ── 时光胶片：无限流动的画廊 ────────────────────────────────── */
+/* ── 时光画廊：可停可拖的交互放映带 ────────────────────────────── */
 
 .weq-qz-reel {
   width: 100%;
@@ -6245,16 +6554,6 @@ html[data-theme="dark"] .weq-report-root {
   display: flex;
   width: max-content;
   will-change: transform;
-}
-
-.weq-qz-reel-track[data-enter="in"] {
-  animation: rp-qz-reel 68s linear infinite;
-}
-
-@keyframes rp-qz-reel {
-  to {
-    transform: translateX(calc(-50%));
-  }
 }
 
 .weq-qz-frame {
@@ -6391,9 +6690,117 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
-/* 减少动态：胶片停下第一帧也能看清内容，不强制用户追逐动画。 */
-@media (prefers-reduced-motion: reduce) {
-  .weq-qz-reel-track[data-enter="in"] {
-    animation: none;
+/* ── 时光画廊（新版交互放映带）────────────────────────────────────
+ *
+ * 轨道由 rAF 推进（见 QzoneReel.tsx），CSS 不再负责横向跑动，只管：
+ *   - 顶上一行会跟着焦点帧变化的小注；
+ *   - 悬停/拖动时的抓取光标；
+ *   - 帧图内部的极缓 Ken Burns；
+ *   - 焦点帧与悬停帧的浮起、边框与影。
+ */
+
+.weq-qz-reel {
+  padding-top: 6px;
+}
+
+.weq-qz-reel-in {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.weq-qz-reel-title {
+  flex: 0 0 auto;
+  color: var(--rp-ink-soft);
+  letter-spacing: 0.3em;
+}
+
+.weq-qz-reel-live {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rp-qz);
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 300ms ease;
+}
+
+.weq-qz-reel[data-hovering="yes"] .weq-qz-reel-live {
+  color: color-mix(in srgb, var(--rp-qz) 78%, var(--rp-ink));
+}
+
+.weq-qz-reel-hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--rp-ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  opacity: 0.7;
+  transition: opacity 260ms ease;
+}
+
+.weq-qz-reel[data-dragging="yes"] .weq-qz-reel-hint {
+  opacity: 0;
+}
+
+.weq-qz-reel-mask {
+  cursor: grab;
+}
+
+.weq-qz-reel[data-dragging="yes"] .weq-qz-reel-mask {
+  cursor: grabbing;
+}
+
+.weq-qz-reel-track {
+  user-select: none;
+}
+
+/* 一帧从「跑过的画面」变成「可以停下看的东西」。 */
+.weq-qz-frame {
+  transition:
+    transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 420ms ease,
+    box-shadow 460ms ease;
+  will-change: transform;
+}
+
+.weq-qz-frame > img {
+  transform-origin: 50% 34%;
+  animation: rp-qz-kenburns 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* 帧图内部极缓的呼吸：轨道在走，画面也在走，胶片才有「在放映」的质感。 */
+@keyframes rp-qz-kenburns {
+  from {
+    transform: scale(1.02) translateY(0);
   }
+  to {
+    transform: scale(1.14) translateY(-3px);
+  }
+}
+
+.weq-qz-frame[data-hover="yes"] {
+  transform: translateY(-2px) scale(1.02);
+  border-color: color-mix(in srgb, var(--rp-qz) 42%, var(--rp-hair));
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* 焦点帧 —— 正在经过画廊中央的那一格，比悬停再高半级。 */
+.weq-qz-frame[data-focus="yes"] {
+  transform: translateY(-4px) scale(1.045);
+  border-color: color-mix(in srgb, var(--rp-qz) 62%, var(--rp-hair));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.12),
+    0 0 0 1px color-mix(in srgb, var(--rp-qz) 22%, transparent);
+}
+
+.weq-qz-frame[data-focus="yes"] .weq-qz-frame-text {
+  color: var(--rp-ink);
+}
+
+.weq-qz-frame[data-focus="yes"] .weq-qz-frame-date {
+  color: var(--rp-qz);
 }
