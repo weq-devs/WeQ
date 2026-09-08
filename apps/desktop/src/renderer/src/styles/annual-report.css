@@ -4711,6 +4711,85 @@ html[data-theme="dark"] .weq-report-root {
   gap: 15px;
 }
 
+.weq-report-page-status.is-progress {
+  gap: 9px;
+}
+
+.weq-report-page-ring {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  margin-bottom: 5px;
+}
+
+.weq-report-page-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.weq-report-page-ring-track {
+  fill: none;
+  stroke: var(--rp-hair);
+  stroke-width: 2;
+}
+
+.weq-report-page-ring-bar {
+  fill: none;
+  stroke: var(--rp-accent);
+  stroke-linecap: round;
+  stroke-width: 3;
+  transition:
+    stroke-dashoffset 700ms var(--rp-ease-drop),
+    stroke 260ms ease;
+}
+
+.weq-report-page-ring-percent {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base);
+  font-size: 31px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.weq-report-page-ring-percent i {
+  align-self: center;
+  margin-left: 2px;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-sans);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+}
+
+.weq-report-page-status-title {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+}
+
+.weq-report-page-status-desc {
+  max-width: 48ch;
+  color: var(--rp-ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  line-height: 1.8;
+}
+
+.weq-report-page-status-meta {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
 .weq-report-unknown code {
   color: var(--rp-ink-faint);
   font-family: var(--rp-mono);

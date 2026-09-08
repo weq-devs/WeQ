@@ -69,7 +69,7 @@ export type ReportManifest = {
   preferences: AnnualReportPreferences;
 };
 
-export type ReportPageStatus = 'ok' | 'error';
+export type ReportPageStatus = 'ok' | 'error' | 'unavailable';
 
 export type ReportPageError = {
   code: string;
@@ -83,15 +83,16 @@ export type ReportPageResult<D = unknown> = {
   status: ReportPageStatus;
   data: D | null;
   error?: ReportPageError;
+  /** 本页在这一年/口径下没有可展示的数据（`status: 'unavailable'` 时给出原因）。 */
+  reason?: string;
 };
 
 /**
  * Whether a page qualifies for the account / year / scope.
  *
- * `getManifest` probes each candidate page cheaply and only exposes pages that
- * report `available: true`, so data-ineligible pages (e.g. a year with no sent
- * messages) never enter the deck. The probe is a lightweight query — heavy
- * per-page computation still happens lazily via `getPageData`.
+ * 资格检查与页面数据一样是**惰性**的：`getManifest` 只返回候选页，不逐页探测；
+ * `getPageData` 在真正计算这一页时才跑 `availability`。不合格的页面以
+ * `status: 'unavailable'` 返回，渲染层随后把它从 deck 里摘掉。
  */
 export type PageAvailability = {
   available: boolean;

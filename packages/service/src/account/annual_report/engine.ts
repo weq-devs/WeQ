@@ -95,7 +95,14 @@ export class AnnualReportService {
     return latest ?? ALL_TIME_YEAR;
   }
 
-  /** Lightweight directory: manifest + per-page availability (probed & cached). */
+  /**
+   * Lightweight directory: 只返回“候选页”和年份，不逐页探测数据资格。
+   *
+   * 资格探测（`availability`）曾经在这里提前跑，等于刚选完年份就把每一页的
+   * 全表统计都预热了一遍，页面越多越慢。现在把它挪到 `getPageData`：只有某页
+   * 真正要算的时候才检查资格并计算，未命中的页以 `unavailable` 返回，渲染层
+   * 再把它从 deck 摘掉 —— 这才是“小页在前、大页在后”能成立的懒加载。
+   */
   async getManifest(year?: number): Promise<ReportManifest> {
     // 没指定年份时不再默认「今年」—— 今年可能一条都没发过。落到最近一个真的
     // 有数据的年份，账号完全没有数据时落到「历史以来」（页面集会是空的）。
@@ -103,17 +110,11 @@ export class AnnualReportService {
     const normalizedYear =
       year === undefined ? await this.getDefaultYear() : normalizeReportYear(year);
     const candidates = this.resolveCandidates();
-    const availability = await Promise.all(
-      candidates.map((page) => this.checkAvailability(normalizedYear, page)),
-    );
-    const pages = candidates
-      .filter((_, index) => availability[index]?.available)
-      .map((page) => page.manifest);
     return {
       year: normalizedYear,
       availableYears,
       scope: this.scope,
-      pages,
+      pages: candidates.map((page) => page.manifest),
       availablePages: reportPages
         .slice()
         .sort((a, b) => a.manifest.order - b.manifest.order)
@@ -185,6 +186,21 @@ export class AnnualReportService {
     try {
       const page = findReportPage(pageId);
       if (!page) throw new Error(`找不到年度报告页面：${pageId}`);
+      // 资格与数据一起惰性计算：不在 manifest 阶段预扫，翻/预取到这一页才算。
+      if (page.availability) {
+        const availability = await this.checkAvailability(year, page);
+        if (!availability.available) {
+          const unavailable: ReportPageResult = {
+            pageId,
+            version,
+            status: 'unavailable',
+            data: null,
+            reason: availability.reason,
+          };
+          if (cacheable) this.cache.setPage(key, unavailable);
+          return unavailable;
+        }
+      }
       const data = await page.compute({
         year,
         scope: this.scope,
@@ -213,7 +229,7 @@ export class AnnualReportService {
 
   /**
    * Cheap per-page eligibility probe. Results are memoized in memory so a
-   * manifest refresh doesn't re-hit the database for every page.
+   * later `getPageData` on the same page doesn't re-run the database scan.
    */
   private async checkAvailability(
     year: number,
