@@ -15,6 +15,7 @@ import {
   reportPeriodLabel,
   reportSinceLabel,
 } from '@weq/service/report-time';
+import { mediaUrl } from '../../lib/resourceUrl';
 
 export type ExportSlide = {
   page: ReportPageManifest;
@@ -95,6 +96,20 @@ const CSS = `
   .slide:last-child { page-break-after: auto; }
   /* 出血描边幽灵字。用 left/top 显式定位：nowrap 的超宽元素配 right 定位会
      被撑到画布左侧（宽度从右边界往左量），位置不可控。 */
+  /* 头像（导出预热版）：真脸 img / 首字圆牌共用同一形状语言。 */
+  .avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--paper-deep);
+    outline: 0.25mm solid var(--hair);
+    outline-offset: -0.25mm;
+    font-family: var(--serif);
+    color: var(--ink);
+    flex: 0 0 auto;
+  }
   .ghost {
     position: absolute;
     left: 120mm;
@@ -182,8 +197,26 @@ const CSS = `
   .sp-num { font-family: var(--serif); font-size: 17pt; font-weight: 600; color: var(--ink); }
   .sp-unit { font-size: 8pt; color: var(--ink-muted); }
   .sp-note { margin-top: 1mm; font-size: 7pt; color: var(--leaf); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 装扮页。屏幕版画的是真气泡，导出版画不了（见 dressSlide），改用引号盛那句话。 */
+  /* 装扮页。预热成功的导出画真实九宫格气泡（border-image，同屏幕版几何），
+     失败/未预热时退回排印引号（.dr-say）—— 两种表达都不会破版。 */
   .dr-top { margin-top: 4mm; padding-bottom: 6mm; border-bottom: 0.25mm solid var(--hair); }
+  .dr-bubble {
+    display: inline-block;
+    align-self: flex-start;
+    max-width: 150mm;
+    padding: 8mm 10mm;
+    border-style: solid;
+    border-width: 0;
+    border-image-slice: 48 48 48 48 fill;
+    border-image-width: 8mm 8mm 8mm 8mm;
+    border-image-repeat: stretch;
+    font-family: var(--serif);
+    font-size: 17pt;
+    line-height: 1.55;
+    letter-spacing: 1px;
+    color: #16130d;
+    word-break: break-word;
+  }
   .dr-say {
     position: relative;
     padding-left: 8mm;
@@ -224,7 +257,9 @@ const CSS = `
   .fr-num { font-family: var(--serif); font-weight: 600; letter-spacing: -2pt; color: var(--ink); }
   /* ── 火花幕：横向引线 ── */
   .fr-fuse-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; margin-top: 2mm; }
-  .fr-fuse-who { display: flex; flex-direction: column; }
+  .fr-fuse-who { display: flex; flex-direction: column; position: relative; padding-left: 16mm; }
+  .fr-fuse-who .avatar.fr-face-lg { position: absolute; left: 0; top: 50%; width: 13mm; height: 13mm; margin-top: -6.5mm; font-size: 6mm; }
+  .fr-stack .avatar.fr-face-stack { width: 8mm; height: 8mm; font-size: 4mm; }
   .fr-fuse-name { font-family: var(--serif); font-size: 13pt; letter-spacing: 1px; color: var(--ink); }
   .fr-fuse-msgs { margin-top: 1mm; font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
   .fr-fuse-val { display: flex; align-items: baseline; gap: 2.5mm; }
@@ -300,7 +335,9 @@ const CSS = `
   .op-dot { position: absolute; top: 0; width: 2mm; height: 2mm; margin-left: -1mm; border-radius: 50%; background: var(--open); box-shadow: 0 0 2mm color-mix(in srgb, var(--open) 55%, transparent); }
   .op-tales { margin-top: 10mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
   .op-tales-in { font-size: 7.5pt; letter-spacing: 4px; color: var(--ink-faint); }
-  .op-line { margin-top: 2.5mm; font-family: var(--serif); font-size: 11pt; line-height: 1.75; letter-spacing: 1px; color: var(--ink-soft); }
+  .op-line { margin-top: 3.5mm; font-family: var(--serif); font-size: 11pt; line-height: 1.75; letter-spacing: 1px; color: var(--ink-soft); }
+  .op-line .avatar.op-face { width: 11mm; height: 11mm; margin-right: 3mm; vertical-align: middle; }
+  .op-line-say { display: inline; }
   .op-line em { color: var(--open); font-weight: 600; font-style: normal; }
   .op-line-role { margin-right: 3mm; color: var(--open); font-family: var(--sans); font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; }
   .op-line-dot { margin-right: 3mm; color: var(--ink-faint); }
@@ -476,7 +513,8 @@ const CSS = `
   .mo-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
   .mo-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
   .mo-lede { margin-top: 10mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .mo-avatar { display: flex; align-items: center; justify-content: center; width: 32mm; height: 32mm; margin: 7mm auto 0; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mo) 72%, transparent); box-shadow: 0 0 0 3mm color-mix(in srgb, var(--mo) 8%, transparent), 0 0 8mm color-mix(in srgb, var(--mo) 22%, transparent); font-family: var(--serif); font-size: 15mm; color: var(--ink); }
+  .mo-avatar { display: flex; align-items: center; justify-content: center; width: 32mm; height: 32mm; margin: 7mm auto 0; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mo) 72%, transparent); box-shadow: 0 0 0 3mm color-mix(in srgb, var(--mo) 8%, transparent), 0 0 8mm color-mix(in srgb, var(--mo) 22%, transparent); font-family: var(--serif); font-size: 15mm; color: var(--ink); overflow: hidden; }
+  .mo-avatar .avatar.mo-avatar-face { width: 100%; height: 100%; font-size: 15mm; border-radius: 50%; outline: none; }
   .mo-name { margin-top: 4mm; font-family: var(--serif); font-size: 46pt; font-weight: 600; line-height: 1.1; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
   .mo-name.long { font-size: 34pt; }
   .mo-name.xl { font-size: 28pt; }
@@ -491,7 +529,9 @@ const CSS = `
   .mo-months { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6mm 5mm; margin-top: 4mm; padding: 0; list-style: none; }
   .mo-month { display: flex; flex-direction: column; align-items: center; gap: 1.2mm; padding-bottom: 2mm; border-bottom: 0.25mm solid var(--hair); }
   .mo-month-label { font-size: 7pt; font-weight: 600; letter-spacing: 3px; color: var(--ink-faint); }
-  .mo-mini { display: flex; align-items: center; justify-content: center; width: 9mm; height: 9mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mo) 38%, transparent); font-family: var(--serif); font-size: 4mm; color: var(--ink-muted); }
+  .mo-mini { display: flex; align-items: center; justify-content: center; width: 9mm; height: 9mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mo) 38%, transparent); font-family: var(--serif); font-size: 4mm; color: var(--ink-muted); overflow: hidden; }
+  .mo-mini .avatar.mo-mini-face { width: 100%; height: 100%; font-size: 4mm; border-radius: 50%; outline: none; }
+  .mo-mini .avatar.is-empty, span.mo-mini.is-empty { border: none; }
   .mo-month-name { max-width: 100%; overflow: hidden; font-size: 7pt; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
   .mo-month-count { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
   .mo-month.ours { border-bottom-color: color-mix(in srgb, var(--mo) 58%, transparent); }
@@ -499,6 +539,9 @@ const CSS = `
   .mo-month.ours .mo-month-count { color: var(--mo); }
   .mo-month.quiet { border-bottom-style: dashed; }
   .mo-month.quiet .mo-mini { border-color: var(--hair); }
+  .mo-month.carried { opacity: 0.62; }
+  .mo-month.carried .mo-mini { border-style: dashed; }
+  .mo-year-tag { margin-right: 2mm; font-size: 5.5pt; font-style: normal; font-weight: 600; letter-spacing: 2px; color: var(--ink-faint); }
   .mo-mood { margin: 8mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
   @media (prefers-color-scheme: dark) {
     .mo { --mo: #eba3b7; }
@@ -517,7 +560,8 @@ const CSS = `
   .mt-dot { position: absolute; left: 50%; top: 50%; width: 1mm; height: 1mm; border-radius: 50%; background: color-mix(in srgb, var(--mt) 72%, transparent); box-shadow: 0 0 2mm color-mix(in srgb, var(--mt) 46%, transparent); }
   .mt-hero { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
   .mt-lede { font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .mt-avatar { display: flex; align-items: center; justify-content: center; width: 36mm; height: 36mm; margin-top: 6mm; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mt) 76%, transparent); box-shadow: 0 0 0 3.5mm color-mix(in srgb, var(--mt) 8%, transparent), 0 0 9mm color-mix(in srgb, var(--mt) 22%, transparent); font-family: var(--serif); font-size: 16mm; color: var(--ink); }
+  .mt-avatar { display: flex; align-items: center; justify-content: center; width: 36mm; height: 36mm; margin-top: 6mm; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mt) 76%, transparent); box-shadow: 0 0 0 3.5mm color-mix(in srgb, var(--mt) 8%, transparent), 0 0 9mm color-mix(in srgb, var(--mt) 22%, transparent); font-family: var(--serif); font-size: 16mm; color: var(--ink); overflow: hidden; }
+  .mt-avatar .avatar.mt-avatar-face { width: 100%; height: 100%; font-size: 16mm; border-radius: 50%; outline: none; }
   .mt-name { margin-top: 4mm; font-family: var(--serif); font-size: 50pt; font-weight: 600; line-height: 1.08; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
   .mt-name.long { font-size: 38pt; }
   .mt-name.xl { font-size: 30pt; }
@@ -577,6 +621,27 @@ function slideOpen(ghost: string, ghostCenter = false): string {
       <span class="brand-tag">QQ CHAT WRAPPED</span>
     </div>
     <div class="body">`;
+}
+
+/**
+ * 导出 HTML 里的一颗头像。预热过（data URI 可用）就画真脸，否则退回首字
+ * 圆牌 —— 与屏幕版同一种降级。`cls` 追加尺寸/修饰类。
+ */
+function avatarImg(uin: unknown, name: string, cls: string): string {
+  const initial = Array.from(name)[0] ?? '?';
+  const src =
+    typeof uin === 'string' && /^\d+$/.test(uin)
+      ? inlinedAsset(
+          mediaUrl('avatar', {
+            scope: 'user',
+            uin,
+            v: 'big',
+            fb: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`,
+          }),
+        )
+      : null;
+  if (!src) return `<span class="avatar ${cls}">${escapeHtml(initial)}</span>`;
+  return `<img class="avatar ${cls}" src="${src}" alt="">`;
 }
 
 function slideFoot(right: string): string {
@@ -658,12 +723,19 @@ function dressSlide(data: Record<string, unknown>): string {
     key: string;
     count: number;
     samples: string[];
+    bubbleId?: number;
     bubbleName: string;
     fontName: string;
     widgetName: string;
   };
   const outfits = (data.outfits ?? []) as Outfit[];
   const hero = outfits[0];
+  // 预热过的九宫格贴图：有就画真实气泡（border-image，与屏幕版同一几何），
+  // 没有退回排印引号 —— 两种表达并存，导出永不因图片失败而破版。
+  const heroBubble =
+    hero?.bubbleId && hero.bubbleId > 0
+      ? inlinedAsset(mediaUrl('dressbubble', { id: hero.bubbleId }))
+      : null;
   // 「换过几身」读服务端下发的总数：`outfits` 有 JSON 体积护栏，会被截断。
   const outfitCount = Number(data.outfitCount ?? outfits.length);
   const kinds = [
@@ -691,7 +763,15 @@ function dressSlide(data: Record<string, unknown>): string {
     ${
       hero
         ? `<div class="dr-top">
-             ${heroLine ? `<div class="dr-say">${escapeHtml(heroLine)}</div>` : ''}
+             ${
+               heroBubble
+                 ? `<div class="dr-bubble" style="border-image-source:url('${heroBubble}')">${
+                     heroLine ? escapeHtml(heroLine) : '&nbsp;'
+                   }</div>`
+                 : heroLine
+                   ? `<div class="dr-say">${escapeHtml(heroLine)}</div>`
+                   : ''
+}
              <div class="hero"><span class="hero-num">${fmt(hero.count)}</span><span class="hero-unit">条消息使用这身装扮</span></div>
              ${wornAs(hero) ? `<div class="dr-worn">${escapeHtml(wornAs(hero))}</div>` : ''}
            </div>`
@@ -838,7 +918,7 @@ function exportWall(
  */
 function friendsSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
-  type Entry = { peerName: string; value: number; messages: number };
+  type Entry = { peerUin?: string; peerName: string; value: number; messages: number };
   const sparkTop = (data.sparkTop ?? []) as Entry[];
   const messageTop = (data.messageTop ?? []) as Entry[];
   const friendCount = Number(data.friendCount ?? 0);
@@ -857,6 +937,7 @@ function friendsSlide(data: Record<string, unknown>): string {
   const fuse = champSpark
     ? `<div class="fr-fuse-head">
          <div class="fr-fuse-who">
+           ${avatarImg(champSpark.peerUin, champSpark.peerName, 'fr-face fr-face-lg')}
            <span class="fr-fuse-name">${escapeHtml(champSpark.peerName)}</span>
            <span class="fr-fuse-msgs">${fmt(champSpark.messages)} 条私聊</span>
          </div>
@@ -901,6 +982,7 @@ function friendsSlide(data: Record<string, unknown>): string {
                  Math.round((entry.value / Math.max(1, champMsg.value)) * 30 * 10) / 10,
                );
                return `<div class="fr-stack${index === 0 ? ' champ' : ''}">
+                 ${index === 0 ? avatarImg(entry.peerUin, entry.peerName, 'fr-face fr-face-stack') : ''}
                  <span class="fr-stack-val"><b>${fmt(entry.value)}</b><i>条</i></span>
                  <span class="fr-stack-bar" style="height:${h}mm"></span>
                  <span class="fr-stack-name">${escapeHtml(entry.peerName)}</span>
@@ -976,6 +1058,8 @@ function openersSlide(data: Record<string, unknown>): string {
 
   const line = (role: CastRole): string => {
     const entry = role.entry as {
+      peerUid?: string;
+      peerUin?: string;
       peerName: string;
       selfStarts: number;
       peerStarts: number;
@@ -987,25 +1071,26 @@ function openersSlide(data: Record<string, unknown>): string {
         : role.kind === 'peer'
           ? 'TA 发起占比最高'
           : '最接近 50%';
+    const face = avatarImg(entry.peerUin, entry.peerName, 'op-face');
     if (role.kind === 'mine') {
       const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
-      return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+      return `${face}<span class="op-line-say"><span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
         entry.peerName,
-      )}</em>，这 ${fmt(entry.totalStarts)} 场里你先发起 ${fmt(entry.selfStarts)} 次（发起率 ${minePct}%）—— 是你一直在把 TA 找回来。`;
+      )}</em>，这 ${fmt(entry.totalStarts)} 场里你先发起 ${fmt(entry.selfStarts)} 次（发起率 ${minePct}%）—— 是你一直在把 TA 找回来。</span>`;
     }
     if (role.kind === 'peer') {
       const peerPct = Math.round((entry.peerStarts / entry.totalStarts) * 100);
-      return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+      return `${face}<span class="op-line-say"><span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
         entry.peerName,
-      )}</em>，这 ${fmt(entry.totalStarts)} 场里 TA 先发起 ${fmt(entry.peerStarts)} 次（发起率 ${peerPct}%）—— 有人总比你早一步想你。`;
+      )}</em>，这 ${fmt(entry.totalStarts)} 场里 TA 先发起 ${fmt(entry.peerStarts)} 次（发起率 ${peerPct}%）—— 有人总比你早一步想你。</span>`;
     }
     const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
     const peerPct = 100 - minePct;
-    return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+    return `${face}<span class="op-line-say"><span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
       entry.peerName,
     )}</em>，开场 ${fmt(entry.selfStarts)} : ${fmt(
       entry.peerStarts,
-    )}，发起率 ${minePct}% : ${peerPct}% —— 谁先想起谁，都不算抢先。`;
+    )}，发起率 ${minePct}% : ${peerPct}% —— 谁先想起谁，都不算抢先。</span>`;
   };
 
   return `${slideOpen(allTime ? 'ALL' : String(year))}
@@ -1654,6 +1739,7 @@ function monthsSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const champion = (data.champion ?? null) as {
     peerUid?: string;
+    peerUin?: string;
     peerName?: string;
     messages?: number;
   } | null;
@@ -1662,8 +1748,14 @@ function monthsSlide(data: Record<string, unknown>): string {
   const months = (data.months ?? []) as Array<{
     month?: number;
     monthMessages?: number;
-    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+    top?: { peerUid?: string; peerUin?: string; peerName?: string; messages?: number } | null;
   }>;
+  const carryover = (data.carryoverMonths ?? []) as Array<{
+    month?: number;
+    top?: { peerUid?: string; peerUin?: string; peerName?: string; messages?: number } | null;
+  }>;
+  /** 去年尾部月份排在今年前面：9 月报告 = 去年 10/11/12 + 今年 1..9。 */
+  const cells = [...carryover.map((cell) => ({ ...cell, carried: true as const })), ...months];
   const monthLabels = [
     '一月',
     '二月',
@@ -1678,7 +1770,6 @@ function monthsSlide(data: Record<string, unknown>): string {
     '十一月',
     '十二月',
   ];
-  const initial = (name: string): string => Array.from(name)[0] ?? '?';
   const nameClass = (name: string): string => {
     const width = [...name].reduce(
       (sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.6),
@@ -1687,16 +1778,19 @@ function monthsSlide(data: Record<string, unknown>): string {
     return width > 9 ? ' xl' : width > 6 ? ' long' : '';
   };
 
-  const calendar = months
+  const calendar = cells
     .map((cell) => {
       const top = cell.top ?? null;
       const label = monthLabels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`;
       const ours = champion && top && top.peerUid === champion.peerUid ? ' ours' : '';
       const quiet = top ? '' : ' quiet';
-      const face = top ? initial(String(top.peerName ?? '')) : '·';
-      return `<li class="mo-month${ours}${quiet}">
-        <span class="mo-month-label">${escapeHtml(label)}</span>
-        <span class="mo-mini">${escapeHtml(face)}</span>
+      const carried = 'carried' in cell && cell.carried;
+      const face = top
+        ? avatarImg(top.peerUin, String(top.peerName ?? ''), 'mo-mini-face')
+        : '<span class="mo-mini is-empty">·</span>';
+      return `<li class="mo-month${ours}${quiet}${carried ? ' carried' : ''}">
+        <span class="mo-month-label">${carried ? '<em class="mo-year-tag">去年</em>' : ''}${escapeHtml(label)}</span>
+        <span class="mo-mini">${face}</span>
         ${top ? `<span class="mo-month-name">${escapeHtml(String(top.peerName ?? ''))}</span>` : ''}
         ${top ? `<span class="mo-month-count">${fmt(Number(top.messages ?? 0))}</span>` : ''}
       </li>`;
@@ -1713,9 +1807,15 @@ function monthsSlide(data: Record<string, unknown>): string {
       </div>
       ${
         champion
-          ? `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}，每个月聊得最多的人一直在换，
+          ? `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}${
+              carryover.length > 0 ? '（近 12 个月）' : ''
+            }，每个月聊得最多的人一直在换，
             可最后站在你身边的是——</div>
-            <div class="mo-avatar">${escapeHtml(initial(String(champion.peerName ?? '')))}</div>
+            <div class="mo-avatar">${avatarImg(
+              champion.peerUin,
+              String(champion.peerName ?? ''),
+              'mo-avatar-face',
+            )}</div>
             <h2 class="mo-name${nameClass(String(champion.peerName ?? ''))}">${escapeHtml(
               String(champion.peerName ?? ''),
             )}</h2>
@@ -1726,9 +1826,9 @@ function monthsSlide(data: Record<string, unknown>): string {
             <p class="mo-note">${
               championCells >= monthCount
                 ? '整整一路，TA 都没有把第一让给别人。'
-                : `TA 拿下了 ${fmt(championCells)} 个月的第一，全年和你聊了 ${fmt(
-                    Number(champion.messages ?? 0),
-                  )} 条。`
+                : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                    monthCount < 12 ? '今年' : '全年'
+                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 条。`
             }</p>
             <div class="mo-calendar">
               <p class="mo-calendar-head">每月的聊天第一名</p>
@@ -1753,6 +1853,7 @@ function mateSlide(data: Record<string, unknown>): string {
   const top = (data.top ?? null) as {
     uid?: string;
     uin?: string;
+    peerUin?: string;
     name?: string;
     sharedCount?: number;
     groups?: Array<{ groupName?: string }>;
@@ -1820,7 +1921,11 @@ function mateSlide(data: Record<string, unknown>): string {
             </div>
             <div class="mt-hero">
               <p class="mt-lede">有些人你以为不认识，其实已经在群里见过很多面了——</p>
-              <div class="mt-avatar">${escapeHtml(initial(String(top.name ?? '')))}</div>
+              <div class="mt-avatar">${avatarImg(
+                top.uin ?? top.peerUin,
+                String(top.name ?? ''),
+                'mt-avatar-face',
+              )}</div>
               <h2 class="mt-name${nameClass(String(top.name ?? ''))}">${escapeHtml(
                 String(top.name ?? ''),
               )}</h2>
@@ -1864,8 +1969,91 @@ function genericSlide(slide: ExportSlide): string {
 }
 
 /**
+ * 导出用的资源内联器：把屏幕版走 `weq-media://` / CDN 协议的图片在导出时
+ * 拉成字节并转成 data URI，自包含 HTML 因此能带真实贴图（装扮气泡、头像）。
+ *
+ * 由调用方（EndPage）注入实现 —— renderer 通过 tRPC 让主进程读文件并返回
+ * base64；解析失败返回 null，导出版退回原来的排印表达，不阻塞导出。
+ */
+export type AssetInliner = (url: string) => Promise<string | null>;
+
+/**
+ * 预热好的 data URI 快照。buildReportHtml 的 slide 渲染是同步的，必须先把
+ * 所有 data URI 在这里准备停当，同步的 `inlinedAsset` 才有东西可查。
+ */
+const assetValueCache = new Map<string, string | null>();
+
+/**
+ * 预热：把 slides 里引用到的所有协议图片先拉好。任一图失败只是缺席，
+ * 导出退回排印表达，不阻塞。
+ */
+export async function preloadReportAssets(
+  slides: ExportSlide[],
+  resolve: AssetInliner,
+): Promise<void> {
+  const urls = collectAssetUrls(slides);
+  assetValueCache.clear();
+  await Promise.all(
+    urls.map(async (url) => {
+      let value: string | null = null;
+      try {
+        value = await resolve(url);
+      } catch {
+        value = null;
+      }
+      if (value) assetValueCache.set(url, value);
+    }),
+  );
+}
+
+/** 同步取已经预热好的 data URI；没预热过/解析失败返回 null（退回排印版）。 */
+export function inlinedAsset(url: string | null | undefined): string | null {
+  if (!url || assetValueCache.size === 0) return null;
+  return assetValueCache.get(url) ?? null;
+}
+
+function collectAssetUrls(slides: ExportSlide[]): string[] {
+  const urls = new Set<string>();
+  for (const slide of slides) {
+    const data = (slide.data ?? {}) as Record<string, unknown>;
+    if (slide.page.id === 'dress') {
+      const outfits = (data.outfits ?? []) as Array<{ bubbleId?: number }>;
+      for (const outfit of outfits) {
+        if (outfit.bubbleId && outfit.bubbleId > 0) {
+          urls.add(mediaUrl('dressbubble', { id: outfit.bubbleId }));
+        }
+      }
+    }
+    // 头像：openers / months / friends / mate 各页的 peerUin。
+    const collectUin = (value: unknown): void => {
+      if (value && typeof value === 'object') {
+        const uin = (value as { peerUin?: unknown }).peerUin;
+        if (typeof uin === 'string' && /^\d+$/.test(uin)) {
+          urls.add(
+            mediaUrl('avatar', {
+              scope: 'user',
+              uin,
+              v: 'big',
+              fb: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`,
+            }),
+          );
+        }
+        for (const nested of Object.values(value)) collectUin(nested);
+      } else if (Array.isArray(value)) {
+        for (const item of value) collectUin(item);
+      }
+    };
+    collectUin(data);
+  }
+  return [...urls];
+}
+
+/**
  * 由已加载的页面数据拼出自包含 HTML 文档。口径文案（历史以来 / xxxx 年）
  * 由每页数据里的 `year` 自证，与屏幕版共用 `@weq/service/report-time`。
+ *
+ * 传了 `assets`（先 preloadReportAssets 预热过）时，装扮页画真实气泡贴图、
+ * 人物页画真实头像（data URI 内联）；否则维持纯排印的退化版。
  */
 export function buildReportHtml(year: number, slides: ExportSlide[]): string {
   const body = slides
@@ -1892,10 +2080,69 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(reportPeriodLabel(year))} 年度报告</title>
-<style>${CSS}</style>
+<style>${CSS}${INTERACTIVE_CSS}</style>
 </head>
 <body>
 ${body}
+<script>${INTERACTIVE_JS}</script>
 </body>
 </html>`;
 }
+
+/**
+ * 屏幕浏览专属的呈现层：居中纸面 + 滚动翻页动画。全部包在
+ * `@media screen` 里 —— printToPDF 走 print 媒体，A4 分页与打印布局完全
+ * 不受影响。翻页动画用 IntersectionObserver：翻到哪页哪页淡入上浮，
+ * 无 JS 时（邮件附件预览等）优雅退化为普通滚动文档。
+ */
+const INTERACTIVE_CSS = `
+  @media screen {
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10mm;
+      padding: 10mm 0 16mm;
+    }
+    .slide {
+      box-shadow:
+        0 1mm 3mm rgba(0, 0, 0, 0.18),
+        0 12mm 32mm rgba(0, 0, 0, 0.22);
+      opacity: 0;
+      transform: translateY(26px) scale(0.985);
+      transition:
+        opacity 720ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .slide.is-visible {
+      opacity: 1;
+      transform: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .slide { opacity: 1; transform: none; transition: none; }
+    }
+  }
+`;
+
+const INTERACTIVE_JS = `
+(function () {
+  'use strict';
+  var slides = document.querySelectorAll('.slide');
+  if (!('IntersectionObserver' in window)) {
+    for (var i = 0; i < slides.length; i++) slides[i].classList.add('is-visible');
+    return;
+  }
+  var observer = new IntersectionObserver(
+    function (entries) {
+      for (var j = 0; j < entries.length; j++) {
+        if (entries[j].isIntersecting) {
+          entries[j].target.classList.add('is-visible');
+          observer.unobserve(entries[j].target);
+        }
+      }
+    },
+    { threshold: 0.18 }
+  );
+  for (var k = 0; k < slides.length; k++) observer.observe(slides[k]);
+})();
+`;

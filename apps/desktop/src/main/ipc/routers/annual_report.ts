@@ -44,6 +44,53 @@ async function saveBuffer(
 
 export const annualReportRouter = router({
   /**
+   * 把一条 `weq-media://` 协议 URL 解析成 base64 字节 —— 导出 HTML 时渲染层
+   * 用它把装扮气泡 / 头像内联成 data URI（自包含产物离线可看）。
+   *
+   * 白名单只收导出真正引用的两类资源，复用 media_protocol 的解析函数：
+   *   dressbubble?id=&frame=  装扮气泡九宫格 PNG / 帧动画帧
+   *   avatar?scope=user&uin=&v=&fb=   本机缓存头像（miss 走 CDN 兜底）
+   *
+   * 解析失败返回 null（而不是抛错），导出退回排印版不阻塞。
+   */
+  resolveMediaBase64: procedure
+    .input(z.object({ url: z.string().min(1).max(2048) }))
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const parsed = new URL(input.url);
+      if (parsed.protocol !== 'weq-media:') {
+        throw new Error('resolveMediaBase64 only accepts weq-media:// urls');
+      }
+      const kind = parsed.hostname;
+      const q = parsed.searchParams;
+      try {
+        let path: string | null = null;
+        if (kind === 'dressbubble') {
+          const id = Number(q.get('id') ?? '0');
+          const frame = Number(q.get('frame') ?? '0');
+          path = !id
+            ? null
+            : frame > 0
+              ? services.dressInstall.bubbleFrameFile(id, frame)
+              : services.dressInstall.bubbleFile(id);
+        } else if (kind === 'avatar') {
+          const scope = q.get('scope') ?? '';
+          const uin = q.get('uin') ?? '';
+          const variant = q.get('v') === 'small' ? 'small' : 'big';
+          path =
+            scope === 'user' && uin
+              ? ((await services.avatarResource.resolveByUin(scope, uin, variant)) ??
+                (await services.avatarResource.resolveByUin(scope, uin, 'small')))
+              : null;
+        }
+        if (!path) return null;
+        const bytes = await readFile(path);
+        return bytes.toString('base64');
+      } catch {
+        return null;
+      }
+    }),
+  /**
    * Lightweight directory; page payloads are loaded separately.
    * `year` omitted = 让服务端挑开屏口径（最近一个真的有数据的年份）；
    * `year: 0`（`ALL_TIME_YEAR`）= 历史以来。

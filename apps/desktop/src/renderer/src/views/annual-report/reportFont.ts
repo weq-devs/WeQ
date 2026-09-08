@@ -21,7 +21,8 @@
  * 兜底字，宽度不齐会让里程表逐位抖动。所以 `--rp-mono` 不动，`.weq-number` /
  * `.weq-od` 这类纯数字元素显式钉回原来的衬线栈（`--rp-serif-base` 存着原值）。
  *
- * 作用域限定在 `.weq-report-root` 内：报告换字不该波及应用其余部分。
+ * 作用域限定在 `.weq-report-root`（以及它 portal 到 body 的分享灯箱
+ * `.weq-qzshare-scrim`）内：报告换字不该波及应用其余部分。
  */
 
 import { dressFontUrl } from '../../lib/resourceUrl';
@@ -86,7 +87,8 @@ export async function applyReportFont(itemId: number | null): Promise<boolean> {
   // 第二条规则把纯数字元素钉回原生衬线栈：`--rp-serif-base` 是 CSS 里存的原值副本，
   // 这样即使 `--rp-serif` 已被上一条改掉，数字仍拿得到未换的那条栈。
   const css = `
-.weq-report-root {
+.weq-report-root,
+.weq-qzshare-scrim {
   --rp-serif: "${family}", "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
     "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif !important;
   --rp-sans: "${family}", var(--font-sans, ui-sans-serif, system-ui, sans-serif) !important;

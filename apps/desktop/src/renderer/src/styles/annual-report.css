@@ -12,7 +12,14 @@
  * 跟随应用深浅主题；深色是「炭黑 + 暖金」，浅色是「宣纸 + 靛蓝」。
  * ════════════════════════════════════════════════════════════════════════ */
 
-.weq-report-root {
+/*
+ * 排印令牌同时给报告根与「QQ 空间分享灯箱」挂上：灯箱经 createPortal 落在
+ * document.body，不在 .weq-report-root 子树里，CSS 变量不会自动继承；若只
+ * 在根上定义，灯箱的纸色/墨色/发丝线全部失效，卡片变成透明底，底下深色
+ * scrim 会透上来，浅色模式看起来就像卡片被强罩了一层暗背景。
+ */
+.weq-report-root,
+.weq-qzshare-scrim {
   /* ── 排印令牌 ─────────────────────────────────────────────────── */
   /* 衬线栈是报告的骨架：西文/数字优先 Playfair（若系统有）→ Georgia，
      中文落到 Noto Serif CJK SC / 思源宋 / 宋体。仓库不内嵌字体文件，
@@ -45,7 +52,9 @@
   /* 缓动：一条给排印用的「重落地」曲线，一条通用出场曲线。 */
   --rp-ease-drop: cubic-bezier(0.16, 1, 0.3, 1);
   --rp-ease-epic: cubic-bezier(0.76, 0, 0.24, 1);
+}
 
+.weq-report-root {
   position: relative;
   display: flex;
   width: 100%;
@@ -65,7 +74,8 @@
     linear-gradient(168deg, var(--rp-paper) 0%, var(--rp-paper-deep) 100%);
 }
 
-html[data-theme="dark"] .weq-report-root {
+html[data-theme="dark"] .weq-report-root,
+html[data-theme="dark"] .weq-qzshare-scrim {
   --rp-paper: #0b0a09;
   --rp-paper-deep: #060505;
   --rp-ink: #f4f0e6;
@@ -79,6 +89,9 @@ html[data-theme="dark"] .weq-report-root {
   --rp-ghost: rgba(244, 240, 230, 0.035);
   --rp-ghost-stroke: rgba(201, 162, 39, 0.14);
   --rp-grain: 0.2;
+}
+
+html[data-theme="dark"] .weq-report-root {
   background:
     radial-gradient(
       110% 80% at 50% -18%,
@@ -998,8 +1011,12 @@ html[data-theme="dark"] .weq-report-root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.46);
-  backdrop-filter: blur(6px);
+  /* 这层遮罩只负责压暗背后的报告（半透明黑 + 高斯模糊）。卡片本身是
+     .weq-qzshare-card，纸色来自上面同挂在 scrim 上的 --rp-* 令牌。 */
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(10px);
+  /* 灯箱里的滚动只属于灯箱：滚到边界不再把滚动链交给下面的报告舞台。 */
+  overscroll-behavior: contain;
   animation: weq-qzshare-fade 220ms var(--rp-ease-drop);
 }
 
@@ -1014,8 +1031,11 @@ html[data-theme="dark"] .weq-report-root {
   width: min(860px, calc(100vw - 64px));
   max-height: min(640px, calc(100vh - 96px));
   border: 1px solid var(--rp-hair);
+  border-radius: 8px;
   background: var(--rp-paper);
   color: var(--rp-ink);
+  /* 卡片圆角要真正把头部/尾部的底色裁进圆弧里。 */
+  overflow: hidden;
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.4),
     0 2px 8px rgba(0, 0, 0, 0.2);
@@ -1101,6 +1121,7 @@ html[data-theme="dark"] .weq-report-root {
   gap: 3px;
   padding: 12px 14px 12px 40px;
   border: 1px solid var(--rp-hair);
+  border-radius: 6px;
   background: none;
   color: inherit;
   text-align: left;
@@ -1127,6 +1148,7 @@ html[data-theme="dark"] .weq-report-root {
   width: 17px;
   height: 17px;
   border: 1px solid var(--rp-ink-faint);
+  border-radius: 50%;
   color: var(--rp-paper);
   transition: background-color 180ms ease, border-color 180ms ease;
 }
@@ -1216,6 +1238,7 @@ html[data-theme="dark"] .weq-report-root {
   min-height: 0;
   padding: 12px 14px;
   border: 1px solid var(--rp-hair);
+  border-radius: 6px;
   background: var(--rp-paper-deep);
   color: var(--rp-ink);
   font-family: var(--rp-sans);
@@ -1231,6 +1254,55 @@ html[data-theme="dark"] .weq-report-root {
   border-color: var(--rp-accent);
 }
 
+/* ── 九宫格顺序预览：第 N 格 = 发出的第 N 张图 ─────────── */
+
+.weq-qzshare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.weq-qzshare-grid-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  /* 宽扁的槽位：九宫格三行高度更克制，给可编辑文案留出呼吸空间。 */
+  aspect-ratio: 16 / 9;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px dashed var(--rp-hair);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.weq-qzshare-grid-cell.is-filled {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--rp-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--rp-accent) 7%, transparent);
+}
+
+.weq-qzshare-grid-num {
+  color: var(--rp-accent);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.weq-qzshare-grid-title {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rp-ink-muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .weq-qzshare-rightrow {
   display: flex;
   gap: 8px;
@@ -1244,6 +1316,7 @@ html[data-theme="dark"] .weq-report-root {
   gap: 6px;
   padding: 7px 4px;
   border: 1px solid var(--rp-hair);
+  border-radius: 6px;
   background: none;
   color: var(--rp-ink-muted);
   font-size: 12px;
@@ -1288,6 +1361,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-qzshare-cancel {
   padding: 8px 18px;
   border: 1px solid var(--rp-hair);
+  border-radius: 6px;
   background: none;
   color: var(--rp-ink-muted);
   font-size: 13px;
@@ -1307,6 +1381,7 @@ html[data-theme="dark"] .weq-report-root {
   gap: 7px;
   padding: 8px 22px;
   border: 1px solid var(--rp-accent);
+  border-radius: 6px;
   background: var(--rp-accent);
   color: var(--rp-paper);
   font-size: 13px;
@@ -2799,7 +2874,8 @@ html[data-theme="dark"] .weq-report-root {
 .weq-op-num {
   color: var(--rp-ink);
   font-family: var(--rp-serif-base) !important;
-  font-size: 172px;
+  /* 巨数收小：这一页的主角是「人」，数字只是开场叙事的注脚。 */
+  font-size: 118px;
   font-weight: 600;
   letter-spacing: -0.05em;
   line-height: 0.94;
@@ -2808,7 +2884,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-op-unit {
   color: var(--rp-open);
   font-family: var(--rp-serif);
-  font-size: 56px;
+  font-size: 44px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -2818,7 +2894,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-op-word {
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 30px;
+  font-size: 26px;
   letter-spacing: 0.2em;
   white-space: nowrap;
 }
@@ -2941,7 +3017,7 @@ html[data-theme="dark"] .weq-report-root {
 /* ── 页底：三位朋友，不是三张卡 ────────────────────────────────── */
 
 .weq-op-cast {
-  margin-top: 16px;
+  margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--rp-hair);
 }
@@ -2953,11 +3029,25 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.24em;
 }
 
-.weq-op-line {
+/* 三位朋友并排的人物卡 —— 这一页的视觉主体。头像足够大、名字够清楚，
+   叙述句退成卡内的小字注脚。倾斜的角度随位次递增，保留了原来「一句话里的
+   三个角色」的层次感。 */
+.weq-op-cast-row {
   display: flex;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.weq-op-person {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
   align-items: center;
-  gap: 9px;
-  margin: 6px 0 0;
+  gap: 7px;
+  padding: 16px 12px 13px;
+  border: 1px solid var(--rp-hair);
+  text-align: center;
   opacity: 0;
   transform: translateY(9px);
   transition:
@@ -2966,7 +3056,7 @@ html[data-theme="dark"] .weq-report-root {
   transition-delay: calc(760ms + var(--j, 0) * 170ms);
 }
 
-.weq-report-page[data-enter="in"] .weq-op-line {
+.weq-report-page[data-enter="in"] .weq-op-person {
   opacity: 1;
   transform: translateY(0);
 }
@@ -2989,6 +3079,55 @@ html[data-theme="dark"] .weq-report-root {
   font-family: var(--rp-serif);
   font-size: 11px;
   font-weight: 600;
+}
+
+.weq-op-person .weq-op-face {
+  width: 64px;
+  height: 64px;
+}
+
+.weq-op-person .weq-op-face.is-initial {
+  font-size: 26px;
+}
+
+.weq-op-person-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-op-person.is-mine .weq-op-person-name {
+  color: var(--rp-open);
+}
+
+.weq-op-person-say {
+  margin: 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  text-wrap: pretty;
+}
+
+.weq-op-person-say em {
+  color: var(--rp-open);
+  font-weight: 600;
+  font-style: normal;
+}
+
+/* 兼容保留：导出 HTML 的 openersSlide 仍在用行式排印。 */
+.weq-op-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0 0;
 }
 
 .weq-op-line-say {
@@ -3035,15 +3174,15 @@ html[data-theme="dark"] .weq-report-root {
 
 @media (max-width: 1000px) {
   .weq-op-num {
-    font-size: 126px;
+    font-size: 92px;
   }
 
   .weq-op-unit {
-    font-size: 44px;
+    font-size: 36px;
   }
 
   .weq-op-word {
-    font-size: 24px;
+    font-size: 21px;
   }
 
   .weq-op-lede {
@@ -3052,6 +3191,15 @@ html[data-theme="dark"] .weq-report-root {
 
   .weq-op-mood {
     font-size: 16px;
+  }
+
+  .weq-op-person .weq-op-face {
+    width: 52px;
+    height: 52px;
+  }
+
+  .weq-op-person-say {
+    font-size: 11px;
   }
 
   .weq-op-line-say {
@@ -5170,6 +5318,7 @@ html[data-theme="dark"] .weq-report-root {
 }
 
 .weq-mo-month {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -5253,6 +5402,30 @@ html[data-theme="dark"] .weq-report-root {
   height: 5px;
   border: 1px solid var(--rp-ink-faint);
   border-radius: 50%;
+}
+
+/* 滚动补足格（去年同月）：整体降饱和 + 「去年」角标，和今年的月份一眼可分。 */
+.weq-mo-month.is-carried {
+  opacity: 0.55;
+}
+
+.weq-mo-month.is-carried .weq-mo-month-label::after {
+  content: '·去年';
+  margin-left: 3px;
+  color: var(--rp-ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+.weq-mo-month-carried {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-sans);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
 }
 
 /* ── 收束 ─────────────────────────────────────────────────────── */

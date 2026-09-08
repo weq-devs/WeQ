@@ -42,6 +42,17 @@ export type SparkPageData = {
   wallYears: number[];
   /** 默认展示的绿墙年份（自然年口径 = 该年；历史以来 = 最近一个有发言的年份）。 */
   wallYear: number;
+  /**
+   * 当年的「近 12 个月」滚动窗口：{ fromYear, fromMonth, toYear, toMonth }。
+   * 一年的前几个月看报告时，绿墙往前接到去年同月之后，始终覆盖近 12 个月；
+   * null = 完整自然年墙（往年报告 / 当年 12 月）。
+   */
+  wallWindow: {
+    fromYear: number;
+    fromMonth: number;
+    toYear: number;
+    toMonth: number;
+  } | null;
   /** 每个发言日的自己发出条数（私聊），按 (year, date) 升序。 */
   wallDays: SparkWallDay[];
   /** 单日聊得最多的那个会话。只要有 c2c 发言就一定有。 */

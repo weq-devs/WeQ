@@ -58,16 +58,42 @@ let logoUriCache: string | null | undefined;
  */
 export function loadCjkFont(): Buffer {
   if (fontCache) return fontCache;
+  const winFonts = process.env.WINDIR ? join(process.env.WINDIR, 'Fonts') : null;
   const candidates = [
+    // 打包资源里带的字体（首选）。
     resolveResource('assistant', 'fonts', 'cover.ttf'),
     resolveResource('assistant', 'fonts', 'cover.otf'),
-    process.env.WINDIR ? join(process.env.WINDIR, 'Fonts', 'Deng.ttf') : null,
-    process.env.WINDIR ? join(process.env.WINDIR, 'Fonts', 'simhei.ttf') : null,
+    // Windows 自带的 plain TTF（satori 读不了 .ttc 集合）。
+    winFonts ? join(winFonts, 'Deng.ttf') : null,
+    winFonts ? join(winFonts, 'simhei.ttf') : null,
+    winFonts ? join(winFonts, 'msyh.ttc') : null,
+    winFonts ? join(winFonts, 'msyhl.ttc') : null,
+    // macOS 自带。
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    '/System/Library/Fonts/Hiragino Sans GB.ttc',
+    '/Library/Fonts/Arial Unicode.ttf',
+    // Linux 常见的 CJK 字体路径（研发环境 / Linux 打包）。
+    '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/noto-cjk/NotoSansCJKsc-Regular.otf',
+    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
   ].filter((p): p is string => !!p && existsSync(p));
   if (candidates.length === 0) {
-    throw new Error('[weq-assistant/cover] no usable TTF/OTF font found (need a CJK .ttf)');
+    throw new Error(
+      '[weq-assistant/cover] no usable TTF/OTF font found (need a CJK .ttf/.otf). ' +
+        'Install one of: Deng.ttf / simhei.ttf (Windows), Noto Sans CJK, or WenQuanYi.',
+    );
   }
-  fontCache = readFileSync(candidates[0]!);
+  // satori 不能读 .ttc 集合 —— 有真正的单字体文件时优先于 .ttc。
+  const single = candidates.find((p) => !p.toLowerCase().endsWith('.ttc'));
+  const picked = single ?? candidates[0]!;
+  try {
+    fontCache = readFileSync(picked);
+  } catch (error) {
+    // .ttc 兜底在 satori 侧多半仍然会失败，但至少给出更明确的报错。
+    throw new Error(`[weq-assistant/cover] failed to read font ${picked}: ${String(error)}`);
+  }
   return fontCache;
 }
 

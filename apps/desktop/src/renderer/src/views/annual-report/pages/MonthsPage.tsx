@@ -35,9 +35,14 @@ const MONTH_LABELS = [
  */
 export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageData>): ReactElement {
   const champion = data.champion;
-  const months = data.months;
+  /**
+   * 日历 = 去年的滚动补足格（升序）+ 今年的格子。补足只含去年尾部月份
+   * （例：现在 9 月 → 去年 10-12 月），与今年 1-9 月拼起来恰好 12 格。
+   */
+  const carryover = data.carryoverMonths ?? [];
+  const months = [...carryover.map((cell) => ({ ...cell, carried: true })), ...data.months];
   const championUid = champion?.peerUid;
-  const championCells = months.filter((cell) => cell.top?.peerUid === championUid).length;
+  const championCells = data.months.filter((cell) => cell.top?.peerUid === championUid).length;
 
   return (
     <PageFrame page={page} active={active} ghost={data.year} tone="#b04864">
@@ -55,7 +60,9 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
           <>
             <section className="weq-mo-hero weq-report-line" style={{ '--i': 2 } as CSSProperties}>
               <p className="weq-mo-lede">
-                {reportEraLabel(data.year)}，每个月聊得最多的人一直在换，可最后站在你身边的是——
+                {reportEraLabel(data.year)}
+                {carryover.length > 0 ? '（近 12 个月）' : ''}
+                ，每个月聊得最多的人一直在换，可最后站在你身边的是——
               </p>
               <Face person={champion} champion />
               <h2 className={`weq-mo-name ${nameSize(champion.peerName)}`}>{champion.peerName}</h2>
@@ -72,11 +79,11 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
                 </span>
               </p>
               <p className="weq-mo-note">
-                {championCells >= data.monthCount
+                {championCells >= data.monthCount && carryover.length === 0
                   ? '整整一路，TA 都没有把第一让给别人。'
-                  : `TA 拿下了 ${fmt(championCells)} 个月的第一，全年和你聊了 ${fmt(
-                      champion.messages,
-                    )} 条。`}
+                  : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                      data.monthCount < 12 ? '今年' : '全年'
+                    }和你聊了 ${fmt(champion.messages)} 条。`}
               </p>
             </section>
 
@@ -90,8 +97,8 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
                   <li
                     className={`weq-mo-month${cell.top?.peerUid === championUid ? ' is-ours' : ''}${
                       cell.top ? '' : ' is-quiet'
-                    }`}
-                    key={cell.month}
+                    }${'carried' in cell && cell.carried ? ' is-carried' : ''}`}
+                    key={`${cell.carried ? 'ly' : 'ty'}-${cell.month}`}
                     style={{ '--j': index } as CSSProperties}
                   >
                     <span className="weq-mo-month-label">{MONTH_LABELS[cell.month - 1]}</span>
@@ -106,6 +113,11 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
                         <i aria-hidden />
                       </span>
                     )}
+                    {'carried' in cell && cell.carried ? (
+                      <span className="weq-mo-month-carried" aria-label="去年同月">
+                        去年
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ol>

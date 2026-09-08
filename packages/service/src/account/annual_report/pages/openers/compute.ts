@@ -10,6 +10,22 @@ import type { OpenerEntry, OpenersPageData } from './types';
 const MIN_BALANCE_STARTS = 4;
 
 /**
+ * 排行只认「好友名单」：公众号 / 服务号这类单方推送号住在 c2c_msg_table 里，
+ * 偶尔会自动回一句，单靠「双向来往」门槛挡不住它们。buddy_list 是「是不是
+ * 好友」的权威来源，不在名单里的一律不进开场统计。名单拉取失败时退回不过滤
+ * （宁可多算一个号，也不能把整页清空）。
+ */
+async function buddyUidSet(q: import('../../types').ReportQueries): Promise<Set<string> | null> {
+  try {
+    const buddies = await q.buddies.list();
+    const uids = new Set(buddies.map((buddy) => buddy.uid));
+    return uids.size > 0 ? uids : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 谁先开口 —— 一份关于「人先想到人」的统计。
  *
  * 统计单位刻意不是消息：一段持续没超过 {@link CONVERSATION_GAP_SECONDS}
@@ -47,8 +63,13 @@ export const openersPage: ReportPageDefinition<OpenersPageData> = {
   compute: async ({ year, q }) => {
     const { startSec, endSec } = reportYearUnixRange(year);
     const tallies = await q.c2c.initiationTallies(startSec, endSec);
+    // 公众号 / 服务号不配出现在「谁先想到谁」里 —— 见 buddyUidSet。
+    const buddies = await buddyUidSet(q);
     const candidates = tallies.filter(
-      (tally) => tally.total > 0 && (tally.mine > 0 || tally.theirs > 0),
+      (tally) =>
+        tally.total > 0 &&
+        (tally.mine > 0 || tally.theirs > 0) &&
+        (buddies === null || buddies.has(tally.peerUid)),
     );
 
     const peerCount = candidates.length;

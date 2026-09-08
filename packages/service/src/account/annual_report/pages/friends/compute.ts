@@ -11,6 +11,21 @@ const SPARK_TOP_N = 3;
 const MESSAGE_TOP_N = 8;
 
 /**
+ * 榜上只放好友名单里的人：公众号 / 服务号住在 c2c_msg_table 里，偶尔自动回复
+ * 就能过「双向来往」门槛。buddy_list 是「是不是好友」的权威来源；拉取失败时
+ * 返回 null 退回不过滤，不能因为名单挂了就把整张榜清空。
+ */
+async function buddyUidSet(q: import('../../types').ReportQueries): Promise<Set<string> | null> {
+  try {
+    const buddies = await q.buddies.list();
+    const uids = new Set(buddies.map((buddy) => buddy.uid));
+    return uids.size > 0 ? uids : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 好友榜 —— 两张只取前三的榜，同一批人两种排法。
  *
  * 和私聊火花页同源：底层还是 `C2cMsgDb.peerDayTallies` 那一次「会话 × 本地日」
@@ -54,6 +69,8 @@ export const friendsPage: ReportPageDefinition<FriendsPageData> = {
   compute: async ({ year, q }) => {
     const { startSec, endSec } = reportYearUnixRange(year);
     const tallies = await q.c2c.peerDayTallies(startSec, endSec);
+    // 公众号 / 服务号不进榜 —— 见 buddyUidSet。
+    const buddies = await buddyUidSet(q);
 
     /** 一个会话在整个口径内的汇总。`mutualDays` 是「双方当天都说了话」的日索引。 */
     type Bucket = { total: number; mine: number; mutualDays: number[] };
@@ -70,9 +87,10 @@ export const friendsPage: ReportPageDefinition<FriendsPageData> = {
       if (row.mine > 0 && row.total > row.mine) bucket.mutualDays.push(dayIndex(row.date));
     }
 
-    // 「好友」= 我发过 且 对方也发过。两张榜共用这一个门槛。
+    // 「好友」= 我发过 且 对方也发过，且在好友名单里。两张榜共用这一个门槛。
     const friends = [...buckets.entries()].filter(
-      ([, bucket]) => bucket.mine > 0 && bucket.total > bucket.mine,
+      ([uid, bucket]) =>
+        bucket.mine > 0 && bucket.total > bucket.mine && (buddies === null || buddies.has(uid)),
     );
 
     const messageRanked = friends

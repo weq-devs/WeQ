@@ -31,5 +31,6 @@
 *.ico binary
 *.woff2 binary
 *.ttf binary
+*.otf binary
 *.dll binary
 *.exe binary

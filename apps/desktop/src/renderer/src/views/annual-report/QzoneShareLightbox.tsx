@@ -71,6 +71,21 @@ export function QzoneShareLightbox({
     return () => window.removeEventListener('keydown', onKey);
   }, [busy, onClose]);
 
+  // 灯箱开着时挡掉报告的翻页手势：滚轮/键盘/拖拽都会先被这里吃掉，
+  // 底下的年度报告不再跟着灯箱一起滚。
+  useEffect(() => {
+    const stop = (event: Event): void => event.stopPropagation();
+    // 捕获阶段拦截滚轮与触摸，事件根本到不了舞台宿主。
+    window.addEventListener('wheel', stop, { capture: true });
+    window.addEventListener('touchmove', stop, { capture: true });
+    window.addEventListener('keydown', stop, { capture: true });
+    return () => {
+      window.removeEventListener('wheel', stop, { capture: true });
+      window.removeEventListener('touchmove', stop, { capture: true });
+      window.removeEventListener('keydown', stop, { capture: true });
+    };
+  }, []);
+
   function toggle(index: number): void {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -79,6 +94,15 @@ export function QzoneShareLightbox({
       return next;
     });
   }
+
+  /**
+   * 发送顺序 = 报告页顺序中已勾选的那些。九宫格预览用它让用户不用猜
+   * 说说里的图序：第 N 格就是第 N 张图。
+   */
+  const orderedSelected = useMemo(
+    () => slides.map((_, i) => i).filter((i) => selected.has(i)),
+    [slides, selected],
+  );
 
   async function share(): Promise<void> {
     if (!canSubmit) return;
@@ -195,6 +219,28 @@ export function QzoneShareLightbox({
               onChange={(e) => setContent(e.target.value)}
               aria-label="说说文案（可修改）"
             />
+            {/* 九宫格顺序预览：第 N 格 = 发出的第 N 张图，空格是未选满的留位。 */}
+            <div className="weq-qzshare-grid" aria-label="发送顺序九宫格预览">
+              {Array.from({ length: QZONE_MAX_IMAGES }, (_, slot) => {
+                const slideIndex = orderedSelected[slot];
+                const slide = slideIndex != null ? slides[slideIndex] : null;
+                return (
+                  <span
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 固定九槽的位次即身份，不会重排。
+                    key={slot}
+                    className={`weq-qzshare-grid-cell${slide ? ' is-filled' : ''}`}
+                    title={slide ? `第 ${slot + 1} 张：${slide.page.title}` : '空位'}
+                  >
+                    {slide ? (
+                      <>
+                        <b className="weq-qzshare-grid-num">{slot + 1}</b>
+                        <span className="weq-qzshare-grid-title">{slide.page.title}</span>
+                      </>
+                    ) : null}
+                  </span>
+                );
+              })}
+            </div>
             <div className="weq-qzshare-rightrow" role="radiogroup" aria-label="可见权限">
               {UGC_RIGHT_OPTIONS.map((option) => {
                 const Icon = option.icon;

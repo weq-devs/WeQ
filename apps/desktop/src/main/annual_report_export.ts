@@ -2294,6 +2294,12 @@ function monthsTree(data: Record<string, unknown>): El {
     month?: number;
     top?: { peerUid?: string; peerName?: string; messages?: number } | null;
   }>;
+  const carryover = (data.carryoverMonths ?? []) as Array<{
+    month?: number;
+    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+  }>;
+  /** 去年尾部月份 + 今年：9 月报告 = 去年 10/11/12 + 今年 1..9，正好 12 格。 */
+  const cells = [...carryover.map((cell) => ({ ...cell, carried: true as const })), ...months];
   const labels = [
     '一月',
     '二月',
@@ -2309,11 +2315,12 @@ function monthsTree(data: Record<string, unknown>): El {
     '十二月',
   ];
 
-  const monthCell = (cell: (typeof months)[number]): El => {
+  const monthCell = (cell: (typeof cells)[number]): El => {
     const top = cell.top ?? null;
     const ours = Boolean(champion) && Boolean(top) && top!.peerUid === champion?.peerUid;
     const ringColor = ours ? rgba(PALETTE.rose, 0.78) : rgba(PALETTE.hair, 1);
     const textColor = ours ? PALETTE.rose : PALETTE.inkMuted;
+    const carried = 'carried' in cell && cell.carried;
     return el(
       'div',
       {
@@ -2329,8 +2336,13 @@ function monthsTree(data: Record<string, unknown>): El {
       [
         el(
           'div',
-          { fontSize: 13, color: PALETTE.inkFaint, letterSpacing: 3, fontWeight: 600 },
-          labels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`,
+          {
+            fontSize: 13,
+            color: carried ? rgba(PALETTE.inkFaint, 0.82) : PALETTE.inkFaint,
+            letterSpacing: 3,
+            fontWeight: 600,
+          },
+          `${carried ? '去年·' : ''}${labels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`}`,
         ),
         el(
           'div',
@@ -2380,12 +2392,12 @@ function monthsTree(data: Record<string, unknown>): El {
   };
 
   const rows: El[] = [];
-  for (let offset = 0; offset < months.length; offset += 6) {
+  for (let offset = 0; offset < cells.length; offset += 6) {
     rows.push(
       el(
         'div',
         { display: 'flex', justifyContent: 'center', gap: 24 },
-        months.slice(offset, offset + 6).map((cell) => monthCell(cell)),
+        cells.slice(offset, offset + 6).map((cell) => monthCell(cell)),
       ),
     );
   }
@@ -2411,7 +2423,7 @@ function monthsTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 52, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-              `${reportEraLabel(year)}，每个月聊得最多的人一直在换，可最后站在你身边的是——`,
+              `${reportEraLabel(year)}${carryover.length > 0 ? '（近 12 个月）' : ''}，每个月聊得最多的人一直在换，可最后站在你身边的是——`,
             ),
             el(
               'div',
@@ -2480,9 +2492,9 @@ function monthsTree(data: Record<string, unknown>): El {
               { marginTop: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
               championCells >= monthCount
                 ? '整整一路，TA 都没有把第一让给别人。'
-                : `TA 拿下了 ${fmt(championCells)} 个月的第一，全年和你聊了 ${fmt(
-                    Number(champion.messages ?? 0),
-                  )} 条。`,
+                : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                    monthCount < 12 ? '今年' : '全年'
+                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 条。`,
             ),
           ]
         : [

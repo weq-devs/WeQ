@@ -33,6 +33,9 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
   const defaultWallIndex = Math.max(0, wallYears.indexOf(data.wallYear));
   const [wallIndex, setWallIndex] = useState(defaultWallIndex);
   const reduce = usePrefersReducedMotion();
+  /** 当年的滚动窗口（近 12 个月）—— 非滚动墙为 null。 */
+  const wallWindow = data.wallWindow ?? null;
+  const rollingActive = wallWindow != null && wallIndex === defaultWallIndex;
 
   useEffect(() => {
     if (!active) setWallIndex(defaultWallIndex);
@@ -40,8 +43,8 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
 
   const activeYear = wallYears[wallIndex] ?? data.wallYear;
   const wallDays = useMemo(
-    () => data.wallDays.filter((day) => day.year === activeYear),
-    [data.wallDays, activeYear],
+    () => (rollingActive ? data.wallDays : data.wallDays.filter((day) => day.year === activeYear)),
+    [data.wallDays, activeYear, rollingActive],
   );
 
   const moveWall = (delta: 1 | -1): void => {
@@ -90,8 +93,15 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
           year={activeYear}
           days={wallDays}
           allTime={allTime}
+          rollingWindow={rollingActive ? wallWindow : null}
           yearLabel={
-            allTime ? (wallYears.length > 1 ? '历史以来 · 一年一墙' : '历史以来') : undefined
+            allTime
+              ? wallYears.length > 1
+                ? '历史以来 · 一年一墙'
+                : '历史以来'
+              : rollingActive
+                ? `${wallWindow!.fromYear} 年 ${wallWindow!.fromMonth} 月 — ${wallWindow!.toYear} 年 ${wallWindow!.toMonth} 月`
+                : undefined
           }
           onPrev={wallIndex > 0 ? () => moveWall(-1) : null}
           onNext={wallIndex < wallYears.length - 1 ? () => moveWall(1) : null}
@@ -145,6 +155,7 @@ function GitWall({
   year,
   days,
   allTime,
+  rollingWindow,
   yearLabel,
   onPrev,
   onNext,
@@ -153,6 +164,8 @@ function GitWall({
   year: number;
   days: SparkWallDay[];
   allTime: boolean;
+  /** 滚动窗口（近 12 个月）；null = 完整自然年墙。 */
+  rollingWindow: { fromYear: number; fromMonth: number; toYear: number; toMonth: number } | null;
   yearLabel?: string;
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
@@ -160,7 +173,10 @@ function GitWall({
 }): ReactElement {
   const dragX = useRef<number | null>(null);
 
-  const grid = useMemo(() => buildYearGrid(year, days), [year, days]);
+  const grid = useMemo(
+    () => (rollingWindow ? buildRollingGrid(rollingWindow, days) : buildYearGrid(year, days)),
+    [year, days, rollingWindow],
+  );
   const maxCount = useMemo(
     () => grid.flat().reduce((max, cell) => Math.max(max, cell.count), 0),
     [grid],
@@ -198,6 +214,7 @@ function GitWall({
           <span className="weq-sp-wall-sub">我发出的私聊</span>
         </p>
         {allTime && (onPrev || onNext) ? (
+          // 历史以来的年份切换钮；滚动墙不参与切年。
           <div className="weq-sp-wall-nav" aria-label="切换绿墙年份">
             <button
               type="button"
@@ -270,6 +287,49 @@ function GitWall({
 }
 
 type GridCell = { month: number; day: number; count: number; date: string | null };
+
+/**
+ * 滚动窗口的网格：从 fromYear/fromMonth 到 toYear/toMonth，一周一列，
+ * 与自然年墙同一套画法 —— 列 = 周、行 = 周一..周日。窗口不足整周时
+ * 首尾用空格补齐。
+ */
+function buildRollingGrid(
+  window: { fromYear: number; fromMonth: number; toYear: number; toMonth: number },
+  days: SparkWallDay[],
+): GridCell[][] {
+  const countByDay = new Map<string, number>();
+  for (const day of days) countByDay.set(`${day.year}-${day.month}-${day.day}`, day.count);
+
+  const start = new Date(window.fromYear, window.fromMonth - 1, 1);
+  const end = new Date(window.toYear, window.toMonth, 0); // 当月最后一天
+  const totalDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const mondayOffset = (start.getDay() + 6) % 7;
+  const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
+
+  const grid: GridCell[][] = [];
+  for (let week = 0; week < weekCount; week++) {
+    const column: GridCell[] = [];
+    for (let dow = 0; dow < 7; dow++) {
+      const dayOffset = week * 7 + dow - mondayOffset;
+      if (dayOffset < 0 || dayOffset >= totalDays) {
+        column.push({ month: 0, day: 0, count: 0, date: null });
+      } else {
+        const date = new Date(window.fromYear, window.fromMonth - 1, 1 + dayOffset);
+        const y = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        column.push({
+          month,
+          day,
+          count: countByDay.get(`${y}-${month}-${day}`) ?? 0,
+          date: `${month} 月 ${day} 日`,
+        });
+      }
+    }
+    grid.push(column);
+  }
+  return grid;
+}
 
 /** 一行 = 周一..周日 的一周；横向一周一列。 */
 function buildYearGrid(year: number, days: SparkWallDay[]): GridCell[][] {

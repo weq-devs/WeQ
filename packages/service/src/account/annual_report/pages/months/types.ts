@@ -19,14 +19,17 @@ export type MonthCompanionCell = {
   monthMessages: number;
   /** 当月双方合计消息最多的好友；当月没有双向来往时为 null。 */
   top: MonthFriendEntry | null;
+  /** 去年同月补足的格子。true 时渲染层降饱和并注明「去年」。 */
+  carried?: boolean;
 };
 
 export type MonthsPageData = {
   /** 报告口径年份（自然年；本页在历史以来口径下不展示）。 */
   year: number;
   /**
-   * 日历覆盖的月数：往年固定 12，今年画到当前月为止 —— 未来的月份还没有
-   * 资格成为「走过的月份」。
+   * 当年已经走过的月数：满年固定 12；当年画到当前月为止 —— 未来的月份还没有
+   * 资格成为「走过的月份」。不足的部分由 `carryoverMonths` 用去年的尾部月份补足，
+   * 拼起来正好 12 个月（例：9 月报告 = 去年 10-12 月 + 今年 1-9 月）。
    */
   monthCount: number;
   /** 双向来往过的好友总数（榜的分母）。 */
@@ -42,4 +45,13 @@ export type MonthsPageData = {
   championMonths: number;
   /** 从 1 月到 monthCount 的逐月格子。 */
   months: MonthCompanionCell[];
+  /**
+   * 滚动补足格：当年月份不足 12 时，取去年 `monthCount+1..12` 的月榜补足日历。
+   * 数组升序、只含需要补的月份，渲染层把它们排在 `months` 前面（例：9 月报告
+   * 时数组为去年 10/11/12 月），与 `months` 拼起来正好 12 个月；满年时为空数组。
+   */
+  carryoverMonths: CarryoverMonth[];
 };
+
+/** 「滚动补足」格 —— 用去年对应月份的月榜补足当年的空缺月份。 */
+export type CarryoverMonth = { month: number; top: MonthCompanionCell['top'] };
