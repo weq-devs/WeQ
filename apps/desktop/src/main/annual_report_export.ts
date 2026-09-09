@@ -16,6 +16,26 @@ import { loadCjkFont } from './weq_assistant/cover';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { isAllTimeYear, reportEraLabel, reportSinceLabel } from '@weq/service/report-time';
+import {
+  createReportAssetUrls,
+  type ReportAssetUrlPrefixes,
+} from '@weq/service/report-assets';
+import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
+
+/** 主进程只认自定义协议；web 端的 /_media/、/_asset/ 由 router 归一后再进这里。 */
+const REPORT_URL_PREFIXES: ReportAssetUrlPrefixes = {
+  mediaPrefix: 'weq-media://',
+  assetPrefix: 'weq-asset://',
+};
+
+const {
+  collectReportAssetUrls,
+  reportAvatarUrl,
+  reportCustomPicUrl,
+  reportDressBubbleUrl,
+  reportDressPendantUrl,
+  reportEmojiFaceUrl,
+} = createReportAssetUrls(REPORT_URL_PREFIXES);
 
 /** 一张导出卡片的最小契约 —— 与 renderer 发送的页面数据对齐。 */
 export type ReportExportSlide = {
@@ -27,6 +47,76 @@ export type ReportExportSlide = {
   data: unknown;
 };
 
+/**
+ * 长图资源内联器：与 renderer exportHtml 同构 —— 调用方（router）先按协议
+ * 读盘/下载并回 data URI，任一 URL 失败回 null，对应元素退回排印。
+ */
+export type LongImageAssetInliner = (url: string) => Promise<string | null>;
+
+/** 预热好的 data URI。satori 不接受自定义协议，必须先把字节内联。 */
+const longImageAssetCache = new Map<string, string | null>();
+
+/** 预热 slides 引用的全部协议图片。解析失败只在缓存里缺席，不阻断渲染。 */
+export async function preloadLongImageAssets(
+  slides: ReportExportSlide[],
+  resolve: LongImageAssetInliner,
+): Promise<void> {
+  const urls = collectReportAssetUrls(
+    slides.map((slide) => ({ pageId: slide.pageId, data: slide.data })),
+  );
+  longImageAssetCache.clear();
+  await Promise.all(
+    urls.map(async (url) => {
+      let value: string | null = null;
+      try {
+        value = await resolve(url);
+      } catch {
+        value = null;
+      }
+      if (value) longImageAssetCache.set(url, value);
+    }),
+  );
+}
+
+/** 同步取预热好的 data URI；未预热 / 解析失败返回 null。 */
+function inlineLongImageAsset(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return longImageAssetCache.get(url) ?? null;
+}
+
+/** 一颗 data URI 圆形头像（没有预热到的图退回首字圆牌）。 */
+function longAvatar(uin: unknown, name: string, size: number): El {
+  const url = typeof uin === 'string' && /^\d+$/.test(uin) ? reportAvatarUrl(uin) : '';
+  const uri = url ? inlineLongImageAsset(url) : null;
+  const base = {
+    width: size,
+    height: size,
+    borderRadius: size / 2,
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: '0 0 auto',
+  };
+  if (!uri) {
+    return el(
+      'div',
+      {
+        ...base,
+        backgroundColor: rgba(PALETTE.paperDeep, 0.9),
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: rgba(PALETTE.inkFaint, 1),
+        fontSize: Math.round(size * 0.38),
+        fontWeight: 600,
+        color: PALETTE.inkSoft,
+      },
+      nameInitial(name),
+    );
+  }
+  return el('img', { width: size, height: size, borderRadius: size / 2, src: uri });
+}
+
 // ---- 长图（satori → PNG）------------------------------------------------
 
 /** 长图单张卡片的画幅（9:16 竖屏，适合分享）。 */
@@ -37,6 +127,21 @@ const PNG_SCALE = 2;
 
 type El = { type: string; props: Record<string, unknown> };
 function el(type: string, style: Record<string, unknown>, children?: unknown): El {
+  // satori 的 <img> 元素属性（src / alt / title）在 props 顶层，不是 style ——
+  // 其余几何量仍走 style。不在这里拆开的话，整张长图会在预热阶段报
+  // "Image source is not provided"。
+  if (type === 'img') {
+    const { src, alt, title, ...imgStyle } = style;
+    return {
+      type,
+      props: {
+        ...(src ? { src } : {}),
+        ...(alt != null ? { alt } : {}),
+        ...(title != null ? { title } : {}),
+        style: imgStyle,
+      },
+    };
+  }
   // satori 只认 Flexbox：<div> 一旦带元素 / 数组子节点，就必须显式声明
   // `display: flex`（或 none），否则渲染直接抛错。未声明时在这里补上默认值，
   // 语义与 satori 之前把 div 默认当 flex 容器一致，也避免各页漏写。
@@ -369,36 +474,33 @@ function overviewTree(data: Record<string, unknown>): El {
 /**
  * 装扮页的长图版。
  *
- * 与 HTML 导出同一个取舍（见 exportHtml.ts 的 dressSlide）：屏幕上那页的主角是真实
- * 渲染的气泡贴图 + 头像挂件，而 satori 只画传进来的这棵树 —— 贴图要先读盘再内联，
- * 一张 9:16 长图会因此涨到几十 MB。
- *
- * 所以长图版换的是皮不是骨：单位仍然是「一套」，主角仍是最爱的那一身，回忆仍是当年
- * 真说过的话，只是气泡改用排印的引号来盛。装扮编号一律不出现。
+ * satori 没有 border-image，真实气泡九宫格不能像 HTML 那样按切片拉 —— 这里把
+ * 资源内联后按原图等比展示（objectFit: contain），宁可「整张贴图」也不退回纯文字。
+ * 主体与展柜同一屏：左栏是穿得最多的一身（真气泡 + 巨数），右栏三类单品收在
+ * 带细边框的柜子里。字体/挂件资源缺席时退回名字，版式不塌。
  */
 function dressTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const decorated = Number(data.decorated ?? 0);
   const totalSent = Number(data.totalSent ?? 0);
-  const coverage = totalSent > 0 ? Math.round((decorated / totalSent) * 100) : 0;
+  const coverageRaw = totalSent > 0 ? (decorated / totalSent) * 100 : 0;
+  const coverage = Math.round(coverageRaw);
+  const coverageText = coverage > 0 ? fmt(coverage) : coverageRaw > 0 ? '<1' : '0';
 
   type Outfit = {
     key: string;
     count: number;
     samples: string[];
+    bubbleId?: number;
+    widgetId?: number;
     bubbleName: string;
     fontName: string;
     widgetName: string;
   };
+  type KindItem = { itemId: number; name: string; count: number };
   const outfits = (data.outfits ?? []) as Outfit[];
   const hero = outfits[0];
-  // 「换过几身」读服务端下发的总数：`outfits` 有 JSON 体积护栏，会被截断。
   const outfitCount = Number(data.outfitCount ?? outfits.length);
-  const kinds = [
-    ['气泡', Number((data.bubble as { distinct?: number } | undefined)?.distinct ?? 0)],
-    ['字体', Number((data.font as { distinct?: number } | undefined)?.distinct ?? 0)],
-    ['挂件', Number((data.widget as { distinct?: number } | undefined)?.distinct ?? 0)],
-  ] as const;
   const heroLine = hero
     ? hero.samples.reduce((best, s) => (s.length > best.length ? s : best), '')
     : '';
@@ -411,70 +513,287 @@ function dressTree(data: Record<string, unknown>): El {
         .filter(Boolean)
         .join(' · ')
     : '';
+  const heroBubble =
+    hero && Number(hero.bubbleId) > 0
+      ? inlineLongImageAsset(reportDressBubbleUrl(Number(hero.bubbleId)))
+      : null;
 
-  return slideFrame(
+  /** 展柜的一格：类别名 + 几款单品。 */
+  const showcase = (
     [
+      ['bubble', '气泡', '款', '用过'],
+      ['font', '字体', '款', '用过'],
+      ['widget', '挂件', '款', '戴过'],
+    ] as const
+  ).map(([kindKey, title, unit, verb]) => {
+    const kind = (data[kindKey] ?? {}) as {
+      distinct?: number;
+      items?: KindItem[];
+    };
+    const items = (kind.items ?? []).slice(0, 4);
+    const more = Math.max(0, Number(kind.distinct ?? items.length) - items.length);
+    const tiles = items.map((item) => {
+      let art: El;
+      if (kindKey === 'bubble') {
+        const uri =
+          Number(item.itemId) > 0
+            ? inlineLongImageAsset(reportDressBubbleUrl(Number(item.itemId)))
+            : null;
+        art = uri
+          ? el('img', { width: 110, height: 56, src: uri, objectFit: 'contain' })
+          : el('div', { fontSize: 16, color: PALETTE.inkFaint, letterSpacing: 2 }, '气泡');
+      } else if (kindKey === 'font') {
+        art = el(
+          'div',
+          {
+            fontSize: 22,
+            fontWeight: 600,
+            color: PALETTE.ink,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 108,
+          },
+          fitName(item.name || '这款字', 10),
+        );
+      } else {
+        const uri =
+          Number(item.itemId) > 0
+            ? inlineLongImageAsset(reportDressPendantUrl(Number(item.itemId), 1))
+            : null;
+        art = uri
+          ? el('img', { width: 64, height: 64, src: uri, objectFit: 'contain' })
+          : el('div', { fontSize: 15, color: PALETTE.inkFaint, letterSpacing: 2 }, '挂件');
+      }
+      return el(
+        'div',
+        {
+          width: 142,
+          boxSizing: 'border-box',
+          padding: '12px 6px 8px',
+          borderWidth: 1,
+          borderStyle: 'solid',
+          borderColor: PALETTE.hair,
+          borderRadius: 4,
+          backgroundColor: PALETTE.paper,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        },
+        [
+          el(
+            'div',
+            {
+              height: 64,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'visible',
+            },
+            [art],
+          ),
+          el(
+            'div',
+            {
+              marginTop: 6,
+              maxWidth: 128,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 13,
+              color: PALETTE.inkMuted,
+              letterSpacing: 1,
+            },
+            fitName(item.name || `这款${title}`, 9),
+          ),
+          el(
+            'div',
+            { marginTop: 2, fontSize: 12, color: PALETTE.inkFaint, letterSpacing: 1 },
+            `${verb} ${fmt(Number(item.count ?? 0))} 次`,
+          ),
+        ],
+      );
+    });
+    if (more > 0) {
+      tiles.push(
+        el(
+          'div',
+          {
+            width: 142,
+            boxSizing: 'border-box',
+            padding: '20px 6px',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: PALETTE.hair,
+            borderRadius: 4,
+            backgroundColor: PALETTE.paper,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: PALETTE.inkFaint,
+          },
+          [
+            el('div', { fontSize: 22, fontWeight: 700 }, `+${fmt(more)}`),
+            el('div', { marginTop: 2, fontSize: 12, letterSpacing: 2 }, unit),
+          ],
+        ),
+      );
+    }
+    const head = el('div', { display: 'flex', alignItems: 'baseline' }, [
       el(
         'div',
-        { fontSize: 40, color: PALETTE.accent, letterSpacing: 10 },
-        `${reportEraLabel(year)}，我最爱这身装扮`,
+        { width: 64, fontSize: 18, fontWeight: 700, color: PALETTE.inkSoft, letterSpacing: 5 },
+        title,
       ),
-      ...(heroLine
-        ? [
+      el(
+        'div',
+        { marginLeft: 12, fontSize: 13, color: PALETTE.inkFaint, letterSpacing: 2 },
+        `${fmt(Number(kind.distinct ?? items.length))} ${unit}`,
+      ),
+    ]);
+    return el(
+      'div',
+      {
+        width: '100%',
+        paddingTop: 12,
+        paddingBottom: 10,
+        borderTopWidth: 1,
+        borderTopStyle: 'solid',
+        borderTopColor: PALETTE.hair,
+        display: 'flex',
+        flexDirection: 'column',
+      },
+      [
+        head,
+        el(
+          'div',
+          {
+            marginTop: 12,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+          },
+          tiles.length > 0
+            ? tiles
+            : el(
+                'div',
+                { fontSize: 15, color: PALETTE.inkFaint, letterSpacing: 2 },
+                `这一年没有换过新的${title}，一直保持原样。`,
+              ),
+        ),
+      ],
+    );
+  });
+
+  const heroCol = hero
+    ? [
+        el('div', { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }, [
+          heroBubble
+            ? el('img', { width: 280, height: 110, src: heroBubble, objectFit: 'contain' })
+            : heroLine
+              ? el(
+                  'div',
+                  {
+                    marginTop: 8,
+                    fontSize: 40,
+                    fontWeight: 700,
+                    color: PALETTE.ink,
+                    lineHeight: 1.5,
+                  },
+                  `“${heroLine}”`,
+                )
+              : el('div', { fontSize: 20, color: PALETTE.inkFaint }, '这一年，我最爱这身。'),
+          el('div', { marginTop: 26, display: 'flex', alignItems: 'baseline' }, [
             el(
               'div',
               {
-                marginTop: 40,
-                fontSize: 72,
+                fontSize: Number(hero.count) >= 100000 ? 78 : 104,
                 fontWeight: 700,
                 color: PALETTE.ink,
-                lineHeight: 1.45,
+                lineHeight: 1,
+                letterSpacing: -3,
               },
-              `“${heroLine}”`,
+              fmt(Number(hero.count ?? 0)),
             ),
-          ]
-        : []),
-      ...(hero
-        ? [
-            el('div', { marginTop: 30, display: 'flex', alignItems: 'baseline' }, [
-              el(
-                'div',
-                { fontSize: 128, fontWeight: 700, color: PALETTE.ink, letterSpacing: -4 },
-                fmt(hero.count),
-              ),
-              el(
-                'div',
-                { marginLeft: 22, fontSize: 34, color: PALETTE.inkMuted, letterSpacing: 6 },
-                '条消息使用这身装扮',
-              ),
-            ]),
-          ]
-        : []),
-      ...(wornAs
-        ? [el('div', { marginTop: 10, fontSize: 26, color: PALETTE.inkSoft }, wornAs)]
-        : []),
-      el('div', { marginTop: 40, width: SLIDE_W - 144, height: 1, backgroundColor: PALETTE.hair }),
-      el(
-        'div',
-        { marginTop: 26, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 2 },
-        `总共换过 ${fmt(outfitCount)} 身，打扮了 ${fmt(decorated)} 条消息${
-          coverage > 0 ? `（占你发言的 ${coverage}%）` : ''
-        }`,
-      ),
-      // 用过几款：与屏幕版数据带前三类同一份数字。一款都没有的类目这里不出现。
-      ...(kinds.some(([, n]) => n > 0)
-        ? [
             el(
               'div',
-              { marginTop: 12, display: 'flex', fontSize: 26, color: PALETTE.inkSoft },
-              kinds
-                .filter(([, n]) => n > 0)
-                .map(([label, n], index) =>
-                  el('div', index === 0 ? {} : { marginLeft: 26 }, `${label} ${fmt(n)} 款`),
-                ),
+              { marginLeft: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 5 },
+              '条消息 · 穿这身',
             ),
-          ]
-        : []),
+          ]),
+          el(
+            'div',
+            { marginTop: 10, fontSize: 17, color: PALETTE.inkFaint, letterSpacing: 2 },
+            `全年 ${coverageText}% 的发言带着装扮 · 换过 ${fmt(outfitCount)} 身`,
+          ),
+          wornAs
+            ? el(
+                'div',
+                {
+                  marginTop: 10,
+                  fontSize: 15,
+                  color: PALETTE.inkMuted,
+                  letterSpacing: 1,
+                },
+                fitName(wornAs, 22),
+              )
+            : null,
+        ]),
+      ]
+    : [];
+
+  return slideFrame(
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+        el(
+          'div',
+          { fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 8 },
+          `${reportEraLabel(year)} · 我最爱这身装扮`,
+        ),
+        el(
+          'div',
+          { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `打扮了 ${fmt(decorated)} 条消息`,
+        ),
+      ]),
+      el('div', { marginTop: 48, display: 'flex', alignItems: 'center', gap: 44 }, [
+        el(
+          'div',
+          { width: 400, flex: '0 0 400px', display: 'flex', flexDirection: 'column' },
+          heroCol,
+        ),
+        el(
+          'div',
+          {
+            flex: 1,
+            minWidth: 0,
+            boxSizing: 'border-box',
+            padding: '16px 18px 8px',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: rgba(PALETTE.accent, 0.28),
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'rgba(244,240,230,0.02)',
+          },
+          [
+            el('div', { display: 'flex', alignItems: 'baseline', gap: 12 }, [
+              el(
+                'div',
+                { fontSize: 24, fontWeight: 700, color: PALETTE.ink, letterSpacing: 8 },
+                '装扮展柜',
+              ),
+              el(
+                'div',
+                { fontSize: 15, color: PALETTE.inkFaint, letterSpacing: 3 },
+                '用过的，都值得收好',
+              ),
+            ]),
+            ...showcase,
+          ],
+        ),
+      ]),
     ],
     isAllTimeYear(year) ? 'ALL' : String(year),
   );
@@ -688,16 +1007,19 @@ function cellEl(level: number): El {
 /**
  * 好友榜页的长图版。
  *
- * satori 不取远程图，头像画不出来（屏幕版走的是 `weq-media://` 本地缓存协议），
- * 所以一律去脸。但**两幕的形状必须保留**：火花是横向引线（长度 = 天数）、
- * 消息量是纵向柱阵（高度 = 条数）—— 那是这一页区别于其它页的全部理由。
- *
- * satori 不支持 repeating-linear-gradient，柱身的「一层层消息」改用一叠等高
- * 小格子真的堆出来（每格 6px + 3px 缝），视觉目的一致而且更实在。
+ * 头像在预热到 data URI 时真实内联（缺席回衬线首字圆牌），火花 / 消息两幕的
+ * 形状仍是主角：横向引线（长度 = 天数）+ 纵向柱阵（高度 = 条数）。
+ * satori 不支持 repeating-linear-gradient，柱身用一叠等高小格子真的堆出来。
  */
 function friendsTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
-  type Entry = { peerName: string; value: number; messages: number };
+  type Entry = {
+    peerUin?: string;
+    peerUid?: string;
+    peerName: string;
+    value: number;
+    messages: number;
+  };
   const sparkTop = (data.sparkTop ?? []) as Entry[];
   const messageTop = (data.messageTop ?? []) as Entry[];
   const friendCount = Number(data.friendCount ?? 0);
@@ -731,17 +1053,24 @@ function friendsTree(data: Record<string, unknown>): El {
             width: TRACK_W,
           },
           [
-            el('div', { display: 'flex', flexDirection: 'column' }, [
-              el(
-                'div',
-                { fontSize: 38, color: PALETTE.ink, letterSpacing: 3 },
-                champSpark.peerName,
+            el('div', { display: 'flex', alignItems: 'center', gap: 18 }, [
+              longAvatar(
+                champSpark.peerUin ?? champSpark.peerUid,
+                String(champSpark.peerName ?? ''),
+                84,
               ),
-              el(
-                'div',
-                { marginTop: 6, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 4 },
-                `${fmt(champSpark.messages)} 条私聊`,
-              ),
+              el('div', { display: 'flex', flexDirection: 'column' }, [
+                el(
+                  'div',
+                  { fontSize: 38, color: PALETTE.ink, letterSpacing: 3 },
+                  champSpark.peerName,
+                ),
+                el(
+                  'div',
+                  { marginTop: 6, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 4 },
+                  `${fmt(champSpark.messages)} 条私聊`,
+                ),
+              ]),
             ]),
             el('div', { display: 'flex', alignItems: 'baseline' }, [
               el(
@@ -975,8 +1304,8 @@ function friendsTree(data: Record<string, unknown>): El {
 }
 
 /**
- * 谁先开口页的长图版。satori 不取头像（`weq-media://` 画不出来），三位朋友
- * 就只用名字写进句子；轨上的星标没有动画，直接落在你先开口的比例处 —— 巨数、
+ * 谁先开口页的长图版。头像在预热到 data URI 时真实内联（缺席回名字/首字），
+ * 轨上的星标没有动画，直接落在你先开口的比例处 —— 巨数、
  * 一句裁决和一枚指向「TA / 我」之间的光点，就是这一页的全部。
  */
 function openersTree(data: Record<string, unknown>): El {
@@ -1433,9 +1762,8 @@ function padHour(hour: number): string {
 /**
  * 我的话页的长图版。
  *
- * 长图同样画不了协议图（weq-asset / weq-media），所以与 HTML 导出版同一取舍：
- * 那句说熟了的词是整页唯一主角，系统表情榜与自定义表情退成名字次数的小注脚。
- * 词越大越居中，重复就有多重。
+ * 那句话依然是整页唯一主角；系统表情 / 自定义表情在预热到 data URI 时内联成
+ * 真实贴图，缺席时退成名字次数的小注脚。词越大越居中，重复就有多重。
  */
 function voiceTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
@@ -1444,12 +1772,21 @@ function voiceTree(data: Record<string, unknown>): El {
   const faceTotal = Number(data.faceTotal ?? 0);
   const picTotal = Number(data.picTotal ?? 0);
   const word = (data.word ?? null) as { word?: string; count?: number } | null;
-  const faces = (data.faces ?? []) as Array<{ name?: string; count?: number }>;
+  const faces = (data.faces ?? []) as Array<{ faceId?: number; name?: string; count?: number }>;
   const topFaces = faces.slice(0, 4);
-  const pic = (data.pic ?? null) as { count?: number } | null;
+  const pic = (data.pic ?? null) as {
+    count?: number;
+    sendTimeMs?: unknown;
+    fileName?: unknown;
+    fileToken?: unknown;
+    md5?: unknown;
+    originalUrl?: unknown;
+    subType?: unknown;
+  } | null;
   const heroWord = String(word?.word ?? '……');
   const heroCount = Number(word?.count ?? 0);
-  const faceFontSizes = [56, 44, 38, 32];
+  const faceSizes = [148, 106, 88, 80];
+  const picImg = pic ? inlineLongImageAsset(reportCustomPicUrl(pic)) : null;
 
   const center = el(
     'div',
@@ -1566,22 +1903,51 @@ function voiceTree(data: Record<string, unknown>): El {
                                     alignItems: 'center',
                                   },
                                   [
+                                    (() => {
+                                      const uri =
+                                        Number(face.faceId) > 0
+                                          ? inlineLongImageAsset(
+                                              reportEmojiFaceUrl(Number(face.faceId)),
+                                            )
+                                          : null;
+                                      const size = faceSizes[index] ?? 72;
+                                      return uri
+                                        ? el('img', {
+                                            width: size,
+                                            height: size,
+                                            src: uri,
+                                            objectFit: 'contain',
+                                          })
+                                        : el(
+                                            'div',
+                                            {
+                                              width: size,
+                                              height: size,
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              fontSize: Math.round(size * 0.28),
+                                              fontWeight: 700,
+                                              color: PALETTE.ink,
+                                            },
+                                            String(face.name ?? '表情'),
+                                          );
+                                    })(),
                                     el(
                                       'div',
                                       {
-                                        fontSize: faceFontSizes[index] ?? 32,
-                                        fontWeight: 700,
-                                        color: PALETTE.ink,
-                                        lineHeight: 1.1,
-                                        letterSpacing: index === 0 ? 1 : 0,
+                                        marginTop: index === 0 ? 18 : 10,
+                                        fontSize: 21,
+                                        color: PALETTE.inkMuted,
+                                        fontWeight: 600,
                                       },
                                       String(face.name ?? '表情'),
                                     ),
                                     el(
                                       'div',
                                       {
-                                        marginTop: 10,
-                                        fontSize: 21,
+                                        marginTop: 4,
+                                        fontSize: 19,
                                         color: PALETTE.inkFaint,
                                       },
                                       `${fmt(Number(face.count ?? 0))} 次`,
@@ -1621,16 +1987,43 @@ function voiceTree(data: Record<string, unknown>): El {
                               'div',
                               {
                                 marginTop: 24,
-                                fontSize: 38,
-                                fontWeight: 700,
-                                color: PALETTE.ink,
-                                letterSpacing: 2,
+                                width: 190,
+                                height: 190,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: 8,
+                                backgroundColor: rgba(PALETTE.voice, 0.08),
+                                borderWidth: 1,
+                                borderStyle: 'solid',
+                                borderColor: rgba(PALETTE.voice, 0.24),
                               },
-                              '这张图，替你说了很多次话',
+                              picImg
+                                ? el('img', {
+                                    width: 160,
+                                    height: 160,
+                                    src: picImg,
+                                    objectFit: 'contain',
+                                  })
+                                : el(
+                                    'div',
+                                    {
+                                      fontSize: 28,
+                                      fontWeight: 700,
+                                      color: PALETTE.ink,
+                                      textAlign: 'center',
+                                    },
+                                    '自定义表情',
+                                  ),
                             ),
                             el(
                               'div',
-                              { marginTop: 10, fontSize: 21, color: PALETTE.inkFaint },
+                              {
+                                marginTop: 12,
+                                fontSize: 19,
+                                color: PALETTE.inkFaint,
+                                letterSpacing: 1,
+                              },
                               `${fmt(Number(pic.count ?? 0))} 次`,
                             ),
                           ],
@@ -2023,7 +2416,7 @@ function interactionsTree(data: Record<string, unknown>): El {
       heroNum = atTotal;
       heroUnit = '次';
       heroNote = atTop
-        ? `被你喊得最响的是 ${fit(String(atTop.name ?? ''), 12)} · ${fmt(
+        ? `名字喊得最响的是 ${fit(String(atTop.name ?? ''), 12)} · ${fmt(
             Number(atTop.count ?? 0),
           )} 次——@ 是怕你错过，才把名字放到人前。`
         : '这一年你 @ 得不多——但每一次，都是怕有人错过。';
@@ -2043,7 +2436,7 @@ function interactionsTree(data: Record<string, unknown>): El {
       heroNum = pokeTotal;
       heroUnit = '次';
       heroNote = pokeTop
-        ? `最常吃你一戳的是 ${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
+        ? `最常被你戳到 ${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
             Number(pokeTop.count ?? 0),
           )} 次——戳一戳是最轻的搭话。`
         : '这一年你伸出的手不多——但每一下，都先越过了屏幕。';
@@ -2070,22 +2463,9 @@ function interactionsTree(data: Record<string, unknown>): El {
     }
   }
 
-  /** 一行事实：标记在左，主句 + 小注在右。satori 没有网格，用两层 flex。 */
-  const factRow = (mark: string, label: string, main: El[], sub: string): El =>
+  /** 一行事实：标签在左，主句 + 小注在右。satori 没有网格，用两层 flex。 */
+  const factRow = (_mark: string, label: string, main: El[], sub: string): El =>
     el('div', { marginTop: 42, display: 'flex', width: SLIDE_W - 144 }, [
-      el(
-        'div',
-        {
-          width: 116,
-          display: 'flex',
-          justifyContent: 'center',
-          fontSize: 64,
-          fontWeight: 700,
-          color: rgba(PALETTE.buzz, 0.52),
-          lineHeight: 1,
-        },
-        mark,
-      ),
       el('div', { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }, [
         el('div', { display: 'flex', alignItems: 'baseline', minWidth: 0 }, [
           el(
@@ -2211,9 +2591,9 @@ function interactionsTree(data: Record<string, unknown>): El {
         ),
         hair(74),
         factRow(
-          '戳',
-          '伸手',
-          [tailEl('我发起过'), countEl(pokeTotal), tailEl('次戳一戳')],
+          '',
+          '戳一戳',
+          [tailEl('我发起过'), countEl(pokeTotal), tailEl('次')],
           pokeTop
             ? `最常吃你一戳的：${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
                 Number(pokeTop.count ?? 0),
@@ -2221,8 +2601,8 @@ function interactionsTree(data: Record<string, unknown>): El {
             : '这一年，你的手指还没养成戳人的习惯。',
         ),
         factRow(
-          '@',
-          '点名',
+          '',
+          '@ 提及',
           [tailEl('我 @ 过别人'), countEl(atTotal), tailEl('次')],
           atTop
             ? `被你喊得最响的：${fit(String(atTop.name ?? ''), 12)} · ${fmt(
@@ -2231,19 +2611,19 @@ function interactionsTree(data: Record<string, unknown>): El {
             : '这一年，你还不太习惯在人群里喊出某个名字。',
         ),
         factRow(
-          '呼',
-          '被惦记',
+          '',
+          '被 @',
           atMeTop
-            ? [tailEl('被 @ 最多的群是'), nameEl(String(atMeTop.groupName ?? ''))]
+            ? [tailEl('最多在'), nameEl(String(atMeTop.groupName ?? ''))]
             : [tailEl('这一年，还没有哪个群反复喊你的名字')],
           atMeTop
             ? `那里有 ${fmt(Number(atMeTop.count ?? 0))} 次，有人在人群里，专门喊了你的名字。`
             : '下一次开场，从你 @ 别人开始。',
         ),
         factRow(
-          '齐',
-          '齐声',
-          [tailEl('我跟过'), countEl(echoParticipated), tailEl('场复读')],
+          '',
+          '复读',
+          [tailEl('我跟过'), countEl(echoParticipated), tailEl('场')],
           echoLongest
             ? `最长一轮在 ${fit(String(echoLongest.groupName ?? ''), 12)}：${fmt(
                 Number(echoLongest.count ?? 0),
@@ -2298,6 +2678,7 @@ function monthsTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const champion = (data.champion ?? null) as {
     peerUid?: string;
+    peerUin?: string;
     peerName?: string;
     messages?: number;
   } | null;
@@ -2311,6 +2692,7 @@ function monthsTree(data: Record<string, unknown>): El {
     month?: number;
     top?: { peerUid?: string; peerName?: string; messages?: number } | null;
   }>;
+  const nearTwelve = carryover.length > 0;
   /** 去年尾部月份 + 今年：9 月报告 = 去年 10/11/12 + 今年 1..9，正好 12 格。 */
   const cells = [...carryover.map((cell) => ({ ...cell, carried: true as const })), ...months];
   const labels = [
@@ -2440,23 +2822,11 @@ function monthsTree(data: Record<string, unknown>): El {
             ),
             el(
               'div',
-              {
-                marginTop: 26,
-                width: 132,
-                height: 132,
-                borderRadius: 66,
-                backgroundColor: rgba(PALETTE.rose, 0.12),
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderStyle: 'solid',
-                borderColor: rgba(PALETTE.rose, 0.7),
-              },
-              el(
-                'div',
-                { fontSize: 58, fontWeight: 600, color: PALETTE.ink },
-                nameInitial(String(champion.peerName ?? '')),
+              { marginTop: 26, display: 'flex' },
+              longAvatar(
+                champion.peerUin ?? champion.peerUid,
+                String(champion.peerName ?? ''),
+                132,
               ),
             ),
             el(
@@ -2503,10 +2873,10 @@ function monthsTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
-              championCells >= monthCount
+              championCells >= monthCount && !nearTwelve
                 ? '一整年，十二个月，TA 从没把第一让给过任何人。'
                 : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
-                    monthCount < 12 ? '今年' : '全年'
+                    nearTwelve ? '近 12 个月' : monthCount < 12 ? '今年' : '全年'
                   }和你聊了 ${fmt(Number(champion.messages ?? 0))} 句。`,
             ),
           ]
@@ -2565,14 +2935,37 @@ function monthsTree(data: Record<string, unknown>): El {
 function mateTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const top = (data.top ?? null) as {
+    uid?: string;
+    uin?: string;
     name?: string;
     sharedCount?: number;
+    score?: number;
     groups?: Array<{ groupName?: string }>;
   } | null;
   const more = (data.more ?? []) as Array<{
+    uid?: string;
+    uin?: string;
     name?: string;
     sharedCount?: number;
+    score?: number;
   }>;
+  const allCopy: MateCopyCandidate[] = top
+    ? [
+        {
+          name: String(top.name ?? ''),
+          sharedCount: Number(top.sharedCount ?? 0),
+          score: Number(top.score ?? 0),
+        },
+        ...more.map((item) => ({
+          name: String(item.name ?? ''),
+          sharedCount: Number(item.sharedCount ?? 0),
+          score: Number(item.score ?? 0),
+        })),
+      ]
+    : [];
+  const topCopy: MateCopyCandidate | null = top ? (allCopy[0] ?? null) : null;
+  const fmtScore = (value: number): string =>
+    value >= 100 ? fmt(Math.round(value)) : value.toFixed(value >= 10 ? 1 : 2);
 
   const ringDots: El[] = [];
   for (let index = 0; index < 8; index++) {
@@ -2638,30 +3031,14 @@ function mateTree(data: Record<string, unknown>): El {
             ),
             el(
               'div',
-              {
-                marginTop: 26,
-                width: 152,
-                height: 152,
-                borderRadius: 76,
-                backgroundColor: rgba(PALETTE.jade, 0.12),
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderStyle: 'solid',
-                borderColor: rgba(PALETTE.jade, 0.72),
-              },
-              el(
-                'div',
-                { fontSize: 64, fontWeight: 600, color: PALETTE.ink },
-                nameInitial(String(top.name ?? '')),
-              ),
+              { marginTop: 24, display: 'flex' },
+              longAvatar(top.uin ?? top.uid, String(top.name ?? ''), 118),
             ),
             el(
               'div',
               {
-                marginTop: 22,
-                fontSize: 54,
+                marginTop: 16,
+                fontSize: 42,
                 fontWeight: 600,
                 color: PALETTE.ink,
                 letterSpacing: 2,
@@ -2672,7 +3049,7 @@ function mateTree(data: Record<string, unknown>): El {
               el(
                 'div',
                 {
-                  fontSize: Number(top.sharedCount ?? 0) >= 100 ? 118 : 150,
+                  fontSize: Number(top.sharedCount ?? 0) >= 100 ? 92 : 116,
                   fontWeight: 700,
                   color: PALETTE.jade,
                   lineHeight: 1,
@@ -2689,10 +3066,10 @@ function mateTree(data: Record<string, unknown>): El {
                   alignItems: 'flex-start',
                 },
                 [
-                  el('div', { fontSize: 36, fontWeight: 600, color: PALETTE.ink }, '个群'),
+                  el('div', { fontSize: 28, fontWeight: 600, color: PALETTE.ink }, '个群'),
                   el(
                     'div',
-                    { marginTop: 6, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 5 },
+                    { marginTop: 4, fontSize: 14, color: PALETTE.inkMuted, letterSpacing: 5 },
                     '里有 TA',
                   ),
                 ],
@@ -2700,26 +3077,69 @@ function mateTree(data: Record<string, unknown>): El {
             ]),
             el(
               'div',
-              { marginTop: 14, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+              { marginTop: 10, fontSize: 22, color: PALETTE.inkMuted, letterSpacing: 2 },
               `你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了 ${fmt(
                 Number(top.sharedCount ?? 0),
               )} 次。`,
             ),
+            topCopy
+              ? el(
+                  'div',
+                  {
+                    marginTop: 22,
+                    maxWidth: SLIDE_W - 300,
+                    boxSizing: 'border-box',
+                    padding: '16px 22px',
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: rgba(PALETTE.jade, 0.24),
+                    backgroundColor: rgba(PALETTE.paper, 0.55),
+                    borderRadius: 4,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  },
+                  [
+                    el(
+                      'div',
+                      {
+                        fontSize: 21,
+                        fontWeight: 700,
+                        color: PALETTE.inkSoft,
+                        letterSpacing: 3,
+                      },
+                      fitName(mateHeadline(topCopy, 0), 34),
+                    ),
+                    el(
+                      'div',
+                      {
+                        marginTop: 10,
+                        fontSize: 20,
+                        lineHeight: 1.8,
+                        letterSpacing: 1,
+                        color: PALETTE.inkMuted,
+                        textAlign: 'left',
+                        whiteSpace: 'pre-line',
+                      },
+                      mateAnalysisText(topCopy, 0, allCopy),
+                    ),
+                  ],
+                )
+              : null,
             el('div', {
-              marginTop: 42,
+              marginTop: 24,
               width: SLIDE_W - 144,
               height: 1,
               backgroundColor: PALETTE.hair,
             }),
             el(
               'div',
-              { marginTop: 26, fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
+              { marginTop: 18, fontSize: 16, color: PALETTE.inkFaint, letterSpacing: 8 },
               '你们这些共同出没的地方',
             ),
             el(
               'div',
               {
-                marginTop: 18,
+                marginTop: 14,
                 display: 'flex',
                 flexWrap: 'wrap',
                 justifyContent: 'center',
@@ -2757,72 +3177,107 @@ function mateTree(data: Record<string, unknown>): El {
         ? [
             el(
               'div',
-              { marginTop: 34, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              { marginTop: 20, display: 'flex', flexDirection: 'column', alignItems: 'center' },
               [
-                el('div', {
-                  width: SLIDE_W - 144,
-                  height: 1,
-                  backgroundColor: PALETTE.hair,
-                }),
                 el(
                   'div',
                   {
-                    marginTop: 28,
+                    marginTop: 2,
+                    fontSize: 16,
+                    color: PALETTE.inkFaint,
+                    letterSpacing: 6,
+                  },
+                  '榜单上的其他同路人',
+                ),
+                el(
+                  'div',
+                  {
+                    marginTop: 16,
                     display: 'flex',
                     justifyContent: 'center',
-                    gap: 54,
+                    flexWrap: 'wrap',
+                    gap: 18,
                   },
-                  more.slice(0, 3).map((candidate, index) =>
-                    el('div', { display: 'flex', alignItems: 'center', gap: 12 }, [
-                      el(
-                        'div',
-                        { fontSize: 18, fontWeight: 600, color: PALETTE.inkFaint },
-                        `0${index + 2}`,
-                      ),
-                      el(
-                        'div',
-                        {
-                          width: 48,
-                          height: 48,
-                          borderRadius: 24,
-                          borderWidth: 1,
-                          borderStyle: 'solid',
-                          borderColor: rgba(PALETTE.jade, 0.48),
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        },
+                  more.map((candidate, index) => {
+                    const copy = allCopy[index + 1] ?? {
+                      name: String(candidate.name ?? ''),
+                      sharedCount: Number(candidate.sharedCount ?? 0),
+                      score: Number(candidate.score ?? 0),
+                    };
+                    return el(
+                      'div',
+                      {
+                        width: 428,
+                        boxSizing: 'border-box',
+                        padding: '12px 16px',
+                        borderWidth: 1,
+                        borderStyle: 'solid',
+                        borderColor: PALETTE.hair,
+                        borderRadius: 4,
+                        backgroundColor: 'rgba(244,240,230,0.02)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                      },
+                      [
+                        el('div', { display: 'flex', alignItems: 'center' }, [
+                          el(
+                            'div',
+                            {
+                              fontSize: 17,
+                              fontWeight: 700,
+                              color: PALETTE.inkFaint,
+                              letterSpacing: 1,
+                            },
+                            `${String(index + 2).padStart(2, '0')}`,
+                          ),
+                          el('div', { marginLeft: 12, display: 'flex' }, [
+                            longAvatar(
+                              candidate.uin ?? candidate.uid,
+                              String(candidate.name ?? ''),
+                              44,
+                            ),
+                          ]),
+                          el(
+                            'div',
+                            {
+                              marginLeft: 12,
+                              maxWidth: 200,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: 21,
+                              fontWeight: 600,
+                              color: PALETTE.inkSoft,
+                              letterSpacing: 1,
+                            },
+                            fitName(String(candidate.name ?? ''), 12),
+                          ),
+                          el('div', { flex: 1 }),
+                          el(
+                            'div',
+                            { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 1 },
+                            `${fmt(Number(candidate.sharedCount ?? 0))} 个群 · 指数 ${fmtScore(
+                              Number(candidate.score ?? 0),
+                            )}`,
+                          ),
+                        ]),
                         el(
                           'div',
-                          { fontSize: 20, fontWeight: 600, color: PALETTE.inkSoft },
-                          nameInitial(String(candidate.name ?? '')),
+                          {
+                            marginTop: 10,
+                            fontSize: 16,
+                            color: PALETTE.inkMuted,
+                            lineHeight: 1.55,
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          },
+                          mateAnalysisText(copy, index + 1, allCopy).replace(/\s+/g, ' '),
                         ),
-                      ),
-                      el(
-                        'div',
-                        {
-                          maxWidth: 180,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          fontSize: 22,
-                          color: PALETTE.inkSoft,
-                          letterSpacing: 1,
-                        },
-                        fitName(String(candidate.name ?? ''), 10),
-                      ),
-                      el(
-                        'div',
-                        { fontSize: 28, fontWeight: 700, color: PALETTE.jade },
-                        fmt(Number(candidate.sharedCount ?? 0)),
-                      ),
-                      el(
-                        'div',
-                        { fontSize: 16, color: PALETTE.inkFaint, letterSpacing: 2 },
-                        '个群',
-                      ),
-                    ]),
-                  ),
+                      ],
+                    );
+                  }),
                 ),
               ],
             ),
@@ -2833,9 +3288,9 @@ function mateTree(data: Record<string, unknown>): El {
             el(
               'div',
               {
-                marginTop: 42,
+                marginTop: 28,
                 maxWidth: 800,
-                fontSize: 24,
+                fontSize: 22,
                 color: PALETTE.inkSoft,
                 lineHeight: 1.9,
                 letterSpacing: 3,
@@ -3216,7 +3671,11 @@ function treeForSlide(slide: ReportExportSlide): El {
  * 口径文案（历史以来 / xxxx 年）由每页数据里的 `year` 自证，与屏幕版和 HTML
  * 共用 `@weq/service/report-time`，不再靠调用方额外传 `startYear`。
  */
-export async function renderLongImagePng(slides: ReportExportSlide[]): Promise<Buffer> {
+export async function renderLongImagePng(
+  slides: ReportExportSlide[],
+  resolve?: LongImageAssetInliner,
+): Promise<Buffer> {
+  if (resolve) await preloadLongImageAssets(slides, resolve);
   const fontData = loadCjkFont();
   const root = el(
     'div',
@@ -3272,7 +3731,9 @@ export interface ShareProfile {
 export async function renderSharePngs(
   slides: ReportExportSlide[],
   profile: ShareProfile,
+  resolve?: LongImageAssetInliner,
 ): Promise<Buffer[]> {
+  if (resolve) await preloadLongImageAssets(slides, resolve);
   const fontData = loadCjkFont();
   const fonts = [
     { name: 'Report', data: fontData, weight: 400, style: 'normal' },

@@ -15,7 +15,26 @@ import {
   reportPeriodLabel,
   reportSinceLabel,
 } from '@weq/service/report-time';
-import { mediaUrl } from '../../lib/resourceUrl';
+import {
+  createReportAssetUrls,
+  type ReportAssetUrlPrefixes,
+} from '@weq/service/report-assets';
+import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
+
+/** 桌面走自定义协议；web 构建时同一份 HTML 的图片先经 tRPC 拉成 data URI。 */
+const REPORT_URL_PREFIXES: ReportAssetUrlPrefixes =
+  import.meta.env.VITE_WEQ_TARGET === 'web'
+    ? { mediaPrefix: '/_media/', assetPrefix: '/_asset/' }
+    : { mediaPrefix: 'weq-media://', assetPrefix: 'weq-asset://' };
+
+const {
+  reportAvatarUrl,
+  collectReportAssetUrls,
+  reportCustomPicUrl,
+  reportDressBubbleUrl,
+  reportDressPendantUrl,
+  reportEmojiFaceUrl,
+} = createReportAssetUrls(REPORT_URL_PREFIXES);
 
 export type ExportSlide = {
   page: ReportPageManifest;
@@ -198,20 +217,59 @@ const CSS = `
   .sp-unit { font-size: 8pt; color: var(--ink-muted); }
   .sp-note { margin-top: 1mm; font-size: 7pt; color: var(--leaf); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 装扮页。预热成功的导出画真实九宫格气泡（border-image，同屏幕版几何），
-     失败/未预热时退回排印引号（.dr-say）—— 两种表达都不会破版。 */
-  .dr-top { margin-top: 4mm; padding-bottom: 6mm; border-bottom: 0.25mm solid var(--hair); }
+     失败/未预热时退回排印引号（.dr-say）—— 两种表达都不会破版。主体与
+     「装扮展柜」同屏：左栏最爱的一身（真气泡 + 巨数），右栏三类单品收进一格。 */
+  .dr-kicker { margin-top: 1mm; display: flex; align-items: center; gap: 6mm; font-family: var(--serif); font-size: 13pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .dr-kicker-rule { flex: 1; height: 0.25mm; background: linear-gradient(90deg, var(--ink-faint), transparent); }
+  .dr-window { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr); align-items: center; column-gap: 9mm; margin-top: 4mm; }
+  .dr-hero-col { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; }
+  .dr-bubble-line { display: flex; align-items: flex-end; gap: 4mm; }
+  .dr-punch { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2mm 4mm; margin-top: 3mm; }
+  .dr-hero-num { font-family: var(--serif); font-size: 46pt; font-weight: 600; line-height: 1; letter-spacing: -1px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .dr-hero-unit { font-family: var(--serif); font-size: 11pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .dr-hero-mini { margin-top: 1.5mm; font-size: 8.5pt; letter-spacing: 1px; color: var(--ink-faint); }
+  .dr-hero-mini b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
+  .dr-hero-mini i { font-style: normal; margin: 0 2mm; opacity: 0.55; }
+  .dr-showcase { min-width: 0; box-sizing: border-box; padding: 5mm 6mm 3mm; border: 0.25mm solid color-mix(in srgb, var(--accent) 30%, var(--hair)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 38%), color-mix(in srgb, var(--paper-deep) 88%, transparent); }
+  .dr-sh-head { display: flex; align-items: baseline; gap: 4mm; margin-bottom: 1mm; }
+  .dr-sh-head b { font-family: var(--serif); font-size: 12pt; font-weight: 600; letter-spacing: 4px; color: var(--ink); }
+  .dr-sh-head span { font-size: 7pt; letter-spacing: 3px; color: var(--ink-faint); }
+  .dr-shelf { display: grid; grid-template-columns: 22mm minmax(0, 1fr); align-items: center; column-gap: 4mm; padding: 3mm 0; }
+  .dr-shelf + .dr-shelf { border-top: 0.25mm solid var(--hair); }
+  .dr-shelf-label { display: flex; flex-direction: column; gap: 0.8mm; }
+  .dr-shelf-label b { font-size: 9pt; font-weight: 600; letter-spacing: 3px; color: var(--ink-soft); }
+  .dr-shelf-count { display: flex; align-items: baseline; gap: 0.5mm; font-size: 7pt; letter-spacing: 1px; color: var(--ink-faint); }
+  .dr-shelf-count i { font-family: var(--serif); font-size: 13pt; font-weight: 600; font-style: normal; color: var(--ink-soft); }
+  .dr-shelf-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(20mm, 1fr)); gap: 2.5mm; }
+  .dr-item { display: flex; min-width: 0; flex-direction: column; align-items: center; padding: 2mm 1mm 1.5mm; border: 0.2mm solid var(--hair); border-radius: 1.5mm; background: var(--paper); }
+  .dr-item-art { display: flex; align-items: center; justify-content: center; width: 100%; height: 22mm; min-width: 0; }
+  .dr-case-bubble { display: inline-flex; align-items: center; justify-content: center; max-width: 100%; box-sizing: border-box; padding: 2mm 3mm; min-width: 12mm; min-height: 7mm; border-style: solid; border-width: 0; border-image-slice: 48 48 48 48 fill; border-image-width: 2.4mm 2.4mm 2.4mm 2.4mm; border-image-repeat: stretch; font-size: 8pt; color: #16130d; }
+  .dr-font-sample { max-width: 100%; overflow: hidden; color: var(--ink); font-family: var(--serif); font-size: 13pt; text-overflow: ellipsis; white-space: nowrap; }
+  .dr-pendant-art { height: 100%; display: flex; align-items: center; justify-content: center; }
+  .dr-pendant-art img { width: auto; height: 100%; max-height: 20mm; max-width: 24mm; object-fit: contain; }
+  .dr-pendant-art.is-hero { width: 22mm; height: 22mm; flex: 0 0 auto; }
+  .dr-pendant-art.is-hero img { max-height: none; max-width: none; }
+  .dr-hero-note-line { margin: 2mm 0 0; overflow: hidden; font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); text-overflow: ellipsis; white-space: nowrap; }
+  .dr-item-meta { display: flex; flex-direction: column; align-items: center; gap: 0.3mm; margin-top: 1mm; min-width: 0; }
+  .dr-item-name { max-width: 100%; overflow: hidden; font-size: 7pt; letter-spacing: 0.2px; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .dr-item-count { font-size: 6.5pt; letter-spacing: 1px; color: var(--ink-faint); white-space: nowrap; }
+  .dr-item-empty { grid-column: 2; margin: 0; font-family: var(--serif); font-size: 9pt; color: var(--ink-faint); }
+  .dr-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; margin-top: 4mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .dr-foot-note { flex: 1; min-width: 0; overflow: hidden; font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); text-overflow: ellipsis; white-space: nowrap; }
+  .dr-foot-sum { flex: 0 0 auto; font-size: 8.5pt; letter-spacing: 2px; color: var(--ink-soft); }
+  .dr-foot-sum b { font-family: var(--serif); font-size: 13pt; font-weight: 600; color: var(--ink); }
   .dr-bubble {
     display: inline-block;
     align-self: flex-start;
-    max-width: 150mm;
-    padding: 8mm 10mm;
+    max-width: 52mm;
+    padding: 3mm 4mm;
     border-style: solid;
     border-width: 0;
     border-image-slice: 48 48 48 48 fill;
-    border-image-width: 8mm 8mm 8mm 8mm;
+    border-image-width: 3.2mm 3.2mm 3.2mm 3.2mm;
     border-image-repeat: stretch;
     font-family: var(--serif);
-    font-size: 17pt;
+    font-size: 11pt;
     line-height: 1.55;
     letter-spacing: 1px;
     color: #16130d;
@@ -235,12 +293,6 @@ const CSS = `
     font-size: 34pt;
     color: var(--accent);
   }
-  .dr-worn { margin-top: 2mm; font-size: 9pt; letter-spacing: 1px; color: var(--ink-soft); }
-  .dr-sum { margin-top: 5mm; font-size: 9.5pt; letter-spacing: 1px; color: var(--ink-muted); }
-  /* 用过几款：与屏幕版数据带前三类同一份数字，排成一行发丝线分隔的小字
-     （屏幕版的「全年装扮率」一格并入上方 dr-sum）。 */
-  .dr-kinds { margin-top: 3mm; display: flex; gap: 5mm; font-size: 9pt; color: var(--ink-soft); }
-  .dr-kinds span + span { padding-left: 5mm; border-left: 0.25mm solid var(--hair); }
   /* 好友榜页。屏幕版头像走自定义本地缓存协议，导出必须自包含，所以这里
      一律不画脸。但**两幕的形状照旧分开**：火花是横向引线（长度 = 天数），
      消息量是纵向柱阵（高度 = 条数）—— 那才是这一页区别于其它页的地方，
@@ -419,18 +471,24 @@ const CSS = `
   }
   .vc-face-tiles { display: flex; align-items: flex-end; gap: 13mm; }
   .vc-face-tiles .vc-fave { min-width: 0; }
-  .vc-face .vc-fave-name { line-height: 1; }
-  .vc-face.rank-0 .vc-fave-name { font-size: 34pt; }
-  .vc-face.rank-1 .vc-fave-name { font-size: 25pt; }
-  .vc-face.rank-2 .vc-fave-name { font-size: 20pt; }
-  .vc-face.rank-3 .vc-fave-name { font-size: 17pt; }
-  .vc-face.rank-0 .vc-fave-count { font-size: 9pt; }
+  /* 真实表情贴图（data URI 内联）按名次递减；名字退回一行小注。 */
+  .vc-face-art { display: flex; align-items: center; justify-content: center; }
+  .vc-face-art img { width: auto; height: 100%; object-fit: contain; }
+  .vc-face.rank-0 .vc-face-art { height: 27mm; }
+  .vc-face.rank-1 .vc-face-art { height: 20mm; }
+  .vc-face.rank-2 .vc-face-art { height: 16mm; }
+  .vc-face.rank-3 .vc-face-art { height: 14mm; }
+  .vc-face .vc-fave-name { line-height: 1; font-size: 9pt; }
+  .vc-face .vc-fave-count { font-size: 7.5pt; }
   .vc-faves-sep { width: 0.25mm; height: 30mm; background: var(--hair); }
   .vc-fave { display: flex; flex-direction: column; align-items: center; gap: 2mm; }
   .vc-fave-label { font-size: 7.5pt; font-weight: 600; letter-spacing: 4px; color: var(--voice); }
   .vc-fave-name { font-family: var(--serif); font-size: 16pt; font-weight: 600; letter-spacing: 2px; color: var(--ink); }
   .vc-fave-count { font-family: var(--mono); font-size: 8pt; letter-spacing: 1px; color: var(--ink-faint); }
   .vc-fave-count b { font-family: var(--serif); font-size: 13pt; font-weight: 600; color: var(--voice); }
+  /* 自定义表情贴图 */
+  .vc-pic .vc-pic-art { height: 34mm; display: flex; align-items: center; justify-content: center; }
+  .vc-pic .vc-pic-art img { width: auto; height: 100%; max-width: 42mm; object-fit: contain; }
   .vc-mood { margin: 12mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 11pt; line-height: 2; letter-spacing: 2px; color: var(--ink-soft); }
   .vc { --voice: #9a4f3a; }
   @media (prefers-color-scheme: dark) {
@@ -492,21 +550,22 @@ const CSS = `
   .it-hero-note b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--buzz); }
   .it-hero-note .weq-echo-quote { color: var(--ink-soft); }
   .it-score { margin-top: 10mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); text-align: left; }
-  .it-fact { display: grid; grid-template-columns: 10mm 16mm minmax(0, 1fr); column-gap: 3mm; row-gap: 1.4mm; align-items: baseline; padding: 2.7mm 0; }
-  .it-mark { grid-row: 1 / span 2; color: color-mix(in srgb, var(--buzz) 70%, transparent); font-family: var(--serif); font-size: 22pt; font-weight: 600; line-height: 1; text-align: center; }
-  .it-label { font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; color: var(--buzz); }
-  .it-main { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); white-space: nowrap; }
+  /* 与屏幕版同步：四行「发生的事」去掉左侧大字标记，标签 + 主句同行，
+     小注整行换行 —— 静态产物同样不画卡片。 */
+  .it-fact { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5mm; row-gap: 1.5mm; padding: 2.7mm 0; }
+  .it-label { flex: 0 0 25mm; font-size: 8pt; font-weight: 700; letter-spacing: 3px; color: var(--buzz); }
+  .it-main { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); }
   .it-main b { font-family: var(--serif); font-size: 16pt; font-weight: 600; color: var(--buzz); }
   .it-main em { color: var(--buzz); font-style: normal; font-weight: 600; }
-  .it-sub { grid-column: 2 / 4; overflow: hidden; font-family: var(--serif); font-size: 9pt; letter-spacing: 1px; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .it-sub { flex: 1 0 100%; margin-left: 30mm; font-family: var(--serif); font-size: 9pt; line-height: 1.7; letter-spacing: 1px; color: var(--ink-muted); }
   .it-sub em { color: var(--buzz); font-style: normal; font-weight: 600; }
   .it-sub b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
   .it-mood { margin: 5mm auto 0; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-faint); }
   @media (prefers-color-scheme: dark) {
     .it { --buzz: #e79a74; }
   }
-  /* 陪你走过 12 个月页。静态产物画不了头像贴图，年度聊伴退成排版里的大名 +
-     一枚衬线数字；月历仍排成六列两行 —— 属于聊伴的月份染成胭脂色。 */
+  /* 陪你走过 12 个月页。年度聊伴的头像在预热后内联（缺席退衬线首字）；
+     月历六列两行，属于聊伴的月份染成胭脂色。 */
   .mo { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
   .mo { --mo: #a2435d; }
   .mo-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
@@ -586,6 +645,27 @@ const CSS = `
   .mt-more-val { font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--mt); }
   .mt-more-unit { font-size: 7pt; color: var(--ink-faint); }
   .mt-mood { position: relative; z-index: 1; margin: 7mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
+  /* 同路人：排序说明与「其他候选」分析。PDF/HTML 不能点选换人，所以把
+     候选直接排成 2×2 小卡，每张卡给出各自的原因 —— 与屏幕版点选后看到同一段话。 */
+  .mt-rankline { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 4mm; margin-top: 1mm; font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .mt-rankline b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--mt); }
+  .mt-rankline i { font-style: normal; opacity: 0.55; }
+  .mt-why { position: relative; z-index: 1; margin: 6mm auto 0; max-width: 166mm; box-sizing: border-box; padding: 3.5mm 5mm; border: 0.25mm solid color-mix(in srgb, var(--mt) 28%, var(--hair)); background: color-mix(in srgb, var(--paper-deep) 86%, transparent); text-align: left; }
+  .mt-why-title { font-family: var(--serif); font-size: 10.5pt; font-weight: 600; letter-spacing: 2px; color: var(--ink-soft); }
+  .mt-why-copy { margin: 1.5mm 0 0; font-family: var(--serif); font-size: 8.5pt; line-height: 1.8; letter-spacing: 1px; color: var(--ink-muted); white-space: pre-line; }
+  .mt-roster { position: relative; z-index: 1; margin-top: 6mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .mt-roster-in { font-size: 7pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .mt-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm; margin: 3mm 0 0; padding: 0; list-style: none; text-align: left; }
+  .mt-card { box-sizing: border-box; min-width: 0; padding: 2.8mm 3.5mm; border: 0.2mm solid var(--hair); border-radius: 1mm; background: color-mix(in srgb, var(--paper-deep) 82%, transparent); }
+  .mt-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 3mm; margin: 0; }
+  .mt-card-who { display: flex; align-items: center; gap: 2.5mm; min-width: 0; }
+  .mt-card-rank { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
+  .mt-card-name { max-width: 38mm; overflow: hidden; font-family: var(--serif); font-size: 12pt; font-weight: 600; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-card .mt-mini { width: 5mm; height: 5mm; font-size: 2.4mm; }
+  .mt-card-nums { flex: 0 0 auto; font-size: 7.5pt; letter-spacing: 1px; color: var(--ink-faint); white-space: nowrap; }
+  .mt-card-nums b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--mt); }
+  .mt-card-groups { margin: 1.5mm 0 0; overflow: hidden; font-family: var(--serif); font-size: 8pt; line-height: 1.55; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-card-why { margin: 1.2mm 0 0; display: -webkit-box; overflow: hidden; font-family: var(--serif); font-size: 7.5pt; line-height: 1.7; letter-spacing: 0.5px; color: var(--ink-faint); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
   @media (prefers-color-scheme: dark) {
     .mt { --mt: #77cfc2; }
   }
@@ -661,17 +741,8 @@ function slideOpen(ghost: string, ghostCenter = false): string {
  */
 function avatarImg(uin: unknown, name: string, cls: string): string {
   const initial = Array.from(name)[0] ?? '?';
-  const src =
-    typeof uin === 'string' && /^\d+$/.test(uin)
-      ? inlinedAsset(
-          mediaUrl('avatar', {
-            scope: 'user',
-            uin,
-            v: 'big',
-            fb: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`,
-          }),
-        )
-      : null;
+  const url = reportAvatarUrl(uin);
+  const src = url ? inlinedAsset(url) : null;
   if (!src) return `<span class="avatar ${cls}">${escapeHtml(initial)}</span>`;
   return `<img class="avatar ${cls}" src="${src}" alt="">`;
 }
@@ -737,44 +808,39 @@ function overviewSlide(data: Record<string, unknown>): string {
 /**
  * 装扮页的导出版。
  *
- * 屏幕上那一页的主角是**真实渲染的气泡贴图 + 头像挂件**，而导出产物必须自包含、
- * 离线可看 —— 九宫格 PNG 和挂件帧都在主进程的共享缓存里，`weq-media://` 协议在导出的
- * HTML 里解析不了，内联成 base64 又会让一份 A4 报告涨到几十 MB。
- *
- * 所以导出版换一套表达，但**换的是皮不是骨**：单位仍然是「一套」，主角仍然是最爱的
- * 那一身，回忆仍然是当年真说过的话 —— 只是气泡画不出来，改用排印的引号来盛。
+ * 屏幕上那一页是「最爱的一身 + 装扮展柜」。导出产物自包含：九宫格 PNG / 挂件帧
+ * 在预热后以 data URI 内联，画得出来；没预热/解析失败的那一件退回排印表达，不破版。
+ * 版式与屏幕版一致：左栏真气泡 + 巨数，右栏气泡/字体/挂件三类各一格。
  * 装扮编号一律不出现（屏幕版也不出现）：款名有就写，没有就只写话。
  */
 function dressSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const decorated = Number(data.decorated ?? 0);
   const totalSent = Number(data.totalSent ?? 0);
-  const coverage = totalSent > 0 ? Math.round((decorated / totalSent) * 100) : 0;
+  const coverageRaw = totalSent > 0 ? (decorated / totalSent) * 100 : 0;
+  const coverage = Math.round(coverageRaw);
+  const coverageText = coverage > 0 ? fmt(coverage) : coverageRaw > 0 ? '<1' : '0';
 
   type Outfit = {
     key: string;
     count: number;
     samples: string[];
     bubbleId?: number;
+    widgetId?: number;
     bubbleName: string;
     fontName: string;
     widgetName: string;
   };
+  type KindItem = { itemId: number; name: string; count: number };
   const outfits = (data.outfits ?? []) as Outfit[];
   const hero = outfits[0];
-  // 预热过的九宫格贴图：有就画真实气泡（border-image，与屏幕版同一几何），
-  // 没有退回排印引号 —— 两种表达并存，导出永不因图片失败而破版。
   const heroBubble =
-    hero?.bubbleId && hero.bubbleId > 0
-      ? inlinedAsset(mediaUrl('dressbubble', { id: hero.bubbleId }))
+    hero?.bubbleId && hero.bubbleId > 0 ? inlinedAsset(reportDressBubbleUrl(hero.bubbleId)) : null;
+  const heroPendant =
+    hero?.widgetId && hero.widgetId > 0
+      ? inlinedAsset(reportDressPendantUrl(hero.widgetId, 1))
       : null;
-  // 「换过几身」读服务端下发的总数：`outfits` 有 JSON 体积护栏，会被截断。
   const outfitCount = Number(data.outfitCount ?? outfits.length);
-  const kinds = [
-    ['气泡', Number((data.bubble as { distinct?: number } | undefined)?.distinct ?? 0)],
-    ['字体', Number((data.font as { distinct?: number } | undefined)?.distinct ?? 0)],
-    ['挂件', Number((data.widget as { distinct?: number } | undefined)?.distinct ?? 0)],
-  ] as const;
 
   /** 那套的三件款名连成一行。都没记过元数据就是空串，整行不出现。 */
   const wornAs = (outfit: Outfit): string =>
@@ -790,32 +856,122 @@ function dressSlide(data: Record<string, unknown>): string {
     ? hero.samples.reduce((best, s) => (s.length > best.length ? s : best), '')
     : '';
 
+  /** 一个展柜的三种陈列。 */
+  const kindRows = (
+    [
+      ['bubble', '气泡', '款', '用过'],
+      ['font', '字体', '款', '用过'],
+      ['widget', '挂件', '款', '戴过'],
+    ] as const
+  ).map(([kindKey, title, unit, verb]) => {
+    const kind = (data[kindKey] ?? {}) as {
+      distinct?: number;
+      items?: KindItem[];
+      total?: number;
+    };
+    const items = (kind.items ?? []).slice(0, 5);
+    const more = Math.max(0, Number(kind.distinct ?? items.length) - items.length);
+    const itemHtml = items
+      .map((item) => {
+        let art = '';
+        if (kindKey === 'bubble') {
+          const uri =
+            Number(item.itemId) > 0 ? inlinedAsset(reportDressBubbleUrl(item.itemId)) : null;
+          art = uri
+            ? `<div class="dr-item-art"><div class="dr-case-bubble" style="border-image-source:url('${uri}')">&nbsp;</div></div>`
+            : `<div class="dr-item-art"><span class="dr-font-sample">气泡</span></div>`;
+        } else if (kindKey === 'font') {
+          art = `<div class="dr-item-art"><span class="dr-font-sample">${escapeHtml(
+            item.name || '这款字',
+          )}</span></div>`;
+        } else {
+          const uri =
+            Number(item.itemId) > 0
+              ? inlinedAsset(reportDressPendantUrl(Number(item.itemId), 1))
+              : null;
+          art = `<div class="dr-item-art">${
+            uri
+              ? `<span class="dr-pendant-art"><img src="${uri}" alt=""></span>`
+              : `<span class="dr-font-sample">${escapeHtml(item.name || '挂件')}</span>`
+          }</div>`;
+        }
+        return `<div class="dr-item">${art}
+          <span class="dr-item-meta">
+            <span class="dr-item-name">${escapeHtml(item.name || `这款${title}`)}</span>
+            <span class="dr-item-count">${escapeHtml(verb)} ${fmt(Number(item.count ?? 0))} 次</span>
+          </span>
+        </div>`;
+      })
+      .join('');
+    const moreHtml =
+      more > 0
+        ? `<div class="dr-item"><span class="dr-item-art"><b class="dr-font-sample">+${fmt(more)}</b></span>
+         <span class="dr-item-meta"><span class="dr-item-name">${escapeHtml(unit)}</span></span></div>`
+        : '';
+    return `<div class="dr-shelf">
+      <div class="dr-shelf-label">
+        <b>${title}</b>
+        <span class="dr-shelf-count"><i>${fmt(Number(kind.distinct ?? items.length))}</i>${unit}</span>
+      </div>
+      ${
+        items.length > 0
+          ? `<div class="dr-shelf-items">${itemHtml}${moreHtml}</div>`
+          : `<p class="dr-item-empty">这一年没有换过新的${title}，一直保持原样。</p>`
+      }
+    </div>`;
+  });
+
+  const heroBlock = hero
+    ? `<div class="dr-hero-col">
+        <div class="dr-bubble-line">
+          ${
+            heroPendant
+              ? `<span class="dr-pendant-art is-hero"><img src="${heroPendant}" alt=""></span>`
+              : ''
+          }
+          ${
+            heroBubble
+              ? `<div class="dr-bubble" style="border-image-source:url('${heroBubble}')">${
+                  heroLine ? escapeHtml(heroLine) : '&nbsp;'
+                }</div>`
+              : heroLine
+                ? `<div class="dr-say">${escapeHtml(heroLine)}</div>`
+                : ''
+          }
+        </div>
+        <div class="dr-punch">
+          <span class="dr-hero-num">${fmt(Number(hero.count ?? 0))}</span>
+          <span class="dr-hero-unit">条消息 · 穿这身</span>
+        </div>
+        <p class="dr-hero-mini">全年 <b>${coverageText}%</b> 的发言带着装扮${
+          outfitCount > 0 ? `<i aria-hidden>·</i>换过 <b>${fmt(outfitCount)}</b> 身` : ''
+        }</p>
+        ${wornAs(hero) ? `<p class="dr-hero-note-line">${escapeHtml(wornAs(hero))}</p>` : ''}
+      </div>`
+    : '';
+
   return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
-    <div class="lede">${escapeHtml(reportEraLabel(year))}，我最爱这身装扮</div>
-    ${
-      hero
-        ? `<div class="dr-top">
-             ${
-               heroBubble
-                 ? `<div class="dr-bubble" style="border-image-source:url('${heroBubble}')">${
-                     heroLine ? escapeHtml(heroLine) : '&nbsp;'
-                   }</div>`
-                 : heroLine
-                   ? `<div class="dr-say">${escapeHtml(heroLine)}</div>`
-                   : ''
-}
-             <div class="hero"><span class="hero-num">${fmt(hero.count)}</span><span class="hero-unit">条消息使用这身装扮</span></div>
-             ${wornAs(hero) ? `<div class="dr-worn">${escapeHtml(wornAs(hero))}</div>` : ''}
-           </div>`
-        : ''
-    }
-    <div class="dr-sum">总共换过 ${fmt(outfitCount)} 身，打扮了 ${fmt(decorated)} 条消息${
-      coverage > 0 ? `（占你发言的 ${coverage}%）` : ''
-    }</div>
-    <div class="dr-kinds">${kinds
-      .filter(([, n]) => n > 0)
-      .map(([label, n]) => `<span>${label} ${fmt(n)} 款</span>`)
-      .join('')}</div>
+    <div class="dr">
+      <div class="dr-kicker">${escapeHtml(
+        reportEraLabel(year),
+      )}，我最爱这身装扮<span class="dr-kicker-rule" aria-hidden></span></div>
+      ${
+        hero
+          ? `<div class="dr-window">${heroBlock}
+              <aside class="dr-showcase">
+                <p class="dr-sh-head"><b>装扮展柜</b><span>用过的，都值得收好</span></p>
+                ${kindRows.join('')}
+              </aside>
+            </div>
+            <div class="dr-foot">
+              <span class="dr-foot-note">${escapeHtml(wornAs(hero) || '这套三件，陪你说了很多话。')}</span>
+              <span class="dr-foot-sum">打扮了 <b>${fmt(decorated)}</b> 条消息 · 全年 ${
+                coverageText
+              }%</span>
+            </div>`
+          : `<div class="dr-say">这一年，你还没有记下可说的装扮故事。</div>`
+      }
+    </div>
     ${slideFoot(`${reportPeriodLabel(year)} · DRESS`)}`;
 }
 
@@ -943,10 +1099,8 @@ function exportWall(
 /**
  * 好友榜页的导出版。
  *
- * 头像在自包含产物里画不出来（`weq-media://` 解析不了，内联 base64 会让一份 A4
- * 报告涨好几 MB），所以一律去脸。但**两幕的形状必须保留**：火花是横向引线、
- * 消息量是纵向柱阵 —— 那是这一页区别于其它页的全部理由，只留数字就等于把这页
- * 退化成一张表。静态产物没有动画，引线和柱子直接画在终态。
+ * 头像在预热后以 data URI 内联（缺席回首字圆牌）。两幕的形状是这一页的主角：
+ * 火花横向引线 + 消息纵向柱阵 —— 静态产物没有动画，引线和柱子直接画在终态。
  */
 function friendsSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
@@ -1349,9 +1503,8 @@ function exportRhythmMood(input: {
 /**
  * 我的话页的导出版。
  *
- * 屏幕版里那颗系统表情 / 自定义表情是有真实画面的（weq-asset / weq-media 协议），
- * 自包含 HTML 里画不出来 —— 所以导出版只留下排印：词是主角，两颗表情退成
- * 一排名字与次数的小注脚。与装扮页同一句取舍：换皮不换骨。
+ * 屏幕版里那颗系统表情 / 自定义表情在预热后以 data URI 内联（weq-asset / weq-media
+ * 经主进程读成字节），画得出来；某颗缺席时那一格退回名字与次数。词仍是主角。
  */
 function voiceSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
@@ -1361,14 +1514,24 @@ function voiceSlide(data: Record<string, unknown>): string {
   const picTotal = Number(data.picTotal ?? 0);
   const word = (data.word ?? null) as { word?: string; count?: number } | null;
   const faces = (data.faces ?? []) as Array<{
+    faceId?: number;
     name?: string;
     count?: number;
   }>;
-  const pic = (data.pic ?? null) as { count?: number } | null;
+  const pic = (data.pic ?? null) as {
+    count?: number;
+    sendTimeMs?: unknown;
+    fileName?: unknown;
+    fileToken?: unknown;
+    md5?: unknown;
+    originalUrl?: unknown;
+    subType?: unknown;
+  } | null;
   const heroWord = String(word?.word ?? '……');
   const heroCount = Number(word?.count ?? 0);
   const topFaces = faces.slice(0, 4);
   const hasFaves = topFaces.length > 0 || pic != null;
+  const picImg = pic ? inlinedAsset(reportCustomPicUrl(pic)) : null;
   const faveHtml = hasFaves
     ? `<div class="vc-faves">
         <p class="vc-faves-in">而表情，是你说不出口的那部分——</p>
@@ -1379,13 +1542,21 @@ function voiceSlide(data: Record<string, unknown>): string {
                   <span class="vc-faceband-tag">系统表情</span>
                   <div class="vc-face-tiles">
                     ${topFaces
-                      .map(
-                        (face, rank) =>
-                          `<div class="vc-fave vc-face rank-${rank}">
+                      .map((face, rank) => {
+                        const img =
+                          Number(face.faceId) > 0
+                            ? inlinedAsset(reportEmojiFaceUrl(Number(face.faceId)))
+                            : null;
+                        return `<div class="vc-fave vc-face rank-${rank}">
+                            ${
+                              img
+                                ? `<span class="vc-face-art"><img src="${img}" alt=""></span>`
+                                : ''
+                            }
                             <span class="vc-fave-name">${escapeHtml(String(face.name ?? '表情'))}</span>
                             <span class="vc-fave-count"><b>${fmt(Number(face.count ?? 0))}</b> 次</span>
-                          </div>`,
-                      )
+                          </div>`;
+                      })
                       .join('')}
                   </div>
                 </div>`
@@ -1396,6 +1567,7 @@ function voiceSlide(data: Record<string, unknown>): string {
             pic
               ? `<div class="vc-fave vc-pic">
                   <span class="vc-fave-label">自定义表情</span>
+                  ${picImg ? `<span class="vc-pic-art"><img src="${picImg}" alt=""></span>` : ''}
                   <span class="vc-fave-name">这张图，替你说了很多次话</span>
                   <span class="vc-fave-count"><b>${fmt(Number(pic.count ?? 0))}</b> 次</span>
                 </div>`
@@ -1476,7 +1648,7 @@ function interactionsHero(data: Record<string, unknown>): InteractionsHero | nul
         num: fmt(atTotal),
         unit: '次',
         note: atTop
-          ? `被你喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
+          ? `名字喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
               Number(atTop.count ?? 0),
             )}</b> 次——@ 是怕你错过，才把名字放到人前。`
           : '这一年你 @ 得不多——但每一次，都是怕有人错过。',
@@ -1500,9 +1672,9 @@ function interactionsHero(data: Record<string, unknown>): InteractionsHero | nul
         num: fmt(pokeTotal),
         unit: '次',
         note: pokeTop
-          ? `最常吃你一戳的是 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
+          ? `最常被你戳到 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
               Number(pokeTop.count ?? 0),
-            )}</b> 次——戳一戳，是最轻也最软的搭话。`
+            )}</b> 次——戳一戳，是最轻的搭话。`
           : '这一年你伸出的手不多——但每一下，都先越过了屏幕。',
       };
     case 'echo': {
@@ -1571,9 +1743,8 @@ function interactionsSlide(data: Record<string, unknown>): string {
           : '齐'
     : '安';
 
-  const fact = (mark: string, label: string, main: string, sub: string): string =>
+  const fact = (label: string, main: string, sub: string): string =>
     `<p class="it-fact">
-       <span class="it-mark">${escapeHtml(mark)}</span>
        <span class="it-label">${escapeHtml(label)}</span>
        <span class="it-main">${main}</span>
        <span class="it-sub">${sub}</span>
@@ -1592,39 +1763,35 @@ function interactionsSlide(data: Record<string, unknown>): string {
        </div>
        <div class="it-score">
          ${fact(
-           '戳',
-           '伸手',
-           `我发起过 <b>${fmt(pokeTotal)}</b> 次戳一戳`,
+           '戳一戳',
+           `我发起过 <b>${fmt(pokeTotal)}</b> 次`,
            pokeTop
-             ? `最常被你戳到：<em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · ${fmt(
+             ? `最常吃你一戳的：<em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · ${fmt(
                  Number(pokeTop.count ?? 0),
                )} 次`
              : '这一年，你的手指还没养成戳人的习惯。',
          )}
          ${fact(
-           '@',
-           '点名',
+           '@ 提及',
            `我 @ 过别人 <b>${fmt(atTotal)}</b> 次`,
            atTop
-             ? `名字喊得最响的：<em>${escapeHtml(String(atTop.name ?? ''))}</em> · ${fmt(
+             ? `被你喊得最响的：<em>${escapeHtml(String(atTop.name ?? ''))}</em> · ${fmt(
                  Number(atTop.count ?? 0),
                )} 次`
              : '这一年，你还不太习惯在人群里喊出某个名字。',
          )}
          ${fact(
-           '呼',
-           '被惦记',
+           '被 @',
            atMeTop
-             ? `被 @ 最多的群是 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em>`
+             ? `最多在 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em>`
              : '这一年，还没有哪个群反复喊你的名字。',
            atMeTop
-             ? `那里有 <b>${fmt(Number(atMeTop.count ?? 0))}</b> 次，别人把你的名字放进了自己的句子。`
+             ? `那里有 <b>${fmt(Number(atMeTop.count ?? 0))}</b> 次，有人在人群里，专门喊了你的名字。`
              : '下一次开场，从你 @ 别人开始。',
          )}
          ${fact(
-           '齐',
-           '齐声',
-           `我跟过 <b>${fmt(echoParticipated)}</b> 场复读`,
+           '复读',
+           `我跟过 <b>${fmt(echoParticipated)}</b> 场`,
            echoLongest
              ? `最长一轮在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>：${fmt(
                  Number(echoLongest.count ?? 0),
@@ -1786,6 +1953,7 @@ function monthsSlide(data: Record<string, unknown>): string {
     month?: number;
     top?: { peerUid?: string; peerUin?: string; peerName?: string; messages?: number } | null;
   }>;
+  const nearTwelve = carryover.length > 0;
   /** 去年尾部月份排在今年前面：9 月报告 = 去年 10/11/12 + 今年 1..9。 */
   const cells = [...carryover.map((cell) => ({ ...cell, carried: true as const })), ...months];
   const monthLabels = [
@@ -1856,10 +2024,10 @@ function monthsSlide(data: Record<string, unknown>): string {
               <span class="mo-unit"><b>个月</b><i>的聊天第一名</i></span>
             </div>
             <p class="mo-note">${
-              championCells >= monthCount
+              championCells >= monthCount && !nearTwelve
                 ? '一整年，十二个月，TA 从没把第一让给过任何人。'
                 : `TA 拿下了 ${fmt(championCells)} 个月的榜首，${
-                    monthCount < 12 ? '今年' : '全年'
+                    nearTwelve ? '近 12 个月' : monthCount < 12 ? '今年' : '全年'
                   }和你聊了 ${fmt(Number(champion.messages ?? 0))} 句。`
             }</p>
             <div class="mo-calendar">
@@ -1888,6 +2056,7 @@ function mateSlide(data: Record<string, unknown>): string {
     peerUin?: string;
     name?: string;
     sharedCount?: number;
+    score?: number;
     groups?: Array<{ groupName?: string }>;
   } | null;
   const more = (data.more ?? []) as Array<{
@@ -1895,8 +2064,12 @@ function mateSlide(data: Record<string, unknown>): string {
     uin?: string;
     name?: string;
     sharedCount?: number;
+    score?: number;
+    groups?: Array<{ groupName?: string }>;
   }>;
   const initial = (name: string): string => Array.from(name)[0] ?? '?';
+  const fmtScore = (value: number): string =>
+    value >= 100 ? fmt(Math.round(value)) : value.toFixed(value >= 10 ? 1 : 2);
   const nameClass = (name: string): string => {
     const width = [...name].reduce(
       (sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.6),
@@ -1925,16 +2098,69 @@ function mateSlide(data: Record<string, unknown>): string {
         )}</span>`
       : '';
   const moreHtml = more
-    .map(
-      (candidate, index) => `<li class="mt-more-item">
-        <span class="mt-rank">0${index + 2}</span>
-        <span class="mt-mini">${escapeHtml(initial(String(candidate.name ?? '')))}</span>
-        <span class="mt-more-name">${escapeHtml(String(candidate.name ?? ''))}</span>
-        <b class="mt-more-val">${fmt(Number(candidate.sharedCount ?? 0))}</b>
-        <span class="mt-more-unit">个群</span>
-      </li>`,
-    )
+    .map((candidate, index) => {
+      const copy: MateCopyCandidate = {
+        name: String(candidate.name ?? ''),
+        sharedCount: Number(candidate.sharedCount ?? 0),
+        score: Number(candidate.score ?? 0),
+      };
+      const all = top
+        ? ([
+            {
+              name: String(top.name ?? ''),
+              sharedCount: Number(top.sharedCount ?? 0),
+              score: Number(top.score ?? 0),
+            },
+            ...more.map((item) => ({
+              name: String(item.name ?? ''),
+              sharedCount: Number(item.sharedCount ?? 0),
+              score: Number(item.score ?? 0),
+            })),
+          ] as MateCopyCandidate[])
+        : [];
+      const groupNames = (candidate.groups ?? [])
+        .slice(0, 3)
+        .map((group) => String(group.groupName ?? ''))
+        .filter(Boolean)
+        .join(' · ');
+      return `<li class="mt-card">
+        <p class="mt-card-head">
+          <span class="mt-card-who">
+            <span class="mt-card-rank">${String(index + 2).padStart(2, '0')}</span>
+            <span class="mt-mini">${escapeHtml(initial(String(candidate.name ?? '')))}</span>
+            <span class="mt-card-name">${escapeHtml(String(candidate.name ?? ''))}</span>
+          </span>
+          <span class="mt-card-nums"><b>${fmt(Number(candidate.sharedCount ?? 0))}</b> 个群 · 指数 ${fmtScore(
+            Number(candidate.score ?? 0),
+          )}</span>
+        </p>
+        ${groupNames ? `<p class="mt-card-groups">${escapeHtml(groupNames)}…</p>` : ''}
+        <p class="mt-card-why">${escapeHtml(mateAnalysisText(copy, index + 1, all))}</p>
+      </li>`;
+    })
     .join('');
+
+  const allCopy: MateCopyCandidate[] = top
+    ? [
+        {
+          name: String(top.name ?? ''),
+          sharedCount: Number(top.sharedCount ?? 0),
+          score: Number(top.score ?? 0),
+        },
+        ...more.map((item) => ({
+          name: String(item.name ?? ''),
+          sharedCount: Number(item.sharedCount ?? 0),
+          score: Number(item.score ?? 0),
+        })),
+      ]
+    : [];
+  const topCopy: MateCopyCandidate | null = top
+    ? {
+        name: String(top.name ?? ''),
+        sharedCount: Number(top.sharedCount ?? 0),
+        score: Number(top.score ?? 0),
+      }
+    : null;
 
   return `${slideOpen('缘')}
     <div class="mt">
@@ -1968,11 +2194,26 @@ function mateSlide(data: Record<string, unknown>): string {
               <p class="mt-note">你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了
                 <b>${fmt(Number(top.sharedCount ?? 0))}</b> 次。</p>
             </div>
+            ${
+              topCopy
+                ? `<div class="mt-why">
+                    <p class="mt-why-title">${escapeHtml(mateHeadline(topCopy, 0))}</p>
+                    <p class="mt-why-copy">${escapeHtml(mateAnalysisText(topCopy, 0, allCopy))}</p>
+                  </div>`
+                : ''
+            }
             <div class="mt-cluster">
               <p class="mt-cluster-in">你们这些共同出没的地方</p>
               <p class="mt-chips">${chips}${chipsPlus}</p>
             </div>
-            ${more.length > 0 ? `<ol class="mt-more">${moreHtml}</ol>` : ''}
+            ${
+              more.length > 0
+                ? `<div class="mt-roster">
+                    <p class="mt-roster-in">榜单上的其他同路人 · 每位都有各自的「为什么」</p>
+                    <ol class="mt-cards">${moreHtml}</ol>
+                  </div>`
+                : ''
+            }
             <p class="mt-mood">世界很大，圈子很小。能重逢这么多次的人，值得一句「你好」——也许从明天起，你们就是无话不谈的朋友。</p>`
           : `<p class="mt-lede">在这些群里，还没有一个值得专门加好友的「重逢」。</p>`
       }
@@ -2142,39 +2383,9 @@ export function inlinedAsset(url: string | null | undefined): string | null {
 }
 
 function collectAssetUrls(slides: ExportSlide[]): string[] {
-  const urls = new Set<string>();
-  for (const slide of slides) {
-    const data = (slide.data ?? {}) as Record<string, unknown>;
-    if (slide.page.id === 'dress') {
-      const outfits = (data.outfits ?? []) as Array<{ bubbleId?: number }>;
-      for (const outfit of outfits) {
-        if (outfit.bubbleId && outfit.bubbleId > 0) {
-          urls.add(mediaUrl('dressbubble', { id: outfit.bubbleId }));
-        }
-      }
-    }
-    // 头像：openers / months / friends / mate 各页的 peerUin。
-    const collectUin = (value: unknown): void => {
-      if (value && typeof value === 'object') {
-        const uin = (value as { peerUin?: unknown }).peerUin;
-        if (typeof uin === 'string' && /^\d+$/.test(uin)) {
-          urls.add(
-            mediaUrl('avatar', {
-              scope: 'user',
-              uin,
-              v: 'big',
-              fb: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`,
-            }),
-          );
-        }
-        for (const nested of Object.values(value)) collectUin(nested);
-      } else if (Array.isArray(value)) {
-        for (const item of value) collectUin(item);
-      }
-    };
-    collectUin(data);
-  }
-  return [...urls];
+  return collectReportAssetUrls(
+    slides.map((slide) => ({ pageId: slide.page.id, data: slide.data })),
+  );
 }
 
 /**

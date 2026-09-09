@@ -92,6 +92,8 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
         }
       }
     }
+    /** 页面上「看得见的那 12 格」的总消息量：今年 + 去年补足格。 */
+    const windowTotal = new Map(yearTotal);
 
     const months: MonthCompanionCell[] = [];
     for (let index = 0; index < currentYearMonths; index++) {
@@ -139,6 +141,15 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
         prev.total += row.total;
         prev.mine += row.mine;
         bucket.set(row.peerUid, prev);
+      }
+      // 补足月只取“今年尾部之后”的 12 - currentYearMonths 个月；把它们的有来有往
+      // 合并进 windowTotal，冠军的「近 12 个月聊了多少句」才算得全。
+      for (const bucket of lyBuckets) {
+        for (const [uid, tally] of bucket) {
+          if (tally.mine > 0 && tally.total > tally.mine) {
+            windowTotal.set(uid, (windowTotal.get(uid) ?? 0) + tally.total);
+          }
+        }
       }
       carryover = [];
       for (let month = currentYearMonths + 1; month <= 12; month++) {
@@ -190,14 +201,16 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
     const friendCount = friends.length;
     const totalMessages = friends.reduce((sum, [, messages]) => sum + messages, 0);
 
+    // 冠军和胜场数都按**渲染出来的那 12 个月**数：今年走过的月份 + 去年尾部
+    // 补足格。否则月历里明明描亮的“去年”格不会计入“共陪你走过几个月”。
     const winCount = new Map<string, number>();
-    for (const cell of months) {
+    for (const cell of [...months, ...carryover]) {
       if (cell.top) winCount.set(cell.top.peerUid, (winCount.get(cell.top.peerUid) ?? 0) + 1);
     }
     const championUid = [...winCount.entries()].sort((a, b) => {
       const byWins = b[1] - a[1];
       if (byWins !== 0) return byWins;
-      return (yearTotal.get(b[0]) ?? 0) - (yearTotal.get(a[0]) ?? 0);
+      return (windowTotal.get(b[0]) ?? 0) - (windowTotal.get(a[0]) ?? 0);
     })[0]?.[0];
 
     const champion = championUid
@@ -205,7 +218,7 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
           peerUid: championUid,
           peerUin: byUid.get(championUid)?.uin ?? '',
           peerName: nameOf(championUid),
-          messages: yearTotal.get(championUid) ?? 0,
+          messages: windowTotal.get(championUid) ?? 0,
         }
       : null;
 

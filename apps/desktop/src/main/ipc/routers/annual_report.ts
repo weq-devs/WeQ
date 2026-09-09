@@ -9,6 +9,8 @@ import {
   renderSharePngs,
   type ReportExportSlide,
 } from '../../annual_report_export';
+import { handleMediaRequest } from '../../media_protocol';
+import { handleResourceRequest } from '../../resource_protocol';
 import { procedure, router } from '../trpc';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
@@ -20,6 +22,79 @@ function requireServices(): AccountServices {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
   return services;
+}
+
+/** PNG / JPEG / GIF / WebP 的魔数 → MIME。只用于导出图片资源内联。 */
+function exportImageMime(bytes: Buffer): string {
+  if (bytes.length > 7 && bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
+  if (bytes.length > 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+  if (bytes.length > 5 && bytes.toString('ascii', 0, 4) === 'GIF8') return 'image/gif';
+  if (
+    bytes.length > 11 &&
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return 'application/octet-stream';
+}
+
+/**
+ * 把浏览器构建的 `/_media/…` / `/_asset/…` 地址归一成自定义协议形式。
+ *
+ * Electron 渲染层直接用 `weq-media://…`；web 渲染层不写自定义 scheme，而是把
+ * handler 挂载的 HTTP 路径（`/_media/<kind>?…`、`/_asset/<first>/…`）原样发来，
+ * 这里按与 web `protocol_adapter.ts` 相同的规则翻回协议 URL 再交给原 handler。
+ */
+function toProtocolAssetUrl(raw: string): string | null {
+  if (raw.startsWith('weq-media://') || raw.startsWith('weq-asset://')) return raw;
+
+  const MOUNTS = [
+    ['/_media/', 'weq-media'],
+    ['/_asset/', 'weq-asset'],
+  ] as const;
+  for (const [mount, scheme] of MOUNTS) {
+    if (!raw.startsWith(mount)) continue;
+    const rest = raw.slice(mount.length);
+    if (!rest) return null;
+    // `/_media/pic?x=1` → `weq-media://pic?x=1`；
+    // `/_asset/emoji/358/apng/358.png` → `weq-asset://emoji/358/apng/358.png`
+    const qMark = rest.indexOf('?');
+    const pathPart = qMark === -1 ? rest : rest.slice(0, qMark);
+    const query = qMark === -1 ? '' : rest.slice(qMark);
+    const slash = pathPart.indexOf('/');
+    const host = slash === -1 ? pathPart : pathPart.slice(0, slash);
+    const path = slash === -1 ? '' : pathPart.slice(slash);
+    if (!host) return null;
+    return `${scheme}://${host}${path}${query}`;
+  }
+  return null;
+}
+
+/**
+ * 把导出要内联的协议图片读成 data URI。白名单即 media / resource 两条协议
+ * 自身允许的解析范围（avatar/dressbubble/emoji 等），单次失败回 null，不抛。
+ */
+async function resolveExportAssetDataUri(url: string): Promise<string | null> {
+  const protocolUrl = toProtocolAssetUrl(url);
+  if (!protocolUrl) return null;
+  const parsed = new URL(protocolUrl);
+  const allowed =
+    parsed.protocol === 'weq-media:' ||
+    (parsed.protocol === 'weq-asset:' && parsed.hostname === 'emoji');
+  if (!allowed) return null;
+  try {
+    const res =
+      parsed.protocol === 'weq-media:'
+        ? await handleMediaRequest(new Request(protocolUrl))
+        : await handleResourceRequest(new Request(protocolUrl));
+    if (!res.ok) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0) return null;
+    return `data:${exportImageMime(bytes)};base64,${bytes.toString('base64')}`;
+  } catch {
+    return null;
+  }
 }
 
 const exportSlideInput = z.object({
@@ -44,51 +119,22 @@ async function saveBuffer(
 
 export const annualReportRouter = router({
   /**
-   * 把一条 `weq-media://` 协议 URL 解析成 base64 字节 —— 导出 HTML 时渲染层
-   * 用它把装扮气泡 / 头像内联成 data URI（自包含产物离线可看）。
+   * 把一条协议图片 URL 解析成 base64 字节 —— 导出 HTML 时渲染层用它把装扮
+   * 气泡 / 头像 / QQ 系统表情 / 自定义表情内联成 data URI（自包含产物离线可看）。
    *
-   * 白名单只收导出真正引用的两类资源，复用 media_protocol 的解析函数：
-   *   dressbubble?id=&frame=  装扮气泡九宫格 PNG / 帧动画帧
-   *   avatar?scope=user&uin=&v=&fb=   本机缓存头像（miss 走 CDN 兜底）
+   * 白名单即 media / resource 两条协议本身：
+   *   weq-media://dressbubble、avatar、pic …
+   *   weq-asset://emoji/<id>/apng/<id>.png  系统表情静态 APNG
    *
    * 解析失败返回 null（而不是抛错），导出退回排印版不阻塞。
    */
   resolveMediaBase64: procedure
     .input(z.object({ url: z.string().min(1).max(2048) }))
     .mutation(async ({ input }) => {
-      const services = requireServices();
-      const parsed = new URL(input.url);
-      if (parsed.protocol !== 'weq-media:') {
-        throw new Error('resolveMediaBase64 only accepts weq-media:// urls');
-      }
-      const kind = parsed.hostname;
-      const q = parsed.searchParams;
-      try {
-        let path: string | null = null;
-        if (kind === 'dressbubble') {
-          const id = Number(q.get('id') ?? '0');
-          const frame = Number(q.get('frame') ?? '0');
-          path = !id
-            ? null
-            : frame > 0
-              ? services.dressInstall.bubbleFrameFile(id, frame)
-              : services.dressInstall.bubbleFile(id);
-        } else if (kind === 'avatar') {
-          const scope = q.get('scope') ?? '';
-          const uin = q.get('uin') ?? '';
-          const variant = q.get('v') === 'small' ? 'small' : 'big';
-          path =
-            scope === 'user' && uin
-              ? ((await services.avatarResource.resolveByUin(scope, uin, variant)) ??
-                (await services.avatarResource.resolveByUin(scope, uin, 'small')))
-              : null;
-        }
-        if (!path) return null;
-        const bytes = await readFile(path);
-        return bytes.toString('base64');
-      } catch {
-        return null;
-      }
+      const dataUri = await resolveExportAssetDataUri(input.url);
+      if (!dataUri) return null;
+      const comma = dataUri.indexOf(',');
+      return comma >= 0 ? dataUri.slice(comma + 1) : null;
     }),
   /**
    * Lightweight directory; page payloads are loaded separately.
@@ -227,7 +273,7 @@ export const annualReportRouter = router({
         category: s.category,
         data: s.data,
       }));
-      const png = await renderLongImagePng(slides);
+      const png = await renderLongImagePng(slides, resolveExportAssetDataUri);
       const path = await saveBuffer(
         png,
         `QQ年度报告_${reportPeriodLabel(input.year)}_长图.png`,
@@ -285,11 +331,15 @@ export const annualReportRouter = router({
         category: s.category,
         data: s.data,
       }));
-      const pngs = await renderSharePngs(slides, {
-        nick,
-        avatar,
-        initial: nick.slice(0, 1) || '我',
-      });
+      const pngs = await renderSharePngs(
+        slides,
+        {
+          nick,
+          avatar,
+          initial: nick.slice(0, 1) || '我',
+        },
+        resolveExportAssetDataUri,
+      );
 
       // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
       const richvals: string[] = [];

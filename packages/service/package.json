@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./report-time": "./src/account/annual_report/time.ts"
+    "./report-time": "./src/account/annual_report/time.ts",
+    "./report-assets": "./src/account/annual_report/report-assets.ts",
+    "./report-mate": "./src/account/annual_report/report-mate.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

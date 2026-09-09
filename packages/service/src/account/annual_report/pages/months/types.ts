@@ -7,7 +7,10 @@ export type MonthFriendEntry = {
   peerUin: string;
   /** 备注名 → 昵称 → 尾号兜底，compute 已经挑好。 */
   peerName: string;
-  /** 双方合计消息条数。月榜里是当月条数，聊伴里是全年条数。 */
+  /**
+   * 双方合计消息条数。月榜里是当月条数；聊伴里是「全年」条数 —— 当年还在进行
+   * 且用去年补足格铺满月历时，则是**近 12 个月**的条数。
+   */
   messages: number;
 };
 
@@ -41,7 +44,10 @@ export type MonthsPageData = {
    * 双向私聊）为 null，渲染层收成空态。
    */
   champion: MonthFriendEntry | null;
-  /** 聊伴拿过几次当月第一。 */
+  /**
+   * 聊伴在**可见的 12 格**里拿过几次当月第一。当年不足 12 个月时包含
+   * `carryoverMonths`（去年补足格）里的胜场。
+   */
   championMonths: number;
   /** 从 1 月到 monthCount 的逐月格子。 */
   months: MonthCompanionCell[];

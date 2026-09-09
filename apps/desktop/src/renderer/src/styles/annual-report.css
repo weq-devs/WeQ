@@ -1881,46 +1881,51 @@ html[data-theme="dark"] .weq-report-root {
 
 .weq-dress-showcase {
   min-width: 0;
+  overflow: hidden;
   box-sizing: border-box;
-  padding: 13px 16px 7px;
-  border: 1px solid color-mix(in srgb, var(--rp-accent) 20%, var(--rp-hair));
+  padding: 14px 14px 8px;
+  border: 1px solid color-mix(in srgb, var(--rp-accent) 24%, var(--rp-hair));
+  border-radius: 10px;
   background:
-    linear-gradient(180deg, rgba(var(--rp-accent-rgb), 0.045), transparent 34%),
-    color-mix(in srgb, var(--rp-paper-deep) 88%, transparent);
+    radial-gradient(120% 80% at 100% 0%, rgba(var(--rp-accent-rgb), 0.09), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--rp-paper-deep) 96%, transparent), color-mix(in srgb, var(--rp-paper) 78%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--rp-accent) 8%, transparent),
+    0 16px 34px rgb(0 0 0 / 0.10);
 }
 
 .weq-dress-showcase-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 3px;
+  margin: 0 2px 7px;
 }
 
 .weq-dress-showcase-head b {
   color: var(--rp-ink);
   font-family: var(--rp-serif);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.32em;
 }
 
 .weq-dress-showcase-head span {
   color: var(--rp-ink-faint);
   font-size: 9px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
 }
 
 .weq-dress-shelf {
   display: grid;
   min-width: 0;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 10px 0 8px;
+  gap: 10px;
+  padding: 9px 2px 8px;
 }
 
 .weq-dress-shelf + .weq-dress-shelf {
-  border-top: 1px solid var(--rp-hair);
+  border-top: 1px solid color-mix(in srgb, var(--rp-hair) 70%, transparent);
 }
 
 .weq-dress-shelf-label {
@@ -1970,22 +1975,22 @@ html[data-theme="dark"] .weq-report-root {
   min-width: 0;
   flex-direction: column;
   align-items: center;
-  padding: 8px 6px;
-  border: 1px solid var(--rp-hair);
-  border-radius: 4px;
-  background: var(--rp-paper);
+  padding: 7px 5px 6px;
+  border: 1px solid color-mix(in srgb, var(--rp-hair) 88%, var(--rp-accent));
+  border-radius: 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rp-accent) 2.5%, var(--rp-paper)), color-mix(in srgb, var(--rp-paper-deep) 88%, transparent));
   transition: border-color 200ms ease, background-color 200ms ease;
 }
 
 .weq-dress-item:hover {
-  border-color: color-mix(in srgb, var(--rp-accent) 35%, transparent);
-  background: color-mix(in srgb, var(--rp-accent) 0.03, transparent);
+  border-color: color-mix(in srgb, var(--rp-accent) 42%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rp-accent) 6%, var(--rp-paper)), color-mix(in srgb, var(--rp-paper) 90%, transparent));
 }
 
 .weq-dress-item-art {
   display: flex;
   width: 100%;
-  height: 58px;
+  height: 62px;
   min-width: 0;
   align-items: center;
   justify-content: center;
@@ -6226,6 +6231,188 @@ html[data-theme="dark"] .weq-report-root {
 .weq-mt-empty-sub {
   color: var(--rp-ink-faint);
   font-size: 11px;
+}
+
+/* ── 同路人：可换人 + 排序说明 ──────────────────────────────
+ *
+ * 主体头像/名字缩小一档，让一栏「为什么是 TA」的分析进来；候选人列表变成
+ * 按钮，点谁就把谁换到主位，活跃的人用发丝高亮标出。
+ */
+.weq-mt-face-wrap {
+  margin-top: 4px;
+}
+
+.weq-mt-face {
+  width: 68px;
+  height: 68px;
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--rp-mt) 9%, transparent),
+    0 0 26px color-mix(in srgb, var(--rp-mt) 24%, transparent);
+}
+
+.weq-mt-face.is-initial {
+  font-size: 27px;
+}
+
+.weq-mt-name {
+  margin-top: 6px;
+  font-size: 34px;
+}
+
+.weq-mt-name.is-long {
+  font-size: 29px;
+}
+
+.weq-mt-name.is-xl {
+  font-size: 25px;
+}
+
+.weq-mt-countline {
+  margin-top: -1px;
+}
+
+.weq-mt-count {
+  font-size: 72px;
+}
+
+.weq-mt-unit b {
+  font-size: 17px;
+}
+
+.weq-mt-unit i {
+  font-size: 8px;
+}
+
+.weq-mt-rankline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 2px 0 0;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.weq-mt-rankline b {
+  color: var(--rp-mt);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-mt-rankline i {
+  font-style: normal;
+  opacity: 0.55;
+}
+
+.weq-mt-why {
+  position: relative;
+  z-index: 1;
+  margin: 6px auto 0;
+  max-width: 68ch;
+  box-sizing: border-box;
+  padding: 8px 12px 7px;
+  border: 1px solid color-mix(in srgb, var(--rp-mt) 22%, var(--rp-hair));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--rp-paper-deep) 82%, transparent);
+  text-align: left;
+}
+
+.weq-mt-why b {
+  display: block;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.weq-mt-why p {
+  margin: 3px 0 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 10.5px;
+  line-height: 1.65;
+  letter-spacing: 0.04em;
+  white-space: pre-line;
+}
+
+.weq-mt-cluster {
+  margin-top: 5px;
+  padding-top: 4px;
+}
+
+.weq-mt-more-in {
+  position: relative;
+  z-index: 1;
+  margin: 5px 0 0;
+  color: var(--rp-ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.28em;
+}
+
+.weq-mt-more {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 4px;
+}
+
+.weq-mt-more-item {
+  gap: 0;
+}
+
+.weq-mt-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 158px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+
+.weq-mt-switch:hover {
+  border-color: color-mix(in srgb, var(--rp-mt) 30%, transparent);
+}
+
+.weq-mt-switch[data-on="yes"] {
+  border-color: color-mix(in srgb, var(--rp-mt) 46%, transparent);
+  background: color-mix(in srgb, var(--rp-mt) 7%, transparent);
+}
+
+.weq-mt-switch[data-on="yes"] .weq-mt-more-name {
+  color: var(--rp-mt);
+}
+
+.weq-mt-switch .weq-mt-face {
+  width: 20px;
+  height: 20px;
+  box-shadow: none;
+  outline: 0;
+}
+
+.weq-mt-switch .weq-mt-face.is-initial {
+  font-size: 9px;
+}
+
+.weq-mt-switch .weq-mt-more-name {
+  max-width: 82px;
+}
+
+.weq-mt-mood {
+  margin-top: 6px;
+  font-size: 10.5px;
 }
 
 /* 窄画幅：主体与光环各收一档，后续小卡让轨道让步。 */

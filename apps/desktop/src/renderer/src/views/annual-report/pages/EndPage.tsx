@@ -15,8 +15,16 @@ type ExportKind = 'long' | 'html' | 'pdf';
 async function resolveAssetDataUri(url: string): Promise<string | null> {
   const base64 = await client.account.annualReport.resolveMediaBase64.mutate({ url });
   if (!base64) return null;
-  // PNG / JPEG 按魔数挑 MIME；协议层保证只回这两种图。
-  const mime = base64.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+  // 按 base64 前缀挑 MIME：png / jpeg / gif / webp（协议层只回图片字节）。
+  const mime = base64.startsWith('iVBOR')
+    ? 'image/png'
+    : base64.startsWith('/9j/')
+      ? 'image/jpeg'
+      : base64.startsWith('R0lGOD')
+        ? 'image/gif'
+        : base64.startsWith('UklGR')
+          ? 'image/webp'
+          : 'image/png';
   return `data:${mime};base64,${base64}`;
 }
 

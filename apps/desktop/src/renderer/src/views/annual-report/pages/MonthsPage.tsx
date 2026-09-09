@@ -42,7 +42,9 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
   const carryover = data.carryoverMonths ?? [];
   const months = [...carryover.map((cell) => ({ ...cell, carried: true })), ...data.months];
   const championUid = champion?.peerUid;
-  const championCells = data.months.filter((cell) => cell.top?.peerUid === championUid).length;
+  /** 服务端已经按「可见的 12 格（含去年补足格）」数过胜场。 */
+  const championCells = champion ? data.championMonths : 0;
+  const nearTwelve = carryover.length > 0;
 
   return (
     <PageFrame page={page} active={active} ghost={data.year} tone="#b04864">
@@ -79,10 +81,10 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
                 </span>
               </p>
               <p className="weq-mo-note">
-                {championCells >= data.monthCount && carryover.length === 0
+                {championCells >= data.monthCount && !nearTwelve
                   ? '一整年，十二个月，TA 从没把第一让给过任何人。'
                   : `TA 拿下了 ${fmt(championCells)} 个月的榜首，${
-                      data.monthCount < 12 ? '今年' : '全年'
+                      nearTwelve ? '近 12 个月' : data.monthCount < 12 ? '今年' : '全年'
                     }和你聊了 ${fmt(champion.messages)} 句。`}
               </p>
             </section>
