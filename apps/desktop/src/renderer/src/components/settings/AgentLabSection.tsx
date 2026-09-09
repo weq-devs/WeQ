@@ -31,8 +31,11 @@ type ProviderForm = {
   models: ModelForm[];
 };
 
+/** 新建表单默认选中的厂商模板。 */
+const DEFAULT_VENDOR = 'siliconflow';
+
 function emptyForm(): ProviderForm {
-  return { id: '', name: '', vendor: 'siliconflow', baseUrl: '', apiKey: '', models: [] };
+  return { id: '', name: '', vendor: DEFAULT_VENDOR, baseUrl: '', apiKey: '', models: [] };
 }
 
 function normalizeId(input: string): string {
@@ -100,6 +103,9 @@ export function AgentLabSection(): ReactElement {
     setSelectedId('');
     setForm(emptyForm());
     setEditing(true);
+    // 表单默认选中了 DEFAULT_VENDOR 模板，这里实际应用一次模板，
+    // 带入 base_url / 名称 / 推荐模型，避免「显示选中了模板但字段是空的」造成误导。
+    applyVendor(DEFAULT_VENDOR);
   }
 
   /** 点已有 provider：进入编辑（再点同一个则收回）。 */
@@ -182,11 +188,9 @@ export function AgentLabSection(): ReactElement {
   }
 
   async function onSave(): Promise<void> {
-    const id = normalizeId(form.id || form.name);
-    if (!id) {
-      dialog.error('保存失败', '请先填写 provider id 或名称。');
-      return;
-    }
+    // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
+    // 新建时由系统从显示名称自动生成。
+    const id = form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
     const models = form.models
       .map((m) => ({
         id: m.id.trim(),
@@ -341,18 +345,6 @@ export function AgentLabSection(): ReactElement {
                   </option>
                 ))}
               </select>
-            }
-          />
-          <Row
-            label="Provider ID"
-            desc="稳定标识。留空时默认用名称自动生成。"
-            control={
-              <input
-                className="weq-set-input"
-                value={form.id}
-                onChange={(e) => update('id', e.target.value)}
-                placeholder="siliconflow-main"
-              />
             }
           />
           <Row
