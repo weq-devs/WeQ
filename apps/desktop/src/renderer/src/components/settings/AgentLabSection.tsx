@@ -190,7 +190,8 @@ export function AgentLabSection(): ReactElement {
   async function onSave(): Promise<void> {
     // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
     // 新建时由系统从显示名称自动生成。
-    const id = form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
+    const id =
+      form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
     const models = form.models
       .map((m) => ({
         id: m.id.trim(),

@@ -31,8 +31,10 @@ import type {
   AgentLabMemoryItem,
   AgentLabPersonaNotes,
   AgentLabRelationStore,
+  AgentLabStickerRef,
   AgentLabTypoConfig,
 } from './types';
+import { isStickerUsable } from './sticker';
 
 /**
  * persona.typo → 传给 runPersonaChat 的 typoIntensity。
@@ -125,6 +127,13 @@ export interface RuntimeLogger {
   error(msg: string, ctx?: Record<string, unknown>): void;
 }
 
+/**
+ * 表情资产端口：模型选中的表情在落库前，确保它的图片文件真的在盘上。
+ * 实现（桌面 service / 导出 bot）可用 localPath 检查、CDN 重下、导入资产拷贝等手段；
+ * 返回 null = 拿不到（调用方会丢弃这条表情，不让破图发出去）。传入则原样发。
+ */
+export type StickerAssetPort = (sticker: AgentLabStickerRef) => Promise<string | null>;
+
 export interface AgentRuntimeDeps {
   /** agentlab 根目录（合成语音落 <rootDir>/agentvoice/）。 */
   rootDir: string;
@@ -139,6 +148,8 @@ export interface AgentRuntimeDeps {
   selfId: string;
   /** 语音合成（缺省则克隆体不发语音，降级纯文字）。 */
   tts?: TtsPort;
+  /** 表情资产保障（缺省则只发 localPath 已在盘上的表情，缺失的直接丢弃）。 */
+  ensureSticker?: StickerAssetPort;
   logger?: RuntimeLogger;
 }
 
@@ -157,6 +168,7 @@ export class AgentRuntime {
   private readonly relations: AgentLabRelationStore;
   private readonly selfId: string;
   private readonly tts?: TtsPort;
+  private readonly ensureSticker?: StickerAssetPort;
   private readonly logger?: RuntimeLogger;
 
   constructor(deps: AgentRuntimeDeps) {
@@ -170,6 +182,7 @@ export class AgentRuntime {
     this.relations = deps.relations;
     this.selfId = deps.selfId;
     this.tts = deps.tts;
+    this.ensureSticker = deps.ensureSticker;
     this.logger = deps.logger;
   }
 
@@ -326,6 +339,29 @@ export class AgentRuntime {
   }
 
   /**
+   * 表情落库前的最后一道闸：解析出本地文件路径，拿不到返回 null（调用方丢弃这条表情）。
+   * 文件已在盘上 → 直接放行；没接 ensureSticker 端口时这是唯一放行条件；
+   * 接了端口则把补全工作交给实现（CDN 重下 / 导入资产拷贝），它拿得到就算数。
+   */
+  private async resolveStickerPath(
+    persona: AgentLabPersona,
+    sticker: AgentLabStickerRef,
+  ): Promise<string | null> {
+    if (isStickerUsable(sticker)) return sticker.localPath!;
+    if (!this.ensureSticker) return null;
+    try {
+      return await this.ensureSticker(sticker);
+    } catch (error) {
+      this.logger?.warn('表情资产补全失败，丢弃这条表情', {
+        personaId: persona.id,
+        md5: sticker.md5,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
    * 单个克隆体「给定历史 + 当前输入 → 产出有序标记文本」的共享生成逻辑（私聊 chat 与群聊复用）。
    * 只做生成 + 记忆命中记账 + action→标记文本（含语音合成），不碰任何对话落库——落哪由调用方决定。
    */
@@ -359,12 +395,15 @@ export class AgentRuntime {
 
     // 按 actions 顺序转成标记文本（text / 表情 [[sticker:md5]] / 语音 [[voice:id]]）。
     // 语音合成失败则降级为文字，不丢内容。
+    // 表情在落库前必须拿到本地文件：没接 ensureSticker 时只信 localPath 已在盘上的；
+    // 接了则交给实现补全（CDN 重下等）。拿不到文件的表情直接丢弃——发出去只会是破图。
     const renderedTurns: string[] = [];
     for (const action of result.actions) {
       if (action.kind === 'text') {
         renderedTurns.push(action.text);
       } else if (action.kind === 'sticker') {
-        renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
+        const path = await this.resolveStickerPath(persona, action.sticker);
+        if (path) renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
       } else {
         const voiceId = await this.synthesizeVoice(persona, action.text);
         renderedTurns.push(voiceId ? `[[voice:${voiceId}]]` : action.text);

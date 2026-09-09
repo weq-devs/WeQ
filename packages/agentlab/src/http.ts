@@ -12,7 +12,7 @@ import type {
 } from './types';
 import { humanizeText } from './typo';
 import { scoreReplyWillingness } from './willing';
-import { selectStickerByEmotion, pickRandomSticker } from './sticker';
+import { selectStickerByEmotion, pickRandomSticker, usableStickers } from './sticker';
 
 // 标记（全局，用于从文本里剥离）：[[发表情:…]] / 内部 [[sticker:md5]] / 内部 [[voice:id]]。
 const EMOTION_MARKER_G = /\[\[发表情[:：].+?\]\]/g;
@@ -287,10 +287,12 @@ function buildSystemPrompt(
 
   // 自定义表情包：给一份「编号 + 真实内容」的清单，让模型看着内容自己挑哪张——
   // 它清楚知道自己发的是什么。发表情 = 一条独立的 emoji 消息，content 填编号（见【输出格式】）。
-  const stickers = (persona.stickers ?? []).filter((s) => s.description);
+  // 清单只列本地文件可用的表情（与 resolveStickerToken / pickRandomSticker 的过滤一致）：
+  // 文件丢失的表情若还出现在清单里，模型选中后渲染端只能拿到 404 破图。
+  const stickers = usableStickers(persona).filter((s) => s.description);
   // 没有文字描述的表情（多为刚导入、还没被视觉模型解析的新表情）——进不了编号清单，
   // 但允许模型用 content=random「随手发一张」，否则它们永远发不出去。
-  const undescribedCount = (persona.stickers ?? []).filter((s) => !s.description).length;
+  const undescribedCount = usableStickers(persona).filter((s) => !s.description).length;
   const hasAnySticker = stickers.length > 0 || undescribedCount > 0;
   if (hasAnySticker) {
     lines.push('', '【你的表情包】（想发哪张就作为一条独立的 emoji 消息发，别用文字旁白表情）：');
@@ -607,7 +609,7 @@ function extractJsonArray(raw: string): string | null {
  */
 function resolveStickerToken(persona: AgentLabPersona, token: string): AgentLabStickerRef | null {
   const t = token.trim();
-  const all = persona.stickers ?? [];
+  const all = usableStickers(persona);
   // random = 随手发一张（优先没描述的新表情，让刚导入、未解析的表情也有机会发出）。
   if (/^random$/i.test(t)) {
     return pickRandomSticker(persona, { preferUndescribed: true });

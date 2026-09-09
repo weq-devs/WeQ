@@ -149,8 +149,15 @@ export function AnnualReportStage({
     if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
     if (!gesture.captured) {
       // 拖拽跨过阈值、确认是翻页手势，才把这一指的剩余事件接管给舞台。
-      event.currentTarget.setPointerCapture(gesture.pointerId);
-      gesture.captured = true;
+      // 捕获可能失败：那根手指可能已被系统手势/别的元素截走（报 NotFoundError），
+      // 也可能 capture 已被别人持有（InvalidStateError）。两种都只当「没捕到」
+      // 处理，翻页判定靠 pointerup 的位移照样成立，不能让异常炸掉渲染进程。
+      try {
+        event.currentTarget.setPointerCapture(gesture.pointerId);
+        gesture.captured = true;
+      } catch {
+        gesture.captured = false;
+      }
     }
     gesture.moved = true;
   }

@@ -352,6 +352,7 @@ export class AgentLabService extends EventEmitter {
       relations: this.relations,
       selfId: String(this.session.context.uin),
       tts: ttsPort,
+      ensureSticker: (sticker) => this.ensureStickerAsset(sticker),
       logger: this.logger,
     });
   }
@@ -980,6 +981,61 @@ export class AgentLabService extends EventEmitter {
     const sticker = persona.stickers?.find((s) => s.md5 === md5);
     if (!sticker?.localPath) return null;
     return existsSync(sticker.localPath) ? sticker.localPath : null;
+  }
+
+  /**
+   * 发送链路的表情资产兜底：构建期 download 失败的表情（localPath 缺失/文件丢失）
+   * 在模型选中发送时，用存量 cdnToken 现场重下并回写 persona，让破图变成真图。
+   * 重下失败返回 null，runtime 会丢弃这条表情（降级不发，绝不发 404 破图）。
+   */
+  private async ensureStickerAsset(sticker: {
+    md5: string;
+    fileName: string;
+    cdnToken: string;
+    localPath?: string;
+  }): Promise<string | null> {
+    const media = this.media;
+    if (!media) return null;
+    // 本地寻址优先（nt_data 里可能现在能搜到了），再试 CDN 重下。
+    let found: string | null = null;
+    try {
+      found = (await media.fileSearch.findFile(Date.now(), sticker.fileName, 'emoji')).source;
+    } catch {
+      found = null;
+    }
+    if (!found && sticker.cdnToken) {
+      found = await media.mediaDownload
+        .download(sticker.cdnToken, {
+          ext: '.png',
+          rkeyTypes: [PRIVATE_IMAGE_RKEY_TYPE, GROUP_IMAGE_RKEY_TYPE],
+        })
+        .catch(() => null);
+    }
+    if (!found) return null;
+    const localPath = this.cacheStickerFile(found, sticker.md5);
+    if (!existsSync(localPath)) return null;
+    // 回写 persona，下次这条表情直接进「可用」池（选中清单 / random 池都能看到它）。
+    this.patchStickerLocalPath(sticker.md5, localPath);
+    return localPath;
+  }
+
+  /** 把重下成功的 localPath 写回 persona 对应表情（找不到 persona/表情则静默跳过）。 */
+  private patchStickerLocalPath(md5: string, localPath: string): void {
+    for (const p of this.store.listPersonas()) {
+      const ref = p.stickers?.find((s) => s.md5 === md5 && !s.localPath);
+      if (!ref) continue;
+      const record = this.store.getPersona(p.id);
+      if (!record) continue;
+      ref.localPath = localPath;
+      this.store.savePersona(record);
+      this.logger.info('表情资产补全成功，已回写 persona', {
+        event: 'agentlab-sticker-ensured',
+        personaId: p.id,
+        md5,
+        localPath,
+      });
+      return;
+    }
   }
 
   /** 给前端「查看画像参数」用：persona + 抽样问答对（不返回 embedding，省带宽）。 */

@@ -127,6 +127,8 @@ export function ChatBubble({
 }): ReactElement {
   // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
   const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
+  // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
+  const [stickerFailed, setStickerFailed] = useState(false);
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
@@ -150,14 +152,17 @@ export function ChatBubble({
           </span>
         ) : null}
         <div className="message-content">
-          {stickerMatch ? (
+          {stickerMatch && !stickerFailed ? (
             <img
               className="weq-agentlab-sticker-img"
               src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
               alt="[表情]"
               draggable={false}
               onLoad={onMediaLoad}
+              onError={() => setStickerFailed(true)}
             />
+          ) : stickerMatch && stickerFailed ? (
+            <span className="weq-agentlab-sticker-fallback">[表情]</span>
           ) : voiceMatch ? (
             <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
           ) : faces ? (

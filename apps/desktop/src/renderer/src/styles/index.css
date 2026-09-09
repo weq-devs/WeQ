@@ -9681,6 +9681,14 @@ html[data-theme="dark"] .weq-forward-bubble {
   object-fit: contain;
 }
 
+/* 表情图加载失败的降级占位（资源被清 / 下载失败时替代破图）。 */
+.weq-agentlab-sticker-fallback {
+  display: inline-block;
+  padding: 2px 4px;
+  opacity: 0.72;
+  font-size: 0.95em;
+}
+
 /* 克隆体合成语音气泡（点击播放）。 */
 .weq-agentlab-voice {
   display: inline-flex;
