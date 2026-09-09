@@ -93,4 +93,36 @@
 
 ---
 
+## 六、附：安卓 QQ 的 chatpic 缓存路径预测
+
+手机 QQ 的聊天图片缓存**不按消息存，按 md5 存**。目录在手机的外部存储：
+
+```text
+/sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
+```
+
+下面按三个子目录分档：`chatraw`（原图）/ `chatimg`（普通图）/ `chatthumb`（缩略图）。
+**文件名与子目录完全由 md5 公式推出**，不需要查任何表：
+
+```text
+url      = `${folder}:${md5}`        // folder ∈ chatraw / chatimg / chatthumb
+crc      = CRC64(url)                // 有符号 BigInt！
+filename = `Cache_${crc.toString(16)}`
+subdir   = filename 的最后 3 个字符
+相对路径 = `${folder}/${subdir}/${filename}`
+```
+
+同一个 md5 在三个目录里各算一次，得到**三个不同的文件名**——寻址时逐个探测，
+哪个存在用哪个（优先级 chatraw > chatimg > chatthumb：能显示出来比清晰度重要）。
+
+关键细节：CRC64 用**反射多项式 `0x95AC9329AC4BC9B5`、初值 -1、无最终异或**，
+且结果保留**有符号** BigInt——实测 QQ 的文件名带负号，一旦无符号化所有寻址全部失效。
+
+WeQ 实现：`packages/service/src/account/chatpic.ts`（金标准值单测钉死在
+`packages/service/test/chatpic.test.ts`）。在桌面端导入完整的 chatpic 备份后，
+本机缺失的聊天图片可按此公式找回（设置 → 账号信息 → 外部安卓图片缓存；
+`weq-media://pic` 链路在本地 miss 时自动按 md5 兜底，再不行才走 CDN）。
+
+---
+
 [← 返回消息段索引](../index.md#消息段element索引)
