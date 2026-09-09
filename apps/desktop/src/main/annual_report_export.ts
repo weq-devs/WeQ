@@ -16,10 +16,7 @@ import { loadCjkFont } from './weq_assistant/cover';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { isAllTimeYear, reportEraLabel, reportSinceLabel } from '@weq/service/report-time';
-import {
-  createReportAssetUrls,
-  type ReportAssetUrlPrefixes,
-} from '@weq/service/report-assets';
+import { createReportAssetUrls, type ReportAssetUrlPrefixes } from '@weq/service/report-assets';
 import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
 
 /** 主进程只认自定义协议；web 端的 /_media/、/_asset/ 由 router 归一后再进这里。 */

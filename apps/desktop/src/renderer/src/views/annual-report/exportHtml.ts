@@ -15,10 +15,7 @@ import {
   reportPeriodLabel,
   reportSinceLabel,
 } from '@weq/service/report-time';
-import {
-  createReportAssetUrls,
-  type ReportAssetUrlPrefixes,
-} from '@weq/service/report-assets';
+import { createReportAssetUrls, type ReportAssetUrlPrefixes } from '@weq/service/report-assets';
 import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
 
 /** 桌面走自定义协议；web 构建时同一份 HTML 的图片先经 tRPC 拉成 data URI。 */
