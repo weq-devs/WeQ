@@ -9,6 +9,8 @@
  *   POST /api/login        → { ok: boolean }
  *   GET  /api/stats        → StatsSnapshot（token/消息/按天/按模型）
  *   GET  /api/overview     → 训练参数 / 语音 / 表情 / 画像总览（只读）
+ *   GET  /api/config       → 产物 config.json（apiKey 打码，只读展示）
+ *   PUT  /api/config       → 白名单字段写回 config.json（打码 key 视为未修改）；改后需 /api/reload 生效
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { timingSafeEqual, createHash } from 'node:crypto';
@@ -21,6 +23,7 @@ import type {
   TtsProviderConfig,
 } from '@weq/agentlab';
 import type { RuntimeLogger } from '@weq/agentlab';
+import type { BotConfig } from '../config';
 import type { StatsStore } from '../stats';
 import { renderAppHtml } from './app.html';
 
@@ -44,6 +47,8 @@ export interface WebUiDeps {
   visionDescribe?: (imageDataUrl: string) => Promise<{ description: string; scenario: string }>;
   /** 完全重载回调（重读 config.json 并重建实例）。缺省则 /api/reload 返回 501。 */
   onReload?: () => Promise<{ ok: boolean; message?: string }>;
+  /** 产物 config.json 的绝对路径。提供后 WebUI 才能读写配置（/api/config）。 */
+  configPath?: string;
   logger?: RuntimeLogger;
 }
 
@@ -123,6 +128,58 @@ function listStickers(persona: AgentLabPersona): Array<{
   }));
 }
 
+/**
+ * API key 打码：只露头 3 + 尾 4，中间用 • 填充。含 • 的值回传时视为「未修改」，落盘前还原成原值。
+ */
+function maskKey(k: string | undefined): string {
+  const s = k ?? '';
+  if (!s) return '';
+  if (s.length <= 8) return '••••';
+  return `${s.slice(0, 3)}••••${s.slice(-4)}`;
+}
+
+/** 读产物 config.json（每次现读——它是配置的唯一事实源）。失败返回 null。 */
+function readConfigFile(configPath: string): BotConfig | null {
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf-8')) as BotConfig;
+  } catch {
+    return null;
+  }
+}
+
+/** /api/config GET 的返回结构：可编辑字段 + 打码 key。绝不返回明文 apiKey。 */
+function buildConfigPayload(cfg: BotConfig): unknown {
+  return {
+    adapter: {
+      type: cfg.adapter.type,
+      wsUrl: cfg.adapter.wsUrl,
+      token: cfg.adapter.token ?? '',
+    },
+    selfId: cfg.selfId,
+    features: {
+      voice: cfg.features?.voice ?? false,
+      groupChat: cfg.features?.groupChat ?? false,
+      groupReplyMode: cfg.features?.groupReplyMode ?? 'llm',
+    },
+    webui: {
+      enabled: cfg.webui?.enabled !== false,
+      port: cfg.webui?.port ?? 8090,
+    },
+    llmProviders: (cfg.llmProviders ?? []).map((p) => ({
+      id: p.id,
+      baseUrl: p.baseUrl,
+      apiKey: maskKey(p.apiKey),
+    })),
+    ttsProviders: (cfg.ttsProviders ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      vendor: p.vendor,
+      baseUrl: p.baseUrl,
+      apiKey: maskKey(p.apiKey),
+    })),
+  };
+}
+
 /** data URL（data:image/png;base64,xxx 或裸 base64）→ Buffer。非法返回 null。 */
 function dataUrlToBuffer(dataUrl: string): Buffer | null {
   const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/.exec(dataUrl.trim());
@@ -179,6 +236,120 @@ function readBody(req: IncomingMessage, limit = 4096): Promise<string> {
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
+}
+
+/**
+ * 把 /api/config PUT 的 body 合并进现读的 config（就地修改 cfg）。
+ * 规则：只动白名单字段；apiKey 含 •（打码）则保留原值，否则视为新 key。返回错误文案或 null。
+ */
+function applyConfigPatch(cfg: BotConfig, body: Record<string, unknown>): string | null {
+  // adapter
+  const ad = body.adapter as Record<string, unknown> | undefined;
+  if (ad !== undefined) {
+    if (typeof ad !== 'object' || ad === null) return 'adapter 格式错误';
+    const type = ad.type;
+    if (type !== undefined && type !== 'napcat' && type !== 'snowluma')
+      return 'adapter.type 只能是 napcat 或 snowluma';
+    if (type !== undefined) cfg.adapter.type = type;
+    if (ad.wsUrl !== undefined) {
+      if (typeof ad.wsUrl !== 'string' || !/^wss?:\/\/.+/.test(ad.wsUrl.trim())) {
+        return 'wsUrl 必须是 ws:// 或 wss:// 开头的地址';
+      }
+      cfg.adapter.wsUrl = ad.wsUrl.trim();
+    }
+    if (ad.token !== undefined) {
+      if (typeof ad.token !== 'string') return 'token 格式错误';
+      cfg.adapter.token = ad.token.trim();
+    }
+  }
+  // features
+  const ft = body.features as Record<string, unknown> | undefined;
+  if (ft !== undefined) {
+    if (typeof ft !== 'object' || ft === null) return 'features 格式错误';
+    cfg.features = cfg.features ?? {};
+    if (ft.voice !== undefined) {
+      if (typeof ft.voice !== 'boolean') return 'features.voice 必须是布尔值';
+      cfg.features.voice = ft.voice;
+    }
+    if (ft.groupChat !== undefined) {
+      if (typeof ft.groupChat !== 'boolean') return 'features.groupChat 必须是布尔值';
+      cfg.features.groupChat = ft.groupChat;
+    }
+    if (ft.groupReplyMode !== undefined) {
+      if (ft.groupReplyMode !== 'llm' && ft.groupReplyMode !== 'heuristic') {
+        return 'features.groupReplyMode 只能是 llm 或 heuristic';
+      }
+      cfg.features.groupReplyMode = ft.groupReplyMode;
+    }
+  }
+  // webui
+  const wu = body.webui as Record<string, unknown> | undefined;
+  if (wu !== undefined) {
+    if (typeof wu !== 'object' || wu === null) return 'webui 格式错误';
+    cfg.webui = cfg.webui ?? { key: '', id: '' };
+    if (wu.enabled !== undefined) {
+      if (typeof wu.enabled !== 'boolean') return 'webui.enabled 必须是布尔值';
+      cfg.webui.enabled = wu.enabled;
+    }
+    if (wu.port !== undefined) {
+      const n = Number(wu.port);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) return 'webui.port 必须是 1~65535 的整数';
+      cfg.webui.port = n;
+    }
+  }
+  // selfId：bot 自己的 QQ 号（纯数字），改后需重载生效。
+  if (body.selfId !== undefined) {
+    if (typeof body.selfId !== 'string' || !/^\d{5,}$/.test(body.selfId.trim())) {
+      return 'selfId 必须是 QQ 号（5 位以上纯数字）';
+    }
+    cfg.selfId = body.selfId.trim();
+  }
+  // llmProviders：只允许改 baseUrl/apiKey（id 是 persona.models 的引用键，不可改）。
+  const llm = body.llmProviders as Array<Record<string, unknown>> | undefined;
+  if (llm !== undefined) {
+    if (!Array.isArray(llm)) return 'llmProviders 格式错误';
+    for (const item of llm) {
+      const p = cfg.llmProviders.find((x) => x.id === item?.id);
+      if (!p) return `llmProviders 里没有 id 为 ${String(item?.id)} 的 provider`;
+      if (item.baseUrl !== undefined) {
+        if (typeof item.baseUrl !== 'string' || !/^https?:\/\//.test(item.baseUrl.trim())) {
+          return `provider ${p.id} 的 baseUrl 必须是 http(s):// 开头`;
+        }
+        p.baseUrl = item.baseUrl.trim();
+      }
+      if (
+        item.apiKey !== undefined &&
+        typeof item.apiKey === 'string' &&
+        !item.apiKey.includes('•')
+      ) {
+        p.apiKey = item.apiKey.trim();
+      }
+    }
+  }
+  // ttsProviders：同样只允许改 baseUrl/apiKey。
+  const tts = body.ttsProviders as Array<Record<string, unknown>> | undefined;
+  if (tts !== undefined) {
+    if (!Array.isArray(tts)) return 'ttsProviders 格式错误';
+    cfg.ttsProviders = cfg.ttsProviders ?? [];
+    for (const item of tts) {
+      const p = cfg.ttsProviders.find((x) => x.id === item?.id);
+      if (!p) return `ttsProviders 里没有 id 为 ${String(item?.id)} 的 provider`;
+      if (item.baseUrl !== undefined) {
+        if (typeof item.baseUrl !== 'string' || !/^https?:\/\//.test(item.baseUrl.trim())) {
+          return `TTS provider ${p.id} 的 baseUrl 必须是 http(s):// 开头`;
+        }
+        p.baseUrl = item.baseUrl.trim();
+      }
+      if (
+        item.apiKey !== undefined &&
+        typeof item.apiKey === 'string' &&
+        !item.apiKey.includes('•')
+      ) {
+        p.apiKey = item.apiKey.trim();
+      }
+    }
+  }
+  return null;
 }
 
 export interface WebUiHandle {
@@ -354,6 +525,58 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
         const rec = deps.store.getPersona(deps.persona.id);
         deps.store.savePersona({ persona: deps.persona, pairs: rec?.pairs ?? [] });
         sendJson(res, 200, { ok: true });
+        return;
+      }
+      // 读配置（打码 key）。未提供 configPath（如内存态使用）则 404。
+      if (method === 'GET' && url === '/api/config') {
+        if (!deps.configPath) {
+          sendJson(res, 404, { error: '当前实例未挂载 config.json' });
+          return;
+        }
+        const cfg = readConfigFile(deps.configPath);
+        if (!cfg) {
+          sendJson(res, 500, { error: 'config.json 读取失败' });
+          return;
+        }
+        sendJson(res, 200, buildConfigPayload(cfg));
+        return;
+      }
+      // 写配置：接受 buildConfigPayload 同构的 body，打码 key 原样回传视为未修改（还原原值），
+      // 非打码值视为用户改动。写入成功后提示前端走 /api/reload 生效（本进程不热改运行态）。
+      if (method === 'PUT' && url === '/api/config') {
+        if (!deps.configPath) {
+          sendJson(res, 404, { error: '当前实例未挂载 config.json' });
+          return;
+        }
+        const cfg = readConfigFile(deps.configPath);
+        if (!cfg) {
+          sendJson(res, 500, { error: 'config.json 读取失败，无法在其基础上修改' });
+          return;
+        }
+        let body: Record<string, unknown>;
+        try {
+          body = JSON.parse((await readBody(req, 1024 * 1024)) || '{}') as Record<string, unknown>;
+        } catch {
+          sendJson(res, 400, { error: '请求体不是合法 JSON' });
+          return;
+        }
+        const err = applyConfigPatch(cfg, body);
+        if (err) {
+          sendJson(res, 400, { error: err });
+          return;
+        }
+        try {
+          writeFileSync(deps.configPath, JSON.stringify(cfg, null, 2), 'utf-8');
+        } catch (e) {
+          sendJson(res, 500, {
+            error: `config.json 写入失败：${e instanceof Error ? e.message : String(e)}`,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          message: '已保存到 config.json。点「保存并重载」或手动重载后生效。',
+        });
         return;
       }
       // 完全重载：重读 config.json 并重建实例。注意——本 http server 会随实例一起重启，

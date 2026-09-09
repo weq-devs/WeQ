@@ -164,6 +164,9 @@ async function boot(
       stickersDir: join(config.personaDir, 'stickers'),
       visionDescribe,
       onReload,
+      // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
+      // 提供后 WebUI「设置」页可读写配置并触发重载。
+      configPath: join(config.personaDir, '..', 'config.json'),
       logger: consoleLogger,
     });
   }

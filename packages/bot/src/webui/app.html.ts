@@ -302,6 +302,75 @@ svg { display: block; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── 设置页：表单控件 ── */
+.form-grid { display: grid; gap: 16px; }
+.form-row { display: grid; gap: 6px; }
+.form-row > label { font-size: 12px; font-weight: 560; color: var(--fg-secondary); display: inline-flex; align-items: center; gap: 6px; }
+.form-row > label svg { color: var(--fg-muted); }
+.form-row .hint { font-size: 11px; color: var(--fg-muted); line-height: 1.5; }
+.input, select.input {
+  width: 100%; height: 40px; padding: 0 12px; border-radius: 11px; border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated); color: var(--fg-primary); outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.input::placeholder { color: var(--fg-muted); }
+select.input { appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%), linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input-mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; }
+.form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .form-2col { grid-template-columns: 1fr; } }
+
+/* 开关（iOS 风格） */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-subtle); }
+.switch-row:first-child { border-top: none; }
+.switch-row .sw-label { font-size: 13px; color: var(--fg-secondary); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.switch-row .sw-label b { font-weight: 560; color: var(--fg-primary); font-size: 13px; }
+.switch-row .sw-label span { font-size: 11px; color: var(--fg-muted); line-height: 1.45; }
+.switch { position: relative; width: 42px; height: 24px; flex: none; border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-muted) 30%, transparent); transition: background .18s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.25); transition: transform .18s cubic-bezier(0.22, 1, 0.36, 1); }
+.switch.on { background: linear-gradient(135deg, var(--c-blue), color-mix(in srgb, var(--c-violet) 60%, var(--c-blue))); }
+.switch.on::after { transform: translateX(18px); }
+
+/* 分段选择器（群聊回复模式） */
+.seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: color-mix(in srgb, var(--fg-muted) 10%, transparent); }
+.seg button { padding: 6px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 560; color: var(--fg-secondary); transition: all .15s; }
+.seg button.active { color: #fff; background: linear-gradient(135deg, var(--c-blue), color-mix(in srgb, var(--c-violet) 62%, var(--c-blue))); box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* provider 卡（LLM / TTS） */
+.prov { display: grid; gap: 10px; padding: 13px 14px; border-radius: 13px; border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-elevated) 62%, transparent); }
+.prov-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--fg-primary); }
+.prov-head .prov-id { font-size: 10.5px; font-weight: 550; padding: 2px 8px; border-radius: 999px; color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 12%, transparent); font-family: ui-monospace, Menlo, monospace; }
+.prov-head .prov-tag { font-size: 10px; padding: 2px 7px; border-radius: 999px; color: var(--c-violet);
+  background: color-mix(in srgb, var(--c-violet) 12%, transparent); border: 1px solid color-mix(in srgb, var(--c-violet) 26%, transparent); }
+.prov .form-2col { gap: 8px; }
+
+/* 底部保存条（吸底，有改动时浮出） */
+.save-bar { position: sticky; bottom: 14px; z-index: 30; display: flex; align-items: center; gap: 12px;
+  margin-top: 18px; padding: 12px 16px; border-radius: 15px;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--shadow-lg);
+  opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .22s, transform .22s; }
+.save-bar.show { opacity: 1; transform: none; pointer-events: auto; }
+.save-bar .dirty-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-gold) 22%, transparent); animation: pulse 2s ease-in-out infinite; }
+.save-bar .dirty-text { font-size: 12.5px; color: var(--fg-secondary); flex: 1; }
+.save-bar .sh-btn.warn { background: linear-gradient(135deg, var(--warn), #d96a1f); }
+
+/* toast 通知 */
+#toast { position: fixed; left: 50%; bottom: 34px; transform: translate(-50%, 18px); z-index: 90;
+  display: flex; align-items: center; gap: 9px; padding: 11px 18px; border-radius: 13px; font-size: 13px; font-weight: 550;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--shadow-lg);
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: min(480px, calc(100vw - 40px)); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.ok { color: var(--pos); }
+#toast.err { color: #e5484d; }
+
 /* ── 动效关键帧 ── */
 @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 22%, transparent); }
@@ -355,7 +424,13 @@ const JS = `
       refresh: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>',
       upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
       trash: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
-      image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.6-3.6a2 2 0 0 0-2.8 0L6 20"/>'
+      image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.6-3.6a2 2 0 0 0-2.8 0L6 20"/>',
+      gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
+      plug: '<path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+      shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/>',
+      check: '<path d="M20 6 9 17l-5-5"/>',
+      x: '<path d="M18 6 6 18M6 6l12 12"/>',
+      save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7M7 3v4a1 1 0 0 0 1 1h7"/>'
     };
     return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (P[name] || '') + '</svg>';
   }
@@ -381,7 +456,34 @@ const JS = `
     return fetch(path, { headers: { Authorization: 'Bearer ' + (sessionStorage.getItem(KEY) || '') } })
       .then(function (r) { if (r.status === 401) { logout(); throw new Error('未授权'); } return r.json(); });
   }
+  function apiSend(path, method, body) {
+    return fetch(path, {
+      method: method,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sessionStorage.getItem(KEY) || '') },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }).then(function (r) {
+      if (r.status === 401) { logout(); throw new Error('未授权'); }
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    });
+  }
   function logout() { sessionStorage.removeItem(KEY); renderLogin(); }
+
+  /* toast：右上角浮出，2.6s 自动消失。type = 'ok' | 'err'。 */
+  var toastTimer = 0;
+  function toast(msg, type) {
+    var el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast';
+      document.body.appendChild(el);
+    }
+    el.className = type === 'err' ? 'err' : 'ok';
+    el.innerHTML = ic(type === 'err' ? 'alert' : 'check', 15) + '<span>' + esc(msg) + '</span>';
+    void el.offsetWidth; // 重置过渡
+    el.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+  }
 
   function fmt(n) {
     n = n || 0;
@@ -465,6 +567,7 @@ const JS = `
         '<div class="tabs">' +
           '<button class="tab" data-tab="stats">' + ic('chart', 15) + ' 统计</button>' +
           '<button class="tab" data-tab="overview">' + ic('grid', 15) + ' 总览</button>' +
+          '<button class="tab" data-tab="settings">' + ic('gear', 15) + ' 设置</button>' +
         '</div>' +
         '<div id="view"></div>' +
       '</div>';
@@ -485,7 +588,9 @@ const JS = `
   function route() {
     var view = document.getElementById('view');
     view.innerHTML = '<div class="loading">' + ic('clock', 22) + '<div style="margin-top:10px">加载中…</div></div>';
-    if (activeTab === 'stats') loadStats(view); else loadOverview(view);
+    if (activeTab === 'stats') loadStats(view);
+    else if (activeTab === 'settings') loadSettings(view);
+    else loadOverview(view);
   }
 
   /* ── 页面①统计 ── */
@@ -643,6 +748,219 @@ const JS = `
       view.innerHTML = html;
       loadStickers();
     }).catch(function (e) { view.innerHTML = errBox(e); });
+  }
+
+  /* ── 页面③设置：读改 config.json，保存后可一键重载生效 ── */
+  var settingsDraft = null; // 当前表单草稿（与 GET /api/config 同构）
+
+  function loadSettings(view) {
+    api('/api/config').then(function (c) {
+      settingsDraft = JSON.parse(JSON.stringify(c)); // 深拷贝作草稿
+      view.innerHTML = settingsHtml(c);
+      bindSettings(view);
+    }).catch(function (e) {
+      // 没挂 configPath（理论上导出产物必有）或读取失败：整页降级提示。
+      view.innerHTML = '<div class="card"><div class="card-title" style="color:var(--warn)">' + ic('alert', 15) + ' 设置不可用</div>' +
+        '<div class="prose">' + esc(e && e.message ? e.message : '无法读取 config.json') + '</div>' +
+        '<div class="hint" style="margin-top:8px">可以直接编辑产物目录下的 config.json 后，点右上角「重载配置」生效。</div></div>';
+    });
+  }
+
+  function settingsHtml(c) {
+    var html = '';
+    // ── 连接 ──
+    html += '<div class="section-h">' + ic('plug', 15) + ' 连接（OneBot 适配器）</div>' +
+      '<div class="card"><div class="form-grid">' +
+        '<div class="form-2col">' +
+          '<div class="form-row"><label>' + ic('link', 13) + ' 适配器类型</label>' +
+            '<select id="cfg-ad-type" class="input"><option value="napcat"' + (c.adapter.type === 'napcat' ? ' selected' : '') + '>NapCat</option>' +
+            '<option value="snowluma"' + (c.adapter.type === 'snowluma' ? ' selected' : '') + '>SnowLuma</option></select></div>' +
+          '<div class="form-row"><label>' + ic('user', 13) + ' bot 的 QQ 号</label>' +
+            '<input id="cfg-selfid" class="input input-mono" value="' + esc(c.selfId) + '" placeholder="10000" /></div>' +
+        '</div>' +
+        '<div class="form-row"><label>' + ic('link', 13) + ' WebSocket 地址</label>' +
+          '<input id="cfg-ad-wsurl" class="input input-mono" value="' + esc(c.adapter.wsUrl) + '" placeholder="ws://127.0.0.1:8081" /></div>' +
+        '<div class="form-row"><label>' + ic('key', 13) + ' 连接 token</label>' +
+          '<input id="cfg-ad-token" class="input input-mono" value="' + esc(c.adapter.token || '') + '" placeholder="留空表示不鉴权" /></div>' +
+      '</div></div>';
+
+    // ── 行为 ──
+    html += '<div class="section-h">' + ic('gauge', 15) + ' 行为开关</div><div class="card">' +
+      swRow('cfg-ft-voice', '允许发语音', '克隆体可发语音消息（需要 TTS 服务商可用）', c.features.voice) +
+      swRow('cfg-ft-group', '参与群聊', '开启后克隆体会按意愿闸决定是否在群里开口', c.features.groupChat) +
+      '<div class="switch-row"><div class="sw-label"><b>群聊回复决策</b><span>llm = 带上下文自己判断（更自然，每条群消息多一次 LLM 调用）；heuristic = 纯打分（快·省 token）</span></div>' +
+        '<div class="seg" id="cfg-ft-mode"><button data-v="llm" class="' + (c.features.groupReplyMode === 'llm' ? 'active' : '') + '">LLM 拟人</button>' +
+        '<button data-v="heuristic" class="' + (c.features.groupReplyMode === 'heuristic' ? 'active' : '') + '">启发式</button></div></div>' +
+      '</div>';
+
+    // ── LLM 服务商 ──
+    html += '<div class="section-h">' + ic('cpu', 15) + ' LLM 服务商</div><div class="card"><div class="form-grid">';
+    c.llmProviders.forEach(function (p, i) {
+      html += provCard('llm', i, p.id, p.baseUrl, p.apiKey, null);
+    });
+    html += '<div class="hint">对话 / 向量 / 视觉模型由克隆体训练时绑定，这里改服务商的地址与密钥即可换接入点。API Key 打码显示；输入新值才会覆盖。</div></div></div>';
+
+    // ── TTS 服务商 ──
+    if (c.ttsProviders.length > 0) {
+      html += '<div class="section-h">' + ic('mic', 15) + ' TTS 服务商</div><div class="card"><div class="form-grid">';
+      c.ttsProviders.forEach(function (p, i) {
+        html += provCard('tts', i, p.id, p.baseUrl, p.apiKey, p.name + ' · ' + p.vendor);
+      });
+      html += '</div></div>';
+    }
+
+    // ── WebUI ──
+    html += '<div class="section-h">' + ic('shield', 15) + ' 本控制台</div><div class="card">' +
+      swRow('cfg-wu-enabled', '启用控制台', '关闭后重启 bot 不再监听本端口（当前会话不受影响）', c.webui.enabled) +
+      '<div class="switch-row"><div class="sw-label"><b>监听端口</b><span>仅监听 127.0.0.1，改端口保存并重载后生效</span></div>' +
+        '<input id="cfg-wu-port" class="input input-mono" style="width:110px" value="' + esc(String(c.webui.port)) + '" /></div>' +
+      '</div>';
+
+    // 吸底保存条
+    html += '<div class="save-bar" id="saveBar"><span class="dirty-dot"></span>' +
+      '<span class="dirty-text">配置有未保存的修改</span>' +
+      '<button id="discardBtn" class="sh-btn" style="background:none;border:1px solid var(--border-subtle);color:var(--fg-secondary);box-shadow:none">放弃</button>' +
+      '<button id="saveBtn" class="sh-btn">' + ic('save', 13) + ' 保存</button>' +
+      '<button id="saveReloadBtn" class="sh-btn warn">' + ic('refresh', 13) + ' 保存并重载</button>' +
+      '</div>';
+    return html;
+  }
+
+  function swRow(id, title, hint, on) {
+    return '<div class="switch-row"><div class="sw-label"><b>' + esc(title) + '</b><span>' + esc(hint) + '</span></div>' +
+      '<button class="switch' + (on ? ' on' : '') + '" id="' + id + '" role="switch" aria-checked="' + (!!on) + '"></button></div>';
+  }
+
+  function provCard(kind, idx, id, baseUrl, apiKey, extra) {
+    var head = '<div class="prov-head">' + ic(kind === 'tts' ? 'mic' : 'cpu', 14) +
+      (extra ? esc(extra) : 'Provider') + '<span class="prov-id">' + esc(id) + '</span>' +
+      (kind === 'llm' ? '<span class="prov-tag">LLM</span>' : '<span class="prov-tag">TTS</span>') + '</div>';
+    return '<div class="prov" data-kind="' + kind + '" data-idx="' + idx + '">' + head +
+      '<div class="form-2col">' +
+        '<div class="form-row"><label>API 地址</label><input class="input input-mono p-baseurl" value="' + esc(baseUrl) + '" /></div>' +
+        '<div class="form-row"><label>API Key</label><input class="input input-mono p-apikey" value="' + esc(apiKey) + '" autocomplete="off" /></div>' +
+      '</div></div>';
+  }
+
+  function collectSettings() {
+    var val = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    var sw = function (id) { var el = document.getElementById(id); return !!el && el.classList.contains('on'); };
+    var segV = 'llm';
+    document.querySelectorAll('#cfg-ft-mode button').forEach(function (b) {
+      if (b.classList.contains('active')) segV = b.getAttribute('data-v');
+    });
+    var d = {
+      adapter: { type: val('cfg-ad-type'), wsUrl: val('cfg-ad-wsurl'), token: val('cfg-ad-token') },
+      selfId: val('cfg-selfid'),
+      features: { voice: sw('cfg-ft-voice'), groupChat: sw('cfg-ft-group'), groupReplyMode: segV },
+      webui: { enabled: sw('cfg-wu-enabled'), port: Number(val('cfg-wu-port')) || 0 },
+      llmProviders: [],
+      ttsProviders: [],
+    };
+    document.querySelectorAll('.prov').forEach(function (card) {
+      var item = {
+        id: card.querySelector('.prov-id').textContent,
+        baseUrl: card.querySelector('.p-baseurl').value.trim(),
+        apiKey: card.querySelector('.p-apikey').value.trim(),
+      };
+      if (card.getAttribute('data-kind') === 'tts') d.ttsProviders.push(item);
+      else d.llmProviders.push(item);
+    });
+    return d;
+  }
+
+  function settingsDirty() {
+    if (!settingsDraft) return false;
+    var d = collectSettings();
+    return JSON.stringify(d) !== JSON.stringify({
+      adapter: settingsDraft.adapter,
+      selfId: settingsDraft.selfId,
+      features: settingsDraft.features,
+      webui: settingsDraft.webui,
+      llmProviders: settingsDraft.llmProviders,
+      ttsProviders: settingsDraft.ttsProviders,
+    });
+  }
+
+  function syncSaveBar() {
+    var bar = document.getElementById('saveBar');
+    if (bar) bar.classList.toggle('show', settingsDirty());
+  }
+
+  function bindSettings(view) {
+    // 开关点击
+    view.querySelectorAll('.switch').forEach(function (sw) {
+      sw.onclick = function () {
+        sw.classList.toggle('on');
+        sw.setAttribute('aria-checked', sw.classList.contains('on'));
+        syncSaveBar();
+      };
+    });
+    // 分段选择
+    var seg = document.getElementById('cfg-ft-mode');
+    if (seg) seg.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () {
+        seg.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        syncSaveBar();
+      };
+    });
+    // 输入变化
+    view.querySelectorAll('.input').forEach(function (inp) {
+      inp.addEventListener('input', syncSaveBar);
+      inp.addEventListener('change', syncSaveBar);
+    });
+
+    function doSave(afterSave) {
+      var d = collectSettings();
+      // 前端先行校验（后端仍会全量校验）。
+      if (!/^wss?:///.test(d.adapter.wsUrl)) { toast('WebSocket 地址必须以 ws:// 或 wss:// 开头', 'err'); return; }
+      if (!/^d{5,}$/.test(d.selfId)) { toast('bot 的 QQ 号必须是 5 位以上纯数字', 'err'); return; }
+      if (!d.webui.port || d.webui.port < 1 || d.webui.port > 65535) { toast('控制台端口必须是 1~65535', 'err'); return; }
+      var btn = document.getElementById('saveBtn'), rb = document.getElementById('saveReloadBtn');
+      if (btn) btn.disabled = true;
+      if (rb) rb.disabled = true;
+      apiSend('/api/config', 'PUT', d).then(function (res) {
+        if (!res.ok) throw new Error(res.j && res.j.error ? res.j.error : '保存失败');
+        toast('已保存到 config.json');
+        settingsDraft = JSON.parse(JSON.stringify(d)); // 保存后草稿即基线
+        syncSaveBar();
+        if (afterSave) {
+          // 与「重载配置」一致：等 2.5s 让实例重启完成再刷新整页。
+          toast('正在用新配置重载…');
+          setTimeout(function () { route(); }, 2500);
+        }
+      }).catch(function (e) {
+        toast(e && e.message ? e.message : '保存失败', 'err');
+      }).finally(function () {
+        if (btn) btn.disabled = false;
+        if (rb) rb.disabled = false;
+      });
+    }
+
+    var saveBtn = document.getElementById('saveBtn');
+    if (saveBtn) saveBtn.onclick = function () { doSave(false); };
+    var saveReloadBtn = document.getElementById('saveReloadBtn');
+    if (saveReloadBtn) saveReloadBtn.onclick = function () {
+      if (!window.confirm('保存并完全重载？bot 会短暂断线后自动用新配置重连。')) return;
+      apiSend('/api/config', 'PUT', collectSettings()).then(function (res) {
+        if (!res.ok) throw new Error(res.j && res.j.error ? res.j.error : '保存失败');
+        // 保存成功后走既有 /api/reload（server 会先回包再重启）。
+        return apiSend('/api/reload', 'POST');
+      }).then(function () {
+        toast('已保存，正在重载…');
+        setTimeout(function () { route(); }, 2500);
+      }).catch(function (e) {
+        toast(e && e.message ? e.message : '操作失败', 'err');
+      });
+    };
+    var discardBtn = document.getElementById('discardBtn');
+    if (discardBtn) discardBtn.onclick = function () {
+      loadSettings(view); // 重拉配置覆盖表单
+      toast('已放弃修改');
+    };
+    // 初始隐藏保存条
+    syncSaveBar();
   }
 
   /* ── 自定义表情：查看 / 上传 / 删除 ── */
