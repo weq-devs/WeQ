@@ -65,6 +65,7 @@ export {
   mergeProfileParts,
   extractFewShots,
   extractExpressions,
+  extractStyleVariants,
   distillMemories,
   reflectConversation,
   scoreInteractionSentiment,

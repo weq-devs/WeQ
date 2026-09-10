@@ -378,6 +378,8 @@ export class AgentRuntime {
       now: number;
       relationNote?: string;
       memories?: AgentLabMemoryItem[];
+      /** 这次开口的动机（群聊决策层回传，注入生成层贴合「为什么接话」）。 */
+      replyReason?: string;
     },
   ): Promise<{ result: Awaited<ReturnType<typeof runPersonaChat>>; renderedTurns: string[] }> {
     const voiceEnabled = this.isVoiceReady(persona);
@@ -391,6 +393,7 @@ export class AgentRuntime {
       voiceEnabled,
       typoIntensity: resolveTypoIntensity(persona.typo),
       relationNote: opts.relationNote,
+      replyReason: opts.replyReason,
     });
     // 命中的记忆 +access（越常被想起越不易遗忘）。
     this.memories.touch(persona.id, result.usedMemoryIds, opts.now);
@@ -712,6 +715,8 @@ export class AgentRuntime {
       now,
       relationNote,
       memories,
+      // 决策层回传的开口动机（被@ / 被点名 / 聊到感兴趣的…），让回复贴合「为什么接话」。
+      replyReason: reason,
     });
 
     // 异步更新对该群友的关系（不阻塞回复）。

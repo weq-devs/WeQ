@@ -19,6 +19,12 @@ const EMOTION_MARKER_G = /\[\[发表情[:：].+?\]\]/g;
 const STICKER_MD5_MARKER_G = /\[\[sticker[:：][0-9a-fA-F]+\]\]/gi;
 const VOICE_MARKER_G = /\[\[voice[:：][0-9a-zA-Z._-]+\]\]/gi;
 
+/**
+ * 备用表达风格注入概率（借鉴 MaiBot multiple_probability）：每轮低概率随机换一个说话状态，
+ * 打破「每句话都一个腔调」——真人的语气本来就会偶尔变一下。
+ */
+const STYLE_VARIANT_INJECT_RATE = 0.35;
+
 /** 把历史里的内部标记脱敏（[[sticker:md5]]→[表情]、[[voice:id]]→[语音]），避免模型照样吐回。 */
 function sanitizeHistoryText(text: string): string {
   return text.replace(STICKER_MD5_MARKER_G, '[表情]').replace(VOICE_MARKER_G, '[语音]');
@@ -226,6 +232,14 @@ function describeNow(now: Date): string {
   return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${hh}:${mm}。`;
 }
 
+/** 每轮低概率挑一条备用表达风格（没有 / 没抽中就返回 undefined，保持平时语气）。 */
+function pickStyleVariant(persona: AgentLabPersona): string | undefined {
+  const variants = (persona.styleVariants ?? []).map((v) => v.trim()).filter(Boolean);
+  if (variants.length === 0) return undefined;
+  if (Math.random() > STYLE_VARIANT_INJECT_RATE) return undefined;
+  return variants[Math.floor(Math.random() * variants.length)]!;
+}
+
 /**
  * 拼装扮演系统提示。借鉴 CipherTalk：全程第二人称沉浸（"你就是 TA"而非"模仿 TA"），
  * 把画像写成"你脑子里的记忆"，并在结尾加总闸——只在话题相关时自然带一嘴，别一股脑往外倒。
@@ -272,6 +286,17 @@ function buildSystemPrompt(
     lines.push(
       '你说话的一些习惯（情境对得上时可以自然用，对不上就别硬套）：',
       ...expressions.map((e) => `- ${e.situation}时，你会${e.style}`),
+    );
+  }
+
+  // 备用表达风格：每轮低概率随机注入一条「偶尔切换的说话状态」（借鉴 MaiBot multiple_reply_style）。
+  // 只影响本次回复——真人不会永远一个腔调，偶尔换个状态聊两句更自然。
+  const styleVariant = pickStyleVariant(persona);
+  if (styleVariant) {
+    lines.push(
+      '',
+      '【这次可以换个状态】（你偶尔会这样聊——这次情绪/话题对得上就用一下，对不上就保持平时的样子，别硬演）',
+      `- ${styleVariant}`,
     );
   }
 
@@ -768,8 +793,17 @@ export async function runPersonaChat(
     ...req.history
       .slice(-8)
       .map((item) => ({ role: item.role, content: sanitizeHistoryText(item.text) })),
-    { role: 'user', content: req.input },
   ];
+  // 群聊决策层的开口动机（如「被点名」「聊到感兴趣的」）：让回复贴合「为什么接这句话」的
+  // 念头，但明确要求别在回复里复述或解释原因本身。
+  const replyReason = req.replyReason?.trim();
+  if (replyReason) {
+    messages.push({
+      role: 'user',
+      content: `【你决定接这句话】原因：${replyReason}。就顺着这个念头自然地开口，别在回复里复述或解释这个原因。`,
+    });
+  }
+  messages.push({ role: 'user', content: req.input });
 
   const data = await postJson<{
     choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;

@@ -20,6 +20,7 @@ import {
   extractExpressions,
   extractFewShots,
   extractPersonaCard,
+  extractStyleVariants,
   extractProfileChunk,
   mergeProfileParts,
   renderProfileChunks,
@@ -744,6 +745,8 @@ export class AgentLabService extends EventEmitter {
           const chatEndpoint = this.resolveWithUsage(rec.persona.models.chat, 'chat', ctx);
 
           // @ 且必回 → 跳过决策；否则让 TA 自己带上下文判断要不要开口。
+          // 决策原因回传给生成层，让回复贴合「为什么接这句话」的念头。
+          let replyReason = '被@了';
           if (!(mentioned && mustReply)) {
             const rel = this.relations.get(member.memberId, trigger.senderId);
             const decision = await decideGroupReply(chatEndpoint, {
@@ -762,6 +765,7 @@ export class AgentLabService extends EventEmitter {
               crowdedHint: this.crowdedHint(recent8, member.memberId),
             });
             if (!decision.reply) return { memberId: member.memberId, count: 0 };
+            replyReason = decision.reason || '想接这句话';
           }
 
           const delayMs = 300 + Math.round(Math.random() * 500);
@@ -775,6 +779,7 @@ export class AgentLabService extends EventEmitter {
             roundBase,
             delayMs,
             record,
+            replyReason,
           );
           return { memberId: member.memberId, count };
         }),
@@ -836,6 +841,7 @@ export class AgentLabService extends EventEmitter {
     roundBase: AgentLabGroupMessage[],
     delayMs: number,
     record: (message: AgentLabGroupMessage) => void,
+    replyReason: string,
   ): Promise<number> {
     try {
       const ctx = { personaId: member.memberId, scope: 'chat' as const };
@@ -870,6 +876,8 @@ export class AgentLabService extends EventEmitter {
         now: Date.now(),
         relationNote,
         memories,
+        // 决策层回传的开口动机（被@ / 被点名 / 聊到感兴趣的…）。
+        replyReason,
       });
 
       // 相似度打断：跳过和最近消息几乎重复的内容（防「复读机」/ 互相抄）。
@@ -1816,14 +1824,16 @@ export class AgentLabService extends EventEmitter {
     let profile: AgentLabPersonaProfile = artifacts.profile;
     let fewShots: Array<{ prompt: string; reply: string }> = [];
     let expressions: AgentLabExpression[] = [];
+    let styleVariants: string[] = [];
     if (artifacts.corpusText.trim()) {
       try {
-        // card / fewShots / expressions 用「最近优先」的 corpusText 一次性提；
+        // card / fewShots / expressions / styleVariants 用「最近优先」的 corpusText 一次性提；
         // deep 用全量历史 map-reduce（分块提取 + 合并），更全且不丢早期信息。
-        const [card, shots, exprs, deep] = await Promise.all([
+        const [card, shots, exprs, variants, deep] = await Promise.all([
           extractPersonaCard(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
           extractFewShots(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
           extractExpressions(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          extractStyleVariants(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
           this.extractDeepProfileMapReduce(
             chatEndpoint,
             trainingName,
@@ -1834,6 +1844,7 @@ export class AgentLabService extends EventEmitter {
         profile = { ...artifacts.profile, card, deep, extractedByLlm: true };
         fewShots = shots;
         expressions = exprs;
+        styleVariants = variants;
       } catch (error) {
         profile = {
           ...artifacts.profile,
@@ -1914,6 +1925,7 @@ export class AgentLabService extends EventEmitter {
       profile,
       fewShots,
       expressions,
+      ...(styleVariants.length > 0 ? { styleVariants } : {}),
       stickers,
       systemFaces,
       voiceProfile,

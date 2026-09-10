@@ -375,6 +375,52 @@ export async function extractExpressions(
   return out.slice(0, 15);
 }
 
+const STYLE_VARIANTS_JSON_SHAPE = `{
+  "variants": ["指令式一句话，≤30字（如：偶尔只用一两个字敷衍；急了会连发短句加感叹号；阴阳怪气时会带点翻译腔）"]
+}`;
+
+/**
+ * 备用表达风格提取（借鉴 MaiBot multiple_reply_style）：从语料里挖 TA **偶尔会切换**的
+ * 说话状态——与主语气不同的变化（超短敷衍 / 连发感叹 / 阴阳怪气 / 正经起来等）。
+ * 每轮低概率随机注入一条，打破「每句话都一个腔调」的固定模式。
+ * 指令式、可泛化（不带具体人名地名事件）；失败返回空数组、不阻断克隆。
+ */
+export async function extractStyleVariants(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): Promise<string[]> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = await generateJson(
+      endpoint,
+      '你是表达风格分析器。从聊天记录里找出「TA 偶尔/有时会切换的表达状态」——' +
+        '与 TA 平时主语气**不同**的备用风格变化：比如偶尔只用一两个字敷衍、' +
+        '情绪上来会连发短句加感叹号、阴阳怪气时带点翻译腔、遇到感兴趣的事会一口气说很多等。' +
+        '要可泛化、能迁移到新对话——不要带具体人名地名事件内容。' +
+        '每条写成给 AI 看的行动指令，一句话 ≤30 字，直接描述「什么时候会怎样说话」。' +
+        '挑 3-5 条最鲜明、最常出现的。注意：这些是**偶尔出现的变化**，不是 TA 的常态语气。' +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${STYLE_VARIANTS_JSON_SHAPE}`,
+      `${corpusPreamble(friendName, stats, corpusText)}\n\n请提炼「${friendName}」的备用表达风格，按要求输出 JSON。`,
+      0.4,
+      '备用表达风格',
+    );
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw.variants) ? raw.variants : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    const variant = coerceString(item).replace(/\s+/g, ' ').slice(0, 40);
+    if (!variant || seen.has(variant)) continue;
+    seen.add(variant);
+    out.push(variant);
+  }
+  return out.slice(0, 6);
+}
+
 const MEMORY_JSON_SHAPE = `{
   "memories": ["关于对方的一条新信息，具体一句话（如：对方最近在准备考研；对方养了只布偶猫）"]
 }`;
