@@ -10,7 +10,14 @@
  *   {@link AssistantTools} 拿到「规格 + 执行」，service 不直接依赖 app。
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
@@ -112,12 +119,42 @@ function extractArtifactCard(result: unknown): AssistantArtifact | null {
 }
 
 /**
+ * 调查计划（借鉴 WeFlow agentInvestigationPlan）：让模型在开查前先想清楚要查什么、
+ * 分几步，执行中随进度更新。前端渲染成顶部计划面板，也随每轮注入模型上下文。
+ */
+export interface AssistantPlanStep {
+  id: string;
+  title: string;
+  /** 执行中可随进度更新；模型判断某步已达成时标 completed。 */
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+export interface AssistantInvestigationPlan {
+  title: string;
+  /** 模型对问题的理解（一句话）。 */
+  question: string;
+  steps: AssistantPlanStep[];
+}
+
+/** 一轮任务内的调查工作区：计划 + 工作笔记（跨多轮工具调用的短期记忆）。 */
+export interface AssistantWorkspace {
+  plan?: AssistantInvestigationPlan;
+  /** 调查过程中记下的关键事实/待查项/推断，随每轮注入，防止长任务中遗忘早期材料。 */
+  notes: string[];
+}
+
+/**
  * 一轮任务推进里可观测的一步。前端按 kind 渲染（thinking/工具调用/工具结果可折叠，
  * final 用 Markdown，artifact 渲染成气泡里的附件卡片）。`error`/`aborted` 为终止态。
  *
  * 流式（M2）：正文与推理不再等整段返回，而是逐片以 `text_delta` / `reasoning_delta`
  * 推出（前端累积进气泡 / 思考面板）。`thinking` 仍保留——工具调用前那段思路会作为
  * 一条 thinking 写进 steps[] 持久化（但运行时不重复 emit，正文已由 text_delta 送达）。
+ *
+ * `plan` / `notes` / `compaction` 是「调查过程」类步骤：
+ * - plan：调查计划快照（模型调 update_investigation_plan 后 emit，前端更新顶部计划面板）；
+ * - notes：工作笔记快照（模型调 update_work_notes 后 emit）；
+ * - compaction：上下文压缩发生标记（含折叠摘要），长会话中早期历史被折叠时 emit。
  */
 export type AssistantStep =
   | { kind: 'thinking'; text: string }
@@ -126,6 +163,9 @@ export type AssistantStep =
   | { kind: 'tool_call'; id: string; name: string; args: unknown }
   | { kind: 'tool_result'; id: string; name: string; ok: boolean; preview: string }
   | { kind: 'artifact'; artifact: AssistantArtifact }
+  | { kind: 'plan'; plan: AssistantInvestigationPlan }
+  | { kind: 'notes'; notes: string[] }
+  | { kind: 'compaction'; summary: string; foldedTurns: number }
   | { kind: 'final'; text: string }
   | { kind: 'aborted' }
   | { kind: 'error'; message: string };
@@ -174,6 +214,96 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
 };
 
 /**
+ * update_investigation_plan / update_work_notes：调查过程的结构化记忆工具。
+ *
+ * 模型通过它们把「计划」和「读到/确认的关键事实」写进本轮工作区（不落最终答复、
+ * 不落会话历史），服务端每轮把最新状态注入模型上下文——解决长任务里模型做完一步
+ * 就忘掉早期材料的痛点（借鉴 WeFlow agentInvestigationPlan + research checkpoints）。
+ * 只 push 一个简短结果消息回灌模型，不 emit tool_call/tool_result 过程步骤
+ * （前端由专用 plan / notes step 渲染成面板，不占聊天过程的视觉重量）。
+ */
+const WORKSPACE_SPECS: AssistantToolSpec[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'update_investigation_plan',
+      description:
+        '（内部记忆，不写入对话）规划或更新你正在进行的调查任务：在动手查之前先想清楚' +
+        '要查什么、分几步，执行中随进度更新步骤状态。步骤控制在 3-6 步，每步一句话；' +
+        '只在计划创建/整体重排/某步完成时调用，不要为了记录琐碎进展反复调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '计划标题（简短，如「查小枳壳最近在忙什么」）' },
+          question: { type: 'string', description: '对用户问题的理解，一句话' },
+          steps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: '稳定 id（沿用已有步骤的 id；新增才造新 id）' },
+                title: { type: 'string', description: '这一步要做什么，一句话' },
+                status: {
+                  type: 'string',
+                  enum: ['pending', 'in_progress', 'completed'],
+                  description: '进行中 / 待办 / 已完成',
+                },
+              },
+              required: ['id', 'title', 'status'],
+            },
+          },
+        },
+        required: ['title', 'question', 'steps'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_work_notes',
+      description:
+        '（内部记忆，不写入对话）把你调查过程中读到的关键事实、确认的结论、还需核实的待查项' +
+        '记进工作笔记，防止后面忘记。每条一句话、具体（如「小枳壳的 uid=xxx」「3 月 5 日聊过考研」），' +
+        '不要记客套话；已记过的不要重复。只在有新信息值得记或需要修正时调用，每次传完整列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          notes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '完整的工作笔记列表（会整体替换当前笔记），最多 12 条，每条 ≤120 字',
+          },
+        },
+        required: ['notes'],
+      },
+    },
+  },
+];
+
+/** 一轮任务的运行时状态（内存态；断点快照是它的持久化投影）。 */
+type AssistantRunState = {
+  question: string;
+  basePrompt: string;
+  messages: ApiMessage[];
+  workspace: AssistantWorkspace;
+  summary: string;
+  toolCallCount: number;
+};
+
+/**
+ * 一轮任务的断点快照（断点续答用）。任务进行中定期落盘，用户停止/异常/进程退出后
+ * 可从快照续跑——已完成的工具调用及其结果原样保留，不用重查。
+ * `messages` 恒处于「一致」状态：每条 assistant(tool_calls) 都已配齐 tool 结果。
+ */
+interface AssistantRunSnapshot extends AssistantRunState {
+  schemaVersion: 1;
+  sessionId: string;
+  status: 'running' | 'aborted' | 'completed';
+  startedAt: number;
+  updatedAt: number;
+}
+
+/**
  * 助手持久化分桶前缀。每个会话独占一个桶，桶 key 为 `assistant:<sessionId>`；
  * 裸 `assistant`（无后缀）是旧版「单一对话」遗留桶，仅用于一次性迁移。
  */
@@ -189,6 +319,29 @@ const TOOL_LOOP_LIMIT = 24;
 const TOOL_TIMEOUT_MS = 60_000;
 /** 整轮任务（多轮工具调用 + LLM）总时限：超时自动中止并给出可读错误，防前端永久转圈。 */
 const RUN_TIMEOUT_MS = 600_000;
+
+// ── 上下文压缩（长会话/多工具循环的 token 预算管理）──────────────────────────
+// 借鉴 WeFlow agentContextManager：估算 token → 超阈值触发 → 早期历史折叠成摘要 →
+// 摘要随每轮注入 + 落一条 compaction step 供前端展示。只折叠「本轮提问之前的历史」，
+// 本轮内的工具过程永远保留（避免破坏 tool_calls/tool 配对）。
+
+/** 默认上下文窗口估算（模型窗口通常 32k~128k，取保守值避免压坏普通模型）。 */
+const CONTEXT_WINDOW_DEFAULT = 32_768;
+/** 消息 token 估算（中文约 1.5~2 字符/token，英文约 4；取 1.8 折中 + 每条消息开销）。 */
+const CHARS_PER_TOKEN = 1.8;
+const MESSAGE_OVERHEAD_TOKENS = 6;
+/** 达到窗口比例触发压缩。 */
+const COMPRESS_TRIGGER_RATIO = 0.7;
+/** 压缩目标：折叠后历史+本轮降到窗口比例。 */
+const COMPRESS_TARGET_RATIO = 0.5;
+/** 压缩后至少保留的「最近完整回合」数（历史侧）。 */
+const MIN_RETAINED_ROUNDS = 1;
+/** 摘要生成的最大 token（输入侧同样受限）。 */
+const MAX_SUMMARY_TOKENS = 1_500;
+/** 摘要输入单条消息的最大字符数。 */
+const SUMMARY_INPUT_MSG_CHARS = 1_200;
+/** 摘要失败时的本地兜底长度。 */
+const SUMMARY_FALLBACK_CHARS = 5_000;
 
 /**
  * 证据追问检测：用户是不是在质疑/追问上一条结论的依据（「真的假的 / 有证据吗 / 原话呢 / 为什么这么说」）。
@@ -329,10 +482,11 @@ export class AssistantService {
     return session;
   }
 
-  /** 删除会话：移除元数据 + 清掉其对话桶。 */
+  /** 删除会话：移除元数据 + 清掉其对话桶 + 清理断点快照。 */
   deleteSession(sessionId: string): void {
     this.sessions = this.sessions.filter((s) => s.id !== sessionId);
     this.conversations.clear(this.bucketId(sessionId));
+    this.clearRun(sessionId);
     this.persistSessions();
   }
 
@@ -345,9 +499,10 @@ export class AssistantService {
     this.persistSessions();
   }
 
-  /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结）。 */
+  /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结），并作废未完成的断点任务。 */
   clearConversation(sessionId: string): void {
     this.conversations.clear(this.bucketId(sessionId));
+    this.clearRun(sessionId);
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session) {
       session.title = DEFAULT_SESSION_TITLE;
@@ -416,6 +571,7 @@ export class AssistantService {
   /**
    * 处理一条用户消息：多轮调用工具直到给出最终答复。每一步通过 `onStep` 实时吐出。
    * 失败（包括异常）也会作为 `error` step 推出后再抛出，便于前端统一处理。
+   * 若该会话存在未完成的断点快照（上次中断的任务），新消息会**取代**它（快照作废）。
    */
   async chat(
     sessionId: string,
@@ -456,8 +612,33 @@ export class AssistantService {
       ),
     ];
 
+    // 新问题取代旧任务：丢弃该会话任何未完成的 run 快照（resume 只针对「同一任务」）。
+    this.clearRun(sessionId);
+    // 只取最近若干条历史（过长的历史由上下文压缩在 runLoop 内折叠，而不是硬切）。
+    const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
+    // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
+    // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
+    const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
+    const evidenceFollowUp =
+      EVIDENCE_FOLLOW_UP_PATTERN.test(text) && !!lastAssistant?.toolsUsed?.length;
+    const basePrompt = this.systemPrompt(text, evidenceFollowUp);
+    const state: AssistantRunState = {
+      question: text,
+      basePrompt,
+      messages: [
+        { role: 'system', content: basePrompt },
+        ...prior.map((t) => ({ role: t.role, content: t.text })),
+        { role: 'user', content: text },
+      ],
+      workspace: { notes: [] },
+      summary: '',
+      toolCallCount: 0,
+    };
+
     try {
-      const reply = await this.runLoop(sessionId, text, emit, record, signal);
+      const reply = await this.runLoop(sessionId, state, emit, record, signal);
+      // 正常完成 → 断点快照已无意义，清掉。
+      this.clearRun(sessionId);
       const now = Date.now();
       const toolsUsed = collectToolsUsed();
       this.conversations.append(this.bucketId(sessionId), [
@@ -486,7 +667,7 @@ export class AssistantService {
       return { text: reply, steps };
     } catch (error) {
       // 用户取消：把已流出的半截正文当作本轮答复持久化（保持 user/assistant 成对、不留悬空 user），
-      // 正常返回而非抛错——这不是失败。
+      // 正常返回而非抛错——这不是失败。同时保存断点快照供「继续回答」。
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
       if (aborted) {
         const now = Date.now();
@@ -504,13 +685,124 @@ export class AssistantService {
         ]);
         session.updatedAt = now;
         this.persistSessions();
+        this.persistRun(sessionId, state, 'aborted');
         emit({ kind: 'aborted' });
         return { text: reply, steps };
       }
+      // 其它异常：同样保留现场快照（用户可「继续回答」重试），再报错。
+      this.persistRun(sessionId, state, 'aborted');
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
       throw error;
     }
+  }
+
+  /**
+   * 断点续答：从该会话上次中断（用户停止 / 异常 / 进程退出）留下的快照继续跑，
+   * 已完成的工具调用与其结果原样保留，不重查。完成后把会话里那条半截 assistant
+   * 回合替换成完整答复。无可用快照时抛可读错误。
+   */
+  async resumeAssistantRun(
+    sessionId: string,
+    onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) throw new Error('对话不存在，请新建一个对话。');
+    const snapshot = this.loadRun(sessionId);
+    if (!snapshot || snapshot.status === 'completed' || snapshot.messages.length < 2) {
+      throw new Error('没有可继续的任务。');
+    }
+
+    const steps: AssistantStep[] = [];
+    let streamed = '';
+    const emit = (step: AssistantStep): void => {
+      if (step.kind === 'text_delta') streamed += step.text;
+      else if (step.kind === 'tool_call') streamed = '';
+      steps.push(step);
+      try {
+        onStep?.(step);
+      } catch {
+        /* 前端推送失败不应中断任务 */
+      }
+    };
+    const record = (step: AssistantStep): void => {
+      steps.push(step);
+    };
+    const persistable = (): AssistantStep[] =>
+      steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
+    const state: AssistantRunState = {
+      question: snapshot.question,
+      basePrompt: snapshot.basePrompt,
+      messages: snapshot.messages,
+      workspace: snapshot.workspace,
+      summary: snapshot.summary,
+      toolCallCount: snapshot.toolCallCount,
+    };
+
+    try {
+      record({
+        kind: 'thinking',
+        text: `（已从中断处继续，保留 ${snapshot.toolCallCount} 次已完成工具调用，正在收尾调查…）`,
+      });
+      const reply = await this.runLoop(sessionId, state, emit, record, signal);
+      this.clearRun(sessionId);
+      const now = Date.now();
+      const toolsUsed = [
+        ...new Set(
+          steps
+            .filter(
+              (s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call',
+            )
+            .map((s) => s.name),
+        ),
+      ];
+      // 替换最后一条（半截）assistant 回合为完整答复，而不是追加一条重复的。
+      this.conversations.patchLastAssistant(this.bucketId(sessionId), {
+        text: reply,
+        steps: persistable(),
+        ...(toolsUsed.length ? { toolsUsed } : {}),
+      });
+      session.updatedAt = now;
+      this.persistSessions();
+      emit({ kind: 'final', text: reply });
+      return { text: reply, steps };
+    } catch (error) {
+      const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
+      if (aborted) {
+        const reply = streamed.trim() || '（已停止）';
+        this.conversations.patchLastAssistant(this.bucketId(sessionId), {
+          text: reply,
+          steps: persistable(),
+        });
+        session.updatedAt = Date.now();
+        this.persistSessions();
+        this.persistRun(sessionId, state, 'aborted');
+        emit({ kind: 'aborted' });
+        return { text: reply, steps };
+      }
+      this.persistRun(sessionId, state, 'aborted');
+      const message = error instanceof Error ? error.message : String(error);
+      emit({ kind: 'error', message });
+      throw error;
+    }
+  }
+
+  /** 该会话是否存在可继续的任务（前端据此显示「继续回答」）。 */
+  getResumeState(sessionId: string): {
+    resumable: boolean;
+    question?: string;
+    toolCallCount?: number;
+  } {
+    const snapshot = this.loadRun(sessionId);
+    if (!snapshot || snapshot.status === 'completed' || snapshot.messages.length < 2) {
+      return { resumable: false };
+    }
+    return {
+      resumable: true,
+      question: snapshot.question,
+      toolCallCount: snapshot.toolCallCount,
+    };
   }
 
   /**
@@ -540,10 +832,14 @@ export class AssistantService {
   /**
    * 核心多轮循环：返回最终文本。中途正文/推理走 `emit`（*_delta 流式），工具调用前的思路
    * 走 `record`（只落库、不重复推）。`signal` 在每轮与每次工具调用前检查以尽早取消。
+   *
+   * `state.messages` 是运行时上下文兼断点快照的数据源（每完成一批工具调用就落盘一次）；
+   * 动态注入段（调查计划/工作笔记/会话摘要）不写进 state.messages，只在每轮发送前拼进
+   * system 消息——resume 后这些状态从快照恢复，照样注入。
    */
   private async runLoop(
     sessionId: string,
-    text: string,
+    state: AssistantRunState,
     emit: (step: AssistantStep) => void,
     record: (step: AssistantStep) => void,
     signal?: AbortSignal,
@@ -563,21 +859,10 @@ export class AssistantService {
         }),
     };
 
-    const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
-    // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
-    // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
-    const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
-    const evidenceFollowUp =
-      EVIDENCE_FOLLOW_UP_PATTERN.test(text) && !!lastAssistant?.toolsUsed?.length;
-    const messages: ApiMessage[] = [
-      { role: 'system', content: this.systemPrompt(text, evidenceFollowUp) },
-      ...prior.map((t) => ({ role: t.role, content: t.text })),
-      { role: 'user', content: text },
-    ];
-
-    // write_report 是 service 内置工具（需要 rootDir、要顺手 emit artifact），前置合并；
+    // write_report 是 service 内置工具（需要 rootDir、要顺手 emit artifact）；
+    // update_investigation_plan / update_work_notes 是调查过程的内置记忆工具；
     // 其余来自应用层注入的内置 AI_TOOLS + 外部 MCP。
-    const specs = [WRITE_REPORT_SPEC, ...((await this.tools?.specs()) ?? [])];
+    const specs = [WRITE_REPORT_SPEC, ...WORKSPACE_SPECS, ...((await this.tools?.specs()) ?? [])];
 
     // 组合取消源：把「外部 signal（用户点停止）」与「整轮总超时」合流到一个内部 controller。
     // 全程只把 ac.signal 传给下游（LLM 请求 / throwIfAborted）——任一触发都能尽早收尾。
@@ -598,11 +883,14 @@ export class AssistantService {
     try {
       for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
+        // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
+        await this.compressIfNeeded(state, endpoint, emit, ac.signal);
+        const roundMessages = this.buildRoundMessages(state);
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
         const { content, toolCalls } = await this.callApiStream(
           endpoint,
-          messages,
+          roundMessages,
           allowTools ? specs : [],
           emit,
           ac.signal,
@@ -611,10 +899,31 @@ export class AssistantService {
         if (allowTools && toolCalls?.length) {
           // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
           if (content) record({ kind: 'thinking', text: content });
-          messages.push({ role: 'assistant', content, tool_calls: toolCalls });
+          state.messages.push({ role: 'assistant', content, tool_calls: toolCalls });
           for (const call of toolCalls) {
             throwIfAborted(ac.signal);
             const args = this.parseArgs(call.function.arguments);
+
+            // 调查过程记忆工具：更新 workspace + emit plan/notes step（前端渲染专用面板），
+            // 只回灌简短成功消息。不占聊天过程的视觉重量，也不写进最终答复。
+            if (
+              call.function.name === 'update_investigation_plan' ||
+              call.function.name === 'update_work_notes'
+            ) {
+              const handled = this.handleWorkspaceTool(
+                call.function.name,
+                args,
+                state.workspace,
+                emit,
+              );
+              state.messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: safeStringify(handled),
+              });
+              continue;
+            }
+
             emit({ kind: 'tool_call', id: call.id, name: call.function.name, args });
 
             // write_report：service 内部处理 —— 写盘 + emit artifact（卡片）。不 emit
@@ -642,7 +951,7 @@ export class AssistantService {
                 });
                 toolMsg = safeStringify({ ok: false, error: message });
               }
-              messages.push({ role: 'tool', tool_call_id: call.id, content: toolMsg });
+              state.messages.push({ role: 'tool', tool_call_id: call.id, content: toolMsg });
               continue;
             }
 
@@ -674,8 +983,15 @@ export class AssistantService {
               if (card) emit({ kind: 'artifact', artifact: card });
             }
             // 回灌模型：智能截断（数组截条数并提示翻页，退化才字符硬切）——保证喂给模型的始终是合法 JSON。
-            messages.push({ role: 'tool', tool_call_id: call.id, content: capToolResult(result) });
+            state.messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: capToolResult(result),
+            });
+            state.toolCallCount += 1;
           }
+          // 一批工具调用全部完成、消息数组处于一致状态 → 落盘断点快照。
+          this.persistRun(sessionId, state, 'running');
           continue;
         }
 
@@ -694,6 +1010,195 @@ export class AssistantService {
     } finally {
       clearTimeout(runTimer);
       signal?.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
+  /** 每轮发送前的消息组装：把动态注入段（摘要 + 调查计划/工作笔记）拼进 system。 */
+  private buildRoundMessages(state: AssistantRunState): ApiMessage[] {
+    const blocks: string[] = [];
+    if (state.summary) blocks.push(summaryBlock(state.summary));
+    const ws = workspaceBlock(state.workspace);
+    if (ws) blocks.push(ws);
+    return [
+      {
+        role: 'system',
+        content: blocks.length ? `${state.basePrompt}\n\n${blocks.join('\n\n')}` : state.basePrompt,
+      },
+      ...state.messages.slice(1),
+    ];
+  }
+
+  /**
+   * 上下文压缩（借鉴 WeFlow agentContextManager）：估算 token 超阈值时，把本轮提问之前
+   * 的早期历史折叠成摘要（LLM 生成，失败本地兜底），随每轮注入 + 落一条 compaction step。
+   * 只折叠完整回合（不切断 tool_calls/tool 配对），且保留最近至少 1 轮历史与全部本轮内容。
+   */
+  private async compressIfNeeded(
+    state: AssistantRunState,
+    endpoint: AgentLabEndpoint,
+    emit: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const messages = state.messages;
+    const totalTokens = estimateMessagesTokens(messages);
+    const triggerTokens = Math.floor(CONTEXT_WINDOW_DEFAULT * COMPRESS_TRIGGER_RATIO);
+    if (totalTokens <= triggerTokens) return;
+
+    const rounds = foldableRounds(messages);
+    if (rounds.length <= MIN_RETAINED_ROUNDS) return; // 没有可折叠的历史（只剩最近一轮/本轮）。
+    const foldableCount = rounds.length - MIN_RETAINED_ROUNDS;
+    const targetTokens = Math.floor(CONTEXT_WINDOW_DEFAULT * COMPRESS_TARGET_RATIO);
+    const foldedRanges: Array<[number, number]> = [];
+    let foldedTokens = 0;
+    for (let i = 0; i < foldableCount; i += 1) {
+      const [s, e] = rounds[i]!;
+      foldedRanges.push([s, e]);
+      foldedTokens += estimateMessagesTokens(messages.slice(s, e));
+      if (totalTokens - foldedTokens <= targetTokens) break;
+    }
+    if (foldedRanges.length === 0) return;
+
+    const foldedText = renderFoldableMessages(
+      messages,
+      foldedRanges,
+      Math.min(120_000, Math.floor(CONTEXT_WINDOW_DEFAULT * 1.5)),
+    );
+    // 旧摘要一并喂给模型，让它综合（旧摘要 + 新折叠内容 → 一份新摘要）。
+    const userContent = [
+      state.summary ? `较早的摘要（保留要点，可合并）：\n${state.summary.slice(0, 4_000)}` : '',
+      `需要折叠的对话记录：\n${foldedText}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    let summary = '';
+    try {
+      const data = await this.callApi(
+        endpoint,
+        [
+          { role: 'system', content: summarySystemPrompt() },
+          { role: 'user', content: userContent },
+        ],
+        [],
+        { maxTokens: MAX_SUMMARY_TOKENS },
+      );
+      summary = pickMessageText(data.choices?.[0]?.message).trim().slice(0, 5_000);
+    } catch {
+      /* 摘要失败走本地兜底 */
+    }
+    if (!summary) summary = fallbackSummary(state.summary, foldedText);
+
+    // 折叠区间是连续前缀 [1, lastFoldedEnd)：替换为新摘要，保留最近的历史轮 + 本轮。
+    const lastFoldedEnd = foldedRanges[foldedRanges.length - 1]![1];
+    state.messages = [messages[0]!, ...messages.slice(lastFoldedEnd)];
+    state.summary = summary;
+    emit({ kind: 'compaction', summary, foldedTurns: foldedRanges.length });
+    throwIfAborted(signal); // 摘要生成期间用户可能已停止。
+  }
+
+  /** 处理调查过程记忆工具：更新 workspace + emit 专用 step。返回回灌给模型的简短结果。 */
+  private handleWorkspaceTool(
+    name: string,
+    args: Record<string, unknown>,
+    workspace: AssistantWorkspace,
+    emit: (step: AssistantStep) => void,
+  ): { ok: true } {
+    if (name === 'update_investigation_plan') {
+      const plan = normalizePlan(args);
+      if (plan) {
+        workspace.plan = plan;
+        emit({ kind: 'plan', plan });
+      }
+      return { ok: true };
+    }
+    const notes = normalizeNotes(args);
+    if (notes) {
+      workspace.notes = notes;
+      emit({ kind: 'notes', notes });
+    }
+    return { ok: true };
+  }
+
+  // ── 断点快照（断点续答）──────────────────────────────────────────────────
+
+  /** 快照路径：sessionId 是 uuid，再兜一层安全化（防目录逃逸）。 */
+  private runSnapshotPath(sessionId: string): string {
+    const safe = String(sessionId || '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 120);
+    return join(this.rootDir, 'assistant_runs', `${safe}.json`);
+  }
+
+  /** 把当前任务状态落盘为断点快照（原子写：tmp + rename）。失败静默——不能拖慢主流程。 */
+  private persistRun(
+    sessionId: string,
+    state: AssistantRunState,
+    status: 'running' | 'aborted',
+  ): void {
+    try {
+      const dir = join(this.rootDir, 'assistant_runs');
+      mkdirSync(dir, { recursive: true });
+      const target = this.runSnapshotPath(sessionId);
+      const previous = this.loadRun(sessionId);
+      const snapshot: AssistantRunSnapshot = {
+        schemaVersion: 1,
+        sessionId,
+        status,
+        question: state.question,
+        basePrompt: state.basePrompt,
+        messages: state.messages,
+        workspace: state.workspace,
+        summary: state.summary,
+        toolCallCount: state.toolCallCount,
+        startedAt: previous?.startedAt ?? Date.now(),
+        updatedAt: Date.now(),
+      };
+      const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+      writeFileSync(tmp, JSON.stringify(snapshot), 'utf-8');
+      try {
+        renameSync(tmp, target);
+      } catch {
+        // 个别平台 rename 偶发失败时直接覆盖。
+        if (existsSync(tmp)) unlinkSync(tmp);
+        writeFileSync(target, JSON.stringify(snapshot), 'utf-8');
+      }
+    } catch {
+      /* 断点快照写失败不影响本轮运行 */
+    }
+  }
+
+  private loadRun(sessionId: string): AssistantRunSnapshot | null {
+    try {
+      const target = this.runSnapshotPath(sessionId);
+      if (!existsSync(target)) return null;
+      const raw = JSON.parse(readFileSync(target, 'utf-8')) as AssistantRunSnapshot;
+      if (
+        !raw ||
+        raw.sessionId !== sessionId ||
+        !Array.isArray(raw.messages) ||
+        raw.messages.length < 2
+      ) {
+        return null;
+      }
+      return {
+        ...raw,
+        workspace:
+          raw.workspace && typeof raw.workspace === 'object'
+            ? {
+                plan: raw.workspace.plan,
+                notes: Array.isArray(raw.workspace.notes) ? raw.workspace.notes : [],
+              }
+            : { notes: [] },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private clearRun(sessionId: string): void {
+    try {
+      unlinkSync(this.runSnapshotPath(sessionId));
+    } catch {
+      /* 不存在即空 */
     }
   }
 
@@ -837,6 +1342,7 @@ export class AssistantService {
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
     specs: AssistantToolSpec[],
+    options: { maxTokens?: number } = {},
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
     const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -845,6 +1351,7 @@ export class AssistantService {
         model: endpoint.model,
         temperature: 0.3,
         messages,
+        ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
         ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
       }),
     });
@@ -1189,6 +1696,201 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+// ── 上下文压缩 / 运行时注入的工具函数 ────────────────────────────────────────
+
+/** 粗略 token 估算：中文 ~1.8 字符/token。只用于压缩触发判断，无需精确。 */
+function estimateTokens(text: string): number {
+  return Math.max(
+    1,
+    Math.ceil(String(text || '').length / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS,
+  );
+}
+
+function estimateMessagesTokens(messages: ApiMessage[]): number {
+  let total = 0;
+  for (const m of messages) {
+    total += estimateTokens(typeof m.content === 'string' ? m.content : '');
+    if (m.tool_calls?.length) {
+      for (const c of m.tool_calls) total += estimateTokens(c.function.name + c.function.arguments);
+    }
+  }
+  return total;
+}
+
+/** 裁剪文本：保留头尾，中间插入提示（优先保留尾部，因为结论/最新信息通常在后面）。 */
+function clipText(value: string, maxChars: number, notice = '\n…[较早内容已裁剪]…\n'): string {
+  if (value.length <= maxChars) return value;
+  const available = Math.max(80, maxChars - notice.length);
+  const head = Math.ceil(available * 0.62);
+  const tail = Math.max(0, available - head);
+  return `${value.slice(0, head)}${notice}${tail > 0 ? value.slice(-tail) : ''}`;
+}
+
+/** 把一条 API 消息渲染成压缩输入/兜底摘要用的可读文本。 */
+function messageToCompactText(message: ApiMessage, maxChars: number): string {
+  if (message.role === 'system')
+    return `[系统] ${clipText(String(message.content ?? ''), maxChars)}`;
+  if (message.role === 'user') {
+    return `用户：${clipText(String(message.content ?? ''), maxChars)}`;
+  }
+  if (message.role === 'tool') {
+    return `  [工具结果] ${clipText(String(message.content ?? ''), maxChars)}`;
+  }
+  // assistant
+  const content = String(message.content ?? '');
+  const calls = (message.tool_calls ?? []).map((c) => c.function.name).join('、');
+  const head = content ? `助手：${clipText(content, maxChars)}` : '';
+  const toolHead = calls ? `[调用工具：${calls}]` : '';
+  return [head, toolHead].filter(Boolean).join(' ');
+}
+
+/**
+ * 把 messages 中「本轮提问之前的可折叠历史」按完整回合分组。
+ * 一组 = 一条 user 消息 + 其后到下一个 user 之前的全部消息（assistant/tool 序列天然
+ * 成对），保证折叠不破坏 tool_calls 与 tool 结果的配对。返回组区间 [start, end)。
+ */
+function foldableRounds(messages: ApiMessage[]): Array<[number, number]> {
+  // messages[0] 恒为 system，不参与折叠。
+  const rounds: Array<[number, number]> = [];
+  let start = 1;
+  for (let i = start; i < messages.length; i += 1) {
+    if (messages[i]?.role === 'user') {
+      if (i > start) rounds.push([start, i]);
+      start = i;
+    }
+  }
+  // 最后一个 user 是「本轮提问」，其后的本轮内容永不折叠。
+  if (start < messages.length && messages[start]?.role === 'user') {
+    // 前面的历史轮次已经收集；最后一组（本轮）不加入。
+  } else if (start < messages.length && start > 1) {
+    rounds.push([start, messages.length]);
+  }
+  return rounds;
+}
+
+/** 渲染要被折叠的区间为摘要输入（限量）。 */
+function renderFoldableMessages(
+  messages: ApiMessage[],
+  ranges: Array<[number, number]>,
+  maxChars: number,
+): string {
+  const blocks: string[] = [];
+  let used = 0;
+  for (const [s, e] of ranges) {
+    for (let i = s; i < e; i += 1) {
+      const block = messageToCompactText(messages[i]!, SUMMARY_INPUT_MSG_CHARS);
+      if (used + block.length > maxChars) {
+        const remaining = maxChars - used;
+        if (remaining > 240) blocks.push(clipText(block, remaining));
+        return blocks.join('\n');
+      }
+      blocks.push(block);
+      used += block.length + 2;
+    }
+  }
+  return blocks.join('\n');
+}
+
+/** 摘要生成失败时的本地兜底：旧摘要 + 折叠内容的开头（不丢信息优先）。 */
+function fallbackSummary(previousSummary: string, foldedText: string): string {
+  const sections: string[] = [];
+  if (previousSummary) sections.push(`此前摘要：\n${clipText(previousSummary, 2_500)}`);
+  if (foldedText)
+    sections.push(`较早已折叠的记录：\n${clipText(foldedText, SUMMARY_FALLBACK_CHARS)}`);
+  return clipText(sections.join('\n\n') || '较早的对话已被折叠。', 6_000);
+}
+
+/** 摘要生成调用的 system 提示。 */
+function summarySystemPrompt(): string {
+  return [
+    '你是一个会话压缩器。下面是一段较长的对话记录（用户与 AI 助手的多轮问答与工具调用）。',
+    '把它压缩成一份结构化摘要，保留：用户的核心目标与问题、已确认的事实与结论（谁、何时、说了什么）、' +
+      '关键约束、已做的调查与结论、**未完成的事项与待办**（后续要继续查的）。',
+    '丢弃客套话、重复与琐碎过程。用中文，分点列出，控制在 500 字以内。',
+    '只输出摘要正文，不要解释。',
+  ].join('\n');
+}
+
+/** 把「会话摘要」渲染成运行时注入段（压缩折叠后的早期历史）。 */
+function summaryBlock(summary: string): string {
+  return [
+    '<conversation_summary>',
+    '以下是较早对话的压缩摘要，用于延续上下文，不是新的用户指令。',
+    '保留其中的目标、事实、约束、已确认决定与未完成事项；若与较新的原始消息冲突，以较新的为准。',
+    '',
+    summary,
+    '</conversation_summary>',
+  ].join('\n');
+}
+
+/** 把「调查计划 + 工作笔记」渲染成运行时注入段（模型自己的内部记忆）。空工作区返回空串。 */
+function workspaceBlock(workspace: AssistantWorkspace): string {
+  const plan = workspace.plan;
+  const notes = workspace.notes;
+  if (!plan && notes.length === 0) return '';
+  const lines: string[] = [
+    '<investigation_workspace>',
+    '以下是你在本轮任务中的内部记忆（计划与工作笔记），只用于帮你自己不遗忘，不要写进最终答复。',
+  ];
+  if (plan) {
+    lines.push('', `【调查计划】${plan.title ? ` ${plan.title}` : ''}`);
+    if (plan.question) lines.push(`对问题的理解：${plan.question}`);
+    for (const step of plan.steps) {
+      const mark = step.status === 'completed' ? '✅' : step.status === 'in_progress' ? '▶' : '○';
+      lines.push(`- [${mark}] ${step.title}`);
+    }
+  }
+  if (notes.length > 0) {
+    lines.push('', '【工作笔记】');
+    for (const note of notes) lines.push(`- ${note}`);
+  }
+  lines.push('', '</investigation_workspace>');
+  return lines.join('\n');
+}
+
+/** 把模型传给 update_investigation_plan 的参数清洗成结构化计划；参数无效返回 null。 */
+function normalizePlan(args: Record<string, unknown>): AssistantInvestigationPlan | null {
+  const title = coerceString(args.title).slice(0, 80);
+  const question = coerceString(args.question).slice(0, 160);
+  const rawSteps = Array.isArray(args.steps) ? args.steps : [];
+  const steps: AssistantPlanStep[] = [];
+  const seen = new Set<string>();
+  for (const item of rawSteps.slice(0, 8)) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const stepTitle = coerceString(row.title).slice(0, 120);
+    if (!stepTitle) continue;
+    const id = coerceString(row.id) || `step-${steps.length + 1}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const status =
+      row.status === 'completed'
+        ? 'completed'
+        : row.status === 'in_progress'
+          ? 'in_progress'
+          : 'pending';
+    steps.push({ id, title: stepTitle, status });
+  }
+  if (!title && !question && steps.length === 0) return null;
+  return { title, question, steps: steps.slice(0, 6) };
+}
+
+/** 把模型传给 update_work_notes 的参数清洗成字符串列表；无效返回 null。 */
+function normalizeNotes(args: Record<string, unknown>): string[] | null {
+  const raw = Array.isArray(args.notes) ? args.notes : [];
+  const notes = raw
+    .map((n) => coerceString(n).replace(/\s+/g, ' ').trim().slice(0, 120))
+    .filter(Boolean)
+    .slice(0, 12);
+  return notes.length > 0 ? notes : null;
+}
+
+function coerceString(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
 }
 
 /** 把 HTTP 状态码翻译成对用户可读、可操作的错误文案（401/403 密钥、429 限流、5xx 服务、其余兜底）。 */

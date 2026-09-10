@@ -914,8 +914,8 @@ const JS = `
     function doSave(afterSave) {
       var d = collectSettings();
       // 前端先行校验（后端仍会全量校验）。
-      if (!/^wss?:///.test(d.adapter.wsUrl)) { toast('WebSocket 地址必须以 ws:// 或 wss:// 开头', 'err'); return; }
-      if (!/^d{5,}$/.test(d.selfId)) { toast('bot 的 QQ 号必须是 5 位以上纯数字', 'err'); return; }
+      if (!/^wss?:\\/\\//.test(d.adapter.wsUrl)) { toast('WebSocket 地址必须以 ws:// 或 wss:// 开头', 'err'); return; }
+      if (!/^\\d{5,}$/.test(d.selfId)) { toast('bot 的 QQ 号必须是 5 位以上纯数字', 'err'); return; }
       if (!d.webui.port || d.webui.port < 1 || d.webui.port > 65535) { toast('控制台端口必须是 1~65535', 'err'); return; }
       var btn = document.getElementById('saveBtn'), rb = document.getElementById('saveReloadBtn');
       if (btn) btn.disabled = true;

@@ -210,13 +210,16 @@ export function NewCloneModal({
                 />
                 <span className="weq-clone-toggle-text">
                   <strong>让克隆体自己起名（训练用）</strong>
-                  <small>AI 根据 TA 的聊天风格起一个名字，用于克隆训练；界面显示名仍用好友昵称</small>
+                  <small>
+                    AI 根据 TA 的聊天风格起一个名字，用于克隆训练；界面显示名仍用好友昵称
+                  </small>
                 </span>
               </label>
               {autoName ? (
                 <div className="weq-clone-toggle-extra">
                   <div className="weq-clone-sub-hint">
-                    训练提炼时，语料、画像、风格提示词都会用这个 AI 起的名字称呼 TA；起名失败会自动退回好友昵称。
+                    训练提炼时，语料、画像、风格提示词都会用这个 AI 起的名字称呼
+                    TA；起名失败会自动退回好友昵称。
                   </div>
                 </div>
               ) : null}

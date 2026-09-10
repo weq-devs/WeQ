@@ -37,6 +37,11 @@ import { ChatBubble } from './ChatBubble';
 import { AssistantMessage } from './AssistantMessage';
 import { AssistantSteps } from './AssistantSteps';
 import { AssistantArtifactCard } from './AssistantArtifactCard';
+import {
+  AssistantPlanPanel,
+  AssistantNotesPanel,
+  AssistantCompactionMarker,
+} from './AssistantWorkspace';
 import type { FlatModels } from './NewCloneModal';
 
 interface Turn {
@@ -307,9 +312,20 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
  * `memo` 隔离：流式期间只有「正在跑的最后一条」变化，历史气泡不因父组件 setTurns 重渲。
  */
 const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
-  const artifacts = (turn.steps ?? [])
+  const steps = turn.steps ?? [];
+  const artifacts = steps
     .filter((s): s is Extract<AssistantStep, { kind: 'artifact' }> => s.kind === 'artifact')
     .map((s) => s.artifact);
+  // 调查过程（计划/笔记/压缩标记）取 steps 里最新一次快照，随运行逐步刷新。
+  const plan = steps
+    .filter((s): s is Extract<AssistantStep, { kind: 'plan' }> => s.kind === 'plan')
+    .at(-1)?.plan;
+  const notes = steps
+    .filter((s): s is Extract<AssistantStep, { kind: 'notes' }> => s.kind === 'notes')
+    .at(-1)?.notes;
+  const compaction = steps
+    .filter((s): s is Extract<AssistantStep, { kind: 'compaction' }> => s.kind === 'compaction')
+    .at(-1);
   // 运行中显示逐字流式缓冲，完成后显示定稿正文。
   const body = turn.running ? turn.streamingText || turn.text : turn.text;
 
@@ -326,11 +342,8 @@ const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }):
           </small>
         </span>
         <div className="message-content weq-asst-content">
-          <AssistantSteps
-            steps={turn.steps ?? []}
-            running={!!turn.running}
-            reasoning={turn.reasoning}
-          />
+          {plan ? <AssistantPlanPanel plan={plan} /> : null}
+          <AssistantSteps steps={steps} running={!!turn.running} reasoning={turn.reasoning} />
           {body ? (
             <AssistantMessage text={body} streaming={!!turn.running} />
           ) : turn.running ? (
@@ -339,6 +352,13 @@ const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }):
               <span />
               <span />
             </div>
+          ) : null}
+          {notes ? <AssistantNotesPanel notes={notes} running={!!turn.running} /> : null}
+          {compaction ? (
+            <AssistantCompactionMarker
+              summary={compaction.summary}
+              foldedTurns={compaction.foldedTurns}
+            />
           ) : null}
           {artifacts.map((a) => (
             <AssistantArtifactCard key={a.id} artifact={a} />
@@ -378,18 +398,28 @@ export function AssistantPanel({
   const send = trpc.account.chatWithAssistant.useMutation();
   const createSession = trpc.account.createAssistantSession.useMutation();
   const abort = trpc.account.abortAssistantRun.useMutation();
+  const resumeRun = trpc.account.resumeAssistantRun.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const seeded = useRef(false);
   const runIdRef = useRef<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // 该会话是否有上次中断留下的断点任务（“继续回答”入口）。final/aborted 后失效刷新。
+  const resumeQuery = trpc.account.getAssistantResumeState.useQuery(
+    { sessionId: currentSessionId ?? '' },
+    { enabled: !!currentSessionId },
+  );
+
   const busy = turns.some((t) => t.running);
+  const resumable = !busy && resumeQuery.data?.resumable === true;
   const modelSel = assistantConfig.data?.model
     ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
     : '';
@@ -468,6 +498,10 @@ export function AssistantPanel({
             invalidateConversationRef.current();
             // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
             void utils.account.listAssistantSessions.invalidate();
+            // 任务已完成 → 断点快照被清除，刷新“继续回答”状态。
+            void utils.account.getAssistantResumeState.invalidate({
+              sessionId: sessionIdRef.current ?? '',
+            });
           } else if (step.kind === 'aborted') {
             // 用户取消：把已流出的半截正文定稿为本轮答复（后端也已如此持久化）。
             next[idx] = {
@@ -480,6 +514,10 @@ export function AssistantPanel({
             runIdRef.current = null;
             invalidateConversationRef.current();
             void utils.account.listAssistantSessions.invalidate();
+            // 后端已保存断点快照 → 刷新“继续回答”状态（现在应可继续）。
+            void utils.account.getAssistantResumeState.invalidate({
+              sessionId: sessionIdRef.current ?? '',
+            });
           } else if (step.kind === 'error') {
             next[idx] = { ...turn, running: false };
             runIdRef.current = null;
@@ -535,10 +573,13 @@ export function AssistantPanel({
         const session = await createSession.mutateAsync();
         id = session.id;
         sessionIdRef.current = id;
+        setCurrentSessionId(id);
         seeded.current = true; // 新会话无历史可 seed，别再被首帧空对话覆盖本地 turns。
         await utils.account.listAssistantSessions.invalidate();
         onSessionCreated(id);
       }
+      // 新问题会取代上次中断的任务（后端已清掉断点快照），刷新“继续回答”状态。
+      void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
       const { runId } = await send.mutateAsync({ sessionId: id, text });
       runIdRef.current = runId;
     } catch (e) {
@@ -561,6 +602,8 @@ export function AssistantPanel({
       await clear.mutateAsync({ sessionId: id });
       invalidateConversation();
       await utils.account.listAssistantSessions.invalidate();
+      // 清空对话同时作废了断点任务，刷新“继续回答”状态。
+      void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
     }
     setTurns([]);
     runIdRef.current = null;
@@ -571,6 +614,38 @@ export function AssistantPanel({
     const runId = runIdRef.current;
     if (!runId) return;
     abort.mutate({ runId });
+  }
+
+  /**
+   * 断点续答：把最后一条（半截）assistant 回合重新标记为运行中，然后请求后端从快照继续。
+   * 后续事件流与正常轮次完全一致（工具调用/正文流式/最终答复）。
+   */
+  async function onResume(): Promise<void> {
+    const id = sessionIdRef.current;
+    if (!id || busy) return;
+    setTurns((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant') {
+        next[next.length - 1] = { ...last, running: true, streamingText: '', reasoning: '' };
+      } else {
+        // 兜底：没有可续的 assistant 回合时补一条空的。
+        next.push({ role: 'assistant', text: '', steps: [], running: true });
+      }
+      return next;
+    });
+    try {
+      const { runId } = await resumeRun.mutateAsync({ sessionId: id });
+      runIdRef.current = runId;
+    } catch (e) {
+      dialog.error('继续失败', e instanceof Error ? e.message : String(e));
+      setTurns((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') next[next.length - 1] = { ...last, running: false };
+        return next;
+      });
+    }
   }
 
   return (
@@ -607,6 +682,24 @@ export function AssistantPanel({
           </button>
         </div>
       </header>
+
+      {resumable ? (
+        <div className="weq-asst-resume-bar">
+          <span>
+            上次回答被中断，已执行 {resumeQuery.data?.toolCallCount ?? 0} 次工具调用
+            {resumeQuery.data?.question ? `（「${resumeQuery.data.question.slice(0, 40)}」）` : ''}
+            。可从中断处继续，已完成的调查不重查。
+          </span>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-sm"
+            disabled={resumeRun.isLoading}
+            onClick={() => void onResume()}
+          >
+            {resumeRun.isLoading ? '继续中…' : '继续回答'}
+          </button>
+        </div>
+      ) : null}
 
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
         {turns.length === 0 ? (

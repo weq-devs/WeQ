@@ -10061,6 +10061,162 @@ html[data-theme="dark"] .weq-forward-bubble {
   gap: 6px;
 }
 
+/* ── 调查过程：计划面板 / 工作笔记 / 压缩标记 ─────────────────────────── */
+.weq-asst-plan {
+  border: 1px solid var(--weq-border-subtle);
+  border-left: 3px solid var(--weq-accent-effective);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.weq-asst-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg);
+}
+.weq-asst-plan-title {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-asst-plan-question {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-steps {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.weq-asst-plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+.weq-asst-plan-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-step.is-completed {
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-step.is-completed .weq-asst-plan-mark {
+  color: var(--weq-ok, #22c55e);
+}
+.weq-asst-plan-step.is-in_progress .weq-asst-plan-mark {
+  color: var(--weq-accent-effective);
+}
+.weq-asst-plan-step-title {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.weq-asst-notes {
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 10px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.weq-asst-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.weq-asst-notes-head:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+.weq-asst-notes-body {
+  margin: 0;
+  padding: 2px 10px 10px 26px;
+  border-top: 1px dashed var(--weq-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.weq-asst-notes-body li {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--weq-fg-secondary);
+  word-break: break-word;
+}
+
+.weq-asst-compaction {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
+}
+.weq-asst-compaction-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.weq-asst-compaction-head:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+.weq-asst-compaction-body {
+  padding: 2px 10px 10px 24px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 断点续答提示条（上次任务被中断 → “继续回答”） */
+.weq-asst-resume-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+.weq-asst-resume-bar button {
+  flex-shrink: 0;
+}
+
 .weq-asst-md > :first-child {
   margin-top: 0;
 }

@@ -57,6 +57,30 @@ export class ConversationStore {
     this.store.save();
   }
 
+  /**
+   * 原地补全/替换某桶**最后一条** assistant 回合（断点续答收尾用：把中断时留下的
+   * 半截答复替换成完整版，而不是追加一条重复的）。不存在 assistant 末尾则忽略。
+   * `patch.steps` 会**追加**到已有 steps（保留中断前的过程记录）。
+   */
+  patchLastAssistant(
+    agentId: string,
+    patch: Pick<ConversationTurn, 'text'> &
+      Partial<Pick<ConversationTurn, 'steps' | 'toolsUsed' | 'ts'>>,
+  ): void {
+    const cur = this.store.data[agentId];
+    if (!cur || cur.length === 0) return;
+    const last = cur[cur.length - 1];
+    if (last?.role !== 'assistant') return;
+    cur[cur.length - 1] = {
+      ...last,
+      text: patch.text,
+      ts: patch.ts ?? last.ts,
+      steps: [...(last.steps ?? []), ...(patch.steps ?? [])],
+      toolsUsed: patch.toolsUsed ?? last.toolsUsed,
+    };
+    this.store.save();
+  }
+
   clear(agentId: string): void {
     delete this.store.data[agentId];
     this.store.save();

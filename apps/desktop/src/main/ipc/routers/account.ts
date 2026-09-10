@@ -1558,6 +1558,38 @@ export const accountRouter = router({
     }),
 
   /**
+   * 该会话是否有「可继续的任务」（上次中断留下的断点快照）。前端据此显示「继续回答」入口，
+   * 也覆盖进程重启后恢复的场景——快照在磁盘上，重启不丢。
+   */
+  getAssistantResumeState: procedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().assistant.getResumeState(input.sessionId);
+    }),
+
+  /**
+   * 断点续答：从该会话上次中断（停止/异常/进程退出）的位置继续任务，已完成的工具调用
+   * 与其结果原样保留，不重查。与 chatWithAssistant 相同的非阻塞 + 事件流范式。
+   */
+  resumeAssistantRun: procedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const assistant = requireServices().assistant;
+      const runId = randomUUID();
+      const ac = new AbortController();
+      activeAssistantRuns.set(runId, ac);
+      void assistant
+        .resumeAssistantRun(
+          input.sessionId,
+          (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent),
+          ac.signal,
+        )
+        .catch(() => {})
+        .finally(() => activeAssistantRuns.delete(runId));
+      return { runId };
+    }),
+
+  /**
    * 查看助手写的报告文件。HTML → 在隔离窗口里用本地 Tailwind 运行时渲染；
    * markdown / text → 交给系统默认程序打开。id 的路径安全由 service.artifactInfo 校验。
    */

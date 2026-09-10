@@ -218,6 +218,9 @@ export type {
   AssistantToolSpec,
   AssistantStep,
   AssistantArtifact,
+  AssistantPlanStep,
+  AssistantInvestigationPlan,
+  AssistantWorkspace,
 } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
