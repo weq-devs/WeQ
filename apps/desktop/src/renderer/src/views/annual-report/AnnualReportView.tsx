@@ -101,14 +101,40 @@ function ReportPageLoading({
   readyCount,
   total,
   queued,
+  active,
 }: {
   page: ReportManifest['pages'][number];
   order: number;
   readyCount: number;
   total: number;
   queued: boolean;
+  active: boolean;
 }): ReactElement {
-  const percent = total > 0 ? Math.round((readyCount / total) * 100) : 0;
+  const realPercent = total > 0 ? Math.round((readyCount / total) * 100) : 0;
+  /**
+   * 真实进度只在「某一页统计完成」的瞬间才前进；第一页常常要在主进程里扫十几秒，
+   * 这期间 0/12 的环一动不动，根本看不出是进度条。所以叠一层**模拟进度**：从当前
+   * 真实进度起步，向 92% 渐近爬升（永远到不了 100%，不会假装算完），真实进度一旦
+   * 追上来就取真实值 —— 展示值 = max(真实, 模拟)。只在当前页可见时才跑动画。
+   */
+  const [simulated, setSimulated] = useState(realPercent);
+  useEffect(() => {
+    if (!active) return;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      // 每帧把模拟值向 92% 逼近一截：约 0.6s 到 10%、3.5s 到 50%、8s 到 80%，
+      // 再长也不会假满。环本身有 700ms 的 stroke-dashoffset 过渡，看起来是顺滑推进。
+      setSimulated((current) => Math.min(92, current + (92 - current) * (1 - Math.exp(-dt * 0.2))));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active]);
+
+  const percent = Math.max(realPercent, Math.round(simulated));
   const radius = 44;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - percent / 100);
@@ -487,6 +513,7 @@ function ReportDeckView({
                     readyCount={pages.filter((item) => states[item.id]?.status === 'ok').length}
                     total={pages.length}
                     queued={state.status === 'idle'}
+                    active={active}
                   />
                 ) : null}
                 {state.status === 'error' ? (

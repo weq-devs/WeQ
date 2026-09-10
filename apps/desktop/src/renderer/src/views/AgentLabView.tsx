@@ -10,6 +10,7 @@ import {
 import {
   ArrowLeft,
   ChevronDown,
+  MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
   Plus,
@@ -254,10 +255,24 @@ function ExpandableSessionRow({
   );
   const sessions =
     ownerKind === 'persona' ? (personaSessions.data ?? []) : (groupSessions.data ?? []);
+
+  // 选中该克隆体/群聊时自动展开会话列表：草稿首条消息落库后，新建的会话会
+  // 直接出现在列表顶部并高亮，形成「发完消息自动跳到新会话」的反馈。
+  useEffect(() => {
+    if (active) setExpanded(true);
+  }, [active]);
+
   // 收起再展开时重置分页。
   useEffect(() => {
     if (!expanded) setLimit(SESSION_PAGE);
   }, [expanded]);
+
+  // 当前会话超出本页分页时放宽 limit，保证激活的会话一定可见。
+  useEffect(() => {
+    if (!activeSessionId || sessions.length <= limit) return;
+    const idx = sessions.findIndex((s) => s.id === activeSessionId);
+    if (idx >= limit) setLimit(idx + 1);
+  }, [activeSessionId, sessions, limit]);
 
   return (
     <div className={`weq-clone-row${active ? ' is-active' : ''}`}>
@@ -282,31 +297,36 @@ function ExpandableSessionRow({
       {expanded ? (
         <div className="weq-clone-sessions">
           {sessions.length === 0 ? (
-            <div className="weq-clone-sessions-empty">还没有会话，点条目或下方新建。</div>
+            <div className="weq-clone-sessions-empty">还没有会话，发第一句会自动保存到这里。</div>
           ) : (
-            sessions.slice(0, limit).map((s) => (
-              <div
-                key={s.id}
-                className={`weq-clone-session${s.id === activeSessionId ? ' is-active' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="weq-clone-session-open"
-                  onClick={() => onOpenSession(s.id)}
-                >
-                  <span className="weq-clone-session-title">{s.title}</span>
-                  <small>{relTime(s.updatedAt)}</small>
-                </button>
-                <button
-                  type="button"
-                  className="weq-clone-session-del"
-                  title="删除会话"
-                  onClick={() => onDeleteSession(s.id)}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))
+            sessions.slice(0, limit).map((s) => {
+              const isActive = s.id === activeSessionId;
+              return (
+                <div key={s.id} className={`weq-clone-session${isActive ? ' is-active' : ''}`}>
+                  <button
+                    type="button"
+                    className="weq-clone-session-open"
+                    onClick={() => onOpenSession(s.id)}
+                  >
+                    <span className="weq-clone-session-icon">
+                      <MessageCircle size={13} />
+                    </span>
+                    <span className="weq-clone-session-text">
+                      <span className="weq-clone-session-title">{s.title}</span>
+                      <small>{relTime(s.updatedAt)}</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-clone-session-del"
+                    title="删除会话"
+                    onClick={() => onDeleteSession(s.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              );
+            })
           )}
           {sessions.length > limit ? (
             <button
