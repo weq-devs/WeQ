@@ -5,8 +5,10 @@
  * WeQ filters out chatType=103 (public-account) conversations, so this account
  * is invisible in WeQ by design — the whole point is to render it in the real
  * QQ client. QQ 游戏中心 (a public account, chatType=103, msgType=11, single ARK
- * card) is the structural template we clone: copy its row from each nt_msg.db
- * table, then override only the identity + content columns.
+ * card) is the structural template: its captured rows are HARDCODED in
+ * `./weq_assistant_template.ts` (a real push message, byte-for-byte) and we
+ * insert them overriding only the identity + content columns. No dependency on
+ * the user's own db ever containing a game-center message.
  *
  * ── The three tables, and how they're treated ──────────────────────────────
  *   nt_uid_mapping_table    — 配置/身份目录。**只写一次**（`ensureMapping`），存在即不
@@ -44,9 +46,13 @@ import type { ArkElement } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { avatarHashForUid } from './avatar_resource';
-
-/** The real game-center account whose rows we clone as a structural template. */
-const TEMPLATE_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
+import {
+  C2C_ROW_TEMPLATE,
+  GAME_CENTER_BODY_40800,
+  MAPPING_ROW_TEMPLATE,
+  RECENT_ROW_TEMPLATE,
+  type TemplateRow,
+} from './weq_assistant_template';
 
 /**
  * uin / 昵称固定；uid 不再硬编码。以前为了硬编码那套「真实」头像文件路径，只能把 uid
@@ -148,8 +154,7 @@ export class WeqAssistantService {
     const newSortNo = (await this.maxBigint('nt_uid_mapping_table', '48901')) + 1n;
     await this.cloneAndInsert(
       'nt_uid_mapping_table',
-      '48902',
-      '"48901" DESC',
+      MAPPING_ROW_TEMPLATE,
       {
         '48901': newSortNo,
         '48902': this.uid,
@@ -175,11 +180,10 @@ export class WeqAssistantService {
     const sortNo = await this.conversationSortNo();
     const msgId = (await this.maxBigint('c2c_msg_table', '40001')) + rand31();
     const arkJson = buildArkJson(port, card.createdAt, card);
-    const body = await this.buildArkBody(arkJson);
+    const body = this.buildArkBody(arkJson);
     await this.cloneAndInsert(
       'c2c_msg_table',
-      '40021',
-      '"40050" DESC',
+      C2C_ROW_TEMPLATE,
       {
         '40001': msgId,
         '40002': rand31(),
@@ -247,7 +251,7 @@ export class WeqAssistantService {
     if (avatarPath) recentOv['41110'] = avatarPath; // local avatar file for QQ
 
     await this.removeContact();
-    await this.cloneAndInsert('recent_contact_v3_table', '40021', '"40050" DESC', recentOv);
+    await this.cloneAndInsert('recent_contact_v3_table', RECENT_ROW_TEMPLATE, recentOv);
   }
 
   /** 删除会话列表行（仅 recent_contact；mapping / c2c 一概不动）。关闭开关时调用。 */
@@ -373,20 +377,18 @@ export class WeqAssistantService {
     return dest;
   }
 
-  /** Clone game-center's newest c2c ARK body and swap in our arkData. */
-  private async buildArkBody(arkJson: string): Promise<Uint8Array> {
-    const rows = await this.msgDb.query(
-      `SELECT "40800" FROM c2c_msg_table WHERE "40021" = ? ORDER BY "40050" DESC LIMIT 1`,
-      [TEMPLATE_UID],
-    );
-    const blob = rows[0]?.[0];
-    if (!(blob instanceof Uint8Array)) {
-      throw new Error('[weq-assistant] no game-center template message to clone the ARK body from');
-    }
-    const decoded = bodyCodec.decode(blob);
+  /**
+   * Build the ARK message body: take the hardcoded game-center body
+   * (`GAME_CENTER_BODY_40800`), decode its single ark element and swap in our
+   * `arkData`. No live-db lookup — works on accounts with no game-center rows.
+   */
+  private buildArkBody(arkJson: string): Uint8Array {
+    const decoded = bodyCodec.decode(GAME_CENTER_BODY_40800);
     const elements = (decoded.elements ?? []).map(decodeElement);
     const arkEl = elements.find((e) => e.kind === 'ark') as ArkElement | undefined;
-    if (!arkEl) throw new Error('[weq-assistant] game-center template has no ark element');
+    if (!arkEl) {
+      throw new Error('[weq-assistant] hardcoded game-center body has no ark element');
+    }
     arkEl.arkData = arkJson;
     return bodyCodec.encode({ elements: elements.map(encodeElement) });
   }
@@ -408,14 +410,18 @@ export class WeqAssistantService {
   }
 
   /**
-   * Clone the game-center template row for `table` and INSERT it with the given
-   * per-column overrides (and optional columns forced to NULL). Column order =
-   * PRAGMA declaration order.
+   * INSERT a hardcoded game-center template row for `table`, applying the given
+   * per-column overrides (and optional columns forced to NULL).
+   *
+   * The template must be a PREFIX of the table's PRAGMA declaration order:
+   * shared columns are position-checked, and columns the live QQ build added
+   * after the capture (observed: `40722` on c2c_msg_table, always NULL) are
+   * appended as NULL. Only a REORDER or a missing shared column fails loudly —
+   * pure additions stay compatible without re-capturing.
    */
   private async cloneAndInsert(
     table: string,
-    templateWhereCol: string,
-    orderBy: string,
+    template: TemplateRow,
     overrides: Record<string, SqlValue>,
     nullCols: string[] = [],
   ): Promise<void> {
@@ -428,15 +434,14 @@ export class WeqAssistantService {
       return i;
     };
 
-    const tmpl = await this.msgDb.query(
-      `SELECT ${quoted} FROM "${table}" WHERE "${templateWhereCol}" = ? ORDER BY ${orderBy} LIMIT 1`,
-      [TEMPLATE_UID],
-    );
-    if (tmpl.length === 0) {
-      throw new Error(`[weq-assistant] no template row in ${table} for ${TEMPLATE_UID}`);
+    const added = cols.slice(template.length);
+    if (template.length > cols.length || template.some(([c], i) => c !== cols[i])) {
+      throw new Error(
+        `[weq-assistant] hardcoded ${table} template is out of date (columns reordered or removed vs PRAGMA${added.length > 0 ? `; ${added.length} appended col(s): ${added.join(',')}` : ''}) — re-capture weq_assistant_template.ts`,
+      );
     }
 
-    const values = [...tmpl[0]!] as SqlValue[];
+    const values = [...template.map(([, v]) => v), ...added.map(() => null)] as SqlValue[];
     for (const [c, v] of Object.entries(overrides)) values[idx(c)] = v;
     for (const c of nullCols) values[idx(c)] = null;
 
