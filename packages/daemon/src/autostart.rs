@@ -74,7 +74,7 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
         encoded.push_str(&format!("{unit:04X}"));
     }
     run(
-        no_window(std::process::Command::new("powershell")).args([
+        no_window(&mut std::process::Command::new("powershell")).args([
             "-NoProfile",
             "-NonInteractive",
             "-EncodedCommand",
@@ -90,7 +90,7 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
 pub fn uninstall_with(pipe_name: &str) -> Result<(), String> {
     let name = ident(pipe_name);
     // 查到存在才删，避免把「没装过」当失败。
-    match no_window(std::process::Command::new("schtasks"))
+    match no_window(&mut std::process::Command::new("schtasks"))
         .args(["/Query", "/TN", &name])
         .output()
     {
@@ -98,7 +98,7 @@ pub fn uninstall_with(pipe_name: &str) -> Result<(), String> {
         _ => return Ok(()),
     }
     run(
-        no_window(std::process::Command::new("schtasks")).args(["/Delete", "/F", "/TN", &name]),
+        no_window(&mut std::process::Command::new("schtasks")).args(["/Delete", "/F", "/TN", &name]),
         "schtasks delete",
     )?;
     logger::info(&format!("autostart removed: task {name}"));
@@ -108,7 +108,7 @@ pub fn uninstall_with(pipe_name: &str) -> Result<(), String> {
 #[cfg(windows)]
 pub fn status(pipe_name: &str) -> Result<bool, String> {
     let name = ident(pipe_name);
-    let out = no_window(std::process::Command::new("schtasks"))
+    let out = no_window(&mut std::process::Command::new("schtasks"))
         .args(["/Query", "/TN", &name])
         .output()
         .map_err(|e| format!("schtasks query: {e}"))?;

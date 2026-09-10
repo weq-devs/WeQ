@@ -178,7 +178,7 @@ fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
         encoded.push_str(&format!("{unit:04X}"));
     }
     run(
-        crate::autostart::no_window(std::process::Command::new("powershell")).args([
+        crate::autostart::no_window(&mut std::process::Command::new("powershell")).args([
             "-NoProfile",
             "-NonInteractive",
             "-EncodedCommand",
@@ -193,7 +193,7 @@ fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
 #[cfg(windows)]
 fn unregister_platform(pipe_name: &str) -> Result<(), String> {
     let name = gui_ident(pipe_name);
-    match crate::autostart::no_window(std::process::Command::new("schtasks"))
+    match crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
         .args(["/Query", "/TN", &name])
         .output()
     {
@@ -201,7 +201,7 @@ fn unregister_platform(pipe_name: &str) -> Result<(), String> {
         _ => return Ok(()), // 没装过 = 已是目标状态
     }
     run(
-        crate::autostart::no_window(std::process::Command::new("schtasks"))
+        crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
             .args(["/Delete", "/F", "/TN", &name]),
         "schtasks delete gui",
     )?;
@@ -212,7 +212,7 @@ fn unregister_platform(pipe_name: &str) -> Result<(), String> {
 #[cfg(windows)]
 fn registered_platform(pipe_name: &str) -> bool {
     let name = gui_ident(pipe_name);
-    crate::autostart::no_window(std::process::Command::new("schtasks"))
+    crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
         .args(["/Query", "/TN", &name])
         .output()
         .map(|o| o.status.success())
