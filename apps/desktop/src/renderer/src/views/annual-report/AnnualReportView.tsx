@@ -525,10 +525,10 @@ function ReportDeckView({
               aria-label={`第 ${pageIndex + 1} 页：${page.title}`}
               aria-current={pageIndex + PAGE_OFFSET === index}
             >
-              <span className="weq-report-tick-mark" aria-hidden />
               <span className="weq-report-tick-name" aria-hidden>
                 {page.title}
               </span>
+              <span className="weq-report-tick-mark" aria-hidden />
             </button>
           ))}
         </div>

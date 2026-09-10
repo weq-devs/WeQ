@@ -185,7 +185,7 @@ export function DaemonSection(): ReactElement {
       <SectionHeader
         icon={<Activity size={16} strokeWidth={1.8} />}
         title="守护进程"
-        desc="weq-daemon 是 WeQ 的伴生进程：服务推文静态文件、监控 GitHub Release、开机时负责拉起 WeQ。它不碰 QQ 数据库，只听 WeQ 的指挥。"
+        desc="weq-daemon 是 WeQ 的伴生进程：WeQ 启动时自动运行，服务推文静态文件、监控 GitHub Release、开机时负责拉起 WeQ。它不碰 QQ 数据库，只听 WeQ 的指挥。"
       />
 
       {/* ── 1. 健康性 ─────────────────────────────────────────── */}
@@ -214,10 +214,10 @@ export function DaemonSection(): ReactElement {
           }
           desc={
             healthData?.alive
-              ? '控制管道连通。开启下方「WeQ 助手」时会自动拉起守护进程。'
+              ? '控制管道连通。守护进程随 WeQ 启动自动运行，无需手动开启。'
               : binary.data?.available === false
                 ? '未找到守护进程二进制（resources/daemon/<platform>-<arch>/）。请先运行 pnpm build:daemon 或重新安装。'
-                : '守护进程未启动。开启下方「WeQ 助手」开关即可自动拉起。'
+                : '守护进程未运行。WeQ 启动时会自动拉起；若仍未恢复，请检查守护进程二进制或重启 WeQ。'
           }
           control={<Activity size={14} className="weq-set-ok" aria-hidden />}
         />

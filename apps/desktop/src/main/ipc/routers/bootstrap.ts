@@ -1039,7 +1039,7 @@ export const bootstrapRouter = router({
         });
         if (started === null) {
           throw new Error(
-            '守护进程未运行，无法开启 Release 监控。请先开启 WeQ 助手（或启动守护进程）。',
+            '守护进程未运行，无法开启 Release 监控。WeQ 启动时会自动拉起，请稍后重试。',
           );
         }
       }
@@ -1065,7 +1065,7 @@ export const bootstrapRouter = router({
       const guiExe = getHost().currentExePath();
       const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
       if (result === null) {
-        throw new Error('守护进程未运行，无法设置开机自启。请先开启 WeQ 助手（或启动守护进程）。');
+        throw new Error('守护进程未运行，无法设置开机自启。WeQ 启动时会自动拉起，请稍后重试。');
       }
       if (!result.ok) throw new Error(result.message);
       return daemonAutostartStatus();

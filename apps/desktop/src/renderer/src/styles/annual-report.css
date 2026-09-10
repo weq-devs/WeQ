@@ -642,7 +642,7 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.16em;
   white-space: nowrap;
   opacity: 0;
-  transform: translateX(8px);
+  transform: translateX(-8px);
   transition: opacity 300ms ease, transform 300ms var(--rp-ease-drop);
 }
 

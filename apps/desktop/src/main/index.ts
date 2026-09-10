@@ -31,6 +31,7 @@ import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
+import { ensureDaemonRunning } from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -611,6 +612,15 @@ void app.whenReady().then(async () => {
   // 守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。推文由打包版
   // 应用内更新检查（update_tweet）统一负责，不在这里重复写。
   startReleaseMonitor();
+
+  // 守护进程默认拉起：应用启动即检查 / 拉起 weq-daemon，不再等「WeQ 助手」开关。
+  // best-effort：二进制缺失 / 拉起失败只记日志，不阻塞启动；设置页展示实时状态。
+  void ensureDaemonRunning().catch((error) => {
+    logger.warn('failed to ensure weq-daemon on startup', {
+      event: 'daemon-startup-failed',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
