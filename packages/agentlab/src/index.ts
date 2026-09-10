@@ -60,6 +60,7 @@ export {
 } from './persona';
 export {
   extractPersonaCard,
+  suggestPersonaName,
   extractProfileChunk,
   mergeProfileParts,
   extractFewShots,

@@ -189,6 +189,37 @@ function corpusPreamble(
   ].join('\n');
 }
 
+const NAME_JSON_SHAPE = `{
+  "name": "起的名字（2-8 个字符）"
+}`;
+
+/**
+ * 给被克隆的人起一个「训练用」的名字：根据 TA 的说话风格/性格/常聊话题，
+ * 起一个贴合的网名或代号（不是真实姓名，也不是记录里的现有昵称）。
+ * 克隆训练全流程（语料渲染、画像/风格提炼提示词）都用这个名字称呼 TA。
+ * 返回空串 = 放弃（调用方退回默认昵称）。
+ */
+export async function suggestPersonaName(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): Promise<string> {
+  const raw = await generateJson(
+    endpoint,
+    '你是起名专家。下面是一个人的聊天记录。请给 TA 起一个训练用的名字（网名/代号/自称）——' +
+      '不要用 TA 的真实姓名，也不要沿用记录里 TA 的现有昵称；名字要贴合 TA 的说话风格、性格与常聊话题，' +
+      '让人觉得「这就是 TA 会起的名字」。2-8 个字符，中文优先，可带数字/字母/符号点缀，不要任何解释。' +
+      `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${NAME_JSON_SHAPE}`,
+    `${corpusPreamble(friendName, stats, corpusText)}\n\n请根据「${friendName}」的聊天记录起一个名字，按要求输出 JSON。`,
+    0.8,
+    '克隆体起名',
+  );
+  const name = coerceString(raw.name).replace(/\s+/g, ' ').trim();
+  // 模型偷懒复读原昵称时视为起名失败。
+  return name && name.toLowerCase() !== friendName.toLowerCase() ? name : '';
+}
+
 export async function extractPersonaCard(
   endpoint: AgentLabEndpoint,
   friendName: string,

@@ -55,6 +55,8 @@ export interface StartCloneArgs {
     targetUid: string;
     title: string;
     mode: CloneMode;
+    /** 让克隆体自己起名（AI 生成训练用名字，不改前端展示名）。 */
+    autoName?: boolean;
   };
   meta: { name: string; uin: string; mode: CloneMode };
 }
@@ -86,6 +88,7 @@ export function NewCloneModal({
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
   const [visSel, setVisSel] = useState('');
   const [mode, setMode] = useState<CloneMode>('group');
+  const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
 
   const filtered = useMemo(() => {
@@ -116,6 +119,7 @@ export function NewCloneModal({
         targetUid: target.uid,
         title: target.label,
         mode,
+        autoName,
       },
       meta: { name: name.trim() || target.label, uin: target.uin, mode },
     });
@@ -196,6 +200,28 @@ export function NewCloneModal({
                 placeholder={target.label}
               />
             </label>
+
+            <div className={`weq-clone-toggle-card${autoName ? ' is-on' : ''}`}>
+              <label className="weq-clone-check weq-clone-toggle-main">
+                <input
+                  type="checkbox"
+                  checked={autoName}
+                  onChange={(e) => setAutoName(e.target.checked)}
+                />
+                <span className="weq-clone-toggle-text">
+                  <strong>让克隆体自己起名（训练用）</strong>
+                  <small>AI 根据 TA 的聊天风格起一个名字，用于克隆训练；界面显示名仍用好友昵称</small>
+                </span>
+              </label>
+              {autoName ? (
+                <div className="weq-clone-toggle-extra">
+                  <div className="weq-clone-sub-hint">
+                    训练提炼时，语料、画像、风格提示词都会用这个 AI 起的名字称呼 TA；起名失败会自动退回好友昵称。
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <label className="weq-agentlab-field">
               <span>聊天模型</span>
               <select value={chatSel} onChange={(e) => setChatSel(e.target.value)}>

@@ -1005,6 +1005,8 @@ export const accountRouter = router({
         limit: z.number().int().min(20).max(20000).optional(),
         // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
         mode: z.enum(['private', 'group']).optional(),
+        // 让克隆体自己起名（仅训练使用，不改前端展示名）。默认关闭。
+        autoName: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -1017,6 +1019,7 @@ export const accountRouter = router({
         title: input.title,
         limit: input.limit,
         mode: input.mode,
+        autoName: input.autoName,
       });
     }),
 

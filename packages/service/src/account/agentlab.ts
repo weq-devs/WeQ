@@ -28,6 +28,7 @@ import {
   describeRelationTone,
   makeBaseRelation,
   summarizeVoiceScenario,
+  suggestPersonaName,
   C2C_SAFETY_CAP,
   C2C_CORPUS_CAP,
   FACE_WHITELIST_CAP,
@@ -163,6 +164,12 @@ export interface BuildFromC2cInput {
    * 默认 'group'。
    */
   mode?: 'private' | 'group';
+  /**
+   * 让克隆体自己起名（仅训练使用）：AI 根据聊天风格生成一个名字，用于克隆训练
+   * 的提示词（语料渲染 / 画像与风格提炼），不改前端展示名（仍用 name 或好友昵称）。
+   * 默认关闭。起名失败时静默退回好友昵称。
+   */
+  autoName?: boolean;
 }
 
 /** 高频表情包累计：扫描期收集，之后再下载 + vision 解读。 */
@@ -1756,7 +1763,36 @@ export class AgentLabService extends EventEmitter {
       messages,
     };
 
-    const artifacts = buildPersonaArtifacts({ name: peerName, source: sample, groupStyleMessages });
+    let artifacts = buildPersonaArtifacts({ name: peerName, source: sample, groupStyleMessages });
+
+    // 让克隆体自己起名（可选，仅训练使用）：先用真实昵称渲染的语料让 AI 起一个贴合的名字，
+    // 再让整条训练管线（语料 / 画像 / 风格提炼 / 表情 / 语音场景）都用新名字称呼 TA。
+    // 起名失败退回好友昵称，不阻断克隆。前端展示名（displayName）不受影响。
+    let trainingName = peerName;
+    if (input.autoName && artifacts.corpusText.trim()) {
+      this.emitProgress(input.personaId, '让克隆体自己起名', 60);
+      try {
+        const suggested = await suggestPersonaName(
+          chatEndpoint,
+          peerName,
+          artifacts.stats,
+          artifacts.corpusText,
+        );
+        if (suggested) trainingName = suggested.slice(0, 20);
+      } catch {
+        /* 起名失败退回默认昵称 */
+      }
+      if (trainingName !== peerName) {
+        const renamed = buildPersonaArtifacts({
+          name: trainingName,
+          source: sample,
+          groupStyleMessages,
+        });
+        // 「关系摘要」面向用户展示（记忆/画像灯箱），保留真实昵称。
+        renamed.profile.relationshipSummary = artifacts.profile.relationshipSummary;
+        artifacts = renamed;
+      }
+    }
 
     // 私聊（+ 群补采）仍太少 → 直接报错，语料不足以克隆。
     if (
@@ -1785,12 +1821,12 @@ export class AgentLabService extends EventEmitter {
         // card / fewShots / expressions 用「最近优先」的 corpusText 一次性提；
         // deep 用全量历史 map-reduce（分块提取 + 合并），更全且不丢早期信息。
         const [card, shots, exprs, deep] = await Promise.all([
-          extractPersonaCard(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
-          extractFewShots(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
-          extractExpressions(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
+          extractPersonaCard(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          extractFewShots(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          extractExpressions(chatEndpoint, trainingName, artifacts.stats, artifacts.corpusText),
           this.extractDeepProfileMapReduce(
             chatEndpoint,
-            peerName,
+            trainingName,
             artifacts.turns,
             input.personaId,
           ),
@@ -1838,18 +1874,18 @@ export class AgentLabService extends EventEmitter {
         ? await this.buildStickerRefs(
             [...stickerAccum.values()],
             input.models.vision,
-            peerName,
+            trainingName,
             input.personaId,
           )
         : [];
 
     // 语音画像：使用场景（chat 模型总结）+ 克隆参考音频（按质量挑 Top-K，已排除变声）。
     let voiceProfile: AgentLabVoiceProfile | undefined;
-    const voiceWindows = this.collectVoiceWindows(messages, peerName);
+    const voiceWindows = this.collectVoiceWindows(messages, trainingName);
     let scenarioSummary = '';
     if (voiceWindows.length > 0) {
       try {
-        scenarioSummary = await summarizeVoiceScenario(chatEndpoint, peerName, voiceWindows);
+        scenarioSummary = await summarizeVoiceScenario(chatEndpoint, trainingName, voiceWindows);
       } catch {
         // 语音场景总结失败不阻断克隆。
       }
