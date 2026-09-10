@@ -1037,6 +1037,7 @@ export const accountRouter = router({
       z.object({
         personaId: z.string().min(1),
         text: z.string().min(1),
+        sessionId: z.string().optional(),
         history: z
           .array(
             z.object({
@@ -1052,7 +1053,69 @@ export const accountRouter = router({
         personaId: input.personaId,
         text: input.text,
         history: input.history,
+        sessionId: input.sessionId,
       });
+    }),
+
+  /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
+  listAgentLabPersonaSessions: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.listPersonaSessions(input.personaId);
+    }),
+
+  /** 新建一个克隆体会话（空对话，标题待首条消息生成）。 */
+  createAgentLabPersonaSession: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().agentLab.createPersonaSession(input.personaId);
+    }),
+
+  /** 删除克隆体会话（含其对话内容）。 */
+  deleteAgentLabPersonaSession: procedure
+    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.deletePersonaSession(input.personaId, input.sessionId);
+      return true;
+    }),
+
+  /** 某克隆体会话的对话历史。 */
+  getAgentLabPersonaSessionConversation: procedure
+    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getPersonaSessionConversation(
+        input.personaId,
+        input.sessionId,
+      );
+    }),
+
+  /** 群聊会话（多会话）列表，最近活跃倒序。 */
+  listAgentLabGroupSessions: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.listGroupSessions(input.groupId);
+    }),
+
+  /** 新建一个群聊会话（空对话，标题待首条消息生成）。 */
+  createAgentLabGroupSession: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().agentLab.createGroupSession(input.groupId);
+    }),
+
+  /** 删除群聊会话（含其消息记录）。 */
+  deleteAgentLabGroupSession: procedure
+    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.deleteGroupSession(input.groupId, input.sessionId);
+      return true;
+    }),
+
+  /** 某群聊会话的消息记录。 */
+  getAgentLabGroupSessionConversation: procedure
+    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getGroupSessionConversation(input.groupId, input.sessionId);
     }),
 
   deleteAgentLabPersona: procedure
@@ -1236,15 +1299,15 @@ export const accountRouter = router({
     }),
 
   getAgentLabGroupConversation: procedure
-    .input(z.object({ groupId: z.string().min(1) }))
+    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().optional() }))
     .query(({ input }) => {
-      return requireServices().agentLab.getGroupMessages(input.groupId);
+      return requireServices().agentLab.getGroupMessages(input.groupId, undefined, input.sessionId);
     }),
 
   clearAgentLabGroupConversation: procedure
-    .input(z.object({ groupId: z.string().min(1) }))
+    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().optional() }))
     .mutation(({ input }) => {
-      requireServices().agentLab.clearGroupMessages(input.groupId);
+      requireServices().agentLab.clearGroupMessages(input.groupId, input.sessionId);
       return true;
     }),
 
@@ -1258,6 +1321,7 @@ export const accountRouter = router({
         groupId: z.string().min(1),
         text: z.string().min(1),
         mentions: z.array(z.string().min(1)).default([]),
+        sessionId: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -1265,13 +1329,15 @@ export const accountRouter = router({
       const groupRunId = randomUUID();
       const groupId = input.groupId;
       void svc
-        .sendGroupMessage({ groupId, text: input.text, mentions: input.mentions }, (message) =>
-          groupChatBus.emit('event', {
-            groupRunId,
-            groupId,
-            kind: 'message',
-            message,
-          } satisfies GroupChatStreamEvent),
+        .sendGroupMessage(
+          { groupId, text: input.text, mentions: input.mentions, sessionId: input.sessionId },
+          (message) =>
+            groupChatBus.emit('event', {
+              groupRunId,
+              groupId,
+              kind: 'message',
+              message,
+            } satisfies GroupChatStreamEvent),
         )
         .then(() =>
           groupChatBus.emit('event', {

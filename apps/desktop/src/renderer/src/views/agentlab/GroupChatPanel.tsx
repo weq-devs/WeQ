@@ -27,32 +27,43 @@ interface PersonaLite {
 
 export function GroupChatPanel({
   groupId,
+  sessionId,
   selfUin,
   personaList,
   profileByUid,
   faceDescToId,
   onBack,
   onDeleted,
+  onSessionCreated,
 }: {
   groupId: string;
+  /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
+  sessionId: string | null;
   selfUin?: string;
   personaList: PersonaLite[];
   profileByUid: Map<string, { uin: string; label: string; avatarUrl?: string }>;
   faceDescToId: Map<string, number>;
   onBack: () => void;
   onDeleted: () => void;
+  /** 草稿会话首条消息落库后回调（父组件把选中态指向新会话，不换 key）。 */
+  onSessionCreated: (sessionId: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const detail = trpc.account.getAgentLabGroupDetail.useQuery({ groupId });
+  // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
+  // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
+  const initialSessionId = useRef(sessionId).current;
+  const sessionIdRef = useRef<string | null>(sessionId);
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(
-    { groupId },
-    { refetchOnMount: 'always', staleTime: 0 },
+    { groupId, sessionId: initialSessionId ?? undefined },
+    { refetchOnMount: 'always', staleTime: 0, enabled: !!initialSessionId },
   );
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
+  const createSession = trpc.account.createAgentLabGroupSession.useMutation();
   const del = trpc.account.deleteAgentLabGroup.useMutation();
   const addMember = trpc.account.addAgentLabGroupMember.useMutation();
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
@@ -117,7 +128,13 @@ export function GroupChatPanel({
         } else if (ev.kind === 'done') {
           setBusy(false);
           // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-          void utils.account.getAgentLabGroupConversation.invalidate({ groupId });
+          const sid = sessionIdRef.current;
+          void utils.account.getAgentLabGroupConversation.invalidate({
+            groupId,
+            ...(sid ? { sessionId: sid } : {}),
+          });
+          // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
+          void utils.account.listAgentLabGroupSessions.invalidate({ groupId });
         } else if (ev.kind === 'error') {
           setBusy(false);
           dialog.error('群聊出错', ev.message);
@@ -160,7 +177,16 @@ export function GroupChatPanel({
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setBusy(true);
     try {
-      await send.mutateAsync({ groupId, text, mentions });
+      // 草稿会话：真正发第一条消息时才落库建会话（与 WeQ 助手一致）。
+      let sid = sessionIdRef.current;
+      if (!sid) {
+        const session = await createSession.mutateAsync({ groupId });
+        sid = session.id;
+        sessionIdRef.current = sid;
+        await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
+        onSessionCreated(sid);
+      }
+      await send.mutateAsync({ groupId, text, mentions, sessionId: sid });
       // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
     } catch (e) {
       setBusy(false);
@@ -175,12 +201,16 @@ export function GroupChatPanel({
       tone: 'warning',
     });
     if (!ok) return;
-    await clear.mutateAsync({ groupId });
+    const sid = sessionIdRef.current;
+    if (sid) {
+      await clear.mutateAsync({ groupId, sessionId: sid });
+      await utils.account.getAgentLabGroupConversation.invalidate({ groupId, sessionId: sid });
+    }
     setHistory([]);
     seenIds.current.clear();
-    await utils.account.getAgentLabGroupConversation.invalidate({ groupId });
   }
 
+  /** 删除群会话：确认 → 后端删（含消息）→ 若删的是当前会话则换新草稿。 */
   async function onAddMember(personaId: string): Promise<void> {
     try {
       await addMember.mutateAsync({ groupId, personaId });

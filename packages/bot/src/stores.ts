@@ -53,6 +53,14 @@ export class JsonConversationStore implements ConversationSink {
   get(agentId: string): ConversationTurnLike[] {
     return this.data[agentId] ?? [];
   }
+  getAll(prefix: string): ConversationTurnLike[] {
+    const prefixWithColon = `${prefix}:`;
+    const out: ConversationTurnLike[] = [];
+    for (const key of Object.keys(this.data)) {
+      if (key === prefix || key.startsWith(prefixWithColon)) out.push(...(this.data[key] ?? []));
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  }
   append(agentId: string, turns: ConversationTurnLike[]): void {
     const next = [...(this.data[agentId] ?? []), ...turns];
     this.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;

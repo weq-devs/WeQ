@@ -9603,7 +9603,9 @@ html[data-theme="dark"] .weq-forward-bubble {
   gap: 6px;
 }
 
-.weq-agentlab-field span {
+/* 字段标签：只作用于直接子级 span——内部嵌套的列表项（如 weq-group-member-text）
+   有自己的 flex 布局，不能被这里的 inline-flex 覆盖（否则头像和名字间距会被撑开）。 */
+.weq-agentlab-field > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -9611,7 +9613,7 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-fg-secondary);
 }
 
-.weq-agentlab-field span svg {
+.weq-agentlab-field > span svg {
   color: var(--weq-fg-muted);
   flex: none;
 }
@@ -10296,6 +10298,141 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-agentlab-newclone:hover {
   color: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
+}
+
+/* ── 左栏克隆体/群聊条目：可展开的会话列表（分页/新建/删除） ────────────────── */
+.weq-clone-row { display: flex; flex-direction: column; width: 100%; }
+
+.weq-clone-row-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.weq-clone-row-head .weq-agentlab-item { flex: 1 1 auto; width: 100%; padding-right: 36px; }
+
+.weq-clone-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.weq-clone-row-toggle:hover { background: rgba(127, 127, 127, 0.14); color: var(--weq-fg-primary); }
+.weq-clone-row-toggle svg { transition: transform 140ms ease; }
+.weq-clone-row-toggle.is-open svg { transform: rotate(180deg); }
+
+.weq-clone-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 2px 0 6px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.weq-clone-session {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+}
+.weq-clone-session:hover { background: rgba(127, 127, 127, 0.08); }
+.weq-clone-session.is-active { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+
+.weq-clone-session-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.weq-clone-session-title {
+  width: 100%;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-clone-session-open small {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-clone-session-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.weq-clone-session:hover .weq-clone-session-del,
+.weq-clone-session.is-active .weq-clone-session-del { opacity: 1; }
+.weq-clone-session-del:hover { background: rgba(127, 127, 127, 0.18); color: var(--weq-danger, #e5484d); }
+
+.weq-clone-session-more {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.weq-clone-session-more:hover { background: rgba(127, 127, 127, 0.1); }
+
+.weq-clone-session-new {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.weq-clone-session-new:hover { background: rgba(127, 127, 127, 0.1); }
+
+.weq-clone-sessions-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--weq-fg-muted);
 }
 
 /* ── WeQ 助手会话列表（左栏 assistant 模式） ─────────────────────────────── */

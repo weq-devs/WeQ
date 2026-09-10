@@ -81,6 +81,12 @@ import {
 } from './media_download';
 import { TokenUsageStore, type TokenStats } from './agentlab_usage';
 import { ConversationStore, type ConversationTurn } from './agentlab_conversation';
+import {
+  AgentLabSessionStore,
+  AgentLabGroupSessionMessageStore,
+  sessionTitleFromText,
+  type AgentLabSession,
+} from './agentlab_session';
 import { MemoryStore } from './agentlab_memory';
 import { NotesStore } from './agentlab_notes';
 import { JsonGroupStore } from './agentlab_group_store';
@@ -299,6 +305,10 @@ export class AgentLabService extends EventEmitter {
   // 接口消费；将来换 SQLite 后端时只替换这两行的具体实现。
   private readonly groups: AgentLabGroupStore;
   private readonly relations: AgentLabRelationStore;
+  /** 克隆体会话元数据（好友克隆 / 群聊通用，按 ownerId 分桶）。 */
+  private readonly sessions: AgentLabSessionStore;
+  /** 群聊会话的消息记录（按 `${groupId}:${sessionId}` 分桶）。 */
+  private readonly groupSessionMessages: AgentLabGroupSessionMessageStore;
   /** 群聊记忆蒸馏节流计数（key = `personaId aboutId`，每 6 次互动蒸一次）。 */
   private readonly groupMemoryCounter = new Map<string, number>();
   private readonly logger = getLogger().child({ scope: 'agentlab' });
@@ -325,6 +335,10 @@ export class AgentLabService extends EventEmitter {
     this.notes = new NotesStore(join(rootDir, 'notes.json'));
     this.groups = new JsonGroupStore(join(rootDir, 'groups.json'));
     this.relations = new JsonRelationStore(join(rootDir, 'relations.json'));
+    this.sessions = new AgentLabSessionStore(join(rootDir, 'sessions.json'));
+    this.groupSessionMessages = new AgentLabGroupSessionMessageStore(
+      join(rootDir, 'group_session_messages.json'),
+    );
 
     // 运行时对话引擎下沉到 @weq/agentlab 的 AgentRuntime（桌面与导出 bot 共用同一套）。
     // 把桌面侧依赖注入进去：现有 store + TTS（抽象成 TtsPort）+ 登录账号 uin 作为 selfId。
@@ -455,6 +469,8 @@ export class AgentLabService extends EventEmitter {
 
   deleteGroup(groupId: string): void {
     this.groups.deleteGroup(groupId);
+    this.sessions.deleteOwner(this.groupOwnerId(groupId));
+    this.groupSessionMessages.deleteGroup(groupId);
   }
 
   addGroupMember(groupId: string, personaId: string): void {
@@ -475,13 +491,77 @@ export class AgentLabService extends EventEmitter {
     this.groups.removeMember(groupId, memberId);
   }
 
-  /** 群历史消息（前端 seed / 引擎上下文用）。 */
-  getGroupMessages(groupId: string, limit?: number): AgentLabGroupMessage[] {
-    return this.groups.listMessages(groupId, limit);
+  /** 群历史消息（前端 seed / 引擎上下文用；有 sessionId 则读该会话桶）。 */
+  getGroupMessages(groupId: string, limit?: number, sessionId?: string): AgentLabGroupMessage[] {
+    const list = sessionId
+      ? this.groupSessionMessages.list(this.groupSessionBucket(groupId, sessionId))
+      : this.groups.listMessages(groupId);
+    if (limit === undefined || limit >= list.length) return list;
+    return list.slice(list.length - limit);
   }
 
-  clearGroupMessages(groupId: string): void {
-    this.groups.clearMessages(groupId);
+  clearGroupMessages(groupId: string, sessionId?: string): void {
+    if (sessionId) this.groupSessionMessages.clear(this.groupSessionBucket(groupId, sessionId));
+    else this.groups.clearMessages(groupId);
+  }
+
+  // ── 克隆体会话（好友克隆 / 群聊多会话）──────────────────────────────────────
+
+  /** 好友克隆的会话列表（最近活跃倒序）。 */
+  listPersonaSessions(personaId: string): AgentLabSession[] {
+    return this.sessions.list(personaId);
+  }
+
+  /** 新建一个克隆体会话（空对话，标题待首条消息生成）。 */
+  createPersonaSession(personaId: string): AgentLabSession {
+    return this.sessions.create(personaId);
+  }
+
+  /** 删除克隆体会话（含其对话内容）。 */
+  deletePersonaSession(personaId: string, sessionId: string): void {
+    this.sessions.delete(personaId, sessionId);
+    this.conversations.clear(this.personaSessionBucket(personaId, sessionId));
+  }
+
+  /** 某会话的对话内容。 */
+  getPersonaSessionConversation(personaId: string, sessionId: string): ConversationTurn[] {
+    return this.conversations.get(this.personaSessionBucket(personaId, sessionId));
+  }
+
+  /** 群聊的会话列表（最近活跃倒序）。 */
+  listGroupSessions(groupId: string): AgentLabSession[] {
+    return this.sessions.list(this.groupOwnerId(groupId));
+  }
+
+  /** 新建一个群聊会话（空对话，标题待首条消息生成）。 */
+  createGroupSession(groupId: string): AgentLabSession {
+    return this.sessions.create(this.groupOwnerId(groupId));
+  }
+
+  /** 删除群聊会话（含其消息记录）。 */
+  deleteGroupSession(groupId: string, sessionId: string): void {
+    this.sessions.delete(this.groupOwnerId(groupId), sessionId);
+    this.groupSessionMessages.clear(this.groupSessionBucket(groupId, sessionId));
+  }
+
+  /** 某群聊会话的消息记录。 */
+  getGroupSessionConversation(groupId: string, sessionId: string): AgentLabGroupMessage[] {
+    return this.groupSessionMessages.list(this.groupSessionBucket(groupId, sessionId));
+  }
+
+  /** 克隆体对话桶 key：`${personaId}:${sessionId}`。 */
+  private personaSessionBucket(personaId: string, sessionId: string): string {
+    return `${personaId}:${sessionId}`;
+  }
+
+  /** 群聊会话的 owner key：`group:<groupId>`。 */
+  private groupOwnerId(groupId: string): string {
+    return `group:${groupId}`;
+  }
+
+  /** 群聊会话消息桶 key：`${groupId}:${sessionId}`。 */
+  private groupSessionBucket(groupId: string, sessionId: string): string {
+    return `${groupId}:${sessionId}`;
   }
 
   /** 某克隆体对某成员的关系态（M4 起随互动更新；M1 可能为空 = 尚未建立）。 */
@@ -557,16 +637,29 @@ export class AgentLabService extends EventEmitter {
    * 意愿闸的存在感/冷却惩罚。某轮没人接话就收摊。onMessage 逐条流式回调。
    */
   async sendGroupMessage(
-    input: { groupId: string; text: string; mentions?: string[] },
+    input: { groupId: string; text: string; mentions?: string[]; sessionId?: string },
     onMessage: (message: AgentLabGroupMessage) => void,
   ): Promise<{ messages: AgentLabGroupMessage[] }> {
     const detail = this.getGroupDetail(input.groupId);
     if (!detail) throw new Error('找不到群聊');
     const { members } = detail;
     const selfId = this.selfMemberId();
+    const sessionId = input.sessionId;
+    // 多会话兜底：sessionId 指向的会话不存在（被删 / 外部写入）时重建一个，消息不丢。
+    let effectiveSessionId = sessionId;
+    if (sessionId && !this.sessions.get(this.groupOwnerId(input.groupId), sessionId)) {
+      effectiveSessionId = this.sessions.create(this.groupOwnerId(input.groupId)).id;
+    }
     const emitted: AgentLabGroupMessage[] = [];
     const record = (msg: AgentLabGroupMessage): void => {
-      this.groups.appendMessage(msg);
+      if (effectiveSessionId) {
+        this.groupSessionMessages.append(
+          this.groupSessionBucket(input.groupId, effectiveSessionId),
+          msg,
+        );
+      } else {
+        this.groups.appendMessage(msg);
+      }
       emitted.push(msg);
       onMessage(msg);
     };
@@ -584,6 +677,20 @@ export class AgentLabService extends EventEmitter {
       mentions,
     };
     record(userMsg);
+    // 多会话：刷新活跃时间；首条消息时用第一句生成标题。
+    if (effectiveSessionId) {
+      this.sessions.touch(this.groupOwnerId(input.groupId), effectiveSessionId);
+      if (
+        this.groupSessionMessages.list(this.groupSessionBucket(input.groupId, effectiveSessionId))
+          .length === 1
+      ) {
+        this.sessions.setTitle(
+          this.groupOwnerId(input.groupId),
+          effectiveSessionId,
+          sessionTitleFromText(input.text),
+        );
+      }
+    }
 
     const personaMembers = members.filter((m) => m.kind === 'persona');
     const mentionSet = new Set(mentions ?? []);
@@ -596,7 +703,9 @@ export class AgentLabService extends EventEmitter {
     const nameById = new Map(members.map((m) => [m.memberId, m.displayName]));
     for (let round = 0; round < AgentLabService.GROUP_MAX_CHAIN_DEPTH; round += 1) {
       if (totalReplies >= AgentLabService.GROUP_MAX_REPLIES_PER_TURN) break;
-      const roundBase = this.groups.listMessages(input.groupId);
+      const roundBase = effectiveSessionId
+        ? this.groupSessionMessages.list(this.groupSessionBucket(input.groupId, effectiveSessionId))
+        : this.groups.listMessages(input.groupId);
       const recent8 = roundBase.slice(-8);
 
       // 本轮候选：第 0 轮定向（@）则只有被 @ 的；否则排除上一轮刚开过口的（防连续刷屏兜底）。
@@ -1054,6 +1163,11 @@ export class AgentLabService extends EventEmitter {
     this.memories.clear(personaId);
     this.conversations.clear(personaId);
     this.notes.clear(personaId);
+    // 清掉该克隆体的所有会话桶（`${personaId}:*`）。
+    for (const s of this.sessions.list(personaId)) {
+      this.conversations.clear(this.personaSessionBucket(personaId, s.id));
+    }
+    this.sessions.deleteOwner(personaId);
     return this.store.deletePersona(personaId);
   }
 
@@ -1779,9 +1893,31 @@ export class AgentLabService extends EventEmitter {
     return persona;
   }
 
-  async chat(input: { personaId: string; history: AgentLabChatTurn[]; text: string }) {
+  async chat(input: {
+    personaId: string;
+    history: AgentLabChatTurn[];
+    text: string;
+    sessionId?: string;
+  }) {
     // 运行时对话（意愿闸 / 生成 / 落库 / 记忆反思）已下沉到 AgentRuntime，桌面与 bot 共用同一套。
-    return this.runtime.chat(input);
+    let sessionId = input.sessionId;
+    // 多会话兜底：sessionId 指向的会话不存在（被删 / 外部写入）时重建一个，消息不丢；
+    // 结果里带回真实 sessionId，前端发现不一致时采纳它。
+    if (sessionId && !this.sessions.get(input.personaId, sessionId)) {
+      sessionId = this.sessions.create(input.personaId).id;
+    }
+    const result = await this.runtime.chat({ ...input, sessionId });
+    if (sessionId) {
+      this.sessions.touch(input.personaId, sessionId);
+      // 首条用户消息（含意愿闸沉默只记用户）→ 用第一句生成标题。
+      const userTurns = this.conversations
+        .get(this.personaSessionBucket(input.personaId, sessionId))
+        .filter((t) => t.role === 'user').length;
+      if (userTurns === 1) {
+        this.sessions.setTitle(input.personaId, sessionId, sessionTitleFromText(input.text));
+      }
+    }
+    return { ...result, sessionId };
   }
 
   private c2cPartition(targetUid: string): { sortNo: bigint } | { uid: string } {

@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "pnpm --filter @weq/desktop dev",
     "build": "pnpm run build:bot && pnpm run build:ninebird && pnpm --filter @weq/desktop build",
-    "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=resources/bot-runtime/bot.mjs",
+    "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:bufferutil --external:utf-8-validate --banner:js=\"import { createRequire as __cjs_createRequire } from 'node:module'; const require = __cjs_createRequire(import.meta.url);\" --outfile=resources/bot-runtime/bot.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write .",

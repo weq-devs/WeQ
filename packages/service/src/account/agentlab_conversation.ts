@@ -35,6 +35,21 @@ export class ConversationStore {
     return this.store.data[agentId] ?? [];
   }
 
+  /**
+   * 合并某前缀下所有桶的对话（旧版单桶 `prefix` + 多会话桶 `${prefix}:${sessionId}`），
+   * 按 ts 排序。供记忆蒸馏 / 反思读取「该克隆体的全部对话」。
+   */
+  getAll(prefix: string): ConversationTurn[] {
+    const prefixWithColon = `${prefix}:`;
+    const out: ConversationTurn[] = [];
+    for (const key of Object.keys(this.store.data)) {
+      if (key === prefix || key.startsWith(prefixWithColon)) {
+        out.push(...(this.store.data[key] ?? []));
+      }
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+
   append(agentId: string, turns: ConversationTurn[]): void {
     const cur = this.store.data[agentId] ?? [];
     const next = [...cur, ...turns];

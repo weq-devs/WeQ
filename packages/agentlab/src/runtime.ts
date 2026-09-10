@@ -78,6 +78,8 @@ export interface ConversationTurnLike {
 export interface ConversationSink {
   get(agentId: string): ConversationTurnLike[];
   append(agentId: string, turns: ConversationTurnLike[]): void;
+  /** 合并某前缀下所有桶的对话（旧版单桶 + 多会话桶），按 ts 排序。缺省回退只读单桶。 */
+  getAll?(prefix: string): ConversationTurnLike[];
 }
 
 /** 记忆库落点（MemoryStore 满足）。 */
@@ -413,11 +415,28 @@ export class AgentRuntime {
     return { result, renderedTurns };
   }
 
+  /** 对话落库桶 key：多会话走 `${personaId}:${sessionId}`，旧版单桶仍是 personaId。 */
+  private conversationBucket(personaId: string, sessionId?: string): string {
+    return sessionId ? `${personaId}:${sessionId}` : personaId;
+  }
+
+  /** 某克隆体的全部对话（旧版单桶 + 所有会话桶合并，按 ts 排序）；兜底单桶。 */
+  private allConversations(personaId: string): ConversationTurnLike[] {
+    if (this.conversations.getAll) return this.conversations.getAll(personaId);
+    return this.conversations.get(personaId);
+  }
+
   /**
    * 私聊入口：给定 personaId + 历史 + 用户输入 → 生成回复（有序标记文本）并落对话库。
+   * sessionId（可选）多会话：落 `${personaId}:${sessionId}` 桶；缺省保持旧版单桶行为。
    * 意愿闸（可选，persona.willing.gatePrivate）没过则保持沉默、只记用户这条。
    */
-  async chat(input: { personaId: string; history: AgentLabChatTurn[]; text: string }) {
+  async chat(input: {
+    personaId: string;
+    history: AgentLabChatTurn[];
+    text: string;
+    sessionId?: string;
+  }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
     if (!record.persona.models?.chat)
@@ -427,6 +446,7 @@ export class AgentRuntime {
     const embeddingEndpoint = record.persona.models.embedding
       ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
       : null;
+    const bucket = this.conversationBucket(input.personaId, input.sessionId);
 
     // 发言意愿对私聊生效（可选）：意愿闸没过就保持沉默，只记下用户这条，不回。
     const willing = record.persona.willing;
@@ -442,7 +462,7 @@ export class AgentRuntime {
       });
       if (!decision.shouldReply) {
         const ts = Date.now();
-        this.conversations.append(input.personaId, [{ role: 'user', text: input.text, ts }]);
+        this.conversations.append(bucket, [{ role: 'user', text: input.text, ts }]);
         return {
           text: '',
           segments: [],
@@ -477,7 +497,7 @@ export class AgentRuntime {
       text,
       ts: now,
     }));
-    this.conversations.append(input.personaId, [
+    this.conversations.append(bucket, [
       { role: 'user', text: input.text, ts: now },
       ...assistantTurns,
     ]);
@@ -496,7 +516,7 @@ export class AgentRuntime {
     chatEndpoint: AgentLabEndpoint,
   ): Promise<void> {
     try {
-      const conv = this.conversations.get(personaId);
+      const conv = this.allConversations(personaId);
       const userTurns = conv.filter((t) => t.role === 'user').length;
       if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
       const known = this.memories
@@ -547,7 +567,7 @@ export class AgentRuntime {
     chatEndpoint: AgentLabEndpoint,
   ): Promise<void> {
     try {
-      const conv = this.conversations.get(personaId);
+      const conv = this.allConversations(personaId);
       const userTurns = conv.filter((t) => t.role === 'user').length;
       if (userTurns === 0 || userTurns % REFLECT_EVERY !== 0) return;
       const reflected = this.notes.getReflectedCount(personaId);

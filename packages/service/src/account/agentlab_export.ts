@@ -214,10 +214,13 @@ function renderReadme(
 
 ## 启动
 
+引擎（bot.mjs）已把唯一运行时依赖 ws **内联打包**，无需安装任何东西，直接启动：
+
 \`\`\`bash
-npm install    # 安装 ws（唯一运行时依赖）
-npm start
+npm start        # 或 pnpm start / node index.mjs
 \`\`\`
+
+> 可选：\`npm install\` 后启动亦可（会装一份 ws，不装也完全不影响运行）。
 
 启动后 bot 会自动开启本机 **WebUI 控制台**，可查看 token 消耗、收发消息统计与克隆体总览。
 
