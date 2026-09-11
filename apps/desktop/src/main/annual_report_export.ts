@@ -16,7 +16,11 @@ import { loadCjkFont } from './weq_assistant/cover';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { isAllTimeYear, reportEraLabel, reportSinceLabel } from '@weq/service/report-time';
-import { createReportAssetUrls, type ReportAssetUrlPrefixes } from '@weq/service/report-assets';
+import {
+  createReportAssetUrls,
+  REPORT_POKE_FIGURE_ID,
+  type ReportAssetUrlPrefixes,
+} from '@weq/service/report-assets';
 import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
 
 /** 主进程只认自定义协议；web 端的 /_media/、/_asset/ 由 router 归一后再进这里。 */
@@ -32,6 +36,7 @@ const {
   reportDressBubbleUrl,
   reportDressPendantUrl,
   reportEmojiFaceUrl,
+  reportPokeFigureUrl,
 } = createReportAssetUrls(REPORT_URL_PREFIXES);
 
 /** 一张导出卡片的最小契约 —— 与 renderer 发送的页面数据对齐。 */
@@ -170,6 +175,8 @@ const PALETTE = {
   jade: '#77cfc2',
   qz: '#8fc0e8',
   qzGold: '#e2ae74',
+  /** @ 与被 @ 页的群青。 */
+  call: '#8fb0e8',
 };
 
 function fmt(n: number): string {
@@ -2344,324 +2351,415 @@ function rgba(hex: string, alpha: number): string {
 }
 
 /**
- * 群聊互动页的长图版。
+ * 群聊互动三页（@ 与被 @ / 戳一戳 / 复读）的长图版。
  *
- * 屏幕版上半屏的主体（四组统计里数字最大的那一枚）与下半屏四行事实，在长图里
- * 照原样竖排成一卡；静态产物没有涟漪动画，所以用大号朱砂数字 + 一行注脚代替。
- * 数据与屏幕版同源，只做展示不做二次统计。
+ * 屏幕版每页那条独有的形状，在长图里尽量照旧：@ 页是一枚超大的 @ 与巨数并排、
+ * 戳页是左右两个数字夹着「戳」字与相向点阵、复读页是同一句话一行行变小变淡的
+ * 层叠回声。satori 画不了 SVG 弧线，所以 @ 页只留巨字与事实，不勉强画弧。
  */
-function interactionsTree(data: Record<string, unknown>): El {
+function interactionEra(data: Record<string, unknown>): { year: number; era: string } {
   const year = Number(data.year ?? 0);
-  const allTime = isAllTimeYear(year);
-  const pokeTotal = Number(data.pokeTotal ?? 0);
-  const atTotal = Number(data.atTotal ?? 0);
-  const atMeTotal = Number(data.atMeTotal ?? 0);
-  const echoParticipated = Number(data.echoParticipated ?? 0);
-  const pokeTop = (data.pokeTop ?? null) as {
-    name?: string;
-    count?: number;
-  } | null;
-  const atTop = (data.atTop ?? null) as {
-    name?: string;
-    count?: number;
-  } | null;
-  const atMeTop = (data.atMeTop ?? null) as {
-    groupName?: string;
-    count?: number;
-  } | null;
-  const echoLongest = (data.echoLongest ?? null) as {
-    groupName?: string;
-    count?: number;
-    text?: string;
-  } | null;
-  const hasEvidence =
-    pokeTotal > 0 || atTotal > 0 || atMeTotal > 0 || echoParticipated > 0 || echoLongest != null;
+  return { year, era: isAllTimeYear(year) ? '有记录以来' : `${year} 年` };
+}
 
-  const fit = (text: string, maxVisual = 20): string => {
-    if (nameVisualWidth(text) <= maxVisual) return text;
-    let out = '';
-    let width = 0;
-    for (const char of text) {
-      const w = /\p{Script=Han}/u.test(char) ? 1 : 0.62;
-      if (width + w > maxVisual - 1) break;
-      out += char;
-      width += w;
-    }
-    return `${out}…`;
-  };
-
-  // 主体：数字最大的那组统计顶上版心。每个账号/年份看到的名字都不一样。
-  const echoCount = Math.max(echoParticipated, Number(echoLongest?.count ?? 0));
-  const candidates: Array<{ kind: 'at' | 'called' | 'poke' | 'echo'; count: number }> = [
-    { kind: 'at', count: atTotal },
-    { kind: 'called', count: atMeTotal },
-    { kind: 'poke', count: pokeTotal },
-    { kind: 'echo', count: echoCount },
-  ];
-  let best: (typeof candidates)[number] | null = null;
-  for (const candidate of candidates) {
-    if (!best || candidate.count > best.count) best = candidate;
-  }
-  let heroLabel = '';
-  let heroNum = 0;
-  let heroUnit = '';
-  let heroNote = '';
-  let heroGhost = '安';
-  if (best && best.count > 0) {
-    if (best.kind === 'at') {
-      heroLabel = '我 @ 过别人';
-      heroNum = atTotal;
-      heroUnit = '次';
-      heroNote = atTop
-        ? `名字喊得最响的是 ${fit(String(atTop.name ?? ''), 12)} · ${fmt(
-            Number(atTop.count ?? 0),
-          )} 次——@ 是怕你错过，才把名字放到人前。`
-        : '这一年你 @ 得不多——但每一次，都是怕有人错过。';
-      heroGhost = '@';
-    } else if (best.kind === 'called') {
-      heroLabel = '我被人点名过';
-      heroNum = atMeTotal;
-      heroUnit = '次';
-      heroNote = atMeTop
-        ? `最多发生在 ${fit(String(atMeTop.groupName ?? ''), 12)} · ${fmt(
-            Number(atMeTop.count ?? 0),
-          )} 次——被点名，是被人想起的最短路径。`
-        : '名字被念起的次数还不多——但每一次，都有人记得你。';
-      heroGhost = '呼';
-    } else if (best.kind === 'poke') {
-      heroLabel = '我发起过戳一戳';
-      heroNum = pokeTotal;
-      heroUnit = '次';
-      heroNote = pokeTop
-        ? `最常被你戳到 ${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
-            Number(pokeTop.count ?? 0),
-          )} 次——戳一戳是最轻的搭话。`
-        : '这一年你伸出的手不多——但每一下，都先越过了屏幕。';
-      heroGhost = '戳';
-    } else if (echoLongest && Number(echoLongest.count ?? 0) > echoParticipated) {
-      heroLabel = '最长的一次齐声';
-      heroNum = Number(echoLongest.count ?? 0);
-      heroUnit = '条';
-      heroNote = `在 ${fit(String(echoLongest.groupName ?? ''), 12)}，大家把“${fit(
-        String(echoLongest.text ?? ''),
-        18,
-      )}”连说了 ${fmt(heroNum)} 次——一句话被那么多人接住，就不再只是一个人的了。`;
-      heroGhost = '齐';
-    } else {
-      heroLabel = '我跟上过复读';
-      heroNum = echoParticipated;
-      heroUnit = '场';
-      heroNote = echoLongest
-        ? `最长一轮在 ${fit(String(echoLongest.groupName ?? ''), 12)}，连了 ${fmt(
-            Number(echoLongest.count ?? 0),
-          )} 条——不想一个人笑的时候，你跟着大家开了口。`
-        : `这一年你跟着大家开过 ${fmt(echoParticipated)} 次口——齐声最不怕吵。`;
-      heroGhost = '齐';
-    }
-  }
-
-  /** 一行事实：标签在左，主句 + 小注在右。satori 没有网格，用两层 flex。 */
-  const factRow = (_mark: string, label: string, main: El[], sub: string): El =>
-    el('div', { marginTop: 42, display: 'flex', width: SLIDE_W - 144 }, [
-      el('div', { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }, [
-        el('div', { display: 'flex', alignItems: 'baseline', minWidth: 0 }, [
-          el(
-            'div',
-            {
-              width: 118,
-              fontSize: 19,
-              color: PALETTE.buzz,
-              fontWeight: 700,
-              letterSpacing: 8,
-            },
-            label,
-          ),
-          ...main,
-        ]),
-        el(
-          'div',
-          {
-            marginTop: 12,
-            fontSize: 21,
-            color: PALETTE.inkMuted,
-            letterSpacing: 1,
-          },
-          sub,
-        ),
+/** 长图里的一行事实：标签在左，主句 + 小注在右（satori 没有网格，用两层 flex）。 */
+function longFactRow(label: string, color: string, main: El[], sub: string): El {
+  return el('div', { marginTop: 42, display: 'flex', width: SLIDE_W - 144 }, [
+    el('div', { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }, [
+      el('div', { display: 'flex', alignItems: 'baseline', minWidth: 0 }, [
+        el('div', { width: 118, fontSize: 19, color, fontWeight: 700, letterSpacing: 8 }, label),
+        ...main,
       ]),
-    ]);
+      el('div', { marginTop: 12, fontSize: 21, color: PALETTE.inkMuted, letterSpacing: 1 }, sub),
+    ]),
+  ]);
+}
 
-  const countEl = (value: number): El =>
+/** 「词 + 巨数 + 单位」三段，供事实行复用。 */
+function longCountRow(color: string, lead: string, value: number, tail: string): El[] {
+  return [
+    el('div', { marginLeft: 10, fontSize: 27, color: PALETTE.inkSoft, letterSpacing: 2 }, lead),
     el(
       'div',
       {
         marginLeft: 14,
         fontSize: value >= 10000 ? 42 : 52,
         fontWeight: 700,
-        color: PALETTE.buzz,
+        color,
         lineHeight: 1,
         letterSpacing: -1,
       },
       fmt(value),
-    );
-  const tailEl = (text: string): El =>
-    el(
-      'div',
-      {
-        marginLeft: 10,
-        fontSize: 27,
-        color: PALETTE.inkSoft,
-        letterSpacing: 2,
-      },
-      text,
-    );
-  const nameEl = (text: string): El =>
-    el(
-      'div',
-      {
-        marginLeft: 12,
-        fontSize: 34,
-        fontWeight: 700,
-        color: PALETTE.buzz,
-        letterSpacing: 1,
-        whiteSpace: 'nowrap',
-      },
-      fit(text, 14),
-    );
+    ),
+    el('div', { marginLeft: 10, fontSize: 27, color: PALETTE.inkSoft, letterSpacing: 2 }, tail),
+  ];
+}
 
-  const era = allTime ? '有记录以来' : `${year} 年`;
+/** 「@ 与被 @」页：一枚超大的 @ 与巨数并排。 */
+function atTree(data: Record<string, unknown>): El {
+  const { year, era } = interactionEra(data);
+  const atTotal = Number(data.atTotal ?? 0);
+  const atPeople = Number(data.atPeople ?? 0);
+  const atMeTotal = Number(data.atMeTotal ?? 0);
+  const atMePeople = Number(data.atMePeople ?? 0);
+  const atTop = (data.atTop ?? null) as { name?: string; count?: number } | null;
+  const atMeTop = (data.atMeTop ?? null) as { groupName?: string; count?: number } | null;
+
+  const mineFirst = atTotal >= atMeTotal;
+  const heroNum = mineFirst ? atTotal : atMeTotal;
+  const heroLabel = mineFirst ? '我 @ 过别人' : '我被人点名过';
+  const note = mineFirst
+    ? atTop
+      ? `喊得最响的是 ${fitName(String(atTop.name ?? ''), 12)}——名字被念出来，才不算淹没在人群里。`
+      : '你喊得不多，但每一声都有人听见。'
+    : atMeTop
+      ? `最多发生在「${fitName(String(atMeTop.groupName ?? ''), 12)}」——被点名，是被人想起的最短路径。`
+      : '名字被念起的次数不多，可每一次都有人记得你。';
   const heroFont = heroNum >= 100000 ? 172 : heroNum >= 10000 ? 198 : 226;
-  const body = hasEvidence
-    ? el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+
+  const body = el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+    el(
+      'div',
+      { fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 8 },
+      `${reportEraLabel(year)} · @ 与被 @`,
+    ),
+    el(
+      'div',
+      { marginTop: 56, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 3 },
+      `${fmt(atPeople)} 个名字喊出去 / ${fmt(atMePeople)} 个名字喊回来`,
+    ),
+    el(
+      'div',
+      { marginTop: 60, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 5 },
+      `${era}，你在人群里点过的名字——`,
+    ),
+    el('div', { marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }, [
+      el(
+        'div',
+        { fontSize: 300, fontWeight: 700, color: PALETTE.call, lineHeight: 1, letterSpacing: -8 },
+        '@',
+      ),
+      el('div', {
+        marginLeft: 54,
+        width: 1,
+        height: 220,
+        backgroundColor: rgba(PALETTE.call, 0.32),
+      }),
+      el('div', { marginLeft: 54, display: 'flex', flexDirection: 'column' }, [
+        el('div', { display: 'flex', alignItems: 'baseline' }, [
+          el(
+            'div',
+            {
+              fontSize: heroFont,
+              fontWeight: 700,
+              color: PALETTE.call,
+              lineHeight: 1,
+              letterSpacing: -4,
+            },
+            fmt(heroNum),
+          ),
+          el(
+            'div',
+            { marginLeft: 18, fontSize: 38, color: PALETTE.inkSoft, letterSpacing: 6 },
+            '次',
+          ),
+        ]),
         el(
           'div',
-          { fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 8 },
-          `${reportEraLabel(year)} · 群聊互动`,
+          { marginTop: 16, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 8 },
+          heroLabel,
         ),
-        el(
-          'div',
-          { marginTop: 62, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 3 },
-          `${fmt(pokeTotal)} 次戳 / ${fmt(atTotal)} 次 @ / ${fmt(echoParticipated)} 场齐声`,
-        ),
-        el(
-          'div',
-          { marginTop: 64, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 5 },
-          `${era}，热闹里你做得最多的一件事，是——`,
-        ),
-        el('div', { marginTop: 28, fontSize: 46, color: PALETTE.ink, letterSpacing: 3 }, heroLabel),
-        el(
-          'div',
-          {
-            marginTop: 14,
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'center',
-          },
-          [
-            el(
+      ]),
+    ]),
+    el('div', { marginTop: 34, fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 2 }, note),
+    hair(74),
+    longFactRow(
+      '喊出去',
+      PALETTE.call,
+      longCountRow(PALETTE.call, '我 @ 过别人', atTotal, '次'),
+      atTop
+        ? `最常被点到：${fitName(String(atTop.name ?? ''), 12)} · ${fmt(
+            Number(atTop.count ?? 0),
+          )} 次`
+        : '这一年，你还没把谁的名字单独拎出来过。',
+    ),
+    longFactRow(
+      '喊回来',
+      PALETTE.call,
+      longCountRow(PALETTE.call, '别人 @ 我', atMeTotal, '次'),
+      atMeTop
+        ? `最多的一声在 ${fitName(String(atMeTop.groupName ?? ''), 12)} · ${fmt(
+            Number(atMeTop.count ?? 0),
+          )} 次`
+        : '还没有哪个群反复喊你的名字。',
+    ),
+    el(
+      'div',
+      { marginTop: 54, fontSize: 24, color: PALETTE.inkFaint, letterSpacing: 3 },
+      '每一次伸手、被点名——都是「那年我也在」的证据。',
+    ),
+  ]);
+
+  return slideFrame([body], '@');
+}
+
+/** 「戳一戳」页：两个数字夹着「戳」字，下面是相向点阵。 */
+function pokeTree(data: Record<string, unknown>): El {
+  const { year, era } = interactionEra(data);
+  const pokeTotal = Number(data.pokeTotal ?? 0);
+  const pokeMeTotal = Number(data.pokeMeTotal ?? 0);
+  const pokeTop = (data.pokeTop ?? null) as { name?: string; count?: number } | null;
+  const pokeMeTop = (data.pokeMeTop ?? null) as { name?: string; count?: number } | null;
+  const hero = pokeTotal >= pokeMeTotal ? 'out' : 'in';
+
+  const side = (
+    which: 'out' | 'in',
+    num: number,
+    label: string,
+    top: { name?: string; count?: number } | null,
+    verb: string,
+  ): El =>
+    el('div', { width: 300, display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+      el(
+        'div',
+        {
+          fontSize: 96,
+          fontWeight: 700,
+          lineHeight: 1,
+          letterSpacing: -3,
+          color: hero === which ? PALETTE.buzz : PALETTE.inkMuted,
+        },
+        fmt(num),
+      ),
+      el('div', { marginTop: 14, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 8 }, label),
+      el(
+        'div',
+        { marginTop: 18, fontSize: 22, color: PALETTE.inkMuted, letterSpacing: 1 },
+        top
+          ? `${verb} ${fitName(String(top.name ?? ''), 10)} · ${fmt(Number(top.count ?? 0))} 次`
+          : '还没留下可统计的名字',
+      ),
+    ]);
+
+  const dotLane = (num: number, color: string): El[] => {
+    const max = 24;
+    return Array.from({ length: Math.min(max, num) }, () =>
+      el('div', {
+        width: 20,
+        height: 20,
+        marginLeft: 8,
+        borderRadius: 10,
+        backgroundColor: color,
+      }),
+    );
+  };
+
+  const body = el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+    el(
+      'div',
+      { fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 8 },
+      `${reportEraLabel(year)} · 戳一戳`,
+    ),
+    el(
+      'div',
+      { marginTop: 56, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 3 },
+      `我戳出去 ${fmt(pokeTotal)} 次 / 被戳 ${fmt(pokeMeTotal)} 次`,
+    ),
+    el(
+      'div',
+      { marginTop: 60, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 5 },
+      `${era}，隔着屏幕的那一下——`,
+    ),
+    el('div', { marginTop: 30, display: 'flex', alignItems: 'center', justifyContent: 'center' }, [
+      side('out', pokeTotal, '我戳出去', pokeTop, '最常戳'),
+      (() => {
+        const uri = inlineLongImageAsset(reportPokeFigureUrl(REPORT_POKE_FIGURE_ID));
+        return uri
+          ? el('img', {
+              src: uri,
+              alt: '',
+              width: 300,
+              height: 270,
+              marginLeft: 30,
+              marginRight: 30,
+            })
+          : el(
               'div',
               {
-                fontSize: heroFont,
+                marginLeft: 40,
+                marginRight: 40,
+                fontSize: 260,
                 fontWeight: 700,
                 color: PALETTE.buzz,
                 lineHeight: 1,
-                letterSpacing: -4,
               },
-              fmt(heroNum),
-            ),
+              '戳',
+            );
+      })(),
+      side('in', pokeMeTotal, '别人戳我', pokeMeTop, '最常戳我'),
+    ]),
+    hair(74),
+    el('div', { marginTop: 54, display: 'flex', alignItems: 'center', width: SLIDE_W - 144 }, [
+      el('div', { fontSize: 22, color: PALETTE.inkMuted, letterSpacing: 1 }, '我伸出去的手'),
+      ...dotLane(pokeTotal, PALETTE.buzz),
+    ]),
+    el('div', { marginTop: 36, display: 'flex', alignItems: 'center', width: SLIDE_W - 144 }, [
+      el('div', { fontSize: 22, color: PALETTE.inkMuted, letterSpacing: 1 }, '伸向我的手'),
+      ...dotLane(pokeMeTotal, rgba(PALETTE.buzz, 0.62)),
+    ]),
+    el(
+      'div',
+      { marginTop: 30, fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 3 },
+      '每一点 = 一次戳一戳',
+    ),
+    el(
+      'div',
+      { marginTop: 40, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+      hero === 'out'
+        ? pokeTop
+          ? `最常被你戳到的是 ${fitName(String(pokeTop.name ?? ''), 10)}——戳一戳什么都不用说，只是告诉对方「我在」。`
+          : '你伸出去的手不多，但每一下都先越过了屏幕。'
+        : pokeMeTop
+          ? `最常戳你的是 ${fitName(String(pokeMeTop.name ?? ''), 10)}——有人想你了，就先轻轻碰你一下。`
+          : '被戳的次数不多，可每一次都是有人先想起你。',
+    ),
+  ]);
+
+  return slideFrame([body], '戳');
+}
+
+/** 「复读」页：同一句话一行行变小变淡 —— 层叠回声。 */
+function echoTree(data: Record<string, unknown>): El {
+  const { year, era } = interactionEra(data);
+  const runs = Number(data.runs ?? 0);
+  const messages = Number(data.messages ?? 0);
+  const participated = Number(data.participated ?? 0);
+  type EchoRun = { groupName?: string; count?: number; text?: string } | null;
+  const mineLongest = (data.mineLongest ?? null) as EchoRun;
+  const longest = (data.longest ?? null) as EchoRun;
+  const featured = mineLongest ?? longest;
+  const mineFeatured = mineLongest != null;
+  const count = Number(featured?.count ?? 0);
+  const raw = String(featured?.text ?? '');
+  const clipped = raw.length > 12 ? `${raw.slice(0, 12)}…` : raw;
+  const lines = Math.max(2, Math.min(6, count));
+  const sizes = [72, 58, 46, 36, 28, 22];
+  const opacities = [1, 0.86, 0.72, 0.58, 0.44, 0.32];
+
+  const bandCell = (label: string, value: number, unit: string, note: string): El =>
+    el('div', { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }, [
+      el('div', { fontSize: 19, color: PALETTE.inkFaint, letterSpacing: 5 }, label),
+      el('div', { marginTop: 12, display: 'flex', alignItems: 'baseline' }, [
+        el('div', { fontSize: 46, fontWeight: 700, color: PALETTE.ink, lineHeight: 1 }, fmt(value)),
+        el(
+          'div',
+          { marginLeft: 10, fontSize: 21, color: PALETTE.inkMuted, letterSpacing: 3 },
+          unit,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 10, fontSize: 19, color: PALETTE.jade, letterSpacing: 1 },
+        fitName(note, 14),
+      ),
+    ]);
+
+  const body = el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+    el(
+      'div',
+      { fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 8 },
+      `${reportEraLabel(year)} · 复读`,
+    ),
+    el(
+      'div',
+      { marginTop: 56, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 3 },
+      `${fmt(runs)} 场齐声 / ${fmt(messages)} 条重复`,
+    ),
+    el(
+      'div',
+      { marginTop: 60, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 5 },
+      featured
+        ? `${era}，有一句话${mineFeatured ? '你跟着' : ''}被接了 ${fmt(count)} 次——`
+        : `${era}，你们还没有聊到齐声。`,
+    ),
+    ...(featured
+      ? [
+          el(
+            'div',
+            { marginTop: 34, fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 2 },
+            `在「${fitName(String(featured.groupName ?? ''), 12)}」里${mineFeatured ? '，你在的那一轮，' : '，'}`,
+          ),
+          ...Array.from({ length: lines }, (_, index) =>
             el(
               'div',
               {
-                marginLeft: 18,
-                fontSize: 38,
-                color: PALETTE.inkSoft,
-                letterSpacing: 6,
+                marginTop: 6,
+                fontSize: sizes[index] ?? 22,
+                fontWeight: 700,
+                color: rgba(PALETTE.jade, opacities[index] ?? 0.3),
+                letterSpacing: 1,
               },
-              heroUnit,
+              `「${clipped}」`,
             ),
-          ],
-        ),
-        el(
-          'div',
-          { marginTop: 34, fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 2 },
-          heroNote,
-        ),
-        hair(74),
-        factRow(
-          '',
-          '戳一戳',
-          [tailEl('我发起过'), countEl(pokeTotal), tailEl('次')],
-          pokeTop
-            ? `最常吃你一戳的：${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
-                Number(pokeTop.count ?? 0),
-              )} 次`
-            : '这一年，你的手指还没养成戳人的习惯。',
-        ),
-        factRow(
-          '',
-          '@ 提及',
-          [tailEl('我 @ 过别人'), countEl(atTotal), tailEl('次')],
-          atTop
-            ? `被你喊得最响的：${fit(String(atTop.name ?? ''), 12)} · ${fmt(
-                Number(atTop.count ?? 0),
-              )} 次`
-            : '这一年，你还不太习惯在人群里喊出某个名字。',
-        ),
-        factRow(
-          '',
-          '被 @',
-          atMeTop
-            ? [tailEl('最多在'), nameEl(String(atMeTop.groupName ?? ''))]
-            : [tailEl('这一年，还没有哪个群反复喊你的名字')],
-          atMeTop
-            ? `那里有 ${fmt(Number(atMeTop.count ?? 0))} 次，有人在人群里，专门喊了你的名字。`
-            : '下一次开场，从你 @ 别人开始。',
-        ),
-        factRow(
-          '',
-          '复读',
-          [tailEl('我跟过'), countEl(echoParticipated), tailEl('场')],
-          echoLongest
-            ? `最长一轮在 ${fit(String(echoLongest.groupName ?? ''), 12)}：${fmt(
-                Number(echoLongest.count ?? 0),
-              )} 条“${fit(String(echoLongest.text ?? ''), 24)}”`
-            : '这一年没有足够长的齐声——热闹的下一条，可能由你开头。',
-        ),
-        el(
-          'div',
-          {
-            marginTop: 54,
-            fontSize: 24,
-            color: PALETTE.inkFaint,
-            letterSpacing: 3,
-          },
-          '你留在群里的，从来不只是话。每一次伸手、被点名、跟着起哄——都是「那年我也在」的证据。',
-        ),
-      ])
-    : el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
-        el(
-          'div',
-          { fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 8 },
-          `${reportEraLabel(year)} · 群聊互动`,
-        ),
-        el(
-          'div',
-          { marginTop: 72, fontSize: 34, color: PALETTE.inkMuted, letterSpacing: 4 },
-          `${era}，你在群聊里更多是安静地看——`,
-        ),
-        el(
-          'div',
-          { marginTop: 26, fontSize: 46, color: PALETTE.ink, letterSpacing: 3 },
-          '你还没留下可统计的互动',
-        ),
-        el(
-          'div',
-          { marginTop: 30, fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 3 },
-          '潜水也很好，但偶尔浮上来冒个泡——下一条消息，可以从你开始。',
-        ),
-      ]);
+          ),
+          ...(count > lines
+            ? [
+                el(
+                  'div',
+                  { marginTop: 16, fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 2 },
+                  '… 后面的还没停，同一条声音继续往下接',
+                ),
+              ]
+            : []),
+          el('div', { marginTop: 28, display: 'flex', alignItems: 'baseline' }, [
+            el('div', { fontSize: 26, color: PALETTE.inkSoft, letterSpacing: 4 }, '这句话连着响了'),
+            el(
+              'div',
+              { marginLeft: 16, fontSize: 76, fontWeight: 700, color: PALETTE.jade, lineHeight: 1 },
+              fmt(count),
+            ),
+            el(
+              'div',
+              { marginLeft: 12, fontSize: 26, color: PALETTE.inkSoft, letterSpacing: 4 },
+              '次',
+            ),
+          ]),
+        ]
+      : []),
+    hair(74),
+    el('div', { marginTop: 48, display: 'flex', width: SLIDE_W - 144 }, [
+      bandCell(
+        '我跟上过',
+        participated,
+        '场',
+        participated > 0 ? '至少一次，我在人群里' : '这一年你没接上去',
+      ),
+      bandCell('全群齐声', runs, '场', `被重复的消息共 ${fmt(messages)} 条`),
+      bandCell(
+        '我参与的最长一轮',
+        Number(mineLongest?.count ?? 0),
+        '条',
+        String(mineLongest?.groupName ?? '还没有那一轮'),
+      ),
+      bandCell(
+        '全群最长一轮',
+        Number(longest?.count ?? 0),
+        '条',
+        String(longest?.groupName ?? '还没有那一轮'),
+      ),
+    ]),
+    el(
+      'div',
+      { marginTop: 54, fontSize: 24, color: PALETTE.inkFaint, letterSpacing: 3 },
+      mineFeatured
+        ? '一句话被那么多人接住，就不再只是一个人的了——那一次的齐声里，有你。'
+        : featured
+          ? '你没有跟上那一次，但群里那么多人在同一秒说了同一句话——热闹是会传染的。'
+          : '这一年没有足够长的齐声——下一条被大家跟上的话，可能就由你开头。',
+    ),
+  ]);
 
-  return slideFrame([body], heroGhost);
+  return slideFrame([body], '齐');
 }
 
 /**
@@ -3653,7 +3751,9 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'rhythm') return rhythmTree(data);
   if (slide.pageId === 'voice') return voiceTree(data);
   if (slide.pageId === 'home') return homeTree(data);
-  if (slide.pageId === 'interactions') return interactionsTree(data);
+  if (slide.pageId === 'at') return atTree(data);
+  if (slide.pageId === 'poke') return pokeTree(data);
+  if (slide.pageId === 'echo') return echoTree(data);
   if (slide.pageId === 'months') return monthsTree(data);
   if (slide.pageId === 'mate') return mateTree(data);
   if (slide.pageId === 'qzone') return qzoneTree(data);

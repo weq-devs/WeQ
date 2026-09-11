@@ -7,7 +7,9 @@ import { openersPage } from './openers/compute';
 import { rhythmPage } from './rhythm/compute';
 import { voicePage } from './voice/compute';
 import { homePage } from './home/compute';
-import { interactionsPage } from './interactions/compute';
+import { atPage } from './at/compute';
+import { pokePage } from './poke/compute';
+import { echoPage } from './echo/compute';
 import { monthsPage } from './months/compute';
 import { matePage } from './mate/compute';
 import { endPage } from './end/compute';
@@ -23,7 +25,9 @@ export const reportPages: ReadonlyArray<ReportPageDefinition> = [
   rhythmPage,
   voicePage,
   homePage,
-  interactionsPage,
+  atPage,
+  pokePage,
+  echoPage,
   monthsPage,
   matePage,
   qzonePage,
@@ -43,7 +47,9 @@ export {
   rhythmPage,
   voicePage,
   homePage,
-  interactionsPage,
+  atPage,
+  pokePage,
+  echoPage,
   monthsPage,
   matePage,
   qzonePage,

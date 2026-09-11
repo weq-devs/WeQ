@@ -15,7 +15,11 @@ import {
   reportPeriodLabel,
   reportSinceLabel,
 } from '@weq/service/report-time';
-import { createReportAssetUrls, type ReportAssetUrlPrefixes } from '@weq/service/report-assets';
+import {
+  createReportAssetUrls,
+  REPORT_POKE_FIGURE_ID,
+  type ReportAssetUrlPrefixes,
+} from '@weq/service/report-assets';
 import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
 
 /** 桌面走自定义协议；web 构建时同一份 HTML 的图片先经 tRPC 拉成 data URI。 */
@@ -31,6 +35,7 @@ const {
   reportDressBubbleUrl,
   reportDressPendantUrl,
   reportEmojiFaceUrl,
+  reportPokeFigureUrl,
 } = createReportAssetUrls(REPORT_URL_PREFIXES);
 
 export type ExportSlide = {
@@ -529,38 +534,99 @@ const CSS = `
   @media (prefers-color-scheme: dark) {
     .hm { --home: #e6b866; }
   }
-  /* 群聊互动页。静态产物没有涟漪动画，所以巨字「热闹」仍占视觉重心，
-     四行事实用文字排版排成“发生的事”—— 数字嵌在句子里，不用面板。 */
-  .it { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
-  .it { --buzz: #a04e3c; }
-  .it-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .it-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
-  .it-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
-  .it-kicker-meta i { font-style: normal; margin: 0 1mm; opacity: 0.5; }
-  .it-lede { margin-top: 9mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .it-hero-label { margin-top: 8mm; font-family: var(--serif); font-size: 24pt; font-weight: 600; letter-spacing: 3px; color: var(--ink); }
-  .it-hero-countline { display: flex; justify-content: center; align-items: baseline; gap: 4mm; margin-top: 3mm; }
-  .it-hero-num { font-family: var(--serif); font-size: 96pt; font-weight: 600; letter-spacing: -2px; color: var(--buzz); line-height: 1; }
-  .it-hero-unit { font-family: var(--serif); font-size: 26pt; letter-spacing: 5px; color: var(--ink-soft); }
-  .it-hero-note { margin: 5mm auto 0; max-width: 134mm; font-family: var(--serif); font-size: 10pt; line-height: 1.9; letter-spacing: 2px; color: var(--ink-muted); }
-  .it-hero-note em { color: var(--buzz); font-style: normal; font-weight: 600; }
-  .it-hero-note b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--buzz); }
-  .it-hero-note .weq-echo-quote { color: var(--ink-soft); }
-  .it-score { margin-top: 10mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); text-align: left; }
-  /* 与屏幕版同步：四行「发生的事」去掉左侧大字标记，标签 + 主句同行，
-     小注整行换行 —— 静态产物同样不画卡片。 */
-  .it-fact { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5mm; row-gap: 1.5mm; padding: 2.7mm 0; }
-  .it-label { flex: 0 0 25mm; font-size: 8pt; font-weight: 700; letter-spacing: 3px; color: var(--buzz); }
-  .it-main { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); }
-  .it-main b { font-family: var(--serif); font-size: 16pt; font-weight: 600; color: var(--buzz); }
-  .it-main em { color: var(--buzz); font-style: normal; font-weight: 600; }
-  .it-sub { flex: 1 0 100%; margin-left: 30mm; font-family: var(--serif); font-size: 9pt; line-height: 1.7; letter-spacing: 1px; color: var(--ink-muted); }
-  .it-sub em { color: var(--buzz); font-style: normal; font-weight: 600; }
-  .it-sub b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
-  .it-mood { margin: 5mm auto 0; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  /* 群聊互动拆成三页：@ 与被 @ / 戳一戳 / 复读。静态产物没有动画，三页各自
+     保留屏幕版那条**独有的形状**：双弧喊话线、相向点阵、层叠回声 —— 都画在
+     终态上，不靠动效也认得出来。 */
+  .at, .pk, .ec { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .at { --call: #3d5a99; }
+  .pk { --poke: #a8503c; }
+  .ec { --echo: #2f7a7a; }
   @media (prefers-color-scheme: dark) {
-    .it { --buzz: #e79a74; }
+    .at { --call: #8fb0e8; }
+    .pk { --poke: #e79a74; }
+    .ec { --echo: #6fc7c2; }
   }
+  .at-kicker, .pk-kicker, .ec-kicker { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .at-kicker-meta, .pk-kicker-meta, .ec-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .at-kicker-meta b, .pk-kicker-meta b, .ec-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .at-kicker-meta i, .pk-kicker-meta i, .ec-kicker-meta i { font-style: normal; margin: 0 1mm; opacity: 0.5; }
+  .at-lede, .pk-lede, .ec-lede { margin-top: 7mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .at-mood, .pk-mood, .ec-mood { margin: 5mm auto 0; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  /* @ 与被 @：超大的 @ + 巨数，下面一道双弧喊话线。 */
+  .at-main { display: flex; align-items: center; gap: 8mm; margin-top: 1mm; }
+  .at-glyph { font-family: var(--serif); font-size: 118pt; font-weight: 600; line-height: 0.86; color: var(--call); }
+  .at-divider { width: 0.25mm; height: 40mm; background: var(--call); opacity: 0.32; }
+  .at-count { display: flex; flex-direction: column; }
+  .at-countline { display: flex; align-items: baseline; gap: 3mm; }
+  .at-num { font-family: var(--serif); font-size: 78pt; font-weight: 600; letter-spacing: -2px; line-height: 1; color: var(--call); }
+  .at-unit { font-family: var(--serif); font-size: 17pt; letter-spacing: 4px; color: var(--ink-soft); }
+  .at-count-label { margin-top: 1mm; font-family: var(--serif); font-size: 10pt; letter-spacing: 4px; color: var(--ink-muted); }
+  .at-arcs { margin-top: 6mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .at-arcs-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; }
+  .at-arcs-head .mine { color: var(--call); }
+  .at-arcs-head .theirs { color: var(--ink-faint); }
+  .at-arcs-svg { display: block; width: 100%; height: 32mm; margin-top: 1mm; }
+  .at-arc-axis { stroke: var(--hair); stroke-width: 0.6; stroke-dasharray: 2 7; }
+  .at-arc { fill: none; stroke-width: 2; stroke-linecap: round; }
+  .at-arc.mine { stroke: var(--call); }
+  .at-arc.theirs { stroke: var(--ink-faint); }
+  .at-dot { fill: var(--call); }
+  .at-dot.theirs { fill: var(--ink-faint); }
+  .at-arcs-foot { display: flex; justify-content: space-between; gap: 4mm; margin-top: 1mm; font-family: var(--serif); font-size: 8pt; color: var(--ink-faint); }
+  .at-arcs-foot em { color: var(--call); font-style: normal; font-weight: 600; }
+  .at-facts { margin-top: 7mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .at-fact { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5mm; row-gap: 1.5mm; padding: 2.4mm 0; }
+  .at-fact-label { flex: 0 0 22mm; font-size: 8pt; font-weight: 700; letter-spacing: 3px; color: var(--call); }
+  .at-fact-main { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); }
+  .at-fact-main b { font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--call); }
+  .at-fact-main em { color: var(--call); font-style: normal; font-weight: 600; }
+  .at-fact-sub { flex: 1 0 100%; margin-left: 27mm; font-family: var(--serif); font-size: 9pt; line-height: 1.7; letter-spacing: 1px; color: var(--ink-muted); }
+  .at-fact-sub em { color: var(--call); font-style: normal; font-weight: 600; }
+  .at-fact-sub b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
+  .at-fact-sub i { margin: 0 1mm; font-style: normal; opacity: 0.6; }
+  /* 戳一戳：左右两个数字夹着一枚超大的「戳」，下面相向点阵。 */
+  .pk-main { display: flex; align-items: center; justify-content: center; gap: 10mm; margin-top: 1mm; }
+  .pk-side { display: flex; width: 48mm; flex-direction: column; align-items: center; }
+  .pk-num { font-family: var(--serif); font-size: 56pt; font-weight: 600; letter-spacing: -2px; line-height: 1; color: var(--ink-muted); }
+  .pk-side.hero .pk-num { color: var(--poke); }
+  .pk-side-label { margin-top: 1mm; font-family: var(--serif); font-size: 10pt; letter-spacing: 4px; color: var(--ink-soft); }
+  .pk-side-sub { margin-top: 2mm; font-family: var(--serif); font-size: 8pt; line-height: 1.7; text-align: center; color: var(--ink-muted); }
+  .pk-side-sub em { color: var(--poke); font-style: normal; font-weight: 600; }
+  .pk-side-sub b { color: var(--ink-soft); font-weight: 600; }
+  .pk-glyph { font-family: var(--serif); font-size: 110pt; font-weight: 600; line-height: 0.9; color: var(--poke); }
+  .pk-figure { width: 42mm; height: 38mm; object-fit: contain; }
+  .pk-lanes { display: flex; align-items: center; gap: 5mm; margin-top: 9mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .pk-lane { display: flex; flex: 1; min-width: 0; align-items: center; gap: 4mm; }
+  .pk-lane.out { justify-content: flex-end; }
+  .pk-lane.in { justify-content: flex-start; }
+  .pk-lane-label { font-family: var(--serif); font-size: 8pt; color: var(--ink-muted); white-space: nowrap; }
+  .pk-lane-label b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .pk-lane-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 1.4mm; }
+  .pk-dot { width: 2.2mm; height: 2.2mm; border-radius: 50%; background: var(--poke); }
+  .pk-dot.more { width: auto; height: auto; border-radius: 0; background: none; color: var(--ink-faint); font-family: var(--serif); font-size: 7pt; }
+  .pk-spark { width: 1.2mm; height: 1.2mm; border-radius: 50%; background: var(--poke); }
+  .pk-lanes-note { margin-top: 3mm; text-align: center; font-family: var(--serif); font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  /* 复读：同一句话一行行变小变淡 —— 层叠回声。 */
+  .ec-where { margin-top: 6mm; font-family: var(--serif); font-size: 10pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .ec-where em { color: var(--ink-soft); font-style: normal; font-weight: 600; }
+  .ec-line { margin: 0; font-family: var(--serif); font-weight: 600; line-height: 1.16; color: var(--echo); }
+  .ec-line:nth-child(1) { font-size: 40pt; }
+  .ec-line:nth-child(2) { font-size: 32pt; opacity: 0.87; }
+  .ec-line:nth-child(3) { font-size: 25pt; opacity: 0.74; }
+  .ec-line:nth-child(4) { font-size: 19pt; opacity: 0.61; }
+  .ec-line:nth-child(5) { font-size: 14pt; opacity: 0.48; }
+  .ec-line:nth-child(6) { font-size: 10pt; opacity: 0.35; }
+  .ec-stack-more { margin-top: 1mm; font-family: var(--serif); font-size: 8pt; color: var(--ink-faint); }
+  .ec-count { display: flex; align-items: baseline; gap: 3mm; margin-top: 4mm; font-family: var(--serif); font-size: 10pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .ec-count b { font-family: var(--serif); font-size: 26pt; font-weight: 600; color: var(--echo); }
+  .ec-band { display: flex; margin-top: 9mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .ec-band-cell { flex: 1; min-width: 0; padding-right: 4mm; }
+  .ec-band-cell + .ec-band-cell { padding-left: 4mm; border-left: 0.25mm solid var(--hair); }
+  .ec-band-cell dt { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .ec-band-cell dd { display: flex; align-items: baseline; gap: 1mm; margin: 1mm 0 0; }
+  .ec-band-cell dd b { font-family: var(--serif); font-size: 17pt; font-weight: 600; color: var(--ink); }
+  .ec-band-cell dd i { font-family: var(--serif); font-size: 8pt; font-style: normal; color: var(--ink-muted); }
+  .ec-band-note { margin: 1mm 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--serif); font-size: 7.5pt; color: var(--echo); }
   /* 陪你走过 12 个月页。年度聊伴的头像在预热后内联（缺席退衬线首字）；
      月历六列两行，属于聊伴的月份染成胭脂色。 */
   .mo { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
@@ -1595,225 +1661,305 @@ function voiceSlide(data: Record<string, unknown>): string {
 }
 
 /**
- * 群聊互动页的导出版。没有涟漪与逐字落地的动画，版式钉死在静态：
- * 主体是四组统计里数字最大的那一枚巨数——每个人看到的署名都不同；
- * 下半行仍是四行“发生的事”，句子而非卡片。
+ * 群聊互动三页（@ 与被 @ / 戳一戳 / 复读）的导出版。
+ *
+ * 屏幕版三页各自那条独有的形状，在静态产物里照旧画成终态：双弧喊话线、相向点阵、
+ * 层叠回声 —— 不依赖动画也认得出来。数据与屏幕版同源，不做二次统计。
  */
-type InteractionsHeroKind = 'at' | 'called' | 'poke' | 'echo';
-
-type InteractionsHero = {
-  kind: InteractionsHeroKind;
-  label: string;
-  num: string;
-  unit: string;
-  note: string;
-};
-
-/** 与屏幕版同款主体选择：挑数字最大的那组，并列时 at 优先。 */
-function interactionsHero(data: Record<string, unknown>): InteractionsHero | null {
-  const pokeTotal = Number(data.pokeTotal ?? 0);
-  const atTotal = Number(data.atTotal ?? 0);
-  const atMeTotal = Number(data.atMeTotal ?? 0);
-  const echoParticipated = Number(data.echoParticipated ?? 0);
-  const echoLongest = (data.echoLongest ?? null) as {
-    count?: number;
-    groupName?: string;
-    text?: string;
-  } | null;
-  const echoCount = Math.max(echoParticipated, Number(echoLongest?.count ?? 0));
-  const candidates: Array<{ kind: InteractionsHeroKind; count: number }> = [
-    { kind: 'at', count: atTotal },
-    { kind: 'called', count: atMeTotal },
-    { kind: 'poke', count: pokeTotal },
-    { kind: 'echo', count: echoCount },
-  ];
-  let best: (typeof candidates)[number] | null = null;
-  for (const candidate of candidates) {
-    if (!best || candidate.count > best.count) best = candidate;
-  }
-  if (!best || best.count <= 0) return null;
-
-  const atTop = (data.atTop ?? null) as { name?: string; count?: number } | null;
-  const pokeTop = (data.pokeTop ?? null) as { name?: string; count?: number } | null;
-  const atMeTop = (data.atMeTop ?? null) as { groupName?: string; count?: number } | null;
-
-  switch (best.kind) {
-    case 'at':
-      return {
-        kind: 'at',
-        label: '我 @ 过别人',
-        num: fmt(atTotal),
-        unit: '次',
-        note: atTop
-          ? `名字喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
-              Number(atTop.count ?? 0),
-            )}</b> 次——@ 是怕你错过，才把名字放到人前。`
-          : '这一年你 @ 得不多——但每一次，都是怕有人错过。',
-      };
-    case 'called':
-      return {
-        kind: 'called',
-        label: '我被人点名过',
-        num: fmt(atMeTotal),
-        unit: '次',
-        note: atMeTop
-          ? `最多发生在 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em> · <b>${fmt(
-              Number(atMeTop.count ?? 0),
-            )}</b> 次——被点名，是被人想起的最短路径。`
-          : '名字被念起的次数还不多——但每一次，都有人记得你。',
-      };
-    case 'poke':
-      return {
-        kind: 'poke',
-        label: '我发起过戳一戳',
-        num: fmt(pokeTotal),
-        unit: '次',
-        note: pokeTop
-          ? `最常被你戳到 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
-              Number(pokeTop.count ?? 0),
-            )}</b> 次——戳一戳，是最轻的搭话。`
-          : '这一年你伸出的手不多——但每一下，都先越过了屏幕。',
-      };
-    case 'echo': {
-      const longestCount = Number(echoLongest?.count ?? 0);
-      if (echoLongest && longestCount > echoParticipated) {
-        return {
-          kind: 'echo',
-          label: '最长的一次齐声',
-          num: fmt(longestCount),
-          unit: '条',
-          note: `在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>，大家把 <b class="weq-echo-quote">“${escapeHtml(
-            String(echoLongest.text ?? ''),
-          )}”</b> 连说了 <b>${fmt(longestCount)}</b> 次——一句话被那么多人接住，就不再只是一个人的了。`,
-        };
-      }
-      return {
-        kind: 'echo',
-        label: '我跟上过复读',
-        num: fmt(echoParticipated),
-        unit: '场',
-        note: echoLongest
-          ? `最长一轮在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>，连了 <b>${fmt(
-              Number(echoLongest.count ?? 0),
-            )}</b> 条——不想一个人笑的时候，你跟着大家开了口。`
-          : `这一年你跟着大家开过 ${fmt(echoParticipated)} 次口——齐声最不怕吵。`,
-      };
-    }
-  }
+function interactionsEra(data: Record<string, unknown>): { year: number; era: string } {
+  const year = Number(data.year ?? 0);
+  return { year, era: isAllTimeYear(year) ? '有记录以来' : `${year} 年` };
 }
 
-/** 群聊互动页的导出版。 */
-function interactionsSlide(data: Record<string, unknown>): string {
-  const year = Number(data.year ?? 0);
-  const allTime = isAllTimeYear(year);
-  const pokeTotal = Number(data.pokeTotal ?? 0);
+/** 三次贝塞尔在 t 处的点 —— 弧线上的刻度点。 */
+function cubicAt(
+  t: number,
+  p0: readonly [number, number],
+  p1: readonly [number, number],
+  p2: readonly [number, number],
+  p3: readonly [number, number],
+): readonly [number, number] {
+  const u = 1 - t;
+  return [
+    u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+    u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+  ];
+}
+
+/** 双弧喊话线的两条弧：上弧朝外（我喊出去），下弧朝内（喊我的名字）。 */
+const AT_TOP: ReadonlyArray<readonly [number, number]> = [
+  [80, 74],
+  [360, 14],
+  [760, 14],
+  [1040, 74],
+];
+const AT_BOTTOM: ReadonlyArray<readonly [number, number]> = [
+  [80, 102],
+  [360, 162],
+  [760, 162],
+  [1040, 102],
+];
+
+/** 弧上的刻度点：每点一个人，冠军那枚更大。 */
+function atArcDots(count: number, side: 'mine' | 'theirs'): string {
+  const path = side === 'mine' ? AT_TOP : AT_BOTTOM;
+  return Array.from({ length: count }, (_, i) => {
+    const spread = count <= 1 ? 0.5 : 0.08 + (i / (count - 1)) * 0.84;
+    const t = side === 'mine' ? spread : 1 - spread;
+    const [cx, cy] = cubicAt(t, path[0]!, path[1]!, path[2]!, path[3]!);
+    return `<circle class="at-dot ${side}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(
+      1,
+    )}" r="${i === 0 ? 5 : 3.2}" />`;
+  }).join('');
+}
+
+/** 导出版相向点阵的一串点（点太多时收成 +N）。 */
+function pokeDots(count: number): string {
+  const max = 24;
+  const dots = '<span class="pk-dot"></span>'.repeat(Math.min(max, count));
+  const more = count > max ? `<b class="pk-dot more">+${fmt(count - max)}</b>` : '';
+  return `${dots}${more}`;
+}
+
+/** 「@ 与被 @」页：超大 @ + 巨数 + 双弧喊话线。 */
+function atSlide(data: Record<string, unknown>): string {
+  const { year, era } = interactionsEra(data);
   const atTotal = Number(data.atTotal ?? 0);
+  const atPeople = Number(data.atPeople ?? 0);
   const atMeTotal = Number(data.atMeTotal ?? 0);
-  const echoParticipated = Number(data.echoParticipated ?? 0);
-  const pokeTop = (data.pokeTop ?? null) as {
-    name?: string;
-    count?: number;
-  } | null;
-  const atTop = (data.atTop ?? null) as {
-    name?: string;
-    count?: number;
-  } | null;
-  const atMeTop = (data.atMeTop ?? null) as {
-    groupName?: string;
-    count?: number;
-  } | null;
-  const echoLongest = (data.echoLongest ?? null) as {
-    groupName?: string;
-    count?: number;
-    text?: string;
-  } | null;
-  const hasEvidence =
-    pokeTotal > 0 || atTotal > 0 || atMeTotal > 0 || echoParticipated > 0 || echoLongest != null;
-  const hero = interactionsHero(data);
-  const heroGhost = hero
-    ? hero.kind === 'at'
-      ? '@'
-      : hero.kind === 'called'
-        ? '呼'
-        : hero.kind === 'poke'
-          ? '戳'
-          : '齐'
-    : '安';
+  const atMePeople = Number(data.atMePeople ?? 0);
+  const atTop = (data.atTop ?? null) as { name?: string; count?: number } | null;
+  const atMeTop = (data.atMeTop ?? null) as { groupName?: string; count?: number } | null;
 
+  const mineFirst = atTotal >= atMeTotal;
+  const heroNum = mineFirst ? atTotal : atMeTotal;
+  const heroLabel = mineFirst ? '我 @ 过别人' : '我被人点名过';
+  const heroNote = mineFirst
+    ? atTop
+      ? `喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em>——名字被念出来，才不算淹没在人群里。`
+      : '你喊得不多，但每一声都有人听见。'
+    : atMeTop
+      ? `最多发生在「<em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em>」——被点名，是被人想起的最短路径。`
+      : '名字被念起的次数不多，可每一次都有人记得你。';
+
+  const maxDots = 30;
+  const mineDots = Math.min(maxDots, atPeople);
+  const theirDots = Math.min(maxDots, atMePeople);
+  const mineHidden = Math.max(0, atPeople - mineDots);
+  const theirHidden = Math.max(0, atMePeople - theirDots);
   const fact = (label: string, main: string, sub: string): string =>
-    `<p class="it-fact">
-       <span class="it-label">${escapeHtml(label)}</span>
-       <span class="it-main">${main}</span>
-       <span class="it-sub">${sub}</span>
-     </p>`;
+    `<p class="at-fact"><span class="at-fact-label">${escapeHtml(label)}</span><span class="at-fact-main">${main}</span><span class="at-fact-sub">${sub}</span></p>`;
 
-  const era = allTime ? '有记录以来' : `${year} 年`;
-  const body = hasEvidence
-    ? `<div class="it-hero">
-         <p class="it-lede">${era}，热闹里你做得最多的一件事，是——</p>
-         <h2 class="it-hero-label">${escapeHtml(hero?.label ?? '')}</h2>
-         <p class="it-hero-countline">
-           <span class="it-hero-num">${hero?.num ?? '0'}</span>
-           <span class="it-hero-unit">${escapeHtml(hero?.unit ?? '')}</span>
-         </p>
-         ${hero ? `<p class="it-hero-note">${hero.note}</p>` : ''}
-       </div>
-       <div class="it-score">
-         ${fact(
-           '戳一戳',
-           `我发起过 <b>${fmt(pokeTotal)}</b> 次`,
-           pokeTop
-             ? `最常吃你一戳的：<em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · ${fmt(
-                 Number(pokeTop.count ?? 0),
-               )} 次`
-             : '这一年，你的手指还没养成戳人的习惯。',
-         )}
-         ${fact(
-           '@ 提及',
-           `我 @ 过别人 <b>${fmt(atTotal)}</b> 次`,
-           atTop
-             ? `被你喊得最响的：<em>${escapeHtml(String(atTop.name ?? ''))}</em> · ${fmt(
-                 Number(atTop.count ?? 0),
-               )} 次`
-             : '这一年，你还不太习惯在人群里喊出某个名字。',
-         )}
-         ${fact(
-           '被 @',
-           atMeTop
-             ? `最多在 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em>`
-             : '这一年，还没有哪个群反复喊你的名字。',
-           atMeTop
-             ? `那里有 <b>${fmt(Number(atMeTop.count ?? 0))}</b> 次，有人在人群里，专门喊了你的名字。`
-             : '下一次开场，从你 @ 别人开始。',
-         )}
-         ${fact(
-           '复读',
-           `我跟过 <b>${fmt(echoParticipated)}</b> 场`,
-           echoLongest
-             ? `最长一轮在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>：${fmt(
-                 Number(echoLongest.count ?? 0),
-               )} 条“${escapeHtml(String(echoLongest.text ?? ''))}”`
-             : '这一年没有足够长的齐声——热闹的下一条，可能由你开头。',
-         )}
-       </div>
-       <p class="it-mood">你留在群里的，从来不只是话。每一次伸手、被点名、跟着起哄——都是「那年我也在」的证据。</p>`
-    : `<div class="it-hero">
-         <p class="it-lede">${era}，你在群聊里更多是安静地看——</p>
-         <h2 class="it-hero-label">你还没留下可统计的互动</h2>
-         <p class="it-hero-note">潜水也很好，但偶尔浮上来冒个泡——
-           下一条消息，可以从你开始。</p>
-       </div>`;
-
-  return `${slideOpen(heroGhost)}
-    <div class="it">
-      <div class="it-kicker">
-        <span>${escapeHtml(reportEraLabel(year))} · 群聊互动</span>
-        <span class="it-kicker-meta"><b>${fmt(pokeTotal)}</b> 次戳<i>/</i><b>${fmt(
-          atTotal,
-        )}</b> 次 @<i>/</i><b>${fmt(echoParticipated)}</b> 场齐声</span>
+  return `${slideOpen('@')}
+    <div class="at">
+      <div class="at-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · @ 与被 @</span>
+        <span class="at-kicker-meta"><b>${fmt(atPeople)}</b> 个名字喊出去<i>/</i><b>${fmt(
+          atMePeople,
+        )}</b> 个名字喊回来</span>
       </div>
+      <p class="at-lede">${era}，你在人群里点过的名字——</p>
+      <div class="at-main">
+        <span class="at-glyph">@</span>
+        <span class="at-divider"></span>
+        <span class="at-count">
+          <span class="at-countline"><span class="at-num">${fmt(
+            heroNum,
+          )}</span><span class="at-unit">次</span></span>
+          <span class="at-count-label">${escapeHtml(heroLabel)}</span>
+        </span>
+      </div>
+      <div class="at-arcs">
+        <div class="at-arcs-head"><span class="mine">我喊出去</span><span class="theirs">喊我的名字</span></div>
+        <svg class="at-arcs-svg" viewBox="0 0 1120 176" preserveAspectRatio="xMidYMid meet">
+          <line class="at-arc-axis" x1="48" y1="88" x2="1072" y2="88" />
+          <path class="at-arc mine" d="M ${AT_TOP[0]![0]} ${AT_TOP[0]![1]} C ${AT_TOP[1]![0]} ${
+            AT_TOP[1]![1]
+          }, ${AT_TOP[2]![0]} ${AT_TOP[2]![1]}, ${AT_TOP[3]![0]} ${AT_TOP[3]![1]}" />
+          <path class="at-arc theirs" d="M ${AT_BOTTOM[0]![0]} ${AT_BOTTOM[0]![1]} C ${
+            AT_BOTTOM[1]![0]
+          } ${AT_BOTTOM[1]![1]}, ${AT_BOTTOM[2]![0]} ${AT_BOTTOM[2]![1]}, ${AT_BOTTOM[3]![0]} ${
+            AT_BOTTOM[3]![1]
+          }" />
+          ${atArcDots(mineDots, 'mine')}
+          ${atArcDots(theirDots, 'theirs')}
+        </svg>
+        <div class="at-arcs-foot">
+          <span>每一点 = 一个名字${mineHidden > 0 ? `，另有 ${fmt(mineHidden)} 个` : ''}${
+            atTop ? ` · 最常喊 <em>${escapeHtml(String(atTop.name ?? ''))}</em>` : ''
+          }</span>
+          <span>每一点 = 一个喊过你的人${theirHidden > 0 ? `，另有 ${fmt(theirHidden)} 个` : ''}</span>
+        </div>
+      </div>
+      <div class="at-facts">
+        ${fact(
+          '喊出去',
+          `<b>${fmt(atTotal)}</b> 次，落在 <em>${fmt(atPeople)}</em> 个名字上`,
+          atTop
+            ? `最常被点到：<em>${escapeHtml(String(atTop.name ?? ''))}</em><i> · </i><b>${fmt(
+                Number(atTop.count ?? 0),
+              )}</b> 次`
+            : '这一年，你还没把谁的名字单独拎出来过。',
+        )}
+        ${fact(
+          '喊回来',
+          `<b>${fmt(atMeTotal)}</b> 次，来自 <em>${fmt(atMePeople)}</em> 个人`,
+          atMeTop
+            ? `最多的一声在 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em><i> · </i><b>${fmt(
+                Number(atMeTop.count ?? 0),
+              )}</b> 次`
+            : '还没有哪个群反复喊你的名字。',
+        )}
+      </div>
+      <p class="at-mood">${heroNote}</p>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · MENTIONS`)}`;
+}
+
+/**
+ * 版心那枚「戳」：预热到 `resources/pokeemoji` 的贴图就画贴图（APNG，浏览器里会
+ * 动），没预热到（导出没带 assets / 读盘失败）就退回「戳」字排印版。
+ */
+function pokeFigureHtml(): string {
+  const uri = inlinedAsset(reportPokeFigureUrl(REPORT_POKE_FIGURE_ID));
+  if (!uri) return '<span class="pk-glyph">戳</span>';
+  return `<img class="pk-figure" src="${uri}" alt="">`;
+}
+
+/** 「戳一戳」页：左右两个数字夹着一枚超大的「戳」，下面是相向点阵。 */
+function pokeSlide(data: Record<string, unknown>): string {
+  const { year, era } = interactionsEra(data);
+  const pokeTotal = Number(data.pokeTotal ?? 0);
+  const pokeMeTotal = Number(data.pokeMeTotal ?? 0);
+  const pokeTop = (data.pokeTop ?? null) as { name?: string; count?: number } | null;
+  const pokeMeTop = (data.pokeMeTop ?? null) as { name?: string; count?: number } | null;
+  const hero = pokeTotal >= pokeMeTotal ? 'out' : 'in';
+
+  const side = (
+    which: 'out' | 'in',
+    num: number,
+    label: string,
+    top: { name?: string; count?: number } | null,
+    verb: string,
+  ): string => `
+        <div class="pk-side${hero === which ? ' hero' : ''}">
+          <span class="pk-num">${fmt(num)}</span>
+          <span class="pk-side-label">${escapeHtml(label)}</span>
+          <span class="pk-side-sub">${
+            top
+              ? `${verb} <em>${escapeHtml(String(top.name ?? ''))}</em><br><b>${fmt(
+                  Number(top.count ?? 0),
+                )}</b> 次`
+              : '还没留下可统计的名字'
+          }</span>
+        </div>`;
+
+  const lane = (which: 'out' | 'in', num: number, label: string): string =>
+    which === 'out'
+      ? `<div class="pk-lane out"><span class="pk-lane-label">${label}</span><span class="pk-lane-dots">${pokeDots(
+          num,
+        )}</span></div>`
+      : `<div class="pk-lane in"><span class="pk-lane-dots">${pokeDots(
+          num,
+        )}</span><span class="pk-lane-label">${label}</span></div>`;
+
+  const mood =
+    hero === 'out'
+      ? pokeTop
+        ? `最常被你戳到的是 ${escapeHtml(String(pokeTop.name ?? ''))}——戳一戳什么都不用说，只是告诉对方「我在」。`
+        : '你伸出去的手不多，但每一下都先越过了屏幕。'
+      : pokeMeTop
+        ? `最常戳你的是 ${escapeHtml(String(pokeMeTop.name ?? ''))}——有人想你了，就先轻轻碰你一下。`
+        : '被戳的次数不多，可每一次都是有人先想起你。';
+
+  return `${slideOpen('戳')}
+    <div class="pk">
+      <div class="pk-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 戳一戳</span>
+        <span class="pk-kicker-meta">我戳出去 <b>${fmt(pokeTotal)}</b> 次<i>/</i>被戳 <b>${fmt(
+          pokeMeTotal,
+        )}</b> 次</span>
+      </div>
+      <p class="pk-lede">${era}，隔着屏幕的那一下——</p>
+      <div class="pk-main">
+        ${side('out', pokeTotal, '我戳出去', pokeTop, '最常戳')}
+        ${pokeFigureHtml()}
+        ${side('in', pokeMeTotal, '别人戳我', pokeMeTop, '最常戳我')}
+      </div>
+      <div class="pk-lanes">
+        ${lane('out', pokeTotal, `我伸出去的手 <b>${fmt(pokeTotal)}</b>`)}
+        <span class="pk-spark"></span>
+        ${lane('in', pokeMeTotal, `<b>${fmt(pokeMeTotal)}</b> 伸向我的手`)}
+      </div>
+      <p class="pk-lanes-note">每一点 = 一次戳一戳</p>
+      <p class="pk-mood">${mood}</p>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · POKES`)}`;
+}
+
+/** 「复读」页：同一句话一行行变小变淡 —— 层叠回声。 */
+function echoSlide(data: Record<string, unknown>): string {
+  const { year, era } = interactionsEra(data);
+  const runs = Number(data.runs ?? 0);
+  const messages = Number(data.messages ?? 0);
+  const participated = Number(data.participated ?? 0);
+  type EchoRun = { groupName?: string; count?: number; text?: string } | null;
+  const mineLongest = (data.mineLongest ?? null) as EchoRun;
+  const longest = (data.longest ?? null) as EchoRun;
+  const featured = mineLongest ?? longest;
+  const mineFeatured = mineLongest != null;
+
+  const clipped = (() => {
+    const text = String(featured?.text ?? '');
+    return text.length > 18 ? `${text.slice(0, 18)}…` : text;
+  })();
+  const lines = Math.max(2, Math.min(6, Number(featured?.count ?? 0)));
+
+  const mood = mineFeatured
+    ? '一句话被那么多人接住，就不再只是一个人的了——那一次的齐声里，有你。'
+    : featured
+      ? '你没有跟上那一次，但群里那么多人在同一秒说了同一句话——热闹是会传染的。'
+      : '这一年没有足够长的齐声——下一条被大家跟上的话，可能就由你开头。';
+
+  const body = featured
+    ? `<p class="ec-where">在「<em>${escapeHtml(
+        String(featured.groupName ?? ''),
+      )}</em>」里${mineFeatured ? '，你在的那一轮，' : '，'}</p>
+      <div class="ec-lines">${Array.from(
+        { length: lines },
+        () => `<p class="ec-line">「${escapeHtml(clipped)}」</p>`,
+      ).join('')}</div>
+      ${Number(featured.count ?? 0) > lines ? '<p class="ec-stack-more">… 后面的还没停，同一条声音继续往下接</p>' : ''}
+      <p class="ec-count"><span>这句话连着响了</span><b>${fmt(
+        Number(featured.count ?? 0),
+      )}</b><span>次</span></p>`
+    : '<p class="ec-where">这一年，群里还没唱到同一句。</p>';
+
+  const band = (label: string, value: number, unit: string, note: string): string =>
+    `<div class="ec-band-cell"><dt>${escapeHtml(label)}</dt><dd><b>${fmt(
+      value,
+    )}</b><i>${unit}</i></dd><p class="ec-band-note">${note}</p></div>`;
+
+  return `${slideOpen('齐')}
+    <div class="ec">
+      <div class="ec-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 复读</span>
+        <span class="ec-kicker-meta"><b>${fmt(runs)}</b> 场齐声<i>/</i><b>${fmt(
+          messages,
+        )}</b> 条重复</span>
+      </div>
+      <p class="ec-lede">${era}，${
+        featured
+          ? `有一句话你跟着接了 ${fmt(Number(featured.count ?? 0))} 次——`
+          : '你们还没有聊到齐声。'
+      }</p>
       ${body}
-    </div>${slideFoot(`${reportPeriodLabel(year)} · INTERACTIONS`)}`;
+      <div class="ec-band">
+        ${band('我跟上过', participated, '场', participated > 0 ? '至少一次，我在人群里' : '这一年你没接上去')}
+        ${band('全群齐声', runs, '场', `被重复的消息共 ${fmt(messages)} 条`)}
+        ${band('我参与的最长一轮', Number(mineLongest?.count ?? 0), '条', escapeHtml(String(mineLongest?.groupName ?? '还没有那一轮')))}
+        ${band('全群最长一轮', Number(longest?.count ?? 0), '条', escapeHtml(String(longest?.groupName ?? '还没有那一轮')))}
+      </div>
+      <p class="ec-mood">${mood}</p>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · ECHO`)}`;
 }
 
 /**
@@ -2404,7 +2550,9 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'rhythm') return rhythmSlide(data);
       if (slide.page.id === 'voice') return voiceSlide(data);
       if (slide.page.id === 'home') return homeSlide(data);
-      if (slide.page.id === 'interactions') return interactionsSlide(data);
+      if (slide.page.id === 'at') return atSlide(data);
+      if (slide.page.id === 'poke') return pokeSlide(data);
+      if (slide.page.id === 'echo') return echoSlide(data);
       if (slide.page.id === 'months') return monthsSlide(data);
       if (slide.page.id === 'mate') return mateSlide(data);
       if (slide.page.id === 'qzone') return qzoneSlide(data);

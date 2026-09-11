@@ -110,10 +110,12 @@ export interface GroupEchoLongest {
 }
 
 /**
- * 一年/历史以来群聊里的四类互动聚合 —— 年度报告「群聊互动」页的原始素材。
+ * 一年/历史以来群聊里的六组互动聚合 —— 年度报告「@ 与被 @」「戳一戳」「复读」
+ * 三页共用的原始素材。
  *
- * 扫描按群分批、逐条解码 40800，是重活，但只有这一页用；页面排得靠后，用户翻到
- * 时计算多半已经完成。聚合在 db 层收口，不把整年所有正文送回 service。
+ * 三页同源、只扫一次：`tallyInteractions` 按群分批、逐条解码 40800，把「我戳出去 /
+ * 谁戳我」「我 @ 谁 / 谁 @ 我」「复读的场次与最长一轮」一次算全，service 层再按页
+ * 各取所需。聚合在 db 层收口，不把整年所有正文送回 service。
  */
 export interface GroupInteractionTally {
   poke: {
@@ -122,24 +124,39 @@ export interface GroupInteractionTally {
     /** 被我戳得最多的群友；没有可识别目标时为 null。 */
     top: GroupTargetTop | null;
   };
+  pokeMe: {
+    /** 别人戳到我的总数（不含我自己戳自己的那一半）。 */
+    total: number;
+    /** 最常戳我的群友；没有可识别发起者时为 null。 */
+    top: GroupTargetTop | null;
+  };
   at: {
     /** 我发出的、指向具体成员（不含 @全体）的 @ 总数。 */
     total: number;
+    /** 我 @ 过的不同人数 —— 喊过多少个不同的名字。 */
+    distinct: number;
     /** 被我 @ 得最多的群友。 */
     top: GroupTargetTop | null;
   };
   atMe: {
     /** 别人直接 @ 到我的总数（不含 @全体）。 */
     total: number;
+    /** 在人群里喊过我的不同人数。 */
+    distinct: number;
     /** 被 @ 最多的群。 */
     topGroup: GroupAtMeTop | null;
   };
   echo: {
+    /** 达标复读回合总数（长度 ≥ 4 且至少两个人的连续相同正文，全群口径）。 */
+    runs: number;
+    /** 这些回合里被重复发出的消息合计条数。 */
+    messages: number;
     /**
-     * 我参与过多少次“复读”：长度 ≥ 4 且至少两个人的连续相同正文回合，
-     * 里面出现过我的消息才算一次。
+     * 我参与过多少次“复读”：达标回合里出现过我的消息才算一次。
      */
     participatedRuns: number;
+    /** 我参与过的最长一轮复读；一次都没跟过时为 null。 */
+    mineLongest: GroupEchoLongest | null;
     /** 全群最长的复读；没有任何达标回合时为 null。 */
     longest: GroupEchoLongest | null;
   };

@@ -73,7 +73,8 @@ function toProtocolAssetUrl(raw: string): string | null {
 
 /**
  * 把导出要内联的协议图片读成 data URI。白名单即 media / resource 两条协议
- * 自身允许的解析范围（avatar/dressbubble/emoji 等），单次失败回 null，不抛。
+ * 自身允许的解析范围（avatar/dressbubble/emoji/pokeemoji 等），单次失败回
+ * null，不抛。
  */
 async function resolveExportAssetDataUri(url: string): Promise<string | null> {
   const protocolUrl = toProtocolAssetUrl(url);
@@ -81,7 +82,8 @@ async function resolveExportAssetDataUri(url: string): Promise<string | null> {
   const parsed = new URL(protocolUrl);
   const allowed =
     parsed.protocol === 'weq-media:' ||
-    (parsed.protocol === 'weq-asset:' && parsed.hostname === 'emoji');
+    (parsed.protocol === 'weq-asset:' &&
+      (parsed.hostname === 'emoji' || parsed.hostname === 'pokeemoji'));
   if (!allowed) return null;
   try {
     const res =
@@ -125,6 +127,7 @@ export const annualReportRouter = router({
    * 白名单即 media / resource 两条协议本身：
    *   weq-media://dressbubble、avatar、pic …
    *   weq-asset://emoji/<id>/apng/<id>.png  系统表情静态 APNG
+   *   weq-asset://pokeemoji/<id>.png        戳一戳页主体贴图
    *
    * 解析失败返回 null（而不是抛错），导出退回排印版不阻塞。
    */

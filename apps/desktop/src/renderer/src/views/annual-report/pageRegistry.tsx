@@ -1,12 +1,14 @@
 import type { ReactElement } from 'react';
 import { FileQuestion } from 'lucide-react';
 import type {
+  AtPageData,
   DressPageData,
+  EchoPageData,
   EndPageData,
   FriendsPageData,
   HomePageData,
-  InteractionsPageData,
   MatePageData,
+  PokePageData,
   MonthsPageData,
   OpenersPageData,
   OverviewPageData,
@@ -26,7 +28,9 @@ import { OpenersPage } from './pages/OpenersPage';
 import { RhythmPage } from './pages/RhythmPage';
 import { VoicePage } from './pages/VoicePage';
 import { HomePage } from './pages/HomePage';
-import { InteractionsPage } from './pages/InteractionsPage';
+import { AtPage } from './pages/AtPage';
+import { PokePage } from './pages/PokePage';
+import { EchoPage } from './pages/EchoPage';
 import { MonthsPage } from './pages/MonthsPage';
 import { MatePage } from './pages/MatePage';
 import { QzoneMemoriesPage } from './pages/QzoneMemoriesPage';
@@ -82,8 +86,12 @@ const pageRegistry: Record<string, PageRenderer> = {
   home: ({ page, data, active }) => (
     <HomePage page={page} data={data as HomePageData} active={active} />
   ),
-  interactions: ({ page, data, active }) => (
-    <InteractionsPage page={page} data={data as InteractionsPageData} active={active} />
+  at: ({ page, data, active }) => <AtPage page={page} data={data as AtPageData} active={active} />,
+  poke: ({ page, data, active }) => (
+    <PokePage page={page} data={data as PokePageData} active={active} />
+  ),
+  echo: ({ page, data, active }) => (
+    <EchoPage page={page} data={data as EchoPageData} active={active} />
   ),
   months: ({ page, data, active }) => (
     <MonthsPage page={page} data={data as MonthsPageData} active={active} />

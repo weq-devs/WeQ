@@ -15,6 +15,18 @@
  * 是「哪条数据 → 哪条地址」的规则，具体可寻址形式由调用方注入。
  */
 
+/**
+ * 「戳一戳」页主体贴图用哪一张 —— `resources/pokeemoji/<id>.png`（共 0-6）。
+ *
+ * 0/1 是同一张 200×180、播两遍的贴图，2-6 是 120×120 无限循环的那组；主体要
+ * 显大，所以取分辨率最高的 0。想换风格只改这一个常量，三端（屏幕版 / HTML 导出 /
+ * satori 长图）会一起换。
+ */
+export const REPORT_POKE_FIGURE_ID = 0;
+
+/** `resources/pokeemoji/` 里可用的最大 id，越界一律退回 0。 */
+const POKE_FIGURE_MAX_ID = 6;
+
 /** 收集器接受的极简 slide 形状 —— 主进程 / renderer 两侧各自的数据都有这两个字段。 */
 export type ReportExportAssetSlide = {
   pageId: string;
@@ -41,6 +53,7 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
   reportDressPendantUrl: (itemId: number, frame?: number) => string;
   reportAvatarUrl: (uin: unknown) => string;
   reportEmojiFaceUrl: (faceId: number) => string;
+  reportPokeFigureUrl: (pokeId: number) => string;
   reportCustomPicUrl: (pic: {
     sendTimeMs?: unknown;
     fileName?: unknown;
@@ -85,6 +98,12 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
   /** QQ 系统表情的静态 APNG（FaceEmoji 的非动画路径同一个文件）。 */
   function reportEmojiFaceUrl(faceId: number): string {
     return `${prefixes.assetPrefix}emoji/${faceId}/apng/${faceId}.png`;
+  }
+
+  /** 「戳一戳」表情贴图（`resources/pokeemoji/<id>.png`，越界退回 0）。 */
+  function reportPokeFigureUrl(pokeId: number): string {
+    const id = Number.isInteger(pokeId) && pokeId >= 0 && pokeId <= POKE_FIGURE_MAX_ID ? pokeId : 0;
+    return `${prefixes.assetPrefix}pokeemoji/${id}.png`;
   }
 
   /** 自定义表情图：复刻 VoicePage FavePic 拼 `weq-media://pic` 参数的规则。 */
@@ -158,6 +177,8 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
         }
         if (data.pic)
           urls.add(reportCustomPicUrl(data.pic as Parameters<typeof reportCustomPicUrl>[0]));
+      } else if (slide.pageId === 'poke') {
+        urls.add(reportPokeFigureUrl(REPORT_POKE_FIGURE_ID));
       }
 
       if (
@@ -178,6 +199,7 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
     reportDressPendantUrl,
     reportAvatarUrl,
     reportEmojiFaceUrl,
+    reportPokeFigureUrl,
     reportCustomPicUrl,
     collectReportAssetUrls,
   };

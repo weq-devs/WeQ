@@ -4784,23 +4784,23 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
-/* ══ 群聊互动页 ═══════════════════════════════════════════════════════
+/* ══ 群聊互动三页（@ / 戳一戳 / 复读）═══════════════════════════════
  *
- * 这一页没有「唯一指标」，但也不允许主体空着：版心从戳一戳 / @ / 被 @ /
- * 复读四组统计里，把**数字最大的那一组**顶成巨数——每个人看到的署名都不同，
- * 那才是这一页的个性化。下半屏再排四行“发生的事”：句子而非卡片，
- * 数字嵌在句子里，不画面板。颜色取一管旧朱砂，只让赢家的数字和名字带暖色。
+ * 原来的「群聊互动」一页压了四组统计，谁的数字都不够大，谁也顶不出主体。拆成三页
+ * 之后每页只讲一个动作，并且各自带一条**别的页没有的形状**：
+ *
+ *   - @ 与被 @：双弧喊话线 —— 上弧朝外（我喊出去的名字），下弧朝内（喊我的名字），
+ *     弧上每一枚刻度点是一位不同的人，弧从一端画到另一端；
+ *   - 戳一戳：相向点阵 —— 两条「手」的航道隔着中线对望，点从中间往外亮；
+ *   - 复读：层叠回声 —— 同一句话一行行变小变淡，像回声一层层退远。
+ *
+ * 三页共用全报告的排印语言：衬线巨字、发丝线、出血描边幽灵字，不用卡片与面板底。
  * ═══════════════════════════════════════════════════════════════════ */
 
-.weq-report-root {
-  --rp-buzz: #a04e3c;
-}
+/* ── @ 与被 @ ───────────────────────────────────────────────────── */
 
-html[data-theme="dark"] .weq-report-root {
-  --rp-buzz: #e79a74;
-}
-
-.weq-it {
+.weq-call {
+  --call: #3d5a99;
   position: relative;
   display: flex;
   height: 100%;
@@ -4809,7 +4809,13 @@ html[data-theme="dark"] .weq-report-root {
   justify-content: center;
 }
 
-.weq-it-kicker {
+html[data-theme="dark"] .weq-call {
+  --call: #8fb0e8;
+}
+
+.weq-call-kicker,
+.weq-poke-kicker,
+.weq-echo-kicker {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -4820,7 +4826,9 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.18em;
 }
 
-.weq-it-kicker-meta {
+.weq-call-kicker-meta,
+.weq-poke-kicker-meta,
+.weq-echo-kicker-meta {
   display: inline-flex;
   align-items: baseline;
   gap: 7px;
@@ -4830,7 +4838,9 @@ html[data-theme="dark"] .weq-report-root {
   white-space: nowrap;
 }
 
-.weq-it-kicker-meta b {
+.weq-call-kicker-meta b,
+.weq-poke-kicker-meta b,
+.weq-echo-kicker-meta b {
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif-base) !important;
   font-size: 16px;
@@ -4838,21 +4848,20 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0;
 }
 
-.weq-it-kicker-meta i {
+.weq-call-kicker-meta i,
+.weq-poke-kicker-meta i,
+.weq-echo-kicker-meta i {
   font-style: normal;
   opacity: 0.5;
 }
 
-/* ── 上半屏：热闹 ─────────────────────────────────────────────── */
-
-.weq-it-hero {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
+.weq-call-hero {
+  margin-top: 6px;
 }
 
-.weq-it-lede {
+.weq-call-lede,
+.weq-poke-lede,
+.weq-echo-lede {
   margin: 0;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
@@ -4860,248 +4869,281 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.14em;
 }
 
-.weq-it-hero-label {
-  margin: 7px 0 0;
-  color: var(--rp-ink-soft);
+/* 版心：一枚超大的 @ + 一道竖发丝线 + 巨数。@ 本身就是这一页的动作。 */
+.weq-call-main {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-top: 2px;
+}
+
+.weq-call-glyph {
+  color: var(--call);
   font-family: var(--rp-serif);
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-wrap: balance;
+  font-size: 170px;
+  font-weight: 600;
+  line-height: 0.86;
+  letter-spacing: -0.02em;
+  text-shadow: 0 12px 44px color-mix(in srgb, var(--call) 22%, transparent);
 }
 
-/* 主体巨数：谁的数字最大，这一页就把谁顶到最上面。 */
-.weq-it-hero-countline {
-  position: relative;
-  display: inline-flex;
+.weq-call-divider {
+  width: 1px;
+  height: 100px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--call) 46%, transparent),
+    transparent
+  );
+}
+
+.weq-call-count {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-call-countline {
+  display: flex;
   align-items: baseline;
-  justify-content: center;
-  gap: 14px;
-  margin: 4px 0 0;
+  gap: 12px;
 }
 
-.weq-it-hero-num {
-  color: var(--rp-buzz);
+.weq-call-num {
+  color: var(--call);
   font-family: var(--rp-serif-base) !important;
-  font-size: 156px;
+  font-size: 112px;
   font-weight: 600;
   letter-spacing: -0.045em;
   line-height: 0.98;
 }
 
-.weq-it-hero-unit {
+.weq-call-unit {
   color: var(--rp-ink);
   font-family: var(--rp-serif);
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 500;
   letter-spacing: 0.12em;
 }
 
-.weq-it-hero-note {
-  margin: 6px auto 0;
-  max-width: 64ch;
+.weq-call-count-label {
+  margin-top: 2px;
   color: var(--rp-ink-muted);
   font-family: var(--rp-serif);
-  font-size: 12px;
-  line-height: 1.7;
-  letter-spacing: 0.06em;
-  text-align: center;
-  text-wrap: pretty;
+  font-size: 13px;
+  letter-spacing: 0.22em;
 }
 
-.weq-it-hero-note em,
-.weq-it-hero-note b {
-  color: var(--rp-buzz);
+/* ── @ 页的唯一图表：双弧喊话线 ─────────────────────────────────── */
+
+.weq-call-arcs {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-call-arcs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.weq-call-arcs-name {
+  font-family: var(--rp-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+
+.weq-call-arcs-name.is-mine {
+  color: var(--call);
+}
+
+.weq-call-arcs-name.is-theirs {
+  color: var(--rp-ink-faint);
+}
+
+.weq-call-arcs-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 2px;
+  overflow: visible;
+}
+
+.weq-call-arcs-axis {
+  stroke: var(--rp-hair);
+  stroke-width: 1;
+  stroke-dasharray: 2 7;
+  vector-effect: non-scaling-stroke;
+}
+
+.weq-call-arc {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1700ms var(--rp-ease-drop);
+}
+
+.weq-call-arc.is-mine {
+  stroke: var(--call);
+}
+
+.weq-call-arc.is-theirs {
+  stroke: color-mix(in srgb, var(--rp-ink) 36%, transparent);
+  transition-delay: 320ms;
+}
+
+.weq-call-arcs-svg[data-drawn="yes"] .weq-call-arc {
+  stroke-dashoffset: 0;
+}
+
+.weq-call-dot {
+  fill: var(--call);
+  opacity: 0;
+  transform: scale(0.3);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 520ms ease,
+    transform 760ms var(--rp-ease-drop);
+  transition-delay: calc(560ms + var(--d, 0) * 46ms);
+}
+
+.weq-call-dot.is-theirs {
+  fill: color-mix(in srgb, var(--rp-ink) 40%, transparent);
+}
+
+.weq-call-dot.is-champ {
+  fill: var(--call);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--call) 55%, transparent));
+}
+
+.weq-call-arcs-svg[data-drawn="yes"] .weq-call-dot {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 减少动态效果：不画不弹，直接给终态。 */
+.weq-call-arcs-svg[data-reduce="yes"] .weq-call-arc {
+  transition: none;
+  stroke-dashoffset: 0;
+}
+
+.weq-call-arcs-svg[data-reduce="yes"] .weq-call-dot {
+  transition: none;
+  opacity: 1;
+  transform: none;
+}
+
+.weq-call-arcs-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 2px;
+  color: var(--rp-ink-faint);
   font-family: var(--rp-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.weq-call-arcs-foot em {
+  color: var(--call);
   font-style: normal;
   font-weight: 600;
 }
 
-.weq-it-hero-note i {
-  margin: 0 5px;
-  color: var(--rp-ink-faint);
+.weq-call-arcs-foot i {
+  margin: 0 4px;
   font-style: normal;
+  opacity: 0.6;
 }
 
-.weq-it-hero-note .weq-echo-quote {
-  color: var(--rp-ink-soft);
-  font-family: var(--rp-serif);
-  letter-spacing: 0.02em;
-}
+/* ── @ 页页底两行事实 ──────────────────────────────────────────── */
 
-/* 版心底下两圈很慢的涟漪 —— 数字越大，声浪传得越远。 */
-.weq-it-hero-countline::before,
-.weq-it-hero-countline::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 0;
-  width: 158px;
-  height: 158px;
-  border: 1px solid color-mix(in srgb, var(--rp-buzz) 38%, transparent);
-  border-radius: 50%;
-  opacity: 0;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.weq-report-page[data-enter="in"] .weq-it-hero-countline::before {
-  animation: weq-it-ripple 3.8s ease-out 1000ms infinite;
-}
-
-.weq-report-page[data-enter="in"] .weq-it-hero-countline::after {
-  animation: weq-it-ripple 3.8s ease-out 1450ms infinite;
-}
-
-@keyframes weq-it-ripple {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.86);
-  }
-  18% {
-    opacity: 0.55;
-  }
-  70%,
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1.5);
-  }
-}
-
-/* ── 下半屏：四行发生的事 ─────────────────────────────────────── */
-
-.weq-it-score {
-  margin-top: 12px;
-  padding-top: 10px;
+.weq-call-facts {
+  display: grid;
+  margin: 12px 0 0;
+  padding-top: 8px;
   border-top: 1px solid var(--rp-hair);
 }
 
-.weq-it-fact {
+.weq-call-fact {
   display: flex;
-  align-items: flex-start;
-  margin: 0;
-  padding: 10px 0 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--rp-hair) 50%, transparent);
-}
-
-.weq-it-fact:last-child {
-  border-bottom: none;
-}
-
-.weq-it-fact-body {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 10px;
-  row-gap: 2px;
-  overflow: hidden;
+  column-gap: 16px;
+  padding: 4px 0;
 }
 
-.weq-it-fact-label {
-  flex: 0 0 54px;
-  color: var(--rp-buzz);
+.weq-call-fact-label {
+  flex: 0 0 46px;
+  color: var(--call);
   font-family: var(--rp-sans);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.18em;
-  text-transform: uppercase;
-  opacity: 0.85;
 }
 
-.weq-it-fact-main {
-  flex: 0 1 auto;
+.weq-call-fact-body {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.weq-call-fact-main {
+  display: block;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 17px;
+  font-size: 14px;
   letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
-.weq-it-fact-main b.weq-it-fact-num {
-  color: var(--rp-buzz);
+.weq-call-fact-main b {
+  color: var(--call);
   font-family: var(--rp-serif-base) !important;
+  font-size: 17px;
   font-weight: 600;
 }
 
-.weq-it-fact-main em,
-.weq-it-fact-main .weq-it-group {
-  color: var(--rp-buzz);
-  font-family: var(--rp-serif);
+.weq-call-fact-main em {
+  color: var(--call);
   font-style: normal;
   font-weight: 600;
-  letter-spacing: 0.04em;
 }
 
-.weq-it-od {
-  display: inline-flex;
-  margin: 0 2px;
-  color: var(--rp-buzz);
-  font-family: var(--rp-serif-base) !important;
-  font-size: 29px;
-  font-weight: 600;
-  vertical-align: baseline;
-}
-
-.weq-it-fact-unit {
-  margin-left: 1px;
-  color: var(--rp-ink-muted);
-  font-family: var(--rp-serif);
-  font-size: 12px;
-  font-style: normal;
-  letter-spacing: 0.1em;
-}
-
-.weq-it-fact-sub {
-  flex: 1 0 100%;
-  min-width: 0;
-  margin-left: 64px;
-  overflow: hidden;
+.weq-call-fact-sub {
+  display: block;
+  margin-top: 1px;
   color: var(--rp-ink-muted);
   font-family: var(--rp-serif);
   font-size: 11.5px;
-  line-height: 1.6;
-  letter-spacing: 0.04em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.03em;
 }
 
-.weq-it-fact-sub em,
-.weq-it-fact-sub .weq-it-group {
-  color: var(--rp-buzz);
-  font-family: var(--rp-serif);
+.weq-call-fact-sub em {
+  color: var(--call);
   font-style: normal;
   font-weight: 600;
-  letter-spacing: 0.04em;
 }
 
-.weq-it-fact-sub i {
+.weq-call-fact-sub b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-weight: 600;
+}
+
+.weq-call-fact-sub i {
   margin: 0 5px;
   color: var(--rp-ink-faint);
   font-style: normal;
 }
 
-.weq-it-fact-sub b.weq-number {
-  color: var(--rp-ink-soft);
-  font-family: var(--rp-serif-base) !important;
-  font-weight: 600;
-}
-
-.weq-it-fact-sub .weq-it-echo-text {
-  display: inline-block;
-  max-width: 30ch;
-  margin-left: 5px;
-  overflow: hidden;
-  color: var(--rp-ink-soft);
-  vertical-align: bottom;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-it-mood {
-  margin: 8px 0 0;
+.weq-call-mood,
+.weq-poke-mood,
+.weq-echo-mood {
+  margin: 10px 0 0;
   color: var(--rp-ink-faint);
   font-family: var(--rp-serif);
   font-size: 10.5px;
@@ -5110,28 +5152,522 @@ html[data-theme="dark"] .weq-report-root {
   text-align: center;
 }
 
-/* 窄画幅：巨字仍要巨，四行证据收到刚好一列。 */
-@media (max-width: 1000px) {
-  .weq-it-hero-num {
-    font-size: 142px;
-  }
+/* ── 戳一戳 ─────────────────────────────────────────────────────── */
 
-  .weq-it-hero-label {
-    font-size: 24px;
-  }
+.weq-poke {
+  --poke: #a8503c;
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
 
-  .weq-it-hero-note {
-    font-size: 12px;
-  }
+html[data-theme="dark"] .weq-poke {
+  --poke: #e79a74;
+}
 
-  .weq-it-fact-main {
-    font-size: 15px;
-  }
+/* 版心是一次对视：左「我戳出去」、右「别人戳我」，中间立着超大的「戳」。 */
+.weq-poke-hero {
+  margin-top: 6px;
+}
 
-  .weq-it-od {
-    font-size: 25px;
+.weq-poke-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 44px;
+  margin-top: 2px;
+}
+
+.weq-poke-side {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 220px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.weq-poke-side-num {
+  display: inline-flex;
+}
+
+.weq-poke-num {
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 84px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.weq-poke-side.is-hero .weq-poke-num {
+  color: var(--poke);
+}
+
+.weq-poke-side-label {
+  margin-top: 2px;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+}
+
+.weq-poke-side-sub {
+  margin-top: 6px;
+  max-width: 24ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 11px;
+  line-height: 1.65;
+  letter-spacing: 0.03em;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.weq-poke-side-sub em {
+  color: var(--poke);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.weq-poke-side-sub b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-weight: 600;
+}
+
+.weq-poke-side-sub i {
+  margin: 0 4px;
+  color: var(--rp-ink-faint);
+  font-style: normal;
+}
+
+.weq-poke-glyph-wrap {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.weq-poke-glyph {
+  position: relative;
+  z-index: 1;
+  color: var(--poke);
+  font-family: var(--rp-serif);
+  font-size: 160px;
+  font-weight: 600;
+  line-height: 0.9;
+  text-shadow: 0 12px 46px color-mix(in srgb, var(--poke) 24%, transparent);
+}
+
+/* 版心贴图：resources/pokeemoji 的戳一戳表情（APNG，自己会动）。
+   加一层极轻的浮沉，让它在两圈涟漪里像真的伸着手。 */
+.weq-poke-figure {
+  position: relative;
+  z-index: 1;
+  height: 168px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 16px 38px color-mix(in srgb, var(--poke) 30%, transparent));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-poke-figure {
+    animation: weq-poke-float 4.6s ease-in-out infinite;
   }
 }
+
+@keyframes weq-poke-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+/* 巨字外圈两圈很慢的碰撞涟漪 —— 戳一下，屏幕跟着响一声。 */
+.weq-poke-glyph-wrap::before,
+.weq-poke-glyph-wrap::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 212px;
+  height: 212px;
+  border: 1px solid color-mix(in srgb, var(--poke) 36%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.74);
+  pointer-events: none;
+}
+
+.weq-report-page[data-enter="in"] .weq-poke-glyph-wrap::before {
+  animation: weq-poke-ring 3.6s ease-out 900ms infinite;
+}
+
+.weq-report-page[data-enter="in"] .weq-poke-glyph-wrap::after {
+  animation: weq-poke-ring 3.6s ease-out 1500ms infinite;
+}
+
+@keyframes weq-poke-ring {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.74);
+  }
+  16% {
+    opacity: 0.5;
+  }
+  72%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.42);
+  }
+}
+
+/* ── 戳页的唯一图表：相向点阵 ─────────────────────────────────── */
+
+.weq-poke-stream {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-poke-lanes {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.weq-poke-lane {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 14px;
+}
+
+.weq-poke-lane.is-out {
+  justify-content: flex-end;
+}
+
+.weq-poke-lane.is-in {
+  justify-content: flex-start;
+}
+
+.weq-poke-lane-label {
+  flex: 0 0 auto;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.weq-poke-lane-label b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-poke-lane-dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-poke-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--poke);
+  opacity: 0;
+  transform: translateX(-10px);
+  transition:
+    opacity 420ms ease,
+    transform 700ms var(--rp-ease-drop);
+  transition-delay: calc(140ms + var(--d, 0) * 60ms);
+}
+
+.weq-poke-lane.is-in .weq-poke-dot {
+  transform: translateX(10px);
+}
+
+.weq-poke-lane[data-drawn="yes"] .weq-poke-dot {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.weq-poke-dot.is-empty {
+  border: 1px dashed color-mix(in srgb, var(--rp-ink) 26%, transparent);
+  background: transparent;
+}
+
+.weq-poke-dot-more {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif-base);
+  font-size: 11px;
+}
+
+.weq-poke-spark {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+}
+
+.weq-poke-spark::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--poke) 40%, transparent);
+}
+
+.weq-poke-spark i {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--poke);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--poke) 60%, transparent);
+}
+
+.weq-report-page[data-enter="in"] .weq-poke-spark i {
+  animation: weq-poke-beat 2.6s ease-in-out 900ms infinite;
+}
+
+@keyframes weq-poke-beat {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+}
+
+.weq-poke-lanes-note {
+  margin: 8px 0 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+
+/* ── 复读 ───────────────────────────────────────────────────────── */
+
+.weq-echo {
+  --echo: #2f7a7a;
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+html[data-theme="dark"] .weq-echo {
+  --echo: #6fc7c2;
+}
+
+.weq-echo-hero {
+  margin-top: 4px;
+}
+
+.weq-echo-stack {
+  margin-top: 8px;
+}
+
+.weq-echo-stack-where {
+  margin: 0 0 2px;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.weq-echo-stack-where em {
+  color: var(--rp-ink-soft);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* 唯一图表：同一句话一行行叠下去 —— 回声退远。 */
+.weq-echo-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-echo-line {
+  margin: 0;
+  color: var(--echo);
+  font-family: var(--rp-serif);
+  font-size: calc(68px - var(--e, 0) * 9px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  opacity: 0;
+  transform: translateY(-14px) scale(0.98);
+  transform-origin: left center;
+  transition:
+    opacity 700ms ease,
+    transform 900ms var(--rp-ease-drop);
+  transition-delay: calc(200ms + var(--e, 0) * 150ms);
+}
+
+.weq-echo-stack[data-drawn="yes"] .weq-echo-line {
+  opacity: calc(1 - var(--e, 0) * 0.13);
+  transform: none;
+}
+
+.weq-echo-stack[data-reduce="yes"] .weq-echo-line {
+  transition: none;
+  opacity: calc(1 - var(--e, 0) * 0.13);
+  transform: none;
+}
+
+.weq-echo-stack-count {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+}
+
+.weq-echo-num {
+  color: var(--echo);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 42px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.weq-echo-stack-more {
+  margin: 4px 0 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+.weq-echo-empty {
+  margin-top: 10px;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+}
+
+.weq-echo-band {
+  display: flex;
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-echo-band-cell {
+  min-width: 0;
+  flex: 1;
+  padding-right: 12px;
+}
+
+.weq-echo-band-cell + .weq-echo-band-cell {
+  padding-left: 12px;
+  border-left: 1px solid var(--rp-hair);
+}
+
+.weq-echo-band-cell dt {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
+.weq-echo-band-cell dd {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 3px 0 0;
+}
+
+.weq-echo-band-cell dd .weq-number {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.weq-echo-band-cell dd i {
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.1em;
+}
+
+.weq-echo-band-note {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--echo);
+  font-family: var(--rp-serif);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄画幅：巨字仍要巨，图表收到刚好一栏。 */
+@media (max-width: 1000px) {
+  .weq-call-glyph {
+    font-size: 138px;
+  }
+
+  .weq-call-num {
+    font-size: 92px;
+  }
+
+  .weq-call-main {
+    gap: 20px;
+  }
+
+  .weq-poke-glyph {
+    font-size: 128px;
+  }
+
+  .weq-poke-figure {
+    height: 134px;
+  }
+
+  .weq-poke-num {
+    font-size: 68px;
+  }
+
+  .weq-poke-main {
+    gap: 26px;
+  }
+
+  .weq-echo-line {
+    font-size: calc(54px - var(--e, 0) * 7px);
+  }
+}
+
+
+
+
 
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 

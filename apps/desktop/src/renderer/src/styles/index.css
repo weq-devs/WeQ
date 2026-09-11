@@ -10626,12 +10626,20 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-fg-secondary);
   cursor: pointer;
   font-size: 12px;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease,
+    transform 120ms ease;
 }
 .weq-clone-session-new:hover {
   color: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+/* 点击反馈：即便只是开一个空白草稿（看起来没变化），也给出按下动画。 */
+.weq-clone-session-new:active {
+  transform: scale(0.96);
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
 
 .weq-clone-sessions-empty {

@@ -36,7 +36,7 @@ export const qzonePage: ReportPageDefinition<QzoneMemoriesPageData> = {
     id: 'qzone',
     title: 'QQ空间回忆',
     description: '发出去的心情、照片和晚霞——都是那年那天的你。',
-    order: 12,
+    order: 14,
     version: '0.1.0',
     apiVersion: 1,
     category: '空间',
