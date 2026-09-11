@@ -1,55 +1,63 @@
-![banner](./resources/brand/banner_v2.png)
+![banner](./resources/brand/banner.png)
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)
 
-**WeQ** 是一个 NTQQ 自主的本地消息数据库解密、解析与导出工具。
+**WeQ** 是一个 NTQQ 自主的本地数据库解密、解析与导出工具。
+
+如果你需要导出和分析**微信聊天记录**：[WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)   是相当不错的选择
+
+欢迎加入**QQ交流群**讨论交流： [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
 
 ---
 
-> [!Warning] 
->
-> 本项目通过**直接发包**，或者**hook收包函数**等方式，提取数据库主密钥，注意相关风险
->
-> *本项目仅用于个人数据的本地备份与分析，请勿用于任何违法用途。*
+## 核心功能
 
----
+- <details> <summary>数据库密钥获取</summary> 支持通过在线QQ实例，本地保存凭据，离线计算（Android）等方式获取数据库密钥<br> 期间无需重启QQ，也无需预先登录，本项目会根据QQ在线情况，<strong>动态选择方案获取密钥，用户无需任何操作</strong> </details>
+- <details> <summary>离线查看和修改聊天记录</summary> 本项目基于Electron，实现了高仿QQ聊天的界面，<strong>体验原汁原味的聊天记录查看</strong> <br> 本项目支持<strong>私聊，群聊，官方账号，频道私聊等</strong>几乎所有聊天记录的解析 </details>
+- <details> <summary>QQ装扮查看</summary> 仅使用电脑端的数据，即可解析出<strong>完整的消息装扮</strong> 包括气泡，字体，挂件<br> 本项目支持下载和解析装扮资源，<strong>在PC端查看和手机端同样的渲染效果</strong><br><br>本项目同时支持导出装扮资源在外部使用  </details>
+- <details> <summary>聊天记录导出</summary> 支持导出聊天记录为<strong>各种格式</strong>，json txt xlsx等等等<br> 同时支持导出联系人，我的收藏，QQ空间等等等附带资源 </details>
+- **年度报告**和单聊会话分析
+- 好友克隆和克隆好友群聊（<del>赛博斗蛐蛐</del>）
+- **消息防撤回**和删除消息查看
+- 聊天分析agent和MCP
 
-## ✨ 功能截图
-
-| 高仿QQ聊天页面 | 隐私化展示 |
+| 高仿QQ聊天页面（装扮） | **好友克隆** |
 | -------------- | ---------- |
-| ![image-20260719010909884](./docs/images/image-20260719010909884.png) | ![image-20260719011107158](./docs/images/image-20260719011107158.png) |
-| **导出为各类格式** | **QQ收藏查看导出** |
-| ![image-20260719011244024](./docs/images/image-20260719011244024.png) | ![image-20260719011358310](./docs/images/image-20260719011358310.png) |
-| **完整数据库查看** | **本地消息的修改和新增** |
-| ![image-20260719011458352](./docs/images/image-20260719011458352.png) | ![image-20260719011603014](./docs/images/image-20260719011603014.png) |
-| **防撤回（无需weq运行）** | **查看QQ删除消息** |
-| ![image-20260719011718608](./docs/images/image-20260719011718608.png) | ![image-20260719011941578](./docs/images/image-20260719011941578.png) |
-| **群相册查看和导出** | **QQ空间查看和导出** |
-| ![image-20260719012204330](./docs/images/image-20260719012204330.png) | ![image-20260719012503954](./docs/images/image-20260719012503954.png) |
-| **群聊/私聊分析** | **好友亲密度排行** |
-| ![image-20260719012335989](./docs/images/image-20260719012335989.png) | ![image-20260719012608790](./docs/images/image-20260719012608790.png) |
-| **好友克隆 · 支持导出机器人** | **克隆好友群聊** |
-| ![image-20260719012740048](./docs/images/image-20260719012740048.png) | ![image-20260719012944970](./docs/images/image-20260719012944970.png) |
-| **完整QQ表情资源查看** | **导出html** |
-| ![image-20260719013104790](./docs/images/image-20260719013104790.png) | ![image-20260719013242705](./docs/images/image-20260719013242705.png) |
-| **个性主页** | **字体/气泡/挂件/背景...** |
-| ![image-20260730022017092](./docs/images/image-20260730022017092.png) | ![image-20260730022152964](./docs/images/image-20260730022152964.png) |
+| ![image-20260911055149883](./docs/images/image-20260911055149883.png) | ![image-20260911060604639](./docs/images/image-20260911060604639.png) |
+| **导出聊天记录** | **QQ个性装扮** |
+| ![image-20260911054056426](./docs/images/image-20260911054056426.png) | ![image-20260911081812755](./docs/images/image-20260911081812755.png) |
+| **年度/历史报告**                                            | **修改/新增消息**                                            |
+| ![image-20260911054626863](./docs/images/image-20260911054626863.png) | ![image-20260911055616318](./docs/images/image-20260911055616318.png) |
+| **离线防撤回** | **agent助手** |
+| ![image-20260911055729672](./docs/images/image-20260911055729672.png) | ![image-20260911061008294](./docs/images/image-20260911061008294.png) |
+| **群相册查看和导出** | **QQ空间导出html** |
+| ![image-20260911061423170](./docs/images/image-20260911061423170.png) | ![image-20260911081643550](./docs/images/image-20260911081643550.png) |
+| **群聊/私聊分析** | **QQ缓存资源清理** |
+| ![image-20260911060130806](./docs/images/image-20260911060130806.png) | ![image-20260911060406735](./docs/images/image-20260911060406735.png) |
+
 
 > 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/README.md)
 
 ## 使用方法
 
 1. 前往 [Releases](../../releases) 下载最新版本
-2. 按照引导操作获取数据库密钥 (**无需提前打开QQ**)
+2. 按照引导操作获取数据库密钥 
 3. 打开对应账号即可开始使用
 
-### 浏览器版
+> [!tip]
+>
+> **支持的设备**
+>
+> | 系统 | Windows            | MacOS      | Linux      |
+> | ---- | ------------------ | ---------- | ---------- |
+> | 架构 | x64，**不支持arm** | arm，intel | x64，arm64 |
+
+### web版
 
 除桌面版外还提供 **WeQ Web** —— 同一套界面与功能，跑在浏览器里。适合无桌面环境的机器
 （NAS / 服务器 / WSL），或想从别的设备访问。
 
-下载 `weq-web-<版本>-<平台>.tar.gz`（每个平台一个包，需自备 Node ≥ 22），
+下载 `weq-web-<版本>-<平台>.tar.gz`（每个平台一个包，**需自备 Node ≥ 22**），
 解压后直接运行启动脚本即可（Windows 双击 `start.bat`，Linux/macOS 执行 `./start.sh`）：
 
 ```bash
@@ -62,21 +70,19 @@ start.bat         # Windows
 
 #### 开发者指南
 
-> 
->强烈推荐使用 [pnpm](https://pnpm.io/)
+开始运行：
 
 ```bash
-pnpm i
-pnpm dev
+git clone https://github.com/H3CoF6/WeQ   # 克隆仓库代码
+cd WeQ
+
+pnpm i                     # 安装依赖（electron可能需要单独处理）
+pnpm run build:bot         # 构建bot代码
+pnpm run build:ninebird    # 构建ninebird代码
+pnpm run build:daemon      # 构建守护进程代码
+
+pnpm dev                   # 启动开发服务器
 ```
-
-`pnpm dev` 只启动 electron-vite 开发服务（workspace 里的 TS 包即改即用，无需预构建）；要**完整跑起来**还需按需执行：
-
-| 命令 | 产物 | 用途 |
-| --- | --- | --- |
-| `pnpm run build:ninebird` | `resources/ninebird-runtime/*.js` | QQ 扫码 / 快速登录 loader（登录功能必需） |
-| `pnpm run build:daemon` | `resources/daemon/<平台>-<架构>/weq-daemon` | WeQ 助手推文服务、Release 监控、开机自启（需要 Rust 工具链） |
-| `pnpm run build:bot` | `resources/bot-runtime/bot.mjs` | 机器人推文运行时 |
 
 打包发布：
 
@@ -85,9 +91,21 @@ pnpm run build                  # = build:bot + build:ninebird + 桌面版构建
 pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon 保证随包二进制齐全）
 ```
 
-统一修改所有包的版本号：`pnpm run version:set 0.5.0`（支持 `--dry-run` 预览；改完记得 `pnpm i` 刷新 lockfile）。
+> 贡献代码请先阅读 [贡献指南](./CONTRIBUTING.md)  作为参考
 
-> 贡献代码请先阅读 [贡献指南](./CONTRIBUTING.md)  以及本项目[原理](./docs/principles/index.md) 作为参考
+## 致谢
+
+| 项目                                                         |            参考            |
+| ------------------------------------------------------------ | :------------------------: |
+| [NapNeko ](https://github.com/NapNeko)团队                   |      **大量实现参考**      |
+| [webark-im-template](https://github.com/dogxii/webark-im-template) |      QQ 聊天界面模板       |
+| [QQBackup](https://github.com/QQBackup)                      | 整理保存了大量QQ数据库资料 |
+
+**同时也感谢每一个为WeQ及相关项目做出贡献的开发者**：
+
+<a href="https://github.com/H3CoF6/WeQ/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=H3CoF6/WeQ" />
+</a>
 
 ## 开源协议
 
@@ -97,31 +115,4 @@ pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon �
 - **非商业性使用（NC）** —— **禁止用于任何商业用途**，包括但不限于付费贩卖、倒卖本项目或其衍生作品。
 - **相同方式共享（SA）** —— 若你修改或基于本项目二次创作，衍生作品必须以**相同的 CC BY-NC-SA 4.0** 协议开源。
 
-> [!Warning]
->
-> 本项目为**免费开源**工具，谢绝任何形式的商业用途。若发现有人贩卖本项目，均为侵权行为。
-
-## 致谢
-
--  [WeFlow](https://github.com/hicccc77/WeFlow)  && [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)  && [CipherTalk](https://github.com/ilovebinglu/CipherTalk)
-
-- [NapNeko](https://github.com/NapNeko) —— **大量实现参考**
-- [webark-im-template](https://github.com/dogxii/webark-im-template) —— QQ 聊天界面模板
-- [QQBackup](https://github.com/QQBackup) —— 整理了大量QQ数据库资料
-
-**同时也感谢每一个为WeQ及相关项目做出贡献的开发者**：
-
-<a href="https://github.com/H3CoF6/WeQ/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=H3CoF6/WeQ" />
-</a>
-
-> [!important]
->
-> 欢迎加入QQ群讨论，代码问题更建议在issue提出哦
->
-> [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
-> <img src="./docs/images/image-20260719193253644.png" alt="image-20260719193253644" style="zoom: 50%;" />
->
-> > TG群组正在建设中
-
-> 没有Star History了喵  
+> 没有Star History了喵\~\~\~

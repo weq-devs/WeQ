@@ -66,10 +66,10 @@ export function AnnualReportEntry({
 
   return (
     <div className="weq-entry">
-      <div className="weq-entry-brand">
-        <span className="weq-entry-brand-rule" aria-hidden />
-        WEQ CHAT WRAPPED
-      </div>
+      {/*<div className="weq-entry-brand">*/}
+      {/*  <span className="weq-entry-brand-rule" aria-hidden />*/}
+      {/*  WEQ CHAT WRAPPED*/}
+      {/*</div>*/}
 
       <div className="weq-entry-stage">
         <p className="weq-entry-kicker">
