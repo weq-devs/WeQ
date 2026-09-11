@@ -753,14 +753,10 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web（每平台一包）：
-              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) /
-              Linux x64 [下载链接](${{ steps.prep.outputs.web_linux_x64_url }}) /
-              Linux arm64 [下载链接](${{ steps.prep.outputs.web_linux_arm64_url }}) /
-              macOS Intel [下载链接](${{ steps.prep.outputs.web_darwin_x64_url }}) /
-              macOS Apple Silicon [下载链接](${{ steps.prep.outputs.web_darwin_arm64_url }})
+            - 浏览器版 Web：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
-            欢迎大家测试使用新的功能喵~
+            **欢迎大家测试使用新的功能喵~**
           file_path: /tmp/release/${{ steps.prep.outputs.exe }}
           file_type: file
           file_name: ${{ steps.prep.outputs.exe }}
@@ -785,11 +781,7 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web（每平台一包）：
-              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) /
-              Linux x64 [下载链接](${{ steps.prep.outputs.web_linux_x64_url }}) /
-              Linux arm64 [下载链接](${{ steps.prep.outputs.web_linux_arm64_url }}) /
-              macOS Intel [下载链接](${{ steps.prep.outputs.web_darwin_x64_url }}) /
-              macOS Apple Silicon [下载链接](${{ steps.prep.outputs.web_darwin_arm64_url }})
+            - 浏览器版 Web：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
-            欢迎大家测试使用新的功能喵~
+            **欢迎大家测试使用新的功能喵~**
