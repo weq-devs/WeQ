@@ -5998,9 +5998,13 @@ html[data-theme="dark"] .weq-echo {
   }
 
   .weq-mo-month,
-  .weq-mt-more-item {
+  .weq-mt-anim {
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .weq-mt-flash {
+    display: none !important;
   }
 
   .weq-mt-orbit {
@@ -6438,7 +6442,7 @@ html[data-theme="dark"] .weq-report-root {
   justify-content: space-between;
   gap: 20px;
   color: var(--rp-ink-soft);
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.18em;
   text-align: left;
 }
@@ -6448,7 +6452,7 @@ html[data-theme="dark"] .weq-report-root {
   align-items: baseline;
   gap: 7px;
   color: var(--rp-ink-faint);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   white-space: nowrap;
 }
@@ -6456,7 +6460,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-mt-kicker-meta b {
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif-base) !important;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -6548,8 +6552,8 @@ html[data-theme="dark"] .weq-report-root {
   margin: 0;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 15px;
-  letter-spacing: 0.12em;
+  font-size: 16.5px;
+  letter-spacing: 0.1em;
   text-wrap: balance;
 }
 
@@ -6642,20 +6646,7 @@ html[data-theme="dark"] .weq-report-root {
   white-space: nowrap;
 }
 
-.weq-mt-note {
-  margin: 2px 0 0;
-  color: var(--rp-ink-muted);
-  font-family: var(--rp-serif);
-  font-size: 12px;
-  letter-spacing: 0.05em;
-}
-
-.weq-mt-note b {
-  color: var(--rp-mt);
-  font-weight: 600;
-}
-
-/* ── 共同群证据 + 后续小卡 ───────────────────────────────────── */
+/* ── 共同群证据 + 换人名单 ───────────────────────────────────── */
 
 .weq-mt-cluster {
   position: relative;
@@ -6668,8 +6659,8 @@ html[data-theme="dark"] .weq-report-root {
 .weq-mt-cluster-in {
   margin: 0;
   color: var(--rp-ink-faint);
-  font-size: 9px;
-  letter-spacing: 0.3em;
+  font-size: 9.5px;
+  letter-spacing: 0.26em;
 }
 
 .weq-mt-chips {
@@ -6685,11 +6676,11 @@ html[data-theme="dark"] .weq-report-root {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  max-width: 26ch;
+  max-width: 24ch;
   overflow: hidden;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 12px;
+  font-size: 13.5px;
   letter-spacing: 0.03em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6698,7 +6689,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-mt-chip i {
   color: var(--rp-mt);
   font-family: var(--rp-serif-base) !important;
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 600;
 }
@@ -6723,71 +6714,49 @@ html[data-theme="dark"] .weq-report-root {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
-  opacity: 0;
-  transform: translateY(7px);
-  transition:
-    opacity 700ms var(--rp-ease-drop),
-    transform 800ms var(--rp-ease-drop);
-}
-
-.weq-report-page[data-enter="in"] .weq-mt-more-item {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .weq-mt-more-rank {
   color: var(--rp-ink-faint);
   font-family: var(--rp-serif-base) !important;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .weq-mt-more .weq-mt-face {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   outline: 0;
   box-shadow: none;
 }
 
 .weq-mt-more .weq-mt-face.is-initial {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .weq-mt-more-name {
-  max-width: 90px;
+  min-width: 0;
   overflow: hidden;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.weq-mt-more-track {
-  width: 58px;
-  height: 1px;
-  overflow: hidden;
-  background: var(--rp-hair);
-}
-
-.weq-mt-more-track i {
-  display: block;
-  height: 100%;
-  background: color-mix(in srgb, var(--rp-mt) 62%, transparent);
-}
-
 .weq-mt-more-val {
+  flex: 0 0 auto;
   color: var(--rp-mt);
   font-family: var(--rp-serif-base) !important;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 .weq-mt-more-unit {
+  flex: 0 0 auto;
   color: var(--rp-ink-faint);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
   letter-spacing: 0.08em;
 }
@@ -6821,72 +6790,73 @@ html[data-theme="dark"] .weq-report-root {
   font-size: 11px;
 }
 
-/* ── 同路人：可换人 + 排序说明 ──────────────────────────────
+/* ── 同路人：主位 + 换人名单 ────────────────────────────────
  *
- * 主体头像/名字缩小一档，让一栏「为什么是 TA」的分析进来；候选人列表变成
- * 按钮，点谁就把谁换到主位，活跃的人用发丝高亮标出。
+ * 字号整体抬一档：这一页的信息量已经被压到「名字 + 数字」，字号再小就
+ * 没有主角了。名单从一行平铺改成四等分的格子，每格是一枚可点的小按钮——
+ * 主位那位不出现在格子里，四格始终在答「下一个换谁」。
  */
 .weq-mt-face-wrap {
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .weq-mt-face {
-  width: 68px;
-  height: 68px;
-  outline-offset: 3px;
+  width: 72px;
+  height: 72px;
+  outline-offset: 4px;
   box-shadow:
-    0 0 0 7px color-mix(in srgb, var(--rp-mt) 9%, transparent),
-    0 0 26px color-mix(in srgb, var(--rp-mt) 24%, transparent);
+    0 0 0 8px color-mix(in srgb, var(--rp-mt) 9%, transparent),
+    0 0 30px color-mix(in srgb, var(--rp-mt) 24%, transparent);
 }
 
 .weq-mt-face.is-initial {
-  font-size: 27px;
-}
-
-.weq-mt-name {
-  margin-top: 6px;
-  font-size: 34px;
-}
-
-.weq-mt-name.is-long {
   font-size: 29px;
 }
 
+.weq-mt-name {
+  margin-top: 7px;
+  font-size: 38px;
+}
+
+.weq-mt-name.is-long {
+  font-size: 32px;
+}
+
 .weq-mt-name.is-xl {
-  font-size: 25px;
+  font-size: 27px;
 }
 
 .weq-mt-countline {
-  margin-top: -1px;
+  margin-top: 1px;
 }
 
 .weq-mt-count {
-  font-size: 72px;
+  font-size: 86px;
 }
 
 .weq-mt-unit b {
-  font-size: 17px;
+  font-size: 19px;
 }
 
 .weq-mt-unit i {
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .weq-mt-rankline {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  margin: 2px 0 0;
+  gap: 9px;
+  margin: 3px 0 0;
   color: var(--rp-ink-faint);
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  letter-spacing: 0.1em;
 }
 
 .weq-mt-rankline b {
   color: var(--rp-mt);
   font-family: var(--rp-serif-base) !important;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -6898,12 +6868,12 @@ html[data-theme="dark"] .weq-report-root {
 .weq-mt-why {
   position: relative;
   z-index: 1;
-  margin: 6px auto 0;
-  max-width: 68ch;
+  margin: 8px auto 0;
+  max-width: 72ch;
   box-sizing: border-box;
-  padding: 8px 12px 7px;
+  padding: 8px 13px 7px;
   border: 1px solid color-mix(in srgb, var(--rp-mt) 22%, var(--rp-hair));
-  border-radius: 3px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--rp-paper-deep) 82%, transparent);
   text-align: left;
 }
@@ -6912,24 +6882,23 @@ html[data-theme="dark"] .weq-report-root {
   display: block;
   color: var(--rp-ink-soft);
   font-family: var(--rp-serif);
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
 }
 
 .weq-mt-why p {
   margin: 3px 0 0;
   color: var(--rp-ink-muted);
   font-family: var(--rp-serif);
-  font-size: 10.5px;
-  line-height: 1.65;
-  letter-spacing: 0.04em;
-  white-space: pre-line;
+  font-size: 12px;
+  line-height: 1.62;
+  letter-spacing: 0.05em;
 }
 
 .weq-mt-cluster {
-  margin-top: 5px;
-  padding-top: 4px;
+  margin-top: 6px;
+  padding-top: 5px;
 }
 
 .weq-mt-more-in {
@@ -6937,70 +6906,141 @@ html[data-theme="dark"] .weq-report-root {
   z-index: 1;
   margin: 5px 0 0;
   color: var(--rp-ink-faint);
-  font-size: 8px;
-  letter-spacing: 0.28em;
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
 }
 
 .weq-mt-more {
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 3px;
-  padding-top: 4px;
+  display: grid;
+  max-width: 772px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin: 4px auto 0;
+  padding: 0;
+}
+
+.weq-mt-switchwrap {
+  position: relative;
+  z-index: 1;
 }
 
 .weq-mt-more-item {
-  gap: 0;
+  min-width: 0;
 }
 
 .weq-mt-switch {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
   box-sizing: border-box;
-  max-width: 158px;
-  padding: 3px 6px;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--rp-hair) 88%, transparent);
+  border-radius: 4px;
   background: none;
   color: inherit;
   font: inherit;
   cursor: pointer;
   transition:
-    border-color 220ms ease,
-    background-color 220ms ease;
+    border-color 240ms ease,
+    background-color 240ms ease,
+    transform 240ms var(--rp-ease-drop);
 }
 
 .weq-mt-switch:hover {
-  border-color: color-mix(in srgb, var(--rp-mt) 30%, transparent);
-}
-
-.weq-mt-switch[data-on="yes"] {
   border-color: color-mix(in srgb, var(--rp-mt) 46%, transparent);
-  background: color-mix(in srgb, var(--rp-mt) 7%, transparent);
+  background: color-mix(in srgb, var(--rp-mt) 6%, transparent);
+  transform: translateY(-2px);
 }
 
-.weq-mt-switch[data-on="yes"] .weq-mt-more-name {
-  color: var(--rp-mt);
+.weq-mt-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--rp-mt) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.weq-mt-switch-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-mt-switch-bottom {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .weq-mt-switch .weq-mt-face {
-  width: 20px;
-  height: 20px;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
   box-shadow: none;
   outline: 0;
 }
 
 .weq-mt-switch .weq-mt-face.is-initial {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .weq-mt-switch .weq-mt-more-name {
-  max-width: 82px;
+  flex: 1 1 auto;
+  max-width: none;
 }
 
 .weq-mt-mood {
-  margin-top: 6px;
-  font-size: 10.5px;
+  margin-top: 7px;
+  font-size: 12.5px;
+}
+
+/* ── 逐层浮现（含换人时整组重播）────────────────────────────
+ *
+ * 这一页不用通用的 .weq-report-line 过渡，而用挂载即播的 keyframes：
+ * 换人时整组靠 `key` 重新挂载，动画会自动重播一次，而翻页进场靠
+ * `[data-enter="in"]` 重新匹配选择器同样会重播 —— 两种触发共用一条规则。
+ */
+.weq-mt-anim {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+.weq-report-page[data-enter="in"] .weq-mt-anim {
+  animation: rp-mt-rise 760ms var(--rp-ease-drop) calc(var(--i, 0) * 85ms) both;
+}
+
+@keyframes rp-mt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 换人时从光环上荡开的一圈波纹 —— 让「换了一个人」被看见。 */
+.weq-mt-flash {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--rp-mt) 52%, transparent);
+  border-radius: 50%;
+  animation: rp-mt-flash 1100ms var(--rp-ease-drop) both;
+}
+
+@keyframes rp-mt-flash {
+  from {
+    opacity: 0.75;
+    transform: scale(0.72);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.06);
+  }
 }
 
 /* 窄画幅：主体与光环各收一档，后续小卡让轨道让步。 */
@@ -7016,28 +7056,28 @@ html[data-theme="dark"] .weq-report-root {
   }
 
   .weq-mt-face {
-    width: 78px;
-    height: 78px;
+    width: 82px;
+    height: 82px;
   }
 
   .weq-mt-name {
-    font-size: 38px;
+    font-size: 42px;
   }
 
   .weq-mt-name.is-long {
-    font-size: 32px;
+    font-size: 36px;
   }
 
   .weq-mt-name.is-xl {
-    font-size: 27px;
+    font-size: 30px;
   }
 
   .weq-mt-count {
-    font-size: 92px;
+    font-size: 96px;
   }
 
   .weq-mt-more {
-    gap: 12px;
+    gap: 8px;
   }
 }
 

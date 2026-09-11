@@ -88,7 +88,8 @@ function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
   const commit = (): void => {
     if (next.handoffIndex == null) return;
     const text = (next.streamingText ?? '').trim();
-    if (text) steps.splice(Math.min(next.handoffIndex, steps.length), 0, { kind: 'thinking', text });
+    if (text)
+      steps.splice(Math.min(next.handoffIndex, steps.length), 0, { kind: 'thinking', text });
     next.handoffIndex = undefined;
   };
 
@@ -573,7 +574,9 @@ export function AssistantPanel({
         return next;
       });
       // 副作用在 setTurns 之外结算：保持上面 updater 纯净（StrictMode 会跑两遍）。
-      const failed = batch.find((s): s is Extract<AssistantStep, { kind: 'error' }> => s.kind === 'error');
+      const failed = batch.find(
+        (s): s is Extract<AssistantStep, { kind: 'error' }> => s.kind === 'error',
+      );
       if (failed) {
         runIdRef.current = null;
         dialog.error('助手出错', failed.message);
