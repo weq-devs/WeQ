@@ -1226,6 +1226,19 @@ export function initAppContext(): AppContext {
         });
       }
 
+      // 年度报告的可用年份也在打开账号时扫好：两条 DISTINCT 日期列的轻查询，
+      // 提前算完让报告目录「打开即出」。结果缓存在 service 里（按 dataRevision），
+      // 失败只记日志 —— 打开报告时会自然重试，不该连累进入账号。
+      const annualReport = this.services?.annualReport;
+      if (annualReport) {
+        void annualReport.getAvailableYears().catch((error) => {
+          logger.error('failed to warm annual report years on account open', {
+            event: 'annual-report-years-warm-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       const mcp = userConfig.getSettings().mcp;
@@ -1634,6 +1647,17 @@ export function initAppContext(): AppContext {
       }
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
       void this.applySsePush(userConfig.getSettings().ssePush);
+
+      // 静态账号同样在打开时预热年度报告的可用年份（与在线账号同口径、同缓存）。
+      const annualReport = this.services?.annualReport;
+      if (annualReport) {
+        void annualReport.getAvailableYears().catch((error) => {
+          logger.error('failed to warm annual report years on account open', {
+            event: 'annual-report-years-warm-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
 
       // Still no anti-recall triggers, no health check and no scheduler.
     },

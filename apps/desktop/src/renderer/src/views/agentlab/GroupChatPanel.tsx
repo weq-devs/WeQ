@@ -8,7 +8,15 @@
  * M2 群骨架：还没有意愿 gate / 关系 / 连锁（M3–M6）。事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { ArrowLeft, AtSign, Send, Trash2, Users, UserMinus, UserPlus, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -16,6 +24,7 @@ import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { ChatBubble, type FaceContext } from './ChatBubble';
+import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 
 interface PersonaLite {
@@ -51,15 +60,15 @@ export function GroupChatPanel({
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const detail = trpc.account.getAgentLabGroupDetail.useQuery({ groupId });
-  // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
-  // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
-  const initialSessionId = useRef(sessionId).current;
+  // 当前真实会话 id：null = 草稿。草稿升级成真会话时更新状态，让 conversation 查询
+  // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const sessionIdRef = useRef<string | null>(sessionId);
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(
-    { groupId, sessionId: initialSessionId ?? undefined },
-    { refetchOnMount: 'always', staleTime: 0, enabled: !!initialSessionId },
+    { groupId, sessionId: currentSessionId ?? undefined },
+    { refetchOnMount: 'always', staleTime: 0, enabled: !!currentSessionId },
   );
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
@@ -116,6 +125,13 @@ export function GroupChatPanel({
     setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
   }, [conversation.data]);
 
+  // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
+  // 每帧重建（unsubscribe + 重新 subscribe），事件恰好落在空窗期就丢了 → 用 ref 拿最新实现。
+  const dialogRef = useRef(dialog);
+  dialogRef.current = dialog;
+  const utilsRef = useRef(utils);
+  utilsRef.current = utils;
+
   // 群聊事件流：按 groupId 过滤，逐条追加（id 去重防重复事件）。
   useEffect(() => {
     const sub = client.account.onGroupChatEvent.subscribe(undefined, {
@@ -129,21 +145,22 @@ export function GroupChatPanel({
           setBusy(false);
           // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
           const sid = sessionIdRef.current;
-          void utils.account.getAgentLabGroupConversation.invalidate({
+          void utilsRef.current.account.getAgentLabGroupConversation.invalidate({
             groupId,
             ...(sid ? { sessionId: sid } : {}),
           });
           // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
-          void utils.account.listAgentLabGroupSessions.invalidate({ groupId });
+          void utilsRef.current.account.listAgentLabGroupSessions.invalidate({ groupId });
         } else if (ev.kind === 'error') {
           setBusy(false);
-          dialog.error('群聊出错', ev.message);
+          dialogRef.current.error('群聊出错', ev.message);
         }
       },
       onError: (err) => console.error('[groupchat] event subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [groupId, dialog, utils]);
+    // 只按 groupId 过滤，其余状态全走 ref / 稳定 setter —— 订阅建一次即可，不随渲染重建。
+  }, [groupId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -183,11 +200,18 @@ export function GroupChatPanel({
         const session = await createSession.mutateAsync({ groupId });
         sid = session.id;
         sessionIdRef.current = sid;
+        // 把查询切到新会话：查询变为 enabled，事件流万一漏发也能从磁盘把已落库消息合并回来。
+        setCurrentSessionId(sid);
         await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
         onSessionCreated(sid);
       }
       await send.mutateAsync({ groupId, text, mentions, sessionId: sid });
       // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
+      // 发送完成后立刻从磁盘刷一次：漏掉的事件对应的消息已落库，合并 effect 会按 id 补齐。
+      void utils.account.getAgentLabGroupConversation.invalidate({
+        groupId,
+        sessionId: sid,
+      });
     } catch (e) {
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
@@ -305,18 +329,21 @@ export function GroupChatPanel({
         ) : (
           history.map((m, index) => {
             const meta = metaFor(m.senderId, m.senderKind, nameById.get(m.senderId) ?? '克隆体');
+            const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
             return (
-              <ChatBubble
-                key={m.id || `${m.senderId}-${index}`}
-                mine={m.senderKind === 'user'}
-                bot={meta.bot}
-                name={meta.name}
-                uin={meta.uin}
-                text={m.text}
-                faces={meta.faces}
-                personaId={meta.personaId}
-                onMediaLoad={scrollToBottom}
-              />
+              <Fragment key={m.id || `${m.senderId}-${index}`}>
+                {shouldShowChatTime(prevTs, m.ts) ? <ChatTimeDivider ts={m.ts} /> : null}
+                <ChatBubble
+                  mine={m.senderKind === 'user'}
+                  bot={meta.bot}
+                  name={meta.name}
+                  uin={meta.uin}
+                  text={m.text}
+                  faces={meta.faces}
+                  personaId={meta.personaId}
+                  onMediaLoad={scrollToBottom}
+                />
+              </Fragment>
             );
           })
         )}

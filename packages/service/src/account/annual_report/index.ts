@@ -14,7 +14,9 @@ export {
   rhythmPage,
   voicePage,
   homePage,
-  interactionsPage,
+  atPage,
+  pokePage,
+  echoPage,
   monthsPage,
   matePage,
   qzonePage,
@@ -50,11 +52,13 @@ export type {
 } from './pages/voice/types';
 export type { HomePageData, HomeGroupTop, HomeTopicWord } from './pages/home/types';
 export type {
-  InteractionsPageData,
   InteractionsPerson,
   InteractionsGroupTop,
   InteractionsEcho,
-} from './pages/interactions/types';
+} from './pages/interaction-shared';
+export type { AtPageData } from './pages/at/types';
+export type { PokePageData } from './pages/poke/types';
+export type { EchoPageData } from './pages/echo/types';
 export type { MonthsPageData, MonthFriendEntry, MonthCompanionCell } from './pages/months/types';
 export type { MatePageData, MateCandidate, MateSharedGroup } from './pages/mate/types';
 export type {

@@ -4,12 +4,13 @@
  *  - 草稿会话：点克隆体进来就是新草稿，发第一条消息才落库建会话（sessionId null → 真 id），
  *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, Send, Settings, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { ChatBubble, type FaceContext } from './ChatBubble';
+import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -27,6 +28,8 @@ export interface ClonePersonaLite {
 interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
+  /** 该条消息的时间戳（持久化回合来自库里的 ts，本地回合取发送/生成时刻）。 */
+  ts: number;
 }
 
 export function CloneChatPanel({
@@ -91,7 +94,7 @@ export function CloneChatPanel({
   // 首次加载持久化对话（真实会话）。
   useEffect(() => {
     if (!seeded.current && conversation.data && conversation.data.length > 0) {
-      setHistory(conversation.data.map((t) => ({ role: t.role, text: t.text })));
+      setHistory(conversation.data.map((t) => ({ role: t.role, text: t.text, ts: t.ts })));
       seeded.current = true;
     }
   }, [conversation.data]);
@@ -105,7 +108,7 @@ export function CloneChatPanel({
     const text = input.trim();
     setInput('');
     if (composerRef.current) composerRef.current.style.height = 'auto';
-    const nextHistory = [...history, { role: 'user' as const, text }];
+    const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
     setHistory(nextHistory);
     try {
       // 草稿会话：真正发第一条消息时才落库建会话（与 WeQ 助手一致）。
@@ -147,7 +150,7 @@ export function CloneChatPanel({
       let acc = nextHistory;
       for (let i = 0; i < segments.length; i += 1) {
         const seg = segments[i]!;
-        acc = [...acc, { role: 'assistant' as const, text: seg }];
+        acc = [...acc, { role: 'assistant' as const, text: seg, ts: Date.now() }];
         setHistory(acc);
         if (i < segments.length - 1) {
           await sleep(Math.min(1600, 320 + seg.length * 55));
@@ -208,31 +211,31 @@ export function CloneChatPanel({
         {history.length === 0 ? (
           <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
         ) : (
-          history.map((item, index) =>
-            item.role === 'user' ? (
-              <ChatBubble
-                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                key={`u-${index}`}
-                mine
-                name="我"
-                uin={selfUin}
-                text={item.text}
-              />
-            ) : (
-              <ChatBubble
-                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                key={`a-${index}`}
-                mine={false}
-                bot
-                name={persona.name}
-                uin={clonedUin}
-                text={item.text}
-                faces={faces}
-                personaId={personaId}
-                onMediaLoad={scrollTranscriptToBottom}
-              />
-            ),
-          )
+          history.map((item, index) => {
+            const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
+            const bubble =
+              item.role === 'user' ? (
+                <ChatBubble mine name="我" uin={selfUin} text={item.text} />
+              ) : (
+                <ChatBubble
+                  mine={false}
+                  bot
+                  name={persona.name}
+                  uin={clonedUin}
+                  text={item.text}
+                  faces={faces}
+                  personaId={personaId}
+                  onMediaLoad={scrollTranscriptToBottom}
+                />
+              );
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+              <Fragment key={`${item.role}-${index}`}>
+                {shouldShowChatTime(prevTs, item.ts) ? <ChatTimeDivider ts={item.ts} /> : null}
+                {bubble}
+              </Fragment>
+            );
+          })
         )}
       </div>
       <div className="weq-agentlab-composer">

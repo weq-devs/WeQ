@@ -540,10 +540,11 @@ export class GroupMsgDb {
   }
 
   /**
-   * 群聊互动的年度聚合：我自己发起的戳一戳与 @、别人直接 @ 到我的群分布、
-   * 以及全群的「复读」回合（连续相同正文 >3 条，且至少两个人）。一次性全量
-   * 扫描时间窗内的消息正文 —— 这是年度报告里最重的页面之一，页面排得靠后，
-   * 由调用方决定何时计算。
+   * 群聊互动的年度聚合，年度报告 @ / 戳 / 复读三页共用：我自己发起的戳一戳与
+   * 别人戳我、我 @ 出去的与别人 @ 到我的（含各自的去重人数）、以及全群与「我参与
+   * 过」的复读回合（连续相同正文 >3 条，且至少两个人）。一次性全量扫描时间窗内
+   * 的消息正文 —— 这是年度报告里最重的统计之一，页面排得靠后，由调用方决定何时
+   * 计算。
    *
    * 扫法：先按时间窗取一次 DISTINCT 群号，再**逐群**把该窗正文行取出解码并
    * 当场聚合。绝不把所有群的整年消息同时装进内存 —— 任一时刻只有当前群的一
@@ -561,12 +562,19 @@ export class GroupMsgDb {
     const selfUin = opts.selfUin !== undefined && opts.selfUin > 0n ? opts.selfUin : 0n;
 
     const pokeTargets = new Map<string, PersonAgg>();
+    const pokeMeTargets = new Map<string, PersonAgg>();
     const atTargets = new Map<string, PersonAgg>();
     const atMeGroups = new Map<string, number>();
+    /** 在人群里喊过我的不同人（uid / uin 兜底 key）。 */
+    const atMeSenders = new Set<string>();
     let pokeTotal = 0;
+    let pokeMeTotal = 0;
     let atTotal = 0;
     const echo = {
+      runs: 0,
+      messages: 0,
       participatedRuns: 0,
+      mineLongest: null as GroupEchoLongest | null,
       longest: null as GroupEchoLongest | null,
     };
 
@@ -588,18 +596,23 @@ export class GroupMsgDb {
       const finalize = (): void => {
         if (!current || current.count < ECHO_AT_LEAST_COUNT) return;
         if (current.participants.size < 2) return;
-        if (current.mine) echo.participatedRuns += 1;
-        if (
-          !echo.longest ||
-          current.count > echo.longest.count ||
-          (current.count === echo.longest.count &&
-            `${groupCode}:${current.sig}` < `${echo.longest.groupCode}:${echo.longest.text}`)
-        ) {
-          echo.longest = {
-            groupCode,
-            count: current.count,
-            text: current.sig.slice(0, ECHO_TEXT_KEEP),
-          };
+        echo.runs += 1;
+        echo.messages += current.count;
+        const entry = {
+          groupCode,
+          count: current.count,
+          text: current.sig.slice(0, ECHO_TEXT_KEEP),
+        };
+        // 冠军并列时比「群号:正文」，结果可复现（与 pickTargetTop 同一套约定）。
+        const beats = (champion: GroupEchoLongest | null): boolean =>
+          !champion ||
+          current!.count > champion.count ||
+          (current!.count === champion.count &&
+            `${groupCode}:${current!.sig}` < `${champion.groupCode}:${champion.text}`);
+        if (beats(echo.longest)) echo.longest = entry;
+        if (current.mine) {
+          echo.participatedRuns += 1;
+          if (beats(echo.mineLongest)) echo.mineLongest = entry;
         }
       };
 
@@ -616,15 +629,35 @@ export class GroupMsgDb {
             const poke = element as GrayTipPokeElement;
             if (poke.detailedId !== POKE_DETAILED_ID) continue;
             const parties = pokeParties(poke);
-            if (parties.initiatorUid === selfUid || parties.initiatorUin === String(selfUin)) {
+            const iAmInitiator =
+              (selfUid !== '' && parties.initiatorUid === selfUid) ||
+              (selfUin > 0n &&
+                parties.initiatorUin !== '' &&
+                parties.initiatorUin === String(selfUin));
+            const targetIsMe =
+              (selfUid !== '' && parties.targetUid === selfUid) ||
+              (selfUin > 0n && parties.targetUin !== '' && parties.targetUin === String(selfUin));
+            // 自己戳自己两边都算，跳过；其余按方向各进各的账。
+            if (iAmInitiator && !targetIsMe) {
               pokeTotal += 1;
-              if (parties.targetUid === '' && parties.targetUin === '') continue;
-              bumpTarget(pokeTargets, {
-                groupCode,
-                targetUid: parties.targetUid,
-                targetUin: parties.targetUin,
-                name: parties.targetName,
-              });
+              if (parties.targetUid !== '' || parties.targetUin !== '') {
+                bumpTarget(pokeTargets, {
+                  groupCode,
+                  targetUid: parties.targetUid,
+                  targetUin: parties.targetUin,
+                  name: parties.targetName,
+                });
+              }
+            } else if (targetIsMe && !iAmInitiator) {
+              pokeMeTotal += 1;
+              if (parties.initiatorUid !== '' || parties.initiatorUin !== '') {
+                bumpTarget(pokeMeTargets, {
+                  groupCode,
+                  targetUid: parties.initiatorUid,
+                  targetUin: parties.initiatorUin,
+                  name: parties.initiatorName,
+                });
+              }
             }
             continue;
           }
@@ -661,6 +694,8 @@ export class GroupMsgDb {
               Number(targetUin) === Number(selfUin));
           if (!mine && hitMe && isPersonMention(at)) {
             atMeGroups.set(groupCode, (atMeGroups.get(groupCode) ?? 0) + 1);
+            const sender = senderUid || (senderUin > 0n ? `uin:${senderUin}` : '');
+            if (sender) atMeSenders.add(sender);
           }
         }
 
@@ -690,12 +725,18 @@ export class GroupMsgDb {
         total: pokeTotal,
         top: pickTargetTop(pokeTargets),
       },
+      pokeMe: {
+        total: pokeMeTotal,
+        top: pickTargetTop(pokeMeTargets),
+      },
       at: {
         total: atTotal,
+        distinct: atTargets.size,
         top: pickTargetTop(atTargets),
       },
       atMe: {
         total: [...atMeGroups.values()].reduce((sum, count) => sum + count, 0),
+        distinct: atMeSenders.size,
         topGroup: pickAtMeTop(atMeGroups),
       },
       echo,
@@ -1004,6 +1045,7 @@ function isPersonMention(at: AtElement): boolean {
 function pokeParties(poke: GrayTipPokeElement): {
   initiatorUid: string;
   initiatorUin: string;
+  initiatorName: string;
   targetUid: string;
   targetUin: string;
   targetName: string;
@@ -1039,10 +1081,13 @@ function pokeParties(poke: GrayTipPokeElement): {
   const initiatorUin = /^\d+$/.test(attr('uin_str2')) ? attr('uin_str2') : '';
   const targetName =
     poke.actionTarget?.nickname?.trim() || attr('nick_str1') || jsonPeople[0]?.nm?.trim() || '';
+  const initiatorName =
+    poke.actionInitiator?.nickname?.trim() || attr('nick_str2') || jsonPeople[1]?.nm?.trim() || '';
 
   return {
     initiatorUid: String(initiatorUid ?? ''),
     initiatorUin,
+    initiatorName,
     targetUid: String(targetUid ?? ''),
     targetUin,
     targetName,

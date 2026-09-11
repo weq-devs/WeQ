@@ -601,7 +601,30 @@ jobs:
     needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0：下面的 pre-release 判定要用 merge-base 追 tag 是否落在 dev 上。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # tag 打在 dev 分支上时，把这份 Release 标成 pre-release；
+      # tag 打在 main（或其它分支）上时保持正式 Release，行为与之前完全一致。
+      - name: 若 tag 位于 dev 分支则标记为 pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # tag push 时 checkout 在 detached HEAD（即 tag 指向的 commit），
+          # 能到达该 commit 就说明这个 tag 是打在 dev 上的。
+          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev || true
+          if git rev-parse --verify -q refs/remotes/origin/dev >/dev/null \
+             && git merge-base --is-ancestor HEAD refs/remotes/origin/dev; then
+            echo "tag ${TAG} is on dev -> pre-release"
+            gh release edit "${TAG}" --repo "${REPO}" --prerelease
+          else
+            echo "tag ${TAG} is not on dev -> normal release"
+          fi
 
       - name: 生成并写入中文 Release 说明
         env:

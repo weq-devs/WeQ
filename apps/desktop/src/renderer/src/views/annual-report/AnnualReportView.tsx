@@ -53,8 +53,12 @@ function computationDescription(pageId: string): string {
       return '正在逐条解码你发出的消息并分词，最慢的一页，请稍候';
     case 'home':
       return '正在统计各群发言量，并读取说得最多的那个群的正文';
-    case 'interactions':
-      return '正在扫描群消息正文，统计戳一戳、@ 与复读回合';
+    case 'at':
+      return '正在扫描群消息正文，数你 @ 过谁、谁在人群里喊过你';
+    case 'poke':
+      return '正在扫描群消息正文，数戳一戳与被戳的那些一下';
+    case 'echo':
+      return '正在扫描群消息正文，找那些被大家接住的同一句话';
     case 'months':
       return '正在把私聊按月分桶，排出每个月的聊天第一名';
     case 'mate':
