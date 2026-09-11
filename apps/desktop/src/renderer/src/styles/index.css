@@ -5,7 +5,9 @@
 @import "./privacy.css";
 /* ARK Feed 公众号/服务号消息流样式 */
 @import "./ark-feed.css";
-/* streamdown（WeQ 助手流式 Markdown）自带元素样式。自包含编译产物，无需额外 @source。 */
+/* streamdown（WeQ 助手流式 Markdown）的样式入口。注意：v2 起这里面**只有**流式动画关键帧
+ * （sd-fadeIn / blurIn / slideUp 等），正文与控件（表格复制/下载/全屏、代码块头）全靠 Tailwind
+ * 工具类排版，必须靠下面的 @source 把它的编译产物纳入扫描，否则那些类一个都不会生成。 */
 @import "streamdown/styles.css";
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
@@ -16,6 +18,10 @@
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
 @source "../../index.html";
+/* streamdown 的 DOM 来自 node_modules，Tailwind 默认不扫那里；这里显式纳入，它的控件与正文
+ * 工具类才会生成（否则表格控件条退化成行内元素挤在左上角，代码块按钮同样错位）。
+ * 路径指向 pnpm 在 apps/desktop/node_modules 下建的 streamdown 软链，改目录结构时要跟着改。 */
+@source "../../../../node_modules/streamdown/dist/*.js";
 
 /* ──────────────────────────────────────────────────────────────────────
  * Design tokens. shadcn/ui-compatible variable names mapped to Tailwind v4's
@@ -45,6 +51,9 @@ html[data-theme="light"] {
   --input: oklch(0.91 0 0);
   --ring: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
   --radius: 0.5rem;
+  /* streamdown 的表格外层/代码块头用 bg-sidebar + border-sidebar。 */
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
 
   --weq-accent: #0099ff;
   --weq-bg-app: var(--background);
@@ -121,6 +130,8 @@ html[data-theme="dark"],
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
 
   --weq-accent: #56a8f7;
   --weq-bg-app: var(--background);
@@ -353,6 +364,8 @@ html[data-theme="dark"] .chat-empty {
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -9858,6 +9871,19 @@ html[data-theme="dark"] .weq-forward-bubble {
   background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);
 }
 
+/* 「停止中」：点击后到后端 emit `aborted` 之间要等在途的 LLM 请求收尾，这期间按钮
+   得看得出«已经点了»——不走 :disabled 的 0.45 透明度糊掉，改轻微呼吸提示仍在处理。 */
+.weq-asst-stop-btn[aria-busy='true'] {
+  opacity: 0.85;
+  cursor: progress;
+  animation: weq-asst-stop-pulse 1.2s ease-in-out infinite;
+}
+@keyframes weq-asst-stop-pulse {
+  50% {
+    background: color-mix(in srgb, var(--weq-danger, #e5484d) 30%, transparent);
+  }
+}
+
 /* 折叠的过程区 */
 .weq-asst-steps {
   border: 1px solid var(--weq-border-subtle);
@@ -10002,8 +10028,8 @@ html[data-theme="dark"] .weq-forward-bubble {
   word-break: break-word;
   /* 气泡外层是 white-space: pre-wrap（QQ 纯文本消息要保留换行），而 streamdown 在
      blockquote / ul / li 之间会吐出真实的 `\n` 文本节点——继承 pre-wrap 时每个都被
-     画成一个空行，引用块和列表项之间因此裂出大片空白。streamdown 自己在根 div 上写了
-     `whitespace-normal`，但那是 Tailwind 类，@source 不扫 node_modules，编译不出来。
+     画成一个空行，引用块和列表项之间因此裂出大片空白。streamdown 根节点自己也带
+     `whitespace-normal`，但未分层的这条优先级更高、不依赖 @source 是否生效。
      `<pre>` 不受影响：UA 样式表给它的 white-space: pre 压得过这里的继承值。 */
   white-space: normal;
 }
@@ -10261,8 +10287,9 @@ html[data-theme="dark"] .weq-forward-bubble {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-/* streamdown 把 `**粗体**` 渲染成 <span class="font-semibold">（不是 <strong>），
-   而那个 Tailwind 类同样编译不出来 —— 粗体会完全不粗。挂它的稳定 data 属性。 */
+/* streamdown 把 `**粗体**` 渲染成 <span class="font-semibold">（不是 <strong>）。
+   上面的 @source 已经能把 font-semibold 编出来了，这条只是不依赖扫描结果的兜底 ——
+   未分层的规则优先级高于 Tailwind 的 @layer utilities，无论扫描是否生效都成立。 */
 .weq-asst-md [data-streamdown='strong'] {
   font-weight: 600;
 }

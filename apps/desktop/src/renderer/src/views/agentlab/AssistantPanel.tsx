@@ -5,6 +5,9 @@
  * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
  * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
  * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
+ *
+ * 流式部分见下面两处：事件按动画帧合并 flush（`flush`），正文段的归档时机由 `applySteps`
+ * 的 `handoffIndex` 控制——工具轮次之间不再把气泡清空，细节见两处注释。
  */
 
 import {
@@ -23,6 +26,7 @@ import {
   Check,
   ChevronDown,
   Cpu,
+  Loader2,
   Send,
   Settings,
   Sparkles,
@@ -53,6 +57,84 @@ interface Turn {
   streamingText?: string;
   /** 运行中逐字累积的推理内容（reasoning_delta），喂给思考面板。 */
   reasoning?: string;
+  /**
+   * 「当前这段正文」在 `steps` 里待归档的下标。工具调用等过程步骤到来时先记下位置，
+   * 但**不立刻**把正文从气泡挪走——否则气泡会瞬间清空、已读到的字像被撤回；
+   * 等下一段正文开始（或 final/aborted）再插回该位置，顺序与后端持久化一致。
+   */
+  handoffIndex?: number;
+}
+
+/** 后端会在这些过程步骤之前记一条 thinking（`record({kind:'thinking'})`），故它们是一次正文段的边界。 */
+const SEGMENT_BOUNDARY_KINDS: ReadonlySet<AssistantStep['kind']> = new Set([
+  'tool_call',
+  'plan',
+  'notes',
+  'compaction',
+]);
+
+/**
+ * 把一批流式步骤应用到「运行中的最后一条助手回合」。
+ *
+ * 正文段在过程步骤（工具调用等）到来时只记账（记下 `handoffIndex`）而不搬走，让气泡里的字留到
+ * 下一段正文开始；归档位置固定在该批过程步骤**之前**，与后端 `record(thinking)` / `persistable()`
+ * 的顺序对齐，重载后视觉一致。纯函数——清 runId、失效查询、报错弹窗等副作用由调用方结算。
+ */
+function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
+  const steps = [...(turn.steps ?? [])];
+  const next: Turn = { ...turn, steps };
+
+  /** 把气泡里的正文段归档成一条 thinking（插回它在 steps 中该在的位置）。 */
+  const commit = (): void => {
+    if (next.handoffIndex == null) return;
+    const text = (next.streamingText ?? '').trim();
+    if (text)
+      steps.splice(Math.min(next.handoffIndex, steps.length), 0, { kind: 'thinking', text });
+    next.handoffIndex = undefined;
+  };
+
+  for (const step of batch) {
+    switch (step.kind) {
+      case 'text_delta': {
+        // 上一段正文到此结束（它会先归档进 steps），本条 delta 开启新的一段。
+        const startsNewSegment = next.handoffIndex != null;
+        commit();
+        next.streamingText = startsNewSegment ? step.text : (next.streamingText ?? '') + step.text;
+        break;
+      }
+      case 'reasoning_delta':
+        // 推理流整轮累积（不按工具轮次清零）：面板里不跳变，且后端也不持久化它。
+        next.reasoning = (next.reasoning ?? '') + step.text;
+        break;
+      case 'final':
+        commit();
+        next.text = step.text || '（没能得出结论。）';
+        next.streamingText = '';
+        next.reasoning = '';
+        next.running = false;
+        break;
+      case 'aborted': {
+        // 中断在工具轮次之间时，气泡里那段其实是「思考」而非答复（后端同样把它清零了），
+        // 所以要先看 handoffIndex 再决定能不能拿它当半截答复。
+        const visible = next.handoffIndex != null ? '' : (next.streamingText ?? '').trim();
+        commit();
+        next.text = visible || next.text || '（已停止）';
+        next.streamingText = '';
+        next.reasoning = '';
+        next.running = false;
+        break;
+      }
+      case 'error':
+        next.running = false;
+        break;
+      default:
+        if (SEGMENT_BOUNDARY_KINDS.has(step.kind) && next.handoffIndex == null) {
+          next.handoffIndex = steps.length;
+        }
+        steps.push(step);
+    }
+  }
+  return next;
 }
 
 function parseSel(key: string): { providerId: string; model: string } | undefined {
@@ -405,12 +487,16 @@ export function AssistantPanel({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 已请求停止、正在等后端收尾（在途 LLM 请求要等它返回/被 signal 掐断才 emit aborted）。
+  const [stopping, setStopping] = useState(false);
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const seeded = useRef(false);
   const runIdRef = useRef<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  /** 是否贴底跟随：用户往上翻阅历史时不抢滚动条，回到底部附近才恢复。 */
+  const stickRef = useRef(true);
 
   // 该会话是否有上次中断留下的断点任务（“继续回答”入口）。final/aborted 后失效刷新。
   const resumeQuery = trpc.account.getAssistantResumeState.useQuery(
@@ -420,6 +506,11 @@ export function AssistantPanel({
 
   const busy = turns.some((t) => t.running);
   const resumable = !busy && resumeQuery.data?.resumable === true;
+
+  // 轮次结束（final / aborted / error）后 busy 转 false，把「停止中」复位。
+  useEffect(() => {
+    if (!busy) setStopping(false);
+  }, [busy]);
   const modelSel = assistantConfig.data?.model
     ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
     : '';
@@ -463,82 +554,71 @@ export function AssistantPanel({
   }, [conversation.data]);
 
   // 实时过程流：累积进"运行中"的最后一条助手回合。镜像 UpdateCard 的订阅范式。
+  //
+  // 事件先入缓冲、按动画帧合并 flush：LLM 一个 token 就是一条事件，逐条 setState 会让每次输出
+  // 都触发一次重渲 + 整段 Markdown 重解析 + 强制滚动，高速输出下直接掉帧。合并后每秒最多 60 次。
   useEffect(() => {
+    let frame: number | null = null;
+    const pending: AssistantStep[] = [];
+
+    const flush = (): void => {
+      frame = null;
+      const batch = pending.splice(0, pending.length);
+      if (batch.length === 0) return;
+      setTurns((prev) => {
+        const idx = prev.length - 1;
+        const turn = prev[idx];
+        if (turn?.role !== 'assistant') return prev;
+        const next = [...prev];
+        next[idx] = applySteps(turn, batch);
+        return next;
+      });
+      // 副作用在 setTurns 之外结算：保持上面 updater 纯净（StrictMode 会跑两遍）。
+      const failed = batch.find(
+        (s): s is Extract<AssistantStep, { kind: 'error' }> => s.kind === 'error',
+      );
+      if (failed) {
+        runIdRef.current = null;
+        dialog.error('助手出错', failed.message);
+        return;
+      }
+      if (batch.some((s) => s.kind === 'final' || s.kind === 'aborted')) {
+        runIdRef.current = null;
+        invalidateConversationRef.current();
+        // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
+        void utils.account.listAssistantSessions.invalidate();
+        // 完成/中断后断点快照被清除或已保存，刷新「继续回答」状态。
+        void utils.account.getAssistantResumeState.invalidate({
+          sessionId: sessionIdRef.current ?? '',
+        });
+      }
+    };
+
     const sub = client.account.onAssistantEvent.subscribe(undefined, {
       onData: ({ runId, step }) => {
         if (runId !== runIdRef.current) return;
-        setTurns((prev) => {
-          const idx = prev.length - 1;
-          const turn = prev[idx];
-          if (turn?.role !== 'assistant') return prev;
-          const next = [...prev];
-          if (step.kind === 'text_delta') {
-            // 正文逐字：累积进流式缓冲，气泡实时渲染。
-            next[idx] = { ...turn, streamingText: (turn.streamingText ?? '') + step.text };
-          } else if (step.kind === 'reasoning_delta') {
-            // 推理逐字：累积进 reasoning，喂思考面板。
-            next[idx] = { ...turn, reasoning: (turn.reasoning ?? '') + step.text };
-          } else if (step.kind === 'tool_call') {
-            // 工具调用开始：此前那段流式正文其实是「工具前的思考」——合成一条 thinking 落进 steps、
-            // 清空流式缓冲/推理（与后端持久化视觉一致），再追加本条 tool_call。
-            const pre = (turn.streamingText ?? '').trim();
-            const steps = [...(turn.steps ?? [])];
-            if (pre) steps.push({ kind: 'thinking', text: pre });
-            steps.push(step);
-            next[idx] = { ...turn, steps, streamingText: '', reasoning: '' };
-          } else if (step.kind === 'final') {
-            next[idx] = {
-              ...turn,
-              text: step.text || '（没能得出结论。）',
-              streamingText: '',
-              reasoning: '',
-              running: false,
-            };
-            runIdRef.current = null;
-            invalidateConversationRef.current();
-            // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
-            void utils.account.listAssistantSessions.invalidate();
-            // 任务已完成 → 断点快照被清除，刷新“继续回答”状态。
-            void utils.account.getAssistantResumeState.invalidate({
-              sessionId: sessionIdRef.current ?? '',
-            });
-          } else if (step.kind === 'aborted') {
-            // 用户取消：把已流出的半截正文定稿为本轮答复（后端也已如此持久化）。
-            next[idx] = {
-              ...turn,
-              text: (turn.streamingText ?? '').trim() || turn.text || '（已停止）',
-              streamingText: '',
-              reasoning: '',
-              running: false,
-            };
-            runIdRef.current = null;
-            invalidateConversationRef.current();
-            void utils.account.listAssistantSessions.invalidate();
-            // 后端已保存断点快照 → 刷新“继续回答”状态（现在应可继续）。
-            void utils.account.getAssistantResumeState.invalidate({
-              sessionId: sessionIdRef.current ?? '',
-            });
-          } else if (step.kind === 'error') {
-            next[idx] = { ...turn, running: false };
-            runIdRef.current = null;
-            dialog.error('助手出错', step.message);
-          } else {
-            next[idx] = { ...turn, steps: [...(turn.steps ?? []), step] };
-          }
-          return next;
-        });
+        pending.push(step);
+        if (frame == null) frame = requestAnimationFrame(flush);
       },
       onError: (err) => console.error('[assistant] event subscription error', err),
     });
-    return () => sub.unsubscribe();
+    return () => {
+      if (frame != null) cancelAnimationFrame(frame);
+      sub.unsubscribe();
+    };
     // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
   }, [utils, dialog]);
 
-  // 新内容时滚到底部。
+  // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [turns]);
+
+  function onTranscriptScroll(): void {
+    const el = transcriptRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }
 
   async function onSend(preset?: string): Promise<void> {
     const raw = preset ?? input;
@@ -560,6 +640,8 @@ export function AssistantPanel({
       setInput('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
     }
+    // 自己发的消息总是要跟到底部（哪怕刚在翻历史）。
+    stickRef.current = true;
     setTurns((prev) => [
       ...prev,
       { role: 'user', text },
@@ -606,14 +688,25 @@ export function AssistantPanel({
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
     }
     setTurns([]);
+    stickRef.current = true;
     runIdRef.current = null;
   }
 
   /** 停止当前任务：请求后端掐断（真正收尾 + 持久化半截答复由后端 emit `aborted` 驱动）。 */
-  function onStop(): void {
+  async function onStop(): Promise<void> {
+    if (stopping) return;
+    // 先给即时反馈：掐断要走 IPC，且后端要等在途的 LLM 请求返回才能收尾，
+    // 这期间按钮停在「停止中…」，否则点了像没反应。
+    setStopping(true);
     const runId = runIdRef.current;
+    // runId 还没回来（发送仍在建会话/起任务）：等 busy 结束由上面的 effect 复位。
     if (!runId) return;
-    abort.mutate({ runId });
+    try {
+      await abort.mutateAsync({ runId });
+    } catch (e) {
+      setStopping(false);
+      dialog.error('停止失败', e instanceof Error ? e.message : String(e));
+    }
   }
 
   /**
@@ -627,7 +720,13 @@ export function AssistantPanel({
       const next = [...prev];
       const last = next[next.length - 1];
       if (last?.role === 'assistant') {
-        next[next.length - 1] = { ...last, running: true, streamingText: '', reasoning: '' };
+        next[next.length - 1] = {
+          ...last,
+          running: true,
+          streamingText: '',
+          reasoning: '',
+          handoffIndex: undefined,
+        };
       } else {
         // 兜底：没有可续的 assistant 回合时补一条空的。
         next.push({ role: 'assistant', text: '', steps: [], running: true });
@@ -701,7 +800,7 @@ export function AssistantPanel({
         </div>
       ) : null}
 
-      <div className="weq-agentlab-transcript" ref={transcriptRef}>
+      <div className="weq-agentlab-transcript" ref={transcriptRef} onScroll={onTranscriptScroll}>
         {turns.length === 0 ? (
           <div className="weq-agentlab-empty weq-asst-empty">
             <span className="weq-asst-empty-icon">
@@ -781,8 +880,22 @@ export function AssistantPanel({
             disabled={busy}
           />
           {busy ? (
-            <button className="weq-set-btn weq-asst-stop-btn" onClick={onStop} title="停止本轮任务">
-              <Square size={13} strokeWidth={2.6} /> 停止
+            <button
+              className="weq-set-btn weq-asst-stop-btn"
+              onClick={() => void onStop()}
+              disabled={stopping}
+              aria-busy={stopping}
+              title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
+            >
+              {stopping ? (
+                <>
+                  <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
+                </>
+              ) : (
+                <>
+                  <Square size={13} strokeWidth={2.6} /> 停止
+                </>
+              )}
             </button>
           ) : (
             <button className="weq-set-btn" onClick={() => void onSend()} disabled={!input.trim()}>

@@ -7,7 +7,14 @@ import {
   type CSSProperties,
   type ReactElement,
 } from 'react';
-import { ChevronDown, ChevronUp, LoaderCircle, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  LoaderCircle,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+} from 'lucide-react';
 import type { ReportManifest } from '@weq/service';
 import { ALL_TIME_YEAR, reportEraLabel, reportPeriodLabel } from '@weq/service/report-time';
 import { client, trpc } from '../../trpc/client';
@@ -245,6 +252,12 @@ function ReportDeckView({
   const [states, setStates] = useState<Record<string, PageState>>({});
   const generationRef = useRef(0);
   const cacheRef = useRef(new Map<string, unknown>());
+  /** 全屏播放的宿主：元素级全屏请求打在报告根节点上，应用自己的标题栏与图标栏留在外面。 */
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 报告内的浮层宿主（目前只有 QQ 空间分享灯箱）—— 详见 ReportViewContextValue。 */
+  const overlayHostRef = useRef<HTMLDivElement>(null);
+  /** 由 fullscreenchange 同步，不自己猜：Esc 退出时按钮文案也要跟着回正。 */
+  const [isFullscreen, setIsFullscreen] = useState(false);
   /** 摘页时要知道 pageId 在当前 deck 里的位置；放在 ref 里避免让 loadPage 随页变化重建。 */
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -288,6 +301,34 @@ function ReportDeckView({
     clearReportFont();
     setPages(candidatePages);
   }, [year, candidatePages]);
+
+  /**
+   * 全屏播放：把整个报告根节点交给 Fullscreen API。
+   *
+   * 用元素级全屏而不是「把窗口拉大」—— 报告根节点之外还有应用自己的标题栏和
+   * 左侧图标栏，元素级全屏能把它们一起挡在 fullscreen 层之外，只留报告本身。
+   * 退出有两条路：浏览器原生的 Esc，或再点一次这个按钮；两条路都触发
+   * fullscreenchange，按钮文案据此同步。
+   */
+  const toggleFullscreen = useCallback(() => {
+    const element = rootRef.current;
+    if (!element) return;
+    if (document.fullscreenElement === element) {
+      void document.exitFullscreen();
+      return;
+    }
+    if (typeof element.requestFullscreen !== 'function') return;
+    // 被浏览器拒绝（不是用户手势、权限策略等）时静默 —— 报告本身照常可用。
+    void element.requestFullscreen().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = (): void => {
+      setIsFullscreen(document.fullscreenElement === rootRef.current);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   // 离开报告时把注入的换字样式收干净，别影响应用其余部分。
   useEffect(() => clearReportFont, []);
@@ -411,8 +452,18 @@ function ReportDeckView({
       reportFontId,
       setReportFontId,
       registerPageGuard,
+      overlayHostRef,
     }),
-    [year, scopeLabel, pages, states, reportFontId, setReportFontId, registerPageGuard],
+    [
+      year,
+      scopeLabel,
+      pages,
+      states,
+      reportFontId,
+      setReportFontId,
+      registerPageGuard,
+      overlayHostRef,
+    ],
   );
 
   if (manifestLoading && !manifest) {
@@ -450,8 +501,19 @@ function ReportDeckView({
   const onEntry = index === 0;
 
   return (
-    <div className="weq-report-root is-deck" data-entry={onEntry ? 'yes' : 'no'}>
+    <div className="weq-report-root is-deck" ref={rootRef} data-entry={onEntry ? 'yes' : 'no'}>
       <div className="weq-report-chrome">
+        <button
+          type="button"
+          className="weq-report-fullscreen"
+          onClick={toggleFullscreen}
+          aria-pressed={isFullscreen}
+          aria-label={isFullscreen ? '退出全屏播放' : '全屏播放'}
+          title={isFullscreen ? '退出全屏（Esc）' : '全屏播放'}
+        >
+          {isFullscreen ? <Minimize2 size={14} aria-hidden /> : <Maximize2 size={14} aria-hidden />}
+          <span>{isFullscreen ? '退出全屏' : '全屏播放'}</span>
+        </button>
         <div className="weq-report-brand">
           <span
             className={`weq-report-brand-year${year === ALL_TIME_YEAR ? ' is-all-time' : ' weq-number'}`}
@@ -577,6 +639,8 @@ function ReportDeckView({
         <span className="weq-report-hint-arrow" aria-hidden />
         向下滑动继续
       </div>
+      {/* 报告内的浮层宿主 —— 全屏播放时分享灯箱挂这里，否则仍挂 body。详见 reportContext.ts。 */}
+      <div className="weq-report-overlay" ref={overlayHostRef} />
     </div>
   );
 }

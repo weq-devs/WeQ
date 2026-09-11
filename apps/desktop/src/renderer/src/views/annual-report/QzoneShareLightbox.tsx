@@ -18,6 +18,7 @@ import { Check, Earth, LoaderCircle, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { useSelfFace } from './useSelfFace';
+import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
@@ -41,14 +42,30 @@ const UGC_RIGHT_OPTIONS: Array<{ value: UgcRight; label: string; icon: typeof Ea
 export function QzoneShareLightbox({
   year,
   slides,
+  getHtml,
   onClose,
 }: {
   year: number;
+  /** 已加载的页面（报告顺序），用于预览清单与勾选。 */
   slides: ExportSlide[];
+  /** 现取导出用的自包含 HTML（与长图 / HTML / PDF 同一份）。 */
+  getHtml: () => Promise<string>;
   onClose: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const selfFace = useSelfFace();
+  const { overlayHostRef } = useReportView();
+  /**
+   * portal 目标只在挂载时判一次：全屏播放时报告根节点是 fullscreen element，
+   * 挂在 document.body 的节点会被整个挡在 fullscreen 层外、完全看不见，所以要
+   * 改挂报告自己的浮层宿主；而平常挂在 body 才能连应用图标栏一起压暗
+   * （图标栏的 z-index 高于报告根）。灯箱开着时全屏开关在遮罩之下，状态不会
+   * 中途改变，所以这一次判定在灯箱的生命周期里恒成立。
+   */
+  const [portalTarget] = useState<Element>(() => {
+    const host = overlayHostRef.current;
+    return host?.closest(':fullscreen') ? host : document.body;
+  });
 
   // 默认全选；超过 9 张时按报告顺序截前 9 张。
   const initialSelected = useMemo(
@@ -108,20 +125,13 @@ export function QzoneShareLightbox({
     if (!canSubmit) return;
     setBusy(true);
     try {
-      const picked = slides
-        .map((s, i) => ({ s, i }))
-        .filter(({ i }) => selected.has(i))
-        .map(({ s }) => ({
-          pageId: s.page.id,
-          title: s.page.title,
-          description: s.page.description,
-          category: s.page.category,
-          data: s.data,
-        }));
+      // 图片由主进程从同一份 HTML 里逐页截图：`orderedSelected` 是已勾选页在
+      // 报告顺序里的下标，主进程按它取第 N 张 `.slide`，顺序与九宫格预览一致。
       const result = await client.account.annualReport.shareQzone.mutate({
         year,
         content: content.trim(),
-        slides: picked,
+        html: await getHtml(),
+        slideIndexes: orderedSelected,
         ugcRight,
       });
       pushToast({
@@ -283,6 +293,6 @@ export function QzoneShareLightbox({
         </footer>
       </div>
     </div>,
-    document.body,
+    portalTarget,
   );
 }

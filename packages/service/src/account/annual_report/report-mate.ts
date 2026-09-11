@@ -6,6 +6,9 @@
  *
  * 口径一句话：榜单不按「共同群最多」排，而按群经过独立性加权后的「同频指数」。
  * 十个互相复制的群只算一个圈子；被大群完全套住的小群也会被摊薄。
+ *
+ * 文案刻意只留一句、最多两句：这一页的主题是「同一个人总在不同的群里出现」，
+ * 数字和名字才是主角，解释只负责把「为什么排这里」交代清楚就收住。
  */
 
 /** 长图/HTML 里参与文案的最小候选形状（与 MateCandidate 字段对齐）。 */
@@ -15,6 +18,9 @@ export type MateCopyCandidate = {
   score?: number;
   groups?: Array<{ groupName?: string; memberCount?: number; weight?: number }>;
 };
+
+/** 页尾收束语 —— 四端共用一句，避免各端各写一版。 */
+export const MATE_MOOD = '世界很大，圈子很小——下次再遇见，不妨说句「你好」。';
 
 /** 「第 N 位」之类的榜位措辞。 */
 export function mateRankLabel(rank: number): string {
@@ -26,13 +32,13 @@ export function mateRankLabel(rank: number): string {
 /** 一句榜单主语：榜首/第 N 位 + 名字。 */
 export function mateHeadline(candidate: MateCopyCandidate, rank: number): string {
   const name = String(candidate.name ?? 'TA');
-  if (rank <= 0) return `${name}，这一年和你圈子重叠最深的人`;
+  if (rank <= 0) return `${name}，和你圈子重叠最深的人`;
   return `${name}，${mateRankLabel(rank)}的同路人`;
 }
 
 /**
- * 具体为什么是这一位。把「数量最多 ≠ 排名最高」讲明白，并落到这个人自己的
- * 数字上 —— 不写死成一句口号，导出/展示端只需排两行文字。
+ * 具体为什么是这一位：一句话，落到这个人自己的数字上。榜首那句顺带把
+ * 「数量最多 ≠ 排名最高」讲明白（指数会给更独立的圈子更高权重）。
  */
 export function mateAnalysisText(
   candidate: MateCopyCandidate,
@@ -42,28 +48,18 @@ export function mateAnalysisText(
   const shared = Number(candidate.sharedCount ?? 0);
   const score = Number(candidate.score ?? 0);
   const maxShared = Math.max(1, ...all.map((item) => Number(item.sharedCount ?? 0)));
-  const name = String(candidate.name ?? 'TA');
   const sharedMost = shared >= maxShared;
   const scoreText = Number.isFinite(score)
     ? `${score >= 100 ? Math.round(score) : score.toFixed(score >= 10 ? 1 : 2)}`
     : '0';
 
   if (rank <= 0) {
-    // 榜首：即使不是共同群最多，也把「为什么」讲明白。
     return sharedMost
-      ? `${name} 的共同群数正好也最多（${shared} 个），加权重合指数 ${scoreText} ——
-         这一位同时赢在「数量」和「圈子的独立性」上。算法并不只数共同群：十个互相
-         复制的群只算一个圈子，TA 的群彼此越错开，指数才越高。`
-      : `${name} 并不是共同群最多的那一位，却是「同频指数」最高的：指数 ${scoreText} 不只数
-         共同群个数，还会给更独立、不互相重复的圈子更高权重 —— TA 的 ${shared} 个共同群里，
-         真正不一样的圈子更多，重合质量也更高。`;
+      ? `共同在 ${shared} 个群里碰过面，同频指数 ${scoreText}——数量和圈子的独立性都是第一。`
+      : `共同在 ${shared} 个群里碰过面，同频指数 ${scoreText}——TA 的圈子更独立，重合质量最高。`;
   }
-
   if (sharedMost) {
-    return `单看共同群数，${name} 其实是候选里最多的（${shared} 个）；之所以排在 ${mateRankLabel(
-      rank,
-    )}，是因为这些群彼此有一些高度重合/复制关系，按独立性加权后指数 ${scoreText} 不如榜首。`;
+    return `共同群其实最多（${shared} 个），但圈子彼此重合，加权后指数 ${scoreText}。`;
   }
-  return `${name} 和你共同在 ${shared} 个群，按群独立性加权的同频指数是 ${scoreText} ——
-     指数不只是数「重逢了几次」，重复的圈子会被摊薄，越独立、越不一样的群分量越重。`;
+  return `共同 ${shared} 个群，同频指数 ${scoreText}——圈子越独立，分量越重。`;
 }

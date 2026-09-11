@@ -29,6 +29,11 @@ import {
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
 import { decodeBlobHex, decodeBlobText } from './blob_decoder';
+import {
+  JS_SANDBOX_DEFAULT_TIMEOUT_MS,
+  JS_SANDBOX_MAX_TIMEOUT_MS,
+  runJsSandbox,
+} from './js_sandbox';
 import { elementAiDetail, elementsToAiText, mediaForElements } from './msg_rich';
 import {
   recentContactToWire,
@@ -2815,6 +2820,9 @@ export const AI_TOOLS: AiTool[] = [
       '在当前 QQ 账号本地数据库里执行一条 SQL 语句（SELECT / INSERT / UPDATE / DELETE / PRAGMA / DDL 等均可）。' +
       '`dbName` 是数据库文件名（如 `msg.db`、`login.db`、`bc_09.db`），可先用 list_databases 查；`table` 是参考用的表名，' +
       '仅用于结果里的上下文，不参与执行。执行成功返回 `{ success: true, result }`，失败返回 `{ success: false, error }`。' +
+      '⚠️ 这是**最后手段**：直写 SQL 要先猜表结构/列号、结果难读且易查错，非常低效；请优先用上层专用工具' +
+      '（find_contact / get_messages / search_messages / inspect_timeline / rank_* / get_period_overview 等），' +
+      '只有它们覆盖不到时才用本工具，并用 list_db_tables + list_db_columns 摸清结构后只写 SELECT。' +
       '⚠️ 写操作会真的改 QQ 数据库，谨慎使用，建议 QQ 关闭时操作。',
     input: z.object({
       dbName: z
@@ -3741,6 +3749,47 @@ export const AI_TOOLS: AiTool[] = [
         };
       }
       return { ok: true, packId, hash, path, hint: '明文 GIF 已落盘，可用文件工具查看。' };
+    },
+  }),
+
+  // ── 代码沙箱 ─────────────────────────────────────────────────────────────
+  // 上面每个工具都是「一次调用、一个结果」的原子能力；凡是需要**批量 / 聚合 / 跨工具**
+  // 的活（把上百个群逐个核对、按角色筛人、把几份结果 join 后统计），模型只能一个个
+  // 硬调，既慢又容易在参数上反复试错。run_js 把这类活交给一段脚本，它是助手唯一的
+  // 「自己算」入口。
+  //
+  // assistantOnly: true —— 沙箱里的 callTool 能调到 execute_sql 这类可写工具，
+  // 对外只读的 MCP 面板不能开这个口子（server.ts 会过滤掉 assistantOnly）。
+  tool({
+    name: 'run_js',
+    assistantOnly: true,
+    description:
+      '在本地**受限 JS 沙箱**里跑一段 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
+      '\n【沙箱里有什么】① `callTool(name, args)`：**异步**调用任意其他工具（内置工具和你接入的外部 MCP 工具都可以，参数与直接调用那个工具时完全一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
+      '\n【怎么用我】代码支持顶层 await，**必须用 `return` 把结果交出来**；若你习惯先写 `async function main() { … }`，那要写成 `return main()`。脚本在还有调用没 await 完时就结束会被**判失败**（否则会变成一个「看似没查到」的假结果）。写循环批量补查时自己控量：**单个脚本最多调 40 次工具**，超了会当场报错，那就把活拆成多轮对话。' +
+      '\n【失败了怎么看】返回值里的 `calls[]` 是每次调用的轨迹，失败那条带 `error` 字段（写明为什么失败，比如参数不合法）；`notes[]` 是给你的提醒。照着 error 改参数重试，别直接放弃或改用别的工具硬堆。' +
+      '\n【限制】沙箱里没有 require / import / fs / fetch / process，拿不到 Node 能力也上不了网，数据只能经 callTool 进来；eval / new Function 被禁用。报错会带上你代码的行号，超时（默认 ' +
+      `${JS_SANDBOX_DEFAULT_TIMEOUT_MS / 1000}s，上限 ${JS_SANDBOX_MAX_TIMEOUT_MS / 1000}s）会被硬中止。` +
+      '\n【结果不能代表什么】result 是脚本的返回值、logs 是脚本自己的输出，两者都不等于工具原文；脚本报错只说明这段代码有问题，不代表数据不存在——先看 error 与 calls 再改代码重试。单个工具一次就能查到的，别用沙箱包一层。',
+    input: z.object({
+      code: z
+        .string()
+        .min(1)
+        .describe(
+          'JavaScript 源码：可写顶层 await，用 return 给出结果，用 callTool(name, args) 调其他工具',
+        ),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(1_000)
+        .max(JS_SANDBOX_MAX_TIMEOUT_MS)
+        .default(JS_SANDBOX_DEFAULT_TIMEOUT_MS)
+        .describe('执行超时（毫秒）'),
+    }),
+    run: async ({ code, timeoutMs }) => {
+      // 动态 import：执行入口在 openai_tools.ts，静态引入会与 AI_TOOLS 绕成一个环。
+      const { runAssistantTool } = await import('./openai_tools');
+      return runJsSandbox(code, runAssistantTool, timeoutMs);
     },
   }),
 ];

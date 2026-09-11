@@ -4,11 +4,6 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
 import { getHost } from '@weq/service';
 import { reportPeriodLabel } from '@weq/service/report-time';
-import {
-  renderLongImagePng,
-  renderSharePngs,
-  type ReportExportSlide,
-} from '../../annual_report_export';
 import { handleMediaRequest } from '../../media_protocol';
 import { handleResourceRequest } from '../../resource_protocol';
 import { procedure, router } from '../trpc';
@@ -99,13 +94,53 @@ async function resolveExportAssetDataUri(url: string): Promise<string | null> {
   }
 }
 
-const exportSlideInput = z.object({
-  pageId: z.string().min(1),
-  title: z.string(),
-  description: z.string(),
-  category: z.string(),
-  data: z.unknown(),
-});
+/** 最小 HTML 转义 —— 分享壳里只用到昵称一处外部文本。 */
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      default:
+        return '&#39;';
+    }
+  });
+}
+
+/**
+ * QQ 空间分享图的叠层：右上角分享者（头像 + 昵称）+ 底部项目署名。
+ *
+ * 做成一段 HTML 注入每张被截页面内部，而不是写进导出 HTML —— 分享壳是「这次
+ * 分享」的属性，不该跟着用户落盘的 HTML / PDF 一起走。
+ */
+function buildShareOverlay(nick: string, avatar?: Buffer): string {
+  const initial = Array.from(nick)[0] ?? '我';
+  const face = avatar
+    ? `<img class="weq-shot-avatar" src="data:${exportImageMime(avatar)};base64,${avatar.toString('base64')}" alt="">`
+    : `<span class="weq-shot-avatar is-initial">${escapeHtml(initial)}</span>`;
+  const name = nick ? `<span class="weq-shot-nick">${escapeHtml(nick)}</span>` : '';
+  return `<style>
+    .weq-shot-share { position: absolute; top: 8mm; right: 12mm; display: flex; align-items: center; gap: 3mm; z-index: 5; }
+    .weq-shot-avatar { display: block; width: 9mm; height: 9mm; border-radius: 50%; object-fit: cover; }
+    .weq-shot-avatar.is-initial {
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(201, 162, 39, 0.22); color: var(--accent);
+      font-size: 4.2mm; font-weight: 700;
+    }
+    .weq-shot-nick { font-size: 4mm; color: var(--ink-soft); letter-spacing: 0.8mm; }
+    .weq-shot-sign {
+      position: absolute; bottom: 4mm; left: 0; right: 0; text-align: center;
+      font-size: 3.2mm; color: var(--ink-faint); letter-spacing: 0.6mm; z-index: 5;
+    }
+  </style>
+  <div class="weq-shot-share">${face}${name}</div>
+  <div class="weq-shot-sign">来自 WEQ · github.com/H3CoF6/WeQ</div>`;
+}
 
 /** 保存对话框 + 落盘；用户取消返回 null。 */
 async function saveBuffer(
@@ -260,23 +295,16 @@ export const annualReportRouter = router({
       return { saved: path != null, path };
     }),
 
-  /** 全部卡片竖排成一张 9:16 长图 PNG 保存。 */
+  /**
+   * 全部卡片竖排成一张长图 PNG 保存。
+   *
+   * 输入的 `html` 就是 renderer 为 HTML 导出拼好的同一份自包含文档 —— 长图不再
+   * 另起 satori 排版，直接在主进程把每个 `.slide` 截下来竖向拼成一张。
+   */
   exportLongImage: procedure
-    .input(
-      z.object({
-        year: z.number().int().min(0),
-        slides: z.array(exportSlideInput).min(1),
-      }),
-    )
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const slides: ReportExportSlide[] = input.slides.map((s) => ({
-        pageId: s.pageId,
-        title: s.title,
-        description: s.description,
-        category: s.category,
-        data: s.data,
-      }));
-      const png = await renderLongImagePng(slides, resolveExportAssetDataUri);
+      const png = await getHost().renderHtmlToLongPng(input.html);
       const path = await saveBuffer(
         png,
         `QQ年度报告_${reportPeriodLabel(input.year)}_长图.png`,
@@ -292,22 +320,26 @@ export const annualReportRouter = router({
    * 凭证走 webQuery 的 qzone.qq.com 通路（p_skey 可由 ptlogin2 本地快速登录兑
    * 换，无需注入），票据失效自动换票重试一次。文案允许用户改；图片不可改。
    * 发表是主动写行为 —— 这里不做重试轰炸，失败原样上抛给前端提示。
+   *
+   * 图片同样走 `html`：把用户勾选的那几页（`slideIndexes`，按文档顺序）截成
+   * 一页一图，再叠上分享壳。
    */
   shareQzone: procedure
     .input(
       z.object({
         year: z.number().int().min(0),
         content: z.string().min(1).max(2000),
-        slides: z.array(exportSlideInput).min(1).max(9),
+        html: z.string().min(1),
+        slideIndexes: z.array(z.number().int().min(0)).min(1).max(QZONE_MAX_IMAGES),
         ugcRight: z.union([z.literal(1), z.literal(4), z.literal(64)]).default(1),
       }),
     )
     .mutation(async ({ input }) => {
       const services = requireServices();
 
-      if (input.slides.length > QZONE_MAX_IMAGES) {
+      if (input.slideIndexes.length > QZONE_MAX_IMAGES) {
         throw new Error(
-          `说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slides.length} 页`,
+          `说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slideIndexes.length} 页`,
         );
       }
 
@@ -326,23 +358,11 @@ export const annualReportRouter = router({
         avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
       }
 
-      // 1. 逐页渲染 PNG（一页一图）。
-      const slides: ReportExportSlide[] = input.slides.map((s) => ({
-        pageId: s.pageId,
-        title: s.title,
-        description: s.description,
-        category: s.category,
-        data: s.data,
-      }));
-      const pngs = await renderSharePngs(
-        slides,
-        {
-          nick,
-          avatar,
-          initial: nick.slice(0, 1) || '我',
-        },
-        resolveExportAssetDataUri,
-      );
+      // 1. 逐页截图（一页一图），叠上头像行与署名声。
+      const pngs = await getHost().renderHtmlToSlidesPng(input.html, {
+        indexes: input.slideIndexes,
+        overlayHtml: buildShareOverlay(nick, avatar),
+      });
 
       // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
       const richvals: string[] = [];

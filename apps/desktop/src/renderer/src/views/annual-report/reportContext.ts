@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type RefObject } from 'react';
 import type { ExportSlide } from './exportHtml';
 
 /**
@@ -31,6 +31,14 @@ export type ReportViewContextValue = {
    * 页面翻走时用返回的 dispose 注销，否则后一页会被前一页的守卫挡住。
    */
   registerPageGuard: (guard: PageTurnGuard) => () => void;
+  /**
+   * 报告内的浮层 portal 宿主。
+   *
+   * 全屏播放时报告根节点就是 fullscreen element，而 `createPortal(..., document.body)`
+   * 的节点不在 fullscreen 子树里，会被整个挡在 fullscreen 层外、完全看不见。
+   * 分享灯箱因此改挂到这个长在报告根节点里的宿主上，与报告同层。
+   */
+  overlayHostRef: RefObject<HTMLDivElement | null>;
 };
 
 /**

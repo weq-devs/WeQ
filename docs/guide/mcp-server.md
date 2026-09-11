@@ -209,7 +209,7 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 | `get_market_pack_key` | 恢复一套表情包的图片解密密钥（免费包读种子，付费包按 updateTime 爆破 TEA；也可手动传种子时间戳）。 |
 | `get_market_pack_image` | 下载并解密一张表情图为明文 GIF（CDN 加密流 → QQTEA → 本地缓存），返回文件路径。 |
 
-> 标记为 **assistant-only** 的工具不通过对外 MCP 暴露，仅供 WeQ 内置 AI 助手调用：`export_conversation`（写导出文件）、`set_anti_recall`（写触发器与配置，含开/关防撤回）。对外 MCP 只保留只读查询与上面几个明确标注的高级数据库工具。凭据类工具（`get_web_tokens` / `get_client_key` 等）返回的是你自己的登录票据，请勿把结果转发给不可信的外部服务。
+> 标记为 **assistant-only** 的工具不通过对外 MCP 暴露，仅供 WeQ 内置 AI 助手调用：`export_conversation`（写导出文件）、`set_anti_recall`（写触发器与配置，含开/关防撤回）、`run_js`（跑一段脚本调用其他工具）。除了副作用，助手还多一块 `run_js` JS 沙箱：模型可以自己写代码批量取数、筛选聚合，沙箱里唯一的对外通道就是 `callTool`（能碰到的能力与助手本身完全一致），没有 `require`/`fetch`/`fs`，超时会被硬中止。对外 MCP 只保留只读查询与上面几个明确标注的高级数据库工具。凭据类工具（`get_web_tokens` / `get_client_key` 等）返回的是你自己的登录票据，请勿把结果转发给不可信的外部服务。
 
 ## 安全提示
 
@@ -225,7 +225,8 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 - **对外 MCP 服务**：`apps/desktop/src/main/mcp/server.ts`，基于 `@modelcontextprotocol/sdk` 的 `McpServer` + `StreamableHTTPServerTransport`，监听 `127.0.0.1`，请求头校验 `Authorization: Bearer <token>`。注册时会**过滤掉 `assistantOnly` 工具**；其余工具默认只读，只有 `execute_sql` / `decrypt_database` 明确允许副作用，需客户端在使用时留意。
 - **配置与生命周期**：配置存于全局 `config.json` 的 `mcp`（`{ enabled, port, token }`，默认端口 48765）。生命周期接在 `context/app_context.ts`：进入账号时 `startMcpServer`，切换/退出账号或退出应用时 `stopMcpServer`，改端口时自动重启。
 - **设置 UI 与 tRPC**：`components/settings/McpServerSection.tsx` 提供开关 / 端口 / 令牌显示与复制 / 客户端配置复制，对应 `getMcpStatus`、`setMcpEnabled`、`setMcpPort`、`regenerateMcpToken`、`getMcpClientConfig` 等接口。
-- **复用**：同一份 `AI_TOOLS` 也被 `apps/desktop/src/main/mcp/openai_tools.ts` 转成函数调用 spec，供 WeQ 内置 AI 助手复用——业务逻辑只写一遍。
+- **复用**：同一份 `AI_TOOLS` 也被 `apps/desktop/src/main/mcp/openai_tools.ts` 转成函数调用 spec，供 WeQ 内置 AI 助手复用——业务逻辑只写一遍。助手侧的工具执行入口是 `runAssistantTool`（内置工具走注册表、`mcp__*` 走外部 MCP Hub），助手的工具循环与 `run_js` 沙箱里的 `callTool` 都走它，所以沙箱能力不会多于助手本身。
+- **代码沙箱**：`apps/desktop/src/main/mcp/js_sandbox.ts`，`node:worker_threads`（字符串 worker，与 `db_decrypt.ts` 同款）+ `node:vm`（`codeGeneration.strings = false`）。放 worker 是为了超时能 `terminate()` 硬杀——`vm` 的 timeout 只管得住同步段，模型写个死循环在 `await` 后面就冻住主进程了。`vm` 在这里是**护栏而非安全边界**（防手滑、防死循环、防污染宿主全局），真正的边界是「宿主机能只能经 `callTool` 出去」。
 
 ---
 

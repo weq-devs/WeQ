@@ -20,7 +20,13 @@ import {
   REPORT_POKE_FIGURE_ID,
   type ReportAssetUrlPrefixes,
 } from '@weq/service/report-assets';
-import { mateAnalysisText, mateHeadline, type MateCopyCandidate } from '@weq/service/report-mate';
+import {
+  MATE_MOOD,
+  mateAnalysisText,
+  mateHeadline,
+  mateRankLabel,
+  type MateCopyCandidate,
+} from '@weq/service/report-mate';
 
 /** 桌面走自定义协议；web 构建时同一份 HTML 的图片先经 tRPC 拉成 data URI。 */
 const REPORT_URL_PREFIXES: ReportAssetUrlPrefixes =
@@ -669,66 +675,55 @@ const CSS = `
     .mo { --mo: #eba3b7; }
   }
   /* 还没加好友的同路人页。静态产物没有慢转粒子，光环退成两圈静置的衬线圆；
-     主体仍是冠军大头名 + 「N 个群」巨数，共同群名单和后续推荐排成发丝线内
-     的证据，不画成卡片。 */
+     主体是冠军的头像、名字和「N 个群」巨数；共同群名单收成一行，前五里的
+     其他四位排成 2×2 的名册条。文案与屏幕版同一份（report-mate），不在这里
+     另写一版。 */
   .mt { flex: 1; display: flex; flex-direction: column; justify-content: center; position: relative; text-align: center; }
   .mt { --mt: #3f7f77; }
-  .mt-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .mt-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
-  .mt-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
-  .mt-orbit { position: absolute; left: 50%; top: 45%; z-index: 0; width: 148mm; height: 148mm; transform: translate(-50%, -50%); opacity: 0.9; pointer-events: none; }
+  .mt-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 9pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mt-kicker-meta { font-size: 8.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .mt-kicker-meta b { font-family: var(--serif); font-size: 11.5pt; font-weight: 600; color: var(--ink-soft); }
+  .mt-orbit { position: absolute; left: 50%; top: 45%; z-index: 0; width: 178mm; height: 178mm; transform: translate(-50%, -50%); opacity: 0.9; pointer-events: none; }
   .mt-ring { position: absolute; inset: 0; border: 0.3mm solid color-mix(in srgb, var(--mt) 24%, transparent); border-radius: 50%; }
   .mt-ring.b { inset: 18mm; border-style: dashed; border-color: color-mix(in srgb, var(--mt) 16%, transparent); }
-  .mt-dot { position: absolute; left: 50%; top: 50%; width: 1mm; height: 1mm; border-radius: 50%; background: color-mix(in srgb, var(--mt) 72%, transparent); box-shadow: 0 0 2mm color-mix(in srgb, var(--mt) 46%, transparent); }
+  .mt-dot { position: absolute; left: 50%; top: 50%; width: 1.2mm; height: 1.2mm; border-radius: 50%; background: color-mix(in srgb, var(--mt) 72%, transparent); box-shadow: 0 0 2mm color-mix(in srgb, var(--mt) 46%, transparent); }
   .mt-hero { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
-  .mt-lede { font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
-  .mt-avatar { display: flex; align-items: center; justify-content: center; width: 36mm; height: 36mm; margin-top: 6mm; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mt) 76%, transparent); box-shadow: 0 0 0 3.5mm color-mix(in srgb, var(--mt) 8%, transparent), 0 0 9mm color-mix(in srgb, var(--mt) 22%, transparent); font-family: var(--serif); font-size: 16mm; color: var(--ink); overflow: hidden; }
-  .mt-avatar .avatar.mt-avatar-face { width: 100%; height: 100%; font-size: 16mm; border-radius: 50%; outline: none; }
-  .mt-name { margin-top: 4mm; font-family: var(--serif); font-size: 50pt; font-weight: 600; line-height: 1.08; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
-  .mt-name.long { font-size: 38pt; }
-  .mt-name.xl { font-size: 30pt; }
+  .mt-lede { font-family: var(--serif); font-size: 13pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .mt-avatar { display: flex; align-items: center; justify-content: center; width: 38mm; height: 38mm; margin-top: 6mm; border-radius: 50%; border: 0.3mm solid color-mix(in srgb, var(--mt) 76%, transparent); box-shadow: 0 0 0 3.5mm color-mix(in srgb, var(--mt) 8%, transparent), 0 0 9mm color-mix(in srgb, var(--mt) 22%, transparent); font-family: var(--serif); font-size: 17mm; color: var(--ink); overflow: hidden; }
+  .mt-avatar .avatar.mt-avatar-face { width: 100%; height: 100%; font-size: 17mm; border-radius: 50%; outline: none; }
+  .mt-name { margin-top: 4mm; font-family: var(--serif); font-size: 52pt; font-weight: 600; line-height: 1.08; letter-spacing: 2px; color: var(--ink); white-space: nowrap; }
+  .mt-name.long { font-size: 41pt; }
+  .mt-name.xl { font-size: 33pt; }
   .mt-countline { display: flex; justify-content: center; align-items: center; gap: 5mm; margin-top: 1mm; }
-  .mt-count { font-family: var(--serif); font-size: 92pt; font-weight: 600; line-height: 1; letter-spacing: -3px; color: var(--mt); }
+  .mt-count { font-family: var(--serif); font-size: 96pt; font-weight: 600; line-height: 1; letter-spacing: -3px; color: var(--mt); }
   .mt-unit { display: flex; flex-direction: column; align-items: flex-start; gap: 1mm; text-align: left; }
-  .mt-unit b { font-family: var(--serif); font-size: 16pt; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
-  .mt-unit i { font-size: 7pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
-  .mt-note { margin-top: 2mm; font-family: var(--serif); font-size: 10.5pt; letter-spacing: 2px; color: var(--ink-muted); }
-  .mt-note b { color: var(--mt); }
-  .mt-cluster { position: relative; z-index: 1; margin-top: 9mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
-  .mt-cluster-in { font-size: 7.5pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .mt-unit b { font-family: var(--serif); font-size: 19pt; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
+  .mt-unit i { font-size: 8.5pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
+  .mt-cluster { position: relative; z-index: 1; margin-top: 7mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .mt-cluster-in { font-size: 9pt; letter-spacing: 5px; color: var(--ink-faint); }
   .mt-chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2.5mm 8mm; margin-top: 3mm; }
-  .mt-chip { max-width: 56mm; overflow: hidden; font-family: var(--serif); font-size: 10.5pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
-  .mt-chip i { margin-right: 1.5mm; font-family: var(--serif); font-size: 8pt; font-weight: 600; font-style: normal; color: var(--mt); }
+  .mt-chip { max-width: 54mm; overflow: hidden; font-family: var(--serif); font-size: 13pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-chip i { margin-right: 1.5mm; font-family: var(--serif); font-size: 9.5pt; font-weight: 600; font-style: normal; color: var(--mt); }
   .mt-chip.more { color: var(--ink-muted); }
-  .mt-more { position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; gap: 10mm; margin-top: 5mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); list-style: none; }
-  .mt-more-item { display: flex; align-items: center; gap: 1.6mm; min-width: 0; }
-  .mt-rank { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
-  .mt-mini { display: flex; align-items: center; justify-content: center; width: 6mm; height: 6mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mt) 44%, transparent); font-family: var(--serif); font-size: 2.8mm; color: var(--ink-muted); }
-  .mt-more-name { max-width: 40mm; overflow: hidden; font-family: var(--serif); font-size: 11pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
-  .mt-more-val { font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--mt); }
-  .mt-more-unit { font-size: 7pt; color: var(--ink-faint); }
-  .mt-mood { position: relative; z-index: 1; margin: 7mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
-  /* 同路人：排序说明与「其他候选」分析。PDF/HTML 不能点选换人，所以把
-     候选直接排成 2×2 小卡，每张卡给出各自的原因 —— 与屏幕版点选后看到同一段话。 */
-  .mt-rankline { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 4mm; margin-top: 1mm; font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); }
-  .mt-rankline b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--mt); }
+  .mt-mini { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 5.6mm; height: 5.6mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mt) 44%, transparent); font-family: var(--serif); font-size: 2.7mm; color: var(--ink-muted); }
+  .mt-mood { position: relative; z-index: 1; margin: 7mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 11.5pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
+  /* 同路人：排序说明与「其他四位」名册。PDF/HTML 点不了换人，所以剩下四位
+     只能一次排开 —— 2×2 的窄条，每人只留名次、头像、名字和共同群数；
+     「为什么是榜首」由上面那段说明统一交代，不比每人再写一段更重复。 */
+  .mt-rankline { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 4mm; margin-top: 1.5mm; font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .mt-rankline b { font-family: var(--serif); font-size: 14pt; font-weight: 600; color: var(--mt); }
   .mt-rankline i { font-style: normal; opacity: 0.55; }
-  .mt-why { position: relative; z-index: 1; margin: 6mm auto 0; max-width: 166mm; box-sizing: border-box; padding: 3.5mm 5mm; border: 0.25mm solid color-mix(in srgb, var(--mt) 28%, var(--hair)); background: color-mix(in srgb, var(--paper-deep) 86%, transparent); text-align: left; }
-  .mt-why-title { font-family: var(--serif); font-size: 10.5pt; font-weight: 600; letter-spacing: 2px; color: var(--ink-soft); }
-  .mt-why-copy { margin: 1.5mm 0 0; font-family: var(--serif); font-size: 8.5pt; line-height: 1.8; letter-spacing: 1px; color: var(--ink-muted); white-space: pre-line; }
-  .mt-roster { position: relative; z-index: 1; margin-top: 6mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
-  .mt-roster-in { font-size: 7pt; letter-spacing: 5px; color: var(--ink-faint); }
-  .mt-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm; margin: 3mm 0 0; padding: 0; list-style: none; text-align: left; }
-  .mt-card { box-sizing: border-box; min-width: 0; padding: 2.8mm 3.5mm; border: 0.2mm solid var(--hair); border-radius: 1mm; background: color-mix(in srgb, var(--paper-deep) 82%, transparent); }
-  .mt-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 3mm; margin: 0; }
-  .mt-card-who { display: flex; align-items: center; gap: 2.5mm; min-width: 0; }
-  .mt-card-rank { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-faint); }
-  .mt-card-name { max-width: 38mm; overflow: hidden; font-family: var(--serif); font-size: 12pt; font-weight: 600; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
-  .mt-card .mt-mini { width: 5mm; height: 5mm; font-size: 2.4mm; }
-  .mt-card-nums { flex: 0 0 auto; font-size: 7.5pt; letter-spacing: 1px; color: var(--ink-faint); white-space: nowrap; }
-  .mt-card-nums b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--mt); }
-  .mt-card-groups { margin: 1.5mm 0 0; overflow: hidden; font-family: var(--serif); font-size: 8pt; line-height: 1.55; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
-  .mt-card-why { margin: 1.2mm 0 0; display: -webkit-box; overflow: hidden; font-family: var(--serif); font-size: 7.5pt; line-height: 1.7; letter-spacing: 0.5px; color: var(--ink-faint); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .mt-why { position: relative; z-index: 1; margin: 5.5mm auto 0; max-width: 172mm; box-sizing: border-box; padding: 4.5mm 6mm; border: 0.25mm solid color-mix(in srgb, var(--mt) 28%, var(--hair)); background: color-mix(in srgb, var(--paper-deep) 86%, transparent); text-align: left; }
+  .mt-why-title { font-family: var(--serif); font-size: 13pt; font-weight: 600; letter-spacing: 2px; color: var(--ink-soft); }
+  .mt-why-copy { margin: 2mm 0 0; font-family: var(--serif); font-size: 11pt; line-height: 1.85; letter-spacing: 1px; color: var(--ink-muted); }
+  .mt-roster { position: relative; z-index: 1; margin-top: 5mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .mt-roster-in { font-size: 9pt; letter-spacing: 4px; color: var(--ink-faint); }
+  .mt-others { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm; margin: 3.5mm 0 0; padding: 0; list-style: none; text-align: left; }
+  .mt-other { display: flex; align-items: center; gap: 2.4mm; min-width: 0; padding: 2.6mm 3.5mm; border: 0.2mm solid var(--hair); border-radius: 1mm; background: color-mix(in srgb, var(--paper-deep) 82%, transparent); }
+  .mt-other-rank { font-family: var(--serif); font-size: 9pt; font-weight: 600; color: var(--ink-faint); }
+  .mt-other-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .mt-other-val { font-family: var(--serif); font-size: 13pt; font-weight: 600; color: var(--mt); }
+  .mt-other-unit { font-size: 8pt; font-style: normal; letter-spacing: 1px; color: var(--ink-faint); }
   @media (prefers-color-scheme: dark) {
     .mt { --mt: #77cfc2; }
   }
@@ -2223,7 +2218,7 @@ function mateSlide(data: Record<string, unknown>): string {
 
   const dots = Array.from({ length: 8 }, (_, index) => {
     const angle = index * 45;
-    return `<i class="mt-dot" style="transform: rotate(${angle}deg) translateY(-66mm) rotate(${-angle}deg)"></i>`;
+    return `<i class="mt-dot" style="transform: rotate(${angle}deg) translateY(-79mm) rotate(${-angle}deg)"></i>`;
   }).join('');
   const chips = (top?.groups ?? [])
     .slice(0, 5)
@@ -2241,46 +2236,15 @@ function mateSlide(data: Record<string, unknown>): string {
         )}</span>`
       : '';
   const moreHtml = more
-    .map((candidate, index) => {
-      const copy: MateCopyCandidate = {
-        name: String(candidate.name ?? ''),
-        sharedCount: Number(candidate.sharedCount ?? 0),
-        score: Number(candidate.score ?? 0),
-      };
-      const all = top
-        ? ([
-            {
-              name: String(top.name ?? ''),
-              sharedCount: Number(top.sharedCount ?? 0),
-              score: Number(top.score ?? 0),
-            },
-            ...more.map((item) => ({
-              name: String(item.name ?? ''),
-              sharedCount: Number(item.sharedCount ?? 0),
-              score: Number(item.score ?? 0),
-            })),
-          ] as MateCopyCandidate[])
-        : [];
-      const groupNames = (candidate.groups ?? [])
-        .slice(0, 3)
-        .map((group) => String(group.groupName ?? ''))
-        .filter(Boolean)
-        .join(' · ');
-      return `<li class="mt-card">
-        <p class="mt-card-head">
-          <span class="mt-card-who">
-            <span class="mt-card-rank">${String(index + 2).padStart(2, '0')}</span>
-            <span class="mt-mini">${escapeHtml(initial(String(candidate.name ?? '')))}</span>
-            <span class="mt-card-name">${escapeHtml(String(candidate.name ?? ''))}</span>
-          </span>
-          <span class="mt-card-nums"><b>${fmt(Number(candidate.sharedCount ?? 0))}</b> 个群 · 指数 ${fmtScore(
-            Number(candidate.score ?? 0),
-          )}</span>
-        </p>
-        ${groupNames ? `<p class="mt-card-groups">${escapeHtml(groupNames)}…</p>` : ''}
-        <p class="mt-card-why">${escapeHtml(mateAnalysisText(copy, index + 1, all))}</p>
-      </li>`;
-    })
+    .map(
+      (candidate, index) => `<li class="mt-other">
+        <span class="mt-other-rank">${String(index + 2).padStart(2, '0')}</span>
+        <span class="mt-mini">${escapeHtml(initial(String(candidate.name ?? '')))}</span>
+        <span class="mt-other-name">${escapeHtml(String(candidate.name ?? ''))}</span>
+        <b class="mt-other-val">${fmt(Number(candidate.sharedCount ?? 0))}</b>
+        <i class="mt-other-unit">个群</i>
+      </li>`,
+    )
     .join('');
 
   const allCopy: MateCopyCandidate[] = top
@@ -2321,7 +2285,7 @@ function mateSlide(data: Record<string, unknown>): string {
               ${dots}
             </div>
             <div class="mt-hero">
-              <p class="mt-lede">有个人，你以为还不认识——其实你们已经在群里打过很多次照面了——</p>
+              <p class="mt-lede">你们还不是好友，却总在同一个圈子里碰面。</p>
               <div class="mt-avatar">${avatarImg(
                 top.uin ?? top.peerUin,
                 String(top.name ?? ''),
@@ -2334,8 +2298,10 @@ function mateSlide(data: Record<string, unknown>): string {
                 <span class="mt-count">${fmt(Number(top.sharedCount ?? 0))}</span>
                 <span class="mt-unit"><b>个群</b><i>里有 TA</i></span>
               </div>
-              <p class="mt-note">你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了
-                <b>${fmt(Number(top.sharedCount ?? 0))}</b> 次。</p>
+              <p class="mt-rankline">
+                <span>${escapeHtml(mateRankLabel(0))}</span><i>/</i>
+                <span>同频指数 <b>${fmtScore(Number(top.score ?? 0))}</b></span>
+              </p>
             </div>
             ${
               topCopy
@@ -2352,12 +2318,12 @@ function mateSlide(data: Record<string, unknown>): string {
             ${
               more.length > 0
                 ? `<div class="mt-roster">
-                    <p class="mt-roster-in">榜单上的其他同路人 · 每位都有各自的「为什么」</p>
-                    <ol class="mt-cards">${moreHtml}</ol>
+                    <p class="mt-roster-in">前五里的其他同路人</p>
+                    <ol class="mt-others">${moreHtml}</ol>
                   </div>`
                 : ''
             }
-            <p class="mt-mood">世界很大，圈子很小。能重逢这么多次的人，值得一句「你好」——也许从明天起，你们就是无话不谈的朋友。</p>`
+            <p class="mt-mood">${escapeHtml(MATE_MOOD)}</p>`
           : `<p class="mt-lede">在这些群里，还没有一个值得专门加好友的「重逢」。</p>`
       }
     </div>${slideFoot(`${reportPeriodLabel(year)} · MATE`)}`;

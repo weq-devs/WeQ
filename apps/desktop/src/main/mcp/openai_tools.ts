@@ -8,6 +8,7 @@
  */
 
 import type { z } from 'zod';
+import { getExternalMcpHub } from './external';
 import { AI_TOOLS } from './tools';
 
 export interface OpenAiToolSpec {
@@ -89,9 +90,49 @@ export function aiToolSpecs(): OpenAiToolSpec[] {
   }));
 }
 
-/** 按名字执行一个工具（复用注册表里的 run）。 */
+/** 把 zod 校验失败压成一行可读信息（喂回模型，让它自己改参数重试）。 */
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || '参数'} ${issue.message}`)
+    .join('；');
+}
+
+/**
+ * 按名字执行一个工具（复用注册表里的 run）。
+ *
+ * 助手侧拿到的是模型给的**裸** function-calling 参数，必须先按工具自己的 zod schema
+ * 解析一遍再交给 `run`：
+ *
+ *   - `optional` / `default` 才会生效。`run` 里直接拿参数做算术/拼串的写法隐含依赖默认值
+ *     （例如 `list_collections` 的 `const wantedEnd = offset + limit + 1`，offset 缺省不是 0
+ *     而是 undefined → NaN → 扫描循环一次都不跑 → 静默返回「本地 collection.db 里没有收藏
+ *     记录」，看着像「你确实没有收藏」）。
+ *   - 类型不对（如 `limit: "10"`）时会当场报错，而不是把脏值带进 `run` 算出错误结果。
+ *
+ * 外部 MCP 那边由 SDK 用同一份 schema 校验（见 `server.ts` 的 `inputSchema: t.input.shape`），
+ * 这里补齐助手路径，两边行为保持一致。
+ */
 export async function runAiTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   const t = AI_TOOLS.find((x) => x.name === name);
   if (!t) throw new Error(`未知工具：${name}`);
-  return t.run(args);
+  const parsed = t.input.safeParse(args);
+  if (!parsed.success) {
+    throw new Error(`工具 ${name} 的参数不合法：${formatIssues(parsed.error)}`);
+  }
+  return t.run(parsed.data);
+}
+
+/**
+ * 助手侧**统一**的工具执行入口：内置工具走注册表，外部 MCP 工具（`mcp__` 前缀）走 Hub。
+ *
+ * 独立成一个函数是因为它有两个调用方：助手自己的工具循环，以及 `run_js` 沙箱里的
+ * `callTool`。沙箱能碰到的能力必须和助手自己能碰到的完全一致——这个函数就是那条
+ * 边界的唯一定义处，别再在别处把路由逻辑写第二遍。
+ */
+export async function runAssistantTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args);
+  return runAiTool(name, args);
 }
