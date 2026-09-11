@@ -1,6 +1,6 @@
 {
   "name": "@weq/daemon",
-  "version": "0.4.6",
+  "version": "1.0.0",
   "private": true,
   "description": "Rust 守护进程源码包 —— 编译产物是平台原生二进制（无 Node 运行时依赖），由 scripts/build.mjs 构建进 resources/daemon/<platform>-<arch>/ 随安装包发布",
   "scripts": {

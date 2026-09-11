@@ -15,8 +15,9 @@
  *   node packages/daemon/scripts/build.mjs           # release build
  *   node packages/daemon/scripts/build.mjs --debug   # dev build (faster, unstripped)
  *
- * Requirements: cargo on PATH. Skips (with a note) when the toolchain is missing
- * so that docs-only CI / contributor environments still typecheck.
+ * Requirements: cargo on PATH. Missing toolchain is a hard failure (exit 1): the
+ * release pipeline that calls this must not quietly ship an installer without a
+ * daemon binary.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -39,23 +40,25 @@ const PLATFORM_DIR = {
 };
 const ARCH_DIR = { x64: 'x64', arm64: 'arm64' };
 
+/**
+ * cargo 是否可用。直接问 cargo 自己，而不是自己扫 PATH：Windows 的 PATH 用
+ * ';' 分隔、条目带盘符（C:\Users\...\.cargo\bin），按 [;:] 切会在盘符处切开，
+ * 于是装好的工具链也被当成没装（windows runner 上就是这样炸的）。
+ */
 function hasCargo() {
-  for (const dir of (process.env.PATH ?? '').split(/[;:]/)) {
-    if (!dir) continue;
-    try {
-      if (existsSync(join(dir, 'cargo')) || existsSync(join(dir, 'cargo.exe'))) return true;
-    } catch {
-      /* unreadable PATH entry — skip */
-    }
+  try {
+    execFileSync('cargo', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 function main() {
   if (!hasCargo()) {
     console.error(
-      '[build:daemon] cargo not found on PATH — skipping. ' +
-        'Install Rust (https://rustup.rs) to build the daemon binary.',
+      '[build:daemon] cargo not found — install Rust (https://rustup.rs) to build ' +
+        'the daemon binary the installer bundles.',
     );
     process.exit(1);
   }

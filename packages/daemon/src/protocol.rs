@@ -246,6 +246,22 @@ mod tests {
             .unwrap(),
             r#"{"cmd":"autostart_set","enabled":false,"gui_exe":"/x/y.exe"}"#
         );
+        // 响应方向的 newtype 变体同样平铺：`release_watch_status` 的载荷字段与
+        // `res` 同层，**没有** `info` 包皮。GUI 侧曾按 `info` 解析，导致开关
+        // 永远读不到 watching —— 这里把线上形状钉死。
+        assert_eq!(
+            serde_json::to_string(&Response::ReleaseWatchStatus(ReleaseWatchInfo {
+                watching: true,
+                repo: Some("H3CoF6/WeQ".into()),
+                interval_secs: Some(3600),
+                current_version: Some("1.0.0".into()),
+                latest_seen: None,
+                pending: None,
+                last_error: None,
+            }))
+            .unwrap(),
+            r#"{"res":"release_watch_status","watching":true,"repo":"H3CoF6/WeQ","interval_secs":3600,"current_version":"1.0.0","latest_seen":null,"pending":null,"last_error":null}"#
+        );
     }
 
     #[test]

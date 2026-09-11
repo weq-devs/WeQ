@@ -31,7 +31,13 @@ export interface DaemonReleaseWatchConfig {
   current_version: string;
 }
 
-/** `release_watch_status` 的载荷（Rust `ReleaseWatchInfo` 镜像）。 */
+/**
+ * `release_watch_status` 的载荷（Rust `ReleaseWatchInfo` 镜像）。
+ *
+ * 注意：Rust 的响应枚举是 serde 内部 tag，`ReleaseWatchStatus(ReleaseWatchInfo)`
+ * 是 newtype 变体 —— 结构体字段被**平铺**到 `res` 同层，没有 `info` 包皮。
+ * 线上的帧就是这样：`{"res":"release_watch_status","watching":true,...}`。
+ */
 export interface DaemonReleaseWatchInfo {
   watching: boolean;
   repo: string | null;
@@ -53,16 +59,24 @@ export interface DaemonAutostartMemory {
   gui_exe: string;
 }
 
+/**
+ * 请求联合类型。
+ *
+ * 注意 Rust 侧是 serde 内部 tag（`#[serde(tag = "cmd")]`）：newtype 变体里
+ * 结构体的字段会被**平铺**进同一层对象，所以载荷必须用交叉类型平铺，
+ * 不能写成 `{ cmd, cfg: {...} }` —— 嵌套会在守护进程侧解析失败（missing
+ * field），它不回帧直接断开，GUI 只会看到「守护进程未运行」。
+ */
 export type DaemonRequest =
   | { cmd: 'ping' }
   | { cmd: 'http_start'; port: number; docroot: string }
   | { cmd: 'http_stop' }
   | { cmd: 'http_status' }
-  | { cmd: 'release_watch_start'; cfg: DaemonReleaseWatchConfig }
+  | ({ cmd: 'release_watch_start' } & DaemonReleaseWatchConfig)
   | { cmd: 'release_watch_stop' }
   | { cmd: 'release_watch_status' }
   | { cmd: 'release_ack'; version: string }
-  | { cmd: 'autostart_set'; memory: DaemonAutostartMemory }
+  | ({ cmd: 'autostart_set' } & DaemonAutostartMemory)
   | { cmd: 'autostart_sync' }
   | { cmd: 'autostart_status' }
   | { cmd: 'stop' };
@@ -72,7 +86,7 @@ export type DaemonResponse =
   | { res: 'started'; port: number }
   | { res: 'stopped' }
   | { res: 'http_status'; running: boolean; port: number | null; docroot: string | null }
-  | { res: 'release_watch_status'; info: DaemonReleaseWatchInfo }
+  | ({ res: 'release_watch_status' } & DaemonReleaseWatchInfo)
   | { res: 'autostart_applied'; enabled: boolean }
   | { res: 'autostart_status'; enabled: boolean; registered: boolean }
   | { res: 'error'; message: string };

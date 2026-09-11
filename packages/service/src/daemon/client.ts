@@ -16,7 +16,27 @@
 import { connect } from 'node:net';
 
 import { daemonPipePath, decodeDaemonFrame, encodeDaemonFrame, DAEMON_PIPE_NAME } from './protocol';
-import type { DaemonRequest, DaemonResponse } from './protocol';
+import type { DaemonReleaseWatchInfo, DaemonRequest, DaemonResponse } from './protocol';
+
+/** 线上的 `release_watch_status` 帧（`res` 与载荷字段同层平铺）。 */
+type ReleaseWatchStatusFrame = Extract<DaemonResponse, { res: 'release_watch_status' }>;
+
+/**
+ * 把平铺的状态帧收敛成纯 {@link DaemonReleaseWatchInfo}：serde 内部 tag 会把
+ * newtype 变体里的结构体字段平铺到 `res` 同层，这里显式挑字段，不把协议层的
+ * `res` 泄漏给调用方。
+ */
+function releaseInfo(frame: ReleaseWatchStatusFrame): DaemonReleaseWatchInfo {
+  return {
+    watching: frame.watching,
+    repo: frame.repo,
+    interval_secs: frame.interval_secs,
+    current_version: frame.current_version,
+    latest_seen: frame.latest_seen,
+    pending: frame.pending,
+    last_error: frame.last_error,
+  };
+}
 
 /** 单次调用的默认超时（守护进程是本机进程，超时基本等于挂了）。 */
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -131,8 +151,9 @@ export async function daemonReleaseWatchStart(
   cfg: import('./protocol').DaemonReleaseWatchConfig,
   pipeName: string = DAEMON_PIPE_NAME,
 ): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
-  const res = await callDaemon({ cmd: 'release_watch_start', cfg }, pipeName);
-  return res?.res === 'release_watch_status' ? res.info : null;
+  // 配置字段必须平铺（serde 内部 tag 的 newtype 变体），见 protocol.ts 的说明。
+  const res = await callDaemon({ cmd: 'release_watch_start', ...cfg }, pipeName);
+  return res?.res === 'release_watch_status' ? releaseInfo(res) : null;
 }
 
 /** 关闭 release 轮询（latest_seen / pending 保留）。 */
@@ -148,7 +169,7 @@ export async function daemonReleaseWatchStatus(
   pipeName: string = DAEMON_PIPE_NAME,
 ): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
   const res = await callDaemon({ cmd: 'release_watch_status' }, pipeName);
-  return res?.res === 'release_watch_status' ? res.info : null;
+  return res?.res === 'release_watch_status' ? releaseInfo(res) : null;
 }
 
 /**
@@ -160,7 +181,7 @@ export async function daemonReleaseAck(
   pipeName: string = DAEMON_PIPE_NAME,
 ): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
   const res = await callDaemon({ cmd: 'release_ack', version }, pipeName);
-  return res?.res === 'release_watch_status' ? res.info : null;
+  return res?.res === 'release_watch_status' ? releaseInfo(res) : null;
 }
 
 /**
@@ -171,7 +192,8 @@ export async function daemonAutostartSet(
   memory: import('./protocol').DaemonAutostartMemory,
   pipeName: string = DAEMON_PIPE_NAME,
 ): Promise<{ ok: true; enabled: boolean } | { ok: false; message: string } | null> {
-  const res = await callDaemon({ cmd: 'autostart_set', memory }, pipeName);
+  // 同 release_watch_start：memory 的字段平铺，不做嵌套。
+  const res = await callDaemon({ cmd: 'autostart_set', ...memory }, pipeName);
   if (res === null) return null;
   if (res.res === 'autostart_applied') return { ok: true, enabled: res.enabled };
   return { ok: false, message: res.res === 'error' ? res.message : `unexpected: ${res.res}` };

@@ -150,7 +150,7 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
         .map_err(|e| format!("write {}: {e}", plist_path.display()))?;
     // 已加载同名 label 就先 bootout（失败忽略 —— 多半是本来没加载）。
     let _ = std::process::Command::new("launchctl")
-        .args(["bootout", "gui/$UID", &format!("{label}")])
+        .args(["bootout", "gui/$UID", label.as_str()])
         .output();
     run(
         std::process::Command::new("launchctl")
@@ -167,10 +167,11 @@ pub fn uninstall_with(pipe_name: &str) -> Result<(), String> {
     let label = ident(pipe_name);
     let plist_path = home_dir()?.join(format!("Library/LaunchAgents/{label}.plist"));
     let _ = std::process::Command::new("launchctl")
-        .args(["bootout", "gui/$UID", &format!("{label}")])
+        .args(["bootout", "gui/$UID", label.as_str()])
         .output();
     match std::fs::remove_file(&plist_path) {
-        Ok(()) | Err(_) if !plist_path.exists() => Ok(()),
+        Ok(()) => Ok(()),
+        Err(_) if !plist_path.exists() => Ok(()),
         Err(e) => Err(format!("remove {}: {e}", plist_path.display())),
     }
 }

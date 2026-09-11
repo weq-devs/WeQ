@@ -78,6 +78,11 @@ jobs:
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
@@ -101,8 +106,14 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Host "== apps/desktop/out ==";
-          Get-ChildItem -Recurse apps/desktop/out | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          # out/ 里混着 pnpm 的 node_modules 链接树，整棵递归一踩就是 MAX_PATH
+          # 之外的路径：$ErrorActionPreference=stop 下直接让 job 失败，加
+          # SilentlyContinue 又会慢到把 job 挂住。限制深度 + 跳过 node_modules，
+          # 只列真正的打包输入。
+          Write-Host "== apps/desktop/out (depth 3, no node_modules) ==";
+          Get-ChildItem -Recurse -Depth 3 apps/desktop/out -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'node_modules' } |
+            Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
           Write-Host "== apps/desktop/package.json ==";
           Get-Content apps/desktop/package.json -Raw | Write-Host
           Write-Host "== electron-builder.yml ==";
@@ -171,6 +182,11 @@ jobs:
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
@@ -238,6 +254,11 @@ jobs:
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
@@ -317,6 +338,11 @@ jobs:
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
@@ -411,6 +437,11 @@ jobs:
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
@@ -561,6 +592,9 @@ jobs:
 
       # 浏览器版用户自备 Node，守护进程补上二进制：本 runner 只构建并打进
       # 当前平台那一份（build-server / pack 会按 process.platform/arch 认定）。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build daemon binary
         run: pnpm run build:daemon
 
