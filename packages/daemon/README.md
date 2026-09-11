@@ -68,6 +68,25 @@ const sock = net.connect('/tmp/weq-daemon.sock'); // win32: \\.\pipe\weq-daemon
 sock.on('connect', () => sock.end(frame({ cmd: 'http_start', port: 17690, docroot: '/path/to/docroot' })));
 ```
 
+## 单例与版本对齐
+
+**单例。** 同一个管道名只允许一份 `serve`：启动时先探测有没有实例在服务（Unix 先
+`connect`、连不上才清残骸 socket 再 bind；Windows 靠 `first_pipe_instance`），已有实例
+就直接退出，报 `another weq-daemon is already serving ...`。所以重复启动既不会抢 HTTP
+端口，也不会按记忆重复拉起 GUI；Unix 侧更不会误删在跑实例的 socket 文件。
+
+**版本对齐（GUI 侧）。** 桌面版和网页版共用 `ensureDaemonRunning()`：探活 + 读磁盘二进制
+的 `--version`，版本一致就什么都不做（不重启、不重复拉起）；不一致（换了安装包 / 重新
+`build:daemon`）才向旧实例发 `stop`、等管道消失、再拉起新二进制。新实例 `serve` 启动时
+按状态文件自行恢复 HTTP。
+
+注意 `stop` 与 `http_stop` 的区别：`stop` 只关停 HTTP 再退出进程、**状态文件保留**；
+`http_stop` 才是「遗忘」入口（清状态文件）。所以版本替换不会丢推送卡片的服务地址。
+
+同一台机器同时跑桌面版、网页版、`pnpm dev` 时，它们连的是同一条默认管道，因此只会
+有一份守护进程 —— 代价是它们必须用**同一个版本**，否则会互相 `stop` 换新。开发时想
+隔离多套实例就用 `--pipe <name>`（GUI 侧目前固定用默认管道名）。
+
 ## CLI
 
 ```

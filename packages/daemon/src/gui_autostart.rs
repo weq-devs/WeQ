@@ -170,20 +170,11 @@ fn spawn_gui(gui_exe: &str) {
 fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
     let name = gui_ident(pipe_name);
     // /F = 覆盖已存在任务；/SC ONLOGON = 该用户每次登录时启动。与 autostart.rs
-    // 同一姿势：整条 PowerShell 经 -EncodedCommand 传，避开 schtasks 引号坑。
-    let ps =
-        format!("schtasks /Create /F /SC ONLOGON /RL LIMITED /TN '{name}' /TR \"'{gui_exe}'\"",);
-    let mut encoded = String::new();
-    for unit in ps.encode_utf16() {
-        encoded.push_str(&format!("{unit:04X}"));
-    }
+    // 同一姿势：参数数组直接交给 schtasks，/TR 用双引号包住 exe 路径。
+    let tr = format!("\"{gui_exe}\"");
     run(
-        crate::autostart::no_window(&mut std::process::Command::new("powershell")).args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-EncodedCommand",
-            &encoded,
-        ]),
+        crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
+            .args(crate::autostart::create_args(&name, &tr)),
         "schtasks register gui",
     )?;
     logger::info(&format!("gui autostart installed: task {name}"));

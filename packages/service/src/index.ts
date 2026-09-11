@@ -523,6 +523,7 @@ export type {
 export {
   callDaemon,
   pingDaemon,
+  daemonStop,
   daemonHttpStart,
   daemonHttpStop,
   daemonHttpStatus,

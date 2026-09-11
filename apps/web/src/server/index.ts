@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setHost, initLogger } from '@weq/service';
 import { initAppContext } from '@weq/desktop/main/context/app_context';
+import { ensureDaemonRunning } from '@weq/desktop/main/daemon/runtime';
 import { appRouter } from '@weq/desktop/main/ipc/router';
 import { AuthGate } from './auth';
 import { createWebHost } from './host';
@@ -80,6 +81,13 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+
+  // 守护进程：与桌面版共用同一条控制管道（一台机器只有一份实例）。best-effort ——
+  // 起不来只记日志，Web 本身照常服务；磁盘上的二进制换了版本时这里会顺手换掉旧的。
+  // （WeQ 助手真正用到它时还会再 ensure 一次，所以这里不阻塞启动。）
+  void ensureDaemonRunning().catch((error) => {
+    console.warn('[web] ensure weq-daemon failed:', error);
+  });
 
   const auth = new AuthGate({ token, remote: !isLoopback });
   const { server, port } = await startServer({

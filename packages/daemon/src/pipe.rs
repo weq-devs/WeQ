@@ -28,6 +28,13 @@ pub(crate) fn current_pipe_name() -> &'static str {
 /// 守护进程控制循环：监听管道，逐连接处理，直到进程退出。
 pub async fn run_control_loop(pipe_name: &str) -> Result<(), String> {
     let _ = CURRENT_PIPE.set(pipe_name.to_string());
+    // 单例前置检查：已经有实例在服务这个管道名就直接退出 —— 不要抢 HTTP 端口，
+    // 更不要按记忆拉起 GUI。（`serve_forever` 里还有一道 bind 级保险。）
+    if probe_running(pipe_name).await {
+        return Err(format!(
+            "another weq-daemon is already serving pipe `{pipe_name}`"
+        ));
+    }
     let state = DaemonState::new();
     // 按记忆恢复上次的 HTTP 服务（如有）。失败只记日志 —— 管道必须照常就绪。
     crate::persist::restore_on_boot(&state, pipe_name).await;
@@ -38,6 +45,13 @@ pub async fn run_control_loop(pipe_name: &str) -> Result<(), String> {
     // 按记忆决定要不要拉起 WeQ GUI（守护进程开机自启 → GUI 跟着起）。
     crate::gui_autostart::launch_gui_on_boot(pipe_name);
     imp::serve_forever(pipe_name, state).await
+}
+
+/// 单例探测：能连上控制管道 = 已经有守护进程在服务这个名字。
+///
+/// 比 `serve_forever` 的 bind 失败更早一步，重复实例也就不会抢端口 / 拉 GUI。
+async fn probe_running(pipe_name: &str) -> bool {
+    imp::connect(pipe_name).await.is_ok()
 }
 
 /// 当前 release 监控句柄。`run_control_loop` 进入时写入，之后只读。
@@ -63,10 +77,13 @@ where
 
     // 读满一帧（4 字节小端长度 + JSON）。客户端一次只发一个请求。
     let mut len_bytes = [0u8; 4];
-    stream
-        .read_exact(&mut len_bytes)
-        .await
-        .map_err(|e| format!("read length: {e}"))?;
+    if let Err(err) = stream.read_exact(&mut len_bytes).await {
+        // 连上但一个字节都没发就断开：单例探测 / 端口扫描的常态，不是错误。
+        if err.kind() == std::io::ErrorKind::UnexpectedEof {
+            return Ok(());
+        }
+        return Err(format!("read length: {err}"));
+    }
     let len = u32::from_le_bytes(len_bytes) as usize;
     if len > MAX_FRAME as usize {
         return Err(format!("frame too large: {len}"));
@@ -303,7 +320,9 @@ mod imp {
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
             .create(&path)
-            .map_err(|e| format!("create pipe {path}: {e}"))?;
+            .map_err(|e| {
+                format!("create pipe {path}: {e} (already served by another weq-daemon?)")
+            })?;
         crate::logger::info(&format!("control pipe ready: {path}"));
 
         loop {
@@ -357,7 +376,15 @@ mod imp {
 
     pub async fn serve_forever(pipe_name: &str, state: SharedState) -> Result<(), String> {
         let path = socket_path(pipe_name);
-        // 清掉上次进程被 kill -9 留下的残留 socket 文件。
+        // 单例：先试着连一下。连得上 = 已经有实例在服务这个 socket 名，直接退出，
+        // 不要把它顶掉（无条件 remove_file 会把在跑的实例变成收不到连接的僵尸）。
+        if UnixStream::connect(&path).await.is_ok() {
+            return Err(format!(
+                "another weq-daemon is already serving {}",
+                path.display()
+            ));
+        }
+        // 连不上 = 上次进程被 kill -9 留下的残骸文件，清掉再 bind。
         let _ = std::fs::remove_file(&path);
         let listener =
             UnixListener::bind(&path).map_err(|e| format!("bind {}: {e}", path.display()))?;
@@ -380,7 +407,6 @@ mod imp {
             }
         }
     }
-
     pub async fn connect(pipe_name: &str) -> std::io::Result<UnixStream> {
         UnixStream::connect(socket_path(pipe_name)).await
     }

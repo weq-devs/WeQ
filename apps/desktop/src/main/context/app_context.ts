@@ -553,11 +553,11 @@ export interface AppContext {
   /**
    * Apply the WeQ 助手 config: when enabled, publish the tweet pages / covers
    * into the daemon docroot, make sure the weq-daemon companion process is up
-   * (never killed by us), start its static HTTP server and — with an account
-   * open — sync the ARK cards into the QQ db. When disabled, stop the daemon's
-   * HTTP only (the daemon process itself is left running); the fabricated
-   * conversation rows are removed best-effort. Returns the port the daemon
-   * actually bound to (or 0).
+   * (only replaced when the on-disk binary's version changes), start its static
+   * HTTP server and — with an account open — sync the ARK cards into the QQ db.
+   * When disabled, stop the daemon's HTTP only (the daemon process itself is
+   * left running); the fabricated conversation rows are removed best-effort.
+   * Returns the port the daemon actually bound to (or 0).
    */
   applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
   /**
@@ -1792,8 +1792,8 @@ export function initAppContext(): AppContext {
         });
       }
 
-      // 2) 确保守护进程在（不在则 detached 拉起，从不杀）；3) 开 HTTP，端口被
-      //    占自动向后回落试探。HTTP 与账号无关：没开账号也能开（推文是全局的）。
+      // 2) 确保守护进程在（不在则 detached 拉起；只有磁盘上的二进制换了版本才替换）；
+      //    3) 开 HTTP，端口被占自动向后回落试探。HTTP 与账号无关：没开账号也能开。
       const ready = await ensureDaemonRunning();
       if (!ready) {
         throw new Error('weq-daemon 未能启动或控制管道连接超时');

@@ -1,24 +1,28 @@
 /**
- * weq-daemon 运行时编排（Electron 主进程专用）。
+ * weq-daemon 运行时编排（Electron / Web 共用）。
  *
  * 职责边界（刻意收窄）：
- *   - 保证守护进程「在」：探活，不在则以 detached 进程拉起 `<exe> serve`；
- *     【永远不主动杀掉守护进程】—— 它的生命周期属于开机自启 / 用户，不属于 GUI。
- *     设置开关 OFF 只发 `http_stop`（守护进程继续活着、记忆清空）。
+ *   - 保证守护进程「在，且是磁盘上那个版本」：探活 + 比版本，一致就什么都不做；
+ *     版本变了才 `stop` 掉旧的再拉起新的；不在则 detached 拉起 `<exe> serve`。
+ *   - 平时【不主动杀掉守护进程】—— 它的生命周期属于开机自启 / 用户，不属于 GUI；
+ *     设置开关 OFF 只发 `http_stop`（进程继续活着、记忆清空）。
  *   - 替调用方把 http_start / http_stop 讲给守护进程（含端口回落试探）。
  *   - 二进制路径解析：与 native/ 完全同构的 `daemon/<platform>-<arch>/` 布局。
  *
  * 端口 / docroot 一律由调用方传入，本模块不持有任何业务配置。
  */
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import {
   callDaemon,
   daemonHttpStart,
+  daemonStop,
+  getLogger,
   pingDaemon,
   DAEMON_PIPE_NAME,
   type DaemonRequest,
@@ -32,20 +36,87 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SPAWN_READY_TIMEOUT_MS = 8000;
 /** 探活轮询间隔。 */
 const SPAWN_POLL_INTERVAL_MS = 200;
+/**
+ * 重试 spawn 的最小间隔：旧进程刚退出时管道可能还没释放（win32 的
+ * first_pipe_instance 会立刻失败），所以唤醒窗口内不是只拉一次。
+ */
+const SPAWN_RETRY_INTERVAL_MS = 1500;
+/** `stop` 之后等旧进程真正退出的最长时间。 */
+const STOP_WAIT_TIMEOUT_MS = 5000;
+/** 读二进制 `--version` 的超时。 */
+const VERSION_PROBE_TIMEOUT_MS = 3000;
+
+const execFileAsync = promisify(execFile);
+const logger = getLogger().child({ scope: 'daemon-runtime' });
+
+/** 从 `weq-daemon 1.0.0` 里取出 `1.0.0`；解析不出返回 null。 */
+export function parseDaemonVersion(output: string): string | null {
+  const match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/.exec(output);
+  return match?.[1] ?? null;
+}
 
 /**
- * 解析 weq-daemon 二进制的绝对路径；找不到返回 null。
- *
- * 打包布局（electron-builder `extraResources: from ../../resources → to resources`）：
- *   `<install>/resources/daemon/<platform>-<arch>/weq-daemon[.exe]`
- * 其中 `process.resourcesPath/resources` 正是 {@link resolveResource} 的根。
- * 开发布局：直接从本文件位置向上找仓库的 `resources/daemon/`。
- *
- * 候选顺序（第一个存在者胜出）：
- *   1. `WEQ_DAEMON_DIR` 环境变量（显式覆盖，指向 `daemon/<platform>-<arch>/` 那一层）
- *   2. `resolveResource('daemon', platformArch)`  — 打包（Electron resources 根）
- *   3. 沿 out/main 向上走最多 6 层找 `resources/daemon/<platformArch>` — 开发
+ * 磁盘上那个二进制的版本号（`<exe> --version`）。读不到（权限 / 损坏 / 超时）返回
+ * null —— 调用方据此跳过版本判定，只保证「在跑」。
  */
+async function readDaemonBinaryVersion(exe: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(exe, ['--version'], {
+      timeout: VERSION_PROBE_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    return parseDaemonVersion(String(stdout));
+  } catch (error) {
+    logger.warn('failed to read weq-daemon version from the binary', {
+      event: 'daemon-version-probe-failed',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/** 发 `stop` 并等管道消失（旧进程一退出就算成功）。 */
+async function stopDaemonAndWait(pipeName: string): Promise<void> {
+  if (!(await daemonStop(pipeName))) return; // 本来就不在
+  const deadline = Date.now() + STOP_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!(await pingDaemon(pipeName))) return;
+    await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_INTERVAL_MS));
+  }
+  logger.warn('weq-daemon did not exit after stop', { event: 'daemon-stop-timeout' });
+}
+
+/** spawn `<exe> serve`（独立进程：WeQ 退出它照常活着）。 */
+function spawnDaemonServe(exe: string, pipeName: string): void {
+  // serve 模式：常驻等命令。stdio 全部丢弃 —— 守护进程自己写 stderr 日志；
+  // 独立进程也拿不到 GUI 的 console。
+  const child = spawn(exe, ['serve', '--pipe', pipeName], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+/**
+ * 轮询管道就绪；窗口内按 {@link SPAWN_RETRY_INTERVAL_MS} 补拉，覆盖「旧进程刚
+ * 退出、管道还没释放」的那一小段窗口。
+ */
+async function spawnDaemonAndWait(exe: string, pipeName: string): Promise<boolean> {
+  const deadline = Date.now() + SPAWN_READY_TIMEOUT_MS;
+  let nextSpawnAt = 0;
+  for (;;) {
+    if (await pingDaemon(pipeName)) return true;
+    const now = Date.now();
+    if (now >= deadline) return false;
+    if (now >= nextSpawnAt) {
+      nextSpawnAt = now + SPAWN_RETRY_INTERVAL_MS;
+      spawnDaemonServe(exe, pipeName);
+    }
+    await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_INTERVAL_MS));
+  }
+}
+
 export function resolveDaemonBinary(): string | null {
   const exe = process.platform === 'win32' ? 'weq-daemon.exe' : 'weq-daemon';
   const platformArch = `${process.platform}-${process.arch}`;
@@ -71,38 +142,45 @@ export function resolveDaemonBinary(): string | null {
 }
 
 /**
- * 确保守护进程在运行：探活 → 不在则 detached 拉起 `<exe> serve` → 轮询管道就绪。
+ * 确保守护进程「在跑，而且是磁盘上那个版本」：
  *
- * 拉起用的是独立进程（`detached: true` + `unref()`）：WeQ 退出它照常活着，
- * 而且它是『别人的』进程 —— 本函数从不调用 kill。
+ *   1. 探活 + 读磁盘二进制的版本（`--version`，两者并行）；
+ *   2. 已在跑且版本一致 → 什么都不做（不重启、不重复拉起）；
+ *   3. 已在跑但版本不同 → `stop` 掉旧的，等管道消失，再拉起新的；
+ *   4. 不在 → 拉起新的。
  *
- * 返回 true = 管道可用了（无论是本来就活着还是刚被拉起）。
+ * 单例由守护进程自己兜底（重复 `serve` 会立刻退出），这里只负责「版本对齐」。
+ * 守护进程的生命周期仍属开机自启 / 用户：平时从不主动杀它，只有磁盘上的二进制
+ * 换了版本才替换。旧进程 `stop` 前会保留状态文件，新进程 `serve` 启动时按记忆
+ * 自行恢复 HTTP（同端口 / 同 docroot）。
+ *
+ * 返回 true = 管道可用了（本来就是它 / 刚被拉起 / 刚被换新）。
  */
 export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): Promise<boolean> {
-  // 已在 → 直接收工。
-  if (await pingDaemon(pipeName)) return true;
-
   const exe = resolveDaemonBinary();
   if (!exe) {
     throw new Error(
       '找不到 weq-daemon 二进制（resources/daemon/<platform>-<arch>/）。请先运行 pnpm build:daemon。',
     );
   }
-  // serve 模式：常驻等命令。stdio 全部丢弃 —— 守护进程自己写 stderr 日志，
-  // 独立进程也拿不到 GUI 的 console。
-  const child = spawn(exe, ['serve', '--pipe', pipeName], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  child.unref();
 
-  const deadline = Date.now() + SPAWN_READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (await pingDaemon(pipeName)) return true;
-    await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_INTERVAL_MS));
+  const [expected, running] = await Promise.all([
+    readDaemonBinaryVersion(exe),
+    pingDaemon(pipeName),
+  ]);
+
+  if (running) {
+    // 版本读不出来时保守处理：只保证「在跑」，不做替换。
+    if (expected === null || running.version === expected) return true;
+    logger.info('weq-daemon version changed, replacing the running one', {
+      event: 'daemon-version-changed',
+      running: running.version,
+      expected,
+    });
+    await stopDaemonAndWait(pipeName);
   }
-  return false;
+
+  return spawnDaemonAndWait(exe, pipeName);
 }
 
 export interface DaemonHttpStartResult {

@@ -40,6 +40,20 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
     }
 }
 
+/// `schtasks /Create` 的参数向量（覆盖已存在任务 + 登录时启动 + 受限权限）。
+///
+/// 直接以参数数组交给 `std::process::Command`，由它按 Windows 命令行规则转义，
+/// 不再经 PowerShell 转手：`-EncodedCommand` 那条路既容易把编码搞错（脚本要
+/// Base64/UTF-16LE，写成 hex 会被 PowerShell 解成乱码命令），又没法把 `/TR` 里的
+/// 双引号原样传下去。计划任务的动作最终走 CreateProcess，只有双引号算引号，
+/// 单引号会被当成路径的一部分而找不到可执行文件。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn create_args<'a>(name: &'a str, tr: &'a str) -> [&'a str; 10] {
+    [
+        "/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", name, "/TR", tr,
+    ]
+}
+
 /// Windows 的 schtasks / powershell 都是控制台程序；守护进程由 GUI 以 detached
 /// 方式拉起、本身没有控制台，直接 spawn 会每次弹一个一闪而过的黑窗口（例如
 /// 设置页每 10s 的健康轮询查一次 autostart 注册状态就闪一次）。统一加
@@ -64,22 +78,9 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
     let exe = exe_path()?;
     let name = ident(pipe_name);
     // /F = 覆盖已存在任务；/SC ONLOGON = 该用户每次登录时启动；/RL LIMITED。
-    // schtasks 的 /TR 含嵌套引号很挑，用 PowerShell -EncodedCommand 传。
-    let ps = format!(
-        "schtasks /Create /F /SC ONLOGON /RL LIMITED /TN '{name}' /TR \"'{}' serve --pipe {pipe_name}\"",
-        exe.display()
-    );
-    let mut encoded = String::new();
-    for unit in ps.encode_utf16() {
-        encoded.push_str(&format!("{unit:04X}"));
-    }
+    let tr = format!("\"{}\" serve --pipe {pipe_name}", exe.display());
     run(
-        no_window(&mut std::process::Command::new("powershell")).args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-EncodedCommand",
-            &encoded,
-        ]),
+        no_window(&mut std::process::Command::new("schtasks")).args(create_args(&name, &tr)),
         "schtasks register",
     )?;
     logger::info(&format!("autostart installed: task {name}"));
@@ -272,5 +273,24 @@ mod tests {
     fn ident_uses_default_without_suffix() {
         assert_eq!(ident("weq-daemon"), "weq-daemon");
         assert_eq!(ident("weq-daemon-test"), "weq-daemon-weq-daemon-test");
+    }
+
+    #[test]
+    fn create_args_shape() {
+        assert_eq!(
+            create_args("weq-daemon-gui", "\"C:\\Program Files\\WeQ\\WeQ.exe\""),
+            [
+                "/Create",
+                "/F",
+                "/SC",
+                "ONLOGON",
+                "/RL",
+                "LIMITED",
+                "/TN",
+                "weq-daemon-gui",
+                "/TR",
+                "\"C:\\Program Files\\WeQ\\WeQ.exe\"",
+            ]
+        );
     }
 }

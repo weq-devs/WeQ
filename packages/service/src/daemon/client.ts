@@ -208,3 +208,13 @@ export async function daemonAutostartStatus(
     ? { enabled: res.enabled, registered: res.registered }
     : null;
 }
+
+/**
+ * 停止守护进程本体（`stop`）：服务端先 http_stop，再直接退出进程。
+ * 记忆保留 —— 下次 `serve` 启动时按状态文件自行恢复 HTTP。
+ * 守护进程本来就不在时返回 false（幂等，不视为错误）。
+ */
+export async function daemonStop(pipeName: string = DAEMON_PIPE_NAME): Promise<boolean> {
+  const res = await callDaemon({ cmd: 'stop' }, pipeName);
+  return res?.res === 'stopped';
+}
