@@ -6,6 +6,10 @@
  * 可见权限。确认后走 `annualReport.shareQzone`：主进程逐页渲染 PNG → 逐张
  * 上传 Qzone 图床 → 发表说说。
  *
+ * 「发表」不在灯箱里等：点下去就关灯箱、先给一条 toast 回执，任务在后台跑完
+ * 再把那条 toast 就地推进成结果（见 share）。截图九页 + 逐张上传慢起来要一两
+ * 分钟，让用户对着一个转圈按钮干等是这一页最糟的体验。
+ *
  * 预览刻意做成「卡片缩略 + 页名」的轻量清单，而不是把报告 deck 复刻一遍 ——
  * 灯箱的职责是让用户确认发什么、配什么字，不是再看一次报告。
  *
@@ -14,7 +18,7 @@
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Earth, LoaderCircle, Lock, Users, X } from 'lucide-react';
+import { Check, Earth, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { useSelfFace } from './useSelfFace';
@@ -23,6 +27,23 @@ import type { ExportSlide } from './exportHtml';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
 const QZONE_MAX_IMAGES = 9;
+/**
+ * 「正在分享」那条 toast 的存活时长。
+ *
+ * 截图 + 逐张上传 + 发表全在主进程里跑，九张图一两分钟是常态，所以进度提示挂一个
+ * 很长的 ttl —— 否则它会在任务还在跑的时候自己溜走，用户回到「没有回执」的状态。
+ * 任务结束时就地更新成结果，ttl 收回正常的十秒（见 Toast.tsx 的 ttl 重置）。
+ */
+const SHARE_PROGRESS_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * 同一时刻只允许一份分享在跑。
+ *
+ * 灯箱一点就关了，界面上不再有「正在发表」这个禁用态，但主进程那条「截图 →
+ * 上传 → 发表」的流水线可能还跑着：用户再点一次会原模原样发出第二条说说。
+ * 模块级标志顶住重复提交（比放在组件里可靠 —— 灯箱每次打开都重新挂载）。
+ */
+let shareInFlight = false;
 
 /** 默认分享文案 —— 用户可改。指向项目仓库。 */
 function defaultShareText(year: number): string {
@@ -53,6 +74,7 @@ export function QzoneShareLightbox({
   onClose: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const updateToast = useToast((s) => s.update);
   const selfFace = useSelfFace();
   const { overlayHostRef } = useReportView();
   /**
@@ -75,33 +97,34 @@ export function QzoneShareLightbox({
   const [selected, setSelected] = useState<Set<number>>(initialSelected);
   const [content, setContent] = useState(() => defaultShareText(year));
   const [ugcRight, setUgcRight] = useState<UgcRight>(1);
-  const [busy, setBusy] = useState(false);
   const overLimit = selected.size > QZONE_MAX_IMAGES;
-  const canSubmit = !busy && selected.size > 0 && content.trim().length > 0 && !overLimit;
+  const canSubmit = selected.size > 0 && content.trim().length > 0 && !overLimit;
 
-  // Esc 关灯箱；发说说期间不关。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !busy) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
-
-  // 灯箱开着时挡掉报告的翻页手势：滚轮/键盘/拖拽都会先被这里吃掉，
-  // 底下的年度报告不再跟着灯箱一起滚。
+  /**
+   * 灯箱开着时挡掉报告的翻页手势：滚轮 / 触摸 / 键盘都会先被这里吃掉，底下的
+   * 年度报告不再跟着灯箱一起滚。
+   *
+   * Esc 就地处理而不是另挂一个冒泡监听：window 捕获阶段的 stopPropagation 会
+   * 让挂在 window 冒泡阶段的监听器根本收不到这次按键。
+   */
   useEffect(() => {
     const stop = (event: Event): void => event.stopPropagation();
-    // 捕获阶段拦截滚轮与触摸，事件根本到不了舞台宿主。
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      event.stopPropagation();
+    };
     window.addEventListener('wheel', stop, { capture: true });
     window.addEventListener('touchmove', stop, { capture: true });
-    window.addEventListener('keydown', stop, { capture: true });
+    window.addEventListener('keydown', onKey, { capture: true });
     return () => {
       window.removeEventListener('wheel', stop, { capture: true });
       window.removeEventListener('touchmove', stop, { capture: true });
-      window.removeEventListener('keydown', stop, { capture: true });
+      window.removeEventListener('keydown', onKey, { capture: true });
     };
-  }, []);
+  }, [onClose]);
 
   function toggle(index: number): void {
     setSelected((prev) => {
@@ -121,33 +144,62 @@ export function QzoneShareLightbox({
     [slides, selected],
   );
 
+  /**
+   * 点「发表说说」= 立刻收灯箱 + 先给一条回执，真正的活儿在主进程里继续跑。
+   *
+   * 截图九页、逐张上传图床、最后发说说，全在主进程串行完成，慢的时候要一两分钟；
+   * 原来把整个 mutate 摆在按钮的 loading 里等，用户只能对着一个转圈的按钮干等，
+   * 还会以为是卡死了。现在按钮只管**提交意图**：灯箱马上关掉、报告回到手里，
+   * 那条 toast 从「正在分享」就地推进成「已分享 / 分享失败」，慢也慢得看得见。
+   *
+   * 图片仍由主进程从同一份 HTML 里逐页截图：`orderedSelected` 是已勾选页在报告
+   * 顺序里的下标，主进程按它取第 N 张 `.slide`，顺序与九宫格预览一致。
+   */
   async function share(): Promise<void> {
     if (!canSubmit) return;
-    setBusy(true);
-    try {
-      // 图片由主进程从同一份 HTML 里逐页截图：`orderedSelected` 是已勾选页在
-      // 报告顺序里的下标，主进程按它取第 N 张 `.slide`，顺序与九宫格预览一致。
-      const result = await client.account.annualReport.shareQzone.mutate({
-        year,
-        content: content.trim(),
-        html: await getHtml(),
-        slideIndexes: orderedSelected,
-        ugcRight,
-      });
+    if (shareInFlight) {
       pushToast({
-        tone: 'success',
-        title: '已分享到 QQ 空间',
-        detail: `说说已发表（${result.images} 张图）`,
+        tone: 'info',
+        title: '上一次分享还没发完',
+        detail: '截图与上传正在后台跑，状态就在那条「正在分享」的提示里。',
       });
       onClose();
+      return;
+    }
+    shareInFlight = true;
+    const indexes = orderedSelected;
+    const text = content.trim();
+    const toastId = pushToast({
+      tone: 'info',
+      title: '正在分享到 QQ 空间…',
+      detail: `已选 ${indexes.length} 张图 · 正在逐页生成并上传，可以先继续看报告`,
+      ttl: SHARE_PROGRESS_TTL_MS,
+    });
+    onClose();
+    try {
+      const html = await getHtml();
+      const result = await client.account.annualReport.shareQzone.mutate({
+        year,
+        content: text,
+        html,
+        slideIndexes: indexes,
+        ugcRight,
+      });
+      updateToast(toastId, {
+        tone: 'success',
+        title: '已分享到 QQ 空间',
+        detail: `说说已发表 · ${result.images} 张图`,
+        ttl: 10000,
+      });
     } catch (error) {
-      pushToast({
+      updateToast(toastId, {
         tone: 'error',
         title: '分享失败',
         detail: error instanceof Error ? error.message : String(error),
+        ttl: 10000,
       });
     } finally {
-      setBusy(false);
+      shareInFlight = false;
     }
   }
 
@@ -157,9 +209,7 @@ export function QzoneShareLightbox({
       role="dialog"
       aria-modal="true"
       aria-label="分享到 QQ 空间"
-      onClick={() => {
-        if (!busy) onClose();
-      }}
+      onClick={onClose}
     >
       <div className="weq-qzshare-card" onClick={(e) => e.stopPropagation()}>
         <header className="weq-qzshare-head">
@@ -167,13 +217,7 @@ export function QzoneShareLightbox({
             <span className="weq-qzshare-title-main">分享到 QQ 空间</span>
             <span className="weq-qzshare-title-sub">一页一张图 · 最多 9 张</span>
           </div>
-          <button
-            type="button"
-            className="weq-qzshare-close"
-            aria-label="关闭"
-            disabled={busy}
-            onClick={onClose}
-          >
+          <button type="button" className="weq-qzshare-close" aria-label="关闭" onClick={onClose}>
             <X size={17} aria-hidden />
           </button>
         </header>
@@ -277,7 +321,7 @@ export function QzoneShareLightbox({
             已选 {selected.size} / {QZONE_MAX_IMAGES} 张
           </span>
           <div className="weq-qzshare-actions">
-            <button type="button" className="weq-qzshare-cancel" disabled={busy} onClick={onClose}>
+            <button type="button" className="weq-qzshare-cancel" onClick={onClose}>
               取消
             </button>
             <button
@@ -286,8 +330,7 @@ export function QzoneShareLightbox({
               disabled={!canSubmit}
               onClick={() => void share()}
             >
-              {busy ? <LoaderCircle className="weq-report-spin" size={16} aria-hidden /> : null}
-              {busy ? '正在发表…' : '发表说说'}
+              发表说说
             </button>
           </div>
         </footer>

@@ -36,6 +36,7 @@ const REPORT_URL_PREFIXES: ReportAssetUrlPrefixes =
 
 const {
   reportAvatarUrl,
+  reportGroupAvatarUrl,
   collectReportAssetUrls,
   reportCustomPicUrl,
   reportDressBubbleUrl,
@@ -675,9 +676,9 @@ const CSS = `
     .mo { --mo: #eba3b7; }
   }
   /* 还没加好友的同路人页。静态产物没有慢转粒子，光环退成两圈静置的衬线圆；
-     主体是冠军的头像、名字和「N 个群」巨数；共同群名单收成一行，前五里的
-     其他四位排成 2×2 的名册条。文案与屏幕版同一份（report-mate），不在这里
-     另写一版。 */
+     主体是冠军的头像、名字和「N 个群」巨数；共同群出成一排群头像徽记
+     （不出群名，与屏幕版同一套表达），前五里的其他四位排成 2×2 的名册条。
+     文案与屏幕版同一份（report-mate），不在这里另写一版。 */
   .mt { flex: 1; display: flex; flex-direction: column; justify-content: center; position: relative; text-align: center; }
   .mt { --mt: #3f7f77; }
   .mt-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 9pt; letter-spacing: 3px; color: var(--ink-soft); }
@@ -701,10 +702,17 @@ const CSS = `
   .mt-unit i { font-size: 8.5pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
   .mt-cluster { position: relative; z-index: 1; margin-top: 7mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
   .mt-cluster-in { font-size: 9pt; letter-spacing: 5px; color: var(--ink-faint); }
-  .mt-chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2.5mm 8mm; margin-top: 3mm; }
-  .mt-chip { max-width: 54mm; overflow: hidden; font-family: var(--serif); font-size: 13pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
-  .mt-chip i { margin-right: 1.5mm; font-family: var(--serif); font-size: 9.5pt; font-weight: 600; font-style: normal; color: var(--mt); }
-  .mt-chip.more { color: var(--ink-muted); }
+  /* 共同群徽记：只出群头像，不出群名（群名进 title）。名次越靠前越大，一排
+     看过去像一组由重到轻的音阶；比五段长群名安静得多，也不会抢掉名字与巨数。 */
+  .mt-crest { display: flex; align-items: center; justify-content: center; gap: 2.4mm; margin-top: 4mm; }
+  .mt-crest-item { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
+  .mt-crest-face { display: block; width: 100%; height: 100%; font-family: var(--serif); font-size: 5mm; border-radius: 50%; outline: 0.25mm solid color-mix(in srgb, var(--mt) 34%, transparent); outline-offset: 0.5mm; }
+  .mt-crest-item.r0 .mt-crest-face { width: 12mm; height: 12mm; font-size: 5mm; }
+  .mt-crest-item.r1 .mt-crest-face { width: 10mm; height: 10mm; font-size: 4.2mm; }
+  .mt-crest-item.r2 .mt-crest-face { width: 8.6mm; height: 8.6mm; font-size: 3.6mm; }
+  .mt-crest-item.r3 .mt-crest-face { width: 7.6mm; height: 7.6mm; font-size: 3.2mm; }
+  .mt-crest-item.r4 .mt-crest-face { width: 6.8mm; height: 6.8mm; font-size: 2.9mm; }
+  .mt-crest-plus { display: inline-flex; align-items: center; justify-content: center; width: 6.8mm; height: 6.8mm; margin-left: 0.6mm; border: 0.25mm dashed color-mix(in srgb, var(--mt) 42%, transparent); border-radius: 50%; font-family: var(--serif); font-size: 3pt; font-weight: 600; color: var(--ink-muted); }
   .mt-mini { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 5.6mm; height: 5.6mm; border-radius: 50%; border: 0.2mm solid color-mix(in srgb, var(--mt) 44%, transparent); font-family: var(--serif); font-size: 2.7mm; color: var(--ink-muted); }
   .mt-mood { position: relative; z-index: 1; margin: 7mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 11.5pt; line-height: 2; letter-spacing: 2px; color: var(--ink-muted); }
   /* 同路人：排序说明与「其他四位」名册。PDF/HTML 点不了换人，所以剩下四位
@@ -803,6 +811,17 @@ function avatarImg(uin: unknown, name: string, cls: string): string {
   const src = url ? inlinedAsset(url) : null;
   if (!src) return `<span class="avatar ${cls}">${escapeHtml(initial)}</span>`;
   return `<img class="avatar ${cls}" src="${src}" alt="">`;
+}
+
+/** 同路人页的共同群徽记：群头像小圆牌（`groupCode` 走 group scope）。 */
+function groupCrestImg(groupCode: unknown, groupName: string, rank: number): string {
+  const initial = Array.from(groupName)[0] ?? '群';
+  const url = reportGroupAvatarUrl(groupCode);
+  const src = url ? inlinedAsset(url) : null;
+  const face = src
+    ? `<img class="avatar mt-crest-face" src="${src}" alt="">`
+    : `<span class="avatar mt-crest-face">${escapeHtml(initial)}</span>`;
+  return `<span class="mt-crest-item r${rank}" title="${escapeHtml(groupName)}">${face}</span>`;
 }
 
 function slideFoot(right: string): string {
@@ -2183,8 +2202,8 @@ function monthsSlide(data: Record<string, unknown>): string {
  * 还没加好友的同路人页的导出版。
  *
  * 静态产物同样把冠军顶成主体：衬线首字圆 + 大名字 + 「N 个群」巨数；共同群
- * 名单排成页底一行可读的群名，冠军之外的推荐收进发丝线以上的小卡。数据与
- * 屏幕版同源，不做二次统计。
+ * 排成页底一排群头像徽记（与屏幕版同一种表达 —— 群名太长，不上画面），冠军
+ * 之外的推荐收进发丝线以上的小卡。数据与屏幕版同源，不做二次统计。
  */
 function mateSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
@@ -2195,7 +2214,7 @@ function mateSlide(data: Record<string, unknown>): string {
     name?: string;
     sharedCount?: number;
     score?: number;
-    groups?: Array<{ groupName?: string }>;
+    groups?: Array<{ groupCode?: string; groupName?: string }>;
   } | null;
   const more = (data.more ?? []) as Array<{
     uid?: string;
@@ -2203,7 +2222,7 @@ function mateSlide(data: Record<string, unknown>): string {
     name?: string;
     sharedCount?: number;
     score?: number;
-    groups?: Array<{ groupName?: string }>;
+    groups?: Array<{ groupCode?: string; groupName?: string }>;
   }>;
   const initial = (name: string): string => Array.from(name)[0] ?? '?';
   const fmtScore = (value: number): string =>
@@ -2220,18 +2239,13 @@ function mateSlide(data: Record<string, unknown>): string {
     const angle = index * 45;
     return `<i class="mt-dot" style="transform: rotate(${angle}deg) translateY(-79mm) rotate(${-angle}deg)"></i>`;
   }).join('');
-  const chips = (top?.groups ?? [])
+  const crests = (top?.groups ?? [])
     .slice(0, 5)
-    .map(
-      (group, index) =>
-        `<span class="mt-chip"><i>${String(index + 1).padStart(2, '0')}</i>${escapeHtml(
-          String(group.groupName ?? ''),
-        )}</span>`,
-    )
+    .map((group, index) => groupCrestImg(group.groupCode, String(group.groupName ?? ''), index))
     .join('');
-  const chipsPlus =
+  const crestsPlus =
     (top?.sharedCount ?? 0) > (top?.groups ?? []).length
-      ? `<span class="mt-chip more">+${fmt(
+      ? `<span class="mt-crest-plus">+${fmt(
           Number(top?.sharedCount ?? 0) - (top?.groups ?? []).length,
         )}</span>`
       : '';
@@ -2313,7 +2327,7 @@ function mateSlide(data: Record<string, unknown>): string {
             }
             <div class="mt-cluster">
               <p class="mt-cluster-in">你们这些共同出没的地方</p>
-              <p class="mt-chips">${chips}${chipsPlus}</p>
+              <div class="mt-crest">${crests}${crestsPlus}</div>
             </div>
             ${
               more.length > 0

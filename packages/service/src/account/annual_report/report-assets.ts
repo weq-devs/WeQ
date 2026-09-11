@@ -53,6 +53,7 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
   reportDressBubbleUrl: (itemId: number, frame?: number) => string;
   reportDressPendantUrl: (itemId: number, frame?: number) => string;
   reportAvatarUrl: (uin: unknown) => string;
+  reportGroupAvatarUrl: (groupCode: unknown) => string;
   reportEmojiFaceUrl: (faceId: number) => string;
   reportPokeFigureUrl: (pokeId: number) => string;
   reportCustomPicUrl: (pic: {
@@ -93,6 +94,21 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
       uin: value,
       v: 'big',
       fb: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${value}`,
+    });
+  }
+
+  /**
+   * 群头像：`scope=group` 的 `uid` 就是群号（与 renderer 的 avatarFromGroupCode
+   * 同一条 CDN 规则）。同路人页的共同群徽记用它 —— 只画群头像，不画群名。
+   */
+  function reportGroupAvatarUrl(groupCode: unknown): string {
+    const value = String(groupCode ?? '');
+    if (!/^\d+$/.test(value)) return '';
+    return mediaUrl('avatar', {
+      scope: 'group',
+      uid: value,
+      v: 'big',
+      fb: `https://p.qlogo.cn/gh/${value}/${value}/0`,
     });
   }
 
@@ -190,6 +206,17 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
       ) {
         addAvatar(data);
       }
+
+      // 同路人页的共同群徽记：群头像走 group scope（群号即 uid），与人物头像
+      // 分开收集 —— `addAvatar` 只认 uin，群号不是 QQ 号。
+      if (slide.pageId === 'mate') {
+        const groups =
+          (data.top as { groups?: Array<{ groupCode?: unknown }> } | null)?.groups ?? [];
+        for (const group of groups) {
+          const url = reportGroupAvatarUrl(group.groupCode);
+          if (url) urls.add(url);
+        }
+      }
     }
 
     return [...urls];
@@ -199,6 +226,7 @@ export function createReportAssetUrls(prefixes: ReportAssetUrlPrefixes): {
     reportDressBubbleUrl,
     reportDressPendantUrl,
     reportAvatarUrl,
+    reportGroupAvatarUrl,
     reportEmojiFaceUrl,
     reportPokeFigureUrl,
     reportCustomPicUrl,

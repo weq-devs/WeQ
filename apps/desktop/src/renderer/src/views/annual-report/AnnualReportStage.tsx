@@ -6,19 +6,20 @@ const DESIGN_HEIGHT = 640;
 const STAGE_INSET = 0.92;
 
 /**
- * 滚轮翻页的手势判定。
+ * 滚轮翻页的手势判定 —— **一次滚动最多翻一页**。
  *
- * 触控板一次「甩」会连发几十个 wheel 事件（惯性尾巴能拖一秒多），固定时长的锁要么
- * 太短（一甩翻三页）要么太长（连续翻页很滞涩）。所以改成**累积 + 静止解锁**：
- *   - 同方向的 deltaY 累加，越过 {@link WHEEL_THRESHOLD} 才翻一页并清零；
- *   - 翻页后进入冷却，冷却里继续累积但不再翻；
- *   - 直到滚轮**停下** {@link WHEEL_IDLE_MS} 毫秒，才认为这一甩结束、允许下一次。
- * 结果是：一甩一页（不管尾巴多长），而缓慢连续滚动能顺畅地一页页翻。
+ * 触控板一次「甩」会连发几十个 wheel 事件（惯性尾巴能拖一秒多），按固定时长的
+ * 锁去卡都稳不住：锁短了（600ms）尾巴还没衰减完，第二页、第三页就跟着翻走了；
+ * 锁长了则「滚一下、翻一页」变得很滞涩。所以判定不看时间长短，而看**一次手势的
+ * 边界**：
+ *   - 同方向的 deltaY 累加，越过 {@link WHEEL_THRESHOLD} 才翻一页、清零累积；
+ *   - 翻页的同时置 `fired`，此后这一甩剩下的所有事件一律只吃掉、不再翻页 ——
+ *     惯性尾巴无论多长多急，都只能带出这一页；
+ *   - 直到滚轮**停下** {@link WHEEL_IDLE_MS} 毫秒，才认为手势结束、解除 `fired`。
+ * 于是「一甩一页」是结构上成立的，而「滚一下、停一下」仍是一页页顺畅地翻。
  */
 const WHEEL_THRESHOLD = 90;
 const WHEEL_IDLE_MS = 220;
-/** 翻页动画期间不接受下一次翻页，与 CSS 的 900ms 过渡对齐（留一点余量提前解锁）。 */
-const WHEEL_COOLDOWN_MS = 620;
 
 /**
  * 报告舞台：把 960×640 的设计画幅等比缩放到可用空间，页面在画幅内**同位层叠**
@@ -49,8 +50,8 @@ export function AnnualReportStage({
     moved: boolean;
     captured: boolean;
   } | null>(null);
-  /** 滚轮手势状态：累积量、上次事件时刻、以及「这一甩已经翻过了」的冷却截止。 */
-  const wheelRef = useRef({ acc: 0, lastAt: 0, until: 0 });
+  /** 滚轮手势状态：累积量、上次事件时刻，以及「这一甩已经翻过一页了」。 */
+  const wheelRef = useRef({ acc: 0, lastAt: 0, fired: false });
   const [scale, setScale] = useState(1);
   /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
   const guardRef = useRef(guard);
@@ -62,7 +63,7 @@ export function AnnualReportStage({
   );
   const move = useCallback(
     (delta: number) => {
-      // 守卫先看：它吃掉这次手势时不翻页（但滚轮的冷却仍然照常进入，
+      // 守卫先看：它吃掉这次手势时不翻页（滚轮的 `fired` 仍照常落下，
       // 免得一甩的惯性尾巴在守卫释放后立刻把页翻走）。
       if (delta !== 0 && guardRef.current?.(delta > 0 ? 1 : -1)) return;
       onIndexChange(clampIndex(index + delta));
@@ -113,23 +114,27 @@ export function AnnualReportStage({
     const now = performance.now();
     const wheel = wheelRef.current;
 
-    // 停够久 → 上一甩结束（含它的惯性尾巴），重新开始累积。
+    // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
     if (now - wheel.lastAt > WHEEL_IDLE_MS) {
       wheel.acc = 0;
-      wheel.until = 0;
+      wheel.fired = false;
     }
     wheel.lastAt = now;
+
+    // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
+    if (wheel.fired) return;
 
     // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
     if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
     wheel.acc += event.deltaY;
 
-    if (now < wheel.until) return; // 冷却中：继续吃掉惯性尾巴，不翻页。
     if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
 
-    move(wheel.acc > 0 ? 1 : -1);
+    // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
+    const direction = wheel.acc > 0 ? 1 : -1;
     wheel.acc = 0;
-    wheel.until = now + WHEEL_COOLDOWN_MS;
+    wheel.fired = true;
+    move(direction);
   }
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {

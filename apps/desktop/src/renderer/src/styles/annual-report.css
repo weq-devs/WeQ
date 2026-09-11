@@ -6663,39 +6663,100 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.26em;
 }
 
-.weq-mt-chips {
+/* 共同群徽记 —— 只出群头像，不出群名。
+ *
+ * 群名动辄十几个字，五段并排就把版心填成一堵字墙，还会抢掉名字与巨数这两个
+ * 主角。改成一排群头像徽记：名次（独特性权重降序）同时就是大小，0 最大、往后
+ * 依次收敛，一排看过去像一组由重到轻的音阶。群名与人数收进悬停提示与
+ * `aria-label`——信息没丢，版面不脏。 */
+.weq-mt-crest {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 4px 12px;
-  margin: 5px 0 0;
+  gap: 9px;
+  margin: 9px 0 0;
 }
 
-.weq-mt-chip {
+.weq-mt-crest-item {
   display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  max-width: 24ch;
-  overflow: hidden;
-  color: var(--rp-ink-soft);
-  font-family: var(--rp-serif);
-  font-size: 13.5px;
-  letter-spacing: 0.03em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
 }
 
-.weq-mt-chip i {
-  color: var(--rp-mt);
+.weq-mt-crest-face {
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rp-paper-deep) 86%, transparent);
+  object-fit: cover;
+  outline: 1px solid color-mix(in srgb, var(--rp-mt) 30%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 12%);
+  transition:
+    transform 260ms var(--rp-ease-drop),
+    outline-color 260ms ease;
+}
+
+.weq-mt-crest-item:hover .weq-mt-crest-face {
+  outline-color: color-mix(in srgb, var(--rp-mt) 68%, transparent);
+  transform: translateY(-3px);
+}
+
+.weq-mt-crest-face.is-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--rp-mt) 78%, var(--rp-ink));
+  color: var(--rp-paper);
+  font-family: var(--rp-serif);
+  line-height: 1;
+}
+
+.weq-mt-crest-item.is-r0 .weq-mt-crest-face {
+  width: 46px;
+  height: 46px;
+  font-size: 18px;
+}
+
+.weq-mt-crest-item.is-r1 .weq-mt-crest-face {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+
+.weq-mt-crest-item.is-r2 .weq-mt-crest-face {
+  width: 33px;
+  height: 33px;
+  font-size: 13px;
+}
+
+.weq-mt-crest-item.is-r3 .weq-mt-crest-face {
+  width: 29px;
+  height: 29px;
+  font-size: 12px;
+}
+
+.weq-mt-crest-item.is-r4 .weq-mt-crest-face {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+}
+
+/* 没能挤进一排的共同群：一枚虚线小圆，只报数。 */
+.weq-mt-crest-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 1px;
+  border: 1px dashed color-mix(in srgb, var(--rp-mt) 42%, transparent);
+  border-radius: 50%;
+  color: var(--rp-ink-muted);
   font-family: var(--rp-serif-base) !important;
   font-size: 11px;
-  font-style: normal;
   font-weight: 600;
-}
-
-.weq-mt-chip.is-more {
-  color: var(--rp-ink-muted);
 }
 
 .weq-mt-more {
@@ -7010,6 +7071,26 @@ html[data-theme="dark"] .weq-report-root {
   animation: rp-mt-rise 760ms var(--rp-ease-drop) calc(var(--i, 0) * 85ms) both;
 }
 
+/* 正在「上下对飞」的那两组（头像是连着外面那层 wrap 一起）停掉逐层浮现，
+ * 直接以终态站着，由 FLIP（MatePage 里的 `data-mate-fly` + element.animate）
+ * 把它们从旧位置带过来。不停的话会有两个问题：CSS 动画自己的位移与透明度会
+ * 和 FLIP 叠起来、落点发漂；名册小卡的浮现还带着近一秒的延迟，飞行早结束了
+ * 那一格却还看不见。 */
+.weq-report-page[data-enter="in"] .weq-mt-anim[data-flying="yes"] {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+/* `data-flying` 会一直留到下一次换人（那一批元素会跟着 `swapTick` 重新挂载）：
+ * 飞行结束后属性一撤，逐层浮现的选择器会重新匹配、动画从头再播一遍 —— 那才是
+ * 真正看得见的跳。代价只是「换过人之后再翻回这一页」时这组元素不再浮现，其余
+ * 部分照旧。 */
+.weq-mt-anim[data-flying="yes"] {
+  opacity: 1;
+  transform: none;
+}
+
 @keyframes rp-mt-rise {
   from {
     opacity: 0;
@@ -7078,6 +7159,40 @@ html[data-theme="dark"] .weq-report-root {
 
   .weq-mt-more {
     gap: 8px;
+  }
+
+  .weq-mt-crest {
+    gap: 7px;
+  }
+
+  .weq-mt-crest-item.is-r0 .weq-mt-crest-face {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .weq-mt-crest-item.is-r1 .weq-mt-crest-face {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+
+  .weq-mt-crest-item.is-r2 .weq-mt-crest-face {
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .weq-mt-crest-item.is-r3 .weq-mt-crest-face {
+    width: 27px;
+    height: 27px;
+    font-size: 11px;
+  }
+
+  .weq-mt-crest-item.is-r4 .weq-mt-crest-face {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
   }
 }
 

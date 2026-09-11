@@ -43,11 +43,15 @@ interface Toast {
   ttl: number;
 }
 
+/** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
+export type ToastPatch = Partial<Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl'>>;
+
 interface ToastStore {
   toasts: Toast[];
   /** 正在播放退场动画的 toast id，动画结束后才真正移除 */
   leaving: number[];
   seq: number;
+  /** 推一条 toast，返回它的 id（之后可用 `update` 就地推进状态）。 */
   push(input: {
     tone?: ToastTone;
     /** 标题；兼容旧调用点的 message */
@@ -57,7 +61,15 @@ interface ToastStore {
     /** 可选的详情（展开区域） */
     detail?: ReactNode;
     ttl?: number;
-  }): void;
+  }): number;
+  /**
+   * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
+   *
+   * 传了新的 `ttl` 时倒计时会**重新从新 ttl 开始**（见 ToastRow 里的重置）——
+   * 于是「进行中」可以挂一个很长的 ttl 等任务跑完，落成结果时再收回正常的
+   * 十秒。id 已经不在栈里（被关掉/已过期）时静默忽略。
+   */
+  update(id: number, patch: ToastPatch): void;
   /** 触发退场动画（自动过期 / 点击关闭） */
   dismiss(id: number): void;
   /** 退场动画结束后真正移除 */
@@ -77,6 +89,11 @@ export const useToast = create<ToastStore>((set, get) => ({
       seq: id,
       toasts: [...get().toasts, { id, tone, title: actualTitle, detail: actualDetail, ttl }],
     });
+    return id;
+  },
+  update(id, patch) {
+    if (!get().toasts.some((t) => t.id === id)) return;
+    set({ toasts: get().toasts.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
   },
   dismiss(id) {
     if (get().leaving.includes(id)) return;
@@ -158,6 +175,13 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
     const timer = setTimeout(() => remove(toast.id), LEAVE_MS);
     return () => clearTimeout(timer);
   }, [leaving, toast.id, remove]);
+
+  // ttl 变了 = 这条 toast 换了阶段（进行中 → 已结束），倒计时从新的 ttl 重新走，
+  // 否则一条挂了十分钟 ttl 的进度提示落成结果后，会在屏上赖到十分钟才走。
+  useEffect(() => {
+    timeLeftRef.current = toast.ttl;
+    setTimeLeft(toast.ttl);
+  }, [toast.ttl]);
 
   // 倒计时引擎：每 50ms 更新一次，暂停时跳过
   useEffect(() => {
