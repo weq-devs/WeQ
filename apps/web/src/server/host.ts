@@ -79,6 +79,14 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       throw new Error('web 环境不支持 PDF 渲染，请使用桌面版');
     },
 
+    async renderHtmlToSlidesPng() {
+      throw new Error('web 环境不支持图片渲染，请使用桌面版');
+    },
+
+    async renderHtmlToLongPng() {
+      throw new Error('web 环境不支持图片渲染，请使用桌面版');
+    },
+
     async openBotConsole({ url }) {
       // The bot console is its own HTTP server; let the browser open it.
       return { url };

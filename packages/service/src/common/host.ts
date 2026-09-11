@@ -67,6 +67,24 @@ export interface HostBridge {
    */
   renderHtmlToPdf(html: string): Promise<Buffer>;
   /**
+   * Screenshot a self-contained HTML document into one PNG per `.slide`
+   * (in document order). Electron opens an isolated hidden window, resolves
+   * each slide's box and captures it; hosts without a rendering engine throw.
+   *
+   * `indexes` restricts the capture to those 0-based slides; `overlayHtml` is
+   * appended inside every captured slide (the QQ-space share chrome).
+   */
+  renderHtmlToSlidesPng(
+    html: string,
+    opts?: { indexes?: number[]; overlayHtml?: string },
+  ): Promise<Buffer[]>;
+  /**
+   * Screenshot every `.slide` of a self-contained HTML document and stitch them
+   * vertically into a single tall PNG. Same isolation guarantees as
+   * {@link renderHtmlToSlidesPng}.
+   */
+  renderHtmlToLongPng(html: string): Promise<Buffer>;
+  /**
    * Show an exported bot's WebUI console, logging in with `key`. Electron opens
    * a window and returns `null`; web returns the URL for the client to open.
    */

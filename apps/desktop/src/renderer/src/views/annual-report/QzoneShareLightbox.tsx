@@ -42,10 +42,14 @@ const UGC_RIGHT_OPTIONS: Array<{ value: UgcRight; label: string; icon: typeof Ea
 export function QzoneShareLightbox({
   year,
   slides,
+  getHtml,
   onClose,
 }: {
   year: number;
+  /** 已加载的页面（报告顺序），用于预览清单与勾选。 */
   slides: ExportSlide[];
+  /** 现取导出用的自包含 HTML（与长图 / HTML / PDF 同一份）。 */
+  getHtml: () => Promise<string>;
   onClose: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
@@ -121,20 +125,13 @@ export function QzoneShareLightbox({
     if (!canSubmit) return;
     setBusy(true);
     try {
-      const picked = slides
-        .map((s, i) => ({ s, i }))
-        .filter(({ i }) => selected.has(i))
-        .map(({ s }) => ({
-          pageId: s.page.id,
-          title: s.page.title,
-          description: s.page.description,
-          category: s.page.category,
-          data: s.data,
-        }));
+      // 图片由主进程从同一份 HTML 里逐页截图：`orderedSelected` 是已勾选页在
+      // 报告顺序里的下标，主进程按它取第 N 张 `.slide`，顺序与九宫格预览一致。
       const result = await client.account.annualReport.shareQzone.mutate({
         year,
         content: content.trim(),
-        slides: picked,
+        html: await getHtml(),
+        slideIndexes: orderedSelected,
         ugcRight,
       });
       pushToast({

@@ -124,16 +124,11 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           detail: result.path,
         });
       } else {
-        const payload = slides.map((s) => ({
-          pageId: s.page.id,
-          title: s.page.title,
-          description: s.page.description,
-          category: s.page.category,
-          data: s.data,
-        }));
+        // 长图与 HTML 是同一份自包含文档：主进程把它逐页截图后竖向拼成长图。
+        const payload = html || (await buildHtmlWithAssets());
         const result = await client.account.annualReport.exportLongImage.mutate({
           year,
-          slides: payload,
+          html: payload,
         });
         pushToast({
           tone: result.saved ? 'success' : 'info',
@@ -207,7 +202,12 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         </div>
       </div>
       {shareOpen ? (
-        <QzoneShareLightbox year={year} slides={slides} onClose={() => setShareOpen(false)} />
+        <QzoneShareLightbox
+          year={year}
+          slides={slides}
+          getHtml={buildHtmlWithAssets}
+          onClose={() => setShareOpen(false)}
+        />
       ) : null}
     </PageFrame>
   );
