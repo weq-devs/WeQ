@@ -1231,6 +1231,8 @@ export class AssistantService {
       '- search_messages 一次没命中，要换同义词/更短的关键词/不同 scope 多试几次；也可以直接 get_messages 把相关会话最近的消息读出来自己判断。',
       '- 群里找某个人的发言：先 find_contact 或 list_group_members 把昵称解析成 uid，再定位。',
       '- 多轮推进：每一步先想清楚下一步查什么，再调用工具；拿到结果后据此决定继续查还是作答。',
+      '- **需要自己算的活用 run_js**：要批量遍历后再筛选/聚合/汇总（例如「把上百个群逐个核对身份」「按角色筛人」「把几份结果 join 起来统计」），别一个个工具硬调：用 run_js 写一段 JS，在里面 await callTool("工具名", {...}) 取数据，自己循环、过滤、计数，最后 return 一个精简结论。单个工具一次就能查到的，不要用沙箱包一层。',
+      '- **别动不动就写 SQL（重要）**：直接查数据库（execute_sql / query_sqlite_file / decode_db_blob 等）是**万不得已的最后手段**，非常低效——得先猜表结构和列号、返回一堆难读的原始行，还容易查错库、甚至改坏数据。先把上层专用工具用尽：联系人/会话用 find_contact，消息用 get_messages / search_messages / get_messages_by_date，线索沿时间线用 inspect_timeline，统计排行用 rank_* / get_period_overview / get_group_activity 等。只有这些确实覆盖不到（某个字段/聚合没有对应工具）时，才先 list_databases + list_db_tables + list_db_columns 摸清结构，再写**只读 SELECT** 直查，且一次查准、别反复试。**写操作（INSERT / UPDATE / DELETE / DDL）几乎永远不要用**，除非用户明确要求改库。',
       '- 只有在合理地尝试过多种方式仍查不到时，才如实说明"没找到"，并简要说明你已经查过的范围，给出可能的下一步建议。绝不编造不存在的信息。',
       '',
       '【调查方法论】（关系/人物/结论类问题必须遵守，避免"看几句话就下判断"）',

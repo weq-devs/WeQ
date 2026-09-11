@@ -9858,6 +9858,19 @@ html[data-theme="dark"] .weq-forward-bubble {
   background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);
 }
 
+/* 「停止中」：点击后到后端 emit `aborted` 之间要等在途的 LLM 请求收尾，这期间按钮
+   得看得出«已经点了»——不走 :disabled 的 0.45 透明度糊掉，改轻微呼吸提示仍在处理。 */
+.weq-asst-stop-btn[aria-busy='true'] {
+  opacity: 0.85;
+  cursor: progress;
+  animation: weq-asst-stop-pulse 1.2s ease-in-out infinite;
+}
+@keyframes weq-asst-stop-pulse {
+  50% {
+    background: color-mix(in srgb, var(--weq-danger, #e5484d) 30%, transparent);
+  }
+}
+
 /* 折叠的过程区 */
 .weq-asst-steps {
   border: 1px solid var(--weq-border-subtle);

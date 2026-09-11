@@ -36,7 +36,7 @@ import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
-import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
+import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
@@ -978,10 +978,8 @@ export function initAppContext(): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-            run: (name, args) =>
-              name.startsWith('mcp__')
-                ? getExternalMcpHub().run(name, args)
-                : runAiTool(name, args),
+            // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
+            run: runAssistantTool,
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -1496,10 +1494,8 @@ export function initAppContext(): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-            run: (name, args) =>
-              name.startsWith('mcp__')
-                ? getExternalMcpHub().run(name, args)
-                : runAiTool(name, args),
+            // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
+            run: runAssistantTool,
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。

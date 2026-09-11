@@ -16,20 +16,13 @@ export class AgentLabConfigService {
   constructor(private readonly userConfig: UserConfigService) {}
 
   /**
-   * 用厂商模板自动补全缺失的模型（仅追加，不覆盖已有）。
-   * 解决了用户早前保存的 provider 不包含 catalog 后续新增模型的问题。
+   * 已保存的 provider 原样返回，不做任何补全。
+   * 曾经这里会用厂商模板自动补全缺失的推荐模型，导致用户在设置页删掉的模型
+   * 一保存就被「复活」，怎么改都保存不上；需要模板推荐时由设置页的
+   * 「导入模板推荐」按钮显式导入（不覆盖、不复活用户已删的内容）。
    */
-  private enrichProvider(p: AgentLabProviderConfig): AgentLabProviderConfig {
-    const entry = AGENTLAB_PROVIDER_CATALOG.find((c) => c.vendor === p.vendor);
-    if (!entry?.models?.length) return p;
-    const existingIds = new Set(p.models.map((m) => m.id));
-    const extra = entry.models.filter((m) => !existingIds.has(m.id));
-    if (extra.length === 0) return p;
-    return { ...p, models: [...p.models, ...extra] };
-  }
-
   listProviders(): AgentLabProviderConfig[] {
-    return this.userConfig.getSettings().agentLab.providers.map((p) => this.enrichProvider(p));
+    return this.userConfig.getSettings().agentLab.providers;
   }
 
   getProvider(providerId: string): AgentLabProviderConfig | null {

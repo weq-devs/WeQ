@@ -23,6 +23,7 @@ import {
   Check,
   ChevronDown,
   Cpu,
+  Loader2,
   Send,
   Settings,
   Sparkles,
@@ -405,6 +406,8 @@ export function AssistantPanel({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 已请求停止、正在等后端收尾（在途 LLM 请求要等它返回/被 signal 掐断才 emit aborted）。
+  const [stopping, setStopping] = useState(false);
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const seeded = useRef(false);
@@ -420,6 +423,11 @@ export function AssistantPanel({
 
   const busy = turns.some((t) => t.running);
   const resumable = !busy && resumeQuery.data?.resumable === true;
+
+  // 轮次结束（final / aborted / error）后 busy 转 false，把「停止中」复位。
+  useEffect(() => {
+    if (!busy) setStopping(false);
+  }, [busy]);
   const modelSel = assistantConfig.data?.model
     ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
     : '';
@@ -610,10 +618,20 @@ export function AssistantPanel({
   }
 
   /** 停止当前任务：请求后端掐断（真正收尾 + 持久化半截答复由后端 emit `aborted` 驱动）。 */
-  function onStop(): void {
+  async function onStop(): Promise<void> {
+    if (stopping) return;
+    // 先给即时反馈：掐断要走 IPC，且后端要等在途的 LLM 请求返回才能收尾，
+    // 这期间按钮停在「停止中…」，否则点了像没反应。
+    setStopping(true);
     const runId = runIdRef.current;
+    // runId 还没回来（发送仍在建会话/起任务）：等 busy 结束由上面的 effect 复位。
     if (!runId) return;
-    abort.mutate({ runId });
+    try {
+      await abort.mutateAsync({ runId });
+    } catch (e) {
+      setStopping(false);
+      dialog.error('停止失败', e instanceof Error ? e.message : String(e));
+    }
   }
 
   /**
@@ -781,8 +799,22 @@ export function AssistantPanel({
             disabled={busy}
           />
           {busy ? (
-            <button className="weq-set-btn weq-asst-stop-btn" onClick={onStop} title="停止本轮任务">
-              <Square size={13} strokeWidth={2.6} /> 停止
+            <button
+              className="weq-set-btn weq-asst-stop-btn"
+              onClick={() => void onStop()}
+              disabled={stopping}
+              aria-busy={stopping}
+              title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
+            >
+              {stopping ? (
+                <>
+                  <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
+                </>
+              ) : (
+                <>
+                  <Square size={13} strokeWidth={2.6} /> 停止
+                </>
+              )}
             </button>
           ) : (
             <button className="weq-set-btn" onClick={() => void onSend()} disabled={!input.trim()}>

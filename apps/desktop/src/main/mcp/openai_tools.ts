@@ -8,6 +8,7 @@
  */
 
 import type { z } from 'zod';
+import { getExternalMcpHub } from './external';
 import { AI_TOOLS } from './tools';
 
 export interface OpenAiToolSpec {
@@ -119,4 +120,19 @@ export async function runAiTool(name: string, args: Record<string, unknown>): Pr
     throw new Error(`工具 ${name} 的参数不合法：${formatIssues(parsed.error)}`);
   }
   return t.run(parsed.data);
+}
+
+/**
+ * 助手侧**统一**的工具执行入口：内置工具走注册表，外部 MCP 工具（`mcp__` 前缀）走 Hub。
+ *
+ * 独立成一个函数是因为它有两个调用方：助手自己的工具循环，以及 `run_js` 沙箱里的
+ * `callTool`。沙箱能碰到的能力必须和助手自己能碰到的完全一致——这个函数就是那条
+ * 边界的唯一定义处，别再在别处把路由逻辑写第二遍。
+ */
+export async function runAssistantTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args);
+  return runAiTool(name, args);
 }
