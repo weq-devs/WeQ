@@ -31,7 +31,7 @@ import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
-import { exportQzone, type QzoneExportDeps } from './qzone_export';
+import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
 import { createExportWriter } from './stream_utils';
 import {
   exportFriends,
@@ -1824,10 +1824,64 @@ export class ExportTaskManager extends EventEmitter {
         },
         { persist: true },
       );
-      let totalCount = 0;
-      let mediaOk = 0;
-      let mediaFailed = 0;
-      let interactionSummary: string | undefined;
+      // 说说 / 互动 / 配图只拉一次，多格式产物共用 —— 若按格式各拉一次，只有第一份
+      // 带互动与本地配图，排在后面的 HTML 会退化成「无评论无赞 + 远端图」的空壳。
+      const data = await collectQzone(
+        {
+          targetUin: task.conv,
+          range: task.range,
+          mediaRoot,
+          includeInteraction: wantInteraction,
+          onProgress: (current, total, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', {
+              status: 'running',
+              current,
+              total: total || current,
+              note,
+            });
+            this.log(id, 'message', note);
+          },
+          onMedia: (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'media', {
+              status: 'running',
+              current: done,
+              total,
+              note: `下载 ${done}/${total}`,
+            });
+            this.log(id, 'media', `下载媒体 ${done}/${total}`);
+          },
+          onInteraction: (done, total, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', {
+              status: 'running',
+              current: done,
+              total: total || done,
+              note,
+            });
+            this.log(id, 'message', note);
+          },
+          signal: abort.signal,
+        },
+        qzone,
+      );
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
+      const count = data.rows.length;
+      const totalCount = count * formats.length;
+      const { mediaOk, mediaFailed } = data;
+      const interactionSummary = data.interaction
+        ? data.interaction.failed
+          ? '互动拉取失败（正文已导出）'
+          : data.interaction.posts > 0
+            ? `互动 ${data.interaction.posts} 条 · 评论 ${data.interaction.comments} / 赞 ${data.interaction.likes}`
+            : '未发现评论 / 点赞'
+        : undefined;
+      if (interactionSummary) this.log(id, 'message', interactionSummary);
+
       let firstFilePath = '';
       for (let i = 0; i < formats.length; i += 1) {
         const format = formats[i]!;
@@ -1836,71 +1890,15 @@ export class ExportTaskManager extends EventEmitter {
           `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`,
         );
         if (i === 0) firstFilePath = outPath;
-        const base = totalCount;
         const qzoneFormat = format === 'txt' ? 'txt' : format === 'html' ? 'html' : 'json';
-        const result = await exportQzone(
-          {
-            targetUin: task.conv,
-            name: task.name,
-            format: qzoneFormat,
-            outputPath: outPath,
-            // 配图 / 互动都只取一次（第一份格式携带），多格式产物共用。
-            mediaRoot: i === 0 ? mediaRoot : undefined,
-            includeInteraction: i === 0 ? wantInteraction : false,
-            range: task.range,
-            onProgress: (current, total, note) => {
-              if (aborted()) return;
-              const prefix =
-                formats.length > 1 ? `[${i + 1}/${formats.length} ${format.toUpperCase()}] ` : '';
-              this.touchStage(task, 'message', {
-                current: base + current,
-                total: base + (total || current),
-                note: `${prefix}${note}`,
-              });
-              this.log(id, 'message', `${prefix}${note}`);
-            },
-            onMedia: (done, total) => {
-              if (aborted()) return;
-              this.touchStage(task, 'media', {
-                status: 'running',
-                current: done,
-                total,
-                note: `下载 ${done}/${total}`,
-              });
-              this.log(id, 'media', `下载媒体 ${done}/${total}`);
-            },
-            onInteraction: (done, total, note) => {
-              if (aborted()) return;
-              this.touchStage(task, 'message', {
-                status: 'running',
-                current: base + done,
-                total: base + (total || done),
-                note,
-              });
-              this.log(id, 'message', note);
-            },
-            signal: abort.signal,
-          },
-          qzone,
-        );
-        if (aborted()) {
-          task.status = 'cancelled';
-          return;
-        }
-        totalCount += result.count;
-        mediaOk += result.mediaOk;
-        mediaFailed += result.mediaFailed;
-        if (i === 0 && result.interaction) {
-          const it = result.interaction;
-          interactionSummary = it.failed
-            ? '互动拉取失败（正文已导出）'
-            : it.posts > 0
-              ? `互动 ${it.posts} 条 · 评论 ${it.comments} / 赞 ${it.likes}`
-              : '未发现评论 / 点赞';
-          this.log(id, 'message', interactionSummary);
-        }
+        await writeQzone(qzoneFormat, data, {
+          name: task.name,
+          targetUin: task.conv,
+          outputPath: outPath,
+          localMedia: Boolean(mediaRoot),
+        });
         if (formats.length > 1) {
-          this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${result.count} 条说说`);
+          this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${count} 条说说`);
         }
       }
 

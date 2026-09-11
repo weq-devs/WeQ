@@ -14,6 +14,9 @@
  * 评论默认展开前 3 条、点赞默认展开前 10 人，更多可点按钮展开 / 收起（参考
  * QzoneArchive 归档页，内联脚本切换，无需联网）。配图 / 视频与互动拉取由调用方保证
  * —— 含 html 时强制下载媒体 + 拉取评论 / 点赞。
+ *
+ * 同一次任务的 json / txt / html 共用**一次**拉取（{@link collectQzone}）后各写一份
+ * （{@link writeQzone}）：说说翻页、评论 / 点赞、配图下载都只做一遍。
  */
 
 import { createExportWriter } from './stream_utils';
@@ -48,12 +51,15 @@ export interface QzoneExportDeps {
   fetchLikes?: (targetUin: string, tid: string) => Promise<QzoneLike[]>;
 }
 
+/** 说说导出可选产物格式。 */
+export type QzoneFormat = 'json' | 'txt' | 'html';
+
 export interface QzoneExportOpts {
   /** 目标空间 uin（好友或自己）。 */
   targetUin: string;
   /** 展示名（写进文件头 / 进度）。 */
   name: string;
-  format: 'json' | 'txt' | 'html';
+  format: QzoneFormat;
   /** 说说文件输出路径。 */
   outputPath: string;
   /** 传入则下载配图到该 `media/` 目录（否则不下载）。 */
@@ -78,16 +84,60 @@ export interface QzoneExportResult {
   mediaOk: number;
   mediaFailed: number;
   /** 补全互动开启时的统计（未开启为 undefined）。 */
-  interaction?: {
-    /** 带互动的说说条数（有评论或有点赞）。 */
-    posts: number;
-    /** 拉到的一级+二级评论总数。 */
-    comments: number;
-    /** 拉到的点赞用户总数。 */
-    likes: number;
-    /** 批量拉取整体失败（互动缺失，正文照常导出）。 */
-    failed: boolean;
-  };
+  interaction?: QzoneInteractionSummary;
+}
+
+/** 补全互动（评论 + 点赞）的统计。 */
+export interface QzoneInteractionSummary {
+  /** 带互动的说说条数（有评论或有点赞）。 */
+  posts: number;
+  /** 拉到的一级+二级评论总数。 */
+  comments: number;
+  /** 拉到的点赞用户总数。 */
+  likes: number;
+  /** 批量拉取整体失败（互动缺失，正文照常导出）。 */
+  failed: boolean;
+}
+
+/** 一次拉取的说说数据（含互动 / 配图统计）—— 多格式产物共用，避免重复翻页 / 重复拉互动。 */
+export interface QzoneExportData {
+  /** 时间窗过滤后的说说；拉过互动则 `comments` / `likes` 已挂上（否则缺失）。 */
+  rows: EmotionWithInteraction[];
+  /** 拉过互动时的统计（未开启为 undefined）。 */
+  interaction?: QzoneInteractionSummary;
+  mediaOk: number;
+  mediaFailed: number;
+}
+
+/** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
+export interface QzoneCollectOpts {
+  /** 目标空间 uin（好友或自己）。 */
+  targetUin: string;
+  /** 发表时间窗（unix 秒），null 端开放。 */
+  range?: ExportTimeRange;
+  /** 传入则下载配图 / 视频到该 `media/` 目录（否则不下载）。 */
+  mediaRoot?: string;
+  /** 补全互动（评论 + 点赞）：拉取说说后按 tid 逐条补。缺 deps.fetchInteractions 时忽略。 */
+  includeInteraction?: boolean;
+  /** 拉取进度：已获取去重条数 / 总数 / 说明。 */
+  onProgress: (current: number, total: number, note: string) => void;
+  /** 互动拉取进度。 */
+  onInteraction?: (done: number, total: number, note: string) => void;
+  /** 配图下载进度。 */
+  onMedia?: (done: number, total: number) => void;
+  signal?: AbortSignal;
+}
+
+/** {@link writeQzone} 的入参。 */
+export interface QzoneWriteOpts {
+  /** 展示名（HTML 资料头 / 标题用）。 */
+  name: string;
+  /** 目标空间 uin（HTML 资料头用）。 */
+  targetUin: string;
+  /** 产物输出路径。 */
+  outputPath: string;
+  /** 配图是否已落到 `media/`：true → HTML 引用本地相对路径，false → 引用远端 URL。 */
+  localMedia: boolean;
 }
 
 const PAGE_SIZE = 20;
@@ -169,8 +219,8 @@ function fmtTime(sec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** 带互动字段的说说（导出内部形态，互动的说说在渲染时才读取这两个字段）。 */
-interface EmotionWithInteraction extends QzoneEmotion {
+/** 带互动字段的说说（导出形态；未拉互动时两个字段缺失，等同 QzoneEmotion）。 */
+export interface EmotionWithInteraction extends QzoneEmotion {
   comments?: QzoneComment[];
   likes?: QzoneLike[];
 }
@@ -669,7 +719,7 @@ async function downloadMedia(
 async function attachInteractions(
   filtered: EmotionWithInteraction[],
   deps: QzoneExportDeps,
-  opts: QzoneExportOpts,
+  opts: QzoneCollectOpts,
 ): Promise<{ failed: boolean; interactionPosts: number }> {
   const onInteraction = opts.onInteraction;
   try {
@@ -742,13 +792,14 @@ async function attachInteractions(
 }
 
 /**
- * 导出一个空间（好友或自己）的说说到 json / txt / html，可选下载配图（bundle）、
- * 补全评论/点赞。
+ * 拉取一个空间的说说，并按需补全互动（评论 / 点赞）+ 下载配图 / 视频，返回一份可复用
+ * 的数据。同一次任务的多格式产物（json / txt / html）共用它 —— 每个格式各拉一次的话，
+ * 只有第一份会带互动与本地配图，排在后面的 HTML 会退化成「无评论无赞 + 远端图」。
  */
-export async function exportQzone(
-  opts: QzoneExportOpts,
+export async function collectQzone(
+  opts: QzoneCollectOpts,
   deps: QzoneExportDeps,
-): Promise<QzoneExportResult> {
+): Promise<QzoneExportData> {
   opts.onProgress(0, 0, '拉取说说…');
   const fetched = await fetchQzoneEmotionRange(
     deps,
@@ -757,37 +808,50 @@ export async function exportQzone(
     opts.onProgress,
     opts.signal,
   );
-  const filtered = fetched.filter((e) => inRange(e, opts.range));
   // 互动字段挂在 EmotionWithInteraction 上；不带互动时数组元素仍是合法 QzoneEmotion。
-  const rows: EmotionWithInteraction[] = filtered;
+  const rows: EmotionWithInteraction[] = fetched.filter((e) => inRange(e, opts.range));
 
-  // 补全互动（评论 + 点赞）：一次批量拉取，JSON / TXT 两份产物共用同一份数据。
-  let interaction: QzoneExportResult['interaction'];
+  // 补全互动（评论 + 点赞）：批量拉一次，各格式产物共用。
+  let interaction: QzoneInteractionSummary | undefined;
   if (opts.includeInteraction && !opts.signal?.aborted) {
     const { failed, interactionPosts } = await attachInteractions(rows, deps, opts);
     const commentCount = rows.reduce((s, e) => s + (e.comments?.length ?? 0), 0);
     const likeCount = rows.reduce((s, e) => s + (e.likes?.length ?? 0), 0);
-    interaction = {
-      posts: interactionPosts,
-      comments: commentCount,
-      likes: likeCount,
-      failed,
-    };
+    interaction = { posts: interactionPosts, comments: commentCount, likes: likeCount, failed };
   }
 
-  // 写盘（说说量级不大，一次性写；json 带缩进便于阅读）。HTML 的配图引用本地
-  // media/ 相对路径 —— 配图是否实际下载由调用方保证（含 html 时强制下载）。
+  let mediaOk = 0;
+  let mediaFailed = 0;
+  if (opts.mediaRoot && !opts.signal?.aborted) {
+    const r = await downloadMedia(rows, opts.mediaRoot, opts.onMedia, opts.signal);
+    mediaOk = r.ok;
+    mediaFailed = r.failed;
+  }
+
+  return { rows, mediaOk, mediaFailed, ...(interaction ? { interaction } : {}) };
+}
+
+/**
+ * 把一份 {@link QzoneExportData} 按指定格式写盘（说说量级不大，一次性写；json 带缩进
+ * 便于阅读）。HTML 的配图引用由 `localMedia` 决定：本地 `media/` 相对路径或远端 URL。
+ */
+export async function writeQzone(
+  format: QzoneFormat,
+  data: QzoneExportData,
+  opts: QzoneWriteOpts,
+): Promise<void> {
+  const rows = data.rows;
   const body =
-    opts.format === 'json'
+    format === 'json'
       ? JSON.stringify(rows, null, 2)
-      : opts.format === 'html'
+      : format === 'html'
         ? buildHtmlDoc(
             opts.name,
             opts.targetUin,
             rows.length,
             rows
               .map((e) =>
-                emotionToHtml(e, { name: opts.name, uin: opts.targetUin }, Boolean(opts.mediaRoot)),
+                emotionToHtml(e, { name: opts.name, uin: opts.targetUin }, opts.localMedia),
               )
               .join('\n'),
           )
@@ -795,20 +859,37 @@ export async function exportQzone(
   const writer = createExportWriter(opts.outputPath);
   await writer.write(body);
   await writer.end();
+}
 
-  let mediaOk = 0;
-  let mediaFailed = 0;
-  if (opts.mediaRoot && !opts.signal?.aborted) {
-    const r = await downloadMedia(filtered, opts.mediaRoot, opts.onMedia, opts.signal);
-    mediaOk = r.ok;
-    mediaFailed = r.failed;
-  }
-
+/** 拉取 + 写盘一步到位（单格式便捷入口）。多格式导出请用 {@link collectQzone} 拉一次后多次 {@link writeQzone}。 */
+export async function exportQzone(
+  opts: QzoneExportOpts,
+  deps: QzoneExportDeps,
+): Promise<QzoneExportResult> {
+  const data = await collectQzone(
+    {
+      targetUin: opts.targetUin,
+      range: opts.range,
+      mediaRoot: opts.mediaRoot,
+      includeInteraction: opts.includeInteraction,
+      onProgress: opts.onProgress,
+      onInteraction: opts.onInteraction,
+      onMedia: opts.onMedia,
+      signal: opts.signal,
+    },
+    deps,
+  );
+  await writeQzone(opts.format, data, {
+    name: opts.name,
+    targetUin: opts.targetUin,
+    outputPath: opts.outputPath,
+    localMedia: Boolean(opts.mediaRoot),
+  });
   return {
     filePath: opts.outputPath,
-    count: filtered.length,
-    mediaOk,
-    mediaFailed,
-    ...(interaction ? { interaction } : {}),
+    count: data.rows.length,
+    mediaOk: data.mediaOk,
+    mediaFailed: data.mediaFailed,
+    ...(data.interaction ? { interaction: data.interaction } : {}),
   };
 }
