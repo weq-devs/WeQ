@@ -18,6 +18,7 @@ import { Check, Earth, LoaderCircle, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { useSelfFace } from './useSelfFace';
+import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
@@ -49,6 +50,18 @@ export function QzoneShareLightbox({
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const selfFace = useSelfFace();
+  const { overlayHostRef } = useReportView();
+  /**
+   * portal 目标只在挂载时判一次：全屏播放时报告根节点是 fullscreen element，
+   * 挂在 document.body 的节点会被整个挡在 fullscreen 层外、完全看不见，所以要
+   * 改挂报告自己的浮层宿主；而平常挂在 body 才能连应用图标栏一起压暗
+   * （图标栏的 z-index 高于报告根）。灯箱开着时全屏开关在遮罩之下，状态不会
+   * 中途改变，所以这一次判定在灯箱的生命周期里恒成立。
+   */
+  const [portalTarget] = useState<Element>(() => {
+    const host = overlayHostRef.current;
+    return host?.closest(':fullscreen') ? host : document.body;
+  });
 
   // 默认全选；超过 9 张时按报告顺序截前 9 张。
   const initialSelected = useMemo(
@@ -283,6 +296,6 @@ export function QzoneShareLightbox({
         </footer>
       </div>
     </div>,
-    document.body,
+    portalTarget,
   );
 }

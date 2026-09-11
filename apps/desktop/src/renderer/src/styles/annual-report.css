@@ -387,8 +387,11 @@ html[data-theme="dark"] .weq-report-root {
 
 
 /* 第 0 页（年份选择海报）在画面上时：报告的 chrome、刻度轨和提示全部退场 ——
-   海报自带的品牌行和 CTA 就是这一页的全部 chrome，报告的控件在这一页上是噪音。 */
-.weq-report-root[data-entry="yes"] .weq-report-chrome,
+   海报自带的品牌行和 CTA 就是这一页的全部 chrome，报告的控件在这一页上是噪音。
+   刻意退的是 chrome 的**内容**（品牌行 / 页码）而不是整条顶栏：全屏播放按钮
+   要留在海报上 —— 选完年份前也能一键铺满屏幕。 */
+.weq-report-root[data-entry="yes"] .weq-report-brand,
+.weq-report-root[data-entry="yes"] .weq-report-progress,
 .weq-report-root[data-entry="yes"] .weq-report-rail,
 .weq-report-root[data-entry="yes"] .weq-report-hint {
   opacity: 0;
@@ -456,6 +459,55 @@ html[data-theme="dark"] .weq-report-root {
 .weq-report-progress-slash,
 .weq-report-progress-total {
   color: var(--rp-ink-faint);
+}
+
+/* 全屏播放开关。发丝线胶囊，和刻度轨一样是「报告自己的控件」，不是系统按钮。 */
+.weq-report-fullscreen {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--rp-hair);
+  border-radius: 999px;
+  background: none;
+  color: var(--rp-ink-muted);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+
+.weq-report-fullscreen:hover {
+  border-color: var(--rp-ink-faint);
+  color: var(--rp-ink);
+  background: color-mix(in srgb, var(--rp-ink) 5%, transparent);
+}
+
+.weq-report-fullscreen[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--rp-accent) 45%, transparent);
+  color: var(--rp-accent);
+}
+
+/* 全屏播放：根节点被提进 fullscreen 层，由浏览器撑满视口；这里只兜住尺寸，
+   免得 100% 高度在某些窗口形态下解析成 0。 */
+.weq-report-root:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* 报告内的浮层宿主（目前是 QQ 空间分享灯箱）。零尺寸不占位，但要自带一个
+   压过刻度轨（z-index 30）与颗粒层（40）的 stacking context，挂进来的灯箱
+   才不会被报告自己的控件盖住。 */
+.weq-report-root > .weq-report-overlay {
+  position: relative;
+  z-index: 300;
 }
 
 /* ══ 舞台 / 轨道 / 滑动页 ═════════════════════════════════════════════ */
