@@ -187,7 +187,7 @@ executeSqlWithKey 返回行示例：
 
 ---
 
-## 8. 常见坑 & 约定（给维护者）
+## 8. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
 2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。
