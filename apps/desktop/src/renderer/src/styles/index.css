@@ -19735,3 +19735,49 @@ html[data-theme="dark"] .weq-applock-bind-success small {
 	aspect-ratio: 1 / 1;
 	border-radius: 10px;
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 深浅模式切换：新主题以点击处为圆心扩散铺开（View Transitions API）。
+ * theme.ts 在开转场前给 <html> 挂上 .weq-theme-ripple，并写入
+ * --weq-theme-ripple-x/y（圆心）、-r（覆盖到最远角的半径）、
+ * -duration（按时长缩放）。这里把浏览器默认的整屏交叉淡入换成圆形揭示。
+ * 自定义属性从 <html> 继承到 view-transition 伪元素，故直接生效。
+ * ──────────────────────────────────────────────────────────────────── */
+
+html.weq-theme-ripple::view-transition-old(root),
+html.weq-theme-ripple::view-transition-new(root) {
+	/* 关掉默认的 250ms 交叉淡入；默认的 plus-lighter 混色会让新旧快照叠加发灰。 */
+	animation: none;
+	mix-blend-mode: normal;
+}
+
+html.weq-theme-ripple::view-transition-old(root) {
+	/* 旧主题留在底层当背景，由新主题盖上去。 */
+	z-index: 1;
+}
+
+html.weq-theme-ripple::view-transition-new(root) {
+	z-index: 2;
+	animation: weq-theme-ripple-reveal var(--weq-theme-ripple-duration, 560ms)
+		cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-theme-ripple-reveal {
+	from {
+		clip-path: circle(
+			0px at var(--weq-theme-ripple-x, 50%) var(--weq-theme-ripple-y, 50%)
+		);
+	}
+	to {
+		clip-path: circle(
+			var(--weq-theme-ripple-r, 150vmax) at var(--weq-theme-ripple-x, 50%)
+				var(--weq-theme-ripple-y, 50%)
+		);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html.weq-theme-ripple::view-transition-new(root) {
+		animation: none;
+	}
+}
