@@ -17,6 +17,9 @@
 //!   - `weq-daemon stop`    一次性停止运行中的守护进程
 //!   - `weq-daemon install|uninstall|status [--pipe <name>]` 管理平台自启动
 //!
+//! `serve` 每次启动都会幂等自注册平台自启（见 `autostart::ensure`）：注册被删了
+//! 自动补回、二进制换了路径自动重写。`install` 只是「注册 + 立刻启动」的显式入口。
+//!
 //! 所有子命令都接受 `--pipe <name>` 覆盖默认管道名，保证同一台机器可以
 //! 并存多套（不同管道名 + 不同端口），测试互不干扰。
 
@@ -90,10 +93,10 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
-/// 守护进程模式：按记忆恢复 HTTP → 起控制管道 → 等命令。
+/// 守护进程模式：自注册平台自启 → 按记忆恢复 HTTP → 起控制管道 → 等命令。
 ///
 /// HTTP 服务若上次开着（状态文件还在），这里就自主恢复 —— 电脑重启后
-/// WeQ 不在场也能让卡片 URL 活着。恢复失败只记日志，绝不阻塞管道就绪。
+/// WeQ 不在场也能让卡片 URL 活着。恢复 / 注册失败只记日志，绝不阻塞管道就绪。
 fn serve(pipe_name: &str) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -185,13 +188,13 @@ USAGE:
   weq-daemon <COMMAND> [--pipe <name>]
 
 COMMANDS:
-  serve        守护进程模式（自启动注册的就是这条命令）
+  serve        守护进程模式（启动时幂等自注册平台自启）
   ping         探活运行中的守护进程
   http-status  查询 HTTP 服务状态（运行中则带端口 / docroot）
   release-status  查询 GitHub release 轮询状态（含未确认的新版本）
-  autostart-status  查询 WeQ GUI 自启动状态（意图 + 平台注册）
+  autostart-status  查询自启动状态（WeQ 开机拉起意图 + 守护进程自身注册）
   stop         停止运行中的守护进程
-  install      注册平台自启动（schtasks / LaunchAgent / systemd user unit）
+  install      注册平台自启动并立刻启动（schtasks / LaunchAgent / systemd user unit）
   uninstall    移除平台自启动注册
   status       查询自启动注册状态
 

@@ -5,7 +5,7 @@
  *   - 进程在不在（ping 成功与否）+ 守护进程版本；
  *   - HTTP 服务状态（运行 / 端口 / docroot）；
  *   - release 轮询状态（watching / 最近错误 / pending）；
- *   - GUI 自启动注册状态（意图 + 平台实际在位）。
+ *   - 自启动状态（WeQ 的开机拉起意图 + 守护进程自身原生注册是否在位）。
  *
  * 全部只读、无副作用：设置页可以随便轮询，不需要任何「开始/停止」。
  */
@@ -44,9 +44,9 @@ export interface DaemonHealth {
     lastError: string | null;
   } | null;
   autostart: {
-    /** WeQ 设置的意图（守护进程记忆）。 */
+    /** WeQ 设置的意图：开机后是否由守护进程拉起 GUI（存在守护进程记忆里）。 */
     enabled: boolean;
-    /** 平台注册实际在位（不一致 = 需要同步）。 */
+    /** **守护进程自身**的原生自启注册是否在位（全机唯一那一份）。 */
     registered: boolean;
   } | null;
 }

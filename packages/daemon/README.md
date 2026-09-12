@@ -33,9 +33,8 @@ WeQ Desktop (Electron)                    weq-daemon (本包，原生二进制)
 | `release_watch_stop` | — | `stopped` | 关闭轮询（latest_seen / pending 保留） |
 | `release_watch_status` | — | `release_watch_status { info }` | 查询轮询状态（含未确认的新版本 `pending`） |
 | `release_ack` | `version` | `release_watch_status { info }` | GUI 已处理该版本：清 pending、推进 current_version |
-| `autostart_set` | `{ enabled, gui_exe }` | `autostart_applied { enabled }` | 注册 / 撤销 **WeQ GUI** 的开机自启（写平台注册 + 落记忆）——Electron 自己不注册任务 |
-| `autostart_sync` | — | `autostart_applied { enabled }` | 按记忆对账一次（WeQ 拉起守护进程后调用，修复被手动删除的注册） |
-| `autostart_status` | — | `autostart_status { enabled, registered }` | 意图 vs 平台注册实际在位 |
+| `autostart_set` | `{ enabled, gui_exe }` | `autostart_applied { enabled }` | 记下「开机后由守护进程拉起 WeQ」的意图与路径（**只落记忆，不做任何原生注册**） |
+| `autostart_status` | — | `autostart_status { enabled, registered }` | `enabled` = WeQ 的意图（记忆）；`registered` = **守护进程自身**的原生自启注册是否在位 |
 | `stop` | — | （无帧，EOF） | 优雅退出守护进程；**保留记忆**（重启后按记忆恢复） |
 
 `release_watch_status.info = { watching, repo?, interval_secs?, current_version?, latest_seen?, pending?, last_error? }`。发现比 `current_version` 新的 release ⇒ 置 `pending`，GUI 轮询状态读它弹系统通知提醒更新，处理后 `release_ack`。
@@ -47,6 +46,8 @@ WeQ Desktop (Electron)                    weq-daemon (本包，原生二进制)
 - Windows：`%LOCALAPPDATA%\weq-daemon\<pipe>.json`
 - macOS：`~/Library/Application Support/weq-daemon/<pipe>.json`
 - Linux：`$XDG_STATE_HOME/weq-daemon/<pipe>.json`（默认 `~/.local/state/`）
+
+同一目录下还有 `bin/weq-daemon[.exe]` —— 桌面版 stage 出来的稳定落位，自启注册指向它。
 
 `serve` 启动时若记忆存在且 docroot 仍是有效目录，就**自主恢复 HTTP**——电脑重启后 WeQ 不在场，推文卡片的 URL 依然可用。容错：docroot 消失 → 等待 WeQ 重新下发（保留记忆）；端口被占 → 只记日志、保持空闲（管道照常活着）；文件损坏 → 删除视为无记忆。`http_stop` 是唯一的「遗忘」入口，`stop`/进程退出/崩溃都不影响记忆（写盘用临时文件 + rename 原子落盘，崩溃不留坏文件）。
 
@@ -75,10 +76,10 @@ sock.on('connect', () => sock.end(frame({ cmd: 'http_start', port: 17690, docroo
 就直接退出，报 `another weq-daemon is already serving ...`。所以重复启动既不会抢 HTTP
 端口，也不会按记忆重复拉起 GUI；Unix 侧更不会误删在跑实例的 socket 文件。
 
-**版本对齐（GUI 侧）。** 桌面版和网页版共用 `ensureDaemonRunning()`：探活 + 读磁盘二进制
-的 `--version`，版本一致就什么都不做（不重启、不重复拉起）；不一致（换了安装包 / 重新
-`build:daemon`）才向旧实例发 `stop`、等管道消失、再拉起新二进制。新实例 `serve` 启动时
-按状态文件自行恢复 HTTP。
+**版本对齐（GUI 侧）。** 桌面版和网页版共用 `ensureDaemonRunning()`：先比「包内二进制」
+与「稳定落位」的 `--version`，不一致（换了安装包 / 重新 `build:daemon`）才 `stop` 旧实例、
+覆盖落位、拉起新的；再探活 + 比版本，一致就什么都不做（不重启、不重复拉起）。新实例
+`serve` 启动时按状态文件自行恢复 HTTP，并用当时的新路径幂等重写自启注册。
 
 注意 `stop` 与 `http_stop` 的区别：`stop` 只关停 HTTP 再退出进程、**状态文件保留**；
 `http_stop` 才是「遗忘」入口（清状态文件）。所以版本替换不会丢推送卡片的服务地址。
@@ -97,11 +98,35 @@ weq-daemon install|uninstall|status [--pipe <name>]
 
 `--pipe` 覆盖默认管道名（`weq-daemon`），同一台机器可并存多套实例做测试。
 
-自启动注册（`install`/`uninstall`）按平台落位，注册命令行只有 `serve --pipe <name>`，不含端口与路径：
+### 自启模型：全机只有一份原生注册
 
-- Windows：`schtasks /SC ONLOGON`
+**守护进程是唯一随系统自启动的东西，WeQ 自己没有任何原生注册。**
+
+- `serve` 每次启动都幂等自注册（`autostart::ensure`）：注册被手动删了自动补回，
+  二进制换了路径自动重写。`install` 只是「注册 + 立刻启动」的显式入口，平时不用敲。
+- WeQ GUI 的开机自启只是一条**记忆**（`<pipe>.gui.json`）：`autostart_set` 写进去，
+  `serve` 启动时读它 spawn GUI。没有第二套注册，也没有兜底 —— 守护进程不在就是
+  没人拉起 WeQ（已启动的 GUI 进程不受守护进程死活影响）。
+
+这么收口的理由：每多一个要被拉起的组件（web 包、未来 CLI 包托管的 MCP server），
+如果各自注册一份原生自启，就得各自维护一整套平台注册与生命周期。现在新增组件只需要
+管好自己的进程生命周期 + 在守护进程里加一条「读记忆 → spawn」的规则。
+
+注册命令行只有 `serve --pipe <name>`，不含端口与路径；按平台落位：
+
+- Windows：`schtasks` ONLOGON 任务（名 `weq-daemon`）
 - macOS：`~/Library/LaunchAgents/weq-daemon.plist`（RunAtLoad + KeepAlive）
-- Linux：systemd user unit + `loginctl enable-linger`
+- Linux：`~/.config/systemd/user/weq-daemon.service` + `loginctl enable-linger`
+
+**注册里必须写稳定路径。** AppImage 每次运行挂到不同的 `/tmp/.mount_*`，指向包内路径
+的注册重启即失效（unit / task / plist 全部 Exec 失败）。所以桌面版启动时会把二进制
+**stage** 到数据目录的 `bin/weq-daemon[.exe]`（与状态文件同根），再从那里拉起；版本
+变了就 `stop` 旧的、覆盖落位、拉起新的。`WEQ_DAEMON_DIR` 可绕过 stage 直接指定二进制
+（测试 / 排查）。开发态（`pnpm dev`）由 GUI 下发 `WEQ_DAEMON_NO_AUTOSTART=1` 跳过注册
+—— 仓库构建产物被注册成开机自启没有意义。
+
+历史残留：老版本注册过 `<ident>-gui`（任务 / plist / unit），`serve` 启动时会
+**只删不建**地清理掉。
 
 ## 构建 / 打包
 

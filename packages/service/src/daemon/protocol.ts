@@ -51,9 +51,13 @@ export interface DaemonReleaseWatchInfo {
   last_error: string | null;
 }
 
-/** 自启动注册记忆（`autostart_set` 下发；Rust `AutostartMemory` 镜像）。 */
+/**
+ * WeQ GUI 的开机自启记忆（`autostart_set` 下发；Rust `AutostartMemory` 镜像）。
+ *
+ * 只是**记忆**：GUI 不注册任何原生自启，开机后由守护进程 `serve` 读这条记忆拉起。
+ */
 export interface DaemonAutostartMemory {
-  /** true = 注册开机自启；false = 撤销注册。 */
+  /** true = 开机后由守护进程拉起 GUI；false = 不拉。 */
   enabled: boolean;
   /** 要拉起的 WeQ GUI 可执行文件（绝对路径）。 */
   gui_exe: string;
@@ -77,7 +81,6 @@ export type DaemonRequest =
   | { cmd: 'release_watch_status' }
   | { cmd: 'release_ack'; version: string }
   | ({ cmd: 'autostart_set' } & DaemonAutostartMemory)
-  | { cmd: 'autostart_sync' }
   | { cmd: 'autostart_status' }
   | { cmd: 'stop' };
 

@@ -46,10 +46,13 @@ pub struct ReleaseWatchInfo {
     pub last_error: Option<String>,
 }
 
-/// 自启动注册记忆（`autostart_set` 下发；守护进程用它执行注册/卸载并落盘）。
+/// WeQ GUI 的开机自启记忆（`autostart_set` 下发）。
+///
+/// 守护进程只把它落盘：**GUI 不走任何原生自启注册**，开机后由守护进程自己的
+/// `serve` 读这条记忆 spawn 出来。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AutostartMemory {
-    /// true = 注册开机自启；false = 撤销注册。
+    /// true = 开机后由守护进程拉起 GUI；false = 不拉。
     pub enabled: bool,
     /// 要拉起的 WeQ GUI 可执行文件（绝对路径）。
     pub gui_exe: String,
@@ -74,11 +77,9 @@ pub enum Request {
     ReleaseWatchStatus,
     /// 用户已确认某版本（系统通知已展示），守护进程停止为其置位。
     ReleaseAck { version: String },
-    /// 注册 / 撤销 WeQ GUI 的开机自启（写注册表 / plist / systemd unit，并落记忆）。
+    /// 设置 / 撤销「开机后由守护进程拉起 WeQ」的意图（**只落记忆，不做原生注册**）。
     AutostartSet(AutostartMemory),
-    /// 仅按记忆里的开关执行注册或卸载（启动时 WeQ 拉起守护进程后的对账）。
-    AutostartSync,
-    /// 查询自启动注册状态。
+    /// 查询自启动状态：WeQ 的意图 + 守护进程自身原生注册是否在位。
     AutostartStatus,
     /// 优雅退出守护进程（连接会被服务端直接关闭，客户端读 EOF 即成功）。
     Stop,
@@ -101,15 +102,15 @@ pub enum Response {
         docroot: Option<String>,
     },
     ReleaseWatchStatus(ReleaseWatchInfo),
-    /// 自启动注册已完成（`autostart_set` / `autostart_sync` 的答复）。
+    /// GUI 自启意图已落盘（`autostart_set` 的答复）。
     AutostartApplied {
         enabled: bool,
     },
-    /// 自启动注册状态（`autostart_status`）。
+    /// 自启动状态（`autostart_status`）。
     AutostartStatus {
         /// 守护进程落盘的开关记忆（WeQ 上次设置的意图）。
         enabled: bool,
-        /// 平台注册实际在位（任务 / plist / unit 真的装着）。
+        /// **守护进程自身**的原生自启注册实际在位（任务 / plist / unit 真装着）。
         registered: bool,
     },
     Error {
@@ -179,7 +180,6 @@ mod tests {
                 enabled: true,
                 gui_exe: "/app/weQ".into(),
             }),
-            Request::AutostartSync,
             Request::AutostartStatus,
             Request::Stop,
         ];

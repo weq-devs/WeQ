@@ -1,25 +1,20 @@
-//! WeQ GUI 的开机自启 —— **由守护进程代为注册与拉起**。
+//! WeQ GUI 的开机自启记忆 —— **GUI 不注册任何原生自启**。
 //!
-//! 按约定，Electron 不注册任何自启动任务：WeQ 通过 `autostart_set {enabled,
-//! gui_exe}` 把「意图 + 可执行文件路径」交给守护进程；守护进程：
-//!   - enabled = true  → 按平台注册「登录时启动 `<gui_exe>`」（并落记忆）；
-//!   - enabled = false → 撤销注册（并落记忆）。
+//! 设计（刻意收窄）：
+//!   - 全机**唯一**的原生自启注册是守护进程自己（`autostart.rs`，`serve` 启动时
+//!     幂等注册）；
+//!   - WeQ GUI 永远不走原生自启：设置页的开关只是一条**记忆**
+//!     （`<pipe>.gui.json`），开机后由守护进程 `serve` 启动时读记忆 spawn 出来；
+//!   - 守护进程不在 = 没人拉起 GUI。这是有意的：GUI 自启这个能力随守护进程存在，
+//!     没有第二套注册，也没有兜底。
 //!
-//! 守护进程自己是开机自启的（`weq-daemon serve`），启动时读记忆：
-//!   - enabled = true  → spawn `<gui_exe>`（detached，WeQ 不在也拉起来）；
-//!   - enabled = false → 什么都不做。
+//! 为什么删掉了「GUI 也注册一份原生自启」：那等于把「开机该拉起谁」的知识复制
+//! 到系统注册里，每多一个要被拉起的组件（web 包 / 未来 CLI 包托管的 MCP server）
+//! 就得再维护一整套平台注册与生命周期。收口到守护进程后，新增组件只需要：管好
+//! 自己的进程生命周期 + 在守护进程里加一条「读记忆 → spawn」的规则。
 //!
-//! 这样「GUI 开机自启」由守护进程的注册体系统一管理：注册里**不含**守护进程
-//! 的端口 / docroot（那仍由 WeQ 运行时下发），GUI 的路径则来自 WeQ 的显式委托。
-//!
-//! 平台注册（与 autostart.rs 的守护进程自启完全同构，仅命令行不同）：
-//!   - Windows: `schtasks /SC ONLOGON`（任务名 `weq-daemon` + `-gui` 后缀）
-//!   - macOS: `~/Library/LaunchAgents/<ident>.plist`（RunAtLoad，不 KeepAlive —— GUI 崩了
-//!     该由用户自己再开，不要闹鬼式复活）
-//!   - Linux: systemd user unit（`WantedBy=default.target`）
-//!
-//! 单测只覆盖纯逻辑（ident / 记忆序列化）；真实注册需要平台环境，由 CI 之外
-//! 的手测覆盖（与 autostart.rs 同一取舍）。
+//! 单测只覆盖纯逻辑（标识 / 记忆序列化）；真实注册需要平台环境，由 CI 之外的
+//! 手测覆盖（与 autostart.rs 同一取舍）。
 
 use std::path::PathBuf;
 
@@ -31,7 +26,7 @@ use crate::logger;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GuiAutostart {
     pub(crate) version: u32,
-    /// WeQ 上次设置的意图：true = 应注册并拉起。
+    /// WeQ 上次设置的意图：true = 开机后由守护进程拉起 GUI。
     pub(crate) enabled: bool,
     /// 要拉起的 GUI 可执行文件（绝对路径）。
     pub(crate) gui_exe: String,
@@ -39,17 +34,12 @@ pub struct GuiAutostart {
 
 const GUI_STATE_VERSION: u32 = 1;
 
-/// GUI 自启注册的标识（任务名 / label / unit 名）。
-pub fn gui_ident(pipe_name: &str) -> String {
-    format!("{}-gui", crate::autostart::ident(pipe_name))
-}
-
 /// 状态目录内 GUI 记忆文件的完整路径（可注入单测）。
 pub fn gui_file_in(dir: &std::path::Path, pipe_name: &str) -> PathBuf {
     dir.join(format!("{pipe_name}.gui.json"))
 }
 
-/// 读取 GUI 自启记忆；无效（损坏 / 版本不符）时删文件并返回 None。
+/// 读取 GUI 自启记忆；无效（损坏 / 版本不符 / 路径为空）时删文件并返回 None。
 pub fn load_gui(dir: &std::path::Path, pipe_name: &str) -> Option<GuiAutostart> {
     let path = gui_file_in(dir, pipe_name);
     let raw = match std::fs::read_to_string(&path) {
@@ -57,7 +47,7 @@ pub fn load_gui(dir: &std::path::Path, pipe_name: &str) -> Option<GuiAutostart> 
         Err(_) => return None,
     };
     match serde_json::from_str::<GuiAutostart>(&raw) {
-        Ok(g) if g.version == GUI_STATE_VERSION && !g.gui_exe.is_empty() => Some(g),
+        Ok(g) if g.version == GUI_STATE_VERSION && !g.gui_exe.trim().is_empty() => Some(g),
         _ => {
             logger::warn(&format!(
                 "invalid gui state file {} — removing",
@@ -101,37 +91,19 @@ pub fn save_gui(dir: &std::path::Path, pipe_name: &str, enabled: bool, gui_exe: 
     ));
 }
 
-/// 删除 GUI 自启记忆（显式关闭且卸载成功后调用；失败忽略）。
+/// 删除 GUI 自启记忆（显式关闭时调用；失败忽略）。
 pub fn clear_gui(dir: &std::path::Path, pipe_name: &str) {
     let _ = std::fs::remove_file(gui_file_in(dir, pipe_name));
 }
 
 /// 状态目录（复用 persist.rs 的解析）。
-fn state_dir() -> Option<std::path::PathBuf> {
+fn state_dir() -> Option<PathBuf> {
     crate::persist::release_state_dir()
 }
 
-// ── 平台注册（登录时启动 GUI） ─────────────────────────────────────────────
-
-/// 注册「登录时启动 `<gui_exe>`」。失败返回错误消息（含平台工具的 stderr）。
-pub fn register_gui(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
-    if gui_exe.trim().is_empty() {
-        return Err("gui_exe is empty".to_string());
-    }
-    register_platform(pipe_name, gui_exe)
-}
-
-/// 撤销 GUI 自启注册。不存在也视为成功（幂等）。
-pub fn unregister_gui(pipe_name: &str) -> Result<(), String> {
-    unregister_platform(pipe_name)
-}
-
-/// 平台注册是否在位（任务 / plist / unit 存在）。
-pub fn registered(pipe_name: &str) -> bool {
-    registered_platform(pipe_name)
-}
-
-/// serve 启动时按记忆拉起 GUI（enabled = true 才拉）。失败只记日志。
+/// `serve` 启动时按记忆拉起 GUI（enabled = true 才拉）。失败只记日志。
+///
+/// 这是 GUI 唯一的开机拉起路径 —— 没有任何原生自启注册参与。
 pub fn launch_gui_on_boot(pipe_name: &str) {
     let Some(dir) = state_dir() else { return };
     let Some(memory) = load_gui(&dir, pipe_name) else {
@@ -164,242 +136,124 @@ fn spawn_gui(gui_exe: &str) {
     }
 }
 
-// ---------- Windows: schtasks ONLOGON ----------
+// ── 历史残留清理（迁移用，只删不建） ──────────────────────────────────────
 
-#[cfg(windows)]
-fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
-    let name = gui_ident(pipe_name);
-    // 与 autostart.rs 同一姿势：走 /XML 注册「限定到当前用户」的登录触发器。
-    crate::autostart::create_task(&name, gui_exe, None, "schtasks register gui")?;
-    logger::info(&format!("gui autostart installed: task {name}"));
-    Ok(())
+/// 旧的「GUI 原生自启」注册标识（任务名 / label / unit 名）。
+///
+/// 早先版本里 WeQ 自己也注册过一个原生自启（`<ident>-gui`），后来改成「GUI 只由
+/// 守护进程拉起」。这个标识只用于把那些残留注册卸掉。
+pub fn legacy_ident(pipe_name: &str) -> String {
+    format!("{}-gui", crate::autostart::ident(pipe_name))
+}
+
+/// 卸载历史残留的 GUI 原生自启注册（幂等；本来就不在也算成功）。
+///
+/// **只删不建**：不注册任何东西，纯粹的迁移清理。确认所有用户都升过一次之后，
+/// 这块连同 `legacy_ident` 可以整体删掉。
+pub fn remove_legacy_registration(pipe_name: &str) {
+    if let Err(err) = unregister_legacy_platform(pipe_name) {
+        logger::warn(&format!(
+            "legacy gui autostart cleanup failed ({err}) — it may still fire on next login"
+        ));
+    }
 }
 
 #[cfg(windows)]
-fn unregister_platform(pipe_name: &str) -> Result<(), String> {
-    let name = gui_ident(pipe_name);
+fn unregister_legacy_platform(pipe_name: &str) -> Result<(), String> {
+    let name = legacy_ident(pipe_name);
+    // 查到存在才删，避免把「没装过」当失败。
     match crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
         .args(["/Query", "/TN", &name])
         .output()
     {
         Ok(out) if out.status.success() => {}
-        _ => return Ok(()), // 没装过 = 已是目标状态
+        _ => return Ok(()),
     }
-    run(
-        crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
-            .args(["/Delete", "/F", "/TN", &name]),
-        "schtasks delete gui",
-    )?;
-    logger::info(&format!("gui autostart removed: task {name}"));
-    Ok(())
-}
-
-#[cfg(windows)]
-fn registered_platform(pipe_name: &str) -> bool {
-    let name = gui_ident(pipe_name);
-    crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
-        .args(["/Query", "/TN", &name])
+    let out = crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
+        .args(["/Delete", "/F", "/TN", &name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-// ---------- macOS: LaunchAgent plist ----------
-
-#[cfg(target_os = "macos")]
-fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
-    let label = gui_ident(pipe_name);
-    let agents_dir = home_dir()?.join("Library/LaunchAgents");
-    std::fs::create_dir_all(&agents_dir).map_err(|e| format!("create LaunchAgents dir: {e}"))?;
-    let plist_path = agents_dir.join(format!("{label}.plist"));
-    // 只 RunAtLoad，不 KeepAlive —— GUI 不是服务，崩了不该被自动复活。
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{label}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>{gui_exe}</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>ProcessType</key><string>Background</string>
-</dict>
-</plist>
-"#
-    );
-    std::fs::write(&plist_path, plist)
-        .map_err(|e| format!("write {}: {e}", plist_path.display()))?;
-    // 已加载同名 label 就先 bootout（失败忽略 —— 多半是本来没加载）。
-    let _ = std::process::Command::new("launchctl")
-        .args(["bootout", "gui/$UID", &label])
-        .output();
-    run(
-        std::process::Command::new("launchctl")
-            .args(["bootstrap", "gui/$UID"])
-            .arg(&plist_path),
-        "launchctl bootstrap gui",
-    )?;
-    logger::info(&format!("gui autostart installed: {label}"));
+        .map_err(|e| format!("schtasks delete gui: spawn failed: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "schtasks delete gui failed ({}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    logger::info(&format!("legacy gui autostart removed: task {name}"));
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn unregister_platform(pipe_name: &str) -> Result<(), String> {
-    let label = gui_ident(pipe_name);
-    let plist_path = home_dir()?.join(format!("Library/LaunchAgents/{label}.plist"));
+fn unregister_legacy_platform(pipe_name: &str) -> Result<(), String> {
+    let label = legacy_ident(pipe_name);
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(());
+    };
+    let plist_path = home.join(format!("Library/LaunchAgents/{label}.plist"));
+    if !plist_path.exists() {
+        return Ok(());
+    }
+    // 已加载的话顺手 bootout（失败忽略）：删掉 plist 本身才是关键 —— launchd
+    // 只在登录时扫 `~/Library/LaunchAgents/`，文件没了就不会再被拉起。
     let _ = std::process::Command::new("launchctl")
-        .args(["bootout", "gui/$UID", &label])
+        .args(["bootout", "gui/$UID", label.as_str()])
         .output();
-    match std::fs::remove_file(&plist_path) {
-        Ok(()) => {
-            logger::info(&format!("gui autostart removed: {label}"));
-            Ok(())
-        }
-        Err(_) if !plist_path.exists() => Ok(()),
-        Err(e) => Err(format!("remove {}: {e}", plist_path.display())),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn registered_platform(pipe_name: &str) -> bool {
-    match home_dir() {
-        Ok(home) => home
-            .join(format!(
-                "Library/LaunchAgents/{}.plist",
-                gui_ident(pipe_name)
-            ))
-            .exists(),
-        Err(_) => false,
-    }
-}
-
-// ---------- Linux: systemd user unit ----------
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
-    let unit = gui_ident(pipe_name);
-    let unit_dir = home_dir()?.join(".config/systemd/user");
-    std::fs::create_dir_all(&unit_dir).map_err(|e| format!("create systemd user dir: {e}"))?;
-    let unit_path = unit_dir.join(format!("{unit}.service"));
-    let content = format!(
-        "[Unit]\n\
-         Description=WeQ desktop autostart (managed by weq-daemon)\n\
-         After=graphical-session.target\n\n\
-         [Service]\n\
-         Type=oneshot\n\
-         ExecStart={gui_exe}\n\
-         RemainAfterExit=no\n\n\
-         [Install]\n\
-         WantedBy=default.target\n"
-    );
-    std::fs::write(&unit_path, content)
-        .map_err(|e| format!("write {}: {e}", unit_path.display()))?;
-    run(
-        std::process::Command::new("systemctl").args(["--user", "daemon-reload"]),
-        "systemctl daemon-reload gui",
-    )?;
-    run(
-        std::process::Command::new("systemctl").args([
-            "--user",
-            "enable",
-            "--now",
-            &format!("{unit}.service"),
-        ]),
-        "systemctl enable gui",
-    )?;
-    logger::info(&format!("gui autostart installed: {unit}.service"));
+    std::fs::remove_file(&plist_path)
+        .map_err(|e| format!("remove {}: {e}", plist_path.display()))?;
+    logger::info(&format!("legacy gui autostart removed: {label}"));
     Ok(())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn unregister_platform(pipe_name: &str) -> Result<(), String> {
-    let unit = gui_ident(pipe_name);
-    let unit_path = home_dir()?.join(format!(".config/systemd/user/{unit}.service"));
+fn unregister_legacy_platform(pipe_name: &str) -> Result<(), String> {
+    let unit = legacy_ident(pipe_name);
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(());
+    };
+    let dir = home.join(".config/systemd/user");
+    let unit_path = dir.join(format!("{unit}.service"));
+    if !unit_path.exists() {
+        return Ok(());
+    }
     let _ = std::process::Command::new("systemctl")
         .args(["--user", "disable", "--now", &format!("{unit}.service")])
         .output();
-    match std::fs::remove_file(&unit_path) {
-        Ok(()) => {
-            let _ = std::process::Command::new("systemctl")
-                .args(["--user", "daemon-reload"])
-                .output();
-            logger::info(&format!("gui autostart removed: {unit}.service"));
-            Ok(())
-        }
-        Err(_) if !unit_path.exists() => Ok(()),
-        Err(e) => Err(format!("remove {}: {e}", unit_path.display())),
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn registered_platform(pipe_name: &str) -> bool {
-    match home_dir() {
-        Ok(home) => home
-            .join(format!(
-                ".config/systemd/user/{}.service",
-                gui_ident(pipe_name)
-            ))
-            .exists(),
-        Err(_) => false,
-    }
-}
-
-// ---------- shared helpers ----------
-
-fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
-    let out = cmd
-        .output()
-        .map_err(|e| format!("{what}: spawn failed: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "{what} failed ({}): {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn home_dir() -> Result<std::path::PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .ok_or_else(|| "HOME not set".to_string())
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn home_dir() -> Result<std::path::PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .ok_or_else(|| "HOME not set".to_string())
+    std::fs::remove_file(&unit_path).map_err(|e| format!("remove {}: {e}", unit_path.display()))?;
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .output();
+    logger::info(&format!("legacy gui autostart removed: {unit}.service"));
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn temp_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "weq-daemon-gui-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     #[test]
-    fn gui_ident_appends_suffix() {
-        assert_eq!(gui_ident("weq-daemon"), "weq-daemon-gui");
+    fn legacy_ident_appends_suffix() {
+        assert_eq!(legacy_ident("weq-daemon"), "weq-daemon-gui");
         assert_eq!(
-            gui_ident("weq-daemon-test"),
+            legacy_ident("weq-daemon-test"),
             "weq-daemon-weq-daemon-test-gui"
         );
     }
 
     #[test]
     fn gui_memory_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "weq-daemon-gui-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = temp_dir("roundtrip");
         let _ = std::fs::remove_dir_all(&dir);
 
         save_gui(&dir, "weq-daemon-test", true, "/opt/WeQ/weq");
@@ -419,8 +273,7 @@ mod tests {
 
     #[test]
     fn corrupt_gui_memory_is_removed() {
-        let dir =
-            std::env::temp_dir().join(format!("weq-daemon-gui-test-bad-{}", std::process::id()));
+        let dir = temp_dir("corrupt");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let bad = gui_file_in(&dir, "weq-daemon-test");
@@ -431,7 +284,17 @@ mod tests {
     }
 
     #[test]
-    fn empty_exe_rejected() {
-        assert!(register_gui("weq-daemon-test", "  ").is_err());
+    fn empty_exe_memory_is_rejected() {
+        let dir = temp_dir("empty-exe");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bad = gui_file_in(&dir, "weq-daemon-test");
+        std::fs::write(&bad, r#"{"version":1,"enabled":true,"gui_exe":"  "}"#).unwrap();
+        assert!(
+            load_gui(&dir, "weq-daemon-test").is_none(),
+            "empty gui_exe must never be launched"
+        );
+        assert!(!bad.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

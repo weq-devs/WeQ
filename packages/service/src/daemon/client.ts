@@ -185,8 +185,10 @@ export async function daemonReleaseAck(
 }
 
 /**
- * 注册 / 撤销 WeQ GUI 的开机自启（写注册表 / plist / systemd unit，并落记忆）。
- * 注册失败（平台工具报错）返回 `{ ok: false, message }`。
+ * 设置 / 撤销「开机后由守护进程拉起 WeQ」的意图。
+ *
+ * 只落记忆（`<pipe>.gui.json`）—— GUI 不写任何原生自启注册。失败（状态目录
+ * 不可写）返回 `{ ok: false, message }`。
  */
 export async function daemonAutostartSet(
   memory: import('./protocol').DaemonAutostartMemory,
@@ -199,7 +201,10 @@ export async function daemonAutostartSet(
   return { ok: false, message: res.res === 'error' ? res.message : `unexpected: ${res.res}` };
 }
 
-/** 查询 GUI 自启动状态（意图 + 平台注册实际在位）；守护进程不在返回 null。 */
+/**
+ * 查询自启动状态：`enabled` = WeQ 的开机拉起意图（记忆）；`registered` =
+ * **守护进程自身**的原生自启注册是否在位（全机唯一那份）。守护进程不在返回 null。
+ */
 export async function daemonAutostartStatus(
   pipeName: string = DAEMON_PIPE_NAME,
 ): Promise<{ enabled: boolean; registered: boolean } | null> {

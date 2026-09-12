@@ -1005,16 +1005,19 @@ export const bootstrapRouter = router({
       return userConfig.getSettings().weqAssistant;
     }),
 
-  // ---- 守护进程（weq-daemon）：健康 / release 监控 / GUI 自启动 ----
+  // ---- 守护进程（weq-daemon）：健康 / release 监控 / 开机自启 ----
   // 设置 → 守护进程 页的数据面。守护进程本体（Rust）负责 GitHub 轮询与
-  // 自启动注册；这里只是把查询与下发暴露给渲染层。
+  // **自身**的开机自启注册；这里只是把查询与下发暴露给渲染层。
 
   /** 聚合健康快照：探活 + 版本 + HTTP + release 轮询 + 自启动注册。 */
   getDaemonHealth: procedure.query(() => {
     return getDaemonHealth();
   }),
 
-  /** 守护进程二进制是否随安装包就位（缺失提示先 pnpm build:daemon）。 */
+  /**
+   * 守护进程二进制是否随包就位（缺失提示先 pnpm build:daemon）。
+   * 启动时会被 stage 到数据目录的稳定路径（原生自启注册只能指向那里）。
+   */
   getDaemonBinaryStatus: procedure.query(() => {
     return { available: resolveDaemonBinary() !== null };
   }),
@@ -1047,16 +1050,16 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 注册 / 撤销 WeQ 的开机自启 —— 按约定**不注册 Electron 自启动任务**，
-   * 而是 `autostart_set` 交给守护进程：守护进程写平台注册（并落记忆），
-   * 开机时由它拉起 WeQ。需要守护进程在跑，不在则抛错由前端提示。
+   * 开关「开机自动启动 WeQ」—— 按约定 **GUI 不注册任何原生自启**：这里只把
+   * 意图 + 当前 exe 路径交给守护进程落记忆，开机后由守护进程读记忆拉起 WeQ。
+   * 需要守护进程在跑，不在则抛错由前端提示。
    */
   setDaemonAutostart: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ input }) => {
-      // 浏览器版 / pnpm dev：守护进程的 autostart_set 注册的是裸可执行
-      // 文件，web 的 node server.mjs（需要参数 + 工作目录）和开发态
-      // Electron 都不具备开机自启的正确形态 —— 直接拒绝。
+      // 浏览器版 / pnpm dev：守护进程开机时要拉起一个裸可执行文件，而 web 的
+      // node server.mjs（需要参数 + 工作目录）和开发态 Electron 都不具备
+      // 「被裸拉起就能工作」的形态 —— 直接拒绝。
       if (!getHost().canAutostart) {
         throw new Error(
           '当前环境不支持开机自启：请使用打包安装版（浏览器版请用 systemd / 计划任务管理）。',

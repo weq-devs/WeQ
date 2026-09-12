@@ -35,6 +35,14 @@ pub async fn run_control_loop(pipe_name: &str) -> Result<(), String> {
             "another weq-daemon is already serving pipe `{pipe_name}`"
         ));
     }
+    // 自身原生自启：幂等注册 + 路径刷新（二进制换了位置也能自愈）。best-effort ——
+    // 注册失败不该影响守护进程本身照常干活。
+    if let Err(err) = crate::autostart::ensure(pipe_name) {
+        crate::logger::warn(&format!("autostart ensure failed: {err}"));
+    }
+    // 清理历史残留的「GUI 原生自启」注册（被淘汰的设计，只删不建）。
+    crate::gui_autostart::remove_legacy_registration(pipe_name);
+
     let state = DaemonState::new();
     // 按记忆恢复上次的 HTTP 服务（如有）。失败只记日志 —— 管道必须照常就绪。
     crate::persist::restore_on_boot(&state, pipe_name).await;
@@ -181,55 +189,37 @@ async fn handle_request(req: Request, state: &SharedState) -> Response {
             Response::ReleaseWatchStatus(status_response(current_release().status().await))
         }
         Request::AutostartSet(memory) => {
+            // 只落记忆：WeQ 自己**不注册任何原生自启** —— 开机后由守护进程
+            // `launch_gui_on_boot` 按这条记忆拉起。全机唯一的原生注册是守护进程
+            // 自己（见 `autostart.rs` 的 `ensure`）。
             let pipe = current_pipe_name();
-            // 先执行平台注册 / 卸载，成功才落记忆 —— 记忆永远反映「真实在位」的状态。
-            let result = if memory.enabled {
-                crate::gui_autostart::register_gui(pipe, &memory.gui_exe)
-            } else {
-                crate::gui_autostart::unregister_gui(pipe)
-            };
-            match result {
-                Ok(()) => {
-                    if let Some(dir) = crate::persist::release_state_dir() {
-                        if memory.enabled {
-                            crate::gui_autostart::save_gui(&dir, pipe, true, &memory.gui_exe);
-                        } else {
-                            crate::gui_autostart::clear_gui(&dir, pipe);
-                        }
-                    }
-                    crate::logger::info(&format!(
-                        "gui autostart set: enabled={} exe={}",
-                        memory.enabled, memory.gui_exe
-                    ));
-                    Response::AutostartApplied {
-                        enabled: memory.enabled,
-                    }
-                }
-                Err(message) => Response::Error { message },
+            if memory.enabled && memory.gui_exe.trim().is_empty() {
+                return Response::Error {
+                    message: "gui_exe must not be empty".to_string(),
+                };
             }
-        }
-        Request::AutostartSync => {
-            // WeQ 刚拉起守护进程时的对账：按记忆里的开关再执行一遍注册 / 卸载，
-            // 让「意图」与「平台实际在位」收敛（用户手动删了任务也能自动补回）。
-            let pipe = current_pipe_name();
             let Some(dir) = crate::persist::release_state_dir() else {
-                return Response::AutostartApplied { enabled: false };
+                return Response::Error {
+                    message: "no state dir resolvable — gui autostart not remembered".to_string(),
+                };
             };
-            match crate::gui_autostart::load_gui(&dir, pipe) {
-                Some(memory) if memory.enabled => {
-                    match crate::gui_autostart::register_gui(pipe, &memory.gui_exe) {
-                        Ok(()) => Response::AutostartApplied { enabled: true },
-                        Err(message) => Response::Error { message },
-                    }
-                }
-                Some(_) => match crate::gui_autostart::unregister_gui(pipe) {
-                    Ok(()) => Response::AutostartApplied { enabled: false },
-                    Err(message) => Response::Error { message },
-                },
-                None => Response::AutostartApplied { enabled: false },
+            if memory.enabled {
+                crate::gui_autostart::save_gui(&dir, pipe, true, memory.gui_exe.trim());
+            } else {
+                crate::gui_autostart::clear_gui(&dir, pipe);
+            }
+            crate::logger::info(&format!(
+                "gui autostart intent saved: enabled={} exe={}",
+                memory.enabled,
+                memory.gui_exe.trim()
+            ));
+            Response::AutostartApplied {
+                enabled: memory.enabled,
             }
         }
         Request::AutostartStatus => {
+            // enabled = WeQ 的意图（记忆）；registered = 全机唯一那份原生自启
+            // （守护进程自己）在不在位 —— GUI 没有也不会有平台注册。
             let pipe = current_pipe_name();
             let enabled = crate::persist::release_state_dir()
                 .and_then(|dir| crate::gui_autostart::load_gui(&dir, pipe))
@@ -237,7 +227,7 @@ async fn handle_request(req: Request, state: &SharedState) -> Response {
                 .unwrap_or(false);
             Response::AutostartStatus {
                 enabled,
-                registered: crate::gui_autostart::registered(pipe),
+                registered: crate::autostart::status(pipe).unwrap_or(false),
             }
         }
         Request::Stop => {

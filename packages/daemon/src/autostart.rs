@@ -6,9 +6,20 @@
 //!
 //! 端口 / docroot 不写进注册 —— 那些由 WeQ 运行时通过管道下发，注册里只有
 //! 二进制位置与管道名。卸载 / 查询都按管道名推导的固定标识操作。
+//!
+//! **这是全机唯一一份原生自启注册**：WeQ GUI 不走原生自启（它只是一条让守护进程
+//! 开机拉起的记忆，见 `gui_autostart.rs`）。`serve` 每次启动都会幂等自注册
+//! （[`ensure`]），所以注册被删会自动补回、二进制换路径会自动重写。
 
 use crate::logger;
 use crate::protocol::DEFAULT_PIPE_NAME;
+
+/// 设了它就跳过自注册。
+///
+/// 不参与系统自启的宿主（开发态 `pnpm dev`、浏览器版）拉起守护进程时下发：前者
+/// 的二进制是仓库构建产物，后者由部署方用 systemd / 计划任务托管 —— 注册成开机
+/// 自启都没有意义（与 GUI 侧 `HostBridge::canAutostart` 同一个取舍）。
+pub const NO_AUTOSTART_ENV: &str = "WEQ_DAEMON_NO_AUTOSTART";
 
 /// 自启动注册里用的固定标识（任务名 / label / unit 名）。
 pub fn ident(pipe_name: &str) -> String {
@@ -24,6 +35,28 @@ fn exe_path() -> Result<std::path::PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("resolve current exe: {e}"))
 }
 
+/// 幂等确保「**下次登录**时系统会拉起守护进程」。
+///
+/// `serve` 每次启动都调用一次，所以：
+///   - 注册被用户手动删了 → 自动补回；
+///   - 二进制换了路径（升级 / 换了安装位置）→ 注册内容重写指向新路径。
+///
+/// 与 [`install`] 的区别：这里**不尝试启动当前实例**。调用方就是正在跑的那个
+/// 进程，再 `--now` / `bootstrap` 一份只会撞单例后立刻退出（macOS 的
+/// `KeepAlive=true` 还会因此变成起-退循环）。
+///
+/// 注册里必须写**稳定路径**：指向安装包内 / AppImage 挂载点的话下次开机就失效了。
+/// GUI 侧负责先把二进制 stage 到数据目录再从这里拉起。
+pub fn ensure(pipe_name: &str) -> Result<(), String> {
+    if std::env::var_os(NO_AUTOSTART_ENV).is_some() {
+        logger::info(&format!(
+            "autostart ensure skipped ({NO_AUTOSTART_ENV} is set)"
+        ));
+        return Ok(());
+    }
+    ensure_platform(pipe_name)
+}
+
 /// 运行外部命令并要求成功，失败时带 stderr。
 fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
     let out = cmd
@@ -37,6 +70,21 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
             out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         ))
+    }
+}
+
+/// 只在内容变化时写文件，返回是否真的写了。
+///
+/// `serve` 每次启动都会走一遍幂等注册，不能无条件覆写 —— 内容没变就不碰文件，
+/// 也就省掉一次 `daemon-reload` / 重新注册。
+#[cfg(unix)]
+fn write_if_changed(path: &std::path::Path, content: &str) -> Result<bool, String> {
+    match std::fs::read_to_string(path) {
+        Ok(existing) if existing == content => Ok(false),
+        _ => {
+            std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))?;
+            Ok(true)
+        }
     }
 }
 
@@ -175,10 +223,12 @@ fn home_dir() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "HOME not set".to_string())
 }
 
-// ---------- Windows: schtasks ONLOGON ----------
-
+/// `serve` 启动时的幂等自注册（见 [`ensure`]）。
+///
+/// Windows 的 `schtasks /Create /F` 本身就是覆盖语义，所以每次 `serve` 都按当前
+/// exe 路径重写一遍就是幂等的 —— 注册指向的路径变了（升级 / 换安装位置）自然自愈。
 #[cfg(windows)]
-pub fn install(pipe_name: &str) -> Result<(), String> {
+fn ensure_platform(pipe_name: &str) -> Result<(), String> {
     let exe = exe_path()?;
     let name = ident(pipe_name);
     create_task(
@@ -186,7 +236,15 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
         &exe.display().to_string(),
         Some(&format!("serve --pipe {pipe_name}")),
         "schtasks register",
-    )?;
+    )
+}
+
+// ---------- Windows: schtasks ONLOGON ----------
+
+#[cfg(windows)]
+pub fn install(pipe_name: &str) -> Result<(), String> {
+    let name = ident(pipe_name);
+    ensure_platform(pipe_name)?;
     logger::info(&format!("autostart installed: task {name}"));
     Ok(())
 }
@@ -224,13 +282,9 @@ pub fn status(pipe_name: &str) -> Result<bool, String> {
 // ---------- macOS: LaunchAgent plist ----------
 
 #[cfg(target_os = "macos")]
-pub fn install(pipe_name: &str) -> Result<(), String> {
-    let exe = exe_path()?;
+fn plist_content(exe: &std::path::Path, pipe_name: &str) -> String {
     let label = ident(pipe_name);
-    let agents_dir = home_dir()?.join("Library/LaunchAgents");
-    std::fs::create_dir_all(&agents_dir).map_err(|e| format!("create LaunchAgents dir: {e}"))?;
-    let plist_path = agents_dir.join(format!("{label}.plist"));
-    let plist = format!(
+    format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -250,9 +304,32 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
 </plist>
 "#,
         exe.display()
-    );
-    std::fs::write(&plist_path, plist)
-        .map_err(|e| format!("write {}: {e}", plist_path.display()))?;
+    )
+}
+
+/// 只写 plist（内容变了才写），**不 bootstrap**。
+///
+/// `~/Library/LaunchAgents/` 下的 plist 在下次登录时由 launchd 自动加载，
+/// 所以「只写不加载」已经满足「下次开机自启」。绝不能在这里 bootstrap：调用方
+/// 就是正在跑的实例，launchd 再起一份会撞单例退出 —— plist 是 `KeepAlive=true`，
+/// 那就变成「起了就退、退了又起」的循环。
+#[cfg(target_os = "macos")]
+fn ensure_platform(pipe_name: &str) -> Result<(), String> {
+    let exe = exe_path()?;
+    let label = ident(pipe_name);
+    let agents_dir = home_dir()?.join("Library/LaunchAgents");
+    std::fs::create_dir_all(&agents_dir).map_err(|e| format!("create LaunchAgents dir: {e}"))?;
+    let plist_path = agents_dir.join(format!("{label}.plist"));
+    write_if_changed(&plist_path, &plist_content(&exe, pipe_name))?;
+    Ok(())
+}
+
+/// 显式安装（`weq-daemon install`）：注册 + 立刻加载。
+#[cfg(target_os = "macos")]
+pub fn install(pipe_name: &str) -> Result<(), String> {
+    ensure_platform(pipe_name)?;
+    let label = ident(pipe_name);
+    let plist_path = home_dir()?.join(format!("Library/LaunchAgents/{label}.plist"));
     // 已加载同名 label 就先 bootout（失败忽略 —— 多半是本来没加载）。
     let _ = std::process::Command::new("launchctl")
         .args(["bootout", "gui/$UID", label.as_str()])
@@ -291,30 +368,88 @@ pub fn status(pipe_name: &str) -> Result<bool, String> {
 // ---------- Linux: systemd user unit ----------
 
 #[cfg(all(unix, not(target_os = "macos")))]
-pub fn install(pipe_name: &str) -> Result<(), String> {
-    let exe = exe_path()?;
-    let unit = ident(pipe_name);
-    let unit_dir = home_dir()?.join(".config/systemd/user");
-    std::fs::create_dir_all(&unit_dir).map_err(|e| format!("create systemd user dir: {e}"))?;
-    let unit_path = unit_dir.join(format!("{unit}.service"));
-    let content = format!(
+fn unit_dir() -> Result<std::path::PathBuf, String> {
+    Ok(home_dir()?.join(".config/systemd/user"))
+}
+
+/// unit 内容。`ExecStart` 必须指向**稳定路径** —— 指向安装包内 / AppImage 挂载点
+/// 的话下次开机就失效了（GUI 侧会先把二进制 stage 到数据目录，再从这里拉起）。
+/// 路径加引号：systemd 按空白分词，HOME 里带空格时不加引号会解析错。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unit_content(exe: &std::path::Path, pipe_name: &str) -> String {
+    format!(
         "[Unit]\n\
          Description=WeQ companion daemon\n\
          After=graphical-session.target\n\n\
          [Service]\n\
-         ExecStart={} serve --pipe {pipe_name}\n\
+         ExecStart=\"{}\" serve --pipe {pipe_name}\n\
          Restart=on-failure\n\
          RestartSec=3\n\n\
          [Install]\n\
          WantedBy=default.target\n",
         exe.display()
-    );
-    std::fs::write(&unit_path, content)
-        .map_err(|e| format!("write {}: {e}", unit_path.display()))?;
-    run(
-        std::process::Command::new("systemctl").args(["--user", "daemon-reload"]),
-        "systemctl daemon-reload",
-    )?;
+    )
+}
+
+/// 幂等注册（**不启动**本实例）。
+///
+/// `enable` 的产物就是 `default.target.wants/<unit>` 软链，直接看文件比再 spawn
+/// 一次 `systemctl is-enabled` 便宜。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn ensure_platform(pipe_name: &str) -> Result<(), String> {
+    let exe = exe_path()?;
+    let unit = ident(pipe_name);
+    let dir = unit_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create systemd user dir: {e}"))?;
+    let unit_path = dir.join(format!("{unit}.service"));
+    if write_if_changed(&unit_path, &unit_content(&exe, pipe_name))? {
+        run(
+            std::process::Command::new("systemctl").args(["--user", "daemon-reload"]),
+            "systemctl daemon-reload",
+        )?;
+    }
+    let wants = dir
+        .join("default.target.wants")
+        .join(format!("{unit}.service"));
+    if !wants.exists() {
+        run(
+            std::process::Command::new("systemctl").args([
+                "--user",
+                "enable",
+                &format!("{unit}.service"),
+            ]),
+            "systemctl enable",
+        )?;
+    }
+    enable_linger();
+    Ok(())
+}
+
+/// linger：未登录桌面时 user manager 也在跑，守护进程才能真「开机自启」。
+/// 部分环境（容器 / 无 loginctl）会失败 —— 只警告，不阻塞。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn enable_linger() {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_default();
+    if user.is_empty() {
+        return;
+    }
+    if let Err(err) = run(
+        std::process::Command::new("loginctl").args(["enable-linger", &user]),
+        "loginctl enable-linger",
+    ) {
+        logger::warn(&format!(
+            "enable-linger failed (autostart still works after login): {err}"
+        ));
+    }
+}
+
+/// 显式安装（`weq-daemon install`）：注册 + 立刻 `enable --now` 拉起来。
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn install(pipe_name: &str) -> Result<(), String> {
+    ensure_platform(pipe_name)?;
+    let unit = ident(pipe_name);
     run(
         std::process::Command::new("systemctl").args([
             "--user",
@@ -324,21 +459,6 @@ pub fn install(pipe_name: &str) -> Result<(), String> {
         ]),
         "systemctl enable",
     )?;
-    // linger：未登录桌面时 user manager 也在跑，守护进程才能真「开机自启」。
-    // 部分环境（容器 / 无 loginctl）会失败 —— 只警告，不阻塞安装。
-    let user = std::env::var("USER")
-        .or_else(|_| std::env::var("LOGNAME"))
-        .unwrap_or_default();
-    if !user.is_empty() {
-        if let Err(err) = run(
-            std::process::Command::new("loginctl").args(["enable-linger", &user]),
-            "loginctl enable-linger",
-        ) {
-            logger::warn(&format!(
-                "enable-linger failed (autostart still works after login): {err}"
-            ));
-        }
-    }
     logger::info(&format!("autostart installed: {unit}.service"));
     Ok(())
 }

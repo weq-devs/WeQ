@@ -123,8 +123,15 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
-  // 自启动交给守护进程注册的是裸 exe：pnpm dev 拉起的 electron 没有安装、
-  // 没有固定路径语义，注册进系统自启是错的 —— 只允许打包版开启。
+  // 「开机拉起 WeQ」的意图交给守护进程记着（GUI 自己不注册任何原生自启）：
+  // pnpm dev 拉起的 electron 没有安装、没有固定路径语义，让它开机起是错的 ——
+  // 只允许打包版开启。
   canAutostart: app.isPackaged,
-  currentExePath: () => app.getPath('exe'),
+  currentExePath: () => {
+    // AppImage 下 `app.getPath('exe')` 是本次运行的临时挂载点
+    // （`/tmp/.mount_<name>.<rand>/…`），重启后必然不存在 —— 必须用 $APPIMAGE
+    // （AppImage 文件本身，路径稳定）。其它打包形态两者等价。
+    const appImage = process.env.APPIMAGE;
+    return appImage && appImage.length > 0 ? appImage : app.getPath('exe');
+  },
 };

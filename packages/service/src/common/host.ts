@@ -96,20 +96,25 @@ export interface HostBridge {
   /** App version string (`app.getVersion()` on Electron, package version on web). */
   appVersion(): string;
   /**
-   * Whether the current host may register OS autostart for the GUI. False on
-   * the web/server host (autostart_set registers a bare executable — a Node
-   * server needs args + cwd, so registering it would launch a dead REPL) and
-   * false on unpackaged desktop dev builds. The router refuses
-   * `setDaemonAutostart` and the settings page disables the toggle on false.
+   * Whether this host participates in OS-level autostart at all. False on the
+   * web/server host (the deployer's process manager owns it — a bare
+   * `node server.mjs` needs args + cwd, so registering either the GUI or the
+   * daemon would fight that) and false on unpackaged desktop dev builds (no
+   * stable executable path).
+   *
+   * False means: the router refuses `setDaemonAutostart`, the settings toggle
+   * is disabled, and the daemon is spawned with `WEQ_DAEMON_NO_AUTOSTART` so it
+   * skips its own idempotent self-registration.
    */
   readonly canAutostart: boolean;
   /** False in dev builds. */
   isPackaged(): boolean;
   /**
-   * Absolute path of the current executable (`app.getPath('exe')` on Electron,
-   * `process.execPath` on web/server). The daemon autostart hands this to the
-   * weq-daemon so IT can launch the GUI on boot (WeQ never registers its own
-   * autostart task).
+   * Absolute path of the GUI binary the daemon should launch on boot:
+   * `$APPIMAGE` when running from an AppImage (its mount path changes every
+   * run), else `app.getPath('exe')`; `process.execPath` on web/server. WeQ
+   * never registers an autostart task of its own — the daemon remembers this
+   * path and spawns it.
    */
   currentExePath(): string;
 }

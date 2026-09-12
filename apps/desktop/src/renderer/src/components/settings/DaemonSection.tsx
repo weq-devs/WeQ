@@ -7,7 +7,7 @@
  *   1. 健康性：探活 / 版本 / HTTP 服务 / docroot（getDaemonHealth 聚合快照）；
  *   2. 推送到 QQ 公众号（原 WeQ 助手）：开关 + 端口 + 更新推文说明；
  *   3. GitHub release 监控：守护进程 Rust 轮询器开关 + 最近发现 + 系统通知；
- *   4. 开机自动启动：**不注册 Electron 自启任务** —— 写配置交给守护进程
+ *   4. 开机自动启动：**GUI 不注册任何原生自启** —— 只把意图交给守护进程
  *      （autostart_set），开机由守护进程拉起 WeQ。
  */
 
@@ -165,7 +165,7 @@ export function DaemonSection(): ReactElement {
       await setAutostart.mutateAsync({ enabled: next });
       pushToast({
         tone: 'success',
-        title: next ? '已注册开机自启' : '已取消开机自启',
+        title: next ? '已开启开机自启' : '已关闭开机自启',
         message: next ? '开机后由守护进程自动拉起 WeQ。' : undefined,
       });
       await health.refetch();
@@ -372,8 +372,8 @@ export function DaemonSection(): ReactElement {
           label="开机自动启动 WeQ"
           desc={
             healthData?.autostartSupported === false
-              ? '当前环境不支持开机自启：浏览器版的启动由部署方用 systemd / 计划任务管理；开发模式（pnpm dev）不注册自启动。'
-              : 'WeQ 不注册系统自启动任务——设置写入守护进程（weq-daemon），开机后由守护进程拉起 WeQ。守护进程自身随系统自启动注册，始终先于 WeQ 就绪。'
+              ? '当前环境不支持开机自启：浏览器版的启动由部署方用 systemd / 计划任务管理；开发模式（pnpm dev）没有稳定的可执行路径。'
+              : 'WeQ 不注册任何系统自启动：开关只把意图交给守护进程（weq-daemon）记住，开机后由它以独立进程拉起 WeQ。'
           }
           control={
             <Toggle
@@ -391,23 +391,19 @@ export function DaemonSection(): ReactElement {
         <Row
           label={
             <StateDot
-              on={(autostartData?.registered ?? false) && autostartEnabled}
+              on={autostartData?.registered ?? false}
               label={
                 healthData?.autostartSupported === false
                   ? '当前环境不支持'
                   : !healthData?.alive
                     ? '需要守护进程运行'
                     : autostartData?.registered
-                      ? '系统注册在位'
-                      : '未注册'
+                      ? '守护进程已注册自启'
+                      : '守护进程未注册自启'
               }
             />
           }
-          desc={
-            autostartData && autostartData.enabled !== autostartData.registered
-              ? '设置与系统注册状态不一致，重新切换一次开关即可同步。'
-              : '登录系统时由守护进程以独立进程拉起 WeQ 主程序。'
-          }
+          desc="守护进程自身随系统自启动（全机唯一的原生注册），WeQ 只由它拉起。"
           control={<Sparkles size={14} className="weq-set-ok" aria-hidden />}
         />
       </Card>
