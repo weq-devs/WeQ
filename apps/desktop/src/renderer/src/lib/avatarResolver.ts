@@ -20,7 +20,10 @@ export function avatarFromUin(uin: string | undefined | null, size: 0 | 100 = 0)
 /**
  * 从群号生成群头像 CDN URL。
  */
-export function avatarFromGroupCode(code: string | undefined | null, size: 0 | 100 = 0): string | null {
+export function avatarFromGroupCode(
+  code: string | undefined | null,
+  size: 0 | 100 = 0,
+): string | null {
   if (!code) return null;
   return `https://p.qlogo.cn/gh/${code}/${code}/${size}`;
 }
@@ -28,9 +31,10 @@ export function avatarFromGroupCode(code: string | undefined | null, size: 0 | 1
 /**
  * 修复 profile_info.db 里的头像 URL（20004 列）。
  * 数据库里存的是 `http://qh.qlogo.cn/g?b=qq&ek=...&s=`，
- * 需要补全为 `&s=0` 才能访问。
+ * 需要补全为 `&s=0` 才能访问（空 s= 会 400 bad request）。
+ * 渲染层 CSP 已放行 qh.qlogo.cn，修复后可直接作为 <img> 源。
  */
-function fixProfileAvatarUrl(url: string | undefined | null): string | null {
+export function fixProfileAvatarUrl(url: string | undefined | null): string | null {
   if (!url) return null;
 
   // 只处理 qh.qlogo.cn 的 URL

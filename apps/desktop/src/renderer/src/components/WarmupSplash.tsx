@@ -25,7 +25,12 @@ export function WarmupSplash({
       <div className="flex h-full flex-col items-center justify-center">
         <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
         <div className="mt-5 flex items-center gap-2 text-[13px] text-[#3c5368]">
-          <Loader2 className="animate-spin text-[#0099ff]" size={15} strokeWidth={1.85} aria-hidden />
+          <Loader2
+            className="animate-spin text-[#0099ff]"
+            size={15}
+            strokeWidth={1.85}
+            aria-hidden
+          />
           {hint}
         </div>
       </div>

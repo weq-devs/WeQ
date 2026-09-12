@@ -30,7 +30,7 @@ import {
 import type { ResourceStat, ResourceTreeKey } from '@weq/service';
 import { client } from '../../trpc/client';
 import { ACCENT_MUTED, ACCENT_SERIES, formatNumber } from '../../components/analyticsCharts';
-import { fmtBytes } from './FileResourceShared';
+import { fmtBytes } from './CacheShared';
 
 /**
  * The trees to scan, in a stable order (also fixes each category's colour).
@@ -246,9 +246,24 @@ export function ResourceAnalyticsDialog({
             {done && totals.files > 0 ? (
               <ShareBar
                 segments={[
-                  { label: '源文件', bytes: totals.ori.bytes, files: totals.ori.files, color: ACCENT_SERIES[0] },
-                  { label: '缩略图', bytes: totals.thumb.bytes, files: totals.thumb.files, color: ACCENT_SERIES[3] },
-                  { label: '其它', bytes: totals.other.bytes, files: totals.other.files, color: ACCENT_MUTED },
+                  {
+                    label: '源文件',
+                    bytes: totals.ori.bytes,
+                    files: totals.ori.files,
+                    color: ACCENT_SERIES[0],
+                  },
+                  {
+                    label: '缩略图',
+                    bytes: totals.thumb.bytes,
+                    files: totals.thumb.files,
+                    color: ACCENT_SERIES[3],
+                  },
+                  {
+                    label: '其它',
+                    bytes: totals.other.bytes,
+                    files: totals.other.files,
+                    color: ACCENT_MUTED,
+                  },
                 ]}
               />
             ) : (
@@ -291,9 +306,7 @@ export function ResourceAnalyticsDialog({
                         <span>{s.files > 0 ? fmtBytes(s.bytes) : '—'}</span>
                         <span>{s.files > 0 ? fmtBytes(Math.round(s.bytes / s.files)) : '—'}</span>
                         <span className="weq-ra-oritm">
-                          {s.ori.files || s.thumb.files
-                            ? `${s.ori.files} / ${s.thumb.files}`
-                            : '—'}
+                          {s.ori.files || s.thumb.files ? `${s.ori.files} / ${s.thumb.files}` : '—'}
                         </span>
                       </>
                     ) : (
@@ -479,10 +492,17 @@ function ShareBar({
 }
 
 /** Compact monthly bar chart over the accumulated by-month buckets. */
-function MonthlyBars({ data }: { data: Record<string, { files: number; bytes: number }> }): ReactElement {
+function MonthlyBars({
+  data,
+}: {
+  data: Record<string, { files: number; bytes: number }>;
+}): ReactElement {
   const [metric, setMetric] = useState<'bytes' | 'files'>('bytes');
   const months = Object.keys(data).sort();
-  const max = Math.max(...months.map((m) => (metric === 'bytes' ? data[m]!.bytes : data[m]!.files)), 1);
+  const max = Math.max(
+    ...months.map((m) => (metric === 'bytes' ? data[m]!.bytes : data[m]!.files)),
+    1,
+  );
 
   return (
     <div className="weq-ra-monthwrap">

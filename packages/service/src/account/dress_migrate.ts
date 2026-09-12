@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import type { BubbleSkin } from './bubble_skin';
 import type { DressConfigService, BubbleMeta, FontMeta } from './dress_config';
 import type { BubbleSidecar } from './dress_shared_cache';
-import { writeFileAtomicSync } from './atomic_write';
+import { writeFileAtomicSync } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** 旧 manifest.json 的结构（兼容读取）。 */
@@ -82,7 +82,6 @@ export function migrateDressData(
             itemId: bubble.itemId,
             slice: bubble.slice,
             imageSize: bubble.imageSize,
-            animated: bubble.animated,
             textColor: bubble.textColor,
             ...(bubble.animationFrameCount
               ? {

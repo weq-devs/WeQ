@@ -44,12 +44,23 @@ export function FailureLightbox({
   const shown = filter === 'all' ? failures : failures.filter((f) => f.stage === filter);
 
   return (
-    <div className="modal-scrim weq-exp-modal-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="weq-exp-dialog weq-exp-fail-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim weq-exp-modal-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="weq-exp-dialog weq-exp-fail-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
             <strong>媒体补全失败详情</strong>
-            <span title={taskName}>{taskName} · 共 {failures.length} 个失败</span>
+            <span title={taskName}>
+              {taskName} · 共 {failures.length} 个失败
+            </span>
           </div>
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
@@ -92,7 +103,9 @@ export function FailureLightbox({
                       <span className="weq-exp-fail-tag">{stageLabel(f.stage)}</span>
                       {f.fileName}
                     </span>
-                    <span className="weq-exp-fail-err" title={f.error}>{f.error}</span>
+                    <span className="weq-exp-fail-err" title={f.error}>
+                      {f.error}
+                    </span>
                   </div>
                 </li>
               ))}

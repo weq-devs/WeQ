@@ -7,11 +7,10 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { NtHelperBinding } from '@weq/native';
 import type { CollectionItem } from '@weq/db';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
-import type { WebCredential } from './web/credential';
+import type { WebCredential, WebNative } from './web/credential';
 import { getCollectionListNetwork } from './web/collection';
 import type { NetworkCollectionPage } from './web/collection';
 
@@ -35,15 +34,7 @@ export class CollectionService {
   private readonly logger;
 
   constructor(
-    nt: Pick<
-      NtHelperBinding,
-      | 'fetchSkey'
-      | 'fetchPskey'
-      | 'fetchClientKey'
-      | 'probePtLoginPort'
-      | 'ptFetchSkey'
-      | 'ptFetchPskey'
-    >,
+    nt: WebNative,
     private readonly session: AccountSession,
     resolvePid: () => number,
   ) {

@@ -17,7 +17,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Platform } from '../src/types';
-import { withResourceRoots, type MediaDirKey, type ResourceRootOverrides } from '../src/resource_roots';
+import {
+  withResourceRoots,
+  type MediaDirKey,
+  type ResourceRootOverrides,
+} from '../src/resource_roots';
 
 const MEDIA_KEYS: MediaDirKey[] = [
   'accountDir',

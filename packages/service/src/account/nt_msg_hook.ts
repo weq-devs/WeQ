@@ -150,7 +150,11 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       // guild: no table wired yet — skipped via classifyChatType returning null.
 
       if (c2c.length > 0 || group.length > 0) {
-        hooks.onNewMessages({ file, c2c: c2c.sort(compareNewest), group: group.sort(compareNewest) });
+        hooks.onNewMessages({
+          file,
+          c2c: c2c.sort(compareNewest),
+          group: group.sort(compareNewest),
+        });
       }
     },
   };
@@ -198,17 +202,15 @@ function c2cPartition(session: AccountSession, uid: string): { sortNo: bigint } 
   return sortNo === undefined ? { uid } : { sortNo };
 }
 
-function push(
-  kind: 'c2c' | 'group',
-  m: C2cMsg | GroupMsg,
-  c2c: C2cMsg[],
-  group: GroupMsg[],
-): void {
+function push(kind: 'c2c' | 'group', m: C2cMsg | GroupMsg, c2c: C2cMsg[], group: GroupMsg[]): void {
   if (kind === 'c2c') c2c.push(m as C2cMsg);
   else group.push(m as GroupMsg);
 }
 
-function compareNewest(a: { sendTime: bigint; msgId: bigint }, b: { sendTime: bigint; msgId: bigint }): number {
+function compareNewest(
+  a: { sendTime: bigint; msgId: bigint },
+  b: { sendTime: bigint; msgId: bigint },
+): number {
   if (a.sendTime !== b.sendTime) return a.sendTime < b.sendTime ? -1 : 1;
   if (a.msgId !== b.msgId) return a.msgId < b.msgId ? -1 : 1;
   return 0;

@@ -103,12 +103,12 @@ export type {
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
-  resolveBubbleSkin,
-  legacyBubbleStaticUrl,
-  legacyBubbleAnimationUrl,
-} from './account/bubble_skin';
-export type { BubbleSkin, BubbleSlice, BubbleSource } from './account/bubble_skin';
-// 新装扮系统（cache/config 分离）
+  fetchClientKey,
+  fetchDownloadRkeys,
+  requestDecryptKeyFromInstance,
+} from './account/online_ticket';
+export type { OnlineTicketNt } from './account/online_ticket';
+export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
 export { DressSharedCache, fontFamilyFor } from './account/dress_shared_cache';
@@ -119,15 +119,6 @@ export type {
 } from './account/dress_service';
 export type { DressScope, DressBackgroundSource } from './account/dress_config';
 export type { BubbleSidecar, PendantSidecar } from './account/dress_shared_cache';
-// 旧装扮系统（已废弃，仅工具函数保留）
-export { DressInstallService } from './account/dress_install';
-export {
-  extractFromZip,
-  extractAllFromZip,
-  extractFirstTtf,
-  isRenderableSfnt,
-} from './account/dress_install';
-export type { PendantAnimation } from './account/dress_install';
 export { MsgDecorationCacheService } from './account/msg_decoration';
 export type { ResolvedMsgDecoration, ResolvedWidget } from './account/msg_decoration';
 export {
@@ -136,7 +127,7 @@ export {
   normalizeMallItems,
   DressAppId,
 } from './account/web/dress_mall';
-export type { DressMallItem, BubbleMaterial } from './account/web/dress_mall';
+export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
 export {
   MediaDownloadService,
@@ -152,6 +143,8 @@ export { ExternalRkeyService } from './account/external_rkey';
 export { normalizeNapcatBaseUrl, fetchNapcatRkeys } from './account/rkey_server';
 export type { NapcatRkeyServerResult } from './account/rkey_server';
 export { RecentContactService } from './account/recent_contact';
+export { GuildDirectService, guildAvatarUrlFromMeta } from './account/guild_direct';
+export type { GuildDirectSessionView, RenderGuildDirectMsg } from './account/guild_direct';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
 export { DeletedSessionService } from './account/deleted_session';
@@ -162,6 +155,7 @@ export { ServiceAccountService } from './account/service_account';
 export type { ServiceAccountSummary } from './account/service_account';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
+export * from './account/annual_report';
 export {
   GroupInfoService,
   type RelationGraphData,
@@ -224,6 +218,9 @@ export type {
   AssistantToolSpec,
   AssistantStep,
   AssistantArtifact,
+  AssistantPlanStep,
+  AssistantInvestigationPlan,
+  AssistantWorkspace,
 } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
@@ -408,7 +405,7 @@ export {
   fetchSkeyViaPtLogin,
   fetchPskeyViaPtLogin,
 } from './account/web';
-export { buildPtlogin2JumpUrl, parseClientKeyJson } from './account/web/ptlogin';
+export { buildPtlogin2JumpUrl } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
@@ -458,11 +455,13 @@ export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----
 export {
+  fetchQzoneEmotionRange,
   exportGroupToJson,
   exportGroupToJsonl,
   exportGroupToTxt,
   iterateGroupMessages,
   toExportedMessage,
+  elementToText,
   elementsToText,
   messageToText,
   formatTime,
@@ -505,6 +504,37 @@ export type {
   MarketPackDownloadItem,
 } from './account/export';
 
+// ---- daemon (weq-daemon 伴生守护进程的统一管道客户端) ----
+export {
+  DAEMON_PIPE_NAME,
+  DAEMON_MAX_FRAME,
+  daemonPipePath,
+  encodeDaemonFrame,
+  decodeDaemonFrame,
+  parseDaemonResponse,
+} from './daemon/protocol';
+export type {
+  DaemonRequest,
+  DaemonResponse,
+  DaemonReleaseWatchConfig,
+  DaemonReleaseWatchInfo,
+  DaemonAutostartMemory,
+} from './daemon/protocol';
+export {
+  callDaemon,
+  pingDaemon,
+  daemonStop,
+  daemonHttpStart,
+  daemonHttpStop,
+  daemonHttpStatus,
+  daemonReleaseWatchStart,
+  daemonReleaseWatchStop,
+  daemonReleaseWatchStatus,
+  daemonReleaseAck,
+  daemonAutostartSet,
+  daemonAutostartStatus,
+} from './daemon/client';
+
 // ---- common (account-independent helpers) ----
 export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
 export type {
@@ -517,6 +547,13 @@ export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logg
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
+export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
+export {
+  sanitizeSegment,
+  uniqueName,
+  safeRelSegments,
+  type SanitizeSegmentOpts,
+} from './common/path_sanitize';
 export {
   TtsService,
   TTS_VENDOR_CATALOG,

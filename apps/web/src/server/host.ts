@@ -31,6 +31,11 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
 
   return {
     canReveal: false,
+    // 浏览器版：整个服务由部署方用 systemd / 计划任务托管，自启动一律不参与
+    // —— 既不注册 GUI（web 入口是 `node server.mjs`，需要参数 + 工作目录），
+    // 也让守护进程跳过自身注册，避免和部署方的 unit 抢同一份生命周期
+    // （见 apps/web/README）。
+    canAutostart: false,
 
     async pickDirectory() {
       // No dialog: everything lands in the server-side export dir.
@@ -70,6 +75,19 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       return { url: `/_download/${id}` };
     },
 
+    async renderHtmlToPdf() {
+      // 服务端没有 Electron 渲染引擎；年度报告 PDF 导出只在桌面版提供。
+      throw new Error('web 环境不支持 PDF 渲染，请使用桌面版');
+    },
+
+    async renderHtmlToSlidesPng() {
+      throw new Error('web 环境不支持图片渲染，请使用桌面版');
+    },
+
+    async renderHtmlToLongPng() {
+      throw new Error('web 环境不支持图片渲染，请使用桌面版');
+    },
+
     async openBotConsole({ url }) {
       // The bot console is its own HTTP server; let the browser open it.
       return { url };
@@ -77,5 +95,6 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
 
     appVersion: () => version,
     isPackaged: () => process.env.NODE_ENV === 'production',
+    currentExePath: () => process.execPath,
   };
 }

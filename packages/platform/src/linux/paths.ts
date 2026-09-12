@@ -56,10 +56,7 @@ export function defaultQqDataRoot(home = homedir()): string {
  * Candidate data roots in priority order. A user-picked `overrideRoot` (when
  * it exists) wins over the hard-coded `~/.config/QQ`. Deduped.
  */
-export function candidateQqRoots(
-  home = homedir(),
-  overrideRoot?: string | null,
-): string[] {
+export function candidateQqRoots(home = homedir(), overrideRoot?: string | null): string[] {
   const roots: string[] = [];
   if (overrideRoot && existsSync(overrideRoot)) roots.push(overrideRoot);
   roots.push(defaultQqDataRoot(home));
@@ -158,7 +155,14 @@ export function findLoginDbs(home = homedir(), overrideRoot?: string | null): st
   const out: string[] = [];
   const primary = firstExistingUnderRoot(home, overrideRoot, 'global', 'nt_db', 'login.db');
   if (primary) out.push(primary);
-  const secondary = firstExistingUnderRoot(home, overrideRoot, 'nt_qq', 'global', 'nt_db', 'login.db');
+  const secondary = firstExistingUnderRoot(
+    home,
+    overrideRoot,
+    'nt_qq',
+    'global',
+    'nt_db',
+    'login.db',
+  );
   if (secondary) out.push(secondary);
   return out;
 }
@@ -171,47 +175,83 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
 // ---------- per-account databases (nt_db) ---------------------------------
 
 /** `<root>/nt_qq_<hash>` — the account's user-data directory. */
-export function findAccountDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findAccountDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot);
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/nt_msg.db`. */
-export function findNtMsgDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtMsgDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'nt_msg.db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db`. */
-export function findNtDbDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtDbDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data` — media data root (Pic/Video/Ptt/File/avatar/…). */
-export function findNtDataDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtDataDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/group_info.db`. */
-export function findGroupInfoDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findGroupInfoDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'group_info.db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/profile_info.db`. */
-export function findProfileInfoDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findProfileInfoDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'profile_info.db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/misc.db`. */
-export function findMiscDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findMiscDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'misc.db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/buddy_msg_fts.db`. */
-export function findBuddyMsgFtsDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findBuddyMsgFtsDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'buddy_msg_fts.db');
 }
 
 /** `<root>/nt_qq_<hash>/nt_db/group_msg_fts.db`. */
-export function findGroupMsgFtsDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findGroupMsgFtsDb(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_db', 'group_msg_fts.db');
 }
 
@@ -219,49 +259,99 @@ export function findGroupMsgFtsDb(uid: string, home = homedir(), overrideRoot?: 
 // The relative layout under nt_data is identical to win32.
 
 /** `<root>/nt_qq_<hash>/nt_data/Emoji/BaseEmojiSyastems/EmojiSystermResource`. */
-export function findEmojiResourceDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findEmojiResourceDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(
-    uid, home, overrideRoot, 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
+    uid,
+    home,
+    overrideRoot,
+    'nt_data',
+    'Emoji',
+    'BaseEmojiSyastems',
+    'EmojiSystermResource',
   );
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Emoji/marketface`. */
-export function findMarketFaceDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findMarketFaceDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Emoji', 'marketface');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Emoji/emoji-recv`. */
-export function findEmojiRecvDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findEmojiRecvDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Emoji', 'emoji-recv');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Emoji/personal_emoji`. */
-export function findPersonalEmojiDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPersonalEmojiDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Emoji', 'personal_emoji');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Emoji/emoji-related/emoji`. */
-export function findEmojiRelatedDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
-  return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Emoji', 'emoji-related', 'emoji');
+export function findEmojiRelatedDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
+  return firstExistingUnderAccount(
+    uid,
+    home,
+    overrideRoot,
+    'nt_data',
+    'Emoji',
+    'emoji-related',
+    'emoji',
+  );
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Pic`. */
-export function findPicDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPicDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Pic');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Ptt`. */
-export function findPttDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPttDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Ptt');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/Video`. */
-export function findVideoDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findVideoDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'Video');
 }
 
 /** `<root>/nt_qq_<hash>/nt_data/File`. */
-export function findFileDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findFileDir(
+  uid: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnderAccount(uid, home, overrideRoot, 'nt_data', 'File');
 }
 

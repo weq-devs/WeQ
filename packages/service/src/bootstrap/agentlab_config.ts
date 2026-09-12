@@ -16,20 +16,13 @@ export class AgentLabConfigService {
   constructor(private readonly userConfig: UserConfigService) {}
 
   /**
-   * 用厂商模板自动补全缺失的模型（仅追加，不覆盖已有）。
-   * 解决了用户早前保存的 provider 不包含 catalog 后续新增模型的问题。
+   * 已保存的 provider 原样返回，不做任何补全。
+   * 曾经这里会用厂商模板自动补全缺失的推荐模型，导致用户在设置页删掉的模型
+   * 一保存就被「复活」，怎么改都保存不上；需要模板推荐时由设置页的
+   * 「导入模板推荐」按钮显式导入（不覆盖、不复活用户已删的内容）。
    */
-  private enrichProvider(p: AgentLabProviderConfig): AgentLabProviderConfig {
-    const entry = AGENTLAB_PROVIDER_CATALOG.find((c) => c.vendor === p.vendor);
-    if (!entry?.models?.length) return p;
-    const existingIds = new Set(p.models.map((m) => m.id));
-    const extra = entry.models.filter((m) => !existingIds.has(m.id));
-    if (extra.length === 0) return p;
-    return { ...p, models: [...p.models, ...extra] };
-  }
-
   listProviders(): AgentLabProviderConfig[] {
-    return this.userConfig.getSettings().agentLab.providers.map((p) => this.enrichProvider(p));
+    return this.userConfig.getSettings().agentLab.providers;
   }
 
   getProvider(providerId: string): AgentLabProviderConfig | null {
@@ -38,7 +31,10 @@ export class AgentLabConfigService {
 
   /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
   getTtsProvider(providerId: string): TtsProviderConfig | null {
-    return this.userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === providerId) ?? null;
+    return (
+      this.userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === providerId) ??
+      null
+    );
   }
 
   /** 把 agent 里的「某任务用哪个 provider 的哪个 model」解析成可调用端点。 */
@@ -65,11 +61,17 @@ export class AgentLabConfigService {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, '');
     if (!baseUrl) return { ok: false, error: '请先填写 Base URL。' };
     if (!input.model.trim()) return { ok: false, error: '请先添加并填写一个「聊天」能力的模型。' };
-    const endpoint: AgentLabEndpoint = { baseUrl, apiKey: input.apiKey.trim(), model: input.model.trim() };
+    const endpoint: AgentLabEndpoint = {
+      baseUrl,
+      apiKey: input.apiKey.trim(),
+      model: input.model.trim(),
+    };
     return testChatEndpoint(endpoint);
   }
 
-  saveProvider(input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt'>): AgentLabProviderConfig {
+  saveProvider(
+    input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt'>,
+  ): AgentLabProviderConfig {
     const current = this.listProviders();
     const prev = current.find((item) => item.id === input.id);
     const next = normalizeProviderConfig({
@@ -79,10 +81,9 @@ export class AgentLabConfigService {
     validateProviderConfig(next);
     this.userConfig.setSettings({
       agentLab: {
-        providers: [
-          ...current.filter((item) => item.id !== next.id),
-          next,
-        ].sort((a, b) => b.updatedAt - a.updatedAt),
+        providers: [...current.filter((item) => item.id !== next.id), next].sort(
+          (a, b) => b.updatedAt - a.updatedAt,
+        ),
       },
     });
     return next;

@@ -82,7 +82,8 @@ export function dressUrl(src: string): string {
 }
 
 /**
- * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见 dress_install)。
+ * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见服务侧
+ * DressService.fontFile)。
  * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。
  */
 export function dressFontUrl(itemId: number): string {
@@ -109,7 +110,7 @@ export function dressBubbleFrameUrl(itemId: number, frame: number): string {
 
 /**
  * 头像挂件动画的某一帧(`frame` 从 1 开始)。与 {@link dressBubbleFrameUrl} 同构,
- * 只是资源来自 other.zip → aio_file.zip(见 dress_install.ts 的
+ * 只是资源来自 other.zip → aio_file.zip(见服务侧 DressService 的
  * resolvePendantAnimation)。没有不带 frame 的静态变体 —— 挂件不设中间兜底。
  */
 export function dressPendantFrameUrl(itemId: number, frame: number): string {
@@ -117,13 +118,26 @@ export function dressPendantFrameUrl(itemId: number, frame: number): string {
 }
 
 /**
- * 用户自选的聊天背景(本地图)。
+ * 用户自选的聊天背景(本地图或视频)。
  *
  * `stamp` 是用来穿透缓存的:文件名固定为 `custom.<ext>`,换了图 url 却不变,浏览器
  * 会继续画旧的那张。传一个换图时必然变的值(清单里的绝对路径)即可。
+ *
+ * 视频与图片共用这一条:`dressbg` 主进程按文件后缀定 Content-Type(file_response 的
+ * MIME 表已含 mp4/webm/mov)并支持 Range,`<video>` 能直接播、也能拖动进度。
  */
 export function dressBackgroundUrl(stamp: string): string {
   return mediaUrl('dressbg', { v: stamp });
+}
+
+/**
+ * 自定义聊天背景是不是视频。
+ *
+ * 只认 Chromium 内置能直接播的容器(mp4 / webm / mov)—— 用户选进来的文件**不做转码**,
+ * 认错格式只会渲染出一块黑,所以判定放宽不如判窄。
+ */
+export function isVideoBackground(fileName: string): boolean {
+  return /\.(mp4|webm|mov)$/i.test(fileName);
 }
 
 /**
@@ -161,7 +175,9 @@ export function redbagSkinUrl(skinId: string): string {
   return mediaUrl('redbag', { id: skinId });
 }
 
-/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */export function localFileUrl(absPath: string): string {
+/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */ export function localFileUrl(
+  absPath: string,
+): string {
   return mediaUrl('localfile', { path: absPath });
 }
 

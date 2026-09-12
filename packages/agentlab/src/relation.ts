@@ -32,7 +32,11 @@ export function makeBaseRelation(
     subjectPersonaId,
     objectId,
     objectKind,
-    affinity: clamp(overrides?.affinity ?? NEUTRAL_AFFINITY, RELATION_AFFINITY_RANGE.min, RELATION_AFFINITY_RANGE.max),
+    affinity: clamp(
+      overrides?.affinity ?? NEUTRAL_AFFINITY,
+      RELATION_AFFINITY_RANGE.min,
+      RELATION_AFFINITY_RANGE.max,
+    ),
     familiarity: clamp(
       overrides?.familiarity ?? NEUTRAL_FAMILIARITY,
       RELATION_FAMILIARITY_RANGE.min,
@@ -50,7 +54,11 @@ export function clampRelation(rel: AgentLabRelation): AgentLabRelation {
   return {
     ...rel,
     affinity: clamp(rel.affinity, RELATION_AFFINITY_RANGE.min, RELATION_AFFINITY_RANGE.max),
-    familiarity: clamp(rel.familiarity, RELATION_FAMILIARITY_RANGE.min, RELATION_FAMILIARITY_RANGE.max),
+    familiarity: clamp(
+      rel.familiarity,
+      RELATION_FAMILIARITY_RANGE.min,
+      RELATION_FAMILIARITY_RANGE.max,
+    ),
     mood: clamp(rel.mood, RELATION_MOOD_RANGE.min, RELATION_MOOD_RANGE.max),
   };
 }

@@ -48,11 +48,9 @@ export const marketEmojiRouter = router({
    * 一个表情包的在线详情：拉 android.json 解析出来源(feetype) / 介绍 / 上架时间
    * / 表情列表(hash+名)。前端据此渲染来源徽章与表情网格。缺网/包不存在返回 null。
    */
-  getPackDetail: procedure
-    .input(z.object({ packId: z.string().min(1) }))
-    .query(({ input }) => {
-      return requireServices().emoji.getMarketPackDetail(input.packId);
-    }),
+  getPackDetail: procedure.input(z.object({ packId: z.string().min(1) })).query(({ input }) => {
+    return requireServices().emoji.getMarketPackDetail(input.packId);
+  }),
 
   /**
    * 恢复一个表情包的图片解密密钥。不给 timestamp → native 自动(读种子/爆破)；

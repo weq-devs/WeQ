@@ -6,8 +6,7 @@
  * 只保留最近 MAX_RECORDS 条。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { JsonStore } from '../common/json_store';
 
 export interface TokenUsageRecord {
   ts: number;
@@ -47,10 +46,20 @@ function dayKey(ts: number): string {
 }
 
 export class TokenUsageStore {
-  private records: TokenUsageRecord[];
+  private readonly store: JsonStore<TokenUsageRecord[]>;
 
-  constructor(private readonly filePath: string) {
-    this.records = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => [], {
+      normalize: (raw) => (Array.isArray(raw) ? (raw as TokenUsageRecord[]) : []),
+    });
+  }
+
+  private get records(): TokenUsageRecord[] {
+    return this.store.data;
+  }
+
+  private set records(next: TokenUsageRecord[]) {
+    this.store.data = next;
   }
 
   record(entry: TokenUsageRecord): void {
@@ -113,27 +122,16 @@ export class TokenUsageStore {
     };
   }
 
-  private load(): TokenUsageRecord[] {
-    try {
-      if (!existsSync(this.filePath)) return [];
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      return Array.isArray(parsed) ? (parsed as TokenUsageRecord[]) : [];
-    } catch {
-      return [];
-    }
-  }
-
   private persist(): void {
-    try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(this.records), 'utf-8');
-    } catch {
-      /* 记账失败不应影响主流程 */
-    }
+    this.store.save();
   }
 }
 
-function bump(map: Map<string, { tokens: number; calls: number }>, key: string, tokens: number): void {
+function bump(
+  map: Map<string, { tokens: number; calls: number }>,
+  key: string,
+  tokens: number,
+): void {
   const cur = map.get(key);
   if (cur) {
     cur.tokens += tokens;
@@ -143,7 +141,11 @@ function bump(map: Map<string, { tokens: number; calls: number }>, key: string, 
   }
 }
 
-function bumpHour(map: Map<number, { tokens: number; calls: number }>, key: number, tokens: number): void {
+function bumpHour(
+  map: Map<number, { tokens: number; calls: number }>,
+  key: number,
+  tokens: number,
+): void {
   const cur = map.get(key);
   if (cur) {
     cur.tokens += tokens;

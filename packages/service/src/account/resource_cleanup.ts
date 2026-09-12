@@ -263,7 +263,14 @@ export class ResourceCleanupService {
         };
         if (!dir || !existsSync(dir)) return empty;
         const scan = await this.scan(dir);
-        return { ...empty, present: scan.sawDir, files: scan.files, bytes: scan.bytes, ori: scan.ori, thumb: scan.thumb };
+        return {
+          ...empty,
+          present: scan.sawDir,
+          files: scan.files,
+          bytes: scan.bytes,
+          ori: scan.ori,
+          thumb: scan.thumb,
+        };
       }),
     );
   }
@@ -349,9 +356,7 @@ export class ResourceCleanupService {
 
       try {
         const res =
-          variant === 'all'
-            ? this.removeDirWhole(dir)
-            : await this.removeByVariant(dir, variant);
+          variant === 'all' ? this.removeDirWhole(dir) : await this.removeByVariant(dir, variant);
         freedBytes += res.freedBytes;
         perTarget.push({ id: def.id, variant, ...res });
       } catch (error) {

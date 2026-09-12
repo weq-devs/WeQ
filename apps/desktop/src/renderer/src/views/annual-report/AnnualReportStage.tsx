@@ -1,0 +1,201 @@
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+
+const DESIGN_WIDTH = 960;
+const DESIGN_HEIGHT = 640;
+/** 舞台四周留白比例 —— 报告不贴边，像一页印在纸上的开面。 */
+const STAGE_INSET = 0.92;
+
+/**
+ * 滚轮翻页的手势判定 —— **一次滚动最多翻一页**。
+ *
+ * 触控板一次「甩」会连发几十个 wheel 事件（惯性尾巴能拖一秒多），按固定时长的
+ * 锁去卡都稳不住：锁短了（600ms）尾巴还没衰减完，第二页、第三页就跟着翻走了；
+ * 锁长了则「滚一下、翻一页」变得很滞涩。所以判定不看时间长短，而看**一次手势的
+ * 边界**：
+ *   - 同方向的 deltaY 累加，越过 {@link WHEEL_THRESHOLD} 才翻一页、清零累积；
+ *   - 翻页的同时置 `fired`，此后这一甩剩下的所有事件一律只吃掉、不再翻页 ——
+ *     惯性尾巴无论多长多急，都只能带出这一页；
+ *   - 直到滚轮**停下** {@link WHEEL_IDLE_MS} 毫秒，才认为手势结束、解除 `fired`。
+ * 于是「一甩一页」是结构上成立的，而「滚一下、停一下」仍是一页页顺畅地翻。
+ */
+const WHEEL_THRESHOLD = 90;
+const WHEEL_IDLE_MS = 220;
+
+/**
+ * 报告舞台：把 960×640 的设计画幅等比缩放到可用空间，页面在画幅内**同位层叠**
+ * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
+ * 负责滚轮、触摸、键盘三种翻页输入。
+ *
+ * `guard` 让当前页在翻页发生前截住一次手势（目前没有页面注册，机制为后续需要
+ * 「先展开内层、再翻页」的交互页保留）。三种输入都经过 `move`，所以只需问一次。
+ */
+export function AnnualReportStage({
+  index,
+  count,
+  onIndexChange,
+  guard,
+  children,
+}: {
+  index: number;
+  count: number;
+  onIndexChange: (index: number) => void;
+  /** 返回 true = 这一次翻页被当前页消费掉了，舞台不翻。 */
+  guard?: (direction: 1 | -1) => boolean;
+  children: ReactNode;
+}): ReactElement {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<{
+    y: number;
+    pointerId: number;
+    moved: boolean;
+    captured: boolean;
+  } | null>(null);
+  /** 滚轮手势状态：累积量、上次事件时刻，以及「这一甩已经翻过一页了」。 */
+  const wheelRef = useRef({ acc: 0, lastAt: 0, fired: false });
+  const [scale, setScale] = useState(1);
+  /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
+  const guardRef = useRef(guard);
+  guardRef.current = guard;
+
+  const clampIndex = useCallback(
+    (next: number) => Math.max(0, Math.min(Math.max(0, count - 1), next)),
+    [count],
+  );
+  const move = useCallback(
+    (delta: number) => {
+      // 守卫先看：它吃掉这次手势时不翻页（滚轮的 `fired` 仍照常落下，
+      // 免得一甩的惯性尾巴在守卫释放后立刻把页翻走）。
+      if (delta !== 0 && guardRef.current?.(delta > 0 ? 1 : -1)) return;
+      onIndexChange(clampIndex(index + delta));
+    },
+    [clampIndex, index, onIndexChange],
+  );
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const resize = (): void => {
+      const rect = host.getBoundingClientRect();
+      setScale(
+        Math.min(
+          (rect.width * STAGE_INSET) / DESIGN_WIDTH,
+          (rect.height * STAGE_INSET) / DESIGN_HEIGHT,
+        ),
+      );
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
+        event.preventDefault();
+        move(1);
+      } else if (event.key === 'ArrowUp' || event.key === 'PageUp') {
+        event.preventDefault();
+        move(-1);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        onIndexChange(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        onIndexChange(Math.max(0, count - 1));
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [count, move, onIndexChange]);
+
+  function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    const now = performance.now();
+    const wheel = wheelRef.current;
+
+    // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
+    if (now - wheel.lastAt > WHEEL_IDLE_MS) {
+      wheel.acc = 0;
+      wheel.fired = false;
+    }
+    wheel.lastAt = now;
+
+    // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
+    if (wheel.fired) return;
+
+    // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
+    if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
+    wheel.acc += event.deltaY;
+
+    if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
+
+    // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
+    const direction = wheel.acc > 0 ? 1 : -1;
+    wheel.acc = 0;
+    wheel.fired = true;
+    move(direction);
+  }
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+    // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
+    // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
+    // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。
+    gestureRef.current = {
+      y: event.clientY,
+      pointerId: event.pointerId,
+      moved: false,
+      captured: false,
+    };
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    const gesture = gestureRef.current;
+    if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
+    if (!gesture.captured) {
+      // 拖拽跨过阈值、确认是翻页手势，才把这一指的剩余事件接管给舞台。
+      // 捕获可能失败：那根手指可能已被系统手势/别的元素截走（报 NotFoundError），
+      // 也可能 capture 已被别人持有（InvalidStateError）。两种都只当「没捕到」
+      // 处理，翻页判定靠 pointerup 的位移照样成立，不能让异常炸掉渲染进程。
+      try {
+        event.currentTarget.setPointerCapture(gesture.pointerId);
+        gesture.captured = true;
+      } catch {
+        gesture.captured = false;
+      }
+    }
+    gesture.moved = true;
+  }
+
+  function onPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
+    const gesture = gestureRef.current;
+    gestureRef.current = null;
+    if (!gesture?.moved) return;
+    move(event.clientY < gesture.y ? 1 : -1);
+  }
+
+  return (
+    <div
+      ref={hostRef}
+      className="weq-report-stage-host"
+      tabIndex={0}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      role="region"
+      aria-label="年度报告页面"
+    >
+      <div
+        className="weq-report-stage"
+        style={{
+          width: DESIGN_WIDTH,
+          height: DESIGN_HEIGHT,
+          transform: `translate(-50%, -50%) scale(${scale})`,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}

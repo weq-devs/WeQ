@@ -26,7 +26,7 @@
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *   weq-media://dressbubble?id=<itemId>&frame=<n>              → 同上,整泡帧动画的第 n 帧(n 从 1 开始)
  *   weq-media://dresspendant?id=<itemId>&frame=<n>             → 走 protocol 换的头像挂件动画帧(本地 PNG,n 从 1 开始)
- *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
+ *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图片 / 视频)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
  *   weq-media://redbag?id=<skinId>                            → 红包皮肤封面(moggy CDN，落盘缓存)
  *
@@ -113,8 +113,7 @@ async function findMediaElement(
   const matches = raw.elements.filter(
     (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
   );
-  const el =
-    matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
+  const el = matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
   return { element: el as unknown as MediaElement, conv: raw.kind };
 }
@@ -217,18 +216,24 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     // 群公告图片
     host === 'gdynamic.qpic.cn';
   if (!allowed) return notFound('album image host not allowed');
-  // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
-  // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
-  const res = await fetch(src, {
-    headers: {
-      Referer: `${target.protocol}//user.qzone.qq.com/`,
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
-    },
-  });
+  // 视频（含 moov 在文件尾部的非 faststart mp4）要能 seek，必须把 Chromium 发来的
+  // Range 转发给上游（否则一律回 200 全量 = 不可 seek 流，demuxer 打不开 moov 在
+  // 末尾的文件，报 DEMUXER_ERROR_COULD_NOT_OPEN）。上游 CDN 支持 206。
+  const incoming = currentRequest.getStore();
+  const headers: Record<string, string> = {
+    // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
+    // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
+    Referer: `${target.protocol}//user.qzone.qq.com/`,
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
+  };
+  const range = incoming?.headers.get('range');
+  if (range) headers.Range = range;
+  const res = await fetch(src, { headers });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
   const contentType = res.headers.get('content-type') ?? '';
-  // 视频原样回传：要保留 range 支持,且不能把整段 mp4 读进内存。
+  // 视频原样回传：要保留 range 支持（上游 206 + content-range 直接透传），
+  // 且不能把整段 mp4 读进内存。
   if (!contentType.startsWith('image/')) return res;
   // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
   // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
@@ -402,8 +407,8 @@ export function handleMediaRequest(request: Request): Promise<Response> {
     }
 
     // 走 protocol 换的头像挂件动画帧:other.zip → aio_file.zip 解出的逐帧 PNG,
-    // 见 dress_install.ts 的 resolvePendantAnimation/pendantFrameFile。没有「不带
-    // frame 取静态图」这一档 —— 挂件不设中间的静态兜底(见该方法头注释)。
+    // 由服务侧 DressService.resolvePendantAnimation 落盘。没有「不带 frame 取静态
+    // 图」这一档 —— 挂件不设中间的静态兜底。
     if (kind === 'dresspendant') {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
@@ -486,7 +491,9 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           const outcome = await downloadUrlToFile(url, cachePath);
-          return outcome.ok ? fileResponse(cachePath) : notFound(`video download failed: ${outcome.reason}`);
+          return outcome.ok
+            ? fileResponse(cachePath)
+            : notFound(`video download failed: ${outcome.reason}`);
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');

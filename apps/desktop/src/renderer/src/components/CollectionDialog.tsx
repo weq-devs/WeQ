@@ -169,7 +169,12 @@ function searchCorpus(it: CollectionItemWire): string {
   const parts = [it.authorName, it.groupName, it.text];
   if (it.link) parts.push(it.link.title, it.link.publisher, it.link.brief, it.link.url);
   if (it.richMedia)
-    parts.push(it.richMedia.title, it.richMedia.subTitle, it.richMedia.brief, it.richMedia.originalUri);
+    parts.push(
+      it.richMedia.title,
+      it.richMedia.subTitle,
+      it.richMedia.brief,
+      it.richMedia.originalUri,
+    );
   if (it.video) parts.push(it.video.title, it.video.fileName);
   if (it.audio) parts.push(it.audio.stt);
   if (it.file) parts.push(it.file.name);
@@ -251,7 +256,12 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
           title={l.url}
         >
           {cover ? (
-            <img className="weq-col-link-thumb" src={collectionImageUrl(cover.uri)} alt="" loading="lazy" />
+            <img
+              className="weq-col-link-thumb"
+              src={collectionImageUrl(cover.uri)}
+              alt=""
+              loading="lazy"
+            />
           ) : (
             <span className="weq-col-link-thumb is-fallback">
               <Link2 size={20} strokeWidth={1.6} />
@@ -280,7 +290,9 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             <Music size={18} strokeWidth={1.6} />
           </span>
           <span className="weq-col-media-meta">
-            <span className="weq-col-media-title">语音{humanSeconds(a.duration / 1000) ? ` · ${humanSeconds(a.duration / 1000)}` : ''}</span>
+            <span className="weq-col-media-title">
+              语音{humanSeconds(a.duration / 1000) ? ` · ${humanSeconds(a.duration / 1000)}` : ''}
+            </span>
             {a.stt ? <span className="weq-col-media-sub">{a.stt}</span> : null}
           </span>
         </div>
@@ -319,11 +331,17 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
       return (
         <div className="weq-col-media-row">
           <span className="weq-col-media-icon">
-            {f.ext ? <span className="weq-col-file-ext">{f.ext}</span> : <FileText size={18} strokeWidth={1.6} />}
+            {f.ext ? (
+              <span className="weq-col-file-ext">{f.ext}</span>
+            ) : (
+              <FileText size={18} strokeWidth={1.6} />
+            )}
           </span>
           <span className="weq-col-media-meta">
             <span className="weq-col-media-title">{f.name || '文件'}</span>
-            {humanSize(f.size) ? <span className="weq-col-media-sub">{humanSize(f.size)}</span> : null}
+            {humanSize(f.size) ? (
+              <span className="weq-col-media-sub">{humanSize(f.size)}</span>
+            ) : null}
           </span>
         </div>
       );
@@ -533,7 +551,11 @@ export function CollectionDialog({
               spellCheck={false}
             />
             {query ? (
-              <button type="button" className="weq-collection-search-clear" onClick={() => setQuery('')}>
+              <button
+                type="button"
+                className="weq-collection-search-clear"
+                onClick={() => setQuery('')}
+              >
                 <X size={13} strokeWidth={2} />
               </button>
             ) : null}

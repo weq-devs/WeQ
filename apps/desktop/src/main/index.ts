@@ -29,8 +29,9 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
-import { stopWeqServer } from './weq_assistant/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
+import { startReleaseMonitor } from './daemon/release_monitor';
+import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -391,6 +392,13 @@ function registerLogIpc(): void {
     await electronHost.revealPath(dir);
     return true;
   });
+
+  // 守护进程设置页「打开 docroot」——只在路径确实指向磁盘上已存在的目录时放行。
+  ipcMain.handle('daemon:reveal-path', async (_event, path?: string) => {
+    if (typeof path !== 'string' || !path || !fs.existsSync(path)) return false;
+    await electronHost.revealPath(path);
+    return true;
+  });
 }
 
 function registerSystemAuthIpc(): void {
@@ -600,6 +608,25 @@ void app.whenReady().then(async () => {
     setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
   }
 
+  // 守护进程 release 提醒循环（发现新版本弹系统通知）：始终挂着，每 30s 读一次
+  // 守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。推文由打包版
+  // 应用内更新检查（update_tweet）统一负责，不在这里重复写。
+  startReleaseMonitor();
+
+  // 守护进程默认拉起：应用启动即检查 / 拉起 weq-daemon（含版本对齐与稳定落位），
+  // 不再等「WeQ 助手」开关。best-effort：二进制缺失 / 拉起失败只记日志，不阻塞
+  // 启动；设置页展示实时状态。
+  void ensureDaemonRunning()
+    // 起来之后，再把「开机拉起 WeQ」的意图 + 当前 exe 路径刷进守护进程记忆。
+    // GUI 自己不注册任何原生自启 —— 全机唯一的自启注册是守护进程那一份。
+    .then(() => syncGuiAutostartIntent())
+    .catch((error) => {
+      logger.warn('failed to ensure weq-daemon on startup', {
+        event: 'daemon-startup-failed',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createWindow();
@@ -630,9 +657,11 @@ app.on('before-quit', () => {
 });
 
 // Best-effort: stop the account-bound MCP server on quit even if the account
-// was never explicitly closed (clearAccount also stops it).
+// was never explicitly closed (clearAccount also stops it). The weq-daemon
+// companion process is deliberately NOT touched on quit — its lifecycle
+// belongs to autostart / the user, and it keeps serving the QQ cards after
+// WeQ is gone.
 app.on('will-quit', () => {
   void stopMcpServer();
-  void stopWeqServer();
   void disposeExternalMcp();
 });

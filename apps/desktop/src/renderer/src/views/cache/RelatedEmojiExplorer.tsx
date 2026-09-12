@@ -11,13 +11,14 @@
  * Gif bytes never cross tRPC — the `<img>` points at `weq-media://relemoji`.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, X, Image as ImageIcon } from 'lucide-react';
+import { useCallback, useState, type ReactElement } from 'react';
+import { Image as ImageIcon } from 'lucide-react';
 import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
-
-const PAGE = 120;
+import { ShimmerImage } from '../../components/ShimmerImage';
+import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one related-emoji gif. */
 function relemojiUrl(hash: string, file: string): string {
@@ -25,66 +26,14 @@ function relemojiUrl(hash: string, file: string): string {
 }
 
 export function RelatedEmojiExplorer(): ReactElement {
-  const [entries, setEntries] = useState<RelatedEmojiKeyword[]>([]);
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<RelatedEmojiKeyword | null>(null);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
-  const loadingRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await client.account.relatedEmoji.listKeywords.query({
-        limit: PAGE,
-        cursor: cursorRef.current,
-      });
-      setEntries((prev) => [...prev, ...page.entries]);
-      setTotal(page.total);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      doneRef.current = true;
-      setError(e instanceof Error ? e.message : String(e));
-      setDone(true);
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, []);
-
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '400px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done]);
+  const fetchPage = useCallback(
+    (cursor: string | null) =>
+      client.account.relatedEmoji.listKeywords.query({ limit: CURSOR_PAGE, cursor }),
+    [],
+  );
+  const { entries, total, loading, error, done, sentinelRef } =
+    useCursorPaged<RelatedEmojiKeyword>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
@@ -105,21 +54,15 @@ export function RelatedEmojiExplorer(): ReactElement {
       <div className="weq-cache-avatar-scroll">
         <div className="weq-cache-related-grid">
           {entries.map((entry) => (
-            <RelatedEmojiCard
-              key={entry.hash}
-              entry={entry}
-              onOpen={() => setPreview(entry)}
-            />
+            <RelatedEmojiCard key={entry.hash} entry={entry} onOpen={() => setPreview(entry)} />
           ))}
         </div>
-        {!done ? (
-          <div ref={sentinelRef} className="weq-cache-avatar-more">
-            <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-            {loading ? '加载中…' : '滚动加载更多'}
-          </div>
-        ) : (
-          <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-        )}
+        <GridFooter
+          loading={loading}
+          done={done}
+          count={entries.length}
+          sentinelRef={sentinelRef}
+        />
       </div>
 
       {preview ? <RelatedEmojiLightbox entry={preview} onClose={() => setPreview(null)} /> : null}
@@ -152,9 +95,7 @@ function RelatedEmojiCard({
             onError={() => setBroken(true)}
           />
         )}
-        {entry.gifCount > 1 ? (
-          <em className="weq-cache-related-count">{entry.gifCount}</em>
-        ) : null}
+        {entry.gifCount > 1 ? <em className="weq-cache-related-count">{entry.gifCount}</em> : null}
       </span>
       <span className="weq-cache-related-word">{entry.keyword}</span>
     </button>
@@ -173,36 +114,24 @@ function RelatedEmojiLightbox({
   const files = gifs.data ?? [];
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="weq-blob-dialog weq-related-dialog"
-        role="dialog"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-blob-head">
-          <div className="weq-blob-title">
-            <h3>{entry.keyword}</h3>
-            <code>{gifs.isLoading ? '加载中…' : `${files.length} 个表情`}</code>
+    <BlobDialog
+      dialogClass="weq-related-dialog"
+      bodyClass="weq-related-panels"
+      title={entry.keyword}
+      meta={gifs.isLoading ? '加载中…' : `${files.length} 个表情`}
+      onClose={onClose}
+    >
+      {gifs.isLoading ? (
+        <GridSkeleton cells={6} />
+      ) : files.length === 0 ? (
+        <div className="weq-cache-grid-state">该关键词无可渲染的表情</div>
+      ) : (
+        files.map((file) => (
+          <div key={file} className="weq-related-stage">
+            <ShimmerImage src={relemojiUrl(entry.hash, file)} alt={file} draggable={false} />
           </div>
-          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="weq-blob-body weq-related-panels">
-          {gifs.isLoading ? (
-            <div className="weq-cache-grid-state">加载中…</div>
-          ) : files.length === 0 ? (
-            <div className="weq-cache-grid-state">该关键词无可渲染的表情</div>
-          ) : (
-            files.map((file) => (
-              <div key={file} className="weq-related-stage">
-                <img src={relemojiUrl(entry.hash, file)} alt={file} draggable={false} />
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+        ))
+      )}
+    </BlobDialog>
   );
 }

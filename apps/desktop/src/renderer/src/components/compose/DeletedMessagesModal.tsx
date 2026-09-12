@@ -78,7 +78,9 @@ export function DeletedMessagesModal({
       <div className="weq-deleted">
         <header className="weq-compose-head">
           <div className="weq-compose-titlewrap">
-            <strong id="weq-deleted-title" className="weq-compose-title">删除列表</strong>
+            <strong id="weq-deleted-title" className="weq-compose-title">
+              删除列表
+            </strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -95,7 +97,10 @@ export function DeletedMessagesModal({
                 <div className="weq-deleted-empty">
                   <Trash2 size={26} />
                   <span>没有已删除的消息</span>
-                  <small>在聊天里右键消息「删除」后，消息会以半透明样式留在原位，也会出现在这里，可随时恢复。对方撤回 / 在其他设备删除的消息也会出现在这里（标记为「QQ删除」，无法恢复）。</small>
+                  <small>
+                    在聊天里右键消息「删除」后，消息会以半透明样式留在原位，也会出现在这里，可随时恢复。对方撤回
+                    / 在其他设备删除的消息也会出现在这里（标记为「QQ删除」，无法恢复）。
+                  </small>
                 </div>
               ) : (
                 visible.map((message) => {

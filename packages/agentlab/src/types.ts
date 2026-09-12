@@ -284,6 +284,12 @@ export interface AgentLabPersona {
   fewShots: AgentLabFewShotPair[];
   /** 表达风格库：(情境, 句式) 对，runtime 按情境检索后注入 prompt。 */
   expressions: AgentLabExpression[];
+  /**
+   * 备用表达风格（借鉴 MaiBot multiple_reply_style）：从语料提炼的「TA 偶尔会切换的说话状态」，
+   * 指令式短句（如「偶尔只用一两个字敷衍」「急了会连发短句加感叹号」）。
+   * runtime 每轮低概率随机注入一条，打破固定语气。
+   */
+  styleVariants?: string[];
   /** 高频自定义表情包（不含 mface 商城表情）。 */
   stickers: AgentLabStickerRef[];
   /** TA 实际用过的系统表情 faceText 白名单（prompt 只许从这里选，防造 /吃饭）。 */
@@ -329,6 +335,11 @@ export interface AgentLabChatRequest {
    * 让克隆体语气随关系好感/情绪变化。私聊路径一般不传。
    */
   relationNote?: string;
+  /**
+   * 这次开口的动机（群聊决策层回传，如「被点名」「聊到感兴趣的」）。
+   * 注入生成层让回复贴合「为什么接这句话」的念头，别复述原因本身。
+   */
+  replyReason?: string;
 }
 
 /**

@@ -37,13 +37,13 @@ pnpm dev      # 启动桌面端开发
 pnpm typecheck    # 类型检查(CI 强制，不通过会被拦截)
 pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
-```
+pnpm -r test
+pnpm check
+pnpm --filter @weq/web build
 
-- **`pnpm typecheck` 是 CI 的强制门槛**：CI 会在 PR 上运行 `pnpm -r typecheck`，不通过的 PR 无法合并。请务必本地先跑通。
-- **`pnpm lint` / `pnpm format`**：本仓库使用 [Biome](https://biomejs.dev/) 统一 lint 与格式。Biome 是**中途引入**的，存量告警仍在逐步清理中，因此 lint 目前**不是 CI 硬门槛**；但请**不要在你改动的代码里引入新的告警**。
-  - 一键修复可自动处理的问题：`pnpm lint:fix`
-  - 一键格式化：`pnpm format`
-- 请**只格式化你改动的代码**，不要在功能 PR 里顺手格式化整个文件/整个仓库，以免 diff 淹没真正的改动、增加 review 负担。
+# daemon包的 clippy检查, cd到对应目录
+cargo clippy -- -D warnings
+```
 
 ---
 

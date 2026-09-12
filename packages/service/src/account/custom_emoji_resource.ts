@@ -32,6 +32,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { clampLimit, parseBucketCursor, walkBuckets } from './resource_paging';
 
 /** Which custom-emoji tree to browse. */
 export type CustomEmojiScope = 'recv' | 'personal';
@@ -81,9 +82,6 @@ export interface CustomEmojiPage {
   nextCursor: string | null;
 }
 
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
-
 /** Accumulator while merging a bucket's `Ori`/`Thumb` files by hash. */
 interface Acc {
   hasOri: boolean;
@@ -105,9 +103,7 @@ export class CustomEmojiResourceService {
   /** Absolute root dir for a scope (`emoji-recv` / `personal_emoji`), or null. */
   private scopeRoot(scope: CustomEmojiScope): string | null {
     const uin = this.session.context.uin;
-    return scope === 'recv'
-      ? this.platform.emojiRecvDir(uin)
-      : this.platform.personalEmojiDir(uin);
+    return scope === 'recv' ? this.platform.emojiRecvDir(uin) : this.platform.personalEmojiDir(uin);
   }
 
   /**
@@ -180,48 +176,32 @@ export class CustomEmojiResourceService {
     const buckets = await this.readBuckets(scope);
     if (buckets === null) return { entries: [], nextCursor: null };
 
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = parseCursor(opts.cursor ?? null);
-
-    const entries: CustomEmojiEntry[] = [];
-    let bucketIndex = start.bucketIndex;
-    let entryIndex = start.entryIndex;
-
-    while (bucketIndex < buckets.length && entries.length < cap) {
-      const bucket = buckets[bucketIndex]!;
-      const merged = await this.mergeBucket(root, scope, bucket);
-      // Stable within a bucket: sort by hash so a cursor points at the same
-      // entry across calls (readdir order is not guaranteed stable).
-      const hashes = [...merged.keys()].sort();
-
-      for (; entryIndex < hashes.length && entries.length < cap; entryIndex += 1) {
-        const hash = hashes[entryIndex]!;
-        const acc = merged.get(hash)!;
-        entries.push({
-          hash,
-          bucket,
-          hasOri: acc.hasOri,
-          hasThumb: acc.hasThumb,
-          oriFile: acc.oriFile,
-          thumbFile: acc.thumbFile,
-          oriExt: acc.oriExt,
-          oriBytes: acc.oriBytes,
-          thumbBytes: acc.thumbBytes,
-          mtimeMs: acc.mtimeMs,
+    const { entries, nextCursor } = await walkBuckets<CustomEmojiEntry>(
+      buckets,
+      parseBucketCursor(opts.cursor ?? null),
+      clampLimit(opts.limit),
+      async (bucket) => {
+        const merged = await this.mergeBucket(root, scope, bucket);
+        // Stable within a bucket: sort by hash so a cursor points at the same
+        // entry across calls (readdir order is not guaranteed stable).
+        return [...merged.keys()].sort().map((hash) => {
+          const acc = merged.get(hash)!;
+          return {
+            hash,
+            bucket,
+            hasOri: acc.hasOri,
+            hasThumb: acc.hasThumb,
+            oriFile: acc.oriFile,
+            thumbFile: acc.thumbFile,
+            oriExt: acc.oriExt,
+            oriBytes: acc.oriBytes,
+            thumbBytes: acc.thumbBytes,
+            mtimeMs: acc.mtimeMs,
+          };
         });
-      }
-
-      if (entryIndex < hashes.length) {
-        // Filled the page mid-bucket — resume here next call.
-        return { entries, nextCursor: `${bucketIndex}:${entryIndex}` };
-      }
-      // Bucket exhausted; advance to the next one.
-      bucketIndex += 1;
-      entryIndex = 0;
-    }
-
-    const done = bucketIndex >= buckets.length;
-    return { entries, nextCursor: done ? null : `${bucketIndex}:${entryIndex}` };
+      },
+    );
+    return { entries, nextCursor };
   }
 
   /**
@@ -355,17 +335,4 @@ function canonicalHash(stem: string): string {
   // Fallback: a leading hex run (defensive — unusual names still group sanely).
   const lead = /^[0-9a-f]{6,}/i.exec(stem);
   return lead ? lead[0].toLowerCase() : '';
-}
-
-function parseCursor(cursor: string | null): { bucketIndex: number; entryIndex: number } {
-  if (!cursor) return { bucketIndex: 0, entryIndex: 0 };
-  const [b, e] = cursor.split(':');
-  const bucketIndex = Math.max(0, Number(b) || 0);
-  const entryIndex = Math.max(0, Number(e) || 0);
-  return { bucketIndex, entryIndex };
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }

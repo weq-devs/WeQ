@@ -34,7 +34,9 @@ export class DeletedSessionDb {
 
   /** All deleted sessions. The table may hold dozens of rows. */
   async listDeletedSessions(): Promise<DeletedSession[]> {
-    const rows = await this.qq.query(`SELECT "1005","40050","49740" FROM recent_contact_delete_storage`);
+    const rows = await this.qq.query(
+      `SELECT "1005","40050","49740" FROM recent_contact_delete_storage`,
+    );
     return rows.map(rowToDeletedSession).filter((s): s is DeletedSession => s !== null);
   }
 

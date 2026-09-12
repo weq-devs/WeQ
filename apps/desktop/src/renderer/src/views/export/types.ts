@@ -10,6 +10,7 @@
 /** Left-rail modes. */
 export type ExportMode =
   | 'full'
+  | 'guild'
   | 'decrypt'
   | 'qzone'
   | 'contacts'
@@ -48,10 +49,11 @@ export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'jsonl', label: 'JSONL' },
 ];
 
-/** 好友 QQ 空间导出仅 JSON / TXT。 */
+/** QQ 空间导出：JSON / TXT / HTML（HTML 会强制下载配图到 media/ 并本地引用）。 */
 export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'txt', label: 'TXT' },
+  { value: 'html', label: 'HTML' },
 ];
 
 /** 导出好友：表格类 + vCard 电子名片。 */
@@ -158,6 +160,8 @@ export interface ExportOptions {
   exportMedia: boolean;
   /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
   mediaKinds: MediaKinds;
+  /** 好友 QQ 空间导出：按 tid 补全评论 + 点赞（空间动态页 HTML 解析，best-effort）。 */
+  qzoneInteractions: boolean;
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   /** Export sender avatars. */
@@ -185,6 +189,7 @@ export interface ExportOptions {
 export const DEFAULT_OPTIONS: ExportOptions = {
   range: DEFAULT_RANGE,
   exportMedia: true,
+  qzoneInteractions: false,
   mediaKinds: { ...DEFAULT_MEDIA_KINDS },
   completeMessages: false,
   exportAvatar: true,

@@ -1,7 +1,22 @@
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { decodeMessage, encode, ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, MSG_CONTENT, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from '../src/index';
-
+import {
+  decodeMessage,
+  encode,
+  ELEM,
+  FACE_COMMON_PB,
+  FACE_ELEM,
+  FILE_TRANS_TOP,
+  INLINE_KEYBOARD_PB,
+  MARKDOWN_COMMON_PB,
+  MSG_CONTENT,
+  PIC_COMMON_PB,
+  PTT_COMMON_PB,
+  PUSH_MSG_BODY,
+  REPLY_PB_RESERVE,
+  TEXT_PB_RESERVE,
+  VIDEO_COMMON_PB,
+} from '../src/index';
 
 /** Hex 字符串 → bytes（测试辅助）。 */
 function hexBytes(hex: string): Uint8Array {
@@ -144,7 +159,15 @@ describe('decodeMessage 简化消息解码', () => {
     });
     const msg = decodeMessage(bytes);
     expect(msg.elements).toEqual([
-      { kind: 'face', faceId: 358, faceText: '/骰子', AniStickerId: '33', innerId: '4', superEmojiFlag1: 1, subType: 3 },
+      {
+        kind: 'face',
+        faceId: 358,
+        faceText: '/骰子',
+        AniStickerId: '33',
+        innerId: '4',
+        superEmojiFlag1: 1,
+        subType: 3,
+      },
     ]);
   });
 
@@ -158,9 +181,13 @@ describe('decodeMessage 简化消息解码', () => {
             imgWidth: 1440,
             imgHeight: 1920,
           },
-          fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+          fileToken:
+            'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
         },
-        url: { originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg' },
+        url: {
+          originalUrl:
+            '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        },
       },
     });
     const bytes = encode(PUSH_MSG_BODY, {
@@ -176,8 +203,10 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'pic',
         fileName: '94CB55BB1442E8105F0D1CD8A1754C24.jpg',
-        fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
-        originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        fileToken:
+          'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        originalUrl:
+          '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
         imgWidth: 1440,
         imgHeight: 1920,
         imgType: 1000,
@@ -199,13 +228,17 @@ describe('decodeMessage 简化消息解码', () => {
             imgHeight: 1920,
             original: 1,
           },
-          fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+          fileToken:
+            'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
           storeId: 1,
           uploadTime: 1787775592,
           ttl: 604800,
           subType: 0,
         },
-        url: { originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg' },
+        url: {
+          originalUrl:
+            '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        },
       },
     });
     const bytes = encode(PUSH_MSG_BODY, {
@@ -221,11 +254,13 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'pic',
         fileName: '94CB55BB1442E8105F0D1CD8A1754C24.jpg',
-        fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        fileToken:
+          'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
         fileSize: 138475,
         md5Bytes: hexBytes('94cb55bb1442e8105f0d1cd8a1754c24'),
         contentHash: hexBytes('c1f08e001a49949fbb1560ca963d1c7355c56765'),
-        originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        originalUrl:
+          '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
         imgWidth: 1440,
         imgHeight: 1920,
         imgType: 1000,
@@ -249,12 +284,14 @@ describe('decodeMessage 简化消息解码', () => {
               videoHeight: 1138,
               videoDuration: 20,
             },
-            fileToken: 'EhSGwX-axufRV1Z0IFs6KEb8ox47Fhjsvt0CIIcLKLCH95yZupYDMgRwcm9kUID1JFoQshjBLZVL6xYtp8UMe14rhHoCQQmCAQJneg',
+            fileToken:
+              'EhSGwX-axufRV1Z0IFs6KEb8ox47Fhjsvt0CIIcLKLCH95yZupYDMgRwcm9kUID1JFoQshjBLZVL6xYtp8UMe14rhHoCQQmCAQJneg',
           },
         },
         {
           body: {
-            fileToken: 'EhQ5_bMiFVTvOn7qn2F-XNg2fT3A4hjchgcgiAso0tn7nJm6lgMyBHByb2RQgPUkWhBH7cfvdszCgZjYK-W56WSjegKkeIIBAmd6',
+            fileToken:
+              'EhQ5_bMiFVTvOn7qn2F-XNg2fT3A4hjchgcgiAso0tn7nJm6lgMyBHByb2RQgPUkWhBH7cfvdszCgZjYK-W56WSjegKkeIIBAmd6',
           },
         },
       ],
@@ -272,8 +309,10 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'video',
         fileName: '0680b7b40443500c8a7dd065b1dfc8ab.mp4',
-        fileToken: 'EhSGwX-axufRV1Z0IFs6KEb8ox47Fhjsvt0CIIcLKLCH95yZupYDMgRwcm9kUID1JFoQshjBLZVL6xYtp8UMe14rhHoCQQmCAQJneg',
-        videoToken: 'EhQ5_bMiFVTvOn7qn2F-XNg2fT3A4hjchgcgiAso0tn7nJm6lgMyBHByb2RQgPUkWhBH7cfvdszCgZjYK-W56WSjegKkeIIBAmd6',
+        fileToken:
+          'EhSGwX-axufRV1Z0IFs6KEb8ox47Fhjsvt0CIIcLKLCH95yZupYDMgRwcm9kUID1JFoQshjBLZVL6xYtp8UMe14rhHoCQQmCAQJneg',
+        videoToken:
+          'EhQ5_bMiFVTvOn7qn2F-XNg2fT3A4hjchgcgiAso0tn7nJm6lgMyBHByb2RQgPUkWhBH7cfvdszCgZjYK-W56WSjegKkeIIBAmd6',
         videoWidth: 640,
         videoHeight: 1138,
         videoDuration: 20,
@@ -296,7 +335,8 @@ describe('decodeMessage 简化消息解码', () => {
               videoDuration: 12,
               original: 0,
             },
-            fileToken: 'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
+            fileToken:
+              'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
             storeId: 1,
             uploadTime: 1787775592,
             ttl: 604800,
@@ -311,7 +351,8 @@ describe('decodeMessage 简化消息解码', () => {
               contentHash: 'c1f08e001a49949fbb1560ca963d1c7355c56765',
               fileName: '85736dbff95c16855316709df9f9e6bb_0.png',
             },
-            fileToken: 'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
+            fileToken:
+              'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
             storeId: 1,
             uploadTime: 1787775592,
             ttl: 604800,
@@ -333,7 +374,8 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'video',
         fileName: '85736dbff95c16855316709df9f9e6bb.mp4',
-        fileToken: 'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
+        fileToken:
+          'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
         fileSize: 4627820,
         md5Bytes: hexBytes('85736dbff95c16855316709df9f9e6bb'),
         contentHash: hexBytes('f661aa75b2fa9f4b84b48db01417517046998007'),
@@ -345,7 +387,8 @@ describe('decodeMessage 简化消息解码', () => {
         uploadTime: 1787775592,
         fileTTL: 604800,
         subType: 0,
-        videoToken: 'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
+        videoToken:
+          'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
         channelParams: hexBytes('f600dc290b9fff77f3597e56c0f218a9'),
         videoFlag45421: hexBytes('c1f08e001a49949fbb1560ca963d1c7355c56765'),
       },
@@ -363,7 +406,8 @@ describe('decodeMessage 简化消息解码', () => {
         subcmd: 1,
         dangerEvel: 0,
         expireTime: 1788984854,
-        fileHash: 'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
+        fileHash:
+          'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
       },
     });
     const bytes = encode(PUSH_MSG_BODY, {
@@ -378,7 +422,8 @@ describe('decodeMessage 简化消息解码', () => {
         fileSize: 1504,
         fileToken: '4952cc65f95b09df4de35ea1c783c368_1b2da186-a18c-11f1-a59d-c946be0004f7',
         md5Bytes2: hexBytes('d26ceb7d661d55541aa9579e32b00bc0'),
-        transferFlag45504: 'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
+        transferFlag45504:
+          'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
         uploadTime: 1788984854,
         subType: 0,
       },
@@ -629,10 +674,7 @@ describe('decodeMessage 简化消息解码', () => {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
       body: {
         richText: {
-          elems: [
-            { groupFile: { filename: 'x.zip', fileSize: 100 } },
-            { text: { str: 'hi' } },
-          ],
+          elems: [{ groupFile: { filename: 'x.zip', fileSize: 100 } }, { text: { str: 'hi' } }],
         },
       },
     });
@@ -679,7 +721,8 @@ describe('decodeMessage 简化消息解码', () => {
   });
 
   it('把 lightApp 的 ark 卡片解析成 codec 风格 ark，解压出 arkData JSON', () => {
-    const json = '{"app":"com.tencent.tuwen.lua","config":{"ctime":1787292147,"forward":1,"token":"1df62b88487339f857cefe5c82de6831","type":"normal"}}';
+    const json =
+      '{"app":"com.tencent.tuwen.lua","config":{"ctime":1787292147,"forward":1,"token":"1df62b88487339f857cefe5c82de6831","type":"normal"}}';
     const data = new Uint8Array([0x01, ...deflateSync(Buffer.from(json, 'utf8'))]);
     const bytes = encode(PUSH_MSG_BODY, {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
@@ -694,7 +737,8 @@ describe('decodeMessage 简化消息解码', () => {
   });
 
   it('把 richMsg(serviceId=35) 合并转发解析成 codec 风格 multiMsg，解压出 xmlContent', () => {
-    const xml = '<?xml version="1.0" encoding="UTF-8"?><msg serviceID="35" templateID="1" action="viewMultiMsg" brief="[聊天记录]" tSum="4" flag="3"><item layout="1"><title>群聊的聊天记录</title></item></msg>';
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?><msg serviceID="35" templateID="1" action="viewMultiMsg" brief="[聊天记录]" tSum="4" flag="3"><item layout="1"><title>群聊的聊天记录</title></item></msg>';
     const payload = new Uint8Array([0x01, ...deflateSync(Buffer.from(xml, 'utf8'))]);
     const bytes = encode(PUSH_MSG_BODY, {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
@@ -709,7 +753,8 @@ describe('decodeMessage 简化消息解码', () => {
   });
 
   it('把带 m_resid 的合并转发解析出 resId（供 SsoRecvLongMsg 重新拉取）', () => {
-    const xml = '<?xml version="1.0" encoding="UTF-8"?><msg serviceID="35" templateID="1" action="viewMultiMsg" brief="[聊天记录]" m_resid="f26265be-d9d4-11f1-8db2-93b16d2d5c42" tSum="4" flag="3"><item layout="1"><title>群聊的聊天记录</title></item></msg>';
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?><msg serviceID="35" templateID="1" action="viewMultiMsg" brief="[聊天记录]" m_resid="f26265be-d9d4-11f1-8db2-93b16d2d5c42" tSum="4" flag="3"><item layout="1"><title>群聊的聊天记录</title></item></msg>';
     const payload = new Uint8Array([0x01, ...deflateSync(Buffer.from(xml, 'utf8'))]);
     const bytes = encode(PUSH_MSG_BODY, {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
@@ -776,7 +821,8 @@ describe('decodeMessage 简化消息解码', () => {
       file: {
         body: {
           info: { fileName: '06854585bfdbfcf2e6549e343d84b288.amr', pttDuration: 4 },
-          fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+          fileToken:
+            'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
         },
       },
       extra: {
@@ -796,7 +842,8 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'ptt',
         fileName: '06854585bfdbfcf2e6549e343d84b288.amr',
-        fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+        fileToken:
+          'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
         pttDuration: 4,
         waveform,
       },
@@ -820,7 +867,8 @@ describe('decodeMessage 简化消息解码', () => {
             pttDuration: 4,
             original: 1,
           },
-          fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+          fileToken:
+            'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
           storeId: 1,
           uploadTime: 1787775592,
           ttl: 604800,
@@ -844,7 +892,8 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'ptt',
         fileName: '06854585bfdbfcf2e6549e343d84b288.amr',
-        fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+        fileToken:
+          'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
         fileSize: 21248,
         md5Bytes: hexBytes('06854585bfdbfcf2e6549e343d84b288'),
         contentHash: hexBytes('a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4'),

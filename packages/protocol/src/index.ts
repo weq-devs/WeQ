@@ -55,10 +55,15 @@ export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 export { SendTuwenArk } from './oidb/send-tuwen-ark';
 export type { SendTuwenArkParams } from './oidb/send-tuwen-ark';
+export { FetchClientKey } from './oidb/fetch-client-key';
+export type { ClientKeyInfo } from './oidb/fetch-client-key';
+export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
+export type { DownloadRkey } from './oidb/fetch-download-rkeys';
+export { FetchPskeyOidb } from './oidb/fetch-pskey';
+export { RequestDecryptKey } from './oidb/request-decrypt-key';
 
 export * from './scupdate';
 export * from './highway';
 export * from './oidb/flashtransfer';
 
 export * from './msg';
-

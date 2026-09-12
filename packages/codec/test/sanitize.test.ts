@@ -261,7 +261,9 @@ describe('VIDEO element resilience', () => {
       channelParams: new Uint8Array([4, 5]),
       videoFlag45863: 7,
     };
-    const el = decodeElement(realElement.decode(sanitizeBytes(realElement.encode(input), ElementWire))) as any;
+    const el = decodeElement(
+      realElement.decode(sanitizeBytes(realElement.encode(input), ElementWire)),
+    ) as any;
     expect(el.kind).toBe('video');
     expect(el.videoDuration).toBe(30);
     expect(el.coverFileName).toBe('cover.jpg');

@@ -98,8 +98,7 @@ export interface BotProfileDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS =
-  `"1000","1002","320001","320002","320003","320004","320007","320011","320014","320065","320068","320082","320084"`;
+const SELECT_COLUMNS = `"1000","1002","320001","320002","320003","320004","320007","320011","320014","320065","320068","320082","320084"`;
 
 export class BotProfileDb {
   private readonly qq: QqDb;

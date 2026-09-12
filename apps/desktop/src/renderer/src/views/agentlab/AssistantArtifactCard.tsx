@@ -67,7 +67,9 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
     <div className="weq-asst-artifact">
       <span className="weq-asst-artifact-icon">{kindIcon(artifact.kind)}</span>
       <div className="weq-asst-artifact-meta">
-        <span className="weq-asst-artifact-name" title={artifact.name}>{artifact.name}</span>
+        <span className="weq-asst-artifact-name" title={artifact.name}>
+          {artifact.name}
+        </span>
         <span className="weq-asst-artifact-sub">
           {kindLabel(artifact.kind)} · {formatBytes(artifact.bytes)}
         </span>

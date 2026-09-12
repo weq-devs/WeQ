@@ -8,7 +8,8 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, FlipHorizontal2, Search, X } from 'lucide-react';
-import { Avatar, Spinner } from './widgets';
+import { Avatar } from './widgets';
+import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
 
 export function ConversationPicker({
@@ -74,11 +75,21 @@ export function ConversationPicker({
       </div>
 
       <div className="weq-exp-tools">
-        <button type="button" className="weq-exp-tool" onClick={selectAll} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={selectAll}
+          disabled={filtered.length === 0}
+        >
           <CheckCheck size={14} />
           {allFilteredSelected ? '取消全选' : '全选'}
         </button>
-        <button type="button" className="weq-exp-tool" onClick={invert} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={invert}
+          disabled={filtered.length === 0}
+        >
           <FlipHorizontal2 size={14} />
           反选
         </button>
@@ -97,10 +108,7 @@ export function ConversationPicker({
 
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载会话中…
-          </div>
+          <PickerListSkeleton />
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">{query ? '没有匹配的会话' : emptyText}</div>
         ) : (

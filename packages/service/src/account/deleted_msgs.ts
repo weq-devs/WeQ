@@ -16,8 +16,7 @@
  * mutation, silent on I/O error).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { JsonStore } from '../common/json_store';
 
 export interface DeletedMsgRecord {
   /** Original column 40011 (msgType) before delete, as a decimal string. */
@@ -33,54 +32,38 @@ export interface DeletedMsgRecord {
 }
 
 export class DeletedMsgStore {
-  private data: Record<string, DeletedMsgRecord>;
+  private readonly store: JsonStore<Record<string, DeletedMsgRecord>>;
 
-  constructor(private readonly filePath: string) {
-    this.data = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => ({}), {
+      normalize: (raw) =>
+        raw && typeof raw === 'object' ? (raw as Record<string, DeletedMsgRecord>) : {},
+    });
   }
 
   /** The record for a msgId, or undefined if WeQ never deleted it. */
   get(msgId: string): DeletedMsgRecord | undefined {
-    return this.data[msgId];
+    return this.store.data[msgId];
   }
 
   /** Remember a delete (original type columns + conversation). Persists. */
   add(msgId: string, rec: DeletedMsgRecord): void {
-    this.data[msgId] = rec;
-    this.persist();
+    this.store.data[msgId] = rec;
+    this.store.save();
   }
 
   /** Forget a delete (on restore). Persists. No-op if absent. */
   remove(msgId: string): void {
-    if (this.data[msgId] === undefined) return;
-    delete this.data[msgId];
-    this.persist();
+    if (this.store.data[msgId] === undefined) return;
+    delete this.store.data[msgId];
+    this.store.save();
   }
 
   /** msgIds WeQ deleted in one conversation (matched by kind + conv). */
   listIds(kind: 'c2c' | 'group', conv: string): string[] {
-    return Object.keys(this.data).filter((id) => {
-      const r = this.data[id];
+    return Object.keys(this.store.data).filter((id) => {
+      const r = this.store.data[id];
       return r !== undefined && r.kind === kind && r.conv === conv;
     });
-  }
-
-  private load(): Record<string, DeletedMsgRecord> {
-    try {
-      if (!existsSync(this.filePath)) return {};
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, DeletedMsgRecord>) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private persist(): void {
-    try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
-    } catch {
-      /* 持久化失败不应影响删除/恢复本身 */
-    }
   }
 }

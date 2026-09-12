@@ -45,7 +45,11 @@ export interface ContactsExportDeps {
         province?: string;
         city?: string;
         interests: string[];
-        album: Array<{ photoId?: string; time?: number; urls: Array<{ size?: number; url?: string }> }>;
+        album: Array<{
+          photoId?: string;
+          time?: number;
+          urls: Array<{ size?: number; url?: string }>;
+        }>;
       };
     }>
   >;
@@ -119,9 +123,7 @@ const PRIVILEGE_NAMES: Record<number, string> = {
 };
 
 /** 已开通特权 → `超级会员6级 / 音乐包2级`。 */
-function privilegeText(
-  items: Array<{ bizId?: number; level?: number; opened: boolean }>,
-): string {
+function privilegeText(items: Array<{ bizId?: number; level?: number; opened: boolean }>): string {
   return items
     .filter((p) => p.opened)
     .map((p) => {
@@ -191,7 +193,11 @@ const FRIEND_COLS: Array<Col<FriendRow>> = [
   { key: 'signature', header: '签名', get: (r) => r.signature },
   { key: 'gender', header: '性别', get: (r) => genderText(r.gender) },
   { key: 'age', header: '年龄', get: (r) => (r.age > 0 ? r.age : '') },
-  { key: 'birthday', header: '生日', get: (r) => birthdayText(r.birthYear, r.birthMonth, r.birthDay) },
+  {
+    key: 'birthday',
+    header: '生日',
+    get: (r) => birthdayText(r.birthYear, r.birthMonth, r.birthDay),
+  },
   { key: 'intimacy', header: '亲密度', get: (r) => (r.intimacy > 0 ? r.intimacy : '') },
   { key: 'privileges', header: '特权', get: (r) => r.privileges },
   { key: 'region', header: '所在地', get: (r) => r.region },
@@ -266,7 +272,8 @@ export async function exportFriends(
       uin: b.uin,
       nick: p?.nick ?? '',
       remark: p?.remark ?? '',
-      category: categoryName.get(b.categoryId) ?? (b.categoryId ? `分组${b.categoryId}` : '我的好友'),
+      category:
+        categoryName.get(b.categoryId) ?? (b.categoryId ? `分组${b.categoryId}` : '我的好友'),
       signature: p?.signature ?? '',
       gender: p?.gender ?? 0,
       age: p?.age ?? 0,
@@ -284,7 +291,10 @@ export async function exportFriends(
       albumCount: album.length,
       // 640 档够看且体积可控，缺这档时退回任意一档。
       albumUrls: album
-        .map((ph) => ph.urls.find((u) => u.size === 2 && u.url)?.url ?? ph.urls.find((u) => u.url)?.url)
+        .map(
+          (ph) =>
+            ph.urls.find((u) => u.size === 2 && u.url)?.url ?? ph.urls.find((u) => u.url)?.url,
+        )
         .filter(Boolean)
         .join('\n'),
       uid: b.uid,
@@ -320,7 +330,9 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
       `N:${escapeVcard(r.nick || display)};;;;`,
       r.nick ? `NICKNAME:${escapeVcard(r.nick)}` : '',
       // vCard ADR 是 `;;街道;市;省;邮编;国` 七段，这里只有省/市/国三段有值。
-      r.region ? `ADR;TYPE=HOME:;;;${escapeVcard(r.city)};${escapeVcard(r.province)};;${escapeVcard(r.country)}` : '',
+      r.region
+        ? `ADR;TYPE=HOME:;;;${escapeVcard(r.city)};${escapeVcard(r.province)};;${escapeVcard(r.country)}`
+        : '',
       r.education ? `ORG:${escapeVcard(r.education)}` : '',
       `NOTE:${escapeVcard(noteParts.join('\n'))}`,
       `X-QQ:${escapeVcard(r.uin)}`,

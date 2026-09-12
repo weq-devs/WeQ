@@ -28,9 +28,7 @@ export function PeoplePicker({
   const filtered = useMemo(() => {
     const term = kw.trim().toLowerCase();
     if (!term) return people;
-    return people.filter(
-      (p) => p.name.toLowerCase().includes(term) || p.uin.includes(term),
-    );
+    return people.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
   }, [people, kw]);
 
   return (
@@ -58,9 +56,7 @@ export function PeoplePicker({
             >
               <QqAvatar uin={p.uin} size={30} className="weq-people-avatar" />
               <span className="weq-people-name">{p.name}</span>
-              {p.uin && p.uin !== '0' ? (
-                <span className="weq-people-uin">{p.uin}</span>
-              ) : null}
+              {p.uin && p.uin !== '0' ? <span className="weq-people-uin">{p.uin}</span> : null}
             </button>
           ))
         )}

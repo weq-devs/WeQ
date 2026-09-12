@@ -99,7 +99,8 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
   // subType=5 poke faces: static PNG from the bundled pokeemoji set. Ids run
   // 0-6; anything out of range falls back to 0.
   if (subType === POKE_FACE_SUBTYPE) {
-    const pokeId = Number.isInteger(faceId) && faceId >= 0 && faceId <= POKE_FACE_MAX_ID ? faceId : 0;
+    const pokeId =
+      Number.isInteger(faceId) && faceId >= 0 && faceId <= POKE_FACE_MAX_ID ? faceId : 0;
     return (
       <FaceImage
         src={resourceUrl('pokeemoji', `${pokeId}.png`)}
@@ -150,9 +151,7 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
     );
   }
 
-  return (
-    <FaceImage src={apngSrc} label={label} style={boxStyle} className={className} />
-  );
+  return <FaceImage src={apngSrc} label={label} style={boxStyle} className={className} />;
 }
 
 function FaceImage({
@@ -276,9 +275,7 @@ function FaceLottie({
   }, [sourcesKey, loop]);
 
   if (failed) {
-    return (
-      <FaceImage src={fallbackSrc} label={label} style={style} className={className} />
-    );
+    return <FaceImage src={fallbackSrc} label={label} style={style} className={className} />;
   }
 
   return (

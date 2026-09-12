@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentTarget, daemonExe, RESVG_BINDINGS } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../dist');
@@ -45,10 +46,11 @@ for (const entry of [
   process.exit(1);
 }
 
-// One archive must carry every platform's native bundle.
-for (const platform of ['win32/x64', 'linux/x64', 'linux/arm64']) {
-  check(existsSync(join(dist, 'native', platform)), `native/${platform} shipped (universal)`);
-}
+// Every platform/arch gets its own archive, built on its own runner. This run
+// only has to prove the packaging target's artifacts are present.
+const target = currentTarget();
+const [platform, arch] = target.split('-');
+check(existsSync(join(dist, 'native', platform!, arch!)), `native/${platform}/${arch} shipped`);
 
 // NineBird's loader scripts are platform-independent and ship once (built by
 // pnpm build:ninebird), not per platform/arch.
@@ -58,6 +60,13 @@ for (const js of ['qr-dbkey.js', 'quick-dbkey.js', 'account-list.js']) {
     `resources/ninebird-runtime/${js} shipped`,
   );
 }
+
+// The Rust daemon binary ships alongside (built by pnpm build:daemon before
+// packaging). Win32 needs the .exe suffix.
+check(
+  existsSync(join(dist, 'resources', 'daemon', target, daemonExe(target))),
+  `resources/daemon/${target}/${daemonExe(target)} shipped`,
+);
 
 // The release ships node_modules pre-installed. If a local build skipped that
 // step, run it here — the server won't start without it.
@@ -72,15 +81,10 @@ if (!existsSync(join(dist, 'node_modules'))) {
   }
 }
 
-// resvg picks its binding by platform at require() time, so the universal
-// archive has to carry one per platform we claim to support.
-for (const binding of [
-  '@resvg/resvg-js-win32-x64-msvc',
-  '@resvg/resvg-js-linux-x64-gnu',
-  '@resvg/resvg-js-linux-arm64-gnu',
-]) {
-  check(existsSync(join(dist, 'node_modules', binding)), `${binding} shipped (universal)`);
-}
+// resvg picks its binding by platform at require() time; the single-platform
+// archive only needs the matching one.
+const resvgBinding = RESVG_BINDINGS[target];
+check(existsSync(join(dist, 'node_modules', resvgBinding)), `${resvgBinding} shipped`);
 
 const server = spawn(process.execPath, [join(dist, 'server.mjs')], {
   cwd: dist,

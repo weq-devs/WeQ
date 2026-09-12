@@ -43,7 +43,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[sse-receive] 监听 http://0.0.0.0:${PORT}`);
   console.log(`[sse-receive] WeQ 推送地址：http://127.0.0.1:${PORT}/push`);
   console.log(`[sse-receive] access_token：${TOKEN || '(未设置，不校验)'}`);
-  console.log(`[sse-receive] 浏览器订阅：http://127.0.0.1:${PORT}/sse?access_token=${TOKEN || '<token>'}`);
+  console.log(
+    `[sse-receive] 浏览器订阅：http://127.0.0.1:${PORT}/sse?access_token=${TOKEN || '<token>'}`,
+  );
   console.log('[sse-receive] 等待 WeQ 推送… Ctrl+C 停止');
 });
 

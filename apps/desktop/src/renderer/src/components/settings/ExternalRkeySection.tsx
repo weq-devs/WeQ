@@ -206,6 +206,7 @@ export function ExternalRkeySection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
+        icon={<CloudDownload size={18} strokeWidth={1.8} />}
         title="外部 RKEY 服务器"
         desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
       />

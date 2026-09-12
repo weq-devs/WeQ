@@ -106,7 +106,13 @@ function zigzag(n: bigint): bigint {
   return BigInt.asUintN(64, (n << 1n) ^ (n >> 63n));
 }
 
-function writeScalar(w: Writer, type: ScalarType, tag: number, value: unknown, force: boolean): void {
+function writeScalar(
+  w: Writer,
+  type: ScalarType,
+  tag: number,
+  value: unknown,
+  force: boolean,
+): void {
   switch (type) {
     case 'bool': {
       const b = value === true;

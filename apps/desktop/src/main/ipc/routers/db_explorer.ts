@@ -80,11 +80,9 @@ export const dbExplorerRouter = router({
     }),
 
   /** Run a hand-written statement (SELECT returns rows, else affected count). */
-  runSql: procedure
-    .input(z.object({ dbPath, sql: z.string().min(1) }))
-    .mutation(({ input }) => {
-      return requireServices().dbExplorer.runSql(input.dbPath, input.sql);
-    }),
+  runSql: procedure.input(z.object({ dbPath, sql: z.string().min(1) })).mutation(({ input }) => {
+    return requireServices().dbExplorer.runSql(input.dbPath, input.sql);
+  }),
 
   /** Update a single cell. */
   updateCell: procedure
@@ -121,9 +119,7 @@ export const dbExplorerRouter = router({
     }),
 
   /** Delete one row by its edit key. */
-  deleteRow: procedure
-    .input(z.object({ dbPath, table, rowKey }))
-    .mutation(({ input }) => {
-      return requireServices().dbExplorer.deleteRow(input.dbPath, input.table, input.rowKey);
-    }),
+  deleteRow: procedure.input(z.object({ dbPath, table, rowKey })).mutation(({ input }) => {
+    return requireServices().dbExplorer.deleteRow(input.dbPath, input.table, input.rowKey);
+  }),
 });

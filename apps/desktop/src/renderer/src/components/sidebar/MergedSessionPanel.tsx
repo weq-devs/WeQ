@@ -199,8 +199,7 @@ export function MergedSessionPanel({
           }
 
           const profile = profileByUid?.get(deleted.targetUid);
-          const displayName =
-            profile?.remark || profile?.nick || profile?.qid || deleted.targetUid;
+          const displayName = profile?.remark || profile?.nick || profile?.qid || deleted.targetUid;
           const avatarUrl = resolveAvatar({
             uin: profile?.uin,
             profileAvatarUrl: profile?.avatarUrl,
@@ -279,7 +278,9 @@ export function MergedSessionPanel({
 
           const profile = profileByUid?.get(hidden.targetUid);
           const displayName =
-            profile?.remark || profile?.nick || profile?.qid ||
+            profile?.remark ||
+            profile?.nick ||
+            profile?.qid ||
             (hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid);
           const avatarUrl = resolveAvatar({
             uin: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : profile?.uin,
@@ -293,8 +294,11 @@ export function MergedSessionPanel({
             updatedAt: toIsoTime(hidden.sendTime),
             otherUser: {
               id: hidden.targetUid,
-              identityLabel: (hidden.targetUin && hidden.targetUin !== '0' ? 'QQ' : 'UID') as 'QQ' | 'UID',
-              identityValue: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid,
+              identityLabel: (hidden.targetUin && hidden.targetUin !== '0' ? 'QQ' : 'UID') as
+                | 'QQ'
+                | 'UID',
+              identityValue:
+                hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid,
               username: hidden.targetUid,
               displayName,
               kind: 'human' as const,
@@ -369,21 +373,29 @@ export function MergedSessionPanel({
             kind: 'human' as const,
             avatarUrl,
           },
-        group: null,
-        members: [],
-        preference: { pinned: false, muted: false, blocked: false },
-        unreadCount: 0,
-        lastMessage: {
-          id: `service:${service.appId}:${service.sendTime}`,
-          senderId: service.appId,
-          body: service.prompt,
-          createdAt: toIsoTime(service.sendTime),
-        },
-      };
+          group: null,
+          members: [],
+          preference: { pinned: false, muted: false, blocked: false },
+          unreadCount: 0,
+          lastMessage: {
+            id: `service:${service.appId}:${service.sendTime}`,
+            senderId: service.appId,
+            body: service.prompt,
+            createdAt: toIsoTime(service.sendTime),
+          },
+        };
       });
     }
     return [];
-  }, [kind, deletedSessions.data, hiddenSessions.data, officialAccounts.data, serviceAccounts.data, profileByUid, groupNameByCode]);
+  }, [
+    kind,
+    deletedSessions.data,
+    hiddenSessions.data,
+    officialAccounts.data,
+    serviceAccounts.data,
+    profileByUid,
+    groupNameByCode,
+  ]);
 
   const sortedThreads = useMemo(
     () =>
@@ -396,7 +408,13 @@ export function MergedSessionPanel({
   );
 
   const title =
-    kind === 'hidden' ? '隐藏的会话' : kind === 'deleted' ? '最近删除' : kind === 'service' ? 'QQ服务号' : 'QQ官方账号';
+    kind === 'hidden'
+      ? '隐藏的会话'
+      : kind === 'deleted'
+        ? '最近删除'
+        : kind === 'service'
+          ? 'QQ服务号'
+          : 'QQ官方账号';
 
   return (
     <div className="weq-merged-overlay">
@@ -423,8 +441,7 @@ export function MergedSessionPanel({
                   minute: '2-digit',
                 })
               : '';
-            const name =
-              conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
+            const name = conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
             const avatarUrl =
               conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;
             const seed = conv.type === 'direct' ? conv.otherUser?.identityValue : conv.id;
@@ -445,9 +462,7 @@ export function MergedSessionPanel({
                     <div className="weq-merged-popover-item-name">{name}</div>
                     {time && <div className="weq-merged-popover-item-time">{time}</div>}
                   </div>
-                  {preview && (
-                    <div className="weq-merged-popover-item-preview">{preview}</div>
-                  )}
+                  {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                 </div>
                 {kind === 'hidden' && (
                   <EyeOff size={14} className="weq-merged-popover-item-badge" />
@@ -458,9 +473,7 @@ export function MergedSessionPanel({
               </button>
             );
           })}
-          {sortedThreads.length === 0 && (
-            <div className="weq-merged-popover-empty">暂无会话</div>
-          )}
+          {sortedThreads.length === 0 && <div className="weq-merged-popover-empty">暂无会话</div>}
         </div>
       </div>
     </div>

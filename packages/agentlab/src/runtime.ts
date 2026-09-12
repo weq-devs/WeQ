@@ -15,7 +15,12 @@ import { join } from 'node:path';
 import { runPersonaChat, embedTexts } from './http';
 import { scoreReplyGate, willingLevelBias } from './reply_gate';
 import { describeRelationTone } from './relation';
-import { distillMemories, reflectConversation, scoreInteractionSentiment, decideGroupReply } from './extract';
+import {
+  distillMemories,
+  reflectConversation,
+  scoreInteractionSentiment,
+  decideGroupReply,
+} from './extract';
 import type { AgentLabStore } from './store';
 import type {
   AgentLabPersona,
@@ -26,8 +31,10 @@ import type {
   AgentLabMemoryItem,
   AgentLabPersonaNotes,
   AgentLabRelationStore,
+  AgentLabStickerRef,
   AgentLabTypoConfig,
 } from './types';
+import { isStickerUsable } from './sticker';
 
 /**
  * persona.typo → 传给 runPersonaChat 的 typoIntensity。
@@ -71,6 +78,8 @@ export interface ConversationTurnLike {
 export interface ConversationSink {
   get(agentId: string): ConversationTurnLike[];
   append(agentId: string, turns: ConversationTurnLike[]): void;
+  /** 合并某前缀下所有桶的对话（旧版单桶 + 多会话桶），按 ts 排序。缺省回退只读单桶。 */
+  getAll?(prefix: string): ConversationTurnLike[];
 }
 
 /** 记忆库落点（MemoryStore 满足）。 */
@@ -120,6 +129,13 @@ export interface RuntimeLogger {
   error(msg: string, ctx?: Record<string, unknown>): void;
 }
 
+/**
+ * 表情资产端口：模型选中的表情在落库前，确保它的图片文件真的在盘上。
+ * 实现（桌面 service / 导出 bot）可用 localPath 检查、CDN 重下、导入资产拷贝等手段；
+ * 返回 null = 拿不到（调用方会丢弃这条表情，不让破图发出去）。传入则原样发。
+ */
+export type StickerAssetPort = (sticker: AgentLabStickerRef) => Promise<string | null>;
+
 export interface AgentRuntimeDeps {
   /** agentlab 根目录（合成语音落 <rootDir>/agentvoice/）。 */
   rootDir: string;
@@ -134,6 +150,8 @@ export interface AgentRuntimeDeps {
   selfId: string;
   /** 语音合成（缺省则克隆体不发语音，降级纯文字）。 */
   tts?: TtsPort;
+  /** 表情资产保障（缺省则只发 localPath 已在盘上的表情，缺失的直接丢弃）。 */
+  ensureSticker?: StickerAssetPort;
   logger?: RuntimeLogger;
 }
 
@@ -152,6 +170,7 @@ export class AgentRuntime {
   private readonly relations: AgentLabRelationStore;
   private readonly selfId: string;
   private readonly tts?: TtsPort;
+  private readonly ensureSticker?: StickerAssetPort;
   private readonly logger?: RuntimeLogger;
 
   constructor(deps: AgentRuntimeDeps) {
@@ -165,6 +184,7 @@ export class AgentRuntime {
     this.relations = deps.relations;
     this.selfId = deps.selfId;
     this.tts = deps.tts;
+    this.ensureSticker = deps.ensureSticker;
     this.logger = deps.logger;
   }
 
@@ -267,12 +287,17 @@ export class AgentRuntime {
     const voice = persona.voice;
     const log = this.logger?.child({ personaId: persona.id, textLen: text.length });
     if (!this.tts || !voice) {
-      log?.warn('语音合成跳过：未接入 TTS 或克隆体没绑定语音', { hasTts: !!this.tts, hasVoiceBinding: !!voice });
+      log?.warn('语音合成跳过：未接入 TTS 或克隆体没绑定语音', {
+        hasTts: !!this.tts,
+        hasVoiceBinding: !!voice,
+      });
       return null;
     }
     const caps = this.tts.getCapabilities(voice.providerId);
     if (!caps) {
-      log?.warn('语音合成失败：找不到 TTS provider（可能已被删除或未配置）', { providerId: voice.providerId });
+      log?.warn('语音合成失败：找不到 TTS provider（可能已被删除或未配置）', {
+        providerId: voice.providerId,
+      });
       return null;
     }
     try {
@@ -281,9 +306,12 @@ export class AgentRuntime {
         const refClips = persona.voiceProfile?.refClips ?? [];
         const clips = refClips.filter((c) => existsSync(c.path));
         if (clips.length === 0) {
-          log?.warn('语音合成失败：clone 模式但没有可用的参考音频（refClips 为空或 wav 文件已丢失）', {
-            refClipCount: refClips.length,
-          });
+          log?.warn(
+            '语音合成失败：clone 模式但没有可用的参考音频（refClips 为空或 wav 文件已丢失）',
+            {
+              refClipCount: refClips.length,
+            },
+          );
           return null;
         }
         opts.refClip = { path: clips[0]!.path, text: clips[0]!.text };
@@ -313,6 +341,29 @@ export class AgentRuntime {
   }
 
   /**
+   * 表情落库前的最后一道闸：解析出本地文件路径，拿不到返回 null（调用方丢弃这条表情）。
+   * 文件已在盘上 → 直接放行；没接 ensureSticker 端口时这是唯一放行条件；
+   * 接了端口则把补全工作交给实现（CDN 重下 / 导入资产拷贝），它拿得到就算数。
+   */
+  private async resolveStickerPath(
+    persona: AgentLabPersona,
+    sticker: AgentLabStickerRef,
+  ): Promise<string | null> {
+    if (isStickerUsable(sticker)) return sticker.localPath!;
+    if (!this.ensureSticker) return null;
+    try {
+      return await this.ensureSticker(sticker);
+    } catch (error) {
+      this.logger?.warn('表情资产补全失败，丢弃这条表情', {
+        personaId: persona.id,
+        md5: sticker.md5,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
    * 单个克隆体「给定历史 + 当前输入 → 产出有序标记文本」的共享生成逻辑（私聊 chat 与群聊复用）。
    * 只做生成 + 记忆命中记账 + action→标记文本（含语音合成），不碰任何对话落库——落哪由调用方决定。
    */
@@ -327,6 +378,8 @@ export class AgentRuntime {
       now: number;
       relationNote?: string;
       memories?: AgentLabMemoryItem[];
+      /** 这次开口的动机（群聊决策层回传，注入生成层贴合「为什么接话」）。 */
+      replyReason?: string;
     },
   ): Promise<{ result: Awaited<ReturnType<typeof runPersonaChat>>; renderedTurns: string[] }> {
     const voiceEnabled = this.isVoiceReady(persona);
@@ -340,18 +393,22 @@ export class AgentRuntime {
       voiceEnabled,
       typoIntensity: resolveTypoIntensity(persona.typo),
       relationNote: opts.relationNote,
+      replyReason: opts.replyReason,
     });
     // 命中的记忆 +access（越常被想起越不易遗忘）。
     this.memories.touch(persona.id, result.usedMemoryIds, opts.now);
 
     // 按 actions 顺序转成标记文本（text / 表情 [[sticker:md5]] / 语音 [[voice:id]]）。
     // 语音合成失败则降级为文字，不丢内容。
+    // 表情在落库前必须拿到本地文件：没接 ensureSticker 时只信 localPath 已在盘上的；
+    // 接了则交给实现补全（CDN 重下等）。拿不到文件的表情直接丢弃——发出去只会是破图。
     const renderedTurns: string[] = [];
     for (const action of result.actions) {
       if (action.kind === 'text') {
         renderedTurns.push(action.text);
       } else if (action.kind === 'sticker') {
-        renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
+        const path = await this.resolveStickerPath(persona, action.sticker);
+        if (path) renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
       } else {
         const voiceId = await this.synthesizeVoice(persona, action.text);
         renderedTurns.push(voiceId ? `[[voice:${voiceId}]]` : action.text);
@@ -361,19 +418,38 @@ export class AgentRuntime {
     return { result, renderedTurns };
   }
 
+  /** 对话落库桶 key：多会话走 `${personaId}:${sessionId}`，旧版单桶仍是 personaId。 */
+  private conversationBucket(personaId: string, sessionId?: string): string {
+    return sessionId ? `${personaId}:${sessionId}` : personaId;
+  }
+
+  /** 某克隆体的全部对话（旧版单桶 + 所有会话桶合并，按 ts 排序）；兜底单桶。 */
+  private allConversations(personaId: string): ConversationTurnLike[] {
+    if (this.conversations.getAll) return this.conversations.getAll(personaId);
+    return this.conversations.get(personaId);
+  }
+
   /**
    * 私聊入口：给定 personaId + 历史 + 用户输入 → 生成回复（有序标记文本）并落对话库。
+   * sessionId（可选）多会话：落 `${personaId}:${sessionId}` 桶；缺省保持旧版单桶行为。
    * 意愿闸（可选，persona.willing.gatePrivate）没过则保持沉默、只记用户这条。
    */
-  async chat(input: { personaId: string; history: AgentLabChatTurn[]; text: string }) {
+  async chat(input: {
+    personaId: string;
+    history: AgentLabChatTurn[];
+    text: string;
+    sessionId?: string;
+  }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
-    if (!record.persona.models?.chat) throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
+    if (!record.persona.models?.chat)
+      throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
     const ctx = { personaId: input.personaId, scope: 'chat' as const };
     const chatEndpoint = this.resolveWithUsage(record.persona.models.chat, 'chat', ctx);
     const embeddingEndpoint = record.persona.models.embedding
       ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
       : null;
+    const bucket = this.conversationBucket(input.personaId, input.sessionId);
 
     // 发言意愿对私聊生效（可选）：意愿闸没过就保持沉默，只记下用户这条，不回。
     const willing = record.persona.willing;
@@ -389,7 +465,7 @@ export class AgentRuntime {
       });
       if (!decision.shouldReply) {
         const ts = Date.now();
-        this.conversations.append(input.personaId, [{ role: 'user', text: input.text, ts }]);
+        this.conversations.append(bucket, [{ role: 'user', text: input.text, ts }]);
         return {
           text: '',
           segments: [],
@@ -407,20 +483,24 @@ export class AgentRuntime {
     }
 
     const now = Date.now();
-    const { result, renderedTurns } = await this.generatePersonaTurns(record.persona, record.pairs, {
-      chatEndpoint,
-      embeddingEndpoint,
-      history: input.history,
-      input: input.text,
-      now,
-    });
+    const { result, renderedTurns } = await this.generatePersonaTurns(
+      record.persona,
+      record.pairs,
+      {
+        chatEndpoint,
+        embeddingEndpoint,
+        history: input.history,
+        input: input.text,
+        now,
+      },
+    );
 
     const assistantTurns: ConversationTurnLike[] = renderedTurns.map((text) => ({
       role: 'assistant',
       text,
       ts: now,
     }));
-    this.conversations.append(input.personaId, [
+    this.conversations.append(bucket, [
       { role: 'user', text: input.text, ts: now },
       ...assistantTurns,
     ]);
@@ -439,7 +519,7 @@ export class AgentRuntime {
     chatEndpoint: AgentLabEndpoint,
   ): Promise<void> {
     try {
-      const conv = this.conversations.get(personaId);
+      const conv = this.allConversations(personaId);
       const userTurns = conv.filter((t) => t.role === 'user').length;
       if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
       const known = this.memories
@@ -490,7 +570,7 @@ export class AgentRuntime {
     chatEndpoint: AgentLabEndpoint,
   ): Promise<void> {
     try {
-      const conv = this.conversations.get(personaId);
+      const conv = this.allConversations(personaId);
       const userTurns = conv.filter((t) => t.role === 'user').length;
       if (userTurns === 0 || userTurns % REFLECT_EVERY !== 0) return;
       const reflected = this.notes.getReflectedCount(personaId);
@@ -532,9 +612,22 @@ export class AgentRuntime {
      * 更自然但每条消息多一次 LLM 调用）；'heuristic'=纯启发式打分（快·省 token）。
      */
     mode?: 'llm' | 'heuristic';
-  }): Promise<{ renderedTurns: string[]; replyDelayMs: number; silent: boolean; reason: string; score: number }> {
+  }): Promise<{
+    renderedTurns: string[];
+    replyDelayMs: number;
+    silent: boolean;
+    reason: string;
+    score: number;
+  }> {
     const record = this.store.getPersona(input.personaId);
-    if (!record?.persona.models?.chat) return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: 'no-chat-model', score: 0 };
+    if (!record?.persona.models?.chat)
+      return {
+        renderedTurns: [],
+        replyDelayMs: 0,
+        silent: true,
+        reason: 'no-chat-model',
+        score: 0,
+      };
     const persona = record.persona;
     const willing = persona.willing;
     const relation = this.relations.get(input.personaId, input.senderId);
@@ -570,7 +663,13 @@ export class AgentRuntime {
         crowdedHint: this.crowdedHintFromShare(input.selfShareRecent),
       });
       if (!decision.reply) {
-        return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: decision.reason, score: 0 };
+        return {
+          renderedTurns: [],
+          replyDelayMs: 0,
+          silent: true,
+          reason: decision.reason,
+          score: 0,
+        };
       }
       replyDelayMs = Math.round(300 + Math.random() * 500);
       reason = decision.reason;
@@ -589,7 +688,13 @@ export class AgentRuntime {
         mustReplyOnMention: willing?.mustReplyOnMention !== false,
       });
       if (!decision.shouldReply) {
-        return { renderedTurns: [], replyDelayMs: decision.replyDelayMs, silent: true, reason: decision.reason, score: decision.score };
+        return {
+          renderedTurns: [],
+          replyDelayMs: decision.replyDelayMs,
+          silent: true,
+          reason: decision.reason,
+          score: decision.score,
+        };
       }
       replyDelayMs = decision.replyDelayMs;
       reason = decision.reason;
@@ -610,6 +715,8 @@ export class AgentRuntime {
       now,
       relationNote,
       memories,
+      // 决策层回传的开口动机（被@ / 被点名 / 聊到感兴趣的…），让回复贴合「为什么接话」。
+      replyReason: reason,
     });
 
     // 异步更新对该群友的关系（不阻塞回复）。

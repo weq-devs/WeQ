@@ -130,7 +130,7 @@ export class GlobalConfigService {
     const loginDbPath = this.platform.loginDbPath();
     const override = this.userConfig.read().tencentFilesRootOverride ?? null;
     const detectedRoot = this.platform.tencentFilesRoots().find((p) => existsSync(p)) ?? null;
-    const tencentFilesRoot = (override && existsSync(override)) ? override : detectedRoot;
+    const tencentFilesRoot = override && existsSync(override) ? override : detectedRoot;
     return {
       qqExePath,
       wrapperNodePath,
@@ -175,8 +175,7 @@ export class GlobalConfigService {
     }
     // linux/macOS both name account dirs `nt_qq_<hash>` directly under the
     // data root; win32 uses all-digit `<uin>` dirs with an `nt_qq` subdir.
-    const hashedAccounts =
-      this.platform.kind === 'linux' || this.platform.kind === 'darwin';
+    const hashedAccounts = this.platform.kind === 'linux' || this.platform.kind === 'darwin';
     let count = 0;
     for (const name of entries) {
       if (hashedAccounts) {
@@ -287,7 +286,7 @@ export class GlobalConfigService {
       entries.map(async (name) => ({
         name,
         bytes: await dirSizeAsync(join(ntData, name)),
-      }))
+      })),
     );
     sizes.sort((a, b) => b.bytes - a.bytes);
     return sizes;
@@ -347,44 +346,11 @@ export class GlobalConfigService {
   }
 }
 
-
-
 /**
  * Recursive directory size with a hard node-visit cap so a pathological tree
  * (QQ caches can hold hundreds of thousands of tiny files) can't wedge the
- * main process. Returns the summed byte size of files visited.
- */
-function _dirSize(root: string, cap = 200_000): number {
-  let total = 0;
-  let visited = 0;
-  const stack: string[] = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop() as string;
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const d of dirents) {
-      if (++visited > cap) return total;
-      const full = join(dir, d.name);
-      if (d.isDirectory()) {
-        stack.push(full);
-      } else if (d.isFile()) {
-        try {
-          total += statSync(full).size;
-        } catch {
-          /* skip */
-        }
-      }
-    }
-  }
-  return total;
-}
-
-/**
- * Async version of dirSize - prevents blocking the main thread.
+ * main process. Returns the summed byte size of files visited. Async so the
+ * main process stays responsive on accounts with huge caches.
  */
 async function dirSizeAsync(root: string, cap = 200_000): Promise<number> {
   let total = 0;

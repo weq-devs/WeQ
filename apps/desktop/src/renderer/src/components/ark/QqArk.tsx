@@ -107,7 +107,9 @@ function ArkFooter({ source, icon }: { source?: string; icon?: string }): ReactE
   if (!source && !icon) return null;
   return (
     <div className="weq-ark-footer">
-      {icon ? <img className="weq-ark-footer-icon" src={arkImg(icon)} alt="" loading="lazy" /> : null}
+      {icon ? (
+        <img className="weq-ark-footer-icon" src={arkImg(icon)} alt="" loading="lazy" />
+      ) : null}
       <span>{source}</span>
     </div>
   );
@@ -118,12 +120,20 @@ function ArkFooter({ source, icon }: { source?: string; icon?: string }): ReactE
 /** 名片：左头像 + 右昵称/副标题，底部来源标签（contact / cardshare / 名片分享变体）。 */
 function ContactCard({ v }: { v: ArkValues }): ReactElement {
   return (
-    <ArkShell jump={v.jump} className="weq-ark-contact" footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}>
+    <ArkShell
+      jump={v.jump}
+      className="weq-ark-contact"
+      footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}
+    >
       <div className="weq-ark-contact-body">
-        {v.avatar ? <img className="weq-ark-contact-avatar" src={arkImg(v.avatar)} alt="" loading="lazy" /> : null}
+        {v.avatar ? (
+          <img className="weq-ark-contact-avatar" src={arkImg(v.avatar)} alt="" loading="lazy" />
+        ) : null}
         <div className="weq-ark-contact-main">
           <div className="weq-ark-contact-name">{v.name || v.title || v.source || '推荐名片'}</div>
-          {v.desc || v.summary ? <div className="weq-ark-contact-sub">{v.desc || v.summary}</div> : null}
+          {v.desc || v.summary ? (
+            <div className="weq-ark-contact-sub">{v.desc || v.summary}</div>
+          ) : null}
         </div>
       </div>
     </ArkShell>
@@ -138,7 +148,9 @@ function NewsCard({ v }: { v: ArkValues }): ReactElement {
       {v.title ? <div className="weq-ark-title">{v.title}</div> : null}
       <div className="weq-ark-body-compact">
         <div className="weq-ark-desc">{v.desc || v.summary || ''}</div>
-        {thumb ? <img className="weq-ark-preview-small" src={arkImg(thumb)} alt="" loading="lazy" /> : null}
+        {thumb ? (
+          <img className="weq-ark-preview-small" src={arkImg(thumb)} alt="" loading="lazy" />
+        ) : null}
       </div>
     </ArkShell>
   );
@@ -155,7 +167,9 @@ function AppBlockCard({ v }: { v: ArkValues }): ReactElement {
     <ArkShell jump={v.jump} footer={<ArkFooter source={footerSource} icon={footerIcon} />}>
       {headerShown ? (
         <div className="weq-ark-header">
-          {v.sourceIcon ? <img className="weq-ark-icon-app" src={arkImg(v.sourceIcon)} alt="" loading="lazy" /> : null}
+          {v.sourceIcon ? (
+            <img className="weq-ark-icon-app" src={arkImg(v.sourceIcon)} alt="" loading="lazy" />
+          ) : null}
           <span>{v.source}</span>
         </div>
       ) : null}
@@ -174,8 +188,13 @@ function AppBlockCard({ v }: { v: ArkValues }): ReactElement {
 function MediaBlockCard({ v }: { v: ArkValues }): ReactElement {
   const big = v.cover || v.thumb;
   return (
-    <ArkShell jump={v.jump} footer={<ArkFooter source={v.footerSource || v.source} icon={v.footerIcon || v.sourceIcon} />}>
-      {v.summary || v.desc || v.title ? <div className="weq-ark-title">{v.summary || v.desc || v.title}</div> : null}
+    <ArkShell
+      jump={v.jump}
+      footer={<ArkFooter source={v.footerSource || v.source} icon={v.footerIcon || v.sourceIcon} />}
+    >
+      {v.summary || v.desc || v.title ? (
+        <div className="weq-ark-title">{v.summary || v.desc || v.title}</div>
+      ) : null}
       {big ? <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" /> : null}
       {v.button ? <div className="weq-ark-action-btn">{v.button}</div> : null}
     </ArkShell>
@@ -196,13 +215,26 @@ function GenericCard({
   prompt: string;
 }): ReactElement {
   const hasSlots =
-    !!values && !!(values.title || values.desc || values.summary || values.thumb || values.cover || values.name);
+    !!values &&
+    !!(
+      values.title ||
+      values.desc ||
+      values.summary ||
+      values.thumb ||
+      values.cover ||
+      values.name
+    );
   if (values && hasSlots) {
     const small = values.thumb;
     const big = values.cover;
     return (
-      <ArkShell jump={values.jump} footer={<ArkFooter source={values.source} icon={values.sourceIcon} />}>
-        {values.title || values.name ? <div className="weq-ark-title">{values.title || values.name}</div> : null}
+      <ArkShell
+        jump={values.jump}
+        footer={<ArkFooter source={values.source} icon={values.sourceIcon} />}
+      >
+        {values.title || values.name ? (
+          <div className="weq-ark-title">{values.title || values.name}</div>
+        ) : null}
         {small ? (
           <div className="weq-ark-body-compact">
             <div className="weq-ark-desc">{values.desc || values.summary || ''}</div>
@@ -215,7 +247,9 @@ function GenericCard({
                 {values.desc || values.summary}
               </div>
             ) : null}
-            {big ? <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" /> : null}
+            {big ? (
+              <img className="weq-ark-preview-big" src={arkImg(big)} alt="" loading="lazy" />
+            ) : null}
           </>
         )}
         {values.button ? <div className="weq-ark-action-btn">{values.button}</div> : null}
@@ -239,8 +273,16 @@ function ArkMail({ p }: { p: ArkPayload }): ReactElement {
   return (
     <ArkShell jump={jumpUrl}>
       {title ? <div className="weq-ark-title">{title}</div> : null}
-      {subTitle ? <div className="weq-ark-desc" style={{ fontWeight: 500, marginBottom: 6 }}>{subTitle}</div> : null}
-      {content ? <div className="weq-ark-desc" style={{ color: '#8c8c8c' }}>{content}</div> : null}
+      {subTitle ? (
+        <div className="weq-ark-desc" style={{ fontWeight: 500, marginBottom: 6 }}>
+          {subTitle}
+        </div>
+      ) : null}
+      {content ? (
+        <div className="weq-ark-desc" style={{ color: '#8c8c8c' }}>
+          {content}
+        </div>
+      ) : null}
     </ArkShell>
   );
 }
@@ -285,7 +327,7 @@ function ArkPlainText({ p }: { p: ArkPayload }): ReactElement {
     <div className="weq-ark-container">
       <div className="weq-ark-content">
         {/* 头部：头像 + 昵称 */}
-        {(avatar || nick) ? (
+        {avatar || nick ? (
           <div className="weq-ark-header" style={{ marginBottom: 8 }}>
             {avatar ? (
               <img className="weq-ark-icon-app" src={arkImg(avatar)} alt="" loading="lazy" />
@@ -379,7 +421,7 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
   return (
     <ArkShell jump={jumpUrl}>
       {/* 头部：appIcon + appName */}
-      {(appIcon || appName) ? (
+      {appIcon || appName ? (
         <div className="weq-ark-header" style={{ marginBottom: 8 }}>
           {appIcon ? (
             <img className="weq-ark-icon-app" src={arkImg(appIcon)} alt="" loading="lazy" />
@@ -435,7 +477,12 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
               }}
             >
               {op.icon ? (
-                <img src={arkImg(op.icon)} alt="" style={{ width: 16, height: 16 }} loading="lazy" />
+                <img
+                  src={arkImg(op.icon)}
+                  alt=""
+                  style={{ width: 16, height: 16 }}
+                  loading="lazy"
+                />
               ) : null}
               <span>{op.label}</span>
             </div>
@@ -483,7 +530,9 @@ function ArkSinglePic({ p, prompt }: { p: ArkPayload; prompt: string }): ReactEl
 
   return (
     <ArkShell jump={bannerUrl}>
-      {banner ? <img className="weq-ark-preview-big" src={arkImg(banner)} alt="" loading="lazy" /> : null}
+      {banner ? (
+        <img className="weq-ark-preview-big" src={arkImg(banner)} alt="" loading="lazy" />
+      ) : null}
       {labels.length > 0 ? (
         <div style={{ marginTop: banner ? 8 : 0 }}>
           {labels.map((label) => (
@@ -562,10 +611,14 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
             {detailItems.map((item) => (
               <div key={`${item.title}-${item.content}`} style={{ marginBottom: 8 }}>
                 {item.title ? (
-                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.title}</div>
+                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>
+                    {item.title}
+                  </div>
                 ) : null}
                 {item.content ? (
-                  <div style={{ fontSize: 14, color: item.color || '#000', fontWeight: 500 }}>{item.content}</div>
+                  <div style={{ fontSize: 14, color: item.color || '#000', fontWeight: 500 }}>
+                    {item.content}
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -612,7 +665,11 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
   return (
     <ArkShell>
       {title ? <div className="weq-ark-title">{title}</div> : null}
-      {content ? <div className="weq-ark-desc" style={{ marginBottom: informationList.length > 0 ? 12 : 0 }}>{content}</div> : null}
+      {content ? (
+        <div className="weq-ark-desc" style={{ marginBottom: informationList.length > 0 ? 12 : 0 }}>
+          {content}
+        </div>
+      ) : null}
       {informationList.length > 0 ? (
         <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
           {informationList.map((item) => {
@@ -620,7 +677,10 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
             const text = s(item, 'text');
             if (!label && !text) return null;
             return (
-              <div key={`${label}-${text}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div
+                key={`${label}-${text}`}
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}
+              >
                 <span style={{ fontSize: 13, color: '#8c8c8c' }}>{label}</span>
                 <span style={{ fontSize: 13, color: '#000' }}>{text}</span>
               </div>
@@ -729,7 +789,11 @@ function ArkLocation({
     >
       <div className="weq-ark-content">
         {name ? <div className="weq-ark-title">{name}</div> : null}
-        {address ? <div className="weq-ark-desc" style={{ color: '#8c8c8c', marginBottom: 8 }}>{address}</div> : null}
+        {address ? (
+          <div className="weq-ark-desc" style={{ color: '#8c8c8c', marginBottom: 8 }}>
+            {address}
+          </div>
+        ) : null}
         <div className="weq-ark-map-view">
           {mapSrc ? (
             <img
@@ -789,7 +853,9 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
     >
       {header || appIcon ? (
         <div className="weq-ark-header">
-          {appIcon ? <img className="weq-ark-icon-app" src={arkImg(appIcon)} alt="" loading="lazy" /> : null}
+          {appIcon ? (
+            <img className="weq-ark-icon-app" src={arkImg(appIcon)} alt="" loading="lazy" />
+          ) : null}
           <span>{header}</span>
         </div>
       ) : null}
@@ -797,7 +863,9 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
       {isCompactLayout ? (
         <div className="weq-ark-body-compact">
           <div className="weq-ark-desc">{desc}</div>
-          {mainImg ? <img className="weq-ark-preview-small" src={arkImg(mainImg)} alt="" loading="lazy" /> : null}
+          {mainImg ? (
+            <img className="weq-ark-preview-small" src={arkImg(mainImg)} alt="" loading="lazy" />
+          ) : null}
         </div>
       ) : (
         <>
@@ -822,7 +890,7 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   const data = useMemo(() => parseArkData(arkData), [arkData]);
 
   const firstKey = data?.meta ? Object.keys(data.meta)[0] : undefined;
-  const p: ArkPayload | null = data?.meta && firstKey ? data.meta[firstKey] ?? null : null;
+  const p: ArkPayload | null = data?.meta && firstKey ? (data.meta[firstKey] ?? null) : null;
   if (!data || !p) return null;
 
   const app = typeof data.app === 'string' ? data.app : '';
@@ -843,10 +911,12 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   if (app === 'com.tencent.template.public' && firstKey === 'mail') return <ArkMail p={p} />;
 
   // 特例3.5：plainText 通知卡 (view: plainText)。
-  if (app === 'com.tencent.template.public' && firstKey === 'plainText') return <ArkPlainText p={p} />;
+  if (app === 'com.tencent.template.public' && firstKey === 'plainText')
+    return <ArkPlainText p={p} />;
 
   // 特例4：单图广告 (view: singlePic)。
-  if (app === 'com.tencent.template.public' && firstKey === 'singlePic') return <ArkSinglePic p={p} prompt={prompt} />;
+  if (app === 'com.tencent.template.public' && firstKey === 'singlePic')
+    return <ArkSinglePic p={p} prompt={prompt} />;
 
   // 特例5：安全提醒卡。
   if (app === 'com.tencent.security.message') return <ArkSecurityMessage p={p} />;

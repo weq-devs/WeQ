@@ -17,15 +17,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
+import type { AnnualReportPreferences } from './annual_report/types';
 import type { DatabaseAlgorithms } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /**
- * A download rkey issued by QQ's OIDB service (via `fetchDownloadRkeys`). Used
+ * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
  * to authenticate CDN media downloads when a file isn't on disk locally.
  *
- * Normalised from the native JSON (`type_`/`ttl_seconds`/`create_time`). The
- * `rkey` string already carries its `&rkey=` URL prefix, as QQ returns it.
+ * The `rkey` string already carries its `&rkey=` URL prefix, as QQ returns it.
  */
 export interface DownloadRkey {
   /** URL fragment as returned by QQ, e.g. `&rkey=CAQS…`. */
@@ -51,13 +51,9 @@ export function rkeyExpiryMs(r: DownloadRkey): number {
 }
 
 /**
- * A `clientkey` credential issued by QQ's OIDB service (via `fetchClientKey`).
+ * A `clientkey` credential issued by QQ's OIDB service (`FetchClientKey`).
  * Short-lived (≈30 min) token used to authenticate web/cgi calls to QQ's
  * services on this account's behalf.
- *
- * Normalised from the native JSON (`client_key`/`key_index`/`expire_time`).
- * Unlike an rkey, QQ returns only a TTL (no issue time), so we stamp
- * {@link fetchedAt} ourselves when we harvest it.
  */
 export interface ClientKey {
   /** The client_key credential (hex string). */
@@ -116,6 +112,8 @@ export interface AccountConfig {
   avatarUrl?: string;
   /** Unix milliseconds of last login. */
   lastLoginAt: number;
+  /** Per-account annual-report page collection and ordering preferences. */
+  annualReport?: AnnualReportPreferences;
 
   /** True while a logged-in QQ.exe instance for this account is running. */
   qqOnline?: boolean;
@@ -182,6 +180,12 @@ export interface AccountConfig {
      * 这里存 url 而非 itemId —— 背景的目录段是服务端 nonce，推不出来。
      */
     chatBgUrl?: string;
+    /** 正在用的头像挂件 itemId（appId 4）。渲染侧据此换动画帧。 */
+    widgetId?: number;
+    /** 正在用的挂件款名。 */
+    widgetName?: string;
+    /** 正在用的挂件预览图直链（newPreview2）。 */
+    widgetPreviewUrl?: string;
   };
 }
 
@@ -335,6 +339,16 @@ export class AccountConfigService {
     this.logger.info('updated native media binding', {
       event: 'set-native-media-enabled',
       enabled,
+    });
+  }
+
+  /** Persist the user's annual-report page collection and ordering. */
+  setAnnualReportPreferences(annualReport: AnnualReportPreferences): void {
+    this.patch({ annualReport });
+    this.logger.info('stored annual report preferences', {
+      event: 'set-annual-report-preferences',
+      mode: annualReport.mode,
+      enabledCount: annualReport.enabledPageIds.length,
     });
   }
 

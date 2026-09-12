@@ -19,6 +19,7 @@ import { app } from 'electron';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { resolveBestMirror } from './mirrors';
+import { announceUpdateAvailableSafe } from '../weq_assistant/update_tweet';
 import {
   getUpdateState,
   setUpdateActions,
@@ -69,6 +70,8 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
 
   if (hasUpdate) {
     updateBus.emit('event', { kind: 'available', latest: best.version } satisfies UpdateEvent);
+    // WeQ 助手开着 → 追加一条「更新可用」推文（best-effort，同版本只发一次）。
+    announceUpdateAvailableSafe(best.version);
   }
   return state;
 }

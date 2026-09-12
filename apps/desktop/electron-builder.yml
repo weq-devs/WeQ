@@ -70,8 +70,18 @@ nsis:
   artifactName: ${productName}-${version}-setup.${ext}
 
 # Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
-# x64 与 arm64 都出；native/ 二进制通过下面的 extraFiles 按 ${arch}
+# 架构由命令行决定：CI 里每个 runner 只打自己那一种（linux-x64 → --x64，
+# linux-arm64 → --arm64），native/ 二进制通过下面的 extraFiles 按 ${arch}
 # 自动挑对应架构（linux/x64 或 linux/arm64）。arm64 未经真机实测。
+#
+# ⚠️ 不要给 target 加 `arch: [x64, arm64]`：electron-builder 的 target.arch 会
+# 覆盖 CLI 的 --x64 / --arm64（app-builder-lib computeArchToTargetNamesMap），
+# 一次构建就会把两种架构都打出来；而 pnpm 装的 native binding
+# （@resvg/resvg-js-linux-*-gnu、sherpa-onnx-linux-*）和 cargo 编出来的
+# resources/daemon/<platform>-<arch> 全是**构建机架构**的，于是非构建机架构的
+# 包会带着错误架构的原生模块出厂：v1.0.0 的 weQ-1.0.0-linux-x86_64.AppImage
+# 就是这么坏的 —— 在 arm64 runner 上打出来，包里是 aarch64 binding，启动即
+# Cannot find module '@resvg/resvg-js-linux-x64-gnu'。
 linux:
   icon: ../../resources/brand/logo.png
   extraFiles:
@@ -79,19 +89,15 @@ linux:
       to: native/linux/${arch}
   target:
     - target: AppImage
-      arch:
-        - x64
-        - arm64
     - target: tar.gz
-      arch:
-        - x64
-        - arm64
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Network
 
 # macOS 目标：dmg（手动安装）+ zip（Squirrel.Mac 自动更新必需 ——
 # electron-updater 的 MacUpdater 只认 zip，仅 dmg 会报 "ZIP file not
-# provided"）。x64 与 arm64 都出；native/ 二进制与 win/linux 一样在打包时
+# provided"）。架构同样交给命令行（macos-x64 → --x64，macos-arm64 → --arm64；
+# 理由与 linux 一节相同：target.arch 会覆盖 CLI，另一架构的包会带上构建机的
+# native 模块）。native/ 二进制与 win/linux 一样在打包时
 # 拷到安装根目录的 native/<platform>/<arch>，与加载器按 process.arch 解析的
 # 约定一致（darwin/x64 与 darwin/arm64，见 packages/native/src/loader.ts）。
 # macOS 没有注入型 dll/so（SIP），darwin/ 下只有 nt_helper.node 和
@@ -108,13 +114,7 @@ mac:
       to: native/darwin/${arch}
   target:
     - target: dmg
-      arch:
-        - x64
-        - arm64
     - target: zip
-      arch:
-        - x64
-        - arm64
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   category: public.app-category.social-networking
 

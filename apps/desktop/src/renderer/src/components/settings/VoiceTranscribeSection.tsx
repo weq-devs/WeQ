@@ -13,10 +13,21 @@
  * `refetchOnMount: 'always'` so reopening the dialog always shows fresh state.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { AudioLines, Check, Download, Loader2, Plus, Play, Save, Trash2, Volume2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  AudioLines,
+  Check,
+  Download,
+  Loader2,
+  Plus,
+  Play,
+  Save,
+  Trash2,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useDialog } from '../Dialog';
+import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, Row, SectionHeader } from './controls';
 
@@ -144,8 +155,8 @@ export function VoiceTranscribeSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<AudioLines size={18} strokeWidth={1.8} />}
-        title="语音转录"
-        desc="下载并选择离线语音识别模型。选中后，聊天中的语音消息将出现「转文字」按钮。"
+        title="语音配置"
+        desc="语音相关功能统一在这里配置：离线语音识别（转文字）的模型下载与选择，以及文字转语音（TTS）的服务商。"
       />
 
       <Card title="转录模型">
@@ -165,9 +176,13 @@ export function VoiceTranscribeSection(): ReactElement {
                   <div className="weq-voice-model-main">
                     <div className="weq-voice-model-head">
                       <span className="weq-voice-model-name">{m.name}</span>
-                      {m.recommended ? <span className="weq-set-badge weq-set-badge-ok">推荐</span> : null}
+                      {m.recommended ? (
+                        <span className="weq-set-badge weq-set-badge-ok">推荐</span>
+                      ) : null}
                       {m.downloaded ? <span className="weq-set-badge">已下载</span> : null}
-                      {isSelected ? <span className="weq-set-badge weq-set-badge-ok">当前模型</span> : null}
+                      {isSelected ? (
+                        <span className="weq-set-badge weq-set-badge-ok">当前模型</span>
+                      ) : null}
                     </div>
                     <span className="weq-voice-model-desc">{m.desc}</span>
                     <span className="weq-voice-model-size weq-number">
@@ -247,7 +262,15 @@ export function VoiceTranscribeSection(): ReactElement {
 
 // ── TTS 语音合成服务商（克隆体发语音 / 语音克隆用）──────────────────────────────
 
-const TTS_VENDORS = ['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice'] as const;
+const TTS_VENDORS = [
+  'openai-compatible',
+  'gsv2p',
+  'minimax',
+  'mimo',
+  'doubao',
+  'gpt-sovits',
+  'cosyvoice',
+] as const;
 type TtsVendorLocal = (typeof TTS_VENDORS)[number];
 
 interface TtsForm {
@@ -307,29 +330,48 @@ function TtsProvidersCard(): ReactElement {
   const testProvider = trpc.bootstrap.testTtsProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
-  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TtsForm>(emptyTtsForm);
   const [testing, setTesting] = useState(false);
 
+  /** 把已保存的 TTS 服务商数据填进表单。 */
+  const fillFormFrom = useCallback(
+    (item: {
+      id: string;
+      name: string;
+      vendor: string;
+      baseUrl: string;
+      apiKey: string;
+      appId?: string | null;
+      resourceId?: string | null;
+      model?: string | null;
+      cloneModel?: string | null;
+      voice?: string | null;
+      format?: string | null;
+      speed?: number | null;
+    }) => {
+      setForm({
+        id: item.id,
+        name: item.name,
+        vendor: item.vendor as TtsVendorLocal,
+        baseUrl: item.baseUrl,
+        apiKey: item.apiKey,
+        appId: item.appId ?? '',
+        resourceId: item.resourceId ?? '',
+        model: item.model ?? '',
+        cloneModel: item.cloneModel ?? '',
+        voice: item.voice ?? '',
+        format: item.format ?? '',
+        speed: item.speed !== undefined && item.speed !== null ? String(item.speed) : '',
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     const current = providers.data?.find((item) => item.id === selectedId);
-    if (current) {
-      setForm({
-        id: current.id,
-        name: current.name,
-        vendor: current.vendor,
-        baseUrl: current.baseUrl,
-        apiKey: current.apiKey,
-        appId: current.appId ?? '',
-        resourceId: current.resourceId ?? '',
-        model: current.model ?? '',
-        cloneModel: current.cloneModel ?? '',
-        voice: current.voice ?? '',
-        format: current.format ?? '',
-        speed: current.speed !== undefined ? String(current.speed) : '',
-      });
-    }
-  }, [providers.data, selectedId]);
+    if (current) fillFormFrom(current);
+  }, [providers.data, selectedId, fillFormFrom]);
 
   const vendorEntry = useMemo(
     () => catalog.data?.find((item) => item.vendor === form.vendor),
@@ -342,22 +384,17 @@ function TtsProvidersCard(): ReactElement {
   }
 
   function toggleCreate(): void {
-    if (editing && !selectedId) {
-      setEditing(false);
-      return;
-    }
     setSelectedId('');
     setForm(emptyTtsForm());
-    setEditing(true);
+    setOpen(true);
   }
 
   function editProvider(id: string): void {
-    if (editing && selectedId === id) {
-      setEditing(false);
-      return;
-    }
+    const current = providers.data?.find((item) => item.id === id);
+    if (!current) return;
+    fillFormFrom(current);
     setSelectedId(id);
-    setEditing(true);
+    setOpen(true);
   }
 
   function applyVendor(vendor: string): void {
@@ -390,9 +427,11 @@ function TtsProvidersCard(): ReactElement {
   }
 
   async function onSave(): Promise<void> {
-    const id = normalizeId(form.id || form.name);
+    // 服务商 ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
+    // 新建时由系统从显示名称自动生成。
+    const id = form.id || normalizeId(form.name);
     if (!id) {
-      dialog.error('保存失败', '请先填写服务商 id 或名称。');
+      dialog.error('保存失败', '请先填写显示名称。');
       return;
     }
     if (!form.baseUrl.trim()) {
@@ -402,7 +441,7 @@ function TtsProvidersCard(): ReactElement {
     try {
       await saveProvider.mutateAsync(toPayload(id));
       setSelectedId(id);
-      setEditing(true);
+      setOpen(true);
       await utils.bootstrap.listTtsProviders.invalidate();
       dialog.success('已保存', `TTS 服务商「${form.name.trim() || id}」已更新`);
     } catch (error) {
@@ -423,7 +462,7 @@ function TtsProvidersCard(): ReactElement {
       await deleteProvider.mutateAsync({ id: selectedId });
       setSelectedId('');
       setForm(emptyTtsForm());
-      setEditing(false);
+      setOpen(false);
       await utils.bootstrap.listTtsProviders.invalidate();
       dialog.success('已删除', `TTS 服务商「${removed}」已移除`);
     } catch (error) {
@@ -438,7 +477,9 @@ function TtsProvidersCard(): ReactElement {
     }
     setTesting(true);
     try {
-      const res = await testProvider.mutateAsync(toPayload(normalizeId(form.id || form.name) || 'test'));
+      const res = await testProvider.mutateAsync(
+        toPayload(normalizeId(form.id || form.name) || 'test'),
+      );
       if (!res.ok) {
         dialog.error('测试失败', res.error ?? '未知错误');
         return;
@@ -459,20 +500,23 @@ function TtsProvidersCard(): ReactElement {
 
   return (
     <>
-      <SectionHeader
-        icon={<Volume2 size={18} strokeWidth={1.8} />}
-        title="TTS 语音合成"
-        desc="配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice / GPT-SoVITS）可用 TA 本人的声音说话。"
-      />
       <Card
-        title="已保存的 TTS 服务商"
+        title="TTS 语音合成"
         action={
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={toggleCreate}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={toggleCreate}
+          >
             <Plus size={12} />
-            {editing && !selectedId ? '收起' : '新建'}
+            新建
           </button>
         }
       >
+        <p className="weq-set-desc">
+          配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice /
+          GPT-SoVITS）可用 TA 本人的声音说话。
+        </p>
         {(providers.data ?? []).length === 0 ? (
           <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
             还没有 TTS 服务商，点右上角「新建」添加一个。推荐 CosyVoice（免费、可复刻）。
@@ -485,13 +529,20 @@ function TtsProvidersCard(): ReactElement {
                 <button
                   key={item.id}
                   type="button"
-                  className={`weq-agentlab-provider-item${editing && selectedId === item.id ? ' is-active' : ''}`}
+                  className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                   onClick={() => editProvider(item.id)}
                 >
                   <span className="weq-agentlab-provider-name">
-                    <Volume2 size={14} strokeWidth={1.8} aria-hidden style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }} />
+                    <Volume2
+                      size={14}
+                      strokeWidth={1.8}
+                      aria-hidden
+                      style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
+                    />
                     {item.name}
-                    {entry?.capabilities.clone ? <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span> : null}
+                    {entry?.capabilities.clone ? (
+                      <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span>
+                    ) : null}
                   </span>
                   <small>{entry?.label ?? item.vendor}</small>
                 </button>
@@ -501,144 +552,231 @@ function TtsProvidersCard(): ReactElement {
         )}
       </Card>
 
-      {editing ? (
-        <Card title={selectedId ? '编辑 TTS 服务商' : '新建 TTS 服务商'}>
-          <Row
-            label="厂商模板"
-            desc={vendorEntry?.note}
-            control={
-              <select className="weq-set-input" value={form.vendor} onChange={(e) => applyVendor(e.target.value)}>
-                {(catalog.data ?? []).map((item) => (
-                  <option key={item.vendor} value={item.vendor}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            }
-          />
-          <Row
-            label="服务商 ID"
-            desc="稳定标识，留空时按名称自动生成。"
-            control={<input className="weq-set-input" value={form.id} onChange={(e) => update('id', e.target.value)} placeholder="cosyvoice-main" />}
-          />
-          <Row
-            label="显示名称"
-            control={<input className="weq-set-input" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="CosyVoice" />}
-          />
-          <Row
-            label="服务地址 (Base URL)"
-            desc={vendorEntry ? `模板默认：${vendorEntry.baseUrl}` : undefined}
-            control={<input className="weq-set-input" value={form.baseUrl} onChange={(e) => update('baseUrl', e.target.value)} placeholder="https://..." />}
-          />
-          {has('apiKey') ? (
-            <Row
-              label="API Key"
-              desc={vendorEntry?.apiKeyHint}
-              control={<input className="weq-set-input" type="password" value={form.apiKey} onChange={(e) => update('apiKey', e.target.value)} placeholder="sk-..." />}
-            />
-          ) : null}
-          {has('appId') ? (
-            <Row
-              label="App ID"
-              desc="豆包 X-Api-App-Id"
-              control={<input className="weq-set-input" value={form.appId} onChange={(e) => update('appId', e.target.value)} />}
-            />
-          ) : null}
-          {has('resourceId') ? (
-            <Row
-              label="Resource ID"
-              desc="豆包 X-Api-Resource-Id（如 seed-tts-2.0）"
-              control={<input className="weq-set-input" value={form.resourceId} onChange={(e) => update('resourceId', e.target.value)} placeholder="seed-tts-2.0" />}
-            />
-          ) : null}
-          {has('model') ? (
-            <Row
-              label={has('cloneModel') ? '固定音色模型' : '模型'}
-              desc={
-                vendorEntry?.defaultModel
-                  ? `留空自动用默认：${vendorEntry.defaultModel}`
-                  : undefined
-              }
-              control={
-                <input
-                  className="weq-set-input"
-                  value={form.model}
-                  onChange={(e) => update('model', e.target.value)}
-                  placeholder={vendorEntry?.defaultModel ?? '厂商模型 id（可空用默认）'}
-                />
-              }
-            />
-          ) : null}
-          {has('cloneModel') ? (
-            <Row
-              label="复刻模型"
-              desc={
-                vendorEntry?.cloneModel
-                  ? `语音克隆专用模型，与固定音色模型不同；留空自动用默认：${vendorEntry.cloneModel}`
-                  : '语音克隆专用模型（可空用默认）'
-              }
-              control={
-                <input
-                  className="weq-set-input"
-                  value={form.cloneModel}
-                  onChange={(e) => update('cloneModel', e.target.value)}
-                  placeholder={vendorEntry?.cloneModel ?? '复刻模型 id（可空用默认）'}
-                />
-              }
-            />
-          ) : null}
-          {has('voice') ? (
-            <Row
-              label="默认音色"
-              desc={
-                vendorEntry?.presetVoices?.length
-                  ? `如：${vendorEntry.presetVoices.map((v) => v.id).join('、')}`
-                  : '预置音色 id（preset 模式用）'
-              }
-              control={<input className="weq-set-input" value={form.voice} onChange={(e) => update('voice', e.target.value)} placeholder="voice id" />}
-            />
-          ) : null}
-          {has('format') ? (
-            <Row
-              label="音频格式"
-              control={
-                <select className="weq-set-input" value={form.format} onChange={(e) => update('format', e.target.value)}>
-                  <option value="">默认</option>
-                  <option value="mp3">mp3</option>
-                  <option value="wav">wav</option>
-                </select>
-              }
-            />
-          ) : null}
-          {has('speed') ? (
-            <Row
-              label="语速"
-              desc="1.0 为常态，留空用默认。"
-              control={<input className="weq-set-input" value={form.speed} onChange={(e) => update('speed', e.target.value)} placeholder="1.0" />}
-            />
-          ) : null}
+      {open ? (
+        <Modal onClose={() => setOpen(false)} width={620}>
+          <div className="weq-provider-modal">
+            <header className="weq-provider-modal-head">
+              <span className="weq-provider-modal-icon">
+                <Volume2 size={16} strokeWidth={1.8} aria-hidden />
+              </span>
+              <strong>{selectedId ? '编辑 TTS 服务商' : '新建 TTS 服务商'}</strong>
+              <button
+                type="button"
+                className="weq-set-iconbtn weq-provider-modal-close"
+                onClick={() => setOpen(false)}
+                aria-label="关闭"
+              >
+                <X size={16} />
+              </button>
+            </header>
 
-          <div className="weq-set-actions">
-            <button type="button" className="weq-set-btn" onClick={() => void onSave()} disabled={saveProvider.isLoading}>
-              <Save size={14} />
-              保存
-            </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onTest()} disabled={testing}>
-              {testing ? <Loader2 size={14} className="weq-spin" /> : <Play size={14} />}
-              测试
-            </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onDelete()} disabled={!selectedId || deleteProvider.isLoading}>
-              <Trash2 size={14} />
-              删除
-            </button>
+            <div className="weq-provider-modal-body">
+              <Row
+                label="厂商模板"
+                desc={vendorEntry?.note}
+                control={
+                  <select
+                    className="weq-set-input"
+                    value={form.vendor}
+                    onChange={(e) => applyVendor(e.target.value)}
+                  >
+                    {(catalog.data ?? []).map((item) => (
+                      <option key={item.vendor} value={item.vendor}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                }
+              />
+              <Row
+                label="显示名称"
+                control={
+                  <input
+                    className="weq-set-input"
+                    value={form.name}
+                    onChange={(e) => update('name', e.target.value)}
+                    placeholder="CosyVoice"
+                  />
+                }
+              />
+              <Row
+                label="服务地址 (Base URL)"
+                desc={vendorEntry ? `模板默认：${vendorEntry.baseUrl}` : undefined}
+                control={
+                  <input
+                    className="weq-set-input"
+                    value={form.baseUrl}
+                    onChange={(e) => update('baseUrl', e.target.value)}
+                    placeholder="https://..."
+                  />
+                }
+              />
+              {has('apiKey') ? (
+                <Row
+                  label="API Key"
+                  desc={vendorEntry?.apiKeyHint}
+                  control={
+                    <input
+                      className="weq-set-input"
+                      type="password"
+                      value={form.apiKey}
+                      onChange={(e) => update('apiKey', e.target.value)}
+                      placeholder="sk-..."
+                    />
+                  }
+                />
+              ) : null}
+              {has('appId') ? (
+                <Row
+                  label="App ID"
+                  desc="豆包 X-Api-App-Id"
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.appId}
+                      onChange={(e) => update('appId', e.target.value)}
+                    />
+                  }
+                />
+              ) : null}
+              {has('resourceId') ? (
+                <Row
+                  label="Resource ID"
+                  desc="豆包 X-Api-Resource-Id（如 seed-tts-2.0）"
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.resourceId}
+                      onChange={(e) => update('resourceId', e.target.value)}
+                      placeholder="seed-tts-2.0"
+                    />
+                  }
+                />
+              ) : null}
+              {has('model') ? (
+                <Row
+                  label={has('cloneModel') ? '固定音色模型' : '模型'}
+                  desc={
+                    vendorEntry?.defaultModel
+                      ? `留空自动用默认：${vendorEntry.defaultModel}`
+                      : undefined
+                  }
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.model}
+                      onChange={(e) => update('model', e.target.value)}
+                      placeholder={vendorEntry?.defaultModel ?? '厂商模型 id（可空用默认）'}
+                    />
+                  }
+                />
+              ) : null}
+              {has('cloneModel') ? (
+                <Row
+                  label="复刻模型"
+                  desc={
+                    vendorEntry?.cloneModel
+                      ? `语音克隆专用模型，与固定音色模型不同；留空自动用默认：${vendorEntry.cloneModel}`
+                      : '语音克隆专用模型（可空用默认）'
+                  }
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.cloneModel}
+                      onChange={(e) => update('cloneModel', e.target.value)}
+                      placeholder={vendorEntry?.cloneModel ?? '复刻模型 id（可空用默认）'}
+                    />
+                  }
+                />
+              ) : null}
+              {has('voice') ? (
+                <Row
+                  label="默认音色"
+                  desc={
+                    vendorEntry?.presetVoices?.length
+                      ? `如：${vendorEntry.presetVoices.map((v) => v.id).join('、')}`
+                      : '预置音色 id（preset 模式用）'
+                  }
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.voice}
+                      onChange={(e) => update('voice', e.target.value)}
+                      placeholder="voice id"
+                    />
+                  }
+                />
+              ) : null}
+              {has('format') ? (
+                <Row
+                  label="音频格式"
+                  control={
+                    <select
+                      className="weq-set-input"
+                      value={form.format}
+                      onChange={(e) => update('format', e.target.value)}
+                    >
+                      <option value="">默认</option>
+                      <option value="mp3">mp3</option>
+                      <option value="wav">wav</option>
+                    </select>
+                  }
+                />
+              ) : null}
+              {has('speed') ? (
+                <Row
+                  label="语速"
+                  desc="1.0 为常态，留空用默认。"
+                  control={
+                    <input
+                      className="weq-set-input"
+                      value={form.speed}
+                      onChange={(e) => update('speed', e.target.value)}
+                      placeholder="1.0"
+                    />
+                  }
+                />
+              ) : null}
+              {vendorEntry?.capabilities.clone ? (
+                <p className="weq-set-note">
+                  <Volume2 size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
+                  这是语音克隆型服务商：在克隆体的「语音」设置里开启语音克隆后，会自动用 TA
+                  的真实语音作参考音频。此处「测试」仅校验连通性。
+                </p>
+              ) : null}
+            </div>
+
+            <div className="weq-provider-modal-actions">
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => void onSave()}
+                disabled={saveProvider.isLoading}
+              >
+                <Save size={14} />
+                保存
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => void onTest()}
+                disabled={testing}
+              >
+                {testing ? <Loader2 size={14} className="weq-spin" /> : <Play size={14} />}
+                测试
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => void onDelete()}
+                disabled={!selectedId || deleteProvider.isLoading}
+              >
+                <Trash2 size={14} />
+                删除
+              </button>
+            </div>
           </div>
-          {vendorEntry?.capabilities.clone ? (
-            <p className="weq-set-note">
-              <Volume2 size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-              这是语音克隆型服务商：在克隆体的「语音」设置里开启语音克隆后，会自动用 TA 的真实语音作参考音频。此处「测试」仅校验连通性。
-            </p>
-          ) : null}
-        </Card>
+        </Modal>
       ) : null}
     </>
   );

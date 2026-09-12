@@ -1,6 +1,6 @@
 {
   "name": "weq",
-  "version": "0.4.6",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
@@ -12,14 +12,16 @@
   "scripts": {
     "dev": "pnpm --filter @weq/desktop dev",
     "build": "pnpm run build:bot && pnpm run build:ninebird && pnpm --filter @weq/desktop build",
-    "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=resources/bot-runtime/bot.mjs",
+    "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:bufferutil --external:utf-8-validate --banner:js=\"import { createRequire as __cjs_createRequire } from 'node:module'; const require = __cjs_createRequire(import.meta.url);\" --outfile=resources/bot-runtime/bot.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check": "biome check .",
-    "build:ninebird": "node packages/ninebird/scripts/build.mjs"
+    "build:ninebird": "node packages/ninebird/scripts/build.mjs",
+    "build:daemon": "node packages/daemon/scripts/build.mjs",
+    "version:set": "node scripts/set-version.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

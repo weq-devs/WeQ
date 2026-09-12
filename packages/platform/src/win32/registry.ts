@@ -28,11 +28,10 @@ const REG_VALUE = 'UninstallString';
  */
 function readUninstallString(): string | null {
   // Directly calling 'reg' with an arguments array avoids cmd.exe's nested quote pitfalls.
-  const result = spawnSync(
-    'reg',
-    ['query', REG_KEY, '/v', REG_VALUE],
-    { encoding: 'utf-8', windowsHide: true },
-  );
+  const result = spawnSync('reg', ['query', REG_KEY, '/v', REG_VALUE], {
+    encoding: 'utf-8',
+    windowsHide: true,
+  });
 
   if (result.status !== 0) return null;
 
@@ -54,7 +53,6 @@ function readUninstallString(): string | null {
   }
   return null;
 }
-
 
 /**
  * Best-effort QQ install root (the directory containing `QQ.exe`).

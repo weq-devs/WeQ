@@ -83,7 +83,9 @@ export function EmbeddedBrowserView({
   if (error) {
     return (
       <div className="weq-embedded-browser weq-embedded-browser-error">
-        <p>{label}加载失败：{error}</p>
+        <p>
+          {label}加载失败：{error}
+        </p>
       </div>
     );
   }
@@ -108,13 +110,7 @@ export function EmbeddedBrowserView({
  * 且共享同一 partition —— cookie 落进同一个按账号隔离的 jar，与独立窗口的
  * `setWindowOpenHandler('allow')` 行为对齐。
  */
-function EmbeddedWebview({
-  partition,
-  src,
-}: {
-  partition: string;
-  src: string;
-}): ReactElement {
+function EmbeddedWebview({ partition, src }: { partition: string; src: string }): ReactElement {
   const ref = useRef<HTMLElement>(null);
 
   // React 不认识 boolean 的 allowpopups，用 DOM 属性显式设一次。

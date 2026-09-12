@@ -207,9 +207,7 @@ describe('FaceElement (elementType=6)', () => {
     };
     const wire = encodeElement(plain);
     const bytes = new ProtoMsg(MsgBody).encode({ elements: [wire] });
-    const back = decodeElement(
-      new ProtoMsg(MsgBody).decode(bytes).elements![0]!,
-    );
+    const back = decodeElement(new ProtoMsg(MsgBody).decode(bytes).elements![0]!);
     expect(back.kind).toBe('face');
     if (back.kind === 'face') expect(back.innerId).toBeUndefined();
   });
@@ -233,11 +231,7 @@ describe('FaceElement (elementType=6)', () => {
 
     const unknownTagVarint = encodeVarint(BigInt(47699 << 3) | 0n);
     const valueVarint = encodeVarint(99n);
-    const merged = new Uint8Array([
-      ...knownBytes,
-      ...unknownTagVarint,
-      ...valueVarint,
-    ]);
+    const merged = new Uint8Array([...knownBytes, ...unknownTagVarint, ...valueVarint]);
 
     // Must not throw.
     const back = codec.decode(merged);
@@ -257,9 +251,7 @@ describe('ArkElement (elementType=10)', () => {
 
     const wire = encodeElement(original);
     const bytes = new ProtoMsg(MsgBody).encode({ elements: [wire] });
-    const back = decodeElement(
-      new ProtoMsg(MsgBody).decode(bytes).elements![0]!,
-    );
+    const back = decodeElement(new ProtoMsg(MsgBody).decode(bytes).elements![0]!);
 
     expect(back.kind).toBe('ark');
     if (back.kind === 'ark') {

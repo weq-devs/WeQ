@@ -45,7 +45,6 @@ const MODE_OPTIONS: { value: AntiRecallMode; label: string }[] = [
   { value: 'all', label: '永久全选' },
 ];
 
-
 interface Target {
   kind: AntiRecallKind;
   id: string;
@@ -175,13 +174,17 @@ export function AntiRecallSection(): ReactElement {
         pushToast({
           tone: 'success',
           title: '防撤回已开启',
-          message: needRestart ? '触发器已安装。QQ 正在运行，可能需重启 QQ 才生效。' : '触发器已安装。',
+          message: needRestart
+            ? '触发器已安装。QQ 正在运行，可能需重启 QQ 才生效。'
+            : '触发器已安装。',
         });
       } else {
         pushToast({
           tone: 'info',
           title: '防撤回已关闭',
-          message: needRestart ? '触发器已卸载。QQ 正在运行，可能需重启 QQ 才彻底停止。' : '触发器已卸载。',
+          message: needRestart
+            ? '触发器已卸载。QQ 正在运行，可能需重启 QQ 才彻底停止。'
+            : '触发器已卸载。',
         });
       }
     } catch (e) {
@@ -289,7 +292,10 @@ export function AntiRecallSection(): ReactElement {
         <Row
           label={
             <span className="weq-set-mcp-state">
-              <span className={`weq-set-mcp-dot${installedCount > 0 ? ' is-on' : ''}`} aria-hidden />
+              <span
+                className={`weq-set-mcp-dot${installedCount > 0 ? ' is-on' : ''}`}
+                aria-hidden
+              />
               {installedCount > 0 ? `已安装（${installedCount} 张触发器）` : '未安装'}
             </span>
           }
@@ -327,7 +333,8 @@ export function AntiRecallSection(): ReactElement {
             />
           </div>
           <p className="weq-set-note">
-            支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ 正在运行，改动可能需重启 QQ 才生效。
+            支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ
+            正在运行，改动可能需重启 QQ 才生效。
           </p>
         </Card>
       ) : null}

@@ -26,6 +26,9 @@ exposeElectronTRPC();
 
 const weqBridge = {
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  /** Reveal the daemon docroot (推文静态文件目录) in the system file manager. */
+  revealPath: (path: string): Promise<boolean> =>
+    ipcRenderer.invoke('daemon:reveal-path', path) as Promise<boolean>,
   channel: {
     /** Open (or focus) the built-in QQ 频道 browser for the current account.
      *  Pass WeQ's theme preference so the window follows 深/浅 mode. */

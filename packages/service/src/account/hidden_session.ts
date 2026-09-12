@@ -55,7 +55,10 @@ export class HiddenSessionService {
     return Promise.all(rows.map((row) => this.resolve(row, inRecentSet)));
   }
 
-  private async resolve(row: HiddenSession, inRecentSet: Set<string>): Promise<HiddenSessionSummary> {
+  private async resolve(
+    row: HiddenSession,
+    inRecentSet: Set<string>,
+  ): Promise<HiddenSessionSummary> {
     const base = {
       storageKey: row.storageKey,
       chatType: row.chatType,

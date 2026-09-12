@@ -17,7 +17,9 @@ export function normFaceKey(s: string): string {
 }
 
 /** 由 getSystemFaces 结果构建 归一化外显文字 → faceId 的映射。 */
-export function buildFaceMap(entries: ReadonlyArray<{ id: number; desc: string }>): Map<string, number> {
+export function buildFaceMap(
+  entries: ReadonlyArray<{ id: number; desc: string }>,
+): Map<string, number> {
   const map = new Map<string, number>();
   for (const e of entries) {
     const key = normFaceKey(e.desc);
@@ -34,13 +36,27 @@ function escapeRegExp(s: string): string {
 function renderWithFaces(text: string, faces: FaceContext): ReactNode {
   const tokens = faces.whitelist.filter(Boolean);
   if (tokens.length === 0) return text;
-  const re = new RegExp(`(${tokens.slice().sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})`, 'g');
+  const re = new RegExp(
+    `(${tokens
+      .slice()
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegExp)
+      .join('|')})`,
+    'g',
+  );
   const parts = text.split(re);
   return parts.map((part, i) => {
     const id = faces.descToId.get(normFaceKey(part));
     if (id !== undefined && tokens.includes(part)) {
-      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-      return <FaceEmoji key={i} element={{ faceId: id, faceText: part }} size="1.3em" className="weq-inline-face" />;
+      return (
+        <FaceEmoji
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+          key={i}
+          element={{ faceId: id, faceText: part }}
+          size="1.3em"
+          className="weq-inline-face"
+        />
+      );
     }
     // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
     return <Fragment key={i}>{part}</Fragment>;
@@ -74,8 +90,12 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
       {playing ? <Pause size={14} strokeWidth={2} /> : <Play size={14} strokeWidth={2} />}
       <span className="weq-agentlab-voice-bars" aria-hidden>
         {Array.from({ length: 6 }).map((_, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <span key={i} className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`} style={{ animationDelay: `${i * 0.12}s` }} />
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+            key={i}
+            className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`}
+            style={{ animationDelay: `${i * 0.12}s` }}
+          />
         ))}
       </span>
       <span className="weq-agentlab-voice-label">语音</span>
@@ -107,6 +127,8 @@ export function ChatBubble({
 }): ReactElement {
   // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
   const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
+  // 表情图加载失败（资源被清 / 下载失败）时降级为文字占位，别留个破图。
+  const [stickerFailed, setStickerFailed] = useState(false);
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
@@ -130,14 +152,17 @@ export function ChatBubble({
           </span>
         ) : null}
         <div className="message-content">
-          {stickerMatch ? (
+          {stickerMatch && !stickerFailed ? (
             <img
               className="weq-agentlab-sticker-img"
               src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
               alt="[表情]"
               draggable={false}
               onLoad={onMediaLoad}
+              onError={() => setStickerFailed(true)}
             />
+          ) : stickerMatch && stickerFailed ? (
+            <span className="weq-agentlab-sticker-fallback">[表情]</span>
           ) : voiceMatch ? (
             <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
           ) : faces ? (

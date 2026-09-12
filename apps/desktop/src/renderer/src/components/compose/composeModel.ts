@@ -158,7 +158,11 @@ function toOrigElement(e: RenderEl): Record<string, unknown> {
         atTargetUid: String(data.atTargetUid ?? ''),
       };
     case 'face':
-      return { kind: 'face', faceId: Number(data.faceId) || 0, faceText: String(data.faceText ?? '') };
+      return {
+        kind: 'face',
+        faceId: Number(data.faceId) || 0,
+        faceText: String(data.faceText ?? ''),
+      };
     default:
       return { kind: 'text', textContent: REPLY_MEDIA_LABEL[e.type ?? ''] ?? '[消息]' };
   }

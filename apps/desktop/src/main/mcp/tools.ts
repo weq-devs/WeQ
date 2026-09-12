@@ -1,7 +1,7 @@
 /**
  * Transport-agnostic tool registry.
  *
- * One source of truth for the read-only capabilities WeQ exposes to AI clients.
+ * One source of truth for the capabilities WeQ exposes to AI clients.
  * The MCP HTTP server (`./server.ts`) is its first consumer; a future in-app
  * assistant (Anthropic SDK tool runner) can reuse the very same `run` functions
  * — so the business logic lives here exactly once.
@@ -12,8 +12,29 @@
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
+import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import type { DressMallItem, RenderElement } from '@weq/service';
+import {
+  computeBkn,
+  DressAppId,
+  fetchClientKey,
+  fetchDownloadRkeys,
+  fetchWebTokens,
+  HonorType,
+  normalizeMallItems,
+} from '@weq/service';
+import { searchCatalog } from '../market_catalog';
+import { resolveResource } from '../resource';
+import { decodeBlobHex, decodeBlobText } from './blob_decoder';
+import {
+  JS_SANDBOX_DEFAULT_TIMEOUT_MS,
+  JS_SANDBOX_MAX_TIMEOUT_MS,
+  runJsSandbox,
+} from './js_sandbox';
+import { elementAiDetail, elementsToAiText, mediaForElements } from './msg_rich';
 import {
   recentContactToWire,
   groupDetailToWire,
@@ -22,6 +43,8 @@ import {
   userProfileToWire,
   groupEssenceToWire,
   groupBulletinToWire,
+  forwardRecordToWire,
+  collectionItemToWire,
 } from '../ipc/serde';
 
 /**
@@ -54,6 +77,62 @@ function services(): AccountServices {
   return svc;
 }
 
+// ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
+
+/** 当前账号的 QQ 进程 pid；离线 / 完全离线模式时抛可读错误。 */
+function onlinePid(): number {
+  const ctx = getAppContext();
+  const record = services().accountConfig.getRecord();
+  if (!record?.qqOnline || !record.qqPid) {
+    throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
+  }
+  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），本工具不可用。');
+  }
+  return record.qqPid;
+}
+
+/** 当前账号的 uin（字符串形式）。 */
+function currentUin(): string {
+  const uin = getAppContext().account?.context.uin;
+  if (!uin) throw new Error('当前没有已登录的账号。');
+  return String(uin);
+}
+
+/** 原生 ntHelper 绑定（未加载时抛错）。 */
+function ntHelper() {
+  const nt = getAppContext().platform?.native.ntHelper;
+  if (!nt) throw new Error('原生组件未加载。');
+  return nt;
+}
+
+/** 商城工具的统一结果信封。 */
+function dressMallResult(
+  kind: string,
+  mode: string,
+  items: DressMallItem[],
+  total: number,
+  note: string,
+): unknown {
+  return {
+    ok: true,
+    kind,
+    mode,
+    total,
+    count: items.length,
+    items: items.map((i) => ({
+      itemId: i.itemId,
+      name: i.name,
+      kind,
+      ...(i.labels.length ? { labels: i.labels } : {}),
+      ...(i.price ? { price: i.price } : {}),
+      ...(i.previewUrl ? { previewUrl: i.previewUrl } : {}),
+      ...(i.mallName ? { mallName: i.mallName } : {}),
+    })),
+    note,
+  };
+}
+
 // ── 给 LLM 的紧凑消息投影 ──────────────────────────────────────────────────
 // 原始 wire 形（msgId/msgSeq/conv/senderUid/elementId…）字段多、占 token，且大模型
 // 分不清「谁发的」。这里统一压成 { time, sender(昵称), mine, text } —— 单一事实源，
@@ -65,6 +144,9 @@ interface AiMsgLine {
   sender: string;
   mine: boolean;
   text: string;
+  /** 稳定消息标识（仅 includeIds 时附上，供 get_message_details 回查）。 */
+  msgId?: string;
+  msgSeq?: string;
   /** 与上一条（更早那条）的时间间隔，人读形式（如「2小时」）；仅在间隔较大时附上。 */
   gap?: string;
 }
@@ -134,7 +216,8 @@ function dayWindow(date?: string): { startSec: number; endSec: number; label: st
   const raw = (date ?? '').trim();
   if (raw) {
     const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-    if (!m) throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
+    if (!m)
+      throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
     d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${date}`);
   } else {
@@ -142,14 +225,21 @@ function dayWindow(date?: string): { startSec: number; endSec: number; label: st
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
   const startSec = Math.floor(d.getTime() / 1000);
-  return { startSec, endSec: startSec + 86400, label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` };
+  return {
+    startSec,
+    endSec: startSec + 86400,
+    label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+  };
 }
 
 /**
  * 解析一个「日期区间」为本地 [startSec, endSec) 半开窗口（秒）。start/end 均为
  * YYYY-MM-DD，end 含当天（内部 +1 天转半开）。给 compare_periods 的任意两段对比用。
  */
-function rangeWindow(start: string, end: string): { startSec: number; endSec: number; label: string } {
+function rangeWindow(
+  start: string,
+  end: string,
+): { startSec: number; endSec: number; label: string } {
   const parse = (s: string): Date => {
     const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((s ?? '').trim());
     if (!m) throw new Error(`无效日期：${s}（应为 YYYY-MM-DD，例如 2026-06-30）`);
@@ -212,7 +302,10 @@ function waitForExport(
       if (p?.taskId === taskId) check();
     };
     const timer = setTimeout(
-      () => settle(() => reject(new Error('导出耗时过长已超时；如需带媒体或大批量，请在「导出中心」里操作。'))),
+      () =>
+        settle(() =>
+          reject(new Error('导出耗时过长已超时；如需带媒体或大批量，请在「导出中心」里操作。')),
+        ),
       timeoutMs,
     );
     mgr.on('progress', onProgress);
@@ -220,52 +313,104 @@ function waitForExport(
   });
 }
 
-/** RenderElement[]（wire 形）→ 给 LLM 看的纯文本：媒体只留占位，丢掉体积字段。 */
+/**
+ * RenderElement[]（wire 形）→ 给 LLM 看的可读文本。复用导出管线的 element
+ * 文案（回复引用、markdown 正文、灰条、卡片等都能读出内容），并补上语音转写。
+ */
 function flattenElements(elements: readonly unknown[]): string {
-  const parts: string[] = [];
-  for (const raw of elements ?? []) {
-    const el = raw as { type?: string; data?: Record<string, unknown> };
-    const d = el.data ?? {};
-    switch (el.type) {
-      case 'text':
-      case 'at':
-        parts.push(String(d.textContent ?? '').trim());
-        break;
-      case 'face':
-        parts.push(d.faceText ? `[${String(d.faceText)}]` : '[表情]');
-        break;
-      case 'pic':
-        parts.push('[图片]');
-        break;
-      case 'ptt':
-        parts.push('[语音]');
-        break;
-      case 'video':
-        parts.push('[视频]');
-        break;
-      case 'file':
-        parts.push(d.fileName ? `[文件:${String(d.fileName)}]` : '[文件]');
-        break;
-      case 'reply':
-        parts.push('[回复]');
-        break;
-      case 'mface':
-        parts.push('[表情]');
-        break;
-      case 'ark':
-        parts.push('[卡片]');
-        break;
-      case 'multimsg':
-        parts.push('[聊天记录]');
-        break;
-      case 'markdown':
-        parts.push(String(d.content ?? '[markdown]'));
-        break;
-      default:
-        break; // graytip / 系统提示等对理解会话无意义，忽略
+  return elementsToAiText(elements);
+}
+
+/**
+ * 撤回/删除/数据线等“渲染行”投影成 AI 消息行的最小形状。
+ * 结构兼容 {@link RenderC2cMsg} / {@link RenderGroupMsg}（字段更多没关系）。
+ */
+interface AiMsgRowLike {
+  msgId?: bigint | number | string;
+  msgSeq?: bigint | number | string;
+  senderUid: string;
+  /** 普通会话 senderUin 可用；数据线各设备共用同一个 uin，判 mine 走 senderUid。 */
+  senderUin?: bigint | number | string;
+  sendTime: bigint | number;
+  elements?: readonly unknown[];
+  deletedKind?: 'weq' | 'qq' | undefined;
+  recall?: { revokeUid?: string; sameSender?: boolean; recallTs?: bigint | number } | undefined;
+}
+
+/** 「这条消息是不是我发的」——数据线按 PC=本机的伪 uid 约定，其余按 uin。 */
+function rowIsMine(r: AiMsgRowLike, selfUin: bigint): boolean {
+  if (isDatalineUid(r.senderUid)) return isDatalineSelfUid(r.senderUid);
+  if (!r.senderUin) return false;
+  const uin = typeof r.senderUin === 'bigint' ? r.senderUin : BigInt(r.senderUin);
+  return selfUin > 0n && uin === selfUin;
+}
+
+/**
+ * 旧→新一组渲染行 → 精简 AI 消息行。nameOf 只在 uid 不是数据线伪 uid、也不是
+ * “我”时兜底（群成员/好友昵称由调用方批量解析好传进来）。
+ */
+function projectRows(
+  rowsOldestFirst: readonly AiMsgRowLike[],
+  selfUin: bigint,
+  nameOf: (uid: string) => string | undefined,
+): AiMsgLine[] {
+  const lines: AiMsgLine[] = [];
+  let prevSec: number | null = null;
+  for (const r of rowsOldestFirst) {
+    const sec = Number(r.sendTime);
+    const mine = rowIsMine(r, selfUin);
+    const fallback = String(r.senderUin ?? '') || r.senderUid || '未知';
+    const sender = mine ? '我' : (datalineName(r.senderUid) ?? nameOf(r.senderUid) ?? fallback);
+    const line: AiMsgLine = {
+      time: fmtTime(sec),
+      sender,
+      mine,
+      text: flattenElements(r.elements ?? []),
+      ...(r.msgId !== undefined ? { msgId: String(r.msgId) } : {}),
+      ...(r.msgSeq !== undefined ? { msgSeq: String(r.msgSeq) } : {}),
+    };
+    if (prevSec !== null) {
+      const gapSec = sec - prevSec;
+      if (gapSec >= 1800) line.gap = humanDuration(gapSec);
     }
+    prevSec = sec;
+    lines.push(line);
   }
-  return parts.filter(Boolean).join(' ').trim() || '[空消息]';
+  return lines;
+}
+
+/** 批量解析发送者昵称（自己除外），供撤回/删除等历史行投影用。 */
+async function namesForRows(
+  svc: AccountServices,
+  rows: readonly AiMsgRowLike[],
+  selfUin: bigint,
+): Promise<(uid: string) => string | undefined> {
+  const otherUids = [
+    ...new Set(rows.filter((r) => !rowIsMine(r, selfUin)).map((r) => r.senderUid)),
+  ];
+  if (otherUids.length === 0) return () => undefined;
+  const nameByUid = await svc.profile.nicksByUids(otherUids);
+  return (uid) => nameByUid[uid];
+}
+
+/** Resolve an account DB file by name (same lookup execute_sql uses). */
+async function accountDbFile(dbName: string): Promise<{
+  name: string;
+  path: string;
+  bytes: number;
+  kind: string;
+} | null> {
+  const svc = services();
+  const dbs = await svc.dbExplorer.listDatabases();
+  const db = dbs.find((d) => d.name.toLowerCase() === dbName.toLowerCase());
+  return db ? { name: db.name, path: db.path, bytes: db.bytes, kind: db.kind } : null;
+}
+
+/** epoch 毫秒 → YYYY-MM-DD（收藏时间展示用）。 */
+function fmtMsDate(ms: bigint | number): string {
+  const d = new Date(Number(ms));
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 /**
@@ -307,14 +452,17 @@ export const AI_TOOLS: AiTool[] = [
           ? await search.searchBuddy(keyword, probe)
           : scope === 'group'
             ? await search.searchGroup(keyword, probe)
-            : [...(await search.searchBuddy(keyword, probe)), ...(await search.searchGroup(keyword, probe))].sort(
-                (a, b) => Number(b.sendTime - a.sendTime),
-              );
+            : [
+                ...(await search.searchBuddy(keyword, probe)),
+                ...(await search.searchGroup(keyword, probe)),
+              ].sort((a, b) => Number(b.sendTime - a.sendTime));
       const hasMore = raw.length > limit;
       const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
-      const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
+      const otherUids = [
+        ...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const items = hits.map((h) => ({
@@ -335,9 +483,13 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         hits: items,
         ...(items.length === 0
-          ? { hint: `没搜到含「${keyword}」的消息；换更短/近义的关键词再试，或改用 get_messages 直接读会话判断。零命中不代表内容不存在。` }
+          ? {
+              hint: `没搜到含「${keyword}」的消息；换更短/近义的关键词再试，或改用 get_messages 直接读会话判断。零命中不代表内容不存在。`,
+            }
           : hasMore
-            ? { hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。` }
+            ? {
+                hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。`,
+              }
             : {}),
       };
     },
@@ -368,7 +520,9 @@ export const AI_TOOLS: AiTool[] = [
       const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
-      const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
+      const otherUids = [
+        ...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const items = hits.map((h) => ({
@@ -388,7 +542,9 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         hits: items,
         ...(items.length === 0
-          ? { hint: `该会话里没搜到含「${keyword}」的消息；换更短/近义关键词，或用 get_messages 顺读判断。零命中不代表没说过。` }
+          ? {
+              hint: `该会话里没搜到含「${keyword}」的消息；换更短/近义关键词，或用 get_messages 顺读判断。零命中不代表没说过。`,
+            }
           : hasMore
             ? { hint: `命中较多，只返回 ${limit} 条；调大 limit 或换更具体的关键词。` }
             : {}),
@@ -421,7 +577,10 @@ export const AI_TOOLS: AiTool[] = [
           ? await svc.msgSearch.searchBuddy(keyword, POOL)
           : scope === 'group'
             ? await svc.msgSearch.searchGroup(keyword, POOL)
-            : [...(await svc.msgSearch.searchBuddy(keyword, POOL)), ...(await svc.msgSearch.searchGroup(keyword, POOL))];
+            : [
+                ...(await svc.msgSearch.searchBuddy(keyword, POOL)),
+                ...(await svc.msgSearch.searchGroup(keyword, POOL)),
+              ];
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
       const cutoff = days > 0 ? Math.floor(Date.now() / 1000) - days * 86400 : 0;
@@ -445,7 +604,13 @@ export const AI_TOOLS: AiTool[] = [
         const kindScope: 'c2c' | 'group' = Number(h.chatType) === 2 ? 'group' : 'c2c';
         const cur = byUid.get(h.senderUid);
         if (!cur) {
-          byUid.set(h.senderUid, { uid: h.senderUid, hits: 1, lastSec: sec, sample: h.content, scopes: new Set([kindScope]) });
+          byUid.set(h.senderUid, {
+            uid: h.senderUid,
+            hits: 1,
+            lastSec: sec,
+            sample: h.content,
+            scopes: new Set([kindScope]),
+          });
         } else {
           cur.hits += 1;
           cur.scopes.add(kindScope);
@@ -456,7 +621,9 @@ export const AI_TOOLS: AiTool[] = [
         }
       }
 
-      const ranked = [...byUid.values()].sort((a, b) => b.hits - a.hits || b.lastSec - a.lastSec).slice(0, limit);
+      const ranked = [...byUid.values()]
+        .sort((a, b) => b.hits - a.hits || b.lastSec - a.lastSec)
+        .slice(0, limit);
       const nameByUid = ranked.length
         ? await svc.profile.nicksByUids(ranked.map((r) => r.uid).filter((u) => u !== selfUid))
         : {};
@@ -487,7 +654,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_conversations',
-    description: '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
+    description:
+      '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
     input: z.object({
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
@@ -503,15 +671,25 @@ export const AI_TOOLS: AiTool[] = [
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
       '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
-      before: z.string().default('').describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
+      before: z
+        .string()
+        .default('')
+        .describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
+      includeIds: z
+        .boolean()
+        .default(false)
+        .describe(
+          '是否在每条消息上附带 msgId/msgSeq（供 get_message_details 回查；默认 false 更省 token）',
+        ),
     }),
-    run: async ({ kind, conv, limit, before }) => {
+    run: async ({ kind, conv, limit, before, includeIds }) => {
       const svc = services();
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
       const beforeSeq = before.trim() ? safeBigint(before) : null;
@@ -532,7 +710,9 @@ export const AI_TOOLS: AiTool[] = [
       const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
 
       // 名字解析：自己=「我」，其余批量取昵称（私聊就对方一个人，群聊各发言人）。
-      const otherUids = [...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const otherUids = [
+        ...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const ordered = [...page].reverse(); // 翻成旧→新方便顺读
@@ -542,6 +722,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
+          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
         if (i > 0) {
@@ -560,7 +741,12 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         messages,
         ...(messages.length === 0
-          ? { hint: beforeSeq != null ? '没有更早的消息了。' : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。' }
+          ? {
+              hint:
+                beforeSeq != null
+                  ? '没有更早的消息了。'
+                  : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。',
+            }
           : hasMore
             ? { hint: `还有更早的消息；把 nextBefore 传回 before 可继续往前读。` }
             : {}),
@@ -570,7 +756,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_groups',
-    description: '列出当前账号加入的群聊（群号、群名等）。用来枚举/挑群，或把群名对上群号（只找某一个群更快的是 find_contact / search_groups）。拿到群号后接 get_messages / get_group_activity / list_group_members 等。',
+    description:
+      '列出当前账号加入的群聊（群号、群名等）。用来枚举/挑群，或把群名对上群号（只找某一个群更快的是 find_contact / search_groups）。拿到群号后接 get_messages / get_group_activity / list_group_members 等。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -583,7 +770,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_buddies',
-    description: '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。用来枚举好友或把昵称对上 uid（只找某一个人更快的是 find_contact / search_buddies）。拿到 uid 后接 get_messages / inspect_timeline / get_user_profile 等。想要「和谁聊得最多」的排行用 rank_friends_by_activity，别自己遍历。',
+    description:
+      '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。用来枚举好友或把昵称对上 uid（只找某一个人更快的是 find_contact / search_buddies）。拿到 uid 后接 get_messages / inspect_timeline / get_user_profile 等。想要「和谁聊得最多」的排行用 rank_friends_by_activity，别自己遍历。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -600,7 +788,10 @@ export const AI_TOOLS: AiTool[] = [
       '按昵称或备注模糊搜索好友（用于「找一下叫XX的好友」「我和谁的好友名字里有YY」等场景）。' +
       '支持部分匹配，返回 uid、uin、昵称、备注。不传 query 时返回所有好友。',
     input: z.object({
-      query: z.string().default('').describe('搜索关键词（昵称/备注，不区分大小写，空字符串=全部）'),
+      query: z
+        .string()
+        .default('')
+        .describe('搜索关键词（昵称/备注，不区分大小写，空字符串=全部）'),
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
     run: async ({ query, limit }) => {
@@ -609,10 +800,7 @@ export const AI_TOOLS: AiTool[] = [
       const profiles = await svc.profile.profilesByUids(buddies.map((b) => b.uid));
       const q = query.toLowerCase();
       const matched = profiles.filter(
-        (p) =>
-          !q ||
-          (p.nick?.toLowerCase().includes(q)) ||
-          (p.remark?.toLowerCase().includes(q)),
+        (p) => !q || p.nick?.toLowerCase().includes(q) || p.remark?.toLowerCase().includes(q),
       );
       return matched.slice(0, limit).map((p) => ({
         uid: p.uid,
@@ -636,7 +824,7 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ query, limit }) => {
       const all = await services().groupInfo.listAllGroups(500, 0);
       const q = query.toLowerCase();
-      const matched = all.filter((g) => !q || (g.groupName?.toLowerCase().includes(q)));
+      const matched = all.filter((g) => !q || g.groupName?.toLowerCase().includes(q));
       return matched.slice(0, limit).map(groupDetailToWire);
     },
   }),
@@ -693,7 +881,12 @@ export const AI_TOOLS: AiTool[] = [
         .slice(0, limit)
         .map((g) => {
           const w = groupDetailToWire(g);
-          return { groupCode: w.groupCode, groupName: w.groupName, remark: w.remark, memberCount: w.memberCount };
+          return {
+            groupCode: w.groupCode,
+            groupName: w.groupName,
+            remark: w.remark,
+            memberCount: w.memberCount,
+          };
         });
 
       return {
@@ -745,7 +938,13 @@ export const AI_TOOLS: AiTool[] = [
       '用来回答「我和谁最亲密」「亲密度最高的好友」「好友亲密度排行」。' +
       '返回每位：rank 名次、nick 昵称、remark 备注、uin QQ号、uid、intimacy 亲密度分值。',
     input: z.object({
-      limit: z.number().int().min(1).max(200).default(30).describe('返回条数上限（取亲密度最高的若干位）'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .default(30)
+        .describe('返回条数上限（取亲密度最高的若干位）'),
       offset: z.number().int().min(0).default(0).describe('分页偏移（翻看排行后段）'),
     }),
     run: async ({ limit, offset }) => {
@@ -788,7 +987,9 @@ export const AI_TOOLS: AiTool[] = [
         remark: w.remark,
         gender: w.gender === 1 ? '男' : w.gender === 2 ? '女' : '未知',
         ...(w.age ? { age: w.age } : {}),
-        ...(w.birthYear ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` } : {}),
+        ...(w.birthYear
+          ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` }
+          : {}),
         ...(w.signature ? { signature: w.signature } : {}),
         intimacy: w.intimacy,
         isFriend: w.isFriend,
@@ -813,7 +1014,11 @@ export const AI_TOOLS: AiTool[] = [
       }
       const d = await services().groupInfo.getGroupDetail(gc);
       if (!d) {
-        return { groupCode, found: false, hint: '找不到该群资料；确认群号是否正确（可用 find_contact 解析群名）。' };
+        return {
+          groupCode,
+          found: false,
+          hint: '找不到该群资料；确认群号是否正确（可用 find_contact 解析群名）。',
+        };
       }
       const w = groupDetailToWire(d);
       return {
@@ -957,8 +1162,16 @@ export const AI_TOOLS: AiTool[] = [
         streak: analytics.streak,
         phrasesSelf: analytics.phrasesSelf,
         phrasesPeer: analytics.phrasesPeer,
-        emojisSelf: analytics.emojisSelf.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
-        emojisPeer: analytics.emojisPeer.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
+        emojisSelf: analytics.emojisSelf.map((e) => ({
+          faceId: e.faceId,
+          faceText: e.faceText,
+          count: e.count,
+        })),
+        emojisPeer: analytics.emojisPeer.map((e) => ({
+          faceId: e.faceId,
+          faceText: e.faceText,
+          count: e.count,
+        })),
         wordCloud: analytics.wordCloud,
       };
     },
@@ -1001,7 +1214,8 @@ export const AI_TOOLS: AiTool[] = [
         const prev = new Date(`${daily[i - 1]!.date}T00:00:00`).getTime();
         const cur = new Date(`${daily[i]!.date}T00:00:00`).getTime();
         const gap = Math.round((cur - prev) / dayMs);
-        if (gap > longestSilence.days) longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
+        if (gap > longestSilence.days)
+          longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
       }
 
       // 近 30 / 90 天消息量（用 daily 求和，省去再扫库）。
@@ -1015,11 +1229,15 @@ export const AI_TOOLS: AiTool[] = [
 
       // 逐月消息量。
       const byMonth = new Map<string, number>();
-      for (const d of daily) byMonth.set(d.date.slice(0, 7), (byMonth.get(d.date.slice(0, 7)) ?? 0) + d.count);
+      for (const d of daily)
+        byMonth.set(d.date.slice(0, 7), (byMonth.get(d.date.slice(0, 7)) ?? 0) + d.count);
       const monthly = [...byMonth.entries()].map(([month, count]) => ({ month, count }));
 
       // 建议阅读窗口：消息量最高的前 3 天（最值得回看原话的高峰）。
-      const readWindows = [...daily].sort((x, y) => y.count - x.count).slice(0, 3).map((d) => ({ date: d.date, count: d.count }));
+      const readWindows = [...daily]
+        .sort((x, y) => y.count - x.count)
+        .slice(0, 3)
+        .map((d) => ({ date: d.date, count: d.count }));
 
       return {
         uid,
@@ -1185,7 +1403,11 @@ export const AI_TOOLS: AiTool[] = [
         totalMessages,
         activeDays: daily.length,
         // 排行已解析成群名片/昵称（displayName），报告里可直接展示，不必再自己查名字。
-        topSenders: ranking.map((r) => ({ name: r.displayName, uid: r.uid, count: r.messageCount })),
+        topSenders: ranking.map((r) => ({
+          name: r.displayName,
+          uid: r.uid,
+          count: r.messageCount,
+        })),
         hourlyDistribution,
         daily,
         wordCloud: wordCloud.map((w) => ({ word: w.word, count: w.count })),
@@ -1219,7 +1441,10 @@ export const AI_TOOLS: AiTool[] = [
       const touched = contacts
         .filter((c) => Number(c.sendTime) >= startSec && Number(c.sendTime) < endSec)
         .map((c) => ({ c, wire: recentContactToWire(c), kind: convKindOf(c.chatType) }))
-        .filter((t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } => t.kind !== null);
+        .filter(
+          (t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } =>
+            t.kind !== null,
+        );
       const capped = touched.slice(0, CAP);
 
       // 群名映射：一次性建 code→名，避免逐群查询。
@@ -1240,7 +1465,9 @@ export const AI_TOOLS: AiTool[] = [
               : await svc.msgs.getC2cLatest(conv, READ_C2C);
           const limit = t.kind === 'group' ? READ_GROUP : READ_C2C;
           // rows 为最新在前；过滤到当天窗口。
-          const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
+          const day = rows.filter(
+            (r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec,
+          );
           let myCount = 0;
           const hourly: Record<number, number> = {};
           let lastSec = 0; // 会话当天最后一条（任意人），用于「最近活跃」展示
@@ -1253,7 +1480,8 @@ export const AI_TOOLS: AiTool[] = [
               myCount += 1;
               if (sec < myFirstSec) myFirstSec = sec;
               if (sec > myLastSec) myLastSec = sec;
-              hourly[new Date(sec * 1000).getHours()] = (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
+              hourly[new Date(sec * 1000).getHours()] =
+                (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
             }
           }
           const name =
@@ -1383,7 +1611,10 @@ export const AI_TOOLS: AiTool[] = [
       const groupMine = sum(curGroups.items.map((g) => g.count));
       const prevGroupMine = sum(prevGroups.items.map((g) => g.count));
 
-      const delta = (cur: number, prev: number): { value: number; delta: number; deltaPct: number | null } => ({
+      const delta = (
+        cur: number,
+        prev: number,
+      ): { value: number; delta: number; deltaPct: number | null } => ({
         value: cur,
         delta: cur - prev,
         deltaPct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null,
@@ -1436,10 +1667,16 @@ export const AI_TOOLS: AiTool[] = [
       '想要「最近N天 vs 上一个等长周期」这种滚动环比，直接用 get_period_overview 更省事；本工具专用于**手动指定**的两段。',
     input: z.object({
       periodA: z
-        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .object({
+          start: z.string().describe('起 YYYY-MM-DD'),
+          end: z.string().describe('止 YYYY-MM-DD（含当天）'),
+        })
         .describe('第一个日期段'),
       periodB: z
-        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .object({
+          start: z.string().describe('起 YYYY-MM-DD'),
+          end: z.string().describe('止 YYYY-MM-DD（含当天）'),
+        })
         .describe('第二个日期段'),
       kind: z.enum(['c2c', 'group']).optional().describe('只比单个会话时传：c2c=私聊 / group=群聊'),
       conv: z.string().optional().describe('只比单个会话时传：私聊对方 uid 或群号（配合 kind）'),
@@ -1450,7 +1687,10 @@ export const AI_TOOLS: AiTool[] = [
       const winB = rangeWindow(periodB.start, periodB.end);
       const selfUid = svc.msgs.selfUid();
 
-      const diff = (a: number, b: number): { a: number; b: number; delta: number; deltaPct: number | null } => ({
+      const diff = (
+        a: number,
+        b: number,
+      ): { a: number; b: number; delta: number; deltaPct: number | null } => ({
         a,
         b,
         delta: a - b,
@@ -1465,9 +1705,13 @@ export const AI_TOOLS: AiTool[] = [
         });
         const [totalA, mineA, totalB, mineB] = await Promise.all([
           svc.msgs.countConv(kind, conv, w(winA)),
-          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winA), senderUid: selfUid }) : Promise.resolve(0),
+          selfUid
+            ? svc.msgs.countConv(kind, conv, { ...w(winA), senderUid: selfUid })
+            : Promise.resolve(0),
           svc.msgs.countConv(kind, conv, w(winB)),
-          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winB), senderUid: selfUid }) : Promise.resolve(0),
+          selfUid
+            ? svc.msgs.countConv(kind, conv, { ...w(winB), senderUid: selfUid })
+            : Promise.resolve(0),
         ]);
         return {
           scope: 'conversation',
@@ -1487,7 +1731,10 @@ export const AI_TOOLS: AiTool[] = [
       }
 
       // ── 账号级对比（复用 ①② 的窗口聚合）──────────────────────────
-      const win = (r: { startSec: number; endSec: number }) => ({ startTime: r.startSec, endTime: r.endSec - 1 });
+      const win = (r: { startSec: number; endSec: number }) => ({
+        startTime: r.startSec,
+        endTime: r.endSec - 1,
+      });
       const [fa, fb, ga, gb] = await Promise.all([
         svc.buddyAnalytics.rankFriendsByActivity(0, win(winA)),
         svc.buddyAnalytics.rankFriendsByActivity(0, win(winB)),
@@ -1526,26 +1773,43 @@ export const AI_TOOLS: AiTool[] = [
       '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
       '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '需要 msgId/msgSeq 供 get_message_details 回查时把 includeIds 设为 true。' +
       '\n【局限】只在该会话最近若干条里筛当天；查很久以前的某天可能扫不到（返回 coverage 会点明），那种情况改用 inspect_timeline 的 readWindows 找活跃日、或直接读最近的日期。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       date: z.string().default('').describe('某天 YYYY-MM-DD；空=今天'),
-      limit: z.number().int().min(1).max(300).default(120).describe('返回条数上限（取当天最近的若干条）'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(300)
+        .default(120)
+        .describe('返回条数上限（取当天最近的若干条）'),
+      includeIds: z
+        .boolean()
+        .default(false)
+        .describe('是否附带 msgId/msgSeq（供 get_message_details 回查；默认 false）'),
     }),
-    run: async ({ kind, conv, date, limit }) => {
+    run: async ({ kind, conv, date, limit, includeIds }) => {
       const svc = services();
       const { startSec, endSec, label } = dayWindow(date);
       const READ = kind === 'group' ? 1000 : 600;
       const rows =
-        kind === 'group' ? await svc.msgs.getGroupLatest(conv, READ) : await svc.msgs.getC2cLatest(conv, READ);
+        kind === 'group'
+          ? await svc.msgs.getGroupLatest(conv, READ)
+          : await svc.msgs.getC2cLatest(conv, READ);
       const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
       // 读取窗口触顶且最旧一条仍晚于目标日 → 目标日可能落在未扫到的更早区间，coverage 要如实点明。
-      const oldestSec = rows.length ? Number(rows[rows.length - 1]!.sendTime) : Number.MAX_SAFE_INTEGER;
+      const oldestSec = rows.length
+        ? Number(rows[rows.length - 1]!.sendTime)
+        : Number.MAX_SAFE_INTEGER;
       const mayMissEarlier = rows.length >= READ && oldestSec >= endSec;
 
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
-      const otherUids = [...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const otherUids = [
+        ...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       // day 为最新在前；取当天最近 limit 条后翻成旧→新方便顺读。
@@ -1556,6 +1820,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
+          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
         };
         if (i > 0) {
           const gapSec = Number(r.sendTime) - Number(slice[i - 1]!.sendTime);
@@ -1574,7 +1839,9 @@ export const AI_TOOLS: AiTool[] = [
           : RANK_COVERAGE,
         messages,
         ...(day.length > limit
-          ? { hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。` }
+          ? {
+              hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。`,
+            }
           : day.length === 0
             ? {
                 hint: mayMissEarlier
@@ -1597,9 +1864,18 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
-      format: z.enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx']).default('html').describe('导出格式，默认 html'),
+      format: z
+        .enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx'])
+        .default('html')
+        .describe('导出格式，默认 html'),
       name: z.string().default('').describe('文件名（建议传联系人/群名，便于识别）'),
-      days: z.number().int().min(1).max(3650).default(0).describe('只导出最近 N 天；0/不传=全部时间'),
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(3650)
+        .default(0)
+        .describe('只导出最近 N 天；0/不传=全部时间'),
     }),
     run: async ({ kind, conv, format, name, days }) => {
       const svc = services();
@@ -1608,7 +1884,14 @@ export const AI_TOOLS: AiTool[] = [
       const range =
         days > 0 ? { start: Math.floor(Date.now() / 1000) - days * 86400, end: null } : undefined;
 
-      const taskId = await svc.exportManager.startTask({ kind, conv, name: stem, format, total, range });
+      const taskId = await svc.exportManager.startTask({
+        kind,
+        conv,
+        name: stem,
+        format,
+        total,
+        range,
+      });
       const task = await waitForExport(svc.exportManager, taskId);
 
       const path = task.filePath || task.bundleDir;
@@ -1636,5 +1919,1877 @@ export const AI_TOOLS: AiTool[] = [
       };
     },
   }),
-];
 
+  tool({
+    name: 'get_anti_recall_status',
+    description:
+      '查询当前账号的防撤回状态：是否开启、保护范围（selected=指定会话 / all=全部会话）、' +
+      '已配置的保护目标数量、数据库里实际安装的触发器、以及 QQ 是否在运行。' +
+      '只读本地查询，不发网络请求。回答「防撤回开没开」「保护了哪些会话」「现在装的触发器有哪些」。',
+    input: z.object({}),
+    run: async () => {
+      const svc = services();
+      const status = await svc.antiRecall.getStatus();
+      const targets = status.targets.map((t) => ({
+        kind: t.kind,
+        id: t.id,
+        ...(t.kind === 'dataline' ? { name: datalineName(t.id) ?? t.id } : {}),
+      }));
+      const triggerNames = status.installed.map((i) => i.name);
+      return {
+        enabled: status.enabled,
+        mode: status.mode,
+        modeLabel: status.mode === 'all' ? '全部会话' : '仅指定会话',
+        protectedTargets: targets,
+        installedTriggers: triggerNames,
+        qqRunning: status.qqRunning,
+        hint: status.enabled
+          ? `防撤回已开启（${status.mode === 'all' ? '保护全部会话' : `保护 ${status.targets.length} 个指定会话`}）；` +
+            (status.qqRunning
+              ? 'QQ 正在运行，最近一次开关/改目标可能要重启 QQ 后才真正生效。'
+              : '触发器已按当前配置安装。') +
+            '若从未有人撤回，撤回列表为空属正常。' +
+            (status.targets.length > 0
+              ? 'protectedTargets 里的 id 是内部会话标识，给用户展示前请用 find_contact 解析成名字。'
+              : '')
+          : '防撤回未开启，因此也没有拦截撤回的日志记录。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'set_anti_recall',
+    assistantOnly: true, // 写数据库触发器 + 配置文件 → 只给内置助手，不进只读 MCP server
+    description:
+      '开启/取消防撤回。enabled=false 会卸载全部防撤回触发器；enabled=true 会按当前配置（或本次传入的 mode/targets）重建。' +
+      'mode: selected=只保护 targets 里的会话，all=保护所有会话（无需列 targets）。targets 是会话清单：' +
+      'kind=c2c 传对方 uid、kind=group 传群号、kind=dataline 传设备 uid（一般不需要手动加）。' +
+      '返回最新状态与 QQ 是否在运行——QQ 开着时触发器可能要到重启 QQ 才真正生效。',
+    input: z.object({
+      enabled: z.boolean().describe('true=开启防撤回，false=关闭'),
+      mode: z.enum(['selected', 'all']).optional().describe('保护范围：仅指定会话 / 全部会话'),
+      targets: z
+        .array(
+          z.object({
+            kind: z.enum(['c2c', 'group', 'dataline']).describe('会话类型'),
+            id: z.string().min(1).describe('私聊/数据线为 uid，群聊为群号'),
+          }),
+        )
+        .optional()
+        .describe('要保护的会话清单（仅 mode=selected 时有意义）'),
+    }),
+    run: async ({ enabled, mode, targets }) => {
+      const ctx = getAppContext();
+      if (enabled && ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
+        throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
+      }
+      const svc = services().antiRecall;
+      // 顺序固定：先改清单/范围再翻总开关，确保 applyTriggers 一次对齐终态。
+      if (targets) await svc.setTargets(targets);
+      if (mode) await svc.setMode(mode);
+      await svc.setEnabled(enabled);
+      const status = await svc.getStatus();
+      return {
+        ok: true,
+        enabled: status.enabled,
+        mode: status.mode,
+        protectedTargets: status.targets,
+        installedTriggers: status.installed.map((i) => i.name),
+        qqRunning: status.qqRunning,
+        hint: status.qqRunning
+          ? 'QQ 正在运行，触发器的变化可能要到 QQ 重启后才真正生效。'
+          : status.enabled
+            ? '防撤回已开启，之后撤回的消息会被拦截并记录到本地日志。'
+            : '防撤回已关闭，QQ 的撤回将正常执行。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_recalled_messages',
+    description:
+      '列出某个会话里最近被撤回过的消息（需曾开启防撤回且拦截成功才有记录；整页消息按原时间由旧到新顺读，覆盖最新的一批撤回）。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。' +
+      '返回每条：msgId/msgSeq、time 发送时间、sender 发送者昵称、mine 是否本人发送、text 原文，以及 recall（byUid 撤回者、bySender 是否本人自撤、time 撤回时间）。' +
+      '用来回答「TA 撤回了什么」「这个群里最近谁撤回过消息」。只读本地，不发网络。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+    }),
+    run: async ({ kind, conv, limit }) => {
+      const svc = services();
+      const rows = (await svc.msgs.getRecalledMessages(kind, conv)) as AiMsgRowLike[];
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const nameOf = await namesForRows(svc, page, selfUin);
+      const ordered = [...page].reverse(); // 旧→新给聊天式的顺读体验
+      const lines = projectRows(ordered, selfUin, nameOf);
+      const items = lines.map((line, i) => {
+        const rec = ordered[i]?.recall;
+        if (!rec) return line;
+        return {
+          ...line,
+          recall: {
+            ...(rec.revokeUid ? { byUid: rec.revokeUid } : {}),
+            bySender: rec.sameSender === true,
+            time: fmtTime(Number(rec.recallTs ?? 0)),
+          },
+        };
+      });
+      return {
+        kind,
+        conv,
+        count: items.length,
+        hasMore,
+        messages: items,
+        ...(items.length === 0
+          ? {
+              hint: '该会话没有撤回记录：可能是防撤回从未开启/从未拦截到撤回，或该会话没在保护范围内（可用 get_anti_recall_status 查）。',
+            }
+          : hasMore
+            ? { hint: `记录较多，只返回最近 ${limit} 条；调大 limit 可看更多。` }
+            : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_deleted_messages',
+    description:
+      '列出某个会话里“已删除”的消息（本地行被改成删除签名；整页按原发送时间由旧到新顺读，覆盖最新的一批删除）。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。' +
+      '每条：msgId/msgSeq、time 发送时间、sender 发送者、mine、text 原文，deletedKind 标记删除来源：' +
+      'weq=WeQ 本地删除（应用内可恢复）、qq=QQ 侧原生删除（不可恢复）。' +
+      '用来回答「这个会话哪些消息被删了」「删掉的内容是什么」。只读本地，不发网络。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+    }),
+    run: async ({ kind, conv, limit }) => {
+      const svc = services();
+      const rows = (await svc.msgs.getDeletedMessages(kind, conv)) as AiMsgRowLike[];
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const nameOf = await namesForRows(svc, page, selfUin);
+      const ordered = [...page].reverse();
+      const lines = projectRows(ordered, selfUin, nameOf);
+      const items = lines.map((line, i) => {
+        const deletedKind = ordered[i]?.deletedKind;
+        return {
+          ...line,
+          ...(deletedKind ? { deletedKind } : {}),
+        };
+      });
+      return {
+        kind,
+        conv,
+        count: items.length,
+        hasMore,
+        deletedCount: rows.length,
+        messages: items,
+        ...(items.length === 0
+          ? { hint: '该会话没有已删除（(1,1) 删除签名）的消息记录。' }
+          : hasMore
+            ? { hint: `记录较多，只返回最近 ${limit} 条；调大 limit 可看更多。` }
+            : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_forward_messages',
+    description:
+      '展开一条「合并转发 / 聊天记录」消息的内容。先拿承载消息的 msgId——get_messages 开 includeIds 会返回，' +
+      '或 execute_sql 在对应会话表查 40001——再传 kind（c2c=私聊/group=群聊）+ msgId 到这里。' +
+      '本工具只读本机 40900 缓存，绝不联网拉取；本地没有缓存时返回 found=false（并提示没有走网络回退）。' +
+      '返回 messages：time、sender、mine、text，嵌套的转发会按 depth 展开（受 maxDepth 限制），并附 hasMore/truncated。' +
+      '媒体只保留占位（[图片]/[语音]/[文件]），不返回媒体本体。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('承载消息所在会话类型'),
+      msgId: z.string().min(1).describe('承载「合并转发」的那条消息 msgId（数据库 40001）'),
+      maxDepth: z
+        .number()
+        .int()
+        .min(0)
+        .max(4)
+        .default(2)
+        .describe('嵌套转发最多展开层数（0=只展开一层）'),
+      limit: z.number().int().min(1).max(300).default(100).describe('返回子消息条数上限'),
+    }),
+    run: async ({ kind, msgId, maxDepth, limit }) => {
+      const svc = services();
+      const id = safeBigint(msgId);
+      if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const records =
+        kind === 'group'
+          ? await svc.forwardMsgs.getGroupForward(id)
+          : await svc.forwardMsgs.getC2cForward(id);
+      if (records.length === 0) {
+        return {
+          found: false,
+          kind,
+          msgId,
+          hint: '本地 40900 缓存里没有这条合并转发的内容（可能消息已清理/从未缓存）。本工具不联网补拉；如需在线拉取请在应用内使用。',
+        };
+      }
+
+      interface ForwardNode {
+        msgId?: string | number | bigint;
+        sendNick?: unknown;
+        senderUin?: string | number | bigint;
+        senderUid?: string;
+        isSender?: boolean;
+        sendTime?: string | number | bigint;
+        elements?: readonly unknown[];
+        subMsgs?: ForwardNode[];
+      }
+      const roots = records.map((r) => forwardRecordToWire(r) as ForwardNode);
+      const items: Array<{
+        depth: number;
+        time: string;
+        sender: string;
+        mine: boolean;
+        text: string;
+      }> = [];
+      let truncated = false;
+      const walk = (node: ForwardNode, depth: number): void => {
+        if (items.length >= limit) {
+          truncated = true;
+          return;
+        }
+        if (depth > maxDepth) return;
+        const uin = node.senderUin !== undefined ? String(node.senderUin) : '';
+        const sender = String(node.sendNick ?? '') || uin || node.senderUid || '未知';
+        items.push({
+          depth,
+          time: node.sendTime !== undefined ? fmtTime(Number(node.sendTime)) : '',
+          sender,
+          mine: node.isSender === true,
+          text: flattenElements(node.elements ?? []),
+        });
+        for (const sub of node.subMsgs ?? []) walk(sub, depth + 1);
+      };
+      for (const root of roots) walk(root, 0);
+      return {
+        found: true,
+        kind,
+        msgId,
+        count: items.length,
+        truncated,
+        hasMore: truncated,
+        messages: items,
+        hint:
+          items.length === 0
+            ? '缓存记录存在但没有可投影的文字内容（可能全是媒体/灰条）。'
+            : truncated
+              ? `转发内容较长，已截断为 ${limit} 条；如需更深层可调 maxDepth。`
+              : '',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_message_details',
+    description:
+      '取回【某一条消息】的完整结构化详情：逐条 element 的可读文案（回复引用、markdown 正文、' +
+      '灰条/卡片等不再只是占位）、可选 payload 字段，以及本地媒体信息（图片/语音/视频/文件是否已在磁盘、' +
+      '语音转写文本等）。' +
+      '\n【怎么定位消息】msgId 来自 get_messages / get_messages_by_date 的 includeIds=true 输出，' +
+      '或 list_recalled_messages / list_deleted_messages 返回的 msgId；也可以像 get_forward_messages 一样先 execute_sql 查 40001。' +
+      'kind: c2c=私聊（数据线设备 uid 也按 c2c 传），group=群聊；conv 与读该消息的会话一致。' +
+      '只读本地，不发网络；找不到时返回 found=false（msgId 可能不在该会话）。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型（数据线设备 uid 也按 c2c）'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('目标消息 msgId（40001，数字字符串）'),
+      includePayload: z
+        .boolean()
+        .default(true)
+        .describe('是否附带部分原始 payload（ark/markdown/灰条 XML/tipJson 等较长内容）'),
+      includeMedia: z
+        .boolean()
+        .default(true)
+        .describe('是否在本机媒体缓存里定位图片/语音/视频/文件的本地路径（不发网络）'),
+    }),
+    run: async ({ kind, conv, msgId, includePayload, includeMedia }) => {
+      const svc = services();
+      const id = safeBigint(msgId);
+      if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const row =
+        kind === 'group'
+          ? await svc.msgs.getGroupMessageById(conv, id)
+          : await svc.msgs.getC2cMessageById(conv, id);
+      if (!row) {
+        return {
+          found: false,
+          kind,
+          conv,
+          msgId,
+          hint: '本地消息表里没有这条消息（msgId 不在该会话/库中，或消息已被彻底清理）。',
+        };
+      }
+
+      const self = await svc.profile.getSelfProfile();
+      const selfUin = self?.uin ?? -1n;
+      const mine = row.senderUin === selfUin;
+      const otherUids = mine ? [] : [row.senderUid];
+      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+      const sender = mine
+        ? '我'
+        : (datalineName(row.senderUid) ?? nameByUid[row.senderUid] ?? String(row.senderUin));
+
+      const details = row.elements.map((el, i) => elementAiDetail(el, i, includePayload));
+      const media = includeMedia
+        ? await mediaForElements(svc.fileSearch, Number(row.sendTime), row.elements)
+        : [];
+
+      const out: Record<string, unknown> = {
+        found: true,
+        kind,
+        conv,
+        msgId: String(row.msgId),
+        msgSeq: String(row.msgSeq),
+        time: fmtTime(row.sendTime),
+        sender,
+        mine,
+        senderUid: row.senderUid,
+        text: flattenElements(row.elements),
+        elementCount: row.elements.length,
+        elements: details,
+        media,
+      };
+      if (row.deletedKind) out.deletedKind = row.deletedKind;
+      if (row.recall) {
+        out.recall = {
+          byUid: row.recall.revokeUid,
+          bySender: row.recall.sameSender,
+          time: fmtTime(row.recall.recallTs),
+        };
+      }
+      if ('setEmojiList' in row && Array.isArray(row.setEmojiList) && row.setEmojiList.length) {
+        out.reactions = row.setEmojiList.map((e) => ({
+          emojiId: e.emojiId,
+          count: e.setNum,
+          mine: e.isSelfSet,
+        }));
+      }
+      return out;
+    },
+  }),
+
+  tool({
+    name: 'transcribe_voice_message',
+    description:
+      '把某条消息里的本地语音（ptt）交给 WeQ 已下载的语音转写模型即时转成文字。' +
+      '只读本机已缓存的语音文件、不联网拉取，结果**不会写回数据库**（要写回 QQ 供导出复用属于改库副作用，不在本工具范围）。' +
+      '如果该语音之前已经转写（get_message_details 的 media[].transcript 非空），直接读即可，无需再调本工具。' +
+      '定位消息用 msgId：get_messages 开 includeIds 或 list_recalled_messages 会返回。' +
+      '当消息里有多个语音时可传 fileName 指定；不传则尝试全部。模型未下载/未配置时返回明确错误。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型（数据线设备 uid 也按 c2c）'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('目标消息 msgId（40001，数字字符串）'),
+      fileName: z
+        .string()
+        .optional()
+        .describe('可选：只转写该文件名的 ptt（同一消息带多个语音时用）'),
+    }),
+    run: async ({ kind, conv, msgId, fileName }) => {
+      const ctx = getAppContext();
+      const id = safeBigint(msgId);
+      if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const row =
+        kind === 'group'
+          ? await services().msgs.getGroupMessageById(conv, id)
+          : await services().msgs.getC2cMessageById(conv, id);
+      if (!row) {
+        return {
+          found: false,
+          kind,
+          conv,
+          msgId,
+          hint: '本地消息表里没有这条消息（msgId 不在该会话/库中）。',
+        };
+      }
+
+      const ptts = row.elements.filter((el): el is Extract<RenderElement, { type: 'ptt' }> => {
+        if (el.type !== 'ptt') return false;
+        if (fileName) return String(el.data.fileName ?? '') === fileName;
+        return true;
+      });
+      if (ptts.length === 0) {
+        return {
+          ok: false,
+          found: true,
+          kind,
+          conv,
+          msgId,
+          error: '这条消息里没有匹配的语音元素。',
+        };
+      }
+
+      const results: Array<Record<string, unknown>> = [];
+      for (const ptt of ptts) {
+        const name = String(ptt.data.fileName ?? '');
+        const entry: Record<string, unknown> = {
+          fileName: name || undefined,
+          durationSec: Number(ptt.data.pttDuration ?? 0) || undefined,
+        };
+        const hit = name
+          ? await services().fileSearch.findFile(Number(row.sendTime), name, 'ptt')
+          : { source: null, thumb: null };
+        if (!hit.source) {
+          entry.ok = false;
+          entry.error = '本机没有该语音的缓存文件（可能是旧消息被清理，或从未下载到本地）。';
+          results.push(entry);
+          continue;
+        }
+        entry.localPath = hit.source;
+        const res = await ctx.transcribeSilk(hit.source);
+        if (res.ok && res.text) {
+          entry.ok = true;
+          entry.transcript = res.text;
+        } else {
+          entry.ok = false;
+          entry.error = res.error ?? '语音转写失败';
+          entry.hint =
+            '模型未下载/未配置时请先在 WeQ「设置 → 语音转录」选择并下载模型；结果不会写回数据库。';
+        }
+        results.push(entry);
+      }
+
+      const allOk = results.every((r) => r.ok === true);
+      return {
+        ok: allOk,
+        found: true,
+        kind,
+        conv,
+        msgId,
+        count: results.length,
+        results,
+        hint: allOk
+          ? '转写结果仅本工具返回；如需把文字写回语音消息（QQ 也会显示），请在内置助手里使用带写库能力的入口。'
+          : '部分语音转写失败，多为模型未就绪或本地音频缺失。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_dataline_conversations',
+    description:
+      '列出「数据线」会话——QQ 跨设备同步的“我的手机 / 我的电脑 / 我的平板”聊天（数据存在 dataline_msg_table）。' +
+      '返回：conv（设备伪 uid，读消息时传给 get_dataline_messages）、device 设备名、lastTime、lastSeq。' +
+      '只读本地 recent_contact 列表，不发网络。回答「我和手机/电脑之间传过什么」这类问题时先调它拿 conv。',
+    input: z.object({
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(30)
+        .describe('从最近会话里最多找多少个数据线会话'),
+    }),
+    run: async ({ limit }) => {
+      const svc = services();
+      const contacts = await svc.recentContacts.getRecentContact(limit * 5);
+      const sessions = contacts.filter((c) => classifyChatType(c.chatType) === 'dataline');
+      return {
+        count: sessions.length,
+        source: 'local-recent-contact',
+        sessions: sessions.map((c) => ({
+          conv: c.targetUid,
+          device: datalineName(c.targetUid) ?? '未知设备',
+          chatType: String(c.chatType),
+          lastSeq: c.msgSeq.toString(),
+          lastTime: fmtTime(c.sendTime),
+        })),
+        hint:
+          sessions.length === 0
+            ? '最近会话列表里没有数据线会话（从未用过跨设备同步，或太久没动没出现在最近列表）。'
+            : '会话列表按最后消息时间排序；想看具体内容用 get_dataline_messages。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_dataline_messages',
+    description:
+      '读取某个数据线会话（我的手机/我的电脑/我的平板）的消息，按时间正序返回。' +
+      'conv 来自 list_dataline_conversations（设备伪 uid）。与普通私聊不同：本工具按设备判定方向——' +
+      'PC 伪 uid 算“我”，手机/平板算对端，昵称直接给“我的手机”等。' +
+      '返回同 get_messages 的精简行（time/sender/mine/text/gap）并带 hasMore/nextBefore 翻页。' +
+      '只读本地 dataline_msg_table，不发网络。',
+    input: z.object({
+      conv: z.string().min(1).describe('数据线设备伪 uid（用 list_dataline_conversations 获得）'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+      before: z.string().default('').describe('翻页游标：上一次返回的 nextBefore；不传=最新一页'),
+    }),
+    run: async ({ conv, limit, before }) => {
+      if (!isDatalineUid(conv)) {
+        throw new Error(
+          `「${conv}」不是数据线设备 uid；请先调 list_dataline_conversations 拿 conv。`,
+        );
+      }
+      const svc = services();
+      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      const probe = limit + 1;
+      const rows = beforeSeq
+        ? await svc.msgs.getC2cBefore(conv, beforeSeq, probe)
+        : await svc.msgs.getC2cLatest(conv, probe);
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
+      const lines = projectRows([...page].reverse(), selfUin, () => undefined);
+      return {
+        conv,
+        device: datalineName(conv) ?? conv,
+        count: lines.length,
+        hasMore,
+        ...(nextBefore ? { nextBefore } : {}),
+        coverage: '数据线消息来自本地 dataline_msg_table，仅覆盖已同步部分。',
+        messages: lines,
+        ...(lines.length === 0
+          ? {
+              hint: beforeSeq != null ? '没有更早的消息了。' : '该数据线会话本地没有消息记录。',
+            }
+          : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_guild_direct_sessions',
+    description:
+      '列出 QQ 频道「私聊」会话（频道里的单聊，不是频道群聊；数据来自 guild_msg.db 的 direct_node_list_table）。' +
+      '返回：nodeId（读频道私聊消息的键）、peerName 对方昵称、guildName 所在频道、lastSeq/lastTime、messageCount。' +
+      '只读本地，不发网络。回答「我跟谁有频道私聊」先调它。',
+    input: z.object({}),
+    run: async () => {
+      const svc = services();
+      const sessions = await svc.guildDirect.listSessions();
+      return {
+        count: sessions.length,
+        source: 'local-guild_msg.db',
+        sessions: sessions.map((s) => ({
+          nodeId: s.nodeId,
+          peerName: s.peerNick,
+          guildName: s.guildName,
+          lastSeq: s.lastSeq,
+          lastTime: s.lastTime ? fmtTime(Number(s.lastTime)) : '',
+          messageCount: s.messageCount,
+        })),
+        hint:
+          sessions.length === 0
+            ? '本机没有频道私聊会话（guild_msg.db 不存在或为空）。'
+            : '想看某会话的消息，把 nodeId 传给 get_guild_direct_messages。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_guild_direct_messages',
+    description:
+      '读取某个频道私聊会话的消息，按时间正序返回。nodeId 来自 list_guild_direct_sessions。' +
+      '返回精简行 time/sender/mine/text（sender=我 或 对方昵称），带 hasMore/nextBefore 往前翻更早的页。' +
+      '只读本地 guild_msg_table，不发网络。',
+    input: z.object({
+      nodeId: z.string().min(1).describe('会话 node id（list_guild_direct_sessions 返回）'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+      before: z.string().default('').describe('翻页游标：上一次返回的 nextBefore；不传=最新一页'),
+    }),
+    run: async ({ nodeId, limit, before }) => {
+      try {
+        BigInt(String(nodeId).trim());
+      } catch {
+        throw new Error(`nodeId 无效：${nodeId}（请用 list_guild_direct_sessions 获取）`);
+      }
+      const svc = services();
+      let peerName: string;
+      try {
+        peerName = (await svc.guildDirect.buildExportMeta(nodeId)).peerNick;
+      } catch {
+        throw new Error(
+          `未找到频道私聊会话（nodeId=${nodeId}）；可先用 list_guild_direct_sessions 确认。`,
+        );
+      }
+      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      const probe = limit + 1;
+      const rows = beforeSeq
+        ? await svc.guildDirect.getBefore(nodeId, beforeSeq, probe)
+        : await svc.guildDirect.getLatest(nodeId, probe);
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit); // 最新在前
+      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
+      const ordered = [...page].reverse();
+      const messages: AiMsgLine[] = [];
+      let prevSec: number | null = null;
+      for (const m of ordered) {
+        const sec = Number(m.sendTime);
+        const mine = Number(m.sendType) !== 0;
+        const line: AiMsgLine = {
+          time: fmtTime(sec),
+          sender: mine ? '我' : peerName,
+          mine,
+          text: flattenElements(m.elements ?? []),
+        };
+        if (prevSec !== null && sec - prevSec >= 1800) line.gap = humanDuration(sec - prevSec);
+        prevSec = sec;
+        messages.push(line);
+      }
+      return {
+        nodeId,
+        peerName,
+        count: messages.length,
+        hasMore,
+        ...(nextBefore ? { nextBefore } : {}),
+        coverage: '频道私聊来自本地 guild_msg_table，仅覆盖已同步部分。',
+        messages,
+        ...(messages.length === 0
+          ? {
+              hint: beforeSeq != null ? '没有更早的消息了。' : '该频道私聊会话本地没有消息记录。',
+            }
+          : hasMore
+            ? { hint: '还有更早的消息；把 nextBefore 传回 before 可继续往前读。' }
+            : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_collections',
+    description:
+      '列出当前账号的 QQ 收藏（收藏夹）。只读本机 collection.db，**不联网同步微云**——比应用内收藏页可能少最新的网络收藏。' +
+      '返回每条：cid、kind 类型（text 文本/link 链接/gallery 相册/audio 语音/video 视频/file 文件/location 位置/richMedia 富媒体）、' +
+      'collectedAt 收藏日期、authorName/groupName 来源、content 一段纯文本摘要。type 可过滤（1文本 2链接 3相册 4语音 5视频 6文件 7位置 8富媒体）。' +
+      '回答「我收藏过什么」「找一条收藏的链接/文章」用这个。',
+    input: z.object({
+      type: z
+        .number()
+        .int()
+        .min(1)
+        .max(8)
+        .optional()
+        .describe('按内容类型过滤：1=文本 2=链接 3=相册 4=语音 5=视频 6=文件 7=位置 8=富媒体'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+      offset: z.number().int().min(0).default(0).describe('分页偏移'),
+    }),
+    run: async ({ type, limit, offset }) => {
+      const svc = services();
+      const kindLabel: Record<string, string> = {
+        text: '文本',
+        link: '链接',
+        gallery: '相册',
+        audio: '语音',
+        video: '视频',
+        file: '文件',
+        location: '位置',
+        richMedia: '富媒体',
+        unknown: '未知',
+      };
+      // type 过滤下「offset/limit 按匹配条数计」：底层接口不支持类型筛选，这里
+      // 逐页扫本地库直到攒够 offset+limit 条匹配或扫完，避免每页截断后漏匹配。
+      const PAGE = 100;
+      const wantedEnd = offset + limit + 1; // 多取一条用于诚实的 hasMore
+      const matched: Array<ReturnType<typeof collectionItemToWire>> = [];
+      let scannedRows = 0;
+      while (matched.length < wantedEnd) {
+        const page = await svc.collection.listCollectionsFromDb(PAGE, scannedRows);
+        if (!page || page.items.length === 0) break;
+        scannedRows += page.items.length;
+        for (const it of page.items) {
+          if (type && it.type !== type) continue;
+          matched.push(collectionItemToWire(it));
+          if (matched.length >= wantedEnd) break;
+        }
+        if (!page.hasMore || page.items.length < PAGE) break;
+      }
+      const items = matched.slice(offset, offset + limit).map((w) => {
+        let content = w.text;
+        if (!content && w.link) {
+          content = [w.link.title, w.link.brief, w.link.url].filter(Boolean).join(' | ');
+        }
+        if (!content && w.video?.title) content = `${w.video.title}[视频]`;
+        if (!content && w.file?.name) content = `[文件:${w.file.name}]`;
+        if (!content && w.location?.name) {
+          content = [w.location.name, w.location.address].filter(Boolean).join(' ');
+        }
+        if (!content && w.richMedia?.title) {
+          content = [w.richMedia.title, w.richMedia.brief, w.richMedia.originalUri]
+            .filter(Boolean)
+            .join(' | ');
+        }
+        if (!content && w.gallery?.pics?.length) content = `[相册 ${w.gallery.pics.length} 张图片]`;
+        if (!content && w.audio?.stt) content = `[语音转写] ${w.audio.stt}`;
+        return {
+          cid: w.cid,
+          kind: w.kind,
+          kindLabel: kindLabel[w.kind] ?? w.kind,
+          collectedAt: fmtMsDate(w.collectTime),
+          ...(w.authorName ? { authorName: w.authorName } : {}),
+          ...(w.groupName ? { groupName: w.groupName } : {}),
+          content: content || '',
+        };
+      });
+      if (items.length === 0 && matched.length === 0) {
+        return {
+          count: 0,
+          source: 'db',
+          items: [],
+          hint: '本地 collection.db 里没有收藏记录（或该库不存在）。',
+        };
+      }
+      return {
+        count: items.length,
+        hasMore: matched.length >= wantedEnd,
+        source: 'db',
+        items,
+        hint: '来源为本地 collection.db（工具固定不走网络），仅包含本机已缓存的收藏。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'decode_blob',
+    description:
+      '把一段 hex / base64 二进制按 protobuf 或 JCE（QQHook TarsParser 语义）逆向解码成可读 JSON。' +
+      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树，' +
+      '并给出每个字段可能的含义（utf8 / bool / 时间戳 / zigzag / 定长 float 等）。' +
+      'tag ≥ 1001 的字段会尽量附上 QQ 全局词典里的字段名（小 tag 无全局含义、以嵌套上下文为准）。' +
+      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。' +
+      '返回 fields：{ tag, field?, value } 树；bytes 较大时只给摘要 hex。',
+    input: z.object({
+      data: z
+        .string()
+        .min(1)
+        .describe('hex（允许空格/冒号/0x 前缀）或 base64；可先直接粘贴 execute_sql 返回的 hex'),
+      encoding: z
+        .enum(['auto', 'hex', 'base64'])
+        .default('auto')
+        .describe('输入编码；auto 时先按 hex 判定'),
+      format: z
+        .enum(['auto', 'protobuf', 'jce'])
+        .default('auto')
+        .describe('auto=先 protobuf 再 JCE；也可强制按一种解析'),
+    }),
+    run: async ({ data, encoding, format }) => {
+      const result = decodeBlobText(data, encoding, format);
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: result.error,
+          hint: '换更短的片段，或确认输入是完整字节（BLOB 列通常从 execute_sql 直接复制 hex）。',
+        };
+      }
+      return {
+        ok: true,
+        bytes: result.bytes,
+        kind: result.kind,
+        fields: result.fields,
+        ...(result.guessNote ? { guessNote: result.guessNote } : {}),
+        hint:
+          result.kind === 'guess'
+            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
+            : '字段名只来自 QQ 全局 tag 词典；若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'decode_db_blob',
+    description:
+      '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
+      '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
+      '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
+      '返回与 decode_blob 相同的 fields 树，并附 source（库/路径/SQL/列/字节数）。',
+    input: z.object({
+      dbName: z
+        .string()
+        .min(1)
+        .describe('数据库文件名（如 msg.db / nt_msg.db），可用 list_databases 查'),
+      sql: z
+        .string()
+        .min(1)
+        .describe('只读 SELECT，取第一行作为目标（建议 WHERE 限定 msgId/rowid）'),
+      column: z.string().min(1).describe('目标列名（结果集里要解码的那一列）'),
+      format: z
+        .enum(['auto', 'protobuf', 'jce'])
+        .default('auto')
+        .describe('同 decode_blob：auto=先 protobuf 再 JCE，失败给猜测树'),
+      encoding: z
+        .enum(['auto', 'hex', 'base64'])
+        .default('auto')
+        .describe('TEXT 单元格的输入编码（BLOB 单元格固定按 hex；auto 先判 hex）'),
+    }),
+    run: async ({ dbName, sql, column, format, encoding }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      if (!/^(select|with|explain)\b/i.test(sql.trim())) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: 'decode_db_blob 只接受只读 SELECT / WITH / EXPLAIN，已阻止执行其它语句。',
+        };
+      }
+
+      let result: Awaited<ReturnType<AccountServices['dbExplorer']['runSql']>>;
+      try {
+        result = await services().dbExplorer.runSql(dbFile.path, sql);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { ok: false, dbName: dbFile.name, error: `SQL 执行失败：${message}` };
+      }
+      if (result.kind !== 'rows') {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: 'decode_db_blob 只接受只读 SELECT；当前语句不是读语句。',
+        };
+      }
+      const colIndex = result.columns.indexOf(column);
+      if (colIndex < 0) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          column,
+          availableColumns: result.columns,
+          error: `结果集里没有列「${column}」。`,
+        };
+      }
+      if (!result.rows.length) {
+        return { ok: false, dbName: dbFile.name, error: 'SQL 没有返回任何行。' };
+      }
+
+      const cell: unknown = result.rows[0]?.[colIndex];
+      let decoded: ReturnType<typeof decodeBlobHex>;
+      if (
+        cell !== null &&
+        cell !== undefined &&
+        typeof cell === 'object' &&
+        't' in cell &&
+        (cell as { t?: string }).t === 'blob' &&
+        typeof (cell as { hex?: unknown }).hex === 'string'
+      ) {
+        decoded = decodeBlobHex(String((cell as { hex?: unknown }).hex), format);
+      } else if (typeof cell === 'string') {
+        decoded = decodeBlobText(cell, encoding, format);
+      } else {
+        decoded = {
+          ok: false,
+          kind: 'none',
+          bytes: 0,
+          fields: [],
+          error: '目标单元格既不是 BLOB 也不是 TEXT。',
+        };
+      }
+      if (!decoded.ok) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: decoded.error,
+        };
+      }
+      return {
+        ok: true,
+        source: {
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          sql,
+          column,
+        },
+        bytes: decoded.bytes,
+        kind: decoded.kind,
+        fields: decoded.fields,
+        ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'execute_sql',
+    description:
+      '在当前 QQ 账号本地数据库里执行一条 SQL 语句（SELECT / INSERT / UPDATE / DELETE / PRAGMA / DDL 等均可）。' +
+      '`dbName` 是数据库文件名（如 `msg.db`、`login.db`、`bc_09.db`），可先用 list_databases 查；`table` 是参考用的表名，' +
+      '仅用于结果里的上下文，不参与执行。执行成功返回 `{ success: true, result }`，失败返回 `{ success: false, error }`。' +
+      '⚠️ 这是**最后手段**：直写 SQL 要先猜表结构/列号、结果难读且易查错，非常低效；请优先用上层专用工具' +
+      '（find_contact / get_messages / search_messages / inspect_timeline / rank_* / get_period_overview 等），' +
+      '只有它们覆盖不到时才用本工具，并用 list_db_tables + list_db_columns 摸清结构后只写 SELECT。' +
+      '⚠️ 写操作会真的改 QQ 数据库，谨慎使用，建议 QQ 关闭时操作。',
+    input: z.object({
+      dbName: z
+        .string()
+        .min(1)
+        .describe('数据库文件名（如 msg.db、login.db、bc_09.db），可通过 list_databases 获得'),
+      table: z.string().min(1).describe('参考用的表名（仅用于结果上下文，不参与 SQL 执行）'),
+      sql: z.string().min(1).describe('要执行的 SQL 语句（可含多条，用 ; 分隔，末尾分号可省略）'),
+    }),
+    run: async ({ dbName, sql }) => {
+      const dbExplorer = services().dbExplorer;
+
+      // 把数据库文件名解析成完整路径
+      const databases = await dbExplorer.listDatabases();
+      const dbFile = databases.find((d) => d.name.toLowerCase() === dbName.toLowerCase());
+      if (!dbFile) {
+        return {
+          success: false,
+          dbName,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+
+      try {
+        const result = await dbExplorer.runSql(dbFile.path, sql);
+        return {
+          success: true,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table: dbName,
+          result,
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          success: false,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table: dbName,
+          error: message,
+        };
+      }
+    },
+  }),
+
+  tool({
+    name: 'list_databases',
+    description:
+      '列出当前账号目录下可访问的 QQ 数据库文件（name、完整 dbPath、bytes、kind：account=账号库 / login=全局登录库）。' +
+      '是 execute_sql / decrypt_database 选库的入口：dbName 直接取这里的 name 即可。只读本地目录，不发网络。',
+    input: z.object({}),
+    run: async () => {
+      const svc = services();
+      const dbs = await svc.dbDecrypt.listDatabases();
+      return {
+        count: dbs.length,
+        databases: dbs.map((d) => ({
+          name: d.name,
+          path: d.path,
+          bytes: d.bytes,
+          kind: d.kind,
+        })),
+        hint:
+          dbs.length === 0
+            ? '当前账号目录下没有找到 .db 文件。'
+            : '需要操作某库时把 name 传给 execute_sql；需要拿到明文副本用 decrypt_database。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_db_tables',
+    description:
+      '列出当前账号某个 QQ 数据库里的表 / 视图 / 索引（来自 sqlite_master，不含内部 sqlite_* 与触发器）。' +
+      'DB 逆向或想确认 execute_sql 该查哪张表时先用它。dbName 用 list_databases 的 name。',
+    input: z.object({
+      dbName: z
+        .string()
+        .min(1)
+        .describe('数据库文件名（如 msg.db、login.db、bc_09.db），可用 list_databases 查'),
+    }),
+    run: async ({ dbName }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      const objects = await services().dbExplorer.listObjects(dbFile.path);
+      return {
+        ok: true,
+        dbName: dbFile.name,
+        dbPath: dbFile.path,
+        count: objects.length,
+        tables: objects.filter((o) => o.type === 'table'),
+        views: objects.filter((o) => o.type === 'view'),
+        indexes: objects
+          .filter((o) => o.type === 'index')
+          .map((o) => ({
+            name: o.name,
+            table: o.tableName,
+          })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_db_columns',
+    description:
+      '列出当前账号某个 QQ 数据库里指定表/视图的列（cid、列名、类型、NOT NULL、是否主键）。' +
+      '配合 list_db_tables / execute_sql 做数据库探索：不用先手写 PRAGMA table_info。',
+    input: z.object({
+      dbName: z.string().min(1).describe('数据库文件名（如 msg.db），可用 list_databases 查'),
+      table: z.string().min(1).describe('表名或视图名（list_db_tables 可查）'),
+    }),
+    run: async ({ dbName, table }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      try {
+        const columns = await services().dbExplorer.getColumns(dbFile.path, table);
+        return {
+          ok: true,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table,
+          count: columns.length,
+          columns,
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { ok: false, dbName: dbFile.name, table, error: message };
+      }
+    },
+  }),
+
+  tool({
+    name: 'query_sqlite_file',
+    description:
+      '对【已解密的明文 SQLite 文件】执行只读 SQL（SELECT / WITH / EXPLAIN；PRAGMA 不开放）——' +
+      '例如 decrypt_database 生成的明文副本，或其它已知明文 .db。与 execute_sql 不同：' +
+      '本工具直接接受文件路径、不校验账号目录、也不允许写语句（杜绝误改源库）。' +
+      '返回与 execute_sql 相同的 rows 结构；BLOB 单元格以 hex 形式给出（可再交给 decode_blob / decode_db_blob）。',
+    input: z.object({
+      path: z
+        .string()
+        .min(1)
+        .describe('明文 SQLite 文件的绝对路径（decrypt_database 返回的 outPath 即可直接填）'),
+      sql: z
+        .string()
+        .min(1)
+        .describe(
+          '只读 SQL（SELECT / WITH / EXPLAIN；查表结构用 sqlite_master，查列用 pragma_table_info）',
+        ),
+    }),
+    run: async ({ path, sql }) => {
+      try {
+        const result = await services().dbExplorer.queryPlainSqliteFile(path, sql);
+        return { ok: true, path, sql, result };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          ok: false,
+          path,
+          error: message,
+          hint: '仅支持明文 SQLite（解密副本可直接查；加密的 nt_db 原库请走 execute_sql / list_databases）。',
+        };
+      }
+    },
+  }),
+
+  tool({
+    name: 'decrypt_database',
+    description:
+      '把当前账号的一个加密 QQ 数据库解密成明文 SQLite 副本写到本地目录（默认 fast 快路径；safe 更稳更慢）。' +
+      'dbName 用 list_databases 的 name（如 msg.db / login.db / bc_09.db——bc_09 本就是明文，只做拷贝）。' +
+      'outputDir 必须是本机真实存在的绝对目录（目录不存在会自动创建）。返回 outPath 明文文件路径，之后可用任意 SQLite 工具打开，' +
+      '也可把路径交给 execute_sql 外的本地工具。⚠️ 本工具会写本地文件，且可能包含你全部聊天数据，注意输出目录权限。' +
+      '只读源库（源文件不会被修改），不发网络。',
+    input: z.object({
+      dbName: z.string().min(1).describe('数据库文件名（list_databases 的 name）'),
+      outputDir: z.string().min(1).describe('明文副本输出目录（绝对路径，不存在会自动创建）'),
+      mode: z
+        .enum(['fast', 'safe'])
+        .default('fast')
+        .describe('解密模式：fast=快路径（默认），safe=保守慢路径'),
+      concurrency: z
+        .number()
+        .int()
+        .min(1)
+        .max(6)
+        .optional()
+        .describe('并发数（默认 3，单库无需传）'),
+    }),
+    run: async ({ dbName, outputDir, mode, concurrency }) => {
+      const svc = services();
+      const databases = await svc.dbDecrypt.listDatabases();
+      const dbFile = databases.find((d) => d.name.toLowerCase() === dbName.toLowerCase());
+      if (!dbFile) {
+        return {
+          ok: false,
+          dbName,
+          error: `未找到名为「${dbName}」的数据库。可先调 list_databases 查看可用数据库。`,
+        };
+      }
+      const results = await svc.dbDecrypt.decryptDatabases({
+        items: [{ dbPath: dbFile.path, name: dbFile.name }],
+        outputDir: String(outputDir).trim(),
+        mode,
+        ...(concurrency ? { concurrency } : {}),
+      });
+      const r = results[0];
+      if (!r?.ok) {
+        return { ok: false, dbName, error: r?.error ?? '解密失败' };
+      }
+      return {
+        ok: true,
+        dbName: r.name,
+        sourcePath: r.dbPath,
+        outPath: r.outPath,
+        mode,
+        hint: `明文副本已写入 ${r.outPath}；源库未被修改。`,
+      };
+    },
+  }),
+
+  // ── 凭据类 ────────────────────────────────────────────────────────────
+
+  tool({
+    name: 'get_web_tokens',
+    description:
+      '获取当前账号在指定域的 web 凭据（skey / p_skey + bkn）。domain 可选 qzone.qq.com / qun.qq.com / ti.qq.com / vip.qq.com / pd.qq.com。' +
+      '已注入时走 hook 实时取（秒回），未注入时自动回退 ptlogin2 本地快速登录。' +
+      'skey 与域无关；p_skey 按域缓存。⚠️ 返回的是登录凭据，不要泄露、不要写入日志。需要在线 QQ。',
+    input: z.object({
+      domain: z
+        .enum(['qzone.qq.com', 'qun.qq.com', 'ti.qq.com', 'vip.qq.com', 'pd.qq.com'])
+        .describe('要取票据的业务域名'),
+      needSkey: z.boolean().default(false).describe('是否同时取 skey（默认只要 p_skey）'),
+    }),
+    run: async ({ domain, needSkey }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const tokens = await fetchWebTokens(ntHelper(), uin, pid, domain, { needSkey });
+      if (!tokens.pskey && !tokens.skey) {
+        return {
+          ok: false,
+          domain,
+          error: '凭据获取失败（QQ 可能刚重启、票据过期或该域不支持兜底登录）。',
+        };
+      }
+      return {
+        ok: true,
+        domain,
+        uin,
+        ...(tokens.skey ? { skey: tokens.skey } : {}),
+        ...(tokens.pskey ? { pskey: tokens.pskey } : {}),
+        bkn: computeBkn(tokens.pskey || tokens.skey),
+        hint: '凭据短期有效；调外部接口时 cookie 带 skey/p_skey，g_tk 用返回的 bkn。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_client_key',
+    description:
+      '获取当前账号的 clientKey（客户端票据，可换一次性免登跳转 URL）。需要已注入的在线 QQ。' +
+      '⚠️ 一次性敏感凭据，不要泄露。',
+    input: z.object({}),
+    run: async () => {
+      onlinePid(); // 只要求在线；clientKey 由 hook 提供
+      const ck = await fetchClientKey(ntHelper(), onlinePid());
+      if (!ck.clientKey) {
+        return {
+          ok: false,
+          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+        };
+      }
+      return { ok: true, clientKey: ck.clientKey, keyIndex: ck.keyIndex };
+    },
+  }),
+
+  tool({
+    name: 'get_download_rkeys',
+    description:
+      '获取当前账号的媒体下载 rkey（图片 CDN 签名 URL 的 &rkey=… 片段）。type: 10=私聊图, 20=群聊图。' +
+      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。',
+    input: z.object({}),
+    run: async () => {
+      const pid = onlinePid();
+      const items = await fetchDownloadRkeys(ntHelper(), pid);
+      return {
+        ok: true,
+        count: items.length,
+        items: items.map((r) => ({
+          rkey: r.rkey,
+          type: r.type,
+          ttlSeconds: r.ttlSeconds,
+          createTime: r.createTime,
+          expiresAt: new Date((r.createTime + r.ttlSeconds) * 1000).toISOString(),
+        })),
+        hint: 'rkey 拼在 QQ 媒体 CDN URL 后面（&rkey=…）；过期后重新调用本工具即可。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_ptlogin_jump_url',
+    description:
+      '生成一个 QQ空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
+      'site=qzone 落地到空间个人中心，site=channel 落地到频道 pd.qq.com。URL 含一次性 clientKey，点击时现取。需要在线且已注入的 QQ。',
+    input: z.object({
+      site: z.enum(['qzone', 'channel']).describe('目标站点'),
+    }),
+    run: async ({ site }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const landing =
+        site === 'qzone'
+          ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
+          : 'https://pd.qq.com/';
+      const ck = await fetchClientKey(ntHelper(), pid);
+      if (!ck.clientKey) {
+        return {
+          ok: false,
+          site,
+          url: landing,
+          autoLogin: false,
+          hint: 'clientKey 不可用，退回裸地址（需手动登录）。',
+        };
+      }
+      const { buildPtlogin2JumpUrl } = await import('@weq/service');
+      return {
+        ok: true,
+        site,
+        url: buildPtlogin2JumpUrl(ck, uin, landing),
+        autoLogin: true,
+        hint: 'URL 含一次性凭据，仅在本次会话使用，不要转发。',
+      };
+    },
+  }),
+
+  // ── 协议能力类（OIDB，需要在线 QQ）──────────────────────────────────
+
+  tool({
+    name: 'get_peer_stats',
+    description:
+      '查询某个用户的【QQ 等级 + 资料卡累计获赞】（两条 OIDB 并行：0xFE1_2 按 uin 查等级，0x7ED_12 按 uid 查获赞）。' +
+      'uin 与 uid 至少传一个：只有 uin 时只查等级，只有 uid 时只查获赞，两个都传时全查。需要在线 QQ。',
+    input: z.object({
+      uin: z.string().optional().describe('目标 QQ 号（纯数字，查等级用）'),
+      uid: z.string().optional().describe('目标 uid（u_ 开头，查获赞用；find_contact 可解析）'),
+    }),
+    run: async ({ uin, uid }) => {
+      const svc = services().peerStats;
+      const out: Record<string, unknown> = {};
+      if (uin?.trim()) out.level = await svc.getQqLevel(uin.trim());
+      if (uid?.trim()) out.likeCount = await svc.getLikeCount(uid.trim());
+      if (Object.keys(out).length === 0) {
+        throw new Error('uin 与 uid 至少传一个。');
+      }
+      return { ok: true, ...(uin ? { uin } : {}), ...(uid ? { uid } : {}), ...out };
+    },
+  }),
+
+  tool({
+    name: 'get_qq_show_url',
+    description:
+      '查询某个 QQ 号的【QQ 秀形象】（OIDB 0xFE1_3，按 uin 查），返回透明全身像 URL；没有 QQ 秀时 hasShow=false。需要在线 QQ。',
+    input: z.object({
+      uin: z.string().min(1).describe('目标 QQ 号（纯数字）'),
+    }),
+    run: async ({ uin }) => {
+      const info = await services().peerStats.getQqShow(uin.trim());
+      return {
+        ok: true,
+        uin,
+        hasShow: info.hasShow,
+        ...(info.hasShow && info.url ? { url: info.url } : {}),
+        ...(!info.hasShow ? { hint: '该账号没有设置 QQ 秀。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_flash_share_link',
+    description:
+      '把一条【QQ 闪传】卡片的 fileSetId 换成可分享的下载链接（OIDB 0x93d3_1）。' +
+      'fileSetId 来自闪传消息的 fileTransferInfo。需要在线 QQ。',
+    input: z.object({
+      fileSetId: z.string().min(1).describe('闪传 fileset uuid'),
+    }),
+    run: async ({ fileSetId }) => {
+      const shareUrl = await services().flashTransfer.getShareLink(fileSetId.trim());
+      return {
+        ok: shareUrl !== '',
+        fileSetId,
+        ...(shareUrl ? { shareUrl } : { error: '服务端没有返回分享链接（fileset 可能已过期）。' }),
+      };
+    },
+  }),
+
+  tool({
+    name: 'fetch_history_window',
+    description:
+      '【从服务端拉取一段历史消息】（SsoGetGroupMsg / SsoGetC2cMsg，按 msgSeq 窗口，单次最多约 30 条）。' +
+      '用于本地库有 seq 缺口、或想看比本地更早的消息。拉到的消息会写入本机漫游缓存，下次直接命中。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。需要在线 QQ。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      startSeq: z.number().int().min(0).describe('窗口起始 seq（含，旧端）'),
+      endSeq: z
+        .number()
+        .int()
+        .min(0)
+        .describe('窗口结束 seq（含，新端；end-start ≤ 30，更大的缺口返回 nextStartSeq 分页继续）'),
+    }),
+    run: async ({ kind, conv, startSeq, endSeq }) => {
+      const result = await services().gapHistory.fetch(kind, conv, startSeq, endSeq);
+      if (!result.ok) {
+        return {
+          ok: false,
+          kind,
+          conv,
+          startSeq,
+          endSeq,
+          reason: result.reason,
+          error: result.message,
+        };
+      }
+      return {
+        ok: true,
+        kind,
+        conv,
+        fetched: result.fetched,
+        count: result.messages.length,
+        ...(result.nextStartSeq !== null ? { nextStartSeq: result.nextStartSeq } : {}),
+        messages: result.messages.map((m) => ({
+          time: fmtTime(BigInt(m.sendTime)),
+          msgSeq: m.msgSeq,
+          sender: m.senderUin,
+          text: flattenElements(m.elements),
+        })),
+        ...(!result.nextStartSeq && result.fetched === 0
+          ? { hint: '这段 seq 服务端没有返回消息（可能超出漫游覆盖范围）。' }
+          : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_tuwen_ark',
+    description:
+      '给私聊或群聊发送一张【自定义图文 Ark 卡片】（OIDB 0xdc2_34：标题 + 描述 + 跳转链接 + 预览图）。' +
+      '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('发送目标类型'),
+      targetId: z.string().min(1).describe('目标 QQ 号（c2c）或群号（group），纯数字'),
+      title: z.string().min(1).max(100).describe('卡片标题'),
+      desc: z.string().max(200).default('').describe('卡片描述'),
+      jumpUrl: z.string().url().describe('点击跳转的 URL'),
+      previewUrl: z.string().url().default('').describe('卡片预览图 URL（可为空）'),
+    }),
+    run: async ({ peerType, targetId, title, desc, jumpUrl, previewUrl }) => {
+      if (peerType !== 'group') {
+        throw new Error('当前只支持发到群聊（peerType=group）。');
+      }
+      await services().flashTransfer.sendTuwenArkToGroup({
+        groupId: Number(targetId.trim()),
+        cardTitle: title,
+        desc,
+        jumpUrl,
+        previewUrl,
+      });
+      return { ok: true, peerType, targetId, hint: '卡片已发送（响应仅 ack，无法撤回）。' };
+    },
+  }),
+
+  // ── Web CGI 查询类 ──────────────────────────────────────────────────
+
+  tool({
+    name: 'get_group_honor',
+    description:
+      '查询某个群的【群荣誉榜单】（qun.qq.com 荣誉页）：type=talkative 龙王/群聊之火, performer 群聊炽焰, legend 群聊传说, emotion 快乐源泉。' +
+      '返回每名：uin、nickname、desc 荣誉描述。需要在线 QQ（凭证可 pt_login 兜底）。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号（纯数字，find_contact 可解析群名）'),
+      type: z
+        .enum(['talkative', 'performer', 'legend', 'emotion'])
+        .default('talkative')
+        .describe('荣誉类型'),
+    }),
+    run: async ({ groupCode, type }) => {
+      const map = {
+        talkative: HonorType.Talkative,
+        performer: HonorType.Performer,
+        legend: HonorType.Legend,
+        emotion: HonorType.Emotion,
+      } as const;
+      const list = await services().webQuery.getHonorList(groupCode.trim(), map[type]);
+      return {
+        ok: true,
+        groupCode,
+        type,
+        count: list.length,
+        members: list.map((m) => ({
+          uin: m.uin !== null ? String(m.uin) : null,
+          nickname: m.nickname,
+          desc: m.description,
+        })),
+        ...(list.length === 0 ? { hint: '榜单为空（该群暂无此荣誉数据，或无查看权限）。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_group_albums',
+    description:
+      '列出某个群的【相册列表】（qzone cgi）：相册 id、名称、照片数、封面、描述、创建/更新时间。' +
+      '相册 id 传给 get_group_album_photos 看内容。需要在线 QQ。',
+    input: z.object({
+      groupId: z.string().min(1).describe('群号（纯数字）'),
+    }),
+    run: async ({ groupId }) => {
+      const albums = await services().webQuery.getGroupAlbumList(groupId.trim());
+      return {
+        ok: true,
+        groupId,
+        count: albums.length,
+        albums: albums.map((a) => ({
+          id: a.id,
+          title: a.title,
+          photoCount: a.photoCount,
+          ...(a.coverUrl ? { coverUrl: a.coverUrl } : {}),
+          ...(a.desc.trim() ? { desc: a.desc } : {}),
+          createTime: a.createTime,
+          updateTime: a.updateTime,
+        })),
+        ...(albums.length === 0 ? { hint: '该群没有相册，或票据已失效。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_qzone_profile',
+    description:
+      '读取某个 QQ 号的【QQ空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
+      'mode=msgs 返回说说（内容/时间/图片/视频/评论数），mode=albums 返回相册。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标 QQ 号（纯数字；不传查自己）').optional(),
+      mode: z.enum(['msgs', 'albums']).default('msgs').describe('msgs=说说列表, albums=相册列表'),
+      pos: z.number().int().min(0).default(0).describe('说说翻页偏移（mode=msgs）'),
+      num: z.number().int().min(1).max(50).default(10).describe('说说条数上限（mode=msgs）'),
+    }),
+    run: async ({ targetUin, mode, pos, num }) => {
+      const svc = services().webQuery;
+      const uin = (targetUin ?? currentUin()).trim();
+      if (mode === 'albums') {
+        const albums = await svc.getQzoneAlbums(uin);
+        return {
+          ok: true,
+          targetUin: uin,
+          mode,
+          count: albums.length,
+          albums: albums.map((a) => ({
+            id: a.id,
+            name: a.name,
+            mediaCount: a.mediaCount,
+            ...(a.coverUrl ? { coverUrl: a.coverUrl } : {}),
+            createTime: a.createTime ? fmtDate(BigInt(a.createTime)) : '',
+          })),
+        };
+      }
+      const result = await svc.getQzoneMsgList(uin, pos, num);
+      return {
+        ok: true,
+        targetUin: uin,
+        mode,
+        total: result.total,
+        count: result.list.length,
+        ...(pos + result.list.length < result.total ? { nextPos: pos + result.list.length } : {}),
+        list: result.list.map((e) => ({
+          tid: e.tid,
+          time: fmtTime(BigInt(e.time)),
+          content: e.content,
+          commentNum: e.commentNum,
+          ...(e.isPrivate ? { isPrivate: true } : {}),
+          ...(e.images.length ? { images: e.images } : {}),
+          ...(e.videos.length
+            ? {
+                videos: e.videos.map((v) => ({
+                  coverUrl: v.coverUrl,
+                  videoUrl: v.videoUrl,
+                  duration: v.duration,
+                })),
+              }
+            : {}),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_friend_dress',
+    description:
+      '查询某个用户【正在使用的个性装扮】（好友装扮 SSR 页）：挂件/名片/浮屏/输入状态等。' +
+      '注意：气泡/字体/头像装扮服务端对他人查询永远回默认款（已剔除），查自己正在用的全部装扮用 get_self_dress。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标 QQ 号（纯数字）'),
+    }),
+    run: async ({ targetUin }) => {
+      const dress = await services().webQuery.getFriendDress(targetUin.trim());
+      if (!dress) {
+        return {
+          ok: false,
+          targetUin,
+          error: '解析不出装扮数据（对方可能关闭了展示，或票据失效）。',
+        };
+      }
+      return {
+        ok: true,
+        targetUin: dress.targetUin,
+        isSvip: dress.isSvip,
+        items: dress.items.map((i) => ({
+          kind: i.kind,
+          name: i.name,
+          itemId: i.itemId,
+          ...(i.price ? { price: i.price } : {}),
+        })),
+        ...(dress.items.length === 0 ? { hint: '对方没有可解析到的装扮（或全是默认款）。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_self_dress',
+    description:
+      '查询【本账号正在使用的全部个性装扮】（含查他人拿不到的气泡/字体/头像），返回各类目 itemId 与名称。需要在线 QQ。',
+    input: z.object({}),
+    run: async () => {
+      const dress = await services().webQuery.getSelfDress();
+      return {
+        ok: true,
+        uin: dress.uin,
+        items: dress.items.map((i) => ({
+          kind: i.kind,
+          name: i.name,
+          itemId: i.itemId,
+          ...(i.hdUrl ? { hdUrl: i.hdUrl } : {}),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_friend_mutual_mark',
+    description:
+      '查询我与某个好友之间的【互动标识】（友谊的小船/巨轮、火花、幸运字符等，含每个标识的等级、进度、是否点亮、佩戴状态）。' +
+      '传对方 uin。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标好友的 QQ 号（纯数字）'),
+    }),
+    run: async ({ targetUin }) => {
+      const mark = await services().webQuery.getFriendMutualMark(targetUin.trim());
+      return {
+        ok: true,
+        targetUin: mark.targetUin,
+        targetNickname: mark.targetNickname,
+        totalNum: mark.totalNum,
+        lightUpNum: mark.lightUpNum,
+        categories: mark.categories.map((c) => ({
+          name: c.name,
+          lightUpNum: c.lightUpNum,
+          totalNum: c.totalNum,
+          marks: c.marks.map((m) => ({
+            name: m.name,
+            symbol: m.symbol,
+            level: m.level,
+            isLightup: m.isLightup,
+            isWearing: m.isWearing,
+            count: m.count,
+            ...(m.nextLevelName ? { nextLevelName: m.nextLevelName } : {}),
+          })),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_dress_mall',
+    description:
+      '查询【装扮商城】目录（气泡/字体/挂件）：mode=rank 排行榜（离线可用，走本地静态榜单兜底），mode=search 关键词搜索（必须在线）。' +
+      'kind: bubble=气泡, font=字体, widget=挂件。返回每款 itemId、名称、预览图、价格。',
+    input: z.object({
+      kind: z.enum(['bubble', 'font', 'widget']).describe('装扮类目'),
+      mode: z
+        .enum(['rank', 'search'])
+        .default('rank')
+        .describe('rank=排行榜（离线可用）, search=搜索（需在线）'),
+      keyword: z.string().default('').describe('搜索关键词（mode=search 时必填）'),
+      pageIndex: z.number().int().min(1).default(1).describe('排行榜页码（从 1 起，mode=rank）'),
+      pageSize: z.number().int().min(1).max(50).default(20).describe('每页条数'),
+    }),
+    run: async ({ kind, mode, keyword, pageIndex, pageSize }): Promise<unknown> => {
+      const appId =
+        kind === 'bubble'
+          ? DressAppId.Bubble
+          : kind === 'font'
+            ? DressAppId.Font
+            : DressAppId.Widget;
+      const svc = services().webQuery;
+      if (mode === 'search') {
+        const kw = keyword.trim();
+        if (!kw) throw new Error('mode=search 时必须传 keyword。');
+        const { items, total } = await svc.searchDress(appId, kw, 0, pageSize);
+        return dressMallResult(
+          kind,
+          'search',
+          items,
+          total,
+          '搜索需要在线 QQ；没有在线实例时会抛错。',
+        );
+      }
+      let items: DressMallItem[];
+      let offline = false;
+      try {
+        items = await svc.getDressRank(appId, pageIndex, pageSize);
+      } catch {
+        // 离线兜底：读仓库里存的一份静态排行榜原始响应。
+        const path = resolveResource('dress', `ranking-${kind}.json`);
+        items = path ? normalizeMallItems(JSON.parse(readFileSync(path, 'utf-8'))) : [];
+        offline = true;
+      }
+      return dressMallResult(
+        kind,
+        'rank',
+        items,
+        items.length,
+        offline
+          ? '当前为离线静态榜单（联网排行榜不可用时的兜底），内容可能不是最新。'
+          : '在线排行榜。',
+      );
+    },
+  }),
+
+  tool({
+    name: 'get_dress_resource_url',
+    description:
+      '从【本地离线资源 bundle】（resources/dress/*.dat，QQ 自带的那批装扮资源）查某款装扮某个部件的 CDN 下载 URL。' +
+      '纯本地查询，不需要在线 QQ。kind: bubble/font/widget；name 部件名如 config.json / static.zip / other.zip / main / fzfont / aio_50.png / xydata.js。' +
+      '查不到（bundle 没收录该款）返回 found=false，需要时改走在线换链。',
+    input: z.object({
+      kind: z.enum(['bubble', 'font', 'widget']).describe('装扮类目'),
+      itemId: z.string().min(1).describe('装扮 id（纯数字）'),
+      name: z.string().min(1).describe('部件名（如 config.json / static.zip / main / fzfont）'),
+    }),
+    run: async ({ kind, itemId, name }) => {
+      const r = ntHelper().queryDressResourceUrl(kind, itemId.trim(), name.trim());
+      if (!r) {
+        return {
+          found: false,
+          kind,
+          itemId,
+          name,
+          hint: '本地 bundle 没有这个条目（该款不在 QQ 自带资源里，或 name 不对）。',
+        };
+      }
+      return {
+        found: true,
+        kind,
+        itemId,
+        name,
+        url: r.url,
+        bytes: r.size,
+      };
+    },
+  }),
+
+  tool({
+    name: 'convert_font',
+    description:
+      '把 QQ 私有字体格式【FTF 转换成标准 TTF】（nt_helper 内置的 convertFont：识别 FTFH/FTFG 私有表、坐标解码、重组 glyf）。' +
+      '输入已是普通 TTF 时会原样拷贝（并删掉 OTS 拒绝的空表）。返回输出文件路径与说明。⚠️ 会写本地文件。',
+    input: z.object({
+      inputPath: z.string().min(1).describe('输入字体文件绝对路径（.ttf，FTF 或普通 TTF）'),
+      outputPath: z.string().min(1).describe('输出 TTF 的绝对路径'),
+    }),
+    run: async ({ inputPath, outputPath }) => {
+      const message = ntHelper().convertFont(inputPath.trim(), outputPath.trim());
+      return { ok: true, inputPath, outputPath, message };
+    },
+  }),
+
+  // ── 商城表情 ────────────────────────────────────────────────────────
+
+  tool({
+    name: 'search_market_emoji',
+    description:
+      '搜索【商城表情包目录】（本地离线索引 25000+ 套：resources/emoji/market.csv）。' +
+      'keyword 对名称/介绍做子串匹配；feeTypes 过滤来源（free/paid/vip/svip）。返回 packId、名称、介绍、来源标签。' +
+      '拿到 packId 后接 get_market_pack_detail 看单套表情清单、get_market_pack_key 破解图片密钥。',
+    input: z.object({
+      keyword: z.string().default('').describe('搜索关键词（名称/介绍子串匹配，空=全部）'),
+      feeTypes: z
+        .array(z.enum(['free', 'paid', 'vip', 'svip']))
+        .default([])
+        .describe('来源过滤（空=全部）'),
+      limit: z.number().int().min(1).max(200).default(30).describe('每页条数'),
+      cursor: z.string().default('').describe('翻页游标（上一页返回的 nextCursor）'),
+    }),
+    run: async ({ keyword, feeTypes, limit, cursor }) => {
+      const page = searchCatalog({
+        keyword,
+        ...(feeTypes.length ? { feeTypes } : {}),
+        limit,
+        ...(cursor ? { cursor } : {}),
+      });
+      return {
+        total: page.total,
+        count: page.entries.length,
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        entries: page.entries,
+        hint:
+          page.entries.length === 0
+            ? '没有命中；换个更短的关键词，或放宽 feeTypes。'
+            : 'packId 可接 get_market_pack_detail（单套清单）与 get_market_pack_key（图片密钥）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_detail',
+    description:
+      '获取一套【商城表情包的在线详情】：名称、介绍、来源（免费/付费/VIP）、表情数量与每张表情的 hash/名称/关键词。' +
+      '（CDN 拉 android.json 解析。）图片密钥用 get_market_pack_key。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID（search_market_emoji 返回的 id）'),
+    }),
+    run: async ({ packId }) => {
+      const detail = await services().emoji.getMarketPackDetail(packId.trim());
+      if (!detail) {
+        return { ok: false, packId, error: '拉不到该表情包的详情（id 不存在或 CDN 不可达）。' };
+      }
+      return {
+        ok: true,
+        packId: detail.packId,
+        name: detail.name,
+        summary: detail.summary,
+        feeType: detail.feeType,
+        updateTime: detail.updateTime,
+        count: detail.count,
+        items: detail.items,
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_key',
+    description:
+      '破解一套【商城表情包的图片解密密钥】（16 位 ASCII，md5(str(seed)) 前缀）。' +
+      '不传 timestamp 时自动恢复（免费包读元数据种子，付费包在 updateTime 附近爆破 TEA 头）；' +
+      '手动传 timestamp 则按 md5(str(ts))[:16] 本地派生（不查网络）。解密图片走 get_market_pack_image。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID'),
+      timestamp: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('手动指定种子时间戳（unix 秒；不传=自动恢复）'),
+    }),
+    run: async ({ packId, timestamp }) => {
+      const key = await services().emoji.getMarketPackKey(
+        packId.trim(),
+        timestamp && timestamp > 0 ? timestamp : undefined,
+      );
+      if (!key) {
+        return {
+          ok: false,
+          packId,
+          error: '密钥恢复失败（未知表情包 / 爆破窗口耗尽）。可试试手动传 timestamp。',
+        };
+      }
+      return {
+        ok: true,
+        packId,
+        key: key.key,
+        timestamp: key.timestamp,
+        source: key.source,
+        hint: '密钥 = md5(str(timestamp)) 前 16 位；配合 CDN 加密 GIF 走 QQTEA 解密。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_image',
+    description:
+      '下载并解密一张【商城表情图片】为明文 GIF（CDN 加密流 → packId 密钥 QQTEA 解密 → 本地缓存），返回本地文件路径。' +
+      'keyOverride 可透传手动密钥跳过自动恢复。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID'),
+      hash: z.string().min(6).describe('表情图片 hash（get_market_pack_detail 的 items[].hash）'),
+      keyOverride: z.string().optional().describe('手动密钥（16 位；不传=自动恢复）'),
+    }),
+    run: async ({ packId, hash, keyOverride }) => {
+      const path = await services().emoji.getMarketPackImage(
+        packId.trim(),
+        hash.trim(),
+        keyOverride?.trim() || undefined,
+      );
+      if (!path) {
+        return {
+          ok: false,
+          packId,
+          hash,
+          error:
+            '解密失败（密钥不对或 CDN 不可达）。可先 get_market_pack_key 拿密钥再传 keyOverride。',
+        };
+      }
+      return { ok: true, packId, hash, path, hint: '明文 GIF 已落盘，可用文件工具查看。' };
+    },
+  }),
+
+  // ── 代码沙箱 ─────────────────────────────────────────────────────────────
+  // 上面每个工具都是「一次调用、一个结果」的原子能力；凡是需要**批量 / 聚合 / 跨工具**
+  // 的活（把上百个群逐个核对、按角色筛人、把几份结果 join 后统计），模型只能一个个
+  // 硬调，既慢又容易在参数上反复试错。run_js 把这类活交给一段脚本，它是助手唯一的
+  // 「自己算」入口。
+  //
+  // assistantOnly: true —— 沙箱里的 callTool 能调到 execute_sql 这类可写工具，
+  // 对外只读的 MCP 面板不能开这个口子（server.ts 会过滤掉 assistantOnly）。
+  tool({
+    name: 'run_js',
+    assistantOnly: true,
+    description:
+      '在本地**受限 JS 沙箱**里跑一段 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
+      '\n【沙箱里有什么】① `callTool(name, args)`：**异步**调用任意其他工具（内置工具和你接入的外部 MCP 工具都可以，参数与直接调用那个工具时完全一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
+      '\n【怎么用我】代码支持顶层 await，**必须用 `return` 把结果交出来**；若你习惯先写 `async function main() { … }`，那要写成 `return main()`。脚本在还有调用没 await 完时就结束会被**判失败**（否则会变成一个「看似没查到」的假结果）。写循环批量补查时自己控量：**单个脚本最多调 40 次工具**，超了会当场报错，那就把活拆成多轮对话。' +
+      '\n【失败了怎么看】返回值里的 `calls[]` 是每次调用的轨迹，失败那条带 `error` 字段（写明为什么失败，比如参数不合法）；`notes[]` 是给你的提醒。照着 error 改参数重试，别直接放弃或改用别的工具硬堆。' +
+      '\n【限制】沙箱里没有 require / import / fs / fetch / process，拿不到 Node 能力也上不了网，数据只能经 callTool 进来；eval / new Function 被禁用。报错会带上你代码的行号，超时（默认 ' +
+      `${JS_SANDBOX_DEFAULT_TIMEOUT_MS / 1000}s，上限 ${JS_SANDBOX_MAX_TIMEOUT_MS / 1000}s）会被硬中止。` +
+      '\n【结果不能代表什么】result 是脚本的返回值、logs 是脚本自己的输出，两者都不等于工具原文；脚本报错只说明这段代码有问题，不代表数据不存在——先看 error 与 calls 再改代码重试。单个工具一次就能查到的，别用沙箱包一层。',
+    input: z.object({
+      code: z
+        .string()
+        .min(1)
+        .describe(
+          'JavaScript 源码：可写顶层 await，用 return 给出结果，用 callTool(name, args) 调其他工具',
+        ),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(1_000)
+        .max(JS_SANDBOX_MAX_TIMEOUT_MS)
+        .default(JS_SANDBOX_DEFAULT_TIMEOUT_MS)
+        .describe('执行超时（毫秒）'),
+    }),
+    run: async ({ code, timeoutMs }) => {
+      // 动态 import：执行入口在 openai_tools.ts，静态引入会与 AI_TOOLS 绕成一个环。
+      const { runAssistantTool } = await import('./openai_tools');
+      return runJsSandbox(code, runAssistantTool, timeoutMs);
+    },
+  }),
+];

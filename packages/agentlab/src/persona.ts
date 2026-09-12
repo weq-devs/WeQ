@@ -246,13 +246,16 @@ export function extractPairs(turns: AgentLabTurn[]): AgentLabStoredPair[] {
 function summarizeStyle(turns: AgentLabTurn[], stats: AgentLabPersonaStats): string {
   if (stats.friendMessageCount === 0) return '语料不足';
   const hints: string[] = [];
-  hints.push(stats.avgFriendMsgChars <= 12 ? '偏短句' : stats.avgFriendMsgChars <= 24 ? '中短句' : '偏长句');
+  hints.push(
+    stats.avgFriendMsgChars <= 12 ? '偏短句' : stats.avgFriendMsgChars <= 24 ? '中短句' : '偏长句',
+  );
   if (stats.avgFriendBurst >= 2) hints.push('习惯连发短消息');
   const friendTexts = turns.filter((t) => t.role === 'assistant').flatMap((t) => t.texts);
   const exclamation = friendTexts.filter((t) => /[!！]/.test(t)).length;
   const emoji = friendTexts.filter((t) => /\[[^\]]+\]|[\u{1F300}-\u{1FAFF}☀-➿]/u.test(t)).length;
   if (friendTexts.length > 0 && exclamation / friendTexts.length >= 0.2) hints.push('语气更活');
-  if (friendTexts.length > 0 && emoji / friendTexts.length >= 0.15) hints.push('常带表情或情绪标记');
+  if (friendTexts.length > 0 && emoji / friendTexts.length >= 0.15)
+    hints.push('常带表情或情绪标记');
   return hints.join('，');
 }
 

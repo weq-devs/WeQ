@@ -49,7 +49,12 @@ export namespace GetPrivatePttUrl {
   export const serialize = (p: Params): Record<string, unknown> =>
     buildNtv2DownloadReq(
       PTT_REQUEST_ID,
-      { requestType: 1, businessType: 3, sceneType: 1, c2c: { accountType: 2, targetUid: p.selfUid } },
+      {
+        requestType: 1,
+        businessType: 3,
+        sceneType: 1,
+        c2c: { accountType: 2, targetUid: p.selfUid },
+      },
       p.node,
     );
 

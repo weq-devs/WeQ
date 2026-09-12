@@ -47,6 +47,9 @@ import {
   MiscDb,
   QqDb,
   UnreadInfoDb,
+  GuildDirectNodeDb,
+  GuildDirectMsgDb,
+  GuildCommonProfileDb,
 } from '@weq/db';
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
@@ -62,11 +65,11 @@ function requireFile(dirPath: string, filename: string): string {
 
 function dbOpts(
   dbPath: string,
-  dbKey?: string,
+  key?: string,
   algos?: Record<string, import('@weq/native').DatabaseAlgorithms>,
 ) {
   const algo = algos ? (algos[basename(dbPath)] ?? algos['nt_msg.db']) : undefined;
-  return { dbPath, ...(dbKey ? { key: dbKey } : {}), ...(algo ? { algo } : {}) };
+  return { dbPath, ...(key ? { key } : {}), ...(algo ? { algo } : {}) };
 }
 
 async function resolveAllAlgorithms(
@@ -74,6 +77,7 @@ async function resolveAllAlgorithms(
   dbPaths: string[],
   dbKey?: string,
   algos?: Record<string, DatabaseAlgorithms>,
+  keyFor?: (dbPath: string) => string | undefined,
 ): Promise<Record<string, DatabaseAlgorithms>> {
   if (!dbKey) return algos ?? {};
   const resolved: Record<string, DatabaseAlgorithms> = { ...algos };
@@ -82,7 +86,9 @@ async function resolveAllAlgorithms(
       if (!existsSync(dbPath)) return;
       const filename = basename(dbPath);
       if (resolved[filename]) return;
-      const probe = await nt.testDatabaseKey(dbPath, dbKey);
+      const key = keyFor ? keyFor(dbPath) : dbKey;
+      if (!key) return;
+      const probe = await nt.testDatabaseKey(dbPath, key);
       if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
         resolved[filename] = {
           pageHmacAlgorithm: probe.pageHmacAlgorithm,
@@ -107,6 +113,9 @@ const DIR_SALT = 'nt_kernel';
 /** QQ NT 在真正的 SQLite 页前面塞了 1024 字节自定义头。 */
 const CUSTOM_HEADER_LEN = 1024;
 
+/** 安卓 QQ 频道库文件名：`gpro_v1-6_<uid>.db`（uid 直接写在文件名里）。 */
+const GPRO_DB_RE = /^gpro_v[\d-]+_(u_[A-Za-z0-9_-]+)\.db$/;
+
 /**
  * uid 不用猜 —— 安卓目录里有个 `gpro_v1-6_<uid>.db`，文件名直接带着它。
  * （PC 目录没有这个文件，所以这条路只对手机备份成立。）
@@ -119,10 +128,28 @@ function findUidFromDirEntries(dirPath: string): string | undefined {
     return undefined;
   }
   for (const name of names) {
-    const m = /^gpro_v[\d-]+_(u_[A-Za-z0-9_-]+)\.db$/.exec(name);
+    const m = GPRO_DB_RE.exec(name);
     if (m?.[1]) return m[1];
   }
   return undefined;
+}
+
+/**
+ * QQ 频道「常用资料缓存」（t_GPro_CommonUserProfile_v2）的物理文件。
+ * PC 端是 `guild1.db`；安卓备份里没有 `guild1.db`，同一张表放在同目录的
+ * `gpro_v1-6_<uid>.db` 里。找不到时回退到 `guild1.db` 路径，保持原有的
+ * 「文件缺失 → 查询侧惰性报错/容错」语义。
+ */
+function resolveGuildProfileCacheDb(dirPath: string): string {
+  const guild1DbPath = join(dirPath, 'guild1.db');
+  if (existsSync(guild1DbPath)) return guild1DbPath;
+  try {
+    const name = readdirSync(dirPath).find((n) => GPRO_DB_RE.test(n));
+    if (name) return join(dirPath, name);
+  } catch {
+    // 目录不可读时交给后面的惰性报错。
+  }
+  return guild1DbPath;
 }
 
 /**
@@ -296,6 +323,17 @@ export async function openStaticAccount(
   const groupInfoDbPath = requireFile(dirPath, 'group_info.db');
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
 
+  // ---- guild (QQ 频道) physical files ----
+  // 会话/消息表（direct_node_list_table / guild_msg_table）两端都在
+  // guild_msg.db；资料缓存 t_GPro_CommonUserProfile_v2 在 PC 是 guild1.db，
+  // 安卓备份里没有 guild1.db，同一张表放在同目录的 gpro_v1-6_<uid>.db。
+  const guildMsgDbPath = join(dirPath, 'guild_msg.db');
+  const guildProfileDbPath = resolveGuildProfileCacheDb(dirPath);
+  // gpro 库（安卓 QQ 频道）的 SQLCipher 密钥独立于账号主密钥，按文件派生；
+  // 其余库沿用账号主密钥；明文目录（无 dbKey）统一不开密钥。
+  const guildKeyOf = (dbPath: string): string | undefined =>
+    dbKey && basename(dbPath).startsWith('gpro_') ? nt.getGuildDbKey(dbPath, uin) : dbKey;
+
   // Probe each db file not already covered by the supplied algos map.
   const resolvedAlgos = await resolveAllAlgorithms(
     nt,
@@ -308,9 +346,12 @@ export async function openStaticAccount(
       join(dirPath, 'file_assistant.db'),
       join(dirPath, 'collection.db'),
       join(dirPath, 'misc.db'),
+      guildMsgDbPath,
+      guildProfileDbPath,
     ],
     dbKey,
     algos,
+    guildKeyOf,
   );
 
   // probeAllAlgorithms throws when the key is wrong for the primary db; for
@@ -319,7 +360,7 @@ export async function openStaticAccount(
     throw new Error('Database key is incorrect or the encryption parameters are unsupported');
   }
 
-  const opts = (dbPath: string) => dbOpts(dbPath, dbKey, resolvedAlgos);
+  const opts = (dbPath: string) => dbOpts(dbPath, guildKeyOf(dbPath), resolvedAlgos);
 
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
   // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
@@ -331,7 +372,10 @@ export async function openStaticAccount(
   const deletedSessions = new DeletedSessionDb(nt, opts(msgDbPath));
   const serviceAssistantContacts = new ServiceAssistantContactDb(nt, opts(msgDbPath));
   // 服务号（118）消息表结构同 c2c，复用 C2cMsgDb 只换表名；分区键是 appId（40035）。
-  const serviceAssistantMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'service_assistant_msg_table' });
+  const serviceAssistantMsgs = new C2cMsgDb(nt, {
+    ...opts(msgDbPath),
+    table: 'service_assistant_msg_table',
+  });
 
   // Load the uid ↔ uin ↔ sortNo directory.
   const uidMappingDb = new UidMappingDb(nt, opts(msgDbPath));
@@ -347,6 +391,11 @@ export async function openStaticAccount(
 
   const forwardMsgs = new ForwardMsgDb(nt, opts(msgDbPath));
   const unreadInfo = new UnreadInfoDb(nt, opts(msgDbPath));
+
+  // ---- guild (QQ 频道); files may be absent for non-channel accounts ----
+  const guildDirectNodes = new GuildDirectNodeDb(nt, opts(guildMsgDbPath));
+  const guildDirectMsgs = new GuildDirectMsgDb(nt, opts(guildMsgDbPath));
+  const guildCommonProfiles = new GuildCommonProfileDb(nt, opts(guildProfileDbPath));
 
   // ---- full-text-search indexes (may not exist; search will fail gracefully) ----
   const buddyMsgFts = new BuddyMsgFtsDb(nt, opts(join(dirPath, 'buddy_msg_fts.db')));
@@ -417,6 +466,9 @@ export async function openStaticAccount(
     botProfiles,
     misc,
     unreadInfo,
+    guildDirectNodes,
+    guildDirectMsgs,
+    guildCommonProfiles,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -448,6 +500,9 @@ export async function openStaticAccount(
       botProfiles.close();
       misc.close();
       unreadInfo.close();
+      guildDirectNodes.close();
+      guildDirectMsgs.close();
+      guildCommonProfiles.close();
     },
   };
 }

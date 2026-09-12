@@ -112,6 +112,8 @@ export interface UiTask {
   isContacts?: boolean;
   /** 收藏导出。 */
   isCollection?: boolean;
+  /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
+  isGuild?: boolean;
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -143,6 +145,7 @@ function taskTypeLabel(t: UiTask): string {
   if (t.isQzone) return 'QQ 空间导出';
   if (t.isContacts) return '联系人导出';
   if (t.isCollection) return '收藏导出';
+  if (t.isGuild) return '消息导出 · 频道私聊';
   return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
 }
 
@@ -511,9 +514,7 @@ export function TaskList({
 
   // 收拢时的总进度条（所有任务的加权平均）
   const overallProgress = hasTasks
-    ? Math.min(100, Math.round(
-        tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length,
-      ))
+    ? Math.min(100, Math.round(tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length))
     : 0;
   const runningCount = tasks.filter((t) => t.status === 'running').length;
 
@@ -541,9 +542,7 @@ export function TaskList({
             全部完成
           </span>
         ) : !isExpanded && hasTasks ? (
-          <span className="weq-exp-tasks-mini-status">
-            {overallProgress}%
-          </span>
+          <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
         ) : null}
         {onSaveAll && completedCount > 0 ? (
           <button

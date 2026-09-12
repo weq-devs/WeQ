@@ -159,8 +159,7 @@ export function searchCatalog(opts: {
 }): MarketCatalogPage {
   const all = loadCatalog();
   const kw = (opts.keyword ?? '').trim().toLowerCase();
-  const feeSet =
-    opts.feeTypes && opts.feeTypes.length > 0 ? new Set(opts.feeTypes) : null;
+  const feeSet = opts.feeTypes && opts.feeTypes.length > 0 ? new Set(opts.feeTypes) : null;
 
   const matched =
     !kw && !feeSet

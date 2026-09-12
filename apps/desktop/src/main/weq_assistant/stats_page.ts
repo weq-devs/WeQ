@@ -62,7 +62,11 @@ function brandLogoDataUri(): string | null {
 }
 
 /** 消息类型配色（与 renderer 的 GroupAnalyticsDialog 一致）。 */
-const TYPE_COLORS: Array<{ key: keyof WeqStatsReport['stats']['totals']; label: string; color: string }> = [
+const TYPE_COLORS: Array<{
+  key: keyof WeqStatsReport['stats']['totals'];
+  label: string;
+  color: string;
+}> = [
   { key: 'textMessages', label: '文本', color: '#3b82f6' },
   { key: 'imageMessages', label: '图片', color: '#22c55e' },
   { key: 'voiceMessages', label: '语音', color: '#f97316' },
@@ -75,9 +79,11 @@ const TYPE_COLORS: Array<{ key: keyof WeqStatsReport['stats']['totals']; label: 
 
 function renderDonut(report: WeqStatsReport, p: WeqPalette): string {
   const t = report.stats.totals;
-  const segs = TYPE_COLORS.map((c) => ({ label: c.label, color: c.color, value: t[c.key] as number })).filter(
-    (s) => s.value > 0,
-  );
+  const segs = TYPE_COLORS.map((c) => ({
+    label: c.label,
+    color: c.color,
+    value: t[c.key] as number,
+  })).filter((s) => s.value > 0);
   const total = segs.reduce((s, x) => s + x.value, 0);
 
   let acc = 0;
@@ -157,7 +163,20 @@ function renderHourly(report: WeqStatsReport, p: WeqPalette): string {
 
 // ── 每日热力图（绿墙，移植自 analyticsCharts.ContributionHeatmap） ────────────
 
-const MONTH_NAMES = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+const MONTH_NAMES = [
+  '1月',
+  '2月',
+  '3月',
+  '4月',
+  '5月',
+  '6月',
+  '7月',
+  '8月',
+  '9月',
+  '10月',
+  '11月',
+  '12月',
+];
 const DAY_MS = 86400000;
 const HEATMAP_DAYS = 371;
 
@@ -197,7 +216,7 @@ function renderHeatmap(report: WeqStatsReport, p: WeqPalette): string {
     for (let i = 0; i < 7; i++) {
       const key = fmtYmd(cur);
       const inRange = cur.getTime() >= start.getTime() && cur.getTime() <= last.getTime();
-      const count = inRange ? counts.get(key) ?? 0 : 0;
+      const count = inRange ? (counts.get(key) ?? 0) : 0;
       if (inRange) {
         if (count > max) max = count;
         if (cur.getDate() <= 7 && cur.getMonth() !== lastMonth && !labelForWeek) {
@@ -462,7 +481,10 @@ export function renderStatsPageHtml(report: WeqStatsReport): string {
 
   const foot = `<div class="foot"><span class="lock">🔒</span> 数据全部来自你本机的 WeQ 服务 · localhost.weixin.qq.com</div>`;
 
-  return pageShell(p, brandRow() + hero + overview + donut + ranking + hourly + heatmap + wordcloud + foot);
+  return pageShell(
+    p,
+    brandRow() + hero + overview + donut + ranking + hourly + heatmap + wordcloud + foot,
+  );
 }
 
 /** 「生成中」占位页（无快照 / 首次开启，后台正在算）。 */

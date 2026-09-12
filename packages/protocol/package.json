@@ -1,26 +1,15 @@
 {
   "name": "@weq/protocol",
-  "version": "0.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "tools:scupdate-probe": "tsx tools/scupdate_probe.ts",
-    "tools:get-profile-like": "tsx tools/get_profile_like.ts",
-    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts",
-    "tools:get-qq-show-url": "tsx tools/get_qq_show_url.ts",
-    "tools:flash-transfer-upload": "tsx tools/flash_transfer_upload.ts",
-    "tools:flash-transfer-send": "tsx tools/flash_transfer_send.ts",
-    "tools:flash-transfer-share-link": "tsx tools/flash_transfer_share_link.ts",
-    "tools:send-tuwen-ark": "tsx tools/send_tuwen_ark.ts",
-    "tools:fetch-msg-history": "tsx tools/fetch_msg_history.ts",
-    "tools:fetch-forward": "tsx tools/fetch_forward.ts",
-    "tools:scan-msg-history": "tsx tools/scan_msg_history.ts"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@weq/native": "workspace:*"

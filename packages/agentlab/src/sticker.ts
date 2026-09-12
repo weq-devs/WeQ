@@ -1,7 +1,22 @@
 /**
  * 表情选择与发送逻辑（参考 MaiBot emoji_manager）
  */
+import { existsSync } from 'node:fs';
 import type { AgentLabStickerRef, AgentLabPersona } from './types';
+
+/**
+ * 「可发」的表情：本地文件在盘上。没有 localPath 或文件已丢失的一律不能选——
+ * 否则模型会兴冲冲地发一张渲染端 404 的破图（气泡里只剩 alt 文本「[表情]」）。
+ * 这是发送链路的第一道闸：选表情时就别给模型碰不到的选项。
+ */
+export function isStickerUsable(s: AgentLabStickerRef): boolean {
+  return !!s.localPath && existsSync(s.localPath);
+}
+
+/** persona 里本地可用的表情子集（过滤 + 保序）。 */
+export function usableStickers(persona: AgentLabPersona): AgentLabStickerRef[] {
+  return (persona.stickers ?? []).filter(isStickerUsable);
+}
 
 /** Levenshtein 距离（编辑距离），用滚动 1D 数组实现。 */
 function levenshtein(a: string, b: string): number {
@@ -92,12 +107,13 @@ function scoreStickerForEmotion(sticker: AgentLabStickerRef, targetEmotion: stri
  * 随机挑一张表情（供「随机发」通路：模型输出 emoji content=random 时用）。
  * preferUndescribed=true 时优先从「没有文字描述」的表情里挑——这正是刚导入、还没被视觉模型
  * 解析过的新表情，让它们也有机会被发出去（否则永远进不了编号清单）。子集为空则回退全部。
+ * 只从本地文件可用的表情里挑：缺文件的发出去就是破图，宁可不发。
  */
 export function pickRandomSticker(
   persona: AgentLabPersona,
   opts?: { preferUndescribed?: boolean },
 ): AgentLabStickerRef | null {
-  const all = persona.stickers ?? [];
+  const all = usableStickers(persona);
   if (all.length === 0) return null;
   const undescribed = all.filter((s) => !s.description && !s.scenario);
   const pool = opts?.preferUndescribed && undescribed.length > 0 ? undescribed : all;
@@ -109,7 +125,8 @@ export function selectStickerByEmotion(
   persona: AgentLabPersona,
   targetEmotion: string,
 ): AgentLabStickerRef | null {
-  const stickers = (persona.stickers ?? []).filter(
+  // 只在本地可用的表情里匹配：情绪再对、文件不在盘上也不能发（发出去是破图）。
+  const stickers = usableStickers(persona).filter(
     (s) => s.description || s.scenario || (s.contexts ?? []).length > 0,
   );
   if (stickers.length === 0) return null;

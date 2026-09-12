@@ -63,7 +63,9 @@ async function chatCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  };
   reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
@@ -103,7 +105,9 @@ async function visionCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  };
   reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
@@ -157,7 +161,10 @@ function parseProfile(raw: Record<string, unknown>): AgentLabPersonaDeepProfile 
   return {
     facts: coerceStringArray(raw.facts).slice(0, PROFILE_CAPS.facts),
     relationship: coerceString(raw.relationship),
-    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(0, PROFILE_CAPS.reactionPatterns),
+    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(
+      0,
+      PROFILE_CAPS.reactionPatterns,
+    ),
     boundaries: coerceStringArray(raw.boundaries).slice(0, PROFILE_CAPS.boundaries),
     sharedEvents: coerceStringArray(raw.sharedEvents).slice(0, PROFILE_CAPS.sharedEvents),
   };
@@ -169,13 +176,48 @@ const FEWSHOT_JSON_SHAPE = `{
   ]
 }`;
 
-function corpusPreamble(friendName: string, stats: AgentLabPersonaStats, corpusText: string): string {
+function corpusPreamble(
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): string {
   return [
     `下面是「我」和「${friendName}」的聊天记录（按时间正序，一行一轮；同一人连发多条时用「／」分隔）。`,
     `已知统计：${friendName} 共 ${stats.friendMessageCount} 条消息，单条平均 ${stats.avgFriendMsgChars} 字，平均一轮连发 ${stats.avgFriendBurst} 条。`,
     '',
     corpusText,
   ].join('\n');
+}
+
+const NAME_JSON_SHAPE = `{
+  "name": "起的名字（2-8 个字符）"
+}`;
+
+/**
+ * 给被克隆的人起一个「训练用」的名字：根据 TA 的说话风格/性格/常聊话题，
+ * 起一个贴合的网名或代号（不是真实姓名，也不是记录里的现有昵称）。
+ * 克隆训练全流程（语料渲染、画像/风格提炼提示词）都用这个名字称呼 TA。
+ * 返回空串 = 放弃（调用方退回默认昵称）。
+ */
+export async function suggestPersonaName(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): Promise<string> {
+  const raw = await generateJson(
+    endpoint,
+    '你是起名专家。下面是一个人的聊天记录。请给 TA 起一个训练用的名字（网名/代号/自称）——' +
+      '不要用 TA 的真实姓名，也不要沿用记录里 TA 的现有昵称；名字要贴合 TA 的说话风格、性格与常聊话题，' +
+      '让人觉得「这就是 TA 会起的名字」。2-8 个字符，中文优先，可带数字/字母/符号点缀，不要任何解释。' +
+      `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${NAME_JSON_SHAPE}`,
+    `${corpusPreamble(friendName, stats, corpusText)}\n\n请根据「${friendName}」的聊天记录起一个名字，按要求输出 JSON。`,
+    0.8,
+    '克隆体起名',
+  );
+  const name = coerceString(raw.name).replace(/\s+/g, ' ').trim();
+  // 模型偷懒复读原昵称时视为起名失败。
+  return name && name.toLowerCase() !== friendName.toLowerCase() ? name : '';
 }
 
 export async function extractPersonaCard(
@@ -333,6 +375,52 @@ export async function extractExpressions(
   return out.slice(0, 15);
 }
 
+const STYLE_VARIANTS_JSON_SHAPE = `{
+  "variants": ["指令式一句话，≤30字（如：偶尔只用一两个字敷衍；急了会连发短句加感叹号；阴阳怪气时会带点翻译腔）"]
+}`;
+
+/**
+ * 备用表达风格提取（借鉴 MaiBot multiple_reply_style）：从语料里挖 TA **偶尔会切换**的
+ * 说话状态——与主语气不同的变化（超短敷衍 / 连发感叹 / 阴阳怪气 / 正经起来等）。
+ * 每轮低概率随机注入一条，打破「每句话都一个腔调」的固定模式。
+ * 指令式、可泛化（不带具体人名地名事件）；失败返回空数组、不阻断克隆。
+ */
+export async function extractStyleVariants(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): Promise<string[]> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = await generateJson(
+      endpoint,
+      '你是表达风格分析器。从聊天记录里找出「TA 偶尔/有时会切换的表达状态」——' +
+        '与 TA 平时主语气**不同**的备用风格变化：比如偶尔只用一两个字敷衍、' +
+        '情绪上来会连发短句加感叹号、阴阳怪气时带点翻译腔、遇到感兴趣的事会一口气说很多等。' +
+        '要可泛化、能迁移到新对话——不要带具体人名地名事件内容。' +
+        '每条写成给 AI 看的行动指令，一句话 ≤30 字，直接描述「什么时候会怎样说话」。' +
+        '挑 3-5 条最鲜明、最常出现的。注意：这些是**偶尔出现的变化**，不是 TA 的常态语气。' +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${STYLE_VARIANTS_JSON_SHAPE}`,
+      `${corpusPreamble(friendName, stats, corpusText)}\n\n请提炼「${friendName}」的备用表达风格，按要求输出 JSON。`,
+      0.4,
+      '备用表达风格',
+    );
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw.variants) ? raw.variants : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    const variant = coerceString(item).replace(/\s+/g, ' ').slice(0, 40);
+    if (!variant || seen.has(variant)) continue;
+    seen.add(variant);
+    out.push(variant);
+  }
+  return out.slice(0, 6);
+}
+
 const MEMORY_JSON_SHAPE = `{
   "memories": ["关于对方的一条新信息，具体一句话（如：对方最近在准备考研；对方养了只布偶猫）"]
 }`;
@@ -354,7 +442,10 @@ export async function distillMemories(
     .map((t) => `${t.role === 'user' ? '对方' : '你'}：${t.text}`)
     .join('\n');
   if (!lines.trim()) return [];
-  const knownBlock = known.length > 0 ? `\n\n你已经记住的（不要重复）：\n${known.map((k) => `- ${k}`).join('\n')}` : '';
+  const knownBlock =
+    known.length > 0
+      ? `\n\n你已经记住的（不要重复）：\n${known.map((k) => `- ${k}`).join('\n')}`
+      : '';
   let raw: Record<string, unknown>;
   try {
     raw = await generateJson(
@@ -453,7 +544,9 @@ export async function decideGroupReply(
     `你是「${input.personaName}」，正在一个群聊里。`,
     input.tone ? `你的性格/语气：${input.tone}` : '',
     input.relationNote ? input.relationNote : '',
-    input.memories && input.memories.length > 0 ? `你记得关于 TA：${input.memories.join('；')}` : '',
+    input.memories && input.memories.length > 0
+      ? `你记得关于 TA：${input.memories.join('；')}`
+      : '',
     input.dispositionHint ?? '',
     input.crowdedHint ?? '',
   ].filter(Boolean);

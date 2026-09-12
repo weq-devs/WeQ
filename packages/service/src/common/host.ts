@@ -61,6 +61,30 @@ export interface HostBridge {
    */
   openHtmlReport(path: string): Promise<{ url: string } | null>;
   /**
+   * Render a self-contained HTML document to a PDF buffer.
+   * Electron opens an isolated hidden window and calls `printToPDF`; hosts
+   * that can't render PDFs throw (callers surface "unsupported").
+   */
+  renderHtmlToPdf(html: string): Promise<Buffer>;
+  /**
+   * Screenshot a self-contained HTML document into one PNG per `.slide`
+   * (in document order). Electron opens an isolated hidden window, resolves
+   * each slide's box and captures it; hosts without a rendering engine throw.
+   *
+   * `indexes` restricts the capture to those 0-based slides; `overlayHtml` is
+   * appended inside every captured slide (the QQ-space share chrome).
+   */
+  renderHtmlToSlidesPng(
+    html: string,
+    opts?: { indexes?: number[]; overlayHtml?: string },
+  ): Promise<Buffer[]>;
+  /**
+   * Screenshot every `.slide` of a self-contained HTML document and stitch them
+   * vertically into a single tall PNG. Same isolation guarantees as
+   * {@link renderHtmlToSlidesPng}.
+   */
+  renderHtmlToLongPng(html: string): Promise<Buffer>;
+  /**
    * Show an exported bot's WebUI console, logging in with `key`. Electron opens
    * a window and returns `null`; web returns the URL for the client to open.
    */
@@ -71,8 +95,28 @@ export interface HostBridge {
   }): Promise<{ url: string } | null>;
   /** App version string (`app.getVersion()` on Electron, package version on web). */
   appVersion(): string;
+  /**
+   * Whether this host participates in OS-level autostart at all. False on the
+   * web/server host (the deployer's process manager owns it — a bare
+   * `node server.mjs` needs args + cwd, so registering either the GUI or the
+   * daemon would fight that) and false on unpackaged desktop dev builds (no
+   * stable executable path).
+   *
+   * False means: the router refuses `setDaemonAutostart`, the settings toggle
+   * is disabled, and the daemon is spawned with `WEQ_DAEMON_NO_AUTOSTART` so it
+   * skips its own idempotent self-registration.
+   */
+  readonly canAutostart: boolean;
   /** False in dev builds. */
   isPackaged(): boolean;
+  /**
+   * Absolute path of the GUI binary the daemon should launch on boot:
+   * `$APPIMAGE` when running from an AppImage (its mount path changes every
+   * run), else `app.getPath('exe')`; `process.execPath` on web/server. WeQ
+   * never registers an autostart task of its own — the daemon remembers this
+   * path and spawns it.
+   */
+  currentExePath(): string;
 }
 
 let installed: HostBridge | null = null;

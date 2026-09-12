@@ -10,13 +10,13 @@ import {
   Search,
   Users,
   X,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { client } from "../trpc/client";
-import { Avatar } from "../im-template/template/primitives";
-import { cn } from "../im-template/template/classNames";
-import { closeFromScrim, useEscapeToClose } from "../im-template/template/modalUtils";
-import { FaceEmoji } from "./FaceEmoji";
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { client } from '../trpc/client';
+import { Avatar } from '../im-template/template/primitives';
+import { cn } from '../im-template/template/classNames';
+import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { FaceEmoji } from './FaceEmoji';
 import {
   ContributionHeatmap,
   HourlyBarChart,
@@ -25,7 +25,7 @@ import {
   formatNumber,
   type DailyActivityItem,
   type WordCloudItem,
-} from "./analyticsCharts";
+} from './analyticsCharts';
 
 interface MemberWire {
   uid: string;
@@ -64,14 +64,14 @@ interface MemberAnalyticsData {
   commonEmojis: Array<{ faceId: number; faceText: string; count: number }>;
 }
 
-type View = "menu" | "members" | "memberAnalytics" | "ranking" | "activeHours" | "wordcloud";
+type View = 'menu' | 'members' | 'memberAnalytics' | 'ranking' | 'activeHours' | 'wordcloud';
 
 function memberDisplayName(m: MemberWire): string {
-  return m.card || m.nick || m.uin || m.uid || "?";
+  return m.card || m.nick || m.uin || m.uid || '?';
 }
 
 function memberAvatarUrl(m: MemberWire): string | null {
-  if (m.uin && m.uin !== "0") {
+  if (m.uin && m.uin !== '0') {
     return `https://thirdqq.qlogo.cn/g?b=sdk&nk=${m.uin}&s=0`;
   }
   return null;
@@ -88,7 +88,7 @@ export function GroupAnalyticsDialog({
 }) {
   useEscapeToClose(onClose);
 
-  const [view, setView] = useState<View>("menu");
+  const [view, setView] = useState<View>('menu');
   const [members, setMembers] = useState<MemberWire[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
@@ -106,8 +106,8 @@ export function GroupAnalyticsDialog({
   const [wordCloudLoading, setWordCloudLoading] = useState(false);
   const [wordCloudError, setWordCloudError] = useState<string | null>(null);
 
-  const [selectedMemberUid, setSelectedMemberUid] = useState<string>("");
-  const [memberSearch, setMemberSearch] = useState("");
+  const [selectedMemberUid, setSelectedMemberUid] = useState<string>('');
+  const [memberSearch, setMemberSearch] = useState('');
   const [memberAnalytics, setMemberAnalytics] = useState<MemberAnalyticsData | null>(null);
   const [memberAnalyticsLoading, setMemberAnalyticsLoading] = useState(false);
   const [memberAnalyticsError, setMemberAnalyticsError] = useState<string | null>(null);
@@ -216,9 +216,9 @@ export function GroupAnalyticsDialog({
   const goTo = useCallback(
     (v: View) => {
       setView(v);
-      if (v === "ranking" && ranking.length === 0 && !rankingLoading) void loadRanking();
-      if (v === "activeHours" && !activeHours && !activeHoursLoading) void loadActiveHours();
-      if (v === "wordcloud" && !wordCloud && !wordCloudLoading) void loadWordCloud();
+      if (v === 'ranking' && ranking.length === 0 && !rankingLoading) void loadRanking();
+      if (v === 'activeHours' && !activeHours && !activeHoursLoading) void loadActiveHours();
+      if (v === 'wordcloud' && !wordCloud && !wordCloudLoading) void loadWordCloud();
     },
     [
       ranking,
@@ -234,11 +234,11 @@ export function GroupAnalyticsDialog({
   );
 
   const handleBack = useCallback(() => {
-    if (view === "memberAnalytics") {
-      setView("members");
+    if (view === 'memberAnalytics') {
+      setView('members');
     } else {
-      setView("menu");
-      setMemberSearch("");
+      setView('menu');
+      setMemberSearch('');
     }
   }, [view]);
 
@@ -247,27 +247,27 @@ export function GroupAnalyticsDialog({
     const kw = memberSearch.trim().toLowerCase();
     return members.filter(
       (m) =>
-        (m.card || "").toLowerCase().includes(kw) ||
-        (m.nick || "").toLowerCase().includes(kw) ||
-        (m.uin || "").includes(kw) ||
-        (m.uid || "").toLowerCase().includes(kw),
+        (m.card || '').toLowerCase().includes(kw) ||
+        (m.nick || '').toLowerCase().includes(kw) ||
+        (m.uin || '').includes(kw) ||
+        (m.uid || '').toLowerCase().includes(kw),
     );
   }, [members, memberSearch]);
 
   const title = (() => {
     switch (view) {
-      case "members":
-        return "群成员";
-      case "memberAnalytics":
-        return "成员详细分析";
-      case "ranking":
-        return "群聊发言排行";
-      case "activeHours":
-        return "群聊活跃时段";
-      case "wordcloud":
-        return "群词云";
+      case 'members':
+        return '群成员';
+      case 'memberAnalytics':
+        return '成员详细分析';
+      case 'ranking':
+        return '群聊发言排行';
+      case 'activeHours':
+        return '群聊活跃时段';
+      case 'wordcloud':
+        return '群词云';
       default:
-        return "群聊分析";
+        return '群聊分析';
     }
   })();
 
@@ -285,7 +285,7 @@ export function GroupAnalyticsDialog({
       >
         <header>
           <div>
-            {view !== "menu" && (
+            {view !== 'menu' && (
               <button
                 className="icon-button"
                 type="button"
@@ -305,30 +305,30 @@ export function GroupAnalyticsDialog({
         </header>
 
         <div className="group-album-body ga-body">
-          {view === "menu" && (
+          {view === 'menu' && (
             <div className="ga-menu-grid">
-              <button className="ga-menu-card" type="button" onClick={() => goTo("members")}>
+              <button className="ga-menu-card" type="button" onClick={() => goTo('members')}>
                 <span className="ga-menu-icon">
                   <Users size={26} />
                 </span>
                 <span className="ga-menu-title">群成员</span>
                 <small>查看成员资料，点击成员查看发言 / 活跃详细分析</small>
               </button>
-              <button className="ga-menu-card" type="button" onClick={() => goTo("ranking")}>
+              <button className="ga-menu-card" type="button" onClick={() => goTo('ranking')}>
                 <span className="ga-menu-icon">
                   <Medal size={26} />
                 </span>
                 <span className="ga-menu-title">群聊发言排行</span>
                 <small>统计成员发言数量排行</small>
               </button>
-              <button className="ga-menu-card" type="button" onClick={() => goTo("activeHours")}>
+              <button className="ga-menu-card" type="button" onClick={() => goTo('activeHours')}>
                 <span className="ga-menu-icon">
                   <Clock size={26} />
                 </span>
                 <span className="ga-menu-title">群聊活跃时段</span>
                 <small>全天活跃分布 + 每日消息热力图</small>
               </button>
-              <button className="ga-menu-card" type="button" onClick={() => goTo("wordcloud")}>
+              <button className="ga-menu-card" type="button" onClick={() => goTo('wordcloud')}>
                 <span className="ga-menu-icon">
                   <Cloud size={26} />
                 </span>
@@ -338,7 +338,7 @@ export function GroupAnalyticsDialog({
             </div>
           )}
 
-          {view === "members" && (
+          {view === 'members' && (
             <div className="ga-members">
               <div className="ga-search-wrap ga-members-search">
                 <Search size={14} />
@@ -356,9 +356,7 @@ export function GroupAnalyticsDialog({
               ) : membersError ? (
                 <div className="ga-error">{membersError}</div>
               ) : filteredMembers.length === 0 ? (
-                <p className="ga-placeholder">
-                  {membersLoading ? "加载中…" : "没有匹配的成员"}
-                </p>
+                <p className="ga-placeholder">{membersLoading ? '加载中…' : '没有匹配的成员'}</p>
               ) : (
                 <div className="ga-members-grid">
                   {filteredMembers.map((m) => (
@@ -366,18 +364,20 @@ export function GroupAnalyticsDialog({
                       key={m.uid}
                       className="ga-member-card"
                       type="button"
-                      title={`${memberDisplayName(m)}${m.uin ? ` · ${m.uin}` : ""}`}
+                      title={`${memberDisplayName(m)}${m.uin ? ` · ${m.uin}` : ''}`}
                       onClick={() => {
                         setSelectedMemberUid(m.uid);
                         setMemberAnalytics(null);
                         setMemberAnalyticsError(null);
-                        setView("memberAnalytics");
+                        setView('memberAnalytics');
                         void loadMemberAnalytics(m.uid);
                       }}
                     >
                       <Avatar name={memberDisplayName(m)} avatarUrl={memberAvatarUrl(m)} />
                       <span className="ga-member-name">{memberDisplayName(m)}</span>
-                      {m.memberLevel > 0 && <span className="ga-member-level">LV{m.memberLevel}</span>}
+                      {m.memberLevel > 0 && (
+                        <span className="ga-member-level">LV{m.memberLevel}</span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -391,7 +391,7 @@ export function GroupAnalyticsDialog({
             </div>
           )}
 
-          {view === "memberAnalytics" && (
+          {view === 'memberAnalytics' && (
             <div className="ga-member-analytics">
               {/* Selected member chip */}
               {selectedMember ? (
@@ -402,7 +402,7 @@ export function GroupAnalyticsDialog({
                   />
                   <div>
                     <strong>{memberDisplayName(selectedMember)}</strong>
-                    {selectedMember.uin && selectedMember.uin !== "0" ? (
+                    {selectedMember.uin && selectedMember.uin !== '0' ? (
                       <small>QQ: {selectedMember.uin}</small>
                     ) : null}
                   </div>
@@ -437,7 +437,7 @@ export function GroupAnalyticsDialog({
                       <BarChart3 size={18} />
                       <div>
                         <strong>
-                          {formatDate(memberAnalytics.statistics.firstMessageTime)} —{" "}
+                          {formatDate(memberAnalytics.statistics.firstMessageTime)} —{' '}
                           {formatDate(memberAnalytics.statistics.lastMessageTime)}
                         </strong>
                         <span>活跃周期</span>
@@ -448,12 +448,36 @@ export function GroupAnalyticsDialog({
                   {/* Message type breakdown */}
                   <div className="ga-type-breakdown">
                     {[
-                      { label: "文本", count: memberAnalytics.statistics.textMessages, color: "#3b82f6" },
-                      { label: "图片", count: memberAnalytics.statistics.imageMessages, color: "#22c55e" },
-                      { label: "语音", count: memberAnalytics.statistics.voiceMessages, color: "#f97316" },
-                      { label: "视频", count: memberAnalytics.statistics.videoMessages, color: "#a855f7" },
-                      { label: "表情", count: memberAnalytics.statistics.emojiMessages, color: "#ec4899" },
-                      { label: "其他", count: memberAnalytics.statistics.otherMessages, color: "#6b7280" },
+                      {
+                        label: '文本',
+                        count: memberAnalytics.statistics.textMessages,
+                        color: '#3b82f6',
+                      },
+                      {
+                        label: '图片',
+                        count: memberAnalytics.statistics.imageMessages,
+                        color: '#22c55e',
+                      },
+                      {
+                        label: '语音',
+                        count: memberAnalytics.statistics.voiceMessages,
+                        color: '#f97316',
+                      },
+                      {
+                        label: '视频',
+                        count: memberAnalytics.statistics.videoMessages,
+                        color: '#a855f7',
+                      },
+                      {
+                        label: '表情',
+                        count: memberAnalytics.statistics.emojiMessages,
+                        color: '#ec4899',
+                      },
+                      {
+                        label: '其他',
+                        count: memberAnalytics.statistics.otherMessages,
+                        color: '#6b7280',
+                      },
                     ]
                       .filter((x) => x.count > 0)
                       .map((x) => (
@@ -495,8 +519,12 @@ export function GroupAnalyticsDialog({
                         {memberAnalytics.commonEmojis.length > 0 ? (
                           <div className="ga-chips">
                             {memberAnalytics.commonEmojis.map((item, idx) => (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                              <span className="ga-chip ga-emoji-chip" key={idx} title={item.faceText}>
+                              <span
+                                className="ga-chip ga-emoji-chip"
+                                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                                key={idx}
+                                title={item.faceText}
+                              >
                                 <FaceEmoji
                                   element={{ faceId: item.faceId, faceText: item.faceText }}
                                   size={22}
@@ -518,7 +546,7 @@ export function GroupAnalyticsDialog({
             </div>
           )}
 
-          {view === "ranking" && (
+          {view === 'ranking' && (
             <div className="ga-ranking">
               {rankingLoading ? (
                 <div className="ga-loading">
@@ -533,20 +561,20 @@ export function GroupAnalyticsDialog({
                   {ranking.map((item, idx) => (
                     <div
                       className={cn(
-                        "ga-ranking-item",
-                        idx === 0 && "rank-1",
-                        idx === 1 && "rank-2",
-                        idx === 2 && "rank-3",
+                        'ga-ranking-item',
+                        idx === 0 && 'rank-1',
+                        idx === 1 && 'rank-2',
+                        idx === 2 && 'rank-3',
                       )}
                       key={item.uid}
                     >
-                      <span className={cn("ga-rank-num", idx < 3 && "top")}>
+                      <span className={cn('ga-rank-num', idx < 3 && 'top')}>
                         {idx < 3 ? <Medal size={14} /> : idx + 1}
                       </span>
                       <Avatar
                         name={item.displayName}
                         avatarUrl={
-                          item.uin && item.uin !== "0"
+                          item.uin && item.uin !== '0'
                             ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${item.uin}&s=0`
                             : null
                         }
@@ -560,7 +588,7 @@ export function GroupAnalyticsDialog({
             </div>
           )}
 
-          {view === "activeHours" && (
+          {view === 'activeHours' && (
             <div className="ga-active-hours">
               {activeHoursLoading ? (
                 <div className="ga-loading">
@@ -583,7 +611,7 @@ export function GroupAnalyticsDialog({
             </div>
           )}
 
-          {view === "wordcloud" && (
+          {view === 'wordcloud' && (
             <div className="ga-wordcloud-view">
               {wordCloudLoading ? (
                 <div className="ga-loading">

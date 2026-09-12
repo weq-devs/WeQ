@@ -15,9 +15,13 @@
  * 首次没缓存时页面回落到「生成中」占位（见 stats_page.ts）。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { GroupInfoService, GroupStatsReport } from '@weq/service';
+import { join } from 'node:path';
+import {
+  readJsonFile,
+  writeJsonFileAtomic,
+  type GroupInfoService,
+  type GroupStatsReport,
+} from '@weq/service';
 
 /** 一篇「群数据周报」推文的完整快照（落盘 / 内存同构）。 */
 export interface WeqStatsReport {
@@ -54,29 +58,24 @@ export function setWeqStats(next: WeqStatsReport | null): void {
 
 /** 读盘快照；文件缺失 / 损坏 / 结构不符都回 null（当作没缓存）。 */
 export function loadStatsFromDisk(path: string): WeqStatsReport | null {
-  try {
-    if (!existsSync(path)) return null;
-    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as WeqStatsReport;
-    if (
-      !parsed ||
-      typeof parsed.generatedAt !== 'number' ||
-      !parsed.group ||
-      typeof parsed.group.code !== 'string' ||
-      !parsed.stats ||
-      !parsed.stats.totals
-    ) {
-      return null;
-    }
-    return parsed;
-  } catch {
+  const parsed = readJsonFile(path);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const p = parsed as Partial<WeqStatsReport>;
+  if (
+    typeof p.generatedAt !== 'number' ||
+    !p.group ||
+    typeof p.group.code !== 'string' ||
+    !p.stats ||
+    !p.stats.totals
+  ) {
     return null;
   }
+  return p as WeqStatsReport;
 }
 
-/** 落盘快照（懒建父目录）。 */
+/** 落盘快照（懒建父目录，原子写）。 */
 export function saveStatsToDisk(path: string, report: WeqStatsReport): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(report), 'utf-8');
+  writeJsonFileAtomic(path, report);
 }
 
 /**

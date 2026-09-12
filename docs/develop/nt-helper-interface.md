@@ -40,7 +40,6 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | ---- | ---- | ---- | ---- |
 | `getInitStatus()` | — | `number` | 全局初始化状态：`0`=可用，`-1`=过期，`-200`=损坏，`-201`=被篡改，`99`=未知。 |
 | `setLogPath(path)` | `path: string` | `Promise<void>` | 配置日志输出路径；内部 `logger::set_log_path`。 |
-| `computeBkn(skey)` | `skey: string` | `number` | 由 `skey` / `p_skey` 计算 `bkn`（CSRF token）。纯函数，无需 QQ 在线。 |
 | `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `Promise<AppidInfo>` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。 |
 | `convertFont(inputPath, outputPath)` | 俩字符串路径 | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。返回说明消息。 |
 | `getMarketFaceKey(packetId)` | `packetId: string` | `Promise<MarketFaceKey \| null>` | 恢复商城表情包 QQTEA 密钥（自包含：抓 android.json 提示 → xydata 快路径 → 采样爆破）。返回 `null` 表示拿不到。 |
@@ -82,7 +81,6 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner，候选并行校验。 |
-| `requestDecryptKey(pid, dbPath)` | `pid`, `dbPath` | `Promise<string>` | 向**已注入 hook** 的 QQ 进程要密钥（OIDB 0xcde_2），返回十六进制密钥。注：此接口需先注入（§6）。 |
 | `testDatabaseKey(dbPath, key)` | `dbPath`, `key` | `Promise<KeyTestResult>` | 试 `key` 是否能解开库，**穷举 page-HMAC × KDF-HMAC 全部 12 种组合**，返回能解开的那组算法。用于不知道 `algo` 时先探测一次。 |
 | `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `Promise<LoginAccount[]>` | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
 | `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `Promise<string>` | 计算 QQ 频道（gpro）库的密钥：扫描库内 salt + 特定 md5 公式。 |
@@ -166,18 +164,17 @@ executeSqlWithKey 返回行示例：
 
 > ✔️ Windows / Linux 注入需 **root / 特权**（ptrace / 远程线程），实践中抽到独立的 elevated worker 里做（如 `inject_worker.ts`），宿主无特权进程再走 hook socket 收怪。
 
-### 6.2 在线协议（均需已注入的 `pid`）
+### 6.2 在线发包（均需已注入的 `pid`）
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `fetchDownloadRkeys(pid)` | `pid` | `Promise<string>` | OIDB 0x9067_202 拿图片下载 `rkey`（私聊/群聊/兜底），**返回 JSON 字符串**。 |
-| `fetchClientKey(pid)` | `pid` | `Promise<string>` | OIDB 0x102A_1 拿 `clientKey`（ptlogin2 cookie 认证），**返回 JSON 字符串**。 |
-| `fetchSkey(pid, uin)` | pid + uin | `Promise<string>` | ptlogin2 jump 流程拿 `skey`。 |
-| `fetchPskey(pid, uin, domain)` | + domain | `Promise<string>` | 拿指定业务域名的 `p_skey`（如 `qun.qq.com`）。 |
 | `sendOidbPacket(pid, command, subCommand, body, isUid)` | + OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。 |
 | `sendPacket(pid, cmd, body)` | + 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。 |
 
-> 新增「走后门业务」优先考虑 `sendOidbPacket` / `sendPacket` 通用接口 + `packages/codec` 的 schema 解析，**不要为此改 native 引入新接口**。
+> **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
+> 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
+> 上面的两个通用接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，
+> **不要为此改 native 引入新接口**。
 
 ---
 
@@ -190,16 +187,17 @@ executeSqlWithKey 返回行示例：
 
 ---
 
-## 8. 常见坑 & 约定（给维护者）
+## 8. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
 2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
-6. **在线接口需先注入**：§6.2 全家、`requestDecryptKey` 的前提都是「已注入的在线 QQ pid」。
-7. **JSON vs 对象**：`fetchDownloadRkeys` / `fetchClientKey` 返回的是 **JSON 字符串**，要先 `JSON.parse`；其余基本返回普通对象 / 数组。
-8. **不要重复造轮子**：上面列的每一项 native 都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力
+6. **在线发包需先注入**：`sendOidbPacket` / `sendPacket` 的前提都是「已注入的在线 QQ pid」。
+7. **业务命令去 TS 找**：`clientKey` / rkey / decryptKey / skey / p_skey / bkn 见
+   `packages/protocol` 与 `packages/service/src/account/online_ticket.ts`，不要在 native 层重复实现。
+8. **不要重复造轮子**：上面列的每一项 native 能力都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力
 
 ---
 

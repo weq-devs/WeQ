@@ -14,11 +14,22 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { ArrowLeft, KeyRound, RefreshCw, ChevronDown, Store, Sparkles, Calculator } from 'lucide-react';
+import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
+import {
+  ArrowLeft,
+  KeyRound,
+  RefreshCw,
+  ChevronDown,
+  Store,
+  Sparkles,
+  Calculator,
+} from 'lucide-react';
 import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { MarketKeyDialog } from './MarketKeyDialog';
+import { GridSkeleton, InfoPanelSkeleton } from './CacheSkeleton';
 
 /** 来源徽章元信息（文案 + 色调 class 后缀）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -65,7 +76,7 @@ export function MarketPackExplorer(): ReactElement {
   const list = packages.data ?? [];
 
   if (packages.isLoading) {
-    return <div className="weq-cache-grid-state">读取本地表情包清单中…</div>;
+    return <PackListSkeleton />;
   }
   if (packages.error) {
     return <div className="weq-cache-grid-state is-error">{packages.error.message}</div>;
@@ -78,7 +89,11 @@ export function MarketPackExplorer(): ReactElement {
         <span className="weq-cache-data-meta">
           {list.length} 个 · 点击表情包在线获取表情列表并解密查看
         </span>
-        <button type="button" className="weq-mpack-keytool-btn" onClick={() => setShowKeyTool(true)}>
+        <button
+          type="button"
+          className="weq-mpack-keytool-btn"
+          onClick={() => setShowKeyTool(true)}
+        >
           <Calculator size={14} /> 密钥计算器
         </button>
       </div>
@@ -98,8 +113,41 @@ export function MarketPackExplorer(): ReactElement {
   );
 }
 
+/** 表情包列表骨架：weq-mpack-card 布局（封面方块 + 两行文字 + 底部小条）。 */
+function PackListSkeleton({
+  cards = 3,
+  delayMs = 80,
+}: {
+  cards?: number;
+  delayMs?: number;
+}): ReactElement | null {
+  const visible = useDebouncedLoading(true, delayMs);
+  if (!visible) return null;
+  return (
+    <div className="weq-mpack-skel-list" aria-hidden>
+      {Array.from({ length: cards }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位列表
+        <div className="weq-mpack-skel-card" key={i}>
+          <span className="weq-cache-skel weq-mpack-skel-cover" />
+          <span className="weq-mpack-skel-info">
+            <span className="weq-cache-skel weq-cache-skel-line" />
+            <span className="weq-cache-skel weq-cache-skel-line is-short" />
+            <span className="weq-cache-skel weq-mpack-skel-foot" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** 列表大卡片：封面(首张表情) + 名称 + 介绍 + 来源徽章。详情懒加载补全。 */
-function PackCard({ pkg, onOpen }: { pkg: MarketEmoticonPackage; onOpen: () => void }): ReactElement {
+function PackCard({
+  pkg,
+  onOpen,
+}: {
+  pkg: MarketEmoticonPackage;
+  onOpen: () => void;
+}): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId: pkg.packId });
   const [broken, setBroken] = useState(false);
 
@@ -111,7 +159,7 @@ function PackCard({ pkg, onOpen }: { pkg: MarketEmoticonPackage; onOpen: () => v
     <button type="button" className="weq-mpack-card" onClick={onOpen} title={pkg.name}>
       <span className="weq-mpack-cover">
         {cover && !broken ? (
-          <img
+          <ShimmerImage
             src={packImageUrl(pkg.packId, cover)}
             alt={pkg.name}
             loading="lazy"
@@ -128,7 +176,11 @@ function PackCard({ pkg, onOpen }: { pkg: MarketEmoticonPackage; onOpen: () => v
         <small className="weq-mpack-summary">{summary || '暂无介绍'}</small>
         <span className="weq-mpack-foot">
           <code>#{pkg.packId}</code>
-          {detail.data ? <span>{detail.data.count} 张</span> : <span className="weq-mpack-loading">…</span>}
+          {detail.data ? (
+            <span>{detail.data.count} 张</span>
+          ) : (
+            <span className="weq-mpack-loading">…</span>
+          )}
         </span>
       </span>
     </button>
@@ -168,7 +220,10 @@ function PackDetail({
       </div>
 
       {detail.isLoading ? (
-        <div className="weq-cache-grid-state">获取表情包详情中…</div>
+        <>
+          <InfoPanelSkeleton />
+          <GridSkeleton cells={12} />
+        </>
       ) : !detail.data ? (
         <div className="weq-cache-grid-state is-error">
           无法获取该表情包详情（网络问题或包不存在）
@@ -226,9 +281,9 @@ function PackDetail({
                 </p>
                 <code className="weq-mpack-principle-code">key = md5( str(时间戳) )[:16]</code>
                 <p>
-                  时间戳有两条来源：① 免费/VIP 包的 xydata 元数据直接带；② 付费包拿不到时，
-                  在 <b>上架时间(updateTime) 附近的时间窗内爆破</b>——用已知明文 GIF 头验证
-                  TEA 前两块即可秒级命中。
+                  时间戳有两条来源：① 免费/VIP 包的 xydata 元数据直接带；② 付费包拿不到时， 在{' '}
+                  <b>上架时间(updateTime) 附近的时间窗内爆破</b>——用已知明文 GIF 头验证 TEA
+                  前两块即可秒级命中。
                 </p>
                 <code className="weq-mpack-principle-code">
                   明文ᵢ = Dec( 密文ᵢ ⊕ 上块中间值 ) ⊕ 上块密文　（腾讯交织链式 TEA，非标准 CBC）
@@ -252,7 +307,15 @@ function PackDetail({
 }
 
 /** 一张表情：TEA 解密后的 GIF（密钥后端自动恢复）；失败显示占位。 */
-function EmojiCell({ packId, hash, name }: { packId: string; hash: string; name: string }): ReactElement {
+function EmojiCell({
+  packId,
+  hash,
+  name,
+}: {
+  packId: string;
+  hash: string;
+  name: string;
+}): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
     <figure className="weq-mpack-emoji" title={name || hash}>

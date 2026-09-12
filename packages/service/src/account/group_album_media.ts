@@ -60,10 +60,11 @@ export interface AlbumMediaPage {
 
 type Rec = Record<string, unknown>;
 
-const str = (v: unknown): string => typeof v === 'string' ? v : '';
-const num = (v: unknown): number => typeof v === 'number' ? v : 0;
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
 const bool = (v: unknown): boolean => v === true;
-const big = (v: unknown): string => typeof v === 'bigint' ? v.toString() : typeof v === 'number' ? String(v) : '0';
+const big = (v: unknown): string =>
+  typeof v === 'bigint' ? v.toString() : typeof v === 'number' ? String(v) : '0';
 
 function mapUrl(v: unknown): AlbumMediaUrl | null {
   if (v == null || typeof v !== 'object') return null;
@@ -82,10 +83,13 @@ function mapImage(v: unknown): AlbumMediaImage | null {
   if (v == null || typeof v !== 'object') return null;
   const o = v as Rec;
   return {
-    name: str(o.name), sloc: str(o.sloc), lloc: str(o.lloc),
+    name: str(o.name),
+    sloc: str(o.sloc),
+    lloc: str(o.lloc),
     photoUrls: mapPhotoUrls(o.photoUrls),
     defaultUrl: mapUrl(o.defaultUrl),
-    isGif: bool(o.isGif), hasRaw: bool(o.hasRaw),
+    isGif: bool(o.isGif),
+    hasRaw: bool(o.hasRaw),
   };
 }
 
@@ -93,15 +97,26 @@ function mapVideo(v: unknown): AlbumMediaVideo | null {
   if (v == null || typeof v !== 'object') return null;
   const o = v as Rec;
   return {
-    id: str(o.id), url: str(o.url), cover: mapImage(o.cover),
-    width: num(o.width), height: num(o.height),
-    videoTime: big(o.videoTime), videoUrls: mapPhotoUrls(o.videoUrl),
+    id: str(o.id),
+    url: str(o.url),
+    cover: mapImage(o.cover),
+    width: num(o.width),
+    height: num(o.height),
+    videoTime: big(o.videoTime),
+    videoUrls: mapPhotoUrls(o.videoUrl),
   };
 }
 
 function mapMedia(v: unknown): AlbumMedia {
   const o = (v ?? {}) as Rec;
-  return { type: num(o.type), image: mapImage(o.image), video: mapVideo(o.video), uploader: str(o.uploader), batchId: big(o.batchId), uploadTime: big(o.uploadTime) };
+  return {
+    type: num(o.type),
+    image: mapImage(o.image),
+    video: mapVideo(o.video),
+    uploader: str(o.uploader),
+    batchId: big(o.batchId),
+    uploadTime: big(o.uploadTime),
+  };
 }
 
 export class GroupAlbumMediaService {
@@ -112,10 +127,15 @@ export class GroupAlbumMediaService {
   ) {}
 
   async getMediaList(groupId: string, albumId: string, attachInfo = ''): Promise<AlbumMediaPage> {
-    const resp = await GetAlbumMediaList.invoke(this.nt, this.resolvePid(), { groupId, albumId, attachInfo });
+    const resp = await GetAlbumMediaList.invoke(this.nt, this.resolvePid(), {
+      groupId,
+      albumId,
+      attachInfo,
+    });
 
     const retCode = resp.field1;
-    if (typeof retCode === 'number' && retCode !== 0) throw new Error(`getMediaList error: retCode ${retCode}`);
+    if (typeof retCode === 'number' && retCode !== 0)
+      throw new Error(`getMediaList error: retCode ${retCode}`);
 
     const data = (resp.data ?? {}) as Rec;
     const albumInfo = (data.albumInfo ?? {}) as Rec;

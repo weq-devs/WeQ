@@ -19,10 +19,9 @@
  *     slice L64/T55/R62/B55),即 QQ 的设计里文字本来就会「伸进」角落的装饰区。
  *     若用真 border 撑开,内容会被挤到拉伸带以内,气泡看着会胖一圈。
  *
- *  2. **动效款是「静态底 + APNG 叠加」,不是二选一。**
- *     实测 2078642 的 `animation-all.png` 只有几颗淡星星,气泡本体在 `static-all.png`
- *     里 —— 只贴动效层会得到一个几乎空白的气泡。所以静态层画在元素自身,动效层叠在
- *     `::after` 上(`.message-content` 上没有既有伪元素,不冲突)。
+ *  2. **动效只有一种形态:bubbleframe 逐帧九宫格(由 CSS `@keyframes` 切换
+ *     `border-image-source`)。** 服务侧只从 zip 链(本地 bundle / protocol)装资源,
+ *     不再有 CDN 的 APNG 叠加层,所以这里不铺 `::after` 动效层。
  *
  *  3. **必须给 min-width / min-height。** 小于四角固定区之和的尺寸会让对角切片互相
  *     挤压,浏览器按比例压缩,气泡就变形了。
@@ -37,7 +36,8 @@
  * 仍然明确,又不跟贴图打架。
  */
 
-import { dressBubbleUrl, dressBubbleFrameUrl, dressUrl } from './resourceUrl';
+import type { ResolvedWidget } from '@weq/service';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl } from './resourceUrl';
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
@@ -45,19 +45,14 @@ export interface BubbleSkinCss {
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
   textColor: string;
-  /** 静态底图 CDN 直链。走本地文件时为空串,看 {@link localFile}。 */
-  staticUrl: string;
   /**
-   * 有值表示这款是走 protocol 兜底装的,九宫格是本地 PNG(路径在主进程,这里只需知道
-   * 有没有)。此时要走 `weq-media://dressbubble` —— `dress` 那支有 host 白名单。
+   * local-only 模型下九宫格恒为本地 PNG(路径在主进程,渲染走
+   * `weq-media://dressbubble?id=`,这里只需要知道有值)。
    */
   localFile: string | null;
-  /** 动效叠加层 url(APNG)。没有动效版本时为 null。 */
-  animationUrl: string | null;
   /**
    * 整泡帧动画的帧数(见 service 的 BubbleSkin.animationFrameCount)。有值时
-   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source,取代
-   * {@link animationUrl} 那套单张 APNG 叠加层。
+   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source。
    */
   animationFrameCount?: number;
   /** 每帧停留时长(ms)。 */
@@ -70,6 +65,13 @@ export interface FontSkinCss {
   itemId: number;
   /** 字体文件的 url(weq-media://dressfont?id=…)。 */
   fontUrl: string;
+}
+
+/** 生效的挂件在消息头像上的叠加层选择器。 */
+function pendantSelector(scope: DressScope): string {
+  return scope === 'all'
+    ? '.message-line .weq-avatar-pendant-img, .weq-forward-row .weq-avatar-pendant-img'
+    : '.message-line.mine .weq-avatar-pendant-img';
 }
 
 /** 装扮作用范围。与 service 的 DressScope 同构。 */
@@ -146,8 +148,8 @@ function frameAnimationCss(
 
 /** 气泡是否「限制」了文字颜色。 */
 export function bubbleRestrictsTextColor(textColor: string): boolean {
-  // service 侧解析（bubble_skin.ts 的 resolveTextColor）：只有这款气泡自己规定颜色（material
-  // color / 不透明纯色填充推断）才是具体色值；回退主题正文色时是 var()，不算限制。
+  // service 侧解析（bubble_skin.ts 的 buildLocalBubbleSkin）：只有 config.json 给了权威
+  // 文字色才是具体色值；回退主题正文色时是 var()，不算限制。
   return !textColor.trim().startsWith('var(');
 }
 
@@ -172,8 +174,21 @@ export function bubbleLinkMentionRules(sel: string): string {
   ].join('\n');
 }
 
-function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
-  const sel = bubbleSelector(scope);
+/** 一款气泡的九宫格几何量 + 静态底图 —— 聊天渲染与本地预览共用同一份计算。 */
+interface BubbleMetrics {
+  frameAnim: { keyframes: string; animation: string } | null;
+  /** 静态底图 url(本地九宫格 PNG / CDN 直链 / 帧动画第 1 帧,见 bubbleImageUrl)。 */
+  imageUrl: string;
+  slice: string;
+  width: string;
+  topPad: string;
+  rightPad: string;
+  bottomPad: string;
+  minWidth: string;
+  minHeight: string;
+}
+
+function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
 
   // 贴图向内绘制的厚度。slice 是源图像素,乘 scale 得到 CSS 像素。
@@ -201,11 +216,37 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top; // top 小时为正,需要补偿
   const bottomDiff = avgSlice - bottom;
-  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
-  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+  const topPad = px(wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5);
+  const bottomPad = px(wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5);
 
-  const rules = [
-    frameAnim?.keyframes ?? '',
+  return {
+    frameAnim,
+    imageUrl: bubbleImageUrl(skin),
+    slice,
+    width,
+    // 横向内边距必须盖满整条左右切片,文字只能落在中间那 2px 的拉伸区上。
+    rightPad: px(Math.max(wLeft, wRight)),
+    topPad,
+    bottomPad,
+    minWidth: px((left + right) * BUBBLE_SCALE),
+    minHeight: px((top + bottom) * BUBBLE_SCALE),
+  };
+}
+
+/**
+ * 把一款气泡的核心九宫格规则涂到给定的元素选择器上。
+ *
+ * 聊天渲染(bubbleRules)与「已装」列表的本地预览(bubblePreviewCss)共用这一份 ——
+ * 预览和真实消息用的是同一套几何,不会出现「卡片里好看、发出来是另一回事」的偏差。
+ * `animate = false` 用于静态预览(只贴第一帧底图,不播循环动效)。
+ */
+function baseBubbleRule(
+  skin: BubbleSkinCss,
+  m: BubbleMetrics,
+  sel: string,
+  animate = true,
+): string {
+  return [
     `${sel} {`,
     `  position: relative;`,
     // 动效层靠负层级压到文字下面,而负层级只在**层叠上下文内部**才是「压到本元素背景之上」;
@@ -216,33 +257,41 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  color: ${skin.textColor};`,
     `  border-style: solid;`,
     `  border-width: 0;`,
-    `  border-image-source: url("${bubbleImageUrl(skin)}");`,
-    `  border-image-slice: ${slice};`,
-    `  border-image-width: ${width};`,
+    `  border-image-source: url("${m.imageUrl}");`,
+    `  border-image-slice: ${m.slice};`,
+    `  border-image-width: ${m.width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    frameAnim ? `  animation: ${frameAnim.animation};` : '',
-    // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
+    m.frameAnim && animate ? `  animation: ${m.frameAnim.animation};` : '',
     // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
-    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts:323)。
-    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
-    `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
-    `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
+    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts 模块头)。
+    `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
+    `  min-width: ${m.minWidth};`,
+    `  min-height: ${m.minHeight};`,
     `}`,
-  ];
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
+  const sel = bubbleSelector(scope);
+  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
+  const m = bubbleMetrics(skin);
+
+  const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
 
   // 对方消息镜像:同一张素材直接放左侧,尖角/装饰会朝外,看起来「反的」。QQ 自己
   // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
   // scaleX(-1) —— 文字会跟着镜像;所以静态底/帧动画挪到 ::before 上翻转,文字
   // 留在元素自身不动。
-  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
   if (theirsSel) {
     rules.push(
       // 元素本体不再贴底(镜像后的贴图由 ::before 承担);帧动画的 keyframes 会
       // 重写 border-image-source,必须把元素动画一并关掉,否则帧图会盖回来。
       `${theirsSel} {`,
       `  border-image-source: none;`,
-      frameAnim ? `  animation: none;` : '',
+      m.frameAnim ? `  animation: none;` : '',
       `}`,
       `${theirsSel}::before {`,
       `  content: "";`,
@@ -252,49 +301,25 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
       `  pointer-events: none;`,
       `  border-style: solid;`,
       `  border-width: 0;`,
-      `  border-image-source: url("${bubbleImageUrl(skin)}");`,
-      `  border-image-slice: ${slice};`,
-      `  border-image-width: ${width};`,
+      `  border-image-source: url("${m.imageUrl}");`,
+      `  border-image-slice: ${m.slice};`,
+      `  border-image-width: ${m.width};`,
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
       `  transform: scaleX(-1);`,
-      frameAnim ? `  animation: ${frameAnim.animation};` : '',
+      m.frameAnim ? `  animation: ${m.frameAnim.animation};` : '',
       `}`,
     );
   }
 
   // 减少动态效果偏好:定格在第一帧,不循环切换。
-  if (frameAnim) {
+  if (m.frameAnim) {
     rules.push(
       `@media (prefers-reduced-motion: reduce) {`,
       `  ${sel} { animation: none; }`,
       theirsSel ? `  ${theirsSel}::before { animation: none; }` : '',
       `}`,
     );
-  }
-
-  // 动效层:同一套 slice/width,叠在静态底之上。APNG 由浏览器自己播,无需 keyframes。
-  // z-index 为负是为了压在**文字**下面 —— 绝对定位的伪元素默认画在在流内容之上,
-  // 不给层级的话动效会糊住消息正文。父元素 isolation:isolate 保证这个负值不外溢。
-  if (skin.animationUrl) {
-    rules.push(
-      `${sel}::after {`,
-      `  content: "";`,
-      `  position: absolute;`,
-      `  inset: 0;`,
-      `  z-index: -1;`,
-      `  pointer-events: none;`,
-      `  border-style: solid;`,
-      `  border-width: 0;`,
-      `  border-image-source: url("${dressUrl(skin.animationUrl)}");`,
-      `  border-image-slice: ${slice};`,
-      `  border-image-width: ${width};`,
-      `  border-image-repeat: stretch;`,
-      `}`,
-    );
-    if (theirsSel) {
-      rules.push(`${theirsSel}::after { transform: scaleX(-1); }`);
-    }
   }
 
   // 右键选中:贴图盖住了 background,改用 outline 提示。
@@ -315,6 +340,60 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   return rules.filter(Boolean).join('\n');
 }
 
+/**
+ * 独立气泡预览的九宫格 CSS —— 给非聊天容器用(目前是「已装」列表里没有商城预览图的
+ * 那批气泡,如旧版 40801 自动装遗留的款,素材是本地九宫格 PNG)。
+ *
+ * 与 bubbleRules 共用 bubbleMetrics / baseBubbleRule,几何完全一致;静态预览只画
+ * 第一帧,不带循环动效。sel 是调用方自己的容器选择器,样式注入由调用方负责。
+ */
+export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
+  return baseBubbleRule(skin, bubbleMetrics(skin), sel, false);
+}
+
+/**
+ * 生效挂件的逐帧动画 CSS —— 与 msgDecorationStyle 的 widgetFrameAnimationCss 同构,
+ * 只是选择器换成按「作用范围」而不是按 data-widget 属性(生效挂件没有 per-message
+ * 的那条 40801 装饰,所有消息共用一款)。背景图逐帧切换,`steps(1)` 让每帧撑满自己的
+ * 时间段而不是按不可插值属性的默认「过半才切」语义把显示时长砍半。
+ */
+function widgetPendantRules(widget: ResolvedWidget, scope: DressScope): string {
+  if (!widget.animated) return '';
+  const name = `weq-widgetframe-${widget.itemId}`;
+  const step = 100 / widget.frameCount;
+  const stops = Array.from({ length: widget.frameCount }, (_, i) => {
+    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+    return `  ${pct}% { background-image: url("${dressPendantFrameUrl(widget.itemId, i + 1)}"); }`;
+  });
+  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
+  const duration = widget.frameCount * widget.frameTimeMs;
+  const iterations = widget.repeat > 0 ? widget.repeat : 'infinite';
+  const sel = pendantSelector(scope);
+  return [
+    keyframes,
+    `${sel} {`,
+    `  background-image: url("${dressPendantFrameUrl(widget.itemId, 1)}");`,
+    `  background-size: contain;`,
+    `  background-position: center;`,
+    `  background-repeat: no-repeat;`,
+    `  animation: ${name} ${duration}ms steps(1) ${iterations};`,
+    `}`,
+    `@media (prefers-reduced-motion: reduce) {`,
+    `  ${sel} { animation: none; }`,
+    `}`,
+  ].join('\n');
+}
+
+/**
+ * 生效挂件的全部帧 url(逐帧预加载用)。
+ */
+function widgetFrameUrls(widget: ResolvedWidget | null): string[] {
+  if (!widget?.animated) return [];
+  return Array.from({ length: widget.frameCount }, (_, i) =>
+    dressPendantFrameUrl(widget.itemId, i + 1),
+  );
+}
+
 function fontRules(font: FontSkinCss, scope: DressScope): string {
   // @font-face 不在这里声明 —— 字体经 FontFace API 预加载后注册进 document.fonts
   // (见 preloadFont)。那样字形在样式落地前就绪,不会触发 swap 的二次重排。
@@ -328,7 +407,7 @@ function fontRules(font: FontSkinCss, scope: DressScope): string {
   ].join('\n');
 }
 
-/** `@font-face` 的 family 名 —— 与 service 侧 dress_install 的约定必须一致。 */
+/** `@font-face` 的 family 名 —— 与 service 侧 dress_shared_cache.fontFamilyFor 的约定必须一致。 */
 function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
 }
@@ -336,11 +415,11 @@ function fontFamilyFor(itemId: number): string {
 /**
  * 气泡静态底图的 url。整泡帧动画取第 1 帧(见 {@link frameAnimationCss} —— 那套
  * keyframes 会在动画开始后接管 border-image-source,这里给的是初始/无动画兜底值)。
- * 没有帧动画时按原规则:本地兜底装的走 dressbubble,CDN 直链走 dress。
+ * 无帧动画时走 dressbubble(本地九宫格,唯一形态)。
  */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
   if (skin.animationFrameCount) return dressBubbleFrameUrl(skin.itemId, 1);
-  return skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl);
+  return dressBubbleUrl(skin.itemId);
 }
 
 /**
@@ -392,7 +471,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
 }
 
 /**
- * 应用(或清除)当前的装扮。两个 skin 都为 null 时移除样式节点,回到默认外观。
+ * 应用(或清除)当前的装扮。三个 skin 都为 null 时移除样式节点,回到默认外观。
  *
  * **同步的,不等资源** —— 进主界面时的首次注入走这条(资源多半已在磁盘缓存里,
  * 等它反而推迟首屏)。切换装扮请走 {@link applyDressSkinPreloaded}。
@@ -405,6 +484,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
 export function applyDressSkin(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
+  widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): void {
   // 不 await:注册完成后 document.fonts 变化会让浏览器自己重绘用到该 family 的文本,
@@ -414,12 +494,16 @@ export function applyDressSkin(
 
   const existing = document.getElementById(STYLE_ID);
 
-  if (!bubble && !font) {
+  if (!bubble && !font && !widget) {
     existing?.remove();
     return;
   }
 
-  const css = [bubble ? bubbleRules(bubble, scope) : '', font ? fontRules(font, scope) : '']
+  const css = [
+    bubble ? bubbleRules(bubble, scope) : '',
+    font ? fontRules(font, scope) : '',
+    widget ? widgetPendantRules(widget, scope) : '',
+  ]
     .filter(Boolean)
     .join('\n\n');
 
@@ -446,15 +530,18 @@ export function applyDressSkin(
 export async function applyDressSkinPreloaded(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
+  widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): Promise<void> {
   await Promise.all(
     [
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
-      bubble?.animationUrl ? preloadImage(dressUrl(bubble.animationUrl)) : null,
       font ? preloadFont(font) : null,
+      // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
+      // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
+      ...widgetFrameUrls(widget).map((url) => preloadImage(url)),
     ].filter(Boolean),
   );
 
-  applyDressSkin(bubble, font, scope);
+  applyDressSkin(bubble, font, widget, scope);
 }

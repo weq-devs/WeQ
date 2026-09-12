@@ -61,7 +61,8 @@ export function parseQzoneJson<T>(text: string): T {
 function parseJsLiteral(src: string): unknown {
   let i = 0;
   const n = src.length;
-  const isWs = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+  const isWs = (c: string): boolean =>
+    c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
   const skipWs = (): void => {
     while (i < n && isWs(src[i]!)) i++;
   };
@@ -83,7 +84,15 @@ function parseJsLiteral(src: string): unknown {
           i += 6;
           continue;
         }
-        const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
+        const simple: Record<string, string> = {
+          n: '\n',
+          t: '\t',
+          r: '\r',
+          b: '\b',
+          f: '\f',
+          v: '\v',
+          '0': '\0',
+        };
         out += e !== undefined ? (simple[e] ?? e) : ''; // \/ → /, \' → ', 未知转义 → 原字符
         i += 2;
         continue;
@@ -222,6 +231,26 @@ interface RawPic {
   url2?: string;
   url3?: string;
   smallurl?: string;
+  /** 1 = 视频条目（图文混排时视频作为 pic 元素出现，本体在 video_info 里）。 */
+  is_video?: boolean | number;
+  video_info?: {
+    pic_url?: string;
+    url1?: string;
+    url2?: string;
+    url3?: string;
+    video_id?: string | number;
+    video_time?: string | number;
+  };
+}
+
+/** 纯视频帖（形态 B）：视频挂在顶层 `video[]` 数组，而非 pic[].video_info。 */
+interface RawTopVideo {
+  pic_url?: string;
+  url1?: string;
+  url2?: string;
+  url3?: string;
+  video_id?: string | number;
+  video_time?: string | number;
 }
 
 interface RawEmotion {
@@ -231,6 +260,7 @@ interface RawEmotion {
   cmtnum?: number;
   secret?: number;
   pic?: RawPic[];
+  video?: RawTopVideo[];
 }
 
 interface RawMsgListRet {
@@ -239,6 +269,18 @@ interface RawMsgListRet {
   message?: string;
   total?: number;
   msglist?: RawEmotion[] | null;
+}
+
+/** 说说里的一个视频(归一化形态)。 */
+export interface QzoneEmotionVideo {
+  /** 封面 URL(纯视频帖常为空)。 */
+  coverUrl: string;
+  /** 视频本体 mp4 URL(带签名、会过期,导出时需即时下载)。 */
+  videoUrl: string;
+  /** 视频 id。 */
+  videoId: string;
+  /** 时长 ms。 */
+  duration: number;
 }
 
 /** 一条说说(归一化形态)。 */
@@ -254,6 +296,8 @@ export interface QzoneEmotion {
   isPrivate: boolean;
   /** 图片 URL(每张图取可得的最大变体)。 */
   images: string[];
+  /** 视频(封面 + 本体 mp4;图文混排与纯视频帖两种形态都归一化到这里)。 */
+  videos: QzoneEmotionVideo[];
 }
 
 export interface QzoneMsgListResult {
@@ -267,19 +311,64 @@ function pickPicUrl(pic: RawPic): string | undefined {
   return pic.url3 || pic.url2 || pic.url1 || pic.smallurl || undefined;
 }
 
+/**
+ * 从一条说说的原始字段里提取视频(两种形态):
+ *   - 形态 A(图文混排):`pic[].is_video=1` + `pic[].video_info`,本体在
+ *     `video_info.url3`(photovideo.photo.qq.com 带签名 mp4),封面 `pic_url` /
+ *     `url1` 可能为空。
+ *   - 形态 B(纯视频帖):顶层 `e.video[]` 数组,封面 `pic_url` 常为空,本体 `url3`。
+ * 拿不到本体 url3 的条目直接丢弃(只剩封面没有意义)。
+ */
+function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmotionVideo[] {
+  const out: QzoneEmotionVideo[] = [];
+  for (const p of pic) {
+    const vi = p.video_info;
+    if (!p.is_video || !vi) continue;
+    const videoUrl = vi.url3 || '';
+    if (!videoUrl) continue;
+    out.push({
+      coverUrl: vi.pic_url || vi.url1 || pickPicUrl(p) || '',
+      videoUrl,
+      videoId: String(vi.video_id ?? ''),
+      duration: Number(vi.video_time ?? 0),
+    });
+  }
+  for (const v of topVideo ?? []) {
+    const videoUrl = v.url3 || '';
+    if (!videoUrl) continue;
+    out.push({
+      coverUrl: v.pic_url || v.url1 || '',
+      videoUrl,
+      videoId: String(v.video_id ?? ''),
+      duration: Number(v.video_time ?? 0),
+    });
+  }
+  return out;
+}
+
 /** 纯转换:原始 cgi 响应 → 归一化说说列表。 */
 export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
   const list = data.msglist ?? [];
   return {
     total: Number(data.total ?? list.length),
-    list: list.map((e) => ({
-      tid: String(e.tid ?? ''),
-      content: e.content ?? '',
-      time: Number(e.created_time ?? 0),
-      commentNum: Number(e.cmtnum ?? 0),
-      isPrivate: Number(e.secret ?? 0) !== 0,
-      images: (e.pic ?? []).map(pickPicUrl).filter((u): u is string => !!u),
-    })),
+    list: list.map((e) => {
+      const pics = e.pic ?? [];
+      // 视频条目(形态 A)从 images 里剔除 —— 封面由 videos[].coverUrl 承载,
+      // 避免 HTML / 灯箱把同一张封面渲染两遍。
+      const images = pics
+        .filter((p) => !(p.is_video && p.video_info?.url3))
+        .map(pickPicUrl)
+        .filter((u): u is string => !!u);
+      return {
+        tid: String(e.tid ?? ''),
+        content: e.content ?? '',
+        time: Number(e.created_time ?? 0),
+        commentNum: Number(e.cmtnum ?? 0),
+        isPrivate: Number(e.secret ?? 0) !== 0,
+        images,
+        videos: mapVideos(pics, e.video),
+      };
+    }),
   };
 }
 

@@ -18,7 +18,10 @@ import { decode as rawDecode, type RawField, type Guess } from '@weq/codec/raw';
 import { ScalarType, type ProtoFieldType, type ProtoMessageType } from '@weq/codec';
 
 /** Decode `bytes` against `schema`, tolerating trailing padding / extras. */
-export function decodeMessage(bytes: Uint8Array, schema: ProtoMessageType): Record<string, unknown> {
+export function decodeMessage(
+  bytes: Uint8Array,
+  schema: ProtoMessageType,
+): Record<string, unknown> {
   return assemble(rawDecode(bytes), schema);
 }
 
@@ -53,7 +56,8 @@ function fieldValue(f: RawField, def: ProtoFieldType): unknown {
     const nested = guess(f, 'len-nested');
     if (nested) return assemble(nested.value as RawField[], (def.type as () => ProtoMessageType)());
     const bytes = guess(f, 'len-bytes');
-    if (bytes) return assemble(rawDecode(bytes.value as Uint8Array), (def.type as () => ProtoMessageType)());
+    if (bytes)
+      return assemble(rawDecode(bytes.value as Uint8Array), (def.type as () => ProtoMessageType)());
     return undefined;
   }
   return scalarValue(f, def.type as ScalarType);

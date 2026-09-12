@@ -8,6 +8,8 @@
  *   40020  senderUid       (TEXT)
  *   40027  targetGroupCode (INTEGER as text — 群号; conversation key, indexed)
  *   40033  senderUin       (INTEGER — sender QQ number)
+ *   40040  sentSource      (INTEGER — 1 = locally originated / genuinely sent
+ *                          by this account; 0 = sync copy, e.g. self-forwarded)
  *   40050  sendTime        (INTEGER, unix seconds)
  *   40058  dayTimestamp    (INTEGER — midnight timestamp of the day)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
@@ -18,8 +20,28 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { GroupMsg, SeqWindow } from './types';
-import { decodeBody, decodeEmoji, decodeDress, toBigint, toStr } from './util';
+import type { AtElement, Element, GrayTipPokeElement } from '@weq/codec';
+import type {
+  DressTally,
+  GroupAtMeTop,
+  GroupEchoLongest,
+  GroupInteractionTally,
+  GroupMsg,
+  GroupTargetTop,
+  SentSpeechRow,
+  SentWeekdayHourlyGrid,
+  SeqWindow,
+} from './types';
+import {
+  buildWeekdayHourlyGrid,
+  decodeBody,
+  decodeEmoji,
+  decodeDress,
+  emptyDressTally,
+  tallyDressBlobs,
+  toBigint,
+  toStr,
+} from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
@@ -376,6 +398,526 @@ export class GroupMsgDb {
   }
 
   /**
+   * Oldest sendTime (column 40050, unix seconds) in the whole table, or null
+   * when empty. Unindexed — a single-pass MIN scan; used once per report open
+   * to derive the first available year, then cached by the caller.
+   */
+  async oldestSendTime(): Promise<bigint | null> {
+    const rows = await this.qq.query(`SELECT MIN("40050") FROM group_msg_table WHERE "40050" > 0`);
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * The distinct local-time years in which the table holds at least one
+   * message. Deliberately does NOT filter by sender/own marker: this is the
+   * cheap year-eligibility probe for the report entry page, and it runs on the
+   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
+   * SQLite resolves it as a covering index scan without touching message rows.
+   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
+   * with `"40058" > 0`.
+   *
+   * The year is derived with `'localtime'` so buckets line up with the
+   * report's local-midnight year boundaries.
+   */
+  async yearsWithMessages(): Promise<number[]> {
+    const rows = await this.qq.query(
+      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
+       FROM group_msg_table
+       WHERE "40058" > 0`,
+    );
+    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+  }
+
+  /**
+   * 一个时间窗内**自己发出的**群聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   *
+   * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回全零矩阵 ——
+   * 分不清哪些群消息是自己的时候，全群算给自己会把别人的作息也算进来。
+   * 小时/星期用 `'localtime'` 与报告口径对齐。
+   */
+  async sentWeekdayHourlyTallies(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<SentWeekdayHourlyGrid> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return buildWeekdayHourlyGrid([]);
+
+    const conditions: string[] = [`"40050" > 0`, mine.clause];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+              COUNT(*) AS n
+       FROM group_msg_table
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY dow, hour`,
+      params,
+    );
+    return buildWeekdayHourlyGrid(rows);
+  }
+
+  /**
+   * 自己发出的群聊消息，逐条解码正文 —— 年度报告「我的话」页的原始素材。
+   *
+   * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回空数组，
+   * 不把别人的群发言算给自己。窗口时间用调用方给的 unix 秒半开区间；
+   * 空 body 的行在 SQL 侧滤掉。
+   *
+   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async sentSpeechRows(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<SentSpeechRow[]> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return [];
+
+    const conditions: string[] = [`"40050" > 0`, mine.clause, `length("40800") > 0`];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
+  }
+
+  /**
+   * 某一个群的**全体成员**在时间窗内发出的正文行 —— 年度报告「我的主场」页
+   * 给冠军群数词云用。与 {@link sentSpeechRows} 不同，这一页要的是「大家聊了
+   * 什么」，所以不按 sender 过滤，只锁群号与时间窗；空 body 的行在 SQL 侧滤掉。
+   *
+   * 窗口与报告口径一致：unix 秒半开区间 [startTime, endTime)。返回的是**共享
+   * 只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async bodyRowsInGroup(
+    targetGroupCode: string,
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentSpeechRow[]> {
+    const conditions: string[] = [`"40027" = ?`, `"40050" > 0`, `length("40800") > 0`];
+    const params: SqlValue[] = [targetGroupCode];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
+  }
+
+  /**
+   * 群聊互动的年度聚合，年度报告 @ / 戳 / 复读三页共用：我自己发起的戳一戳与
+   * 别人戳我、我 @ 出去的与别人 @ 到我的（含各自的去重人数）、以及全群与「我参与
+   * 过」的复读回合（连续相同正文 >3 条，且至少两个人）。一次性全量扫描时间窗内
+   * 的消息正文 —— 这是年度报告里最重的统计之一，页面排得靠后，由调用方决定何时
+   * 计算。
+   *
+   * 扫法：先按时间窗取一次 DISTINCT 群号，再**逐群**把该窗正文行取出解码并
+   * 当场聚合。绝不把所有群的整年消息同时装进内存 —— 任一时刻只有当前群的一
+   * 份行数组和一份聚合。聚合结果只留冠军，不把整年长尾送回去。
+   *
+   * 复读口径：以「消息可见文本」为签名（text + at 元素拼接），同一群内按
+   * `40003 / 40050 / 40001` 时间序连续相同签名、长度 >3 且至少两个发言者才
+   * 算一个回合。中途插一条不同正文会断掉当前回合，媒体 / 灰条等无正文行不
+   * 参与比较（它们不打断）。
+   */
+  async tallyInteractions(
+    opts: { startTime?: number; endTime?: number; senderUid?: string; selfUin?: bigint } = {},
+  ): Promise<GroupInteractionTally> {
+    const selfUid = String(opts.senderUid ?? '').trim();
+    const selfUin = opts.selfUin !== undefined && opts.selfUin > 0n ? opts.selfUin : 0n;
+
+    const pokeTargets = new Map<string, PersonAgg>();
+    const pokeMeTargets = new Map<string, PersonAgg>();
+    const atTargets = new Map<string, PersonAgg>();
+    const atMeGroups = new Map<string, number>();
+    /** 在人群里喊过我的不同人（uid / uin 兜底 key）。 */
+    const atMeSenders = new Set<string>();
+    let pokeTotal = 0;
+    let pokeMeTotal = 0;
+    let atTotal = 0;
+    const echo = {
+      runs: 0,
+      messages: 0,
+      participatedRuns: 0,
+      mineLongest: null as GroupEchoLongest | null,
+      longest: null as GroupEchoLongest | null,
+    };
+
+    const codes = await this.interactionGroupCodes(opts);
+    for (const groupCode of codes) {
+      const conditions: string[] = [`"40027" = ?`, `"40050" > 0`, `length("40800") > 0`];
+      const params: SqlValue[] = [groupCode];
+      this.appendTimeWindow(conditions, params, opts);
+
+      const rows = await this.qq.query(
+        `SELECT "40001","40003","40020","40033","40050","40800"
+         FROM group_msg_table
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`,
+        params,
+      );
+
+      let current: EchoRun | null = null;
+      const finalize = (): void => {
+        if (!current || current.count < ECHO_AT_LEAST_COUNT) return;
+        if (current.participants.size < 2) return;
+        echo.runs += 1;
+        echo.messages += current.count;
+        const entry = {
+          groupCode,
+          count: current.count,
+          text: current.sig.slice(0, ECHO_TEXT_KEEP),
+        };
+        // 冠军并列时比「群号:正文」，结果可复现（与 pickTargetTop 同一套约定）。
+        const beats = (champion: GroupEchoLongest | null): boolean =>
+          !champion ||
+          current!.count > champion.count ||
+          (current!.count === champion.count &&
+            `${groupCode}:${current!.sig}` < `${champion.groupCode}:${champion.text}`);
+        if (beats(echo.longest)) echo.longest = entry;
+        if (current.mine) {
+          echo.participatedRuns += 1;
+          if (beats(echo.mineLongest)) echo.mineLongest = entry;
+        }
+      };
+
+      for (const row of rows) {
+        const senderUid = toStr(row[2]);
+        const senderUin = toBigint(row[3]);
+        const mine =
+          (selfUid !== '' && senderUid === selfUid) ||
+          (selfUin > 0n && senderUin === selfUin && (selfUid === '' || senderUid === ''));
+        const elements = decodeBody(row[5]);
+
+        for (const element of elements) {
+          if (element.kind === 'grayTipPoke') {
+            const poke = element as GrayTipPokeElement;
+            if (poke.detailedId !== POKE_DETAILED_ID) continue;
+            const parties = pokeParties(poke);
+            const iAmInitiator =
+              (selfUid !== '' && parties.initiatorUid === selfUid) ||
+              (selfUin > 0n &&
+                parties.initiatorUin !== '' &&
+                parties.initiatorUin === String(selfUin));
+            const targetIsMe =
+              (selfUid !== '' && parties.targetUid === selfUid) ||
+              (selfUin > 0n && parties.targetUin !== '' && parties.targetUin === String(selfUin));
+            // 自己戳自己两边都算，跳过；其余按方向各进各的账。
+            if (iAmInitiator && !targetIsMe) {
+              pokeTotal += 1;
+              if (parties.targetUid !== '' || parties.targetUin !== '') {
+                bumpTarget(pokeTargets, {
+                  groupCode,
+                  targetUid: parties.targetUid,
+                  targetUin: parties.targetUin,
+                  name: parties.targetName,
+                });
+              }
+            } else if (targetIsMe && !iAmInitiator) {
+              pokeMeTotal += 1;
+              if (parties.initiatorUid !== '' || parties.initiatorUin !== '') {
+                bumpTarget(pokeMeTargets, {
+                  groupCode,
+                  targetUid: parties.initiatorUid,
+                  targetUin: parties.initiatorUin,
+                  name: parties.initiatorName,
+                });
+              }
+            }
+            continue;
+          }
+          if (element.kind !== 'at') continue;
+
+          const at = element as AtElement;
+          const targetUid = String(at.atTargetUid ?? '');
+          const targetUin = numStr(at.textEncodingFlag);
+          const name = String(at.textContent ?? '')
+            .replace(/^@/, '')
+            .trim();
+
+          if (mine && isPersonMention(at)) {
+            if (selfUid !== '' && targetUid === selfUid) continue; // 自己 @ 自己不算
+            if (selfUid === '' && targetUin !== '' && Number(targetUin) === Number(selfUin)) {
+              continue;
+            }
+            atTotal += 1;
+            bumpTarget(atTargets, {
+              groupCode,
+              targetUid,
+              targetUin,
+              name,
+            });
+            continue;
+          }
+
+          // 别人直接 @ 到我：uid 精确匹配；老库只有 uin 时用 textEncodingFlag 兜底。
+          const hitMe =
+            (selfUid !== '' && targetUid !== '' && targetUid === selfUid) ||
+            (selfUid === '' &&
+              selfUin > 0n &&
+              targetUin !== '' &&
+              Number(targetUin) === Number(selfUin));
+          if (!mine && hitMe && isPersonMention(at)) {
+            atMeGroups.set(groupCode, (atMeGroups.get(groupCode) ?? 0) + 1);
+            const sender = senderUid || (senderUin > 0n ? `uin:${senderUin}` : '');
+            if (sender) atMeSenders.add(sender);
+          }
+        }
+
+        // 复读：只看「人说过的话」。正文在无正文行里为空，连续比较自动跨过去。
+        const sig = visibleText(elements);
+        if (!sig) continue;
+        const participant = senderUid || (senderUin > 0n ? `uin:${senderUin}` : '');
+        if (current && current.sig === sig) {
+          current.count += 1;
+          current.participants.add(participant);
+          if (mine) current.mine = true;
+          continue;
+        }
+        finalize();
+        current = {
+          sig,
+          count: 1,
+          participants: new Set([participant]),
+          mine,
+        };
+      }
+      finalize();
+    }
+
+    return {
+      poke: {
+        total: pokeTotal,
+        top: pickTargetTop(pokeTargets),
+      },
+      pokeMe: {
+        total: pokeMeTotal,
+        top: pickTargetTop(pokeMeTargets),
+      },
+      at: {
+        total: atTotal,
+        distinct: atTargets.size,
+        top: pickTargetTop(atTargets),
+      },
+      atMe: {
+        total: [...atMeGroups.values()].reduce((sum, count) => sum + count, 0),
+        distinct: atMeSenders.size,
+        topGroup: pickAtMeTop(atMeGroups),
+      },
+      echo,
+    };
+  }
+
+  /** 时间窗内的非空群号（去重、排序稳定）。 */
+  private async interactionGroupCodes(opts: {
+    startTime?: number;
+    endTime?: number;
+  }): Promise<string[]> {
+    const conditions: string[] = [
+      `"40050" > 0`,
+      `"40027" IS NOT NULL AND "40027" != ''`,
+      `length("40800") > 0`,
+    ];
+    const params: SqlValue[] = [];
+    this.appendTimeWindow(conditions, params, opts);
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40027" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows
+      .map((row) => toStr(row[0]))
+      .filter((code) => code !== '')
+      .sort((a, b) => a.localeCompare(b, 'en'));
+  }
+
+  /** 半开时间窗 [start, end)，0/缺省表示不设这一侧。 */
+  private appendTimeWindow(
+    conditions: string[],
+    params: SqlValue[],
+    opts: { startTime?: number; endTime?: number },
+  ): void {
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+  }
+
+  /**
+   * Split the whole table's rows in a time window into sent / received, in ONE
+   * pass. Sent means QQ's own 40040 marker = 1 (locally originated by this
+   * account), which excludes self-forwarded copies of other people's messages
+   * even though their senderUid is ours. No account identity is needed any
+   * more. Everything else — other members' rows and sync copies alike — is
+   * counted as received. This is the cheapest shape (one scan, no body
+   * decode).
+   */
+  async countByDirection(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<{ sent: number; received: number }> {
+    const conditions: string[] = [];
+    const whereParams: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      whereParams.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      whereParams.push(BigInt(opts.endTime));
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const rows = await this.qq.query(
+      `SELECT "40040" AS mine, COUNT(*) AS n
+       FROM group_msg_table${where}
+       GROUP BY 1`,
+      whereParams,
+    );
+    let sent = 0;
+    let received = 0;
+    for (const row of rows) {
+      const mine = Number(row[0] ?? 0);
+      const n = Number(row[1] ?? 0);
+      if (mine === 1) sent = n;
+      else received = n;
+    }
+    return { sent, received };
+  }
+
+  /**
+   * 时间窗内按群拆分「我发的 / 全群总消息」—— 年度报告「我的主场」页的排行素材。
+   *
+   * 与 {@link countByDirection} 同一套自证 marker（senderUid 优先、selfUin
+   * 兜底）；一次 `GROUP BY 群号, 方向` 的扫描只数几列元数据，不碰 40800 正文。
+   * 窗口是报告口径的半开区间 [startTime, endTime) —— 区别于周报用的
+   * {@link countByGroups}（≤ 闭区间），避免把次年初那一秒算进今年。
+   *
+   * ⚠️ `?` 是**位置绑定**：mine marker 参数在 SELECT 里，必须排在 WHERE 组号
+   *    参数之前，不能追加在后面。
+   */
+  async countByGroupAndDirection(
+    groupCodes: string[],
+    opts: { startTime?: number; endTime?: number; senderUid?: string; selfUin?: bigint } = {},
+  ): Promise<Array<{ groupCode: string; sent: number; total: number }>> {
+    if (groupCodes.length === 0) return [];
+    const mineExpr = opts.senderUid
+      ? `CASE WHEN "40020" = ? AND "40020" != '' THEN 1 ELSE 0 END`
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? `CASE WHEN "40033" = ? THEN 1 ELSE 0 END`
+        : null;
+    if (!mineExpr) {
+      return groupCodes.map((code) => ({ groupCode: code, sent: 0, total: 0 }));
+    }
+
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions: string[] = [`"40027" IN (${placeholders})`];
+    const whereParams: SqlValue[] = [...groupCodes];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      whereParams.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      whereParams.push(BigInt(opts.endTime));
+    }
+    const mineParam: SqlValue = opts.senderUid ?? (opts.selfUin !== undefined ? opts.selfUin : 0n);
+    const rows = await this.qq.query(
+      `SELECT "40027", ${mineExpr} AS mine, COUNT(*) AS n
+       FROM group_msg_table
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY 1, 2`,
+      [mineParam, ...whereParams],
+    );
+
+    const tally = new Map<string, { sent: number; total: number }>();
+    for (const code of groupCodes) tally.set(code, { sent: 0, total: 0 });
+    for (const row of rows) {
+      const code = String(row[0] ?? '');
+      const mine = Number(row[1] ?? 0);
+      const n = Number(row[2] ?? 0);
+      const bucket = tally.get(code);
+      if (!bucket) continue;
+      bucket.total += n;
+      if (mine === 1) bucket.sent += n;
+    }
+    return [...tally.entries()].map(([groupCode, bucket]) => ({
+      groupCode,
+      sent: bucket.sent,
+      total: bucket.total,
+    }));
+  }
+
+  /**
+   * 统计**我发出的**群消息里各套装扮各用了多少条（列 40801），顺带采样正文。与
+   * {@link C2cMsgDb.tallyDress} 同形，只是「我」的判据换成群聊那一套：`senderUid`
+   * （40020）优先，没有时退到 `selfUin`（40033）。两个都没有就返回空 tally ——
+   * 分不清谁发的时候，把全群的装扮算成自己的会比不算更糟。
+   */
+  async tallyDress(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<DressTally> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return emptyDressTally();
+
+    const conditions = [mine.clause, `length("40801") > 0`];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40801","40800","40050" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return tallyDressBlobs(rows, emptyDressTally());
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:
@@ -454,4 +996,195 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
     subType: toBigint(row[10]),
     decoration: decodeDress(row[11]),
   };
+}
+
+/** 复读回合最少条数：用户口径「重复超过 3 次」，即第 4 条起算。 */
+const ECHO_AT_LEAST_COUNT = 4;
+/** QQ nudge（戳一戳）灰条的 detailedId。 */
+const POKE_DETAILED_ID = 1061;
+/** 页面展示的复读正文最长保留长度；匹配签名始终用完整正文，只在落盘时截断。 */
+const ECHO_TEXT_KEEP = 72;
+
+/** 一个复读目标的滚动聚合（只用于 db 方法内部，最后只吐冠军）。 */
+type PersonAgg = {
+  targetUid: string;
+  targetUin: string;
+  total: number;
+  /** 每个群里的次数：解析群名片时挑最大的那个群。 */
+  groups: Map<string, number>;
+  /** 消息里自带的名字 → 出现次数。 */
+  names: Map<string, number>;
+};
+
+/** 当前正在观察的一轮复读。 */
+type EchoRun = {
+  sig: string;
+  count: number;
+  participants: Set<string>;
+  mine: boolean;
+};
+
+/** 可显示的正文签名：text + at 拼接，压空白。媒体等元素不参与。 */
+function visibleText(elements: Element[]): string {
+  let text = '';
+  for (const element of elements) {
+    if (element.kind === 'text' || element.kind === 'at') {
+      text += element.textContent ?? '';
+    }
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** @全体不入“点名”账：内容带「全体」或带 atMentionMask 的都跳过。 */
+function isPersonMention(at: AtElement): boolean {
+  if (String(at.atMentionMask ?? '') !== '') return false;
+  return !/全体|all/i.test(String(at.textContent ?? ''));
+}
+
+/** 灰条里戳一戳的双方。actionTarget 只在部分版本有，其余从 XML/tipJson 补。 */
+function pokeParties(poke: GrayTipPokeElement): {
+  initiatorUid: string;
+  initiatorUin: string;
+  initiatorName: string;
+  targetUid: string;
+  targetUin: string;
+  targetName: string;
+} {
+  const attrs = new Map<string, string>();
+  for (const item of poke.actionAttributes ?? []) {
+    const key = String(item.key ?? '').trim();
+    if (key) attrs.set(key, String(item.value ?? '').trim());
+  }
+  const attr = (key: string): string => attrs.get(key) ?? '';
+
+  const xmlPeople: string[] = [];
+  const xmlRe = /<qq\s[^>]*\buin\s*=\s*["']([^"']*)["']/gi;
+  for (const match of String(poke.grayTipXmlContent ?? '').matchAll(xmlRe)) {
+    const value = String(match[1] ?? '').trim();
+    if (value) xmlPeople.push(value);
+  }
+
+  let jsonPeople: Array<{ uid?: string; uin?: string; nm?: string }> = [];
+  try {
+    const parsed = JSON.parse(poke.tipJson ?? '') as {
+      items?: Array<{ type?: string; uid?: string; uin?: string; nm?: string }>;
+    };
+    jsonPeople = (parsed.items ?? []).filter((item) => item.type === 'qq' || item.type === 'url');
+  } catch {
+    jsonPeople = [];
+  }
+
+  const initiatorUid =
+    poke.actionInitiator?.uid?.trim() ?? xmlPeople[1] ?? jsonPeople[1]?.uid ?? '';
+  const targetUid = poke.actionTarget?.uid?.trim() ?? xmlPeople[0] ?? jsonPeople[0]?.uid ?? '';
+  const targetUin = /^\d+$/.test(attr('uin_str1')) ? attr('uin_str1') : '';
+  const initiatorUin = /^\d+$/.test(attr('uin_str2')) ? attr('uin_str2') : '';
+  const targetName =
+    poke.actionTarget?.nickname?.trim() || attr('nick_str1') || jsonPeople[0]?.nm?.trim() || '';
+  const initiatorName =
+    poke.actionInitiator?.nickname?.trim() || attr('nick_str2') || jsonPeople[1]?.nm?.trim() || '';
+
+  return {
+    initiatorUid: String(initiatorUid ?? ''),
+    initiatorUin,
+    initiatorName,
+    targetUid: String(targetUid ?? ''),
+    targetUin,
+    targetName,
+  };
+}
+
+/** 一个数字/字符串值转十进制字符串；空值返回 ''。 */
+function numStr(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return '';
+  try {
+    const n = BigInt(text);
+    return n > 0n ? String(n) : '';
+  } catch {
+    return '';
+  }
+}
+
+/** 给「戳/at 目标」加一票，并记录群与消息内名字。 */
+function bumpTarget(
+  map: Map<string, PersonAgg>,
+  input: {
+    groupCode: string;
+    targetUid: string;
+    targetUin: string;
+    name: string;
+  },
+): void {
+  const { groupCode, targetUid, targetUin, name } = input;
+  if (targetUid === '' && targetUin === '') return;
+  const key = targetUid || `uin:${targetUin}`;
+  let agg = map.get(key);
+  if (!agg) {
+    agg = {
+      targetUid,
+      targetUin,
+      total: 0,
+      groups: new Map(),
+      names: new Map(),
+    };
+    map.set(key, agg);
+  }
+  agg.total += 1;
+  agg.groups.set(groupCode, (agg.groups.get(groupCode) ?? 0) + 1);
+  const cleanName = name.replace(/\s+/g, ' ').trim();
+  if (cleanName) {
+    agg.names.set(cleanName, (agg.names.get(cleanName) ?? 0) + 1);
+  }
+}
+
+/** 聚合里挑总次数第一；次数相同的比 key 字典序，结果可复现。 */
+function pickTargetTop(map: Map<string, PersonAgg>): GroupTargetTop | null {
+  let bestKey = '';
+  let best: PersonAgg | null = null;
+  for (const [key, agg] of map) {
+    if (!best || agg.total > best.total || (agg.total === best.total && key < bestKey)) {
+      best = agg;
+      bestKey = key;
+    }
+  }
+  if (!best) return null;
+
+  let groupCode = '';
+  let groupCount = 0;
+  for (const [code, count] of best.groups) {
+    if (count > groupCount || (count === groupCount && code < groupCode)) {
+      groupCode = code;
+      groupCount = count;
+    }
+  }
+
+  let displayName = '';
+  let nameCount = 0;
+  for (const [name, count] of best.names) {
+    if (count > nameCount || (count === nameCount && name < displayName)) {
+      displayName = name;
+      nameCount = count;
+    }
+  }
+
+  return {
+    targetUid: best.targetUid,
+    targetUin: best.targetUin,
+    groupCode,
+    count: best.total,
+    displayName,
+  };
+}
+
+/** 被 @ 最多的群。 */
+function pickAtMeTop(map: Map<string, number>): GroupAtMeTop | null {
+  let top: GroupAtMeTop | null = null;
+  for (const [groupCode, count] of map) {
+    if (!top || count > top.count || (count === top.count && groupCode < top.groupCode)) {
+      top = { groupCode, count };
+    }
+  }
+  return top;
 }

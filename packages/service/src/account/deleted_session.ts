@@ -48,7 +48,10 @@ export class DeletedSessionService {
     return Promise.all(rows.map((row) => this.resolve(row, inRecentSet)));
   }
 
-  private async resolve(row: DeletedSession, inRecentSet: Set<string>): Promise<DeletedSessionSummary> {
+  private async resolve(
+    row: DeletedSession,
+    inRecentSet: Set<string>,
+  ): Promise<DeletedSessionSummary> {
     const base = {
       sessionKey: row.sessionKey,
       chatType: row.chatType,

@@ -14,7 +14,15 @@
 // Idempotent: versions whose `dist/electron` already exists are skipped.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -138,7 +146,9 @@ for (const modDir of modDirs) {
     console.log(`[fix-electron] ${version}: repaired from ${zip}`);
     repaired++;
   } catch (e) {
-    console.error(`[fix-electron] ${version}: repair failed — ${e instanceof Error ? e.message : e}`);
+    console.error(
+      `[fix-electron] ${version}: repair failed — ${e instanceof Error ? e.message : e}`,
+    );
     failed++;
   }
 }

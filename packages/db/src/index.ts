@@ -45,3 +45,6 @@ export * from './emoji';
 
 // --- collection business ---
 export * from './collection';
+
+// --- guild (QQ 频道) business ---
+export * from './guild';

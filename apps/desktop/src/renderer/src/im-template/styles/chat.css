@@ -68,6 +68,23 @@
 	content: "";
 }
 
+/* 动态聊天背景（本地 mp4/webm/mov）。
+ *
+ * 与 .weq-chat-backdrop 的 background-image 同一条裁切：cover + 居中。放在容器里而不是
+ * 改成 CSS 背景 —— 视频得有真实元素才播得起来。
+ *
+ * 层级：不给 z-index，靠 DOM 顺序压在容器的 ::after（磨砂纱）之下 —— ::after 生成在
+ * 所有子元素之后，自然盖在视频上；挂件是 z-index: 1，仍然在最上面。
+ * 容器带 pointer-events: none，视频不会抢消息区的点击（视频本身也没有 controls）。 */
+.weq-chat-backdrop-video {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	object-position: center;
+}
+
 /* 挂件画在磨砂层之上 —— 它是前景装饰，不该跟着底图一起被糊。 */
 .weq-chat-widget {
 	position: absolute;
@@ -2020,6 +2037,72 @@ html[data-theme="dark"] .member-role-badge.admin {
 	font-size: 12px;
 	text-align: center;
 	word-break: break-word;
+}
+
+/* ---- 群资料 / 群成员列表 skeleton 占位（shimmer 复用 .skel-block） ---- */
+.group-info-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 0 12px;
+}
+
+.group-info-skeleton-heading {
+	width: 96px;
+	height: 16px;
+	border-radius: 6px;
+}
+
+.group-info-skeleton-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.group-info-skeleton-row {
+	display: grid;
+	min-width: 0;
+	grid-template-columns: 58px minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+}
+
+.group-info-skeleton-label {
+	width: 44px;
+	height: 11px;
+	border-radius: 999px;
+}
+
+.group-info-skeleton-value {
+	width: 62%;
+	height: 11px;
+	border-radius: 999px;
+}
+
+.group-members-skeleton {
+	display: flex;
+	flex-direction: column;
+}
+
+.group-members-skeleton-row {
+	display: flex;
+	min-height: 42px;
+	align-items: center;
+	gap: 10px;
+	padding: 0 12px;
+}
+
+.group-members-skeleton-avatar {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+}
+
+.group-members-skeleton-name {
+	width: 42%;
+	height: 12px;
+	border-radius: 999px;
 }
 
 .group-info-panel .group-info-section {

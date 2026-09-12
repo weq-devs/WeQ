@@ -48,7 +48,7 @@ export class FileAssistantDb {
    */
   async getByMsgId(msgId: bigint): Promise<FileAssistantRow | null> {
     const target = msgId + 1n;
-    
+
     // 1. Try exact match with msgId + 1
     for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
       const rows = await this.qq.query(
@@ -62,7 +62,7 @@ export class FileAssistantDb {
     // We want the one closest to the target msgId
     const lower = msgId - 2n;
     const upper = msgId + 2n;
-    
+
     for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${table} WHERE "200016" >= ? AND "200016" <= ? ORDER BY ABS("200016" - ?) ASC LIMIT 1`,
@@ -74,13 +74,17 @@ export class FileAssistantDb {
     return null;
   }
 
-  private async listFromTable(tableName: 'file_assistant' | 'file_assistant_v2', limit: number, offset: number): Promise<FileAssistantRow[]> {
+  private async listFromTable(
+    tableName: 'file_assistant' | 'file_assistant_v2',
+    limit: number,
+    offset: number,
+  ): Promise<FileAssistantRow[]> {
     try {
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${tableName} ORDER BY "200009" DESC LIMIT ? OFFSET ?`,
         [limit, offset],
       );
-      return rows.map(r => rowToInfo(r, tableName));
+      return rows.map((r) => rowToInfo(r, tableName));
     } catch (_e) {
       // Table might not exist in older versions
       return [];
@@ -92,7 +96,10 @@ export class FileAssistantDb {
   }
 }
 
-function rowToInfo(row: SqlRow, sourceTable: 'file_assistant' | 'file_assistant_v2'): FileAssistantRow {
+function rowToInfo(
+  row: SqlRow,
+  sourceTable: 'file_assistant' | 'file_assistant_v2',
+): FileAssistantRow {
   return {
     fileName: String(row[0] ?? ''),
     fileHash: String(row[1] ?? '').toLowerCase(),

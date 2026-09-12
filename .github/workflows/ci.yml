@@ -36,6 +36,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # 格式统一由 biome 一把抓：未按 biome.json 规范格式化的代码在此即失败，
+      # 本地用 `pnpm format` 一次性刷平即可。
+      - name: Format check
+        run: pnpm format:check
+
   typecheck:
     runs-on: ubuntu-latest
     env:
@@ -59,6 +64,36 @@ jobs:
 
       - name: Type-check all packages
         run: pnpm -r typecheck
+
+  # Rust 守护进程（packages/daemon）：fmt + clippy -D warnings + 单测，与 TS 侧
+  # 的 lint/typecheck/test 同级门禁。cargo 缓存加速重复构建。
+  daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/daemon
+
+      - name: Format check
+        run: cargo fmt --check
+        working-directory: packages/daemon
+
+      # clippy 以 -D warnings 为门禁：任何告警即失败，与 biome lint 同一标准。
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: packages/daemon
+
+      - name: Tests
+        run: cargo test
+        working-directory: packages/daemon
 
   # 离线单测（packages/*/test/*.test.ts）。需要真 QQ 环境的探针脚本在
   # packages/*/tools/ 下，不在这里跑 —— 约定见 docs/develop/testing.md。
@@ -134,7 +169,9 @@ jobs:
           fi
           rm -f apps/desktop/package.release.json
 
-  # 浏览器版打包冒烟：构建 → 两个守卫 → 启动真实产物走一遍鉴权流程。
+  # 浏览器版打包冒烟（linux-x64）：native/ + daemon 随包 → 两个守卫 →
+  # 启动真实产物走一遍鉴权流程。产物现在按平台/架构各自成包，build-web 冒烟
+  # 的就是 release web 矩阵里 linux-x64 那一条。
   # 守卫防的是同一类回归：Electron-only 的代码混进 web 构建后不会报错，
   # 只在运行时炸成一句看不懂的 "does not provide an export named 'app'"。
   build-web:
@@ -163,6 +200,14 @@ jobs:
       # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
+
+      # 先打当前平台（linux-x64）的守护进程，build-server 与 smoke 才会把它
+      # 视作打包目标的一部分；与 release 的 web 矩阵保持一致。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
 
       # build 内含 check：check-electron-free（走真实 import 图）
       # + check-bundle（扫前端产物里残留的自定义协议 URL）。

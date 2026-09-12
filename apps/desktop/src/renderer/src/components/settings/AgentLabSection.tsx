@@ -1,7 +1,18 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Boxes, FlaskConical, Loader2, Plus, Save, Server, Sparkles, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  Boxes,
+  FlaskConical,
+  Loader2,
+  Plus,
+  Save,
+  Server,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { Modal } from '../../components/Dialog';
 import { Card, CheckPill, Row, SectionHeader } from './controls';
 
 type Capability = 'chat' | 'embedding' | 'vision';
@@ -21,8 +32,16 @@ type ProviderForm = {
   models: ModelForm[];
 };
 
+/** 新建表单默认选中的厂商模板。 */
+const DEFAULT_VENDOR = 'siliconflow';
+
 function emptyForm(): ProviderForm {
-  return { id: '', name: '', vendor: 'siliconflow', baseUrl: '', apiKey: '', models: [] };
+  return { id: '', name: '', vendor: DEFAULT_VENDOR, baseUrl: '', apiKey: '', models: [] };
+}
+
+/** 模板标签去掉括号说明后的显示名：硅基流动 SiliconFlow（推荐）→ 硅基流动 SiliconFlow。 */
+function templateDisplayName(label: string | undefined): string {
+  return label?.replace(/（.*?）/g, '').trim() ?? '';
 }
 
 function normalizeId(input: string): string {
@@ -50,27 +69,55 @@ export function AgentLabSection(): ReactElement {
   const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
-  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
   const [testing, setTesting] = useState(false);
 
-  useEffect(() => {
-    const current = providers.data?.find((item) => item.id === selectedId);
-    if (current) {
+  /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
+  const templateDefaultsRef = useRef<{ baseUrl: string; name: string }>({ baseUrl: '', name: '' });
+  /** 表单里属于「模板推荐」的模型 id：切换模板时整批替换，用户自己加的会保留。 */
+  const templateModelIdsRef = useRef<Set<string>>(new Set());
+
+  /** 把已保存的 provider 数据填进表单（并按模板重新标定基线，避免切换模板时覆盖自定义值）。 */
+  const fillFormFrom = useCallback(
+    (item: {
+      id: string;
+      name: string;
+      vendor: string;
+      baseUrl: string;
+      apiKey: string;
+      models: Array<{ id: string; label?: string | null; capabilities: string[] }>;
+    }) => {
+      const entry = catalog.data?.find((c) => c.vendor === item.vendor);
+      const presetIds = new Set((entry?.models ?? []).map((m) => m.id));
+      // 只有 id 与模板推荐一致的模型算「模板模型」；用户自己加的不算，切换模板时保留。
+      templateModelIdsRef.current = new Set(
+        item.models.map((m) => m.id).filter((modelId) => presetIds.has(modelId)),
+      );
+      templateDefaultsRef.current = {
+        baseUrl: (entry?.baseUrl ?? '').trim(),
+        name: templateDisplayName(entry?.label),
+      };
       setForm({
-        id: current.id,
-        name: current.name,
-        vendor: current.vendor,
-        baseUrl: current.baseUrl,
-        apiKey: current.apiKey,
-        models: current.models.map((m) => ({
+        id: item.id,
+        name: item.name,
+        vendor: item.vendor,
+        baseUrl: item.baseUrl,
+        apiKey: item.apiKey,
+        models: item.models.map((m) => ({
           id: m.id,
           label: m.label ?? '',
           capabilities: m.capabilities as Capability[],
         })),
       });
-    }
-  }, [providers.data, selectedId]);
+    },
+    [catalog.data],
+  );
+
+  useEffect(() => {
+    const current = providers.data?.find((item) => item.id === selectedId);
+    if (current) fillFormFrom(current);
+  }, [providers.data, selectedId, fillFormFrom]);
 
   const vendorEntry = useMemo(
     () => catalog.data?.find((item) => item.vendor === form.vendor),
@@ -81,52 +128,82 @@ export function AgentLabSection(): ReactElement {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  /** 点「新建」：正在新建则收回，否则展开一个空表单。 */
+  /** 点「新建」：在新开的灯箱卡片里填一个空表单（并应用默认厂商模板）。 */
   function toggleCreate(): void {
-    if (editing && !selectedId) {
-      setEditing(false);
-      return;
-    }
     setSelectedId('');
-    setForm(emptyForm());
-    setEditing(true);
+    templateDefaultsRef.current = { baseUrl: '', name: '' };
+    templateModelIdsRef.current = new Set();
+    // 表单默认选中了 DEFAULT_VENDOR 模板，这里实际应用一次模板，
+    // 带入 base_url / 名称 / 推荐模型，避免「显示选中了模板但字段是空的」造成误导。
+    setForm(withVendorTemplate(emptyForm(), DEFAULT_VENDOR));
+    setOpen(true);
   }
 
-  /** 点已有 provider：进入编辑（再点同一个则收回）。 */
+  /** 点已有 provider：在灯箱卡片里打开编辑表单。 */
   function editProvider(id: string): void {
-    if (editing && selectedId === id) {
-      setEditing(false);
-      return;
-    }
+    const current = providers.data?.find((item) => item.id === id);
+    if (!current) return;
+    fillFormFrom(current);
     setSelectedId(id);
-    setEditing(true);
+    setOpen(true);
   }
 
-  function mergeTemplateModels(currentModels: ModelForm[], vendor: string): ModelForm[] {
+  /**
+   * 合并模板推荐模型：先摘掉上一批模板带来的模型，再补上当前模板的推荐模型。
+   * 用户手动添加（或改过 id）的模型不在模板集合里，会原样保留，因此切换模板不会叠加。
+   */
+  function applyTemplateModels(base: ModelForm[], vendor: string): ModelForm[] {
     const entry = catalog.data?.find((item) => item.vendor === vendor);
-    if (!entry?.models.length) return currentModels;
-    const seen = new Set(currentModels.map((m) => m.id));
-    const extra = entry.models
-      .filter((m) => !seen.has(m.id))
-      .map((m) => ({ id: m.id, label: m.label ?? '', capabilities: m.capabilities as Capability[] }));
-    return extra.length > 0 ? [...currentModels, ...extra] : currentModels;
+    const preset: ModelForm[] = (entry?.models ?? []).map((m) => ({
+      id: m.id,
+      label: m.label ?? '',
+      capabilities: m.capabilities as Capability[],
+    }));
+    // 没有推荐模型的模板（如「OpenAI 兼容（自定义）」）不动现有列表。
+    if (preset.length === 0) return base;
+    const templateIds = templateModelIdsRef.current;
+    const kept = base.filter((m) => !templateIds.has(m.id));
+    const keptIds = new Set(kept.map((m) => m.id));
+    const added = preset.filter((m) => !keptIds.has(m.id));
+    templateModelIdsRef.current = new Set(preset.map((m) => m.id));
+    return [...kept, ...added];
+  }
+
+  /**
+   * 应用厂商模板：带入 base_url / 名称，并同步模板推荐模型。
+   * 只有「空值」或「仍等于上次模板带入的值」才会跟着换，用户手填过的值一律保留。
+   */
+  function withVendorTemplate(base: ProviderForm, vendor: string): ProviderForm {
+    const entry = catalog.data?.find((item) => item.vendor === vendor);
+    const presetBaseUrl = (entry?.baseUrl ?? '').trim();
+    const presetName = templateDisplayName(entry?.label);
+    const defaults = templateDefaultsRef.current;
+    const baseUrlUntouched = base.baseUrl.trim() === '' || base.baseUrl.trim() === defaults.baseUrl;
+    const nameUntouched = base.name.trim() === '' || base.name.trim() === defaults.name;
+    const baseUrl = baseUrlUntouched && presetBaseUrl ? presetBaseUrl : base.baseUrl;
+    const name = nameUntouched && presetName ? presetName : base.name;
+    // 模板没提供该字段（自定义厂商）时以当前值为新基线，之后切模板仍能刷新。
+    templateDefaultsRef.current = {
+      baseUrl: presetBaseUrl || baseUrl.trim(),
+      name: presetName || name.trim(),
+    };
+    return {
+      ...base,
+      vendor,
+      baseUrl,
+      name,
+      models: applyTemplateModels(base.models, vendor),
+    };
   }
 
   function applyVendor(vendor: string): void {
-    const entry = catalog.data?.find((item) => item.vendor === vendor);
-    setForm((current) => ({
-      ...current,
-      vendor,
-      baseUrl: current.baseUrl.trim() || entry?.baseUrl || current.baseUrl,
-      name: current.name.trim() || entry?.label?.replace(/（.*?）/g, '') || current.name,
-      models: mergeTemplateModels(current.models, vendor),
-    }));
+    setForm((current) => withVendorTemplate(current, vendor));
   }
 
   function importTemplateModels(): void {
     setForm((current) => ({
       ...current,
-      models: mergeTemplateModels(current.models, form.vendor),
+      models: applyTemplateModels(current.models, current.vendor),
     }));
   }
 
@@ -139,7 +216,10 @@ export function AgentLabSection(): ReactElement {
   }, [catalog.data, form.vendor, form.models]);
 
   function addModel(): void {
-    setForm((c) => ({ ...c, models: [...c.models, { id: '', label: '', capabilities: ['chat'] }] }));
+    setForm((c) => ({
+      ...c,
+      models: [...c.models, { id: '', label: '', capabilities: ['chat'] }],
+    }));
   }
   function removeModel(index: number): void {
     setForm((c) => ({ ...c, models: c.models.filter((_, i) => i !== index) }));
@@ -165,13 +245,16 @@ export function AgentLabSection(): ReactElement {
   }
 
   async function onSave(): Promise<void> {
-    const id = normalizeId(form.id || form.name);
-    if (!id) {
-      dialog.error('保存失败', '请先填写 provider id 或名称。');
-      return;
-    }
+    // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
+    // 新建时由系统从显示名称自动生成。
+    const id =
+      form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
     const models = form.models
-      .map((m) => ({ id: m.id.trim(), label: m.label.trim() || undefined, capabilities: m.capabilities }))
+      .map((m) => ({
+        id: m.id.trim(),
+        label: m.label.trim() || undefined,
+        capabilities: m.capabilities,
+      }))
       .filter((m) => m.id);
     if (models.length === 0) {
       dialog.error('保存失败', '至少配置一个模型（可点「导入模板推荐」）。');
@@ -187,7 +270,7 @@ export function AgentLabSection(): ReactElement {
         models,
       });
       setSelectedId(id);
-      setEditing(true);
+      setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
@@ -201,7 +284,9 @@ export function AgentLabSection(): ReactElement {
       dialog.error('无法测试', '请先填写 Base URL。');
       return;
     }
-    const chatModel = form.models.find((m) => m.capabilities.includes('chat') && m.id.trim())?.id.trim();
+    const chatModel = form.models
+      .find((m) => m.capabilities.includes('chat') && m.id.trim())
+      ?.id.trim();
     if (!chatModel) {
       dialog.error('无法测试', '请先添加并填写一个带「聊天」能力的模型。');
       return;
@@ -214,7 +299,10 @@ export function AgentLabSection(): ReactElement {
         model: chatModel,
       });
       if (res.ok) {
-        dialog.success('测试通过', `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`);
+        dialog.success(
+          '测试通过',
+          `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
+        );
       } else {
         dialog.error('测试失败', res.error ?? '未知错误');
       }
@@ -237,8 +325,10 @@ export function AgentLabSection(): ReactElement {
       const removed = selectedId;
       await deleteProvider.mutateAsync({ id: selectedId });
       setSelectedId('');
+      templateDefaultsRef.current = { baseUrl: '', name: '' };
+      templateModelIdsRef.current = new Set();
       setForm(emptyForm());
-      setEditing(false);
+      setOpen(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
@@ -263,7 +353,7 @@ export function AgentLabSection(): ReactElement {
             onClick={toggleCreate}
           >
             <Plus size={12} />
-            {editing && !selectedId ? '收起' : '新建'}
+            新建
           </button>
         }
       >
@@ -277,130 +367,208 @@ export function AgentLabSection(): ReactElement {
               <button
                 key={item.id}
                 type="button"
-                className={`weq-agentlab-provider-item${editing && selectedId === item.id ? ' is-active' : ''}`}
+                className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                 onClick={() => editProvider(item.id)}
               >
                 <span className="weq-agentlab-provider-name">
-                  <Server size={14} strokeWidth={1.8} aria-hidden style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }} />
+                  <Server
+                    size={14}
+                    strokeWidth={1.8}
+                    aria-hidden
+                    style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
+                  />
                   {item.name}
                 </span>
-                <small>{item.models.length} 个模型 · {item.baseUrl}</small>
+                <small>
+                  {item.models.length} 个模型 · {item.baseUrl}
+                </small>
               </button>
             ))}
           </div>
         )}
       </Card>
 
-      {editing ? (
-      <Card title={selectedId ? '编辑 provider' : '新建 provider'}>
-        <Row
-          label="厂商模板"
-          desc="选模板自动带入 base_url 与推荐模型。"
-          control={
-            <select
-              className="weq-set-input"
-              value={form.vendor}
-              onChange={(e) => applyVendor(e.target.value)}
-            >
-              {(catalog.data ?? []).map((item) => (
-                <option key={item.vendor} value={item.vendor}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          }
-        />
-        <Row
-          label="Provider ID"
-          desc="稳定标识。留空时默认用名称自动生成。"
-          control={<input className="weq-set-input" value={form.id} onChange={(e) => update('id', e.target.value)} placeholder="siliconflow-main" />}
-        />
-        <Row
-          label="显示名称"
-          control={<input className="weq-set-input" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="硅基流动" />}
-        />
-        <Row
-          label="Base URL"
-          desc={vendorEntry ? `模板默认：${vendorEntry.baseUrl || '（自定义）'}` : 'OpenAI 兼容接口根路径'}
-          control={<input className="weq-set-input" value={form.baseUrl} onChange={(e) => update('baseUrl', e.target.value)} placeholder="https://api.siliconflow.cn/v1" />}
-        />
-        <Row
-          label="API Key"
-          desc={vendorEntry?.apiKeyHint}
-          control={<input className="weq-set-input" type="password" value={form.apiKey} onChange={(e) => update('apiKey', e.target.value)} placeholder="sk-..." />}
-        />
-
-        <div className="weq-set-card-head" style={{ marginTop: 8 }}>
-          <div className="weq-set-card-title">可用模型</div>
-          <div className="weq-set-card-action" style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={importTemplateModels} disabled={!vendorEntry?.models.length}>
-              <Sparkles size={12} /> 导入模板推荐{newModelCount > 0 ? ` (${newModelCount})` : ''}
-            </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={addModel}>
-              <Plus size={12} /> 手动添加
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {form.models.length === 0 ? (
-            <div className="weq-set-row-desc" style={{ padding: '6px 0' }}>还没有模型，点上方按钮添加。</div>
-          ) : (
-            form.models.map((model, index) => (
-              <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                key={index}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  flexWrap: 'wrap',
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  background: 'rgba(127,127,127,0.07)',
-                }}
+      {open ? (
+        <Modal onClose={() => setOpen(false)} width={620}>
+          <div className="weq-provider-modal">
+            <header className="weq-provider-modal-head">
+              <span className="weq-provider-modal-icon">
+                <Server size={16} strokeWidth={1.8} aria-hidden />
+              </span>
+              <strong>{selectedId ? '编辑 provider' : '新建 provider'}</strong>
+              <button
+                type="button"
+                className="weq-set-iconbtn weq-provider-modal-close"
+                onClick={() => setOpen(false)}
+                aria-label="关闭"
               >
-                <input
-                  className="weq-set-input"
-                  style={{ flex: '1 1 200px' }}
-                  value={model.id}
-                  onChange={(e) => updateModel(index, { id: e.target.value })}
-                  placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
-                />
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {CAPABILITIES.map((cap) => (
-                    <CheckPill
-                      key={cap.value}
-                      checked={model.capabilities.includes(cap.value)}
-                      onChange={() => toggleCap(index, cap.value)}
-                    >
-                      {cap.label}
-                    </CheckPill>
-                  ))}
-                </div>
-                <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => removeModel(index)}>
-                  <X size={12} />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+                <X size={16} />
+              </button>
+            </header>
 
-        <div className="weq-set-actions">
-          <button type="button" className="weq-set-btn" onClick={() => void onSave()} disabled={saveProvider.isLoading}>
-            <Save size={14} />
-            保存 provider
-          </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onTest()} disabled={testing}>
-            {testing ? <Loader2 size={14} className="weq-spin" /> : <FlaskConical size={14} />}
-            测试连通性
-          </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onDelete()} disabled={!selectedId || deleteProvider.isLoading}>
-            <Trash2 size={14} />
-            删除
-          </button>
-        </div>
-      </Card>
+            <div className="weq-provider-modal-body">
+              <Row
+                label="厂商模板"
+                desc="选模板自动带入 base_url 与推荐模型。"
+                control={
+                  <select
+                    className="weq-set-input"
+                    value={form.vendor}
+                    onChange={(e) => applyVendor(e.target.value)}
+                  >
+                    {(catalog.data ?? []).map((item) => (
+                      <option key={item.vendor} value={item.vendor}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                }
+              />
+              <Row
+                label="显示名称"
+                control={
+                  <input
+                    className="weq-set-input"
+                    value={form.name}
+                    onChange={(e) => update('name', e.target.value)}
+                    placeholder="硅基流动"
+                  />
+                }
+              />
+              <Row
+                label="Base URL"
+                desc={
+                  vendorEntry
+                    ? `模板默认：${vendorEntry.baseUrl || '（自定义）'}`
+                    : 'OpenAI 兼容接口根路径'
+                }
+                control={
+                  <input
+                    className="weq-set-input"
+                    value={form.baseUrl}
+                    onChange={(e) => update('baseUrl', e.target.value)}
+                    placeholder="https://api.siliconflow.cn/v1"
+                  />
+                }
+              />
+              <Row
+                label="API Key"
+                desc={vendorEntry?.apiKeyHint}
+                control={
+                  <input
+                    className="weq-set-input"
+                    type="password"
+                    value={form.apiKey}
+                    onChange={(e) => update('apiKey', e.target.value)}
+                    placeholder="sk-..."
+                  />
+                }
+              />
+
+              <div className="weq-set-card-head" style={{ marginTop: 8 }}>
+                <div className="weq-set-card-title">可用模型</div>
+                <div className="weq-set-card-action" style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                    onClick={importTemplateModels}
+                    disabled={!vendorEntry?.models.length}
+                  >
+                    <Sparkles size={12} /> 导入模板推荐
+                    {newModelCount > 0 ? ` (${newModelCount})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                    onClick={addModel}
+                  >
+                    <Plus size={12} /> 手动添加
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {form.models.length === 0 ? (
+                  <div className="weq-set-row-desc" style={{ padding: '6px 0' }}>
+                    还没有模型，点上方按钮添加。
+                  </div>
+                ) : (
+                  form.models.map((model, index) => (
+                    <div
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                      key={index}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background: 'rgba(127,127,127,0.07)',
+                      }}
+                    >
+                      <input
+                        className="weq-set-input"
+                        style={{ flex: '1 1 200px' }}
+                        value={model.id}
+                        onChange={(e) => updateModel(index, { id: e.target.value })}
+                        placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
+                      />
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {CAPABILITIES.map((cap) => (
+                          <CheckPill
+                            key={cap.value}
+                            checked={model.capabilities.includes(cap.value)}
+                            onChange={() => toggleCap(index, cap.value)}
+                          >
+                            {cap.label}
+                          </CheckPill>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                        onClick={() => removeModel(index)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="weq-provider-modal-actions">
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => void onSave()}
+                disabled={saveProvider.isLoading}
+              >
+                <Save size={14} />
+                保存 provider
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => void onTest()}
+                disabled={testing}
+              >
+                {testing ? <Loader2 size={14} className="weq-spin" /> : <FlaskConical size={14} />}
+                测试连通性
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => void onDelete()}
+                disabled={!selectedId || deleteProvider.isLoading}
+              >
+                <Trash2 size={14} />
+                删除
+              </button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

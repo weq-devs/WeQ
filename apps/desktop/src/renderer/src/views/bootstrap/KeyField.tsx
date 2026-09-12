@@ -92,7 +92,11 @@ export function KeyField({
             aria-label="复制密钥"
             disabled={empty}
           >
-            {copied ? <Check size={15} strokeWidth={1.9} aria-hidden /> : <Copy size={15} strokeWidth={1.8} aria-hidden />}
+            {copied ? (
+              <Check size={15} strokeWidth={1.9} aria-hidden />
+            ) : (
+              <Copy size={15} strokeWidth={1.8} aria-hidden />
+            )}
           </button>
         ) : (
           <button
@@ -103,7 +107,11 @@ export function KeyField({
             aria-label={revealed ? '隐藏密钥' : '显示密钥'}
             disabled={empty}
           >
-            {revealed ? <EyeOff size={15} strokeWidth={1.8} aria-hidden /> : <Eye size={15} strokeWidth={1.8} aria-hidden />}
+            {revealed ? (
+              <EyeOff size={15} strokeWidth={1.8} aria-hidden />
+            ) : (
+              <Eye size={15} strokeWidth={1.8} aria-hidden />
+            )}
           </button>
         )}
       </div>

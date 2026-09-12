@@ -76,6 +76,16 @@ jobs:
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
 
+      # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
+      # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
@@ -96,8 +106,14 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Host "== apps/desktop/out ==";
-          Get-ChildItem -Recurse apps/desktop/out | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          # out/ 里混着 pnpm 的 node_modules 链接树，整棵递归一踩就是 MAX_PATH
+          # 之外的路径：$ErrorActionPreference=stop 下直接让 job 失败，加
+          # SilentlyContinue 又会慢到把 job 挂住。限制深度 + 跳过 node_modules，
+          # 只列真正的打包输入。
+          Write-Host "== apps/desktop/out (depth 3, no node_modules) ==";
+          Get-ChildItem -Recurse -Depth 3 apps/desktop/out -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'node_modules' } |
+            Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
           Write-Host "== apps/desktop/package.json ==";
           Get-Content apps/desktop/package.json -Raw | Write-Host
           Write-Host "== electron-builder.yml ==";
@@ -138,6 +154,9 @@ jobs:
   # ============================ Linux x64 ============================
   # 原生 x64 runner 构建 AppImage / tar.gz。native/linux/x64/*.node 已预编译，
   # sherpa-onnx / resvg 等原生依赖由 pnpm install 自动装 x64 版本。
+  # ⚠️ 必须显式传 --x64：electron-builder 的 target.arch 会覆盖 CLI 的架构参数，
+  # 而 native binding / daemon 都是构建机架构的，两者一旦不一致就会打出坏包
+  # （见 electron-builder.yml 里 linux 一节的说明）。
   linux-x64:
     needs: [windows]
     runs-on: ubuntu-latest
@@ -151,10 +170,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: x64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 打包前先把「架构对不对」验掉：resvg / sherpa 的 .node binding 和 cargo
+      # 编出来的守护进程都取自构建机。与 macOS 两个 job 同款把关 —— v1.0.0 的
+      # weQ-1.0.0-linux-x86_64.AppImage 就是在 arm64 runner 上打出来的，
+      # 包里全是 aarch64 binding，启动即 Cannot find module
+      # '@resvg/resvg-js-linux-x64-gnu'。
+      - name: Verify Node architecture and native bindings
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "x64" || { echo "expected x64, got $ARCH"; exit 1; }
+          ls -d node_modules/.pnpm/@resvg+resvg-js-linux-x64-gnu@*/node_modules/@resvg/resvg-js-linux-x64-gnu
+          ls -d node_modules/.pnpm/sherpa-onnx-linux-x64@*/node_modules/sherpa-onnx-linux-x64
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
@@ -163,6 +196,21 @@ jobs:
         run: pnpm run build:bot
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
+
+      # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
+      # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
+
+      # cargo 默认按构建机出二进制，再确认一次它落到了目标架构的目录里。
+      - name: Verify daemon binary architecture
+        run: |
+          file resources/daemon/linux-x64/weq-daemon | grep -q 'x86-64'
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -176,10 +224,21 @@ jobs:
           mv apps/desktop/package.release.json apps/desktop/package.json
 
       - name: Package + publish release
-        run: pnpm --filter @weq/desktop exec electron-builder --linux --publish always
+        run: pnpm --filter @weq/desktop exec electron-builder --linux --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEBUG: electron-builder
+
+      # 产物自检：光看构建机架构还不够 —— asar / files 过滤写错一样能让 binding
+      # 进不了包。这一步失败就说明 Release 里那份不能要，删掉重打。
+      - name: Verify packaged native modules
+        run: |
+          VERSION="${{ github.ref_name }}"
+          APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
+          echo "checking $APP_DIR"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-x64-gnu"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
+          file "$APP_DIR/resources/resources/daemon/linux-x64/weq-daemon" | grep -q 'x86-64'
 
       - name: Restore dev manifest
         if: always()
@@ -213,10 +272,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: arm64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 同 linux-x64：构建机架构必须就是目标架构，否则 resvg / sherpa binding
+      # 与守护进程都会是另一个架构的。
+      - name: Verify Node architecture and native bindings
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "arm64" || { echo "expected arm64, got $ARCH"; exit 1; }
+          ls -d node_modules/.pnpm/@resvg+resvg-js-linux-arm64-gnu@*/node_modules/@resvg/resvg-js-linux-arm64-gnu
+          ls -d node_modules/.pnpm/sherpa-onnx-linux-arm64@*/node_modules/sherpa-onnx-linux-arm64
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
@@ -225,6 +295,20 @@ jobs:
         run: pnpm run build:bot
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
+
+      # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
+      # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
+
+      - name: Verify daemon binary architecture
+        run: |
+          file resources/daemon/linux-arm64/weq-daemon | grep -q 'aarch64'
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -242,6 +326,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEBUG: electron-builder
+
+      - name: Verify packaged native modules
+        run: |
+          VERSION="${{ github.ref_name }}"
+          APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
+          echo "checking $APP_DIR"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-arm64-gnu"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
+          file "$APP_DIR/resources/resources/daemon/linux-arm64/weq-daemon" | grep -q 'aarch64'
 
       - name: Restore dev manifest
         if: always()
@@ -299,6 +392,16 @@ jobs:
         run: pnpm run build:bot
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
+
+      # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
+      # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -389,6 +492,16 @@ jobs:
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
 
+      # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
+      # electron-builder 随 extraResources 打进安装包。
+      # runner 镜像预装 Rust 不可靠（windows 上就没有 cargo），显式装一次；
+      # 缺工具链时 build:daemon 会直接失败退出。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
@@ -471,15 +584,34 @@ jobs:
           gh release delete-asset "${{ github.ref_name }}" latest-mac-arm64.yml --yes || true
 
   # ============================ Web（浏览器版）============================
-  # 平台无关：一个 tar.gz 同时含 win32-x64 / linux-x64 / linux-arm64 三份
-  # native/，运行时按 process.platform/arch 自动选，所以只构建一次。
-  # 不内置 Node（要求机器上有 Node ≥22），产物约 24 MB。
+  # 每个平台/架构单独产一个 tar.gz：native/、守护进程二进制和 resvg binding
+  # 都是平台绑定的，所以不再做「一包通吃」的通用包，改到各自 runner 上构建，
+  # 各自只带当前平台的产物。不内置 Node（要求机器上有 Node ≥22）。
   #
   # 依赖 windows job：Release 由 electron-builder --publish 创建，这里只往
   # 已存在的 Release 上传，不自己建。
   web:
     needs: [windows]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runs-on: windows-latest
+            architecture: x64
+          - name: Linux x64
+            runs-on: ubuntu-latest
+            architecture: x64
+          - name: Linux arm64
+            runs-on: ubuntu-24.04-arm
+            architecture: arm64
+          - name: macOS Intel (x64)
+            runs-on: macos-15-intel
+            architecture: x64
+          - name: macOS Apple Silicon (arm64)
+            runs-on: macos-15
+            architecture: arm64
+    runs-on: ${{ matrix.runs-on }}
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
@@ -492,10 +624,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: ${{ matrix.architecture }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 与桌面版各平台 job 同款校验：避免 Rosetta / 架构错配导致打包出
+      # 「arm64 壳 + x64 binding」的坏包。
+      - name: Verify Node architecture
+        shell: bash
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "${{ matrix.architecture }}" || { echo "expected ${{ matrix.architecture }}, got $ARCH"; exit 1; }
 
       # 版本号会被 esbuild 烘焙进 server.mjs（设置页显示 + 压缩包命名）。
       - name: Sync version from tag
@@ -505,12 +647,20 @@ jobs:
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
 
+      # 浏览器版用户自备 Node，守护进程补上二进制：本 runner 只构建并打进
+      # 当前平台那一份（build-server / pack 会按 process.platform/arch 认定）。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
+
       # 含 check 守卫：确认没有 Electron 代码泄漏进 web 构建。
       - name: Build + guards
         run: pnpm --filter @weq/web build
 
       # 把 ws / resvg 预装进 dist/node_modules 一起发布，用户解压即可运行，
-      # 不需要联网 npm install。resvg 按平台选 binding，所以三平台的都装上。
+      # 不需要联网 npm install。resvg 按平台选 binding，单平台包只装当前那份。
       - name: Install runtime deps into dist/
         run: pnpm --filter @weq/web deps
 
@@ -522,12 +672,14 @@ jobs:
         run: pnpm --filter @weq/web pack:release ${{ github.ref_name }}
 
       - name: Upload to release
+        shell: bash
         run: gh release upload "${{ github.ref_name }}" apps/web/release/*.tar.gz --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Dump build output on failure
         if: failure()
+        shell: bash
         run: |
           echo "== apps/web/dist =="
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
@@ -540,6 +692,31 @@ jobs:
     needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0：下面的 pre-release 判定要用 merge-base 追 tag 是否落在 dev 上。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # tag 打在 dev 分支上时，把这份 Release 标成 pre-release；
+      # tag 打在 main（或其它分支）上时保持正式 Release，行为与之前完全一致。
+      - name: 若 tag 位于 dev 分支则标记为 pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # tag push 时 checkout 在 detached HEAD（即 tag 指向的 commit），
+          # 能到达该 commit 就说明这个 tag 是打在 dev 上的。
+          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev || true
+          if git rev-parse --verify -q refs/remotes/origin/dev >/dev/null \
+             && git merge-base --is-ancestor HEAD refs/remotes/origin/dev; then
+            echo "tag ${TAG} is on dev -> pre-release"
+            gh release edit "${TAG}" --repo "${REPO}" --prerelease
+          else
+            echo "tag ${TAG} is not on dev -> normal release"
+          fi
+
       - name: 生成并写入中文 Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -547,6 +724,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          # 约定：版本说明的「内容」来自 CHANGELOG.md 对应版本的章节
+          # （与 WeQ 助手推文 / 系统通知同一数据源），GitHub 自动生成的
+          # commit/PR 变更列表附在后面作为补充。
+          SECTION=$(node scripts/extract-changelog.mjs "${TAG}" CHANGELOG.md)
 
           # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
           # 只取其中的正文（.body），拼到我们自己的中文说明后面。
@@ -557,13 +739,22 @@ jobs:
           NOTES=$(cat <<EOF
           ## weQ ${TAG}
 
+          ### 更新内容
+          ${SECTION}
+
           ### 下载
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
-          - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
+          - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
           - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
           - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
-          - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
+          - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
+            - Windows x64: \`weq-web-${TAG#v}-win32-x64.tar.gz\`
+            - Linux x64: \`weq-web-${TAG#v}-linux-x64.tar.gz\`
+            - Linux arm64: \`weq-web-${TAG#v}-linux-arm64.tar.gz\`
+            - macOS Intel (x64): \`weq-web-${TAG#v}-darwin-x64.tar.gz\`
+            - macOS Apple Silicon (arm64): \`weq-web-${TAG#v}-darwin-arm64.tar.gz\`
+            每个包自带对应平台的 native 原生模块与 Rust 守护进程二进制，
             详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
 
           ### 变更
@@ -599,13 +790,17 @@ jobs:
           LINUX_ARM64_URL="${BASE_URL}/weQ-${VER}-linux-arm64.AppImage"
           MAC_X64_URL="${BASE_URL}/weQ-${VER}-mac-x64.dmg"
           MAC_ARM64_URL="${BASE_URL}/weQ-${VER}-mac-arm64.dmg"
-          WEB_URL="${BASE_URL}/weq-web-${VER}.tar.gz"
+          WEB_WIN_X64_URL="${BASE_URL}/weq-web-${VER}-win32-x64.tar.gz"
+          WEB_LINUX_X64_URL="${BASE_URL}/weq-web-${VER}-linux-x64.tar.gz"
+          WEB_LINUX_ARM64_URL="${BASE_URL}/weq-web-${VER}-linux-arm64.tar.gz"
+          WEB_DARWIN_X64_URL="${BASE_URL}/weq-web-${VER}-darwin-x64.tar.gz"
+          WEB_DARWIN_ARM64_URL="${BASE_URL}/weq-web-${VER}-darwin-arm64.tar.gz"
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
 
-          # 取 commit 正文；若为空则回退到 subject
-          BODY=$(git log -1 --pretty=format:%b)
-          [ -z "$BODY" ] && BODY=$(git log -1 --pretty=format:%s)
+          # 约定：QQ 通知的「详细更改」取 CHANGELOG.md 对应版本章节
+          # （与 WeQ 助手推文 / Release 说明同一数据源）。
+          BODY=$(node scripts/extract-changelog.mjs "${VERSION}" CHANGELOG.md)
 
           # 检查 exe 大小，超过 200 MB 则不作为附件发送（QQ 限制）
           EXE_SIZE=$(stat -c%s "/tmp/release/${EXE}")
@@ -622,7 +817,11 @@ jobs:
           echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
           echo "mac_x64_url=${MAC_X64_URL}" >> $GITHUB_OUTPUT
           echo "mac_arm64_url=${MAC_ARM64_URL}" >> $GITHUB_OUTPUT
-          echo "web_url=${WEB_URL}"             >> $GITHUB_OUTPUT
+          echo "web_win_x64_url=${WEB_WIN_X64_URL}"     >> $GITHUB_OUTPUT
+          echo "web_linux_x64_url=${WEB_LINUX_X64_URL}" >> $GITHUB_OUTPUT
+          echo "web_linux_arm64_url=${WEB_LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
+          echo "web_darwin_x64_url=${WEB_DARWIN_X64_URL}" >> $GITHUB_OUTPUT
+          echo "web_darwin_arm64_url=${WEB_DARWIN_ARM64_URL}" >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
       - name: Send QQ notification (with exe)
@@ -645,9 +844,10 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
+            - 浏览器版 Web：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
-            欢迎大家测试使用新的功能喵~
+            **欢迎大家测试使用新的功能喵~**
           file_path: /tmp/release/${{ steps.prep.outputs.exe }}
           file_type: file
           file_name: ${{ steps.prep.outputs.exe }}
@@ -672,6 +872,7 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
+            - 浏览器版 Web：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
-            欢迎大家测试使用新的功能喵~
+            **欢迎大家测试使用新的功能喵~**

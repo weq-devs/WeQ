@@ -47,9 +47,15 @@ async function main(): Promise<void> {
     });
 
   // ---- everything is closed before login ----
-  const guarded = ['/trpc/bootstrap.getVersionInfo', '/_media/pic?t=1&name=x',
-    '/_avatar/fetch?src=http://x/', '/_asset/brand/logo.png', '/_download/anything',
-    '/robots.txt', '/some/spa/route'];
+  const guarded = [
+    '/trpc/bootstrap.getVersionInfo',
+    '/_media/pic?t=1&name=x',
+    '/_avatar/fetch?src=http://x/',
+    '/_asset/brand/logo.png',
+    '/_download/anything',
+    '/robots.txt',
+    '/some/spa/route',
+  ];
   for (const path of guarded) {
     const res = await get(path);
     check(res.status === 401, `pre-auth ${path} → 401 (got ${res.status})`);
@@ -86,12 +92,18 @@ async function main(): Promise<void> {
   // ---- routes open after login ----
   {
     const res = await get('/trpc/anything', cookie);
-    check(res.status === 200 && (await res.text()) === 'trpc-reached', 'post-auth /trpc reaches router');
+    check(
+      res.status === 200 && (await res.text()) === 'trpc-reached',
+      'post-auth /trpc reaches router',
+    );
     check(trpcHits === 1, 'tRPC handler invoked exactly once');
   }
   {
     const res = await get('/robots.txt', cookie);
-    check(res.status === 200 && (await res.text()) === 'secret-ish', 'post-auth static file served');
+    check(
+      res.status === 200 && (await res.text()) === 'secret-ish',
+      'post-auth static file served',
+    );
   }
   {
     const res = await get('/some/spa/route', cookie, 'text/html');

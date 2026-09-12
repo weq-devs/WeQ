@@ -67,7 +67,12 @@ export interface McpServerStatus {
 const NS = '__'; // namespace separator: mcp__<server>__<tool>
 
 function sanitizeSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'srv';
+  return (
+    value
+      .replace(/[^A-Za-z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '') || 'srv'
+  );
 }
 
 /**
@@ -98,7 +103,10 @@ export function parseMcpConfig(raw: string | undefined): McpServerSpec[] {
         const headers =
           entry.headers && typeof entry.headers === 'object'
             ? Object.fromEntries(
-                Object.entries(entry.headers as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+                Object.entries(entry.headers as Record<string, unknown>).map(([k, v]) => [
+                  k,
+                  String(v),
+                ]),
               )
             : undefined;
         out.push({ name: name.trim() || url, url, ...(headers ? { headers } : {}) });
@@ -305,10 +313,14 @@ export class ExternalMcpHub {
       const client = new Client({ name: 'weq-assistant', version: '0.1.0' }, { capabilities: {} });
       // Streamable HTTP first; fall back to legacy SSE on connect failure.
       try {
-        await client.connect(new StreamableHTTPClientTransport(url, requestInit ? { requestInit } : undefined));
+        await client.connect(
+          new StreamableHTTPClientTransport(url, requestInit ? { requestInit } : undefined),
+        );
       } catch (httpErr) {
         try {
-          await client.connect(new SSEClientTransport(url, requestInit ? { requestInit } : undefined));
+          await client.connect(
+            new SSEClientTransport(url, requestInit ? { requestInit } : undefined),
+          );
         } catch {
           throw httpErr; // surface the primary (HTTP) error
         }

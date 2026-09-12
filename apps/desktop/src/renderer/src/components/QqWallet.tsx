@@ -93,8 +93,7 @@ export function QqWallet({
   const title = str(d, 'redbagTitle');
   const prompt = str(d, 'openPrompt');
 
-  const uin =
-    designatedUin != null && String(designatedUin) !== '0' ? String(designatedUin) : null;
+  const uin = designatedUin != null && String(designatedUin) !== '0' ? String(designatedUin) : null;
   const isDesignated = (fine === 8 || uin != null) && uin != null;
   const nick = useNickByUin(isDesignated ? uin : null);
 

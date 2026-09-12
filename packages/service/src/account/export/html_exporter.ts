@@ -165,14 +165,18 @@ function grayTipXmlToText(xml: string): string {
 /** Extract plain-text from a grayTipPoke `tipJson` string. */
 function grayTipPokeJsonToText(json: string): string {
   try {
-    const data = JSON.parse(json) as { items?: Array<{ type?: string; txt?: string; uid?: string; uin?: string; nm?: string }> };
+    const data = JSON.parse(json) as {
+      items?: Array<{ type?: string; txt?: string; uid?: string; uin?: string; nm?: string }>;
+    };
     if (!data.items) return '';
-    return data.items.map((item) => {
-      if (item.type === 'qq' || item.type === 'url') {
-        return item.nm || item.txt || item.uin || '';
-      }
-      return item.txt || '';
-    }).join('');
+    return data.items
+      .map((item) => {
+        if (item.type === 'qq' || item.type === 'url') {
+          return item.nm || item.txt || item.uin || '';
+        }
+        return item.txt || '';
+      })
+      .join('');
   } catch {
     return '';
   }
@@ -185,11 +189,13 @@ function renderGrayTipGroupText(el: RenderElement): string {
   const u1 = (d.user1GroupNick || d.user1Nick || '') as string;
   const u2 = (d.user2GroupNick || d.user2Nick || '') as string;
   const groupName = (d.groupTipGroupName || '') as string;
-  const muteInfo = d.muteInfo as {
-    operator?: { uid?: string };
-    mutedUser?: { uid?: string; groupNick?: string };
-    duration?: number;
-  } | undefined;
+  const muteInfo = d.muteInfo as
+    | {
+        operator?: { uid?: string };
+        mutedUser?: { uid?: string; groupNick?: string };
+        duration?: number;
+      }
+    | undefined;
 
   switch (groupTipType) {
     case TipGroupElementType.KMEMBERADD:
@@ -303,9 +309,15 @@ function fmtBytes(bytes: number): string {
 
 /** Gray-tip and system-only element kinds that render as centered system lines. */
 const SYSTEM_KINDS = new Set([
-  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipXml',
-  'grayTipFileRecv', 'grayTipTempSession',
-  'emojiBounce', 'qqDynamic', 'call',
+  'grayTipRevoke',
+  'grayTipPoke',
+  'grayTipGroup',
+  'grayTipXml',
+  'grayTipFileRecv',
+  'grayTipTempSession',
+  'emojiBounce',
+  'qqDynamic',
+  'call',
 ]);
 
 /** A message whose every element is a gray-tip is shown as a centered system line. */
@@ -419,9 +431,7 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'markdown': {
       // Render markdown as rich HTML instead of plain text.
-      const mdSrc = el.data.markdownContent
-        || el.data.markdownTextSummary
-        || '';
+      const mdSrc = el.data.markdownContent || el.data.markdownTextSummary || '';
       if (mdSrc) {
         return `<div class="md-wrap">${renderMarkdownHtml(mdSrc)}</div>`;
       }
@@ -436,7 +446,9 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     case 'grayTipFileRecv':
     case 'grayTipTempSession': {
       const text = renderGrayTipContent(el);
-      return text ? `<span class="graytip-text">${escapeHtml(text)}</span>` : '<span class="ph">[提示]</span>';
+      return text
+        ? `<span class="graytip-text">${escapeHtml(text)}</span>`
+        : '<span class="ph">[提示]</span>';
     }
     case 'emojiBounce': {
       const summary = el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '';
@@ -450,7 +462,9 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       const summary = Array.isArray(el.data.callSummary)
         ? el.data.callSummary.filter((s) => typeof s === 'string' && s).join(' ')
         : '';
-      return summary ? `<span class="graytip-text">${escapeHtml(summary)}</span>` : '<span class="ph">[通话]</span>';
+      return summary
+        ? `<span class="graytip-text">${escapeHtml(summary)}</span>`
+        : '<span class="ph">[通话]</span>';
     }
     case 'unknown':
       return '';
@@ -504,20 +518,23 @@ function renderMessage(
 ): string {
   if (isSystemOnly(m.elements)) {
     // Render gray-tip content with rich text extraction instead of bracket labels.
-    const parts = m.elements.map((el) => {
-      if (SYSTEM_KINDS.has(el.type)) {
-        return renderGrayTipContent(el) || escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
-      }
-      return escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
-    }).filter(Boolean);
+    const parts = m.elements
+      .map((el) => {
+        if (SYSTEM_KINDS.has(el.type)) {
+          return renderGrayTipContent(el) || escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+        }
+        return escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+      })
+      .filter(Boolean);
     const text = parts.join('\n') || escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''));
     return `<div class="sys">${escapeMultiline(text)}</div>\n`;
   }
   const isSelf = Boolean(selfId) && sender.platformId === selfId;
   const name = escapeHtml(sender.groupNickname || sender.accountName);
   const numeric = /^\d+$/.test(sender.platformId);
-  const ava = numeric
-    ? `<img class="ava" loading="lazy" src="${escapeHtml(avatarUrlForUin(sender.platformId))}" alt="">`
+  const avaSrc = sender.avatar ?? (numeric ? avatarUrlForUin(sender.platformId) : null);
+  const ava = avaSrc
+    ? `<img class="ava" loading="lazy" src="${escapeHtml(avaSrc)}" alt="">`
     : `<span class="ava ava-none">${escapeHtml((sender.accountName || '?').slice(0, 1))}</span>`;
   const role =
     sender.role === 'owner'

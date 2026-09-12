@@ -26,6 +26,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { pageByIndex } from './resource_paging';
 
 /** One keyword that has an on-disk emoji dir. */
 export interface RelatedEmojiKeyword {
@@ -48,8 +49,6 @@ export interface RelatedEmojiPage {
   total: number;
 }
 
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
 /** Yield to the event loop every N keywords while hashing the word list. */
 const HASH_CHUNK = 2000;
 
@@ -77,14 +76,16 @@ export class RelatedEmojiResourceService {
   private async ensureMatched(): Promise<Array<{ keyword: string; hash: string }>> {
     if (this.matched) return this.matched;
     if (this.building) return this.building;
-    this.building = this.build().then((m) => {
-      this.matched = m;
-      this.building = null;
-      return m;
-    }).catch((e) => {
-      this.building = null;
-      throw e;
-    });
+    this.building = this.build()
+      .then((m) => {
+        this.matched = m;
+        this.building = null;
+        return m;
+      })
+      .catch((e) => {
+        this.building = null;
+        throw e;
+      });
     return this.building;
   }
 
@@ -111,7 +112,9 @@ export class RelatedEmojiResourceService {
     try {
       const raw = await readFile(join(root, 'words.json'), 'utf8');
       const parsed = JSON.parse(raw) as { words?: unknown };
-      words = Array.isArray(parsed.words) ? parsed.words.filter((w): w is string => typeof w === 'string') : [];
+      words = Array.isArray(parsed.words)
+        ? parsed.words.filter((w): w is string => typeof w === 'string')
+        : [];
     } catch {
       return [];
     }
@@ -148,21 +151,14 @@ export class RelatedEmojiResourceService {
     const root = this.root();
     if (!root) return { entries: [], nextCursor: null, total: 0 };
     const matched = await this.ensureMatched();
-    const total = matched.length;
-
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = Math.max(0, Number(opts.cursor ?? 0) || 0);
-    const slice = matched.slice(start, start + cap);
-
+    const { entries: slice, nextCursor, total } = pageByIndex(matched, opts);
     const entries = await Promise.all(
       slice.map(async ({ keyword, hash }) => {
         const gifs = await this.readGifs(root, hash);
         return { keyword, hash, cover: gifs[0] ?? null, gifCount: gifs.length };
       }),
     );
-
-    const nextIndex = start + slice.length;
-    return { entries, nextCursor: nextIndex < total ? String(nextIndex) : null, total };
+    return { entries, nextCursor, total };
   }
 
   /** All gif file names in one keyword's hash dir (sorted). Empty if absent. */
@@ -225,9 +221,4 @@ function md5Utf8(s: string): string {
 /** Hand control back to the event loop between chunks of CPU work. */
 function yieldToLoop(): Promise<void> {
   return new Promise((r) => setImmediate(r));
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }

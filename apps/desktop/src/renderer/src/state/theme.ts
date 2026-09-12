@@ -2,13 +2,7 @@ import { create } from 'zustand';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
-export type ThemeBackground =
-  | 'plain'
-  | 'paper'
-  | 'grid'
-  | 'dots'
-  | 'wash'
-  | 'telegram';
+export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 /**
  * Component skin pack. Only `classic` ships today; the field exists so the
  * settings page can present a (placeholder) switcher and so future packs slot
@@ -138,6 +132,74 @@ function persist(key: string, value: string) {
   } catch {}
 }
 
+/* ── 深浅模式切换的「扩散」动画 ────────────────────────────────────────
+ * 用 View Transitions API 把切主题的那一帧冻结成新旧两张快照，再让新快照以
+ * 点击点为圆心做圆形 clip-path 铺开（CSS 见 styles/index.css）。Chromium
+ * 111+ 可用；不支持或用户开启「减少动态效果」时直接切，不留副作用。 */
+
+const rippleClass = 'weq-theme-ripple';
+/** 扩散时长按半径缩放，夹在这一区间内，近处不拖沓、远处不赶。 */
+const rippleMinMs = 420;
+const rippleMaxMs = 700;
+
+/** 最近一次指针落点，作为扩散圆心；键盘触发等场景回落到视口中心。 */
+let lastPointer: { x: number; y: number } | null = null;
+let pointerTracked = false;
+/** 递增序号：连续快切时只让最后一次的收尾清掉 ripple class。 */
+let rippleSeq = 0;
+
+function ensurePointerTracking() {
+  if (pointerTracked) return;
+  pointerTracked = true;
+  window.addEventListener(
+    'pointerdown',
+    (event) => {
+      lastPointer = { x: event.clientX, y: event.clientY };
+    },
+    { capture: true, passive: true },
+  );
+}
+
+function canRunThemeRipple(): boolean {
+  const viewDocument = document as unknown as {
+    startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+  };
+  if (typeof viewDocument.startViewTransition !== 'function') return false;
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function runThemeRipple(commit: () => void) {
+  const viewDocument = document as unknown as {
+    startViewTransition: (callback: () => void) => { finished: Promise<void> };
+  };
+  const root = document.documentElement;
+  const x = lastPointer?.x ?? window.innerWidth / 2;
+  const y = lastPointer?.y ?? window.innerHeight / 2;
+  // 半径取圆心到最远那个角的距离，否则边角会残留上一套主题。
+  const radius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y),
+  );
+  const duration = Math.round(Math.min(rippleMaxMs, Math.max(rippleMinMs, radius * 0.32)));
+  root.style.setProperty('--weq-theme-ripple-x', `${x}px`);
+  root.style.setProperty('--weq-theme-ripple-y', `${y}px`);
+  root.style.setProperty('--weq-theme-ripple-r', `${radius}px`);
+  root.style.setProperty('--weq-theme-ripple-duration', `${duration}ms`);
+  root.classList.add(rippleClass);
+  const seq = ++rippleSeq;
+  try {
+    const transition = viewDocument.startViewTransition(commit);
+    transition.finished
+      .catch(() => {})
+      .then(() => {
+        if (seq === rippleSeq) root.classList.remove(rippleClass);
+      });
+  } catch {
+    if (seq === rippleSeq) root.classList.remove(rippleClass);
+    commit();
+  }
+}
+
 export const useThemeStore = create<ThemeState>((set, get) => ({
   preference: 'system',
   resolved: 'light',
@@ -146,14 +208,22 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   componentStyle: 'classic',
   initialized: false,
   setPreference: (preference) => {
-    const { accent, background, componentStyle } = get();
-    applyTheme({ preference, accent, background, componentStyle });
-    persist(storageKeys.preference, preference);
-    set({
-      preference,
-      resolved: resolvePreference(preference),
-      initialized: true,
-    });
+    const { accent, background, componentStyle, resolved } = get();
+    const commit = () => {
+      applyTheme({ preference, accent, background, componentStyle });
+      persist(storageKeys.preference, preference);
+      set({
+        preference,
+        resolved: resolvePreference(preference),
+        initialized: true,
+      });
+    };
+    // 只有明暗真的变了才值得播动画；选「跟随系统」而结果不变时安静地记下偏好。
+    if (resolvePreference(preference) === resolved || !canRunThemeRipple()) {
+      commit();
+      return;
+    }
+    runThemeRipple(commit);
   },
   setAccent: (accent) => {
     const { preference, background, componentStyle } = get();
@@ -213,6 +283,8 @@ function setupSystemListener(onChange: () => void) {
 export function ensureThemeInitialized() {
   if (hydrated) return;
   hydrated = true;
+
+  ensurePointerTracking();
 
   const store = useThemeStore.getState();
   store.hydrate();

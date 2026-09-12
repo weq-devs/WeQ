@@ -26,6 +26,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { clampLimit, parseBucketCursor, walkBuckets } from './resource_paging';
 
 /**
  * The local avatar filename hash for a peer uid:
@@ -115,9 +116,6 @@ export interface AvatarPathProbe {
   smallBytes: number;
 }
 
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
-
 /**
  * Sentinel "bucket" for avatars that sit DIRECTLY under the scope dir with no
  * `<hash[:2]>` sub-directory. Windows always buckets by hash prefix; linux QQ
@@ -195,45 +193,29 @@ export class AvatarResourceService {
     const buckets = await this.readBuckets(dir);
     if (buckets === null) return { entries: [], nextCursor: null };
 
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = parseCursor(opts.cursor ?? null);
-
-    const entries: AvatarEntry[] = [];
-    let bucketIndex = start.bucketIndex;
-    let entryIndex = start.entryIndex;
-
-    while (bucketIndex < buckets.length && entries.length < cap) {
-      const bucket = buckets[bucketIndex]!;
-      const merged = await this.mergeBucket(join(dir, bucket));
-      // Stable within a bucket: sort by hash so a given cursor points at the
-      // same entry across calls (readdir order is not guaranteed stable).
-      const hashes = [...merged.keys()].sort();
-
-      for (; entryIndex < hashes.length && entries.length < cap; entryIndex += 1) {
-        const hash = hashes[entryIndex]!;
-        const acc = merged.get(hash)!;
-        entries.push({
-          hash,
-          bucket,
-          hasBig: acc.hasBig,
-          hasSmall: acc.hasSmall,
-          bigBytes: acc.bigBytes,
-          smallBytes: acc.smallBytes,
-          mtimeMs: acc.mtimeMs,
+    const { entries, nextCursor } = await walkBuckets<AvatarEntry>(
+      buckets,
+      parseBucketCursor(opts.cursor ?? null),
+      clampLimit(opts.limit),
+      async (bucket) => {
+        const merged = await this.mergeBucket(join(dir, bucket));
+        // Stable within a bucket: sort by hash so a given cursor points at the
+        // same entry across calls (readdir order is not guaranteed stable).
+        return [...merged.keys()].sort().map((hash) => {
+          const acc = merged.get(hash)!;
+          return {
+            hash,
+            bucket,
+            hasBig: acc.hasBig,
+            hasSmall: acc.hasSmall,
+            bigBytes: acc.bigBytes,
+            smallBytes: acc.smallBytes,
+            mtimeMs: acc.mtimeMs,
+          };
         });
-      }
-
-      if (entryIndex < hashes.length) {
-        // Filled the page mid-bucket — resume here next call.
-        return { entries, nextCursor: `${bucketIndex}:${entryIndex}` };
-      }
-      // Bucket exhausted; advance to the next one.
-      bucketIndex += 1;
-      entryIndex = 0;
-    }
-
-    const done = bucketIndex >= buckets.length;
-    return { entries, nextCursor: done ? null : `${bucketIndex}:${entryIndex}` };
+      },
+    );
+    return { entries, nextCursor };
   }
 
   /**
@@ -502,19 +484,6 @@ export class AvatarResourceService {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function parseCursor(cursor: string | null): { bucketIndex: number; entryIndex: number } {
-  if (!cursor) return { bucketIndex: 0, entryIndex: 0 };
-  const [b, e] = cursor.split(':');
-  const bucketIndex = Math.max(0, Number(b) || 0);
-  const entryIndex = Math.max(0, Number(e) || 0);
-  return { bucketIndex, entryIndex };
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
-}
-
 /** stat that swallows ENOENT (and any error), returning null when absent. */
 async function statSafe(path: string): Promise<{ size: number } | null> {
   try {
@@ -529,9 +498,7 @@ async function statSafe(path: string): Promise<{ size: number } | null> {
  * First path in `paths` that is a file, with the index that matched (so the
  * caller can tell a bucketed hit from a flat one). Null when none exist.
  */
-async function statFirst(
-  paths: string[],
-): Promise<{ size: number; index: number } | null> {
+async function statFirst(paths: string[]): Promise<{ size: number; index: number } | null> {
   for (let i = 0; i < paths.length; i += 1) {
     const hit = await statSafe(paths[i]!);
     if (hit) return { size: hit.size, index: i };

@@ -48,7 +48,9 @@ export function AssistantSteps({
   reasoning?: string;
 }): ReactElement | null {
   // 只展示过程类步骤。
-  const shown = steps.filter((s) => s.kind === 'thinking' || s.kind === 'tool_call' || s.kind === 'tool_result');
+  const shown = steps.filter(
+    (s) => s.kind === 'thinking' || s.kind === 'tool_call' || s.kind === 'tool_result',
+  );
   const [open, setOpen] = useState(running);
   // running 切换时不强制改 open（让用户的手动展开/收起优先），但首次有内容且运行中默认展开。
   const toolCount = steps.filter((s) => s.kind === 'tool_call').length;
@@ -104,7 +106,9 @@ export function AssistantSteps({
               </div>
             );
           })}
-          {running && shown.length === 0 ? <div className="weq-asst-step-hint">正在规划…</div> : null}
+          {running && shown.length === 0 ? (
+            <div className="weq-asst-step-hint">正在规划…</div>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -11,10 +11,9 @@ export class MiscDb extends QqDb {
    * Fetch online status for a specific user UID.
    */
   async getUserOnlineStatus(uid: string): Promise<OnlineStatusData | null> {
-    const rows = await this.query(
-      'SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?',
-      [uid]
-    );
+    const rows = await this.query('SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?', [
+      uid,
+    ]);
     if (!rows || rows.length === 0 || !rows[0]) return null;
 
     const blob = rows[0][0] as Uint8Array;
@@ -30,12 +29,14 @@ export class MiscDb extends QqDb {
       type: detail.type ?? 0,
       subType: detail.subType ?? 0,
       statusName: detail.statusName ?? '',
-      weather: detail.weather ? {
-        weather: detail.weather.weather ?? '',
-        city: detail.weather.city ?? '',
-        area: detail.weather.area ?? '',
-        weatherDesc: detail.weather.weatherDesc ?? '',
-      } : undefined,
+      weather: detail.weather
+        ? {
+            weather: detail.weather.weather ?? '',
+            city: detail.weather.city ?? '',
+            area: detail.weather.area ?? '',
+            weatherDesc: detail.weather.weatherDesc ?? '',
+          }
+        : undefined,
     };
   }
 }

@@ -130,6 +130,36 @@ export class GroupMemberDb {
   }
 
   /**
+   * Single sweep over **every** active membership in the local member table.
+   *
+   * Cross-group aggregations (年度报告「还没加好友的同路人」等) need the member
+   * set of many groups at once. Doing that with one query per group multiplies
+   * latency on a table that's already scanned without an index; one bounded
+   * scan over `group_member3` returns the whole picture in a single pass. No
+   * JOIN and no ORDER BY — the caller groups rows by `groupCode` itself.
+   * `memberFlag` active rows only (64016 = 0 / null), same rule as the
+   * per-group briefs above.
+   */
+  async listAllActiveMemberBriefs(
+    limit = 200000,
+  ): Promise<Array<{ groupCode: bigint; uid: string; uin: string; nick: string; card: string }>> {
+    const rows = await this.qq.query(
+      `SELECT "60001","1000","1002","20002","64003"
+       FROM group_member3
+       WHERE ("64016" = 0 OR "64016" IS NULL)
+       LIMIT ?`,
+      [limit],
+    );
+    return rows.map((row) => ({
+      groupCode: toBigint(row[0]),
+      uid: String(row[1] ?? ''),
+      uin: row[2] === null || row[2] === undefined ? '' : String(row[2]),
+      nick: String(row[3] ?? ''),
+      card: String(row[4] ?? ''),
+    }));
+  }
+
+  /**
    * Search group members by uin or nickname across ALL groups. `group_member3`
    * has no index on 1002/20002, so this is a single bounded scan of the member
    * table (tens of thousands of rows) — cheap enough for a search dropdown.

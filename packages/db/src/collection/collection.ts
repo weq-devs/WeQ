@@ -10,10 +10,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
-import {
-  CollectionAuthorColumn,
-  CollectionContentColumn,
-} from '@weq/codec/proto/collection/index';
+import { CollectionAuthorColumn, CollectionContentColumn } from '@weq/codec/proto/collection/index';
 import { QqDb } from '../qq_db';
 import { decodeMessage } from './assemble';
 
@@ -184,13 +181,15 @@ function rowToItem(row: SqlRow): CollectionItem {
 
   const author =
     authorBlob instanceof Uint8Array
-      ? ((decodeMessage(authorBlob, CollectionAuthorColumn).author as CollectionAuthor | undefined) ??
-        null)
+      ? ((decodeMessage(authorBlob, CollectionAuthorColumn).author as
+          | CollectionAuthor
+          | undefined) ?? null)
       : null;
   const summary =
     contentBlob instanceof Uint8Array
-      ? ((decodeMessage(contentBlob, CollectionContentColumn).content as CollectionContent | undefined) ??
-        {})
+      ? ((decodeMessage(contentBlob, CollectionContentColumn).content as
+          | CollectionContent
+          | undefined) ?? {})
       : {};
 
   return {

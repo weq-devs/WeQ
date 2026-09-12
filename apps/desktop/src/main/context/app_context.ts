@@ -31,10 +31,12 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
-import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
+import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
+import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
+import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
-import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
+import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
@@ -42,6 +44,7 @@ import { getQqProtocolExe } from './qq_protocol_cache';
 import { createLinuxInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
+  AnnualReportService,
   UserConfigService,
   Win32DetectService,
   Win32KeyService,
@@ -56,6 +59,7 @@ import {
   RecentContactService,
   HiddenSessionService,
   DeletedSessionService,
+  GuildDirectService,
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
@@ -109,6 +113,7 @@ import {
   createNtMsgDbHook,
   formatDbHealthFailures,
   writeDbHealthReport,
+  daemonHttpStop,
   initLogger,
   getLogger,
   getLogDir,
@@ -127,6 +132,7 @@ import {
   type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
+import { createDressNameResolver } from '../dress_names';
 import {
   openAccount,
   openStaticAccount,
@@ -375,12 +381,16 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
+  guildDirect: GuildDirectService;
   hiddenSessions: HiddenSessionService;
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
   accountConfig: AccountConfigService;
+  /** Manifest-first, compile-time annual report page service. */
+  annualReport: AnnualReportService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
   /** One-on-one (c2c) chat analytics for the private-chat analysis page. */
@@ -541,11 +551,13 @@ export interface AppContext {
    */
   applyMcp(config: McpServerConfig): Promise<void>;
   /**
-   * Apply the WeQ 助手 config to the open account: when enabled, fabricate the
-   * built-in "WeQ助手" conversation in the live QQ db (idempotent) + start the
-   * loopback HTTP server; when disabled, stop the server (account data is left
-   * in place). Rewrites the ARK card when the port changed. No-op when no
-   * account is open. Returns the port the server actually bound to (or 0).
+   * Apply the WeQ 助手 config: when enabled, publish the tweet pages / covers
+   * into the daemon docroot, make sure the weq-daemon companion process is up
+   * (only replaced when the on-disk binary's version changes), start its static
+   * HTTP server and — with an account open — sync the ARK cards into the QQ db.
+   * When disabled, stop the daemon's HTTP only (the daemon process itself is
+   * left running); the fabricated conversation rows are removed best-effort.
+   * Returns the port the daemon actually bound to (or 0).
    */
   applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
   /**
@@ -767,7 +779,6 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
@@ -849,7 +860,6 @@ export function initAppContext(): AppContext {
       const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
-        bootstrap.avatarCache,
         dressConfigDir,
         sharedDressCache,
         resolveOnlinePid,
@@ -894,15 +904,35 @@ export function initAppContext(): AppContext {
         resolveOnlinePid,
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
+      const guildDirect = new GuildDirectService(session);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect,
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
+        annualReport: new AnnualReportService(session, {
+          preferences: accountConfig.getRecord()?.annualReport,
+          resolveDressNames: createDressNameResolver(dressInstall),
+          qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
+            const record = accountConfig.getRecord();
+            return Boolean(record?.qqOnline && record.qqPid);
+          }),
+          resolveEmojiNames: async (ids) => {
+            const entries = await emojiService.listSystemFaces();
+            const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));
+            const out: Record<number, string> = {};
+            for (const id of ids) {
+              const desc = byId.get(id);
+              if (desc) out[id] = desc;
+            }
+            return out;
+          },
+        }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
@@ -948,10 +978,8 @@ export function initAppContext(): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-            run: (name, args) =>
-              name.startsWith('mcp__')
-                ? getExternalMcpHub().run(name, args)
-                : runAiTool(name, args),
+            // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
+            run: runAssistantTool,
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -963,6 +991,7 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             // Cache-first avatar resolution for the 导出头像 option.
+            guildDirect,
             avatarCache: bootstrap.avatarCache,
             // rkey-backed CDN image completion (媒体补全).
             mediaDownload,
@@ -1016,8 +1045,14 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
-            // 好友 QQ 空间说说导出：翻页拉取能力（需在线 QQ）。
-            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
+            qzone: {
+              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
+              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
+              // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
+              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
+            },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
               listBuddies: async (limit, offset) => {
@@ -1189,6 +1224,19 @@ export function initAppContext(): AppContext {
         });
       }
 
+      // 年度报告的可用年份也在打开账号时扫好：两条 DISTINCT 日期列的轻查询，
+      // 提前算完让报告目录「打开即出」。结果缓存在 service 里（按 dataRevision），
+      // 失败只记日志 —— 打开报告时会自然重试，不该连累进入账号。
+      const annualReport = this.services?.annualReport;
+      if (annualReport) {
+        void annualReport.getAvailableYears().catch((error) => {
+          logger.error('failed to warm annual report years on account open', {
+            event: 'annual-report-years-warm-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       const mcp = userConfig.getSettings().mcp;
@@ -1243,7 +1291,6 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
@@ -1333,7 +1380,6 @@ export function initAppContext(): AppContext {
       const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
-        bootstrap.avatarCache,
         dressConfigDir,
         sharedDressCache,
         livePid,
@@ -1375,15 +1421,35 @@ export function initAppContext(): AppContext {
         livePid,
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
+      const guildDirect = new GuildDirectService(session);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect,
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
+        annualReport: new AnnualReportService(session, {
+          preferences: accountConfig.getRecord()?.annualReport,
+          resolveDressNames: createDressNameResolver(dressInstall),
+          qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
+            const record = accountConfig.getRecord();
+            return Boolean(record?.qqOnline && record.qqPid);
+          }),
+          resolveEmojiNames: async (ids) => {
+            const entries = await emojiService.listSystemFaces();
+            const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));
+            const out: Record<number, string> = {};
+            for (const id of ids) {
+              const desc = byId.get(id);
+              if (desc) out[id] = desc;
+            }
+            return out;
+          },
+        }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
@@ -1428,10 +1494,8 @@ export function initAppContext(): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-            run: (name, args) =>
-              name.startsWith('mcp__')
-                ? getExternalMcpHub().run(name, args)
-                : runAiTool(name, args),
+            // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
+            run: runAssistantTool,
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -1442,6 +1506,7 @@ export function initAppContext(): AppContext {
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            guildDirect,
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,
@@ -1488,7 +1553,13 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
-            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            qzone: {
+              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
+              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
+              // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
+              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
+            },
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {
@@ -1573,6 +1644,17 @@ export function initAppContext(): AppContext {
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
       void this.applySsePush(userConfig.getSettings().ssePush);
 
+      // 静态账号同样在打开时预热年度报告的可用年份（与在线账号同口径、同缓存）。
+      const annualReport = this.services?.annualReport;
+      if (annualReport) {
+        void annualReport.getAvailableYears().catch((error) => {
+          logger.error('failed to warm annual report years on account open', {
+            event: 'annual-report-years-warm-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
@@ -1590,7 +1672,6 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
@@ -1665,73 +1746,107 @@ export function initAppContext(): AppContext {
       }
     },
     async applyWeqAssistant(config: WeqAssistantConfig): Promise<number> {
-      // Only live accounts host the server / own the fabricated conversation.
-      if (!this.account || !this.platform) {
-        await stopWeqServer();
-        return 0;
-      }
       logger.info('applying weq assistant config', {
         event: 'apply-weq-assistant',
-        accountUin: this.account.context.uin,
+        accountUin: this.account?.context.uin ?? null,
         enabled: config.enabled,
         port: config.port,
       });
-      // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
-      // 在线账号相同，写进去就污染了别人的数据。
-      const svc = new WeqAssistantService(
-        this.account,
-        this.platform,
-        userConfig.getWeqAssistantUid(),
-        !this.accountIsStatic,
-      );
 
-      // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
-      // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。
+      // 关闭：只关守护进程上的 HTTP（守护进程本体绝不动 —— 它的生命周期属于
+      // 开机自启 / 用户）。会话行的删除仍需要开着账号，best-effort。
       if (!config.enabled) {
-        await stopWeqServer();
-        try {
-          await svc.removeContact();
-        } catch (error) {
-          logger.warn('failed to remove weq assistant contact on disable', {
-            event: 'weq-disable-failed',
-            ...logErrorContext(error),
-          });
+        const stopped = await daemonHttpStop();
+        if (!stopped) {
+          logger.warn('failed to stop weq daemon http', { event: 'weq-http-stop-failed' });
+        }
+        if (this.account && this.platform) {
+          // 静态账号禁止往原生 nt_data 写助手头像（见下方开启路径的说明）。
+          const svc = new WeqAssistantService(
+            this.account,
+            this.platform,
+            userConfig.getWeqAssistantUid(),
+            !this.accountIsStatic,
+          );
+          try {
+            await svc.removeContact();
+          } catch (error) {
+            logger.warn('failed to remove weq assistant contact on disable', {
+              event: 'weq-disable-failed',
+              ...logErrorContext(error),
+            });
+          }
         }
         return 0;
       }
 
-      // 1) Start the loopback server (port fallback may move us up).
-      const boundPort = await startWeqServer({ port: config.port });
-
-      // 2) 本地推文列表是唯一数据源：读本地（首次为空则种入内置两篇，时间固定在本地），
-      //    再 syncTweets——ensureMapping（只写一次）+ 逐条按固定时间去重补进 c2c（只新增
-      //    不删除）+ 把已有卡片端口刷成当前实际端口（改写≠删除）+ 会话列表预览最新一篇。
-      //    best-effort：log but don't crash the toggle.
+      // 1) 发布静态产物到 docroot（推文页 / 封面 / 头像；主题此刻烘焙进文件）。
+      //    docroot 放在 weq-assistant 缓存目录下：清理缓存时自然一并回收。
+      const docroot = join(userConfig.cacheDir('weq-assistant'), 'docroot');
       try {
-        const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
-        const tweets = ensureDefaultTweets(storePath);
-        const logo = resolveResource('brand', 'logo.png') ?? undefined;
-        await svc.syncTweets(boundPort, tweets, logo);
-        userConfig.setSettings({ weqAssistant: { port: boundPort } });
+        await publishWeqAssistantDocroot({ docroot });
       } catch (error) {
-        logger.error('failed to sync weq assistant tweets', {
-          event: 'weq-ensure-failed',
+        logger.error('failed to publish weq assistant docroot', {
+          event: 'weq-publish-failed',
           ...logErrorContext(error),
         });
       }
 
-      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
-      // 快照并落盘，页面（/p/stats）只读这份缓存。best-effort：失败只记日志。首帧会先
-      // 把盘上旧缓存灌进内存，避免推文空窗（见 weq_assistant/stats.refreshWeqStats）。
-      if (this.services) {
-        const statsUin = this.account.context.uin;
-        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
-        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath).catch((error) => {
-          logger.warn('failed to refresh weq stats snapshot', {
-            event: 'weq-stats-refresh-failed',
+      // 2) 确保守护进程在（不在则 detached 拉起；只有磁盘上的二进制换了版本才替换）；
+      //    3) 开 HTTP，端口被占自动向后回落试探。HTTP 与账号无关：没开账号也能开。
+      const ready = await ensureDaemonRunning();
+      if (!ready) {
+        throw new Error('weq-daemon 未能启动或控制管道连接超时');
+      }
+      const start = await startDaemonHttp(config.port, docroot);
+      if (!start.ok) {
+        throw new Error(start.message ?? 'weq-daemon http_start failed');
+      }
+      const boundPort = start.port ?? config.port;
+
+      // 4) 注入/刷新 QQ 库里的卡片：ensureMapping + 逐条补卡 + rewriteArkPort
+      //    （存量卡片端口刷成当前实际端口）+ 会话列表预览。需要开着账号，
+      //    best-effort：失败只记日志，不阻断开关。
+      if (this.account && this.platform) {
+        // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
+        // 在线账号相同，写进去就污染了别人的数据。
+        const svc = new WeqAssistantService(
+          this.account,
+          this.platform,
+          userConfig.getWeqAssistantUid(),
+          !this.accountIsStatic,
+        );
+        try {
+          const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
+          const tweets = ensureDefaultTweets(storePath);
+          const logo = resolveResource('brand', 'logo.png') ?? undefined;
+          await svc.syncTweets(boundPort, tweets, logo);
+          if (boundPort !== config.port) {
+            userConfig.setSettings({ weqAssistant: { port: boundPort } });
+          }
+        } catch (error) {
+          logger.error('failed to sync weq assistant tweets', {
+            event: 'weq-ensure-failed',
             ...logErrorContext(error),
           });
-        });
+        }
+      }
+
+      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
+      // 快照并落盘，算完后把 stats 页/封面按新快照重新发布进 docroot。best-effort。
+      if (this.services && this.account) {
+        const statsUin = this.account.context.uin;
+        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
+        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath)
+          .then((report) => {
+            if (report) void publishWeqAssistantDocroot({ docroot });
+          })
+          .catch((error) => {
+            logger.warn('failed to refresh weq stats snapshot', {
+              event: 'weq-stats-refresh-failed',
+              ...logErrorContext(error),
+            });
+          });
       }
       // No svc.close() — it shares the session's cached nt_msg.db connection.
       return boundPort;

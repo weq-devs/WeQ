@@ -5,7 +5,8 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Circle, CircleDot, Search, X } from 'lucide-react';
-import { Avatar, Spinner } from './widgets';
+import { Avatar } from './widgets';
+import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
 
 export function SingleSelectPicker({
@@ -30,14 +31,20 @@ export function SingleSelectPicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((it) => it.name.toLowerCase().includes(q) || it.id.toLowerCase().includes(q));
+    return items.filter(
+      (it) => it.name.toLowerCase().includes(q) || it.id.toLowerCase().includes(q),
+    );
   }, [items, query]);
 
   return (
     <div className="weq-exp-picker">
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
-        <input placeholder={searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input
+          placeholder={searchPlaceholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         {query ? (
           <button type="button" title="清空" onClick={() => setQuery('')}>
             <X size={14} />
@@ -47,10 +54,7 @@ export function SingleSelectPicker({
 
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载中…
-          </div>
+          <PickerListSkeleton />
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">
             <span>{query ? '没有匹配项' : emptyText}</span>

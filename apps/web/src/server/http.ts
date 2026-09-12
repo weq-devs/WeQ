@@ -82,9 +82,10 @@ async function handleRequest(
     let token = '';
     try {
       const body = await readJson(req);
-      token = typeof (body as { token?: unknown })?.token === 'string'
-        ? (body as { token: string }).token
-        : '';
+      token =
+        typeof (body as { token?: unknown })?.token === 'string'
+          ? (body as { token: string }).token
+          : '';
     } catch {
       return send(res, 400, 'bad request');
     }
@@ -105,7 +106,10 @@ async function handleRequest(
     // (XHR, media, tRPC) gets a plain 401 so the client can react.
     const wantsHtml = (req.headers.accept ?? '').includes('text/html');
     if (wantsHtml) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
       res.end(LOGIN_PAGE);
       return;
     }

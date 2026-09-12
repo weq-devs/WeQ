@@ -8,11 +8,7 @@
 import { useMemo, type ReactElement } from 'react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
-import {
-  QqMessageContent,
-  ConvContext,
-  ForwardKindContext,
-} from '../QqMessageContent';
+import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
 import type { RenderEl } from './composeModel';
 
 export interface PickedMessage {
@@ -37,10 +33,7 @@ export function MessagePicker({
   onPick: (msg: PickedMessage) => void;
   imagesOnly?: boolean;
 }): ReactElement {
-  const query = trpc.account.listLatest.useQuery(
-    { kind, conv, limit: 80 },
-    { staleTime: 10_000 },
-  );
+  const query = trpc.account.listLatest.useQuery({ kind, conv, limit: 80 }, { staleTime: 10_000 });
 
   const messages = useMemo(() => {
     const rows = (query.data ?? []) as unknown as PickedMessage[];
@@ -58,23 +51,14 @@ export function MessagePicker({
           {query.isLoading ? (
             <div className="weq-face-empty">加载中…</div>
           ) : messages.length === 0 ? (
-            <div className="weq-face-empty">
-              {imagesOnly ? '最近消息里没有图片' : '暂无消息'}
-            </div>
+            <div className="weq-face-empty">{imagesOnly ? '最近消息里没有图片' : '暂无消息'}</div>
           ) : (
             messages.map((m) => (
-              <button
-                key={m.msgId}
-                type="button"
-                className="weq-msg-row"
-                onClick={() => onPick(m)}
-              >
+              <button key={m.msgId} type="button" className="weq-msg-row" onClick={() => onPick(m)}>
                 <QqAvatar uin={m.senderUin} size={28} className="weq-msg-avatar" />
                 <div className="weq-msg-main">
                   <div className="weq-msg-meta">
-                    <span className="weq-msg-sender">
-                      {resolveName(m.senderUid, m.senderUin)}
-                    </span>
+                    <span className="weq-msg-sender">{resolveName(m.senderUid, m.senderUin)}</span>
                     <span className="weq-msg-time">{fmtTime(m.sendTime)}</span>
                   </div>
                   <div className="weq-msg-preview">

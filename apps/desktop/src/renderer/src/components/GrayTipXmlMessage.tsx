@@ -14,15 +14,14 @@ interface GrayTipXmlMessageProps {
   conversation: Conversation;
 }
 
-function getNodeValue(
-  node: Node,
-  attribute: string,
-): string {
-  const attributes = (node as Node & {
-    attributes?: {
-      getNamedItem(name: string): { nodeValue?: string | null } | null;
-    };
-  }).attributes;
+function getNodeValue(node: Node, attribute: string): string {
+  const attributes = (
+    node as Node & {
+      attributes?: {
+        getNamedItem(name: string): { nodeValue?: string | null } | null;
+      };
+    }
+  ).attributes;
   return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
@@ -69,13 +68,24 @@ export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessagePr
         return <span key={index}>{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
       }
       if (node.nodeName === 'url') {
-        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-        return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+          <span key={index} className="text-blue-500">
+            {getNodeValue(node, 'txt') || getNodeText(node)}
+          </span>
+        );
       }
       if (node.nodeName === 'face') {
         const faceId = Number(getNodeValue(node, 'id'));
-        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-        return <FaceEmoji key={index} element={{ faceId }} size="1.2em" className="inline-block align-middle mx-0.5" />;
+        return (
+          <FaceEmoji
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+            key={index}
+            element={{ faceId }}
+            size="1.2em"
+            className="inline-block align-middle mx-0.5"
+          />
+        );
       }
       return null;
     });

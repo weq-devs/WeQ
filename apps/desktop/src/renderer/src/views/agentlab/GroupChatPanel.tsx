@@ -8,7 +8,15 @@
  * M2 群骨架：还没有意愿 gate / 关系 / 连锁（M3–M6）。事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { ArrowLeft, AtSign, Send, Trash2, Users, UserMinus, UserPlus, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -16,6 +24,7 @@ import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { ChatBubble, type FaceContext } from './ChatBubble';
+import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 
 interface PersonaLite {
@@ -27,32 +36,43 @@ interface PersonaLite {
 
 export function GroupChatPanel({
   groupId,
+  sessionId,
   selfUin,
   personaList,
   profileByUid,
   faceDescToId,
   onBack,
   onDeleted,
+  onSessionCreated,
 }: {
   groupId: string;
+  /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
+  sessionId: string | null;
   selfUin?: string;
   personaList: PersonaLite[];
   profileByUid: Map<string, { uin: string; label: string; avatarUrl?: string }>;
   faceDescToId: Map<string, number>;
   onBack: () => void;
   onDeleted: () => void;
+  /** 草稿会话首条消息落库后回调（父组件把选中态指向新会话，不换 key）。 */
+  onSessionCreated: (sessionId: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const detail = trpc.account.getAgentLabGroupDetail.useQuery({ groupId });
+  // 当前真实会话 id：null = 草稿。草稿升级成真会话时更新状态，让 conversation 查询
+  // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
+  const sessionIdRef = useRef<string | null>(sessionId);
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(
-    { groupId },
-    { refetchOnMount: 'always', staleTime: 0 },
+    { groupId, sessionId: currentSessionId ?? undefined },
+    { refetchOnMount: 'always', staleTime: 0, enabled: !!currentSessionId },
   );
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
+  const createSession = trpc.account.createAgentLabGroupSession.useMutation();
   const del = trpc.account.deleteAgentLabGroup.useMutation();
   const addMember = trpc.account.addAgentLabGroupMember.useMutation();
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
@@ -82,7 +102,10 @@ export function GroupChatPanel({
       : undefined;
     return { name: p?.name ?? fallbackName, uin, bot: true, personaId: senderId, faces };
   };
-  const nameById = useMemo(() => new Map(members.map((m) => [m.memberId, m.displayName])), [members]);
+  const nameById = useMemo(
+    () => new Map(members.map((m) => [m.memberId, m.displayName])),
+    [members],
+  );
 
   const scrollToBottom = useCallback((): void => {
     const el = transcriptRef.current;
@@ -102,6 +125,13 @@ export function GroupChatPanel({
     setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
   }, [conversation.data]);
 
+  // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
+  // 每帧重建（unsubscribe + 重新 subscribe），事件恰好落在空窗期就丢了 → 用 ref 拿最新实现。
+  const dialogRef = useRef(dialog);
+  dialogRef.current = dialog;
+  const utilsRef = useRef(utils);
+  utilsRef.current = utils;
+
   // 群聊事件流：按 groupId 过滤，逐条追加（id 去重防重复事件）。
   useEffect(() => {
     const sub = client.account.onGroupChatEvent.subscribe(undefined, {
@@ -114,16 +144,23 @@ export function GroupChatPanel({
         } else if (ev.kind === 'done') {
           setBusy(false);
           // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-          void utils.account.getAgentLabGroupConversation.invalidate({ groupId });
+          const sid = sessionIdRef.current;
+          void utilsRef.current.account.getAgentLabGroupConversation.invalidate({
+            groupId,
+            ...(sid ? { sessionId: sid } : {}),
+          });
+          // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
+          void utilsRef.current.account.listAgentLabGroupSessions.invalidate({ groupId });
         } else if (ev.kind === 'error') {
           setBusy(false);
-          dialog.error('群聊出错', ev.message);
+          dialogRef.current.error('群聊出错', ev.message);
         }
       },
       onError: (err) => console.error('[groupchat] event subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [groupId, dialog, utils]);
+    // 只按 groupId 过滤，其余状态全走 ref / 稳定 setter —— 订阅建一次即可，不随渲染重建。
+  }, [groupId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -150,13 +187,31 @@ export function GroupChatPanel({
     const text = input.trim();
     if (!text || busy) return;
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
-    const mentions = personaMembers.filter((m) => text.includes(`@${m.displayName}`)).map((m) => m.memberId);
+    const mentions = personaMembers
+      .filter((m) => text.includes(`@${m.displayName}`))
+      .map((m) => m.memberId);
     setInput('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setBusy(true);
     try {
-      await send.mutateAsync({ groupId, text, mentions });
+      // 草稿会话：真正发第一条消息时才落库建会话（与 WeQ 助手一致）。
+      let sid = sessionIdRef.current;
+      if (!sid) {
+        const session = await createSession.mutateAsync({ groupId });
+        sid = session.id;
+        sessionIdRef.current = sid;
+        // 把查询切到新会话：查询变为 enabled，事件流万一漏发也能从磁盘把已落库消息合并回来。
+        setCurrentSessionId(sid);
+        await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
+        onSessionCreated(sid);
+      }
+      await send.mutateAsync({ groupId, text, mentions, sessionId: sid });
       // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
+      // 发送完成后立刻从磁盘刷一次：漏掉的事件对应的消息已落库，合并 effect 会按 id 补齐。
+      void utils.account.getAgentLabGroupConversation.invalidate({
+        groupId,
+        sessionId: sid,
+      });
     } catch (e) {
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
@@ -165,14 +220,21 @@ export function GroupChatPanel({
   }
 
   async function onClear(): Promise<void> {
-    const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', { okLabel: '清空', tone: 'warning' });
+    const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', {
+      okLabel: '清空',
+      tone: 'warning',
+    });
     if (!ok) return;
-    await clear.mutateAsync({ groupId });
+    const sid = sessionIdRef.current;
+    if (sid) {
+      await clear.mutateAsync({ groupId, sessionId: sid });
+      await utils.account.getAgentLabGroupConversation.invalidate({ groupId, sessionId: sid });
+    }
     setHistory([]);
     seenIds.current.clear();
-    await utils.account.getAgentLabGroupConversation.invalidate({ groupId });
   }
 
+  /** 删除群会话：确认 → 后端删（含消息）→ 若删的是当前会话则换新草稿。 */
   async function onAddMember(personaId: string): Promise<void> {
     try {
       await addMember.mutateAsync({ groupId, personaId });
@@ -214,23 +276,43 @@ export function GroupChatPanel({
     <div className="weq-agentlab-chat">
       <header className="weq-agentlab-head">
         <div className="weq-agentlab-head-left">
-          <button type="button" className="weq-set-iconbtn" onClick={onBack} aria-label="返回主页" title="返回">
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            onClick={onBack}
+            aria-label="返回主页"
+            title="返回"
+          >
             <ArrowLeft size={16} />
           </button>
           <div>
             <strong>{groupName}</strong>
-            <span>{personaMembers.length} 个克隆体 + 我 · 共 {history.length} 条</span>
+            <span>
+              {personaMembers.length} 个克隆体 + 我 · 共 {history.length} 条
+            </span>
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => setMembersOpen(true)}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => setMembersOpen(true)}
+          >
             <Users size={12} />
             成员
           </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => void onClear()}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => void onClear()}
+          >
             清空
           </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => void onDelete()}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => void onDelete()}
+          >
             <Trash2 size={12} />
             删除
           </button>
@@ -240,24 +322,28 @@ export function GroupChatPanel({
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
         {history.length === 0 ? (
           <div className="weq-agentlab-empty">
-            这是一个群聊，有 {personaMembers.map((m) => m.displayName).join('、') || '（暂无克隆体）'}。
+            这是一个群聊，有{' '}
+            {personaMembers.map((m) => m.displayName).join('、') || '（暂无克隆体）'}。
             发一句话试试，或用 @ 点名某个克隆体。
           </div>
         ) : (
           history.map((m, index) => {
             const meta = metaFor(m.senderId, m.senderKind, nameById.get(m.senderId) ?? '克隆体');
+            const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
             return (
-              <ChatBubble
-                key={m.id || `${m.senderId}-${index}`}
-                mine={m.senderKind === 'user'}
-                bot={meta.bot}
-                name={meta.name}
-                uin={meta.uin}
-                text={m.text}
-                faces={meta.faces}
-                personaId={meta.personaId}
-                onMediaLoad={scrollToBottom}
-              />
+              <Fragment key={m.id || `${m.senderId}-${index}`}>
+                {shouldShowChatTime(prevTs, m.ts) ? <ChatTimeDivider ts={m.ts} /> : null}
+                <ChatBubble
+                  mine={m.senderKind === 'user'}
+                  bot={meta.bot}
+                  name={meta.name}
+                  uin={meta.uin}
+                  text={m.text}
+                  faces={meta.faces}
+                  personaId={meta.personaId}
+                  onMediaLoad={scrollToBottom}
+                />
+              </Fragment>
             );
           })
         )}
@@ -299,14 +385,23 @@ export function GroupChatPanel({
           placeholder="在群里说点什么（@ 点名克隆体，Enter 发送，Shift+Enter 换行）"
           disabled={busy}
         />
-        <button type="button" className="weq-set-btn" onClick={() => void onSend()} disabled={busy || !input.trim()}>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => void onSend()}
+          disabled={busy || !input.trim()}
+        >
           <Send size={14} />
           发送
         </button>
       </div>
 
       {membersOpen ? (
-        <Modal onClose={() => setMembersOpen(false)} width={460} labelledBy="weq-group-members-title">
+        <Modal
+          onClose={() => setMembersOpen(false)}
+          width={460}
+          labelledBy="weq-group-members-title"
+        >
           <div className="weq-clone-modal">
             <header className="weq-clone-modal-head">
               <Users size={18} />
@@ -367,7 +462,11 @@ export function GroupChatPanel({
               ) : null}
 
               <div className="weq-clone-actions">
-                <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => setMembersOpen(false)}>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  onClick={() => setMembersOpen(false)}
+                >
                   <X size={13} /> 关闭
                 </button>
               </div>

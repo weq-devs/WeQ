@@ -21,7 +21,12 @@ export function toInt(value: unknown): number {
  * Standard OIDB response check: throw if retCode != 0, preferring `wording`
  * over `msg` for the human-facing message. Mirrors SnowLuma's `ensureRetCodeZero`.
  */
-export function ensureRetCodeZero(operation: string, code: unknown, msg: unknown, wording?: unknown): void {
+export function ensureRetCodeZero(
+  operation: string,
+  code: unknown,
+  msg: unknown,
+  wording?: unknown,
+): void {
   const retCode = toInt(code);
   if (retCode === 0) return;
   const text =

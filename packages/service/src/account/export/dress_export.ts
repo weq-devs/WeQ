@@ -24,13 +24,12 @@
  *     manifest.json        ← HTML 导出据此生成字体/气泡/挂件 CSS
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgDecoration } from '@weq/codec';
 import type { BubbleSkin } from '../bubble_skin';
 import type { DressService } from '../dress_service';
 import { getLogger, logErrorContext } from '../../common/logger';
-import { downloadUrlToFile } from '../media_url';
 import type { MsgService } from '../msg';
 import type { RoamMessageSource } from './message_source';
 import { iterateConv } from './sender_resolve';
@@ -114,7 +113,7 @@ export interface DressExportResult {
 
 const DRESS_DIR = 'dress';
 
-/** 装扮资源下载并发数（installBubble/installFont 都有网络/协议开销）。 */
+/** 装扮资源下载并发数（fetchBubble/fetchFont 都有网络/协议开销）。 */
 const DRESS_CONCURRENCY = 4;
 
 /** 并发跑 `fn`，最多 `limit` 个在途。 */
@@ -221,6 +220,8 @@ export async function exportDressAssets(
 
   // 逐款下载 / 转换 / 合成。每项只写自己的目录（bubble/<id>、font/<id>.ttf、
   // widget/<id>），互不依赖，所以按固定顺序排队后用并发跑（网络等待不串行）。
+  // 统一走 fetch* 资源级方法：导出扫的是消息里的装扮（DB 40801 / 漫游 decoration），
+  // 资源落到共享缓存供打包即可，不该把账号标记成「已装」（那是显式安装的语义）。
   const jobs: Array<() => Promise<void>> = [];
   if (kinds.bubble) {
     for (const itemId of [...usage.bubbles].sort((a, b) => a - b)) {
@@ -231,7 +232,7 @@ export async function exportDressAssets(
             tick(`气泡 ${itemId} 未缓存`);
             return;
           }
-          const skin = await dressInstall.installBubble(itemId);
+          const skin = await dressInstall.fetchBubble(itemId);
           if (!skin) throw new Error('装扮服务未能解析该气泡');
           const entry = await exportBubble(dressInstall, root, itemId, skin);
           manifest.bubbles.push(entry);
@@ -257,7 +258,7 @@ export async function exportDressAssets(
             tick(`字体 ${itemId} 未缓存`);
             return;
           }
-          const font = await dressInstall.installFont(itemId, '');
+          const font = await dressInstall.fetchFont(itemId);
           const dir = join(root, 'font');
           mkdirSync(dir, { recursive: true });
           const rel = `dress/font/${itemId}.ttf`;
@@ -326,22 +327,8 @@ async function exportBubble(
   const dir = join(root, 'bubble', String(itemId));
   mkdirSync(dir, { recursive: true });
 
-  // 1. 静态底图：本地文件直接拷；CDN 直链（legacy / material 路径）下载一份。
-  let staticBuf: Buffer;
-  if (skin.localFile) {
-    staticBuf = readFileSync(skin.localFile);
-  } else if (skin.staticUrl) {
-    const dest = join(dir, 'static.png');
-    const dl = await downloadUrlToFile(skin.staticUrl, dest);
-    if (!dl.ok) {
-      rmSync(dest, { force: true });
-      throw new Error(`静态底图下载失败: ${dl.reason}`);
-    }
-    staticBuf = readFileSync(dest);
-  } else {
-    throw new Error('气泡既没有本地文件也没有 CDN 直链');
-  }
-  writeFileSync(join(dir, 'static.png'), staticBuf);
+  // 1. 静态底图：local-only 模型下恒为本地九宫格 PNG，直接拷。
+  writeFileSync(join(dir, 'static.png'), readFileSync(skin.localFile));
 
   // 2. config.json（动画定义 / 配色 / 九宫格参数）—— 用户明确要求打包。
   try {
@@ -357,13 +344,12 @@ async function exportBubble(
       });
   }
 
-  // 3. 动效资源原样导出，不再合成 GIF：逐帧九宫格 PNG 或 APNG 叠加层原文件。
+  // 3. 动效资源原样导出，不再合成 GIF：唯一形态是逐帧九宫格 PNG（bubbleframe）。
   let frames: string[] | null = null;
-  let animation: string | null = null;
+  const animation: string | null = null;
   let animated = false;
 
   if (skin.animationFrameCount && skin.animationFrameTimeMs) {
-    // protocol / 本地 bundle 路径：逐帧九宫格 PNG。
     const frameFiles: string[] = [];
     const framesDir = join(dir, 'frames');
     mkdirSync(framesDir, { recursive: true });
@@ -376,16 +362,6 @@ async function exportBubble(
     if (frameFiles.length === skin.animationFrameCount) {
       frames = frameFiles;
       animated = true;
-    }
-  } else if (skin.animationUrl) {
-    // legacy / material 路径：APNG 动效叠加层，原文件导出（浏览器可自行播放）。
-    const dest = join(dir, 'animation.png');
-    const dl = await downloadUrlToFile(skin.animationUrl, dest);
-    if (dl.ok) {
-      animation = `dress/bubble/${itemId}/animation.png`;
-      animated = true;
-    } else {
-      rmSync(dest, { force: true });
     }
   }
 

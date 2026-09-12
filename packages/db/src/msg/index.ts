@@ -7,7 +7,7 @@
  * `*Msg` shapes defined in `types.ts`.
  */
 
-export { C2cMsgDb } from './c2c';
+export { C2cMsgDb, CONVERSATION_GAP_SECONDS } from './c2c';
 export type { C2cMsgDbOptions, C2cPartition } from './c2c';
 
 export { GroupMsgDb } from './group';
@@ -36,7 +36,22 @@ export type {
   RecallLogRow,
 } from './anti_recall';
 
-export { decodeBody } from './util';
-export type { C2cMsg, GroupMsg, BuddyMsgFtsHit, SeqWindow } from './types';
+export { decodeBody, decodeDress, emptyDressTally, mergeDressTally, tallyDressBlobs } from './util';
+export type {
+  C2cMsg,
+  C2cPeerDayTally,
+  C2cInitiationTally,
+  SentWeekdayHourlyGrid,
+  SentSpeechRow,
+  DressTally,
+  DressOutfitTally,
+  GroupMsg,
+  GroupTargetTop,
+  GroupAtMeTop,
+  GroupEchoLongest,
+  GroupInteractionTally,
+  BuddyMsgFtsHit,
+  SeqWindow,
+} from './types';
 
 export type { AppendMsgFields, AppendMsgResult } from './append';

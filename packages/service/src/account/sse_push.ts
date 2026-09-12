@@ -152,8 +152,7 @@ export class SsePushService {
   /** 更新推送目标（地址 / token）。传 null 表示停用（清空待推队列）。 */
   setTarget(target: SsePushTarget | null): void {
     const changed =
-      target?.pushUrl !== this.target?.pushUrl ||
-      target?.accessToken !== this.target?.accessToken;
+      target?.pushUrl !== this.target?.pushUrl || target?.accessToken !== this.target?.accessToken;
     this.target = target;
     if (!target) {
       this.pending = [];
@@ -226,10 +225,7 @@ export class SsePushService {
       });
     } catch (error) {
       this.retryCount += 1;
-      const delay = Math.min(
-        RETRY_MAX_MS,
-        RETRY_BASE_MS * 2 ** Math.min(this.retryCount - 1, 5),
-      );
+      const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(this.retryCount - 1, 5));
       this.logger.warn('sse push failed, will retry', {
         event: 'sse-push-failed',
         retry: this.retryCount,
@@ -468,7 +464,9 @@ function c2cPartition(session: AccountSession, uid: string): { sortNo: bigint } 
 export function normalizeSsePushUrl(input: string): string {
   let url = input.trim();
   if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  // 只在「完全没有协议」时补 http://；ftp:// 这类非 http(s) 协议交给下面的
+  // protocol 校验拒绝，而不是拼成 http://ftp//… 混过去。
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `http://${url}`;
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';

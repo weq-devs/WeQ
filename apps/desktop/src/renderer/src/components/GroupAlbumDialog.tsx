@@ -116,8 +116,17 @@ export function GroupAlbumDialog({
   }
 
   return (
-    <div className="modal-scrim group-album-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="group-album-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim group-album-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="group-album-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header>
           <div>
             <strong>{bodyTitle}</strong>
@@ -130,7 +139,10 @@ export function GroupAlbumDialog({
 
         <div className="group-album-body">
           {mediaState.album ? (
-            <AlbumMediaView state={mediaState} onBack={() => setMediaState({ status: 'idle', album: null, items: [], error: null })} />
+            <AlbumMediaView
+              state={mediaState}
+              onBack={() => setMediaState({ status: 'idle', album: null, items: [], error: null })}
+            />
           ) : (
             <AlbumListView
               albums={albums}
@@ -176,7 +188,13 @@ function AlbumListView({
   return (
     <div className="group-album-grid">
       {albums.map((album) => (
-        <button key={album.id} className="group-album-card" type="button" disabled={disabled} onClick={() => onOpenAlbum(album)}>
+        <button
+          key={album.id}
+          className="group-album-card"
+          type="button"
+          disabled={disabled}
+          onClick={() => onOpenAlbum(album)}
+        >
           <AlbumCover album={album} />
           <span>
             <strong>{album.title || '未命名相册'}</strong>
@@ -199,7 +217,13 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   }
   return (
     <span className="group-album-cover">
-      <img src={album.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+      <img
+        src={album.coverUrl}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+      />
     </span>
   );
 }

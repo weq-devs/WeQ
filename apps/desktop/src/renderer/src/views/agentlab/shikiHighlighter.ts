@@ -20,7 +20,12 @@
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import { bundledLanguages } from 'shiki/langs';
-import type { BundledLanguage, CodeHighlighterPlugin, HighlightOptions, ThemeInput } from 'streamdown';
+import type {
+  BundledLanguage,
+  CodeHighlighterPlugin,
+  HighlightOptions,
+  ThemeInput,
+} from 'streamdown';
 
 /** 与 streamdown 默认一致的双主题：明/暗各一，随 .dark(data-theme) 切换。 */
 const LIGHT_THEME = 'github-light';

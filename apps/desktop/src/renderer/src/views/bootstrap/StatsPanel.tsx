@@ -245,7 +245,9 @@ function LanguageBar({ items }: { items: Array<{ name: string; bytes: number }> 
         {items.map((it, i) => (
           <li key={it.name} className="weq-legend-item">
             <span className="weq-legend-dot" style={{ background: shade(i) }} />
-            <span className="weq-legend-name" title={it.name}>{it.name}</span>
+            <span className="weq-legend-name" title={it.name}>
+              {it.name}
+            </span>
             <span className="weq-legend-size weq-number">{formatBytes(it.bytes)}</span>
           </li>
         ))}
@@ -272,7 +274,9 @@ function _ColumnChart({ items }: { items: Array<{ name: string; bytes: number }>
               }}
             />
           </span>
-          <span className="weq-col-name" title={it.name}>{it.name}</span>
+          <span className="weq-col-name" title={it.name}>
+            {it.name}
+          </span>
         </div>
       ))}
     </div>

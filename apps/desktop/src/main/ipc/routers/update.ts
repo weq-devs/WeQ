@@ -42,7 +42,9 @@ export const updateRouter = router({
    * event (so we swallow the rejection here).
    */
   download: procedure.mutation((): boolean => {
-    void getUpdateActions().startDownload().catch(() => {});
+    void getUpdateActions()
+      .startDownload()
+      .catch(() => {});
     return true;
   }),
 

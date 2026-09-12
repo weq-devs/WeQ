@@ -32,8 +32,7 @@ import {
 } from '@weq/db';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { JsonStore } from '../common/json_store';
 
 /** Persisted anti-recall config for one account. */
 export interface AntiRecallConfig {
@@ -80,14 +79,42 @@ function normalizeTarget(t: AntiRecallTarget): AntiRecallTarget {
 }
 
 export class AntiRecallService {
-  private config: AntiRecallConfig;
+  /** 配置的整文件存储（内存态即真源，save() 原子落盘）。 */
+  private readonly configStore: JsonStore<AntiRecallConfig>;
 
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
-    private readonly storePath: string,
+    storePath: string,
   ) {
-    this.config = this.load();
+    this.configStore = new JsonStore(storePath, () => ({ ...DEFAULT_CONFIG }), {
+      normalize: (raw) => {
+        const parsed = (raw ?? {}) as Partial<AntiRecallConfig>;
+        return {
+          enabled: parsed.enabled === true,
+          mode: parsed.mode === 'all' ? 'all' : 'selected',
+          targets: Array.isArray(parsed.targets)
+            ? parsed.targets
+                .filter(
+                  (t): t is AntiRecallTarget =>
+                    !!t &&
+                    typeof t.id === 'string' &&
+                    (t.kind === 'c2c' || t.kind === 'group' || t.kind === 'dataline'),
+                )
+                .map(normalizeTarget)
+            : [],
+        };
+      },
+    });
+  }
+
+  /** 当前配置（内存态）。 */
+  private get config(): AntiRecallConfig {
+    return this.configStore.data;
+  }
+
+  private set config(next: AntiRecallConfig) {
+    this.configStore.data = next;
   }
 
   /** Current config + live trigger state + whether QQ is running. */
@@ -218,35 +245,7 @@ export class AntiRecallService {
     });
   }
 
-  private load(): AntiRecallConfig {
-    try {
-      if (!existsSync(this.storePath)) return { ...DEFAULT_CONFIG };
-      const parsed = JSON.parse(readFileSync(this.storePath, 'utf-8')) as Partial<AntiRecallConfig>;
-      return {
-        enabled: parsed.enabled === true,
-        mode: parsed.mode === 'all' ? 'all' : 'selected',
-        targets: Array.isArray(parsed.targets)
-          ? parsed.targets
-              .filter(
-                (t): t is AntiRecallTarget =>
-                  !!t &&
-                  typeof t.id === 'string' &&
-                  (t.kind === 'c2c' || t.kind === 'group' || t.kind === 'dataline'),
-              )
-              .map(normalizeTarget)
-          : [],
-      };
-    } catch {
-      return { ...DEFAULT_CONFIG };
-    }
-  }
-
   private persist(): void {
-    try {
-      mkdirSync(dirname(this.storePath), { recursive: true });
-      writeFileSync(this.storePath, JSON.stringify(this.config), 'utf-8');
-    } catch {
-      /* 持久化失败不应阻断开关本身；下次 apply 时以内存态为准 */
-    }
+    this.configStore.save();
   }
 }

@@ -21,12 +21,7 @@
 //
 //   node scripts/parcel_crawler.mjs [--csv path] [-c N] [-n N] [-d secs]
 
-import {
-  existsSync,
-  statSync,
-  readFileSync,
-  createWriteStream,
-} from 'node:fs';
+import { existsSync, statSync, readFileSync, createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
 
@@ -224,9 +219,7 @@ async function crawlRange(a, b, writer, cfg, stats) {
 // resets to zero) to show it's alive and advancing.
 async function crawlOpen(start, writer, cfg, stats) {
   const CYCLE = 100;
-  console.log(
-    `[open ] from ${start}, stop after ${cfg.emptyThreshold} consecutive empty`,
-  );
+  console.log(`[open ] from ${start}, stop after ${cfg.emptyThreshold} consecutive empty`);
   let pid = start;
   let consecEmpty = 0;
   let consecErr = 0;
@@ -270,9 +263,7 @@ async function crawlOpen(start, writer, cfg, stats) {
     pid += WINDOW;
   }
   process.stdout.write('\n');
-  console.log(
-    `[open ] reached end near ${pid} (${cfg.emptyThreshold} empties in a row)`,
-  );
+  console.log(`[open ] reached end near ${pid} (${cfg.emptyThreshold} empties in a row)`);
 }
 
 // Return list of segments: ['range', a, b] or ['open', start].
@@ -309,7 +300,8 @@ function parseArgs(argv) {
     const val = () => argv[++i];
     if (a === '--csv') cfg.csv = val();
     else if (a === '-c' || a === '--concurrency') cfg.concurrency = Number.parseInt(val(), 10);
-    else if (a === '-n' || a === '--empty-threshold') cfg.emptyThreshold = Number.parseInt(val(), 10);
+    else if (a === '-n' || a === '--empty-threshold')
+      cfg.emptyThreshold = Number.parseInt(val(), 10);
     else if (a === '-d' || a === '--delay') cfg.delay = Number.parseFloat(val());
   }
   return cfg;

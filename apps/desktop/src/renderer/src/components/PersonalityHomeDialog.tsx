@@ -230,7 +230,7 @@ export function PersonalityHomeDialog({
                     <img
                       // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
                       key={`${name}:${index}`}
-                      src={resourceUrl('qqlevel', '4', `${name}.png`)}
+                      src={resourceUrl('qqlevel', `${name}.png`)}
                       alt=""
                     />
                   ))}

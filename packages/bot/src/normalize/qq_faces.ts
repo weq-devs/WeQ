@@ -32,7 +32,8 @@ function escapeRegExp(s: string): string {
 
 // 按 faceText 长度降序，长的优先匹配（避免 /笑 抢在 /笑哭 前面）。
 const FACE_TEXTS = [...FACE_TEXT_TO_ID.keys()].sort((a, b) => b.length - a.length);
-const FACE_PATTERN = FACE_TEXTS.length > 0 ? new RegExp(FACE_TEXTS.map(escapeRegExp).join('|'), 'g') : null;
+const FACE_PATTERN =
+  FACE_TEXTS.length > 0 ? new RegExp(FACE_TEXTS.map(escapeRegExp).join('|'), 'g') : null;
 
 /** faceText → faceId（找不到返回 null）。 */
 export function faceTextToId(faceText: string): string | null {

@@ -137,7 +137,12 @@ async function boot(
   const visionDescribe = visionRef
     ? async (imageDataUrl: string): Promise<{ description: string; scenario: string }> => {
         const ep = resolver({ providerId: visionRef.providerId, model: visionRef.model });
-        return describeSticker({ ...ep, kind: 'vision' }, persona.sourceTitle || persona.name, imageDataUrl, '');
+        return describeSticker(
+          { ...ep, kind: 'vision' },
+          persona.sourceTitle || persona.name,
+          imageDataUrl,
+          '',
+        );
       }
     : undefined;
 
@@ -150,18 +155,26 @@ async function boot(
       id: config.webui.id,
       persona,
       stats,
-      features: { voice: config.features?.voice ?? false, groupChat: config.features?.groupChat ?? false },
+      features: {
+        voice: config.features?.voice ?? false,
+        groupChat: config.features?.groupChat ?? false,
+      },
       ttsProviders: config.ttsProviders,
       store,
       stickersDir: join(config.personaDir, 'stickers'),
       visionDescribe,
       onReload,
+      // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
+      // 提供后 WebUI「设置」页可读写配置并触发重载。
+      configPath: join(config.personaDir, '..', 'config.json'),
       logger: consoleLogger,
     });
   }
 
   await adapter.connect();
-  consoleLogger.info(`已连接 ${config.adapter.type} @ ${config.adapter.wsUrl}，克隆体「${persona.name}」上线`);
+  consoleLogger.info(
+    `已连接 ${config.adapter.type} @ ${config.adapter.wsUrl}，克隆体「${persona.name}」上线`,
+  );
 
   return {
     stop: () => {
@@ -171,7 +184,10 @@ async function boot(
   };
 }
 
-export async function startBot(config: BotConfig, opts: StartBotOptions = {}): Promise<{ stop: () => void }> {
+export async function startBot(
+  config: BotConfig,
+  opts: StartBotOptions = {},
+): Promise<{ stop: () => void }> {
   let current: BotInstance | null = null;
   let reloading = false;
 
@@ -203,7 +219,14 @@ export async function startBot(config: BotConfig, opts: StartBotOptions = {}): P
 }
 
 export { buildEndpointResolver } from './config';
-export type { BotConfig, AdapterConfig, AdapterType, BotLlmProvider, BotFeatures, WebUiConfig } from './config';
+export type {
+  BotConfig,
+  AdapterConfig,
+  AdapterType,
+  BotLlmProvider,
+  BotFeatures,
+  WebUiConfig,
+} from './config';
 export { StatsStore } from './stats';
 export { startWebUi, type WebUiHandle } from './webui/server';
 export { createAdapter, NapcatAdapter, SnowLumaAdapter, BaseOneBotAdapter } from './adapter/onebot';

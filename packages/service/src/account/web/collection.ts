@@ -153,14 +153,18 @@ function mapItem(item: WireItem): CollectionItem {
           publisher: s.linkSummary.publisher,
           brief: s.linkSummary.brief,
           picList: (s.linkSummary.picList ?? []).map(mapPic),
-          type: s.linkSummary.contentType === undefined ? undefined : Number(s.linkSummary.contentType),
+          type:
+            s.linkSummary.contentType === undefined ? undefined : Number(s.linkSummary.contentType),
         }
       : undefined,
     gallerySummary: s.gallerySummary
       ? { picList: (s.gallerySummary.picList ?? []).map(mapPic) }
       : undefined,
     audioSummary: s.audioSummary
-      ? { duration: s.audioSummary.duration === undefined ? undefined : Number(s.audioSummary.duration) }
+      ? {
+          duration:
+            s.audioSummary.duration === undefined ? undefined : Number(s.audioSummary.duration),
+        }
       : undefined,
     videoSummary: s.videoSummary
       ? {
@@ -190,7 +194,9 @@ function mapItem(item: WireItem): CollectionItem {
           brief: s.richMediaSummary.brief,
           picList: (s.richMediaSummary.picList ?? []).map(mapPic),
           contentType:
-            s.richMediaSummary.contentType === undefined ? undefined : Number(s.richMediaSummary.contentType),
+            s.richMediaSummary.contentType === undefined
+              ? undefined
+              : Number(s.richMediaSummary.contentType),
           originalUri: s.richMediaSummary.originalUri,
           publisher: s.richMediaSummary.publisher,
           richMediaVersion:
@@ -243,7 +249,12 @@ function mapFile(f: WireFile) {
   };
 }
 
-async function postCollector(body: Uint8Array, uin: string, pskey: string, timeoutMs: number): Promise<Uint8Array> {
+async function postCollector(
+  body: Uint8Array,
+  uin: string,
+  pskey: string,
+  timeoutMs: number,
+): Promise<Uint8Array> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -310,7 +321,9 @@ export async function getCollectionListNetwork(
     const { head, body } = decodeEnvelope(responseBytes);
     const retCode = head.retCode ?? 0;
     if (retCode !== 0) {
-      throw new Error(`collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`);
+      throw new Error(
+        `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
+      );
     }
 
     const page = body.operation?.getCollectionList;

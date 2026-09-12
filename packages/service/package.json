@@ -1,28 +1,18 @@
 {
   "name": "@weq/service",
-  "version": "0.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./report-time": "./src/account/annual_report/time.ts",
+    "./report-assets": "./src/account/annual_report/report-assets.ts",
+    "./report-mate": "./src/account/annual_report/report-mate.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
-    "tools:win32-detect": "tsx tools/win32_detect.ts",
-    "tools:key-alive": "tsx tools/key_alive_qq.ts",
-    "tools:key-quick": "tsx tools/key_quick_login.ts",
-    "tools:key-qr": "tsx tools/key_qr_login.ts",
-    "tools:msg-search": "tsx tools/msg_search.ts",
-    "tools:msg-search-agg": "tsx tools/msg_search_aggregate.ts",
-    "tools:unified-search": "tsx tools/test_unified_search.ts",
-    "tools:reply": "tsx tools/reply_element.ts",
-    "tools:export": "tsx tools/export_group.ts",
-    "tools:forward-expand": "tsx tools/forward_expand.ts",
-    "tools:scan-media": "tsx tools/scan_group_media.ts",
-    "tools:db-watch-listen": "tsx tools/db_watch_listen.ts",
-    "tools:download-probe": "tsx tools/download_rkey_probe.ts",
-    "tools:group-albums": "tsx tools/group_albums.ts",
-    "tools:group-album-media": "tsx tools/group_album_media.ts"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@weq/account": "workspace:*",
@@ -40,6 +30,6 @@
     "@types/qrcode": "^1.5.5",
     "@weq/testkit": "workspace:*",
     "qrcode": "^1.5.4",
-    "tsx": "^4.19.2"
+    "vitest": "^2.1.8"
   }
 }

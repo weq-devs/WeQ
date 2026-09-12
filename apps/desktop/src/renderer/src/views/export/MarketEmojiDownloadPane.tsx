@@ -16,7 +16,9 @@ import { Search, X, Store, RefreshCw, Download, Check, Loader2 } from 'lucide-re
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { FooterSkeleton, GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
 
@@ -193,7 +195,10 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
       });
       setSelected(new Map());
       onStarted();
-      dialog.info('已开始下载', '下载任务已加入下方「导出任务列表」，完成后点任务上的「保存文件夹…」导出到本地。');
+      dialog.info(
+        '已开始下载',
+        '下载任务已加入下方「导出任务列表」，完成后点任务上的「保存文件夹…」导出到本地。',
+      );
     } catch (e) {
       dialog.error('启动下载失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -269,8 +274,14 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         )}
         {!done ? (
           <div ref={sentinelRef} className="weq-mpd-more">
-            <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-            {loading ? '加载中…' : '滚动加载更多'}
+            {loading ? (
+              <FooterSkeleton />
+            ) : (
+              <>
+                <RefreshCw size={14} />
+                滚动加载更多
+              </>
+            )}
           </div>
         ) : entries.length > 0 ? (
           <div className="weq-mpd-more is-end">已全部加载（{entries.length}）</div>
@@ -335,7 +346,7 @@ function PackCard({
       <button type="button" className="weq-mpd-card-body" onClick={onOpen} title={entry.name}>
         <span className="weq-mpd-cover">
           {cover && !broken ? (
-            <img
+            <ShimmerImage
               src={packImageUrl(entry.id, cover)}
               alt={entry.name}
               loading="lazy"
@@ -352,7 +363,11 @@ function PackCard({
           <small className="weq-mpd-card-summary">{summary || '暂无介绍'}</small>
           <span className="weq-mpd-card-foot">
             <code>#{entry.id}</code>
-            {detail.data ? <span>{detail.data.count} 张</span> : <span className="weq-mpd-dots">…</span>}
+            {detail.data ? (
+              <span>{detail.data.count} 张</span>
+            ) : (
+              <span className="weq-mpd-dots">…</span>
+            )}
           </span>
         </span>
       </button>
@@ -361,7 +376,13 @@ function PackCard({
 }
 
 /** 预览灯箱：该套全部表情的解密动图网格。 */
-function PackPreview({ entry, onClose }: { entry: CatalogEntry; onClose: () => void }): ReactElement {
+function PackPreview({
+  entry,
+  onClose,
+}: {
+  entry: CatalogEntry;
+  onClose: () => void;
+}): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId: entry.id });
   const items = detail.data?.items ?? [];
   const fee = FEE_META[entry.feeType];
@@ -379,7 +400,10 @@ function PackPreview({ entry, onClose }: { entry: CatalogEntry; onClose: () => v
               {entry.name || `表情包 ${entry.id}`}
               <em className={`weq-mpd-fee is-${fee.tone}`}>{fee.label}</em>
             </h3>
-            <code>#{entry.id}{detail.data ? ` · ${detail.data.count} 张` : ''}</code>
+            <code>
+              #{entry.id}
+              {detail.data ? ` · ${detail.data.count} 张` : ''}
+            </code>
           </div>
           <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
             <X size={18} />
@@ -388,7 +412,7 @@ function PackPreview({ entry, onClose }: { entry: CatalogEntry; onClose: () => v
         {entry.mark ? <p className="weq-mpd-preview-mark">{entry.mark}</p> : null}
         <div className="weq-blob-body weq-mpd-preview-body">
           {detail.isLoading ? (
-            <div className="weq-mpd-empty">获取表情列表中…</div>
+            <GridSkeleton cells={10} />
           ) : items.length === 0 ? (
             <div className="weq-mpd-empty">无法获取该表情包（网络问题或包不存在）</div>
           ) : (
@@ -405,7 +429,15 @@ function PackPreview({ entry, onClose }: { entry: CatalogEntry; onClose: () => v
 }
 
 /** 一张预览表情：TEA 解密后的 GIF；失败显示占位。 */
-function PreviewCell({ packId, hash, name }: { packId: string; hash: string; name: string }): ReactElement {
+function PreviewCell({
+  packId,
+  hash,
+  name,
+}: {
+  packId: string;
+  hash: string;
+  name: string;
+}): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
     <figure className="weq-mpd-preview-cell" title={name || hash}>
@@ -413,7 +445,7 @@ function PreviewCell({ packId, hash, name }: { packId: string; hash: string; nam
         {broken ? (
           <RefreshCw size={16} strokeWidth={1.4} className="weq-mpd-cover-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={packImageUrl(packId, hash)}
             alt={name || hash}
             loading="lazy"

@@ -121,7 +121,6 @@ export class RecentContactDb {
     return new Set(rows.map((row) => toStr(row[0])));
   }
 
-
   /**
    * Every conversation's current seq watermark (40021 -> 40003). The table is
    * small (the recent-chats list), so re-reading it whole per poll is cheap and

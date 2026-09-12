@@ -9,6 +9,8 @@
  *   40027  sortNo      (INTEGER — per-account peer index; the *indexed* key)
  *   40030  targetUin   (INTEGER — peer QQ number)
  *   40033  senderUin   (INTEGER)
+ *   40040  sentSource  (INTEGER — 1 = locally originated / genuinely sent by
+ *                     this account; 0 = sync copy, e.g. self-forwarded rows)
  *   40050  sendTime    (INTEGER, unix seconds)
  *   40800  msgBody     (BLOB — protobuf repeated ElementWire)
  *
@@ -21,12 +23,34 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cMsg, SeqWindow } from './types';
-import { decodeBody, decodeDress, toBigint, toStr } from './util';
+import type {
+  C2cInitiationTally,
+  C2cMsg,
+  C2cPeerDayTally,
+  DressTally,
+  SentSpeechRow,
+  SentWeekdayHourlyGrid,
+  SeqWindow,
+} from './types';
+import {
+  buildWeekdayHourlyGrid,
+  decodeBody,
+  decodeDress,
+  emptyDressTally,
+  tallyDressBlobs,
+  toBigint,
+  toStr,
+} from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
+
+/**
+ * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
+ * （`BuddyAnalyticsService`）逐好友扫描与年度报告全私聊聚合共用同一个值。
+ */
+export const CONVERSATION_GAP_SECONDS = 5 * 60 * 60;
 
 /**
  * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
@@ -378,6 +402,324 @@ export class C2cMsgDb {
   ): Promise<AppendMsgResult | null> {
     const { clause, value } = partitionWhere(part);
     return appendClonedRow(this.qq, this.table, clause, value, fields);
+  }
+
+  /**
+   * Oldest sendTime (column 40050, unix seconds) in the whole table, or null
+   * when empty. Unindexed — a single-pass MIN scan; used once per report open
+   * to derive the first available year, then cached by the caller.
+   */
+  async oldestSendTime(): Promise<bigint | null> {
+    const rows = await this.qq.query(`SELECT MIN("40050") FROM ${this.table} WHERE "40050" > 0`);
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * The distinct local-time years in which the table holds at least one
+   * message. Deliberately does NOT filter by sender/own marker: this is the
+   * cheap year-eligibility probe for the report entry page, and it runs on the
+   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
+   * SQLite resolves it as a covering index scan without touching message rows.
+   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
+   * with `"40058" > 0`.
+   *
+   * The year is derived with `'localtime'` so buckets line up exactly with the
+   * report's local-midnight boundaries. The caller caches the result for the
+   * session's data revision.
+   */
+  async yearsWithMessages(): Promise<number[]> {
+    const rows = await this.qq.query(
+      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
+       FROM ${this.table}
+       WHERE "40058" > 0`,
+    );
+    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+  }
+
+  /**
+   * Infer the account's own uin from the data itself, in ONE pass: in
+   * `c2c_msg_table` column 40021 (targetUid) is always the peer, and the rows
+   * we sent are exactly the ones whose 40020 (senderUid) differs from the
+   * peer. So the most common 40033 among those rows is our own uin — fully
+   * independent of profile_info / session identity, and always consistent with
+   * the database being scanned. This is the correct uin to feed the group
+   * direction count, whose 40033 carries real senders. Returns null when there
+   * is no evidence (no sent rows at all).
+   */
+  async inferSelfUin(): Promise<bigint | null> {
+    const rows = await this.qq.query(
+      `SELECT "40033", COUNT(*) AS n FROM ${this.table}
+       WHERE "40020" != "40021" AND "40020" != '' AND "40033" > 0
+       GROUP BY "40033" ORDER BY n DESC LIMIT 1`,
+    );
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * Split the whole table's rows in a time window into sent / received, in ONE
+   * pass. Sent means QQ's own 40040 marker = 1 (locally originated by this
+   * account), which excludes self-forwarded copies of other people's messages
+   * even though their senderUid is ours. Everything else — real incoming rows
+   * and sync copies alike — is counted as received. Excludes dataline /
+   * service tables — callers pass the exact C2cMsgDb instance they want
+   * (c2c = private chats only).
+   */
+  async countByDirection(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<{ sent: number; received: number }> {
+    const conditions: string[] = [];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const rows = await this.qq.query(
+      `SELECT "40040" AS mine, COUNT(*) AS n
+       FROM ${this.table}${where}
+       GROUP BY 1`,
+      params,
+    );
+    let sent = 0;
+    let received = 0;
+    for (const row of rows) {
+      const mine = Number(row[0] ?? 0);
+      const n = Number(row[1] ?? 0);
+      if (mine === 1) sent = n;
+      else received = n;
+    }
+    return { sent, received };
+  }
+
+  /**
+   * One-pass aggregation of the whole table (or a time window) into
+   * `(peer, local calendar day)` buckets. Direction follows the same self-proof
+   * as {@link countByDirection}, so `mine` can be subtracted from `total` to get
+   * the peer's side without any external identity.
+   *
+   * The date is derived in SQL with `'localtime'`, keeping the buckets aligned
+   * with the report's local-midnight year boundaries.
+   * No body column is touched — this is the cheapest way to answer "which
+   * conversation, on which day, was the busiest" and to feed per-day walls.
+   */
+  async peerDayTallies(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<C2cPeerDayTally[]> {
+    // 0 不是合法 sendTime；年度报告的「某年某月某日」故事不能落到 1970 上。
+    const conditions: string[] = [`"40050" > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const where = ` WHERE ${conditions.join(' AND ')}`;
+    const rows = await this.qq.query(
+      `SELECT "40021",
+              strftime('%Y-%m-%d',"40050",'unixepoch','localtime') AS day,
+              COUNT(*) AS total,
+              SUM(CASE WHEN "40020" != "40021" AND "40020" != '' THEN 1 ELSE 0 END) AS mine
+       FROM ${this.table}${where}
+       GROUP BY "40021", day`,
+      params,
+    );
+    return rows.map((row) => ({
+      peerUid: String(row[0] ?? ''),
+      date: String(row[1] ?? ''),
+      total: Number(row[2] ?? 0),
+      mine: Number(row[3] ?? 0),
+    }));
+  }
+
+  /**
+   * 一个时间窗内**自己发出的**私聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   *
+   * 方向沿用 {@link countByDirection} 的自证判据（40021 恒为对端、senderUid 与
+   * 对端不同即我发），小时/星期用 `'localtime'` 与报告的本地口径对齐。只扫
+   * 40050 一个字段做 GROUP BY，不触碰消息体 —— 这是作息页最低成本的形状。
+   */
+  async sentWeekdayHourlyTallies(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentWeekdayHourlyGrid> {
+    const conditions: string[] = [`"40050" > 0`, `"40020" != "40021"`, `"40020" != ''`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+              COUNT(*) AS n
+       FROM ${this.table}
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY dow, hour`,
+      params,
+    );
+    return buildWeekdayHourlyGrid(rows);
+  }
+
+  /**
+   * 自己发出的消息，逐条解码正文 —— 年度报告「我的话」页的原始素材。
+   *
+   * 方向沿用 {@link countByDirection} 的自证判据（40021 恒为对端、senderUid 与
+   * 对端不同即我发）。与作息页不同，这一页必须看**说了什么**，所以 40800 每一行
+   * 都要解；空 body 的行直接滤掉。窗口时间用调用方给的 unix 秒半开区间。
+   *
+   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async sentSpeechRows(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentSpeechRow[]> {
+    const conditions: string[] = [
+      `"40050" > 0`,
+      `"40020" != "40021"`,
+      `"40020" != ''`,
+      `length("40800") > 0`,
+    ];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
+  }
+
+  /**
+   * 一个时间窗内每个会话的「开场次数」拆分 —— 只扫四列元数据（对端 / 发送者 /
+   * 时间 / 会话序号），不触碰 40800 消息体。
+   *
+   * 切分规则与 {@link CONVERSATION_GAP_SECONDS} 一致：会话内相邻消息间隔超过
+   * 阈值就是一场新对话，时间窗内的第一条消息也永远算一场（年度报告把一个自然
+   * 年的开场称为「这一年的开场」）。窗口为 0/缺省时覆盖整表，供「历史以来」口径。
+   */
+  async initiationTallies(
+    opts: { startTime?: number; endTime?: number; gapSeconds?: number } = {},
+  ): Promise<C2cInitiationTally[]> {
+    const conditions: string[] = [`"40050" > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const gapSeconds = opts.gapSeconds ?? CONVERSATION_GAP_SECONDS;
+    // 按会话分组把消息排回原始先后：同 40027 内 40003 递增；灰色提示共用 seq
+    // 时再由 sendTime / msgId 落定 —— 与 buddy_analytics 逐会话扫描的次序一致。
+    const rows = await this.qq.query(
+      `SELECT "40021","40020","40050"
+       FROM ${this.table}
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY "40027" ASC, "40003" ASC, "40050" ASC, "40001" ASC`,
+      params,
+    );
+
+    const buckets = new Map<string, C2cInitiationTally>();
+    let lastPeerUid: string | null = null;
+    let prevTime = 0;
+    for (const row of rows) {
+      const peerUid = String(row[0] ?? '');
+      if (!peerUid) continue;
+      const sendTime = Number(row[2] ?? 0);
+      if (!Number.isFinite(sendTime) || sendTime <= 0) continue;
+      if (peerUid !== lastPeerUid) {
+        lastPeerUid = peerUid;
+        prevTime = 0;
+      }
+      const sender = toStr(row[1]);
+      const mine = sender !== '' && sender !== peerUid;
+      const bucket = buckets.get(peerUid);
+      if (!bucket) {
+        buckets.set(peerUid, {
+          peerUid,
+          mine: mine ? 1 : 0,
+          theirs: mine ? 0 : 1,
+          total: 1,
+        });
+      } else if (prevTime === 0 || sendTime - prevTime > gapSeconds) {
+        bucket.total++;
+        if (mine) bucket.mine++;
+        else bucket.theirs++;
+      }
+      prevTime = sendTime;
+    }
+    return [...buckets.values()];
+  }
+
+  /**
+   * Full rows of ONE conversation whose sendTime falls inside a half-open
+   * window, oldest first. Used by the annual report's highlights page to
+   * decode just the bodies of the busiest peer-day (for its common words)
+   * instead of decoding every conversation in the database.
+   */
+  async listTimeWindow(
+    part: C2cPartition,
+    opts: { startTime: number; endTime: number },
+  ): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE ${clause} AND "40050" >= ? AND "40050" < ?
+        ${ORDER_OLDEST_FIRST}`,
+      [value, BigInt(Math.floor(opts.startTime)), BigInt(Math.floor(opts.endTime))],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
+  /**
+   * 统计**我发出的**私聊消息里各套装扮各用了多少条（列 40801），顺带采样正文。
+   *
+   * 一次单向扫描：`SELECT "40801","40800","40050"` + 与 {@link countByDirection} 同一个
+   * 方向判据（40021 恒为对端，`senderUid != targetUid` 即我发的）。40800 虽然选进来了，
+   * 但**只在某套装扮的样本还没攒够时才解码**（见 {@link tallyDressBlobs}），全表扫描里
+   * 真正解正文的次数是「套数 × 每套上限」这个常数级的量。
+   *
+   * 空 BLOB 的行在 SQL 侧就滤掉（`length("40801") > 0`），没装扮的账号几乎整表被
+   * 过滤，扫描量远小于行数。
+   */
+  async tallyDress(opts: { startTime?: number; endTime?: number } = {}): Promise<DressTally> {
+    const conditions = [`"40020" != "40021"`, `"40020" != ''`, `length("40801") > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40801","40800","40050" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**

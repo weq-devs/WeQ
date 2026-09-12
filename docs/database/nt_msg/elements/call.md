@@ -105,12 +105,17 @@ QQ 已经排好版的 `callSummary`（WeQ 的 `QqCall` 就是这么做的）。
 
 ## 五、排查工具
 
-```bash
-# 全表扫描，统计 (callMethod, subType) 组合并列出未枚举值的会话与时间
-pnpm tsx packages/db/tools/scan_call_types.ts
+用 WeQ 内置 MCP 的数据库工具（见 `docs/guide/mcp-server.md`）：
 
-# 解码指定 msgId 的 CALL 元素（含原始 hex）
-pnpm tsx packages/db/tools/dump_call_element.ts <msgId> [<msgId> ...]
+```text
+# 看表的列
+get_db_columns  { db: "msg.db", table: "group_msg_table" }
+
+# 按 rowid 看整行
+execute_sql     { db: "msg.db", sql: "SELECT * FROM group_msg_table WHERE rowid = <rowid>" }
+
+# 统计 CALL 元素的 (40011, 40012) 组合
+execute_sql     { db: "msg.db", sql: "SELECT \"40011\",\"40012\",COUNT(*) FROM group_msg_table GROUP BY \"40011\",\"40012\"" }
 ```
 
 ---

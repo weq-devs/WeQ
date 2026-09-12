@@ -4,7 +4,7 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, Database, FlipHorizontal2, Search, X } from 'lucide-react';
-import { Spinner } from './widgets';
+import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
 
 export interface DbPickItem {
@@ -29,7 +29,9 @@ export function DatabasePicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((it) => it.name.toLowerCase().includes(q) || it.path.toLowerCase().includes(q));
+    return items.filter(
+      (it) => it.name.toLowerCase().includes(q) || it.path.toLowerCase().includes(q),
+    );
   }, [items, query]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.path));
@@ -62,7 +64,11 @@ export function DatabasePicker({
     <div className="weq-exp-picker">
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
-        <input placeholder="搜索数据库文件名或路径" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input
+          placeholder="搜索数据库文件名或路径"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         {query ? (
           <button type="button" title="清空" onClick={() => setQuery('')}>
             <X size={14} />
@@ -71,11 +77,21 @@ export function DatabasePicker({
       </div>
 
       <div className="weq-exp-tools">
-        <button type="button" className="weq-exp-tool" onClick={selectAll} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={selectAll}
+          disabled={filtered.length === 0}
+        >
           <CheckCheck size={14} />
           {allFilteredSelected ? '取消全选' : '全选'}
         </button>
-        <button type="button" className="weq-exp-tool" onClick={invert} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={invert}
+          disabled={filtered.length === 0}
+        >
           <FlipHorizontal2 size={14} />
           反选
         </button>
@@ -96,12 +112,11 @@ export function DatabasePicker({
 
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载数据库中…
-          </div>
+          <PickerListSkeleton />
         ) : filtered.length === 0 ? (
-          <div className="weq-exp-list-state">{query ? '没有匹配的数据库' : '未发现数据库文件'}</div>
+          <div className="weq-exp-list-state">
+            {query ? '没有匹配的数据库' : '未发现数据库文件'}
+          </div>
         ) : (
           filtered.map((it) => {
             const checked = selected.has(it.path);
@@ -117,7 +132,9 @@ export function DatabasePicker({
                 </span>
                 <span className="weq-exp-row-meta">
                   <strong title={it.name}>{it.name}</strong>
-                  <small title={it.path}>{fmtBytes(it.bytes)} · {it.path}</small>
+                  <small title={it.path}>
+                    {fmtBytes(it.bytes)} · {it.path}
+                  </small>
                 </span>
                 <span className="weq-exp-row-check" aria-hidden>
                   {checked ? <Check size={14} /> : null}

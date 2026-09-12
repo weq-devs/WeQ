@@ -387,6 +387,20 @@
 	-webkit-user-drag: none;
 }
 
+/* 图片外层容器：relative + 内联收缩，让 ShimmerImage 的扫光占位（absolute inset 0）
+   只盖住图片本身，而不是铺满整条气泡；border-radius 与图片一致，扫光圆角不穿帮。 */
+.qq-media-wrap {
+	position: relative;
+	display: inline-block;
+	line-height: 0;
+	border-radius: 8px;
+}
+
+/* 动画表情是方形图，无需圆角。 */
+.qq-media-wrap-emoji {
+	border-radius: 0;
+}
+
 .qq-media-mface {
 	display: block;
 	object-fit: contain;

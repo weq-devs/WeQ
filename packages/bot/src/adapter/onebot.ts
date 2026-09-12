@@ -27,28 +27,64 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
 
   constructor(protected readonly cfg: AdapterConfig) {}
 
+  /**
+   * 连接（含断线重连的统一入口）：只在首次 open 时 resolve，之后断线由内部
+   * 自愈重试——初始连接失败（napcat 还没起 / ws 地址暂时不可达）不会 reject，
+   * 否则导出的 bot 会因一次 ECONNREFUSED 直接退出，用户 `pnpm start` 就报错。
+   * 只有主动 close()（this.closed=true）才停。
+   */
   connect(): Promise<void> {
     this.closed = false;
-    return new Promise((resolve, reject) => {
-      const headers: Record<string, string> = {};
-      if (this.cfg.token) headers.Authorization = `Bearer ${this.cfg.token}`;
-      const ws = new WebSocket(this.cfg.wsUrl, { headers });
-      this.ws = ws;
-      let opened = false;
-      ws.on('open', () => {
-        opened = true;
-        resolve();
-      });
-      ws.on('message', (data: RawData) => this.onRaw(data.toString()));
-      ws.on('close', () => {
-        this.ws = null;
-        this.rejectAllPending('ws 连接已关闭');
-        if (!this.closed) this.scheduleReconnect();
-      });
-      ws.on('error', (err: Error) => {
-        if (!opened) reject(err);
-        // open 之后的错误交给 close 事件触发重连
-      });
+    return new Promise((resolve) => {
+      const attempt = (): void => {
+        if (this.closed) return;
+        const headers: Record<string, string> = {};
+        if (this.cfg.token) headers.Authorization = `Bearer ${this.cfg.token}`;
+        const ws = new WebSocket(this.cfg.wsUrl, { headers });
+        this.ws = ws;
+        let settled = false;
+        const cleanup = (): void => {
+          ws.off('open', onOpen);
+          ws.off('message', onMessage);
+          ws.off('close', onClose);
+          ws.off('error', onError);
+        };
+        const onOpen = (): void => {
+          if (settled) return;
+          settled = true;
+          // 注意：这里不能 cleanup()——message/close/error 监听器要继续存活到断线为止。
+          resolve();
+        };
+        const onMessage = (data: RawData): void => this.onRaw(data.toString());
+        const onClose = (): void => {
+          cleanup();
+          this.ws = null;
+          this.rejectAllPending('ws 连接已关闭');
+          // 初始连接失败 / 断线统一走重连（幂等：已有定时器则不重复排）。
+          if (!this.closed && !this.reconnectTimer) {
+            if (!settled) {
+              console.warn(
+                `[bot] ws 连接 ${this.cfg.wsUrl} 失败，${(this.cfg.reconnectDelayMs ?? 3000) / 1000}s 后自动重试…`,
+              );
+            }
+            this.reconnectTimer = setTimeout(() => {
+              this.reconnectTimer = null;
+              attempt();
+            }, this.cfg.reconnectDelayMs ?? 3000);
+          }
+        };
+        const onError = (): void => {
+          // error 后通常跟着 close；保险起见把未关闭的 ws 关掉，让 close 统一收尾重连。
+          if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+            ws.close();
+          }
+        };
+        ws.on('open', onOpen);
+        ws.on('message', onMessage);
+        ws.on('close', onClose);
+        ws.on('error', onError);
+      };
+      attempt();
     });
   }
 
@@ -84,10 +120,16 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
     this.handlers.push(handler);
   }
 
-  abstract sendMessage(target: SendTarget, segments: OneBotSegment[]): Promise<{ messageId?: string }>;
+  abstract sendMessage(
+    target: SendTarget,
+    segments: OneBotSegment[],
+  ): Promise<{ messageId?: string }>;
 
   /** 子类发消息后统一解析回包里的 message_id。 */
-  protected async send(action: string, params: Record<string, unknown>): Promise<{ messageId?: string }> {
+  protected async send(
+    action: string,
+    params: Record<string, unknown>,
+  ): Promise<{ messageId?: string }> {
     const data = (await this.callAction(action, params)) as { message_id?: number | string } | null;
     const id = data?.message_id;
     return { messageId: id != null ? String(id) : undefined };
@@ -126,15 +168,6 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.closed || this.reconnectTimer) return;
-    const delay = this.cfg.reconnectDelayMs ?? 3000;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect().catch(() => this.scheduleReconnect());
-    }, delay);
-  }
-
   private rejectAllPending(reason: string): void {
     for (const call of this.pending.values()) {
       clearTimeout(call.timer);
@@ -162,7 +195,9 @@ export class SnowLumaAdapter extends BaseOneBotAdapter {
 
   sendMessage(target: SendTarget, segments: OneBotSegment[]): Promise<{ messageId?: string }> {
     const idField =
-      target.chatType === 'group' ? { group_id: Number(target.peerId) } : { user_id: Number(target.peerId) };
+      target.chatType === 'group'
+        ? { group_id: Number(target.peerId) }
+        : { user_id: Number(target.peerId) };
     return this.send('send_msg', { message_type: target.chatType, ...idField, message: segments });
   }
 }

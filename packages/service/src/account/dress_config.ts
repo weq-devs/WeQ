@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { writeFileAtomicSync } from './atomic_write';
+import { writeFileAtomicSync } from '../common/atomic_write';
 
 /** 装扮作用范围。 */
 export type DressScope = 'mine' | 'all';
@@ -34,25 +34,37 @@ export interface FontMeta {
   previewUrl?: string;
 }
 
+/** 挂件商城元数据（名称、预览图）。 */
+export interface WidgetMeta {
+  name?: string;
+  previewUrl?: string;
+}
+
 /** 装扮配置（账号级）。 */
 export interface DressConfig {
   /** 已装气泡 itemId 列表。 */
   installedBubbles: number[];
   /** 已装字体 itemId 列表。 */
   installedFonts: number[];
+  /** 已装挂件 itemId 列表。 */
+  installedWidgets: number[];
   /** 气泡商城元数据（商品名、预览图）。 */
   bubbleMeta: Record<string, BubbleMeta>;
   /** 字体商城元数据（商品名、预览图）。 */
   fontMeta: Record<string, FontMeta>;
+  /** 挂件商城元数据（商品名、预览图）。 */
+  widgetMeta: Record<string, WidgetMeta>;
   /** 当前激活的气泡 itemId（0 = 不用）。 */
   activeBubble: number;
   /** 当前激活的字体 itemId（0 = 不用）。 */
   activeFont: number;
+  /** 当前激活的挂件 itemId（0 = 不用）。 */
+  activeWidget: number;
   /** 作用范围（mine = 只我发的消息，all = 全部消息）。 */
   scope: DressScope;
   /** 背景来源（none = 无背景，qq = QQ 同款，custom = 自定义）。 */
   background: DressBackgroundSource;
-  /** 自定义背景文件名（不含路径，文件存在同目录下）。 */
+  /** 自定义背景文件名（不含路径，文件存在同目录下）。图片或视频（mp4/webm/mov）都走这里。 */
   backgroundFile: string;
   /** 浮屏挂件 ID。 */
   widgetId: string;
@@ -90,18 +102,20 @@ export class DressConfigService {
       return {
         installedBubbles: Array.isArray(raw.installedBubbles) ? raw.installedBubbles : [],
         installedFonts: Array.isArray(raw.installedFonts) ? raw.installedFonts : [],
+        installedWidgets: Array.isArray(raw.installedWidgets) ? raw.installedWidgets : [],
         bubbleMeta: raw.bubbleMeta && typeof raw.bubbleMeta === 'object' ? raw.bubbleMeta : {},
         fontMeta: raw.fontMeta && typeof raw.fontMeta === 'object' ? raw.fontMeta : {},
+        widgetMeta: raw.widgetMeta && typeof raw.widgetMeta === 'object' ? raw.widgetMeta : {},
         activeBubble: Number(raw.activeBubble ?? 0),
         activeFont: Number(raw.activeFont ?? 0),
+        activeWidget: Number(raw.activeWidget ?? 0),
         scope: raw.scope === 'all' ? 'all' : 'mine',
         background: ['none', 'qq', 'custom'].includes(raw.background as string)
           ? (raw.background as DressBackgroundSource)
           : 'none',
         backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
         widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
-        backgroundOpacity:
-          typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
+        backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
       };
     } catch {
       return this.emptyConfig();
@@ -144,14 +158,30 @@ export class DressConfigService {
   }
 
   /**
+   * 标记一款挂件已装（幂等）。
+   */
+  markWidgetInstalled(itemId: number, meta?: WidgetMeta): void {
+    const cfg = this.read();
+    if (!cfg.installedWidgets.includes(itemId)) {
+      cfg.installedWidgets.push(itemId);
+    }
+    if (meta) {
+      cfg.widgetMeta[itemId] = meta;
+    }
+    this.write(cfg);
+  }
+
+  /**
    * 切换激活的装扮。
    */
-  setActive(kind: 'bubble' | 'font', itemId: number): void {
+  setActive(kind: 'bubble' | 'font' | 'widget', itemId: number): void {
     const cfg = this.read();
     if (kind === 'bubble') {
       cfg.activeBubble = itemId;
-    } else {
+    } else if (kind === 'font') {
       cfg.activeFont = itemId;
+    } else {
+      cfg.activeWidget = itemId;
     }
     this.write(cfg);
   }
@@ -166,9 +196,10 @@ export class DressConfigService {
   }
 
   /**
-   * 设置自定义背景图。
+   * 设置自定义背景（图片或视频）。
    *
-   * 把源文件复制到配置目录下，记录文件名（不含路径）。
+   * 把源文件复制到配置目录下，记录文件名（不含路径）。不区分图片/视频 —— 格式由后缀
+   * 决定，渲染层按后缀选择 `<img>` 还是 `<video>`（见 isVideoBackground）。
    */
   setCustomBackground(sourcePath: string): void {
     const fileName = basename(sourcePath);
@@ -209,7 +240,7 @@ export class DressConfigService {
   }
 
   /**
-   * 获取自定义背景图的完整路径。
+   * 获取自定义背景（图片或视频）的完整路径。
    */
   getBackgroundFile(): string | null {
     const cfg = this.read();
@@ -222,10 +253,13 @@ export class DressConfigService {
     return {
       installedBubbles: [],
       installedFonts: [],
+      installedWidgets: [],
       bubbleMeta: {},
       fontMeta: {},
+      widgetMeta: {},
       activeBubble: 0,
       activeFont: 0,
+      activeWidget: 0,
       scope: 'mine',
       background: 'none',
       backgroundFile: '',

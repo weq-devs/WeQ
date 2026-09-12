@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  Activity,
   AudioLines,
   Bot,
   Check,
@@ -26,7 +27,6 @@ import {
   Radio,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Sun,
   User,
   X,
@@ -39,9 +39,9 @@ import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
-import { WeqAssistantSection } from './settings/WeqAssistantSection';
+import { DaemonSection } from './settings/DaemonSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
-import { Toggle } from './settings/controls';
+import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import {
   useThemeStore,
@@ -61,7 +61,7 @@ type SectionId =
   | 'mcp'
   | 'rkey'
   | 'sse'
-  | 'weq';
+  | 'daemon';
 
 interface SettingsSection {
   id: SectionId;
@@ -109,7 +109,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'agentlab',
-    label: 'AgentLab',
+    label: '模型配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => <AgentLabSection />,
   },
@@ -132,10 +132,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <SsePushSection />,
   },
   {
-    id: 'weq',
-    label: 'WeQ 助手',
-    icon: <Sparkles size={16} strokeWidth={1.8} />,
-    render: () => <WeqAssistantSection />,
+    id: 'daemon',
+    label: '守护进程',
+    icon: <Activity size={16} strokeWidth={1.8} />,
+    render: () => <DaemonSection />,
   },
 ];
 
@@ -326,8 +326,11 @@ function AppearanceSection(): ReactElement {
 
   return (
     <section className="weq-settings-section">
-      <h3 className="weq-settings-section-title">个性显示</h3>
-      <p>主题模式、主题色、界面背景、组件风格与消息渲染都在这里调整，改动即时生效。</p>
+      <SectionHeader
+        icon={<Palette size={16} strokeWidth={1.8} />}
+        title="个性显示"
+        desc="主题模式、主题色、界面背景、组件风格与消息渲染都在这里调整，改动即时生效。"
+      />
 
       <div className="weq-settings-appearance-card">
         <div className="weq-settings-appearance-head">

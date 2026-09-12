@@ -66,6 +66,196 @@ export interface GroupMsg {
 }
 
 /**
+ * 我自己发出的一条消息（正文已解码）——年度报告「我的话」页做全正文盘点用。
+ *
+ * 只保留盘点真正需要的两样：时间（拼媒体寻址）与解码后的 elements（数文本词频、
+ * 系统表情、自定义表情）。不回传会话标识与发送者列：方向在 SQL 里已经过滤完，
+ * 页面不需要第二次身份判定。
+ */
+export interface SentSpeechRow {
+  /** Unix seconds（列 40050），保留给自定义表情的图片寻址。 */
+  sendTime: bigint;
+  elements: Element[];
+}
+
+/**
+ * 群聊互动统计的“人”聚合（戳一戳目标 / @ 目标）。只留第一名 —— 页面消费的是
+ * 冠军，不是排行榜。`targetUid` 为空时 `targetUin` 仍可用来解析成员名。
+ */
+export interface GroupTargetTop {
+  /** 目标 NT uid；老记录可能只有 uin。 */
+  targetUid: string;
+  /** 目标 QQ 号（十进制字符串）；不知道时为 ''。 */
+  targetUin: string;
+  /** 与这个目标互动最多的那个群（成员名按群维解析时用）。 */
+  groupCode: string;
+  /** 所有群里的合计次数。 */
+  count: number;
+  /** 消息里自带的展示名（群名片可能比它新，页面会先查群成员表）。 */
+  displayName: string;
+}
+
+/** 被 @ 最多的群。 */
+export interface GroupAtMeTop {
+  groupCode: string;
+  count: number;
+}
+
+/** 最长复读的落点。count = 这一轮连续相同正文的消息条数。 */
+export interface GroupEchoLongest {
+  groupCode: string;
+  count: number;
+  /** 被反复发的那句原文（纯排印展示，正文超过一定长度会被截断）。 */
+  text: string;
+}
+
+/**
+ * 一年/历史以来群聊里的六组互动聚合 —— 年度报告「@ 与被 @」「戳一戳」「复读」
+ * 三页共用的原始素材。
+ *
+ * 三页同源、只扫一次：`tallyInteractions` 按群分批、逐条解码 40800，把「我戳出去 /
+ * 谁戳我」「我 @ 谁 / 谁 @ 我」「复读的场次与最长一轮」一次算全，service 层再按页
+ * 各取所需。聚合在 db 层收口，不把整年所有正文送回 service。
+ */
+export interface GroupInteractionTally {
+  poke: {
+    /** 我发起的戳一戳（含戳/捏/揉等 nudge 动作）总数。 */
+    total: number;
+    /** 被我戳得最多的群友；没有可识别目标时为 null。 */
+    top: GroupTargetTop | null;
+  };
+  pokeMe: {
+    /** 别人戳到我的总数（不含我自己戳自己的那一半）。 */
+    total: number;
+    /** 最常戳我的群友；没有可识别发起者时为 null。 */
+    top: GroupTargetTop | null;
+  };
+  at: {
+    /** 我发出的、指向具体成员（不含 @全体）的 @ 总数。 */
+    total: number;
+    /** 我 @ 过的不同人数 —— 喊过多少个不同的名字。 */
+    distinct: number;
+    /** 被我 @ 得最多的群友。 */
+    top: GroupTargetTop | null;
+  };
+  atMe: {
+    /** 别人直接 @ 到我的总数（不含 @全体）。 */
+    total: number;
+    /** 在人群里喊过我的不同人数。 */
+    distinct: number;
+    /** 被 @ 最多的群。 */
+    topGroup: GroupAtMeTop | null;
+  };
+  echo: {
+    /** 达标复读回合总数（长度 ≥ 4 且至少两个人的连续相同正文，全群口径）。 */
+    runs: number;
+    /** 这些回合里被重复发出的消息合计条数。 */
+    messages: number;
+    /**
+     * 我参与过多少次“复读”：达标回合里出现过我的消息才算一次。
+     */
+    participatedRuns: number;
+    /** 我参与过的最长一轮复读；一次都没跟过时为 null。 */
+    mineLongest: GroupEchoLongest | null;
+    /** 全群最长的复读；没有任何达标回合时为 null。 */
+    longest: GroupEchoLongest | null;
+  };
+}
+
+/**
+ * One (peer, calendar-day) bucket of private-chat messages — the atomic unit
+ * for the annual report's private-chat highlights page. Direction is derived
+ * per row with the same rule as `countByDirection` (40021 is always the peer,
+ * so a row whose senderUid differs from the peer was sent by the account).
+ */
+export interface C2cPeerDayTally {
+  /** Conversation peer (column 40021). */
+  peerUid: string;
+  /** Local calendar day, `YYYY-MM-DD` (derived in SQL with 'localtime'). */
+  date: string;
+  /** Both sides combined. */
+  total: number;
+  /** Messages sent by the account itself on that day/peer. */
+  mine: number;
+}
+
+/**
+ * 一个会话在一个时间窗内「聊天开场」的两方拆分 —— 统计单位是**对话**，
+ * 不是消息条数。
+ *
+ * 同一会话里相邻两条消息的间隔超过 `CONVERSATION_GAP_SECONDS` 时，下一条消息
+ * 所在的那一侧记一次「开场」；时间窗内该会话的第一条消息也记一次。方向沿用
+ * `countByDirection` 的自证判据（40021 恒为对端，senderUid != targetUid 即我
+ * 发出的消息），所以无需外部身份。
+ */
+export interface C2cInitiationTally {
+  /** Conversation peer (column 40021). */
+  peerUid: string;
+  /** 自己开场（先开口）的次数。 */
+  mine: number;
+  /** 对方开场（先开口）的次数。 */
+  theirs: number;
+  /** 双方开场次数合计。 */
+  total: number;
+}
+
+/**
+ * 一周七天 × 一天 24 小时的「自己发出消息」矩阵 —— 年度报告作息页的原始素材。
+ *
+ * 行序与 JS `Date#getDay()` / SQLite `strftime('%w')` 一致：**0 = 周日**，
+ * 6 = 周六；列序即本地小时 0..23。零发言的格子补 0，调用方拿到的永远是
+ * 7×24 的完整矩阵，不需要自己对齐空桶。
+ */
+export type SentWeekdayHourlyGrid = number[][];
+
+/**
+ * 一「套」装扮（气泡 + 字体 + 挂件的一个具体组合）在时间窗内的使用情况。
+ *
+ * 以套为单位而不是三类分开统计，是因为 40801 这一列本身记的就是一套：用户当时把
+ * 哪个气泡配哪个字体配哪个挂件发了这条消息。年度报告要还原的是「那条消息当年长
+ * 什么样」，拆成三张榜就没有那个画面了。
+ */
+export interface DressOutfitTally {
+  /** 0 = 这一项没穿。 */
+  bubbleId: number;
+  fontId: number;
+  widgetId: number;
+  /** 穿这套发出的消息条数。 */
+  count: number;
+  /**
+   * 穿这套发出的**真实消息纯文本**样本（已清洗、已截断，见 `tallyDressBlobs`）。
+   * 报告拿它把当年的消息重新画一遍 —— 这是整页回忆感的来源。
+   */
+  samples: string[];
+  /** 这套第一次 / 最后一次出现的 sendTime（unix 秒）。0 = 未知。 */
+  firstTime: number;
+  lastTime: number;
+}
+
+/**
+ * 装扮使用计数 —— 列 40801 在一个时间窗内的聚合，年度报告「最喜欢的装扮」的原始素材。
+ *
+ * 三张表各自算一份，调用方相加即可（{@link mergeDressTally}）。计数单位是**消息条数**
+ * 而不是「用过几天」：一条消息同时带气泡 + 字体 + 挂件时，三个 map 各加一次，所以
+ * 三类的和大于 {@link decorated}。
+ *
+ * `outfits` 是给报告用的主视图（按套），三个单类 map 只剩「一共穿过几款气泡/字体/
+ * 挂件」这类概述用途。
+ */
+export interface DressTally {
+  /** 气泡 itemId → 用它发出的消息条数。 */
+  bubble: Record<number, number>;
+  /** 聊天字体 itemId → 条数。40801 里字体有 41525 / 41531 两个 tag，解码已归一。 */
+  font: Record<number, number>;
+  /** 头像挂件 itemId → 条数。 */
+  widget: Record<number, number>;
+  /** 至少带一项装扮的消息条数 —— 不是三类之和（一条消息可以三项齐全）。 */
+  decorated: number;
+  /** `"bubbleId:fontId:widgetId"` → 这套的使用情况。 */
+  outfits: Record<string, DressOutfitTally>;
+}
+
+/**
  * The conversation's seq window for a time range, returned by
  * `*MsgDb.listSeqDesc` — powers the export 「消息补全」seq 空窗扫描.
  *

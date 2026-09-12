@@ -1,18 +1,13 @@
 {
   "name": "@weq/native",
-  "version": "0.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
-    "tools:clientkey": "tsx tools/clientkey.ts",
-    "tools:pskey": "tsx tools/pskey.ts",
-    "tools:rkey": "tsx tools/rkey.ts",
-    "tools:mface-key": "tsx tools/mface_key.ts",
-    "tools:packet": "tsx tools/packet.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {},
   "devDependencies": {

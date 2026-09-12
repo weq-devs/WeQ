@@ -19,7 +19,20 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
-import { isWeqServerRunning } from '../../weq_assistant/server';
+import { getDaemonHealth } from '../../daemon/health';
+import { resolveDaemonBinary } from '../../daemon/runtime';
+import {
+  daemonReleaseWatchStart,
+  daemonReleaseWatchStop,
+  daemonReleaseWatchStatus,
+  daemonAutostartSet,
+  daemonAutostartStatus,
+} from '@weq/service';
+import {
+  installMcpAgents as installMcpAgentConfigs,
+  listMcpAgentTargets,
+} from '../../mcp/agent_installer';
+import { daemonHttpStatus } from '@weq/service';
 import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
@@ -82,6 +95,8 @@ const exportPresetOptionsSchema = z.object({
     end: z.number().nullable(),
   }),
   exportMedia: z.boolean(),
+  /** 好友 QQ 空间导出：补全评论 + 点赞（读端对旧数据缺省补 false）。 */
+  qzoneInteractions: z.boolean(),
   mediaKinds: z.object({
     image: z.boolean(),
     voice: z.boolean(),
@@ -907,17 +922,57 @@ export const bootstrapRouter = router({
     );
   }),
 
+  /** 扫描本机已有的 MCP 客户端（Claude Code / Codex / Cursor / VS Code …）。 */
+  listMcpAgentTargets: procedure.query(() => {
+    const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    return listMcpAgentTargets({
+      url: `http://127.0.0.1:${mcp.port}`,
+      token: mcp.token,
+    });
+  }),
+
+  /**
+   * 把 WeQ MCP 服务器写入选中的本机客户端。首次安装会自动启用 MCP 服务器并
+   * 生成令牌；每个客户端只保留一个 `weq` 条目，已是最新的条目直接跳过，不会
+   * 重复安装。
+   */
+  installMcpToAgents: procedure
+    .input(
+      z.object({
+        targets: z.array(z.string().min(1)).min(1).max(50),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const current = userConfig.getSettings().mcp;
+      if (!current.enabled || !current.token) {
+        const token = current.token || randomBytes(32).toString('hex');
+        userConfig.setSettings({ mcp: { enabled: true, token } });
+        await getAppContext().applyMcp(userConfig.getSettings().mcp);
+      }
+      const mcp = userConfig.getSettings().mcp;
+      const results = installMcpAgentConfigs(input.targets, {
+        url: `http://127.0.0.1:${mcp.port}`,
+        token: mcp.token,
+      });
+      return {
+        server: { enabled: mcp.enabled, port: mcp.port, token: mcp.token },
+        results,
+      };
+    }),
+
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 
-  /** Current WeQ 助手 config + live state. */
-  getWeqAssistantStatus: procedure.query(() => {
+  /** Current WeQ 助手 config + live state (from the weq-daemon control pipe). */
+  getWeqAssistantStatus: procedure.query(async () => {
     const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
+    const status = await daemonHttpStatus();
     return {
       enabled: weq.enabled,
       port: weq.port,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${weq.port}`,
-      running: isWeqServerRunning(),
+      running: status?.running ?? false,
     };
   }),
 
@@ -948,6 +1003,75 @@ export const bootstrapRouter = router({
       userConfig.setSettings({ weqAssistant: { port: input.port } });
       await getAppContext().applyWeqAssistant(userConfig.getSettings().weqAssistant);
       return userConfig.getSettings().weqAssistant;
+    }),
+
+  // ---- 守护进程（weq-daemon）：健康 / release 监控 / 开机自启 ----
+  // 设置 → 守护进程 页的数据面。守护进程本体（Rust）负责 GitHub 轮询与
+  // **自身**的开机自启注册；这里只是把查询与下发暴露给渲染层。
+
+  /** 聚合健康快照：探活 + 版本 + HTTP + release 轮询 + 自启动注册。 */
+  getDaemonHealth: procedure.query(() => {
+    return getDaemonHealth();
+  }),
+
+  /**
+   * 守护进程二进制是否随包就位（缺失提示先 pnpm build:daemon）。
+   * 启动时会被 stage 到数据目录的稳定路径（原生自启注册只能指向那里）。
+   */
+  getDaemonBinaryStatus: procedure.query(() => {
+    return { available: resolveDaemonBinary() !== null };
+  }),
+
+  /**
+   * 开启 / 关闭 release 轮询（守护进程侧 Rust 轮询器）。开启时以当前应用
+   * 版本当 current_version，轮询间隔固定 1 小时（大陆网络差也够用）。
+   * GUI 提醒循环（系统通知）始终随应用启动挂着 —— 它只读守护进程的
+   * 状态，watching=false 时不会产生任何提醒。
+   */
+  setDaemonReleaseWatch: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      if (!input.enabled) {
+        await daemonReleaseWatchStop();
+      } else {
+        const started = await daemonReleaseWatchStart({
+          api_base: 'https://api.github.com',
+          repo: 'H3CoF6/WeQ',
+          interval_secs: 3600,
+          current_version: getHost().appVersion(),
+        });
+        if (started === null) {
+          throw new Error(
+            '守护进程未运行，无法开启 Release 监控。WeQ 启动时会自动拉起，请稍后重试。',
+          );
+        }
+      }
+      return daemonReleaseWatchStatus();
+    }),
+
+  /**
+   * 开关「开机自动启动 WeQ」—— 按约定 **GUI 不注册任何原生自启**：这里只把
+   * 意图 + 当前 exe 路径交给守护进程落记忆，开机后由守护进程读记忆拉起 WeQ。
+   * 需要守护进程在跑，不在则抛错由前端提示。
+   */
+  setDaemonAutostart: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      // 浏览器版 / pnpm dev：守护进程开机时要拉起一个裸可执行文件，而 web 的
+      // node server.mjs（需要参数 + 工作目录）和开发态 Electron 都不具备
+      // 「被裸拉起就能工作」的形态 —— 直接拒绝。
+      if (!getHost().canAutostart) {
+        throw new Error(
+          '当前环境不支持开机自启：请使用打包安装版（浏览器版请用 systemd / 计划任务管理）。',
+        );
+      }
+      const guiExe = getHost().currentExePath();
+      const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
+      if (result === null) {
+        throw new Error('守护进程未运行，无法设置开机自启。WeQ 启动时会自动拉起，请稍后重试。');
+      }
+      if (!result.ok) throw new Error(result.message);
+      return daemonAutostartStatus();
     }),
 
   // ---- first-run onboarding (欢迎使用) ----

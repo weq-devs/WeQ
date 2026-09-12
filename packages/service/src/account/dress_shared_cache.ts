@@ -15,30 +15,22 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node
 import { join } from 'node:path';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
-import type { AvatarCacheService } from '../bootstrap/media_cache';
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
-  legacyBubbleStaticUrl,
-  resolveBubbleSkin,
-  type BubbleSkin,
-  type BubbleSource,
-} from './bubble_skin';
-import type { BubbleMaterial } from './web/dress_mall';
-import { downloadUrlToFile } from './media_url';
-import {
-  extractFromZip,
   extractAllFromZip,
   extractFirstTtf,
+  extractFromZip,
   isRenderableSfnt,
-} from './dress_install';
+} from '../common/zip';
+import { buildLocalBubbleSkin, type BubbleSkin } from './bubble_skin';
+import { downloadUrlToFile } from './media_url';
 
 /** 气泡元数据 sidecar。 */
 export interface BubbleSidecar {
   itemId: number;
   slice: { top: number; right: number; bottom: number; left: number };
   imageSize: { w: number; h: number };
-  animated: boolean;
   textColor: string;
   animationFrameCount?: number;
   animationFrameTimeMs?: number;
@@ -67,7 +59,6 @@ export class DressSharedCache {
   constructor(
     private readonly nt: TrpcNative,
     private readonly ntHelper: NtHelperBinding,
-    private readonly avatarCache: AvatarCacheService,
     /** 共享资源根目录（通常是 `userConfig.cacheDir('dress_shared')`）。 */
     sharedDir: string,
     /** 当前已注入的 QQ pid；0 表示没有在线实例。 */
@@ -83,91 +74,43 @@ export class DressSharedCache {
   }
 
   /**
-   * 安装一款气泡：定位权威外链 → 解析几何 → 写入共享缓存。
+   * 安装一款气泡 —— 唯一一条下载链：本地离线 bundle(zip) → 在线 protocol(zip)，
+   * 产物永远是本地九宫格 PNG（+ 可选 bubbleframe 帧动画）。不再有 CDN static-all
+   * 直链 / 商城 material 路径。
    *
-   * 返回渲染所需的完整 {@link BubbleSkin}（含路径推导）。
+   * 先读缓存（sidecar + png 都在直接返回）；png 缺失（旧版 CDN 遗留）也当未装处理，
+   * 走下载链自愈重下。
    */
-  async installBubble(
-    itemId: number,
-    material?: BubbleMaterial | null,
-  ): Promise<BubbleSkin | null> {
-    // 已经有 sidecar 说明安装过了，直接读取。
-    const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
-    if (existsSync(sidecarPath)) {
-      return this.loadBubbleSkin(itemId);
-    }
+  async installBubble(itemId: number): Promise<BubbleSkin | null> {
+    const cached = this.loadBubbleSkin(itemId);
+    if (cached) return cached;
 
-    const src = material
-      ? ({
-          staticUrl: material.staticAll,
-          animationUrl: material.animationAll,
-          zoomPoint: { x: material.zoomPointX, y: material.zoomPointY },
-          color: material.color,
-        } satisfies BubbleSource)
-      : await this.resolveBubbleUrl(itemId);
-    if (!src) return null;
+    const urls = await this.resolveBubbleZipUrls(itemId);
+    if (!urls) return null;
 
-    const resolved = await resolveBubbleSkin(this.avatarCache, itemId, src);
-    if (!resolved) return null;
-
-    // 写入 sidecar（slice/textColor/animated 等元数据）。
-    const sidecar: BubbleSidecar = {
-      itemId,
-      slice: resolved.slice,
-      imageSize: resolved.imageSize,
-      animated: resolved.animated,
-      textColor: resolved.textColor,
-      ...(resolved.animationFrameCount
-        ? {
-            animationFrameCount: resolved.animationFrameCount,
-            animationFrameTimeMs: resolved.animationFrameTimeMs,
-            animationRepeat: resolved.animationRepeat,
-          }
-        : {}),
-    };
-    writeFileSync(sidecarPath, JSON.stringify(sidecar, null, 2));
-
-    this.logger.info('installed bubble to shared cache', {
-      event: 'dress-install-bubble-shared',
-      itemId,
-      animated: resolved.animated,
-      hasFrameAnimation: Boolean(resolved.animationFrameCount),
-    });
-
-    return this.loadBubbleSkin(itemId);
+    return this.installBubbleFromUrls(itemId, urls);
   }
 
   /**
-   * 从 sidecar 重建 {@link BubbleSkin}。
+   * 从 sidecar + 本地 png 重建 {@link BubbleSkin}。
    *
-   * CDN 直链气泡：staticUrl/animationUrl 照常填；本地文件气泡：推导路径。
+   * 没有本地 png 直接返回 null —— local-only 模型里不存在「CDN 兜底」；调用方会把
+   * 它当未装处理走下载链重下（见 {@link installBubble}）。
    */
   private loadBubbleSkin(itemId: number): BubbleSkin | null {
     const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
-    if (!existsSync(sidecarPath)) return null;
+    const localFile = join(this.bubblesDir, `${itemId}.png`);
+    if (!existsSync(sidecarPath) || !existsSync(localFile)) return null;
 
     try {
       const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
-      const localFile = join(this.bubblesDir, `${itemId}.png`);
-      const hasLocalFile = existsSync(localFile);
-
-      // CDN 直链气泡（老款 immersive 路径）没有本地文件。
-      const staticUrl = hasLocalFile ? '' : legacyBubbleStaticUrl(itemId);
-      const animationUrl = hasLocalFile
-        ? null
-        : sidecar.animated
-          ? `https://tianquan.gtimg.cn/immersive/bubble/${itemId}/animation-all.png`
-          : null;
-
+      if (!sidecar.slice || !sidecar.imageSize || !sidecar.textColor) return null;
       return {
         itemId,
         slice: sidecar.slice,
         imageSize: sidecar.imageSize,
-        animated: sidecar.animated,
         textColor: sidecar.textColor,
-        staticUrl,
-        localFile: hasLocalFile ? localFile : null,
-        animationUrl,
+        localFile,
         animationFrameCount: sidecar.animationFrameCount,
         animationFrameTimeMs: sidecar.animationFrameTimeMs,
         animationRepeat: sidecar.animationRepeat,
@@ -183,29 +126,23 @@ export class DressSharedCache {
   }
 
   /**
-   * 只有 itemId 时找气泡的权威外链（本地 bundle 优先，protocol 兜底）。
+   * 找气泡的 zip 下载地址（本地离线 bundle 优先，protocol 兜底）。
+   *
+   * 只负责「换链」，不碰磁盘；bundle 与 protocol 拿到的是同形状的三个部件。
    */
-  private async resolveBubbleUrl(itemId: number): Promise<BubbleSource | null> {
-    const legacy = legacyBubbleStaticUrl(itemId);
-    if (await urlExists(legacy)) {
-      return { staticUrl: legacy };
-    }
-
+  private async resolveBubbleZipUrls(
+    itemId: number,
+  ): Promise<{ staticZipUrl: string; configUrl?: string; otherZipUrl?: string } | null> {
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
-    const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'static.zip');
-    if (local) {
-      const cfg = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
-      const other = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'other.zip');
-      const installed = await this.installBubbleFromUrls(itemId, {
-        staticZipUrl: local.url,
-        configUrl: cfg?.url,
-        otherZipUrl: other?.url,
-      });
-      if (installed) return installed;
-      this.logger.warn('local bubble bundle install failed, fall back to protocol', {
-        event: 'dress-bubble-local-miss',
-        itemId,
-      });
+    const staticZip = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'static.zip');
+    if (staticZip) {
+      return {
+        staticZipUrl: staticZip.url,
+        configUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json')
+          ?.url,
+        otherZipUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'other.zip')
+          ?.url,
+      };
     }
 
     const pid = this.resolvePid();
@@ -217,23 +154,32 @@ export class DressSharedCache {
       return null;
     }
 
-    const res = await getBubbleResources(this.nt, pid, itemId);
-    if (!res.staticZip?.ok) return null;
-
-    return this.installBubbleFromUrls(itemId, {
-      staticZipUrl: res.staticZip.url,
-      configUrl: res.config?.url,
-      otherZipUrl: res.otherZip?.ok ? res.otherZip.url : undefined,
-    });
+    try {
+      const res = await getBubbleResources(this.nt, pid, itemId);
+      if (!res.staticZip?.ok) return null;
+      return {
+        staticZipUrl: res.staticZip.url,
+        configUrl: res.config?.ok ? res.config.url : undefined,
+        otherZipUrl: res.otherZip?.ok ? res.otherZip.url : undefined,
+      };
+    } catch (e) {
+      this.logger.warn('bubble resource resolve failed', {
+        event: 'dress-bubble-resolve-failed',
+        itemId,
+        ...logErrorContext(e),
+      });
+      return null;
+    }
   }
 
   /**
-   * 从权威外链下载气泡 zip、解九宫格、写缓存（本地 bundle 与 protocol 共用）。
+   * 从 zip 下载链装一款气泡：解 .9.png 九宫格 → 落盘 png → config.json 配色 /
+   * 帧动画 → 写 sidecar。本地 bundle 与 protocol 共用这一条，是气泡的唯一下载路径。
    */
   private async installBubbleFromUrls(
     itemId: number,
     urls: { staticZipUrl: string; configUrl?: string; otherZipUrl?: string },
-  ): Promise<BubbleSource | null> {
+  ): Promise<BubbleSkin | null> {
     const zipPath = join(this.bubblesDir, `${itemId}.zip`);
     const dl = await downloadUrlToFile(urls.staticZipUrl, zipPath);
     if (!dl.ok) return null;
@@ -241,32 +187,45 @@ export class DressSharedCache {
     const png = extractFromZip(readFileSync(zipPath), (n) => /aio_user_bg_nor\.9\.png$/i.test(n));
     if (!png) return null;
 
-    const zoom = readNinePatchZoom(png);
-    if (!zoom) {
-      this.logger.warn('nine-patch without npTc zoom point', {
-        event: 'dress-bubble-no-nptc',
-        itemId,
-      });
-      return null;
-    }
-
     const pngPath = join(this.bubblesDir, `${itemId}.png`);
     writeFileSync(pngPath, png);
 
+    // 帧动画 / 配色都来自 zip 侧的 config.json；拿不到就当纯静态款。
     const config = await fetchBubbleConfig(urls.configUrl);
     const animation =
       config?.animation && urls.otherZipUrl
         ? await this.extractBubbleFrames(itemId, urls.otherZipUrl, config.animation)
         : undefined;
 
-    return {
-      staticUrl: '',
-      localFile: pngPath,
-      zoomPoint: zoom,
-      animationUrl: '',
-      color: config?.color,
-      animation,
+    const skin = buildLocalBubbleSkin({ itemId, pngPath, color: config?.color, animation });
+    if (!skin) {
+      // 九宫格不合法（缺 npTc / 恒等式不成立）——清掉刚落的 png,避免占着缓存。
+      rmSync(pngPath, { force: true });
+      return null;
+    }
+
+    const sidecar: BubbleSidecar = {
+      itemId,
+      slice: skin.slice,
+      imageSize: skin.imageSize,
+      textColor: skin.textColor,
+      ...(skin.animationFrameCount
+        ? {
+            animationFrameCount: skin.animationFrameCount,
+            animationFrameTimeMs: skin.animationFrameTimeMs,
+            animationRepeat: skin.animationRepeat,
+          }
+        : {}),
     };
+    writeFileSync(join(this.bubblesDir, `${itemId}.json`), JSON.stringify(sidecar, null, 2));
+
+    this.logger.info('installed bubble to shared cache', {
+      event: 'dress-install-bubble-shared',
+      itemId,
+      hasFrameAnimation: Boolean(skin.animationFrameCount),
+    });
+
+    return skin;
   }
 
   /**
@@ -276,7 +235,7 @@ export class DressSharedCache {
     itemId: number,
     otherZipUrl: string,
     anim: { zipName: string; frameTimeMs: number; repeat: number },
-  ): Promise<BubbleSource['animation']> {
+  ): Promise<{ frameCount: number; frameTimeMs: number; repeat: number } | undefined> {
     try {
       const zipPath = join(this.bubblesDir, `${itemId}-other.zip`);
       const dl = await downloadUrlToFile(otherZipUrl, zipPath);
@@ -589,39 +548,6 @@ export class DressSharedCache {
 /** @font-face 的 family 名。 */
 export function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
-}
-
-/** HEAD 探一个外链是否真实存在。 */
-async function urlExists(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { method: 'HEAD', redirect: 'manual' });
-    return res.status === 200;
-  } catch {
-    return false;
-  }
-}
-
-/** 读 Android .9.png 的 npTc chunk，取九宫格拉伸点。 */
-function readNinePatchZoom(png: Buffer): { x: number; y: number } | null {
-  let i = 8;
-  while (i + 8 <= png.length) {
-    const len = png.readUInt32BE(i);
-    const type = png.toString('latin1', i + 4, i + 8);
-    if (type === 'npTc') {
-      const b = png.subarray(i + 8, i + 8 + len);
-      const numXDivs = b.readUInt8(1);
-      const numYDivs = b.readUInt8(2);
-      if (numXDivs < 1 || numYDivs < 1) return null;
-      const divs = 32;
-      if (b.length < divs + 4 * (numXDivs + 1)) return null;
-      const x = b.readInt32BE(divs);
-      const y = b.readInt32BE(divs + 4 * numXDivs);
-      return x > 0 && y > 0 ? { x: x + 1, y: y + 1 } : null;
-    }
-    if (type === 'IEND') break;
-    i += 12 + len;
-  }
-  return null;
 }
 
 /** 下 config.json，拿顶层 color 与 animation_sets.bubbleframe_anim。 */

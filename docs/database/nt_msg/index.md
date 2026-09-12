@@ -7,25 +7,28 @@
 
 | 表 | 内容 | 文档 |
 | -- | ---- | ---- |
-| `c2c_msg_table` | 好友单聊消息 | [消息行](#消息行) |
-| `group_msg_table` | 群聊消息（结构同 c2c） | [消息行](#消息行) |
-| `dataline_msg_table` | 数据线消息（我的手机 / 电脑 / 平板，结构同 c2c） | [消息行](#消息行) |
+| `c2c_msg_table` | 好友单聊消息 | [消息行](./row.md) |
+| `group_msg_table` | 群聊消息（结构同 c2c，多 40062 贴表情列） | [消息行](./row.md) · [40062](./40062.md) |
+| `dataline_msg_table` | 数据线消息（我的手机 / 电脑 / 平板，结构同 c2c） | [消息行](./row.md) |
 | `recent_contact_v3_table` | 会话列表 | [recent-contact](./recent-contact.md) |
 | `recent_contact_top_table` | 置顶会话 | [recent-contact-top](./recent-contact-top.md) |
+| `hidden_session_storage_table_v1` | 隐藏会话 | [hidden-session](./hidden-session.md) |
+| `recent_contact_delete_storage` | 删除会话 | [deleted-session](./deleted-session.md) |
 | `msg_unread_info_table` | 未读信息 + 提醒高亮 | [unread-info](./unread-info.md) |
 | `nt_uid_mapping_table` | uid ↔ uin ↔ sortNo 目录 | [下见](#nt_uid_mapping_table) |
-| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容 | 暂未解析 |
+| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容 | 明确不解析，不写 |
 
 ### 消息行
 
-三张消息表的**列布局完全一致**，差别只在会话维度（c2c 按 sortNo 分区、群按群号）。
-一行里最复杂的是两个 protobuf 列：
+三张消息表的**列布局完全一致**，差别只在会话分区键（c2c 按 sortNo 分区、群按群号）。
+逐列的字段表见 [消息行解析](./row.md)；一行里最复杂的几个列：
 
 | 列    | 名称                 | 结构                              | 说明                                                   |
 | ----- | -------------------- | --------------------------------- | ------------------------------------------------------ |
 | 40800 | 消息正文（MsgBody）  | `repeated ElementWire`            | 一条消息的富文本消息段序列，见 [40800 解析](./40800.md) |
 | 40801 | 消息装扮信息 | `MsgDressBody` | 气泡 / 聊天字体 / 挂件等装扮信息，见 [40801 解析](./40801.md) |
 | 40900 | 消息缓存（MsgCache） | `repeated MsgCache`（可递归嵌套） | 转发/引用时缓存的源消息快照，见 [40900 解析](./40900.md) |
+| 40062 | 贴表情（仅群聊） | `repeated EmojiSticker` | 群消息上的表情回应，见 [40062 解析](./40062.md) |
 
 > 📖 建议先读 [40800 解析](./40800.md) 的前半部分 —— 「扁平信封」与「文件族共用字段」
 > 两节是理解所有消息段的前提，各消息段文档不再重复这些内容。

@@ -13,31 +13,10 @@
 import http from 'node:http';
 import https from 'node:https';
 
-/** clientKey 三元组,来自 native `fetchClientKey` 的 JSON(client_key/key_index)。 */
+/** clientKey 二元组 — ptlogin2 jump 只需要这两个字段。 */
 export interface ClientKeyInfo {
   clientKey: string;
   keyIndex: string;
-}
-
-/**
- * 解析 native `fetchClientKey(pid)` 返回的 JSON 字符串。字段名与
- * `monitor.ts` 的 `parseClientKey` 一致(`client_key` / `key_index`)。
- * 解析失败或缺 clientKey 时返回 null。
- */
-export function parseClientKeyJson(raw: string): ClientKeyInfo | null {
-  let obj: unknown;
-  try {
-    obj = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!obj || typeof obj !== 'object') return null;
-  const o = obj as Record<string, unknown>;
-  if (typeof o.client_key !== 'string' || !o.client_key) return null;
-  return {
-    clientKey: o.client_key,
-    keyIndex: typeof o.key_index === 'string' ? o.key_index : '',
-  };
 }
 
 /**
@@ -69,11 +48,36 @@ export function httpsGetCookies(
         const loc = res.headers.location;
         if ((res.statusCode === 301 || res.statusCode === 302) && loc && maxRedirects > 0) {
           const next = new URL(loc, url).href;
-          httpsGetCookies(next, jar, maxRedirects - 1).then(resolve).catch(reject);
+          httpsGetCookies(next, jar, maxRedirects - 1)
+            .then(resolve)
+            .catch(reject);
         } else {
           resolve(jar);
         }
       });
+    });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * GET `url` WITHOUT following redirects and return only the first response's
+ * `Set-Cookie` jar. ptlogin2 issues `skey` / `p_skey` on its 302; the landing
+ * page frequently 503s and never carries cookies, so the Rust hook services
+ * deliberately stopped at the redirect and so do we.
+ */
+export function httpGetSetCookiesOnce(url: string): Promise<Record<string, string>> {
+  const client = url.startsWith('https') ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = client.get(url, (res) => {
+      const jar: Record<string, string> = {};
+      for (const cookie of res.headers['set-cookie'] ?? []) {
+        const [pair] = cookie.split(';');
+        const [key, value] = pair?.split('=') ?? [];
+        if (key && value) jar[key] = value;
+      }
+      res.on('data', () => {});
+      res.on('end', () => resolve(jar));
     });
     req.on('error', reject);
   });
@@ -88,11 +92,7 @@ export function httpsGetCookies(
  *
  * 参数与 SnowLuma 的 jump URL 逐个对齐。
  */
-export function buildPtlogin2JumpUrl(
-  ck: ClientKeyInfo,
-  uin: string,
-  landingUrl: string,
-): string {
+export function buildPtlogin2JumpUrl(ck: ClientKeyInfo, uin: string, landingUrl: string): string {
   const u1 = encodeURIComponent(landingUrl);
   return (
     `https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=${uin}` +
@@ -110,7 +110,5 @@ export async function fetchPtlogin2Jar(
   uin: string,
   domain: string,
 ): Promise<Record<string, string>> {
-  return httpsGetCookies(
-    buildPtlogin2JumpUrl(ck, uin, `https://${domain}/${uin}/infocenter`),
-  );
+  return httpsGetCookies(buildPtlogin2JumpUrl(ck, uin, `https://${domain}/${uin}/infocenter`));
 }

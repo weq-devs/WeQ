@@ -43,8 +43,17 @@ export function GroupEssenceDialog({
   useEscapeToClose(onClose);
 
   return (
-    <div className="modal-scrim group-essence-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="group-essence-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim group-essence-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="group-essence-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header>
           <div>
             <strong>群精华</strong>

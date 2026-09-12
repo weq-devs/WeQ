@@ -37,8 +37,16 @@ export class MsgSearchService {
    * the query hits the FTS conversation index; a missing mapping falls back to
    * an unindexed uid (40021) scan.
    */
-  searchInBuddyConversation(targetUid: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
-    return this.session.buddyMsgFts.searchInConversation(this.c2cPartition(targetUid), keyword, limit);
+  searchInBuddyConversation(
+    targetUid: string,
+    keyword: string,
+    limit = 20,
+  ): Promise<BuddyMsgFtsHit[]> {
+    return this.session.buddyMsgFts.searchInConversation(
+      this.c2cPartition(targetUid),
+      keyword,
+      limit,
+    );
   }
 
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
@@ -50,7 +58,11 @@ export class MsgSearchService {
   /**
    * Search within a specific group conversation.
    */
-  searchInGroupConversation(groupCode: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  searchInGroupConversation(
+    groupCode: string,
+    keyword: string,
+    limit = 20,
+  ): Promise<BuddyMsgFtsHit[]> {
     return this.session.groupMsgFts.searchInGroup(groupCode, keyword, limit);
   }
 

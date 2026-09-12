@@ -34,6 +34,7 @@ import { join, resolve, sep, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { FileAssistantRow } from '@weq/db';
+import { clampLimit } from './resource_paging';
 
 /** Coarse bucket a file falls into, driving the category tabs + default icon. */
 export type FileCategory =
@@ -395,7 +396,11 @@ function filterEntries<T extends Sortable>(
 }
 
 /** In-place sort by time / name / size. */
-function sortInPlace<T extends Sortable>(entries: T[], key: FileSortKey, order: FileSortOrder): void {
+function sortInPlace<T extends Sortable>(
+  entries: T[],
+  key: FileSortKey,
+  order: FileSortOrder,
+): void {
   const dir = order === 'asc' ? 1 : -1;
   entries.sort((a, b) => {
     let cmp: number;
@@ -413,7 +418,7 @@ function sortInPlace<T extends Sortable>(entries: T[], key: FileSortKey, order: 
 function slicePage<T>(entries: T[], opts: FileListOptions): { entries: T[]; total: number } {
   const total = entries.length;
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
-  const limit = clampInt(opts.limit ?? DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const limit = clampLimit(opts.limit, { lo: 1, hi: MAX_LIMIT, fallback: DEFAULT_LIMIT });
   return { entries: entries.slice(offset, offset + limit), total };
 }
 
@@ -431,11 +436,6 @@ async function pathExists(p: string): Promise<boolean> {
 function cleanLocalPath(p: string): string {
   if (!p) return '';
   return p.startsWith('::NTOSFull::') ? p.slice('::NTOSFull::'.length) : p;
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }
 
 // ── classification (extension → category + icon) ────────────────────────────────

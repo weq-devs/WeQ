@@ -5,7 +5,9 @@
 @import "./privacy.css";
 /* ARK Feed 公众号/服务号消息流样式 */
 @import "./ark-feed.css";
-/* streamdown（WeQ 助手流式 Markdown）自带元素样式。自包含编译产物，无需额外 @source。 */
+/* streamdown（WeQ 助手流式 Markdown）的样式入口。注意：v2 起这里面**只有**流式动画关键帧
+ * （sd-fadeIn / blurIn / slideUp 等），正文与控件（表格复制/下载/全屏、代码块头）全靠 Tailwind
+ * 工具类排版，必须靠下面的 @source 把它的编译产物纳入扫描，否则那些类一个都不会生成。 */
 @import "streamdown/styles.css";
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
@@ -16,6 +18,10 @@
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
 @source "../../index.html";
+/* streamdown 的 DOM 来自 node_modules，Tailwind 默认不扫那里；这里显式纳入，它的控件与正文
+ * 工具类才会生成（否则表格控件条退化成行内元素挤在左上角，代码块按钮同样错位）。
+ * 路径指向 pnpm 在 apps/desktop/node_modules 下建的 streamdown 软链，改目录结构时要跟着改。 */
+@source "../../../../node_modules/streamdown/dist/*.js";
 
 /* ──────────────────────────────────────────────────────────────────────
  * Design tokens. shadcn/ui-compatible variable names mapped to Tailwind v4's
@@ -45,6 +51,9 @@ html[data-theme="light"] {
   --input: oklch(0.91 0 0);
   --ring: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
   --radius: 0.5rem;
+  /* streamdown 的表格外层/代码块头用 bg-sidebar + border-sidebar。 */
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
 
   --weq-accent: #0099ff;
   --weq-bg-app: var(--background);
@@ -121,6 +130,8 @@ html[data-theme="dark"],
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
 
   --weq-accent: #56a8f7;
   --weq-bg-app: var(--background);
@@ -353,6 +364,8 @@ html[data-theme="dark"] .chat-empty {
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -1034,6 +1047,27 @@ html[data-theme="dark"] .chat-empty {
   from { background-position: -160% 0; }
   to { background-position: 260% 0; }
 }
+/* ---- 图片 shimmer 加载占位（ShimmerImage） ----
+ * 渲染在 <img> 底下；img 未就绪时可见，加载完成被 img 盖住。 */
+.weq-shimmer-block {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(90deg, #eef2f7 25%, #e2e8f0 50%, #eef2f7 75%);
+  background-size: 200% 100%;
+  animation: weq-shimmer 1.2s ease-in-out infinite;
+}
+
+html[data-theme="dark"] .weq-shimmer-block {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 25%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 75%
+  );
+  background-size: 200% 100%;
+}
 @keyframes weq-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
@@ -1219,6 +1253,7 @@ html[data-theme='dark'] .weq-splash-track {
 }
 
 .weq-mface-lb-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5292,6 +5327,36 @@ html[data-theme='dark'] .weq-set-input {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+html[data-theme='dark'] .weq-set-agent-item {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  color: #d5dde6;
+}
+
+html[data-theme='dark'] .weq-set-agent-item.is-actionable:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(86, 168, 247, 0.34);
+}
+
+html[data-theme='dark'] .weq-set-agent-item.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #1b2129);
+  border-color: rgba(86, 168, 247, 0.45);
+}
+
+html[data-theme='dark'] .weq-set-agent-chk {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #141920;
+}
+
+html[data-theme='dark'] .weq-set-agent-path {
+  color: #7f8c9b;
+}
+
+html[data-theme='dark'] .weq-set-agent-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a6b1bf;
+}
+
 .weq-set-mcp-state {
   display: inline-flex;
   align-items: center;
@@ -5309,26 +5374,133 @@ html[data-theme='dark'] .weq-set-input {
   box-shadow: 0 0 0 3px color-mix(in srgb, #18a058 22%, transparent);
 }
 
-.weq-set-mcp-tools {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.weq-set-agent-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.weq-set-mcp-tool {
+
+.weq-set-agent-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
-.weq-set-mcp-tool code {
+
+.weq-set-agent-item:not(.is-actionable) {
+  opacity: 0.72;
+}
+
+.weq-set-agent-item.is-actionable {
+  cursor: pointer;
+}
+
+.weq-set-agent-item.is-actionable:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, #ffffff);
+}
+
+.weq-set-agent-item.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 58%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, #ffffff);
+}
+
+.weq-set-agent-chk {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border: 1.5px solid #c2c8d0;
+  border-radius: 5px;
+  background: #ffffff;
+  color: transparent;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.weq-set-agent-item.is-on .weq-set-agent-chk {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+  color: #ffffff;
+}
+
+.weq-set-agent-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-set-agent-name {
+  font-weight: 500;
+}
+
+.weq-set-agent-path {
   font-family: var(--weq-font-mono, monospace);
-  color: var(--weq-accent-effective);
+  font-size: 11px;
+  color: #8a93a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.weq-set-mcp-tool-desc {
-  color: color-mix(in srgb, currentColor 60%, transparent);
+
+.weq-set-agent-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.weq-set-agent-tag.is-ok {
+  background: rgba(24, 160, 88, 0.1);
+  color: #18a058;
+}
+
+.weq-set-agent-tag.is-stale {
+  background: rgba(217, 84, 43, 0.12);
+  color: #d9542b;
+}
+
+.weq-set-agent-tag.is-new {
+  background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+}
+
+.weq-set-agent-tag.is-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.weq-set-linkbtn {
+  margin-top: 7px;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-set-linkbtn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.weq-set-linkbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weq-set-btn svg.is-spin {
+  animation: weq-set-spin 0.8s linear infinite;
 }
 
 /* rKey list */
@@ -9444,7 +9616,9 @@ html[data-theme="dark"] .weq-forward-bubble {
   gap: 6px;
 }
 
-.weq-agentlab-field span {
+/* 字段标签：只作用于直接子级 span——内部嵌套的列表项（如 weq-group-member-text）
+   有自己的 flex 布局，不能被这里的 inline-flex 覆盖（否则头像和名字间距会被撑开）。 */
+.weq-agentlab-field > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -9452,7 +9626,7 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-fg-secondary);
 }
 
-.weq-agentlab-field span svg {
+.weq-agentlab-field > span svg {
   color: var(--weq-fg-muted);
   flex: none;
 }
@@ -9520,6 +9694,14 @@ html[data-theme="dark"] .weq-forward-bubble {
   height: auto;
   border-radius: 8px;
   object-fit: contain;
+}
+
+/* 表情图加载失败的降级占位（资源被清 / 下载失败时替代破图）。 */
+.weq-agentlab-sticker-fallback {
+  display: inline-block;
+  padding: 2px 4px;
+  opacity: 0.72;
+  font-size: 0.95em;
 }
 
 /* 克隆体合成语音气泡（点击播放）。 */
@@ -9689,6 +9871,19 @@ html[data-theme="dark"] .weq-forward-bubble {
   background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);
 }
 
+/* 「停止中」：点击后到后端 emit `aborted` 之间要等在途的 LLM 请求收尾，这期间按钮
+   得看得出«已经点了»——不走 :disabled 的 0.45 透明度糊掉，改轻微呼吸提示仍在处理。 */
+.weq-asst-stop-btn[aria-busy='true'] {
+  opacity: 0.85;
+  cursor: progress;
+  animation: weq-asst-stop-pulse 1.2s ease-in-out infinite;
+}
+@keyframes weq-asst-stop-pulse {
+  50% {
+    background: color-mix(in srgb, var(--weq-danger, #e5484d) 30%, transparent);
+  }
+}
+
 /* 折叠的过程区 */
 .weq-asst-steps {
   border: 1px solid var(--weq-border-subtle);
@@ -9833,8 +10028,8 @@ html[data-theme="dark"] .weq-forward-bubble {
   word-break: break-word;
   /* 气泡外层是 white-space: pre-wrap（QQ 纯文本消息要保留换行），而 streamdown 在
      blockquote / ul / li 之间会吐出真实的 `\n` 文本节点——继承 pre-wrap 时每个都被
-     画成一个空行，引用块和列表项之间因此裂出大片空白。streamdown 自己在根 div 上写了
-     `whitespace-normal`，但那是 Tailwind 类，@source 不扫 node_modules，编译不出来。
+     画成一个空行，引用块和列表项之间因此裂出大片空白。streamdown 根节点自己也带
+     `whitespace-normal`，但未分层的这条优先级更高、不依赖 @source 是否生效。
      `<pre>` 不受影响：UA 样式表给它的 white-space: pre 压得过这里的继承值。 */
   white-space: normal;
 }
@@ -9892,6 +10087,162 @@ html[data-theme="dark"] .weq-forward-bubble {
   gap: 6px;
 }
 
+/* ── 调查过程：计划面板 / 工作笔记 / 压缩标记 ─────────────────────────── */
+.weq-asst-plan {
+  border: 1px solid var(--weq-border-subtle);
+  border-left: 3px solid var(--weq-accent-effective);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.weq-asst-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg);
+}
+.weq-asst-plan-title {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-asst-plan-question {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-steps {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.weq-asst-plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+.weq-asst-plan-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-step.is-completed {
+  color: var(--weq-fg-muted);
+}
+.weq-asst-plan-step.is-completed .weq-asst-plan-mark {
+  color: var(--weq-ok, #22c55e);
+}
+.weq-asst-plan-step.is-in_progress .weq-asst-plan-mark {
+  color: var(--weq-accent-effective);
+}
+.weq-asst-plan-step-title {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.weq-asst-notes {
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 10px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.weq-asst-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.weq-asst-notes-head:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+.weq-asst-notes-body {
+  margin: 0;
+  padding: 2px 10px 10px 26px;
+  border-top: 1px dashed var(--weq-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.weq-asst-notes-body li {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--weq-fg-secondary);
+  word-break: break-word;
+}
+
+.weq-asst-compaction {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
+}
+.weq-asst-compaction-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.weq-asst-compaction-head:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+.weq-asst-compaction-body {
+  padding: 2px 10px 10px 24px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 断点续答提示条（上次任务被中断 → “继续回答”） */
+.weq-asst-resume-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+.weq-asst-resume-bar button {
+  flex-shrink: 0;
+}
+
 .weq-asst-md > :first-child {
   margin-top: 0;
 }
@@ -9936,8 +10287,9 @@ html[data-theme="dark"] .weq-forward-bubble {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-/* streamdown 把 `**粗体**` 渲染成 <span class="font-semibold">（不是 <strong>），
-   而那个 Tailwind 类同样编译不出来 —— 粗体会完全不粗。挂它的稳定 data 属性。 */
+/* streamdown 把 `**粗体**` 渲染成 <span class="font-semibold">（不是 <strong>）。
+   上面的 @source 已经能把 font-semibold 编出来了，这条只是不依赖扫描结果的兜底 ——
+   未分层的规则优先级高于 Tailwind 的 @layer utilities，无论扫描是否生效都成立。 */
 .weq-asst-md [data-streamdown='strong'] {
   font-weight: 600;
 }
@@ -10129,6 +10481,200 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-agentlab-newclone:hover {
   color: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
+}
+
+/* ── 左栏克隆体/群聊条目：可展开的会话列表（分页/新建/删除） ────────────────── */
+.weq-clone-row { display: flex; flex-direction: column; width: 100%; }
+
+.weq-clone-row-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.weq-clone-row-head .weq-agentlab-item { flex: 1 1 auto; width: 100%; padding-right: 36px; }
+
+.weq-clone-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.weq-clone-row-toggle:hover { background: rgba(127, 127, 127, 0.14); color: var(--weq-fg-primary); }
+.weq-clone-row-toggle svg { transition: transform 140ms ease; }
+.weq-clone-row-toggle.is-open svg { transform: rotate(180deg); }
+
+.weq-clone-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.weq-clone-session {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 9px;
+  transition: background 120ms ease;
+}
+.weq-clone-session:hover { background: rgba(127, 127, 127, 0.09); }
+.weq-clone-session.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+}
+/* 当前会话左侧的强调竖条 */
+.weq-clone-session.is-active::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--weq-accent-effective);
+}
+
+.weq-clone-session-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 6px 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.weq-clone-session-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.13);
+  color: var(--weq-fg-muted);
+  transition: background 120ms ease, color 120ms ease;
+}
+.weq-clone-session.is-active .weq-clone-session-icon {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-clone-session-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.weq-clone-session-title {
+  width: 100%;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-clone-session-text small {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-clone-session-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-right: 3px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.weq-clone-session:hover .weq-clone-session-del,
+.weq-clone-session.is-active .weq-clone-session-del { opacity: 1; }
+.weq-clone-session-del:hover { background: rgba(127, 127, 127, 0.18); color: var(--weq-danger, #e5484d); }
+
+.weq-clone-session-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 1px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.weq-clone-session-more:hover {
+  color: var(--weq-accent-effective);
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.weq-clone-session-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease,
+    transform 120ms ease;
+}
+.weq-clone-session-new:hover {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+/* 点击反馈：即便只是开一个空白草稿（看起来没变化），也给出按下动画。 */
+.weq-clone-session-new:active {
+  transform: scale(0.96);
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-clone-sessions-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-muted);
+  text-align: center;
 }
 
 /* ── WeQ 助手会话列表（左栏 assistant 模式） ─────────────────────────────── */
@@ -10602,6 +11148,50 @@ html[data-theme="dark"] .weq-forward-bubble {
  * (#171d25)，文字/输入框等已走 token 会自动跟随。顶部保留一抹品牌色微光与浅色弹窗呼应。 */
 html[data-theme="dark"] .weq-clone-modal,
 html[data-theme="dark"] .weq-persona-modal {
+  background:
+    radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 14%, transparent), transparent 46%),
+    #171d25;
+}
+
+/* ── 服务商配置灯箱（AgentLab / TTS 新建·编辑共用）────────────────────────────
+ * 新建 provider 不再在设置面板里就地展开，而是新开一个灯箱卡片完成，
+ * 与「新建克隆」等弹窗保持一致的直觉。 */
+.weq-provider-modal { display: flex; flex-direction: column; max-height: 82vh; }
+.weq-provider-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 15px;
+  color: var(--weq-fg-primary);
+}
+.weq-provider-modal-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-provider-modal-close { margin-left: auto; }
+.weq-provider-modal-body {
+  overflow-y: auto;
+  padding: 14px 18px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.weq-provider-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+html[data-theme="dark"] .weq-provider-modal {
   background:
     radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 14%, transparent), transparent 46%),
     #171d25;
@@ -16678,28 +17268,13 @@ html[data-theme="dark"] .weq-search-skeleton-line {
   border-color: rgba(0, 0, 0, 0.26);
 }
 
-.weq-log-lv-chip.is-error.is-on {
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-}
-
-.weq-log-lv-chip.is-warn.is-on {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
-}
-
-.weq-log-lv-chip.is-info.is-on {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.1);
-  color: #2563eb;
-}
-
+.weq-log-lv-chip.is-error.is-on,
+.weq-log-lv-chip.is-warn.is-on,
+.weq-log-lv-chip.is-info.is-on,
 .weq-log-lv-chip.is-debug.is-on {
-  border-color: #94a3b8;
-  background: rgba(148, 163, 184, 0.16);
-  color: #64748b;
+  border-color: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.07);
+  color: #3a424d;
 }
 
 .weq-help-log-empty-hint {
@@ -17456,28 +18031,13 @@ html[data-theme="dark"] .weq-log-lv-chip:hover {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-html[data-theme="dark"] .weq-log-lv-chip.is-error.is-on {
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.16);
-  color: #ff8080;
-}
-
-html[data-theme="dark"] .weq-log-lv-chip.is-warn.is-on {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.16);
-  color: #ffc766;
-}
-
-html[data-theme="dark"] .weq-log-lv-chip.is-info.is-on {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.16);
-  color: #7cb3ff;
-}
-
+html[data-theme="dark"] .weq-log-lv-chip.is-error.is-on,
+html[data-theme="dark"] .weq-log-lv-chip.is-warn.is-on,
+html[data-theme="dark"] .weq-log-lv-chip.is-info.is-on,
 html[data-theme="dark"] .weq-log-lv-chip.is-debug.is-on {
-  border-color: #94a3b8;
-  background: rgba(148, 163, 184, 0.2);
-  color: #b6c4d4;
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.1);
+  color: #e7eef6;
 }
 
 html[data-theme="dark"] .weq-help-log-empty-hint {
@@ -18345,4 +18905,879 @@ html[data-theme="dark"] .weq-applock-bind-success strong {
 
 html[data-theme="dark"] .weq-applock-bind-success small {
   color: #99a7b8;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   频道私聊查看器 (components/GuildDirectDialog)
+   大灯箱：左会话列表（direct_node_list_table）+ 右消息区（guild_msg_table，
+   复用主聊天 .message-scroll + MessageBubble，含 40801 装扮渲染）。
+   ───────────────────────────────────────────────────────────────────────── */
+.weq-guild-direct {
+	display: flex;
+	flex-direction: column;
+	width: min(1120px, 94vw);
+	height: min(86vh, 740px);
+	overflow: hidden;
+	border-radius: 12px;
+	color: var(--weq-fg-primary);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-head {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	height: 52px;
+	padding: 0 14px 0 20px;
+	border-bottom: 1px solid var(--weq-border-subtle);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.weq-guild-direct-title strong {
+	overflow: hidden;
+	font-size: 15px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-title-icon {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 7px;
+	color: #fff;
+	background: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+/* ---- 左列：会话列表 ---- */
+.weq-guild-direct-side {
+	display: flex;
+	flex: 0 0 296px;
+	flex-direction: column;
+	min-height: 0;
+	border-right: 1px solid var(--weq-border-subtle);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-side-title {
+	padding: 12px 16px 6px;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--weq-fg-secondary);
+}
+
+.weq-guild-direct-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 2px 8px 12px;
+}
+
+.weq-guild-direct-item {
+	display: flex;
+	width: 100%;
+	gap: 10px;
+	align-items: flex-start;
+	padding: 9px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.weq-guild-direct-item:hover {
+	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-guild-direct-item.active {
+	background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+}
+
+.weq-guild-direct-item > .avatar,
+.weq-guild-direct-chat-head > .avatar {
+	width: 38px;
+	height: 38px;
+	flex: 0 0 auto;
+}
+
+.weq-guild-direct-item-main {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.weq-guild-direct-item-top {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	justify-content: space-between;
+	min-width: 0;
+}
+
+.weq-guild-direct-item-title {
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	gap: 6px;
+	align-items: baseline;
+	overflow: hidden;
+}
+
+.weq-guild-direct-item-name {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-item-time {
+	flex: 0 0 auto;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary);
+}
+
+.weq-guild-direct-item-guild {
+	display: inline-flex;
+	flex: 0 1 auto;
+	min-width: 0;
+	gap: 3px;
+	align-items: center;
+	font-size: 11px;
+	color: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-item-guild-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-item-preview {
+	overflow: hidden;
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---- 右列：聊天 ---- */
+.weq-guild-direct-chat {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-chat-head {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 10px;
+	align-items: center;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-guild-direct-chat-title {
+	min-width: 0;
+}
+
+.weq-guild-direct-chat-namewrap {
+	display: flex;
+	min-width: 0;
+	gap: 8px;
+	align-items: center;
+}
+
+.weq-guild-direct-chat-namewrap strong {
+	overflow: hidden;
+	font-size: 14px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-chat-guild {
+	display: inline-flex;
+	flex: 0 1 auto;
+	min-width: 0;
+	gap: 4px;
+	align-items: center;
+	font-size: 11px;
+	color: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-chat-guild-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-topbar {
+	display: flex;
+	flex: 0 0 24px;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary);
+	user-select: none;
+}
+
+/* 复用主聊天滚动容器；用 flex 撑满右列而不是固定高度。 */
+.weq-guild-direct-msgs {
+	flex: 1;
+	height: auto;
+	min-height: 0;
+}
+
+.weq-guild-direct-msg {
+	display: flex;
+	flex-direction: column;
+}
+
+.weq-guild-direct-empty {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: 24px 16px;
+	color: var(--weq-fg-secondary);
+	font-size: 12px;
+	text-align: center;
+}
+
+.weq-guild-direct-empty small {
+	max-width: 340px;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--weq-fg-tertiary);
+	overflow-wrap: anywhere;
+}
+
+.weq-guild-direct-pick-hint {
+	gap: 10px;
+}
+
+.weq-guild-direct-pick-hint > svg {
+	opacity: 0.55;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   空间相册查看器 (components/QzoneAlbumDialog)
+   左栏「更多功能 → 空间相册」。相册卡片网格 + 媒体平铺网格，支持分页；
+   图片走 weq-media://album 自定义协议，加载态 skeleton + shimmer。
+   ───────────────────────────────────────────────────────────────────────── */
+.weq-qzone-album {
+	display: flex;
+	flex-direction: column;
+	width: min(1080px, 94vw);
+	height: min(86vh, 760px);
+	overflow: hidden;
+	border-radius: 12px;
+	color: var(--weq-fg-primary);
+	background: var(--weq-bg-surface);
+}
+
+.weq-qzone-album-head {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	height: 52px;
+	padding: 0 14px 0 20px;
+	border-bottom: 1px solid var(--weq-border-subtle);
+	background: var(--weq-bg-surface);
+}
+
+.weq-qzone-album-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.weq-qzone-album-title strong {
+	overflow: hidden;
+	font-size: 15px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-qzone-album-title-icon {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 7px;
+	color: #fff;
+	background: var(--weq-accent-effective);
+}
+
+.weq-qzone-album-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 16px 18px 18px;
+}
+
+.weq-qzone-album-empty {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	min-height: 240px;
+	padding: 24px 16px;
+	color: var(--weq-fg-secondary);
+	font-size: 13px;
+	text-align: center;
+}
+
+.weq-qzone-album-empty small {
+	max-width: 400px;
+	font-size: 12px;
+	line-height: 1.7;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+	overflow-wrap: anywhere;
+}
+
+.weq-qzone-album-empty.is-error,
+.weq-qzal-empty.is-error {
+	color: var(--weq-danger, #e5484d);
+}
+
+.weq-qzone-album-offline span {
+	color: var(--weq-accent-effective);
+	font-weight: 600;
+}
+
+/* ---- 相册卡片网格 ---- */
+.weq-qzal-album-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+	gap: 14px;
+}
+
+.weq-qzal-album-card {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 12px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+	box-shadow: 0 10px 24px -20px color-mix(in srgb, var(--weq-accent-effective) 26%, black);
+	text-align: left;
+	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease,
+		transform 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.weq-qzal-album-card:hover {
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+	transform: translateY(-1px);
+	box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
+}
+
+.weq-qzal-album-cover {
+	display: block;
+	width: 100%;
+	aspect-ratio: 4 / 3;
+	background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-qzal-album-cover img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.weq-qzal-album-cover-empty {
+	display: grid;
+	width: 100%;
+	height: 100%;
+	place-items: center;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+}
+
+.weq-qzal-album-meta {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 3px;
+	padding: 0 12px 12px;
+}
+
+.weq-qzal-album-meta strong {
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-qzal-album-meta small {
+	overflow: hidden;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---- 媒体平铺视图 ---- */
+.weq-qzal-media-view {
+	display: flex;
+	min-height: 0;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.weq-qzal-toolbar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.weq-qzal-back {
+	padding: 5px 12px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+	color: var(--weq-accent-effective);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease;
+}
+
+.weq-qzal-back:hover {
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+.weq-qzal-count {
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+}
+
+.weq-qzal-empty {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+	min-height: 240px;
+	padding: 24px 16px;
+	color: var(--weq-fg-secondary);
+	font-size: 13px;
+	text-align: center;
+}
+
+.weq-qzal-empty small {
+	max-width: 400px;
+	font-size: 12px;
+	line-height: 1.7;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+	overflow-wrap: anywhere;
+}
+
+.weq-qzal-media-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+	gap: 12px;
+}
+
+.weq-qzal-media-card {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 6px;
+	padding: 0;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 10px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+	transition:
+		border-color 150ms ease,
+		transform 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.weq-qzal-media-card:hover {
+	border-color: var(--weq-border-strong);
+	transform: translateY(-1px);
+	box-shadow: 0 14px 28px -22px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
+}
+
+.weq-qzal-media-card.is-checked {
+	border-color: var(--weq-accent-effective);
+	box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
+}
+
+.weq-qzal-media-body {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 6px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.weq-qzal-media-thumb {
+	position: relative;
+	display: block;
+	width: 100%;
+}
+
+.weq-qzal-media-thumb img {
+	display: block;
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	object-fit: cover;
+}
+
+.weq-qzal-media-check {
+	position: absolute;
+	top: 8px;
+	left: 8px;
+	z-index: 2;
+	display: grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 1.5px solid rgb(255 255 255 / 0.85);
+	border-radius: 50%;
+	background: rgb(0 0 0 / 0.38);
+	backdrop-filter: blur(3px);
+	color: #fff;
+	box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease;
+}
+
+.weq-qzal-media-check:hover {
+	background: rgb(0 0 0 / 0.55);
+}
+
+.weq-qzal-media-check.is-on {
+	border-color: var(--weq-accent-effective);
+	background: var(--weq-accent-effective);
+}
+
+.weq-qzal-media-play {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	color: #fff;
+	background: rgb(0 0 0 / 0.5);
+	backdrop-filter: blur(4px);
+	pointer-events: none;
+}
+
+.weq-qzal-media-caption {
+	display: flex;
+	min-width: 0;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 10px 9px;
+}
+
+.weq-qzal-media-name {
+	overflow: hidden;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--weq-fg-secondary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-qzal-media-caption time {
+	flex: 0 0 auto;
+	font-size: 10px;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+}
+
+.weq-qzal-selectbar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 10px;
+}
+
+.weq-qzal-select-all {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+	color: var(--weq-fg-secondary);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.weq-qzal-select-all:hover {
+	border-color: var(--weq-border-strong);
+}
+
+.weq-qzal-select-all.is-on {
+	border-color: var(--weq-accent-effective);
+	color: var(--weq-accent-effective);
+}
+
+.weq-qzal-check {
+	display: inline-grid;
+	place-items: center;
+	width: 15px;
+	height: 15px;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+}
+
+.weq-qzal-select-count {
+	flex: 1;
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+}
+
+.weq-qzal-download {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 14px;
+	border: none;
+	border-radius: 999px;
+	background: var(--weq-accent-effective);
+	color: #fff;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 550;
+	cursor: pointer;
+	transition:
+		opacity 150ms ease,
+		transform 150ms ease;
+}
+
+.weq-qzal-download:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+.weq-qzal-download:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.weq-qzal-sentinel {
+	min-height: 40px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.weq-qzal-sentinel-text {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+}
+
+.weq-qzal-retry {
+	padding: 5px 14px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+	color: var(--weq-accent-effective);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.weq-qzal-retry:hover {
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+.weq-qzal-end {
+	padding: 4px 0 2px;
+	text-align: center;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+}
+
+/* ---- skeleton / shimmer（与导出中心同款动画） ---- */
+.weq-qzal-skel {
+	display: block;
+	border-radius: 6px;
+	background: linear-gradient(90deg, color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 25%, color-mix(in srgb, var(--weq-fg-primary) 11%, transparent) 50%, color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 75%);
+	background-size: 200% 100%;
+	animation: weq-qzal-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes weq-qzal-shimmer {
+	from {
+		background-position: 160% 0;
+	}
+	to {
+		background-position: -60% 0;
+	}
+}
+
+.weq-qzal-skel-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+	gap: 14px;
+}
+
+.weq-qzal-skel-card {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 12px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+}
+
+.weq-qzal-skel-cover {
+	width: 100%;
+	aspect-ratio: 4 / 3;
+	border-radius: 0;
+}
+
+.weq-qzal-skel-name {
+	width: 62%;
+	height: 13px;
+	margin: 0 12px;
+}
+
+.weq-qzal-skel-count {
+	width: 40%;
+	height: 10px;
+	margin: 0 12px 12px;
+}
+
+.weq-qzal-skel-media {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.weq-qzal-skel-thumb {
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	border-radius: 10px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 深浅模式切换：新主题以点击处为圆心扩散铺开（View Transitions API）。
+ * theme.ts 在开转场前给 <html> 挂上 .weq-theme-ripple，并写入
+ * --weq-theme-ripple-x/y（圆心）、-r（覆盖到最远角的半径）、
+ * -duration（按时长缩放）。这里把浏览器默认的整屏交叉淡入换成圆形揭示。
+ * 自定义属性从 <html> 继承到 view-transition 伪元素，故直接生效。
+ * ──────────────────────────────────────────────────────────────────── */
+
+html.weq-theme-ripple::view-transition-old(root),
+html.weq-theme-ripple::view-transition-new(root) {
+	/* 关掉默认的 250ms 交叉淡入；默认的 plus-lighter 混色会让新旧快照叠加发灰。 */
+	animation: none;
+	mix-blend-mode: normal;
+}
+
+html.weq-theme-ripple::view-transition-old(root) {
+	/* 旧主题留在底层当背景，由新主题盖上去。 */
+	z-index: 1;
+}
+
+html.weq-theme-ripple::view-transition-new(root) {
+	z-index: 2;
+	animation: weq-theme-ripple-reveal var(--weq-theme-ripple-duration, 560ms)
+		cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-theme-ripple-reveal {
+	from {
+		clip-path: circle(
+			0px at var(--weq-theme-ripple-x, 50%) var(--weq-theme-ripple-y, 50%)
+		);
+	}
+	to {
+		clip-path: circle(
+			var(--weq-theme-ripple-r, 150vmax) at var(--weq-theme-ripple-x, 50%)
+				var(--weq-theme-ripple-y, 50%)
+		);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html.weq-theme-ripple::view-transition-new(root) {
+		animation: none;
+	}
 }

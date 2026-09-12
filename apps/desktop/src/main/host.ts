@@ -100,6 +100,21 @@ export const electronHost: HostBridge = {
     return null;
   },
 
+  async renderHtmlToPdf(html) {
+    const { renderPdfFromHtml } = await import('./annual_report_pdf');
+    return renderPdfFromHtml(html);
+  },
+
+  async renderHtmlToSlidesPng(html, opts) {
+    const { renderHtmlToSlidesPng } = await import('./html_shot');
+    return renderHtmlToSlidesPng(html, opts);
+  },
+
+  async renderHtmlToLongPng(html) {
+    const { renderHtmlToLongPng } = await import('./html_shot');
+    return renderHtmlToLongPng(html);
+  },
+
   async openBotConsole({ url, key, title }) {
     const { openBotWebUiWindow } = await import('./bot_webui_window');
     await openBotWebUiWindow(url, key, title);
@@ -108,4 +123,15 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
+  // 「开机拉起 WeQ」的意图交给守护进程记着（GUI 自己不注册任何原生自启）：
+  // pnpm dev 拉起的 electron 没有安装、没有固定路径语义，让它开机起是错的 ——
+  // 只允许打包版开启。
+  canAutostart: app.isPackaged,
+  currentExePath: () => {
+    // AppImage 下 `app.getPath('exe')` 是本次运行的临时挂载点
+    // （`/tmp/.mount_<name>.<rand>/…`），重启后必然不存在 —— 必须用 $APPIMAGE
+    // （AppImage 文件本身，路径稳定）。其它打包形态两者等价。
+    const appImage = process.env.APPIMAGE;
+    return appImage && appImage.length > 0 ? appImage : app.getPath('exe');
+  },
 };

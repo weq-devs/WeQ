@@ -30,7 +30,10 @@ const CONFUSION_GROUPS: string[][] = [
 const CONFUSION_MAP = new Map<string, string[]>();
 for (const group of CONFUSION_GROUPS) {
   for (const ch of group) {
-    CONFUSION_MAP.set(ch, group.filter((other) => other !== ch));
+    CONFUSION_MAP.set(
+      ch,
+      group.filter((other) => other !== ch),
+    );
   }
 }
 

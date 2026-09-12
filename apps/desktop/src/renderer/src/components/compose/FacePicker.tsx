@@ -39,9 +39,7 @@ export function FacePicker({ onPick }: { onPick: (choice: FaceChoice) => void })
       .filter((f, i, arr) => arr.findIndex((o) => o.faceId === f.faceId) === i);
 
     const term = kw.trim().toLowerCase();
-    const filtered = term
-      ? faces.filter((f) => f.faceText.toLowerCase().includes(term))
-      : faces;
+    const filtered = term ? faces.filter((f) => f.faceText.toLowerCase().includes(term)) : faces;
 
     return GROUP_ORDER.map((type) => ({
       type,

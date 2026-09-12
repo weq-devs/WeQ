@@ -6,7 +6,7 @@
  * 页面外壳、会话列表和消息气泡由模板负责。
  */
 
-import {
+import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -31,9 +31,12 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
+import { GuildDirectDialog } from '../components/GuildDirectDialog';
+import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
+import { QuickExportLightbox, type QuickExportTarget } from './export/QuickExportLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
@@ -68,7 +71,7 @@ import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneView } from './QzoneView';
 import { ChannelView } from './ChannelView';
-import { AnnualReportView } from './AnnualReportView';
+import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -484,11 +487,11 @@ function displayProfileName(profile?: UserProfileWire): string | null {
   return profile.remark || profile.nick || profile.qid || profile.uin || null;
 }
 
-function _genderLabel(value?: number): string | null {
-  if (value === 1) return '男';
-  if (value === 2) return '女';
-  return null;
-}
+// function _genderLabel(value?: number): string | null {
+//   if (value === 1) return '男';
+//   if (value === 2) return '女';
+//   return null;
+// }
 
 function buddyToContact(
   buddy: BuddyWire,
@@ -706,36 +709,36 @@ function groupNotifyToGroupRequest(
   };
 }
 
-function _groupRequestFromBuddyRequest(
-  request: BuddyRequestWire,
-  groupsById: Map<string, Conversation>,
-  profileByUid: Map<string, UserProfileWire>,
-) {
-  if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
-  const groupConversation = groupsById.get(request.sourceGroupCode);
-  if (groupConversation?.type !== 'group') return null;
-  const contactRequest = buddyRequestToContactRequest(request, profileByUid);
-
-  return {
-    id: `group-request:${request.sourceGroupCode}:${request.peerUid}:${request.timestamp}`,
-    direction: contactRequest.direction,
-    status: contactRequest.status,
-    message: contactRequest.message,
-    createdAt: contactRequest.createdAt,
-    respondedAt: null,
-    group: {
-      id: groupConversation.group.id,
-      conversationId: groupConversation.id,
-      identityLabel: groupConversation.group.identityLabel,
-      identityValue: groupConversation.group.identityValue,
-      name: groupConversation.group.name,
-      avatarUrl: groupConversation.group.avatarUrl,
-      announcement: groupConversation.group.announcement,
-      memberCount: groupConversation.group.memberCount,
-    },
-    user: contactRequest.user,
-  } as const;
-}
+// function _groupRequestFromBuddyRequest(
+//   request: BuddyRequestWire,
+//   groupsById: Map<string, Conversation>,
+//   profileByUid: Map<string, UserProfileWire>,
+// ) {
+//   if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
+//   const groupConversation = groupsById.get(request.sourceGroupCode);
+//   if (groupConversation?.type !== 'group') return null;
+//   const contactRequest = buddyRequestToContactRequest(request, profileByUid);
+//
+//   return {
+//     id: `group-request:${request.sourceGroupCode}:${request.peerUid}:${request.timestamp}`,
+//     direction: contactRequest.direction,
+//     status: contactRequest.status,
+//     message: contactRequest.message,
+//     createdAt: contactRequest.createdAt,
+//     respondedAt: null,
+//     group: {
+//       id: groupConversation.group.id,
+//       conversationId: groupConversation.id,
+//       identityLabel: groupConversation.group.identityLabel,
+//       identityValue: groupConversation.group.identityValue,
+//       name: groupConversation.group.name,
+//       avatarUrl: groupConversation.group.avatarUrl,
+//       announcement: groupConversation.group.announcement,
+//       memberCount: groupConversation.group.memberCount,
+//     },
+//     user: contactRequest.user,
+//   } as const;
+// }
 
 function levelBracketFor(level?: number): number {
   if (level === undefined) return 0;
@@ -1704,6 +1707,8 @@ export function MainView(): ReactElement {
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
+  const [guildDirectOpen, setGuildDirectOpen] = useState(false);
+  const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -2182,6 +2187,29 @@ export function MainView(): ReactElement {
     }
   }, []);
 
+  // 聊天顶栏「导出聊天记录」：目标固定为当前会话，灯箱与导出中心的
+  // 「聊天消息导出」完全一致；开始导出后 toast 提示去任务栏看进度。
+  const handleExportConversation = useCallback((conversation: Conversation) => {
+    if (conversation.type === 'group') {
+      const code = conversation.group.id;
+      setQuickExportTarget({
+        id: code,
+        name: conversation.group.name || code,
+        kind: 'group',
+      });
+      return;
+    }
+    if (conversation.type === 'direct') {
+      const { otherUser } = conversation;
+      const uin = otherUser.username || otherUser.identityValue || '';
+      setQuickExportTarget({
+        id: otherUser.id,
+        name: otherUser.displayName || uin || otherUser.id,
+        kind: 'c2c',
+      });
+    }
+  }, []);
+
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
@@ -2229,6 +2257,8 @@ export function MainView(): ReactElement {
     /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
     fixed?: boolean;
   } | null>(null);
+  /** 顶栏「导出聊天记录」打开的目标会话（快捷导出灯箱）。 */
+  const [quickExportTarget, setQuickExportTarget] = useState<QuickExportTarget | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
@@ -2410,8 +2440,7 @@ export function MainView(): ReactElement {
         const kind = classifyChatType(c.chatType);
         if (kind === 'official' || kind === 'service') return false;
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
-        if (hiddenUidSet.has(c.targetUid)) return false;
-        return true;
+        return !hiddenUidSet.has(c.targetUid);
       })
       .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
       .filter((conversation): conversation is Conversation => conversation !== null);
@@ -3862,6 +3891,8 @@ export function MainView(): ReactElement {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
+            onOpenGuildDirect={() => setGuildDirectOpen(true)}
+            onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
             onOpenProfile={noopAsync}
@@ -4004,6 +4035,7 @@ export function MainView(): ReactElement {
                       onLoadMoreGroupMembers={requestMoreGroupMembers}
                       groupMembersLoading={selectedGroupMembersLoading}
                       groupMembersError={selectedGroupMembersError}
+                      profileLoading={groupDetail.isLoading}
                       onOpenNotificationSettings={noopAsync}
                       onSend={noopAsync}
                       onDraftChange={updateDraft}
@@ -4025,6 +4057,7 @@ export function MainView(): ReactElement {
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
                       onSearchChatRecords={handleSearchChatRecords}
+                      onExportConversation={handleExportConversation}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -4090,6 +4123,17 @@ export function MainView(): ReactElement {
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             onClose={() => setWonderfulToolsOpen(false)}
+          />
+          <GuildDirectDialog
+            open={guildDirectOpen}
+            onClose={() => setGuildDirectOpen(false)}
+            selfUser={user}
+            renderers={messageRenderers}
+          />
+          <QzoneAlbumDialog
+            open={qzoneAlbumOpen}
+            onClose={() => setQzoneAlbumOpen(false)}
+            hostUin={user.identityValue}
           />
           <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
           {marketBrowserOpen ? (
@@ -4301,6 +4345,12 @@ export function MainView(): ReactElement {
                   keyword: searchMore.keyword,
                 });
               }}
+            />
+          ) : null}
+          {quickExportTarget ? (
+            <QuickExportLightbox
+              target={quickExportTarget}
+              onClose={() => setQuickExportTarget(null)}
             />
           ) : null}
           {chatRecordsTarget ? (

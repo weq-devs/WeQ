@@ -186,7 +186,12 @@ export function createWin32Platform(
  * reports `qq`. A trailing `.exe` is stripped so one rule covers both.
  */
 function isQqProcessName(name: string): boolean {
-  return name.trim().toLowerCase().replace(/\.exe$/, '') === 'qq';
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/\.exe$/, '') === 'qq'
+  );
 }
 
 /**

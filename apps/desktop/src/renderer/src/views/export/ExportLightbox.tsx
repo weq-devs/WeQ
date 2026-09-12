@@ -22,6 +22,7 @@ import {
   FileText,
   Film,
   FolderOpen,
+  Heart,
   Image as ImageIcon,
   Loader2,
   MessageSquare,
@@ -53,7 +54,7 @@ import {
   type Schedule,
 } from './types';
 
-export type LightboxVariant = 'full' | 'qzone' | 'scheduled' | 'album' | 'contacts';
+export type LightboxVariant = 'full' | 'guild' | 'qzone' | 'scheduled' | 'album' | 'contacts';
 
 export interface LightboxResult {
   /** 灯箱里多选的导出格式（至少一种）。 */
@@ -187,6 +188,7 @@ export function ExportLightbox({
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   onPickPath,
+  autoSaveHint,
   onClose,
   onConfirm,
 }: {
@@ -202,6 +204,11 @@ export function ExportLightbox({
   submitting?: boolean;
   /** Optional async directory picker; returns the chosen path or null. */
   onPickPath?: () => Promise<string | null>;
+  /**
+   * 传入后不展示「导出后自动保存」开关，改为展示这句提示 —— 该能力依赖导出页
+   * 的任务列表，从聊天页快捷打开灯箱时用不到。
+   */
+  autoSaveHint?: string;
   onClose: () => void;
   onConfirm: (result: LightboxResult) => void;
 }): ReactElement {
@@ -242,6 +249,7 @@ export function ExportLightbox({
 
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
+  const isGuild = variant === 'guild';
   const isScheduled = variant === 'scheduled';
   const isContacts = variant === 'contacts';
   const isMessageFlow = !isAlbum && !isQzone && !isContacts;
@@ -263,9 +271,19 @@ export function ExportLightbox({
     return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
   });
 
+  /** QQ 空间 HTML 导出靠本地配图 + 评论/点赞渲染：选中 HTML 时锁定
+   *  「下载配图」与「评论与点赞」为开。 */
+  const htmlForced = isQzone && formats.includes('html');
+
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
   }
+
+  // 切到 HTML 时自动补开配图下载 + 评论/点赞拉取，避免产出渲染不全的 html。
+  useEffect(() => {
+    if (!htmlForced) return;
+    setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
+  }, [htmlForced]);
 
   /** 切换某个导出格式（至少保留一种）。 */
   function toggleFormat(f: ExportFormat): void {
@@ -456,11 +474,16 @@ export function ExportLightbox({
                     />
                     <StepRow
                       step="4.2"
-                      title="补充拉取的漫游消息"
-                      desc="扫描本地缓存中的漫游消息一并导出（未在线时也会读取缓存数据库）"
+                      title={isGuild ? '拉取漫游消息' : '补充拉取的漫游消息'}
+                      desc={
+                        isGuild
+                          ? '频道私聊仅导出本机已有的消息记录，不支持漫游消息拉取'
+                          : '扫描本地缓存中的漫游消息一并导出（未在线时也会读取缓存数据库）'
+                      }
                       control={
                         <Toggle
-                          checked={opts.completeMessages}
+                          checked={isGuild ? false : opts.completeMessages}
+                          disabled={isGuild}
                           onChange={(v) => patch({ completeMessages: v })}
                         />
                       }
@@ -488,10 +511,15 @@ export function ExportLightbox({
               {/* 右列：格式 + 内容 + 扩展 */}
               <div className="weq-exp-col">
                 {isQzone ? (
-                  <Card title="好友 QQ 空间导出">
+                  <Card title="QQ 空间导出">
                     <div className="weq-exp-placeholder">
-                      <span>导出该好友已发表的说说（内容 / 时间 / 评论数 / 配图链接）</span>
-                      <small>需登录该账号的 QQ 客户端。配图开启后存入 media/ 子文件夹。</small>
+                      <span>
+                        导出该空间的说说（内容 / 时间 / 评论数 / 配图 / 视频；可选导出自己）
+                      </span>
+                      <small>
+                        需登录该账号的 QQ 客户端。配图与视频存入 media/；HTML
+                        格式会强制下载媒体并本地引用（离线可看）；评论与点赞从动态页解析，仅覆盖翻到的动态，可能不全。
+                      </small>
                     </div>
                   </Card>
                 ) : null}
@@ -540,13 +568,32 @@ export function ExportLightbox({
                 {!isAlbum ? (
                   <Card title="导出内容">
                     {isQzone ? (
-                      <MasterRow
-                        icon={<ImageIcon size={17} />}
-                        label="下载配图"
-                        desc="说说正文始终导出；配图开启后存入 media/ 子目录"
-                        checked={opts.exportMedia}
-                        onChange={(v) => patch({ exportMedia: v })}
-                      />
+                      <>
+                        <MasterRow
+                          icon={<ImageIcon size={17} />}
+                          label="下载媒体（配图 / 视频）"
+                          desc={
+                            htmlForced
+                              ? 'HTML 导出需要本地媒体，已随格式强制开启'
+                              : '说说正文始终导出；配图与视频开启后存入 media/ 子目录'
+                          }
+                          checked={opts.exportMedia}
+                          disabled={htmlForced}
+                          onChange={(v) => patch({ exportMedia: v })}
+                        />
+                        <MasterRow
+                          icon={<Heart size={17} />}
+                          label="评论与点赞"
+                          desc={
+                            htmlForced
+                              ? 'HTML 导出包含评论与点赞，已随格式强制开启'
+                              : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
+                          }
+                          checked={htmlForced || opts.qzoneInteractions}
+                          disabled={htmlForced}
+                          onChange={(v) => patch({ qzoneInteractions: v })}
+                        />
+                      </>
                     ) : isContacts ? (
                       <MasterRow
                         icon={<UserRound size={17} />}
@@ -651,9 +698,10 @@ export function ExportLightbox({
                 {/* 扩展功能 */}
                 {isMessageFlow ? (
                   <Card title="扩展功能">
-                    {isScheduled ? (
+                    {isScheduled || autoSaveHint ? (
                       <p className="weq-exp-block-hint">
-                        定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。
+                        {autoSaveHint ??
+                          '定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。'}
                       </p>
                     ) : (
                       <Row
@@ -766,10 +814,10 @@ export function ExportLightbox({
                   opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
                 }`
               : isQzone
-                ? `${formats.length} 种格式${opts.exportMedia ? ' · 含配图' : ''}`
+                ? `${formats.length} 种格式${opts.exportMedia ? ' · 含配图' : ''}${opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
                 : isContacts
                   ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
-                : null}
+                  : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消

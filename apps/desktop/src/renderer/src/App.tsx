@@ -27,6 +27,7 @@ import {
   MsgDecorationEnabledContext,
 } from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
+import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
@@ -154,35 +155,38 @@ export default function App(): ReactElement {
     <CdnProvider accountOpen={view === 'main' && !switching}>
       <TextMarkdownProvider>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
-          {switching ? (
-            <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
-              <WarmupSplash progress={switchProgress} hint={switchHint} />
-            </main>
-          ) : view === 'bootstrap' ? (
-            <BootstrapView />
-          ) : (
-            <MainView key={openedUin ?? ''} />
-          )}
-          {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
-          {view === 'main' ? <WelcomeDialog /> : null}
-          <DialogHost />
-          <ToastHost />
-          <DesktopOnly>
-            <CloseConfirmDialog />
-          </DesktopOnly>
-          <DesktopOnly>
-            <PtraceHintDialog />
-          </DesktopOnly>
-          <DesktopOnly>
-            <ElevationPasswordDialog />
-          </DesktopOnly>
-          <DesktopOnly>
-            <AppLockOverlay />
-          </DesktopOnly>
-          <ImageLightbox />
-          <VideoLightbox />
-          <MarketFaceLightbox />
-          <ForwardWindowHost />
+          {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}
+          <ActiveWidgetProvider>
+            {switching ? (
+              <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+                <WarmupSplash progress={switchProgress} hint={switchHint} />
+              </main>
+            ) : view === 'bootstrap' ? (
+              <BootstrapView />
+            ) : (
+              <MainView key={openedUin ?? ''} />
+            )}
+            {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
+            {view === 'main' ? <WelcomeDialog /> : null}
+            <DialogHost />
+            <ToastHost />
+            <DesktopOnly>
+              <CloseConfirmDialog />
+            </DesktopOnly>
+            <DesktopOnly>
+              <PtraceHintDialog />
+            </DesktopOnly>
+            <DesktopOnly>
+              <ElevationPasswordDialog />
+            </DesktopOnly>
+            <DesktopOnly>
+              <AppLockOverlay />
+            </DesktopOnly>
+            <ImageLightbox />
+            <VideoLightbox />
+            <MarketFaceLightbox />
+            <ForwardWindowHost />
+          </ActiveWidgetProvider>
         </SelfPendantProvider>
       </TextMarkdownProvider>
     </CdnProvider>

@@ -11,12 +11,7 @@
  * connection (e.g. on account switch / app shutdown).
  */
 
-import type {
-  NtHelperBinding,
-  SqlRow,
-  SqlValue,
-  DatabaseAlgorithms,
-} from '@weq/native';
+import type { NtHelperBinding, SqlRow, SqlValue, DatabaseAlgorithms } from '@weq/native';
 
 export interface QqDbOptions {
   /** Absolute path to the QQ NT database file (encrypted, with QQ wrapper). */
@@ -78,7 +73,13 @@ export class QqDb {
   async write(sql: string, params?: SqlValue[]): Promise<number> {
     try {
       if (this.encrypted) {
-        return await this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
+        return await this.nt.executeSqlWriteWithKey(
+          this.dbPath,
+          sql,
+          this.key!,
+          this.algo!,
+          params ?? null,
+        );
       }
       return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
     } finally {

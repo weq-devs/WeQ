@@ -18,13 +18,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, X, Smile, Download } from 'lucide-react';
+import { RefreshCw, Smile, Download } from 'lucide-react';
 import type { SysEmojiEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
-
-const PAGE = 120;
+import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {
@@ -33,27 +34,16 @@ function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): st
 
 export function SysEmojiExplorer(): ReactElement {
   const dialog = useAppDialog();
-  const [entries, setEntries] = useState<SysEmojiEntry[]>([]);
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<SysEmojiEntry | null>(null);
   const [filling, setFilling] = useState(false);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
-  const loadingRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Seed the header total once (a cheap first query with limit 1 would race the
-  // real first page, so just read it off the first real page instead).
-  const totalQuery = trpc.account.sysEmoji.listEntries.useQuery({ limit: 1 });
-  useEffect(() => {
-    if (totalQuery.data && total === null) setTotal(totalQuery.data.total);
-  }, [totalQuery.data, total]);
+  const fetchPage = useCallback(
+    (cursor: string | null) =>
+      client.account.sysEmoji.listEntries.query({ limit: CURSOR_PAGE, cursor }),
+    [],
+  );
+  const { entries, total, loading, error, done, sentinelRef, reload } =
+    useCursorPaged<SysEmojiEntry>(fetchPage);
 
   // How many faces the CDN could still supply — drives the 补全 button's copy.
   const statusQuery = trpc.account.sysEmoji.downloadStatus.useQuery(undefined, {
@@ -63,64 +53,12 @@ export function SysEmojiExplorer(): ReactElement {
   const status = statusQuery.data;
   const missing = status ? Math.max(0, status.available - status.present) : 0;
 
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await client.account.sysEmoji.listEntries.query({
-        limit: PAGE,
-        cursor: cursorRef.current,
-      });
-      setEntries((prev) => [...prev, ...page.entries]);
-      setTotal(page.total);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      doneRef.current = true;
-      setError(e instanceof Error ? e.message : String(e));
-      setDone(true);
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, []);
-
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '400px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done]);
-
   /** Fetch every missing face, then restart paging so the grid picks them up. */
   const fillMissing = useCallback(async (): Promise<void> => {
     setFilling(true);
     try {
       const result = await client.account.sysEmoji.downloadAll.mutate();
-      setEntries([]);
-      cursorRef.current = null;
-      doneRef.current = false;
-      setDone(false);
-      loadingRef.current = false;
-      await Promise.all([statusQuery.refetch(), loadMore()]);
+      await Promise.all([statusQuery.refetch(), reload()]);
       dialog.success(
         '系统表情补全完成',
         `新下载 ${result.downloaded} 个，已有 ${result.skipped} 个` +
@@ -131,7 +69,7 @@ export function SysEmojiExplorer(): ReactElement {
     } finally {
       setFilling(false);
     }
-  }, [dialog, statusQuery, loadMore]);
+  }, [dialog, statusQuery, reload]);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
@@ -160,7 +98,9 @@ export function SysEmojiExplorer(): ReactElement {
         ) : null}
       </div>
 
-      {!loading && entries.length === 0 && done ? (
+      {loading && entries.length === 0 ? (
+        <GridSkeleton />
+      ) : !loading && entries.length === 0 && done ? (
         <div className="weq-cache-grid-state">
           {missing > 0 ? '本地没有系统表情资源，可点击上方补全下载' : '未找到系统表情资源'}
         </div>
@@ -171,14 +111,12 @@ export function SysEmojiExplorer(): ReactElement {
               <SysEmojiCard key={entry.name} entry={entry} onOpen={() => setPreview(entry)} />
             ))}
           </div>
-          {!done ? (
-            <div ref={sentinelRef} className="weq-cache-avatar-more">
-              <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-              {loading ? '加载中…' : '滚动加载更多'}
-            </div>
-          ) : (
-            <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-          )}
+          <GridFooter
+            loading={loading}
+            done={done}
+            count={entries.length}
+            sentinelRef={sentinelRef}
+          />
         </div>
       )}
 
@@ -196,8 +134,7 @@ function SysEmojiCard({
   onOpen: () => void;
 }): ReactElement {
   // Prefer the animated APNG; fall back to the static PNG when it fails / absent.
-  const initial: 'apng' | 'png' =
-    entry.hasApng && entry.apngFile ? 'apng' : 'png';
+  const initial: 'apng' | 'png' = entry.hasApng && entry.apngFile ? 'apng' : 'png';
   const [fmt, setFmt] = useState<'apng' | 'png'>(initial);
   const [broken, setBroken] = useState(false);
 
@@ -210,7 +147,7 @@ function SysEmojiCard({
         {broken || !file ? (
           <Smile size={26} strokeWidth={1.4} className="weq-cache-sysemoji-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={faceUrl(entry.name, fmt, file)}
             alt={entry.name}
             loading="lazy"
@@ -258,49 +195,37 @@ function SysEmojiLightbox({
   const hasLottie = panels.some((p) => p.fmt === 'lottie');
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className={`weq-blob-dialog weq-sysemoji-dialog${hasLottie ? ' has-lottie' : ''}`}
-        role="dialog"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-blob-head">
-          <div className="weq-blob-title">
-            <h3>系统表情 · {entry.name}</h3>
-            <code>{panels.length} 种格式</code>
-          </div>
-          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="weq-blob-body weq-sysemoji-panels">
-          {panels.length === 0 ? (
-            <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
-          ) : (
-            panels.map((p) => (
-              <figure key={p.fmt} className={`weq-sysemoji-panel is-${p.fmt}`}>
-                <div className="weq-sysemoji-stage">
-                  {p.fmt === 'lottie' ? (
-                    <SysEmojiLottie src={faceUrl(entry.name, 'lottie', p.file)} label={entry.name} />
-                  ) : (
-                    <img
-                      src={faceUrl(entry.name, p.fmt, p.file)}
-                      alt={`${entry.name} ${p.label}`}
-                      draggable={false}
-                    />
-                  )}
-                </div>
-                <figcaption className="weq-sysemoji-panel-cap">
-                  <strong>{p.label}</strong>
-                  <span>{p.file}</span>
-                </figcaption>
-              </figure>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+    <BlobDialog
+      dialogClass={`weq-sysemoji-dialog${hasLottie ? ' has-lottie' : ''}`}
+      bodyClass="weq-sysemoji-panels"
+      title={`系统表情 · ${entry.name}`}
+      meta={`${panels.length} 种格式`}
+      onClose={onClose}
+    >
+      {panels.length === 0 ? (
+        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+      ) : (
+        panels.map((p) => (
+          <figure key={p.fmt} className={`weq-sysemoji-panel is-${p.fmt}`}>
+            <div className="weq-sysemoji-stage">
+              {p.fmt === 'lottie' ? (
+                <SysEmojiLottie src={faceUrl(entry.name, 'lottie', p.file)} label={entry.name} />
+              ) : (
+                <ShimmerImage
+                  src={faceUrl(entry.name, p.fmt, p.file)}
+                  alt={`${entry.name} ${p.label}`}
+                  draggable={false}
+                />
+              )}
+            </div>
+            <figcaption className="weq-sysemoji-panel-cap">
+              <strong>{p.label}</strong>
+              <span>{p.file}</span>
+            </figcaption>
+          </figure>
+        ))
+      )}
+    </BlobDialog>
   );
 }
 
@@ -346,9 +271,7 @@ function SysEmojiLottie({ src, label }: { src: string; label: string }): ReactEl
   }, [src]);
 
   if (failed) return <div className="weq-sysemoji-lottie-fail">Lottie 加载失败</div>;
-  return (
-    <div ref={containerRef} className="weq-sysemoji-lottie" role="img" aria-label={label} />
-  );
+  return <div ref={containerRef} className="weq-sysemoji-lottie" role="img" aria-label={label} />;
 }
 
 /** Short format badges for a card (APNG / Lottie / PNG), in render-priority order. */

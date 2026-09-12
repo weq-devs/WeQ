@@ -16,7 +16,7 @@
  * 关于 bubbleId / fontId：
  *   - 只存 itemId，不存 url。气泡的九宫格资源外链纯 itemId 可预测
  *     (immersive/bubble/<itemId>/static-*.png)，渲染侧自己拼；字体得走 protocol
- *     换下载链（见 dress_install），两者都不需要在这里落 url。
+ *     换下载链，两者都不需要在这里落 url。
  *   - 界面字体(305) 混在 apps["5"] 桶里返回，这里只要聊天字体(5)，故按项内 appId 取。
  *
  * 关于 chatBgUrl（聊天背景，appId 8）：
@@ -27,8 +27,8 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { NtHelperBinding } from '@weq/native';
 import { WebCredentialProvider } from './web/credential';
+import type { WebNative } from './web/credential';
 import type { FriendDress } from './web/friend_dress';
 import { getSelfDress } from './web/self_dress';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -73,6 +73,12 @@ export interface HomeDressSnapshot {
    * 这个是贴在聊天窗后面的底图（appId 8）。
    */
   chatBgUrl?: string;
+  /** 正在用的头像挂件 itemId（appId 4）。 */
+  widgetId?: number;
+  /** 挂件款名。 */
+  widgetName?: string;
+  /** 挂件预览图直链（newPreview2，已 upgradePreview）。 */
+  widgetPreviewUrl?: string;
 }
 
 /** newPreview1.xxx → newPreview2.xxx（同扩展名）。 */
@@ -119,15 +125,7 @@ async function resolveCardVideoUrl(itemId: number): Promise<string> {
  * @param pid      已注入的 QQ 进程 pid
  */
 export async function fetchHomeDress(
-  nt: Pick<
-    NtHelperBinding,
-    | 'fetchSkey'
-    | 'fetchPskey'
-    | 'fetchClientKey'
-    | 'probePtLoginPort'
-    | 'ptFetchSkey'
-    | 'ptFetchPskey'
-  >,
+  nt: WebNative,
   session: AccountSession,
   pid: number,
   seedPskey?: Record<string, string>,
@@ -195,6 +193,14 @@ export async function fetchHomeDress(
     if (fontItem.name) snapshot.fontName = fontItem.name;
     if (fontItem.previewUrl) snapshot.fontPreviewUrl = fontItem.previewUrl;
   }
+  // 挂件：名字/预览图/动画帧要按 itemId 去换，快照里必须存 id（widgetUrl 只是
+  // 预览图，装上之后渲染走帧动画，不再用它）。
+  if (widgetItem?.itemId) {
+    snapshot.widgetId = widgetItem.itemId;
+    if (widgetItem.name) snapshot.widgetName = widgetItem.name;
+    if (widgetUrl) snapshot.widgetPreviewUrl = widgetUrl;
+  }
+
   // 聊天背景**不走 upgradePreview** —— 那套是 newPreview1→2 的换名，与背景无关。
   // 背景的高清图是同目录的 aioImage（720×1280），getSelfDress 已经算好放在 hdUrl 里
   // （目录段是服务端 nonce，推不出来，见 self_dress 的 chatBgHdUrl）。没有 hdUrl 时
@@ -211,6 +217,7 @@ export async function fetchHomeDress(
     tagCount: tags.length,
     bubbleId: snapshot.bubbleId ?? 0,
     fontId: snapshot.fontId ?? 0,
+    widgetId: snapshot.widgetId ?? 0,
     hasChatBg: Boolean(snapshot.chatBgUrl),
   });
 
@@ -219,15 +226,7 @@ export async function fetchHomeDress(
 
 /** vip.qq.com 的凭证。`seedPskey` 为空时强制走活 hook。 */
 async function resolveCred(
-  nt: Pick<
-    NtHelperBinding,
-    | 'fetchSkey'
-    | 'fetchPskey'
-    | 'fetchClientKey'
-    | 'probePtLoginPort'
-    | 'ptFetchSkey'
-    | 'ptFetchPskey'
-  >,
+  nt: WebNative,
   uin: string,
   pid: number,
   seedPskey: Record<string, string> | undefined,

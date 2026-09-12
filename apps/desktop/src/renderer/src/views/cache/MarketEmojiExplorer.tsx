@@ -13,13 +13,14 @@
  * protocol (see main/media_protocol.ts) — nothing crosses tRPC but metadata.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, X, Sticker } from 'lucide-react';
+import { useCallback, useState, type ReactElement } from 'react';
+import { Sticker } from 'lucide-react';
 import type { MarketFaceEntry } from '@weq/service';
-import { trpc, client } from '../../trpc/client';
+import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
-
-const PAGE = 120;
+import { ShimmerImage } from '../../components/ShimmerImage';
+import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one market face by pack+hash. */
 function mfaceUrl(itemId: string, hash: string): string {
@@ -27,75 +28,20 @@ function mfaceUrl(itemId: string, hash: string): string {
 }
 
 export function MarketEmojiExplorer(): ReactElement {
-  const [entries, setEntries] = useState<MarketFaceEntry[]>([]);
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<MarketFaceEntry | null>(null);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
-  const loadingRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  // Seed the header total once.
-  const totalQuery = trpc.account.marketEmoji.listEntries.useQuery({ limit: 1 });
-  useEffect(() => {
-    if (totalQuery.data && total === null) setTotal(totalQuery.data.total);
-  }, [totalQuery.data, total]);
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await client.account.marketEmoji.listEntries.query({
-        limit: PAGE,
-        cursor: cursorRef.current,
-      });
-      setEntries((prev) => [...prev, ...page.entries]);
-      setTotal(page.total);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      doneRef.current = true;
-      setError(e instanceof Error ? e.message : String(e));
-      setDone(true);
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, []);
-
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '400px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done]);
+  const fetchPage = useCallback(
+    (cursor: string | null) =>
+      client.account.marketEmoji.listEntries.query({ limit: CURSOR_PAGE, cursor }),
+    [],
+  );
+  const { entries, total, loading, error, done, sentinelRef } =
+    useCursorPaged<MarketFaceEntry>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
     return <div className="weq-cache-grid-state">未找到商城表情资源</div>;
@@ -120,14 +66,12 @@ export function MarketEmojiExplorer(): ReactElement {
             />
           ))}
         </div>
-        {!done ? (
-          <div ref={sentinelRef} className="weq-cache-avatar-more">
-            <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-            {loading ? '加载中…' : '滚动加载更多'}
-          </div>
-        ) : (
-          <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-        )}
+        <GridFooter
+          loading={loading}
+          done={done}
+          count={entries.length}
+          sentinelRef={sentinelRef}
+        />
       </div>
 
       {preview ? <MarketEmojiLightbox entry={preview} onClose={() => setPreview(null)} /> : null}
@@ -150,12 +94,17 @@ function MarketEmojiCard({
   const badges = formatBadges(entry);
 
   return (
-    <button type="button" className="weq-cache-marketemoji-card" onClick={onOpen} title={entry.hash}>
+    <button
+      type="button"
+      className="weq-cache-marketemoji-card"
+      onClick={onOpen}
+      title={entry.hash}
+    >
       <span className="weq-cache-marketemoji-thumb">
         {broken ? (
           <Sticker size={26} strokeWidth={1.4} className="weq-cache-marketemoji-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={url}
             alt={entry.hash}
             loading="lazy"
@@ -195,41 +144,29 @@ function MarketEmojiLightbox({
   const url = mfaceUrl(entry.itemId, entry.hash);
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="weq-blob-dialog weq-marketemoji-dialog"
-        role="dialog"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-blob-head">
-          <div className="weq-blob-title">
-            <h3>商城表情 · {entry.hash.slice(0, 12)}</h3>
-            <code>{panels.length} 种格式</code>
-          </div>
-          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="weq-blob-body weq-marketemoji-panels">
-          {panels.length === 0 ? (
-            <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
-          ) : (
-            panels.map((p) => (
-              <figure key={p.fmt} className="weq-marketemoji-panel">
-                <div className="weq-marketemoji-stage">
-                  <img src={url} alt={`${entry.hash} ${p.label}`} draggable={false} />
-                </div>
-                <figcaption className="weq-marketemoji-panel-cap">
-                  <strong>{p.label}</strong>
-                  <span>{formatSize(p.size)}</span>
-                </figcaption>
-              </figure>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+    <BlobDialog
+      dialogClass="weq-marketemoji-dialog"
+      bodyClass="weq-marketemoji-panels"
+      title={`商城表情 · ${entry.hash.slice(0, 12)}`}
+      meta={`${panels.length} 种格式`}
+      onClose={onClose}
+    >
+      {panels.length === 0 ? (
+        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+      ) : (
+        panels.map((p) => (
+          <figure key={p.fmt} className="weq-marketemoji-panel">
+            <div className="weq-marketemoji-stage">
+              <img src={url} alt={`${entry.hash} ${p.label}`} draggable={false} />
+            </div>
+            <figcaption className="weq-marketemoji-panel-cap">
+              <strong>{p.label}</strong>
+              <span>{fmtBytes(p.size)}</span>
+            </figcaption>
+          </figure>
+        ))
+      )}
+    </BlobDialog>
   );
 }
 
@@ -239,11 +176,4 @@ function formatBadges(entry: MarketFaceEntry): string[] {
   if (entry.hasGif) out.push('GIF');
   if (entry.hasPng) out.push('PNG');
   return out;
-}
-
-/** Format bytes as KB/MB. */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }

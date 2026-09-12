@@ -20,125 +20,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, Play, Pause, FileText, Loader2 } from 'lucide-react';
+import { Play, Pause, FileText, Loader2 } from 'lucide-react';
 import type { FlatMediaEntry, MonthMediaEntry, VoiceMediaEntry } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localMediaUrl, localVoiceUrl } from '../../lib/resourceUrl';
 import { openLightbox } from '../../components/ImageLightbox';
 import { openVideoLightbox } from '../../components/VideoLightbox';
-import { fmtBytes } from './FileResourceShared';
-
-const PAGE = 120;
+import { ShimmerImage } from '../../components/ShimmerImage';
+import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 type FlatKind = 'photoWall' | 'qzone';
 type MonthKind = 'pic' | 'video';
-
-// ── shared cursor-paged infinite scroll ─────────────────────────────────────────
-
-interface CursorPage<T> {
-  entries: T[];
-  nextCursor: string | null;
-}
-
-interface CursorPaged<T> {
-  entries: T[];
-  loading: boolean;
-  error: string | null;
-  done: boolean;
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
-}
-
-/**
- * Cursor-based infinite-scroll loader. `fetchPage(cursor)` pulls one page; the
- * sentinel auto-loads the next as it scrolls into view. Not filter-aware — each
- * kind mounts its own grid (via `key`), so there's nothing to reset.
- */
-function useCursorPaged<T>(
-  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
-): CursorPaged<T> {
-  const [entries, setEntries] = useState<T[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-
-  const cursorRef = useRef<string | null>(null);
-  const loadingRef = useRef(false);
-  const doneRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const fetchRef = useRef(fetchPage);
-  fetchRef.current = fetchPage;
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await fetchRef.current(cursorRef.current);
-      setEntries((prev) => [...prev, ...page.entries]);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      doneRef.current = true; // stop the sentinel from hammering a failing kind
-      setDone(true);
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, []);
-
-  // First page on mount.
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page as the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '500px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done, entries.length]);
-
-  return { entries, loading, error, done, sentinelRef };
-}
-
-/** Footer row for a media grid (sentinel / loading / end state). */
-function GridFooter({
-  loading,
-  done,
-  count,
-  sentinelRef,
-}: {
-  loading: boolean;
-  done: boolean;
-  count: number;
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
-}): ReactElement {
-  if (done) {
-    return (
-      <div className="weq-cache-avatar-more is-end">
-        {count === 0 ? '该分类暂无缓存' : `已全部加载（${count}）`}
-      </div>
-    );
-  }
-  return (
-    <div ref={sentinelRef} className="weq-cache-avatar-more">
-      <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-      {loading ? '加载中…' : '滚动加载更多'}
-    </div>
-  );
-}
 
 // ── 图片墙 / QQ空间 (flat hash grid) ────────────────────────────────────────────
 
@@ -146,13 +39,16 @@ function GridFooter({
 export function FlatMediaExplorer({ kind }: { kind: FlatKind }): ReactElement {
   const fetchPage = useCallback(
     (cursor: string | null) =>
-      client.account.mediaResource.listFlat.query({ kind, cursor, limit: PAGE }),
+      client.account.mediaResource.listFlat.query({ kind, cursor, limit: CURSOR_PAGE }),
     [kind],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<FlatMediaEntry>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   return (
@@ -163,7 +59,12 @@ export function FlatMediaExplorer({ kind }: { kind: FlatKind }): ReactElement {
             <FlatCard key={entry.rel} kind={kind} entry={entry} />
           ))}
         </div>
-        <GridFooter loading={loading} done={done} count={entries.length} sentinelRef={sentinelRef} />
+        <GridFooter
+          loading={loading}
+          done={done}
+          count={entries.length}
+          sentinelRef={sentinelRef}
+        />
       </div>
     </div>
   );
@@ -179,7 +80,7 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
         className="weq-cache-avatar-thumb weq-cache-media-open"
         onClick={() => openLightbox(src, entry.name)}
       >
-        <img src={src} alt={entry.name} loading="lazy" />
+        <ShimmerImage src={src} alt={entry.name} loading="lazy" />
       </button>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.name.slice(0, 10)}…</span>
@@ -195,13 +96,16 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
 export function MonthMediaExplorer({ kind }: { kind: MonthKind }): ReactElement {
   const fetchPage = useCallback(
     (cursor: string | null) =>
-      client.account.mediaResource.listMonth.query({ kind, cursor, limit: PAGE }),
+      client.account.mediaResource.listMonth.query({ kind, cursor, limit: CURSOR_PAGE }),
     [kind],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<MonthMediaEntry>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   return (
@@ -212,7 +116,12 @@ export function MonthMediaExplorer({ kind }: { kind: MonthKind }): ReactElement 
             <MonthCard key={`${entry.month}:${entry.hash}`} kind={kind} entry={entry} />
           ))}
         </div>
-        <GridFooter loading={loading} done={done} count={entries.length} sentinelRef={sentinelRef} />
+        <GridFooter
+          loading={loading}
+          done={done}
+          count={entries.length}
+          sentinelRef={sentinelRef}
+        />
       </div>
     </div>
   );
@@ -255,7 +164,7 @@ function MonthCard({ kind, entry }: { kind: MonthKind; entry: MonthMediaEntry })
         disabled={!clickable}
       >
         {previewSrc ? (
-          <img src={previewSrc} alt={entry.hash} loading="lazy" />
+          <ShimmerImage src={previewSrc} alt={entry.hash} loading="lazy" />
         ) : (
           <span className="weq-cache-media-noimg">无缩略图</span>
         )}
@@ -322,7 +231,8 @@ function fakeWaveform(seedStr: string, count = WAVE_BARS): number[] {
 /** Voice-clip grid for the Ptt cache (语音). */
 export function VoiceExplorer(): ReactElement {
   const fetchPage = useCallback(
-    (cursor: string | null) => client.account.mediaResource.listVoice.query({ cursor, limit: PAGE }),
+    (cursor: string | null) =>
+      client.account.mediaResource.listVoice.query({ cursor, limit: CURSOR_PAGE }),
     [],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<VoiceMediaEntry>(fetchPage);
@@ -336,6 +246,9 @@ export function VoiceExplorer(): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   // Clips arrive newest-month-first and stay in month order, so a divider only
@@ -358,7 +271,12 @@ export function VoiceExplorer(): ReactElement {
     <div className="weq-cache-avatar">
       <div className="weq-cache-avatar-scroll">
         <div className="weq-voice-grid">{nodes}</div>
-        <GridFooter loading={loading} done={done} count={entries.length} sentinelRef={sentinelRef} />
+        <GridFooter
+          loading={loading}
+          done={done}
+          count={entries.length}
+          sentinelRef={sentinelRef}
+        />
       </div>
     </div>
   );
@@ -443,7 +361,8 @@ function VoiceCard({
       .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
   };
 
-  const seconds = realDur ?? Math.min(60, Math.max(1, Math.round(entry.bytes / SILK_BYTES_PER_SEC)));
+  const seconds =
+    realDur ?? Math.min(60, Math.max(1, Math.round(entry.bytes / SILK_BYTES_PER_SEC)));
   const filled = Math.round(progress * bars.length);
   const hasResult = transcript !== null || transcribeError !== null;
 
@@ -455,7 +374,11 @@ function VoiceCard({
         onClick={toggle}
       >
         <span className="weq-voice-btn" aria-hidden>
-          {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+          {playing ? (
+            <Pause size={16} fill="currentColor" />
+          ) : (
+            <Play size={16} fill="currentColor" />
+          )}
         </span>
         <span className="weq-voice-wave" aria-hidden>
           {bars.map((h, i) => (

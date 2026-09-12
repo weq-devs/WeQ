@@ -1,9 +1,10 @@
 /**
  * Bundle the server into `dist/server.mjs` (plus its two sidecar workers).
  *
- * Universal by design: `native/` ships all platform/arch subtrees and
- * `@weq/native`'s loader picks `native/<process.platform>/<process.arch>` at
- * runtime, so one archive runs on win32-x64, linux-x64 and linux-arm64.
+ * Per-platform by design: each release runner builds its own archive, so
+ * `native/` and `resources/daemon/` only carry the platform/arch this machine
+ * is packaging for. `@weq/native`'s loader picks
+ * `native/<process.platform>/<process.arch>` at runtime.
  *
  * `.node` addons stay external — esbuild can't inline them, and they don't need
  * rebuilding anyway (both are N-API, so the same binary loads under plain Node
@@ -14,6 +15,7 @@ import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentTarget, daemonExe, LABELS, nativeRel } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -91,18 +93,35 @@ for (const [name, entry] of Object.entries(ENTRIES)) {
   await build({ ...shared, entryPoints: [entry], outfile: join(dist, `${name}.mjs`) });
 }
 
-// native/ — every platform, so one archive covers them all.
-if (!existsSync(NATIVE_SRC)) {
-  console.error(`\nnative/ not found at ${NATIVE_SRC} — the build would not run.`);
+// native/ — only the packaging target's subtree (built on its own runner).
+const target = currentTarget();
+const nativeRelPath = nativeRel(target);
+const nativeSrc = join(NATIVE_SRC, nativeRelPath);
+if (!existsSync(nativeSrc)) {
+  console.error(`\nnative/${nativeRelPath} not found at ${nativeSrc} — the build would not run.`);
   process.exit(1);
 }
 rmSync(join(dist, 'native'), { recursive: true, force: true });
-cpSync(NATIVE_SRC, join(dist, 'native'), { recursive: true });
+mkdirSync(dirname(join(dist, 'native', nativeRelPath)), { recursive: true });
+cpSync(nativeSrc, join(dist, 'native', nativeRelPath), { recursive: true });
 
 // resources/ — brand assets etc. read at runtime.
 if (existsSync(RESOURCES_SRC)) {
   rmSync(join(dist, 'resources'), { recursive: true, force: true });
   cpSync(RESOURCES_SRC, join(dist, 'resources'), { recursive: true });
+}
+
+// Rust 守护进程二进制随包发布，只拷当前平台那份（运行时按平台选）。
+// 构建机上没有对应产物时跳过 —— build:daemon 在 release workflow 里先行执行。
+const DAEMON_SRC = join(repoRoot, 'resources', 'daemon', target);
+if (existsSync(DAEMON_SRC)) {
+  mkdirSync(join(dist, 'resources', 'daemon', target), { recursive: true });
+  cpSync(DAEMON_SRC, join(dist, 'resources', 'daemon', target), { recursive: true });
+  console.log(`[build-server] daemon binary copied into resources/daemon/${target}/`);
+} else {
+  console.warn(
+    `[build-server] resources/daemon/${target}/${daemonExe(target)} not found — daemon not bundled (run pnpm run build:daemon)`,
+  );
 }
 
 // A manifest so `node server.mjs` resolves `ws` without a full install.
@@ -142,8 +161,9 @@ writeFileSync(
     'Linux 建议直接用 root 运行：注入 QQ 进程需要 ptrace 权限，非 root 时会',
     '改走 pkexec 提权，而无图形界面的服务器弹不出授权框。',
     '',
-    'native/ 同时包含 win32-x64 / linux-x64 / linux-arm64 三份原生模块，',
-    '运行时按当前平台自动选择，因此同一个压缩包三平台通用。',
+    `本压缩包为单平台包：${LABELS[target]}。`,
+    `native/ 与 resources/daemon/ 只含该平台的原生模块和守护进程二进制。`,
+    '其它平台请下载对应的 weq-web-<版本>-<平台>.tar.gz。',
     '',
     '完整说明： https://github.com/H3CoF6/WeQ/blob/main/apps/web/README.md',
   ].join('\n'),

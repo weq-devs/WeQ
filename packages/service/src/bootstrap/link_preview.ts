@@ -160,7 +160,11 @@ async function urlAllowed(raw: string): Promise<Allowed | null> {
 function pinnedRequest(
   target: Allowed,
   headers: Record<string, string>,
-): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; stream: IncomingMessage }> {
+): Promise<{
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  stream: IncomingMessage;
+}> {
   const { url, ip } = target;
   const https = url.protocol === 'https:';
   const options = {
@@ -315,7 +319,9 @@ function unescapeHtml(s: string): string {
   return s
     .replace(/&(amp|lt|gt|quot|#39|apos|nbsp);/g, (_, e: string) => ENTITIES[e] ?? _)
     .replace(/&#(\d{1,6});/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]{1,6});/gi, (_, h: string) => String.fromCodePoint(Number.parseInt(h, 16)));
+    .replace(/&#x([0-9a-f]{1,6});/gi, (_, h: string) =>
+      String.fromCodePoint(Number.parseInt(h, 16)),
+    );
 }
 
 function clean(s: string, max: number): string {
@@ -337,7 +343,12 @@ function metaTable(html: string): Map<string, string> {
 /** 公众号文章的字段藏在内联脚本里（`var msg_title = "…"`），og 标签常常是空的。 */
 function wechatVar(html: string, name: string): string {
   const m = html.match(new RegExp(`${name}\\s*=\\s*(["'])([\\s\\S]{0,600}?)\\1`));
-  return m ? m[2]!.replace(/\\x26amp;/g, '&').replace(/\\x26/g, '&').replace(/\\\//g, '/') : '';
+  return m
+    ? m[2]!
+        .replace(/\\x26amp;/g, '&')
+        .replace(/\\x26/g, '&')
+        .replace(/\\\//g, '/')
+    : '';
 }
 
 /**
@@ -348,7 +359,10 @@ function wechatAuthor(meta: Map<string, string>): string {
   return meta.get('og:article:author') ?? meta.get('author') ?? '';
 }
 
-function parseMeta(html: string, pageUrl: URL): Omit<LinkPreview, 'image' | 'imageKind' | 'fetchedAt'> & {
+function parseMeta(
+  html: string,
+  pageUrl: URL,
+): Omit<LinkPreview, 'image' | 'imageKind' | 'fetchedAt'> & {
   imageUrl: string;
 } {
   const meta = metaTable(html);
@@ -402,7 +416,8 @@ function imageExt(b: Buffer): string | null {
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpg';
   if (b[0] === 0x89 && b.toString('latin1', 1, 4) === 'PNG') return 'png';
   if (b.toString('latin1', 0, 3) === 'GIF') return 'gif';
-  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP')
+    return 'webp';
   if (b[0] === 0x42 && b[1] === 0x4d) return 'bmp';
   return null;
 }
@@ -449,7 +464,11 @@ export class LinkPreviewService {
 
     const promise = this.fetchPreview(url)
       .catch((error) => {
-        this.logger.debug('link preview failed', { event: 'link-preview-fail', url, error: String(error) });
+        this.logger.debug('link preview failed', {
+          event: 'link-preview-fail',
+          url,
+          error: String(error),
+        });
         return null;
       })
       .then(async (preview) => {

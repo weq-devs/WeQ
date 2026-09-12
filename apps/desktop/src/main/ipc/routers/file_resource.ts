@@ -79,29 +79,25 @@ export const fileResourceRouter = router({
     }),
 
     /** Reveal a File/Ori file in the OS file manager (path must be inside Ori). */
-    reveal: procedure
-      .input(z.object({ path: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        const svc = requireServices().fileResource;
-        if (!svc.isUnderFileDir(input.path)) {
-          return { ok: false, error: '路径不在 File 目录内' };
-        }
-        if (!existsSync(input.path)) return { ok: false, error: '文件不存在' };
-        await revealInFolder(input.path);
-        return { ok: true };
-      }),
+    reveal: procedure.input(z.object({ path: z.string().min(1) })).mutation(async ({ input }) => {
+      const svc = requireServices().fileResource;
+      if (!svc.isUnderFileDir(input.path)) {
+        return { ok: false, error: '路径不在 File 目录内' };
+      }
+      if (!existsSync(input.path)) return { ok: false, error: '文件不存在' };
+      await revealInFolder(input.path);
+      return { ok: true };
+    }),
 
     /** Open a File/Ori file with the OS default handler (path must be inside Ori). */
-    open: procedure
-      .input(z.object({ path: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        const svc = requireServices().fileResource;
-        if (!svc.isUnderFileDir(input.path)) {
-          return { ok: false, error: '路径不在 File 目录内' };
-        }
-        if (!existsSync(input.path)) return { ok: false, error: '文件不存在' };
-        return openPath(input.path);
-      }),
+    open: procedure.input(z.object({ path: z.string().min(1) })).mutation(async ({ input }) => {
+      const svc = requireServices().fileResource;
+      if (!svc.isUnderFileDir(input.path)) {
+        return { ok: false, error: '路径不在 File 目录内' };
+      }
+      if (!existsSync(input.path)) return { ok: false, error: '文件不存在' };
+      return openPath(input.path);
+    }),
   }),
 
   // ── 下载文件 (file_assistant.db) ──────────────────────────────────────────
@@ -112,21 +108,17 @@ export const fileResourceRouter = router({
     }),
 
     /** Reveal a downloaded file by its db-recorded localPath. */
-    reveal: procedure
-      .input(z.object({ path: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        if (!existsSync(input.path)) return { ok: false, error: '文件已不存在' };
-        await revealInFolder(input.path);
-        return { ok: true };
-      }),
+    reveal: procedure.input(z.object({ path: z.string().min(1) })).mutation(async ({ input }) => {
+      if (!existsSync(input.path)) return { ok: false, error: '文件已不存在' };
+      await revealInFolder(input.path);
+      return { ok: true };
+    }),
 
     /** Open a downloaded file by its db-recorded localPath. */
-    open: procedure
-      .input(z.object({ path: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        if (!existsSync(input.path)) return { ok: false, error: '文件已不存在' };
-        return openPath(input.path);
-      }),
+    open: procedure.input(z.object({ path: z.string().min(1) })).mutation(async ({ input }) => {
+      if (!existsSync(input.path)) return { ok: false, error: '文件已不存在' };
+      return openPath(input.path);
+    }),
   }),
 
   /** Drop both snapshots so the next summary/list rebuilds from disk. */

@@ -5,9 +5,8 @@
  * 也为未来导出 bot client 持续积累。按 agentId（personaId 或 'assistant'）分桶。
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import type { AssistantStep } from './assistant';
-import { writeFileAtomicSync } from './atomic_write';
+import { JsonStore } from '../common/json_store';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -23,43 +22,67 @@ export interface ConversationTurn {
 const MAX_TURNS = 400;
 
 export class ConversationStore {
-  private data: Record<string, ConversationTurn[]>;
+  private readonly store: JsonStore<Record<string, ConversationTurn[]>>;
 
-  constructor(private readonly filePath: string) {
-    this.data = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => ({}), {
+      normalize: (raw) =>
+        raw && typeof raw === 'object' ? (raw as Record<string, ConversationTurn[]>) : {},
+    });
   }
 
   get(agentId: string): ConversationTurn[] {
-    return this.data[agentId] ?? [];
+    return this.store.data[agentId] ?? [];
+  }
+
+  /**
+   * 合并某前缀下所有桶的对话（旧版单桶 `prefix` + 多会话桶 `${prefix}:${sessionId}`），
+   * 按 ts 排序。供记忆蒸馏 / 反思读取「该克隆体的全部对话」。
+   */
+  getAll(prefix: string): ConversationTurn[] {
+    const prefixWithColon = `${prefix}:`;
+    const out: ConversationTurn[] = [];
+    for (const key of Object.keys(this.store.data)) {
+      if (key === prefix || key.startsWith(prefixWithColon)) {
+        out.push(...(this.store.data[key] ?? []));
+      }
+    }
+    return out.sort((a, b) => a.ts - b.ts);
   }
 
   append(agentId: string, turns: ConversationTurn[]): void {
-    const cur = this.data[agentId] ?? [];
+    const cur = this.store.data[agentId] ?? [];
     const next = [...cur, ...turns];
-    this.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
-    this.persist();
+    this.store.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
+    this.store.save();
+  }
+
+  /**
+   * 原地补全/替换某桶**最后一条** assistant 回合（断点续答收尾用：把中断时留下的
+   * 半截答复替换成完整版，而不是追加一条重复的）。不存在 assistant 末尾则忽略。
+   * `patch.steps` 会**追加**到已有 steps（保留中断前的过程记录）。
+   */
+  patchLastAssistant(
+    agentId: string,
+    patch: Pick<ConversationTurn, 'text'> &
+      Partial<Pick<ConversationTurn, 'steps' | 'toolsUsed' | 'ts'>>,
+  ): void {
+    const cur = this.store.data[agentId];
+    if (!cur || cur.length === 0) return;
+    const last = cur[cur.length - 1];
+    if (last?.role !== 'assistant') return;
+    cur[cur.length - 1] = {
+      ...last,
+      text: patch.text,
+      ts: patch.ts ?? last.ts,
+      steps: [...(last.steps ?? []), ...(patch.steps ?? [])],
+      toolsUsed: patch.toolsUsed ?? last.toolsUsed,
+    };
+    this.store.save();
   }
 
   clear(agentId: string): void {
-    delete this.data[agentId];
-    this.persist();
-  }
-
-  private load(): Record<string, ConversationTurn[]> {
-    try {
-      if (!existsSync(this.filePath)) return {};
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, ConversationTurn[]>) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private persist(): void {
-    try {
-      writeFileAtomicSync(this.filePath, JSON.stringify(this.data));
-    } catch {
-      /* 持久化失败不应影响对话本身 */
-    }
+    delete this.store.data[agentId];
+    this.store.save();
   }
 }

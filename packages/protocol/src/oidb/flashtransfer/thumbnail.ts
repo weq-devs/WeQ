@@ -37,26 +37,24 @@ export interface PreparedThumbnail {
 
 /** 阶段1:读取并校验 PNG,prepare 拿 rkey + 构造 fileId。 */
 export async function prepareThumbnail(
-    nt: OidbNative,
-    pid: number,
-    filesetUuid: string,
-    thumbPath: string,
-    fileIndex: number,
+  nt: OidbNative,
+  pid: number,
+  filesetUuid: string,
+  thumbPath: string,
+  fileIndex: number,
 ): Promise<PreparedThumbnail> {
   const thumbBytes = await fsp.readFile(thumbPath);
   if (
-      thumbBytes.length < 24 ||
-      !thumbBytes
-          .subarray(0, 8)
-          .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    thumbBytes.length < 24 ||
+    !thumbBytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   ) {
     throw new Error(`thumbnail is not a valid PNG: ${thumbPath}`);
   }
   const firstChunkLength = thumbBytes.readUInt32BE(8);
   if (
-      thumbBytes.toString('ascii', 12, 16) !== 'IHDR' ||
-      firstChunkLength < 8 ||
-      thumbBytes.length < 24
+    thumbBytes.toString('ascii', 12, 16) !== 'IHDR' ||
+    firstChunkLength < 8 ||
+    thumbBytes.length < 24
   ) {
     throw new Error(`thumbnail PNG has no valid IHDR: ${thumbPath}`);
   }
@@ -128,15 +126,15 @@ export async function sliceuploadThumbnail(thumb: PreparedThumbnail): Promise<vo
     return;
   }
   const bodyBytes = buildSliceBody(
-      {
-        rkey: thumb.rkey,
-        start: 0,
-        end: thumb.fileSize - 1,
-        sha1: thumb.sha1,
-        sha1StateV: thumb.sha1StateV,
-        chunk: thumb.chunk,
-      },
-      { appid: thumb.appid },
+    {
+      rkey: thumb.rkey,
+      start: 0,
+      end: thumb.fileSize - 1,
+      sha1: thumb.sha1,
+      sha1StateV: thumb.sha1StateV,
+      chunk: thumb.chunk,
+    },
+    { appid: thumb.appid },
   );
 
   await postSliceupload(bodyBytes, 'thumbnail sliceupload');

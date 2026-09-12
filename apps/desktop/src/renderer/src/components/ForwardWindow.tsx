@@ -34,6 +34,7 @@ import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
+import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useOverlayLayer } from '../lib/overlayStack';
 import type { ResolvedWidget } from '@weq/service';
 
@@ -195,9 +196,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
   },
   setError(id, error) {
     set({
-      windows: get().windows.map((w) =>
-        w.id === id ? { ...w, error, loading: false } : w,
-      ),
+      windows: get().windows.map((w) => (w.id === id ? { ...w, error, loading: false } : w)),
     });
   },
 }));
@@ -272,7 +271,12 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // Drag — only the header is a handle. Capture the pointer on the header so a
   // fast drag past the window edge keeps tracking instead of stalling on the
   // viewport background. The window is clamped to the viewport on every move.
-  const dragStateRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const dragStateRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
 
   const onHeaderPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -300,7 +304,11 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
       const dy = event.clientY - drag.startY;
       const maxX = Math.max(0, window.innerWidth - 80);
       const maxY = Math.max(0, window.innerHeight - 32);
-      move(win.id, clamp(drag.originX + dx, -WINDOW_WIDTH + 80, maxX), clamp(drag.originY + dy, 0, maxY));
+      move(
+        win.id,
+        clamp(drag.originX + dx, -WINDOW_WIDTH + 80, maxX),
+        clamp(drag.originY + dy, 0, maxY),
+      );
     },
     [move, win.id],
   );
@@ -462,12 +470,14 @@ function ForwardRow({
   kind: 'c2c' | 'group';
 }): ReactElement {
   const msgDec = useMsgDecoration(record.decoration);
+  // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
+  const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
-  const widget = msgDec.widget;
+  const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
 
   return (
     <div
@@ -480,9 +490,7 @@ function ForwardRow({
         {avatar ? (
           <img src={avatar} alt="" loading="lazy" />
         ) : (
-          <span className="weq-forward-avatar-fallback">
-            {displayName.slice(0, 1)}
-          </span>
+          <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
         )}
         {widget ? <PendantLayer widget={widget} /> : null}
       </div>
@@ -560,7 +568,12 @@ function parseMultiMsgXml(xml: string): {
   summary: string;
   source: string;
 } {
-  const fallback = { mainTitle: '聊天记录', previewLines: [], summary: '查看转发消息', source: '聊天记录' };
+  const fallback = {
+    mainTitle: '聊天记录',
+    previewLines: [],
+    summary: '查看转发消息',
+    source: '聊天记录',
+  };
   if (!xml) return fallback;
 
   // QQ NT's multiMsg payload is XML that occasionally arrives slightly off-spec:
@@ -629,7 +642,12 @@ function parseArkMultiMsg(raw: unknown): {
   summary: string;
   source: string;
 } | null {
-  const fallback = { mainTitle: '聊天记录', previewLines: [], summary: '查看转发消息', source: '聊天记录' };
+  const fallback = {
+    mainTitle: '聊天记录',
+    previewLines: [],
+    summary: '查看转发消息',
+    source: '聊天记录',
+  };
   let ark: Record<string, unknown> | null = null;
   if (raw && typeof raw === 'object') ark = raw as Record<string, unknown>;
   else if (typeof raw === 'string' && raw.trim()) {
@@ -644,7 +662,9 @@ function parseArkMultiMsg(raw: unknown): {
 
   const meta = ark.meta;
   const detail =
-    meta && typeof meta === 'object' && (meta as Record<string, unknown>).detail &&
+    meta &&
+    typeof meta === 'object' &&
+    (meta as Record<string, unknown>).detail &&
     typeof (meta as Record<string, unknown>).detail === 'object'
       ? ((meta as Record<string, unknown>).detail as Record<string, unknown>)
       : null;
@@ -658,14 +678,16 @@ function parseArkMultiMsg(raw: unknown): {
         : '',
     )
     .filter(Boolean);
-  const source = typeof detail.source === 'string' && detail.source.trim()
-    ? detail.source.trim()
-    : typeof ark.desc === 'string' && ark.desc.trim()
-      ? ark.desc.trim()
-      : fallback.source;
-  const summary = typeof detail.summary === 'string' && detail.summary.trim()
-    ? detail.summary.trim()
-    : fallback.summary;
+  const source =
+    typeof detail.source === 'string' && detail.source.trim()
+      ? detail.source.trim()
+      : typeof ark.desc === 'string' && ark.desc.trim()
+        ? ark.desc.trim()
+        : fallback.source;
+  const summary =
+    typeof detail.summary === 'string' && detail.summary.trim()
+      ? detail.summary.trim()
+      : fallback.summary;
   return {
     mainTitle: source || fallback.mainTitle,
     previewLines,

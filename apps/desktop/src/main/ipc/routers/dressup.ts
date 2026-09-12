@@ -1,18 +1,20 @@
 /**
- * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 聊天背景 / 浮屏挂件)。
+ * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 头像挂件 / 聊天背景 / 浮屏挂件)。
  *
- * 前三块能力,在线要求各不相同,这是本路由分工的主线:
+ * 商城那三类(气泡 / 字体 / 头像挂件)在线要求各不相同,这是本路由分工的主线:
  *
  *  - **排行榜**:优先打商城接口(要 pskey);没有在线实例时回退到仓库里存的一份静态
  *    响应 `resources/dress/ranking-*.json`。所以离线 / ninebird 账号照样能浏览一个
- *    可用的气泡目录 —— 气泡渲染只要 itemId 就够。
+ *    可用的目录 —— 气泡渲染只要 itemId 就够,字体 / 挂件的安装也走本地离线 bundle。
  *  - **搜索**:必须在线,没有兜底(搜索结果没法预存)。离线时明确报错。
- *  - **安装/启用**:气泡不需在线(资源外链纯 itemId 可预测);字体必须在线(要发手Q
- *    独有的 scupdate 包换下载链)。前端据 `getState().qqOnline` 决定禁用哪些按钮,
- *    这里再兜一层错,免得前端漏判。
+ *  - **安装/启用**:三类都**默认离线可用** —— 资源先走本地离线 bundle
+ *    (QQ 自带那批装扮资源,见 nt_helper 的 queryDressResourceUrl),本地没有的款
+ *    才回退到在线换链(气泡走 scupdate / 字体走手Q 专属包 / 挂件走 scupdate 的
+ *    other.zip 帧动画)。所以这里**不再按 qqOnline 兜一层错** —— 装得上装不上由
+ *    服务层的本地 → 在线两级解析如实决定。
  *
- * 背景与挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
- * 自定义背景是本地文件,挂件是仓库里 bundle 的 Lottie。
+ * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
+ * 自定义背景是本地图片 / 视频,浮屏挂件是仓库里 bundle 的 Lottie。
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -51,8 +53,7 @@ function webQqOnline(services = requireServices()): boolean {
   return Boolean(record?.qqOnline && record.qqPid);
 }
 
-const OFFLINE_HINT =
-  '需要先登录该账号的 QQ 客户端 —— 装扮商城搜索与字体下载都要通过在线实例获取凭证。';
+const OFFLINE_HINT = '需要先登录该账号的 QQ 客户端 —— 装扮商城搜索要通过在线实例获取凭证。';
 
 const PEER_HOME_HINT =
   '获取失败 —— 个性主页要拿该账号的 QQ 会员票据去查，请确认这个账号的 QQ 客户端正在运行。';
@@ -62,25 +63,12 @@ const PEER_STATS_HINT =
 
 const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
-const kindInput = z.enum(['bubble', 'font']);
+const kindInput = z.enum(['bubble', 'font', 'widget']);
 type DressKindInput = z.infer<typeof kindInput>;
 
-/**
- * 商城条目自带的权威九宫格参数,由前端从列表项原样回传。
- *
- * 之所以让前端带回来而不是后端再查一遍:外链推不出来(见 service 的 bubble_skin 模块头),
- * 而列表响应里已经有了 —— 再查一次商城接口纯属浪费,而且离线时根本查不了。
- */
-const bubbleMaterial = z.object({
-  staticAll: z.string().min(1),
-  animationAll: z.string(),
-  zoomPointX: z.number().int().positive(),
-  zoomPointY: z.number().int().positive(),
-  color: z.string(),
-});
-
 function appIdFor(kind: DressKindInput): DressAppId {
-  return kind === 'bubble' ? DressAppId.Bubble : DressAppId.Font;
+  if (kind === 'bubble') return DressAppId.Bubble;
+  return kind === 'font' ? DressAppId.Font : DressAppId.Widget;
 }
 
 /**
@@ -165,6 +153,9 @@ export const dressupRouter = router({
         fontId: record?.homeDress?.fontId ?? 0,
         fontName: record?.homeDress?.fontName ?? '',
         fontPreviewUrl: record?.homeDress?.fontPreviewUrl ?? '',
+        widgetId: record?.homeDress?.widgetId ?? 0,
+        widgetName: record?.homeDress?.widgetName ?? '',
+        widgetPreviewUrl: record?.homeDress?.widgetPreviewUrl ?? '',
         /** 聊天背景是直链(目录段是服务端 nonce,推不出来),空串表示没设。 */
         chatBgUrl: record?.homeDress?.chatBgUrl ?? '',
       },
@@ -216,27 +207,25 @@ export const dressupRouter = router({
   /**
    * 装一款气泡。
    *
-   * `material` 是商城条目自带的权威参数(外链/拉伸点/文字色)。**给了就不需要在线 QQ**
-   * —— 外链推不出来,但 material 里就有。前端从列表项原样回传即可。
-   * 不给时(只有 itemId,如「QQ 正在用的那款」)会回退 protocol,那才需要在线实例。
+   * 只凭 itemId 走唯一下载链:先查本地离线 bundle(zip),没有才回退 protocol 换链
+   * (那一步才需要在线 QQ 实例)。不再有商城 material / CDN 直链路径。
+   *
+   * 款名 / 预览图:渲染用不到,但装完之后「我的装扮」只剩 itemId 可查,
+   * 不在这一刻记下来就再也补不回来了(商城没有按 id 查详情的接口)。
    */
   installBubble: procedure
     .input(
       z.object({
         itemId: z.number().int().positive(),
-        material: bubbleMaterial.nullish(),
-        // 款名 / 预览图:渲染用不到,但装完之后「我的装扮」只剩 itemId 可查,
-        // 不在这一刻记下来就再也补不回来了(商城没有按 id 查详情的接口)。
         name: z.string().optional(),
         previewUrl: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const skin = await requireServices().dressInstall.installBubble(
-        input.itemId,
-        input.material ?? null,
-        { name: input.name, previewUrl: input.previewUrl },
-      );
+      const skin = await requireServices().dressInstall.installBubble(input.itemId, {
+        name: input.name,
+        previewUrl: input.previewUrl,
+      });
       if (!skin) {
         throw new Error(
           qqOnline()
@@ -247,7 +236,10 @@ export const dressupRouter = router({
       return skin;
     }),
 
-  /** 装一款字体。必须在线(见模块头)。 */
+  /**
+   * 装一款字体。不再要求在线 —— 本地离线 bundle 有就直接装(见共享缓存的 installFont:
+   * 本地 bundle 优先、protocol 兜底),本地没有才会换在线包,失败由服务层如实报错。
+   */
   installFont: procedure
     .input(
       z.object({
@@ -257,9 +249,30 @@ export const dressupRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
-      if (!qqOnline(services)) throw new Error(OFFLINE_HINT);
-      return services.dressInstall.installFont(input.itemId, input.name, input.previewUrl);
+      return requireServices().dressInstall.installFont(input.itemId, input.name, input.previewUrl);
+    }),
+
+  /**
+   * 装一款头像挂件。与字体同款策略:资源先走本地离线 bundle(不需要在线实例),
+   * 本地没有才回退 protocol 换链,失败由服务层如实报错(见 installWidget)。
+   *
+   * 款名 / 预览图与气泡同理:装完「我的装扮」只剩 itemId 可查,不在这一刻记下来就
+   * 再也补不回来了。
+   */
+  installWidget: procedure
+    .input(
+      z.object({
+        itemId: z.number().int().positive(),
+        name: z.string().default(''),
+        previewUrl: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().dressInstall.installWidget(
+        input.itemId,
+        input.name,
+        input.previewUrl,
+      );
     }),
 
   /** 切换生效的装扮。`itemId` 传 0 表示取消该项、回到默认外观。 */
@@ -275,14 +288,17 @@ export const dressupRouter = router({
   }),
 
   /**
-   * 选一张本地图当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录并立即生效。
+   * 选一张本地图 / 一段本地视频当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录
+   * 并立即生效。视频(mp4/webm/mov)由渲染层用 `<video>` 循环播放,见 ChatBackdrop。
    * 用户取消时返回当前清单(不报错,那不是失败)。
    */
   pickBackground: procedure.mutation(async () => {
     const services = requireServices();
     const picked = await getHost().pickFile({
-      title: '选择聊天背景图',
-      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+      title: '选择聊天背景图 / 视频',
+      // 视频格式限制在 Chromium 能直接播的几种 —— 拷进来的文件原样用 `<video>` 播,
+      // 没有转码兜底,放不支持的格式只会得到一块黑。
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
     });
     if (!picked) return services.dressInstall.read();
     return services.dressInstall.setCustomBackground(picked);
@@ -325,8 +341,9 @@ export const dressupRouter = router({
    * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble / font 可能要下载
    * 资源），之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
    *
-   * font 与 bubble 同样是「按需自动装」：未装过就走 scupdate 下载（需要在线实例，
-   * 没有在线实例时该条 fontFile 为 null，前端不渲染自定义字体，不报错）。
+   * font 与 bubble 同样是「按需下载」：资源只进共享缓存（fetch 版，不写「已装」清单），
+   * 未缓存过就走 scupdate 下载（需要在线实例，没有在线实例时该条 fontFile 为 null，
+   * 前端不渲染自定义字体，不报错）。
    * widget 优先走 scupdate 换真实动画帧（other.zip → aio_file.zip，同样需要在线实例，
    * 不设「静态 aio_50.png」中间兜底），拿不到时直接回退到按 itemId 拼 CDN URL 的
    * 猜测（成功率不保证，但好过没有）；两种情况 `widget` 字段恒非 null（widgetId > 0
