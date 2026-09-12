@@ -40,18 +40,122 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
     }
 }
 
-/// `schtasks /Create` 的参数向量（覆盖已存在任务 + 登录时启动 + 受限权限）。
-///
-/// 直接以参数数组交给 `std::process::Command`，由它按 Windows 命令行规则转义，
-/// 不再经 PowerShell 转手：`-EncodedCommand` 那条路既容易把编码搞错（脚本要
-/// Base64/UTF-16LE，写成 hex 会被 PowerShell 解成乱码命令），又没法把 `/TR` 里的
-/// 双引号原样传下去。计划任务的动作最终走 CreateProcess，只有双引号算引号，
-/// 单引号会被当成路径的一部分而找不到可执行文件。
+/// XML 文本转义（`&` `<` `>` `"` `'`）。
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn create_args<'a>(name: &'a str, tr: &'a str) -> [&'a str; 10] {
-    [
-        "/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", name, "/TR", tr,
-    ]
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// `schtasks /Create /TN <name> /XML <file>` 用的任务 XML：当前用户登录时启动。
+///
+/// 为什么要走 /XML 而不是 `/SC ONLOGON`：后者生成的 `<LogonTrigger>` 不带
+/// `<UserId>`，语义是「任意用户登录」，注册它需要管理员权限 —— 普通账户（哪怕在
+/// Administrators 组里、但被 UAC 过滤成 deny-only）只会拿到「错误: 拒绝访问。」。
+/// 把触发器限定到当前用户才免提权，效果等价：仅在该用户登录时、以他的身份启动。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn task_xml(command: &str, arguments: Option<&str>, user: &str) -> String {
+    let exec = match arguments {
+        Some(a) if !a.is_empty() => format!(
+            "<Command>{}</Command><Arguments>{}</Arguments>",
+            xml_escape(command),
+            xml_escape(a)
+        ),
+        _ => format!("<Command>{}</Command>", xml_escape(command)),
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>WeQ autostart (managed by weq-daemon)</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <UserId>{user}</UserId>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <AllowHardTerminate>false</AllowHardTerminate>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>{exec}</Exec>
+  </Actions>
+</Task>
+"#,
+        user = xml_escape(user),
+        exec = exec,
+    )
+}
+
+/// 当前用户在 Task Scheduler 里的主体名（`DOMAIN\User`；取不到域时退化成 `User`）。
+#[cfg(windows)]
+fn current_user() -> Result<String, String> {
+    let user = std::env::var("USERNAME").map_err(|_| "USERNAME not set".to_string())?;
+    if user.is_empty() {
+        return Err("USERNAME is empty".to_string());
+    }
+    Ok(match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user}"),
+        _ => user,
+    })
+}
+
+/// 以 UTF-16LE + BOM 写文件：`schtasks /XML` 只接受 Unicode 编码的 XML。
+#[cfg(windows)]
+fn write_utf16le(path: &std::path::Path, text: &str) -> Result<(), String> {
+    let mut bytes = Vec::with_capacity(text.len() * 2 + 2);
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    for unit in text.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+/// 注册「当前用户登录时启动」的计划任务（`/Create /F /TN <name> /XML <file>`）。
+#[cfg(windows)]
+pub(crate) fn create_task(
+    name: &str,
+    command: &str,
+    arguments: Option<&str>,
+    what: &str,
+) -> Result<(), String> {
+    let xml = task_xml(command, arguments, &current_user()?);
+    let path = std::env::temp_dir().join(format!("{name}.task.xml"));
+    write_utf16le(&path, &xml)?;
+    let result = run(
+        no_window(&mut std::process::Command::new("schtasks"))
+            .args(["/Create", "/F", "/TN", name, "/XML"])
+            .arg(&path),
+        what,
+    );
+    let _ = std::fs::remove_file(&path);
+    result
 }
 
 /// Windows 的 schtasks / powershell 都是控制台程序；守护进程由 GUI 以 detached
@@ -77,10 +181,10 @@ fn home_dir() -> Result<std::path::PathBuf, String> {
 pub fn install(pipe_name: &str) -> Result<(), String> {
     let exe = exe_path()?;
     let name = ident(pipe_name);
-    // /F = 覆盖已存在任务；/SC ONLOGON = 该用户每次登录时启动；/RL LIMITED。
-    let tr = format!("\"{}\" serve --pipe {pipe_name}", exe.display());
-    run(
-        no_window(&mut std::process::Command::new("schtasks")).args(create_args(&name, &tr)),
+    create_task(
+        &name,
+        &exe.display().to_string(),
+        Some(&format!("serve --pipe {pipe_name}")),
         "schtasks register",
     )?;
     logger::info(&format!("autostart installed: task {name}"));
@@ -276,21 +380,25 @@ mod tests {
     }
 
     #[test]
-    fn create_args_shape() {
-        assert_eq!(
-            create_args("weq-daemon-gui", "\"C:\\Program Files\\WeQ\\WeQ.exe\""),
-            [
-                "/Create",
-                "/F",
-                "/SC",
-                "ONLOGON",
-                "/RL",
-                "LIMITED",
-                "/TN",
-                "weq-daemon-gui",
-                "/TR",
-                "\"C:\\Program Files\\WeQ\\WeQ.exe\"",
-            ]
+    fn task_xml_is_user_scoped_logon_trigger() {
+        let xml = task_xml(
+            r"C:\Program Files\WeQ&Co\weQ.exe",
+            Some("serve --pipe weq-daemon"),
+            r"H3COF6\x 17078",
         );
+        // 触发器必须带 <UserId>：不带的话就是「任意用户登录」，会被拒绝访问。
+        let trigger = xml
+            .split("<LogonTrigger>")
+            .nth(1)
+            .and_then(|s| s.split("</LogonTrigger>").next())
+            .expect("LogonTrigger present");
+        assert!(trigger.contains("<UserId>H3COF6\\x 17078</UserId>"));
+        assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
+        assert!(xml.contains("<Command>C:\\Program Files\\WeQ&amp;Co\\weQ.exe</Command>"));
+        assert!(xml.contains("<Arguments>serve --pipe weq-daemon</Arguments>"));
+
+        // 无参数任务不应留下空的 <Arguments>。
+        let bare = task_xml(r"C:\x.exe", None, "u");
+        assert!(!bare.contains("<Arguments>"));
     }
 }

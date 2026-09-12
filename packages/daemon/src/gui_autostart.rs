@@ -169,14 +169,8 @@ fn spawn_gui(gui_exe: &str) {
 #[cfg(windows)]
 fn register_platform(pipe_name: &str, gui_exe: &str) -> Result<(), String> {
     let name = gui_ident(pipe_name);
-    // /F = 覆盖已存在任务；/SC ONLOGON = 该用户每次登录时启动。与 autostart.rs
-    // 同一姿势：参数数组直接交给 schtasks，/TR 用双引号包住 exe 路径。
-    let tr = format!("\"{gui_exe}\"");
-    run(
-        crate::autostart::no_window(&mut std::process::Command::new("schtasks"))
-            .args(crate::autostart::create_args(&name, &tr)),
-        "schtasks register gui",
-    )?;
+    // 与 autostart.rs 同一姿势：走 /XML 注册「限定到当前用户」的登录触发器。
+    crate::autostart::create_task(&name, gui_exe, None, "schtasks register gui")?;
     logger::info(&format!("gui autostart installed: task {name}"));
     Ok(())
 }
