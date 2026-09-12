@@ -109,7 +109,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'agentlab',
-    label: 'AgentLab',
+    label: '模型配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => <AgentLabSection />,
   },

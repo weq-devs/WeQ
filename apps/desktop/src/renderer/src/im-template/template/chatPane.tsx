@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronsUp,
   CirclePlus,
+  Download,
   Search,
   Trash2,
   RotateCcw,
@@ -214,6 +215,7 @@ export function ChatPane({
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
+  onExportConversation,
   deletedIds,
   onRestoreMessage,
 }: {
@@ -259,6 +261,8 @@ export function ChatPane({
   onViewRecalled?: (conversation: Conversation) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
+  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
+  onExportConversation?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (gap: {
     conversation: Conversation;
@@ -1354,6 +1358,17 @@ export function ChatPane({
               onClick={() => onSearchChatRecords(conversation)}
             >
               <Search size={18} />
+            </button>
+          ) : null}
+          {onExportConversation &&
+          (conversation.type === 'group' || conversation.type === 'direct') ? (
+            <button
+              className={cn('icon-button', 'group-header-info-action')}
+              type="button"
+              title="导出聊天记录"
+              onClick={() => onExportConversation(conversation)}
+            >
+              <Download size={18} />
             </button>
           ) : null}
           {onAddMessage && (conversation.type === 'group' || conversation.type === 'direct') ? (

@@ -62,6 +62,12 @@ import {
   type GroupFileExportResult,
 } from './export/GroupFileExportLightbox';
 import { FailureLightbox } from './export/FailureLightbox';
+import { preflightQqOnline } from './export/preflight';
+import {
+  buildChatExportMedia,
+  preflightChatExport,
+  startChatExportTasks,
+} from './export/chatExport';
 import {
   COLLECTION_FORMATS,
   DEFAULT_OPTIONS,
@@ -768,156 +774,11 @@ export function ExportView(): ReactElement {
     setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'qzone' ? 'qzone' : 'full');
   }
 
-  /**
-   * Pre-flight for 补全缺失媒体: needs an online QQ (to harvest a fresh rkey).
-   * Returns false to abort the export. Offline → hard block; 完全离线模式（自动
-   * 注入 QQ 关闭）→ warn but allow; then force one fresh rkey harvest.
-   */
-  async function preflightMediaCompletion(): Promise<boolean> {
-    let online = false;
-    try {
-      online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
-    } catch (e) {
-      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
-      return false;
-    }
-    if (!online) {
-      // 没有在线 QQ 时，若已启用外部 rkey 服务器（如 NapCat），图片/表情仍可由
-      // 它补全（媒体下载会自动回退），不再硬拦截；否则保持原来的提示。
-      let hasExternalRkey = false;
-      try {
-        const settings = await client.bootstrap.getSettings.query();
-        hasExternalRkey = settings.externalRkey.enabledServerId != null;
-      } catch {
-        /* 读取失败按未配置处理，保留硬拦截 */
-      }
-      if (!hasExternalRkey) {
-        await dialog.info(
-          '无法补全媒体',
-          '未检测到在线的 QQ 实例。补全缺失媒体需要登录该账号的 QQ 客户端以获取下载凭证（rkey）。请登录后重试，或关闭「补全缺失媒体」后继续导出。',
-        );
-        return false;
-      }
-    }
-    let injectOn = true;
-    try {
-      injectOn = (await client.bootstrap.getSettings.query()).autoInjectQq;
-    } catch {
-      /* treat as on; the forced harvest below still runs */
-    }
-    if (!injectOn) {
-      const ok = await dialog.confirm(
-        '完全离线模式已开启',
-        '「自动注入 QQ（完整功能）」已关闭（完全离线模式），缺失的图片 / 表情无法从云端补全。是否仍要继续导出？',
-        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
-      );
-      if (!ok) return false;
-    }
-    // Explicit one-shot rkey refresh right before exporting.
-    try {
-      await client.account.refreshRkeys.mutate();
-    } catch {
-      /* best-effort; export proceeds with whatever rkeys exist */
-    }
-    return true;
-  }
-
-  /**
-   * Pre-flight for 语音自动转写: a transcription model must be selected *and*
-   * fully downloaded (设置 → 语音转录). Returns false to abort, pointing the user
-   * at the settings page — mirrors the per-message transcribe checks.
-   */
-  async function preflightVoiceTranscribe(): Promise<boolean> {
-    let modelId = '';
-    try {
-      modelId = (await client.bootstrap.getSettings.query()).voiceTranscribe.modelId;
-    } catch (e) {
-      dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
-      return false;
-    }
-    if (!modelId) {
-      await dialog.info(
-        '未配置语音模型',
-        '「语音自动转写」需要先下载并选择一个转录模型。请前往「设置 → 语音转录」下载模型后重试，或关闭「语音自动转写」后继续导出。',
-      );
-      return false;
-    }
-    try {
-      const models = await client.bootstrap.voiceModels.query();
-      const model = models.find((m) => m.id === modelId);
-      if (!model?.downloaded) {
-        await dialog.info(
-          '语音模型未下载',
-          `转录模型「${model?.name ?? modelId}」尚未下载完成。请前往「设置 → 语音转录」完成下载后重试，或关闭「语音自动转写」后继续导出。`,
-        );
-        return false;
-      }
-    } catch (e) {
-      dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
-   * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel.
-   * 离线时不再硬阻断：仍会从本地漫游缓存读取已缓存的消息（聊天页此前拉过的
-   * 窗口直接命中），只是无法联网补拉。
-   */
-  async function preflightMessageCompletion(): Promise<boolean> {
-    let state: { qqOnline: boolean; injectEnabled: boolean };
-    try {
-      state = await client.account.getGroupAlbumAccessState.query();
-    } catch (e) {
-      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
-      return false;
-    }
-    if (!state.qqOnline) {
-      await dialog.info(
-        '未检测到在线 QQ',
-        '「补充漫游消息」将只读取本地缓存数据库中的漫游消息，无法联网补拉缺失消息。可稍后打开 QQ 再导出完整版本。',
-      );
-      return true;
-    }
-    if (!state.injectEnabled) {
-      await dialog.info(
-        '完全离线模式已开启',
-        '「自动注入 QQ（完整功能）」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
-      );
-      return true;
-    }
-    return true;
-  }
-
-  /**
-   * Pre-flight for QQ 空间导出: a live QQ instance must be logged in (the QZone
-   * web CGI needs this account's skey/pskey). Returns false to abort with a
-   * prompt to open QQ.
-   */
-  async function preflightQqOnline(): Promise<boolean> {
-    let online = false;
-    try {
-      online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
-    } catch (e) {
-      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
-      return false;
-    }
-    if (!online) {
-      await dialog.info(
-        '需要打开 QQ',
-        '导出 QQ 空间需要登录该账号的 QQ 客户端以获取访问凭证。请打开并登录 QQ 后重试。',
-      );
-      return false;
-    }
-    return true;
-  }
-
   /** QQ 空间导出：每个选中目标（好友 / 自己）起一个说说导出任务（json/txt/html 多选 + 配图）。 */
   async function runQzoneExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
     const targets = friendItems.filter((it) => convSelection.has(it.id));
     if (targets.length === 0) return;
-    const ok = await preflightQqOnline();
+    const ok = await preflightQqOnline(dialog);
     if (!ok) return;
 
     const range = { start: options.range.start, end: options.range.end };
@@ -1013,68 +874,16 @@ export function ExportView(): ReactElement {
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
-    // null bounds = open-ended; both null (全部时间) means no filtering.
-    const range = { start: options.range.start, end: options.range.end };
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
-    const media = {
-      exportMedia: options.exportMedia,
-      completeMessages: options.completeMessages,
-      completeMedia: options.exportMedia && options.completeMedia,
-      downloadVideo: options.exportMedia && options.downloadVideo,
-      downloadFile: options.exportMedia && options.downloadFile,
-      downloadPtt: options.exportMedia && options.downloadPtt,
-      transcribeVoice: options.transcribeVoice,
-      mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
-      completeDress: options.completeDress,
-    };
-    // 消息补全跑在所有导出步骤之前，必须在线 QQ + 未开启完全离线模式。
-    if (media.completeMessages) {
-      const ok = await preflightMessageCompletion();
-      if (!ok) return;
-    }
-
-    if (media.completeMedia || media.downloadVideo || media.downloadFile || media.downloadPtt) {
-      const ok = await preflightMediaCompletion();
-      if (!ok) return;
-    } else if (media.exportMedia) {
-      const ok = await dialog.confirm(
-        '未开启媒体补全',
-        '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
-        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
-      );
-      if (!ok) return;
-    }
-
-    // 语音转写需要已下载的转录模型，缺失则提示去设置页（不阻断其它导出选项）。
-    if (media.transcribeVoice) {
-      const ok = await preflightVoiceTranscribe();
-      if (!ok) return;
-    }
+    // 前置检查（补全消息 / 媒体补全确认 / 语音模型）与任务创建都走共用逻辑，
+    // 聊天页顶栏的快捷导出灯箱用的是同一套。
+    const ok = await preflightChatExport(dialog, options);
+    if (!ok) return;
 
     setSubmitting(true);
     try {
-      const autoSaveTaskIds: string[] = [];
-      for (const t of targets) {
-        // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
-        const fmt0 = formats[0] ?? format;
-        const id = await client.account.startExport.mutate({
-          kind: t.kind ?? 'c2c',
-          conv: t.id,
-          name: t.name,
-          format: fmt0 as Exclude<ExportFormat, 'vcard'>,
-          formats: formats as Exclude<ExportFormat, 'vcard'>[],
-          total: t.total ?? 0,
-          exportAvatar: options.exportAvatar,
-          ...(options.dress.bubble || options.dress.font || options.dress.widget
-            ? { dress: options.dress }
-            : {}),
-          ...(options.chatlab ? { chatlab: true } : {}),
-          media,
-          range,
-        });
-        if (options.autoSave) autoSaveTaskIds.push(id);
-      }
-      if (autoSaveTaskIds.length > 0) {
+      const autoSaveTaskIds = await startChatExportTasks(targets, options, formats, format);
+      if (options.autoSave && autoSaveTaskIds.length > 0) {
         autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
       }
       setConvSelection(new Set());
@@ -1100,36 +909,10 @@ export function ExportView(): ReactElement {
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
-    const media = {
-      exportMedia: options.exportMedia,
-      // 频道私聊没有漫游缓存可拉，这项始终关闭。
-      completeMessages: false,
-      completeMedia: options.exportMedia && options.completeMedia,
-      downloadVideo: options.exportMedia && options.downloadVideo,
-      downloadFile: options.exportMedia && options.downloadFile,
-      downloadPtt: options.exportMedia && options.downloadPtt,
-      transcribeVoice: options.transcribeVoice,
-      mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
-      completeDress: options.completeDress,
-    };
-
-    if (media.completeMedia || media.downloadVideo || media.downloadFile || media.downloadPtt) {
-      const ok = await preflightMediaCompletion();
-      if (!ok) return;
-    } else if (media.exportMedia) {
-      const ok = await dialog.confirm(
-        '未开启媒体补全',
-        '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
-        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
-      );
-      if (!ok) return;
-    }
-
-    // 语音转写需要已下载的转录模型，缺失则提示去设置页（不阻断其它导出选项）。
-    if (media.transcribeVoice) {
-      const ok = await preflightVoiceTranscribe();
-      if (!ok) return;
-    }
+    // 频道私聊没有漫游缓存可拉，补全消息恒关闭；其余检查与聊天消息同款。
+    const media = buildChatExportMedia(options, { messageCompletion: false });
+    const ok = await preflightChatExport(dialog, options, { messageCompletion: false });
+    if (!ok) return;
 
     setSubmitting(true);
     try {

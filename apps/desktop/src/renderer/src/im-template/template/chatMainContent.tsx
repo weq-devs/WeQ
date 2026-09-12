@@ -92,6 +92,7 @@ export function ChatMainContent({
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
+  onExportConversation,
   deletedIds,
   onRestoreMessage,
   onOpenTool,
@@ -170,6 +171,8 @@ export function ChatMainContent({
   }) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
+  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
+  onExportConversation?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
@@ -246,6 +249,7 @@ export function ChatMainContent({
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}
       onSearchChatRecords={onSearchChatRecords}
+      onExportConversation={onExportConversation}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}
     />

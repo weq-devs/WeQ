@@ -36,6 +36,7 @@ import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
+import { QuickExportLightbox, type QuickExportTarget } from './export/QuickExportLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
@@ -2186,6 +2187,29 @@ export function MainView(): ReactElement {
     }
   }, []);
 
+  // 聊天顶栏「导出聊天记录」：目标固定为当前会话，灯箱与导出中心的
+  // 「聊天消息导出」完全一致；开始导出后 toast 提示去任务栏看进度。
+  const handleExportConversation = useCallback((conversation: Conversation) => {
+    if (conversation.type === 'group') {
+      const code = conversation.group.id;
+      setQuickExportTarget({
+        id: code,
+        name: conversation.group.name || code,
+        kind: 'group',
+      });
+      return;
+    }
+    if (conversation.type === 'direct') {
+      const { otherUser } = conversation;
+      const uin = otherUser.username || otherUser.identityValue || '';
+      setQuickExportTarget({
+        id: otherUser.id,
+        name: otherUser.displayName || uin || otherUser.id,
+        kind: 'c2c',
+      });
+    }
+  }, []);
+
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
@@ -2233,6 +2257,8 @@ export function MainView(): ReactElement {
     /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
     fixed?: boolean;
   } | null>(null);
+  /** 顶栏「导出聊天记录」打开的目标会话（快捷导出灯箱）。 */
+  const [quickExportTarget, setQuickExportTarget] = useState<QuickExportTarget | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
@@ -4031,6 +4057,7 @@ export function MainView(): ReactElement {
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
                       onSearchChatRecords={handleSearchChatRecords}
+                      onExportConversation={handleExportConversation}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -4318,6 +4345,12 @@ export function MainView(): ReactElement {
                   keyword: searchMore.keyword,
                 });
               }}
+            />
+          ) : null}
+          {quickExportTarget ? (
+            <QuickExportLightbox
+              target={quickExportTarget}
+              onClose={() => setQuickExportTarget(null)}
             />
           ) : null}
           {chatRecordsTarget ? (

@@ -1,6 +1,6 @@
 {
   "name": "@weq/ninebird",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "NineBird 注入 QQ 的 loader 脚本源码（编译期打包为 resources/ninebird-runtime/）",

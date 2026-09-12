@@ -188,6 +188,7 @@ export function ExportLightbox({
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   onPickPath,
+  autoSaveHint,
   onClose,
   onConfirm,
 }: {
@@ -203,6 +204,11 @@ export function ExportLightbox({
   submitting?: boolean;
   /** Optional async directory picker; returns the chosen path or null. */
   onPickPath?: () => Promise<string | null>;
+  /**
+   * 传入后不展示「导出后自动保存」开关，改为展示这句提示 —— 该能力依赖导出页
+   * 的任务列表，从聊天页快捷打开灯箱时用不到。
+   */
+  autoSaveHint?: string;
   onClose: () => void;
   onConfirm: (result: LightboxResult) => void;
 }): ReactElement {
@@ -692,9 +698,10 @@ export function ExportLightbox({
                 {/* 扩展功能 */}
                 {isMessageFlow ? (
                   <Card title="扩展功能">
-                    {isScheduled ? (
+                    {isScheduled || autoSaveHint ? (
                       <p className="weq-exp-block-hint">
-                        定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。
+                        {autoSaveHint ??
+                          '定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。'}
                       </p>
                     ) : (
                       <Row

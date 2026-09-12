@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "weq-daemon"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "log",
  "serde",
