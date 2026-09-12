@@ -627,6 +627,9 @@
 .weq-dress-bg-card {
   display: flex;
   flex-direction: column;
+  /* 卡片是 <button>,UA 样式里的 align-items 会让子项按内容宽度居中(不拉伸),预览框
+   * 因而永远只有自身那点宽。显式 stretch,预览/标题/说明都按卡片整宽排。 */
+  align-items: stretch;
   gap: 3px;
   padding: 0 0 10px;
   overflow: hidden;
@@ -667,20 +670,36 @@
   white-space: nowrap;
 }
 
-/* 9:16 —— 与素材(720×1280)同比,预览里看到的裁切就是聊天窗里的裁切。 */
+/* 预览要还原**桌面**聊天窗里的实际裁切:底图是 `cover` + 居中铺在横向的聊天区上(见
+ * ChatBackdrop / .weq-chat-backdrop),所以竖图上下裁、横图左右裁,绝不是手机那种 9:16 的
+ * 窄条。这里用 4:3 近似聊天区比例。视频背景(mp4/webm/mov)用 `object-fit: cover` 复刻
+ * 同一条裁切,不另做一套。
+ *
+ * 别退回「9:16 + max-height」:aspect-ratio 配上封顶的 max-height 时宽度会被反推成
+ * 190×9/16≈107px,卡片右侧空掉一大半(横图还只剩中间一条)。 */
 .weq-dress-bg-preview {
   position: relative;
+  width: 100%;
   margin-bottom: 8px;
-  aspect-ratio: 9 / 16;
-  max-height: 190px;
+  aspect-ratio: 4 / 3;
   background: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 12px
     12px;
 }
 
-.weq-dress-bg-preview img {
+.weq-dress-bg-preview img,
+.weq-dress-bg-preview video {
+  display: block;
   width: 100%;
   height: 100%;
+  /* 视频与图片同一条裁切 —— 选之前和聊天里看到的一样(见 .weq-chat-backdrop-video)。 */
   object-fit: cover;
+  /* 与 .weq-chat-backdrop 的 background-position: center 对齐。 */
+  object-position: center;
+}
+
+/* 视频是装饰,点击要落到外层卡片按钮上(否则点中视频选不中这一项)。 */
+.weq-dress-bg-preview video {
+  pointer-events: none;
 }
 
 .weq-dress-bg-none {

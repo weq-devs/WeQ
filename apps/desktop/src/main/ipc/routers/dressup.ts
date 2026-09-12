@@ -14,7 +14,7 @@
  *    服务层的本地 → 在线两级解析如实决定。
  *
  * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
- * 自定义背景是本地文件,浮屏挂件是仓库里 bundle 的 Lottie。
+ * 自定义背景是本地图片 / 视频,浮屏挂件是仓库里 bundle 的 Lottie。
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -288,14 +288,17 @@ export const dressupRouter = router({
   }),
 
   /**
-   * 选一张本地图当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录并立即生效。
+   * 选一张本地图 / 一段本地视频当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录
+   * 并立即生效。视频(mp4/webm/mov)由渲染层用 `<video>` 循环播放,见 ChatBackdrop。
    * 用户取消时返回当前清单(不报错,那不是失败)。
    */
   pickBackground: procedure.mutation(async () => {
     const services = requireServices();
     const picked = await getHost().pickFile({
-      title: '选择聊天背景图',
-      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+      title: '选择聊天背景图 / 视频',
+      // 视频格式限制在 Chromium 能直接播的几种 —— 拷进来的文件原样用 `<video>` 播,
+      // 没有转码兜底,放不支持的格式只会得到一块黑。
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
     });
     if (!picked) return services.dressInstall.read();
     return services.dressInstall.setCustomBackground(picked);

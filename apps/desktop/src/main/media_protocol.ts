@@ -26,7 +26,7 @@
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *   weq-media://dressbubble?id=<itemId>&frame=<n>              → 同上,整泡帧动画的第 n 帧(n 从 1 开始)
  *   weq-media://dresspendant?id=<itemId>&frame=<n>             → 走 protocol 换的头像挂件动画帧(本地 PNG,n 从 1 开始)
- *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
+ *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图片 / 视频)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
  *   weq-media://redbag?id=<skinId>                            → 红包皮肤封面(moggy CDN，落盘缓存)
  *

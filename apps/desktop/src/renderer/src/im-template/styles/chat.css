@@ -68,6 +68,23 @@
 	content: "";
 }
 
+/* 动态聊天背景（本地 mp4/webm/mov）。
+ *
+ * 与 .weq-chat-backdrop 的 background-image 同一条裁切：cover + 居中。放在容器里而不是
+ * 改成 CSS 背景 —— 视频得有真实元素才播得起来。
+ *
+ * 层级：不给 z-index，靠 DOM 顺序压在容器的 ::after（磨砂纱）之下 —— ::after 生成在
+ * 所有子元素之后，自然盖在视频上；挂件是 z-index: 1，仍然在最上面。
+ * 容器带 pointer-events: none，视频不会抢消息区的点击（视频本身也没有 controls）。 */
+.weq-chat-backdrop-video {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	object-position: center;
+}
+
 /* 挂件画在磨砂层之上 —— 它是前景装饰，不该跟着底图一起被糊。 */
 .weq-chat-widget {
 	position: absolute;

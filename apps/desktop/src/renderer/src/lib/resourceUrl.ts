@@ -118,13 +118,26 @@ export function dressPendantFrameUrl(itemId: number, frame: number): string {
 }
 
 /**
- * 用户自选的聊天背景(本地图)。
+ * 用户自选的聊天背景(本地图或视频)。
  *
  * `stamp` 是用来穿透缓存的:文件名固定为 `custom.<ext>`,换了图 url 却不变,浏览器
  * 会继续画旧的那张。传一个换图时必然变的值(清单里的绝对路径)即可。
+ *
+ * 视频与图片共用这一条:`dressbg` 主进程按文件后缀定 Content-Type(file_response 的
+ * MIME 表已含 mp4/webm/mov)并支持 Range,`<video>` 能直接播、也能拖动进度。
  */
 export function dressBackgroundUrl(stamp: string): string {
   return mediaUrl('dressbg', { v: stamp });
+}
+
+/**
+ * 自定义聊天背景是不是视频。
+ *
+ * 只认 Chromium 内置能直接播的容器(mp4 / webm / mov)—— 用户选进来的文件**不做转码**,
+ * 认错格式只会渲染出一块黑,所以判定放宽不如判窄。
+ */
+export function isVideoBackground(fileName: string): boolean {
+  return /\.(mp4|webm|mov)$/i.test(fileName);
 }
 
 /**

@@ -1321,6 +1321,7 @@ export function ChatPane({
     >
       <ChatBackdrop
         imageUrl={backdrop.imageUrl}
+        videoUrl={backdrop.videoUrl}
         widgetId={backdrop.widgetId}
         opacity={backdrop.opacity}
       />

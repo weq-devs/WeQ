@@ -10,7 +10,7 @@ import { useEffect } from 'react';
 import type { DressManifest, ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { applyDressSkin, applyDressSkinPreloaded } from '../lib/dressSkin';
-import { dressBackgroundUrl, dressFontUrl, dressUrl } from '../lib/resourceUrl';
+import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 
 /**
  * 从清单里挑出生效的挂件,翻成渲染要的形状(与 service 的 ResolvedWidget 同构)。
@@ -99,8 +99,16 @@ export function useDressSkin(): void {
  *
  * 与 {@link useDressSkin} 共用同一份 query(react-query 会去重),所以多处调用不会
  * 多打接口。背景走 DOM 而不是注入 CSS —— 它需要一个真实的层来叠挂件动画。
+ *
+ * 背景分图片与视频两条:`imageUrl` 当底图画,`videoUrl` 交给 `<video>` 循环播。二者
+ * 互斥 —— 一个背景不会既是图又是视频,调用方不必在两份都非空时做取舍。
  */
-export function useChatBackdrop(): { imageUrl: string; widgetId: string; opacity: number } {
+export function useChatBackdrop(): {
+  imageUrl: string;
+  videoUrl: string;
+  widgetId: string;
+  opacity: number;
+} {
   const state = trpc.account.dressup.getState.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -110,16 +118,22 @@ export function useChatBackdrop(): { imageUrl: string; widgetId: string; opacity
   const source = manifest?.background ?? 'none';
 
   let imageUrl = '';
+  let videoUrl = '';
   if (source === 'qq') {
     // QQ 同款走 CDN 代理(主进程落盘缓存),不占本地空间,换了手机上的背景这边跟着变。
+    // QQ 那边的聊天背景只有图,所以永远进 imageUrl。
     imageUrl = dressUrl(state.data?.own.chatBgUrl ?? '');
   } else if (source === 'custom' && manifest?.backgroundFile) {
     // 文件名固定,所以拿路径当 stamp 穿透浏览器缓存(见 dressBackgroundUrl)。
-    imageUrl = dressBackgroundUrl(manifest.backgroundFile);
+    // `backgroundFile` 在清单里是**绝对路径**,后缀即真实格式。
+    const url = dressBackgroundUrl(manifest.backgroundFile);
+    if (isVideoBackground(manifest.backgroundFile)) videoUrl = url;
+    else imageUrl = url;
   }
 
   return {
     imageUrl,
+    videoUrl,
     widgetId: manifest?.widgetId ?? '',
     opacity: manifest?.backgroundOpacity ?? 1,
   };

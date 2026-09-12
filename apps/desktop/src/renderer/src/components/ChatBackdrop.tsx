@@ -13,6 +13,10 @@
  * 只切掉溢出的那一维。不用 `100% auto`(宽对齐) —— 宽窗口下那样会把中间一条横向拉满、
  * 上下切掉极多。
  *
+ * 动态背景(本地 mp4/webm/mov)走同一条裁切:视频元素 `object-fit: cover` + `center`,
+ * 与背景图的 `background-size/position` 所见一致 —— 用户在装扮页预览里看到的裁切,
+ * 就是聊天窗里的裁切。
+ *
  * 挂件动画同样是 9:16,但它不能像底图那样裁 —— 裁掉的是动画内容。那边改的是**画布本身**,
  * 见 {@link ScreenWidget} 和 lib/widenLottie。
  *
@@ -43,23 +47,42 @@ export function backdropVeil(opacity: number): string {
 
 export function ChatBackdrop({
   imageUrl,
+  videoUrl,
   widgetId,
   opacity,
 }: {
   /** 底图 url。空串 = 不画底图(但挂件仍可单独生效)。 */
   imageUrl: string;
+  /** 动态背景 url(本地 mp4/webm/mov)。与 imageUrl 二选一,空串 = 不是视频背景。 */
+  videoUrl: string;
   /** 浮屏挂件目录名。空串 = 不叠。 */
   widgetId: string;
   /** 底图强度(0–1)。1 = 最清晰。 */
   opacity: number;
 }): ReactElement | null {
-  if (!imageUrl && !widgetId) return null;
+  if (!imageUrl && !videoUrl && !widgetId) return null;
 
   const style: CSSProperties = { [BACKDROP_VEIL_VAR as string]: backdropVeil(opacity) };
   if (imageUrl) style.backgroundImage = `url("${imageUrl}")`;
 
   return (
     <div className="weq-chat-backdrop" style={style} aria-hidden="true">
+      {/* 动态背景:静音 + 循环 + 内联播放。Chromium 只放行静音自动播放,所以 `muted`
+          不是可选项 —— 去掉它这块视频就停在第一帧不动(文件本身有音轨的话)。
+
+          层级:视频是普通子元素,磨砂纱是容器的 ::after(生成在子元素之后,画在上层),
+          挂件 z-index 更高 —— 于是视频 < 纱 < 挂件,与图片背景完全同构。 */}
+      {videoUrl ? (
+        <video
+          className="weq-chat-backdrop-video"
+          src={videoUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+        />
+      ) : null}
       {widgetId ? <ScreenWidget widgetId={widgetId} /> : null}
     </div>
   );

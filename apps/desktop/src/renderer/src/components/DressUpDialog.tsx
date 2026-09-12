@@ -44,7 +44,7 @@ import {
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { dressBackgroundUrl, dressFontUrl, dressUrl } from '../lib/resourceUrl';
+import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
@@ -560,12 +560,16 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     const customPreview = manifest?.backgroundFile
       ? dressBackgroundUrl(manifest.backgroundFile)
       : '';
+    // 自定义背景可能是本地视频 —— 预览格得用 <video> 而不是 <img>(见 isVideoBackground)。
+    const customIsVideo = isVideoBackground(manifest?.backgroundFile ?? '');
 
     const options: Array<{
       id: DressBackgroundSource;
       label: string;
       hint: string;
       preview: string;
+      /** preview 是视频,预览格用 `<video>` 播。 */
+      video?: boolean;
       disabled: boolean;
     }> = [
       { id: 'none', label: '不使用', hint: '沿用主题配色', preview: '', disabled: false },
@@ -579,8 +583,13 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       {
         id: 'custom',
         label: '自定义',
-        hint: hasCustom ? '你选的本地图片' : '还没有选择图片',
+        hint: hasCustom
+          ? customIsVideo
+            ? '你选的本地视频'
+            : '你选的本地图片'
+          : '还没有选择图片或视频',
         preview: customPreview,
+        video: customIsVideo,
         disabled: !hasCustom,
       },
     ];
@@ -589,14 +598,14 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       <div className="weq-dress-bg">
         <section className="weq-dress-bg-section">
           <div className="weq-dress-bg-head">
-            <h3>背景图</h3>
+            <h3>背景图 / 视频</h3>
             <button
               type="button"
               className="weq-dress-pick"
               onClick={() => void chooseCustomFile()}
             >
               <Upload size={13} />
-              {hasCustom ? '重新选图' : '选择图片…'}
+              {hasCustom ? '重新选择' : '选择图片 / 视频…'}
             </button>
           </div>
           <div className="weq-dress-bg-row">
@@ -611,7 +620,13 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
               >
                 <div className="weq-dress-bg-preview">
                   {o.preview ? (
-                    <img src={o.preview} alt={o.label} loading="lazy" />
+                    o.video ? (
+                      // muted + autoPlay + loop:预览与聊天里看到的都是循环播放的效果,
+                      // 否则视频背景在选之前只是个静止的第一帧。
+                      <video src={o.preview} autoPlay loop muted playsInline preload="metadata" />
+                    ) : (
+                      <img src={o.preview} alt={o.label} loading="lazy" />
+                    )
                   ) : (
                     <span className="weq-dress-bg-none">{o.id === 'none' ? '无' : '未设置'}</span>
                   )}

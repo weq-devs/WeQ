@@ -64,7 +64,7 @@ export interface DressConfig {
   scope: DressScope;
   /** 背景来源（none = 无背景，qq = QQ 同款，custom = 自定义）。 */
   background: DressBackgroundSource;
-  /** 自定义背景文件名（不含路径，文件存在同目录下）。 */
+  /** 自定义背景文件名（不含路径，文件存在同目录下）。图片或视频（mp4/webm/mov）都走这里。 */
   backgroundFile: string;
   /** 浮屏挂件 ID。 */
   widgetId: string;
@@ -196,9 +196,10 @@ export class DressConfigService {
   }
 
   /**
-   * 设置自定义背景图。
+   * 设置自定义背景（图片或视频）。
    *
-   * 把源文件复制到配置目录下，记录文件名（不含路径）。
+   * 把源文件复制到配置目录下，记录文件名（不含路径）。不区分图片/视频 —— 格式由后缀
+   * 决定，渲染层按后缀选择 `<img>` 还是 `<video>`（见 isVideoBackground）。
    */
   setCustomBackground(sourcePath: string): void {
     const fileName = basename(sourcePath);
@@ -239,7 +240,7 @@ export class DressConfigService {
   }
 
   /**
-   * 获取自定义背景图的完整路径。
+   * 获取自定义背景（图片或视频）的完整路径。
    */
   getBackgroundFile(): string | null {
     const cfg = this.read();
