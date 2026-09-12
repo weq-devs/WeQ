@@ -154,6 +154,9 @@ jobs:
   # ============================ Linux x64 ============================
   # 原生 x64 runner 构建 AppImage / tar.gz。native/linux/x64/*.node 已预编译，
   # sherpa-onnx / resvg 等原生依赖由 pnpm install 自动装 x64 版本。
+  # ⚠️ 必须显式传 --x64：electron-builder 的 target.arch 会覆盖 CLI 的架构参数，
+  # 而 native binding / daemon 都是构建机架构的，两者一旦不一致就会打出坏包
+  # （见 electron-builder.yml 里 linux 一节的说明）。
   linux-x64:
     needs: [windows]
     runs-on: ubuntu-latest
@@ -167,10 +170,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: x64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 打包前先把「架构对不对」验掉：resvg / sherpa 的 .node binding 和 cargo
+      # 编出来的守护进程都取自构建机。与 macOS 两个 job 同款把关 —— v1.0.0 的
+      # weQ-1.0.0-linux-x86_64.AppImage 就是在 arm64 runner 上打出来的，
+      # 包里全是 aarch64 binding，启动即 Cannot find module
+      # '@resvg/resvg-js-linux-x64-gnu'。
+      - name: Verify Node architecture and native bindings
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "x64" || { echo "expected x64, got $ARCH"; exit 1; }
+          ls -d node_modules/.pnpm/@resvg+resvg-js-linux-x64-gnu@*/node_modules/@resvg/resvg-js-linux-x64-gnu
+          ls -d node_modules/.pnpm/sherpa-onnx-linux-x64@*/node_modules/sherpa-onnx-linux-x64
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
@@ -190,6 +207,11 @@ jobs:
       - name: Build daemon binary
         run: pnpm run build:daemon
 
+      # cargo 默认按构建机出二进制，再确认一次它落到了目标架构的目录里。
+      - name: Verify daemon binary architecture
+        run: |
+          file resources/daemon/linux-x64/weq-daemon | grep -q 'x86-64'
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
@@ -202,10 +224,21 @@ jobs:
           mv apps/desktop/package.release.json apps/desktop/package.json
 
       - name: Package + publish release
-        run: pnpm --filter @weq/desktop exec electron-builder --linux --publish always
+        run: pnpm --filter @weq/desktop exec electron-builder --linux --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEBUG: electron-builder
+
+      # 产物自检：光看构建机架构还不够 —— asar / files 过滤写错一样能让 binding
+      # 进不了包。这一步失败就说明 Release 里那份不能要，删掉重打。
+      - name: Verify packaged native modules
+        run: |
+          VERSION="${{ github.ref_name }}"
+          APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
+          echo "checking $APP_DIR"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-x64-gnu"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
+          file "$APP_DIR/resources/resources/daemon/linux-x64/weq-daemon" | grep -q 'x86-64'
 
       - name: Restore dev manifest
         if: always()
@@ -239,10 +272,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: arm64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 同 linux-x64：构建机架构必须就是目标架构，否则 resvg / sherpa binding
+      # 与守护进程都会是另一个架构的。
+      - name: Verify Node architecture and native bindings
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "arm64" || { echo "expected arm64, got $ARCH"; exit 1; }
+          ls -d node_modules/.pnpm/@resvg+resvg-js-linux-arm64-gnu@*/node_modules/@resvg/resvg-js-linux-arm64-gnu
+          ls -d node_modules/.pnpm/sherpa-onnx-linux-arm64@*/node_modules/sherpa-onnx-linux-arm64
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
@@ -262,6 +306,10 @@ jobs:
       - name: Build daemon binary
         run: pnpm run build:daemon
 
+      - name: Verify daemon binary architecture
+        run: |
+          file resources/daemon/linux-arm64/weq-daemon | grep -q 'aarch64'
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
@@ -278,6 +326,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEBUG: electron-builder
+
+      - name: Verify packaged native modules
+        run: |
+          VERSION="${{ github.ref_name }}"
+          APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
+          echo "checking $APP_DIR"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-arm64-gnu"
+          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
+          file "$APP_DIR/resources/resources/daemon/linux-arm64/weq-daemon" | grep -q 'aarch64'
 
       - name: Restore dev manifest
         if: always()
@@ -687,7 +744,7 @@ jobs:
 
           ### 下载
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
-          - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
+          - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
           - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
           - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
