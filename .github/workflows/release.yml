@@ -768,7 +768,9 @@ jobs:
   # ========================== QQ 群通知 ==========================
   # 等所有产物和 Release 说明都完成后，发送 QQ 群通知。
   # 消息内容取最后一次 commit 正文（用户约定在此写本次更新说明）。
-  # Windows exe 通过分块上传直传 QQ（GitHub CDN 在大陆不可访问）。
+  # 只发 Windows x86_64 的 desktop 安装包：先把 exe 压成压缩包，
+  # 再按压缩包大小做 200 MB 检查；通过后压缩包经分块上传直传 QQ
+  #（GitHub CDN 在大陆不可访问）。裸 exe 不再直发。
   qq-notify:
     needs: [notes, gate]
     if: needs.gate.outputs.release == 'true'
@@ -776,7 +778,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare release info & download exe
+      - name: Prepare release info & package desktop installer
         id: prep
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -784,6 +786,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VER="${VERSION#v}"
           EXE="weQ-${VER}-setup.exe"
+          PKG="weQ-${VER}-win32-x64-setup.7z"
           EXE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${EXE}"
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
           LINUX_X64_URL="${BASE_URL}/weQ-${VER}-linux-x86_64.AppImage"
@@ -798,13 +801,21 @@ jobs:
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
 
+          # 先压缩：QQ 只发压缩包，不发 exe 裸文件。
+          # 7z 不保证预装在 runner 上，缺了就装一次。
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq p7zip-full
+          fi
+          7z a -t7z -mx=9 -mmt=on "/tmp/release/${PKG}" "/tmp/release/${EXE}" >/dev/null
+
           # 约定：QQ 通知的「详细更改」取 CHANGELOG.md 对应版本章节
           # （与 WeQ 助手推文 / Release 说明同一数据源）。
           BODY=$(node scripts/extract-changelog.mjs "${VERSION}" CHANGELOG.md)
 
-          # 检查 exe 大小，超过 200 MB 则不作为附件发送（QQ 限制）
-          EXE_SIZE=$(stat -c%s "/tmp/release/${EXE}")
-          if [ "$EXE_SIZE" -lt $((200 * 1024 * 1024)) ]; then
+          # 检查「压缩后」的大小，超过 200 MB 则不作为附件发送（QQ 限制）
+          PKG_SIZE=$(stat -c%s "/tmp/release/${PKG}")
+          if [ "$PKG_SIZE" -lt $((200 * 1024 * 1024)) ]; then
             echo "send_file=true"  >> $GITHUB_OUTPUT
           else
             echo "send_file=false" >> $GITHUB_OUTPUT
@@ -812,6 +823,7 @@ jobs:
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "exe=${EXE}"         >> $GITHUB_OUTPUT
+          echo "pkg=${PKG}"         >> $GITHUB_OUTPUT
           echo "exe_url=${EXE_URL}"             >> $GITHUB_OUTPUT
           echo "linux_x64_url=${LINUX_X64_URL}" >> $GITHUB_OUTPUT
           echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
@@ -824,7 +836,7 @@ jobs:
           echo "web_darwin_arm64_url=${WEB_DARWIN_ARM64_URL}" >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
-      - name: Send QQ notification (with exe)
+      - name: Send QQ notification (with package)
         if: steps.prep.outputs.send_file == 'true'
         uses: H3CoF6/qq-notify-action@main
         with:
@@ -839,20 +851,20 @@ jobs:
 
             ---
 
-            - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
+            - Windows x86_64 安装包[下载链接](${{ steps.prep.outputs.exe_url }})
             - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
-            - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
-            - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
+            - macOS Intel dmg [下载链接](${{ steps.prep.outputs.mac_x64_url }})
+            - macOS Apple Silicon dmg [下载链接](${{ steps.prep.outputs.mac_arm64_url }})
             - 浏览器版 Web：
               Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
             **欢迎大家测试使用新的功能喵~**
-          file_path: /tmp/release/${{ steps.prep.outputs.exe }}
+          file_path: /tmp/release/${{ steps.prep.outputs.pkg }}
           file_type: file
-          file_name: ${{ steps.prep.outputs.exe }}
+          file_name: ${{ steps.prep.outputs.pkg }}
 
-      - name: Send QQ notification (exe too large, link only)
+      - name: Send QQ notification (package too large, link only)
         if: steps.prep.outputs.send_file == 'false'
         uses: H3CoF6/qq-notify-action@main
         with:
@@ -867,12 +879,13 @@ jobs:
 
             ---
 
-            - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
+            - Windows x86_64 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
             - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
-            - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
-            - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
+            - macOS Intel dmg [下载链接](${{ steps.prep.outputs.mac_x64_url }})
+            - macOS Apple Silicon dmg [下载链接](${{ steps.prep.outputs.mac_arm64_url }})
             - 浏览器版 Web：
               Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) 
 
+            **安装包体积超过上限了喵**
             **欢迎大家测试使用新的功能喵~**
