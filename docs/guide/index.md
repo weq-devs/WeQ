@@ -2,13 +2,11 @@
 
 WeQ 功能较多，本手册按功能分章节介绍。建议先阅读[快速上手](./getting-started.md)。
 
-## 快速上手
+## 页面介绍
 
-- [下载 · 取密钥 · 开号](./getting-started.md) — 第一次使用看这里
+- [首页](homepage.md)
 
-## 查看与浏览
-
-- [聊天页面与隐私化展示](./chat-view.md)
+- [聊天页面](./chat-view.md)
 - [完整数据库查看](./database-view.md)
 - [QQ 表情资源查看](./emoji-resources.md)
 

@@ -25,6 +25,7 @@
  */
 
 import { BrowserWindow, nativeImage, type NativeImage } from 'electron';
+import { loadIsolatedHtml } from './html_load';
 
 /** 加载 + 字体就绪的硬超时：无论成功与否都不把窗口留在后台。 */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -110,9 +111,7 @@ async function openWindow(html: string): Promise<BrowserWindow> {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    const loaded = win
-      .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-      .catch(() => {});
+    const loaded = loadIsolatedHtml(win, html).catch(() => {});
     await Promise.race([loaded, delay(LOAD_TIMEOUT_MS)]);
     if (win.isDestroyed()) throw new Error('截图窗口已被销毁');
     await win.webContents

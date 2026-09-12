@@ -10,6 +10,7 @@
  */
 
 import { BrowserWindow } from 'electron';
+import { loadIsolatedHtml } from './html_load';
 
 /** 渲染 HTML → PDF 字节。 */
 export async function renderPdfFromHtml(html: string): Promise<Buffer> {
@@ -26,7 +27,7 @@ export async function renderPdfFromHtml(html: string): Promise<Buffer> {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    const loaded = win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const loaded = loadIsolatedHtml(win, html);
     await Promise.race([loaded, new Promise((resolve) => setTimeout(resolve, 8000))]);
     if (win.isDestroyed()) throw new Error('窗口已销毁');
     // 等字体/布局落定，避免首帧缺字。
