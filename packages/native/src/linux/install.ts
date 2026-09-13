@@ -170,6 +170,35 @@ export function runSudo(script: string, password: string): Promise<ElevatedResul
   }));
 }
 
+// ---------- yama ptrace 保护 -----------------------------------------------
+//
+// AppImage / 单用户 FUSE 安装里 root 读不到我们自己的文件（见 fuse_mounts.ts），
+// 「提权跑 worker」这条注入路走不通。但注入的另一个障碍只是 yama 的 ptrace
+// 限制 —— 提权改这一个全局开关，注入就能由非特权的自己完成，而 sudo 子进程
+// 只动系统文件，完全不碰挂载点。
+
+/** yama 的 ptrace_scope：0 = 同用户进程之间可以互相 ptrace。 */
+export const YAMA_PTRACE_SCOPE_PATH = '/proc/sys/kernel/yama/ptrace_scope';
+
+/** 读当前 ptrace_scope（世界可读）；内核没编 yama / 读不到 → null。 */
+export function readYamaPtraceScope(): string | null {
+  try {
+    const value = readFileSync(YAMA_PTRACE_SCOPE_PATH, 'utf-8').trim();
+    return value === '' ? null : value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 以管理员权限写 ptrace_scope。只接受 0–3（不把外部字符串拼进 shell）；失败
+ * 按 {@link linuxSudoErrorHint} 抛友好错误。
+ */
+export async function writeYamaPtraceScope(value: string, password: string): Promise<void> {
+  if (!/^[0-3]$/.test(value)) throw new Error(`ptrace_scope 取值非法：${value}`);
+  await runSudoChecked(`echo ${value} > ${YAMA_PTRACE_SCOPE_PATH}`, password);
+}
+
 /** Linux 版 sudo 报错提示（没有 macOS 的 TCC，多了 requiretty 分支）。 */
 export function linuxSudoErrorHint(raw: string): string {
   const lower = raw.toLowerCase();
@@ -192,6 +221,16 @@ export function linuxSudoErrorHint(raw: string): string {
   }
   if (lower.includes('sudo: command not found') || lower.includes('no sudo')) {
     return `未检测到 sudo，请先安装 sudo（如 apt install sudo / pacman -S sudo）。${raw}`;
+  }
+  // AppImage / 单用户 FUSE 安装：root 读不到挂载点里的文件，sudo 起的 worker
+  // 在 exec 我们自己的二进制时就被内核拒绝（`env: "…": 权限不够`）。密码其实
+  // 是对的、提权也成功了，所以别让用户去查 sudo 配置。
+  if (/^env:/.test(raw.trim()) && /权限不够|permission denied|eacces/i.test(raw)) {
+    return (
+      `${raw}\n\n` +
+      '这是 FUSE 的挂载语义：AppImage（以及单用户 FUSE 家目录）里的文件默认只有挂载者能访问，' +
+      'root 也读不到，因此提权子进程跑不了 WeQ 自己的程序 —— 不是 sudo / 密码的问题。'
+    );
   }
   return raw;
 }

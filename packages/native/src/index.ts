@@ -48,8 +48,12 @@ export {
   writeFileAsRoot,
   resolveSudoPath,
   linuxSudoErrorHint,
+  YAMA_PTRACE_SCOPE_PATH,
+  readYamaPtraceScope,
+  writeYamaPtraceScope,
 } from './linux/install';
 export type { LinuxInstallPaths, LinuxStubStatus } from './linux/install';
+export { isOnPrivateFuseMount } from './linux/fuse_mounts';
 export type {
   QrLoginOptions,
   QuickLoginOptions,

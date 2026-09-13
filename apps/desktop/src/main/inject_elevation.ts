@@ -17,6 +17,15 @@
  *      the host is already running as root — the web server on a headless
  *      box — we ptrace in-process directly; sudo would be pointless.
  *
+ *      One host shape can't use the sudo child at all: an install that root
+ *      cannot read — AppImage (payload on a FUSE mount without `allow_other`)
+ *      or a home/install dir on a single-user FUSE (gocryptfs …). There root
+ *      can't even `exec` our own binary, so the elevated worker dies with
+ *      `env: "<mount>/@weqdesktop": permission denied`. On such hosts the
+ *      password instead buys a `sudo` that only lifts yama protection
+ *      (`escalateViaPtraceScope`): the inject then runs in-process as the user
+ *      and the old scope value is written back afterwards.
+ *
  * The native inject call hands the account UIN to the hook over the pipe and
  * blocks until the hook binds the MSFService instance (~30s), so when inject
  * resolves the pid can already send OIDB packets — there is no separate
@@ -43,7 +52,13 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding } from '@weq/native';
-import { linuxSudoErrorHint, resolveSudoPath } from '@weq/native';
+import {
+  isOnPrivateFuseMount,
+  linuxSudoErrorHint,
+  readYamaPtraceScope,
+  resolveSudoPath,
+  writeYamaPtraceScope,
+} from '@weq/native';
 import type { InjectHook, UserConfigService } from '@weq/service';
 import { getLogger } from '@weq/service';
 import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
@@ -87,6 +102,33 @@ function isPermissionError(error: Error): boolean {
     /PTRACE_ATTACH|ptrace attach/i.test(msg) ||
     /failed to load extracted injector/i.test(msg)
   );
+}
+
+/**
+ * root 能不能读到我们自己的文件（`process.execPath` / worker / `nt_helper.node`）？
+ *
+ * AppImage 把 payload 挂在 FUSE 上、且默认不带 `allow_other`，内核只放行
+ * euid/egid 与挂载者一致的进程 —— root 对挂载点里**所有**文件都是 EACCES。
+ * 单用户 FUSE 家目录（gocryptfs / encfs / 未开 allow_other 的 sshfs）同理，
+ * 所以判定不只看 `$APPIMAGE`：按 execPath 所在的挂载判断更准。
+ *
+ * 这类宿主上「提权跑 worker」是死路（连 exec 我们自己的二进制都做不到），
+ * 得换 {@link escalateViaPtraceScope}。
+ *
+ * 逃生口：`WEQ_INJECT_FORCE_PTRACE_SCOPE=1` 强制走 FUSE 那条、`=0` 强制走
+ * 提权 worker —— 两种姿势都能在 `pnpm dev`（非 FUSE 宿主）里试出来，不必为了
+ * 验证打个 AppImage。
+ */
+function installInvisibleToRoot(): boolean {
+  const override = process.env.WEQ_INJECT_FORCE_PTRACE_SCOPE;
+  if (override === '1') return true;
+  if (override === '0') return false;
+  if (process.env.APPIMAGE) return true;
+  try {
+    return isOnPrivateFuseMount(process.execPath);
+  } catch {
+    return false; // 判不出来就按原来的提权方式走（失败时 linuxSudoErrorHint 会解释）
+  }
 }
 
 /**
@@ -284,8 +326,65 @@ export function createLinuxInjectHook(
   }
 
   /**
+   * FUSE 宿主的提权姿势：root 只做一件不碰挂载点的事 —— 把 yama ptrace 保护
+   * 临时放开；注入本身由非特权的我们完成（同用户 ptrace 同用户，正是
+   * ptrace_scope=0 允许的场景），完事再把原值写回去。
+   *
+   * 为什么不用 worker：见 {@link installInvisibleToRoot}。这条路的 sudo 子进程
+   * 只执行 `/bin/sh` 与 `/proc/sys/...`（都是系统文件），读不到挂载点也不影响。
+   *
+   * 恢复放在 finally：钩子一旦挂上就只靠 unix socket 通信，写回保护不影响本次
+   * 会话；写回失败只记日志，不掩盖注入结果。读不到 yama（内核没编）或保护本来
+   * 就是开的，说明这条捷径不成立 —— 退回提权 worker。
+   */
+  async function escalateViaPtraceScope(pid: number, uin: string, password: string): Promise<void> {
+    const before = readYamaPtraceScope();
+    if (before === null || before === '0') {
+      logger.warn('yama ptrace_scope unusable; falling back to the elevated worker', {
+        event: 'inject-ptrace-scope-unusable',
+        pid,
+        scope: before ?? 'unavailable',
+      });
+      await sudoInject(pid, uin, password);
+      return;
+    }
+
+    logger.info('lifting yama ptrace protection for this inject (fuse-hosted install)', {
+      event: 'inject-ptrace-scope-lift',
+      pid,
+      previous: before,
+    });
+    await writeYamaPtraceScope('0', password);
+    try {
+      await nt.injectAndGetStatusEmbedded(pid, uin);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      throw new Error(`已临时放开 ptrace 保护，但注入仍然失败：${err.message}`);
+    } finally {
+      try {
+        await writeYamaPtraceScope(before, password);
+        logger.info('yama ptrace protection restored', {
+          event: 'inject-ptrace-scope-restore',
+          pid,
+          restored: before,
+        });
+      } catch (e) {
+        logger.warn('failed to restore ptrace_scope', {
+          event: 'inject-ptrace-scope-restore-failed',
+          pid,
+          errorMessage: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
+  /**
    * Ask the renderer for the sudo password (via the hint dialog's field, or
-   * the standalone password dialog when none was provided) and inject.
+   * the standalone password dialog when none was provided) and inject, by
+   * whichever escalation this host can actually use:
+   *   - normal installs → root runs the worker (ptrace on our behalf);
+   *   - installs root can't read (AppImage / 单用户 FUSE) → root only lifts
+   *     yama protection, we inject ourselves ({@link escalateViaPtraceScope}).
    * Throws when the user cancels — the inject stays un-attached.
    */
   async function escalateWithPassword(pid: number, uin: string, provided?: string): Promise<void> {
@@ -304,6 +403,10 @@ export function createLinuxInjectHook(
     }
     if (!password) {
       throw new Error('已取消授权，未注入 QQ 进程。');
+    }
+    if (installInvisibleToRoot()) {
+      await escalateViaPtraceScope(pid, uin, password);
+      return;
     }
     await sudoInject(pid, uin, password);
   }
