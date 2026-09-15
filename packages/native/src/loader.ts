@@ -299,7 +299,9 @@ function resolveNativeRoot(): string {
       `  - WEQ_NATIVE_DIR env var (unset)\n` +
       `  - ${electronResources ? join(dirname(electronResources), 'native') : '<not running under Electron>'}\n` +
       tried.map((t) => `  - ${t}`).join('\n') +
-      `\nSet WEQ_NATIVE_DIR to override.`,
+      `\nSet WEQ_NATIVE_DIR to override.\n` +
+      // nt_helper.node 与装扮资源不入库，dev 克隆里本来就没有 —— 这是最常见的原因。
+      `If this is a fresh clone: run \`pnpm native:fetch\` (see native/README.md).`,
   );
 }
 
@@ -322,7 +324,8 @@ function resolvePlatformRoot(nativeRoot: string): string {
   if (!existsSync(platformRoot)) {
     throw new Error(
       `Expected platform directory not found: ${platformRoot}\n` +
-        `Place the renamed .node files there (see packages/native/README.md).`,
+        `Run \`pnpm native:fetch\` (see native/README.md), or place the renamed\n` +
+        `.node files there manually.`,
     );
   }
   return platformRoot;
@@ -410,7 +413,13 @@ function assertExists(path: string, label: string): void {
   logToFile(`[assertExists] Checking ${label} at: ${path}`);
   if (!existsSync(path)) {
     logToFile(`[assertExists] MISSING: ${label} not found at ${path}`);
-    throw new Error(`Required native asset missing: ${label}\n  expected at: ${path}`);
+    // nt_helper.node 不入库（最容易缺的就是它）；ninebird/ 下的二进制仍在仓库里。
+    const hint = label.includes('nt_helper.node')
+      ? 'Run `pnpm native:fetch` in a dev clone (see native/README.md).'
+      : 'This file is committed — the checkout is probably incomplete.';
+    throw new Error(
+      `Required native asset missing: ${label}\n  expected at: ${path}\n  hint: ${hint}`,
+    );
   }
   try {
     const stats = statSync(path);

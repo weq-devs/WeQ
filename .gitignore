@@ -55,4 +55,14 @@ resources/ninebird-runtime/
 # dev
 /tmp
 
+# nt_helper 原生产物：5 个平台的 nt_helper.node 与加密后的装扮资源（*.dat）都不入库。
+# 前者由 native 私仓构建、发布到公开仓 H3CoF6/nt_helper_release，主仓用
+# `pnpm native:fetch` 取最新（release 流水线在打包前也会取一次）。
+# 注意：native/<platform>/<arch>/ninebird/* 仍然入库，是另一条手工同步的链。
+/native/*/*/nt_helper.node
+# `pnpm native:fetch` 记「当前装的是哪个 tag」用，天然是机器相关的
+/native/.installed.json
+/resources/dress/*.dat
+
+# 装扮资源抓取脚本的中间产物（私有）
 /resources/dress/*_resources

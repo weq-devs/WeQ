@@ -64,6 +64,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # nt_helper.node 与装扮资源 *.dat 不入库：打包前从 H3CoF6/nt_helper_release
+      # 取最新的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
+      # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
+      # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
+
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。
       - name: Sync version from tag
@@ -176,6 +183,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 同 windows：先取 nt_helper 原生产物，再开始打包。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
+
       # 打包前先把「架构对不对」验掉：resvg / sherpa 的 .node binding 和 cargo
       # 编出来的守护进程都取自构建机。与 macOS 两个 job 同款把关 —— v1.0.0 的
       # weQ-1.0.0-linux-x86_64.AppImage 就是在 arm64 runner 上打出来的，
@@ -278,6 +289,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 同 windows：先取 nt_helper 原生产物，再开始打包。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
+
       # 同 linux-x64：构建机架构必须就是目标架构，否则 resvg / sherpa binding
       # 与守护进程都会是另一个架构的。
       - name: Verify Node architecture and native bindings
@@ -377,6 +392,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 同 windows：先取 nt_helper 原生产物，再开始打包。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
+
       # 打包前先确认 Node 架构符合目标，避免再打出「arm64 壳 + x64 binding」
       # 的坏包（v0.4.4 已踩过一次）。
       - name: Verify Node architecture
@@ -475,6 +494,10 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 同 windows：先取 nt_helper 原生产物，再开始打包。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
 
       # 同上：装完依赖后校验 Node 架构，并确认 arm64 binding 真的进包。
       - name: Verify Node architecture
@@ -629,6 +652,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 浏览器版同样带 native/ 与 resources/（含装扮资源），所以也要取一份；
+      # 每个 matrix runner 取的正是它自己平台那一份。
+      - name: Fetch nt_helper native artifacts
+        run: node scripts/fetch-native.mjs --require-fresh --verify
 
       # 与桌面版各平台 job 同款校验：避免 Rosetta / 架构错配导致打包出
       # 「arm64 壳 + x64 binding」的坏包。

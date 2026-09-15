@@ -21,6 +21,8 @@
     "check": "biome check .",
     "build:ninebird": "node packages/ninebird/scripts/build.mjs",
     "build:daemon": "node packages/daemon/scripts/build.mjs",
+    "native:fetch": "node scripts/fetch-native.mjs",
+    "native:check": "node scripts/fetch-native.mjs --check",
     "version:set": "node scripts/set-version.mjs"
   },
   "devDependencies": {
