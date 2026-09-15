@@ -115,90 +115,98 @@ macos-x64 / macos-arm64 / web）在 `pnpm install` 之后各插了一步：
 构建；`--verify` 在 runner 上真的 `require()` 一次并跑 `getInitStatus()`，
 二进制有问题当场失败，而不是等用户装上才发现。
 
-## 历史清洗记录（2026-09，一次性的）
+## 历史清洗记录（2026-09-16，一次性，已完成）
 
-本地实测数字：
+| 指标 | 清洗前 | 清洗后 |
+| --- | --- | --- |
+| 本地 `.git` | 538 MB（pack 534.49 MiB） | **63 MB**（pack 62.20 MiB） |
+| 从 GitHub 全新 clone | — | **65 MB / 6 秒** |
+| commit 数 | 777 | 777（除下述 8 个文件外逐字节不变） |
+| 全历史 `nt_helper.node` / `dress/*.dat` | 108 / 24 个 blob | 0 / 0 |
 
-| 步骤 | `.git` |
-| --- | --- |
-| 清洗前 | 537 MB |
-| 去掉 `native/**` + `resources/dress/*.dat` | 146 MB |
-| 再去掉已废弃的 `resources/emoji/<id>/**` + `emoji.zip` 历史 | **61 MB** |
+> GitHub 页面上的 "Repository size" 是异步重算的，强推之后一段时间里仍会显示旧值
+> （当时看到的就是 539 MB 没变）—— 以 `git clone` 的实际体积为准。
 
 清洗范围（**代码与素材的当前版本全部保留**）：
 
-- `native/**` 整个目录从历史里移除；`native/**/ninebird/*` 当前版本仍继续入库，
-  只是历史里的旧副本清掉；
+- `native/**/nt_helper.node`，含历史里两种旧命名 `native/darwin/arm|intel/`；
 - `resources/dress/{bubble,widget,font}.dat`；
 - `resources/emoji/<数字>/**` 与 `resources/emoji.zip`（早已不在追踪的历史垃圾；
-  `market.csv` / `emoji_config.json` 保留）。
+  `market.csv` / `emoji_config.json` 保留）；
+- `native/**/ninebird/*` **不动** —— 当前版本继续入库，历史也一并保留。
 
-试跑校验：775 个 commit、46 个 tag 一个不少；HEAD 树相对清洗前只少 24 个文件
-（21 个 native + 3 个 dat）；全历史里 `nt_helper.node` 与 `resources/dress/*.dat` 命中数为 0。
+最终 HEAD 树相对清洗前只少 8 个文件（5 个 `nt_helper.node` + 3 个 `.dat`），其余提交
+逐字节不变；47 个 tag（含只在远端存在的 `v1.0.0`）全部重指到重写后的等价提交。
 
-### runbook
+### 实际执行的命令
 
 ```bash
-# 0) 前提：nt_helper_release 已经有第一份 release；fetch-native 的改动已经合进
-#    dev/main 并验证过（那时 native/*.node 还在追踪，CI 依旧能跑）
-git clone --mirror git@github.com:H3CoF6/WeQ.git /tmp/weq-backup.git      # 备份
+# 0) 留档：重写会把二进制从工作区一起删掉；另外先在别处镜像一份远端作为回退点
+mkdir -p /tmp/weq-native-keep
+cp -a native /tmp/weq-native-keep/native
+cp -a resources/dress/bubble.dat resources/dress/widget.dat resources/dress/font.dat /tmp/weq-native-keep/
+git clone --mirror https://github.com/H3CoF6/WeQ /tmp/weq-remote-backup.git
 
-# 1) 把当前工作区里的二进制留档（重写会把它们从工作区一起删掉）
-mkdir -p /tmp/weq-native-backup
-cp -a native /tmp/weq-native-backup/native
-cp -a resources/dress/bubble.dat resources/dress/widget.dat resources/dress/font.dat /tmp/weq-native-backup/
+# 1) 重写（filter-branch，777 commits 实测 34 秒；没装 filter-repo 也够用）
+FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force \
+  --index-filter "git rm -r --cached --ignore-unmatch -q ':(glob)native/**/nt_helper.node' \
+    resources/dress/bubble.dat resources/dress/widget.dat resources/dress/font.dat \
+    resources/emoji.zip 'resources/emoji/[0-9]*'" \
+  --tag-name-filter cat -- --all
+rm -rf .git/refs/original && git reflog expire --expire=now --all
 
-# 2) 重写（推荐 git-filter-repo；没装就 pip install git-filter-repo）
-git filter-repo --force --invert-paths \
-  --path native \
-  --path resources/dress/bubble.dat \
-  --path resources/dress/widget.dat \
-  --path resources/dress/font.dat \
-  --path-glob 'resources/emoji/[0-9]*' \
-  --path resources/emoji.zip
-# filter-repo 会顺手删掉 origin，记得加回来：
-#   git remote add origin git@github.com:H3CoF6/WeQ.git
-#
-# 没有 filter-repo 时可用 filter-branch（本机实测 34 秒）：
-#   FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force \
-#     --index-filter "git rm -r --cached --ignore-unmatch -q native \
-#       resources/dress/bubble.dat resources/dress/widget.dat resources/dress/font.dat \
-#       resources/emoji.zip 'resources/emoji/[0-9]*'" \
-#     --tag-name-filter cat -- --all
-#   rm -rf .git/refs/original && git reflog expire --expire=now --all
+# 2) 放回留档的二进制（此时它们已是 ignored 的本地文件），然后重打包
+cp -a /tmp/weq-native-keep/native/. native/
+cp -a /tmp/weq-native-keep/bubble.dat /tmp/weq-native-keep/widget.dat \
+      /tmp/weq-native-keep/font.dat resources/dress/
+rm -f .git/ORIG_HEAD .git/FETCH_HEAD
+git repack -adf --window=250 --depth=50 && git gc --prune=now
+git count-objects -vH          # 期望 62 MB 上下
 
-# 3) 放回留档的二进制（此刻它们是 ignored 的本地文件）
-cp -a /tmp/weq-native-backup/native/. native/
-cp -a /tmp/weq-native-backup/bubble.dat /tmp/weq-native-backup/widget.dat \
-      /tmp/weq-native-backup/font.dat resources/dress/
-git gc --prune=now
-git count-objects -vH          # 期望 60 MB 上下
-
-# 4) 强推（tag 也得推）
-git push --force origin --all
+# 3) 强推（分支 + tag）
+git push --force origin main dev
 git push --force origin --tags
 ```
 
-验证清单：
+注意 pathspec 用的是 `:(glob)native/**/nt_helper.node`：默认 pathspec 的 `*` 会跨 `/`，
+不用 glob magic 容易误伤同名前缀的其它文件。
+
+验证（在**全新 clone** 里做，才是别人实际拿到的结果）：
 
 ```bash
-git rev-list --count --all                                        # 775
-git tag | wc -l                                                   # 46
-git rev-list --objects --all | grep -c nt_helper.node             # 0
-git rev-list --objects --all | grep -c 'resources/dress/.*\.dat'  # 0
+git clone https://github.com/H3CoF6/WeQ /tmp/weq-fresh && cd /tmp/weq-fresh
+du -sh .git                                               # 65 MB
+git rev-list --count --all                                # 768（本地另有 9 个私有分支的提交）
+git tag | wc -l                                           # 47
+git rev-list --objects --all | grep -c nt_helper.node     # 0
+git rev-list --objects --all | grep -c 'resources/dress/.*\.dat'   # 0
 git fsck
-pnpm install && pnpm native:fetch && pnpm dev                     # 冒烟
+node scripts/fetch-native.mjs --verify                    # 取最新产物并当场跑 getInitStatus()
 ```
 
-### 风险与提醒
+### 这次踩到的坑
 
-- 重写会改掉所有 commit sha，46 个 tag 全部要强推。GitHub Release 的 tag 名不变、
+1. **对象被"看不见的地方"吊住**，`gc` 之后 `.git` 只瘦了一半：
+   - `.git/ORIG_HEAD` / `.git/FETCH_HEAD` 里还记着重写前的 tip；
+   - **其它 worktree 的 index**（`.git/worktrees/<name>/index`）里缓存着旧 tree ——
+     本仓库有个挂在 `dev2` 上的 `WeQ2` worktree，它的 index 里那 8 个文件还是 staged 状态。
+   这些都会让 git 认为旧的大 blob 仍然可达（`repack -a` 会原样带上）。清掉这两个文件、
+   并把对应 worktree 的 index 刷新（`git -C <worktree> reset`）之后，再
+   `repack -adf` 才能回到 62 MB。
+2. **远端独有的 tag**：`v1.0.0` 只存在于 GitHub（本地没有），强推 tag 不会动它，它会
+   继续指向旧提交、把整条旧历史留在服务端。要按「author/committer 时间戳 + 提交信息」
+   找到等价提交再 `git tag -f` 重指。
+3. **PR refs**：GitHub 的 `refs/pull/*` 不受强推影响（当时 71 个），旧对象还会被它们
+   引用着。想让 GitHub 侧的体积真正降下来，得等它自己 GC，必要时找 Support 清 dangling。
+4. 老 clone 只 `git fetch` 不会回收本地 pack，要么**重新 clone**，要么
+   `git fetch --prune --tags --force && git reflog expire --expire=now --all && git gc --prune=now`。
+
+### 其它提醒
+
+- 重写改掉了所有 commit sha，47 个 tag 全部强推。GitHub Release 的 tag 名不变、
   资产与下载链接照旧，但 Release 指向的 commit 变了。
-- 已开的 PR / fork 会失效：动手前确认 `gh pr list -R H3CoF6/WeQ` 为空。
-- 通知协作者**重新 clone**。老 clone 只 `git fetch` 的话本地 pack 还是 538 MB；
-  也可以 `git fetch --prune --tags --force && git reflog expire --expire=now --all && git gc --prune=now` 试着回收。
-- 服务端旧对象要等 GitHub 侧 GC，必要时找 Support 清理；fork 里的副本清不掉。
-- 本地 `dev2` / `docs/history` / `feat/qzone` / `tmp` 等分支和 stash 会被一起重写：
+- fork 与已关闭 PR 里的副本清不掉；已开的 PR 会失效（动手前确认 `gh pr list` 为空）。
+- 本地 `dev2` / `docs/history` / `feat/qzone` / `tmp` 等私有分支和 stash 会被一起重写：
   废弃的先删，要留的（stash）先导成 patch。
 - `LICENSE` 一个字节都别改：它的 sha256 烘在 `.node` 里，改了所有构建都会报
   「组件已损坏或被篡改」。
