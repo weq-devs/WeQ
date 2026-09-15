@@ -77,12 +77,18 @@ git clone https://github.com/H3CoF6/WeQ   # 克隆仓库代码
 cd WeQ
 
 pnpm i                     # 安装依赖（electron可能需要单独处理）
+pnpm native:fetch          # 取 nt_helper 原生产物（nt_helper.node + 装扮资源，不入库）
 pnpm run build:bot         # 构建bot代码
 pnpm run build:ninebird    # 构建ninebird代码
 pnpm run build:daemon      # 构建守护进程代码
 
 pnpm dev                   # 启动开发服务器
 ```
+
+> `native/**/nt_helper.node` 与 `resources/dress/*.dat` 不在仓库里（历史太大），
+> 由 [nt_helper_release](https://github.com/H3CoF6/nt_helper_release) 分发，
+> 隔一段时间重新 `pnpm native:fetch` 一次即可 —— 细节见
+> [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 
 打包发布：
 

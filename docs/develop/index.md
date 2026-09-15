@@ -6,6 +6,7 @@
 
 ```bash
 pnpm i
+pnpm native:fetch   # 取 nt_helper 原生产物（不入库，新克隆里没有）
 pnpm dev
 ```
 
@@ -14,6 +15,7 @@ pnpm dev
 ## 章节
 
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
+- [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
 - [贡献指南](../../CONTRIBUTING.md)
 

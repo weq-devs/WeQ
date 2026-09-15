@@ -22,6 +22,11 @@ const requireFn = createRequire(__filename);
 const nt = requireFn('native/linux/x64/nt_helper.node');
 ```
 
+> 仓库里**不带** `native/**/nt_helper.node`（历史太大，已拆到
+> [nt_helper_release](https://github.com/H3CoF6/nt_helper_release) 分发）。
+> dev 克隆先跑 `pnpm native:fetch` 取最新构建，细节见
+> [原生二进制与装扮资源的分发](./native-artifacts.md)。
+
 所有功能函数在真正干活前都会内部调用 `logger::init_logger()` 与**环境校验**（有效期检查）。务必按下面的顺序初始化：
 
 1. **先 `setLogPath`**（可选但建议）：配置日志路径，否则日志落到默认位置。

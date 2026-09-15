@@ -21,8 +21,9 @@
 - **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@10.33.2`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
 
 ```bash
-pnpm i        # 安装依赖
-pnpm dev      # 启动桌面端开发
+pnpm i             # 安装依赖
+pnpm native:fetch  # 取 nt_helper 原生产物（不入库，dev 克隆里没有；见 docs/develop/native-artifacts.md）
+pnpm dev           # 启动桌面端开发
 ```
 
 更多背景见[项目架构](./docs/develop/architecture.md)与[原理文档](./docs/principles/index.md)。
