@@ -4,6 +4,12 @@
 //!
 //!   <exe绝对路径> serve --pipe <pipeName>
 //!
+//! Windows 例外：动作命令优先指向同目录的**隐藏拉起器** `weq-daemon-launch.exe`
+//! （见 [`task_command`] 与 `src/bin/weq-daemon-launch.rs`）。直接注册守护进程
+//! 本体的话，计划任务会在用户会话里给这个控制台程序分配一个 conhost 窗口 ——
+//! 常驻进程就成了「开机挂在桌面、不会自己关闭」的黑框，用户点掉窗口还等于顺手
+//! 杀掉守护进程。拉起器是 GUI 子系统，拿到同样的参数去拉起本体。
+//!
 //! 端口 / docroot 不写进注册 —— 那些由 WeQ 运行时通过管道下发，注册里只有
 //! 二进制位置与管道名。卸载 / 查询都按管道名推导的固定标识操作。
 //!
@@ -27,6 +33,31 @@ pub fn ident(pipe_name: &str) -> String {
         "weq-daemon".to_string()
     } else {
         format!("weq-daemon-{pipe_name}")
+    }
+}
+
+/// Windows 隐藏拉起器的文件名（GUI 子系统，见 `src/bin/weq-daemon-launch.rs`）。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) const WINDOWS_LAUNCHER_FILE: &str = "weq-daemon-launch.exe";
+
+/// Windows 计划任务的**动作命令**：同目录有隐藏拉起器就用它，否则退回守护进程
+/// 本体。
+///
+/// 拉起器只是「换个不创建控制台窗口的方式 spawn 同目录的本体」，没有版本相关
+/// 行为；所以它缺失（旧安装 / 被手工删掉 / 这次构建没产出）时降级到本体即可 ——
+/// 自启照常工作，代价只是又会带一个窗口，可用性优先于观感。
+///
+/// 不 gated 到 `cfg(windows)`：纯路径判断，单测在 Linux 上就能覆盖。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn task_command(exe: &std::path::Path) -> std::path::PathBuf {
+    let launcher = exe
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join(WINDOWS_LAUNCHER_FILE);
+    if launcher.is_file() {
+        launcher
+    } else {
+        exe.to_path_buf()
     }
 }
 
@@ -227,13 +258,15 @@ fn home_dir() -> Result<std::path::PathBuf, String> {
 ///
 /// Windows 的 `schtasks /Create /F` 本身就是覆盖语义，所以每次 `serve` 都按当前
 /// exe 路径重写一遍就是幂等的 —— 注册指向的路径变了（升级 / 换安装位置）自然自愈。
+/// 动作命令走 [`task_command`]：有隐藏拉起器就指向它（登录时不再弹窗口）。
 #[cfg(windows)]
 fn ensure_platform(pipe_name: &str) -> Result<(), String> {
     let exe = exe_path()?;
     let name = ident(pipe_name);
+    let command = task_command(&exe);
     create_task(
         &name,
-        &exe.display().to_string(),
+        &command.display().to_string(),
         Some(&format!("serve --pipe {pipe_name}")),
         "schtasks register",
     )
@@ -493,10 +526,43 @@ pub fn status(pipe_name: &str) -> Result<bool, String> {
 mod tests {
     use super::*;
 
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "weq-daemon-autostart-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     #[test]
     fn ident_uses_default_without_suffix() {
         assert_eq!(ident("weq-daemon"), "weq-daemon");
         assert_eq!(ident("weq-daemon-test"), "weq-daemon-weq-daemon-test");
+    }
+
+    #[test]
+    fn task_command_prefers_launcher_only_when_present() {
+        let dir = temp_dir("task-command");
+        let _ = std::fs::remove_dir_all(&dir);
+        let exe = dir.join(if cfg!(windows) {
+            "weq-daemon.exe"
+        } else {
+            "weq-daemon"
+        });
+
+        // 没有拉起器（旧安装 / 被手工删掉）：退回本体 —— 自启不能因为少一个
+        // 文件就坏掉，代价只是又会带一个控制台窗口。
+        assert_eq!(task_command(&exe), exe);
+
+        std::fs::create_dir_all(&dir).unwrap();
+        let launcher = dir.join(WINDOWS_LAUNCHER_FILE);
+        std::fs::write(&launcher, b"stub").unwrap();
+        assert_eq!(task_command(&exe), launcher);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

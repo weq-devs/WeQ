@@ -8,6 +8,12 @@ out/
 build/
 *.tsbuildinfo
 
+# 例外：electron-builder 的 buildResources 就落在 apps/desktop/build（见
+# electron-builder.yml 的 directories.buildResources），那里放的是**要入库的打包
+# 脚本**（installer.nsh：卸载时清理 weq-daemon 的钩子），不是构建产物。
+!apps/desktop/build/
+!apps/desktop/build/**
+
 # weq web runtime dirs (exports / logs, created next to the server)
 weq-exports/
 weq-data/

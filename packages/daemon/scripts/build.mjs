@@ -92,6 +92,23 @@ function main() {
   const size = statSync(outFile).size;
   console.log(`[build:daemon] staged ${outFile} (${(size / 1024 / 1024).toFixed(1)} MB)`);
 
+  // Windows 还多一个「隐藏拉起器」：GUI 子系统的小程序，计划任务的动作指向它。
+  // 直接注册守护进程本体的话，Windows 会给这个控制台程序分配一个 conhost 窗口，
+  // 常驻进程就成了开机挂在桌面上的黑框（见 src/bin/weq-daemon-launch.rs）。
+  // 其它平台不需要 —— 那里没有「控制台窗口」这个概念。
+  if (process.platform === 'win32') {
+    const launcherBuilt = join(crateDir, 'target', targetDir, 'weq-daemon-launch.exe');
+    if (!existsSync(launcherBuilt)) {
+      console.error(`[build:daemon] cargo succeeded but launcher missing: ${launcherBuilt}`);
+      process.exit(1);
+    }
+    const launcherOut = join(outDir, 'weq-daemon-launch.exe');
+    copyFileSync(launcherBuilt, launcherOut);
+    console.log(
+      `[build:daemon] staged ${launcherOut} (${(statSync(launcherOut).size / 1024).toFixed(0)} KB)`,
+    );
+  }
+
   // lint: previously staged artifacts for other platform-arch dirs would ship
   // into the installer too — electron-builder copies resources/ wholesale.
   // Fail loudly if anything unexpected is present so CI catches it.

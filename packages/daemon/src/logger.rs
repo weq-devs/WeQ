@@ -1,8 +1,12 @@
 //! 极简 stderr 日志：时间戳 + 级别 + 消息。
 //!
-//! 守护进程无控制台窗口（Windows 上从计划任务启动），日志平时没人看；
-//! 需要排查时让 WeQ 侧用 `--pipe` 名或计划任务里临时加 `WEQ_DAEMON_STDERR=1`
-//! 重定向即可。刻意不引入 tracing/log 框架 —— 职责越少越不会烂。
+//! 日志去哪，取决于谁把 `serve` 拉起来的：
+//!   - 计划任务 → **隐藏拉起器**（`src/bin/weq-daemon-launch.rs`）。它不创建控制台
+//!     窗口，所以把守护进程的 stderr 接进状态目录的 `daemon.log`；
+//!   - 手工在终端里跑 → 终端；GUI 自己拉 → GUI 丢弃（stdio 全 null）。
+//!
+//! 因此排查时要么看 `%LOCALAPPDATA%\weq-daemon\daemon.log`，要么前台跑一遍
+//! `weq-daemon --pipe <name> serve`。刻意不引入 tracing/log 框架 —— 职责越少越不会烂。
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};

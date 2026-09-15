@@ -47,7 +47,9 @@ WeQ Desktop (Electron)                    weq-daemon (本包，原生二进制)
 - macOS：`~/Library/Application Support/weq-daemon/<pipe>.json`
 - Linux：`$XDG_STATE_HOME/weq-daemon/<pipe>.json`（默认 `~/.local/state/`）
 
-同一目录下还有 `bin/weq-daemon[.exe]` —— 桌面版 stage 出来的稳定落位，自启注册指向它。
+同一目录下还有 `bin/weq-daemon[.exe]` —— 桌面版 stage 出来的稳定落位，自启注册指向它
+（Windows 上还有 `bin/weq-daemon-launch.exe` 与它同根，见「自启模型」）。Windows 的
+`serve` 由隐藏拉起器启动时，日志也落在这里：`daemon.log`。
 
 `serve` 启动时若记忆存在且 docroot 仍是有效目录，就**自主恢复 HTTP**——电脑重启后 WeQ 不在场，推文卡片的 URL 依然可用。容错：docroot 消失 → 等待 WeQ 重新下发（保留记忆）；端口被占 → 只记日志、保持空闲（管道照常活着）；文件损坏 → 删除视为无记忆。`http_stop` 是唯一的「遗忘」入口，`stop`/进程退出/崩溃都不影响记忆（写盘用临时文件 + rename 原子落盘，崩溃不留坏文件）。
 
@@ -98,6 +100,9 @@ weq-daemon install|uninstall|status [--pipe <name>]
 
 `--pipe` 覆盖默认管道名（`weq-daemon`），同一台机器可并存多套实例做测试。
 
+Windows 上还有一个 `weq-daemon-launch.exe`（隐藏拉起器）—— 它不是给人敲的，而是
+计划任务的动作，见下面的「自启模型」。
+
 ### 自启模型：全机只有一份原生注册
 
 **守护进程是唯一随系统自启动的东西，WeQ 自己没有任何原生注册。**
@@ -114,7 +119,8 @@ weq-daemon install|uninstall|status [--pipe <name>]
 
 注册命令行只有 `serve --pipe <name>`，不含端口与路径；按平台落位：
 
-- Windows：`schtasks` ONLOGON 任务（名 `weq-daemon`）
+- Windows：`schtasks` ONLOGON 任务（名 `weq-daemon`）。动作命令指向同目录的
+  **隐藏拉起器** `weq-daemon-launch.exe`（见下节），不是守护进程本体
 - macOS：`~/Library/LaunchAgents/weq-daemon.plist`（RunAtLoad + KeepAlive）
 - Linux：`~/.config/systemd/user/weq-daemon.service` + `loginctl enable-linger`
 
@@ -124,6 +130,27 @@ weq-daemon install|uninstall|status [--pipe <name>]
 变了就 `stop` 旧的、覆盖落位、拉起新的。`WEQ_DAEMON_DIR` 可绕过 stage 直接指定二进制
 （测试 / 排查）。开发态（`pnpm dev`）由 GUI 下发 `WEQ_DAEMON_NO_AUTOSTART=1` 跳过注册
 —— 仓库构建产物被注册成开机自启没有意义。
+
+#### Windows 为什么要一个「隐藏拉起器」
+
+守护进程本体是**控制台子系统**程序（Rust 默认）。计划任务在用户会话里直接拉起它时，
+Windows 会给这个控制台程序分配一个 conhost 窗口 —— 而守护进程是常驻进程，于是那个
+窗口会一直挂在桌面上、不会自己关闭（1.0.2 的线上反馈），用户点掉窗口还等于顺手杀掉
+守护进程。
+
+所以 Windows 的计划任务动作指向 `weq-daemon-launch.exe`：一个 **GUI 子系统**的小程序
+（`src/bin/weq-daemon-launch.rs`，随包发布、GUI 侧与本体一起 stage），它永远不创建
+控制台窗口，再用 `DETACHED_PROCESS` 把 `weq-daemon.exe serve` 拉起来，并把后者的
+stdout / stderr 接进数据目录的 `daemon.log`（超过 1 MiB 轮换成 `daemon.log.1`）。
+拉起器缺失时（旧安装 / 被手工删掉）`serve` 会退回注册本体：自启照常工作，代价只是
+又会带一个窗口 —— 可用性优先于观感。
+
+排查时看 `%LOCALAPPDATA%\weq-daemon\daemon.log`，或在终端里前台跑一遍
+`weq-daemon --pipe <name> serve`。
+
+卸载：Windows 安装包的卸载器（`apps/desktop/build/installer.nsh`）会停掉守护进程、
+删掉这份注册，并清掉 `%LOCALAPPDATA%\weq-daemon`（二进制 / 拉起器 / 状态文件 / 日志）。
+升级（`--updated`）时**不动**守护进程 —— 那是换版本，不是卸载。
 
 历史残留：老版本注册过 `<ident>-gui`（任务 / plist / unit），`serve` 启动时会
 **只删不建**地清理掉。
@@ -138,6 +165,9 @@ pnpm --filter @weq/daemon test
 ```
 
 产物按 `resources/daemon/<platform>-<arch>/` 落位（`win32-x64` / `linux-x64` / `linux-arm64` / `darwin-x64` / `darwin-arm64`）：
+
+- Windows 的 `win32-x64/` 下是**两个**文件：`weq-daemon.exe` 与
+  `weq-daemon-launch.exe`（隐藏拉起器，见上）；其它平台只有一个本体。
 
 - 桌面版：electron-builder 的 `extraResources` 原样拷贝 `resources/`，二进制随安装包发布（release 环境约 0.7 MB）。
 - 浏览器版：每个平台/架构各产一个压缩包（release web 矩阵在各自 runner 上跑

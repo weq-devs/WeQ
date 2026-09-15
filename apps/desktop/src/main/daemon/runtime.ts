@@ -5,6 +5,8 @@
  *   - 把随包发布的二进制 **stage 到稳定路径**（数据目录的 `bin/`）：只有稳定
  *     路径才能被写进原生自启注册 —— AppImage 每次运行挂到不同临时目录，注册
  *     指向包内路径的话重启即失效。
+ *     （Windows 上顺手补一个隐藏拉起器 `weq-daemon-launch.exe` —— 计划任务的动作
+ *     指向它，直接注册守护进程本体的话登录时会挂一个关不掉的控制台窗口。）
  *   - 保证守护进程「在，且是磁盘上那个版本」：探活 + 比版本，一致就什么都不做；
  *     版本变了才 `stop` 掉旧的、覆盖落位、再拉起新的；不在则 detached 拉起。
  *   - 平时【不主动杀掉守护进程】—— 它的生命周期属于系统自启 / 用户，不属于 GUI；
@@ -180,7 +182,7 @@ export function stagedDaemonPath(): string {
 }
 
 /**
- * 把随包发布的二进制覆盖到 {@link stagedDaemonPath}。
+ * 把随包发布的二进制原子地放到目标路径（守护进程本体与 Windows 隐藏拉起器共用）。
  *
  * 同目录 `tmp` + `rename` 原子替换；失败不抛 —— 调用方退化成「本次会话直接用
  * 包内二进制」，只记日志（Windows 上目标被占用是唯一的常见失败原因，而调用方
@@ -204,6 +206,30 @@ async function stageDaemonBinary(source: string, target: string): Promise<boolea
     });
     return false;
   }
+}
+
+/** Windows 隐藏拉起器的文件名（与包内 `resources/daemon/<target>/` 同构）。 */
+const WINDOWS_LAUNCHER_EXE = 'weq-daemon-launch.exe';
+
+/**
+ * 把 Windows 隐藏拉起器补到稳定落位（仅 win32）。
+ *
+ * 计划任务的动作指向拉起器而不是守护进程本体：本体是控制台子系统程序，被计划
+ * 任务在交互式会话里拉起时 Windows 会分配一个 conhost 窗口，常驻进程就变成开机
+ * 挂在桌面、不会自己关闭的黑框（见 `packages/daemon/src/bin/weq-daemon-launch.rs`）。
+ *
+ * 平时只在缺失时拷贝（拉起器只是「换个不创建控制台的方式 spawn 同目录的本体」，
+ * 旧的那份一样能用）；`refresh` 留给版本升级 —— 换了安装包时顺手刷新，免得拉起器
+ * 自身的改动永远追不上已落位的那份。包内没有（非 Windows 产物 / 老的 resources）
+ * 就跳过 —— 守护进程自己会退回注册本体，自启不会因此坏掉。
+ */
+async function ensureLauncherStaged(bundledDaemon: string, refresh = false): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const source = join(dirname(bundledDaemon), WINDOWS_LAUNCHER_EXE);
+  if (!existsSync(source)) return;
+  const target = join(dirname(stagedDaemonPath()), WINDOWS_LAUNCHER_EXE);
+  if (!refresh && existsSync(target)) return;
+  await stageDaemonBinary(source, target);
 }
 
 /**
@@ -239,6 +265,8 @@ export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): 
   const override = Boolean(process.env.WEQ_DAEMON_DIR);
   const staged = stagedDaemonPath();
   if (!override) {
+    // 拉起器要在守护进程 `serve` 自注册之前落位：注册的动作指向它。
+    await ensureLauncherStaged(bundled);
     const [bundledVersion, stagedVersion] = await Promise.all([
       readDaemonBinaryVersion(bundled),
       existsSync(staged) ? readDaemonBinaryVersion(staged) : Promise.resolve(null),
@@ -257,6 +285,7 @@ export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): 
           event: 'daemon-stage-unusable',
         });
       }
+      await ensureLauncherStaged(bundled, true);
     }
   }
 

@@ -8,6 +8,11 @@
 //!   - 守护进程不在 = 没人拉起 GUI。这是有意的：GUI 自启这个能力随守护进程存在，
 //!     没有第二套注册，也没有兜底。
 //!
+//! 记忆里的 `gui_exe` 只有 GUI 自己启动时才会刷新（`autostart_set`），所以 GUI
+//! 消失之后（卸载 / 换安装位置 / 手工删了目录）这条路径永远不会自愈 —— `serve`
+//! 每次启动都白试一次。`launch_gui_on_boot` 因此在「路径不存在」时清掉记忆：
+//! 试图拉起一个已经没了的程序不是配置，是残留。
+//!
 //! 为什么删掉了「GUI 也注册一份原生自启」：那等于把「开机该拉起谁」的知识复制
 //! 到系统注册里，每多一个要被拉起的组件（web 包 / 未来 CLI 包托管的 MCP server）
 //! 就得再维护一整套平台注册与生命周期。收口到守护进程后，新增组件只需要：管好
@@ -106,17 +111,41 @@ fn state_dir() -> Option<PathBuf> {
 /// 这是 GUI 唯一的开机拉起路径 —— 没有任何原生自启注册参与。
 pub fn launch_gui_on_boot(pipe_name: &str) {
     let Some(dir) = state_dir() else { return };
-    let Some(memory) = load_gui(&dir, pipe_name) else {
+    launch_gui_on_boot_in(&dir, pipe_name);
+}
+
+/// [`launch_gui_on_boot`] 的可注入版本：单测喂临时目录，不碰真实状态目录
+/// （与 `persist.rs::restore_from` 同一姿势）。
+pub fn launch_gui_on_boot_in(dir: &std::path::Path, pipe_name: &str) {
+    let Some(memory) = load_gui(dir, pipe_name) else {
         return;
     };
     if !memory.enabled {
         return;
     }
-    spawn_gui(&memory.gui_exe);
+    match spawn_gui(&memory.gui_exe) {
+        Ok(()) => logger::info(&format!("launched weq gui on boot: {}", memory.gui_exe)),
+        Err(err) => {
+            logger::warn(&format!(
+                "launch weq gui failed ({}): {err}",
+                memory.gui_exe
+            ));
+            // 路径已经不存在（被卸载 / 换了安装位置 / 目录被手工删掉）：留着这条记忆
+            // 只会让每次开机都白试一次，而且它永远不会自愈 —— GUI 没了，就没人再来
+            // 刷新它了。清掉，等 WeQ 下次运行重新下发。
+            if err.kind() == std::io::ErrorKind::NotFound {
+                clear_gui(dir, pipe_name);
+                logger::info(&format!(
+                    "gui autostart memory cleared: {} is gone",
+                    memory.gui_exe
+                ));
+            }
+        }
+    }
 }
 
-/// 拉起 GUI（detached；失败只记日志 —— GUI 起不来不该影响守护进程）。
-fn spawn_gui(gui_exe: &str) {
+/// 拉起 GUI（detached）。错误交回调用方 ——「路径没了」要清记忆，不能只记日志。
+fn spawn_gui(gui_exe: &str) -> std::io::Result<()> {
     let mut cmd = std::process::Command::new(gui_exe);
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -126,14 +155,7 @@ fn spawn_gui(gui_exe: &str) {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0008 | 0x0000_0020); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     }
-    match cmd.spawn() {
-        Ok(_child) => {
-            logger::info(&format!("launched weq gui on boot: {gui_exe}"));
-        }
-        Err(err) => {
-            logger::warn(&format!("launch weq gui failed ({gui_exe}): {err}"));
-        }
-    }
+    cmd.spawn().map(|_child| ())
 }
 
 // ── 历史残留清理（迁移用，只删不建） ──────────────────────────────────────
@@ -295,6 +317,24 @@ mod tests {
             "empty gui_exe must never be launched"
         );
         assert!(!bad.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_gui_exe_clears_memory() {
+        let dir = temp_dir("gone-exe");
+        let _ = std::fs::remove_dir_all(&dir);
+        // 指向一个根本不存在的路径（卸载 / 换安装位置之后的残留）：拉起必然失败，
+        // 记忆应当被清掉，而不是每次开机都白试一次。
+        let gone = dir.join("no-such-dir").join("WeQ");
+        save_gui(&dir, "weq-daemon-test", true, &gone.display().to_string());
+
+        launch_gui_on_boot_in(&dir, "weq-daemon-test");
+
+        assert!(
+            load_gui(&dir, "weq-daemon-test").is_none(),
+            "gone gui exe must clear the autostart memory"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

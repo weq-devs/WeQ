@@ -68,6 +68,9 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
+  # 卸载钩子在 buildResources/installer.nsh（electron-builder 按约定自动 include，
+  # 不要同时用 nsis.include 指一遍 —— 那样宏会重复定义）。那里负责停掉 weq-daemon、
+  # 删掉它的开机自启任务与数据目录：electron 的卸载器不认识 %LOCALAPPDATA%\weq-daemon。
 
 # Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
 # 架构由命令行决定：CI 里每个 runner 只打自己那一种（linux-x64 → --x64，
