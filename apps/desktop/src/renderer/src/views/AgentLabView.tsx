@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useAppDialog } from '../lib/dialogUtils';
 import { QqAvatar } from '../components/QqAvatar';
 import {
@@ -41,6 +42,18 @@ import { buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
 import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal';
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
+
+/** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
+type AgentLabProfileWire = {
+  uid: string;
+  uin: string;
+  nick: string;
+  remark: string;
+  avatarUrl: string;
+};
+
+/** 传空数组给 resolver = 不预热，全部按需分块补全。常量引用保证 useMemo 依赖稳定。 */
+const NO_PRIMED_PROFILES: readonly AgentLabProfileWire[] = [];
 
 interface PersonaParamsDetail {
   persona: {
@@ -366,13 +379,17 @@ export function AgentLabView(): ReactElement {
     () => (buddies.data ?? []).map((item) => item.uid).filter(Boolean),
     [buddies.data],
   );
-  const profiles = trpc.account.getProfilesByUids.useQuery(
-    { uids: buddyUids.slice(0, 300) },
-    { enabled: buddyUids.length > 0 },
-  );
+  // 好友资料必须按 IPC 的单次上限（200）分批补全：以前这里一次性传 slice(0, 300)，
+  // 好友数一过 200 整条查询就被 schema 打回，profileByUid 变空 Map，所有克隆体
+  // 因为拿不到 uin 而回落成默认灰头像。分块交给统一的 profile resolver。
+  const { profileByUid: buddyProfiles, resolveProfiles } =
+    useProfileResolver<AgentLabProfileWire>(NO_PRIMED_PROFILES);
+  useEffect(() => {
+    resolveProfiles(buddyUids);
+  }, [buddyUids, resolveProfiles]);
   const profileByUid = useMemo(() => {
     const map = new Map<string, { uin: string; label: string; avatarUrl?: string }>();
-    for (const row of profiles.data ?? []) {
+    for (const row of buddyProfiles.values()) {
       map.set(row.uid, {
         uin: row.uin,
         label: row.remark || row.nick || row.uin || row.uid,
@@ -380,7 +397,7 @@ export function AgentLabView(): ReactElement {
       });
     }
     return map;
-  }, [profiles.data]);
+  }, [buddyProfiles]);
 
   // 后端旧版/损坏数据可能混入 undefined，统一在这里过滤一次，下面所有用法都走 personaList。
   const personaList = useMemo(
@@ -578,7 +595,8 @@ export function AgentLabView(): ReactElement {
       personaList.map((p) => ({
         id: p.id,
         name: p.name,
-        uin: profileByUid.get(p.sourceId)?.uin,
+        // 好友资料还没补全（或好友已被删）时用后端随 persona 下发的 sourceUin 兜底。
+        uin: profileByUid.get(p.sourceId)?.uin || p.sourceUin,
         sourceTitle: p.sourceTitle,
       })),
     [personaList, profileByUid],
@@ -734,7 +752,7 @@ export function AgentLabView(): ReactElement {
                     key={p.id}
                     head={
                       <>
-                        <QqAvatar uin={prof?.uin} size={34} />
+                        <QqAvatar uin={prof?.uin || p.sourceUin} size={34} />
                         <span className="weq-agentlab-item-text">
                           <strong>{p.name}</strong>
                           <small>{p.sourceTitle}</small>
@@ -882,7 +900,7 @@ export function AgentLabView(): ReactElement {
             persona={activePersona}
             sessionId={sel.sessionId}
             selfUin={selfProfile.data?.uin}
-            clonedUin={clonedProfile?.uin}
+            clonedUin={clonedProfile?.uin || activePersona.sourceUin}
             faces={cloneFaces}
             modelLabel={personaModelLabel}
             onBack={() => setSel({ kind: 'home' })}

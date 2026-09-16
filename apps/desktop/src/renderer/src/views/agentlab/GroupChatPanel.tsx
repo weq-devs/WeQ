@@ -31,6 +31,8 @@ interface PersonaLite {
   id: string;
   name: string;
   sourceId: string;
+  /** 后端随 persona 下发的头像用 QQ 号；好友资料查不到时兜底。 */
+  sourceUin?: string;
   systemFaces?: string[] | null;
 }
 
@@ -96,7 +98,7 @@ export function GroupChatPanel({
   ): { name: string; uin?: string; bot: boolean; personaId?: string; faces?: FaceContext } => {
     if (senderKind === 'user') return { name: '我', uin: selfUin, bot: false };
     const p = personaList.find((x) => x.id === senderId);
-    const uin = p ? profileByUid.get(p.sourceId)?.uin : undefined;
+    const uin = p ? profileByUid.get(p.sourceId)?.uin || p.sourceUin : undefined;
     const faces: FaceContext | undefined = p?.systemFaces?.length
       ? { whitelist: p.systemFaces, descToId: faceDescToId }
       : undefined;
@@ -443,7 +445,10 @@ export function GroupChatPanel({
                   <div className="weq-group-members">
                     {outsiders.map((p) => (
                       <div key={p.id} className="weq-group-member">
-                        <QqAvatar uin={profileByUid.get(p.sourceId)?.uin} size={34} />
+                        <QqAvatar
+                          uin={profileByUid.get(p.sourceId)?.uin || p.sourceUin}
+                          size={34}
+                        />
                         <span className="weq-group-member-text">
                           <strong>{p.name}</strong>
                         </span>

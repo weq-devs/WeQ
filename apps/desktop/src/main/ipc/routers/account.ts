@@ -976,8 +976,34 @@ export const accountRouter = router({
 
   // ---- agent lab ----
 
-  listAgentLabPersonas: procedure.query(() => {
-    return requireServices().agentLab.listPersonas();
+  /**
+   * 克隆体列表。顺带把 c2c 克隆体的 sourceId(uid) 解析成 sourceUin 一起下发：
+   * 渲染端拿 uin 才能拼头像 URL，而「uid → uin」此前只能靠好友资料的批量查询，
+   * 那条链路一旦失败（例如好友数超过单次 IPC 上限），所有克隆体头像都会回落成
+   * 默认灰头像。这里补一个不依赖好友表的兜底来源。
+   */
+  listAgentLabPersonas: procedure.query(async () => {
+    const services = requireServices();
+    const personas = services.agentLab.listPersonas();
+    const uids = [
+      ...new Set(
+        personas.filter((p) => p.sourceKind === 'c2c' && p.sourceId).map((p) => p.sourceId),
+      ),
+    ];
+    const uinByUid = new Map<string, string>();
+    if (uids.length > 0) {
+      try {
+        for (const profile of await services.profile.profilesByUids(uids)) {
+          if (profile.uin > 0n) uinByUid.set(profile.uid, profile.uin.toString());
+        }
+      } catch (error) {
+        console.error('[agentlab] resolve sourceUin failed', error);
+      }
+    }
+    return personas.map((persona) => ({
+      ...persona,
+      sourceUin: uinByUid.get(persona.sourceId) ?? '',
+    }));
   }),
 
   getAgentLabPersona: procedure
