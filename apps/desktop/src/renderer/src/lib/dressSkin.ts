@@ -19,9 +19,12 @@
  *     slice L64/T55/R62/B55),即 QQ 的设计里文字本来就会「伸进」角落的装饰区。
  *     若用真 border 撑开,内容会被挤到拉伸带以内,气泡看着会胖一圈。
  *
- *  2. **动效只有一种形态:bubbleframe 逐帧九宫格(由 CSS `@keyframes` 切换
- *     `border-image-source`)。** 服务侧只从 zip 链(本地 bundle / protocol)装资源,
- *     不再有 CDN 的 APNG 叠加层,所以这里不铺 `::after` 动效层。
+ *  2. **动效是「底图 + 叠加层」两层九宫格。** ZIP 里的 `bubbleframe/*.9.png` 中间
+ *     是镂空的 —— 它只画上下两端的动效装饰(实测 2116371 的 12 帧在 fill 区 0/4
+ *     不透明,而已装库里 55 款动效气泡有 52 款如此)。所以静态底图
+ *     `aio_user_bg_nor.9.png` 恒常贴在元素本体上,帧图另起一层(`::after`,由 CSS
+ *     `@keyframes` 逐帧切换 `border-image-source`)叠在上面。把帧图当成整泡图去
+ *     **替换**底图,气泡本体就会整块透明 —— 这是修掉过的老 bug。
  *
  *  3. **必须给 min-width / min-height。** 小于四角固定区之和的尺寸会让对角切片互相
  *     挤压,浏览器按比例压缩,气泡就变形了。
@@ -52,7 +55,7 @@ export interface BubbleSkinCss {
   localFile: string | null;
   /**
    * 整泡帧动画的帧数(见 service 的 BubbleSkin.animationFrameCount)。有值时
-   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source。
+   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换**动效叠加层**的 border-image-source。
    */
   animationFrameCount?: number;
   /** 每帧停留时长(ms)。 */
@@ -123,7 +126,7 @@ function px(value: number): string {
 }
 
 /**
- * 整泡帧动画的 `@keyframes` + `animation` 简写。与 msgDecorationStyle.ts 的同名逻辑
+ * 动效叠加层的 `@keyframes` + `animation` 简写。与 msgDecorationStyle.ts 的同名逻辑
  * 镜像(那边按 data-bubble 注入、这边按「当前生效装扮」注入,两条渲染路径本就是分开的,
  * 见文件头)。`steps(1)` 让每帧撑满自己的时间段,而不是按不可插值属性的默认「过半才切」
  * 语义把每帧显示时长砍半。
@@ -177,7 +180,7 @@ export function bubbleLinkMentionRules(sel: string): string {
 /** 一款气泡的九宫格几何量 + 静态底图 —— 聊天渲染与本地预览共用同一份计算。 */
 interface BubbleMetrics {
   frameAnim: { keyframes: string; animation: string } | null;
-  /** 静态底图 url(本地九宫格 PNG / CDN 直链 / 帧动画第 1 帧,见 bubbleImageUrl)。 */
+  /** 静态底图 url(恒为本地九宫格 PNG,见 {@link bubbleImageUrl})。 */
   imageUrl: string;
   slice: string;
   width: string;
@@ -238,14 +241,11 @@ function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
  *
  * 聊天渲染(bubbleRules)与「已装」列表的本地预览(bubblePreviewCss)共用这一份 ——
  * 预览和真实消息用的是同一套几何,不会出现「卡片里好看、发出来是另一回事」的偏差。
- * `animate = false` 用于静态预览(只贴第一帧底图,不播循环动效)。
+ *
+ * 这里只贴**静态底图**(元素本体的 border-image);动效帧是叠在它上面的第二层,
+ * 见 {@link ninePatchLayer} / {@link frameOverlayUrl}。
  */
-function baseBubbleRule(
-  skin: BubbleSkinCss,
-  m: BubbleMetrics,
-  sel: string,
-  animate = true,
-): string {
+function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): string {
   return [
     `${sel} {`,
     `  position: relative;`,
@@ -262,12 +262,56 @@ function baseBubbleRule(
     `  border-image-width: ${m.width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    m.frameAnim && animate ? `  animation: ${m.frameAnim.animation};` : '',
     // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
     // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts 模块头)。
     `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
+    `}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * 动效叠加层的第 1 帧 url —— 动画起来之前(以及 `prefers-reduced-motion` 定格)的
+ * 静态兜底,keyframes 一旦接管就会逐帧重写 `border-image-source`。
+ */
+function frameOverlayUrl(itemId: number): string {
+  return dressBubbleFrameUrl(itemId, 1);
+}
+
+/**
+ * 一层九宫格贴图(静态底图 / 动效叠加层共用;两层几何完全一致,只是层级与贴图不同)。
+ *
+ * 静态底图直接写在元素本体的 border-image 上,这层只给伪元素用。层级用**负的**
+ * `z-index`:元素本身开了 `isolation: isolate`,负层级子节点画在「元素自身背景/边框
+ * 之上、文字之下」,正好是底图与文字之间的那一层(见文件头第 2 点)。
+ *
+ * 同一元素上的两层(`::before` 底图 + `::after` 动效)靠 z-index 排序,
+ * 不依赖伪元素的树序。
+ */
+function ninePatchLayer(
+  m: BubbleMetrics,
+  sel: string,
+  opts: { imageUrl: string; zIndex: number; mirror?: boolean; animation?: string },
+): string {
+  return [
+    `${sel} {`,
+    `  content: "";`,
+    `  position: absolute;`,
+    `  inset: 0;`,
+    `  z-index: ${opts.zIndex};`,
+    `  pointer-events: none;`,
+    `  border-style: solid;`,
+    `  border-width: 0;`,
+    `  border-image-source: url("${opts.imageUrl}");`,
+    `  border-image-slice: ${m.slice};`,
+    `  border-image-width: ${m.width};`,
+    `  border-image-repeat: stretch;`,
+    `  border-radius: 0;`,
+    opts.mirror ? `  transform: scaleX(-1);` : '',
+    opts.animation ? `  animation: ${opts.animation};` : '',
     `}`,
   ]
     .filter(Boolean)
@@ -281,34 +325,40 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
 
   const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
 
+  // 动效叠加层:同一套九宫格、贴在静态底图之上。帧图(`bubbleframe/*.9.png`)中间是
+  // 镂空的,只有上下两端的动效装饰,所以它只能「叠」不能「替」(见文件头第 2 点)。
+  if (m.frameAnim) {
+    rules.push(
+      ninePatchLayer(m, `${sel}::after`, {
+        imageUrl: frameOverlayUrl(skin.itemId),
+        zIndex: -1,
+        animation: m.frameAnim.animation,
+      }),
+    );
+  }
+
   // 对方消息镜像:同一张素材直接放左侧,尖角/装饰会朝外,看起来「反的」。QQ 自己
   // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
-  // scaleX(-1) —— 文字会跟着镜像;所以静态底/帧动画挪到 ::before 上翻转,文字
-  // 留在元素自身不动。
+  // scaleX(-1) —— 文字会跟着镜像;所以两层贴图都挪到伪元素上翻转,文字留在元素
+  // 自身不动:底图 `::before`(z-index -2)、动效层 `::after`(z-index -1)。
   if (theirsSel) {
     rules.push(
-      // 元素本体不再贴底(镜像后的贴图由 ::before 承担);帧动画的 keyframes 会
-      // 重写 border-image-source,必须把元素动画一并关掉,否则帧图会盖回来。
       `${theirsSel} {`,
       `  border-image-source: none;`,
-      m.frameAnim ? `  animation: none;` : '',
       `}`,
-      `${theirsSel}::before {`,
-      `  content: "";`,
-      `  position: absolute;`,
-      `  inset: 0;`,
-      `  z-index: -1;`,
-      `  pointer-events: none;`,
-      `  border-style: solid;`,
-      `  border-width: 0;`,
-      `  border-image-source: url("${m.imageUrl}");`,
-      `  border-image-slice: ${m.slice};`,
-      `  border-image-width: ${m.width};`,
-      `  border-image-repeat: stretch;`,
-      `  border-radius: 0;`,
-      `  transform: scaleX(-1);`,
-      m.frameAnim ? `  animation: ${m.frameAnim.animation};` : '',
-      `}`,
+      ninePatchLayer(m, `${theirsSel}::before`, {
+        imageUrl: m.imageUrl,
+        zIndex: -2,
+        mirror: true,
+      }),
+      m.frameAnim
+        ? ninePatchLayer(m, `${theirsSel}::after`, {
+            imageUrl: frameOverlayUrl(skin.itemId),
+            zIndex: -1,
+            mirror: true,
+            animation: m.frameAnim.animation,
+          })
+        : '',
     );
   }
 
@@ -316,8 +366,8 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   if (m.frameAnim) {
     rules.push(
       `@media (prefers-reduced-motion: reduce) {`,
-      `  ${sel} { animation: none; }`,
-      theirsSel ? `  ${theirsSel}::before { animation: none; }` : '',
+      `  ${sel}::after { animation: none; }`,
+      theirsSel ? `  ${theirsSel}::after { animation: none; }` : '',
       `}`,
     );
   }
@@ -344,11 +394,24 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
  * 独立气泡预览的九宫格 CSS —— 给非聊天容器用(目前是「已装」列表里没有商城预览图的
  * 那批气泡,如旧版 40801 自动装遗留的款,素材是本地九宫格 PNG)。
  *
- * 与 bubbleRules 共用 bubbleMetrics / baseBubbleRule,几何完全一致;静态预览只画
- * 第一帧,不带循环动效。sel 是调用方自己的容器选择器,样式注入由调用方负责。
+ * 与 bubbleRules 共用 bubbleMetrics / baseBubbleRule / ninePatchLayer,几何完全一致;
+ * 静态预览 = 底图 + 动效第 1 帧(定格,不带循环动效),与聊天里的首帧观感相同。
+ * sel 是调用方自己的容器选择器,样式注入由调用方负责。
  */
 export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
-  return baseBubbleRule(skin, bubbleMetrics(skin), sel, false);
+  const m = bubbleMetrics(skin);
+  return [
+    baseBubbleRule(skin, m, sel),
+    // 预览容器不会做左右镜像(它显示的是「自己」的那一版),所以叠加层同样不翻。
+    m.frameAnim
+      ? ninePatchLayer(m, `${sel}::after`, {
+          imageUrl: frameOverlayUrl(skin.itemId),
+          zIndex: -1,
+        })
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /**
@@ -413,13 +476,19 @@ function fontFamilyFor(itemId: number): string {
 }
 
 /**
- * 气泡静态底图的 url。整泡帧动画取第 1 帧(见 {@link frameAnimationCss} —— 那套
- * keyframes 会在动画开始后接管 border-image-source,这里给的是初始/无动画兜底值)。
- * 无帧动画时走 dressbubble(本地九宫格,唯一形态)。
+ * 气泡静态底图的 url —— 恒为本地九宫格 PNG(`aio_user_bg_nor.9.png` 那张),与有没有
+ * 动效无关。动效帧是叠在它上面的一层,不替换它(见 {@link frameOverlayUrl})。
  */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
-  if (skin.animationFrameCount) return dressBubbleFrameUrl(skin.itemId, 1);
   return dressBubbleUrl(skin.itemId);
+}
+
+/** 气泡动效叠加层的全部帧 url(逐帧预加载用)。 */
+function bubbleFrameUrls(skin: BubbleSkinCss | null): string[] {
+  if (!skin?.animationFrameCount) return [];
+  return Array.from({ length: skin.animationFrameCount }, (_, i) =>
+    dressBubbleFrameUrl(skin.itemId, i + 1),
+  );
 }
 
 /**
@@ -535,7 +604,10 @@ export async function applyDressSkinPreloaded(
 ): Promise<void> {
   await Promise.all(
     [
+      // 底图 + 动效叠加层的每一帧都要先解码,否则开播第一圈会逐帧闪光。
+      // 底图与帧图都是本地 protocol 文件,基本秒达。
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
+      ...bubbleFrameUrls(bubble).map((url) => preloadImage(url)),
       font ? preloadFont(font) : null,
       // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
       // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。

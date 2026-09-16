@@ -32,8 +32,11 @@ function px(value: number): string {
 }
 
 /**
- * 一款气泡的 border-image 内联样式。整泡帧动画只取第 1 帧当静态底 —— 报告里同屏
- * 十几个气泡各自播一套 keyframes 太吵，主角气泡的动效交给入场动画去做。
+ * 一款气泡的 border-image 内联样式 —— 只贴**静态底图**（`aio_user_bg_nor.9.png` 那张）。
+ *
+ * 动效帧（`bubbleframe/*.9.png`）中间是镂空的，它是叠在底图之上的一层而不是整泡图
+ * （见 lib/dressSkin.ts 文件头）；报告里同屏十几个气泡各自播一套 keyframes 太吵，
+ * 所以叠加层只定格在第 1 帧，主角气泡的动效交给入场动画去做。
  */
 function bubbleStyle(skin: BubbleSkin, scale: number): CSSProperties {
   const { left, top, right, bottom } = skin.slice;
@@ -42,20 +45,20 @@ function bubbleStyle(skin: BubbleSkin, scale: number): CSSProperties {
   const wBottom = bottom * scale;
   const wLeft = left * scale;
 
-  const url = skin.animationFrameCount
-    ? dressBubbleFrameUrl(skin.itemId, 1)
-    : dressBubbleUrl(skin.itemId);
-
   // 纵向 padding：基础按 0.6 比例，上下切片不对称时用差值补偿（同 lib/dressSkin.ts）。
   const avg = (top + bottom) / 2;
   const topPad = wTop * PAD_RATIO_Y + (avg - top) * scale * 0.5;
   const bottomPad = wBottom * PAD_RATIO_Y + (avg - bottom) * scale * 0.5;
 
   return {
+    // 动效叠加层（下面的 bubbleOverlayStyle）是绝对定位的子元素，靠负 z-index 压在
+    // 文字之下；不隔离的话它会逃到最近的祖先层叠上下文里，跑到行背景底下。
+    position: 'relative',
+    isolation: 'isolate',
     color: skin.textColor,
     borderStyle: 'solid',
     borderWidth: 0,
-    borderImageSource: `url("${url}")`,
+    borderImageSource: `url("${dressBubbleUrl(skin.itemId)}")`,
     borderImageSlice: `${top} ${right} ${bottom} ${left} fill`,
     borderImageWidth: `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`,
     borderImageRepeat: 'stretch',
@@ -63,6 +66,28 @@ function bubbleStyle(skin: BubbleSkin, scale: number): CSSProperties {
     padding: `${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)}`,
     minWidth: px((left + right) * scale),
     minHeight: px((top + bottom) * scale),
+  };
+}
+
+/**
+ * 动效叠加层的内联样式（第 1 帧定格）—— 与底图同一套九宫格几何，只是换了贴图。
+ *
+ * 用真实子元素而不是 `::after`：这个组件的几何是算出来内联贴上去的，CSS 里没有
+ * 按 itemId 生成的规则，凭内联样式还写不出伪元素。
+ */
+function bubbleOverlayStyle(skin: BubbleSkin, scale: number): CSSProperties {
+  const { left, top, right, bottom } = skin.slice;
+  return {
+    position: 'absolute',
+    inset: 0,
+    zIndex: -1,
+    pointerEvents: 'none',
+    borderStyle: 'solid',
+    borderWidth: 0,
+    borderImageSource: `url("${dressBubbleFrameUrl(skin.itemId, 1)}")`,
+    borderImageSlice: `${top} ${right} ${bottom} ${left} fill`,
+    borderImageWidth: `${px(top * scale)} ${px(right * scale)} ${px(bottom * scale)} ${px(left * scale)}`,
+    borderImageRepeat: 'stretch',
   };
 }
 
@@ -84,6 +109,9 @@ export function DressBubble({
   const cls = `weq-dress-bubble${skin ? '' : ' is-bare'}${className ? ` ${className}` : ''}`;
   return (
     <div className={cls} style={{ ...style, ...(skin ? bubbleStyle(skin, scale) : null) }}>
+      {skin?.animationFrameCount ? (
+        <span style={bubbleOverlayStyle(skin, scale)} aria-hidden="true" />
+      ) : null}
       {children}
     </div>
   );

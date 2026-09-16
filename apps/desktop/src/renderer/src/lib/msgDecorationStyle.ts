@@ -138,6 +138,9 @@ function fontSel(fontId: number): string {
  * for its whole segment instead of the default discrete-property "flip at the
  * midpoint" behavior — otherwise every frame would only show for half its
  * intended duration, offset from the next.
+ *
+ * The keyframes drive the **animation overlay layer** (`::after`), never the
+ * static bubble base — see {@link layerRule}.
  */
 function frameAnimationCss(
   itemId: number,
@@ -158,6 +161,50 @@ function frameAnimationCss(
 }
 
 /**
+ * One nine-patch layer as a pseudo-element rule (mirror of dressSkin.ts's
+ * `ninePatchLayer`): the static bubble base on `::before`, the bubbleframe
+ * animation on `::after`.
+ *
+ * `bubbleframe/*.9.png` frames are **overlays**, not whole bubbles: their middle
+ * is hollow (2116371's 12 frames have 0/4 opaque pixels in the fill region, and
+ * 52 of the 55 installed animated bubbles look the same), they only carry the
+ * ornaments above/below the bubble. Painting a frame as the base therefore
+ * leaves the bubble body completely transparent, which is why the base layer is
+ * always the plain `aio_user_bg_nor.9.png`.
+ *
+ * `z-index` stays negative: the bubble element opens a stacking context
+ * (`isolation: isolate`), so negative layers paint above the element's own
+ * background/border but below its text — exactly the slot between base and text.
+ */
+function layerRule(
+  sel: string,
+  slice: string,
+  width: string,
+  opts: { imageUrl: string; zIndex: number; mirror?: boolean; animation?: string },
+): string {
+  return [
+    `${sel} {`,
+    `  content: "";`,
+    `  position: absolute;`,
+    `  inset: 0;`,
+    `  z-index: ${opts.zIndex};`,
+    `  pointer-events: none;`,
+    `  border-style: solid;`,
+    `  border-width: 0;`,
+    `  border-image-source: url("${opts.imageUrl}");`,
+    `  border-image-slice: ${slice};`,
+    `  border-image-width: ${width};`,
+    `  border-image-repeat: stretch;`,
+    `  border-radius: 0;`,
+    opts.mirror ? `  transform: scaleX(-1);` : '',
+    opts.animation ? `  animation: ${opts.animation};` : '',
+    `}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
@@ -174,6 +221,9 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
   const sel = bubbleSel(skin.itemId);
   const theirsSel = theirsBubbleSel(skin.itemId);
+  // `sel` 是逗号选择器列表,`::after` 不能直接往上拼 —— 那样只会加到最后一项目上,
+  // 前面那项会命中真实元素(见 lineContentSel 的历史坑)。用带 suffix 的版本展开。
+  const overlaySel = lineContentSel('bubble', skin.itemId, '::after');
 
   // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
   const avgSlice = (top + bottom) / 2;
@@ -182,9 +232,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.6;
   const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.6;
 
-  // Frame animation (protocol fallback path) takes over the base layer's
-  // border-image-source entirely — frame 1 doubles as the static/initial
-  // paint, so the plain static PNG is never referenced once frames exist.
+  // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
   const frameAnim =
     skin.animationFrameCount && skin.animationFrameTimeMs
       ? frameAnimationCss(
@@ -196,7 +244,8 @@ export function injectBubbleCss(skin: BubbleSkin): void {
       : null;
 
   // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
-  const imageUrl = frameAnim ? dressBubbleFrameUrl(skin.itemId, 1) : dressBubbleUrl(skin.itemId);
+  // 底图恒为 `aio_user_bg_nor.9.png` 那张 —— 与有没有动效无关。
+  const imageUrl = dressBubbleUrl(skin.itemId);
 
   const rules = [
     frameAnim?.keyframes ?? '',
@@ -218,33 +267,41 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `}`,
   ];
 
+  // 我方/非镜像侧的动效叠加层(先于镜像规则注入,对方的同名选择器靠后覆盖)。
+  // 这里先不挂 animation —— 等所有帧图片预加载完再开播,避免第一圈逐帧闪烁。
+  if (frameAnim) {
+    rules.push(
+      layerRule(overlaySel, slice, width, {
+        imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
+        zIndex: -1,
+      }),
+    );
+  }
+
   // 对方消息镜像：不能对整个 .message-content 做 scaleX(-1)（文字会跟着镜像），
-  // 所以静态底/帧动画挪到 ::before 上翻转，文字留在元素自身不动。与 dressSkin.ts
-  // bubbleRules() 里 scope=all 的那组镜像规则同构。
+  // 所以两层贴图都挪到伪元素上翻转，文字留在元素自身不动：底图 ::before
+  // (z-index -2)、动效层 ::after(z-index -1)。与 dressSkin.ts bubbleRules()
+  // 里 scope=all 的那组镜像规则同构。
   rules.push(
-    // 元素本体不再贴底；帧动画的 keyframes 会重写 border-image-source，必须把
-    // 元素动画一并关掉，否则帧图会盖回来。
     `${theirsSel} {`,
     `  border-image-source: none;`,
-    frameAnim ? `  animation: none;` : '',
     `}`,
-    `${theirsBubbleSel(skin.itemId, '::before')} {`,
-    `  content: "";`,
-    `  position: absolute;`,
-    `  inset: 0;`,
-    `  z-index: -1;`,
-    `  pointer-events: none;`,
-    `  border-style: solid;`,
-    `  border-width: 0;`,
-    `  border-image-source: url("${imageUrl}");`,
-    `  border-image-slice: ${slice};`,
-    `  border-image-width: ${width};`,
-    `  border-image-repeat: stretch;`,
-    `  border-radius: 0;`,
-    `  transform: scaleX(-1);`,
-    frameAnim ? `  animation: ${frameAnim.animation};` : '',
-    `}`,
+    layerRule(theirsBubbleSel(skin.itemId, '::before'), slice, width, {
+      imageUrl,
+      zIndex: -2,
+      mirror: true,
+    }),
   );
+
+  if (frameAnim) {
+    rules.push(
+      layerRule(theirsBubbleSel(skin.itemId, '::after'), slice, width, {
+        imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
+        zIndex: -1,
+        mirror: true,
+      }),
+    );
+  }
 
   // context-active highlight (can't rely on background when border-image is set)
   rules.push(
@@ -269,9 +326,9 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     );
     void preloadImages(frameUrls).then(() => {
       append(
-        `${sel} { animation: ${frameAnim.animation}; }\n` +
-          `${theirsBubbleSel(skin.itemId, '::before')} { animation: ${frameAnim.animation}; }\n` +
-          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } ${theirsBubbleSel(skin.itemId, '::before')} { animation: none; } }`,
+        `${overlaySel} { animation: ${frameAnim.animation}; }\n` +
+          `${theirsBubbleSel(skin.itemId, '::after')} { animation: ${frameAnim.animation}; }\n` +
+          `@media (prefers-reduced-motion: reduce) { ${overlaySel} { animation: none; } ${theirsBubbleSel(skin.itemId, '::after')} { animation: none; } }`,
       );
     });
   }
