@@ -13,6 +13,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
+import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -118,25 +119,14 @@ const weqBridge = {
   },
   analyticsShot: {
     /**
-     * 按 CSS 像素矩形抓一帧（坐标相对页面视口左上角）。分析卡片的长图导出
-     * 由渲染端滚动 + 拼接，这里只提供「抓一块」这个原子能力。
+     * 把这张分析卡片存成长图：主进程会开一个**从不显示**的窗口把同一份卡片渲染出来拍图，
+     * 再在发起导出的窗口上弹保存框。用户窗口全程不参与，所以屏幕上不会有任何变化。
      */
-    capture: (rect: { x: number; y: number; width: number; height: number }) =>
-      ipcRenderer.invoke('analytics-shot:capture', rect) as Promise<{
-        ok: boolean;
-        dataUrl?: string;
-        width?: number;
-        height?: number;
-        error?: string;
-      }>,
-    /** 弹保存对话框并落盘 PNG；用户取消返回 canceled。 */
-    save: (dataUrl: string, defaultName: string) =>
-      ipcRenderer.invoke('analytics-shot:save', { dataUrl, defaultName }) as Promise<{
-        ok: boolean;
-        canceled?: boolean;
-        path?: string;
-        error?: string;
-      }>,
+    render: (payload: AnalyticsExportPayload) =>
+      ipcRenderer.invoke('analytics-shot:render', payload) as Promise<AnalyticsExportResult>,
+    /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
+    claimPayload: () =>
+      ipcRenderer.invoke('analytics-shot:claim') as Promise<AnalyticsExportPayload | null>,
   },
 };
 

@@ -4001,26 +4001,6 @@ html[data-theme="dark"] .chat-empty-logo {
 	color: color-mix(in srgb, var(--weq-fg-muted) 80%, transparent);
 }
 
-/* 拉新潮：短时间涌入太多人的波次，「多」压过了「小」，只做汇总不列卡。 */
-
-.gc-wave-note {
-	margin: 0;
-	padding: 8px 10px;
-	border-radius: 8px;
-	font-size: 11.5px;
-	line-height: 1.5;
-	color: var(--weq-fg-muted);
-	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
-	border-left: 2px solid color-mix(in srgb, var(--weq-fg-primary) 25%, transparent);
-}
-
-.gc-wave-note strong,
-.gc-more strong {
-	color: var(--weq-fg-primary);
-}
-
-/* 卡片区只展开最像的几伙，剩下的报个比数。 */
-
 .gc-more {
 	margin: 0;
 	font-size: 11.5px;
@@ -4028,45 +4008,7 @@ html[data-theme="dark"] .chat-empty-logo {
 	text-align: center;
 }
 
-/* 窗口切换：1 / 3 / 7 天。小团体的信号是「短时间」，所以把它做成可以现场调的旋钮。 */
-
-.gc-window {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	margin-left: auto;
-	padding: 2px;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
-	background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated));
-}
-
-.gc-window button {
-	padding: 2px 9px;
-	border: 0;
-	border-radius: 999px;
-	background: transparent;
-	color: var(--weq-fg-muted);
-	font-size: 11px;
-	font-weight: 600;
-	cursor: pointer;
-}
-
-.gc-window button:hover {
-	color: var(--weq-fg-primary);
-}
-
-.gc-window button.is-on {
-	background: var(--weq-accent-effective);
-	color: #fff;
-}
-
-.gc-window svg {
-	color: var(--weq-fg-muted);
-	margin-right: 3px;
-}
-
-/* 切窗口重拉时保留旧结果，只压一层薄雾，避免整块跳空。 */
+/* 重拉时保留旧结果，只压一层薄雾，避免整块跳空。 */
 .gc-stale {
 	opacity: 0.55;
 }
@@ -4115,15 +4057,6 @@ html[data-theme="dark"] .chat-empty-logo {
 	z-index: 1;
 }
 
-.gc-tl-dot.is-drift {
-	width: 7px;
-	height: 7px;
-	margin-left: -3.5px;
-	background: color-mix(in srgb, var(--weq-fg-primary) 32%, transparent);
-	box-shadow: none;
-	z-index: 0;
-}
-
 .gc-tl-axis {
 	position: relative;
 	height: 13px;
@@ -4137,32 +4070,7 @@ html[data-theme="dark"] .chat-empty-logo {
 	white-space: nowrap;
 }
 
-.gc-tl-legend {
-	display: flex;
-	gap: 14px;
-	margin-top: 2px;
-	font-size: 11px;
-	color: var(--weq-fg-muted);
-}
-
-.gc-tl-legend span {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-}
-
-.gc-legend-dot {
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	display: inline-block;
-}
-
-.gc-legend-dot.is-drift {
-	background: color-mix(in srgb, var(--weq-fg-primary) 32%, transparent);
-}
-
-/* 团体卡 */
+/* 批次卡 */
 
 .gc-grid {
 	display: grid;
@@ -4183,11 +4091,6 @@ html[data-theme="dark"] .chat-empty-logo {
 			color-mix(in srgb, var(--gc-tone) 11%, var(--weq-bg-elevated)),
 			color-mix(in srgb, var(--gc-tone) 3%, var(--weq-bg-surface))
 		);
-}
-
-.gc-card.is-drift {
-	border-style: dashed;
-	opacity: 0.94;
 }
 
 .gc-card-head {
@@ -4216,13 +4119,6 @@ html[data-theme="dark"] .chat-empty-logo {
 	box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--gc-tone) 70%, transparent);
 }
 
-.gc-card-idx.is-drift {
-	border-radius: 50%;
-	color: var(--weq-fg-muted);
-	background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
-	box-shadow: none;
-}
-
 .gc-card-title {
 	display: flex;
 	flex-direction: column;
@@ -4249,18 +4145,10 @@ html[data-theme="dark"] .chat-empty-logo {
 	white-space: nowrap;
 }
 
-.gc-badge.is-hot {
-	color: #f97316;
-	background: color-mix(in srgb, #f97316 12%, transparent);
-	border: 1px solid color-mix(in srgb, #f97316 24%, transparent);
-}
-
-.gc-badge.is-cold {
-	color: var(--weq-fg-muted);
-	background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
-}
-
 .gc-badge.is-normal {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
 	color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-primary));
 	background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
@@ -4386,6 +4274,203 @@ html[data-theme="dark"] .chat-empty-logo {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* ── 小团体：会话拉力力图 ─────────────────────────────────────── */
+
+.cg-wrap {
+	position: relative;
+	overflow: hidden;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 12px;
+	background:
+		radial-gradient(
+			circle at 50% 45%,
+			color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
+			transparent 62%
+		),
+		color-mix(in srgb, var(--weq-bg-surface) 72%, transparent);
+}
+
+.cg-canvas-wrap {
+	position: relative;
+	height: 380px;
+	cursor: grab;
+	touch-action: none;
+}
+
+.cg-canvas {
+	display: block;
+}
+
+.cg-tooltip {
+	position: absolute;
+	z-index: 3;
+	display: grid;
+	gap: 2px;
+	max-width: 220px;
+	padding: 6px 9px;
+	border-radius: 8px;
+	background: rgba(16, 30, 49, 0.92);
+	color: #ffffff;
+	font-size: 12px;
+	line-height: 1.4;
+	pointer-events: none;
+	box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+}
+
+.cg-tooltip strong {
+	font-size: 12.5px;
+	font-weight: 600;
+}
+
+.cg-tooltip span {
+	color: rgba(255, 255, 255, 0.72);
+}
+
+.cg-legend {
+	position: absolute;
+	left: 10px;
+	bottom: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	pointer-events: none;
+}
+
+.cg-legend-stat {
+	align-self: flex-start;
+	padding: 3px 9px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-bg-elevated) 80%, transparent);
+	color: var(--weq-fg-muted);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.cg-legend-hint {
+	color: color-mix(in srgb, var(--weq-fg-muted) 76%, transparent);
+	font-size: 10.5px;
+}
+
+/* 力图还在算时的 shimmer 占位，高度与真正的画布一致。 */
+.cg-skeleton {
+	height: 380px;
+	border-radius: 12px;
+}
+
+/* ── 分析卡片加载骨架屏（skeleton + shimmer） ─────────────────── */
+
+.weq-skeleton {
+	position: relative;
+	overflow: hidden;
+	display: block;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
+}
+
+.weq-skeleton::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	transform: translateX(-100%);
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in srgb, var(--weq-fg-primary) 10%, transparent),
+		transparent
+	);
+	animation: weq-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes weq-shimmer {
+	100% {
+		transform: translateX(100%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.weq-skeleton::after {
+		animation: none;
+	}
+}
+
+.ga-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+/* 骨架屏只给读屏器报一句状态，不参与视觉。 */
+.ga-skeleton-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.ga-sk-hero {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.ga-sk-avatar {
+	flex: 0 0 auto;
+	width: 52px;
+	height: 52px;
+	border-radius: 14px;
+}
+
+.ga-sk-hero-lines {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	flex: 1;
+}
+
+.ga-sk-grid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 10px;
+}
+
+.ga-sk-stat {
+	height: 68px;
+	border-radius: 12px;
+}
+
+.ga-sk-chart {
+	height: 180px;
+	border-radius: 12px;
+}
+
+.ga-sk-chart.is-short {
+	height: 140px;
+}
+
+.ga-sk-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.ga-sk-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.ga-sk-row-face {
+	flex: 0 0 auto;
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
 }
 
 /* ================= private-chat analytics (long page) ================= */
@@ -4797,40 +4882,76 @@ html[data-theme="dark"] .chat-empty-logo {
 }
 
 /*
- * 导出态（保存为图片时的临时布局）：
- *   - 卡片放宽 —— 绿墙是固定 53 列（约 745px），620px 的卡片里会被横向滚动截掉半年；
- *   - 关掉所有过渡 / 动画 —— 否则逐屏抓帧会抓到半截动画，拼出来有错位；
- *   - 顺手藏掉横向滚动条（抓帧时它们只是噪点）。
- * 这一层只在截图那几百毫秒里存在，抓完立即移除。
+ * 导出根（保存为图片时用）—— **导出专用窗口**，见 renderer/export.html 与
+ * main/analytics_export.ts。
+ *
+ * 分析卡片导出时要按 840px 宽重排一遍（绿墙是固定 53 列，620px 的卡片里会被横向截掉
+ * 半年）但**绝不能动用户正在看的那张卡**。曾经的做法是在同一个窗口里把导出版卡片摆到
+ * 视口正下方（`top: 100vh`，靠 CDP `captureBeyondViewport` 拍）—— 但实测拍「视口之外」
+ * 时 Chromium 会先把页面的布局视口临时改成截图矩形的大小再渲那一块，这一帧会被合成到
+ * 真实窗口上，用户就会看到界面闪一下。
+ *
+ * 现在整张卡片只在一个**从不显示**的窗口里渲染：那个窗口没有视口外区域、不需要 clip、
+ * 也不需要临时改视口，天生「内容多大就多大」。这个类就是那个页面里的根，负责把卡片按
+ * 长图口径铺开（不限高、内层滚动放开、动画停住）。
  */
 
-.ga-dialog.weq-shot-mode,
-.ba-dialog.weq-shot-mode {
-	width: min(840px, 96vw);
+/* 注意：这里不能碰 `html, body` —— chat.css 在主窗口里也加载。导出页的边距清零写在
+   它自己的 export.html 里（那里才是「窗口高度 = 卡片高度」的地方）。 */
+.weq-export-root {
+	display: block;
+	width: fit-content;
+	margin: 0;
 }
 
-/* 成员分析卡片本来就是「窄屏适配」宽度，导出时按同一口径放宽。 */
-.ma-dialog.weq-shot-mode {
-	width: min(840px, calc(100vw - 40px));
+/*
+ * 卡片按「长图」口径铺开：放宽、不限高、内层滚动放开。
+ *
+ * 三个卡片各有一条自己的宽度规则（`.ga-dialog` / `.ba-dialog` 本身还带 `max-width: 92vw`、
+ * `.ma-dialog` 是 `min(600px, calc(100vw - 40px))`）—— 所以宽度和 `max-width` 都得盖，
+ * 否则卡片会被 92vw 卡在 772.8px（840 的窗口里比预期窄 67px）。
+ */
+.weq-export-root .group-album-dialog {
+	display: block;
+	position: static;
+	width: 840px;
+	max-width: none;
+	max-height: none;
+	height: auto;
+	margin: 0;
+	background-color: var(--weq-bg-elevated);
+	box-shadow: none;
+	backdrop-filter: none;
 }
 
-.weq-shot-mode,
-.weq-shot-mode *,
-.weq-shot-mode *::before,
-.weq-shot-mode *::after {
-	transition: none !important;
-	animation: none !important;
-	/* 抓帧要的是「定住」，滚动若是平滑动画会抓到半路的一帧。 */
-	scroll-behavior: auto !important;
-}
-
-.weq-shot-mode .ga-hm-scroll,
-.weq-shot-mode .ga-hm-inner {
+.weq-export-root .group-album-body {
+	max-height: none;
+	height: auto;
 	overflow: visible;
 }
 
-.weq-shot-mode ::-webkit-scrollbar {
-	display: none;
+/* 热力图那 53 列本身就是固定宽度：导出图里要完整，不要横向滚动条。 */
+.weq-export-root .ga-hm-scroll,
+.weq-export-root .ga-hm-inner {
+	overflow: visible;
+}
+
+/* 抓帧要的是「定住」：关掉过渡 / 动画，滚动条一律不许出现。 */
+.weq-export-root,
+.weq-export-root *,
+.weq-export-root *::before,
+.weq-export-root *::after {
+	transition: none !important;
+	animation: none !important;
+	scroll-behavior: auto !important;
+	scrollbar-width: none !important;
+	scrollbar-gutter: auto !important;
+}
+
+.weq-export-root ::-webkit-scrollbar {
+	display: none !important;
+	width: 0 !important;
+	height: 0 !important;
 }
 
 /* ---- 聊天消息加载 skeleton 占位（对方/自己混排、大小不一） ---- */

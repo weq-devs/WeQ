@@ -2,7 +2,6 @@ import {
   app,
   BrowserWindow,
   clipboard,
-  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -34,6 +33,7 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
 import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
+import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
@@ -456,79 +456,6 @@ function registerCaptureIpc(): void {
   });
 }
 
-/** 把渲染端传来的矩形夹成合法值；不合法返回 null（宁可报错也不截一片奇怪区域）。 */
-function sanitizeCaptureRect(
-  value: unknown,
-): { x: number; y: number; width: number; height: number } | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  const x = Math.round(Number(raw.x));
-  const y = Math.round(Number(raw.y));
-  const width = Math.round(Number(raw.width));
-  const height = Math.round(Number(raw.height));
-  if (![x, y, width, height].every((n) => Number.isFinite(n))) return null;
-  if (width <= 0 || height <= 0) return null;
-  return { x, y, width: Math.min(width, 20000), height: Math.min(height, 20000) };
-}
-
-/**
- * 分析卡片「保存为图片」：渲染端逐屏滚出卡片、主进程只负责按矩形抓帧与落盘。
- *
- * 为什么不用隐藏窗口重排 HTML（年度报告的做法）：分析卡片是活 DOM —— SVG 系甜甜圈、
- * canvas 量过的词云、外链头像、主题 CSS 变量，重排一份必然有偏差；而这里卡片就摊在
- * 屏幕上，抓真窗口所见即所得（连隐私遮罩都天然一致）。长卡片由渲染端滚动拼接，
- * 主进程不关心它拼了几屏，也不缓存任何东西。
- */
-function registerAnalyticsShotIpc(): void {
-  ipcMain.handle('analytics-shot:capture', async (event, rect: unknown) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { ok: false as const, error: '找不到目标窗口' };
-    const box = sanitizeCaptureRect(rect);
-    if (!box) return { ok: false as const, error: '截图区域无效' };
-    try {
-      const image = await win.webContents.capturePage(box);
-      if (image.isEmpty()) return { ok: false as const, error: '截图为空' };
-      const size = image.getSize();
-      return {
-        ok: true as const,
-        dataUrl: image.toDataURL(),
-        width: size.width,
-        height: size.height,
-      };
-    } catch (err) {
-      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-  ipcMain.handle('analytics-shot:save', async (event, payload: unknown) => {
-    const raw = (payload ?? {}) as { dataUrl?: unknown; defaultName?: unknown };
-    const dataUrl = typeof raw.dataUrl === 'string' ? raw.dataUrl : '';
-    if (!dataUrl.startsWith('data:image/')) return { ok: false as const, error: '图像数据无效' };
-    const defaultName =
-      typeof raw.defaultName === 'string' && raw.defaultName.trim()
-        ? raw.defaultName
-        : '分析卡片.png';
-    try {
-      const image = nativeImage.createFromDataURL(dataUrl);
-      if (image.isEmpty()) return { ok: false as const, error: '图像数据无效' };
-      const win = BrowserWindow.fromWebContents(event.sender);
-      const options: Electron.SaveDialogOptions = {
-        defaultPath: defaultName,
-        filters: [{ name: 'PNG 图片', extensions: ['png'] }],
-      };
-      const result = win
-        ? await dialog.showSaveDialog(win, options)
-        : await dialog.showSaveDialog(options);
-      if (result.canceled || !result.filePath)
-        return { ok: true as const, canceled: true as const };
-      await fs.promises.writeFile(result.filePath, image.toPNG());
-      return { ok: true as const, canceled: false as const, path: result.filePath };
-    } catch (err) {
-      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-}
-
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
   if (!path) return undefined;
@@ -659,7 +586,7 @@ void app.whenReady().then(async () => {
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。
   systemAuthService.warmup();
   registerCaptureIpc();
-  registerAnalyticsShotIpc();
+  registerAnalyticsExportIpc();
   registerChannelIpc();
   registerQzoneIpc();
   registerFlashShareIpc();

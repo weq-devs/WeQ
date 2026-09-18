@@ -2385,21 +2385,31 @@ export const accountRouter = router({
     }),
 
   /**
-   * 小团体分析：按入群时间的集中程度把群成员分成几伙，剩下的是游离分子。
+   * 入群批次分析：三小时内入群人数达到 max(3, 群总人数 ÷ 20) 就算一个批次。
    * 只读成员表 + 一条按发送者聚合的 SQL，不扫消息正文。
    */
-  getGroupJoinClusters: procedure
+  getGroupJoinBatches: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupJoinBatches(BigInt(input.groupCode));
+    }),
+
+  /**
+   * 小团体分析：按 5 分钟间隔把群消息切成会话，算两两之间的拉力，返回一张力图。
+   * 扫描只读发送者 + 时间（不解码正文）。
+   */
+  getGroupConversationGraph: procedure
     .input(
       z.object({
         groupCode: z.string().min(1),
-        windowDays: z.number().int().min(1).max(365).optional(),
-        minSize: z.number().int().min(2).max(50).optional(),
+        windowSeconds: z.number().int().min(30).max(3600).optional(),
+        maxEdges: z.number().int().min(20).max(2000).optional(),
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().groupInfo.getGroupJoinClusters(BigInt(input.groupCode), {
-        windowDays: input.windowDays,
-        minSize: input.minSize,
+      return requireServices().groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
+        windowSeconds: input.windowSeconds,
+        maxEdges: input.maxEdges,
       });
     }),
 

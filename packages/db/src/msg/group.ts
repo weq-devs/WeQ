@@ -941,6 +941,33 @@ export class GroupMsgDb {
   }
 
   /**
+   * 「谁在什么时候发了消息」的时间线，按 seq 顺序翻页 —— 只读发送者（40020）与
+   * 发送时间（40050），**不解码正文**（40800）。
+   *
+   * 会话切分 + 拉力计算（小团体分析）只需要这两个字段，走这条比
+   * {@link listBatch} 便宜一个量级；命中 `(40027,40003)` 复合索引，和小团体分析
+   * 那些逐条读正文的接口不是一个开销级别。发送者为空的行（系统消息 / 灰条）跳过。
+   */
+  async listSenderTimeline(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    limit = 2000,
+  ): Promise<Array<{ uid: string; sendTime: number; seq: bigint }>> {
+    const rows = await this.qq.query(
+      `SELECT "40020","40050","40003" FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > ? AND "40020" != ''
+        ${ORDER_OLDEST_FIRST}
+        LIMIT ?`,
+      [targetGroupCode, afterSeq, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      sendTime: Number(row[1] ?? 0),
+      seq: toBigint(row[2]),
+    }));
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:

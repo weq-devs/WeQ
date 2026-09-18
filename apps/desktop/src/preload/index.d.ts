@@ -1,4 +1,5 @@
 import type { ElectronAPI } from '@electron-toolkit/preload';
+import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 
 declare global {
   interface Window {
@@ -52,17 +53,10 @@ declare global {
         window(): Promise<{ ok: boolean; error?: string }>;
       };
       analyticsShot: {
-        capture(rect: { x: number; y: number; width: number; height: number }): Promise<{
-          ok: boolean;
-          dataUrl?: string;
-          width?: number;
-          height?: number;
-          error?: string;
-        }>;
-        save(
-          dataUrl: string,
-          defaultName: string,
-        ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+        /** 主进程在隐藏窗口里渲染同一张卡片、抓图、弹保存框（用户窗口全程不动）。 */
+        render(payload: AnalyticsExportPayload): Promise<AnalyticsExportResult>;
+        /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
+        claimPayload(): Promise<AnalyticsExportPayload | null>;
       };
     };
   }
