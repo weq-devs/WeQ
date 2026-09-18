@@ -13,11 +13,17 @@
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MsgSearchIndexDb } from '@weq/db';
+import { MAX_FAST_DECRYPT_BYTES } from '@weq/native';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+}));
 
 const TABLE = 'group_msg_fts';
 const G1 = '777';
@@ -33,6 +39,7 @@ afterEach(() => {
   idx.dispose();
   closeAllFixtureDbs();
   rmSync(dir, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 async function count(path: string, sql: string): Promise<number> {
@@ -98,6 +105,56 @@ function createFixture(): void {
 }
 
 describe('MsgSearchIndexDb incremental sync (offline fixture)', () => {
+  it.each([MAX_FAST_DECRYPT_BYTES, 2 ** 31 + 4096, 2 ** 32 + 4096])(
+    'rebuilds a %i-byte source using page-based decryption and preserves search results',
+    async (size) => {
+      createFixture();
+      // Keep a tiny SQL fixture; only the reported source size is large.
+      const stat = fs.statSync;
+      vi.spyOn(fs, 'statSync').mockImplementation((...args) => {
+        const result = stat(...args);
+        if (args[0] === sourcePath) result.size = size;
+        return result;
+      });
+      const copyFixture = nt.fastDecryptDatabase.bind(nt);
+      const safe = vi.fn(copyFixture);
+      nt.safeDecryptDatabase = safe;
+      const fast = vi.spyOn(nt, 'fastDecryptDatabase').mockImplementation(() => {
+        throw new Error('large database reached the unsafe whole-file allocation');
+      });
+
+      await idx.sync();
+
+      expect(safe).toHaveBeenCalledWith(sourcePath, indexDbPath, 'fixture-key', {
+        pageHmacAlgorithm: 'SHA1',
+        kdfHmacAlgorithm: 'SHA512',
+      });
+      expect(fast).not.toHaveBeenCalled();
+      expect(idx.ready).toBe(true);
+      expect((await idx.searchPartition(777n, 'world')).total).toBe(5);
+      expect(await count(indexDbPath, 'SELECT COUNT(*) FROM weq_fts_keys')).toBe(8);
+    },
+  );
+
+  it('reports safe-decrypt errors without marking a partial index ready', async () => {
+    createFixture();
+    const stat = fs.statSync;
+    vi.spyOn(fs, 'statSync').mockImplementation((...args) => {
+      const result = stat(...args);
+      if (args[0] === sourcePath) result.size = MAX_FAST_DECRYPT_BYTES;
+      return result;
+    });
+    nt.safeDecryptDatabase = vi.fn(() => {
+      throw new Error('safe export failed');
+    });
+    const fast = vi.spyOn(nt, 'fastDecryptDatabase');
+
+    await expect(idx.sync()).rejects.toThrow('safe export failed');
+    expect(idx.ready).toBe(false);
+    expect(idx.lastError).toBe('safe export failed');
+    expect(fast).not.toHaveBeenCalled();
+  });
+
   it('rebuild → trim → incremental restores parity and stays idempotent', async () => {
     createFixture();
 
