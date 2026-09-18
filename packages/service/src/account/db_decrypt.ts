@@ -10,10 +10,15 @@ import { copyFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { type AccountSession, algoFor } from '@weq/account';
-import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
+import {
+  selectDatabaseDecryptMethod,
+  type DatabaseAlgorithms,
+  type DatabaseDecryptMode,
+  type NtHelperBinding,
+} from '@weq/native';
 import type { Platform } from '@weq/platform';
 
-export type DbDecryptMode = 'fast' | 'safe';
+export type DbDecryptMode = DatabaseDecryptMode;
 
 /**
  * login.db（`nt_qq/global/nt_db/login.db`）的固定 SQLCipher 密钥。
@@ -194,8 +199,7 @@ function decryptOneInWorker(
       if (typeof nt.getInitStatus === 'function' && nt.getInitStatus() !== 0) {
         throw new Error('nt_helper initialization failed in decrypt worker');
       }
-      const method = workerData.mode === 'fast' ? 'fastDecryptDatabase' : 'safeDecryptDatabase';
-      nt[method](workerData.dbPath, workerData.outPath, workerData.key, workerData.algo);
+      nt[workerData.method](workerData.dbPath, workerData.outPath, workerData.key, workerData.algo);
       parentPort.postMessage({ ok: true });
     } catch (e) {
       parentPort.postMessage({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -203,6 +207,9 @@ function decryptOneInWorker(
   `;
 
   return new Promise((resolvePromise, reject) => {
+    // Worker threads share Electron's process/allocator: moving an oversized
+    // fast decrypt off the main thread does not prevent a fatal native OOM.
+    const method = selectDatabaseDecryptMethod(dbPath, mode);
     let settled = false;
     const settle = (fn: () => void): void => {
       if (settled) return;
@@ -211,7 +218,7 @@ function decryptOneInWorker(
     };
     const worker = new Worker(code, {
       eval: true,
-      workerData: { ntHelperPath, dbPath, outPath, key, algo, mode },
+      workerData: { ntHelperPath, dbPath, outPath, key, algo, method },
     });
     worker.once('message', (msg: { ok?: boolean; error?: string }) => {
       if (msg?.ok) settle(resolvePromise);
