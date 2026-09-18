@@ -13,6 +13,12 @@ import type {
   GroupExt,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
+import {
+  DEFAULT_JOIN_CLUSTER_CRITERIA,
+  buildJoinClusterReport,
+  type GroupJoinClusterReport,
+  type JoinClusterCriteria,
+} from './join_clusters';
 import { segmentWords } from './text_segment';
 
 /** Message count ranking entry. */
@@ -93,6 +99,13 @@ export interface GroupStatsReport {
   daily: GroupDailyActivityItem[];
   words: GroupWordCloudItem[];
 }
+
+/** 小团体分析（入群时间聚类）的类型与纯函数在 ./join_clusters，这里只做转出。 */
+export type {
+  GroupJoinClusterMember,
+  GroupJoinCluster,
+  GroupJoinClusterReport,
+} from './join_clusters';
 
 /** One user that shares ≥2 groups with me, for the relation graph. */
 export interface RelationGraphNode {
@@ -746,6 +759,48 @@ export class GroupInfoService {
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([word, count]) => ({ word, count }));
+  }
+
+  /**
+   * 「小团体分析」：按入群时间把群成员分成若干伙，剩下的算游离分子。
+   *
+   * 聚类本身是纯函数（见 {@link ./join_clusters}，有单测），这里只负责把原料
+   * 凑齐：成员表里的入群时间 / 最后发言 / 等级，加上「每个人发了多少条」——
+   * 后者走一条 `GROUP BY 40020` 的 SQL，不扫消息正文。
+   *
+   * 于是整个接口只读两次库：（成员表一次，消息表一次聚合），打开卡片几乎不卡。
+   */
+  async getGroupJoinClusters(
+    groupCode: bigint,
+    opts?: Partial<JoinClusterCriteria>,
+  ): Promise<GroupJoinClusterReport> {
+    // 逐项兜底而不是展开合并 —— 上游 IPC 会把没传的字段以 undefined 递进来，
+    // 直接展开会让 undefined 覆盖掉默认值。
+    const criteria: JoinClusterCriteria = {
+      windowDays: opts?.windowDays ?? DEFAULT_JOIN_CLUSTER_CRITERIA.windowDays,
+      minSize: opts?.minSize ?? DEFAULT_JOIN_CLUSTER_CRITERIA.minSize,
+      maxSize: opts?.maxSize ?? DEFAULT_JOIN_CLUSTER_CRITERIA.maxSize,
+      densityFactor: opts?.densityFactor ?? DEFAULT_JOIN_CLUSTER_CRITERIA.densityFactor,
+      rarityRatio: opts?.rarityRatio ?? DEFAULT_JOIN_CLUSTER_CRITERIA.rarityRatio,
+    };
+
+    const [briefs, countByUid] = await Promise.all([
+      this.session.groupMembers.listMemberJoinBriefs(groupCode),
+      this.session.groupMsgs.countBySenders(String(groupCode)),
+    ]);
+    const groupMessageTotal = Object.values(countByUid).reduce((sum, n) => sum + n, 0);
+
+    const members = briefs.map((b) => ({
+      uid: b.uid,
+      uin: b.uin,
+      displayName: b.card || b.nick || b.uin || b.uid,
+      joinTime: b.joinTime,
+      lastSpeakTime: b.lastSpeakTime,
+      memberLevel: b.memberLevel,
+      messageCount: countByUid[b.uid] ?? 0,
+    }));
+
+    return buildJoinClusterReport(members, groupMessageTotal, criteria);
   }
 
   /**

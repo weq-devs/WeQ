@@ -7,14 +7,20 @@
  * 成员级的分析（某人在群里发了多少、爱说什么）挪到了资料卡
  * （{@link ./MemberProfileCard}）底部的「聊天分析」按钮，点击弹出灯箱。
  *
- * 三路数据相互独立（排行 / 活跃时段+每日热力图 / 词云），进来一次性并发拉取，
+ * 数据只走两路：
+ *   - `getGroupStatsReport` —— 排行 / 活跃时段 / 每日热力图 / 词云 **一次扫描**全算完
+ *     （以前是并发拉四个接口，等于把同一张表扫四遍，群历史越长越亏）；
+ *   - `getGroupJoinClusters` —— 小团体分析，只读成员表 + 一条按发送者聚合的 SQL。
  * 任一路失败只标出该路的错误，不把整页拖垮。
+ *
+ * 右上角「保存为图片」走 {@link ./analyticsShot}：逐屏抓真实窗口再拼成一张长图。
  */
 import {
   CalendarDays,
   Clock,
   Cloud,
   Flame,
+  ImageDown,
   Loader2,
   Medal,
   MessageSquare,
@@ -22,21 +28,32 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { useToast } from './Toast';
+import { exportAnalyticsCard } from './analyticsShot';
 import {
   ContributionHeatmap,
   HourlyBarChart,
   WordCloud,
+  formatDate,
   formatNumber,
   type DailyActivityItem,
   type WordCloudItem,
 } from './analyticsCharts';
+import { GroupJoinClusters, type JoinClusterReport } from './GroupJoinClusters';
 
 /** 排行榜只取前几名 —— 长榜单在这里没人看完，前 10 已经够用。 */
 const RANKING_LIMIT = 10;
+/** 词云取前 150 个词。 */
+const WORD_LIMIT = 150;
+/**
+ * 小团体的时间窗口可选值（天）—— 默认 3 天。
+ * 小团体的信号是「短时间」：「同一天涌进来 4 个人」比「两周陆续来 200 个人」像一伙得多。
+ */
+const JOIN_WINDOW_CHOICES = [1, 3, 7] as const;
 
 interface RankingItem {
   uid: string;
@@ -45,15 +62,22 @@ interface RankingItem {
   messageCount: number;
 }
 
-function avatarUrlOf(uin: string | undefined | null): string | null {
-  return uin && uin !== '0' ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
+interface StatsReport {
+  totals: {
+    totalMessages: number;
+    speakerCount: number;
+    activeDays: number;
+    firstMessageTime: number | null;
+    lastMessageTime: number | null;
+  };
+  ranking: RankingItem[];
+  timeDistribution: Record<number, number>;
+  daily: DailyActivityItem[];
+  words: WordCloudItem[];
 }
 
-/** 「2026-09-18」→「2026/09/18」；拿不到就返回 null。 */
-function shortDay(value: string | undefined | null): string | null {
-  if (!value) return null;
-  const [y, m, d] = value.split('-');
-  return y && m && d ? `${y}/${m}/${d}` : value;
+function avatarUrlOf(uin: string | undefined | null): string | null {
+  return uin && uin !== '0' ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
 }
 
 /** 24 时段里最忙的那一格（返回小时数，全为 0 时返回 null）。 */
@@ -83,72 +107,100 @@ export function GroupAnalyticsDialog({
 }) {
   useEscapeToClose(onClose);
 
-  const [ranking, setRanking] = useState<RankingItem[] | null>(null);
-  const [rankingError, setRankingError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [exporting, setExporting] = useState(false);
 
-  const [activeHours, setActiveHours] = useState<Record<number, number> | null>(null);
-  const [dailyActivity, setDailyActivity] = useState<DailyActivityItem[] | null>(null);
-  const [hoursError, setHoursError] = useState<string | null>(null);
+  const [report, setReport] = useState<StatsReport | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
 
-  const [wordCloud, setWordCloud] = useState<WordCloudItem[] | null>(null);
-  const [wordCloudError, setWordCloudError] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<JoinClusterReport | null>(null);
+  const [clustersError, setClustersError] = useState<string | null>(null);
+  const [clustersLoading, setClustersLoading] = useState(true);
+  const [windowDays, setWindowDays] = useState<number>(JOIN_WINDOW_CHOICES[1]);
 
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  // 群画像（排行 / 时段 / 热力图 / 词云）：一次扫描的聚合，进卡片只拉这一次。
+  const loadReport = useCallback(async () => {
     setLoading(true);
-    setRankingError(null);
-    setHoursError(null);
-    setWordCloudError(null);
-
-    // 三路并发，各自 settle：一路挂了不影响另外两路的展示。
-    await Promise.all([
-      client.account.getGroupMessageRanking
-        .query({ groupCode, limit: RANKING_LIMIT })
-        .then((r) => setRanking(r as RankingItem[]))
-        .catch((e) => setRankingError(e instanceof Error ? e.message : String(e))),
-      Promise.all([
-        client.account.getGroupActiveHours.query({ groupCode }),
-        client.account.getGroupDailyActivity.query({ groupCode }),
-      ])
-        .then(([hours, daily]) => {
-          setActiveHours(hours as Record<number, number>);
-          setDailyActivity(daily as DailyActivityItem[]);
-        })
-        .catch((e) => setHoursError(e instanceof Error ? e.message : String(e))),
-      client.account.getGroupWordCloud
-        .query({ groupCode, limit: 150 })
-        .then((r) => setWordCloud(r as WordCloudItem[]))
-        .catch((e) => setWordCloudError(e instanceof Error ? e.message : String(e))),
-    ]);
-
-    setLoading(false);
+    setReportError(null);
+    try {
+      const r = await client.account.getGroupStatsReport.query({
+        groupCode,
+        rankingLimit: RANKING_LIMIT,
+        wordLimit: WORD_LIMIT,
+      });
+      setReport(r as StatsReport);
+    } catch (e) {
+      setReportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [groupCode]);
 
+  // 小团体单独一路：切窗口只重拉这一路（它只读成员表 + 一条聚合 SQL，很快）。
+  const loadClusters = useCallback(async () => {
+    setClustersLoading(true);
+    setClustersError(null);
+    try {
+      const r = await client.account.getGroupJoinClusters.query({ groupCode, windowDays });
+      setClusters(r as JoinClusterReport);
+    } catch (e) {
+      setClustersError(e instanceof Error ? e.message : String(e));
+      setClusters(null);
+    } finally {
+      setClustersLoading(false);
+    }
+  }, [groupCode, windowDays]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadReport();
+  }, [loadReport]);
+
+  useEffect(() => {
+    void loadClusters();
+  }, [loadClusters]);
 
   const overview = useMemo(() => {
-    if (!activeHours) return null;
-    const total = Object.values(activeHours).reduce((sum, n) => sum + (n ?? 0), 0);
-    const activeDays = dailyActivity?.length ?? 0;
+    if (!report) return null;
+    const { totals } = report;
     return {
-      total,
-      activeDays,
-      avgPerDay: activeDays > 0 ? Math.round(total / activeDays) : 0,
-      peak: peakHour(activeHours),
+      total: totals.totalMessages,
+      activeDays: totals.activeDays,
+      avgPerDay: totals.activeDays > 0 ? Math.round(totals.totalMessages / totals.activeDays) : 0,
+      peak: peakHour(report.timeDistribution),
+      speakers: totals.speakerCount,
     };
-  }, [activeHours, dailyActivity]);
+  }, [report]);
 
   const range = useMemo(() => {
-    if (!dailyActivity || dailyActivity.length === 0) return null;
-    const from = shortDay(dailyActivity[0]?.date);
-    const to = shortDay(dailyActivity[dailyActivity.length - 1]?.date);
-    return from && to ? { from, to } : null;
-  }, [dailyActivity]);
+    const totals = report?.totals;
+    if (!totals?.firstMessageTime || !totals.lastMessageTime) return null;
+    return { from: formatDate(totals.firstMessageTime), to: formatDate(totals.lastMessageTime) };
+  }, [report]);
 
+  const ranking = report?.ranking ?? null;
   const maxRankCount = ranking?.[0]?.messageCount ?? 0;
+
+  const handleExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await exportAnalyticsCard({
+        root: rootRef.current,
+        title: groupName,
+        label: '群聊分析',
+      });
+      const toast = useToast.getState();
+      if (result.saved) {
+        toast.push({ tone: 'success', title: '长图已保存', detail: result.path });
+      } else if (!result.canceled) {
+        toast.push({ tone: 'error', title: '保存图片失败', detail: result.error });
+      }
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, groupName]);
 
   return (
     <div
@@ -161,6 +213,7 @@ export function GroupAnalyticsDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`${groupName} 的群聊分析`}
+        ref={rootRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -168,13 +221,24 @@ export function GroupAnalyticsDialog({
             <strong>群聊分析</strong>
             <span>{groupName}</span>
           </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="ga-head-actions" data-shot-hide>
+            <button
+              className="icon-button"
+              type="button"
+              title="保存为图片"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+            >
+              {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
+            </button>
+            <button className="icon-button" type="button" title="关闭" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="group-album-body ga-body">
-          {loading && !overview && !ranking ? (
+          {loading && !overview ? (
             <div className="ga-loading">
               <Loader2 size={28} className="weq-spin" />
             </div>
@@ -200,6 +264,12 @@ export function GroupAnalyticsDialog({
                       <span className="ga-ov-chip">
                         <CalendarDays size={11} />
                         活跃 {overview.activeDays} 天
+                      </span>
+                    ) : null}
+                    {overview && overview.speakers > 0 ? (
+                      <span className="ga-ov-chip">
+                        <MessageSquare size={11} />
+                        {overview.speakers} 人冒过泡
                       </span>
                     ) : null}
                   </div>
@@ -232,6 +302,41 @@ export function GroupAnalyticsDialog({
                 </div>
               ) : null}
 
+              {/* 小团体分析（按入群时间聚类） */}
+              <section className="ga-ov-section">
+                <h3>
+                  <Users size={15} />
+                  小团体分析
+                  <span className="gc-window" data-shot-hide>
+                    {JOIN_WINDOW_CHOICES.map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        className={days === windowDays ? 'is-on' : undefined}
+                        title={`把「${days} 天内一起进来的人」算作一波`}
+                        onClick={() => setWindowDays(days)}
+                      >
+                        {days} 天
+                      </button>
+                    ))}
+                    {clustersLoading && clusters ? (
+                      <Loader2 size={12} className="weq-spin" />
+                    ) : null}
+                  </span>
+                </h3>
+                {clustersError ? (
+                  <div className="ga-error">{clustersError}</div>
+                ) : !clusters ? (
+                  <div className="ga-loading">
+                    <Loader2 size={22} className="weq-spin" />
+                  </div>
+                ) : (
+                  <div className={clustersLoading ? 'gc-stale' : undefined}>
+                    <GroupJoinClusters report={clusters} />
+                  </div>
+                )}
+              </section>
+
               {/* 发言排行（前 N） */}
               <section className="ga-ov-section">
                 <h3>
@@ -239,8 +344,8 @@ export function GroupAnalyticsDialog({
                   发言排行
                   <small>按发言条数 · 前 {RANKING_LIMIT} 名</small>
                 </h3>
-                {rankingError ? (
-                  <div className="ga-error">{rankingError}</div>
+                {reportError ? (
+                  <div className="ga-error">{reportError}</div>
                 ) : !ranking ? (
                   <div className="ga-loading">
                     <Loader2 size={22} className="weq-spin" />
@@ -257,7 +362,11 @@ export function GroupAnalyticsDialog({
                         <span className={`ga-rank-num${idx < 3 ? ' top' : ''}`}>
                           {idx < 3 ? <Medal size={14} /> : idx + 1}
                         </span>
-                        <Avatar name={item.displayName} avatarUrl={avatarUrlOf(item.uin)} />
+                        <Avatar
+                          name={item.displayName}
+                          avatarUrl={avatarUrlOf(item.uin)}
+                          seed={item.uid}
+                        />
                         <div className="ga-rank-body">
                           <span className="ga-rank-name" title={item.displayName}>
                             {item.displayName}
@@ -289,19 +398,19 @@ export function GroupAnalyticsDialog({
                     </small>
                   ) : null}
                 </h3>
-                {hoursError ? (
-                  <div className="ga-error">{hoursError}</div>
-                ) : !activeHours ? (
+                {reportError ? (
+                  <div className="ga-error">{reportError}</div>
+                ) : !report ? (
                   <div className="ga-loading">
                     <Loader2 size={22} className="weq-spin" />
                   </div>
                 ) : (
                   <>
                     <div className="ga-ov-card">
-                      <HourlyBarChart data={activeHours} />
+                      <HourlyBarChart data={report.timeDistribution} />
                     </div>
                     <div className="ga-ov-card">
-                      <ContributionHeatmap data={dailyActivity ?? []} />
+                      <ContributionHeatmap data={report.daily ?? []} />
                     </div>
                   </>
                 )}
@@ -314,14 +423,14 @@ export function GroupAnalyticsDialog({
                   群词云
                   <small>全群高频词</small>
                 </h3>
-                {wordCloudError ? (
-                  <div className="ga-error">{wordCloudError}</div>
-                ) : !wordCloud ? (
+                {reportError ? (
+                  <div className="ga-error">{reportError}</div>
+                ) : !report ? (
                   <div className="ga-loading">
                     <Loader2 size={22} className="weq-spin" />
                   </div>
-                ) : wordCloud.length > 0 ? (
-                  <WordCloud words={wordCloud} />
+                ) : report.words.length > 0 ? (
+                  <WordCloud words={report.words} />
                 ) : (
                   <p className="ga-placeholder">暂无足够的文本数据生成词云</p>
                 )}

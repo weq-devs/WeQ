@@ -166,6 +166,9 @@ export {
   type GroupMessageRankingItem,
   type GroupWordCloudItem,
   type GroupDailyActivityItem,
+  type GroupJoinClusterMember,
+  type GroupJoinCluster,
+  type GroupJoinClusterReport,
 } from './account/group_info';
 export {
   BuddyAnalyticsService,

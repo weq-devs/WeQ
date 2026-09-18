@@ -3,6 +3,7 @@ import {
   Clock,
   Cloud,
   Flame,
+  ImageDown,
   Loader2,
   MessageSquare,
   Send,
@@ -11,11 +12,13 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { FaceEmoji } from './FaceEmoji';
+import { useToast } from './Toast';
+import { exportAnalyticsCard } from './analyticsShot';
 import {
   ContributionHeatmap,
   DonutChart,
@@ -125,6 +128,8 @@ export function BuddyAnalyticsDialog({
 }) {
   useEscapeToClose(onClose);
 
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [data, setData] = useState<BuddyAnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +151,27 @@ export function BuddyAnalyticsDialog({
     void load();
   }, [load]);
 
+  // 长图导出：抓真实窗口逐屏拼接，见 ./analyticsShot。
+  const handleExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await exportAnalyticsCard({
+        root: rootRef.current,
+        title: peerName,
+        label: '私聊分析',
+      });
+      const toast = useToast.getState();
+      if (result.saved) {
+        toast.push({ tone: 'success', title: '长图已保存', detail: result.path });
+      } else if (!result.canceled) {
+        toast.push({ tone: 'error', title: '保存图片失败', detail: result.error });
+      }
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, peerName]);
+
   const stats = data?.statistics;
   const typeTotal = data
     ? TYPE_META.reduce((sum, t) => sum + (data.messageTypes[t.key] ?? 0), 0)
@@ -161,6 +187,7 @@ export function BuddyAnalyticsDialog({
         className="group-album-dialog ba-dialog"
         role="dialog"
         aria-modal="true"
+        ref={rootRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -168,9 +195,20 @@ export function BuddyAnalyticsDialog({
             <strong>私聊分析</strong>
             <span>{peerName}</span>
           </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="ga-head-actions" data-shot-hide>
+            <button
+              className="icon-button"
+              type="button"
+              title="保存为图片"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+            >
+              {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
+            </button>
+            <button className="icon-button" type="button" title="关闭" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="group-album-body ba-body">

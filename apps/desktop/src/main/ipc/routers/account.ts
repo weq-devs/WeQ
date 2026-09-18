@@ -2365,6 +2365,44 @@ export const accountRouter = router({
       );
     }),
 
+  /**
+   * 群聊分析的一站式聚合 —— 排行 / 活跃时段 / 每日热力图 / 词云在**一次**表扫描里
+   * 全部算完。前端曾经并发拉四个接口，那是同一张表扫四遍；群历史越长这个差距越大。
+   */
+  getGroupStatsReport: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        rankingLimit: z.number().int().min(1).max(100).optional(),
+        wordLimit: z.number().int().min(1).max(400).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupStatsReport(BigInt(input.groupCode), {
+        rankingLimit: input.rankingLimit,
+        wordLimit: input.wordLimit,
+      });
+    }),
+
+  /**
+   * 小团体分析：按入群时间的集中程度把群成员分成几伙，剩下的是游离分子。
+   * 只读成员表 + 一条按发送者聚合的 SQL，不扫消息正文。
+   */
+  getGroupJoinClusters: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        windowDays: z.number().int().min(1).max(365).optional(),
+        minSize: z.number().int().min(2).max(50).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupJoinClusters(BigInt(input.groupCode), {
+        windowDays: input.windowDays,
+        minSize: input.minSize,
+      });
+    }),
+
   /** Full one-on-one (private chat) analytics for a single peer. */
   getBuddyAnalytics: procedure
     .input(z.object({ peerUid: z.string().min(1) }))

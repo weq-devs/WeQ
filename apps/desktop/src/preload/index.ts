@@ -116,6 +116,28 @@ const weqBridge = {
     /** 抓取 WeQ 窗口客户区写入系统剪贴板（含隐私遮罩效果）。截完即可粘贴。 */
     window: () => ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
   },
+  analyticsShot: {
+    /**
+     * 按 CSS 像素矩形抓一帧（坐标相对页面视口左上角）。分析卡片的长图导出
+     * 由渲染端滚动 + 拼接，这里只提供「抓一块」这个原子能力。
+     */
+    capture: (rect: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('analytics-shot:capture', rect) as Promise<{
+        ok: boolean;
+        dataUrl?: string;
+        width?: number;
+        height?: number;
+        error?: string;
+      }>,
+    /** 弹保存对话框并落盘 PNG；用户取消返回 canceled。 */
+    save: (dataUrl: string, defaultName: string) =>
+      ipcRenderer.invoke('analytics-shot:save', { dataUrl, defaultName }) as Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        path?: string;
+        error?: string;
+      }>,
+  },
 };
 
 if (process.contextIsolated) {

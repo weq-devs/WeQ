@@ -51,6 +51,19 @@ declare global {
       capture: {
         window(): Promise<{ ok: boolean; error?: string }>;
       };
+      analyticsShot: {
+        capture(rect: { x: number; y: number; width: number; height: number }): Promise<{
+          ok: boolean;
+          dataUrl?: string;
+          width?: number;
+          height?: number;
+          error?: string;
+        }>;
+        save(
+          dataUrl: string,
+          defaultName: string,
+        ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+      };
     };
   }
 }

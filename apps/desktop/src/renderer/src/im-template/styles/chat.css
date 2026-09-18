@@ -3390,6 +3390,14 @@ html[data-theme="dark"] .chat-empty-logo {
 	max-height: 90vh;
 }
 
+/* header 右侧的按钮组（保存图片 / 关闭） */
+
+.ga-head-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
 .ga-body {
 	min-height: 320px;
 }
@@ -3968,6 +3976,418 @@ html[data-theme="dark"] .chat-empty-logo {
 	inset: 0;
 }
 
+/* ── 小团体分析（按入群时间聚类） ─────────────────────────────────── */
+
+.gc-root {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.gc-note {
+	margin: 0;
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: var(--weq-fg-muted);
+}
+
+.gc-note strong {
+	color: var(--weq-fg-primary);
+}
+
+.gc-note-sub {
+	display: block;
+	margin-top: 3px;
+	color: color-mix(in srgb, var(--weq-fg-muted) 80%, transparent);
+}
+
+/* 拉新潮：短时间涌入太多人的波次，「多」压过了「小」，只做汇总不列卡。 */
+
+.gc-wave-note {
+	margin: 0;
+	padding: 8px 10px;
+	border-radius: 8px;
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: var(--weq-fg-muted);
+	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+	border-left: 2px solid color-mix(in srgb, var(--weq-fg-primary) 25%, transparent);
+}
+
+.gc-wave-note strong,
+.gc-more strong {
+	color: var(--weq-fg-primary);
+}
+
+/* 卡片区只展开最像的几伙，剩下的报个比数。 */
+
+.gc-more {
+	margin: 0;
+	font-size: 11.5px;
+	color: var(--weq-fg-muted);
+	text-align: center;
+}
+
+/* 窗口切换：1 / 3 / 7 天。小团体的信号是「短时间」，所以把它做成可以现场调的旋钮。 */
+
+.gc-window {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: auto;
+	padding: 2px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated));
+}
+
+.gc-window button {
+	padding: 2px 9px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--weq-fg-muted);
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.gc-window button:hover {
+	color: var(--weq-fg-primary);
+}
+
+.gc-window button.is-on {
+	background: var(--weq-accent-effective);
+	color: #fff;
+}
+
+.gc-window svg {
+	color: var(--weq-fg-muted);
+	margin-right: 3px;
+}
+
+/* 切窗口重拉时保留旧结果，只压一层薄雾，避免整块跳空。 */
+.gc-stale {
+	opacity: 0.55;
+}
+
+.gc-stale * {
+	transition: none !important;
+}
+
+/* 入群时间轴 */
+
+.gc-timeline {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 14px 14px 10px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 12px;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+			color-mix(in srgb, var(--weq-bg-surface) 76%, transparent)
+		);
+}
+
+.gc-tl-track {
+	position: relative;
+	height: 56px;
+}
+
+.gc-tl-band {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	border-radius: 8px;
+}
+
+.gc-tl-dot {
+	position: absolute;
+	width: 9px;
+	height: 9px;
+	margin-left: -4.5px;
+	border-radius: 50%;
+	border: 1.5px solid color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+	z-index: 1;
+}
+
+.gc-tl-dot.is-drift {
+	width: 7px;
+	height: 7px;
+	margin-left: -3.5px;
+	background: color-mix(in srgb, var(--weq-fg-primary) 32%, transparent);
+	box-shadow: none;
+	z-index: 0;
+}
+
+.gc-tl-axis {
+	position: relative;
+	height: 13px;
+}
+
+.gc-tl-tick {
+	position: absolute;
+	font-size: 10px;
+	line-height: 13px;
+	color: var(--weq-fg-muted);
+	white-space: nowrap;
+}
+
+.gc-tl-legend {
+	display: flex;
+	gap: 14px;
+	margin-top: 2px;
+	font-size: 11px;
+	color: var(--weq-fg-muted);
+}
+
+.gc-tl-legend span {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.gc-legend-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	display: inline-block;
+}
+
+.gc-legend-dot.is-drift {
+	background: color-mix(in srgb, var(--weq-fg-primary) 32%, transparent);
+}
+
+/* 团体卡 */
+
+.gc-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+	gap: 10px;
+}
+
+.gc-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px 14px;
+	border: 1px solid color-mix(in srgb, var(--gc-tone) 26%, var(--weq-border-subtle));
+	border-radius: 14px;
+	background:
+		linear-gradient(
+			160deg,
+			color-mix(in srgb, var(--gc-tone) 11%, var(--weq-bg-elevated)),
+			color-mix(in srgb, var(--gc-tone) 3%, var(--weq-bg-surface))
+		);
+}
+
+.gc-card.is-drift {
+	border-style: dashed;
+	opacity: 0.94;
+}
+
+.gc-card-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+/* 序号章：圆形渐变徽章，时间轴上同一颜色的锚点。 */
+.gc-card-idx {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 26px;
+	height: 26px;
+	border-radius: 9px;
+	font-size: 13px;
+	font-weight: 700;
+	color: #fff;
+	background: linear-gradient(
+		140deg,
+		var(--gc-tone),
+		color-mix(in srgb, var(--gc-tone) 62%, #000)
+	);
+	box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--gc-tone) 70%, transparent);
+}
+
+.gc-card-idx.is-drift {
+	border-radius: 50%;
+	color: var(--weq-fg-muted);
+	background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
+	box-shadow: none;
+}
+
+.gc-card-title {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.gc-card-title strong {
+	font-size: 13px;
+	color: var(--weq-fg-primary);
+}
+
+.gc-card-title small {
+	font-size: 11px;
+	color: var(--weq-fg-muted);
+}
+
+.gc-badge {
+	margin-left: auto;
+	flex: 0 0 auto;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 10.5px;
+	white-space: nowrap;
+}
+
+.gc-badge.is-hot {
+	color: #f97316;
+	background: color-mix(in srgb, #f97316 12%, transparent);
+	border: 1px solid color-mix(in srgb, #f97316 24%, transparent);
+}
+
+.gc-badge.is-cold {
+	color: var(--weq-fg-muted);
+	background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.gc-badge.is-normal {
+	color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-primary));
+	background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 头像堆叠 */
+
+.gc-faces {
+	display: flex;
+	align-items: center;
+	padding-left: 2px;
+}
+
+.gc-face {
+	position: relative;
+	display: inline-flex;
+	margin-left: -7px;
+	border-radius: 50%;
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-bg-surface) 92%, transparent);
+}
+
+.gc-face:first-child {
+	margin-left: 0;
+}
+
+.gc-face .avatar {
+	width: 28px;
+	height: 28px;
+}
+
+.gc-face-more {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	margin-left: -7px;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	border: 1px solid color-mix(in srgb, var(--weq-fg-primary) 16%, transparent);
+	background: color-mix(in srgb, var(--weq-bg-elevated) 88%, transparent);
+	color: var(--weq-fg-muted);
+	font-size: 10px;
+	font-weight: 600;
+}
+
+/* 三个小指标 + 占比条 */
+
+.gc-metrics {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px;
+}
+
+.gc-metric {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 7px 9px;
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--weq-bg-elevated) 72%, transparent);
+	border: 1px solid color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.gc-metric small {
+	font-size: 10px;
+	color: var(--weq-fg-muted);
+}
+
+.gc-metric strong {
+	font-size: 13px;
+	color: var(--weq-fg-primary);
+}
+
+.gc-sharebar {
+	height: 4px;
+	overflow: hidden;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+}
+
+.gc-sharebar i {
+	display: block;
+	height: 100%;
+	border-radius: 999px;
+}
+
+.gc-card-foot {
+	display: flex;
+	align-items: center;
+	min-height: 26px;
+	font-size: 11.5px;
+	color: var(--weq-fg-muted);
+}
+
+.gc-top {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
+.gc-top .avatar {
+	width: 22px;
+	height: 22px;
+	flex: 0 0 auto;
+}
+
+.gc-top-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--weq-fg-primary);
+	font-weight: 600;
+}
+
+.gc-top small {
+	margin-left: auto;
+	flex: 0 0 auto;
+	color: var(--weq-fg-muted);
+}
+
+.gc-top.is-empty {
+	color: var(--weq-fg-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* ================= private-chat analytics (long page) ================= */
 
 .ba-dialog {
@@ -4374,6 +4794,43 @@ html[data-theme="dark"] .chat-empty-logo {
 	color: var(--weq-fg-muted);
 	font-weight: 600;
 	flex: 0 0 auto;
+}
+
+/*
+ * 导出态（保存为图片时的临时布局）：
+ *   - 卡片放宽 —— 绿墙是固定 53 列（约 745px），620px 的卡片里会被横向滚动截掉半年；
+ *   - 关掉所有过渡 / 动画 —— 否则逐屏抓帧会抓到半截动画，拼出来有错位；
+ *   - 顺手藏掉横向滚动条（抓帧时它们只是噪点）。
+ * 这一层只在截图那几百毫秒里存在，抓完立即移除。
+ */
+
+.ga-dialog.weq-shot-mode,
+.ba-dialog.weq-shot-mode {
+	width: min(840px, 96vw);
+}
+
+/* 成员分析卡片本来就是「窄屏适配」宽度，导出时按同一口径放宽。 */
+.ma-dialog.weq-shot-mode {
+	width: min(840px, calc(100vw - 40px));
+}
+
+.weq-shot-mode,
+.weq-shot-mode *,
+.weq-shot-mode *::before,
+.weq-shot-mode *::after {
+	transition: none !important;
+	animation: none !important;
+	/* 抓帧要的是「定住」，滚动若是平滑动画会抓到半路的一帧。 */
+	scroll-behavior: auto !important;
+}
+
+.weq-shot-mode .ga-hm-scroll,
+.weq-shot-mode .ga-hm-inner {
+	overflow: visible;
+}
+
+.weq-shot-mode ::-webkit-scrollbar {
+	display: none;
 }
 
 /* ---- 聊天消息加载 skeleton 占位（对方/自己混排、大小不一） ---- */

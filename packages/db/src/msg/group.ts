@@ -918,6 +918,29 @@ export class GroupMsgDb {
   }
 
   /**
+   * 群内「每个发送者发了多少条」—— 一次 `GROUP BY 40020` 的索引扫描，不解码任何正文。
+   *
+   * 与小团体分析配套：入群时间只说明「谁跟谁一起进来」，要判断这个团体是不是
+   * 「活人团」还得看发言量；走 SQL 聚合比 {@link GroupMsgDb.listBatch} 逐条读
+   * 40800 再在 JS 里数便宜一个量级。空 uid（本地系统消息 / 灰条等）不计入。
+   */
+  async countBySenders(targetGroupCode: string): Promise<Record<string, number>> {
+    const rows = await this.qq.query(
+      `SELECT "40020", COUNT(*) FROM group_msg_table
+       WHERE "40027" = ? AND "40020" != ''
+       GROUP BY "40020"`,
+      [targetGroupCode],
+    );
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      const uid = String(row[0] ?? '');
+      if (!uid) continue;
+      result[uid] = typeof row[1] === 'bigint' ? Number(row[1]) : Number(row[1] ?? 0);
+    }
+    return result;
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:
