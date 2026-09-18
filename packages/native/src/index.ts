@@ -19,6 +19,8 @@ export {
   INIT_ERROR_MESSAGES,
 } from './loader';
 export type { LoadNativeOptions, NativeLoadResult } from './loader';
+export { MAX_FAST_DECRYPT_BYTES, selectDatabaseDecryptMethod } from './decrypt';
+export type { DatabaseDecryptMode, DatabaseDecryptMethod } from './decrypt';
 export { NineBirdBootstrap } from './ninebird';
 export {
   darwinPaths,

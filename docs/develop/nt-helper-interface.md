@@ -116,6 +116,11 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `Promise<void>` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
 
+调用解密接口前使用 `@weq/native` 的 `selectDatabaseDecryptMethod(dbPath, mode)`：
+它保留用户指定的安全模式，并把 ≥ 512 MiB 的快速解密请求切换到安全模式。
+搜索索引重建和数据库导出共用该选择逻辑，避免快速接口整库分配内存导致 Electron
+进程崩溃（worker 线程也不能隔离原生内存分配失败）。
+
 ### 5.1 参数类型 `CipherAlgo`
 
 几乎所有带密钥操作都要传 `algo`（page-HMAC × KDF-HMAC 组合）。**先用 `testDatabaseKey` 探测未知库**得到这对算法，再喂给本节的各函数：
