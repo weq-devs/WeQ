@@ -7,10 +7,15 @@
  * 手的 GroupMember；QQ 号 / 昵称 / 性别 / 年龄 / 生日 / 签名 / 亲密度等
  * 「陌生人资料」字段异步走 account.getProfile(uid) 从 profile_info_v6 补全。
  * 视觉沿用好友资料灯箱（weq-profile-*）的设计语言，只是把居中灯箱换成贴光标的浮层。
+ *
+ * 卡片底部是与「个性主页 / 互动标识」并列的入口行；从群成员列表进来时（带 groupCode）
+ * 多一枚「查看聊天分析」，点开 {@link ./MemberAnalyticsDialog} —— 某人在**这个群**里的
+ * 发言量 / 时段 / 常用语与表情。
  */
 import {
   Award,
   BadgeCheck,
+  BarChart3,
   Bot,
   Cake,
   CalendarDays,
@@ -35,6 +40,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
+import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
@@ -66,13 +72,15 @@ const ROLE_META = {
   admin: { label: '管理员', Icon: Shield, cls: 'is-admin' },
 };
 
-export function MemberProfileCard({ member, anchor, onClose }) {
+export function MemberProfileCard({ member, anchor, onClose, groupCode, groupName }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [uidCopied, setUidCopied] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
+  // 「聊天分析」灯箱。只有从群成员列表进来时才有 groupCode —— 私聊里的资料卡不显示这个入口。
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
@@ -84,6 +92,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
   // 真正的 uid 在 member.id；member.identityValue 展示用的是 uin（QQ号）。
   // getProfile 需要 uid，早先误传 identityValue(=uin) 会拉不到 profile_info_v6。
   const uid = member.id;
+  const canAnalyze = Boolean(groupCode && uid);
 
   useEscapeToClose(onClose);
 
@@ -352,31 +361,49 @@ export function MemberProfileCard({ member, anchor, onClose }) {
           </div>
         ) : null}
 
-        {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。 */}
-        {uin ? (
+        {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。
+            聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
+        {uin || canAnalyze ? (
           <div className="weq-profile-actions">
-            <button
-              className="weq-profile-perhome"
-              type="button"
-              onClick={() => {
-                setDismissed(true);
-                setHomeOpen(true);
-              }}
-            >
-              <Wand2 size={13} />
-              查看个性主页
-            </button>
-            <button
-              className="weq-profile-perhome"
-              type="button"
-              onClick={() => {
-                setDismissed(true);
-                setMarkOpen(true);
-              }}
-            >
-              <Award size={13} />
-              查看互动标识
-            </button>
+            {uin ? (
+              <>
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => {
+                    setDismissed(true);
+                    setHomeOpen(true);
+                  }}
+                >
+                  <Wand2 size={13} />
+                  查看个性主页
+                </button>
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => {
+                    setDismissed(true);
+                    setMarkOpen(true);
+                  }}
+                >
+                  <Award size={13} />
+                  查看互动标识
+                </button>
+              </>
+            ) : null}
+            {canAnalyze ? (
+              <button
+                className="weq-profile-perhome is-analytics"
+                type="button"
+                onClick={() => {
+                  setDismissed(true);
+                  setAnalyticsOpen(true);
+                }}
+              >
+                <BarChart3 size={13} />
+                查看聊天分析
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -413,6 +440,17 @@ export function MemberProfileCard({ member, anchor, onClose }) {
           name={name}
           onClose={() => {
             setMarkOpen(false);
+            onClose();
+          }}
+        />
+      ) : null}
+      {analyticsOpen && canAnalyze ? (
+        <MemberAnalyticsDialog
+          groupCode={groupCode}
+          groupName={groupName || ''}
+          member={{ uid, name, uin, avatarUrl: member.avatarUrl }}
+          onClose={() => {
+            setAnalyticsOpen(false);
             onClose();
           }}
         />

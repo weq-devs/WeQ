@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { Bot, X } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
+import { Bot, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
@@ -30,6 +30,8 @@ export function GroupInfoPanel({
   ) => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
+  // 成员列表已全量分页加载过一部分，搜索就在**已加载的**成员里做（客户端过滤，即时响应）。
+  const [memberSearch, setMemberSearch] = useState('');
   const group = conversation.group;
   const metaRows = [
     group.description ? ['群简介', group.description] : null,
@@ -57,6 +59,25 @@ export function GroupInfoPanel({
     const frame = window.requestAnimationFrame(requestMoreMembersNearBottom);
     return () => window.cancelAnimationFrame(frame);
   }, [conversation.members.length, requestMoreMembersNearBottom]);
+
+  // 换群要清空搜索词，否则新群的列表会顶着上一个群的过滤条件显示成空。
+  useEffect(() => {
+    setMemberSearch('');
+  }, [conversation.id]);
+
+  const keyword = memberSearch.trim().toLowerCase();
+  const filteredMembers = useMemo(() => {
+    if (!keyword) return conversation.members;
+    return conversation.members.filter((member) =>
+      [displayUserName(member), member.username, member.identityValue]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(keyword)),
+    );
+  }, [conversation.members, keyword]);
+  // 还没把成员拉全时，搜索结果可能不完整 —— 给一句提示，别让人以为人真的不在群里。
+  const searchIncomplete = Boolean(
+    keyword && (loadingMoreMembers || conversation.members.length < conversation.group.memberCount),
+  );
 
   return (
     <aside className={cn('group-info-panel')} aria-label="群聊资料">
@@ -94,14 +115,44 @@ export function GroupInfoPanel({
 
       <section className={cn('group-info-section', 'member-list-section')}>
         <header className={cn('group-info-heading group-info-title-row')}>
-          <strong>群聊成员 {conversation.group.memberCount}</strong>
+          <strong>
+            群聊成员{' '}
+            {keyword
+              ? `${filteredMembers.length}/${conversation.group.memberCount}`
+              : conversation.group.memberCount}
+          </strong>
         </header>
+        <div className={cn('group-info-member-search')}>
+          <Search size={13} />
+          <input
+            type="text"
+            value={memberSearch}
+            placeholder="搜索昵称 / 群名片 / QQ号"
+            aria-label="搜索群成员"
+            spellCheck={false}
+            onChange={(event) => setMemberSearch(event.target.value)}
+          />
+          {memberSearch ? (
+            <button
+              className={cn('group-info-member-search-clear')}
+              type="button"
+              title="清除搜索"
+              aria-label="清除搜索"
+              onClick={() => setMemberSearch('')}
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </div>
         <div
           className={cn('group-info-member-list')}
           ref={memberListRef}
           onScroll={requestMoreMembersNearBottom}
         >
-          {conversation.members.map((member) => (
+          {keyword && filteredMembers.length === 0 && !loadingMoreMembers ? (
+            <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
+          ) : null}
+          {filteredMembers.map((member) => (
             <div
               className={cn(
                 'group-info-member-row',
@@ -157,6 +208,11 @@ export function GroupInfoPanel({
               ) : null}
             </div>
           ))}
+          {searchIncomplete ? (
+            <div className={cn('group-info-member-hint')}>
+              已加载 {conversation.members.length} / {conversation.group.memberCount}，仍在拉取…
+            </div>
+          ) : null}
           {loadingError ? (
             <div className={cn('group-info-member-error')}>加载失败：{loadingError}</div>
           ) : loadingMoreMembers && conversation.members.length === 0 ? (

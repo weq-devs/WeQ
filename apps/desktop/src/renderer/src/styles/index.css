@@ -12258,18 +12258,35 @@ html[data-theme="dark"] .weq-provider-modal {
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
-/* 「个性主页 / 互动标识」入口按钮行（好友资料灯箱与群成员卡底部）。 */
+/* 「个性主页 / 互动标识 / 聊天分析」入口按钮行（好友资料灯箱与群成员卡底部）。 */
 .weq-profile-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
 
 .weq-profile-actions .weq-profile-perhome {
-  flex: 1;
+  flex: 1 1 96px;
   min-width: 0;
   width: auto;
   margin-top: 0;
+}
+
+/*
+ * 「聊天分析」入口（群成员卡专属）：资料卡只有 288px 宽，三枚按钮排不下，
+ * 让它 wrap 到第二行独占一行；做成实心主操作，和上面两枚描边按钮区分开。
+ */
+.weq-profile-perhome.is-analytics {
+  border-color: transparent;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-profile-perhome.is-analytics:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--weq-accent-effective) 86%, #000);
 }
 
 /* ───────────────────────── 互动标识灯箱（MutualMarkDialog）───────────────────────── */

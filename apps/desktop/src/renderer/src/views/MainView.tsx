@@ -1724,6 +1724,8 @@ export function MainView(): ReactElement {
   const [analyticsDialog, setAnalyticsDialog] = useState<{
     groupCode: string;
     groupName: string;
+    memberCount?: number;
+    avatarUrl?: string | null;
   } | null>(null);
   const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
     peerUid: string;
@@ -1889,6 +1891,8 @@ export function MainView(): ReactElement {
       setAnalyticsDialog({
         groupCode: conversation.id,
         groupName: conversation.group.name,
+        memberCount: conversation.group.memberCount,
+        avatarUrl: conversation.group.avatarUrl,
       });
     },
     [],
@@ -4158,6 +4162,8 @@ export function MainView(): ReactElement {
             <GroupAnalyticsDialog
               groupCode={analyticsDialog.groupCode}
               groupName={analyticsDialog.groupName}
+              memberCount={analyticsDialog.memberCount}
+              avatarUrl={analyticsDialog.avatarUrl}
               onClose={() => setAnalyticsDialog(null)}
             />
           ) : null}
@@ -4260,6 +4266,12 @@ export function MainView(): ReactElement {
             <MemberProfileCard
               member={memberCard.member}
               anchor={memberCard.anchor}
+              groupCode={
+                selectedConversation?.type === 'group' ? selectedConversation.id : undefined
+              }
+              groupName={
+                selectedConversation?.type === 'group' ? selectedConversation.group.name : undefined
+              }
               onClose={() => setMemberCard(null)}
             />
           ) : null}
