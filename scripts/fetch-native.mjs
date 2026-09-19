@@ -8,15 +8,24 @@
  * （nt_helper 的 `build.rs`，CI 传 `DRESS_KEY_SEED=github.sha`）并烘焙进 `.node`，
  * 跨版本混用会直接解不开。脚本因此永远从同一个 release tag 里取 `.node` 与 `.dat`。
  *
- * 为什么 release 时每次都取 latest：CI 构建出的 `.node` 带 30 天有效期
- * （`BUILD_TIMESTAMP`，由 `getInitStatus()` 判定），拿过期包打出来的安装包起不来。
- * 脚本超过 WARN_AGE_DAYS 天会提醒，`--require-fresh` 时直接失败。
+ * **默认不是 latest，而是 `native/pinned.json` 里锚定的那个 tag**：WeQ 的代码是照着
+ * 某一份 native 构建写的（类型、能力、装扮资源的密钥都由它决定），跟着 latest 漂会
+ * 在"WeQ 已经用到新字段、而本地那份还是旧的"这类情况下静默降级。锚文件是这个仓库里
+ * 唯一一处"我们认哪一份 native"的记录，升级它是一次显式提交（见 --write-pin）。
+ *
+ * 为什么还要 latest：CI 构建出的 `.node` 带 30 天有效期（`BUILD_TIMESTAMP`，由
+ * `getInitStatus()` 判定），拿过期包打出来的安装包起不来。所以发布时间到了就得换一份
+ * 新的：升级流程 = `--latest --verify` 验证新构建 → `--latest --write-pin` 写回锚点 →
+ * 提交锚文件。`--check` 会提醒锚点已经落后于上游，`--require-fresh` 则在 CI 上把过期
+ * 构建直接挡在打包之前。
  *
  * 用法：
- *   pnpm native:fetch                      # 本机平台 + 装扮资源（latest）
+ *   pnpm native:fetch                      # 本机平台 + 装扮资源（锚定的 tag）
  *   pnpm native:fetch --all                # 五个平台全量 + 装扮资源
  *   pnpm native:fetch --platform linux-arm64
+ *   pnpm native:fetch --latest             # 忽略锚点，取上游最新（试用新构建用）
  *   pnpm native:fetch --version nt-helper-20260916-86cb5a4
+ *   pnpm native:fetch --latest --write-pin # 把这次取到的 tag 写回锚文件（升级锚点）
  *   pnpm native:fetch --dress-only         # 只补装扮资源
  *   pnpm native:fetch --no-dress           # 只要 .node
  *   pnpm native:fetch --check              # 只比对，不改文件（缺失 / 落后 / 过期 → 退出码 1）
@@ -28,6 +37,7 @@
  * 环境变量：
  *   NT_HELPER_RELEASE_REPO      发布仓，默认 H3CoF6/nt_helper_release
  *   NT_HELPER_RELEASE_BASE_URL  下载前缀（镜像 / 代理），默认 GitHub Releases
+ *   NT_HELPER_VERSION           钉死 tag（等价于 --version；CI 里临时试构建用）
  */
 
 import { createHash } from 'node:crypto';
@@ -57,6 +67,17 @@ const DRESS_PARTS = ['bubble', 'widget', 'font'];
 const DRESS_DIR = join('resources', 'dress');
 /** 装了哪个 tag / 哪些文件，供 --check 比对；.gitignore 掉了。 */
 const MARKER = join('native', '.installed.json');
+/**
+ * **入库的版本锚**：这个仓库认哪一份 native 构建。
+ *
+ * 只有 `tag`（外加一份给人看的 `commit` / `note`）—— 校验靠那个 tag 的 `manifest.json`
+ * 里的 sha256，不在这里抄一份哈希（抄了就会和发布仓的实际内容打架）。
+ */
+const PIN = join('native', 'pinned.json');
+/** `.installed.json` / `pinned.json` 都缺 `note` 时的默认说明。 */
+const DEFAULT_PIN_NOTE =
+  'WeQ 的代码锚定在这份 native 构建上。升级：pnpm native:fetch --latest --verify → ' +
+  'pnpm native:fetch --latest --write-pin → 提交本文件。';
 
 /** nt_helper 的硬约束：.node 构建满 30 天即失效。 */
 const HARD_MAX_AGE_DAYS = 30;
@@ -95,7 +116,9 @@ const doVerify = has('--verify');
 const dressOnly = has('--dress-only');
 const withDress = !has('--no-dress');
 const requireFresh = has('--require-fresh');
-const version = opt('--version') ?? 'latest';
+const wantLatest = has('--latest');
+const writePin = has('--write-pin');
+const explicitVersion = opt('--version') ?? process.env.NT_HELPER_VERSION;
 const fromDirArg = opt('--from-dir');
 const fromDir = fromDirArg ? resolve(fromDirArg) : undefined;
 const root = opt('--root') ? resolve(opt('--root')) : repoRoot;
@@ -107,6 +130,24 @@ const baseUrl = (
 ).replace(/\/+$/, '');
 
 const hostTag = `${process.platform}-${process.arch}`;
+
+/**
+ * 读版本锚（`native/pinned.json`）。
+ *
+ * 缺文件 / 坏 JSON 都不致命：返回 `undefined`，调用方回落到 latest 并**大声提醒** ——
+ * 静默按 latest 走正是这个锚要解决的问题。
+ */
+async function readPin() {
+  const file = join(root, PIN);
+  if (!existsSync(file)) return undefined;
+  try {
+    const pin = JSON.parse(await readFile(file, 'utf8'));
+    return typeof pin?.tag === 'string' && pin.tag.length > 0 ? pin : undefined;
+  } catch (err) {
+    log(`⚠ 读不了版本锚 ${PIN}（${err instanceof Error ? err.message : err}），这次按 latest 走`);
+    return undefined;
+  }
+}
 
 /** 要装哪些平台：--all 全量；--platform 指定（逗号分隔）；否则宿主平台。 */
 function selectedPlatforms() {
@@ -165,24 +206,57 @@ async function download(url, dest) {
  *     dress:     { bubble: { asset, sha256, size }, widget: { … }, font: { … } },
  *   }
  */
-async function loadManifest() {
+async function loadManifest(version) {
   if (fromDir) {
     const file = join(fromDir, 'manifest.json');
     if (!existsSync(file)) throw new Error(`--from-dir 里没有 manifest.json：${file}`);
     return { manifest: JSON.parse(await readFile(file, 'utf8')), localDir: fromDir };
   }
-  const url =
-    version === 'latest'
-      ? `${baseUrl}/latest/download/manifest.json`
-      : `${baseUrl}/download/${encodeURIComponent(version)}/manifest.json`;
+  const url = manifestUrl(version);
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) {
     throw new Error(
       `拿不到 manifest（${res.status} ${res.statusText}）：${url}\n` +
-        '发布仓还没有产物？先去 nt_helper 跑一次 Rust-Release-Build 工作流。',
+        (version === 'latest'
+          ? '发布仓还没有产物？先去 nt_helper 跑一次 Rust-Release-Build 工作流。'
+          : `这个 tag 是${PIN} 里锚定的那个：发布仓里没有它？把锚点改成实际存在的 tag（或用 --latest）。`),
     );
   }
   return { manifest: await res.json(), localDir: undefined };
+}
+
+function manifestUrl(version) {
+  return version === 'latest'
+    ? `${baseUrl}/latest/download/manifest.json`
+    : `${baseUrl}/download/${encodeURIComponent(version)}/manifest.json`;
+}
+
+/** 上游 latest 的 tag；拿不到（离线 / 限流）就返回 `undefined`。 */
+async function fetchLatestTag() {
+  try {
+    const res = await fetch(manifestUrl('latest'), { redirect: 'follow' });
+    if (!res.ok) return undefined;
+    const manifest = await res.json();
+    return typeof manifest?.tag === 'string' ? manifest.tag : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 把当前取值写回版本锚（升级锚点用；`note` 原样保留）。 */
+async function writePinFile(manifest, previous) {
+  const dest = join(root, PIN);
+  const pin = {
+    tag: manifest.tag,
+    ...(manifest.commit ? { commit: manifest.commit } : {}),
+    pinnedAt: new Date().toISOString().slice(0, 10),
+    note:
+      typeof previous?.note === 'string' && previous.note.length > 0
+        ? previous.note
+        : DEFAULT_PIN_NOTE,
+  };
+  await writeFile(dest, `${JSON.stringify(pin, null, 2)}\n`);
+  log(`锚点已写入 ${PIN}：${pin.tag}`);
 }
 
 /** manifest → 本次要落盘的文件清单。 */
@@ -297,7 +371,7 @@ async function readMarker() {
 
 // ─────────────────────────── 校验 ───────────────────────────
 
-async function check(manifest) {
+async function check(manifest, pin) {
   const age = ageDays(manifest.builtAt);
   const ageText = Number.isNaN(age) ? '未知' : `${age.toFixed(1)} 天`;
   log(
@@ -311,6 +385,10 @@ async function check(manifest) {
   }
 
   const problems = [];
+  if (pin && pin.tag !== manifest.tag) {
+    problems.push(`版本锚 ${PIN} 锚定 ${pin.tag}，与本次比对的 ${manifest.tag} 不一致`);
+  }
+  if (!pin) problems.push(`缺版本锚 ${PIN}（跑一次 pnpm native:fetch --write-pin 生成）`);
   if (marker.tag !== manifest.tag) problems.push(`落后：本地 ${marker.tag}，远端 ${manifest.tag}`);
   const hostAddon = PLATFORMS[hostTag] ? join(PLATFORMS[hostTag].dir, 'nt_helper.node') : undefined;
   if (hostAddon && !(marker.files ?? []).some((entry) => entry.path === hostAddon)) {
@@ -332,6 +410,13 @@ async function check(manifest) {
     log(`本地：${marker.tag} ✔ 一致（${marker.files?.length ?? 0} 个文件）`);
     if (age > WARN_AGE_DAYS) {
       log(`提醒：这份构建还有约 ${(HARD_MAX_AGE_DAYS - age).toFixed(1)} 天到期，建议重新 fetch`);
+    }
+    const latestTag = await fetchLatestTag();
+    if (latestTag && latestTag !== manifest.tag) {
+      log(
+        `提醒：上游有更新的构建 ${latestTag}（本地锚定 ${manifest.tag}）。` +
+          '试用：pnpm native:fetch --latest --verify；确认无误后 pnpm native:fetch --latest --write-pin 并提交锚文件。',
+      );
     }
     return 0;
   }
@@ -379,7 +464,18 @@ async function main() {
     throw new Error('没有任何要装的目标（--dress-only 不能和 --no-dress 一起用）');
   }
 
-  const { manifest, localDir } = await loadManifest();
+  if (explicitVersion && wantLatest) {
+    throw new Error('--version 与 --latest 不能一起用：指定了 tag 就已经不是"取最新"的意思了');
+  }
+
+  const pin = await readPin();
+  const version = explicitVersion ?? (wantLatest ? 'latest' : (pin?.tag ?? 'latest'));
+  if (explicitVersion) log(`版本：${version}（--version / NT_HELPER_VERSION 指定）`);
+  else if (wantLatest) log(`版本：latest（--latest，忽略 ${PIN}）`);
+  else if (pin) log(`版本：${version}（锚定于 ${PIN}）`);
+  else log(`⚠ 没有 ${PIN}，这次按 latest 取；建议锚一份，避免代码与 native 悄悄漂开`);
+
+  const { manifest, localDir } = await loadManifest(version);
   if (!manifest?.tag) throw new Error('manifest 里没有 tag 字段，发布仓格式不对？');
 
   const age = ageDays(manifest.builtAt);
@@ -390,12 +486,13 @@ async function main() {
     );
   }
 
-  if (checkOnly) return check(manifest);
+  if (checkOnly) return check(manifest, pin);
 
   const files = planFiles(manifest, platforms);
   log(`来源：${localDir ?? `${releaseRepo}@${manifest.tag}`}`);
   log(`写入：${root}`);
   await install(manifest, files, localDir);
+  if (writePin && !dryRun) await writePinFile(manifest, pin);
 
   if (!dryRun && (Number.isNaN(age) || age > WARN_AGE_DAYS)) {
     log(

@@ -14,7 +14,16 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { C2cMsg, GroupMsg, C2cPartition, AppendMsgFields, C2cMsgDb, SeqWindow } from '@weq/db';
+import type {
+  C2cMsg,
+  GroupMsg,
+  C2cPartition,
+  AppendMsgFields,
+  C2cMsgDb,
+  SeqWindow,
+  SalvageStreamOptions,
+  SalvageBindingOptions,
+} from '@weq/db';
 import {
   ProtoMsg,
   decodeElement,
@@ -119,6 +128,19 @@ export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
   deletedKind?: DeletedKind;
   recall?: RecallInfo;
 }
+/**
+ * 导出链路的损坏宽容授权（账号级设置，**默认不配置 = 严格**）。
+ *
+ * 只有导出会用它：分页读真的报出损坏、且级别 ≥ 2 时，才从当前游标切到容错续读
+ * （见 `export/message_source`）。聊天页、搜索等其它读取入口不受它影响。
+ */
+export interface MsgSalvageSource {
+  /** 实时读取的宽容授权（含级别、账本与逐条落盘回调）。 */
+  binding: SalvageBindingOptions;
+  /** 每块键跨度；省略则用 native 默认值。 */
+  chunk?: number;
+}
+
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
   elements: RenderElement[];
   deletedKind?: DeletedKind;
@@ -133,11 +155,17 @@ export class MsgService {
    * `antiRecall` is the per-account {@link AntiRecallService}; when present, each
    * fetched page is tagged with `recall` for messages the trigger recorded in
    * `weq_recall_log`. Omit it for contexts with no anti-recall (export pipeline).
+   *
+   * `salvage` 是账号级的损坏宽容授权（可选）。它挂在消息服务上，而不是让每个导出
+   * 入口各传一个参数：导出有 6 种格式、4 类会话、好几层中间模块（媒体扫描 / 昵称解析），
+   * 把同一个授权对象穿过每一层只会让签名越来越长，且每新增一个格式都得记得传一次。
+   * 语义仍然是"不配置就没有"—— 不传时导出与以前逐字节相同。
    */
   constructor(
     private readonly session: AccountSession,
     private readonly deleted?: DeletedMsgStore,
     private readonly antiRecall?: AntiRecallService,
+    readonly salvage?: MsgSalvageSource,
   ) {}
 
   /**
@@ -689,6 +717,82 @@ export class MsgService {
       limit,
     );
     return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
+  }
+
+  // ---- 损坏宽容续读（导出专用） ----------------------------------------------
+  //
+  // 这四个方法与上面的分页方法一一对应，差别只有一个：**页内坏了不整体失败**。
+  // 它们沿键轴分块扫描，块内先换访问路径、再二分，真的读不出来就跳过并交由账本/
+  // 报告汇报。代价是会丢数据，所以只在用户授权级别 ≥ 2 时才允许调用（native 侧再
+  // 兜一道），且调用方应该是"严格读已经失败之后接着往下读"的那条路径。
+
+  /**
+   * 群消息的容错续读（seq 升序）。渲染口径与 {@link getGroupAfter} 完全一致
+   * （同样做 reply 富化与已删除/撤回标记），否则"续读出来的消息"会与"严格读出来的
+   * 消息"长得不一样，导出的文件里一眼就能看出分界线。
+   */
+  async *streamSalvageGroupAfter(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<RenderGroupMsg[]> {
+    // 召回映射取一次就够：续读可能跨很多窗口，不该每个窗口重查一遍。
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    for await (const batch of this.session.groupMsgs.streamSalvageAfter(
+      targetGroupCode,
+      afterSeq,
+      opts,
+    )) {
+      await this.enrichReplyMedia(batch, 'group');
+      yield batch.map((m) => this.renderGroupWithState(m, recallMap));
+    }
+  }
+
+  /** 群消息里**无 seq** 的迁移导入块的容错续读（rowid 升序）。 */
+  async *streamSalvageGroupSeqlessAfterRowId(
+    targetGroupCode: string,
+    afterRowId: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<Array<RenderGroupMsg & { rowId: bigint }>> {
+    for await (const batch of this.session.groupMsgs.streamSalvageSeqlessAfterRowId(
+      targetGroupCode,
+      afterRowId,
+      opts,
+    )) {
+      yield batch.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
+    }
+  }
+
+  /** 私聊消息的容错续读（seq 升序）；渲染口径与 {@link getC2cAfter} 一致。 */
+  async *streamSalvageC2cAfter(
+    targetUid: string,
+    afterSeq: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<RenderC2cMsg[]> {
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    for await (const batch of this.c2cDbFor(targetUid).streamSalvageAfter(
+      this.c2cPartition(targetUid),
+      afterSeq,
+      opts,
+    )) {
+      await this.enrichReplyMedia(batch, 'c2c');
+      yield batch.map((m) => this.renderC2cWithState(m, recallMap));
+    }
+  }
+
+  /** 私聊消息里**无 seq** 的迁移导入块的容错续读（rowid 升序）。 */
+  async *streamSalvageC2cSeqlessAfterRowId(
+    targetUid: string,
+    afterRowId: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<Array<RenderC2cMsg & { rowId: bigint }>> {
+    for await (const batch of this.c2cDbFor(targetUid).streamSalvageSeqlessAfterRowId(
+      this.c2cPartition(targetUid),
+      afterRowId,
+      opts,
+    )) {
+      yield batch.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
+    }
   }
 
   // ---- count ---------------------------------------------------------------

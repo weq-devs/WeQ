@@ -4,7 +4,7 @@
 
 | 路径 | 是否入库 | 从哪来 | 怎么更新 |
 | --- | --- | --- | --- |
-| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `H3CoF6/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`H3CoF6/nt_helper_release`](https://github.com/H3CoF6/nt_helper_release) | `pnpm native:fetch`（dev）/ release 流水线打包前自动取 |
+| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `H3CoF6/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`H3CoF6/nt_helper_release`](https://github.com/H3CoF6/nt_helper_release) | `pnpm native:fetch`（取 `pinned.json` 锚定的 tag；dev）/ release 流水线打包前自动取 |
 | `<platform>/<arch>/ninebird/*` | 入库 | 同一个私仓的 NineBird 构建，手工同步 | 手工换成新构建再提交 |
 
 ## 布局约定（加载器与 nt_helper 内部都按这个找文件）
@@ -25,6 +25,14 @@ native/<platform>/<arch>/           platform ∈ {win32, linux, darwin}
 `.node`**。跨版本混用 → 装扮离线查询直接返回 `null`（退化到在线协议兜底，离线环境就没了）。
 所以 `pnpm native:fetch` 永远从同一个 release tag 里成对取 `.node` 和 `.dat`，
 `native/.installed.json` 记着当前装的是哪一份，`pnpm native:check` 用来比对。
+
+## 版本锚（`native/pinned.json`）
+
+`pnpm native:fetch` 默认取的是 `native/pinned.json` 里锚定的 tag，不是 latest —— WeQ 的代码
+是照着某一份 native 构建写的，一直跟 latest 漂会在"代码已经用到新字段、而本地那份还是旧
+的"时候静默降级。升级锚点：`pnpm native:fetch --latest --verify` 先验证，再
+`pnpm native:fetch --latest --write-pin` 写回并提交。细节见
+[`docs/develop/native-artifacts.md`](../docs/develop/native-artifacts.md)。
 
 ## 有效期
 

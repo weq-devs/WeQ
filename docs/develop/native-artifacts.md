@@ -28,16 +28,43 @@
    `queryDressResourceUrl()` 永远返回 `null` —— 装扮离线查询静默退化成联网协议。
    所以 `pnpm native:fetch` 永远从**同一个 release tag** 成对取。
 2. **`.node` 满 30 天失效。** CI 构建带 `BUILD_TIMESTAMP`，`getInitStatus()` 返回 `-1`；
-   本地 `cargo` / `napi` 自编的不带时间戳，不受此限。因此 release 流水线每次都取最新那份，
-   并用 `--require-fresh`（默认 25 天）把过期构建挡在打包之前。
+   本地 `cargo` / `napi` 自编的不带时间戳，不受此限。所以发布时间到了就得换一份新的，
+   而 `--require-fresh`（默认 25 天）会把过期构建挡在打包之前。
+
+## 版本锚：`native/pinned.json`
+
+`pnpm native:fetch` **默认取的是 `native/pinned.json` 里锚定的那个 tag**，不是 latest。
+
+为什么：WeQ 的代码是照着某一份 native 构建写的（类型、能力、甚至装扮资源的 AES 密钥都由
+它决定）。一直跟着 latest 漂，会在"WeQ 已经用到新字段、而本地那份还是旧的"这类情况下
+静默降级 —— 比如 native 新增了分块扫描的键探针，旧构建不认识它，只会退化成慢路径。
+锚文件是这个仓库里**唯一**一处"我们认哪一份 native"的记录，改动它是一次显式提交。
+
+```json
+{ "tag": "nt-helper-20260918-5c4d8b2", "commit": "5c4d8b2…", "pinnedAt": "2026-09-19", "note": "…" }
+```
+
+只有 `tag` 有校验意义（校验靠那个 tag 的 `manifest.json` 里的 sha256）；`commit` / `note`
+是给人看的。升级锚点的完整流程：
+
+```bash
+node scripts/fetch-native.mjs --latest --verify    # 1. 试用新构建：装完当场 require + getInitStatus()
+#   （跑测试确认没问题）
+node scripts/fetch-native.mjs --latest --write-pin # 2. 把这次取到的 tag 写回 pinned.json
+#   3. 提交 pinned.json（外加 dist 里需要跟着走的 native/** 产物）
+```
+
+`pnpm native:check` 发现本地与锚点不一致（缺失 / 落后 / 内容被换过 / 已过期）就退出码 1，
+并会提醒上游有没有更新的构建。手动丢一份自编 `.node` 进去也躲不过：sha256 对不上。
 
 ## dev 用法
 
 ```bash
-pnpm native:fetch                 # 本机平台 + 装扮资源（latest）
+pnpm native:fetch                 # 本机平台 + 装扮资源（锚定的 tag）
 pnpm native:check                 # 只比对：缺失 / 落后 / 被改 / 已过期 → 退出码 1
 pnpm native:fetch --all           # 五个平台全量（全平台测试、做镜像时用）
 pnpm native:fetch --platform linux-arm64
+pnpm native:fetch --latest        # 忽略锚点，取上游最新（试用新构建用）
 pnpm native:fetch --dress-only    # 只补装扮资源
 pnpm native:fetch --verify        # 装完 require 一次并跑 getInitStatus()
 pnpm native:fetch --version nt-helper-20260916-86cb5a4
@@ -48,9 +75,10 @@ pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；�
 | --- | --- |
 | `NT_HELPER_RELEASE_REPO` | 覆盖发布仓，默认 `H3CoF6/nt_helper_release` |
 | `NT_HELPER_RELEASE_BASE_URL` | 覆盖下载前缀（镜像 / 代理），默认 GitHub Releases |
+| `NT_HELPER_VERSION` | 钉死 tag，等价于 `--version`（CI 里临时试构建用） |
 
 拉完之后 `native/.installed.json` 记着当前装的是哪个 tag、哪些文件、各自 sha256；
-它是机器相关状态，已被 gitignore。
+它是机器相关状态，已被 gitignore（**入库的那个是 `native/pinned.json`**，见上一节）。
 
 装扮资源缺失不会让程序崩：`queryDressResourceUrl()` 返回 `null`，调用方退化成在线协议。
 纯前端 / 服务端开发不跑 `native:fetch` 也能干活，只是拿不到装扮离线数据。
@@ -111,9 +139,12 @@ macos-x64 / macos-arm64 / web）在 `pnpm install` 之后各插了一步：
   run: node scripts/fetch-native.mjs --require-fresh --verify
 ```
 
-每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`。`--require-fresh` 挡住超过 25 天的
-构建；`--verify` 在 runner 上真的 `require()` 一次并跑 `getInitStatus()`，
-二进制有问题当场失败，而不是等用户装上才发现。
+每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
+不是 latest）。`--require-fresh` 挡住超过 25 天的构建 —— 也就是说锚点太旧时，发布会在打包
+之前就失败，而不是发出一个起不来的安装包；`--verify` 在 runner 上真的 `require()` 一次
+并跑 `getInitStatus()`，二进制有问题当场失败，而不是等用户装上才发现。
+
+需要跑最新的 native 构建前，先把锚点升级（见上一节），否则 CI 打出来的仍是旧的那份。
 
 ## 历史清洗记录（2026-09-16，一次性，已完成）
 

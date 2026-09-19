@@ -23,11 +23,97 @@
  * has no imported rows the seq-less stream is empty (one cheap query), and when
  * every row is seq-less the seq stream is empty — both degenerate cases fall out
  * of the same merge with no special-casing.
+ *
+ * ── 损坏宽容（可选，`opts.salvage`）────────────────────────────────────────
+ *
+ * 导出一场会话要读几万行，而数据库可能只在其中几页上坏掉。严格读的代价是
+ * "坏一页 = 整场会话后面的消息全部导不出来"。所以当：
+ *
+ *   1. 某次分页**真的报出错**（`isLikelyCorruptionError`），且
+ *   2. 该账号已被用户授权宽容级别 ≥ 2（记住账号的 `dbTolerance` 设置）
+ *
+ * 时，本次分页会从**当前游标**切到容错续读（沿 seq/rowid 轴分块扫描），把能读出来的
+ * 消息接着导完，读不出来的区间如实汇报给 `onSkipped`（进导出报告与降级账本）。
+ * 健康库上这条路径一次都不会用到：没有报错就没有切换，导出的速度与顺序与以前完全
+ * 一样。回退只属于 group / c2c 两个最主要的会话类型（官方号 / 服务号的容错读取尚未
+ * 接入，它们仍然严格失败）。
+ *
+ * 授权默认从 `msgs.salvage`（账号级设置）取，所以导出入口**不需要**多传一个参数；
+ * 调用方仍可用 `opts.salvage` 覆盖它（例如只想对某一次导出开宽容）。两者都没给时，
+ * 这里退化成原来的严格分页。
  */
 
-import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
+import { type SalvageBindingOptions, isLikelyCorruptionError } from '@weq/db';
+import type { SalvageSkippedRange } from '@weq/native';
+import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
 import type { ExportedMessage, ExportTimeRange } from './types';
+
+/** 允许分块容错续读的最低宽容级别（跳过数据必须由用户授权）。 */
+const SALVAGE_MIN_LEVEL = 2;
+
+/**
+ * 导出过程中被**跳过**的一段数据。
+ *
+ * 刻意只有区间与邻居 key，没有"丢了几行"：那些行本来就读不出来，精确值无法得知；
+ * 而 `span` 只是这些区间的**键跨度合计**，并不是行数上界 —— 同一个 key 可能对应多行
+ * （共享 `seq` 的灰条、贴表情），实测就有"丢 21 行而跨度只有 18"。报告里必须照这个
+ * 口径写：只说"这一段读不出来"，不要伪造行数。
+ */
+export interface ExportSkippedRanges {
+  /** 会话标识（群号 / 好友 uid）。 */
+  conv: string;
+  /** 会话类型。 */
+  kind: 'group' | 'c2c';
+  /** 跳过区间（每条带自己的 `prevKey` / `nextKey` 邻居）。 */
+  ranges: SalvageSkippedRange[];
+  /** 这些区间的键跨度合计（**不是**丢失行数的上界，见上）。 */
+  span: number;
+}
+
+/** 导出侧的宽容选项：级别、账本与 "少了什么" 的回调。 */
+export interface SalvageSourceOptions {
+  /**
+   * 宽容授权 —— 与 `wrapBindingForSalvage` 用的是同一个对象（含实时级别读取、
+   * 账本与逐条落盘回调）。级别由账号级设置决定，这里不猜。
+   */
+  binding: SalvageBindingOptions;
+  /** 每次有区间被跳过就回调一批（导出报告 / 进度提示用）。 */
+  onSkipped?: (info: ExportSkippedRanges) => void;
+  /** 每块键跨度；省略则用 native 默认值。 */
+  chunk?: number;
+}
+
+/** 当前是否允许把一次失败的分页换成容错续读。 */
+function canSalvage(
+  salvage: SalvageSourceOptions | MsgSalvageSource | undefined,
+  error: unknown,
+): boolean {
+  if (!salvage) return false;
+  if ((salvage.binding.level() ?? 0) < SALVAGE_MIN_LEVEL) return false;
+  // 只有"看起来真的是损坏"才换路径：BUSY / 权限 / 语法错照旧抛出去，
+  // 否则会把一个可重试的失败变成一个永不重试的降级。
+  return isLikelyCorruptionError(error);
+}
+
+/** 把导出侧的选项折成 `streamSalvage*` 要的形状（含跳过回调的会话标注）。 */
+function salvageStreamOptions(
+  salvage: SalvageSourceOptions | MsgSalvageSource,
+  conv: string,
+  kind: 'group' | 'c2c',
+): Parameters<MsgService['streamSalvageGroupAfter']>[2] {
+  const report = 'onSkipped' in salvage ? salvage.onSkipped : undefined;
+  return {
+    salvage: salvage.binding,
+    ...(salvage.chunk !== undefined ? { chunk: salvage.chunk } : {}),
+    ...(report
+      ? {
+          onSkipped: (ranges: SalvageSkippedRange[], span: number) =>
+            report({ conv, kind, ranges, span }),
+        }
+      : {}),
+  };
+}
 
 /** 漫游补全消息的惰性来源（导出阶段只读一次缓存；无补全时省略）。 */
 export type RoamMessageSource = () => Promise<GapFetchedMessage[]> | GapFetchedMessage[];
@@ -42,6 +128,11 @@ export interface IterateOptions {
    * 本地消息合并、按 msgId 去重（同一消息本地已存在时以本地为准）。
    */
   roam?: RoamMessageSource;
+  /**
+   * 损坏宽容（可选）：页读失败且账号已授权级别 ≥ 2 时，从当前游标切到容错续读。
+   * 不传则整条链路与以前完全一样（也不会去读任何宽容设置）。
+   */
+  salvage?: SalvageSourceOptions;
 }
 
 const DEFAULT_PAGE_SIZE = 2000;
@@ -138,9 +229,10 @@ export async function* iterateGroupMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderGroupMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const salvage = opts.salvage ?? msgs.salvage;
   let merged: AsyncGenerator<RenderGroupMsg> = mergeBySendTime(
-    pageGroupBySeq(msgs, groupCode, pageSize),
-    pageGroupBySeqlessRowId(msgs, groupCode, pageSize),
+    pageGroupBySeq(msgs, groupCode, pageSize, salvage),
+    pageGroupBySeqlessRowId(msgs, groupCode, pageSize, salvage),
   );
   if (opts.roam) {
     merged = mergeBySendTime(merged, roamMessageStream<RenderGroupMsg>(groupCode, opts.roam));
@@ -156,10 +248,26 @@ async function* pageGroupBySeq(
   msgs: MsgService,
   groupCode: string,
   pageSize: number,
+  salvage?: SalvageSourceOptions,
 ): AsyncGenerator<RenderGroupMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
+    let page: RenderGroupMsg[];
+    try {
+      page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
+    } catch (error) {
+      if (!canSalvage(salvage, error)) throw error;
+      // 严格读坏了：从**当前游标**接着读（不是从头重来 —— 已经 yield 出去的那部分
+      // 不该重复写进文件）。续读是分批交出来的，所以这里再拆一层，保住"逐条产出"的契约。
+      for await (const batch of msgs.streamSalvageGroupAfter(
+        groupCode,
+        cursor,
+        salvageStreamOptions(salvage!, groupCode, 'group'),
+      )) {
+        yield* batch;
+      }
+      return;
+    }
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.msgSeq;
@@ -173,10 +281,24 @@ async function* pageGroupBySeqlessRowId(
   msgs: MsgService,
   groupCode: string,
   pageSize: number,
+  salvage?: SalvageSourceOptions,
 ): AsyncGenerator<RenderGroupMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getGroupSeqlessAfterRowId(groupCode, cursor, pageSize);
+    let page: Array<RenderGroupMsg & { rowId: bigint }>;
+    try {
+      page = await msgs.getGroupSeqlessAfterRowId(groupCode, cursor, pageSize);
+    } catch (error) {
+      if (!canSalvage(salvage, error)) throw error;
+      for await (const batch of msgs.streamSalvageGroupSeqlessAfterRowId(
+        groupCode,
+        cursor,
+        salvageStreamOptions(salvage!, groupCode, 'group'),
+      )) {
+        yield* batch;
+      }
+      return;
+    }
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.rowId;
@@ -193,9 +315,10 @@ export async function* iterateC2cMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const salvage = opts.salvage ?? msgs.salvage;
   let merged: AsyncGenerator<RenderC2cMsg> = mergeBySendTime(
-    pageC2cBySeq(msgs, peerUid, pageSize),
-    pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
+    pageC2cBySeq(msgs, peerUid, pageSize, salvage),
+    pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
   );
   if (opts.roam) {
     merged = mergeBySendTime(merged, roamMessageStream<RenderC2cMsg>(peerUid, opts.roam));
@@ -211,10 +334,24 @@ async function* pageC2cBySeq(
   msgs: MsgService,
   peerUid: string,
   pageSize: number,
+  salvage?: SalvageSourceOptions,
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
+    let page: RenderC2cMsg[];
+    try {
+      page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
+    } catch (error) {
+      if (!canSalvage(salvage, error)) throw error;
+      for await (const batch of msgs.streamSalvageC2cAfter(
+        peerUid,
+        cursor,
+        salvageStreamOptions(salvage!, peerUid, 'c2c'),
+      )) {
+        yield* batch;
+      }
+      return;
+    }
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.msgSeq;
@@ -227,10 +364,24 @@ async function* pageC2cBySeqlessRowId(
   msgs: MsgService,
   peerUid: string,
   pageSize: number,
+  salvage?: SalvageSourceOptions,
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getC2cSeqlessAfterRowId(peerUid, cursor, pageSize);
+    let page: Array<RenderC2cMsg & { rowId: bigint }>;
+    try {
+      page = await msgs.getC2cSeqlessAfterRowId(peerUid, cursor, pageSize);
+    } catch (error) {
+      if (!canSalvage(salvage, error)) throw error;
+      for await (const batch of msgs.streamSalvageC2cSeqlessAfterRowId(
+        peerUid,
+        cursor,
+        salvageStreamOptions(salvage!, peerUid, 'c2c'),
+      )) {
+        yield* batch;
+      }
+      return;
+    }
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.rowId;

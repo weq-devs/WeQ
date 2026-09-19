@@ -221,7 +221,6 @@ export function GroupJoinBatches({ report }: { report: JoinBatchReport }) {
 
   return (
     <div className="gc-root">
-      
       {report.datedMemberCount > 0 ? <BatchTimeline report={report} /> : null}
 
       {report.batches.length === 0 ? (

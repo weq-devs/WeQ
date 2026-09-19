@@ -56,11 +56,34 @@ function extractMessage(err: unknown): string {
 }
 
 /**
+ * SQLite 主错误码里能**确定**是损坏的两个：
+ *   11 = SQLITE_CORRUPT（页结构 / b-tree 读坏了）
+ *   26 = SQLITE_NOTADB（页 HMAC 校验失败，SQLCipher 报的也是它）
+ *
+ * 用错误码而不是文案，是因为宽容模式会对同一处损坏**改写错误文案**
+ * （例如"损坏超出宽容预算…"），但码不会变：能按码认得出来，就不必把原始文案
+ * 硬拼进新句子里。
+ */
+const CORRUPTION_CODES = [11, 26] as const;
+
+/** 结构化字段里的损坏信号（native 侧写进去的错误码）。 */
+function hasCorruptionCode(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false;
+  const code = (err as { errorCode?: unknown }).errorCode;
+  return typeof code === 'number' && (CORRUPTION_CODES as readonly number[]).includes(code);
+}
+
+/**
  * True when `err` looks like it was caused by on-disk database corruption
  * (high-probability signal, not a guarantee). Callers should follow up with a
  * real integrity check before acting.
+ *
+ * 先看结构化错误码，再看文案：宽容模式（salvage）抛出的错误带着 native 写的
+ * `errorCode`，即使文案被改写成"超预算"之类，也仍然是**已确认的损坏**产生的，
+ * 必须照旧触发"疑似损坏"这一条既有链路（健康检查 + 弹窗）。
  */
 export function isLikelyCorruptionError(err: unknown): boolean {
+  if (hasCorruptionCode(err)) return true;
   const msg = extractMessage(err).toLowerCase();
   if (!msg) return false;
   // 消息统一转小写，签名也要小写比较，避免大小写不一致导致漏判。

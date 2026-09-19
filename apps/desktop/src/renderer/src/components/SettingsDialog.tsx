@@ -18,6 +18,7 @@ import {
   Bot,
   Check,
   CloudDownload,
+  DatabaseZap,
   Lock,
   LockKeyhole,
   Monitor,
@@ -41,6 +42,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
+import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import {
@@ -56,6 +58,7 @@ type SectionId =
   | 'applock'
   | 'account'
   | 'antirecall'
+  | 'database'
   | 'voice'
   | 'agentlab'
   | 'mcp'
@@ -100,6 +103,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '防撤回',
     icon: <ShieldCheck size={16} strokeWidth={1.8} />,
     render: () => <AntiRecallSection />,
+  },
+  {
+    id: 'database',
+    label: '数据库宽容',
+    icon: <DatabaseZap size={16} strokeWidth={1.8} />,
+    render: () => <DatabaseToleranceSection />,
   },
   {
     id: 'voice',

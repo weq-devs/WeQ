@@ -44,8 +44,24 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
+import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801"`;
+
+/**
+ * rowid 键的**跨窗口跳空探针**（契约见 `SalvageWindowPlan.seekSql`）：给下一条真的存在
+ * 的 rowid（`> 当前键` 的最小值，没有就返回空/NULL）。
+ *
+ * 为什么必需：QQ 的 `rowid` 实测在 `7.6e18` 量级，一个 `4096` 宽的窗口里往往一个键都
+ * 没有，而 seq-less 迁移块的上界只能用全表 `MAX(rowid)` —— 没有探针就变成
+ * `3.4e13` 个空窗口（实测 15 秒仍未结束）。
+ *
+ * 过滤条件必须与扫描语句**一字不差**：探针给出的键要能被扫描语句看见，否则
+ * native 会按契约违规报错（键不前进时它宁可报错，也不默默少读一截）。
+ */
+const GROUP_ROWID_SEEK_SQL = `SELECT MIN(rowid) FROM group_msg_table
+    WHERE "40027" = ? AND rowid > ?
+      AND ("40003" = 0 OR "40003" IS NULL)`;
 
 /**
  * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
@@ -241,6 +257,82 @@ export class GroupMsgDb {
       seqs.push(seq);
     }
     return { seqs, below, above };
+  }
+
+  /**
+   * 该会话的最大 seq（没有带 seq 的消息时为 0）。
+   *
+   * 分块容错续读用它当扫描上界 —— `MAX("40003")` 走 `(40027,40003)` 索引的最右一条，
+   * 是便宜的；但它同样是**读数据库**，所以不能拿一个巨大的常数去兜底（那会让扫描器
+   * 在空区间上白跑几十亿次）。
+   */
+  async maxSeq(targetGroupCode: string): Promise<bigint> {
+    const rows = await this.qq.query(`SELECT MAX("40003") FROM group_msg_table WHERE "40027" = ?`, [
+      targetGroupCode,
+    ]);
+    return toBigint(rows[0]?.[0]);
+  }
+
+  /**
+   * 损坏时的容错续读（导出用）：从 `afterSeq` 起按 seq 窗口把消息**流式**读完。
+   *
+   * 与 {@link listAfter} 的差别：后者是一条语句读一页，页内碰到损坏就整页失败；本方法
+   * 沿 seq 轴逐块推进，块内坏了先换访问路径（L1），再二分到最小区间（L2）—— 真的读不出来
+   * 就**跳过并如实汇报**。代价是会丢数据，所以有两道闸门：只在用户授权级别 ≥ 2 时可用，
+   * 且跨窗口的降级预算用尽就按严格语义报错（绝不"越救越多"）。
+   *
+   * 它是为"严格读已经失败之后接着往下读"设计的：`afterSeq` 传当前游标，结果按 seq 升序，
+   * 因此不会与已经导出的那部分重叠。
+   */
+  async *streamSalvageAfter(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<GroupMsg[]> {
+    const hi = opts.hi ?? (await this.maxSeq(targetGroupCode));
+    if (hi <= afterSeq) return;
+    const sql = `SELECT "40003", ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > ? AND "40003" <= ?
+        ORDER BY "40003" ASC`;
+    for await (const rows of this.qq.scanWindows(
+      sql,
+      [targetGroupCode],
+      windowPlanFrom(afterSeq, hi, opts),
+      opts.salvage,
+      opts,
+    )) {
+      // 第一列是扫描用的键（seq），消息本体复用同一套列映射（与 `SELECT_COLUMNS` 对齐）。
+      yield rows.map((row) => rowToGroupMsg(row.slice(1)));
+    }
+  }
+
+  /**
+   * 同 {@link streamSalvageAfter}，但针对**无 seq** 的迁移导入块（rowid 当键）。
+   *
+   * 上界用全表 `MAX(rowid)`：会话内的 seq-less 行没有可用的索引上界。而 rowid 空间
+   * 极其稀疏（`7.6e18` 量级），所以**必须配 {@link GROUP_ROWID_SEEK_SQL} 探针**：
+   * 空窗口一次探针就跳到下一个真的存在的 rowid，否则窗口循环等于永远跑不完。
+   */
+  async *streamSalvageSeqlessAfterRowId(
+    targetGroupCode: string,
+    afterRowId: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<Array<GroupMsg & { rowId: bigint }>> {
+    const hi = opts.hi ?? (await this.latestRowId());
+    if (hi <= afterRowId) return;
+    const sql = `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND rowid > ? AND rowid <= ?
+          AND ("40003" = 0 OR "40003" IS NULL)
+        ORDER BY rowid ASC`;
+    for await (const rows of this.qq.scanWindows(
+      sql,
+      [targetGroupCode],
+      windowPlanFrom(afterRowId, hi, { ...opts, seekSql: opts.seekSql ?? GROUP_ROWID_SEEK_SQL }),
+      opts.salvage,
+      opts,
+    )) {
+      yield rows.map(rowToGroupMsgWithRowId);
+    }
   }
 
   /** Largest SQLite rowid currently in the table, or 0n if empty. */

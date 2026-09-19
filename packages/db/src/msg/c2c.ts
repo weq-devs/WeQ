@@ -43,6 +43,7 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
+import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
 
@@ -243,6 +244,78 @@ export class C2cMsgDb {
       seqs.push(seq);
     }
     return { seqs, below, above };
+  }
+
+  /**
+   * 该会话的最大 seq（没有带 seq 的消息时为 0）。分块容错续读用它当扫描上界；
+   * `MAX("40003")` 走分区索引的最右一条，是便宜的，但**不能**用巨大常数兜底
+   * （那会让扫描器在空区间上白跑）。详见 `GroupMsgDb.maxSeq`。
+   */
+  async maxSeq(part: C2cPartition): Promise<bigint> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(`SELECT MAX("40003") FROM ${this.table} WHERE ${clause}`, [
+      value,
+    ]);
+    return toBigint(rows[0]?.[0]);
+  }
+
+  /**
+   * 损坏时的容错续读（导出用）：从 `afterSeq` 起按 seq 窗口把消息**流式**读完。
+   * 语义、闸门与上界规则与 `GroupMsgDb.streamSalvageAfter` 完全一致。
+   */
+  async *streamSalvageAfter(
+    part: C2cPartition,
+    afterSeq: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const hi = opts.hi ?? (await this.maxSeq(part));
+    if (hi <= afterSeq) return;
+    const sql = `SELECT "40003", ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE ${clause} AND "40003" > ? AND "40003" <= ?
+        ORDER BY "40003" ASC`;
+    for await (const rows of this.qq.scanWindows(
+      sql,
+      [value],
+      windowPlanFrom(afterSeq, hi, opts),
+      opts.salvage,
+      opts,
+    )) {
+      yield rows.map((row) => rowToC2cMsg(row.slice(1)));
+    }
+  }
+
+  /**
+   * 同 {@link streamSalvageAfter}，但针对**无 seq** 的迁移导入块（rowid 当键）。
+   * 上界用全表 `MAX(rowid)`，探针、理由同 `GroupMsgDb.streamSalvageSeqlessAfterRowId`。
+   */
+  async *streamSalvageSeqlessAfterRowId(
+    part: C2cPartition,
+    afterRowId: bigint,
+    opts: SalvageStreamOptions,
+  ): AsyncGenerator<Array<C2cMsg & { rowId: bigint }>> {
+    const { clause, value } = partitionWhere(part);
+    const hi = opts.hi ?? (await this.latestRowId());
+    if (hi <= afterRowId) return;
+    const sql = `SELECT rowid, ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE ${clause} AND rowid > ? AND rowid <= ?
+          AND ("40003" = 0 OR "40003" IS NULL)
+        ORDER BY rowid ASC`;
+    // 跨窗口跳空探针：过滤条件与上面的扫描语句一字不差（探针给出的键必须能被它看见）。
+    const seekSql =
+      opts.seekSql ??
+      `SELECT MIN(rowid) FROM ${this.table}
+          WHERE ${clause} AND rowid > ?
+            AND ("40003" = 0 OR "40003" IS NULL)`;
+    for await (const rows of this.qq.scanWindows(
+      sql,
+      [value],
+      windowPlanFrom(afterRowId, hi, { ...opts, seekSql }),
+      opts.salvage,
+      opts,
+    )) {
+      yield rows.map(rowToC2cMsgWithRowId);
+    }
   }
 
   /** Largest SQLite rowid currently in the table, or 0n if empty. */

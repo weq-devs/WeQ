@@ -1,0 +1,6 @@
+{
+  "tag": "nt-helper-20260918-5c4d8b2",
+  "commit": "5c4d8b2b20789251322f5533bb116a85d6504884",
+  "pinnedAt": "2026-09-19",
+  "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级：pnpm native:fetch --latest --verify 先验证新构建，再 pnpm native:fetch --latest --write-pin 写回这里并提交。"
+}

@@ -11,10 +11,19 @@
  */
 
 import { useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { BellOff, ChevronDown, ChevronRight, MessageCircle, ShieldAlert, X } from 'lucide-react';
+import {
+  BellOff,
+  ChevronDown,
+  ChevronRight,
+  MessageCircle,
+  ShieldAlert,
+  TriangleAlert,
+  Waypoints,
+  X,
+} from 'lucide-react';
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
-import { client } from '../trpc/client';
+import { client, trpc } from '../trpc/client';
 
 /** 与主进程 `AccountForcedClosedEvent` 对齐的渲染层视图。 */
 export interface DatabaseDamagedEvent {
@@ -67,13 +76,56 @@ export function DatabaseDamagedDialog({
   onClose: () => void;
 }): ReactElement | null {
   const pushToast = useToast((s) => s.push);
+  const utils = trpc.useUtils();
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** 会丢数据的授权要点两次：第一次只是把后果摆出来（不新增样式类）。 */
+  const [lossyArmed, setLossyArmed] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // 只在弹窗打开期间查一次当前宽容级别，用来決定“授权”按钮是否还能点。
+  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, { staleTime: 5000 });
 
   if (!event) return null;
 
   const isCheckError = event.kind === 'check-error';
+  const salvageLevel = tolerance.data?.level ?? 0;
+
+  /**
+   * 用户显式授权“损坏时换一条访问路径重试”。
+   *
+   * 这是本弹窗与设置页之外的第三个入口，共同点只有一个：**必须由用户点**。
+   * 这里提供两档：级别 1（换访问路径，不丢数据）与级别 2（跳过坏页，会丢数据）。级别 2
+   * 必须**点两次**（第一次只是把后果摆出来），因为它是唯一会让导出少消息的选项；级别 3
+   * （放弃整表）不在弹窗里提供 —— 那一步应该由用户看清楚隔离清单后在设置页决定。
+   */
+  const enableSalvage = async (nextLevel: number): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await client.account.setDbToleranceLevel.mutate({
+        level: nextLevel,
+        source: 'damage-dialog',
+      });
+      await utils.account.getDbTolerance.invalidate();
+      pushToast({
+        tone: 'info',
+        title: `已开启数据库宽容模式（级别 ${result.level}）`,
+        detail:
+          nextLevel >= 2
+            ? '导出时读不出来的区间会被跳过（可能缺失部分消息），明细可在 设置 → 数据库宽容 的账本里核对。放好数据库备份后建议修复一次。'
+            : '损坏时对于只有索引受损的查询会改走整表扫描，数据不会丢，个别查询可能变慢。每次降级都会记入账本：设置 → 数据库宽容。',
+      });
+      onClose();
+    } catch (e) {
+      pushToast({
+        tone: 'error',
+        title: '开启失败',
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   /** 「不再提醒」：写入全局配置后关闭弹窗（✕ 只关闭本次，不写入）。 */
   const suppressReminder = async (): Promise<void> => {
@@ -145,6 +197,22 @@ export function DatabaseDamagedDialog({
             <h4>发生了什么</h4>
             <p>{isCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
             <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+            {!isCheckError ? (
+              <p>
+                如果你希望即使有损坏也继续使用，可以开启下方的
+                <strong>数据库宽容</strong>：只有索引受损的查询会改走整表扫描，
+                <strong>不会丢数据</strong>，只是个别查询会变慢；每次降级都会记录在 设置 →
+                数据库宽容 的账本里。
+              </p>
+            ) : null}
+            {!isCheckError ? (
+              <p>
+                如果损坏已经让消息读不出来，还有一个更宽的选项
+                <strong>「忽略损坏继续使用」</strong>：导出时读不出来的区间会被跳过， 能读多少读多少
+                —— 代价是<strong>可能缺失部分消息</strong>。跳过的位置会写进
+                导出结果与账本（行数只能给出上界）。要真正恢复数据仍建议按下面的方案修复。
+              </p>
+            ) : null}
           </section>
 
           <ExpandSection title="建议修复方案（可展开）">
@@ -219,6 +287,42 @@ export function DatabaseDamagedDialog({
               </div>
             ) : null}
           </div>
+          {!isCheckError ? (
+            <button
+              type="button"
+              className="weq-action-soft"
+              disabled={busy || salvageLevel >= 1}
+              title={
+                salvageLevel >= 1
+                  ? '数据库宽容模式已经开启，可在设置 → 数据库宽容 里调整'
+                  : undefined
+              }
+              onClick={() => void enableSalvage(1)}
+            >
+              <Waypoints size={13} strokeWidth={2} aria-hidden />
+              {salvageLevel >= 1 ? '宽容模式已开启' : '允许换访问路径重试'}
+            </button>
+          ) : null}
+          {!isCheckError && salvageLevel < 2 ? (
+            <button
+              type="button"
+              className="weq-action-soft"
+              disabled={busy}
+              title={
+                lossyArmed ? '再点一次确认：可能缺失部分消息' : '会跳过读不出来的区间，可能缺失消息'
+              }
+              onClick={() => {
+                if (!lossyArmed) {
+                  setLossyArmed(true);
+                  return;
+                }
+                void enableSalvage(2);
+              }}
+            >
+              <TriangleAlert size={13} strokeWidth={2} aria-hidden />
+              {lossyArmed ? '再点一次确认（可能缺失消息）' : '忽略损坏继续使用'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="weq-action-primary"

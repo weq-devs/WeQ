@@ -155,6 +155,7 @@ export { ServiceAccountService } from './account/service_account';
 export type { ServiceAccountSummary } from './account/service_account';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
+export type { MsgSalvageSource } from './account/msg';
 export * from './account/annual_report';
 export {
   GroupInfoService,
@@ -365,6 +366,8 @@ export type {
   DbDamageFeedbackResult,
   DbDamageFeedbackTarget,
 } from './account/db_health';
+export { DbToleranceService } from './account/db_tolerance';
+export type { DbToleranceConfig } from './account/db_tolerance';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
@@ -499,8 +502,10 @@ export type {
   ExportProgress,
   ProgressCallback as ExportProgressCallback,
   ExportResult,
+  ExportSkippedRanges,
   GroupExportOptions,
   IterateOptions,
+  SalvageSourceOptions,
   JsonExportOptions,
   ExportTask,
   TaskStatus,

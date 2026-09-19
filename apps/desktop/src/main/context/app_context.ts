@@ -19,7 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import {
@@ -128,8 +128,10 @@ import {
   type SsePushConfig,
   WeqAssistantService,
   SsePushService,
+  DbToleranceService,
   createDirectInjectHook,
   type InjectHook,
+  type MsgSalvageSource,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -244,6 +246,45 @@ function mountDbWatch(session: AccountSession): void {
 function unmountDbWatch(): void {
   dbWatchHandle?.unmount();
   dbWatchHandle = null;
+}
+
+/**
+ * 导出链路的损坏宽容授权。
+ *
+ * 只有导出会用它（分页读真的报出损坏、且该账号已授权级别 ≥ 2 → 从当前游标切到
+ * 容错续读）。静态（导入目录）账号没有宽容服务，返回 `undefined`，于是导出照旧严格
+ * —— 这也是默认状态：宽容级别为 0 时导出与以前逐字节相同。
+ */
+function exportSalvageSource(tolerance: DbToleranceService | null): MsgSalvageSource | undefined {
+  return tolerance ? { binding: tolerance.binding() } : undefined;
+}
+
+/**
+ * 释放当前账号全部数据库的 salvage（宽容）只读连接。
+ *
+ * 只在用户把宽容级别降回严格（0）时调用：宽容连接要立刻释放，而正在服务界面的
+ * **严格**连接不能被打断，所以这里用 `closeSalvageDb` 而不是 `closeDb`。
+ * 返回释放的连接数。
+ */
+export function closeSalvageConnections(ctx: AppContext): number {
+  const platform = ctx.platform;
+  const session = ctx.account;
+  if (!platform || !session) return 0;
+  const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
+  let closed = 0;
+  try {
+    for (const name of readdirSync(dbDir)) {
+      if (!name.endsWith('.db')) continue;
+      closed += platform.native.ntHelper.closeSalvageDb(join(dbDir, name));
+    }
+  } catch (e) {
+    getLogger().warn('failed to enumerate db dir while closing salvage connections', {
+      event: 'salvage-close-failed',
+      dbDir,
+      ...(e instanceof Error ? { error: e.message } : { error: String(e) }),
+    });
+  }
+  return closed;
 }
 
 /**
@@ -507,6 +548,13 @@ export interface AppContext {
    * there can fire.
    */
   accountIsAndroidBackup: boolean;
+  /**
+   * 账号级数据库宽容（salvage）配置与降级账本。
+   *
+   * 默认严格：文件不存在、或 `level === 0` 时，读取链路与今天完全一致。只有用户在
+   * 损坏弹窗或设置里显式授权后，读取才会改走 salvage 通道。`null` 表示尚未打开账号。
+   */
+  dbTolerance: DbToleranceService | null;
   /** Per-account scheduled-export manager. Recreated with the account; its
    *  lifecycle is intentionally separate from `services` so the object
    *  literal can be fully constructed before this field is assigned. */
@@ -592,6 +640,7 @@ export function initAppContext(): AppContext {
       resourcePlatform: null,
       accountIsStatic: false,
       accountIsAndroidBackup: false,
+      dbTolerance: null,
       scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
@@ -763,6 +812,7 @@ export function initAppContext(): AppContext {
     resourcePlatform: null,
     accountIsStatic: false,
     accountIsAndroidBackup: false,
+    dbTolerance: null,
     scheduler: null,
     transcribeSilk,
     async setAccount(
@@ -790,22 +840,42 @@ export function initAppContext(): AppContext {
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
       // the uid-map load) are ignored until the session is the current one.
-      const session = await openAccount(platform, accountCtx, (info): void => {
-        const current = this.account;
-        if (!current) return;
-        console.warn(
-          '[account] suspected database corruption from query on',
-          info.dbPath,
-          info.error,
-        );
-        logger.warn('suspected database corruption from query', {
-          event: 'suspected-db-corruption',
-          accountUin: current.context.uin,
-          dbPath: info.dbPath,
-          error: info.error,
-        });
-        startDbHealthCheck(this, current, platform);
-      });
+      // 账号级宽容（salvage）配置 + 降级账本：**默认严格**。这里只负责把它接好，
+      // 级别永远由用户显式动作决定（弹窗按钮 / 设置页），没有自动降级。
+      const dbTolerance = new DbToleranceService(
+        join(
+          userConfig.cacheDir(
+            join('db_tolerance', accountConfigId(accountCtx.uin, metadata.dataDir)),
+          ),
+          'config.json',
+        ),
+      );
+      this.dbTolerance = dbTolerance;
+      const session = await openAccount(
+        platform,
+        accountCtx,
+        (info): void => {
+          const current = this.account;
+          if (!current) return;
+          console.warn(
+            '[account] suspected database corruption from query on',
+            info.dbPath,
+            info.error,
+          );
+          logger.warn('suspected database corruption from query', {
+            event: 'suspected-db-corruption',
+            accountUin: current.context.uin,
+            dbPath: info.dbPath,
+            error: info.error,
+          });
+          startDbHealthCheck(this, current, platform);
+        },
+        {
+          // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+          level: () => dbTolerance.level,
+          onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
+        },
+      );
       this.account = session;
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
@@ -987,7 +1057,10 @@ export function initAppContext(): AppContext {
           },
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
-          new MsgService(session),
+          // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
+          // 级别 ≥ 2 时，会从当前游标切到容错续读（见 `export/message_source`）。
+          // 静态（导入目录）账号没有宽容服务，这里就是 `undefined` = 严格。
+          new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             // Cache-first avatar resolution for the 导出头像 option.
@@ -1503,7 +1576,10 @@ export function initAppContext(): AppContext {
           },
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
-          new MsgService(session),
+          // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
+          // 级别 ≥ 2 时，会从当前游标切到容错续读（见 `export/message_source`）。
+          // 静态（导入目录）账号没有宽容服务，这里就是 `undefined` = 严格。
+          new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,

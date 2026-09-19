@@ -22,8 +22,35 @@
 export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export { rowsToObjects } from './row';
+export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';
 export { isLikelyCorruptionError, wrapBindingForCorruption } from './errors';
 export type { CorruptionSuspectInfo } from './errors';
+
+// --- 损坏宽容（salvage）---
+export {
+  SALVAGE_LEVEL_DESCRIPTIONS,
+  SalvageLedger,
+  clampSalvageLevel,
+  describeSkipped,
+  fingerprintSql,
+  isSalvageEnabled,
+  iterateSalvageWindows,
+  runSalvageScan,
+  windowPlanFrom,
+  wrapBindingForSalvage,
+} from './salvage';
+export type {
+  SalvageBindingOptions,
+  SalvageLedgerEntry,
+  SalvageLevel,
+  SalvageQueryError,
+  SalvageScanRequest,
+  SalvageScanTarget,
+  SalvageStreamOptions,
+  SalvageWindowExtras,
+  SalvageWindowOptions,
+  SalvageWindowPlan,
+} from './salvage';
 
 // --- msg business ---
 export * from './msg';

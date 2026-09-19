@@ -5182,6 +5182,130 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   min-width: 0;
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * 数据库宽容（设置 → 数据库宽容）
+ *
+ * 坏页扫描的库选择、降级账本、扫描报告都是"内容驱动宽度/高度"的块。它们不能
+ * 塞进 .weq-set-row-ctrl —— 那里是 flex: none，宽度跟着内容走，库名一多就顶破
+ * 卡片边框。所以统一让它们单独占一整行（.weq-set-block / .weq-set-chips）。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-set-block {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* 多选一的 chip 组（坏页扫描的库选择）：库名较长，允许换行。 */
+.weq-set-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 降级账本：定高滚动，条目之间细线分隔。 */
+.weq-set-ledger {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 232px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.weq-set-ledger > li {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.055);
+  color: #6a7280;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.weq-set-ledger > li:first-child {
+  border-top: 0;
+}
+
+.weq-set-ledger-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* SQL 指纹与页号清单：等宽 + 允许在任意位置断行，长串不会顶破卡片。 */
+.weq-set-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #51677c;
+  overflow-wrap: anywhere;
+}
+
+/* 坏页扫描报告：键值行 + 紧凑列表。 */
+.weq-set-kv {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #6a7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-kv ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  min-width: 0;
+}
+
+.weq-set-kv strong {
+  color: #374151;
+}
+
+.weq-set-badge-warn {
+  background: rgba(154, 103, 0, 0.1);
+  color: #9a6700;
+}
+
+/* 警告语气的小字说明（会丢数据的级别、宽容模式的可逆性等）。 */
+.weq-set-note-warn {
+  color: #9a6700;
+}
+
+html[data-theme="dark"] .weq-set-ledger {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #141920;
+}
+
+html[data-theme="dark"] .weq-set-ledger > li {
+  border-top-color: rgba(255, 255, 255, 0.06);
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-set-mono {
+  color: #a6b1bf;
+}
+
+html[data-theme="dark"] .weq-set-kv strong {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-set-badge-warn,
+html[data-theme="dark"] .weq-set-note-warn {
+  color: #e3b341;
+}
+
+html[data-theme="dark"] .weq-set-badge-warn {
+  background: rgba(227, 179, 65, 0.16);
+}
+
 /* Spinning refresh icon while a refetch is in flight. */
 .weq-set-iconbtn.is-spinning svg {
   animation: weq-spin 0.8s linear infinite;

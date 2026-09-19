@@ -13,7 +13,9 @@ export {
   iterateGroupMessages,
   iterateC2cMessages,
   toExportedMessage,
+  type ExportSkippedRanges,
   type IterateOptions,
+  type SalvageSourceOptions,
 } from './message_source';
 export { bigintReplacer } from './serialize';
 export { runGroupExport, type Framing } from './run_export';
