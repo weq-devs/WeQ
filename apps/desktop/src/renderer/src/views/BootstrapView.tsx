@@ -13,16 +13,17 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { FolderOpen, X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
+import { useToast } from '../components/Toast';
 import { HomeScreen } from './bootstrap/HomeScreen';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
-import { IS_MAC } from '../lib/target';
+import { DesktopOnly, IS_MAC, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -223,19 +224,62 @@ export function BootstrapView(): ReactElement {
 }
 
 function Shell({ children }: { children: ReactNode }): ReactElement {
+  const pushToast = useToast((s) => s.push);
+  const showError = useDialog((s) => s.showError);
+
+  /**
+   * 打开日志目录 —— 首页正是最容易出问题的地方（未装 QQ / 组件损坏 /
+   * 取密钥失败），入口放在这里比让用户先进账号再翻设置更实在。
+   * 与设置页、日志查看器共用同一个 `logs:open-dir` IPC。
+   */
+  const openLogDir = (): void => {
+    const bridge = shellBridge();
+    if (!bridge) return;
+    void bridge
+      .openLogDir()
+      .then((ok) => {
+        if (ok) {
+          pushToast({
+            tone: 'success',
+            title: '已打开日志目录',
+            detail: '反馈问题时，可把该目录中的最新日志一并附上。',
+          });
+        } else {
+          // 日志系统还没初始化（极早期）——静默失败会让人以为按钮坏了。
+          showError('打开日志目录失败', '日志目录尚未初始化，请稍后再试。');
+        }
+      })
+      .catch((e) => showError('打开日志目录失败', errMsg(e)));
+  };
+
   return (
     <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
-      {/* macOS 自带左侧红黄绿三键，右上角这个自绘关闭按钮会重复；仅非 darwin 保留。 */}
-      {!IS_MAC && (
-        <button
-          type="button"
-          className="weq-shell-close-btn absolute right-4 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full text-[#7a8b9e] transition-colors hover:bg-black/5 hover:text-[#142235]"
-          onClick={() => window.close()}
-          aria-label="关闭"
-        >
-          <X size={18} strokeWidth={1.8} />
-        </button>
-      )}
+      {/* 右上角只挂窗口级小按钮（打开日志目录 / 关闭）：绝对定位，落在内容之外，
+          不占任何一屏的布局空间。 */}
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5">
+        <DesktopOnly>
+          <button
+            type="button"
+            className="weq-shell-log-btn flex h-7 w-7 items-center justify-center rounded-full text-[#8b9aab] transition-colors hover:bg-black/5 hover:text-[#142235]"
+            onClick={openLogDir}
+            title="打开日志目录"
+            aria-label="打开日志目录"
+          >
+            <FolderOpen size={15} strokeWidth={1.7} />
+          </button>
+        </DesktopOnly>
+        {/* macOS 自带左侧红黄绿三键，右上角这个自绘关闭按钮会重复；仅非 darwin 保留。 */}
+        {!IS_MAC && (
+          <button
+            type="button"
+            className="weq-shell-close-btn flex h-8 w-8 items-center justify-center rounded-full text-[#7a8b9e] transition-colors hover:bg-black/5 hover:text-[#142235]"
+            onClick={() => window.close()}
+            aria-label="关闭"
+          >
+            <X size={18} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
       <div className="relative z-10 h-full">{children}</div>
     </main>
   );

@@ -555,7 +555,10 @@ html[data-theme="dark"] .chat-empty {
     background: rgba(0, 153, 255, 0.18);
   }
 
-  .weq-shell-close-btn {
+  /* Shell 右上角的窗口级小按钮（打开日志目录 / 关闭）。拖拽命中测试在合成层
+     之外，z-index 挡不住上层 drag 区，必须显式打 no-drag 洞。 */
+  .weq-shell-close-btn,
+  .weq-shell-log-btn {
     -webkit-app-region: no-drag;
   }
 
@@ -2194,11 +2197,13 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-select-head-drag {
     flex: 1;
     align-self: stretch;
-    /* Leave room at the right for the Shell's close (X) button — Electron's
-       drag-region hit test runs outside the compositor stack, so a `drag`
-       region painted under the X still swallows its clicks. Carve out a
-       no-drag gap the width of the button + its inset. */
-    margin-right: 3rem;
+    /* Leave room at the right for the Shell's 日志 + close (X) buttons —
+       Electron's drag-region hit test runs outside the compositor stack, so a
+       `drag` region painted under them still swallows their clicks. Carve out
+       a no-drag gap wide enough for both buttons + their insets (right-4 +
+       28 + 6 + 32 = 82px from the window edge, minus this container's 1.5rem
+       padding-right ⇒ 58px; 4.25rem leaves ~10px of slack). */
+    margin-right: 4.25rem;
     -webkit-app-region: drag;
   }
   .weq-select-head button { -webkit-app-region: no-drag; }
