@@ -221,6 +221,35 @@ describe('wrapBindingForSalvage', () => {
     expect(ledger.list()[0]?.errorCode).toBe(11);
   });
 
+  it('separates a quarantined short-circuit from a real corruption failure', async () => {
+    // L3 短路：这次**根本没读**。它必须与"又读到损坏"分开记账（界面上的说法不同），
+    // 且抛出的错误里要给出恢复路径，而不是把用户丢在一条裸错误上。
+    const { stub } = makeStub({
+      rows: [],
+      ok: false,
+      levelUsed: 3,
+      errorKind: 'quarantined',
+      errorCode: null,
+      errorMessage: 'table group_msg_table is temporarily unavailable',
+      table: 'group_msg_table',
+      quarantined: true,
+    });
+    const ledger = new SalvageLedger();
+    const nt = wrapBindingForSalvage(stub, { level: () => 3, ledger });
+
+    await expect(nt.executeSql('/x/nt_msg.db', 'SELECT 5')).rejects.toThrow(
+      /已被整表放弃（宽容级别 3）[\s\S]*设置 → 数据库宽容/,
+    );
+    expect(ledger.summary()).toMatchObject({
+      total: 1,
+      quarantined: 1,
+      unrecoverable: 0,
+      indexRetreat: 0,
+    });
+    expect(ledger.list()[0]?.kind).toBe('quarantined');
+    expect(ledger.list()[0]?.level).toBe(3);
+  });
+
   it('never rewrites the write path, even at a permissive level', async () => {
     const { stub, calls } = makeStub({});
     const nt = wrapBindingForSalvage(stub, { level: () => 3, ledger: new SalvageLedger() });

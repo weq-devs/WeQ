@@ -6,7 +6,12 @@
  */
 
 export { openAccount, algoFor } from './session';
-export type { AccountContext, AccountSession, LastRowIdMaps } from './session';
+export type {
+  AccountContext,
+  AccountSalvageOptions,
+  AccountSession,
+  LastRowIdMaps,
+} from './session';
 export type { CorruptionSuspectInfo } from '@weq/db';
 export { openStaticAccount, peekStaticSelfUin, deriveAndroidDbKey } from './static_session';
 export type { OpenStaticAccountOptions, StaticSelfPreview } from './static_session';

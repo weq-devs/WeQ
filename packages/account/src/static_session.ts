@@ -50,10 +50,11 @@ import {
   GuildDirectNodeDb,
   GuildDirectMsgDb,
   GuildCommonProfileDb,
+  wrapBindingForSalvage,
 } from '@weq/db';
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
-import type { AccountSession } from './session';
+import type { AccountSession, AccountSalvageOptions } from './session';
 
 function requireFile(dirPath: string, filename: string): string {
   const p = join(dirPath, filename);
@@ -304,6 +305,14 @@ export interface OpenStaticAccountOptions {
    * a UIN fallback. Run {@link peekStaticSelfUin} first to obtain it.
    */
   self: StaticSelfPreview;
+  /**
+   * 可选的损坏宽容（salvage）授权，语义与 `openAccount` 的同名参数完全一致。
+   *
+   * 静态账号也有**自己**的账号级设置：不传时读取与今天逐字节相同（严格），传了才
+   * 可能在用户授权后换访问路径。注意它与在线账号**不是**同一份设置 —— 授权必须按账号
+   * 算，否则「A 账号开了宽容」会顺带影响 B 账号。
+   */
+  salvage?: AccountSalvageOptions;
 }
 
 /**
@@ -314,8 +323,12 @@ export async function openStaticAccount(
   platform: Platform,
   options: OpenStaticAccountOptions,
 ): Promise<AccountSession> {
-  const { dirPath, dbKey, algos, self } = options;
-  const nt = platform.native.ntHelper;
+  const { dirPath, dbKey, algos, self, salvage } = options;
+  // 与在线账号同一个包装（`wrapBindingForSalvage`）：级别 0 时是纯透传，所以不授权就是
+  // 今天的行为；授权 ≥ 1 后，静态账号的读查询也走 salvage 通道。
+  const nt = salvage
+    ? wrapBindingForSalvage(platform.native.ntHelper, salvage)
+    : platform.native.ntHelper;
   const uin = self.uin;
 
   // ---- core databases ----

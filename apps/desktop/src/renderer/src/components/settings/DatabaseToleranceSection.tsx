@@ -1,21 +1,20 @@
 /**
  * 设置 → 数据库宽容（salvage）。
  *
- * 这里暴露的是**同一个开关**的两面：一方面授权"损坏时换一条访问路径"（不丢数据），
- * 另一方面把降级的账目摊开给用户看 —— 因为 WeQ 只在导出结果和检查报告里体现降级，
- * 用户需要一个随时能自己核对"到底跳过/换路过什么"的地方。
+ * 这一屏要回答三个问题，顺序也就是版面顺序：
+ *   1. **现在是什么级别**（顶部一处说清，含"实验性"与覆盖范围）；
+ *   2. **想开哪一级，代价是什么**（每一级一行，确认**就在那一行里**完成）；
+ *   3. **到底降级过什么**（账本、隔离清单、坏页扫描）。
  *
  * 三条不变量，界面文案必须与之保持一致：
- *   1. **默认严格**：开关默认关，关着的时候读取链路与以前完全一样。
- *   2. **降级必须用户点头**：这里和损坏弹窗是仅有的两个入口，没有自动降级。
+ *   1. **默认严格**：级别 0 是默认，也占一行，用户随时能看到"关掉会回到什么"。
+ *   2. **会丢数据的级别必须当场确认**：确认框内联在被点的那一行里 ——
+ *      曾经放在卡片底部，结果点级别 1 的开关时确认条出现在级别 3 下面，位置与
+ *      操作对象对不上。现在确认与它在同一行，且带 `aria-live` 提示。
  *   3. **降级可见**：账本、坏页清单都在这一屏，随时可看。
  *
- * 级别接入情况（界面文案必须与之逐条对应，不能写得比实际更宽或更窄）：
- *   - 级别 1 换访问路径：**所有读查询**自动生效，不丢数据；
- *   - 级别 2 跳过坏页：**导出链路**在分页真的报出损坏时回退到分块扫描（会丢数据）；
- *     聊天页 / 搜索等其它读取入口仍然严格 —— 那里宁可报错，也不该静默少消息；
- *   - 级别 3 放弃整表：在级别 2 的基础上启用隔离（连续读不动的表被放弃，
- *     保证其它表可用），并有存活时间，到点自动再试。
+ * 文案一律取自 `@weq/service` 的 `db_tolerance_copy.ts`（那份带守卫测试）。
+ * 这里是**渲染**，不是口径的出处 —— 想改口径请改那个模块，否则文案会漂。
  *
  * 版面注意：坏页扫描的库选择、账本、扫描报告都是"内容驱动宽度"的块，**不能**放进
  * `Row` 的右侧控件位（`.weq-set-row-ctrl` 是 `flex: none`，宽度跟着内容走，库名一多
@@ -31,15 +30,25 @@ import { useState, type ReactElement } from 'react';
 import {
   AlertTriangle,
   DatabaseZap,
+  FlaskConical,
   Info,
   Loader2,
   RefreshCw,
   ShieldCheck,
   Stethoscope,
 } from 'lucide-react';
+import {
+  SALVAGE_AGGREGATE_CAVEAT,
+  SALVAGE_EXPERIMENTAL_NOTE,
+  SALVAGE_EXPERIMENTAL_TAG,
+  SALVAGE_SKIPPED_SPAN_CAVEAT,
+  salvageLevelCopy,
+  salvageLevelToast,
+  salvageLevelsAscending,
+} from '@weq/service/db-tolerance-copy';
 import { trpc } from '../../trpc/client';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, SectionHeader } from './controls';
 
 /** 可扫描坏页的数据库（与后端 `ACCOUNT_HEALTH_DATABASES` 白名单保持一致）。 */
 const SCANNABLE_DATABASES = [
@@ -87,7 +96,7 @@ interface LedgerEntryView {
    * 仅 `skipped-ranges`：跳过了几处，以及这些区间的 key 跨度合计。
    *
    * 跨度**不是行数上界**（同一个 key 可能对应多行 —— 共享 seq 的灰条、贴表情），
-   * 所以界面只能说"哪一段读不出来"，不能说"最多丢了多少条"。
+   * 所以界面只能说"哪一段读不出来"。口径以 `SALVAGE_SKIPPED_SPAN_CAVEAT` 为准。
    */
   skippedRangeCount?: number;
   skippedSpanUpperBound?: number;
@@ -156,34 +165,33 @@ export function DatabaseToleranceSection(): ReactElement {
 
   const [scanTarget, setScanTarget] = useState<string>('nt_msg.db');
   const [report, setReport] = useState<BadPageReport | null>(null);
-  /** 会丢数据的级别不直接生效：先把后果摆出来，让用户自己确认。 */
+  /** 正在等用户确认的**那个**级别；确认条就渲染在这一行里面。 */
   const [pendingLossy, setPendingLossy] = useState<number | null>(null);
 
   const level = tolerance.data?.level ?? 0;
-  const enabled = level >= 1;
   const grantedAt = tolerance.data?.grantedAt ?? null;
   const summary = tolerance.data?.summary;
   const entries = (tolerance.data?.entries ?? []) as LedgerEntryView[];
   const hasLedger = Boolean(summary && summary.total > 0);
   const quarantined = (quarantine.data ?? []) as QuarantineEntryView[];
+  const current = salvageLevelCopy(level);
 
-  const changeLevel = async (next: number, source: string): Promise<void> => {
+  const changeLevel = async (next: number): Promise<void> => {
     setPendingLossy(null);
     try {
-      const result = await setLevel.mutateAsync({ level: next, source });
+      const result = await setLevel.mutateAsync({ level: next, source: 'settings' });
       await Promise.all([
         utils.account.getDbTolerance.invalidate(),
         utils.account.listSalvageQuarantine.invalidate(),
       ]);
+      const toast = salvageLevelToast(next);
       pushToast({
-        tone: next >= 2 ? 'info' : 'info',
-        title: next >= 1 ? '已调整数据库宽容级别' : '已恢复严格模式',
+        tone: 'info',
+        title: toast.title,
         detail:
           next === 0
-            ? `已关闭，并释放了 ${result.closedSalvage} 条宽容连接；读取链路恢复成严格模式。`
-            : next === 1
-              ? '损坏时对于只有索引受损的查询会改走整表扫描，不会丢数据。每次降级都会记录在下方账本里。'
-              : `已允许跳过读不出来的区间（级别 ${next}）：导出可能缺失部分消息，明细见下方账本与导出报告。`,
+            ? `${toast.detail}（已释放 ${result.closedSalvage} 条宽容连接）`
+            : toast.detail,
       });
     } catch (e) {
       pushToast({
@@ -232,6 +240,8 @@ export function DatabaseToleranceSection(): ReactElement {
     }
   };
 
+  const busy = setLevel.isPending;
+
   return (
     <div className="weq-set">
       <SectionHeader
@@ -239,88 +249,112 @@ export function DatabaseToleranceSection(): ReactElement {
         icon={<DatabaseZap size={16} strokeWidth={1.9} />}
         desc={
           <>
-            QQ 数据库损坏时，默认会让相关查询直接报错。宽容模式分为四级：级别 1 只换访问路径（
-            <strong>不丢数据</strong>），级别 2 会跳过读不出来的区间（
-            <strong>可能缺失部分消息</strong>），级别 3 再允许把读不动的表整体放弃。
-            每一次降级都会记账，可在下方核对。
+            <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
+              <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
+              {SALVAGE_EXPERIMENTAL_TAG}
+            </span>
+            QQ 数据库损坏时，默认（级别 0 · 严格）会让相关查询直接报错。严格之外还有三级宽容： 级别
+            1 只换访问路径（<strong>不丢数据</strong>），级别 2 会跳过读不出来的区间（
+            <strong>可能缺失部分消息</strong>），级别 3 再允许放弃读不动的整张表。
+            {SALVAGE_EXPERIMENTAL_NOTE}
           </>
         }
       />
 
-      <Card title="宽容级别">
-        <Row
-          label="级别 1 · 换访问路径重试（不丢数据）"
-          desc="所有读查询生效：只改变 SQLite 的访问方式，结果集语义不变；个别查询可能变慢。"
-          control={
-            <Toggle
-              checked={enabled}
-              disabled={setLevel.isPending || pendingLossy !== null}
-              label="换访问路径重试"
-              onChange={(next) => void changeLevel(next ? Math.max(level, 1) : 0, 'settings')}
-            />
-          }
-        />
-        <Row
-          label="级别 2 · 跳过读不出来的区间"
-          desc="导出时生效：分页真的报出损坏就从当前游标切到分块扫描，能读多少读多少。会缺失部分消息；聊天页 / 搜索等入口仍保持严格。"
-          control={
-            <Toggle
-              checked={level >= 2}
-              disabled={setLevel.isPending || pendingLossy !== null}
-              label="跳过坏页"
-              onChange={(next) => {
-                if (next) setPendingLossy(2);
-                else void changeLevel(1, 'settings');
-              }}
-            />
-          }
-        />
-        <Row
-          label="级别 3 · 放弃读不动的整张表"
-          desc="在级别 2 基础上启用：连续读不动的表会被隔离，保证其它表仍可导出；隔离有时效，到期会自动再试。"
-          control={
-            <Toggle
-              checked={level >= 3}
-              disabled={setLevel.isPending || pendingLossy !== null || level < 2}
-              label="放弃整表"
-              onChange={(next) => {
-                if (next) setPendingLossy(3);
-                else void changeLevel(2, 'settings');
-              }}
-            />
-          }
-        />
-        {pendingLossy !== null ? (
-          <p className="weq-set-note weq-set-note-warn">
-            <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-            <span>
-              级别 {pendingLossy} 会丢弃读不出来的数据：导出结果与报告里会标明少在哪一段，
-              但那些消息本身无法恢复。确定开启吗？
-            </span>
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm"
-              disabled={setLevel.isPending}
-              onClick={() => void changeLevel(pendingLossy, 'settings')}
-            >
-              确认开启
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-              disabled={setLevel.isPending}
-              onClick={() => setPendingLossy(null)}
-            >
-              取消
-            </button>
-          </p>
-        ) : null}
-        {enabled && grantedAt ? (
+      <Card
+        title="宽容级别"
+        action={
+          <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
+            当前 · {current.title}
+          </span>
+        }
+      >
+        <p className="weq-set-warnbox">
+          <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+          <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
+        </p>
+        <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
+          {salvageLevelsAscending().map((copy) => {
+            const active = copy.level === level;
+            const confirming = pendingLossy === copy.level;
+            return (
+              <div
+                key={copy.level}
+                className={`weq-set-level${active ? ' is-active' : ''}${confirming ? ' is-confirming' : ''}`}
+              >
+                <div className="weq-set-level-head">
+                  <span className="weq-set-level-main">
+                    <span className="weq-set-level-title">
+                      {copy.title}
+                      {active ? <span className="weq-set-level-tag">当前</span> : null}
+                    </span>
+                    <span className="weq-set-level-desc">{copy.summary}</span>
+                    <span className="weq-set-level-desc">{copy.scope}</span>
+                    {copy.losesData ? (
+                      <span className="weq-set-level-loss">
+                        <AlertTriangle size={11} strokeWidth={1.9} aria-hidden />
+                        会少数据
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="weq-set-level-action">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
+                      disabled={busy || active}
+                      onClick={() => {
+                        if (active) return;
+                        if (copy.losesData) {
+                          setPendingLossy(copy.level);
+                          return;
+                        }
+                        void changeLevel(copy.level);
+                      }}
+                    >
+                      {active ? '已启用' : copy.level === 0 ? '恢复严格' : `启用级别 ${copy.level}`}
+                    </button>
+                  </span>
+                </div>
+                {confirming ? (
+                  <div className="weq-set-confirm" role="group" aria-live="polite">
+                    <span className="weq-set-confirm-text">
+                      <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                      <span>
+                        {copy.confirm} {SALVAGE_EXPERIMENTAL_NOTE}
+                      </span>
+                    </span>
+                    <span className="weq-set-confirm-actions">
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-sm"
+                        disabled={busy}
+                        onClick={() => void changeLevel(copy.level)}
+                      >
+                        确认启用级别 {copy.level}
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
+                        disabled={busy}
+                        onClick={() => setPendingLossy(null)}
+                      >
+                        取消
+                      </button>
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        {level >= 1 && grantedAt ? (
           <p className="weq-set-note">
             <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
             <span>
               已于 {new Date(grantedAt).toLocaleString()} 授权，在本机对该账号持续生效；
-              随时可以在这里关掉。
+              随时可以在这里回到级别 0。
             </span>
           </p>
         ) : (
@@ -354,7 +388,7 @@ export function DatabaseToleranceSection(): ReactElement {
             {summary.skipped} 次 · 读不出来 {summary.unrecoverable} 次 · 放弃整表{' '}
             {summary.quarantined} 次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
             {summary.skipped > 0 || summary.unrecoverable > 0 || summary.quarantined > 0
-              ? '（带“少数据”的条目意味着确实有内容没读出来）'
+              ? `（带“少数据”的条目意味着确实有内容没读出来。${SALVAGE_SKIPPED_SPAN_CAVEAT}）`
               : ''}
           </p>
         ) : (
@@ -416,7 +450,8 @@ export function DatabaseToleranceSection(): ReactElement {
         >
           <p className="weq-set-desc">
             这些表连续多少次都读不动，已被理解成"暂时不可用"（级别 3）。隔离只是暂时的：
-            到点会自动重试，你也可以现在就让它们重新试一次。其它表不受影响。
+            到点会自动重试，你也可以现在就让它们重新试一次。注意隔离的判据是**整张表**，
+            同一张表里本来完好的部分在隔离期内也读不出来。
           </p>
           <ul className="weq-set-ledger">
             {quarantined.map((entry) => (
@@ -487,7 +522,7 @@ export function DatabaseToleranceSection(): ReactElement {
           </div>
           <span className="weq-set-row-desc">
             按 SQLCipher 的页布局逐页复算 HMAC，给出物理坏页清单，并映射到受影响的表 / 索引。
-            只读密文，不会修改数据库。
+            只读密文，不会修改数据库。想真修复请等修复入口，或按损坏弹窗里的方案手工处理。
           </span>
         </div>
 

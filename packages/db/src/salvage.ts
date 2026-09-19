@@ -40,13 +40,13 @@ import { isLikelyCorruptionError } from './errors';
 /** 宽容级别。0 = 严格（默认）。 */
 export type SalvageLevel = 0 | 1 | 2 | 3;
 
-/** 面向用户的级别说明，设置页与报告共用一份文案。 */
-export const SALVAGE_LEVEL_DESCRIPTIONS: Record<SalvageLevel, string> = {
-  0: '严格模式：读不出来就报错，不尝试任何替代路径。',
-  1: '换访问路径：只改 SQLite 的访问方式（NOT INDEXED），不会丢数据，个别查询可能变慢。',
-  2: '跳过坏页：读不出来的那一段会被跳过（可能缺失部分消息）。目前接入导出链路；其余读取入口仍是严格。',
-  3: '放弃整表：读不动的表会被隔离，保证其它表可用。被放弃的表可在设置里清除隔离后重试。',
-};
+/**
+ * 面向用户的级别说明**不在这里**。
+ *
+ * 原来这里有一份 `SALVAGE_LEVEL_DESCRIPTIONS`，但没有任何调用方 —— 设置页/弹窗用的是
+ * `@weq/service` 的 `db_tolerance_copy.ts`。同一批文案存两处必然漂移（而且漂移的方向
+ * 通常是越写越宽），所以只留 service 那一份，并且它带守卫测试。
+ */
 
 /** 把任意输入夹到一个合法级别；非法值一律回到严格（0）。 */
 export function clampSalvageLevel(value: unknown): SalvageLevel {
@@ -57,6 +57,75 @@ export function clampSalvageLevel(value: unknown): SalvageLevel {
 /** 级别是否已授权"可以动读取路径"。 */
 export function isSalvageEnabled(level: SalvageLevel): boolean {
   return level >= 1;
+}
+
+// ────────────────────── native 产物能力检查 ──────────────────────
+
+/**
+ * 宽容链路（含坏页扫描）依赖的 native 接口。
+ *
+ * 为什么要有这份清单：`nt_helper.node` **不入库**，每个平台各自下载（`pnpm native:fetch`）。
+ * 只要某个平台的产物比源码旧，它就没有这些方法 —— 而调用处得到的是
+ * `undefined is not a function` 这种无从下手的信息（`loadNative` 只校验初始状态，
+ * 抓不到"方法级缺能力"）。2026-09-20 实测：本机 linux/x64 是新的，其它四个平台目录
+ * 的产物里 **一个 salvage 符号都没有**。
+ *
+ * 所以：只要真的要用宽容，就先点一遍名；缺了就在**这里**说清楚要重新取产物。
+ */
+export const SALVAGE_QUERY_METHODS = ['executeSqlSalvage', 'executeSqlSalvageWithKey'] as const;
+export const SALVAGE_SCAN_METHODS = [
+  'executeSqlSalvageScan',
+  'executeSqlSalvageScanWithKey',
+] as const;
+export const SALVAGE_HEALTH_METHODS = [
+  'scanBadPages',
+  'closeSalvageDb',
+  'listQuarantinedTables',
+  'clearQuarantinedTables',
+] as const;
+
+/** 宽容链路的全部接口（体检时点名用）。 */
+export const SALVAGE_BINDING_METHODS = [
+  ...SALVAGE_QUERY_METHODS,
+  ...SALVAGE_SCAN_METHODS,
+  ...SALVAGE_HEALTH_METHODS,
+] as const;
+
+export type SalvageBindingMethod = (typeof SALVAGE_BINDING_METHODS)[number];
+
+/**
+ * 这个绑定上**缺**哪些宽容接口（空数组 = 该项能力完好）。
+ *
+ * `required` 默认是全量清单；调用方通常只该校验**马上要用到**的那几个 ——
+ * 否则一个只做坏页扫描的调用会被"缺少扫描方法"拦住，报错与事实不符。
+ */
+export function missingSalvageMethods(
+  nt: NtHelperBinding,
+  required: readonly SalvageBindingMethod[] = SALVAGE_BINDING_METHODS,
+): SalvageBindingMethod[] {
+  const bag = nt as unknown as Record<string, unknown>;
+  return required.filter((name) => typeof bag[name] !== 'function');
+}
+
+/**
+ * 用宽容之前先确认 native 产物支持它；不支持就抛一条**能照着做**的错误。
+ *
+ * `feature` 只用于报错文案（“分块扫描”/“读查询”），因为同一个缺失集合在不同入口
+ * 下的第一句话不该一模一样。
+ */
+export function assertSalvageCapable(
+  nt: NtHelperBinding,
+  feature: string,
+  required: readonly SalvageBindingMethod[] = SALVAGE_BINDING_METHODS,
+): void {
+  const missing = missingSalvageMethods(nt, required);
+  if (missing.length === 0) return;
+  throw new Error(
+    `当前平台的 native 产物不支持${feature}：缺少 ${missing.join(', ')}。\n` +
+      '这通常意味着这份 nt_helper.node 是旧版本 —— 重新获取对应平台的产物即可\n' +
+      '（`pnpm native:fetch --platform <win32|linux|darwin> --arch <x64|arm64>`）。\n' +
+      '在补齐之前，宽容级别不会有任何效果，读取会一直走严格通道。',
+  );
 }
 
 // ────────────────────────────── 账本 ──────────────────────────────
@@ -280,6 +349,12 @@ async function runRead(
       : nt.executeSql(dbPath, sql, params);
   }
 
+  assertSalvageCapable(
+    nt,
+    '宽容读查询（级别 1 及以上）',
+    credentials ? ['executeSqlSalvageWithKey'] : ['executeSqlSalvage'],
+  );
+
   const outcome = credentials
     ? await nt.executeSqlSalvageWithKey(
         dbPath,
@@ -303,6 +378,25 @@ function interpretOutcome(
   opts: SalvageBindingOptions,
 ): SqlRow[] {
   if (!outcome.ok) {
+    // L3 短路：该表**这次根本没读**。它必须与"又读到损坏"分开记账 —— 界面上的说法
+    // 完全不同（一个是"可以清除隔离再试"，另一个是"数据可能真没了"），所以这里
+    // 与 `runSalvageScan` 用同一套判据，而不是一律记成 `unrecoverable`。
+    if (outcome.quarantined) {
+      recordEntry(
+        {
+          at: new Date().toISOString(),
+          dbPath,
+          level: clampSalvageLevel(outcome.levelUsed),
+          kind: 'quarantined',
+          errorKind: outcome.errorKind,
+          errorCode: null,
+          message: outcome.errorMessage ?? null,
+          sqlFingerprint: fingerprintSql(sql),
+        },
+        opts,
+      );
+      throw buildQuarantinedError(outcome.table, dbPath, outcome.errorKind);
+    }
     recordEntry(
       {
         at: new Date().toISOString(),
@@ -396,6 +490,33 @@ function buildSalvageError(
   });
 }
 
+/**
+ * L3（整表放弃）短路时抛出的错误。
+ *
+ * 它**不是**损坏错误：`errorCode` 为 `null`，文案里也不含任何损坏签名，所以既有的
+ * "疑似损坏 → 弹窗 + 健康检查"链路不会被它误触发 —— 该表早先就已经判定过了。文案的
+ * 重点是给出**恢复路径**：清除隔离记录（设置 → 数据库宽容）就能立刻再试。
+ */
+function buildQuarantinedError(
+  table: string | null | undefined,
+  dbPath: string,
+  errorKind: string,
+): SalvageQueryError {
+  return Object.assign(
+    new Error(
+      `表 ${table ?? '(未知)'} 已被整表放弃（宽容级别 3）：` +
+        '可在 设置 → 数据库宽容 里清除隔离记录后再试，或先修复数据库',
+    ),
+    {
+      name: 'SalvageQuarantinedError',
+      salvage: true as const,
+      dbPath,
+      errorKind,
+      errorCode: null,
+    },
+  );
+}
+
 // ───────────────────────── 分块容错扫描（L2 / L3） ─────────────────────────
 
 /** 扫描的目标连接（一般是 `QqDb` 持有的那三个字段）。 */
@@ -471,6 +592,13 @@ export async function runSalvageScan(
   if (level === 0) {
     throw new Error('分块容错扫描需要宽容级别 ≥ 1（当前是严格模式）：请改用 QqDb.query');
   }
+  // 产物能力先于预算/参数校验：缺方法时的报错必须是"去取产物"，而不是"参数不对"。
+  // 只点名**马上要调**的那一个：加密库用 `WithKey`，明文库用另一支。
+  assertSalvageCapable(
+    nt,
+    '分块容错扫描',
+    target.key !== undefined ? ['executeSqlSalvageScanWithKey'] : ['executeSqlSalvageScan'],
+  );
 
   const options = {
     lo: request.lo,
@@ -514,19 +642,7 @@ export async function runSalvageScan(
       opts,
     );
     if (outcome.quarantined) {
-      throw Object.assign(
-        new Error(
-          `表 ${outcome.table ?? '(未知)'} 已被整表放弃（宽容级别 3）：` +
-            '可在 设置 → 数据库宽容 里清除隔离记录后再试，或先修复数据库',
-        ),
-        {
-          name: 'SalvageQuarantinedError',
-          salvage: true as const,
-          dbPath: target.dbPath,
-          errorKind: outcome.errorKind,
-          errorCode: null,
-        },
-      );
+      throw buildQuarantinedError(outcome.table, target.dbPath, outcome.errorKind);
     }
     // 超预算是"主动放弃"，不是"这一页读不出来" —— 错误里必须说清楚，否则用户会以为
     // 只是某条消息缺失，实际是整个结果都没给。
@@ -595,7 +711,7 @@ export interface SalvageWindowPlan {
   chunk?: number;
   /** 二分的下限跨度；默认 `1`。 */
   minSpan?: number;
-  /** **跨窗口累计**的预算：最多允许跳过几处**损坏区域**；默认 `20`。 */
+  /** **跨窗口累计**的预算：最多允许跳过几处**损坏区域**（相邻同类区间会合并）；默认 `20`。 */
   maxSkippedRanges?: number;
   /** **跨窗口累计**的预算：最多允许跳过多少键跨度（**不是行数**）；默认 `500`。 */
   maxSkippedSpan?: number;
@@ -610,11 +726,29 @@ export interface SalvageWindowPlan {
   seekSql?: string;
 }
 
-/** 默认分块跨度：与 native 侧的默认值保持一致。 */
+/** 默认分块跨度：与 native 侧的默认值保持一致（`DEFAULT_SCAN_CHUNK`）。 */
 const WINDOW_CHUNK = 4096;
-/** 默认跨窗口预算：与 native 侧的默认值保持一致。 */
+/**
+ * 默认跨窗口预算。单位是"损坏**区域**"而不是"键"：native 会先合并相邻同类区间，
+ * 所以一整页坏掉只算一处。
+ *
+ * 这两个数只由驱动层兜底 —— 正常情况下 native 自己会先用剩余额度拦住。
+ */
 const WINDOW_MAX_SKIPPED_RANGES = 20;
 const WINDOW_MAX_SKIPPED_SPAN = 500;
+
+/**
+ * 为什么**故意**比 native 的默认值（256 / 8192）小：这两个数决定的是"要假死多久才肯
+ * 放弃"，而不是"能救回多少"。
+ *
+ * 实测代价（2026-09-20，真实损坏库、二分地板 span=1）：一个读不出来的键大约要付
+ * **215ms**（两次 native 尝试），即：
+ *   - 500 键跨度  → 约 108 秒后干净地失败（可接受的等待）；
+ *   - 8192 键跨度 → 约 29 分钟后才失败（UI 上看起来就是卡死）。
+ *
+ * 所以驱动层把额度收紧，native 那份较大的默认值留给"调用方明确要求”的场景
+ * （例如将来的离线修复），不当作交互式读取的默认。
+ */
 
 export interface SalvageWindowOptions {
   /** 原生绑定（未包过 salvage 也行，这里直接调用扫描方法）。 */
@@ -696,11 +830,21 @@ export async function* iterateSalvageWindows(o: SalvageWindowOptions): AsyncGene
     );
 
     if (outcome.skipped.length > 0) {
-      // 回填提示：下一次窗口扫描不必再为这些键重试（hint 区间不消耗预算）。
+      // **只上报/只计入新发现的区间**。
+      //
+      // 一段坏区间会被相邻两个窗口各报一次：游标只推进到最后一个**好**键，所以
+      // 下一个窗口会把同一段再盖一遍。实测（2026-09-20，真实损坏库）一个 7 键的洞
+      // 被记成 2 处 / 键跨度 14 —— 处数与跨度双双翻倍，预算也跟着双倍消耗，
+      // 而导出日志与账本里那个数字是给用户看的，不能虚。
+      const fresh = subtractCoveredRanges(outcome.skipped, hints);
+      // 无论新旧都回填提示：下一次窗口扫描不必再为这些键重试（hint 区间不消耗预算）。
       for (const range of outcome.skipped) hints.push({ lo: range.lo, hi: range.hi });
-      skippedRanges += outcome.skipped.length;
-      skippedSpan += outcome.skippedSpan;
-      o.onSkipped?.(outcome.skipped, outcome.skippedSpan);
+      if (fresh.length > 0) {
+        const span = spanOfRanges(fresh);
+        skippedRanges += fresh.length;
+        skippedSpan += span;
+        o.onSkipped?.(fresh, span);
+      }
     }
 
     if (outcome.rows.length === 0) {
@@ -841,6 +985,77 @@ async function probeNextKey(
   // 空结果，或 `MIN()` 在空集上给出的一行 NULL —— 都表示后面没有键了。
   if (!row || row[0] === null || row[0] === undefined) return { kind: 'end' };
   return { kind: 'next', key: keyOfRow(row) };
+}
+
+/**
+ * 一批区间的键跨度合计（半开区间 `[lo, hi)` 的长度）。
+ *
+ * 口径：**键跨度不是行数**。同一个键可能对应多行（共享 seq 的灰条、贴表情），
+ * 所以这个数字只能当"哪一段读不出来、有多宽"看，不能当"丢了多少条"。
+ */
+export function spanOfRanges(ranges: readonly SalvageKeyRange[]): number {
+  let total = 0n;
+  for (const range of ranges) {
+    const width = range.hi - range.lo;
+    if (width > 0n) total += width;
+  }
+  // 跨度只用于预算与展示：超出安全整数时夹住（真实场景里不会到这个量级）。
+  const cap = BigInt(Number.MAX_SAFE_INTEGER);
+  return total >= cap ? Number.MAX_SAFE_INTEGER : Number(total);
+}
+
+/**
+ * 从 `ranges` 里减掉已经被 `covered` 盖住的部分，只留新碎片（已排序、相邻已合并）。
+ *
+ * 用途只有一个：驱动层跨窗口计数时避免把同一段坏区间数两遍（见
+ * {@link iterateSalvageWindows}）。区间端点都按 `[lo, hi)` 处理，与 native 的
+ * 窗口语义一致。
+ */
+export function subtractCoveredRanges<R extends SalvageKeyRange>(
+  ranges: readonly R[],
+  covered: readonly SalvageKeyRange[],
+): R[] {
+  const fresh: R[] = [];
+  for (const range of ranges) {
+    if (range.hi <= range.lo) continue;
+    // 半开语义（`lo` 侧开、`hi` 侧闭）下的"区间减集合"。
+    let segments: R[] = [range];
+    for (const known of covered) {
+      if (known.hi <= known.lo) continue;
+      const next: R[] = [];
+      for (const segment of segments) {
+        // 完全不重叠（边界相接不算相交）：原样留下。
+        if (known.hi <= segment.lo || known.lo >= segment.hi) {
+          next.push(segment);
+          continue;
+        }
+        // 左边剩下的部分：它的右邻就是这块已知区间的左边界。
+        if (known.lo > segment.lo) next.push({ ...segment, hi: known.lo });
+        // 右边剩下的部分：它的左邻就是这块已知区间的右边界。
+        if (known.hi < segment.hi) next.push({ ...segment, lo: known.hi });
+      }
+      segments = next;
+      if (segments.length === 0) break;
+    }
+    fresh.push(...segments);
+  }
+  return mergeAdjacentRanges(fresh);
+}
+
+/** 排序并合并相邻/重叠区间（同一段坏区间被切碎后重新粘回去）。 */
+function mergeAdjacentRanges<R extends SalvageKeyRange>(ranges: R[]): R[] {
+  if (ranges.length <= 1) return ranges;
+  const sorted = [...ranges].sort((a, b) => (a.lo < b.lo ? -1 : a.lo > b.lo ? 1 : 0));
+  const merged: R[] = [sorted[0]!];
+  for (const range of sorted.slice(1)) {
+    const last = merged[merged.length - 1]!;
+    if (range.lo <= last.hi) {
+      if (range.hi > last.hi) merged[merged.length - 1] = { ...last, hi: range.hi };
+      continue;
+    }
+    merged.push(range);
+  }
+  return merged;
 }
 
 /** 取一个正整数字段，非法值（NaN / 0 / 负数）回落到默认值。 */

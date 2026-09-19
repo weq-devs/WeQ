@@ -30,7 +30,7 @@ import type {
   NtHelperBinding,
   QuarantinedTable,
 } from '@weq/native';
-import type { SalvageLedgerEntry } from '@weq/db';
+import { assertSalvageCapable, type SalvageLedgerEntry } from '@weq/db';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -3801,6 +3801,8 @@ export const accountRouter = router({
       const algo = algoFor(session.context, dbPath);
       if (!algo) throw new Error('缺少该数据库的加密算法信息，无法扫描坏页');
 
+      // 旧平台的产物可能没有这个接口：先点名，报"去取产物"，而不是 undefined is not a function。
+      assertSalvageCapable(platform.native.ntHelper, '坏页扫描', ['scanBadPages']);
       const scan = await platform.native.ntHelper.scanBadPages(dbPath, session.context.dbKey, algo);
       const affected = await mapBadPagesToObjects(
         platform.native.ntHelper,

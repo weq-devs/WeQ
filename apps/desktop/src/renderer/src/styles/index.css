@@ -56,6 +56,17 @@ html[data-theme="light"] {
   --sidebar-foreground: var(--foreground);
 
   --weq-accent: #0099ff;
+  /*
+   * 警告语气（设置页的"会少数据"/隔离/坏页提示）。
+   *
+   * 取的是 toast 的 warning 同一支 amber（#f59e0b）而非旧的那支偏褐的 #9a6700 ——
+   * 后者在蓝主题里像褪色的旧警示，和强调色、卡片底色都不在一个体系里。
+   * 三件套分开定义：文字要深一档才够对比，底色与描边都留透明通道，方便叠在浅/深底上。
+   */
+  --weq-warn-fg: #b45309;
+  --weq-warn-solid: #f59e0b;
+  --weq-warn-bg: rgba(245, 158, 11, 0.1);
+  --weq-warn-border: rgba(245, 158, 11, 0.34);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.985 0 0);
@@ -134,6 +145,11 @@ html[data-theme="dark"],
   --sidebar-foreground: var(--foreground);
 
   --weq-accent: #56a8f7;
+  /* 深色态下 amber 要更亮才够对比；与 toast 的 warning 同步。 */
+  --weq-warn-fg: #fbbf24;
+  --weq-warn-solid: #fbbf24;
+  --weq-warn-bg: rgba(251, 191, 36, 0.14);
+  --weq-warn-border: rgba(251, 191, 36, 0.36);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.24 0.01 250);
@@ -5275,13 +5291,189 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 .weq-set-badge-warn {
-  background: rgba(154, 103, 0, 0.1);
-  color: #9a6700;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
 }
 
 /* 警告语气的小字说明（会丢数据的级别、宽容模式的可逆性等）。 */
 .weq-set-note-warn {
-  color: #9a6700;
+  color: var(--weq-warn-fg);
+}
+
+/*
+ * “实验性”标签：贴在 SectionHeader 的说明里，不能抢眼但必须看得见。
+ * 用描边 + 琥珀色文字，和实心 badge 区分开（那个是状态，这个是程度）。
+ */
+.weq-set-exp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--weq-warn-border);
+  border-radius: 999px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+
+/* 整块警告（聚合查询无效那段）：底色 + 左描边，比纯文字更扛得住长段落。 */
+.weq-set-warnbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-warnbox svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* ── 宽容级别列表 ────────────────────────────────────────────────
+ * 每一级自成一块：标题 + 说明 + 右侧动作。会丢数据的级别在**同一块内**展开确认
+ * （旧版把确认条放在卡片底部，点级别 1 的开关却在级别 3 下面出现确认，位置与操作
+ * 对象对不上）。
+ */
+.weq-set-levels {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-set-level {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: #ffffff;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-set-level.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+}
+
+.weq-set-level.is-confirming {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-set-level-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-set-level-main {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-set-level-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.weq-set-level-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.weq-set-level-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8a929c;
+}
+
+.weq-set-level-loss {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--weq-warn-fg);
+}
+
+.weq-set-level-action {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* 行内确认区：文字在左，按钮在右；窄容器里自动换行。 */
+.weq-set-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--weq-warn-border);
+}
+
+.weq-set-confirm-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--weq-warn-fg);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-confirm-text svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.weq-set-confirm-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+}
+
+html[data-theme="dark"] .weq-set-level {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #171c23;
+}
+
+html[data-theme="dark"] .weq-set-level.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #171c23);
+}
+
+html[data-theme="dark"] .weq-set-level-title {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-set-level-desc {
+  color: #99a7b8;
 }
 
 html[data-theme="dark"] .weq-set-ledger {
@@ -5302,14 +5494,7 @@ html[data-theme="dark"] .weq-set-kv strong {
   color: #edf2f7;
 }
 
-html[data-theme="dark"] .weq-set-badge-warn,
-html[data-theme="dark"] .weq-set-note-warn {
-  color: #e3b341;
-}
-
-html[data-theme="dark"] .weq-set-badge-warn {
-  background: rgba(227, 179, 65, 0.16);
-}
+/* 警告色由 --weq-warn-* 令牌在深色态统一改写，这里不再需要单独覆盖。 */
 
 /* Spinning refresh icon while a refetch is in flight. */
 .weq-set-iconbtn.is-spinning svg {

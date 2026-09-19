@@ -14,8 +14,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { isLikelyCorruptionError } from '@weq/db';
-import { iterateGroupMessages, type ExportSkippedRanges } from '@weq/service';
-import type { MsgSalvageSource, MsgService, RenderGroupMsg } from '@weq/service';
+import { MsgService, iterateGroupMessages, type ExportSkippedRanges } from '@weq/service';
+import type { MsgSalvageSource, RenderGroupMsg } from '@weq/service';
+import type { AccountSession } from '@weq/account';
+import type { SalvageSkippedRange, SqlRow } from '@weq/native';
 
 const CONV = '12345';
 
@@ -159,6 +161,40 @@ describe('导出容错续读（level 2）', () => {
     expect(skipped).toHaveLength(2);
     expect(skipped[0]).toMatchObject({ conv: CONV, kind: 'group', span: 1 });
     expect(skipped[0]?.ranges[0]).toMatchObject({ lo: 3, hi: 4, prevKey: 2, nextKey: 5 });
+  });
+
+  it('collects the skipped ranges on the service so the export task can log them', async () => {
+    // 容错续读的 `onSkipped` 只覆盖它自己那一次读；"这次导出少了哪一段"是任务级的
+    // 问题，所以 MsgService 要额外记一份，由导出任务在消息阶段结束后取走 —— 这就是
+    // 界面上那个"损坏降级：跳过 N 处……"日志的来源。
+    const ranges: SalvageSkippedRange[] = [
+      { lo: 3n, hi: 4n, prevKey: 2n, nextKey: 5n, errorKind: 'corrupt', errorCode: 11 },
+    ];
+    const session = {
+      groupMsgs: {
+        streamSalvageAfter: (
+          _conv: string,
+          _afterSeq: bigint,
+          opts: { onSkipped?: (ranges: SalvageSkippedRange[], span: number) => void },
+        ): AsyncGenerator<SqlRow[]> => {
+          // 只记账，不吐批次：本测试不关心续读出来的消息（空 yield* 也不触发渲染链路）。
+          opts.onSkipped?.(ranges, 7);
+          return (async function* () {
+            yield* [] as SqlRow[];
+          })();
+        },
+      },
+    } as unknown as AccountSession;
+    const msgs = new MsgService(session);
+    for await (const batches of msgs.streamSalvageGroupAfter(CONV, 0n, {
+      salvage: { level: () => 2 },
+    })) {
+      expect(batches).toEqual([]);
+    }
+
+    expect(msgs.takeSalvageSkips()).toEqual([{ conv: CONV, kind: 'group', ranges, span: 7 }]);
+    // 取走即清：一次导出的账目不会串到下一次任务。
+    expect(msgs.takeSalvageSkips()).toEqual([]);
   });
 
   it('honours an explicit per-call override instead of the account setting', async () => {

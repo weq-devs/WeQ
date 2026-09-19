@@ -49,6 +49,21 @@ import type { CorruptionSuspectInfo, SalvageLedger, SalvageLedgerEntry } from '@
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
 
+/**
+ * 账号级的损坏宽容（salvage）授权。
+ *
+ * `level()` 由调用方实时提供（账号级设置），**为 0（默认）时整个包装是纯透传** ——
+ * 不换连接、不改行为。只有用户显式授权 ≥ 1 后，读取才会改走 salvage 通道。写路径永远
+ * 不走这里。在线账号（{@link openAccount}）与静态账号（`openStaticAccount`）共用它。
+ */
+export interface AccountSalvageOptions {
+  level: () => number;
+  /** 降级账本（每次换访问路径 / 救不回来都会记账）。 */
+  ledger?: SalvageLedger;
+  /** 额外回调，供落盘。 */
+  onEntry?: (entry: SalvageLedgerEntry) => void;
+}
+
 export interface AccountContext {
   /** Account QQ number. */
   uin: string;
@@ -201,13 +216,7 @@ export async function openAccount(
    * —— 不换连接、不改行为。只有用户显式授权 ≥ 1 后，读取才会改走 salvage 通道。
    * 写路径永远不走这里。
    */
-  salvage?: {
-    level: () => number;
-    /** 降级账本（每次换访问路径 / 救不回来都会记账）。 */
-    ledger?: SalvageLedger;
-    /** 额外回调，供落盘。 */
-    onEntry?: (entry: SalvageLedgerEntry) => void;
-  },
+  salvage?: AccountSalvageOptions,
 ): Promise<AccountSession> {
   const msgDbPath = platform.ntMsgDbPath(ctx.uin);
   if (!msgDbPath) {

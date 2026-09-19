@@ -252,11 +252,31 @@ function unmountDbWatch(): void {
  * 导出链路的损坏宽容授权。
  *
  * 只有导出会用它（分页读真的报出损坏、且该账号已授权级别 ≥ 2 → 从当前游标切到
- * 容错续读）。静态（导入目录）账号没有宽容服务，返回 `undefined`，于是导出照旧严格
- * —— 这也是默认状态：宽容级别为 0 时导出与以前逐字节相同。
+ * 容错续读）。宽容服务是**每个账号一份**的，所以这里必须传当前账号那一份；
+ * 传 `null`（没打开账号 / 关账号时）就是严格 —— 这也是默认状态：级别为 0 时导出与
+ * 以前逐字节相同。
+ *
+ * 注意：**不允许**让它退回"上一次打开的那个账号"的实例。静态账号与在线账号各有自己的
+ * 配置，串用会让「A 账号开了宽容」顺带影响 B 账号（见 {@link AppContext.dbTolerance}）。
  */
 function exportSalvageSource(tolerance: DbToleranceService | null): MsgSalvageSource | undefined {
   return tolerance ? { binding: tolerance.binding() } : undefined;
+}
+
+/**
+ * 为某个账号建一份宽容配置服务（在线 / 静态各一份，按 `(uin, dataDir)` 隔离）。
+ *
+ * 路径与导出缓存同源（`accountConfigId`），所以同一账号的在线会话与导入目录各算一个
+ * 账号 —— 与 `AccountConfigService`、导出任务的口径一致。
+ */
+function createDbTolerance(
+  userConfig: UserConfigService,
+  uin: string,
+  dataDir: string | undefined,
+): DbToleranceService {
+  return new DbToleranceService(
+    join(userConfig.cacheDir(join('db_tolerance', accountConfigId(uin, dataDir))), 'config.json'),
+  );
 }
 
 /**
@@ -552,7 +572,11 @@ export interface AppContext {
    * 账号级数据库宽容（salvage）配置与降级账本。
    *
    * 默认严格：文件不存在、或 `level === 0` 时，读取链路与今天完全一致。只有用户在
-   * 损坏弹窗或设置里显式授权后，读取才会改走 salvage 通道。`null` 表示尚未打开账号。
+   * 损坏弹窗或设置里显式授权后，读取才会改走 salvage 通道。
+   *
+   * **每个账号一份**（在线 / 静态各一份，按 `(uin, dataDir)` 隔离），打开账号时重建、
+   * `clearAccount` 时清空 —— 串用实例就等于把 A 账号的授权应用到 B 账号上。`null`
+   * 表示当前没有打开的账号。
    */
   dbTolerance: DbToleranceService | null;
   /** Per-account scheduled-export manager. Recreated with the account; its
@@ -842,14 +866,7 @@ export function initAppContext(): AppContext {
       // the uid-map load) are ignored until the session is the current one.
       // 账号级宽容（salvage）配置 + 降级账本：**默认严格**。这里只负责把它接好，
       // 级别永远由用户显式动作决定（弹窗按钮 / 设置页），没有自动降级。
-      const dbTolerance = new DbToleranceService(
-        join(
-          userConfig.cacheDir(
-            join('db_tolerance', accountConfigId(accountCtx.uin, metadata.dataDir)),
-          ),
-          'config.json',
-        ),
-      );
+      const dbTolerance = createDbTolerance(userConfig, accountCtx.uin, metadata.dataDir);
       this.dbTolerance = dbTolerance;
       const session = await openAccount(
         platform,
@@ -1380,9 +1397,16 @@ export function initAppContext(): AppContext {
       const selfUid = selfPreview.uid ?? '';
       if (selfUid) rememberAccountUid(selfPreview.uin, selfUid);
 
+      // 静态（导入目录）账号同样是"一个账号"，所以它有**自己**的宽容配置与账本：
+      // 按 `(uin, dirPath)` 与在线会话分开存。以前这里不赋值，`dbTolerance` 会留着上一个
+      // 账号的实例 —— 静态账号的导出会静默沿用别人的授权，设置页显示的也是别人那一份。
+      // 级别默认 0（严格），所以不授权即与今天逐字节相同。
+      const dbTolerance = createDbTolerance(userConfig, selfPreview.uin, dirPath);
+      this.dbTolerance = dbTolerance;
+
       // Static (backup) accounts are offline snapshots, not the live QQ
-      // database — no corruption watch is wired (openStaticAccount uses the raw
-      // binding) and no health check is ever triggered.
+      // database — no corruption watch is wired (no health check is ever
+      // triggered). 宽容（salvage）是另一回事：它由用户显式授权，这里照旧接上。
       const session = await openStaticAccount(platform, {
         dirPath,
         self: {
@@ -1393,6 +1417,11 @@ export function initAppContext(): AppContext {
         },
         ...(options.dbKey ? { dbKey: options.dbKey } : {}),
         ...(options.algos ? { algos: options.algos } : {}),
+        // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+        salvage: {
+          level: () => dbTolerance.level,
+          onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
+        },
       });
       this.account = session;
 
@@ -1759,6 +1788,9 @@ export function initAppContext(): AppContext {
       this.resourcePlatform = null;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
+      // 宽容服务跟着账号一起走：留着它会让设置页继续显示、甚至改写刚刚关掉的那个账号的
+      // 配置，而下一个账号（尤其静态账号）会误用到它（见 `createDbTolerance`）。
+      this.dbTolerance = null;
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;

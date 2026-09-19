@@ -52,7 +52,8 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId =
+/** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
+export type SectionId =
   | 'global'
   | 'appearance'
   | 'applock'
@@ -166,12 +167,22 @@ const DEFAULT_ACCENT = '#0099ff';
 export function SettingsDialog({
   open,
   onClose,
+  initialSection,
 }: {
   open: boolean;
   onClose: () => void;
+  /**
+   * 打开时先落到哪一屏。每次 `open` 从 false 变 true 都会重新应用 ——
+   * 否则"先关掉、再从损坏弹窗点进来"会停在用户上次看的那个分区上。
+   */
+  initialSection?: SectionId;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>('global');
   const sections = SETTINGS_SECTIONS;
+
+  useEffect(() => {
+    if (open && initialSection) setActiveId(initialSection);
+  }, [open, initialSection]);
 
   useEffect(() => {
     if (!open) return undefined;

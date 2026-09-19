@@ -28,14 +28,21 @@ export type { CorruptionSuspectInfo } from './errors';
 
 // --- 损坏宽容（salvage）---
 export {
-  SALVAGE_LEVEL_DESCRIPTIONS,
+  SALVAGE_BINDING_METHODS,
+  SALVAGE_HEALTH_METHODS,
+  SALVAGE_QUERY_METHODS,
+  SALVAGE_SCAN_METHODS,
   SalvageLedger,
+  assertSalvageCapable,
   clampSalvageLevel,
   describeSkipped,
   fingerprintSql,
   isSalvageEnabled,
   iterateSalvageWindows,
+  missingSalvageMethods,
   runSalvageScan,
+  spanOfRanges,
+  subtractCoveredRanges,
   windowPlanFrom,
   wrapBindingForSalvage,
 } from './salvage';

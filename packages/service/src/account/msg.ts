@@ -43,6 +43,7 @@ import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
 import type { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
+import type { ExportSkippedRanges } from './export/message_source';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -161,12 +162,49 @@ export class MsgService {
    * 把同一个授权对象穿过每一层只会让签名越来越长，且每新增一个格式都得记得传一次。
    * 语义仍然是"不配置就没有"—— 不传时导出与以前逐字节相同。
    */
+  /**
+   * 本次导出累计的「跳过区间」账目（按会话）。
+   *
+   * 容错续读的回调只覆盖它自己那一次读；而"这次导出到底少了哪一段"是**任务级**的
+   * 问题，所以四类续读都顺手往这里记一份，由导出任务在消息阶段结束时取走
+   * （见 {@link takeSalvageSkips}）。只记不写盘：落盘那份由账号级账本负责。
+   */
+  private readonly salvageSkips: ExportSkippedRanges[] = [];
+
   constructor(
     private readonly session: AccountSession,
     private readonly deleted?: DeletedMsgStore,
     private readonly antiRecall?: AntiRecallService,
     readonly salvage?: MsgSalvageSource,
   ) {}
+
+  /**
+   * 取走并清空累计的跳过区间（导出任务在消息阶段结束后调用）。
+   *
+   * "取走"而不是"读"：一次导出的账目不该串到下一次任务里，尤其是同一个 MsgService
+   * 会被整个账号的导出共用。
+   */
+  takeSalvageSkips(): ExportSkippedRanges[] {
+    return this.salvageSkips.splice(0, this.salvageSkips.length);
+  }
+
+  /**
+   * 在调用方给的 `onSkipped` 之外，再往本服务上记一份（见 {@link salvageSkips}）。
+   */
+  private withRecordedSkips(
+    conv: string,
+    kind: 'group' | 'c2c',
+    opts: SalvageStreamOptions,
+  ): SalvageStreamOptions {
+    const outer = opts.onSkipped;
+    return {
+      ...opts,
+      onSkipped: (ranges, span) => {
+        this.salvageSkips.push({ conv, kind, ranges, span });
+        outer?.(ranges, span);
+      },
+    };
+  }
 
   /**
    * Classify a message's deleted state from its raw type columns. A `(1,1)`
@@ -741,7 +779,7 @@ export class MsgService {
     for await (const batch of this.session.groupMsgs.streamSalvageAfter(
       targetGroupCode,
       afterSeq,
-      opts,
+      this.withRecordedSkips(targetGroupCode, 'group', opts),
     )) {
       await this.enrichReplyMedia(batch, 'group');
       yield batch.map((m) => this.renderGroupWithState(m, recallMap));
@@ -757,7 +795,7 @@ export class MsgService {
     for await (const batch of this.session.groupMsgs.streamSalvageSeqlessAfterRowId(
       targetGroupCode,
       afterRowId,
-      opts,
+      this.withRecordedSkips(targetGroupCode, 'group', opts),
     )) {
       yield batch.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
     }
@@ -773,7 +811,7 @@ export class MsgService {
     for await (const batch of this.c2cDbFor(targetUid).streamSalvageAfter(
       this.c2cPartition(targetUid),
       afterSeq,
-      opts,
+      this.withRecordedSkips(targetUid, 'c2c', opts),
     )) {
       await this.enrichReplyMedia(batch, 'c2c');
       yield batch.map((m) => this.renderC2cWithState(m, recallMap));
@@ -789,7 +827,7 @@ export class MsgService {
     for await (const batch of this.c2cDbFor(targetUid).streamSalvageSeqlessAfterRowId(
       this.c2cPartition(targetUid),
       afterRowId,
-      opts,
+      this.withRecordedSkips(targetUid, 'c2c', opts),
     )) {
       yield batch.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
     }

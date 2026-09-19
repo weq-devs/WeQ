@@ -19,6 +19,8 @@ import {
   clampSalvageLevel,
   isLikelyCorruptionError,
   iterateSalvageWindows,
+  spanOfRanges,
+  subtractCoveredRanges,
 } from '@weq/db';
 import type {
   DatabaseAlgorithms,
@@ -315,8 +317,11 @@ describe('iterateSalvageWindows', () => {
   });
 
   it('passes the remaining budget (not the original one) down to native', async () => {
+    // 跳过区间的跨度按**区间几何**算（`hi - lo`），不照抄 native 给的 `skippedSpan`：
+    // 后者会把本次调用里已经知道的区间再算一遍，跨窗口减额时不能用。
+    // 所以这里的桩必须自洽 —— 40 键跨度就是 `[1, 41)`。
     const skip = [
-      { lo: 1n, hi: 2n, prevKey: 0n, nextKey: 3n, errorKind: 'corrupt', errorCode: 11 },
+      { lo: 1n, hi: 41n, prevKey: 0n, nextKey: 41n, errorKind: 'corrupt', errorCode: 11 },
     ];
     const { stub, calls } = windowStub((options) =>
       options.lo === 0n ? { skipped: skip, skippedSpan: 40 } : boundaryRows(options),
@@ -441,12 +446,137 @@ describe('GroupMsgDb.streamSalvageAfter', () => {
   });
 });
 
+describe('跳过区间的记账（不许把同一段数两遍）', () => {
+  it('spanOfRanges 只算实际宽度，且不把非法区间算进去', () => {
+    expect(spanOfRanges([{ lo: 10n, hi: 17n }])).toBe(7);
+    expect(spanOfRanges([])).toBe(0);
+    // 反向/空区间没有宽度，不该变成负数把预算"退回"。
+    expect(
+      spanOfRanges([
+        { lo: 10n, hi: 10n },
+        { lo: 9n, hi: 3n },
+      ]),
+    ).toBe(0);
+    // 稀疏键空间的键可以大到 7.6e18：跨度按 bigint 算，不经过浮点。
+    expect(spanOfRanges([{ lo: 0n, hi: 7_600_000_000_000_000_000n }])).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it('subtractCoveredRanges 只留新碎片，并合并相邻碎片', () => {
+    const r = (lo: number, hi: number): { lo: bigint; hi: bigint } => ({
+      lo: BigInt(lo),
+      hi: BigInt(hi),
+    });
+    // 整段已知道 → 什么都不剩。
+    expect(subtractCoveredRanges([r(53, 56)], [r(53, 56)])).toEqual([]);
+    // 右侧多出来一截 → 只报那截。
+    expect(subtractCoveredRanges([r(53, 58)], [r(53, 56)])).toEqual([r(56, 58)]);
+    // 左侧多出来一截。
+    expect(subtractCoveredRanges([r(50, 56)], [r(53, 56)])).toEqual([r(50, 53)]);
+    // 中间挖掉一块 → 两截；相邻的两段已知区间会让碎片合并回去。
+    expect(subtractCoveredRanges([r(1, 10)], [r(3, 5), r(5, 8)])).toEqual([r(1, 3), r(8, 10)]);
+    expect(subtractCoveredRanges([r(1, 10)], [r(3, 5), r(6, 8)])).toEqual([
+      r(1, 3),
+      r(5, 6),
+      r(8, 10),
+    ]);
+    // 完全不重叠：原样留下。
+    expect(subtractCoveredRanges([r(1, 2)], [r(90, 99)])).toEqual([r(1, 2)]);
+    // 边界相接不算重叠（半开语义：`lo` 侧开、`hi` 侧闭）。
+    expect(subtractCoveredRanges([r(1, 5)], [r(5, 9)])).toEqual([r(1, 5)]);
+  });
+
+  it('碎片会保留原区间的诊断字段（prevKey / nextKey / errorKind）', () => {
+    const source = [
+      { lo: 53n, hi: 58n, prevKey: 52n, nextKey: 58n, errorKind: 'corrupt', errorCode: 11 },
+    ];
+    const fresh = subtractCoveredRanges(source, [{ lo: 53n, hi: 56n }]);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]).toMatchObject({
+      lo: 56n,
+      hi: 58n,
+      nextKey: 58n,
+      errorKind: 'corrupt',
+      errorCode: 11,
+    });
+  });
+
+  it('同一段坏区间被相邻窗口各报一次时，只计一处、跨度不翻倍', async () => {
+    // 复刻实测现场：坏区间 [53, 56)，游标只推进到最后一个**好**键，
+    // 于是同一段会被后面几个窗口反复盖到。旧实现把它记成 2 处 / 跨度 14（7 键的洞）。
+    const skipped = { lo: 53n, hi: 56n, prevKey: 52n, nextKey: 56n, errorKind: 'corrupt' } as never;
+    const { stub } = windowStub((options) => {
+      const overlapsBad = options.lo < 56n && (options.hi ?? 0n) > 53n;
+      const good = [51n, 52n].filter((key) => key > options.lo && key <= (options.hi ?? 0n));
+      return {
+        rows: good.map((key) => [key] as SqlRow),
+        rowCount: good.length,
+        ...(overlapsBad ? { skipped: [skipped], skippedSpan: 3 } : {}),
+      };
+    });
+
+    const reported: Array<{ ranges: number; span: number }> = [];
+    for await (const _ of iterateSalvageWindows({
+      nt: stub,
+      target: { dbPath: DB },
+      sql: SCAN_SQL,
+      plan: { lo: 50n, hi: 60n, chunk: 5 },
+      opts: { level: () => 2 },
+      onSkipped: (ranges, span) => reported.push({ ranges: ranges.length, span }),
+    })) {
+      /* 行本身不重要，这里量的是账单 */
+    }
+
+    expect(reported).toEqual([{ ranges: 1, span: 3 }]);
+    expect(reported.reduce((sum, item) => sum + item.span, 0)).toBe(3);
+  });
+
+  it('坏区间长大时，只把新长出来的那截算进账单', async () => {
+    const { stub } = windowStub((options) => {
+      const hi = options.hi ?? 0n;
+      const good = [51n, 52n].filter((key) => key > options.lo && key <= hi);
+      // 第二个窗口里坏区间向右长了两格：只有那两格是"新"的。
+      const bad = options.lo >= 52n ? { lo: 53n, hi: 58n } : { lo: 53n, hi: 56n };
+      const overlapsBad = options.lo < 58n && hi > 53n;
+      return {
+        rows: good.map((key) => [key] as SqlRow),
+        rowCount: good.length,
+        ...(overlapsBad
+          ? {
+              skipped: [{ ...bad, prevKey: 52n, nextKey: 58n, errorKind: 'corrupt' } as never],
+              skippedSpan: bad.hi - bad.lo,
+            }
+          : {}),
+      };
+    });
+
+    const reported: Array<{ ranges: number; span: number }> = [];
+    for await (const _ of iterateSalvageWindows({
+      nt: stub,
+      target: { dbPath: DB },
+      sql: SCAN_SQL,
+      plan: { lo: 50n, hi: 60n, chunk: 5 },
+      opts: { level: () => 2 },
+      onSkipped: (ranges, span) => reported.push({ ranges: ranges.length, span }),
+    })) {
+      /* 同上 */
+    }
+
+    // 第一次报 [53,56)（3 键），第二次只报新增的 [56,58)（2 键）；合计 5 而不是 8。
+    expect(reported).toEqual([
+      { ranges: 1, span: 3 },
+      { ranges: 1, span: 2 },
+    ]);
+  });
+});
+
 describe('budget failures and the "suspected corruption" detector', () => {
   it('still counts as suspected corruption, because corruption is why it gave up', () => {
     // 超预算是**主动放弃**，但放弃的原因就是“数据库确实坏了”—— 所以它必须照旧触发
     // 既有的"疑似损坏 → 健康检查 + 弹窗"链路（那也是用户能看到报告、决定要不要升级
     // 宽容级别的地方）。判定靠 native 写的错误码，而不是被改写过的文案。
-    const error = Object.assign(new Error('损坏超出宽容预算（已跳过 20 处 / 键跨度 ≤ 500）'), {
+    const error = Object.assign(new Error('损坏超出宽容预算（已跳过 256 处 / 键跨度 ≤ 8192）'), {
       name: 'SalvageBudgetError',
       errorCode: 11,
     });

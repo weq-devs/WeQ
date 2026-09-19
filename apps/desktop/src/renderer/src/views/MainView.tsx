@@ -28,7 +28,10 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
-import { SettingsDialog } from '../components/SettingsDialog';
+import {
+  SettingsDialog,
+  type SectionId as SettingsDialogSectionId,
+} from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
@@ -1704,6 +1707,10 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
+  const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
+    undefined,
+  );
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
@@ -4121,7 +4128,11 @@ export function MainView(): ReactElement {
             />
           ) : null}
 
-          <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <SettingsDialog
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            initialSection={settingsSection}
+          />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
           <WonderfulToolsDialog
@@ -4139,7 +4150,15 @@ export function MainView(): ReactElement {
             onClose={() => setQzoneAlbumOpen(false)}
             hostUin={user.identityValue}
           />
-          <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
+          <DatabaseDamagedDialog
+            event={damagedEvent}
+            onClose={() => setDamagedEvent(null)}
+            onOpenSettings={(section) => {
+              // 宽容级别只能在设置页里选，弹窗只负责把人送过去。
+              setSettingsSection(section);
+              setSettingsOpen(true);
+            }}
+          />
           {marketBrowserOpen ? (
             <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
           ) : null}
