@@ -83,20 +83,40 @@ function initLoaderLog(): string {
   return logFilePath;
 }
 
-/** Write diagnostic log to file */
+/**
+ * Verbose diagnostics toggle (`WEQ_NATIVE_DEBUG=1`).
+ *
+ * The per-file asset checks and the dev path-resolution walk are only useful
+ * when something is missing — on a healthy install they repeated ~65 lines on
+ * every startup. Off by default; turn on when diagnosing a broken checkout or
+ * an unexpected native root.
+ */
+function verboseLogging(): boolean {
+  const raw = process.env.WEQ_NATIVE_DEBUG;
+  if (raw === undefined) return false;
+  const value = raw.trim().toLowerCase();
+  return value !== '' && value !== '0' && value !== 'false';
+}
+
+/** Write diagnostic log to file (single-line JSON: no multi-line bloat) */
 function logToFile(message: string, data?: unknown): void {
   try {
     const timestamp = new Date().toISOString();
     const logPath = initLoaderLog();
     let logLine = `[${timestamp}] ${message}`;
     if (data !== undefined) {
-      logLine += ` ${typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)}`;
+      logLine += ` ${typeof data === 'object' ? JSON.stringify(data) : String(data)}`;
     }
     logLine += '\n';
     appendFileSync(logPath, logLine, 'utf-8');
   } catch {
     // Silent failure - don't break loading if logging fails
   }
+}
+
+/** Verbose-only diagnostic line (no-op unless {@link verboseLogging}). */
+function logVerbose(message: string, data?: unknown): void {
+  if (verboseLogging()) logToFile(message, data);
 }
 
 export interface LoadNativeOptions {
@@ -107,8 +127,9 @@ export interface LoadNativeOptions {
 export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   if (cached) return cached;
 
+  const startedAt = Date.now();
   logToFile('[loadNative] Starting native module loading...');
-  logToFile('[loadNative] Process info:', {
+  logVerbose('[loadNative] Process info:', {
     platform: process.platform,
     arch: process.arch,
     cwd: process.cwd(),
@@ -120,12 +141,12 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   logToFile('[loadNative] Resolved native root:', nativeRoot);
 
   const platformRoot = resolvePlatformRoot(nativeRoot);
-  logToFile('[loadNative] Platform root:', platformRoot);
+  logVerbose('[loadNative] Platform root:', platformRoot);
 
   const ntHelperPath = join(platformRoot, 'nt_helper.node');
-  logToFile('[loadNative] nt_helper path:', ntHelperPath);
+  logVerbose('[loadNative] nt_helper path:', ntHelperPath);
   assertExists(ntHelperPath, 'nt_helper.node');
-  logToFile('[loadNative] nt_helper.node exists, attempting to require...');
+  logVerbose('[loadNative] nt_helper.node exists, attempting to require...');
 
   const nineBirdDir = join(platformRoot, 'ninebird');
   const resources = buildResources(nineBirdDir, nativeRoot);
@@ -176,7 +197,10 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
     nineBirdBoot,
     resources,
   };
-  logToFile('[loadNative] Native modules loaded and cached successfully');
+  logToFile('[loadNative] Native modules loaded and cached successfully', {
+    nativeRoot,
+    elapsedMs: Date.now() - startedAt,
+  });
   return cached;
 }
 
@@ -220,6 +244,9 @@ export function loadNativeSafe(opts: LoadNativeOptions = {}): NativeLoadResult {
     const message = e instanceof Error ? e.message : String(e);
     const status = parseInitStatus(message);
     const kind = status === InitStatus.Expired ? 'expired' : 'damaged';
+    // 失败会在 UI 里弹窗，但日志里也必须留下分类结论 —— 以前只有底层 throw
+    // 的原始 message，没有 expired/damaged 的判定。
+    logToFile('[loadNativeSafe] load failed', { kind, status, message });
     return { ok: false, status, kind, message };
   }
 }
@@ -235,37 +262,37 @@ function parseInitStatus(message: string): InitStatus | null {
 // ---------- internals -----------------------------------------------------
 
 function resolveNativeRoot(): string {
-  logToFile('[resolveNativeRoot] Starting native root resolution...');
+  logVerbose('[resolveNativeRoot] Starting native root resolution...');
 
   const override = process.env.WEQ_NATIVE_DIR;
   if (override) {
-    logToFile('[resolveNativeRoot] Found WEQ_NATIVE_DIR override:', override);
+    logVerbose('[resolveNativeRoot] Found WEQ_NATIVE_DIR override:', override);
     if (!existsSync(override)) {
-      logToFile('[resolveNativeRoot] WEQ_NATIVE_DIR path does not exist');
+      logToFile('[resolveNativeRoot] WEQ_NATIVE_DIR path does not exist:', override);
       throw new Error(`WEQ_NATIVE_DIR points at non-existent directory: ${override}`);
     }
-    logToFile('[resolveNativeRoot] Using WEQ_NATIVE_DIR:', override);
+    logVerbose('[resolveNativeRoot] Using WEQ_NATIVE_DIR:', override);
     return override;
   }
 
   // Production: Electron sets process.resourcesPath when packaged. The bundle
   // is copied to the install root (sibling of resources/), not into resources/.
   const electronResources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-  logToFile('[resolveNativeRoot] Electron resourcesPath:', electronResources || '<not set>');
+  logVerbose('[resolveNativeRoot] Electron resourcesPath:', electronResources || '<not set>');
 
   if (electronResources) {
     const candidates = [
       join(dirname(electronResources), 'native'),
       join(electronResources, 'native'),
     ];
-    logToFile('[resolveNativeRoot] Checking Electron packaged paths:', candidates);
+    logVerbose('[resolveNativeRoot] Checking Electron packaged paths:', candidates);
     for (const packaged of candidates) {
       if (existsSync(packaged)) {
-        logToFile('[resolveNativeRoot] Found packaged native at:', packaged);
+        logVerbose('[resolveNativeRoot] Found packaged native at:', packaged);
         return packaged;
       }
     }
-    logToFile('[resolveNativeRoot] No packaged paths exist');
+    logVerbose('[resolveNativeRoot] No packaged paths exist');
   }
 
   // Dev: bundlers (electron-vite) rewrite `import.meta.url` so it points
@@ -273,17 +300,17 @@ function resolveNativeRoot(): string {
   // file. Walk upward looking for a sibling `native/` so we work
   // regardless of how deep we got bundled. Confirm it's the right dir by
   // checking for the current platform's subdir (not a hardcoded win32).
-  logToFile('[resolveNativeRoot] Trying dev mode path resolution...');
+  logVerbose('[resolveNativeRoot] Trying dev mode path resolution...');
   const tried: string[] = [];
   for (const start of [here, process.cwd()]) {
-    logToFile('[resolveNativeRoot] Walking up from:', start);
+    logVerbose('[resolveNativeRoot] Walking up from:', start);
     let dir = resolve(start);
     for (let i = 0; i < 8; i++) {
       const candidate = join(dir, 'native');
       tried.push(candidate);
       const platformCheck = join(candidate, process.platform);
       if (existsSync(candidate) && existsSync(platformCheck)) {
-        logToFile('[resolveNativeRoot] Found dev native at:', candidate);
+        logVerbose('[resolveNativeRoot] Found dev native at:', candidate);
         return candidate;
       }
       const parent = dirname(dir);
@@ -410,7 +437,7 @@ function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResour
 }
 
 function assertExists(path: string, label: string): void {
-  logToFile(`[assertExists] Checking ${label} at: ${path}`);
+  logVerbose(`[assertExists] Checking ${label} at: ${path}`);
   if (!existsSync(path)) {
     logToFile(`[assertExists] MISSING: ${label} not found at ${path}`);
     // nt_helper.node 不入库（最容易缺的就是它）；ninebird/ 下的二进制仍在仓库里。
@@ -423,7 +450,7 @@ function assertExists(path: string, label: string): void {
   }
   try {
     const stats = statSync(path);
-    logToFile(`[assertExists] Found ${label}`, {
+    logVerbose(`[assertExists] Found ${label}`, {
       size: stats.size,
       mode: stats.mode.toString(8),
     });
@@ -437,6 +464,8 @@ function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const logPath = join(logRoot, `nt_helper_${today}.log`);
   ntHelper.setLogPath(logPath);
+  // 把两份日志（loader / nt_helper）关联起来：出问题时一眼能看出 addon 写到哪。
+  logToFile('[loadNative] nt_helper log path:', logPath);
 }
 
 /**

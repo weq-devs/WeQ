@@ -202,7 +202,7 @@ executeSqlWithKey 返回行示例：
 ## 8. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
-2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。
+2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级，排查时用环境变量 `WEQ_LOG_LEVEL=debug|trace` 抬升（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
