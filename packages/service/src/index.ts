@@ -611,7 +611,15 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
-export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
+export {
+  getLogDir,
+  getLogger,
+  initLogger,
+  logErrorContext,
+  planExpiredLogs,
+  pruneExpiredLogs,
+} from './common/logger';
+export type { LogFileCandidate } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';

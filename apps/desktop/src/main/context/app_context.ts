@@ -31,6 +31,7 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { startLogRetention } from '../log_retention';
 import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
@@ -759,6 +760,11 @@ export function initAppContext(): AppContext {
       endsWithTencentFiles: isTencentFilesRoot(storedOverride),
     });
   }
+
+  // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
+  // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
+  // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
+  startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
   // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
   // it needs an elevated writer unless the host is already root. Windows uses

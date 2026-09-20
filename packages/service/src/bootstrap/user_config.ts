@@ -488,6 +488,26 @@ export interface AppSettings {
    * 该目录，不再逐个弹系统保存对话框；未设置时保持原有逐任务选择路径的行为。
    */
   defaultExportDir: string | null;
+  /**
+   * 日志保留天数（设置 → 日志）。默认 {@link DEFAULT_LOG_RETENTION_DAYS} 天，
+   * 0 = 永久保留。WeQ 自身的 `logs/` 与原生组件日志目录都按此清理，判断依据是
+   * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
+   */
+  logRetentionDays: number;
+}
+
+/** 日志保留天数的默认值（7 天）。 */
+export const DEFAULT_LOG_RETENTION_DAYS = 7;
+
+/** 日志保留天数的上限——再长会让日志目录失去「自己会瘦下来」的意义。 */
+export const MAX_LOG_RETENTION_DAYS = 365;
+
+/** 归一化日志保留天数：整数、0..{@link MAX_LOG_RETENTION_DAYS}，非法值返回 undefined。 */
+function normalizeLogRetentionDays(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const days = Math.floor(value);
+  if (days < 0 || days > MAX_LOG_RETENTION_DAYS) return undefined;
+  return days;
 }
 
 /**
@@ -597,6 +617,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
+  logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
 };
 
 export interface UserConfig {
@@ -915,6 +936,7 @@ export class UserConfigService {
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
+      logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1004,6 +1026,8 @@ export class UserConfigService {
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
+      logRetentionDays:
+        normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
