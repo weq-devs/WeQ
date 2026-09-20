@@ -80,11 +80,11 @@ export function DbRepairReturnOverlay(): ReactElement | null {
 
   return (
     <div
-      className={`weq-repair-return${pending.tone === 'warn' ? ' is-warn' : ''}`}
+      className={`weq-rp-return${pending.tone === 'warn' ? ' is-warn' : ''}`}
       role="status"
       aria-live="polite"
     >
-      <span className="weq-repair-return-icon" aria-hidden>
+      <span className="weq-rp-return-icon" aria-hidden>
         {leaving ? (
           <Loader2 size={18} strokeWidth={2} className="weq-spin" />
         ) : pending.tone === 'warn' ? (
@@ -93,10 +93,10 @@ export function DbRepairReturnOverlay(): ReactElement | null {
           <CheckCircle2 size={18} strokeWidth={2} />
         )}
       </span>
-      <span className="weq-repair-return-text">
+      <span className="weq-rp-return-text">
         <strong>{pending.title}</strong>
         <span>{pending.detail}</span>
-        <span className="weq-repair-return-count">
+        <span className="weq-rp-return-count">
           {leaving ? '正在回到启动页…' : `${left} 秒后自动回到启动页`}
         </span>
       </span>
