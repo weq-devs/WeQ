@@ -155,6 +155,7 @@ export { ServiceAccountService } from './account/service_account';
 export type { ServiceAccountSummary } from './account/service_account';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
+export type { MsgSalvageSource } from './account/msg';
 export * from './account/annual_report';
 export {
   GroupInfoService,
@@ -166,6 +167,11 @@ export {
   type GroupMessageRankingItem,
   type GroupWordCloudItem,
   type GroupDailyActivityItem,
+  type GroupJoinBatchMember,
+  type GroupJoinBatch,
+  type GroupJoinBatchReport,
+  type ConversationGraphNodeView,
+  type GroupConversationGraphReport,
 } from './account/group_info';
 export {
   BuddyAnalyticsService,
@@ -344,6 +350,12 @@ export type {
   CleanupResult,
 } from './account/resource_cleanup';
 export {
+  AFFECTED_SAMPLE_PAGES,
+  mapBadPagesToObjects,
+  scanDatabaseBadPages,
+} from './account/bad_pages';
+export type { AffectedObject, BadPageScanReport, ScanBadPagesInput } from './account/bad_pages';
+export {
   ACCOUNT_HEALTH_DATABASES,
   DB_HEALTH_REPORT_PREFIX,
   checkAccountDatabaseHealth,
@@ -360,6 +372,65 @@ export type {
   DbDamageFeedbackResult,
   DbDamageFeedbackTarget,
 } from './account/db_health';
+export { DbToleranceService } from './account/db_tolerance';
+export type { DbToleranceConfig } from './account/db_tolerance';
+export {
+  DB_REPAIR_CACHE_DIR,
+  DEFAULT_BACKUP_KEEP,
+  DbRepairError,
+  DbRepairHistory,
+  DbRepairService,
+  classifyLock,
+  concludeCheckup,
+  dbRepairPaths,
+  dbRepairRoot,
+  isQqProcessName,
+  makeStamp,
+  productTempPath,
+  renderDbRepairReportMarkdown,
+  resolveAccountDbDir,
+} from './account/db_repair';
+export type {
+  DbRepairAccountInfo,
+  DbRepairAccountRef,
+  DbRepairBackupResult,
+  DbRepairCheckup,
+  DbRepairCheckupIntegrity,
+  DbRepairCheckupPages,
+  DbRepairCheckupVerdict,
+  DbRepairDeps,
+  DbRepairErrorCode,
+  DbRepairLockClassification,
+  DbRepairLockHolder,
+  DbRepairLockProbe,
+  DbRepairPaths,
+  DbRepairPhase,
+  DbRepairPreflight,
+  DbRepairProgress,
+  DbRepairReadiness,
+  DbRepairRecord,
+  DbRepairRecordState,
+  DbRepairRecoverOptions,
+  DbRepairRecoverPhaseTiming,
+  DbRepairRecoverReport,
+  DbRepairRecoverVerification,
+  DbRepairReportOptions,
+  DbRepairRequest,
+  DbRepairRestorePreview,
+  DbRepairTarget,
+  DbRepairWalCheckpoint,
+} from './account/db_repair';
+export {
+  SALVAGE_AGGREGATE_CAVEAT,
+  SALVAGE_EXPERIMENTAL_NOTE,
+  SALVAGE_EXPERIMENTAL_TAG,
+  SALVAGE_LEVEL_COPY,
+  SALVAGE_SKIPPED_SPAN_CAVEAT,
+  salvageLevelCopy,
+  salvageLevelToast,
+  salvageLevelsAscending,
+} from './account/db_tolerance_copy';
+export type { SalvageLevelCopy } from './account/db_tolerance_copy';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
@@ -494,8 +565,10 @@ export type {
   ExportProgress,
   ProgressCallback as ExportProgressCallback,
   ExportResult,
+  ExportSkippedRanges,
   GroupExportOptions,
   IterateOptions,
+  SalvageSourceOptions,
   JsonExportOptions,
   ExportTask,
   TaskStatus,
@@ -543,7 +616,15 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
-export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
+export {
+  getLogDir,
+  getLogger,
+  initLogger,
+  logErrorContext,
+  planExpiredLogs,
+  pruneExpiredLogs,
+} from './common/logger';
+export type { LogFileCandidate } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';

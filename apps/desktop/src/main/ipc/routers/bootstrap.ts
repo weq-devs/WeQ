@@ -43,6 +43,7 @@ import {
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
+import { runLogRetentionSweep } from '../../log_retention';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -611,6 +612,20 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ preferCdn: input.enabled });
     return true;
   }),
+
+  /**
+   * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
+   *
+   * 写入后立即按新阈值清一轮：用户调小天数就是为了**马上**腾出空间，等到下一次
+   * 启动或后台定时（最长 6 小时）才生效会让人以为没生效。
+   */
+  setLogRetentionDays: procedure
+    .input(z.object({ days: z.number().int().min(0).max(365) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ logRetentionDays: input.days });
+      runLogRetentionSweep(input.days);
+      return true;
+    }),
 
   /**
    * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`

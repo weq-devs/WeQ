@@ -11,7 +11,21 @@
  * connection (e.g. on account switch / app shutdown).
  */
 
-import type { NtHelperBinding, SqlRow, SqlValue, DatabaseAlgorithms } from '@weq/native';
+import type {
+  NtHelperBinding,
+  SalvageScanOutcome,
+  SqlRow,
+  SqlValue,
+  DatabaseAlgorithms,
+} from '@weq/native';
+import {
+  iterateSalvageWindows,
+  runSalvageScan,
+  type SalvageBindingOptions,
+  type SalvageScanRequest,
+  type SalvageWindowExtras,
+  type SalvageWindowPlan,
+} from './salvage';
 
 export interface QqDbOptions {
   /** Absolute path to the QQ NT database file (encrypted, with QQ wrapper). */
@@ -53,6 +67,67 @@ export class QqDb {
       return this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
     }
     return this.nt.executeSql(this.dbPath, sql, params ?? null);
+  }
+
+  /**
+   * 损坏宽容的分块扫描（L2/L3）：按 key 区间切块读取，读不出来的块先换访问路径、
+   * 再二分，最后把读不出来的区间记成"跳过区间"并如实汇报。
+   *
+   * 与 `query()` 的差别：`query()` 是一条语句一次性读完（遇到损坏就整体失败），
+   * 而 `scan()` 会在**用户授权**的范围内尽量多地把数据读出来。代价是可能缺数据，
+   * 所以它：严格级别直接拒绝；`ok === false`（超预算 / 未授权 L2 / 表被隔离）照旧
+   * 抛错；每一次跳过都进账本。
+   *
+   * SQL 契约：末两个 `?` 是 `(lo, hi)`、结果按 key 升序、**第一列是整数 key**
+   * （一般是 `rowid`）—— native 侧靠它记录"坏区间的前后邻居"。
+   */
+  scan(
+    sql: string,
+    request: SalvageScanRequest,
+    salvage: SalvageBindingOptions,
+  ): Promise<SalvageScanOutcome> {
+    return runSalvageScan(
+      this.nt,
+      {
+        dbPath: this.dbPath,
+        ...(this.encrypted ? { key: this.key!, algo: this.algo! } : {}),
+      },
+      sql,
+      request,
+      salvage,
+    );
+  }
+
+  /**
+   * 分块容错读取（L2）：沿键轴逐块扫描，**逐块**把原始行交出来。
+   *
+   * 与 `scan()` 的差别只在于内存：`scan()` 一次调用扫完整个区间、把所有行一次性
+   * 返回，适合"一段"数据；本方法把同一个区间切成多块，每块读完就交出去，适合
+   * "整场会话"这种量级 —— 导出正是靠它才能不把几万条消息堆在内存里。
+   *
+   * 扫描语句的契约与 `scan()` 相同（末两个 `?` 是 `(lo, hi)`、按第一列整数键升序），
+   * 且只在用户授权级别 ≥ 2 时可用。
+   */
+  scanWindows(
+    sql: string,
+    params: SqlValue[] | null,
+    plan: SalvageWindowPlan,
+    salvage: SalvageBindingOptions,
+    extras: SalvageWindowExtras = {},
+  ): AsyncGenerator<SqlRow[]> {
+    return iterateSalvageWindows({
+      nt: this.nt,
+      target: {
+        dbPath: this.dbPath,
+        ...(this.encrypted ? { key: this.key!, algo: this.algo! } : {}),
+      },
+      sql,
+      params,
+      plan,
+      opts: salvage,
+      ...(extras.hints && extras.hints.length > 0 ? { hints: extras.hints } : {}),
+      ...(extras.onSkipped ? { onSkipped: extras.onSkipped } : {}),
+    });
   }
 
   /**

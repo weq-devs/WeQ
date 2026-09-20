@@ -6,8 +6,9 @@
  * table costs seconds and the `GROUP BY 40027` ranking is far worse. Instead of
  * touching native, this class reuses existing primitives:
  *
- *   1. `fastDecryptDatabase`  — one-shot native bulk decrypt of the source into
- *      a writable plain SQLite file (~1.3s for the 518MB group DB).
+ *   1. Native decrypt into a writable plain SQLite file. Large sources use
+ *      `safeDecryptDatabase` (SQLite page-based export); small sources retain
+ *      `fastDecryptDatabase` (~1.3s for the 518MB group DB).
  *   2. `executeSqlWrite`      — the native SQLite build ships FTS5 with the
  *      `trigram` tokenizer, so we create a virtual table right inside the plain
  *      file and populate it with a single `INSERT INTO ... SELECT`.
@@ -30,6 +31,7 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import { selectDatabaseDecryptMethod } from '@weq/native';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 
@@ -297,7 +299,8 @@ export class MsgSearchIndexDb {
 
     // 1) Bulk-decrypt the encrypted source straight into the index file, then
     //    drop any cached handle so the CREATE/INSERT writers are not blocked.
-    this.nt.fastDecryptDatabase(this.sourcePath, path, this.key!, this.algo!);
+    const method = selectDatabaseDecryptMethod(this.sourcePath);
+    this.nt[method](this.sourcePath, path, this.key!, this.algo!);
     try {
       this.nt.closeDb(path);
     } catch {

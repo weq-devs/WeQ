@@ -29,6 +29,7 @@ import {
   Check,
   Copy,
   Database,
+  DatabaseZap,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -40,6 +41,7 @@ import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
 import { ReverseTool } from './ReverseTool';
+import { DbRepairPanel } from './DbRepairPanel';
 
 interface AccountRow {
   uin: string;
@@ -64,17 +66,20 @@ interface ScanResultView extends ScanResultWire {
   pid: number | null;
 }
 
-type ToolId = 'key-scan' | 'other-device-key' | 'reverse';
+/** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
+export type ToolId = 'key-scan' | 'other-device-key' | 'reverse' | 'db-repair';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '零注入内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
+  { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'key-scan': KeyRound,
   'other-device-key': Database,
+  'db-repair': DatabaseZap,
   reverse: Braces,
 };
 
@@ -269,11 +274,17 @@ function SaltHeaderDump({
 export function WonderfulToolsDialog({
   open,
   onClose,
+  initialTool = 'key-scan',
+  currentUin = null,
 }: {
   open: boolean;
   onClose: () => void;
+  /** 打开时落在哪一个工具上（损坏弹窗要横着跳进「数据库修复」）。 */
+  initialTool?: ToolId;
+  /** 当前登录的账号 —— 数据库修复只修这一个，不接受选别的账号。 */
+  currentUin?: string | null;
 }): ReactElement | null {
-  const [activeTool, setActiveTool] = useState<ToolId>('key-scan');
+  const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -365,6 +376,8 @@ export function WonderfulToolsDialog({
 
   useEffect(() => {
     if (open) {
+      // 每次打开都从 `initialTool` 开始：损坏弹窗要直接落在「数据库修复」上。
+      setActiveTool(initialTool);
       setResult(null);
       setScanningUin(null);
       setScanTarget(null);
@@ -378,7 +391,7 @@ export function WonderfulToolsDialog({
       setOtherCopied(false);
       void loadAccounts();
     }
-  }, [open, loadAccounts]);
+  }, [open, initialTool, loadAccounts]);
 
   async function scanAccount(acc: AccountRow): Promise<void> {
     setScanTarget(acc);
@@ -766,6 +779,18 @@ export function WonderfulToolsDialog({
                   ) : null}
                 </div>
               </>
+            ) : null}
+
+            {activeTool === 'db-repair' ? (
+              <DbRepairPanel
+                currentUin={currentUin}
+                accounts={accounts.map((acc) => ({
+                  uin: acc.uin,
+                  name: acc.userName,
+                  avatarUrl: acc.avatarUrl,
+                }))}
+                onRefreshAccounts={() => void loadAccounts()}
+              />
             ) : null}
 
             {activeTool === 'reverse' ? (

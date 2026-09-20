@@ -715,6 +715,31 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /**
+   * 把本次导出的「跳过区间」写进任务日志。
+   *
+   * 这是用户能看到"这次导出少了哪一段"的两个地方之一（另一个是设置 → 数据库宽容
+   * 的账本）。口径必须与 native / 账本一致：只说**键区间与键跨度**，不说行数 ——
+   * 区间内部有多少行读不出来就是不知道，而键跨度也不是行数的上界（同一个键可能对应
+   * 多行 —— 共享 `seq` 的灰条、贴表情）。
+   *
+   * 取走即清（`takeSalvageSkips`），一次导出的账目不会串到下一次任务。
+   */
+  private logSalvageSkips(taskId: string): void {
+    const skips = this.msgs.takeSalvageSkips();
+    if (skips.length === 0) return;
+    const ranges = skips.reduce((sum, s) => sum + s.ranges.length, 0);
+    const span = skips.reduce((sum, s) => sum + s.span, 0);
+    const convs = [...new Set(skips.map((s) => s.conv))];
+    this.log(
+      taskId,
+      'message',
+      `损坏降级：跳过 ${ranges} 处读不出来的区间（键跨度合计 ${span}，不是条数），` +
+        `涉及会话 ${convs.join('、')}。导出的消息可能不完整，明细见 设置 → 数据库宽容 的账本`,
+      'warn',
+    );
+  }
+
+  /**
    * Coarse overall percent — the mean of every stage's percent. With the
    * post-message stages running concurrently, a single "active stage" percent
    * would jump around; averaging keeps the summary bar smooth and monotonic-ish.
@@ -1227,6 +1252,7 @@ export class ExportTaskManager extends EventEmitter {
           'message',
           `消息导出完成：${result.messageCount} 条，耗时 ${Math.round(result.durationMs / 1000)}s`,
         );
+        this.logSalvageSkips(id);
         if (isBundle) task.bundleDir = outDir;
         return result;
       })();

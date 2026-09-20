@@ -13,6 +13,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
+import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -115,6 +116,17 @@ const weqBridge = {
   capture: {
     /** 抓取 WeQ 窗口客户区写入系统剪贴板（含隐私遮罩效果）。截完即可粘贴。 */
     window: () => ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
+  },
+  analyticsShot: {
+    /**
+     * 把这张分析卡片存成长图：主进程会开一个**从不显示**的窗口把同一份卡片渲染出来拍图，
+     * 再在发起导出的窗口上弹保存框。用户窗口全程不参与，所以屏幕上不会有任何变化。
+     */
+    render: (payload: AnalyticsExportPayload) =>
+      ipcRenderer.invoke('analytics-shot:render', payload) as Promise<AnalyticsExportResult>,
+    /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
+    claimPayload: () =>
+      ipcRenderer.invoke('analytics-shot:claim') as Promise<AnalyticsExportPayload | null>,
   },
 };
 

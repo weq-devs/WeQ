@@ -28,9 +28,15 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
-import { SettingsDialog } from '../components/SettingsDialog';
+import {
+  SettingsDialog,
+  type SectionId as SettingsDialogSectionId,
+} from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
-import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
+import {
+  WonderfulToolsDialog,
+  type ToolId as WonderfulToolId,
+} from '../components/WonderfulToolsDialog';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
@@ -1704,9 +1710,15 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
+  const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
+    undefined,
+  );
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
+  /** 打开妙妙工具时先落到哪一页（损坏弹窗 → 数据库修复）。账号固定为当前登录的这一个。 */
+  const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
@@ -1724,6 +1736,8 @@ export function MainView(): ReactElement {
   const [analyticsDialog, setAnalyticsDialog] = useState<{
     groupCode: string;
     groupName: string;
+    memberCount?: number;
+    avatarUrl?: string | null;
   } | null>(null);
   const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
     peerUid: string;
@@ -1784,6 +1798,12 @@ export function MainView(): ReactElement {
   // translucent overlay in the chat. Loaded per conversation, updated
   // optimistically on delete/restore.
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+
+  /** 打开妙妙工具，并指定先落到哪一页 —— 多个入口（左栏「更多功能」、「损坏」弹窗）都会直达某一页。 */
+  function openWonderfulToolsAt(tool: WonderfulToolId) {
+    setWonderfulToolsTool(tool);
+    setWonderfulToolsOpen(true);
+  }
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1889,6 +1909,8 @@ export function MainView(): ReactElement {
       setAnalyticsDialog({
         groupCode: conversation.id,
         groupName: conversation.group.name,
+        memberCount: conversation.group.memberCount,
+        avatarUrl: conversation.group.avatarUrl,
       });
     },
     [],
@@ -3890,7 +3912,8 @@ export function MainView(): ReactElement {
             onGoHome={() => shell.switchView('home')}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
-            onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
+            onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
+            onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -4117,11 +4140,17 @@ export function MainView(): ReactElement {
             />
           ) : null}
 
-          <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <SettingsDialog
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            initialSection={settingsSection}
+          />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
+            initialTool={wonderfulToolsTool}
+            currentUin={user.identityValue}
             onClose={() => setWonderfulToolsOpen(false)}
           />
           <GuildDirectDialog
@@ -4135,7 +4164,21 @@ export function MainView(): ReactElement {
             onClose={() => setQzoneAlbumOpen(false)}
             hostUin={user.identityValue}
           />
-          <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
+          <DatabaseDamagedDialog
+            event={damagedEvent}
+            onClose={() => setDamagedEvent(null)}
+            onOpenSettings={(section) => {
+              // 宽容级别只能在设置页里选，弹窗只负责把人送过去。
+              setSettingsSection(section);
+              setSettingsOpen(true);
+            }}
+            onOpenRepair={() => {
+              // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚）。
+              // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
+              setDamagedEvent(null);
+              openWonderfulToolsAt('db-repair');
+            }}
+          />
           {marketBrowserOpen ? (
             <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
           ) : null}
@@ -4158,6 +4201,8 @@ export function MainView(): ReactElement {
             <GroupAnalyticsDialog
               groupCode={analyticsDialog.groupCode}
               groupName={analyticsDialog.groupName}
+              memberCount={analyticsDialog.memberCount}
+              avatarUrl={analyticsDialog.avatarUrl}
               onClose={() => setAnalyticsDialog(null)}
             />
           ) : null}
@@ -4260,6 +4305,12 @@ export function MainView(): ReactElement {
             <MemberProfileCard
               member={memberCard.member}
               anchor={memberCard.anchor}
+              groupCode={
+                selectedConversation?.type === 'group' ? selectedConversation.id : undefined
+              }
+              groupName={
+                selectedConversation?.type === 'group' ? selectedConversation.group.name : undefined
+              }
               onClose={() => setMemberCard(null)}
             />
           ) : null}

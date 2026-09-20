@@ -33,6 +33,7 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
 import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
+import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
@@ -585,6 +586,7 @@ void app.whenReady().then(async () => {
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。
   systemAuthService.warmup();
   registerCaptureIpc();
+  registerAnalyticsExportIpc();
   registerChannelIpc();
   registerQzoneIpc();
   registerFlashShareIpc();

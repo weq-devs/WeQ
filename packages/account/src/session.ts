@@ -43,10 +43,26 @@ import {
   GuildDirectMsgDb,
   GuildCommonProfileDb,
   wrapBindingForCorruption,
+  wrapBindingForSalvage,
 } from '@weq/db';
-import type { CorruptionSuspectInfo } from '@weq/db';
+import type { CorruptionSuspectInfo, SalvageLedger, SalvageLedgerEntry } from '@weq/db';
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
+
+/**
+ * 账号级的损坏宽容（salvage）授权。
+ *
+ * `level()` 由调用方实时提供（账号级设置），**为 0（默认）时整个包装是纯透传** ——
+ * 不换连接、不改行为。只有用户显式授权 ≥ 1 后，读取才会改走 salvage 通道。写路径永远
+ * 不走这里。在线账号（{@link openAccount}）与静态账号（`openStaticAccount`）共用它。
+ */
+export interface AccountSalvageOptions {
+  level: () => number;
+  /** 降级账本（每次换访问路径 / 救不回来都会记账）。 */
+  ledger?: SalvageLedger;
+  /** 额外回调，供落盘。 */
+  onEntry?: (entry: SalvageLedgerEntry) => void;
+}
 
 export interface AccountContext {
   /** Account QQ number. */
@@ -193,19 +209,37 @@ export async function openAccount(
    * watch entirely.
    */
   onCorruptionSuspected?: (info: CorruptionSuspectInfo) => void,
+  /**
+   * 可选的损坏宽容（salvage）授权。
+   *
+   * `level()` 由调用方实时提供（账号级设置），**为 0（默认）时整个包装是纯透传**
+   * —— 不换连接、不改行为。只有用户显式授权 ≥ 1 后，读取才会改走 salvage 通道。
+   * 写路径永远不走这里。
+   */
+  salvage?: AccountSalvageOptions,
 ): Promise<AccountSession> {
   const msgDbPath = platform.ntMsgDbPath(ctx.uin);
   if (!msgDbPath) {
     throw new Error(`nt_msg.db not found for uin=${ctx.uin}`);
   }
 
-  // Online sessions get a corruption-watching wrapper around the shared native
-  // binding so any query that rejects with a corruption-signature error is
-  // surfaced through `onCorruptionSuspected`. Without the hook (or for static
-  // accounts) we use the raw binding unchanged.
-  const nt = onCorruptionSuspected
-    ? wrapBindingForCorruption(platform.native.ntHelper, onCorruptionSuspected)
+  // 两层包装，顺序很关键：
+  //
+  //   观察者（既有）  ← 最外层：任何一个读查询以"像损坏"的方式失败，都还是从这里
+  //                     汇总出去做健康检查。检测时机与今天完全一致。
+  //   执行者（新增）  ← 内层：只有账号级设置授权了级别 ≥ 1 时才改走 salvage 通道；
+  //                     级别为 0 时是纯透传，行为与今天逐字节相同。
+  //
+  // 这样即便在宽容模式下，触发健康检查的那条链路也没变。
+  const base = salvage
+    ? wrapBindingForSalvage(platform.native.ntHelper, {
+        level: salvage.level,
+        ledger: salvage.ledger,
+        onEntry: salvage.onEntry,
+      })
     : platform.native.ntHelper;
+
+  const nt = onCorruptionSuspected ? wrapBindingForCorruption(base, onCorruptionSuspected) : base;
 
   // Resolve all db paths upfront so we can probe missing algos before opening.
   const profileInfoPath = platform.profileInfoDbPath(ctx.uin);

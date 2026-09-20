@@ -19,7 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import {
@@ -31,6 +31,7 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { startLogRetention } from '../log_retention';
 import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
@@ -128,8 +129,10 @@ import {
   type SsePushConfig,
   WeqAssistantService,
   SsePushService,
+  DbToleranceService,
   createDirectInjectHook,
   type InjectHook,
+  type MsgSalvageSource,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -156,6 +159,13 @@ export interface AccountForcedClosedEvent {
   reason: 'database-damaged';
   /** 'confirmed' — integrity scan found damage; 'check-error' — scan itself failed. */
   kind: 'confirmed' | 'check-error';
+  /**
+   * 出问题的是哪个账号。
+   *
+   * 弹窗靠它把用户送到**正确的那一个**账号上：点「尝试修复」直接落到妙妙工具的
+   * 数据库修复页，并把账号预选好。多账号下不传这个就会修到别人的库上。
+   */
+  uin: string;
   title: string;
   message: string;
   details: string[];
@@ -247,6 +257,65 @@ function unmountDbWatch(): void {
 }
 
 /**
+ * 导出链路的损坏宽容授权。
+ *
+ * 只有导出会用它（分页读真的报出损坏、且该账号已授权级别 ≥ 2 → 从当前游标切到
+ * 容错续读）。宽容服务是**每个账号一份**的，所以这里必须传当前账号那一份；
+ * 传 `null`（没打开账号 / 关账号时）就是严格 —— 这也是默认状态：级别为 0 时导出与
+ * 以前逐字节相同。
+ *
+ * 注意：**不允许**让它退回"上一次打开的那个账号"的实例。静态账号与在线账号各有自己的
+ * 配置，串用会让「A 账号开了宽容」顺带影响 B 账号（见 {@link AppContext.dbTolerance}）。
+ */
+function exportSalvageSource(tolerance: DbToleranceService | null): MsgSalvageSource | undefined {
+  return tolerance ? { binding: tolerance.binding() } : undefined;
+}
+
+/**
+ * 为某个账号建一份宽容配置服务（在线 / 静态各一份，按 `(uin, dataDir)` 隔离）。
+ *
+ * 路径与导出缓存同源（`accountConfigId`），所以同一账号的在线会话与导入目录各算一个
+ * 账号 —— 与 `AccountConfigService`、导出任务的口径一致。
+ */
+function createDbTolerance(
+  userConfig: UserConfigService,
+  uin: string,
+  dataDir: string | undefined,
+): DbToleranceService {
+  return new DbToleranceService(
+    join(userConfig.cacheDir(join('db_tolerance', accountConfigId(uin, dataDir))), 'config.json'),
+  );
+}
+
+/**
+ * 释放当前账号全部数据库的 salvage（宽容）只读连接。
+ *
+ * 只在用户把宽容级别降回严格（0）时调用：宽容连接要立刻释放，而正在服务界面的
+ * **严格**连接不能被打断，所以这里用 `closeSalvageDb` 而不是 `closeDb`。
+ * 返回释放的连接数。
+ */
+export function closeSalvageConnections(ctx: AppContext): number {
+  const platform = ctx.platform;
+  const session = ctx.account;
+  if (!platform || !session) return 0;
+  const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
+  let closed = 0;
+  try {
+    for (const name of readdirSync(dbDir)) {
+      if (!name.endsWith('.db')) continue;
+      closed += platform.native.ntHelper.closeSalvageDb(join(dbDir, name));
+    }
+  } catch (e) {
+    getLogger().warn('failed to enumerate db dir while closing salvage connections', {
+      event: 'salvage-close-failed',
+      dbDir,
+      ...(e instanceof Error ? { error: e.message } : { error: String(e) }),
+    });
+  }
+  return closed;
+}
+
+/**
  * Run the full per-account database health check **on demand** — triggered when
  * a live query rejected with an error that strongly looks like database
  * corruption (see `isLikelyCorruptionError` in `@weq/db`). It is deliberately
@@ -302,6 +371,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
         kind: 'confirmed',
+        uin: session.context.uin,
         title: '数据库损坏',
         message:
           '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。已生成检查报告，可以按弹窗里的修复方案尝试修复，也可以继续使用。',
@@ -337,6 +407,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
         kind: 'check-error',
+        uin: session.context.uin,
         title: '数据库损坏',
         message:
           '检测 QQ 数据库健康状态时发生错误，为避免继续读取损坏数据，建议尽快修复或备份数据库。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。',
@@ -507,6 +578,17 @@ export interface AppContext {
    * there can fire.
    */
   accountIsAndroidBackup: boolean;
+  /**
+   * 账号级数据库宽容（salvage）配置与降级账本。
+   *
+   * 默认严格：文件不存在、或 `level === 0` 时，读取链路与今天完全一致。只有用户在
+   * 损坏弹窗或设置里显式授权后，读取才会改走 salvage 通道。
+   *
+   * **每个账号一份**（在线 / 静态各一份，按 `(uin, dataDir)` 隔离），打开账号时重建、
+   * `clearAccount` 时清空 —— 串用实例就等于把 A 账号的授权应用到 B 账号上。`null`
+   * 表示当前没有打开的账号。
+   */
+  dbTolerance: DbToleranceService | null;
   /** Per-account scheduled-export manager. Recreated with the account; its
    *  lifecycle is intentionally separate from `services` so the object
    *  literal can be fully constructed before this field is assigned. */
@@ -592,6 +674,7 @@ export function initAppContext(): AppContext {
       resourcePlatform: null,
       accountIsStatic: false,
       accountIsAndroidBackup: false,
+      dbTolerance: null,
       scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
@@ -678,6 +761,11 @@ export function initAppContext(): AppContext {
     });
   }
 
+  // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
+  // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
+  // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
+  startLogRetention(() => userConfig.getSettings().logRetentionDays);
+
   // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
   // it needs an elevated writer unless the host is already root. Windows uses
   // the fs default (undefined).
@@ -763,6 +851,7 @@ export function initAppContext(): AppContext {
     resourcePlatform: null,
     accountIsStatic: false,
     accountIsAndroidBackup: false,
+    dbTolerance: null,
     scheduler: null,
     transcribeSilk,
     async setAccount(
@@ -790,22 +879,35 @@ export function initAppContext(): AppContext {
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
       // the uid-map load) are ignored until the session is the current one.
-      const session = await openAccount(platform, accountCtx, (info): void => {
-        const current = this.account;
-        if (!current) return;
-        console.warn(
-          '[account] suspected database corruption from query on',
-          info.dbPath,
-          info.error,
-        );
-        logger.warn('suspected database corruption from query', {
-          event: 'suspected-db-corruption',
-          accountUin: current.context.uin,
-          dbPath: info.dbPath,
-          error: info.error,
-        });
-        startDbHealthCheck(this, current, platform);
-      });
+      // 账号级宽容（salvage）配置 + 降级账本：**默认严格**。这里只负责把它接好，
+      // 级别永远由用户显式动作决定（弹窗按钮 / 设置页），没有自动降级。
+      const dbTolerance = createDbTolerance(userConfig, accountCtx.uin, metadata.dataDir);
+      this.dbTolerance = dbTolerance;
+      const session = await openAccount(
+        platform,
+        accountCtx,
+        (info): void => {
+          const current = this.account;
+          if (!current) return;
+          console.warn(
+            '[account] suspected database corruption from query on',
+            info.dbPath,
+            info.error,
+          );
+          logger.warn('suspected database corruption from query', {
+            event: 'suspected-db-corruption',
+            accountUin: current.context.uin,
+            dbPath: info.dbPath,
+            error: info.error,
+          });
+          startDbHealthCheck(this, current, platform);
+        },
+        {
+          // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+          level: () => dbTolerance.level,
+          onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
+        },
+      );
       this.account = session;
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
@@ -987,7 +1089,10 @@ export function initAppContext(): AppContext {
           },
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
-          new MsgService(session),
+          // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
+          // 级别 ≥ 2 时，会从当前游标切到容错续读（见 `export/message_source`）。
+          // 静态（导入目录）账号没有宽容服务，这里就是 `undefined` = 严格。
+          new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             // Cache-first avatar resolution for the 导出头像 option.
@@ -1307,9 +1412,16 @@ export function initAppContext(): AppContext {
       const selfUid = selfPreview.uid ?? '';
       if (selfUid) rememberAccountUid(selfPreview.uin, selfUid);
 
+      // 静态（导入目录）账号同样是"一个账号"，所以它有**自己**的宽容配置与账本：
+      // 按 `(uin, dirPath)` 与在线会话分开存。以前这里不赋值，`dbTolerance` 会留着上一个
+      // 账号的实例 —— 静态账号的导出会静默沿用别人的授权，设置页显示的也是别人那一份。
+      // 级别默认 0（严格），所以不授权即与今天逐字节相同。
+      const dbTolerance = createDbTolerance(userConfig, selfPreview.uin, dirPath);
+      this.dbTolerance = dbTolerance;
+
       // Static (backup) accounts are offline snapshots, not the live QQ
-      // database — no corruption watch is wired (openStaticAccount uses the raw
-      // binding) and no health check is ever triggered.
+      // database — no corruption watch is wired (no health check is ever
+      // triggered). 宽容（salvage）是另一回事：它由用户显式授权，这里照旧接上。
       const session = await openStaticAccount(platform, {
         dirPath,
         self: {
@@ -1320,6 +1432,11 @@ export function initAppContext(): AppContext {
         },
         ...(options.dbKey ? { dbKey: options.dbKey } : {}),
         ...(options.algos ? { algos: options.algos } : {}),
+        // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+        salvage: {
+          level: () => dbTolerance.level,
+          onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
+        },
       });
       this.account = session;
 
@@ -1503,7 +1620,10 @@ export function initAppContext(): AppContext {
           },
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
-          new MsgService(session),
+          // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
+          // 级别 ≥ 2 时，会从当前游标切到容错续读（见 `export/message_source`）。
+          // 静态（导入目录）账号没有宽容服务，这里就是 `undefined` = 严格。
+          new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,
@@ -1683,6 +1803,9 @@ export function initAppContext(): AppContext {
       this.resourcePlatform = null;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
+      // 宽容服务跟着账号一起走：留着它会让设置页继续显示、甚至改写刚刚关掉的那个账号的
+      // 配置，而下一个账号（尤其静态账号）会误用到它（见 `createDbTolerance`）。
+      this.dbTolerance = null;
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;

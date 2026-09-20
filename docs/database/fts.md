@@ -87,8 +87,10 @@ LIMIT ?;
 `LIKE '%kw%'` 没有任何索引能帮上忙：群表 149 万行的一次子串扫描要数秒，
 `GROUP BY` 排行更慢。WeQ 的解法（`MsgSearchIndexDb`）：
 
-1. `fastDecryptDatabase`：native 一次性把加密源库解成**明文 SQLite** 文件
-   （518MB 群库约 1.3s）；
+1. native 把加密源库解成**明文 SQLite** 文件：小于 512 MiB 使用
+   `fastDecryptDatabase`（518MB 群库约 1.3s），更大的库自动使用按页读取的
+   `safeDecryptDatabase`。快速路径会把整库读入连续内存，超过 Electron 的
+   分配上限会直接终止进程，无法由 `try/catch` 或 worker 线程捕获；
 2. 在明文库里建 `fts5(tokenize='trigram')` 虚表 `weq_fts_idx`，
    一条 `INSERT INTO … SELECT` 灌满 —— 我们的构建带 trigram 分词器；
 3. 之后 MATCH 查询毫秒级返回；建完**drop 掉源内容表**省磁盘。

@@ -13,6 +13,18 @@ import type {
   GroupExt,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
+import {
+  JOIN_BATCH_WINDOW_SECONDS,
+  buildJoinBatchReport,
+  type GroupJoinBatchReport,
+} from './join_batches';
+import {
+  DEFAULT_CONVERSATION_MAX_EDGES,
+  DEFAULT_CONVERSATION_WINDOW_SECONDS,
+  buildConversationGraph,
+  type ConversationMessage,
+  type ConversationGraphEdge,
+} from './conversation_graph';
 import { segmentWords } from './text_segment';
 
 /** Message count ranking entry. */
@@ -92,6 +104,41 @@ export interface GroupStatsReport {
   timeDistribution: Record<number, number>;
   daily: GroupDailyActivityItem[];
   words: GroupWordCloudItem[];
+}
+
+/** 入群批次的类型与纯函数在 ./join_batches，这里只做转出。 */
+export type {
+  GroupJoinBatchMember,
+  GroupJoinBatch,
+  GroupJoinBatchReport,
+} from './join_batches';
+
+/** 会话力图的类型与纯函数在 ./conversation_graph，这里只做转出。 */
+export type {
+  ConversationGraphNode,
+  ConversationGraphEdge,
+  ConversationGraphResult,
+} from './conversation_graph';
+
+/** 力图节点 + 渲染需要的身份信息（昵称 / QQ 号）。 */
+export interface ConversationGraphNodeView {
+  uid: string;
+  uin: string;
+  displayName: string;
+  messageCount: number;
+  conversationCount: number;
+  /** 与他人拉力之和。 */
+  pull: number;
+}
+
+/** 小团体力图：会话切分结果 + 带昵称的节点。 */
+export interface GroupConversationGraphReport {
+  windowSeconds: number;
+  conversationCount: number;
+  messageCount: number;
+  nodes: ConversationGraphNodeView[];
+  edges: ConversationGraphEdge[];
+  totalPairs: number;
 }
 
 /** One user that shares ≥2 groups with me, for the relation graph. */
@@ -746,6 +793,96 @@ export class GroupInfoService {
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([word, count]) => ({ word, count }));
+  }
+
+  /**
+   * 「入群批次」分析：三个小时里挤进来的成员够多（≥ max(3, 群总人数 ÷ 20)）就算一批。
+   *
+   * 判定本身是纯函数（见 {@link ./join_batches}，有单测），这里只负责把原料凑齐：
+   * 成员表里的入群时间 / 最后发言 / 等级，加上「每个人发了多少条」——后者走一条
+   * `GROUP BY 40020` 的 SQL，不扫消息正文；群总人数取自群详情（拿不到就用有入群
+   * 记录的成员数兜底）。
+   *
+   * 于是整个接口只读两次库（成员表一次，消息表一次聚合），打开卡片几乎不卡。
+   */
+  async getGroupJoinBatches(groupCode: bigint): Promise<GroupJoinBatchReport> {
+    const [briefs, countByUid, detail] = await Promise.all([
+      this.session.groupMembers.listMemberJoinBriefs(groupCode),
+      this.session.groupMsgs.countBySenders(String(groupCode)),
+      this.session.groupDetail.getDetail(groupCode).catch(() => null),
+    ]);
+    const groupMessageTotal = Object.values(countByUid).reduce((sum, n) => sum + n, 0);
+
+    const members = briefs.map((b) => ({
+      uid: b.uid,
+      uin: b.uin,
+      displayName: b.card || b.nick || b.uin || b.uid,
+      joinTime: b.joinTime,
+      lastSpeakTime: b.lastSpeakTime,
+      memberLevel: b.memberLevel,
+      messageCount: countByUid[b.uid] ?? 0,
+    }));
+
+    const memberTotal = detail && detail.memberCount > 0 ? detail.memberCount : members.length;
+    return buildJoinBatchReport(members, groupMessageTotal, memberTotal, JOIN_BATCH_WINDOW_SECONDS);
+  }
+
+  /**
+   * 「小团体」分析：把群消息切成会话（相邻两条间隔超过 5 分钟就是新对话），算出
+   * 两个人之间的拉力（同一会话里两人发言条数之积，跨会话求和），前端据此画力图。
+   *
+   * 扫描走 {@link GroupMsgDb.listSenderTimeline}（只读发送者 + 时间，不解码正文），
+   * 所以即使翻完整个群的历史，也比逐条读正文的接口便宜一个量级。名字只对最终留在
+   * 图上的节点批量查一次成员表。
+   */
+  async getGroupConversationGraph(
+    groupCode: bigint,
+    opts?: { windowSeconds?: number; maxEdges?: number },
+  ): Promise<GroupConversationGraphReport> {
+    const PAGE = 2000;
+    const timeline: ConversationMessage[] = [];
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await this.session.groupMsgs.listSenderTimeline(
+        String(groupCode),
+        afterSeq,
+        PAGE,
+      );
+      if (batch.length === 0) break;
+      for (const row of batch) timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+      afterSeq = batch[batch.length - 1]!.seq;
+      if (batch.length < PAGE) break;
+    }
+
+    const graph = buildConversationGraph(timeline, {
+      windowSeconds: opts?.windowSeconds ?? DEFAULT_CONVERSATION_WINDOW_SECONDS,
+      maxEdges: opts?.maxEdges ?? DEFAULT_CONVERSATION_MAX_EDGES,
+    });
+
+    const nameByUid = new Map<string, string>();
+    const uinByUid = new Map<string, string>();
+    const uids = graph.nodes.map((n) => n.uid);
+    if (uids.length > 0) {
+      try {
+        const members = await this.session.groupMembers.getMembersByUids(groupCode, uids);
+        for (const m of members) {
+          const uin = m.uin > 0n ? String(m.uin) : '';
+          nameByUid.set(m.uid, m.card || m.nick || uin || m.uid);
+          if (uin) uinByUid.set(m.uid, uin);
+        }
+      } catch {
+        /* 查不到成员就用 uid 兜底 */
+      }
+    }
+
+    return {
+      ...graph,
+      nodes: graph.nodes.map((n) => ({
+        ...n,
+        uin: uinByUid.get(n.uid) ?? '',
+        displayName: nameByUid.get(n.uid) ?? n.uid,
+      })),
+    };
   }
 
   /**

@@ -56,6 +56,18 @@ html[data-theme="light"] {
   --sidebar-foreground: var(--foreground);
 
   --weq-accent: #0099ff;
+  /*
+   * 警告语气（设置页的"会少数据"/隔离/坏页提示、妙妙工具的修复提示条）。
+   *
+   * **从主题强调色派生**，不再是固定的琥珀 —— 强调色是可自定义的（见 state/theme），
+   * 一支写死的 amber 在别的强调色 / 深色底上都像"另一个体系里的颜色"。这里取同一支色，
+   * 只用明度与透明通道分层：文字最深（与底拉开对比）、底色最浅、描边居中。
+   * 三件套分开定义，是因为它们叠在不同的底上（卡片、行内确认条、徽章）。
+   */
+  --weq-warn-fg: color-mix(in srgb, var(--weq-accent-effective) 55%, #0a2f52);
+  --weq-warn-solid: var(--weq-accent-effective);
+  --weq-warn-bg: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  --weq-warn-border: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.985 0 0);
@@ -134,6 +146,11 @@ html[data-theme="dark"],
   --sidebar-foreground: var(--foreground);
 
   --weq-accent: #56a8f7;
+  /* 深色态：文字往白里提一档才够对比，底色 / 描边都比浅色态重一点。 */
+  --weq-warn-fg: color-mix(in srgb, var(--weq-accent-effective) 55%, #ffffff);
+  --weq-warn-solid: var(--weq-accent-effective);
+  --weq-warn-bg: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  --weq-warn-border: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.24 0.01 250);
@@ -555,7 +572,10 @@ html[data-theme="dark"] .chat-empty {
     background: rgba(0, 153, 255, 0.18);
   }
 
-  .weq-shell-close-btn {
+  /* Shell 右上角的窗口级小按钮（打开日志目录 / 关闭）。拖拽命中测试在合成层
+     之外，z-index 挡不住上层 drag 区，必须显式打 no-drag 洞。 */
+  .weq-shell-close-btn,
+  .weq-shell-log-btn {
     -webkit-app-region: no-drag;
   }
 
@@ -2194,11 +2214,13 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-select-head-drag {
     flex: 1;
     align-self: stretch;
-    /* Leave room at the right for the Shell's close (X) button — Electron's
-       drag-region hit test runs outside the compositor stack, so a `drag`
-       region painted under the X still swallows its clicks. Carve out a
-       no-drag gap the width of the button + its inset. */
-    margin-right: 3rem;
+    /* Leave room at the right for the Shell's 日志 + close (X) buttons —
+       Electron's drag-region hit test runs outside the compositor stack, so a
+       `drag` region painted under them still swallows their clicks. Carve out
+       a no-drag gap wide enough for both buttons + their insets (right-4 +
+       28 + 6 + 32 = 82px from the window edge, minus this container's 1.5rem
+       padding-right ⇒ 58px; 4.25rem leaves ~10px of slack). */
+    margin-right: 4.25rem;
     -webkit-app-region: drag;
   }
   .weq-select-head button { -webkit-app-region: no-drag; }
@@ -5181,6 +5203,315 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-set-picker .weq-exp-row {
   min-width: 0;
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 数据库宽容（设置 → 数据库宽容）
+ *
+ * 坏页扫描的库选择、降级账本、扫描报告都是"内容驱动宽度/高度"的块。它们不能
+ * 塞进 .weq-set-row-ctrl —— 那里是 flex: none，宽度跟着内容走，库名一多就顶破
+ * 卡片边框。所以统一让它们单独占一整行（.weq-set-block / .weq-set-chips）。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-set-block {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* 多选一的 chip 组（坏页扫描的库选择）：库名较长，允许换行。 */
+.weq-set-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 降级账本：定高滚动，条目之间细线分隔。 */
+.weq-set-ledger {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 232px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.weq-set-ledger > li {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.055);
+  color: #6a7280;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.weq-set-ledger > li:first-child {
+  border-top: 0;
+}
+
+.weq-set-ledger-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* SQL 指纹与页号清单：等宽 + 允许在任意位置断行，长串不会顶破卡片。 */
+.weq-set-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #51677c;
+  overflow-wrap: anywhere;
+}
+
+/* 坏页扫描报告：键值行 + 紧凑列表。 */
+.weq-set-kv {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #6a7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-kv ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  min-width: 0;
+}
+
+.weq-set-kv strong {
+  color: #374151;
+}
+
+.weq-set-badge-warn {
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+}
+
+/* 警告语气的小字说明（会丢数据的级别、宽容模式的可逆性等）。 */
+.weq-set-note-warn {
+  color: var(--weq-warn-fg);
+}
+
+/*
+ * “实验性”标签：贴在 SectionHeader 的说明里，不能抢眼但必须看得见。
+ * 用描边 + 琥珀色文字，和实心 badge 区分开（那个是状态，这个是程度）。
+ */
+.weq-set-exp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--weq-warn-border);
+  border-radius: 999px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+
+/* 整块警告（聚合查询无效那段）：底色 + 左描边，比纯文字更扛得住长段落。 */
+.weq-set-warnbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-warnbox svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* ── 宽容级别列表 ────────────────────────────────────────────────
+ * 每一级自成一块：标题 + 说明 + 右侧动作。会丢数据的级别在**同一块内**展开确认
+ * （旧版把确认条放在卡片底部，点级别 1 的开关却在级别 3 下面出现确认，位置与操作
+ * 对象对不上）。
+ */
+.weq-set-levels {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-set-level {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: #ffffff;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-set-level.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+}
+
+.weq-set-level.is-confirming {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-set-level-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-set-level-main {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-set-level-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.weq-set-level-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.weq-set-level-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8a929c;
+}
+
+/* 级别的「生效范围」很长，收进可展开块：列表先做到一行一个级别。 */
+.weq-set-level-details {
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.weq-set-level-details summary {
+  padding: 0 2px 2px;
+  font-size: 12px;
+}
+
+.weq-set-level-details .weq-set-details-body {
+  padding: 7px 9px;
+}
+
+.weq-set-level-loss {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--weq-warn-fg);
+}
+
+.weq-set-level-action {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* 行内确认区：文字在左，按钮在右；窄容器里自动换行。 */
+.weq-set-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--weq-warn-border);
+}
+
+.weq-set-confirm-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--weq-warn-fg);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-set-confirm-text svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.weq-set-confirm-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+}
+
+html[data-theme="dark"] .weq-set-level {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #171c23;
+}
+
+html[data-theme="dark"] .weq-set-level.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #171c23);
+}
+
+html[data-theme="dark"] .weq-set-level-title {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-set-level-desc {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-set-ledger {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #141920;
+}
+
+html[data-theme="dark"] .weq-set-ledger > li {
+  border-top-color: rgba(255, 255, 255, 0.06);
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-set-mono {
+  color: #a6b1bf;
+}
+
+html[data-theme="dark"] .weq-set-kv strong {
+  color: #edf2f7;
+}
+
+/* 警告色由 --weq-warn-* 令牌在深色态统一改写，这里不再需要单独覆盖。 */
 
 /* Spinning refresh icon while a refetch is in flight. */
 .weq-set-iconbtn.is-spinning svg {
@@ -12258,18 +12589,35 @@ html[data-theme="dark"] .weq-provider-modal {
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
-/* 「个性主页 / 互动标识」入口按钮行（好友资料灯箱与群成员卡底部）。 */
+/* 「个性主页 / 互动标识 / 聊天分析」入口按钮行（好友资料灯箱与群成员卡底部）。 */
 .weq-profile-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
 
 .weq-profile-actions .weq-profile-perhome {
-  flex: 1;
+  flex: 1 1 96px;
   min-width: 0;
   width: auto;
   margin-top: 0;
+}
+
+/*
+ * 「聊天分析」入口（群成员卡专属）：资料卡只有 288px 宽，三枚按钮排不下，
+ * 让它 wrap 到第二行独占一行；做成实心主操作，和上面两枚描边按钮区分开。
+ */
+.weq-profile-perhome.is-analytics {
+  border-color: transparent;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-profile-perhome.is-analytics:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--weq-accent-effective) 86%, #000);
 }
 
 /* ───────────────────────── 互动标识灯箱（MutualMarkDialog）───────────────────────── */
@@ -15216,6 +15564,1474 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   border-color: rgba(255, 255, 255, 0.12);
   color: #7b8794;
 }
+/* ────────────────────────────────────────────────────────────────────────
+ * 数据库修复（妙妙工具 → 数据库修复）
+ *
+ * 两页一条线：
+ *   1. `.weq-rp-steps` 顶部的两段流程条（体检 → 修复）；当前段高亮、走过的打勾；
+ *   2. `.weq-rp-body`  每一页的正文：体检结论（`.weq-rp-hero` + `.weq-rp-list`）、
+ *      修复页（`.weq-rp-picks` + `.weq-rp-detail`）。
+ *
+ * 回滚与记录不在这一页里 —— 它们住在一张独立的灯箱卡片（`.weq-rp-lb*`），由面板标题
+ * 栏那枚小按钮打开。
+ *
+ * 按钮不在这里：直接复用 `.weq-set-btn` 家族（浅色 / 深色都已适配）。这里只放面板特有
+ * 的东西：流程条、结论卡、库清单、指标格、QQ 状态条、进度轨、结果卡、灯箱。
+ *
+ * 配色全走主题色：**只有一支色相**（`--weq-accent-effective`），语气靠明度与透明通道
+ * 分层 —— 「好」是最淡的一档，「要处理」是重的一档（与设置页的 `--weq-warn-*` 同一套
+ * 口径，那边也是从强调色派生的）。不引入第二支色相，所以换主题色时整页跟着走。
+ * ──────────────────────────────────────────────────────────────────── */
+/* 卡片底 / 淡主题色 / 重主题色 / 轨道线：两套主题只改这几个值，下面的规则全部引用它们。
+ * 流程条与滚动区是同级的两块，所以两边都要声明（自定义属性只向下继承，声明在正文上
+ * 流程条取不到）。 */
+.weq-rp-steps,
+.weq-rp-body {
+  --rp-card: var(--weq-bg-elevated);
+  --rp-tint: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  --rp-hair: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  /* 「好」这一档：同色相、淡底、深字。 */
+  --rp-ok: var(--weq-accent-effective);
+  --rp-ok-bg: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  --rp-ok-border: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+html[data-theme="dark"] .weq-rp-steps,
+html[data-theme="dark"] .weq-rp-body {
+  --rp-card: rgba(255, 255, 255, 0.045);
+  --rp-tint: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  --rp-hair: color-mix(in srgb, var(--weq-accent-effective) 24%, rgba(255, 255, 255, 0.1));
+  --rp-ok: var(--weq-accent-effective);
+  --rp-ok-bg: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  --rp-ok-border: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
+/* ── 面板顶栏：账号 + 两枚图标按钮（记录灯箱 / 刷新） ────────────────
+ * 右内边距必须让开妙妙工具弹窗自己那枚绝对定位的「关闭」（`top/right: 12px`、30×30）：
+ * 否则那两枚图标按钮会正好压在它下面。22px（面板头的常规内边距）+ 42px（关闭占的
+ * 宽度 + 一道缝）。 */
+.weq-rp-head {
+  gap: 10px;
+  padding-right: 64px;
+}
+
+.weq-rp-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-rp-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 168px;
+  padding: 3px 9px 3px 3px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: var(--rp-tint);
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-rp-account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 一枚图标按钮：箭头 / 刷新 / 报告 / 备份 / 删除都走它。 */
+.weq-rp-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.weq-rp-icon-btn:hover:not(:disabled) {
+  border-color: var(--weq-border-strong);
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 带文字的图标按钮（"只备份"）：左右要留出文字的呼吸。 */
+.weq-rp-icon-btn.is-wide {
+  padding: 6px 11px;
+}
+
+.weq-rp-icon-btn.is-danger:hover:not(:disabled) {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+}
+
+/* 有修复记录时那枚小圆点：一个像素级的「这里还有东西」提示，不占版面。 */
+.weq-rp-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--weq-accent-effective);
+}
+
+/* ── 流程条：两页，当前段高亮 ───────────────────────────────────────
+ * 它刻意长在面板头下面、正文上面，本身就是「你现在在哪」的答案。 */
+.weq-rp-steps {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 6px;
+  margin: 12px 22px 0;
+  padding: 5px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  background: var(--rp-tint);
+  list-style: none;
+}
+
+.weq-rp-step {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--weq-fg-muted);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.weq-rp-step.is-active {
+  background: var(--rp-card);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-rp-step-dot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 660;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-rp-step.is-active .weq-rp-step-dot {
+  border-color: transparent;
+  background: var(--weq-accent-effective);
+  color: #fff;
+}
+
+.weq-rp-step.is-done .weq-rp-step-dot {
+  border-color: var(--rp-ok-border);
+  background: var(--rp-ok-bg);
+  color: var(--rp-ok);
+}
+
+.weq-rp-step-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-rp-step-text strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-rp-step-text em {
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 正文 ──────────────────────────────────────────────────────────── */
+.weq-rp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 流程条自己占了一行，这里不要再留满一节上边距。 */
+  padding-top: 12px;
+}
+
+/* 这一列自己会滚（`.weq-wtools-pane-body`），所以子块一律**不参与压缩**：flex 子项的
+ * 默认 `flex-shrink: 1` 会把结论卡和折叠块压成一条线（内容被 overflow 截掉）。 */
+.weq-rp-body > * {
+  flex: none;
+}
+
+/* ── 结论卡（体检页的主角） ──────────────────────────────────────────
+ * 左边一枚圆角图标块、中间一句结论 + 一句解释、右边动作。背景随语气轻微染色：
+ * 这是整页唯一会变色的地方，所以语气一眼就看得出来。 */
+.weq-rp-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  padding: 14px 15px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 6%, var(--rp-card)),
+    var(--rp-card)
+  );
+}
+
+.weq-rp-hero.is-ok {
+  border-color: var(--rp-ok-border);
+  background: linear-gradient(135deg, var(--rp-ok-bg), var(--rp-card));
+}
+
+.weq-rp-hero.is-warn {
+  border-color: var(--weq-warn-border);
+  background: linear-gradient(135deg, var(--weq-warn-bg), var(--rp-card));
+}
+
+.weq-rp-hero-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--rp-tint);
+  color: var(--weq-accent-effective);
+}
+
+.weq-rp-hero.is-ok .weq-rp-hero-icon {
+  background: var(--rp-ok-bg);
+  color: var(--rp-ok);
+}
+
+.weq-rp-hero.is-warn .weq-rp-hero-icon {
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-hero-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-rp-hero-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-hero-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-hero-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+/* 体检进度：贴着卡片底边的一条细线（卡片自己 overflow: hidden）。 */
+.weq-rp-scanbar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-rp-scanbar-fill {
+  height: 100%;
+  background: var(--weq-accent-effective);
+  transition: width 260ms ease;
+}
+
+@media (max-width: 620px) {
+  .weq-rp-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .weq-rp-hero-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* ── 库卡片：体检结论 / 修复页的选库共用同一张卡片 ─────────────────────
+ * 一张卡片 = 顶部（库图标 + 结论徽章）+ 库名 + 一句结论 + 底部（体积 / 上次修复）。
+ * 卡片按 `auto-fill` 铺成网格，**不再是一行一条** —— 库名里能看的只有几个，但
+ * 每个库都有一句结论要读，横向铺开可以在第一屏里回答完「哪些有问题」。 */
+.weq-rp-list,
+.weq-rp-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-rp-db,
+.weq-rp-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 11px 12px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-top-width: 3px;
+  border-top-color: transparent;
+  border-radius: 11px;
+  background: var(--rp-card);
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.weq-rp-db:hover,
+.weq-rp-pick:hover {
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, var(--rp-card));
+  transform: translateY(-1px);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+/* 有问题的库：顶上那道色条换成重的一档 + 淡底，一眼就是「这几张要看」。 */
+.weq-rp-db.is-warn,
+.weq-rp-pick.is-warn,
+.weq-rp-pick.is-bad {
+  border-top-color: var(--weq-warn-solid);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 7%, var(--rp-card)),
+    var(--rp-card)
+  );
+}
+
+/* 完好的库：淡的一档（同色相，只是更轻）。 */
+.weq-rp-db.is-ok,
+.weq-rp-pick.is-ok {
+  border-top-color: var(--rp-ok-border);
+}
+
+/* 正在体检的那一张：整张染上淡主题色 + 主题描边。 */
+.weq-rp-db.is-busy {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-top-color: var(--weq-accent-effective);
+  background: var(--rp-tint);
+}
+
+/* 选中的那一张：整圈主题描边 + 淡底 + 抬起一点（它就是要被动手的那一个）。 */
+.weq-rp-pick.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+  border-top-color: var(--weq-accent-effective);
+  background: var(--rp-tint);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-rp-db-top,
+.weq-rp-pick-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 库图标：卡片左上角的一块小底色。 */
+.weq-rp-db-icon,
+.weq-rp-pick-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--rp-tint);
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-db.is-ok .weq-rp-db-icon,
+.weq-rp-pick.is-ok .weq-rp-pick-icon {
+  background: var(--rp-ok-bg);
+  color: var(--rp-ok);
+}
+
+.weq-rp-db.is-warn .weq-rp-db-icon,
+.weq-rp-pick.is-warn .weq-rp-pick-icon,
+.weq-rp-pick.is-bad .weq-rp-pick-icon {
+  background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-db.is-busy .weq-rp-db-icon,
+.weq-rp-pick.is-active .weq-rp-pick-icon {
+  background: var(--weq-accent-effective);
+  color: #fff;
+}
+
+.weq-rp-db-name,
+.weq-rp-pick-name {
+  overflow: hidden;
+  font-weight: 640;
+  color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 一句结论：两行封顶（再多就把卡片撑高，反而看不出哪张不一样）。 */
+.weq-rp-db-note,
+.weq-rp-pick-note {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 2.9em;
+  font-size: 11.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.weq-rp-db-foot,
+.weq-rp-pick-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-rp-row-size {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 完好的库收起来之后那枚展开开关。 */
+.weq-rp-more {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.weq-rp-more:hover {
+  border-color: var(--weq-border-strong);
+  border-style: solid;
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-more svg.is-flip {
+  transform: rotate(180deg);
+}
+
+/* ── 修复页：返回 + 一句说明 ──────────────────────────────────────── */
+.weq-rp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.weq-rp-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px 4px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.weq-rp-back:hover {
+  border-color: var(--weq-border-strong);
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+/* ── 选中之后的检查区 ──────────────────────────────────────────────── */
+.weq-rp-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--rp-card);
+}
+
+.weq-rp-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-rp-detail-name {
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--weq-fg-primary);
+}
+
+/* ── 环境检查的指标格 ───────────────────────────────────────────────
+ * 密钥 / 占用 / 磁盘 / WAL 各占一格：竖着扫一列就知道哪一格不对。 */
+.weq-rp-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 7px;
+}
+
+.weq-rp-metric {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-left-width: 3px;
+  border-left-color: transparent;
+  border-radius: 9px;
+  background: var(--rp-tint);
+}
+
+.weq-rp-metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-rp-metric-label svg {
+  flex: none;
+}
+
+.weq-rp-metric-value {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-rp-metric-hint {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-metric.is-ok {
+  border-left-color: var(--rp-ok-border);
+}
+
+.weq-rp-metric.is-ok .weq-rp-metric-value {
+  color: var(--rp-ok);
+}
+
+.weq-rp-metric.is-warn {
+  border-left-color: var(--weq-warn-solid);
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-metric.is-warn .weq-rp-metric-value,
+.weq-rp-metric.is-warn .weq-rp-metric-hint {
+  color: var(--weq-warn-fg);
+}
+
+/* ── QQ 在线状态条 ──────────────────────────────────────────────────
+ * 一眼看出「现在能不能开始」：在线就说清要先结束它，并就地给那一枚按钮。 */
+.weq-rp-qq {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--rp-tint);
+}
+
+.weq-rp-qq.is-warn {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-qq-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--rp-ok);
+  box-shadow: 0 0 0 3px var(--rp-ok-bg);
+}
+
+.weq-rp-qq.is-warn .weq-rp-qq-dot {
+  background: var(--weq-warn-solid);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-warn-solid) 18%, transparent);
+  animation: weq-rp-pulse 2s ease-in-out infinite;
+}
+
+@keyframes weq-rp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.weq-rp-qq-text {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-rp-qq-text strong {
+  font-size: 12.5px;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-qq-text em {
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.5;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-qq.is-warn .weq-rp-qq-text strong,
+.weq-rp-qq.is-warn .weq-rp-qq-text em {
+  color: var(--weq-warn-fg);
+}
+
+/* ── 进度：阶段名 + 百分比 + 一条主题色轨道 + 阶段轨 ───────────────── */
+.weq-rp-progress {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  border-radius: 10px;
+  background: var(--rp-tint);
+}
+
+.weq-rp-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-progress-msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-rp-progress-msg svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-rp-progress-pct {
+  flex: none;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-rp-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-rp-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 60%, transparent),
+    var(--weq-accent-effective)
+  );
+  transition: width 240ms ease;
+}
+
+/* 阶段轨：走过的（is-done）比未到的亮，当前那一步最亮。 */
+.weq-rp-stages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-rp-stages li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-stages li.is-done {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rp-stages li.is-active {
+  color: var(--weq-accent-effective);
+  font-weight: 620;
+}
+
+.weq-rp-stage-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 45%, transparent);
+}
+
+.weq-rp-stages li.is-done .weq-rp-stage-dot {
+  background: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+}
+
+.weq-rp-stages li.is-active .weq-rp-stage-dot {
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* ── 结果卡：修完 / 失败之后留在原地的结论 ────────────────────────── */
+.weq-rp-outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--rp-ok-border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--rp-ok-bg);
+}
+
+.weq-rp-outcome.is-warn {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-outcome-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--rp-ok);
+}
+
+.weq-rp-outcome.is-warn .weq-rp-outcome-icon {
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-outcome-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-rp-outcome-text strong {
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-outcome-text em {
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rp-outcome.is-warn .weq-rp-outcome-text strong,
+.weq-rp-outcome.is-warn .weq-rp-outcome-text em {
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-outcome-text em.is-warn {
+  color: var(--weq-warn-fg);
+}
+
+/* ── 替换确认（长在主按钮的位置上）──────────────────────────────────
+ * 修复不是只读扫描：动手前的后果必须比普通提示条重（左侧 3px 描边 + 警示底 + 列表），
+ * 而且要与主按钮同屏 —— 确认完就看得到它。 */
+.weq-rp-confirm {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rp-confirm.is-strong {
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-warn-fg);
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.weq-rp-confirm-head svg {
+  flex: none;
+}
+
+.weq-rp-confirm.is-strong ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 17px;
+  font-size: 11.5px;
+}
+
+.weq-rp-confirm .is-warn {
+  color: var(--weq-warn-fg);
+}
+
+/* ── 明细：坏页号铺成一排小方块 ────────────────────────────────────── */
+.weq-rp-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-rp-page {
+  padding: 1px 6px;
+  border: 1px solid var(--weq-warn-border);
+  border-radius: 5px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 提示条 ────────────────────────────────────────────────────────── */
+.weq-rp-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-left-width: 3px;
+  border-left-color: transparent;
+  border-radius: 9px;
+  background: var(--rp-tint);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rp-note-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-note-text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.weq-rp-note-text strong {
+  color: var(--weq-fg-primary);
+}
+
+/* 当场动作（结束 QQ）靠右，与解释文字分开。 */
+.weq-rp-note-action {
+  flex: none;
+  margin-left: auto;
+}
+
+.weq-rp-note.is-ok {
+  border-left-color: var(--rp-ok-border);
+  background: var(--rp-ok-bg);
+}
+
+.weq-rp-note.is-ok .weq-rp-note-icon {
+  color: var(--rp-ok);
+}
+
+.weq-rp-note.is-warn {
+  border-color: var(--weq-warn-border);
+  border-left-width: 3px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-note.is-warn .weq-rp-note-icon,
+.weq-rp-note.is-warn strong {
+  color: var(--weq-warn-fg);
+}
+
+/* ── 徽章与文本零件 ────────────────────────────────────────────────── */
+.weq-rp-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 16%, transparent);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.weq-rp-chip.is-ok {
+  background: var(--rp-ok-bg);
+  color: var(--rp-ok);
+}
+
+/* 徽章比 is-ok 重一档才分得开 —— 色相已经被主题色占满了。 */
+.weq-rp-chip.is-warn {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-chip.is-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--rp-tint);
+  color: var(--weq-accent-effective);
+}
+
+.weq-rp-chip.is-run svg {
+  flex: none;
+}
+
+.weq-rp-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+/* 小圆点分隔符：比 " · " 文字稳（换行时不会掉到行首）。 */
+.weq-rp-sep {
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.weq-rp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.weq-rp-actions-end {
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+/* ── 说明块：「修复会做什么」这类解释，默认收起 ───────────────────── */
+.weq-rp-details {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--rp-card);
+  overflow: hidden;
+}
+
+.weq-rp-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.weq-rp-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-rp-details > summary:hover {
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-details > summary svg {
+  flex: none;
+  color: var(--weq-fg-muted);
+  transition: transform 160ms ease;
+}
+
+.weq-rp-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.weq-rp-details-body {
+  display: grid;
+  gap: 6px;
+  padding: 4px 12px 11px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-details-body p {
+  margin: 0;
+}
+
+.weq-rp-details-body ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 17px;
+}
+
+.weq-rp-details-body strong {
+  color: var(--weq-fg-secondary);
+}
+
+/* ── 「跳过体检」那一行小字 ────────────────────────────────────────── */
+.weq-rp-skip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-link {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--weq-fg-muted) 55%, transparent);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.weq-rp-link:hover {
+  border-bottom-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+/* ── 空状态 ────────────────────────────────────────────────────────── */
+.weq-rp-empty {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  padding: 30px 12px;
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+}
+
+/* ── 修复记录 / 回滚：灯箱卡片 ──────────────────────────────────────
+ * portal 到 body 的一层遮罩 + 一张卡片。它**不参与**修复主线：主线是「把库修好」，
+ * 回滚与记录是回头看的动作。深色底由 `html[data-theme="dark"]` 覆盖。 */
+.weq-rp-lb-layer {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(22, 24, 28, 0.34);
+  backdrop-filter: blur(3px);
+  animation: weq-rp-lb-fade 160ms ease-out both;
+}
+
+@keyframes weq-rp-lb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.weq-rp-lb {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: min(560px, 100%);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 70px -18px rgba(7, 31, 61, 0.42);
+  color: var(--weq-fg-primary);
+  animation: weq-rp-lb-pop 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-rp-lb-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.weq-rp-lb-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-rp-lb-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--rp-lb-tint, color-mix(in srgb, var(--weq-accent-effective) 12%, transparent));
+  color: var(--weq-accent-effective);
+}
+
+.weq-rp-lb-title {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-rp-lb-title strong {
+  font-size: 14px;
+  font-weight: 640;
+}
+
+.weq-rp-lb-title em {
+  font-size: 11.5px;
+  font-style: normal;
+  color: var(--weq-fg-muted);
+}
+
+.weq-rp-x {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-rp-x:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-lb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+}
+
+.weq-rp-lb-empty {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  padding: 36px 12px;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.weq-rp-lb-empty em {
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+/* 一条记录一块：左侧一颗状态点 + 右侧内容；确认态就地展开。 */
+.weq-rp-recs {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-rp-rec {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--rp-card);
+}
+
+.weq-rp-rec.is-ok {
+  border-left-color: var(--rp-ok-border);
+}
+
+.weq-rp-rec.is-warn {
+  border-left-color: var(--weq-warn-border);
+}
+
+.weq-rp-rec.is-confirming {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-rec-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--weq-fg-muted);
+}
+
+.weq-rp-rec.is-ok .weq-rp-rec-dot {
+  background: var(--rp-ok);
+}
+
+.weq-rp-rec.is-warn .weq-rp-rec-dot {
+  background: var(--weq-warn-solid);
+  box-shadow: 0 0 0 3px var(--weq-warn-bg);
+}
+
+.weq-rp-rec-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.weq-rp-rec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-rp-rec-head .weq-rp-mono {
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-rec-time {
+  margin-left: auto;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-rp-rec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-rp-rec .weq-rp-actions {
+  margin-top: 1px;
+}
+
+/* 灯箱里的一切都要有自己的 --rp-* 兜底：它挂在 body 上，不在面板的作用域里。 */
+.weq-rp-lb {
+  --rp-card: var(--weq-bg-elevated);
+  --rp-ok: var(--weq-accent-effective);
+  --rp-ok-bg: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  --rp-ok-border: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+html[data-theme="dark"] .weq-rp-lb {
+  --rp-card: rgba(255, 255, 255, 0.05);
+  --rp-ok: var(--weq-accent-effective);
+  --rp-ok-bg: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  --rp-ok-border: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
+html[data-theme="dark"] .weq-rp-lb-layer {
+  background: rgba(8, 10, 14, 0.52);
+}
+
+html[data-theme="dark"] .weq-rp-lb {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1b2027;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+  color: #edf2f7;
+}
+
+/* ── 「修复完成 → 回首页」的浮动提示 ──────────────────────────────────
+ * 挂在 App 上（不是弹窗里），所以用 fixed 定位自己；放顶部居中，右下角的 toast
+ * 堆叠不受影响。
+ *
+ * `top` 必须避开 40px 的 `.app-title-bar`（它 `z-index: 100`，会盖住这里）：
+ * 从原来的 16px 下移到 52px，否则提示框上半截被顶栏遮住。
+ */
+.weq-rp-return {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-left-width: 3px;
+  border-left-color: var(--weq-accent-effective);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+  box-shadow: var(--weq-shadow-card);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  animation: weq-rp-return-in 180ms ease-out;
+}
+
+@keyframes weq-rp-return-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 没替换成功那一档（账号已关、库没换成）：同一条路，但语气要换。 */
+.weq-rp-return.is-warn {
+  border-color: var(--weq-warn-border);
+  border-left-width: 3px;
+  border-left-color: var(--weq-warn-solid);
+}
+
+.weq-rp-return-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-rp-return.is-warn .weq-rp-return-icon {
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-return-text {
+  display: grid;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-rp-return-text strong {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-return-count {
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。
    =========================================================================== */

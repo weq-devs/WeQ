@@ -115,6 +115,19 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `Promise<void>` | 快速解密到标准 SQLite（直接落盘）。 |
 | `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `Promise<void>` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
+| `executeSqlSalvage(dbPath, sql, params?, level?)` | 路径 + SQL + 可选参数 + 宽容级别 | `Promise<SalvageQueryOutcome>` | 宽容只读查询（独立的 salvage 连接）。**不因“损坏”抛异常**，而是返回 `ok:false` + 错误码，由调用方决定放弃还是切更小的一段；其它错误照旧抛。级别 ≥ 1 时遇到损坏会换访问路径（`NOT INDEXED`）重试。 |
+| `executeSqlSalvageWithKey(dbPath, sql, key, algo, params?, level?)` | 同上 + key + algo | 同上 | 带密钥版本，语义相同。 |
+| `executeSqlSalvageScan(dbPath, sql, params, options, level?)` | + `SalvageScanOptions` | `Promise<SalvageScanOutcome>` | 分块容错扫描（L2/L3）：读不出来的块先换访问路径、再二分到 `minSpan`，仍坏就记成“跳过区间”；`ok:false`（超预算 / 未授权 L2 / 表被隔离）时行集被清空，不许把部分数据当完整数据用。 |
+| `executeSqlSalvageScanWithKey(...)` | 同上 + key + algo | 同上 | 带密钥版本。 |
+| `closeSalvageDb(dbPath)` | 路径 | `number` | **只**释放该库的 salvage 只读连接（严格连接一律不动），并清掉该库的 L3 隔离记录。用户把宽容级别调回严格时用它。 |
+| `scanBadPages(dbPath, key, algo)` | 路径 + key + algo | `Promise<BadPageScanResult>` | 逐页复算页 HMAC，产出物理坏页清单（“坏页地图”）。⚠ `usedHmac=false` 时 `badPages` 必为空 —— 那不是“库是好的”，而是“这个库没开页 HMAC（或压根是明文库，见 `plaintext`），地图没有意义”。只读密文。 |
+| `listQuarantinedTables()` | — | `QuarantinedTable[]` | 当前被 L3（整表放弃）隔离的表。**进程内**状态，条目默认 300 秒自动失效（到点自动再试）。 |
+| `clearQuarantinedTables(dbPath?, table?)` | 可选两级过滤 | `number` | 清掉隔离记录让那些表立刻再试。只给 `dbPath` → 清该库；再加 `table` → 只清那一张；都不给 → 全清。 |
+
+调用解密接口前使用 `@weq/native` 的 `selectDatabaseDecryptMethod(dbPath, mode)`：
+它保留用户指定的安全模式，并把 ≥ 512 MiB 的快速解密请求切换到安全模式。
+搜索索引重建和数据库导出共用该选择逻辑，避免快速接口整库分配内存导致 Electron
+进程崩溃（worker 线程也不能隔离原生内存分配失败）。
 
 ### 5.1 参数类型 `CipherAlgo`
 
@@ -149,6 +162,59 @@ executeSqlWithKey 返回行示例：
 ### 5.3 返回类型
 
 `KeyTestResult` / `DatabaseHealthResult = { healthy: boolean; corruptedTables: string[] }`。
+
+### 5.4 损坏宽容（salvage）等级与契约
+
+上面四个 `*Salvage*` 接口是同一套降级机制的四档。**级别永远由调用方（用户设置）给定，
+native 不自己猜**；级别 0 时读取与今天逐字节相同。
+
+| 级别 | 含义 | 会丢数据吗 | 生效范围 |
+| ---- | ---- | ---------- | -------- |
+| 0 | 严格：任何错误原样报出 | —（默认） | 默认路径 |
+| 1 | 换访问路径（`NOT INDEXED`），只改 SQLite 的访问方式 | **不会** | 走宽容入口的读查询 |
+| 2 | 跳过坏页覆盖的行区间（分块扫描） | 会 | **只有**满足下面第 1 条契约的查询（WeQ 接在导出链路上） |
+| 3 | 整表放弃：隔离读不动的表，保证其它表可用 | 会 | 在级别 2 的基础上启用，`(db_path, table)` 粒度 |
+
+#### 5.4.1 能救什么、救不了什么（2026-09-20 真实损坏库实测）
+
+阈值与代价都是量出来的，不是估的；写在这里以免界面或文档再一次把能力写宽：
+
+* **聚合查询救不了，级别再高也一样**。SQLite 没有“跳过坏页继续执行”的开关 —— 任何语句
+  一旦碰到坏页就整条以 `SQLITE_CORRUPT` 中止。实测同一条 `GROUP BY` 聚合在级别 0 / 1 / 2 / 3
+  下都是 `kind=corrupt, code=11, 0 行`（约 120–230 ms）。年度报告、群分析这类整表聚合因此
+  **完全不受宽容级别影响**，只有修复数据库才能恢复。
+* **级别 1 只在“坏在索引上”时有救**。它的做法是把语句改写成 `NOT INDEXED` 重试一次；
+  若坏的是**数据页本身**，换哪条路都要读那一页 —— 实测坏页同时在索引路径与全表路径上时，
+  重试 121 ms 后仍然失败。
+* **级别 2 的代价按“坏键”线性增长**：二分地板是 `span = 1`，一个读不出来的键约 **215 ms**
+  （两次 native 尝试，~110 ms/次）。所以一个 4096 宽的导出窗口若横跨很宽的坏区间，第一块
+  就要十几分钟才走得完；`maxSkippedSpan` 决定的是“要假死多久才肯放弃”。WeQ 的驱动层因此
+  **故意收紧到 20 / 500**（native 那份 256 / 8192 的默认值留给明确要求长扫的场景），
+  约 108 秒就会干净地按严格语义失败。
+* **级别 2 的“跳过”是键轴上的，不是行上的**：`GROUP BY` / JOIN 这类没有整数键轴的查询
+  无法切块，契约对不上时是**报错**，不会给出一份“看着完整、其实位置不明”的结果。
+* **级别 3 的隔离粒度是整张表**：`(db_path, table)` 连续失败 3 次（`DEFAULT_MAX_FAILURES`）
+  即隔离，存活 300 s（`DEFAULT_TTL_SECS`）。隔离期内这张表**所有**读都会短路返回
+  `quarantined` —— 包括本来健康的会话，所以界面必须说清这一点。
+
+几条必须遵守的契约：
+
+1. **分块扫描的 SQL 契约**（native 不解析 SQL）：末两个 `?` 是区间边界 `(lo, hi]`、结果按
+   key 升序、**第一列必须是整数 key**（一般是 `rowid`）。`seekSql`（已知键探针）的过滤条件
+   必须与扫描语句一字不差，否则会按契约违规报错。
+2. **只有损坏进宽容路径**：按 native 返回的**错误码**判定（11 = CORRUPT / 26 = NOTADB），
+   不看错误文案；开库失败、`BUSY`、权限、语法错一律照旧抛。
+3. **`skipped` / `skippedSpan` 不是行数**：区间内部有多少行读不出来就无从得知，而键跨度
+   也不是行数上界（同一个键可能对应多行 —— 共享 `seq` 的灰条、贴表情）。报告里只能说
+   “这一段读不出来”，不能说“最多丢 N 行”。
+4. **预算是上界，不是许可**：`maxSkippedRanges` / `maxSkippedSpan` 用尽（native 默认 256 / 8192，
+   相邻同类区间会先合并）就按严格语义**整体失败**，绝不“越救越多”。驱动层默认更紧（20 / 500，
+   理由见 5.4.1）。 **跨度按区间几何（`hi - lo`）累计**，不照抄 native 单次返回的 `skippedSpan`：
+   后者会把本次调用里已经知道的区间再算一遍；同一段坏区间被相邻窗口各报一次时，账本只记
+   新增的那一截（实测 7 键的洞会被重复上报成 2 处 / 跨度 14）。
+5. **`quarantined` 与损坏分开**：`ok=false && quarantined=true` 表示“这次根本**没查**”，
+   `errorKind` 是 `"quarantined"`、`errorCode` 为 `null` —— 调用方的账本/报告必须与
+   “替代路径也救不回来”分开计数。
 
 ---
 
@@ -197,7 +263,7 @@ executeSqlWithKey 返回行示例：
 ## 8. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
-2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。
+2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级，排查时用环境变量 `WEQ_LOG_LEVEL=debug|trace` 抬升（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。

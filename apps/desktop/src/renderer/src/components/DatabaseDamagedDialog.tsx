@@ -1,17 +1,41 @@
 /**
  * 数据库损坏弹窗。
  *
- * 与旧版的区别：不再强制退回 bootstrap —— 健康检查确认损坏后只弹窗提示，
- * 用户可继续使用。弹窗内提供：
- *   - 修复方案（默认折叠，内容较多可展开）
- *   - 检测详情（默认折叠）
- *   - 反馈问题：下拉选 GitHub Issue / QQ 交流群，点击后由主进程把今天的
- *     日志 + settings.db + 密钥算法配置 + 检查报告打包到缓存目录，并打开
- *     文件夹与对应网页 / QQ 深链接。
+ * 与旧版的区别：
+ *   - 不再强制退回 bootstrap —— 健康检查确认损坏后只弹窗提示，用户可继续使用；
+ *   - **不再在弹窗里直接开启宽容级别**。这里曾经有两个"顺手开一下"的按钮
+ *     （换访问路径 / 忽略损坏继续使用），问题有三：
+ *       1. 宽容是**实验性**的，覆盖范围很窄（只有导出这类按键轴分块的读取），
+ *          在一个"出事了"的弹窗里顺手开启，用户没有机会看到代价与边界；
+ *       2. 会丢数据的级别被塞进两个小按钮（还要点两次），和"确认一个会损失数据的
+ *          选项"应有的分量不匹配；
+ *       3. 级别 3 与账本、隔离清单都在设置页，弹窗里给出半套入口反而让人以为
+ *          "开了就没事了"。
+ *     宽容级别依然只能去 设置 → 数据库宽容 自己挑，那里有完整代价说明与账本；
+ *     口径文案统一来自 `@weq/service` 的 `db_tolerance_copy.ts`。
+ *
+ *   - **主按钮是"尝试修复"**（妙妙工具 → 数据库修复）。容错只保证"少读一点也能
+ *     用"，不负责把坏掉的内容找回来；真正恢复数据靠那份修复（备份 → 重建 → 可回滚）。
+ *     所以这里给的是一个真入口，而不是一段"应该怎么修"的说明。
  */
 
 import { useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { BellOff, ChevronDown, ChevronRight, MessageCircle, ShieldAlert, X } from 'lucide-react';
+import {
+  BellOff,
+  ChevronDown,
+  ChevronRight,
+  MessageCircle,
+  Settings2,
+  ShieldAlert,
+  Wrench,
+  X,
+} from 'lucide-react';
+import {
+  SALVAGE_AGGREGATE_CAVEAT,
+  SALVAGE_EXPERIMENTAL_NOTE,
+  SALVAGE_EXPERIMENTAL_TAG,
+  SALVAGE_SKIPPED_SPAN_CAVEAT,
+} from '@weq/service/db-tolerance-copy';
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
@@ -20,6 +44,8 @@ import { client } from '../trpc/client';
 export interface DatabaseDamagedEvent {
   reason: 'database-damaged';
   kind: 'confirmed' | 'check-error';
+  /** 出问题的是哪个账号（直接拿它预选修复页上的账号）。 */
+  uin: string;
   title: string;
   message: string;
   details: string[];
@@ -31,6 +57,9 @@ export interface DatabaseDamagedEvent {
   }>;
   reportPath: string | null;
 }
+
+/** 弹窗唯一会跳转的设置分区。 */
+export type DatabaseDamageSettingsSection = 'database';
 
 function ExpandSection({
   title,
@@ -62,9 +91,15 @@ function ExpandSection({
 export function DatabaseDamagedDialog({
   event,
   onClose,
+  onOpenSettings,
+  onOpenRepair,
 }: {
   event: DatabaseDamagedEvent | null;
   onClose: () => void;
+  /** 打开设置并落到指定分区。宽容级别只能由用户在设置页里自己选。 */
+  onOpenSettings: (section: DatabaseDamageSettingsSection) => void;
+  /** 打开妙妙工具 → 数据库修复，并预选出问题的那个账号。 */
+  onOpenRepair: (uin: string) => void;
 }): ReactElement | null {
   const pushToast = useToast((s) => s.push);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -82,7 +117,8 @@ export function DatabaseDamagedDialog({
       pushToast({
         tone: 'info',
         title: '已不再提醒数据库损坏弹窗',
-        detail: '之后数据库异常时不会再自动弹出该提醒。',
+        detail:
+          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库宽容 → 损坏提醒 里可以再打开）。',
       });
     } catch (e) {
       pushToast({
@@ -145,9 +181,35 @@ export function DatabaseDamagedDialog({
             <h4>发生了什么</h4>
             <p>{isCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
             <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+            {!isCheckError ? (
+              <p>
+                真正恢复数据靠<strong>数据库修复</strong>：它会把能读出来的内容重建到一份新库
+                上（先备份、修完可回滚），在 <strong>妙妙工具 → 数据库修复</strong> 里，
+                下面的主按钮可以直接过去。
+              </p>
+            ) : null}
+            <p>
+              另一种办法是到 <strong>设置 → 数据库宽容</strong> 自己选容错级别
+              <span className="weq-set-exp-badge">{SALVAGE_EXPERIMENTAL_TAG}</span>
+              —— 它只保证"少读一点也能用"（例如让导出能跑完），{' '}
+              <strong>不负责把坏掉的内容找回来</strong>，对年报这类整表聚合大概率没用。
+              能开到哪一级、会付出什么代价，需要你在设置页里看清楚再决定。
+              {SALVAGE_EXPERIMENTAL_NOTE}
+            </p>
+            {!isCheckError ? (
+              <p>
+                {SALVAGE_AGGREGATE_CAVEAT} 具体跳过/降级过什么，都会记在 设置 → 数据库宽容
+                的账本里；{SALVAGE_SKIPPED_SPAN_CAVEAT}
+              </p>
+            ) : null}
           </section>
 
-          <ExpandSection title="建议修复方案（可展开）">
+          <ExpandSection title="手工修复方案（备用，可展开）">
+            <p>
+              一般用不上：上面的「尝试修复」已经是同一条链（解密 → 重建 → 重新加密 → 补回
+              文件头）的自动化版本。只有当修复也修不出来（例如坏得太重、要连库结构一起抢救）
+              时，再走下面的手工路径。
+            </p>
             <ol className="weq-db-fix-steps">
               <li>
                 移除 1024 字节自定义头（从第 1025 字节开始截取）：
@@ -221,11 +283,26 @@ export function DatabaseDamagedDialog({
           </div>
           <button
             type="button"
-            className="weq-action-primary"
-            onClick={() => void suppressReminder()}
+            className="weq-action-soft"
+            onClick={() => {
+              onClose();
+              onOpenSettings('database');
+            }}
           >
+            <Settings2 size={13} strokeWidth={2} aria-hidden />
+            打开设置
+          </button>
+          <button type="button" className="weq-action-soft" onClick={() => void suppressReminder()}>
             <BellOff size={13} strokeWidth={2} aria-hidden />
             不再提醒
+          </button>
+          <button
+            type="button"
+            className="weq-action-primary"
+            onClick={() => onOpenRepair(event.uin)}
+          >
+            <Wrench size={13} strokeWidth={2} aria-hidden />
+            尝试修复
           </button>
         </div>
       </div>

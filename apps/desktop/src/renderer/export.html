@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: resource: weq-asset: weq-avatar: weq-media: https://thirdqq.qlogo.cn https://p.qlogo.cn http://qh.qlogo.cn https://qh.qlogo.cn https://multimedia.nt.qq.com.cn http://tianquan.gtimg.cn https://gxh.material.qq.com http://*.photo.store.qq.com https://*.photo.store.qq.com http://*.qpic.cn https://*.qpic.cn http://imgcache.qq.com https://imgcache.qq.com https://qqbot.ugcimg.cn https://bot-resource-1251316161.file.myqcloud.com https://tangram-1251316161.file.myqcloud.com https://static-res.qq.com https://res.qpt.qq.com https://downv6.qq.com; media-src 'self' weq-media: blob: data:; font-src 'self' data: weq-media:; connect-src 'self' weq-asset: weq-avatar: weq-media: ws: wss:;"
+    />
+    <title>WeQ 分析导出</title>
+    <!--
+      这个页面只服务于「导出长图」：窗口会被主进程调成「内容多大就多大」，所以边距必须
+      清零（默认 body 的 8px 边距会让卡片移位、多出一圈空白）。底色透明是为了让卡片的
+      圆角在 PNG 里保持透明 —— 窗口本身也是 transparent 的。
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: visible;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/export/main.tsx"></script>
+  </body>
+</html>

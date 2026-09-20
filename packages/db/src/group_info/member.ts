@@ -130,6 +130,45 @@ export class GroupMemberDb {
   }
 
   /**
+   * 全群成员的「入群时间快照」—— 小团体分析的原料：谁的入群时间挨得近，谁就是一伙的。
+   *
+   * 只要 uid / uin / 昵称 / 入群时间（64007）/ 最后发言（64008）/ 等级（64035），
+   * 不带 JOIN、不带 ORDER BY —— 成团在内存里按时间排序算，SQL 侧越简单越好。
+   * 只取在群成员（64016 = 0 / null），退群的旧行不算一次「入群」。
+   */
+  async listMemberJoinBriefs(
+    groupCode: bigint,
+    limit = 5000,
+  ): Promise<
+    Array<{
+      uid: string;
+      uin: string;
+      nick: string;
+      card: string;
+      joinTime: number;
+      lastSpeakTime: number;
+      memberLevel: number;
+    }>
+  > {
+    const rows = await this.qq.query(
+      `SELECT "1000","1002","20002","64003","64007","64008","64035"
+       FROM group_member3
+       WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
+       LIMIT ?`,
+      [groupCode, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: row[1] === null || row[1] === undefined ? '' : String(row[1]),
+      nick: String(row[2] ?? ''),
+      card: String(row[3] ?? ''),
+      joinTime: Number(row[4] ?? 0),
+      lastSpeakTime: Number(row[5] ?? 0),
+      memberLevel: Number(row[6] ?? 0),
+    }));
+  }
+
+  /**
    * Single sweep over **every** active membership in the local member table.
    *
    * Cross-group aggregations (年度报告「还没加好友的同路人」等) need the member

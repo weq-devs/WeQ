@@ -16,7 +16,14 @@ import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
-import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
+import {
+  getAppContext,
+  closeSalvageConnections,
+  dbEventBus,
+  type AccountServices,
+} from '../../context/app_context';
+import type { QuarantinedTable } from '@weq/native';
+import type { SalvageLedgerEntry } from '@weq/db';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -2365,6 +2372,54 @@ export const accountRouter = router({
       );
     }),
 
+  /**
+   * 群聊分析的一站式聚合 —— 排行 / 活跃时段 / 每日热力图 / 词云在**一次**表扫描里
+   * 全部算完。前端曾经并发拉四个接口，那是同一张表扫四遍；群历史越长这个差距越大。
+   */
+  getGroupStatsReport: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        rankingLimit: z.number().int().min(1).max(100).optional(),
+        wordLimit: z.number().int().min(1).max(400).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupStatsReport(BigInt(input.groupCode), {
+        rankingLimit: input.rankingLimit,
+        wordLimit: input.wordLimit,
+      });
+    }),
+
+  /**
+   * 入群批次分析：三小时内入群人数达到 max(3, 群总人数 ÷ 20) 就算一个批次。
+   * 只读成员表 + 一条按发送者聚合的 SQL，不扫消息正文。
+   */
+  getGroupJoinBatches: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupJoinBatches(BigInt(input.groupCode));
+    }),
+
+  /**
+   * 小团体分析：按 5 分钟间隔把群消息切成会话，算两两之间的拉力，返回一张力图。
+   * 扫描只读发送者 + 时间（不解码正文）。
+   */
+  getGroupConversationGraph: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        windowSeconds: z.number().int().min(30).max(3600).optional(),
+        maxEdges: z.number().int().min(20).max(2000).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
+        windowSeconds: input.windowSeconds,
+        maxEdges: input.maxEdges,
+      });
+    }),
+
   /** Full one-on-one (private chat) analytics for a single peer. */
   getBuddyAnalytics: procedure
     .input(z.object({ peerUid: z.string().min(1) }))
@@ -3676,4 +3731,128 @@ export const accountRouter = router({
         };
       },
     ),
+
+  /**
+   * 当前账号的宽容（salvage）配置 + 降级账本。
+   *
+   * 账本按时间倒序取最新 50 条；只含 SQL 指纹，不含参数值。
+   */
+  getDbTolerance: procedure.query((): DbToleranceSnapshot => {
+    const ctx = getAppContext();
+    const tolerance = ctx.dbTolerance;
+    if (!tolerance)
+      return { level: 0, grantedAt: null, summary: EMPTY_SALVAGE_SUMMARY, entries: [] };
+    const config = tolerance.getConfig();
+    return {
+      level: config.level,
+      grantedAt: config.grantedAt ?? null,
+      summary: tolerance.summary(),
+      entries: [...tolerance.listEntries()].reverse().slice(0, 50),
+    };
+  }),
+
+  /**
+   * 授权/调整宽容级别（0 = 回到严格）。
+   *
+   * 只有用户的显式动作会调用它：没有自动降级，也不会因为某次查询失败就偷偷改级别。
+   * 级别降回 0 时顺手释放 salvage 只读连接（严格连接不受影响）。
+   */
+  setDbToleranceLevel: procedure
+    .input(z.object({ level: z.number().int().min(0).max(3), source: z.string().optional() }))
+    .mutation(({ input }): { level: number; grantedAt: string | null; closedSalvage: number } => {
+      const ctx = getAppContext();
+      const tolerance = ctx.dbTolerance;
+      if (!tolerance) throw new Error('未打开账号');
+      const config = tolerance.setLevel(input.level, input.source ?? 'ipc');
+      const closedSalvage = config.level === 0 ? closeSalvageConnections(ctx) : 0;
+      return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
+    }),
+
+  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 妙妙工具 → 数据库修复
+  // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
+  // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
+
+  /**
+   * 当前进程内被 L3（整表放弃）隔离的表。
+   *
+   * 隔离是**进程内**的临时状态：条目有存活时间（默认 300 秒，到点自动失效重试），
+   * 所以这里既不落盘也不参与“记住该账号”的设置。它存在的意义只有一个 ——
+   * 让用户能看到“哪张表已经被放弃、为什么”，并且能手动让它再试一次。
+   */
+  listSalvageQuarantine: procedure.query((): QuarantinedTable[] => {
+    const platform = getAppContext().platform;
+    if (!platform) return [];
+    try {
+      return platform.native.ntHelper.listQuarantinedTables();
+    } catch {
+      // 原生侧不可用不应让设置页整个报错：隔离清单只是个只读的展示。
+      return [];
+    }
+  }),
+
+  /**
+   * 把隔离记录清掉，让那些表**立刻**再试一次。
+   *
+   * 三个粒度与 native 一致：只给 `dbName` 清该库，再加 `table` 只清那一张，都不给全清。
+   * `dbPath` 不接收渲染层传来的路径 —— 只能用于“当前确实被隔离的库”（路径由 native
+   * 自己报回来，按文件名匹配），否则就变成了一个任意路径的写入接口。
+   */
+  clearSalvageQuarantine: procedure
+    .input(z.object({ dbName: z.string().optional(), table: z.string().optional() }))
+    .mutation(({ input }): { cleared: number; remaining: number } => {
+      const platform = getAppContext().platform;
+      if (!platform) return { cleared: 0, remaining: 0 };
+      const helper = platform.native.ntHelper;
+      let dbPath: string | undefined;
+      if (input.dbName) {
+        const entry = helper
+          .listQuarantinedTables()
+          .find((item) => basename(item.dbPath) === input.dbName);
+        if (!entry) throw new Error(`${input.dbName} 当前没有被隔离的表`);
+        dbPath = entry.dbPath;
+      }
+      const cleared = helper.clearQuarantinedTables(dbPath, input.table);
+      return { cleared, remaining: helper.listQuarantinedTables().length };
+    }),
 });
+
+// ── 数据库宽容（salvage）：IPC 边界的形状与辅助 ────────────────────────
+
+/** 降级账本汇总。四种结局各自计数、**不合并** —— 它们在报告里的说法完全不同。 */
+export interface SalvageSummary {
+  total: number;
+  /** 换了访问路径后拿到结果（**不丢数据**）。 */
+  indexRetreat: number;
+  /** 损坏且替代路径也救不回来（本次读取没有结果）。 */
+  unrecoverable: number;
+  /**
+   * 分块扫描里跳过了若干区间：**拿到了结果但少了数据**。
+   *
+   * 这是唯一“看起来成功了、实际丢了东西”的一类，所以它必须独立计数，
+   * 不能归到“救不回来”里 —— 后者用户至少知道要重试。
+   */
+  skipped: number;
+  /** 该表已被 L3 整表放弃，本次压根没读。 */
+  quarantined: number;
+  databases: string[];
+  lastAt: string | null;
+}
+
+/** 设置页 / 弹窗需要的全部宽容状态。 */
+export interface DbToleranceSnapshot {
+  level: number;
+  grantedAt: string | null;
+  summary: SalvageSummary;
+  /** 最新 50 条账目（新→旧）。 */
+  entries: SalvageLedgerEntry[];
+}
+
+export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
+  total: 0,
+  indexRetreat: 0,
+  unrecoverable: 0,
+  skipped: 0,
+  quarantined: 0,
+  databases: [],
+  lastAt: null,
+};

@@ -229,6 +229,112 @@ export interface MarketFaceKeyResult {
   source: string;
 }
 
+// ---------- database repair (recoverDatabase) ----------------------------
+
+/**
+ * `checkpointWal` 的产出（SQLite `PRAGMA wal_checkpoint` 三列 + 它的结论）。
+ *
+ * 调用方只该看 `merged`：前三个数字是 SQLite 原样报上来的，用来留痕/排障。
+ */
+export interface WalCheckpointResult {
+  /** 1 = 这次被别的连接挡住了（还有读快照 / 读写事务），帧没能全部写回。 */
+  busy: number;
+  /** `-wal` 里的帧数。`-1` = 这个库不在 WAL 模式（压根没有 WAL）。 */
+  log: number;
+  /** 成功写回主文件的帧数。`-1` = WAL 已被重置。 */
+  checkpointed: number;
+  /** checkpoint 之后 `-wal` 的字节数（0 = 已截断，或本来就没有 WAL）。 */
+  walBytes: number;
+  /** 帧是否已经完整回到主文件里了。`false` = 那批改动依然只在 `-wal` 里。 */
+  merged: boolean;
+}
+
+/**
+ * 修复流水线的阶段（与 `nt_helper` 的 `RecoverPhase` 字符串枚举一致）。
+ *
+ * TS 侧另外会在 native 前后补 `'backup' | 'swapping' | 'done'` 三个自有阶段
+ * （见 `@weq/service` 的 `DbRepairPhase`），所以消费这个类型时用宽松字符串更稳妥。
+ */
+export type RecoverPhase = 'Scan' | 'Decrypt' | 'Repair' | 'Encrypt' | 'Restore' | 'Verify';
+
+/** `recoverDatabase` 的入参。 */
+export interface RecoverOptions {
+  /** 加密的 QQ 库路径（含 1024 字节自定义头）。**本函数不会修改它**。 */
+  dbPath: string;
+  /** 修复产物路径：加密库 + 已补回自定义头，可直接被 QQ / WeQ 打开。 */
+  outPath: string;
+  /** 明文中间件目录。会被创建；中间件在函数返回前删除。 */
+  workDir: string;
+  key: string;
+  algo: DatabaseAlgorithms;
+  /**
+   * 严格页模式（默认 `false`）。
+   *
+   * `false`：坏页上"未通过 HMAC 的明文内容"照样写进新库 —— 恢复率最高，
+   * 但那些字节可能已被 CBC 糊掉。
+   * `true`：先把坏页清零再重建 —— 结构一定合法、不引入未校验内容，代价是那些行明确丢失。
+   */
+  strictPages?: boolean;
+  /** 是否也从 freelist 上捞已删除的记录（默认 `false`，打开会"复活"已删除消息）。 */
+  recoverFreelist?: boolean;
+  /** 孤立页回收表名，默认 `lost_and_found`；空字符串表示不做孤立页回收。 */
+  lostAndFoundName?: string;
+  /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
+  slowIndexes?: boolean;
+}
+
+/** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
+export interface RecoverProgress {
+  phase: RecoverPhase;
+  /** 整体百分比（0–100，单调不回退；阶段内为估算值）。 */
+  percent: number;
+  /** 给用户看的短句，例如"正在恢复 group_msg_table（第 1024/22454 页）"。 */
+  message: string;
+}
+
+/** 单个阶段的耗时。 */
+export interface RecoverPhaseTiming {
+  phase: RecoverPhase;
+  ms: number;
+}
+
+/** 产物自检结果。 */
+export interface RecoverVerification {
+  /** `PRAGMA integrity_check`（经 offset VFS + 密钥）是否通过。 */
+  healthy: boolean;
+  /** 自检判定有问题的表（正常为空）。 */
+  corruptedTables: string[];
+  /** 产物里仍然页 HMAC 校验失败的页（正常为空）。 */
+  badPages: number[];
+  tables: number;
+  indexes: number;
+  ms: number;
+}
+
+/** 修复结果报告。 */
+export interface RecoverReport {
+  dbPath: string;
+  outPath: string;
+  durationMs: number;
+  sourceBytes: number;
+  /** 产物大小（字节，含自定义头）。 */
+  outputBytes: number;
+  /** 源库的自定义头长度（0 或 1024）。 */
+  headerOffset: number;
+  pageSize: number;
+  sourcePages: number;
+  outputPages: number;
+  /** 源库**物理坏页**清单（页 HMAC 失败）—— 即"内容不可信"的那几页。 */
+  badPages: number[];
+  /** 源库全零页清单。 */
+  zeroPages: number[];
+  strictPages: boolean;
+  /** 重建过程中扫过的 cell 数量（**不是行数**）。 */
+  scannedCells: number;
+  phases: RecoverPhaseTiming[];
+  verification: RecoverVerification;
+}
+
 // ---------- nt_helper.node — full surface --------------------------------
 
 /**
@@ -379,10 +485,100 @@ export interface NtHelperBinding {
   ): Promise<number>;
   closeDb(dbPath: string): number;
   closeAllDb(): number;
+  /**
+   * 只释放该 dbPath 的宽容（salvage）只读连接，严格连接一律不动。
+   * 用户把宽容级别调回严格时用它。返回释放的连接数。
+   */
+  closeSalvageDb(dbPath: string): number;
+
+  // --- SQL: 损坏宽容（salvage）只读通道 ---
+  /**
+   * 宽容只读查询。与 `executeSql*` 的差别只有两处，且都必须由上层显式授权：
+   * 走独立的 salvage 只读连接；遇到损坏且 `level >= 1` 时换访问路径重试。
+   *
+   * 契约：**不会**因为"损坏"抛异常，而是返回 `ok: false` + 错误码，让调用方
+   * 自己决定放弃还是切更小的一段；其它错误照旧抛错。
+   */
+  executeSqlSalvage(
+    dbPath: string,
+    sql: string,
+    params?: SqlValue[] | null,
+    level?: number | null,
+  ): Promise<SalvageQueryOutcome>;
+  executeSqlSalvageWithKey(
+    dbPath: string,
+    sql: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    params?: SqlValue[] | null,
+    level?: number | null,
+  ): Promise<SalvageQueryOutcome>;
+  /**
+   * 分块容错扫描（L2）：把 key 区间切块读取，读不出来的块二分到 `minSpan` 再记成
+   * "跳过区间"；`hints` 里的已知坏区间**不查**直接记账。
+   *
+   * SQL 契约（native 不解析 SQL）：末两个 `?` 是区间边界、结果按 key 升序、
+   * **第一列是整数 key**（一般是 `rowid`）。
+   */
+  executeSqlSalvageScan(
+    dbPath: string,
+    sql: string,
+    params: SqlValue[] | undefined | null,
+    options: SalvageScanOptions,
+    level?: number | null,
+  ): Promise<SalvageScanOutcome>;
+  executeSqlSalvageScanWithKey(
+    dbPath: string,
+    sql: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    params: SqlValue[] | undefined | null,
+    options: SalvageScanOptions,
+    level?: number | null,
+  ): Promise<SalvageScanOutcome>;
+  /** 逐页复算页 HMAC，产出物理坏页清单（"坏页地图"）。 */
+  scanBadPages(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<BadPageScanResult>;
+  /**
+   * 列出当前被 L3（整表放弃）隔离的表。进程内状态，条目有存活时间（默认 300 秒）。
+   */
+  listQuarantinedTables(): QuarantinedTable[];
+  /**
+   * 清掉隔离记录：只给 `dbPath` → 清该库；再加 `table` → 只清那一张；都不给 → 清全部。
+   * 返回清掉的条目数。
+   */
+  clearQuarantinedTables(dbPath?: string | null, table?: string | null): number;
 
   // --- bulk decrypt ---
   fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
+
+  // --- database repair ---
+  /**
+   * 修复损坏的库，产出一份可直接使用的新库：坏页扫描 → 解密（不校验页 HMAC，
+   * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数
+   * 重新加密 → 补回自定义头 → 自检。**源库只读**，产物写到 `options.outPath`。
+   *
+   * 进度通过 `onProgress` 持续回调（阶段 + 百分比 + 文案）。
+   */
+  recoverDatabase(
+    options: RecoverOptions,
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
+  /**
+   * 把源库未合并的 WAL（`-wal` 里的帧）合并回主文件。
+   *
+   * QQ 的库是 WAL 模式：崩溃 / 被强杀后会留下带帧的 `-wal`，而解密、坏页扫描、修复都是
+   * 页级读取，只看得到主文件 —— 修复前先调一次，最后那批改动才不会静默消失。合并不改
+   * 内容（只是把帧里的整页镜像写回主文件对应的页）。
+   *
+   * **可选**：产物早于这个能力时不存在，调用方必须按"旧产物"处理（修复退回"如实告知
+   * 用户 WAL 里的改动没进修复"），而不是当成致命错误。
+   */
+  checkpointWal?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+  ): Promise<WalCheckpointResult>;
 
   // --- custom packet send (protobuf-encoded body in, raw reply body out) ---
   /**
@@ -602,6 +798,206 @@ export interface NineBirdResources {
 
 // ---------- DB-subset alias used by @weq/db ------------------------------
 
+/** 宽容（salvage）只读查询的结果。 */
+export interface SalvageQueryOutcome {
+  /** 查询到的行；`ok === false` 时为空。 */
+  rows: SqlRow[];
+  /** 是否拿到了可用结果。 */
+  ok: boolean;
+  /** 是否发生了降级（换了访问路径后成功）。`ok === false` 时为 false。 */
+  degraded: boolean;
+  /**
+   * 实际用到的级别：0 = 原路径，1 = 索引退化，2 = 跳过了坏区间，3 = 该表已被隔离。
+   */
+  levelUsed: number;
+  /** `'none'` | `'corrupt'` | `'not-a-database'` | `'quarantined'`。 */
+  errorKind: string;
+  /** SQLite 主错误码（11 = CORRUPT，26 = NOTADB）；无错误时缺省。 */
+  errorCode?: number | null;
+  /** 原始错误文案，与严格模式报出来的那条一致。短路时没有文案。 */
+  errorMessage?: string | null;
+  /** 本次是否真的用 `NOT INDEXED` 重试过。 */
+  retriedWithNotIndexed: boolean;
+  /** 这条语句针对的表（解析不出来时缺省）。整表放弃就是按它判定的。 */
+  table?: string | null;
+  /** 该表是否已被 L3 隔离（`true` 表示这次**根本没查**）。 */
+  quarantined: boolean;
+}
+
+/**
+ * 一个键区间，语义与扫描窗口一致（`(lo, hi]`）。
+ *
+ * 边界是 `bigint`：QQ 的 `rowid` 实测在 `7.7e18` 量级，越过 `2^53` 之后 `number` 会被
+ * 静默取整（实测偏差 48），"从哪断的"会整个错位。超出 `2^53` 的数字**必须**用 `bigint`
+ * 传，native 会报错而不是替你取整。
+ */
+export interface SalvageKeyRange {
+  /** 区间下界（不含）。 */
+  lo: bigint;
+  /** 区间上界（含）。 */
+  hi: bigint;
+}
+
+/**
+ * 分块容错扫描的配置。
+ *
+ * `hints` 的**正确用法**是把上一次结果的 `skipped` 原样回填：那里的 `lo` / `hi` 就是
+ * 当时查询用的窗口边界（`lo` 侧开、`hi` 侧闭），相邻的跳过区间会被自动合并成一段，
+ * 正好盖住全部读不出来的 key，两侧可读区间也不会被多切一刀。
+ */
+export interface SalvageScanOptions {
+  /** 扫描下界（不含）。 */
+  lo: bigint;
+  /**
+   * 扫描上界（含）；省略 = **一直读到表尾**。
+   *
+   * 开放上界必须配 `seekSql`：否则扫描器不知道何时停，native 会直接报错（而不是
+   * 跑一个永远跑不完的扫描）。
+   */
+  hi?: bigint | null;
+  /** 每块覆盖的 key 跨度；默认 4096。 */
+  chunk?: number;
+  /** 二分的下限跨度：降到这里仍坏就记为跳过；默认 1。 */
+  minSpan?: number;
+  /** 预算：最多允许跳过几处**损坏区域**（相邻同类区间会合并）；默认 256。 */
+  maxSkippedRanges?: number;
+  /** 预算：最多允许跳过多少 key 跨度；默认 8192。注意它**不是行数**。 */
+  maxSkippedSpan?: number;
+  /** 已知坏区间（一般来自上一次扫描的结果）。只在 `level >= 2` 时生效。 */
+  hints?: SalvageKeyRange[];
+  /**
+   * **已知键探针**：一条"取下一个存在的键"的 SQL，末尾追加**一个**参数（当前键），
+   * 返回 `> 当前键` 的最小键（取第一列；没有更大的键就返回空/NULL）。
+   *
+   * 例：`SELECT MIN(rowid) FROM group_msg_table WHERE "40027" = ?1 AND rowid > ?2`。
+   * 过滤条件必须与扫描语句一致，否则 native 会按契约违规报错。给了它，空键区间
+   * **一次探针**就跳过去；没有它，稀疏键空间只能按固定步长走（不可用）。
+   */
+  seekSql?: string;
+  /**
+   * 最多允许多少个窗口（只在没有 `seekSql` 时检查）；默认 100000。
+   *
+   * 防呆而不是预算：没有探针时扫描器只能按固定步长推进，`hi = MAX(rowid)` 这种调用
+   * 要切 `1.8e15` 个窗口。这种调用会被**开工前拒绝**。
+   */
+  maxWindows?: number;
+}
+
+/**
+ * 一处"读不出来"的区间。
+ *
+ * 区间内部到底有多少行**无法得知**（读不出来就是读不出来），所以位置提示只能用前后
+ * 邻居表达，**不报行数** —— 报告里不允许伪造精确数字。
+ *
+ * ⚠️ `hi - lo` 是**键跨度，不是行数上界**：同一个键可能对应多行（共享 `seq` 的灰条 /
+ * 贴表情），实测就有"丢 21 行而跨度只有 18"。
+ */
+export interface SalvageSkippedRange {
+  /** 左邻：跳过之前最后一条成功读出的 key；缺省 = 从头就坏。 */
+  prevKey?: bigint | null;
+  /** 右邻：跳过之后第一条成功读出的 key；缺省 = 一直坏到扫描结束。 */
+  nextKey?: bigint | null;
+  /** 实际执行失败的块的边界（诊断用）。 */
+  lo: bigint;
+  hi: bigint;
+  /** `'corrupt'` | `'not-a-database'`；`'hint'` 表示按提示直接跳过、**根本没查**。 */
+  errorKind: string;
+  /** SQLite 主错误码（11 / 26）；提示区间没有错误码。 */
+  errorCode?: number | null;
+}
+
+/**
+ * 一次分块容错扫描的结果。
+ *
+ * `ok === false` 只有三种情况，且都会把 `rows` 清空 —— 绝不允许把部分数据当成完整数据：
+ * 超出降级预算（`budgetExhausted`）；`level < 2`（损坏且 L1 也救不回来）；该表已被隔离
+ * （`quarantined`）。
+ *
+ * 失败时 `skipped` / `skippedSpan` **照原样保留**："丢在哪一段"是失败报告里最有用的一句。
+ */
+export interface SalvageScanOutcome {
+  /** 读出来的行（`ok === false` 时为空）。 */
+  rows: SqlRow[];
+  /** 是否拿到了可用结果。 */
+  ok: boolean;
+  /** 是否发生了降级（换过访问路径或跳过过区间）。 */
+  degraded: boolean;
+  /** 实际用到的级别：0 / 1 / 2 / 3。 */
+  levelUsed: number;
+  /** `'none'` | `'corrupt'` | `'not-a-database'` | `'quarantined'`。 */
+  errorKind: string;
+  errorCode?: number | null;
+  /** 最早那处损坏的原始文案（根因，不是最后一次重试的结果）。 */
+  errorMessage?: string | null;
+  /** 跳过区间清单（`ok === true` 时才有意义）；每条都带自己的来源。 */
+  skipped: SalvageSkippedRange[];
+  /** 实际执行了多少次查询（含二分与 L1 重试），用来解释耗时。 */
+  queries: number;
+  /** 是否因为超出降级预算而整体放弃。 */
+  budgetExhausted: boolean;
+  /** 读出的行数（= `rows.length`）。 */
+  rowCount: number;
+  /**
+   * 跳过区间的 key 跨度总和。
+   *
+   * ⚠️ **不是丢失行数的上界**：同一个键可能对应多行（共享 `seq` 的灰条、贴表情），
+   * 实测"丢 21 行而跨度只有 18"。报告只能说"这一段读不出来"，不能说"最多丢 N 行"。
+   */
+  skippedSpan: number;
+  /** 这条语句针对的表（解析不出来时缺省）。 */
+  table?: string | null;
+  /** 该表是否已被 L3 隔离（`true` 表示这次**根本没扫**）。 */
+  quarantined: boolean;
+}
+
+/** 一张被 L3（整表放弃）隔离的表。 */
+export interface QuarantinedTable {
+  /** 数据库文件路径。 */
+  dbPath: string;
+  /** 表名。 */
+  table: string;
+  /** 触发隔离的损坏类型。 */
+  errorKind: string;
+  /** 首次隔离时间（Unix 秒）。 */
+  since: number;
+  /** 隔离时已连续失败次数。 */
+  failures: number;
+}
+
+/** 坏页扫描（"坏页地图"）的结果。 */
+export interface BadPageScanResult {
+  pageSize: number;
+  pageCount: number;
+  /** 物理坏页（1-based 页号，页 HMAC 校验失败）。 */
+  badPages: number[];
+  /**
+   * 全零页。SQLCipher 把整页全零当作"读到文件尾之后的短读"，是否算损坏取决于
+   * 库有没有开 autovacuum，所以单独列出。
+   */
+  zeroPages: number[];
+  /** 文件尾不足一页的残余字节数。 */
+  trailingBytes: number;
+  /**
+   * 本次是否真的校验了页 HMAC。`false` 表示该库没开页 HMAC，此时 `badPages`
+   * 必然为空 —— 地图**没有意义**，界面必须如实告知，而不是当成"库是好的"。
+   */
+  usedHmac: boolean;
+  /**
+   * QQ 头之后就是一个**明文** SQLite 库（没有加密）。
+   *
+   * 实测：对明文库硬跑页 HMAC 会得到"1217 / 1217 页全坏"的误导结论，所以 native 认出
+   * 这种情况后直接早退 —— `badPages` 为空、`usedHmac` 为 `false`。界面要说的是
+   * "这不是加密库，坏页地图不适用"，而不是"全坏"。
+   */
+  plaintext: boolean;
+  /** 文件里 QQ 自定义头的长度（0 或 1024）。 */
+  headerOffset: number;
+  /** 扫描结束时的文件大小（地图缓存的失效判据）。 */
+  fileSize: number;
+  /** 扫描时间（Unix 秒）。 */
+  scannedAt: number;
+}
+
 /**
  * Subset of `NtHelperBinding` the db package uses for its `QqDb` handle.
  * Carved out so unit tests can construct `QqDb` with a stub binding
@@ -610,6 +1006,10 @@ export interface NineBirdResources {
 export type NativeBinding = Pick<
   NtHelperBinding,
   | 'executeSql'
+  | 'executeSqlSalvageScan'
+  | 'executeSqlSalvageScanWithKey'
+  | 'listQuarantinedTables'
+  | 'clearQuarantinedTables'
   | 'executeSqlWithKey'
   | 'executeSqlWrite'
   | 'executeSqlWriteWithKey'

@@ -51,5 +51,15 @@ interface Window {
     capture: {
       window(): Promise<{ ok: boolean; error?: string }>;
     };
+    analyticsShot: {
+      /** 主进程在隐藏窗口里渲染同一张卡片、抓成长图、弹保存框（用户窗口全程不动）。 */
+      render(
+        payload: import('../../shared/analytics_export').AnalyticsExportPayload,
+      ): Promise<import('../../shared/analytics_export').AnalyticsExportResult>;
+      /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
+      claimPayload(): Promise<
+        import('../../shared/analytics_export').AnalyticsExportPayload | null
+      >;
+    };
   };
 }
