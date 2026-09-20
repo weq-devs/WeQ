@@ -33,7 +33,10 @@ import {
   type SectionId as SettingsDialogSectionId,
 } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
-import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
+import {
+  WonderfulToolsDialog,
+  type ToolId as WonderfulToolId,
+} from '../components/WonderfulToolsDialog';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
@@ -1714,6 +1717,9 @@ export function MainView(): ReactElement {
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
+  /** 打开妙妙工具时先落到哪一页、以及先选中哪个账号（损坏弹窗 → 数据库修复）。 */
+  const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
+  const [wonderfulToolsUin, setWonderfulToolsUin] = useState<string | null>(null);
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
@@ -3901,7 +3907,11 @@ export function MainView(): ReactElement {
             onGoHome={() => shell.switchView('home')}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
-            onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
+            onOpenWonderfulTools={() => {
+              setWonderfulToolsTool('key-scan');
+              setWonderfulToolsUin(null);
+              setWonderfulToolsOpen(true);
+            }}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -4137,6 +4147,8 @@ export function MainView(): ReactElement {
           <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
+            initialTool={wonderfulToolsTool}
+            initialUin={wonderfulToolsUin}
             onClose={() => setWonderfulToolsOpen(false)}
           />
           <GuildDirectDialog
@@ -4157,6 +4169,14 @@ export function MainView(): ReactElement {
               // 宽容级别只能在设置页里选，弹窗只负责把人送过去。
               setSettingsSection(section);
               setSettingsOpen(true);
+            }}
+            onOpenRepair={(uin) => {
+              // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚），
+              // 并预选出问题的那个账号。
+              setDamagedEvent(null);
+              setWonderfulToolsTool('db-repair');
+              setWonderfulToolsUin(uin);
+              setWonderfulToolsOpen(true);
             }}
           />
           {marketBrowserOpen ? (

@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getQueryKey } from '@trpc/react-query';
 import {
   LockKeyhole,
   LogOut,
@@ -31,6 +30,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { leaveAccountForBootstrap, purgeAccountQueries } from '../lib/leaveAccount';
 import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
@@ -208,17 +208,9 @@ export function RailAccountFooter({
     }
   }
 
-  // Drop EVERY cached `trpc.account.*` entry (recent contacts, profiles,
-  // buddies, group details, …) so the next account's MainView mount cannot
-  // read the previous account's data while its own fetch is still in flight.
-  // We use removeQueries (not invalidateQueries) because invalidate would
-  // still hand stale data to the next subscriber until the refetch resolves.
-  // Also cancel any in-flight account-scoped requests — those would
-  // otherwise land in the cache after the wipe, under the new account.
+  // 账号级缓存的清理在 lib/leaveAccount.ts（退出、切号、数据库修复修完都要同一套）。
   function purgeAccountCache(): void {
-    const accountKey = getQueryKey(trpc.account);
-    void queryClient.cancelQueries({ queryKey: accountKey });
-    queryClient.removeQueries({ queryKey: accountKey });
+    purgeAccountQueries(queryClient);
   }
 
   // staleTime 0 + refetchOnMount always: the account配置 is written by
@@ -265,13 +257,7 @@ export function RailAccountFooter({
     setBusy(true);
     setOpen(false);
     try {
-      await client.bootstrap.closeAccount.mutate();
-      // Wipe the previous account's cached queries before the renderer
-      // re-paints — otherwise recent_contact / buddies / groups flash
-      // through on the way back to bootstrap.
-      purgeAccountCache();
-      setOpenedUin(null);
-      goTo('bootstrap');
+      await leaveAccountForBootstrap(queryClient);
     } catch (e) {
       showError('退出失败', errMsg(e));
     } finally {

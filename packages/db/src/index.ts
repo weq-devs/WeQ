@@ -28,17 +28,20 @@ export type { CorruptionSuspectInfo } from './errors';
 
 // --- 损坏宽容（salvage）---
 export {
+  RECOVER_METHODS,
   SALVAGE_BINDING_METHODS,
   SALVAGE_HEALTH_METHODS,
   SALVAGE_QUERY_METHODS,
   SALVAGE_SCAN_METHODS,
   SalvageLedger,
+  assertRecoverCapable,
   assertSalvageCapable,
   clampSalvageLevel,
   describeSkipped,
   fingerprintSql,
   isSalvageEnabled,
   iterateSalvageWindows,
+  missingRecoverMethods,
   missingSalvageMethods,
   runSalvageScan,
   spanOfRanges,
@@ -47,6 +50,7 @@ export {
   wrapBindingForSalvage,
 } from './salvage';
 export type {
+  RecoverBindingMethod,
   SalvageBindingOptions,
   SalvageLedgerEntry,
   SalvageLevel,

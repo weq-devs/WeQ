@@ -229,6 +229,112 @@ export interface MarketFaceKeyResult {
   source: string;
 }
 
+// ---------- database repair (recoverDatabase) ----------------------------
+
+/**
+ * `checkpointWal` 的产出（SQLite `PRAGMA wal_checkpoint` 三列 + 它的结论）。
+ *
+ * 调用方只该看 `merged`：前三个数字是 SQLite 原样报上来的，用来留痕/排障。
+ */
+export interface WalCheckpointResult {
+  /** 1 = 这次被别的连接挡住了（还有读快照 / 读写事务），帧没能全部写回。 */
+  busy: number;
+  /** `-wal` 里的帧数。`-1` = 这个库不在 WAL 模式（压根没有 WAL）。 */
+  log: number;
+  /** 成功写回主文件的帧数。`-1` = WAL 已被重置。 */
+  checkpointed: number;
+  /** checkpoint 之后 `-wal` 的字节数（0 = 已截断，或本来就没有 WAL）。 */
+  walBytes: number;
+  /** 帧是否已经完整回到主文件里了。`false` = 那批改动依然只在 `-wal` 里。 */
+  merged: boolean;
+}
+
+/**
+ * 修复流水线的阶段（与 `nt_helper` 的 `RecoverPhase` 字符串枚举一致）。
+ *
+ * TS 侧另外会在 native 前后补 `'backup' | 'swapping' | 'done'` 三个自有阶段
+ * （见 `@weq/service` 的 `DbRepairPhase`），所以消费这个类型时用宽松字符串更稳妥。
+ */
+export type RecoverPhase = 'Scan' | 'Decrypt' | 'Repair' | 'Encrypt' | 'Restore' | 'Verify';
+
+/** `recoverDatabase` 的入参。 */
+export interface RecoverOptions {
+  /** 加密的 QQ 库路径（含 1024 字节自定义头）。**本函数不会修改它**。 */
+  dbPath: string;
+  /** 修复产物路径：加密库 + 已补回自定义头，可直接被 QQ / WeQ 打开。 */
+  outPath: string;
+  /** 明文中间件目录。会被创建；中间件在函数返回前删除。 */
+  workDir: string;
+  key: string;
+  algo: DatabaseAlgorithms;
+  /**
+   * 严格页模式（默认 `false`）。
+   *
+   * `false`：坏页上"未通过 HMAC 的明文内容"照样写进新库 —— 恢复率最高，
+   * 但那些字节可能已被 CBC 糊掉。
+   * `true`：先把坏页清零再重建 —— 结构一定合法、不引入未校验内容，代价是那些行明确丢失。
+   */
+  strictPages?: boolean;
+  /** 是否也从 freelist 上捞已删除的记录（默认 `false`，打开会"复活"已删除消息）。 */
+  recoverFreelist?: boolean;
+  /** 孤立页回收表名，默认 `lost_and_found`；空字符串表示不做孤立页回收。 */
+  lostAndFoundName?: string;
+  /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
+  slowIndexes?: boolean;
+}
+
+/** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
+export interface RecoverProgress {
+  phase: RecoverPhase;
+  /** 整体百分比（0–100，单调不回退；阶段内为估算值）。 */
+  percent: number;
+  /** 给用户看的短句，例如"正在恢复 group_msg_table（第 1024/22454 页）"。 */
+  message: string;
+}
+
+/** 单个阶段的耗时。 */
+export interface RecoverPhaseTiming {
+  phase: RecoverPhase;
+  ms: number;
+}
+
+/** 产物自检结果。 */
+export interface RecoverVerification {
+  /** `PRAGMA integrity_check`（经 offset VFS + 密钥）是否通过。 */
+  healthy: boolean;
+  /** 自检判定有问题的表（正常为空）。 */
+  corruptedTables: string[];
+  /** 产物里仍然页 HMAC 校验失败的页（正常为空）。 */
+  badPages: number[];
+  tables: number;
+  indexes: number;
+  ms: number;
+}
+
+/** 修复结果报告。 */
+export interface RecoverReport {
+  dbPath: string;
+  outPath: string;
+  durationMs: number;
+  sourceBytes: number;
+  /** 产物大小（字节，含自定义头）。 */
+  outputBytes: number;
+  /** 源库的自定义头长度（0 或 1024）。 */
+  headerOffset: number;
+  pageSize: number;
+  sourcePages: number;
+  outputPages: number;
+  /** 源库**物理坏页**清单（页 HMAC 失败）—— 即"内容不可信"的那几页。 */
+  badPages: number[];
+  /** 源库全零页清单。 */
+  zeroPages: number[];
+  strictPages: boolean;
+  /** 重建过程中扫过的 cell 数量（**不是行数**）。 */
+  scannedCells: number;
+  phases: RecoverPhaseTiming[];
+  verification: RecoverVerification;
+}
+
 // ---------- nt_helper.node — full surface --------------------------------
 
 /**
@@ -445,6 +551,34 @@ export interface NtHelperBinding {
   // --- bulk decrypt ---
   fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
+
+  // --- database repair ---
+  /**
+   * 修复损坏的库，产出一份可直接使用的新库：坏页扫描 → 解密（不校验页 HMAC，
+   * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数
+   * 重新加密 → 补回自定义头 → 自检。**源库只读**，产物写到 `options.outPath`。
+   *
+   * 进度通过 `onProgress` 持续回调（阶段 + 百分比 + 文案）。
+   */
+  recoverDatabase(
+    options: RecoverOptions,
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
+  /**
+   * 把源库未合并的 WAL（`-wal` 里的帧）合并回主文件。
+   *
+   * QQ 的库是 WAL 模式：崩溃 / 被强杀后会留下带帧的 `-wal`，而解密、坏页扫描、修复都是
+   * 页级读取，只看得到主文件 —— 修复前先调一次，最后那批改动才不会静默消失。合并不改
+   * 内容（只是把帧里的整页镜像写回主文件对应的页）。
+   *
+   * **可选**：产物早于这个能力时不存在，调用方必须按"旧产物"处理（修复退回"如实告知
+   * 用户 WAL 里的改动没进修复"），而不是当成致命错误。
+   */
+  checkpointWal?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+  ): Promise<WalCheckpointResult>;
 
   // --- custom packet send (protobuf-encoded body in, raw reply body out) ---
   /**

@@ -57,16 +57,17 @@ html[data-theme="light"] {
 
   --weq-accent: #0099ff;
   /*
-   * 警告语气（设置页的"会少数据"/隔离/坏页提示）。
+   * 警告语气（设置页的"会少数据"/隔离/坏页提示、妙妙工具的修复提示条）。
    *
-   * 取的是 toast 的 warning 同一支 amber（#f59e0b）而非旧的那支偏褐的 #9a6700 ——
-   * 后者在蓝主题里像褪色的旧警示，和强调色、卡片底色都不在一个体系里。
-   * 三件套分开定义：文字要深一档才够对比，底色与描边都留透明通道，方便叠在浅/深底上。
+   * **从主题强调色派生**，不再是固定的琥珀 —— 强调色是可自定义的（见 state/theme），
+   * 一支写死的 amber 在别的强调色 / 深色底上都像"另一个体系里的颜色"。这里取同一支色，
+   * 只用明度与透明通道分层：文字最深（与底拉开对比）、底色最浅、描边居中。
+   * 三件套分开定义，是因为它们叠在不同的底上（卡片、行内确认条、徽章）。
    */
-  --weq-warn-fg: #b45309;
-  --weq-warn-solid: #f59e0b;
-  --weq-warn-bg: rgba(245, 158, 11, 0.1);
-  --weq-warn-border: rgba(245, 158, 11, 0.34);
+  --weq-warn-fg: color-mix(in srgb, var(--weq-accent-effective) 55%, #0a2f52);
+  --weq-warn-solid: var(--weq-accent-effective);
+  --weq-warn-bg: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  --weq-warn-border: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.985 0 0);
@@ -145,11 +146,11 @@ html[data-theme="dark"],
   --sidebar-foreground: var(--foreground);
 
   --weq-accent: #56a8f7;
-  /* 深色态下 amber 要更亮才够对比；与 toast 的 warning 同步。 */
-  --weq-warn-fg: #fbbf24;
-  --weq-warn-solid: #fbbf24;
-  --weq-warn-bg: rgba(251, 191, 36, 0.14);
-  --weq-warn-border: rgba(251, 191, 36, 0.36);
+  /* 深色态：文字往白里提一档才够对比，底色 / 描边都比浅色态重一点。 */
+  --weq-warn-fg: color-mix(in srgb, var(--weq-accent-effective) 55%, #ffffff);
+  --weq-warn-solid: var(--weq-accent-effective);
+  --weq-warn-bg: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  --weq-warn-border: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.24 0.01 250);
@@ -15547,6 +15548,370 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   border-color: rgba(255, 255, 255, 0.12);
   color: #7b8794;
 }
+/* ────────────────────────────────────────────────────────────────────────
+ * 数据库修复（妙妙工具 → 数据库修复）
+ *
+ * 按钮不在这里 —— 直接复用 `.weq-set-btn` 家族（浅色 / 深色都已适配）。这里只放
+ * 面板特有的东西：提示条、进度条、修复记录列表。
+ *
+ * 配色一律走主题令牌：警示用 `--weq-warn-*`（与设置页同一套，且本身从主题强调色派生，
+ * 深色态由令牌统一改写，不需要单独的 dark 覆盖），描边用 `--weq-border-subtle`，
+ * 文字用 `--weq-fg-*`。别在这里写死颜色 —— 上一版设置页的告警色就是因为写死才与主题
+ * 打架。唯一的例外是 `.weq-repair-ok` 的绿："没扫到坏页"是一句结论，绿比主题色更像
+ * 结论（深色态有自己的提亮）。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-repair-body {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.weq-repair-block {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-repair-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weq-repair-label {
+  font-size: 12px;
+  font-weight: 620;
+  color: var(--weq-fg-secondary);
+}
+
+/* 账号 / 库的选择：内容驱动宽度，允许换行（库名一多不会顶破面板）。 */
+.weq-repair-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-repair-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-repair-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-repair-chip.is-active {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-chip em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-chip.is-mono span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 提示条：一句话 + 可选的当场动作（例如「结束 QQ 进程」）。
+ * 三档语气（ok / warn / muted）靠**形状与分量**区分，而不是另一支色相：
+ * 警示是 3px 左描边 + 重一点的底（与设置页的 `.weq-set-warnbox` 同一套语言），
+ * 一切正常就只是细描边 + 很淡的底。因为主题色是用户自定义的，另一支色相反而会更乱。 */
+.weq-repair-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-repair-note svg {
+  flex: none;
+}
+
+.weq-repair-note > span {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.weq-repair-note.is-ok {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+.weq-repair-note.is-warn {
+  border-color: var(--weq-warn-border);
+  border-left-width: 3px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-repair-note.is-warn svg,
+.weq-repair-note.is-warn strong {
+  color: var(--weq-warn-fg);
+}
+
+.weq-repair-note.is-muted {
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-hint strong {
+  color: var(--weq-fg-secondary);
+}
+
+/* 进度：阶段名 + 百分比 + 一条主题色轨道。 */
+.weq-repair-progress {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+}
+
+.weq-repair-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-progress-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-repair-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-repair-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--weq-accent-effective);
+  transition: width 240ms ease;
+}
+
+/* 键值块（坏页报告）。 */
+.weq-repair-kv {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-kv ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  min-width: 0;
+}
+
+.weq-repair-kv strong {
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-ok {
+  color: #18a058;
+}
+
+html[data-theme="dark"] .weq-repair-ok {
+  color: #4ade80;
+}
+
+.weq-repair-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 修复记录：一条一行，确认态就地展开（位置永远与操作对象一致）。 */
+.weq-repair-history {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+}
+
+.weq-repair-history > li {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 11px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-repair-history > li:first-child {
+  border-top: 0;
+}
+
+.weq-repair-history > li.is-confirming {
+  background: var(--weq-warn-bg);
+}
+
+.weq-repair-history-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-repair-history-meta {
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weq-repair-badge.is-ok {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+/* 徽章比 `is-ok`（accent 14%）重一档才分得开 —— 色相已经被主题色占满了。 */
+.weq-repair-badge.is-warn {
+  background: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  color: var(--weq-warn-fg);
+}
+
+.weq-repair-badge.is-muted {
+  background: color-mix(in srgb, var(--weq-fg-muted) 16%, transparent);
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-confirm {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-repair-confirm .is-warn {
+  color: var(--weq-warn-fg);
+}
+
+.weq-repair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ── 「修复完成 → 回首页」的浮动提示 ──────────────────────────────────
+ * 挂在 App 上（不是弹窗里），所以用 fixed 定位自己；放顶部居中，右下角的 toast
+ * 堆叠不受影响。
+ */
+.weq-repair-return {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+  box-shadow: var(--weq-shadow-card);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  animation: weq-repair-return-in 180ms ease-out;
+}
+
+@keyframes weq-repair-return-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 没替换成功那一档（账号已关、库没换成）：同一条路，但语气要换。 */
+.weq-repair-return.is-warn {
+  border-color: var(--weq-warn-border);
+  border-left-width: 3px;
+}
+
+.weq-repair-return-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-repair-return.is-warn .weq-repair-return-icon {
+  color: var(--weq-warn-fg);
+}
+
+.weq-repair-return-text {
+  display: grid;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-repair-return-text strong {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-return-count {
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。
    =========================================================================== */

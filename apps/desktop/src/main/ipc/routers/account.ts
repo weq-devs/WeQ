@@ -12,7 +12,6 @@
  */
 
 import { z } from 'zod';
-import { existsSync } from 'node:fs';
 import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -23,14 +22,8 @@ import {
   dbEventBus,
   type AccountServices,
 } from '../../context/app_context';
-import { algoFor } from '@weq/account';
-import type {
-  BadPageScanResult,
-  DatabaseAlgorithms,
-  NtHelperBinding,
-  QuarantinedTable,
-} from '@weq/native';
-import { assertSalvageCapable, type SalvageLedgerEntry } from '@weq/db';
+import type { QuarantinedTable } from '@weq/native';
+import type { SalvageLedgerEntry } from '@weq/db';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -62,7 +55,6 @@ import {
   buildBotExport,
   probeBotWebUi,
   downloadUrlToFile,
-  ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,
   collectDbDamageFeedback,
   findLatestDbHealthReport,
@@ -3776,43 +3768,9 @@ export const accountRouter = router({
       return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
     }),
 
-  /**
-   * 坏页地图：逐页复算 SQLCipher 的页 HMAC，并把坏页映射到受影响的表/索引。
-   *
-   * 注意 `usedHmac === false` 时 `badPages` 必然为空 —— 那不是"库是好的"，而是
-   * "这个库没开页 HMAC（或它压根是明文库，见 `plaintext`），地图没有意义"，
-   * 界面必须如实展示。
-   */
-  scanDatabaseBadPages: procedure
-    .input(z.object({ dbName: z.string() }))
-    .mutation(async ({ input }): Promise<BadPageScanReport> => {
-      const ctx = getAppContext();
-      const session = ctx.account;
-      const platform = ctx.platform;
-      if (!session) throw new Error('未打开账号');
-      if (!platform) throw new Error('原生组件未就绪');
-      if (!(ACCOUNT_HEALTH_DATABASES as readonly string[]).includes(input.dbName)) {
-        throw new Error(`不支持的数据库：${input.dbName}`);
-      }
-
-      const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
-      const dbPath = join(dbDir, input.dbName);
-      if (!existsSync(dbPath)) throw new Error(`${input.dbName} 不存在`);
-      const algo = algoFor(session.context, dbPath);
-      if (!algo) throw new Error('缺少该数据库的加密算法信息，无法扫描坏页');
-
-      // 旧平台的产物可能没有这个接口：先点名，报"去取产物"，而不是 undefined is not a function。
-      assertSalvageCapable(platform.native.ntHelper, '坏页扫描', ['scanBadPages']);
-      const scan = await platform.native.ntHelper.scanBadPages(dbPath, session.context.dbKey, algo);
-      const affected = await mapBadPagesToObjects(
-        platform.native.ntHelper,
-        dbPath,
-        session.context.dbKey,
-        algo,
-        scan.badPages,
-      );
-      return { ...scan, dbName: input.dbName, dbPath, affected };
-    }),
+  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 妙妙工具 → 数据库修复
+  // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
+  // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
 
   /**
    * 当前进程内被 L3（整表放弃）隔离的表。
@@ -3889,23 +3847,6 @@ export interface DbToleranceSnapshot {
   entries: SalvageLedgerEntry[];
 }
 
-/** 被坏页命中的表/索引（来自 `dbstat` 映射）。 */
-export interface AffectedObject {
-  name: string;
-  pagetype: string;
-  badPageCount: number;
-  /** 样例页号（最多 20 个），避免一次传输上千个。 */
-  samplePages: number[];
-}
-
-/** 一次坏页扫描的完整报告。 */
-export interface BadPageScanReport extends BadPageScanResult {
-  dbName: string;
-  dbPath: string;
-  /** `dbstat` 查不到时为空数组 —— 只意味着"没映射出来"，不代表没有坏页。 */
-  affected: AffectedObject[];
-}
-
 export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
   total: 0,
   indexRetreat: 0,
@@ -3915,49 +3856,3 @@ export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
   databases: [],
   lastAt: null,
 };
-
-/** 每个受影响对象最多回传的样例页号数量。 */
-const AFFECTED_SAMPLE_PAGES = 20;
-
-/**
- * 把坏页映射到具体的表 / 索引。
- *
- * 依据 `dbstat` 虚表（bundled 的 SQLite 已开启 `SQLITE_ENABLE_DBSTAT_VTAB`）：它给出
- * 每个对象占用的页号，与坏页清单求交集就能回答"哪些表受影响"。这就是坏页地图比
- * `PRAGMA integrity_check` 强的地方 —— 后者只能给一句"某表损坏"。
- *
- * `dbstat` 本身查不出来（库坏得比较重，或版本没开该虚表）时返回空数组，不报错：
- * 页号清单本身已经比原来有信息量。
- */
-async function mapBadPagesToObjects(
-  nt: NtHelperBinding,
-  dbPath: string,
-  key: string,
-  algo: DatabaseAlgorithms,
-  badPages: number[],
-): Promise<AffectedObject[]> {
-  if (badPages.length === 0) return [];
-  const bad = new Set(badPages);
-  try {
-    const rows = await nt.executeSqlWithKey(
-      dbPath,
-      'SELECT name, pagetype, pageno FROM dbstat',
-      key,
-      algo,
-    );
-    const byObject = new Map<string, AffectedObject>();
-    for (const row of rows) {
-      const pageno = Number(row[2]);
-      if (!bad.has(pageno)) continue;
-      const name = String(row[0] ?? '');
-      const pagetype = String(row[1] ?? '');
-      const entry = byObject.get(name) ?? { name, pagetype, badPageCount: 0, samplePages: [] };
-      entry.badPageCount += 1;
-      if (entry.samplePages.length < AFFECTED_SAMPLE_PAGES) entry.samplePages.push(pageno);
-      byObject.set(name, entry);
-    }
-    return [...byObject.values()].sort((a, b) => b.badPageCount - a.badPageCount);
-  } catch {
-    return [];
-  }
-}

@@ -350,6 +350,12 @@ export type {
   CleanupResult,
 } from './account/resource_cleanup';
 export {
+  AFFECTED_SAMPLE_PAGES,
+  mapBadPagesToObjects,
+  scanDatabaseBadPages,
+} from './account/bad_pages';
+export type { AffectedObject, BadPageScanReport, ScanBadPagesInput } from './account/bad_pages';
+export {
   ACCOUNT_HEALTH_DATABASES,
   DB_HEALTH_REPORT_PREFIX,
   checkAccountDatabaseHealth,
@@ -368,6 +374,47 @@ export type {
 } from './account/db_health';
 export { DbToleranceService } from './account/db_tolerance';
 export type { DbToleranceConfig } from './account/db_tolerance';
+export {
+  DB_REPAIR_CACHE_DIR,
+  DEFAULT_BACKUP_KEEP,
+  DbRepairError,
+  DbRepairHistory,
+  DbRepairService,
+  classifyLock,
+  dbRepairPaths,
+  dbRepairRoot,
+  isQqProcessName,
+  makeStamp,
+  productTempPath,
+  renderDbRepairReportMarkdown,
+  resolveAccountDbDir,
+} from './account/db_repair';
+export type {
+  DbRepairAccountInfo,
+  DbRepairAccountRef,
+  DbRepairBackupResult,
+  DbRepairDeps,
+  DbRepairErrorCode,
+  DbRepairLockClassification,
+  DbRepairLockHolder,
+  DbRepairLockProbe,
+  DbRepairPaths,
+  DbRepairPhase,
+  DbRepairPreflight,
+  DbRepairProgress,
+  DbRepairReadiness,
+  DbRepairRecord,
+  DbRepairRecordState,
+  DbRepairRecoverOptions,
+  DbRepairRecoverPhaseTiming,
+  DbRepairRecoverReport,
+  DbRepairRecoverVerification,
+  DbRepairReportOptions,
+  DbRepairRequest,
+  DbRepairRestorePreview,
+  DbRepairTarget,
+  DbRepairWalCheckpoint,
+} from './account/db_repair';
 export {
   SALVAGE_AGGREGATE_CAVEAT,
   SALVAGE_EXPERIMENTAL_NOTE,

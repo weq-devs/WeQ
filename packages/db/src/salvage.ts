@@ -94,6 +94,16 @@ export const SALVAGE_BINDING_METHODS = [
 export type SalvageBindingMethod = (typeof SALVAGE_BINDING_METHODS)[number];
 
 /**
+ * 数据库修复（`recoverDatabase`）依赖的 native 接口。
+ *
+ * 与宽容链路的清单**分开**：宽容没取到新产物只是"降级不可用，严格照旧"，而修复没
+ * 取到新产物是"这个功能没法用" —— 报错时要说的是两件事；而且老产物上这两个能力的
+ * 缺失本来也不一定同步。
+ */
+export const RECOVER_METHODS = ['recoverDatabase'] as const;
+export type RecoverBindingMethod = (typeof RECOVER_METHODS)[number];
+
+/**
  * 这个绑定上**缺**哪些宽容接口（空数组 = 该项能力完好）。
  *
  * `required` 默认是全量清单；调用方通常只该校验**马上要用到**的那几个 ——
@@ -103,8 +113,30 @@ export function missingSalvageMethods(
   nt: NtHelperBinding,
   required: readonly SalvageBindingMethod[] = SALVAGE_BINDING_METHODS,
 ): SalvageBindingMethod[] {
+  return missingMethods(nt, required);
+}
+
+/** 这个绑定上**缺**哪些修复接口（空数组 = 修复能力完好）。 */
+export function missingRecoverMethods(
+  nt: NtHelperBinding,
+  required: readonly RecoverBindingMethod[] = RECOVER_METHODS,
+): RecoverBindingMethod[] {
+  return missingMethods(nt, required);
+}
+
+/** 两个清单共用的点名实现。 */
+function missingMethods<T extends string>(nt: NtHelperBinding, required: readonly T[]): T[] {
   const bag = nt as unknown as Record<string, unknown>;
   return required.filter((name) => typeof bag[name] !== 'function');
+}
+
+/** 缺产物时的统一话术后半段（前半句按能力各自写）。 */
+function missingBindingHint(missing: readonly string[]): string {
+  return (
+    `缺少 ${missing.join(', ')}。\n` +
+    '这通常意味着这份 nt_helper.node 是旧版本 —— 重新获取对应平台的产物即可\n' +
+    '（`pnpm native:fetch --platform <win32|linux|darwin> --arch <x64|arm64>`）。\n'
+  );
 }
 
 /**
@@ -121,10 +153,27 @@ export function assertSalvageCapable(
   const missing = missingSalvageMethods(nt, required);
   if (missing.length === 0) return;
   throw new Error(
-    `当前平台的 native 产物不支持${feature}：缺少 ${missing.join(', ')}。\n` +
-      '这通常意味着这份 nt_helper.node 是旧版本 —— 重新获取对应平台的产物即可\n' +
-      '（`pnpm native:fetch --platform <win32|linux|darwin> --arch <x64|arm64>`）。\n' +
+    `当前平台的 native 产物不支持${feature}：${missingBindingHint(missing)}` +
       '在补齐之前，宽容级别不会有任何效果，读取会一直走严格通道。',
+  );
+}
+
+/**
+ * 用数据库修复之前先确认 native 产物支持它。
+ *
+ * 与 {@link assertSalvageCapable} 的区别只在话术：修复是用户主动发起的、有明确
+ * 目的的操作，所以要点明"修复入口会一直报这个错"，而不是谈宽容级别。
+ */
+export function assertRecoverCapable(
+  nt: NtHelperBinding,
+  feature = '数据库修复',
+  required: readonly RecoverBindingMethod[] = RECOVER_METHODS,
+): void {
+  const missing = missingRecoverMethods(nt, required);
+  if (missing.length === 0) return;
+  throw new Error(
+    `当前平台的 native 产物不支持${feature}：${missingBindingHint(missing)}` +
+      '在补齐之前，修复入口会一直报这个错（数据库本身没有被改动）。',
   );
 }
 

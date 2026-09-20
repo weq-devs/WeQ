@@ -158,6 +158,13 @@ export interface AccountForcedClosedEvent {
   reason: 'database-damaged';
   /** 'confirmed' — integrity scan found damage; 'check-error' — scan itself failed. */
   kind: 'confirmed' | 'check-error';
+  /**
+   * 出问题的是哪个账号。
+   *
+   * 弹窗靠它把用户送到**正确的那一个**账号上：点「尝试修复」直接落到妙妙工具的
+   * 数据库修复页，并把账号预选好。多账号下不传这个就会修到别人的库上。
+   */
+  uin: string;
   title: string;
   message: string;
   details: string[];
@@ -363,6 +370,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
         kind: 'confirmed',
+        uin: session.context.uin,
         title: '数据库损坏',
         message:
           '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。已生成检查报告，可以按弹窗里的修复方案尝试修复，也可以继续使用。',
@@ -398,6 +406,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
         kind: 'check-error',
+        uin: session.context.uin,
         title: '数据库损坏',
         message:
           '检测 QQ 数据库健康状态时发生错误，为避免继续读取损坏数据，建议尽快修复或备份数据库。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。',

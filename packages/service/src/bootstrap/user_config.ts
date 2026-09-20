@@ -479,6 +479,8 @@ export interface AppSettings {
   /**
    * 数据库损坏弹窗是否不再提醒。用户点「不再提醒」后写入全局配置；之后健康检查
    * 仍照常执行并生成报告，但不再弹出提醒。
+   *
+   * 设置页 数据库宽容 → 损坏提醒 里可以再打开（不然这是个单向的门）。
    */
   suppressDbDamageReminder: boolean;
   /**
@@ -487,6 +489,18 @@ export interface AppSettings {
    */
   defaultExportDir: string | null;
 }
+
+/**
+ * 「数据库损坏弹窗不再提醒」这条偏好的**策略版本**。
+ *
+ * 版本 1 = 旧版：弹窗里只有"去设置页开宽容级别"这一条出路，用户点「不再提醒」
+ * 之后就再也看不到提醒了。
+ *
+ * 版本 2 = 现在：弹窗的主按钮是「尝试修复」（妙妙工具 → 数据库修复），真正能把数据
+ * 找回来。旧版里勾过"不再提醒"的用户并不知道有这回事，所以升级到本版本时**一次性**
+ * 把那个开关清掉，让他们至少能再看到一次新入口；之后再点"不再提醒"就照旧尊重。
+ */
+export const DB_DAMAGE_REMINDER_POLICY_VERSION = 2;
 
 /**
  * 外部安卓 chatpic 目录（`…/Tencent/MobileQQ/chatpic` 的完整备份）。
@@ -613,6 +627,34 @@ export interface UserConfig {
    * 省去每次重新勾选。纯 UI 缓存，不影响导出流程本身。
    */
   exportPresets?: ExportPresets;
+  /**
+   * 已经落地的「数据库损坏提醒」策略版本（缺省 = 1，见
+   * {@link DB_DAMAGE_REMINDER_POLICY_VERSION}）。只由迁移写，不通过 getSettings 暴露。
+   */
+  dbDamageReminderPolicyVersion?: number;
+}
+
+/**
+ * 一次性的偏好迁移：把「数据库损坏弹窗不再提醒」清掉（只在旧版本配置上触发一次）。
+ *
+ * 抽成纯函数是为了能离线单测 —— 这段逻辑的代价很实在（写用户配置），不能靠"跑一遍
+ * 看看"。返回 null 表示不用动（已经是当前版本）。
+ *
+ * 为什么**无论有没有勾过都写版本号**：只写"被重置过"的那种配置会让后来手动勾上的
+ * 用户在下一次启动时又被重置（缺省版本 = 1），于是这个开关永远关不严。第一次启动新
+ * 版本就记下版本号，之后一切照用户的选择。
+ */
+export function planDbDamageReminderPolicyReset(config: UserConfig): Partial<UserConfig> | null {
+  const seen = config.dbDamageReminderPolicyVersion ?? 1;
+  if (seen >= DB_DAMAGE_REMINDER_POLICY_VERSION) return null;
+  const patch: Partial<UserConfig> = {
+    dbDamageReminderPolicyVersion: DB_DAMAGE_REMINDER_POLICY_VERSION,
+  };
+  // 只覆盖这一个字段，其它偏好原样带过去（write 是浅合并，settings 必须整份给）。
+  if (config.settings?.suppressDbDamageReminder === true) {
+    patch.settings = { ...config.settings, suppressDbDamageReminder: false };
+  }
+  return patch;
 }
 
 export class UserConfigService {
@@ -626,6 +668,29 @@ export class UserConfigService {
     this.platform = platform;
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
+    this.runConfigMigrations();
+  }
+
+  /**
+   * 启动时把配置推到当前版本。失败绝不影响启动 —— 迁移失败的结果只是"下次再试"。
+   */
+  private runConfigMigrations(): void {
+    try {
+      const patch = planDbDamageReminderPolicyReset(this.read());
+      if (!patch) return;
+      const resetReminder = patch.settings !== undefined;
+      this.write(patch);
+      this.logger.info('applied the db damage reminder policy migration', {
+        event: 'config-migration-db-damage-reminder',
+        version: DB_DAMAGE_REMINDER_POLICY_VERSION,
+        resetReminder,
+      });
+    } catch (error) {
+      this.logger.warn('failed to apply the db damage reminder policy migration', {
+        event: 'config-migration-failed',
+        ...logErrorContext(error),
+      });
+    }
   }
 
   listAccountConfigs(): AccountConfig[] {

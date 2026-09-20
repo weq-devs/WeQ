@@ -4,7 +4,10 @@
  * 这一屏要回答三个问题，顺序也就是版面顺序：
  *   1. **现在是什么级别**（顶部一处说清，含"实验性"与覆盖范围）；
  *   2. **想开哪一级，代价是什么**（每一级一行，确认**就在那一行里**完成）；
- *   3. **到底降级过什么**（账本、隔离清单、坏页扫描）。
+ *   3. **到底降级过什么**（账本、隔离清单）。
+ *
+ * 坏页扫描**不在这里**：它已经搬到 妙妙工具 → 数据库修复（那边才对**任意账号**
+ * 可用，且与修复共用同一份实现）。这里只留容错本身的账。
  *
  * 三条不变量，界面文案必须与之保持一致：
  *   1. **默认严格**：级别 0 是默认，也占一行，用户随时能看到"关掉会回到什么"。
@@ -16,14 +19,15 @@
  * 文案一律取自 `@weq/service` 的 `db_tolerance_copy.ts`（那份带守卫测试）。
  * 这里是**渲染**，不是口径的出处 —— 想改口径请改那个模块，否则文案会漂。
  *
- * 版面注意：坏页扫描的库选择、账本、扫描报告都是"内容驱动宽度"的块，**不能**放进
- * `Row` 的右侧控件位（`.weq-set-row-ctrl` 是 `flex: none`，宽度跟着内容走，库名一多
- * 就顶破卡片边框）。它们统一用 `.weq-set-block` / `.weq-set-chips` 单独占一整行。
+ * 版面注意：账本、隔离清单都是"内容驱动宽度"的块，**不能**放进 `Row` 的右侧控件位
+ * （`.weq-set-row-ctrl` 是 `flex: none`，宽度跟着内容走，一行字一多就顶破卡片边框）。
+ * 它们统一用 `.weq-set-block` / `.weq-set-chips` 单独占一整行。
  *
  * 后端契约（account router）：
  *   - getDbTolerance           — { level, grantedAt, summary, entries }
  *   - setDbToleranceLevel      — { level, source? } → { level, grantedAt, closedSalvage }
- *   - scanDatabaseBadPages     — { dbName } → 坏页清单 + 受影响的表/索引
+ *   - listSalvageQuarantine    — 被整表放弃（隔离）的清单
+ *   - clearSalvageQuarantine   — 让它重新试一次
  */
 
 import { useState, type ReactElement } from 'react';
@@ -32,10 +36,8 @@ import {
   DatabaseZap,
   FlaskConical,
   Info,
-  Loader2,
   RefreshCw,
   ShieldCheck,
-  Stethoscope,
 } from 'lucide-react';
 import {
   SALVAGE_AGGREGATE_CAVEAT,
@@ -48,39 +50,7 @@ import {
 } from '@weq/service/db-tolerance-copy';
 import { trpc } from '../../trpc/client';
 import { useToast } from '../Toast';
-import { Card, SectionHeader } from './controls';
-
-/** 可扫描坏页的数据库（与后端 `ACCOUNT_HEALTH_DATABASES` 白名单保持一致）。 */
-const SCANNABLE_DATABASES = [
-  'nt_msg.db',
-  'group_info.db',
-  'profile_info.db',
-  'emoji.db',
-  'misc.db',
-  'group_msg_fts.db',
-  'buddy_msg_fts.db',
-  'files_in_chat.db',
-  'file_assistant.db',
-] as const;
-
-/** 页号清单是一次性给全还是截断显示（后端会把整份清单给过来）。 */
-const BAD_PAGE_PREVIEW = 40;
-
-/** `BadPageScanReport` 的渲染层视图（与 account router 的返回对齐）。 */
-interface BadPageReport {
-  dbName: string;
-  dbPath: string;
-  pageSize: number;
-  pageCount: number;
-  badPages: number[];
-  zeroPages: number[];
-  /** QQ 头之后就是明文 SQLite（没有加密）：坏页地图对它没有意义。 */
-  plaintext: boolean;
-  trailingBytes: number;
-  usedHmac: boolean;
-  headerOffset: number;
-  affected: Array<{ name: string; pagetype: string; badPageCount: number; samplePages: number[] }>;
-}
+import { Card, Row, SectionHeader, Toggle } from './controls';
 
 /** 账本里一条记录的渲染层视图。 */
 interface LedgerEntryView {
@@ -159,14 +129,19 @@ export function DatabaseToleranceSection(): ReactElement {
   const utils = trpc.useUtils();
   const tolerance = trpc.account.getDbTolerance.useQuery(undefined, { staleTime: 5000 });
   const setLevel = trpc.account.setDbToleranceLevel.useMutation();
-  const scan = trpc.account.scanDatabaseBadPages.useMutation();
   const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, { staleTime: 5000 });
   const clearQuarantine = trpc.account.clearSalvageQuarantine.useMutation();
 
-  const [scanTarget, setScanTarget] = useState<string>('nt_msg.db');
-  const [report, setReport] = useState<BadPageReport | null>(null);
   /** 正在等用户确认的**那个**级别；确认条就渲染在这一行里面。 */
   const [pendingLossy, setPendingLossy] = useState<number | null>(null);
+  // 弹窗提醒开关。它存在 AppSettings 里（不是宽容级别那一套），所以单独查一次。
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const setReminder = trpc.bootstrap.setSuppressDbDamageReminder.useMutation();
+  const remindOnDamage = settings.data ? !settings.data.suppressDbDamageReminder : true;
 
   const level = tolerance.data?.level ?? 0;
   const grantedAt = tolerance.data?.grantedAt ?? null;
@@ -226,15 +201,21 @@ export function DatabaseToleranceSection(): ReactElement {
     }
   };
 
-  const runScan = async (): Promise<void> => {
-    setReport(null);
+  const changeReminder = async (remind: boolean): Promise<void> => {
     try {
-      const result = await scan.mutateAsync({ dbName: scanTarget });
-      setReport(result as BadPageReport);
+      await setReminder.mutateAsync({ suppressed: !remind });
+      await settings.refetch();
+      pushToast({
+        tone: 'info',
+        title: remind ? '已开启数据库损坏提醒' : '已关闭数据库损坏提醒',
+        detail: remind
+          ? '以后健康检查确认数据库损坏时会弹窗提醒（主按钮就是「尝试修复」）。'
+          : '以后不再弹窗；问题仍会写进日志并生成检查报告。',
+      });
     } catch (e) {
       pushToast({
         tone: 'error',
-        title: '坏页扫描失败',
+        title: '设置失败',
         detail: e instanceof Error ? e.message : String(e),
       });
     }
@@ -260,6 +241,23 @@ export function DatabaseToleranceSection(): ReactElement {
           </>
         }
       />
+
+      {/* 提醒是弹窗那条路的总开关：关掉之后，损坏只会进日志与检查报告，不会找人。
+          放在这里是因为它和宽容级别回答的是同一个问题（"库坏了之后会怎样"）。 */}
+      <Card title="损坏提醒">
+        <Row
+          label="数据库异常时弹窗提醒"
+          desc="健康检查确认损坏后才会弹窗（主按钮为「尝试修复」，也可以从妙妙工具 → 数据库修复手动进入）。关掉后仍会写日志并生成检查报告 —— 需要时随时可以在这里再打开。"
+          control={
+            <Toggle
+              checked={remindOnDamage}
+              disabled={!settings.data || setReminder.isPending}
+              onChange={(next) => void changeReminder(next)}
+              label="数据库异常时弹窗提醒"
+            />
+          }
+        />
+      </Card>
 
       <Card
         title="宽容级别"
@@ -450,8 +448,8 @@ export function DatabaseToleranceSection(): ReactElement {
         >
           <p className="weq-set-desc">
             这些表连续多少次都读不动，已被理解成"暂时不可用"（级别 3）。隔离只是暂时的：
-            到点会自动重试，你也可以现在就让它们重新试一次。注意隔离的判据是**整张表**，
-            同一张表里本来完好的部分在隔离期内也读不出来。
+            到点会自动重试，你也可以现在就让它们重新试一次。注意隔离的判据是
+            <strong>整张表</strong>，同一张表里本来完好的部分在隔离期内也读不出来。
           </p>
           <ul className="weq-set-ledger">
             {quarantined.map((entry) => (
@@ -478,115 +476,6 @@ export function DatabaseToleranceSection(): ReactElement {
           </ul>
         </Card>
       ) : null}
-
-      <Card
-        title="坏页扫描"
-        action={
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            disabled={scan.isPending}
-            onClick={() => void runScan()}
-          >
-            {scan.isPending ? (
-              <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
-            ) : (
-              <Stethoscope size={12} strokeWidth={2} aria-hidden />
-            )}
-            {scan.isPending ? '扫描中…' : '开始扫描'}
-          </button>
-        }
-      >
-        <div className="weq-set-block">
-          <span className="weq-set-row-label">目标数据库</span>
-          <div className="weq-set-chips" role="radiogroup" aria-label="坏页扫描的目标数据库">
-            {SCANNABLE_DATABASES.map((name) => {
-              const active = name === scanTarget;
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
-                  disabled={scan.isPending}
-                  onClick={() => {
-                    setScanTarget(name);
-                    setReport(null);
-                  }}
-                >
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-          <span className="weq-set-row-desc">
-            按 SQLCipher 的页布局逐页复算 HMAC，给出物理坏页清单，并映射到受影响的表 / 索引。
-            只读密文，不会修改数据库。想真修复请等修复入口，或按损坏弹窗里的方案手工处理。
-          </span>
-        </div>
-
-        {report ? (
-          <div className="weq-set-kv">
-            {report.usedHmac ? (
-              <>
-                <span>
-                  <strong>{report.dbName}</strong> 共 {report.pageCount} 页（每页 {report.pageSize}{' '}
-                  字节）
-                  {report.zeroPages.length > 0 ? `，全零页 ${report.zeroPages.length} 个` : ''}
-                  {report.trailingBytes > 0 ? `，文件尾残余 ${report.trailingBytes} 字节` : ''}。
-                </span>
-                {report.badPages.length === 0 ? (
-                  <span className="weq-set-ok">没有发现坏页 —— 页层面是完好的。</span>
-                ) : (
-                  <>
-                    <span>
-                      坏页 <strong>{report.badPages.length}</strong> 个
-                      {report.badPages.length > BAD_PAGE_PREVIEW
-                        ? `（下列只显示前 ${BAD_PAGE_PREVIEW} 个）`
-                        : ''}
-                      ：
-                    </span>
-                    <span className="weq-set-mono">
-                      {report.badPages.slice(0, BAD_PAGE_PREVIEW).join(', ')}
-                    </span>
-                    {report.affected.length > 0 ? (
-                      <ul>
-                        {report.affected.map((item) => (
-                          <li key={`${item.name}:${item.pagetype}`}>
-                            <span className="weq-set-mono">{item.name}</span>（{item.pagetype}）命中{' '}
-                            {item.badPageCount} 个坏页
-                            {item.samplePages.length > 0
-                              ? ` · 例如 ${item.samplePages.slice(0, 5).join(', ')}`
-                              : ''}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <span>
-                        坏页未能映射到具体对象（dbstat 不可用或数据库损坏过重），页号清单仍有效。
-                      </span>
-                    )}
-                  </>
-                )}
-              </>
-            ) : report.plaintext ? (
-              <span>
-                这是一个<strong>明文</strong>数据库：没有 salt、没有页 HMAC，逐页校验无从做起 ——
-                这类库（例如经过解密的镜像）请直接用普通查询或完整性检查，坏页地图对它 没有意义。
-              </span>
-            ) : (
-              <span>
-                这个数据库没有开启页 HMAC，逐页校验无从做起 —— <strong>这不代表数据库是好的</strong>
-                ，只是这套地图在这里没有意义。
-              </span>
-            )}
-            <span>
-              扫描位置：<span className="weq-set-mono">{report.dbPath}</span>
-            </span>
-          </div>
-        ) : null}
-      </Card>
     </div>
   );
 }
