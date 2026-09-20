@@ -501,6 +501,17 @@ describe('DbRepairService.restore', () => {
     });
   });
 
+  it('删除记录会连同备份一起清掉，之后再也找不到它', async () => {
+    const h = createHarness();
+    const record = await repairOnce(h);
+    expect(h.service.restorePreview(REF, record.id).backupExists).toBe(true);
+
+    expect(h.service.deleteRecord(REF, record.id)).toEqual({ removed: true });
+    expect(h.service.listRecords(REF)).toHaveLength(0);
+    expect(() => h.service.restorePreview(REF, record.id)).toThrow(/找不到修复记录/);
+    expect(() => h.service.deleteRecord(REF, record.id)).toThrow(/找不到修复记录/);
+  });
+
   it('没有备份的记录不能回滚', async () => {
     const h = createHarness();
     const record = await h.service.repair(

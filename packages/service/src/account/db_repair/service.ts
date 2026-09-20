@@ -637,6 +637,29 @@ export class DbRepairService {
     return { removed: !existsSync(path) };
   }
 
+  /**
+   * 彻底删掉一条修复记录（连同它的备份）。
+   *
+   * 这是用户主动的"我不要这条历史了"，与 `deleteBackup`（只释放备份、记录留着）不同：
+   * 记录一并消失，之后不能再回滚到这一条。正在跑的修复**不**受影响 —— 新记录还没落盘。
+   */
+  deleteRecord(uin: string, recordId: string): { removed: boolean } {
+    const history = this.history(uin);
+    const record = history.find(recordId);
+    if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);
+    // 先删记录再删目录：即使删目录失败，界面上这条也已经不在了（不会留半截）。
+    const removed = history.remove(recordId);
+    if (record.backupPath) removeDirQuietly(dirname(record.backupPath));
+    this.log.info('db repair record deleted', {
+      event: 'db-repair-record-deleted',
+      accountUin: uin,
+      recordId,
+      dbName: record.dbName,
+      removed,
+    });
+    return { removed };
+  }
+
   // ────────────────────────── 内部 ──────────────────────────
 
   private now(): Date {

@@ -7,6 +7,7 @@
  *   - `files.ts`   一次读算 sha256 / 分块拷贝 / 静默清理 / 可用空间
  *   - `lock.ts`    锁占用归类（QQ vs 其它进程）
  *   - `history.ts` 记录与备份保留策略
+ *   - `checkup.ts` 体检结论（结构 + 页级 → 一句结论）
  *   - `report.ts`  人读报告
  *   - `service.ts` 编排：预检 → 备份 → 重建 → 安全替换 → 自检 → 记录/回滚
  *
@@ -29,6 +30,13 @@ export {
   resolveAccountDbDir,
 } from './paths';
 export type { DbRepairPaths } from './paths';
+export { concludeCheckup } from './checkup';
+export type {
+  DbRepairCheckup,
+  DbRepairCheckupIntegrity,
+  DbRepairCheckupPages,
+  DbRepairCheckupVerdict,
+} from './checkup';
 export { renderDbRepairReportMarkdown } from './report';
 export type { DbRepairReportOptions } from './report';
 export { DbRepairError, DbRepairService } from './service';

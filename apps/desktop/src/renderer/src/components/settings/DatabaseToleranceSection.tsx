@@ -33,6 +33,7 @@
 import { useState, type ReactElement } from 'react';
 import {
   AlertTriangle,
+  ChevronDown,
   DatabaseZap,
   FlaskConical,
   Info,
@@ -234,13 +235,30 @@ export function DatabaseToleranceSection(): ReactElement {
               <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
               {SALVAGE_EXPERIMENTAL_TAG}
             </span>
-            QQ 数据库损坏时，默认（级别 0 · 严格）会让相关查询直接报错。严格之外还有三级宽容： 级别
-            1 只换访问路径（<strong>不丢数据</strong>），级别 2 会跳过读不出来的区间（
-            <strong>可能缺失部分消息</strong>），级别 3 再允许放弃读不动的整张表。
-            {SALVAGE_EXPERIMENTAL_NOTE}
+            QQ 数据库损坏时默认直接报错；也可以按需开启宽容级别，接受「少读一点也能用」的代价。
           </>
         }
       />
+
+      {/* 口径说明统一收进可展开块：默认不占版面，要看时点开。 */}
+      <details className="weq-set-details">
+        <summary>
+          <ChevronDown size={13} aria-hidden />
+          宽容是什么、覆盖哪些功能
+        </summary>
+        <div className="weq-set-details-body">
+          <p>
+            严格（级别 0）之外还有三级宽容：级别 1 只换访问路径（<strong>不丢数据</strong>）， 级别
+            2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
+            再允许放弃读不动的整张表。
+          </p>
+          <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
+          <p className="weq-set-warnbox">
+            <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+            <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
+          </p>
+        </div>
+      </details>
 
       {/* 提醒是弹窗那条路的总开关：关掉之后，损坏只会进日志与检查报告，不会找人。
           放在这里是因为它和宽容级别回答的是同一个问题（"库坏了之后会怎样"）。 */}
@@ -267,10 +285,6 @@ export function DatabaseToleranceSection(): ReactElement {
           </span>
         }
       >
-        <p className="weq-set-warnbox">
-          <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-          <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
-        </p>
         <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
           {salvageLevelsAscending().map((copy) => {
             const active = copy.level === level;
@@ -287,7 +301,6 @@ export function DatabaseToleranceSection(): ReactElement {
                       {active ? <span className="weq-set-level-tag">当前</span> : null}
                     </span>
                     <span className="weq-set-level-desc">{copy.summary}</span>
-                    <span className="weq-set-level-desc">{copy.scope}</span>
                     {copy.losesData ? (
                       <span className="weq-set-level-loss">
                         <AlertTriangle size={11} strokeWidth={1.9} aria-hidden />
@@ -315,6 +328,16 @@ export function DatabaseToleranceSection(): ReactElement {
                     </button>
                   </span>
                 </div>
+                {/* 生效范围很长，收进可展开块 —— 级别列表先做到一行一个。 */}
+                <details className="weq-set-details weq-set-level-details">
+                  <summary>
+                    <ChevronDown size={12} aria-hidden />
+                    生效范围与代价
+                  </summary>
+                  <div className="weq-set-details-body">
+                    <p>{copy.scope}</p>
+                  </div>
+                </details>
                 {confirming ? (
                   <div className="weq-set-confirm" role="group" aria-live="polite">
                     <span className="weq-set-confirm-text">
@@ -385,15 +408,25 @@ export function DatabaseToleranceSection(): ReactElement {
             共 {summary.total} 次：换了访问路径（未丢数据） {summary.indexRetreat} 次 · 跳过区间{' '}
             {summary.skipped} 次 · 读不出来 {summary.unrecoverable} 次 · 放弃整表{' '}
             {summary.quarantined} 次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
-            {summary.skipped > 0 || summary.unrecoverable > 0 || summary.quarantined > 0
-              ? `（带“少数据”的条目意味着确实有内容没读出来。${SALVAGE_SKIPPED_SPAN_CAVEAT}）`
-              : ''}
           </p>
         ) : (
           <p className="weq-set-desc">
             还没有任何降级记录。只有在你开启了宽容模式、且真的遇到损坏时才会产生记录。
           </p>
         )}
+        {hasLedger &&
+        summary &&
+        summary.skipped + summary.unrecoverable + summary.quarantined > 0 ? (
+          <details className="weq-set-details">
+            <summary>
+              <ChevronDown size={12} aria-hidden />
+              「少数据」是什么意思
+            </summary>
+            <div className="weq-set-details-body">
+              <p>{SALVAGE_SKIPPED_SPAN_CAVEAT}</p>
+            </div>
+          </details>
+        ) : null}
         {entries.length > 0 ? (
           <ul className="weq-set-ledger">
             {entries.map((entry, index) => {
@@ -446,11 +479,20 @@ export function DatabaseToleranceSection(): ReactElement {
             </button>
           }
         >
-          <p className="weq-set-desc">
-            这些表连续多少次都读不动，已被理解成"暂时不可用"（级别 3）。隔离只是暂时的：
-            到点会自动重试，你也可以现在就让它们重新试一次。注意隔离的判据是
-            <strong>整张表</strong>，同一张表里本来完好的部分在隔离期内也读不出来。
-          </p>
+          <p className="weq-set-desc">这些表连续读不动，已被暂时放弃（级别 3）；到点会自动重试。</p>
+          <details className="weq-set-details">
+            <summary>
+              <ChevronDown size={12} aria-hidden />
+              隔离是什么意思
+            </summary>
+            <div className="weq-set-details-body">
+              <p>
+                隔离是暂时的：到点会自动重试，你也可以用上面的按钮现在就让它们重新试一次。
+                注意隔离的判据是<strong>整张表</strong>
+                ，同一张表里本来完好的部分在隔离期内也读不出来。
+              </p>
+            </div>
+          </details>
           <ul className="weq-set-ledger">
             {quarantined.map((entry) => (
               <li key={`${entry.dbPath}:${entry.table}`}>

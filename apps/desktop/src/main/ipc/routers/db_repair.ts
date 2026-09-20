@@ -32,16 +32,19 @@ import {
   DbRepairService,
   getHost,
   getLogger,
+  concludeCheckup,
   resolveAccountDbDir,
   scanDatabaseBadPages,
   type BadPageScanReport,
   type DbRepairAccountInfo,
+  type DbRepairCheckup,
   type DbRepairDeps,
   type DbRepairErrorCode,
   type DbRepairPreflight,
   type DbRepairProgress,
   type DbRepairRecord,
   type DbRepairRestorePreview,
+  type DbRepairTarget,
 } from '@weq/service';
 import {
   closeSalvageConnections,
@@ -373,6 +376,35 @@ function failedResult(error: unknown, closedAccount: boolean, event: string): Db
   return { ok: false, code, error: message, closedAccount };
 }
 
+/** 结构体检：`PRAGMA integrity_check`（native）。失败只当这一格没跑成。 */
+async function runIntegrityCheck(target: DbRepairTarget): Promise<DbRepairCheckup['integrity']> {
+  try {
+    const health = await requirePlatform().native.ntHelper.checkDatabaseHealth(
+      target.dbPath,
+      target.key,
+      target.algo,
+    );
+    return { ran: true, healthy: health.healthy, corruptedTables: health.corruptedTables };
+  } catch (error) {
+    return { ran: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** 页级体检：坏页地图（native `scanBadPages` + `dbstat` 映射到对象）。 */
+async function runPageMap(target: DbRepairTarget): Promise<DbRepairCheckup['pages']> {
+  try {
+    const report = await scanDatabaseBadPages(requirePlatform().native.ntHelper, {
+      dbPath: target.dbPath,
+      dbName: target.dbName,
+      key: target.key,
+      algo: target.algo,
+    });
+    return { ran: true, report };
+  } catch (error) {
+    return { ran: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 const accountRef = z.object({ uin: z.string().min(1) });
 const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
@@ -450,6 +482,50 @@ export const dbRepairRouter = router({
         rethrow(error);
       }
     }),
+
+  /**
+   * 体检一个库：结构（`PRAGMA integrity_check`，回答"坏不坏、哪张表"）+ 页级（坏页
+   * 地图，回答"坏在哪些页、波及谁"）。
+   *
+   * 为什么要有这一条：面板上原本只有「开始修复」和一个标着"（可选）"的扫描 —— 等于在
+   * 用户既不知道哪个库有问题、也不知道有没有问题的情况下，默认让他做一次**替换**。
+   * 体检把"坏不坏、坏在哪"变成点一下就能看到的东西，修复才是一个有依据的选择；同时
+   * 手动修某个库的路径仍然在（体检只是建议，不是门槛）。
+   *
+   * 两格检查各自失败各自报（见 `@weq/service` 的 `DbRepairCheckup`），结论由
+   * `concludeCheckup` 一处算 —— 那段纯逻辑在 service 里，有离线单测守着。
+   *
+   * **只读**，但要整库读一遍（128MB 的 `nt_msg.db` 通常几秒），所以界面是逐个库调用、
+   * 逐个库显示结果的 —— 一个慢库不会把其它库的结果一起扣着。
+   */
+  checkup: procedure.input(targetRef).mutation(async ({ input }): Promise<DbRepairCheckup> => {
+    let target: DbRepairTarget;
+    try {
+      target = service.resolveTarget(input.uin, input.dbName);
+    } catch (error) {
+      rethrow(error);
+    }
+
+    let bytes = 0;
+    try {
+      bytes = statSync(target.dbPath).size;
+    } catch {
+      bytes = 0;
+    }
+
+    const integrity = await runIntegrityCheck(target);
+    const pages = await runPageMap(target);
+    const { verdict, summary } = concludeCheckup(integrity, pages);
+    return {
+      dbName: target.dbName,
+      dbPath: target.dbPath,
+      bytes,
+      integrity,
+      pages,
+      verdict,
+      summary,
+    };
+  }),
 
   /**
    * 结束挡住该库的 QQ 进程。
@@ -613,6 +689,15 @@ export const dbRepairRouter = router({
   deleteBackup: procedure.input(recordRef).mutation(({ input }): { removed: boolean } => {
     try {
       return service.deleteBackup(input.uin, input.recordId);
+    } catch (error) {
+      rethrow(error);
+    }
+  }),
+
+  /** 彻底删掉一条修复记录（连同它的备份）—— 用户主动不要这条历史了。 */
+  deleteRecord: procedure.input(recordRef).mutation(({ input }): { removed: boolean } => {
+    try {
+      return service.deleteRecord(input.uin, input.recordId);
     } catch (error) {
       rethrow(error);
     }

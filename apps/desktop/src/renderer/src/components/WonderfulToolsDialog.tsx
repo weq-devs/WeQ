@@ -275,14 +275,14 @@ export function WonderfulToolsDialog({
   open,
   onClose,
   initialTool = 'key-scan',
-  initialUin = null,
+  currentUin = null,
 }: {
   open: boolean;
   onClose: () => void;
   /** 打开时落在哪一个工具上（损坏弹窗要横着跳进「数据库修复」）。 */
   initialTool?: ToolId;
-  /** 打开时先选中的账号（与 `initialTool` 一起传，落在修复页上才用得到）。 */
-  initialUin?: string | null;
+  /** 当前登录的账号 —— 数据库修复只修这一个，不接受选别的账号。 */
+  currentUin?: string | null;
 }): ReactElement | null {
   const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
@@ -783,13 +783,13 @@ export function WonderfulToolsDialog({
 
             {activeTool === 'db-repair' ? (
               <DbRepairPanel
+                currentUin={currentUin}
                 accounts={accounts.map((acc) => ({
                   uin: acc.uin,
                   name: acc.userName,
                   avatarUrl: acc.avatarUrl,
                 }))}
                 onRefreshAccounts={() => void loadAccounts()}
-                initialUin={initialUin}
               />
             ) : null}
 

@@ -85,6 +85,21 @@ export class DbRepairHistory {
   }
 
   /**
+   * 彻底删掉一条记录（带它自己的备份目录，由调用方清）。
+   *
+   * 与 `pruneBackups` 的区别：那边只清备份、记录留着（打 `purgedAt`），因为"上次修了
+   * 什么"本身有价值；这里是用户主动不要这条历史了 —— 记录与备份一起消失。备份目录的
+   * 删除交给 service（这里只碰 JSON 状态，方便离线单测）。
+   */
+  remove(id: string): boolean {
+    const before = this.store.data.records.length;
+    this.store.data.records = this.store.data.records.filter((record) => record.id !== id);
+    if (this.store.data.records.length === before) return false;
+    this.store.save();
+    return true;
+  }
+
+  /**
    * 只保留最近 `keep` 份**备份仍在**的记录，其余删目录 + 标 `purgedAt`。
    *
    * 返回被清理的记录 id（供日志/界面提示）。当前正在进行的修复不受影响：它记录还没

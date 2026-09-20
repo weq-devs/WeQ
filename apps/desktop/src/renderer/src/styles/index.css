@@ -5412,6 +5412,22 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   color: #8a929c;
 }
 
+/* 级别的「生效范围」很长，收进可展开块：列表先做到一行一个级别。 */
+.weq-set-level-details {
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.weq-set-level-details summary {
+  padding: 0 2px 2px;
+  font-size: 12px;
+}
+
+.weq-set-level-details .weq-set-details-body {
+  padding: 7px 9px;
+}
+
 .weq-set-level-loss {
   display: inline-flex;
   align-items: center;
@@ -15551,32 +15567,47 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
 /* ────────────────────────────────────────────────────────────────────────
  * 数据库修复（妙妙工具 → 数据库修复）
  *
- * 按钮不在这里 —— 直接复用 `.weq-set-btn` 家族（浅色 / 深色都已适配）。这里只放
- * 面板特有的东西：提示条、进度条、修复记录列表。
+ * 版面分三层：
+ *   1. `.weq-repair-bar`     常驻执行条（不参与滚动）—— 当前账号 / 库 / 能不能修 +
+ *                            主按钮 + 进度；
+ *   2. `.weq-repair-step`    三条编号步骤，左侧一条轨道把它们连成「一条路」；
+ *   3. `.weq-repair-records` 修复记录时间线。
+ *
+ * 按钮不在这里 —— 直接复用 `.weq-set-btn` 家族（浅色 / 深色都已适配）。这里只放面板
+ * 特有的东西：执行条、阶段轨、指标卡、提示条、记录列表。
  *
  * 配色一律走主题令牌：警示用 `--weq-warn-*`（与设置页同一套，且本身从主题强调色派生，
  * 深色态由令牌统一改写，不需要单独的 dark 覆盖），描边用 `--weq-border-subtle`，
- * 文字用 `--weq-fg-*`。别在这里写死颜色 —— 上一版设置页的告警色就是因为写死才与主题
- * 打架。唯一的例外是 `.weq-repair-ok` 的绿："没扫到坏页"是一句结论，绿比主题色更像
- * 结论（深色态有自己的提亮）。
+ * 文字用 `--weq-fg-*`，卡片底用 `--weq-bg-elevated`（深色态换成一档白色叠色：直接沿用
+ * elevated 会在 #161a20 的面板底上跳得比浅色态还亮）。别在这里写死颜色 —— 上一版设置页
+ * 的告警色就是因为写死才与主题打架。唯一的例外是 `--rp-ok` 的绿："没扫到坏页 / 密钥就绪"
+ * 是一句结论，绿比主题色更像结论（深色态有自己的提亮）。
  * ──────────────────────────────────────────────────────────────────── */
+/* 卡片底 / 淡淡的一层主题色 / 轨道线 / 「一切正常」的绿：两套主题只改这几个值，
+ * 下面的规则全部引用它们。执行条与滚动区是同级的两个兄弟，所以两边都要声明
+ * （自定义属性只向下继承，声明在滚动区上执行条是取不到的）。 */
+.weq-repair-bar,
 .weq-repair-body {
-  display: grid;
-  gap: 14px;
-  align-content: start;
+  --rp-card: var(--weq-bg-elevated);
+  --rp-tint: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  --rp-hair: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  --rp-ok: #18a058;
 }
 
-.weq-repair-block {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
+html[data-theme="dark"] .weq-repair-bar,
+html[data-theme="dark"] .weq-repair-body {
+  --rp-card: rgba(255, 255, 255, 0.045);
+  --rp-tint: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  --rp-hair: color-mix(in srgb, var(--weq-accent-effective) 26%, rgba(255, 255, 255, 0.1));
+  --rp-ok: #4ade80;
 }
 
-.weq-repair-block-head {
+.weq-repair-body {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
+  /* 执行条自己占了一行，这里就不要再留满一节上边距了。 */
+  padding-top: 10px;
 }
 
 .weq-repair-label {
@@ -15585,47 +15616,450 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   color: var(--weq-fg-secondary);
 }
 
-/* 账号 / 库的选择：内容驱动宽度，允许换行（库名一多不会顶破面板）。 */
-.weq-repair-chips {
+/* ── 执行条 ──────────────────────────────────────────────────────────
+ * 它不参与滚动（与面板头 / 滚动区同级，见 DbRepairPanel 的注释）：选了库之后不用先
+ * 滚过一大段说明才能点到「开始修复」，进度也一直挂在眼睛下面。
+ * 左右外边距跟滚动区的水平内边距（22px）对齐，看起来仍在同一条版心线上。 */
+.weq-repair-bar {
+  flex: none;
+  display: grid;
+  gap: 9px;
+  margin: 12px 22px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 7%, var(--rp-card)),
+    var(--rp-card)
+  );
+  box-shadow: var(--weq-shadow-soft);
+}
+
+/* 窄窗口（面板 ≈ 484px）时按钮换到下一行，不把上面的账号名挤没。 */
+.weq-repair-bar-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
-.weq-repair-chip {
-  display: inline-flex;
+.weq-repair-bar-id {
+  display: grid;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-repair-bar-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-repair-bar-sub {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
-  padding: 4px 10px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-bar .weq-repair-actions {
+  flex: none;
+  margin-left: auto;
+}
+
+.weq-repair-bar-flag.is-ok {
+  color: var(--rp-ok);
+}
+
+.weq-repair-bar-flag.is-warn {
+  color: var(--weq-warn-fg);
+}
+
+.weq-repair-bar-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--weq-fg-muted);
+}
+
+/* 小圆点分隔符：比 " · " 文字稳（换行时不会掉到行首）。 */
+.weq-repair-sep {
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+/* 面板头右上角的两枚状态签。 */
+.weq-repair-head-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-repair-tag {
+  padding: 1px 9px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.weq-repair-tag.is-live {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-repair-tag.is-busy {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+}
+
+/* ── 替换确认（长在执行条里）──────────────────────────────────────
+ * 修复不是只读扫描：动手前的后果必须比普通提示条重（左侧 3px 描边 + 警示底 + 项目符
+ * 号列表），而且要与主按钮同屏 —— 确认完就看得到它。 */
+.weq-repair-replace {
+  display: grid;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 9px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-repair-replace-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-warn-fg);
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.weq-repair-replace-head svg {
+  flex: none;
+}
+
+.weq-repair-replace-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 17px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.weq-repair-replace-list .weq-repair-mono {
+  color: var(--weq-fg-primary);
+}
+
+/* ── 步骤：左侧轨道 + 节点 ───────────────────────────────────────────
+ * 三条步骤共用一条竖线，节点是序号：从上到下就是操作顺序。每块只留标题与内容，
+ * 解释性文字一律收进 .weq-repair-details（默认收起）。 */
+.weq-repair-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.weq-repair-step-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+/* 连接线：从节点底部长到下一块的节点顶（块间距 12px，所以多留 12px）。 */
+.weq-repair-step:not(:last-child) .weq-repair-step-rail::after {
+  content: "";
+  position: absolute;
+  top: 26px;
+  bottom: -13px;
+  width: 1px;
+  background: var(--rp-hair);
+}
+
+.weq-repair-step-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-repair-step-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-repair-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 22px;
+}
+
+.weq-repair-step-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-step-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.weq-repair-step-note {
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-step-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 「刷新」这类一步动作：图标 + 文字的轻按钮，与步骤标题同一行。 */
+.weq-repair-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   color: var(--weq-fg-secondary);
-  font-size: 12px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.weq-repair-icon-btn:hover:not(:disabled) {
+  border-color: var(--weq-border-subtle);
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── 选账号 / 选数据库 ─────────────────────────────────────────────── */
+.weq-repair-accounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 7px;
+}
+
+.weq-repair-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  text-align: left;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease;
 }
 
-.weq-repair-chip:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+.weq-repair-account:hover {
+  border-color: var(--weq-border-strong);
 }
 
-.weq-repair-chip.is-active {
-  border-color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+.weq-repair-account.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: var(--rp-tint);
+}
+
+.weq-repair-account-text {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-repair-account-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.weq-repair-chip em {
-  font-style: normal;
-  font-size: 11px;
+.weq-repair-account-uin {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
   color: var(--weq-fg-muted);
 }
 
-.weq-repair-chip.is-mono span {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.weq-repair-account-check {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+/* 库名要能上下对齐着比，所以用行式列表而不是药丸。 */
+.weq-repair-dbs {
+  display: grid;
+  gap: 5px;
+}
+
+.weq-repair-db {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-repair-db:hover {
+  border-color: var(--weq-border-strong);
+}
+
+.weq-repair-db.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: var(--rp-tint);
+}
+
+.weq-repair-db .weq-repair-mono {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-repair-db-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--weq-fg-muted);
+  border-radius: 999px;
+}
+
+.weq-repair-db.is-active .weq-repair-db-dot {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+.weq-repair-db em {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 说明块：「修复会做什么」这类解释，默认收起 ───────────────────── */
+.weq-repair-details {
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+}
+
+.weq-repair-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-repair-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-repair-details > summary:hover {
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-details > summary svg {
+  flex: none;
+  color: var(--weq-fg-muted);
+  transition: transform 140ms ease;
+}
+
+.weq-repair-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.weq-repair-details-body {
+  display: grid;
+  gap: 6px;
+  padding: 9px 11px 11px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--rp-tint);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.weq-repair-details-body p {
+  margin: 0;
+}
+
+.weq-repair-details-body ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 17px;
+}
+
+.weq-repair-details-h {
+  margin: 2px 0 0;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
 }
 
 /* 提示条：一句话 + 可选的当场动作（例如「结束 QQ 进程」）。
@@ -15637,7 +16071,7 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 9px 11px;
+  padding: 8px 11px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
   font-size: 12px;
@@ -15645,18 +16079,34 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   color: var(--weq-fg-secondary);
 }
 
-.weq-repair-note svg {
+.weq-repair-note-icon {
+  display: inline-flex;
   flex: none;
+  color: var(--weq-fg-muted);
 }
 
-.weq-repair-note > span {
+.weq-repair-note-text {
   flex: 1 1 220px;
   min-width: 0;
+}
+
+.weq-repair-note-text strong {
+  color: var(--weq-fg-primary);
+}
+
+/* 当场动作（结束 QQ 进程）靠右，与解释文字分开。 */
+.weq-repair-note-action {
+  flex: none;
+  margin-left: auto;
 }
 
 .weq-repair-note.is-ok {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+.weq-repair-note.is-ok .weq-repair-note-icon {
+  color: var(--rp-ok);
 }
 
 .weq-repair-note.is-warn {
@@ -15665,13 +16115,78 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   background: var(--weq-warn-bg);
 }
 
-.weq-repair-note.is-warn svg,
+.weq-repair-note.is-warn .weq-repair-note-icon,
 .weq-repair-note.is-warn strong {
   color: var(--weq-warn-fg);
 }
 
-.weq-repair-note.is-muted {
+/* ── 环境检查的指标卡 ───────────────────────────────────────────────
+ * 密钥 / 占用 / 磁盘 / WAL / 备份各占一格：竖着扫一列就知道哪一格不对。 */
+.weq-repair-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 7px;
+}
+
+.weq-repair-metric {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  background: var(--rp-card);
+}
+
+.weq-repair-metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-repair-metric-label svg {
+  flex: none;
+}
+
+.weq-repair-metric-value {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-repair-metric-hint {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--weq-fg-muted);
+}
+
+/* 有结论的格子给左边一道色条（与提示条同一套语言）。 */
+.weq-repair-metric.is-ok,
+.weq-repair-metric.is-warn {
+  border-left-width: 3px;
+}
+
+.weq-repair-metric.is-ok {
+  border-left-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-repair-metric.is-ok .weq-repair-metric-value {
+  color: var(--rp-ok);
+}
+
+.weq-repair-metric.is-warn {
+  border-left-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-repair-metric.is-warn .weq-repair-metric-value {
+  color: var(--weq-warn-fg);
 }
 
 .weq-repair-hint {
@@ -15685,13 +16200,13 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   color: var(--weq-fg-secondary);
 }
 
-/* 进度：阶段名 + 百分比 + 一条主题色轨道。 */
+/* ── 进度：阶段名 + 百分比 + 一条主题色轨道 + 阶段轨 ─────────────────
+ * 它住在吸顶条里，所以高度要克制：一行文字 + 5px 轨道 + 一行阶段点。
+ * 阶段轨是 native 报的 phase，卡住时能看出卡在哪一步（不改百分比轴）。 */
 .weq-repair-progress {
   display: grid;
-  gap: 8px;
-  padding: 11px 12px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .weq-repair-progress-head {
@@ -15699,30 +16214,114 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--weq-fg-primary);
 }
 
+.weq-repair-progress-msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-repair-progress-msg svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
 .weq-repair-progress-pct {
+  flex: none;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  font-weight: 620;
   font-variant-numeric: tabular-nums;
-  color: var(--weq-fg-secondary);
 }
 
 .weq-repair-progress-track {
-  height: 8px;
+  height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
 
 .weq-repair-progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--weq-accent-effective);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 62%, transparent),
+    var(--weq-accent-effective)
+  );
   transition: width 240ms ease;
 }
 
-/* 键值块（坏页报告）。 */
+/* 阶段轨：走过的（is-done）比未到的亮，当前那一步最亮。 */
+.weq-repair-stages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-repair-stages li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-stages li.is-done {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-repair-stages li.is-active {
+  color: var(--weq-accent-effective);
+  font-weight: 620;
+}
+
+.weq-repair-stage-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 45%, transparent);
+}
+
+.weq-repair-stages li.is-done .weq-repair-stage-dot {
+  background: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+}
+
+.weq-repair-stages li.is-active .weq-repair-stage-dot {
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* 坏页号：前 30 个铺成一排小方块（再多就交给展开区里的逗号清单）。 */
+.weq-repair-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weq-repair-page {
+  padding: 1px 6px;
+  border: 1px solid var(--weq-warn-border);
+  border-radius: 5px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 键值块（坏页报告的展开区）。 */
 .weq-repair-kv {
   display: grid;
   gap: 5px;
@@ -15744,14 +16343,6 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   color: var(--weq-fg-primary);
 }
 
-.weq-repair-ok {
-  color: #18a058;
-}
-
-html[data-theme="dark"] .weq-repair-ok {
-  color: #4ade80;
-}
-
 .weq-repair-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
@@ -15759,36 +16350,96 @@ html[data-theme="dark"] .weq-repair-ok {
   overflow-wrap: anywhere;
 }
 
-/* 修复记录：一条一行，确认态就地展开（位置永远与操作对象一致）。 */
-.weq-repair-history {
+/* ── 修复记录：时间线 ───────────────────────────────────────────────
+ * 一条记录一块、左侧一颗状态点，最近的一条在最上面。确认态就地展开（位置永远与
+ * 操作对象一致）。高度封顶自己滚 —— 别把下面的说明块全挤出屏幕。 */
+.weq-repair-records {
   display: grid;
-  gap: 0;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-repair-records-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-repair-records-head svg {
+  flex: none;
+  color: var(--weq-fg-muted);
+}
+
+.weq-repair-count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-repair-timeline {
+  display: grid;
+  max-height: 320px;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 300px;
-  overflow-y: auto;
   border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
-.weq-repair-history > li {
+/* 历史改成本面板的折叠块（默认收起，点开才铺列表）。 */
+.weq-repair-history-body {
   display: grid;
-  gap: 6px;
+  gap: 7px;
+  padding: 9px 11px 11px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--rp-tint);
+}
+
+.weq-repair-history > summary .weq-repair-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ── 行骨架：修复记录与体检结果共用 ────────────────────────────────
+ * 左轨一颗状态点 + 右侧内容。`-dot` 的颜色由行上的 `is-ok / is-warn / is-muted` 决定，
+ * 所以两种列表看起来是同一套语言。 */
+.weq-repair-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
   padding: 9px 11px;
-  border-top: 1px solid var(--weq-border-subtle);
 }
 
-.weq-repair-history > li:first-child {
-  border-top: 0;
+.weq-repair-row-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--weq-fg-muted);
 }
 
-.weq-repair-history > li.is-confirming {
-  background: var(--weq-warn-bg);
+.weq-repair-row.is-ok .weq-repair-row-dot {
+  background: var(--rp-ok);
 }
 
-.weq-repair-history-main {
+.weq-repair-row.is-warn .weq-repair-row-dot {
+  background: var(--weq-warn-solid);
+  box-shadow: 0 0 0 3px var(--weq-warn-bg);
+}
+
+.weq-repair-row-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.weq-repair-row-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -15796,9 +16447,140 @@ html[data-theme="dark"] .weq-repair-ok {
   min-width: 0;
 }
 
-.weq-repair-history-meta {
-  font-size: 11.5px;
+.weq-repair-row-time {
+  margin-left: auto;
   color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-repair-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 时间线（修复记录）。 */
+.weq-repair-record + .weq-repair-record {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-repair-record.is-confirming {
+  background: var(--weq-warn-bg);
+}
+
+/* ── 体检结果：一行一个库 ──────────────────────────────────────────
+ * 与修复记录同一个盒子形状（描边容器 + 分页线），因为它们是同一种\"清单\"。 */
+.weq-repair-checkups {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.weq-repair-checkup + .weq-repair-checkup {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/* 正在体检的那一行：点用主题色 + 一圈光晕，与其他状态区分得开。 */
+.weq-repair-checkup.is-checking .weq-repair-row-dot {
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px var(--rp-tint);
+}
+
+.weq-repair-checkup-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+}
+
+/* 列表头：已检数量 + 「展开全部 / 全部收起」。
+ * 体检结果是 9 个库 ×（结论 + 细节 + 按钮），全部铺开比面板还长 —— 所以默认只展开
+ * 一项，其余一律紧凑行（库名 + 结论徽章 + 大小），要看全部得自己点这里。 */
+.weq-repair-checkups-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-repair-checkups-head .weq-repair-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-repair-checkups-head .weq-repair-icon-btn {
+  flex: none;
+}
+
+/* 当前选中的那一行：淡淡的主题底色 + 左侧色条，一眼能看出"要修的是它"。 */
+.weq-repair-checkup.is-active {
+  background: var(--rp-tint);
+}
+
+.weq-repair-checkup.is-active .weq-repair-row-dot {
+  background: var(--weq-accent-effective);
+}
+
+/* 「选择其他数据库」入口：完好的库默认收起来，这是一枚低调的展开开关。 */
+.weq-repair-more {
+  align-self: start;
+  border-color: var(--weq-border-subtle);
+  background: var(--rp-card);
+}
+
+/* 单行的「详情 / 收起」开关；箭头在展开态翻转。 */
+.weq-repair-checkup-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.weq-repair-checkup-toggle:hover {
+  border-color: var(--weq-border-subtle);
+  background: var(--rp-tint);
+  color: var(--weq-fg-primary);
+}
+
+.weq-repair-checkup-toggle svg {
+  transition: transform 140ms ease;
+}
+
+.weq-repair-checkup-toggle[aria-expanded="true"] svg,
+.weq-repair-icon-btn svg.is-flip {
+  transform: rotate(180deg);
+}
+
+.weq-repair-checkup-state svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-repair-checkup-foot {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 .weq-repair-badge {
@@ -15846,10 +16628,13 @@ html[data-theme="dark"] .weq-repair-ok {
 /* ── 「修复完成 → 回首页」的浮动提示 ──────────────────────────────────
  * 挂在 App 上（不是弹窗里），所以用 fixed 定位自己；放顶部居中，右下角的 toast
  * 堆叠不受影响。
+ *
+ * `top` 必须避开 40px 的 `.app-title-bar`（它 `z-index: 100`，会盖住这里）：
+ * 从原来的 16px 下移到 52px，否则提示框上半截被顶栏遮住。
  */
 .weq-repair-return {
   position: fixed;
-  top: 16px;
+  top: 52px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 90;

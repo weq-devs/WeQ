@@ -1717,9 +1717,8 @@ export function MainView(): ReactElement {
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
-  /** 打开妙妙工具时先落到哪一页、以及先选中哪个账号（损坏弹窗 → 数据库修复）。 */
+  /** 打开妙妙工具时先落到哪一页（损坏弹窗 → 数据库修复）。账号固定为当前登录的这一个。 */
   const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
-  const [wonderfulToolsUin, setWonderfulToolsUin] = useState<string | null>(null);
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
@@ -3909,7 +3908,6 @@ export function MainView(): ReactElement {
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => {
               setWonderfulToolsTool('key-scan');
-              setWonderfulToolsUin(null);
               setWonderfulToolsOpen(true);
             }}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
@@ -4148,7 +4146,7 @@ export function MainView(): ReactElement {
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             initialTool={wonderfulToolsTool}
-            initialUin={wonderfulToolsUin}
+            currentUin={user.identityValue}
             onClose={() => setWonderfulToolsOpen(false)}
           />
           <GuildDirectDialog
@@ -4170,12 +4168,11 @@ export function MainView(): ReactElement {
               setSettingsSection(section);
               setSettingsOpen(true);
             }}
-            onOpenRepair={(uin) => {
-              // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚），
-              // 并预选出问题的那个账号。
+            onOpenRepair={() => {
+              // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚）。
+              // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
               setDamagedEvent(null);
               setWonderfulToolsTool('db-repair');
-              setWonderfulToolsUin(uin);
               setWonderfulToolsOpen(true);
             }}
           />
