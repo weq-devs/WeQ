@@ -1799,6 +1799,12 @@ export function MainView(): ReactElement {
   // optimistically on delete/restore.
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
+  /** 打开妙妙工具，并指定先落到哪一页 —— 多个入口（左栏「更多功能」、「损坏」弹窗）都会直达某一页。 */
+  function openWonderfulToolsAt(tool: WonderfulToolId) {
+    setWonderfulToolsTool(tool);
+    setWonderfulToolsOpen(true);
+  }
+
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
       const result = await client.account.getRawElements.query({ msgId: message.id });
@@ -3906,10 +3912,8 @@ export function MainView(): ReactElement {
             onGoHome={() => shell.switchView('home')}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
-            onOpenWonderfulTools={() => {
-              setWonderfulToolsTool('key-scan');
-              setWonderfulToolsOpen(true);
-            }}
+            onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
+            onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -4172,8 +4176,7 @@ export function MainView(): ReactElement {
               // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚）。
               // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
               setDamagedEvent(null);
-              setWonderfulToolsTool('db-repair');
-              setWonderfulToolsOpen(true);
+              openWonderfulToolsAt('db-repair');
             }}
           />
           {marketBrowserOpen ? (

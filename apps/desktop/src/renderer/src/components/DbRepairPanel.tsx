@@ -236,8 +236,8 @@ const BAD_PAGE_PREVIEW = 24;
 /** 任务跑着时的轮询间隔（锁状态、QQ pid 会变）。 */
 const POLL_MS = 2000;
 
-/** 语气。没有结论的那一档是 `muted`（既不是「好」也不是「坏」）。 */
-type Tone = 'ok' | 'warn' | 'muted';
+/** 语气。没有结论的那一档是 `muted`（既不是「好」也不是「坏」），`run` 则是「正在跑」。 */
+type Tone = 'ok' | 'warn' | 'muted' | 'run';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

@@ -17,6 +17,7 @@ import {
   HelpCircle,
   BarChart3,
   Images,
+  DatabaseZap,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
@@ -39,6 +40,7 @@ export function AppRail({
   onOpenHelp,
   onOpenInvite,
   onOpenWonderfulTools,
+  onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
   messageBadgeCount = 0,
@@ -59,6 +61,8 @@ export function AppRail({
   onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
+  /** 妙妙工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
+  onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
@@ -83,6 +87,7 @@ export function AppRail({
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
+    { id: 'dbRepair', label: '数据库修复', icon: DatabaseZap, onSelect: onOpenDbRepair },
     { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
     { id: 'qzoneAlbum', label: '空间相册', icon: Images, onSelect: onOpenQzoneAlbum },
     { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },
