@@ -22,8 +22,24 @@ extraResources:
   # Shared static assets (brand/logo, …). Copied whole so the main process can
   # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
   # bundled — they stream from the account's QQ NT dir at runtime.
+  #
+  # 例外：**Windows 不带打包的 CJK 字体**。`assistant/fonts/cover.otf` 是
+  # 16MB 的 Noto Sans CJK SC（satori 出 WeQ 助手推文封面用），而 Win10/11 自带
+  # DengXian(`Deng.ttf`) / SimHei，`weq_assistant/cover.ts` 的字体候选会自然
+  # 回落到它们，封面照常渲染。mac / linux 没有这么可靠的单字体文件（macOS 全是
+  # satori 读不了的 .ttc），所以在下面各自把 fonts/ 补回来。
+  # 注：平台段（win/mac/linux）的 extraResources 与这里是**追加**关系
+  #（app-builder-lib 的 getFileMatchers 依次 copy），负向 filter 删不掉已拷进来的
+  # 文件，所以「默认不含 + 需要者补回」而不是「默认含 + Windows 排除」。
+  #
+  # `brand/banner.png`（2.2MB）同样不打包 —— 它只是 README 首图（仓库里除
+  # README.md 外无引用），所有平台的应用都不读它。
   - from: ../../resources
     to: resources
+    filter:
+      - "**/*"
+      - "!assistant/fonts/**"
+      - "!brand/banner.png"
 
   - from: node_modules/sherpa-onnx-node
     to: node_modules/sherpa-onnx-node
@@ -87,6 +103,10 @@ nsis:
 # Cannot find module '@resvg/resvg-js-linux-x64-gnu'。
 linux:
   icon: ../../resources/brand/logo.png
+  # 打包字体（见顶部 extraResources 的说明）：Linux 发行版未必装 Noto CJK。
+  extraResources:
+    - from: ../../resources/assistant/fonts
+      to: resources/assistant/fonts
   extraFiles:
     - from: ../../native/linux/${arch}
       to: native/linux/${arch}
@@ -112,6 +132,10 @@ linux:
 # 首次需右键 → 打开）；配置后 electron-builder 会自动签名，可再开 notarize。
 mac:
   icon: ../../resources/brand/logo.png
+  # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
+  extraResources:
+    - from: ../../resources/assistant/fonts
+      to: resources/assistant/fonts
   extraFiles:
     - from: ../../native/darwin/${arch}
       to: native/darwin/${arch}

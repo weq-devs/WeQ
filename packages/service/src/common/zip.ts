@@ -111,6 +111,20 @@ export function extractAllFromZip(zip: Buffer, match: (name: string) => boolean)
   return readZipEntries(zip).filter((e) => match(e.name));
 }
 
+/**
+ * PNG 的 IHDR 宽高。非 PNG / 过短时返回 null。
+ *
+ * 只吃头部 24 字节，所以调用方可以只读文件前 24 字节 —— 装扮的帧图动辄几十 KB，
+ * 为拿一个尺寸整张读进来不划算。
+ */
+export function pngSize(data: Buffer): { w: number; h: number } | null {
+  // 8 字节签名 + 4 长度 + 4 类型 'IHDR' + 4 宽 + 4 高
+  if (data.length < 24) return null;
+  if (data.readUInt32BE(0) !== 0x89504e47) return null;
+  if (data.toString('latin1', 12, 16) !== 'IHDR') return null;
+  return { w: data.readUInt32BE(16), h: data.readUInt32BE(20) };
+}
+
 /** 从字体包里解出 ttf。 */
 export function extractFirstTtf(zip: Buffer): Buffer | null {
   return extractFromZip(zip, (n) => /\.ttf$/i.test(n));

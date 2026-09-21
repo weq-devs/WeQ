@@ -9,21 +9,34 @@
  * matching the server-side MsgDecorationCacheService guarantee.
  */
 
-import type { BubbleSkin, ResolvedWidget } from '@weq/service';
+import type { BubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
   dressPendantFrameUrl,
   dressFontUrl,
+  dressFontFrameUrl,
 } from './resourceUrl';
-import { bubbleLinkMentionRules, bubbleRestrictsTextColor } from './dressSkin';
+import {
+  bubbleLinkMentionRules,
+  bubbleRestrictsTextColor,
+  fontFxRules,
+  toFontFxSkin,
+  fxClipMaskCss,
+} from './dressSkin';
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
 const PAD_RATIO_Y = 0.6;
 
 const injectedBubbles = new Set<number>();
-const injectedFonts = new Set<number>();
+/**
+ * 已注入过 CSS 的字体。
+ *
+ * 键里带**派生版本**：升级后同一款字体的产物被就地重做成新内容，但注入是
+ * 「write-once per id」的 —— 不带版本就会拿着旧 ttf / 旧帧 url 赖着不换。
+ */
+const injectedFonts = new Set<string>();
 const injectedWidgets = new Set<number>();
 
 /**
@@ -128,6 +141,52 @@ function theirsBubbleSel(bubbleId: number, suffix = ''): string {
 
 function fontSel(fontId: number): string {
   return lineContentSel('font', fontId);
+}
+
+/**
+ * 逐条消息字体的**我方 / 对方行**选择器（行级，不带 `.message-content`）。
+ *
+ * 炫彩帧（`eimg`）要按行分侧挂到不同的伪元素上：我方行用 `::before`（`::after` 留给
+ * 气泡自己的动效叠加层），对方行 / 转发行用 `::after`（`::before` 被镜像底图占着）。
+ * 详见 lib/dressSkin 的 fontFxRules。
+ */
+function fontMineLineSel(fontId: number): string {
+  return `.message-line[data-font="${fontId}"]:not(.theirs)`;
+}
+
+function fontTheirsLineSel(fontId: number): string {
+  return (
+    `.message-line[data-font="${fontId}"].theirs, ` + `.weq-forward-row[data-font="${fontId}"]`
+  );
+}
+
+/**
+ * 炫彩帧裁形的行级选择器 —— 只要「这一行真的挂了帧」（`[data-fontfx]`）。
+ *
+ * 与 {@link fontMineLineSel} / {@link fontTheirsLineSel} 同构，只是触发条件换成属性：
+ * 帧可能来自逐条消息字体（40801），也可能来自生效字体，两者都会在行上留下
+ * `data-fontfx`（见 hooks/useBubbleFontFx）。
+ */
+function fxClipMineSel(bubbleId: number): string {
+  return `.message-line[data-bubble="${bubbleId}"][data-fontfx]:not(.theirs)`;
+}
+
+function fxClipTheirsSel(bubbleId: number): string {
+  return (
+    `.message-line.theirs[data-bubble="${bubbleId}"][data-fontfx], ` +
+    `.weq-forward-row[data-bubble="${bubbleId}"][data-fontfx]`
+  );
+}
+
+/** 行级选择器 + 行内部的 `.message-content` + 伪元素（逗号列表逐项展开）。 */
+function fxClipTarget(lineSel: string, pseudo: '::before' | '::after'): string {
+  const content =
+    '.message-content' +
+    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
+  return lineSel
+    .split(',')
+    .map((s) => `${s.trim()} ${content}${pseudo}`)
+    .join(',\n');
 }
 
 /**
@@ -267,6 +326,29 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `}`,
   ];
 
+  // 炫彩帧的裁形：帧画在伪元素上（我方 `::before`、对方 `::after`），这里把同一张
+  // 九宫格当遮罩贴上去，把帧超出气泡形状的部分裁掉 —— 与 lib/dressSkin 的
+  // fxClipMaskCss 同构（slice/width 与底图完全一致，遮罩形状因此与气泡一模一样）。
+  // 选择器带 `[data-fontfx]`，所以没挂帧的消息一个字节也不多注入。
+  rules.push(
+    fxClipMaskCss(fxClipTarget(fxClipMineSel(skin.itemId), '::before'), {
+      imageUrl,
+      slice,
+      width,
+    }),
+  );
+  // 对方的帧与气泡动效叠加层共用 `::after`；叠加层是气泡外面的装饰，遮罩会连它
+  // 一起裁掉（`data-fontfx` 一直挂在行上，裁掉就是永久的），所以有动效时跳过。
+  if (!frameAnim) {
+    rules.push(
+      fxClipMaskCss(fxClipTarget(fxClipTheirsSel(skin.itemId), '::after'), {
+        imageUrl,
+        slice,
+        width,
+      }),
+    );
+  }
+
   // 我方/非镜像侧的动效叠加层(先于镜像规则注入,对方的同名选择器靠后覆盖)。
   // 这里先不挂 animation —— 等所有帧图片预加载完再开播,避免第一圈逐帧闪烁。
   if (frameAnim) {
@@ -334,12 +416,20 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   }
 }
 
-/** Inject a font-family rule for a fontId. No-op if already injected. */
-export function injectFontCss(fontId: number): void {
-  if (injectedFonts.has(fontId)) return;
-  injectedFonts.add(fontId);
+/**
+ * 逐条消息字体的 CSS（字体 + 它的炫彩帧）。已注入过的（同款同派生版本）直接返回。
+ *
+ * 与气泡动效不同，炫彩那份**不推迟开播**：它本来就只有一个变体会生效（渲染侧量完
+ * 气泡尺寸才挂 `data-fontfx`，见 useBubbleFontFx），等属性挂上时帧解码早跑完了；
+ * 这里只需顺手预热（帧图是本地 protocol 文件，基本秒到）。
+ */
+export function injectFontCss(fontId: number, font: FontDerived | null): void {
+  const deriveVersion = font?.deriveVersion ?? 0;
+  const key = `${fontId}:${deriveVersion}`;
+  if (injectedFonts.has(key)) return;
+  injectedFonts.add(key);
 
-  const url = dressFontUrl(fontId);
+  const url = dressFontUrl(fontId, deriveVersion);
   const family = `weq-dress-${fontId}`;
 
   // Preload the font via FontFace API so the browser doesn't swap mid-render.
@@ -355,11 +445,29 @@ export function injectFontCss(fontId: number): void {
     })
     .catch(() => {});
 
-  append(
+  const fxSkin = toFontFxSkin(font);
+  const rules = [
     `${fontSel(fontId)} {` +
       `  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;` +
       `}`,
-  );
+    // 炫彩：规则一直都在，挂不挂属性由渲染侧量完气泡尺寸决定。
+    fxSkin
+      ? fontFxRules(fxSkin, {
+          mine: fontMineLineSel(fontId),
+          theirs: fontTheirsLineSel(fontId),
+        })
+      : '',
+  ];
+  append(rules.filter(Boolean).join('\n'));
+
+  if (fxSkin) {
+    // 先解码再等属性挂上（属性是量完尺寸才挂的，帧解完码差不多刚好）——
+    // 第一圈逐帧解码会肉眼看得出闪，与气泡动效同一个坑。
+    const total = fxSkin.fx.variants.reduce((n, v) => n + v.frames.length, 0);
+    void preloadImages(
+      Array.from({ length: total }, (_, i) => dressFontFrameUrl(fontId, i + 1, deriveVersion)),
+    );
+  }
 }
 
 /** Selector: the pendant overlay element inside a message line whose widget id matches. */

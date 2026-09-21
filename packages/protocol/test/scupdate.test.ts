@@ -8,21 +8,30 @@
 import { describe, expect, it } from 'vitest';
 import { decode } from '../src/protobuf';
 import {
+  ANDROID_QQ_CLIENT,
   bidFromScid,
   bubbleScid,
   bubbleScids,
+  buildGetUrlRequest,
   buildReqComm,
   CODE_NOT_FOUND,
   fontScid,
   isDownloadable,
+  PC_QQ_CLIENT,
   pendantScid,
   pendantScids,
+  PLAT_PC_QQ,
   readRspStatus,
+  SCID_OS_ANDROID,
+  SCID_OS_IOS,
   scanScids,
   ScUpdateError,
   VasBid,
 } from '../src/scupdate';
-import { QVER_ANDROID, SC_UPDATE_RSP } from '../src/scupdate/schemas';
+import { QVER_ANDROID, SC_UPDATE_REQ, SC_UPDATE_RSP } from '../src/scupdate/schemas';
+
+const toHex = (b: Uint8Array): string =>
+  Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -55,6 +64,26 @@ const GOLDEN_ZIP_PLACEHOLDER = hexToBytes(`
 12 0c e6 93 8d e4 bd 9c e6 88 90 e5 8a 9f 18 02 22 03 08 c0 70 32 49 12 47 08 02 12 21 62 75 62
 62 6c 65 2e 61 6e 64 72 6f 69 64 2e 32 30 37 38 36 34 32 2e 73 74 61 74 69 63 2e 7a 69 70 42 1c
 68 74 74 70 73 3a 2f 2f 67 78 68 2e 6d 61 74 65 72 69 61 6c 2e 71 71 2e 63 6f 6d 2f 62 00 70 01
+`);
+
+/**
+ * 真机抓包:PC(NTQQ 桌面端)为气泡 2125402 的 config.json 发的 cmd=2 请求。
+ *
+ * 原包 132 字节,里面还夹着一段 req0x01(SyncVCR 的 seq/f2/rpver —— 那是客户端自己
+ * 维护的状态,我们不发),这里已经把它摘掉。
+ *
+ * 另有一处**故意的偏离**:抓包里的 `compress_mode=1`(`18 01`)我们已经改成 0 ——
+ * 实测 1 会让服务端回压缩过的内容(老 `/club/` 路径的 config.json 变成 `.json.zip`,
+ * 2178B → 876B),拿明文才不用自己解压。除此之外每一个字节都与真机一致。
+ */
+const GOLDEN_REQ_PC_GET_URL = hexToBytes(`
+08 02 12 2f 08 6f 12 00 1a 00 20 01 2a 09 70 63
+5f 62 75 62 62 6c 65 30 86 f6 a7 b5 f0 29 38 e9
+07 40 00 48 01 52 0a 31 30 2e 30 2e 32 36 32 30
+30 5a 00 22 37 08 00 10 01 18 00 22 2d 08 02 12
+1e 62 75 62 62 6c 65 2e 69 6f 73 2e 32 31 32 35
+34 30 32 2e 63 6f 6e 66 69 67 2e 6a 73 6f 6e 1a
+00 20 01 28 02 30 da dc 81 01 28 00
 `);
 
 describe('scid 拼装', () => {
@@ -97,6 +126,78 @@ describe('scid 拼装', () => {
     expect(bidFromScid('font.main.android.10060')).toBe(VasBid.Font);
     expect(bidFromScid('pendant.176016.aio_50.png')).toBe(VasBid.Pendant);
     expect(bidFromScid('praise.android.1')).toBeUndefined();
+  });
+
+  it('os 段默认 android,可切到 ios', () => {
+    expect(SCID_OS_ANDROID).toBe('android');
+    expect(bubbleScid(2125402)).toBe('bubble.android.2125402.config.json');
+    expect(bubbleScid(2125402, 'config.json', SCID_OS_IOS)).toBe('bubble.ios.2125402.config.json');
+    expect(fontScid(10016, 'main', SCID_OS_IOS)).toBe('font.main.ios.10016');
+    expect(bubbleScids(1, SCID_OS_IOS).every((s) => s.startsWith('bubble.ios.'))).toBe(true);
+  });
+});
+
+describe('GetUrl 请求报文', () => {
+  /** 解出请求里我们关心的三层,省得每个用例都写一遍断言路径。 */
+  const parse = (body: Uint8Array) => {
+    const req = decode(SC_UPDATE_REQ, body);
+    const comm = req.comm as Record<string, unknown>;
+    const get = req.req0x02 as Record<string, unknown>;
+    const [item] = get.item_list as Record<string, unknown>[];
+    return { req, comm, get, item: item! };
+  };
+
+  it('PC 身份 + ios 段 scid 与真机抓包逐字节一致', () => {
+    const body = buildGetUrlRequest(
+      [
+        {
+          bid: VasBid.Bubble,
+          scid: bubbleScid(2125402, 'config.json', SCID_OS_IOS),
+          itemId: 2125402,
+        },
+      ],
+      { ...PC_QQ_CLIENT, cookie: 1438925847302 },
+    );
+    expect(toHex(body)).toBe(toHex(GOLDEN_REQ_PC_GET_URL));
+  });
+
+  it('PC 身份带上 req0x02 的 tag 5 与 ItemVersion 的 flag/subappid/subitemid', () => {
+    const { comm, get, item } = parse(
+      buildGetUrlRequest([{ bid: VasBid.Bubble, scid: bubbleScid(2125402), itemId: 2125402 }]),
+    );
+    expect(comm.plat).toBe(PLAT_PC_QQ);
+    expect(new TextDecoder().decode(comm.osver as Uint8Array)).toBe('10.0.26200');
+    expect(get.flag).toBe(0);
+    expect(item.flag).toBe(1);
+    expect(item.subappid).toBe(VasBid.Bubble);
+    expect(item.subitemid).toBe(2125402);
+  });
+
+  it('手Q 身份不带 PC 独有的那几个字段', () => {
+    const { comm, get, item } = parse(
+      buildGetUrlRequest(
+        [{ bid: VasBid.Bubble, scid: bubbleScid(2125402), itemId: 2125402 }],
+        ANDROID_QQ_CLIENT,
+      ),
+    );
+    expect(comm.plat).toBe(109);
+    expect(comm.osver).toBeUndefined();
+    expect(comm.ext).toBeUndefined();
+    expect(get.flag).toBeUndefined();
+    expect(item.subappid).toBeUndefined();
+    expect(item.subitemid).toBeUndefined();
+  });
+
+  it('没给 itemId 就不编造 flag/subappid/subitemid', () => {
+    const { get, item } = parse(
+      buildGetUrlRequest([{ bid: VasBid.Bubble, scid: bubbleScid(2125402) }]),
+    );
+    // 请求级的 tag 5 只跟身份有关,照旧。
+    expect(get.flag).toBe(0);
+    // itemId 未知时三个冗余字段一个都不编 —— 抓包里它们是成套出现的。
+    expect(item.flag).toBeUndefined();
+    expect(item.subappid).toBeUndefined();
+    expect(item.subitemid).toBeUndefined();
   });
 });
 
@@ -161,19 +262,44 @@ describe('响应解析', () => {
 });
 
 describe('buildReqComm', () => {
-  it('默认伪装成 Android 手Q', () => {
+  const text = (v: unknown): string => new TextDecoder().decode(v as Uint8Array);
+
+  it('默认以桌面 PC 身份发', () => {
     const comm = buildReqComm();
-    expect(comm.plat).toBe(109);
-    expect(new TextDecoder().decode(comm.qver as Uint8Array)).toBe(QVER_ANDROID);
-    // 手Q 未显式指定时填 2,服务端据此判断是否强制刷新。
-    expect(comm.force).toBe(2);
+    expect(comm.plat).toBe(PLAT_PC_QQ);
+    expect(comm.force).toBe(1);
+    expect(text(comm.from)).toBe('pc_bubble');
+    expect(comm.appid).toBe(1001);
+    // PC 端 qver/osrelease 留空,系统版本改走 osver。
+    expect(text(comm.qver)).toBe('');
+    expect(text(comm.osrelease)).toBe('');
+    expect(text(comm.osver)).toBe('10.0.26200');
+    // cookie 是客户端自己维护的状态,不编。
+    expect(comm.cookie).toBeUndefined();
   });
 
-  it('允许覆盖', () => {
-    const comm = buildReqComm({ plat: 1, qver: '9.0.0', from: 'probe' });
+  it('整套传 ANDROID_QQ_CLIENT 就回到手Q 形状', () => {
+    const comm = buildReqComm(ANDROID_QQ_CLIENT);
+    expect(comm.plat).toBe(109);
+    expect(text(comm.qver)).toBe(QVER_ANDROID);
+    // 手Q 未显式指定时填 2,服务端据此判断是否强制刷新。
+    expect(comm.force).toBe(2);
+    expect(text(comm.from)).toBe('WeQ');
+    expect(comm.osver).toBeUndefined();
+  });
+
+  it('允许逐字段覆盖', () => {
+    const comm = buildReqComm({
+      ...PC_QQ_CLIENT,
+      plat: 1,
+      qver: '9.0.0',
+      from: 'probe',
+      cookie: 42,
+    });
     expect(comm.plat).toBe(1);
-    expect(new TextDecoder().decode(comm.qver as Uint8Array)).toBe('9.0.0');
-    expect(new TextDecoder().decode(comm.from as Uint8Array)).toBe('probe');
+    expect(text(comm.qver)).toBe('9.0.0');
+    expect(text(comm.from)).toBe('probe');
+    expect(comm.cookie).toBe(42);
   });
 });
 

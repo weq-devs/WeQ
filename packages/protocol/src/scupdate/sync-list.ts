@@ -8,7 +8,7 @@ import { decode, encode } from '../protobuf';
 import { sendPacket, type TrpcNative } from '../transport';
 import { scanScids } from './scid';
 import { SCUPDATE_CMD, SC_UPDATE_REQ, SC_UPDATE_RSP, ScUpdateOp } from './schemas';
-import { buildReqComm, readRspStatus, type ScUpdateClient } from './session';
+import { PC_QQ_CLIENT, buildReqComm, readRspStatus, type ScUpdateClient } from './session';
 
 export interface ResourceListing {
   /** 扫出的全部 scid,已排序去重。 */
@@ -30,7 +30,7 @@ export interface ResourceListing {
 export async function syncResourceList(
   nt: TrpcNative,
   pid: number,
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<ResourceListing> {
   const body = encode(SC_UPDATE_REQ, {
     cmd: ScUpdateOp.SyncVcr,

@@ -350,6 +350,21 @@ export interface DressResourceUrl {
   size: number;
 }
 
+/** `convertFont` 的可选开关（缺省即产品默认值：全开）。 */
+export interface ConvertFontOptions {
+  /** 生成彩色字体（`brsh`/`cglf` → `COLR` v1 + `CPAL` v0）。默认 `true`。 */
+  color?: boolean;
+  /** 额外强制上色的字符。QQ 皮肤端的逐字清单不在字体文件里，需要的话由调用方传入。 */
+  colorChars?: string;
+  /**
+   * `eimg` 炫彩帧图片的导出目录。默认 `<输出文件同目录>/<输出名>_assets/`；
+   * 传空串则「不导出」。
+   */
+  assetsDir?: string;
+  /** 转换完成后用本机的 `ots-sanitize` 校验产物。默认 `true`（本机没装时自动跳过）。 */
+  checkOts?: boolean;
+}
+
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
@@ -605,11 +620,18 @@ export interface NtHelperBinding {
   /**
    * Convert QQ's modified TTF (with FTFH/FTFG tables) to standard TTF.
    * Automatically detects if the input is already a standard TTF and copies it directly.
-   * Returns a status string:
+   *
+   * 默认（不传 `options`）除了转换本身，还会：把私有的 `brsh`/`cglf` 编译成彩色字体
+   * （`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`、并用本机的
+   * `ots-sanitize` 预检产物。
+   *
+   * Returns a status string, e.g.:
    *   - "success: copied normal TTF" (standard TTF, no conversion needed)
-   *   - "success: converted FTF to TTF" (magic TTF converted to standard)
+   *   - "success: converted FTF to TTF; exported N eimg frame(s) (350x141) to …; OTS ok"
+   *
+   * 早于该开关的 nt_helper 会忽略第三个参数（只做转换），所以调用方不必探测版本。
    */
-  convertFont(inputPath: string, outputPath: string): string;
+  convertFont(inputPath: string, outputPath: string, options?: ConvertFontOptions): string;
 
   // --- dress offline resource index (local .dat bundles, no protocol needed) ---
   /**

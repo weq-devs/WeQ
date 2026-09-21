@@ -283,6 +283,47 @@ function isTextLike(element: RenderElement): boolean {
   return typeof element.type === 'string' && TEXT_LIKE_KINDS.has(element.type);
 }
 
+/**
+ * 独占一行的媒体元素 kinds：图片 / 视频 / 表情包 / 文件卡。它们都会被包进一个块级
+ * 容器（`.qq-media-line`），于是「图片和图片」「图片和文字」永远不会落在同一行。
+ *
+ * pic / mface 自身的根节点是 inline-block，不包就跟文字、跟别的图片挤在一行；
+ * video / file 本来就是块级，一起包是为了把「独占一行」这条规则收在一处。
+ * 语音（ptt）刻意不在内：它是跟在文字后面的条状气泡，和 QQ 的表现一致。
+ */
+const BLOCK_MEDIA_KINDS = new Set([
+  'pic',
+  'video',
+  'bubbleVideo',
+  'mface',
+  'file',
+  'onlineFile',
+  'onlineFolder',
+]);
+
+function isBlockMedia(element: RenderElement): boolean {
+  return typeof element.type === 'string' && BLOCK_MEDIA_KINDS.has(element.type);
+}
+
+/** text 元素是 run 里唯一带正文的 kind，剥换行只作用于它。 */
+function plainTextOf(element: RenderElement): string {
+  const text = element.data?.textContent;
+  return typeof text === 'string' ? text : '';
+}
+
+/**
+ * 块级媒体自己就会换行，紧贴它的那个 `\n`（QQ 常把换行写进相邻的 text 元素）再留着
+ * 就会多冒一个空行。所以 run 开头紧跟前一个块级媒体、run 结尾紧跟下一个块级媒体时，
+ * 各剥掉一个换行符；中间的换行符一律不动，用户自己敲的段落照旧保留。
+ */
+function trimBoundaryNewline(element: RenderElement, side: 'start' | 'end'): RenderElement {
+  if (element.type !== 'text') return element;
+  const text = plainTextOf(element);
+  if (side === 'start' ? !text.startsWith('\n') : !text.endsWith('\n')) return element;
+  const trimmed = side === 'start' ? text.slice(1) : text.slice(0, -1);
+  return { ...element, data: { ...(element.data ?? {}), textContent: trimmed } };
+}
+
 /** Render one element inline (media component, face, @-mention or text). */
 function ElementNode({
   element,
@@ -361,8 +402,9 @@ function ElementNode({
 /**
  * Render a list of elements, coalescing every run of text-like elements
  * (text / at / face) into a single inline `<span class="qq-text-run">` so they
- * share one inline flow. Non-text-like elements (images, files, cards, …)
- * stay as their own siblings.
+ * share one inline flow. Media elements each get their own block wrapper
+ * (`.qq-media-line`) so a picture never shares a line with text or another
+ * picture; everything else stays a plain sibling.
  */
 function renderElementNodes(
   elements: RenderElement[],
@@ -373,11 +415,22 @@ function renderElementNodes(
   const out: ReactNode[] = [];
   let runStart = -1;
   let runItems: RenderElement[] = [];
+  /** 上一个已渲染的元素是不是块级媒体：决定 run 开头那个换行符要不要剥掉。 */
+  let prevBlock = false;
 
-  const flushRun = () => {
+  const flushRun = (nextIsBlock: boolean) => {
     if (runItems.length === 0) return;
     const items = runItems;
     const start = runStart;
+    runItems = [];
+    runStart = -1;
+    if (prevBlock) items[0] = trimBoundaryNewline(items[0]!, 'start');
+    if (nextIsBlock) {
+      const last = items.length - 1;
+      items[last] = trimBoundaryNewline(items[last]!, 'end');
+    }
+    // 整段只由换行组成（例如两张图片之间那个 `\n`）→ 丢掉，别留一个空行。
+    if (items.every((el) => el.type === 'text' && plainTextOf(el) === '')) return;
     out.push(
       <span key={`run-${start}`} className="qq-text-run">
         {items.map((el, i) => (
@@ -392,8 +445,6 @@ function renderElementNodes(
         ))}
       </span>,
     );
-    runItems = [];
-    runStart = -1;
   };
 
   elements.forEach((element, index) => {
@@ -402,8 +453,10 @@ function renderElementNodes(
       runItems.push(element);
       return;
     }
-    flushRun();
-    out.push(
+    const block = isBlockMedia(element);
+    flushRun(block);
+    prevBlock = block;
+    const node = (
       <ElementNode
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         key={`el-${index}`}
@@ -411,10 +464,20 @@ function renderElementNodes(
         sendTimeMs={sendTimeMs}
         msgId={msgId}
         isSender={isSender}
-      />,
+      />
+    );
+    out.push(
+      block ? (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+        <div key={`blk-${index}`} className="qq-media-line">
+          {node}
+        </div>
+      ) : (
+        node
+      ),
     );
   });
-  flushRun();
+  flushRun(false);
   return out;
 }
 

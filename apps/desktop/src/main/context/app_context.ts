@@ -966,6 +966,12 @@ export function initAppContext(): AppContext {
         sharedDressCache,
         resolveOnlinePid,
       );
+      // 3. 升级后的自愈：缓存里的字体产物若是旧转换链产出的（彩色表 / 炫彩帧都是新
+      //    加的），后台就地重新派生一遍（走本地已缓存的原始 zip，完全离线）。
+      //    不 await —— 旧产物照样能渲染，重做完了推一次清单前端自己换。
+      void dressInstall.refreshDerived().then((refreshed) => {
+        if (refreshed > 0) emitDressChanged();
+      });
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -1501,6 +1507,10 @@ export function initAppContext(): AppContext {
         sharedDressCache,
         livePid,
       );
+      // 升级后的自愈：与在线路径同一套（静态账号也该看到新产物）。
+      void dressInstall.refreshDerived().then((refreshed) => {
+        if (refreshed > 0) emitDressChanged();
+      });
       const fileSearch = new FileSearchService(session, staticPlatform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));

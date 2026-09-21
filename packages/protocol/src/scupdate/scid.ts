@@ -10,6 +10,19 @@
 import { VasBid } from './schemas';
 
 /**
+ * scid 里的平台段(气泡、字体有这一段,挂件没有)。
+ *
+ * **两份资源真实存在,而且内容不同**:`android` 是 1x 图(`bubbleframe/0001.9.png`),
+ * `ios` 是 @2x 图(`bubbleframe/0001@2x.png`),连 config.json 之外的分包都对不上。
+ * 桌面 PC 客户端(抓包)请求的是 `ios` 那份,但 WeQ 的渲染管线是按 android 的
+ * `.9.png` + npTc 切片几何写的(见 `service/account/bubble_skin.ts`),换 `ios` 会拿到
+ * 一套没有 npTc 的 @2x 图,九宫格拉伸参数就没了。所以默认取 android。
+ */
+export const SCID_OS_ANDROID = 'android';
+export const SCID_OS_IOS = 'ios';
+export type ScidOs = typeof SCID_OS_ANDROID | typeof SCID_OS_IOS;
+
+/**
  * 气泡的分包。一款气泡拆成配置 + 静态图 + 动效三个文件,不一定都存在
  * (只有 config.json 是必然有的)。
  *
@@ -32,14 +45,22 @@ export type FontFamily = (typeof FONT_FAMILIES)[number];
 export const PENDANT_PARTS = ['aio_50.png', 'xydata.js', 'other.zip'] as const;
 export type PendantPart = (typeof PENDANT_PARTS)[number];
 
-/** 拼气泡 scid:`bubble.android.<id>.<part>`。 */
-export function bubbleScid(itemId: number | string, part: BubblePart = 'config.json'): string {
-  return `bubble.android.${itemId}.${part}`;
+/** 拼气泡 scid:`bubble.<os>.<id>.<part>`。 */
+export function bubbleScid(
+  itemId: number | string,
+  part: BubblePart = 'config.json',
+  os: ScidOs = SCID_OS_ANDROID,
+): string {
+  return `bubble.${os}.${itemId}.${part}`;
 }
 
-/** 拼字体 scid:`font.<family>.android.<id>`(字体不分包,一个 zip 内含一个 ttf)。 */
-export function fontScid(itemId: number | string, family: FontFamily = 'main'): string {
-  return `font.${family}.android.${itemId}`;
+/** 拼字体 scid:`font.<family>.<os>.<id>`(字体不分包,一个 zip 内含一个 ttf)。 */
+export function fontScid(
+  itemId: number | string,
+  family: FontFamily = 'main',
+  os: ScidOs = SCID_OS_ANDROID,
+): string {
+  return `font.${family}.${os}.${itemId}`;
 }
 
 /** 拼挂件 scid:`pendant.<id>.<part>`。 */
@@ -48,8 +69,8 @@ export function pendantScid(itemId: number | string, part: PendantPart = 'aio_50
 }
 
 /** 一款气泡的全部分包 scid。 */
-export function bubbleScids(itemId: number | string): string[] {
-  return BUBBLE_PARTS.map((p) => bubbleScid(itemId, p));
+export function bubbleScids(itemId: number | string, os: ScidOs = SCID_OS_ANDROID): string[] {
+  return BUBBLE_PARTS.map((p) => bubbleScid(itemId, p, os));
 }
 
 /** 一款挂件的全部分包 scid。 */

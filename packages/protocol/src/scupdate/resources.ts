@@ -16,7 +16,7 @@ import {
   type PendantPart,
 } from './scid';
 import { VasBid } from './schemas';
-import type { ScUpdateClient } from './session';
+import { PC_QQ_CLIENT, type ScUpdateClient } from './session';
 
 /** 一款气泡的全部可用资源。 */
 export interface BubbleResources {
@@ -41,12 +41,12 @@ export async function getBubbleResources(
   nt: TrpcNative,
   pid: number,
   itemId: number | string,
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<BubbleResources> {
   const all = await getResourceUrls(
     nt,
     pid,
-    BUBBLE_PARTS.map((part) => ({ bid: VasBid.Bubble, scid: bubbleScid(itemId, part) })),
+    BUBBLE_PARTS.map((part) => ({ bid: VasBid.Bubble, scid: bubbleScid(itemId, part), itemId })),
     client,
   );
 
@@ -76,7 +76,7 @@ export async function getFontResource(
   nt: TrpcNative,
   pid: number,
   itemId: number | string,
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<ResourceUrl | null> {
   const families: FontFamily[] = ['main', 'fzfont'];
   let lastMiss: ResourceUrl | null = null;
@@ -85,7 +85,7 @@ export async function getFontResource(
     const [hit] = await getResourceUrls(
       nt,
       pid,
-      [{ bid: VasBid.Font, scid: fontScid(itemId, family) }],
+      [{ bid: VasBid.Font, scid: fontScid(itemId, family), itemId }],
       client,
     );
     if (hit?.ok) return hit;
@@ -117,12 +117,12 @@ export async function getPendantResources(
   nt: TrpcNative,
   pid: number,
   itemId: number | string,
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<PendantResources> {
   const all = await getResourceUrls(
     nt,
     pid,
-    PENDANT_PARTS.map((part) => ({ bid: VasBid.Pendant, scid: pendantScid(itemId, part) })),
+    PENDANT_PARTS.map((part) => ({ bid: VasBid.Pendant, scid: pendantScid(itemId, part), itemId })),
     client,
   );
 

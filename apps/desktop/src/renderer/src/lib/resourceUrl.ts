@@ -85,9 +85,28 @@ export function dressUrl(src: string): string {
  * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见服务侧
  * DressService.fontFile)。
  * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。
+ *
+ * `deriveVersion` 是**产物版本戳**（服务侧 DRESS_DERIVE_VERSION）：ttf 的文件名与
+ * 路径都不随转换链变，升级后是「就地重写同一个文件」。自定义协议的回应对 Chromium
+ * 是可缓存的，光靠重写文件浏览器不会主动重取，所以把版本拼进 query —— 换了版本就是
+ * 换了个 URL，旧 face 与旧解码缓存自然作废（同 dressBackgroundUrl 用文件名当戳的思路）。
  */
-export function dressFontUrl(itemId: number): string {
-  return mediaUrl('dressfont', { id: itemId });
+export function dressFontUrl(itemId: number, deriveVersion = 0): string {
+  return mediaUrl('dressfont', { id: itemId, v: deriveVersion });
+}
+
+/**
+ * 字体自带炫彩动画的某一帧（`frame` 从 1 开始）。
+ *
+ * 与 {@link dressFontUrl} 同源：`eimg` 表里的帧图由安装时导出到
+ * `fonts/<id>_assets/`，主进程按 sidecar 里的变体分组展开取帧
+ * （见服务侧 DressSharedCache.fontFrameFile）。没有 `eimg` 的字体这一支永远 404。
+ *
+ * `deriveVersion` 的理由同 {@link dressFontUrl}：帧图的文件名（`frame_007.png`）
+ * 重派生后不变，只有带版本戳才能让浏览器丢掉旧解码缓存。
+ */
+export function dressFontFrameUrl(itemId: number, frame: number, deriveVersion = 0): string {
+  return mediaUrl('dressfontfx', { id: itemId, frame, v: deriveVersion });
 }
 
 /**

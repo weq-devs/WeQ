@@ -8,7 +8,8 @@ import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions } from '../../components/SetEmojiReactions';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
-import { useActiveWidget } from '../../hooks/useActiveWidget';
+import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
+import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
@@ -122,12 +123,19 @@ export function MessageBubble({
   // 自己头像的挂件（设置 → 个性显示可关）。他人的挂件要逐个走 SSR 页面查，
   // 一条消息一次网络往返不现实，故只叠自己的。
   const pendantUrl = useSelfPendant();
-  // 个性装扮页选的生效挂件（appId 4）—— 只在没有 per-message 装饰时顶上。
+  // 个性装扮页选的生效挂件/字体炫彩 —— 只在没有 per-message 装饰时顶上。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
+  const activeFontFx = useActiveFontFx();
   const msgDec = useMsgDecoration((message as any).decoration);
   const msgWidget = msgDec.widget;
   const msgBubbleId = msgDec.bubbleId;
   const msgFontId = msgDec.fontId;
+  // 炫彩素材的优先级同挂件：逐条消息字体（40801）> 生效字体。
+  // 生效字体要守作用范围（mine 只放自己的消息）；逐条消息那个与范围无关，是这条消息
+  // 自带的装饰。
+  const lineFontFx = msgDec.fontFx ?? (mine || activeScope === 'all' ? activeFontFx : null);
+  // 量完气泡尺寸才知道放不放、放哪一段（见 useBubbleFontFx）。
+  const fontFxAttr = useBubbleFontFx(lineFontFx, bubbleRef);
   // 渲染优先级:per-message 装饰（发送者自己的 QQ 挂件）> 生效挂件 > 自己的静态挂件。
   // 生效挂件的作用范围:mine → 只叠自己的消息;all → 连对方的一起叠。
   const lineWidget =
@@ -263,6 +271,7 @@ export function MessageBubble({
       data-message-id={message.id}
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
+      data-fontfx={fontFxAttr}
       data-widget={msgWidget?.animated ? msgWidget.itemId : undefined}
     >
       {!mine ? (

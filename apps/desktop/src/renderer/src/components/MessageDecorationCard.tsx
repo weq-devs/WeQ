@@ -71,14 +71,17 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
       setFontPreviewState('loading');
       return;
     }
-    if (!fontResource.data?.fontFile) {
+    // 字体要「解析出来了」才能试加载（路径在主进程，渲染只知道自己拼的 url）。
+    const derived = fontResource.data?.font;
+    if (!derived) {
       setFontPreviewState('unavailable');
       return;
     }
 
     let cancelled = false;
     setFontPreviewState('loading');
-    void new FontFace(fontFamily, `url("${dressFontUrl(id)}")`)
+    // 带派生版本：升级后同一款字体的产物被就地重做，url 跟着变才能绕过浏览器缓存。
+    void new FontFace(fontFamily, `url("${dressFontUrl(id, derived.deriveVersion)}")`)
       .load()
       .then((face) => {
         if (cancelled) return;
@@ -92,14 +95,7 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
     return () => {
       cancelled = true;
     };
-  }, [
-    fontFamily,
-    fontResource.data?.fontFile,
-    fontResource.isInitialLoading,
-    id,
-    imageState,
-    type,
-  ]);
+  }, [fontFamily, fontResource.data?.font, fontResource.isInitialLoading, id, imageState, type]);
 
   const showFontPreview = type === 'font' && imageState === 'font' && fontPreviewState === 'ready';
 
