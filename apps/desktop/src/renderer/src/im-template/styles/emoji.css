@@ -319,6 +319,18 @@
 	vertical-align: -0.45em;
 }
 
+/* 图片类媒体（见 QqMessageContent 的 BLOCK_MEDIA_KINDS）各占一行：包一层块级容器后，
+   图片既不会和文字排在同一行，也不会和另一张图片并排。换行由块级容器提供，文字里
+   紧贴媒体的那个换行符在渲染时已剥掉，所以不会多出一个空行。 */
+.message-content .qq-media-line {
+	display: block;
+}
+
+/* 和上一个元素之间留一点缝：连续两张图不至于贴在一起，图跟在文字后面也有呼吸感。 */
+.message-content .qq-media-line:not(:first-child) {
+	margin-top: 4px;
+}
+
 /* Lone sticker face: box is already cleared of bubble chrome via .sticker-only. */
 .message-content.sticker-only .face-emoji {
 	vertical-align: bottom;

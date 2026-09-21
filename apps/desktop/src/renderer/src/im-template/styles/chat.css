@@ -815,6 +815,15 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	border-radius: 8px;
 }
 
+/* QQ markdown 的 `==高亮==`（QQ本身的高亮语法）→ <mark>。QQ 客户端用黄底，这里跟随主题
+ * 取强调色的浅底：气泡背景本身可能是深色，固定黄底配白字会刺眼、换主题也不协调。 */
+.message-content .qq-md mark {
+	padding: 0 3px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 20%, transparent);
+	color: inherit;
+}
+
 .message-content.qq-bot-card .qq-md-bot img {
 	max-width: 100%;
 	height: auto;

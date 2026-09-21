@@ -11,6 +11,10 @@
  *
  * parseIncompleteMarkdown 关掉：聊天记录都是定稿文本，不是 LLM 流式输出，不需要为
  * 「半截语法」做平滑收尾。
+ *
+ * 换行与 `==高亮==` 另外交给 remarkQqLineBreaks / remarkQqHighlight：CommonMark 的段内
+ * 单换行（softbreak）在 HTML 里只是个 `\n`、被浏览器折叠成空格，而 QQ 客户端每个单换行
+ * 都换行；`==文字==` 也是 QQ 自己的高亮语法。详见该文件注释。
  */
 
 import { memo, type JSX, type ReactElement } from 'react';
@@ -19,9 +23,18 @@ import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
+import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
 
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
+
+/**
+ * `==高亮==` 会被 remarkQqHighlight 翻成 `<mark>`，而 mark 不在 rehype-sanitize 的默认
+ * 白名单里，会被静默剥成纯文字 —— 这里显式放行（无属性）。streamdown 只在这种情况下
+ * 重建 rehype 链，重建后仍是 raw + sanitize + harden 三件套（只是 schema 多了 mark），
+ * 所以 <script> / javascript: 链接照旧被拦。
+ */
+const ALLOWED_TAGS = { mark: [] };
 
 /**
  * 尊重 QQ 写在 alt 里的渲染尺寸（`![img#18px #18px](…)`）。不这么做的话 @ 提及
@@ -107,6 +120,7 @@ export const QqMarkdown = memo(function QqMarkdown({
         remarkPlugins={REMARK_PLUGINS}
         plugins={PLUGINS}
         components={COMPONENTS}
+        allowedTags={ALLOWED_TAGS}
         parseIncompleteMarkdown={false}
       >
         {body}
