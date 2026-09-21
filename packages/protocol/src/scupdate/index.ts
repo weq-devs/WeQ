@@ -1,9 +1,9 @@
 /**
  * SC 快更新(scupdate)—— 个性装扮资源(气泡 / 字体 / 头像挂件)的下载地址获取。
  *
- * 这是 QQ 会员装扮资源的分发链路,原本是手Q(mobileqq)独有功能。桌面 NTQQ 通过
- * `sendPacket` 发同样的 SSO 包同样被服务端受理,只需在 `comm.plat` 里填 109
- * (Android QQ)。
+ * 这是 QQ 会员装扮资源的分发链路。桌面 NTQQ 自己也发这套 SSO 包(`plat=111`),WeQ 因此
+ * 默认就以桌面端身份发(见 `PC_QQ_CLIENT`),与真机报文对齐;手Q 身份只剩
+ * `ANDROID_QQ_CLIENT`,留给批量抓取脚本复现历史行为。
  *
  *   item_id → scid(本地拼) → GetUrl(问服务端) → CDN 外链 → 直接 GET
  *
@@ -19,12 +19,16 @@
  */
 
 export {
+  APP_ID_PC_QQ,
   SCUPDATE_CMD,
   ScUpdateOp,
   VasBid,
   STORAGE_MODE_FILE,
   CODE_NOT_FOUND,
+  FROM_PC_DRESS,
+  OSVER_PC_WINDOWS,
   PLAT_ANDROID_QQ,
+  PLAT_PC_QQ,
   QVER_ANDROID,
 } from './schemas';
 
@@ -32,6 +36,8 @@ export {
   BUBBLE_PARTS,
   FONT_FAMILIES,
   PENDANT_PARTS,
+  SCID_OS_ANDROID,
+  SCID_OS_IOS,
   bubbleScid,
   bubbleScids,
   fontScid,
@@ -40,12 +46,24 @@ export {
   bidFromScid,
   scanScids,
 } from './scid';
-export type { BubblePart, FontFamily, PendantPart } from './scid';
+export type { BubblePart, FontFamily, PendantPart, ScidOs } from './scid';
 
-export { buildReqComm, readRspStatus, ScUpdateError } from './session';
+export {
+  ANDROID_QQ_CLIENT,
+  PC_QQ_CLIENT,
+  buildReqComm,
+  readRspStatus,
+  ScUpdateError,
+} from './session';
 export type { ScUpdateClient, ScUpdateStatus } from './session';
 
-export { getResourceUrl, getResourceUrls, getUrlsByScid, isDownloadable } from './get-url';
+export {
+  buildGetUrlRequest,
+  getResourceUrl,
+  getResourceUrls,
+  getUrlsByScid,
+  isDownloadable,
+} from './get-url';
 export type { ResourceUrl, ScidRef } from './get-url';
 
 export { syncResourceList } from './sync-list';

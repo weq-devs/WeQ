@@ -5,14 +5,16 @@
 // 只能问服务端要。换回来的地址是公开的 —— 鉴权只发生在这次请求(靠 QQ 进程的登录态),
 // 拿到 url 之后直接 GET 即可,无需 cookie。
 //
-// 桌面 NTQQ 发这个包同样被受理:`comm.plat` 填 109(Android QQ)即可,服务端不校验
-// 发起端真实平台。
+// 身份默认走桌面 PC(见 session.ts 的 `PC_QQ_CLIENT`):`plat=111` / `from=pc_bubble`,
+// 与真机抓包一致。同一个 scid 用 PC 身份与手Q 身份换回来的地址一模一样(2026-09-21
+// 实测),所以身份只决定"像不像真的桌面客户端",不影响能不能拿到资源。
 
 import { decode, encode } from '../protobuf';
 import { sendPacket, type TrpcNative } from '../transport';
 import { bidFromScid } from './scid';
 import {
   CODE_NOT_FOUND,
+  PLAT_PC_QQ,
   SCUPDATE_CMD,
   SC_UPDATE_REQ,
   SC_UPDATE_RSP,
@@ -20,7 +22,7 @@ import {
   ScUpdateOp,
   type VasBid,
 } from './schemas';
-import { buildReqComm, readRspStatus, type ScUpdateClient } from './session';
+import { PC_QQ_CLIENT, buildReqComm, readRspStatus, type ScUpdateClient } from './session';
 
 /** 要换取的一个资源。 */
 export interface ScidRef {
@@ -28,6 +30,11 @@ export interface ScidRef {
   scid: string;
   /** 本地已有版本(dst_version)。留空 = 索取最新版。 */
   version?: string;
+  /**
+   * 装扮 itemId。PC 端会把 `bid`/`itemId` 冗余进 `subappid`/`subitemid`(抓包如此),
+   * 传了就在 PC 身份下照带;不传(比如从 SyncVCR 清单来的 scid)就省略 —— 服务端并不要求。
+   */
+  itemId?: number | string;
 }
 
 /** 一条换取结果。`ok` 为 true 时 {@link url} 必为可直接下载的完整地址。 */
@@ -87,6 +94,47 @@ function toResult(raw: Record<string, unknown>): ResourceUrl {
 }
 
 /**
+ * 组装 cmd=2 的 GetUrl 请求体。
+ *
+ * 单独抽出来是为了能离线对着真机抓包做逐字节测试(见 protocol 的 `scupdate.test.ts`):
+ * 报文形状是这套协议里最容易悄悄漂掉的部分,值得拿黄金样本守着。
+ */
+export function buildGetUrlRequest(
+  refs: readonly ScidRef[],
+  client: ScUpdateClient = PC_QQ_CLIENT,
+): Uint8Array {
+  // PC 身份才带 req0x02 的 tag 5 与 ItemVersion 的 flag/subappid/subitemid —— 这几个
+  // 字段是照 PC 抓包补的,手Q 形状保持原样不动。
+  const pc = (client.plat ?? PLAT_PC_QQ) === PLAT_PC_QQ;
+
+  return encode(SC_UPDATE_REQ, {
+    cmd: ScUpdateOp.GetUrl,
+    comm: buildReqComm(client),
+    req0x02: {
+      delta_mode: 0,
+      storage_mode: STORAGE_MODE_FILE,
+      // compress_mode=1 会让服务端回压缩过的包:老 `/club/` 路径的 config.json 变成
+      // `.json.zip`,2178B → 876B。PC 抓包里是 1,但我们一律用 0 —— 拿明文才不用自己解压。
+      compress_mode: 0,
+      ...(pc ? { flag: 0 } : {}),
+      item_list: refs.map((r) => {
+        // PC 端即使没有本地版本也显式发空串(`1a 00`);手Q 形状保持「空就不发」,
+        // 不动已经在跑的报文。
+        const version = r.version ?? (pc ? '' : undefined);
+        return {
+          bid: r.bid,
+          scid: r.scid,
+          ...(version !== undefined ? { version } : {}),
+          ...(pc && r.itemId !== undefined
+            ? { flag: 1, subappid: r.bid, subitemid: r.itemId }
+            : {}),
+        };
+      }),
+    },
+  });
+}
+
+/**
  * 批量把 scid 换成下载地址。一次请求可带多个 scid,返回顺序与服务端一致
  * (通常与请求同序,但不保证 —— 按 `scid` 字段匹配更稳妥)。
  */
@@ -94,20 +142,11 @@ export async function getResourceUrls(
   nt: TrpcNative,
   pid: number,
   refs: readonly ScidRef[],
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<ResourceUrl[]> {
   if (refs.length === 0) return [];
 
-  const body = encode(SC_UPDATE_REQ, {
-    cmd: ScUpdateOp.GetUrl,
-    comm: buildReqComm(client),
-    req0x02: {
-      delta_mode: 0,
-      storage_mode: STORAGE_MODE_FILE,
-      compress_mode: 0,
-      item_list: refs.map((r) => ({ bid: r.bid, scid: r.scid, version: r.version ?? '' })),
-    },
-  });
+  const body = buildGetUrlRequest(refs, client);
 
   const reply = await sendPacket(nt, pid, SCUPDATE_CMD, body);
   const rsp = decode(SC_UPDATE_RSP, reply);
@@ -137,7 +176,7 @@ export async function getResourceUrl(
   nt: TrpcNative,
   pid: number,
   ref: ScidRef,
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<ResourceUrl | null> {
   const all = await getResourceUrls(nt, pid, [ref], client);
   return all.find((r) => r.scid === ref.scid) ?? all[0] ?? null;
@@ -151,7 +190,7 @@ export async function getUrlsByScid(
   nt: TrpcNative,
   pid: number,
   scids: readonly string[],
-  client: ScUpdateClient = {},
+  client: ScUpdateClient = PC_QQ_CLIENT,
 ): Promise<ResourceUrl[]> {
   const refs: ScidRef[] = [];
   for (const scid of scids) {

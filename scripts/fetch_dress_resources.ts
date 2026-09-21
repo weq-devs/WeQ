@@ -25,6 +25,7 @@ import path from 'node:path';
 import { loadNative } from '../packages/native/src';
 import { ensureSendable, testEnv } from '../packages/testkit/src';
 import {
+  ANDROID_QQ_CLIENT,
   getResourceUrls,
   bubbleScid,
   fontScid,
@@ -72,7 +73,11 @@ const RETRY = Number(opt('--retry') ?? 3);
 const OUT_DIR = path.resolve(opt('--out') ?? path.join('resources', 'dress'));
 const NO_PROGRESS = has('--no-progress');
 
-const CLIENT = { from: 'WeQFetchDress' } as const;
+/**
+ * 抓取身份固定用手Q 形状、与默认(PC)身份无关:这份本地 bundle 是按 android 段 scid
+ * 攒起来的,别让包默认身份的改动悄悄改变历史脚本发出的报文。
+ */
+const CLIENT = { ...ANDROID_QQ_CLIENT, from: 'WeQFetchDress' } as const;
 
 // ─────────────────────────── 分包定义 ───────────────────────────
 
