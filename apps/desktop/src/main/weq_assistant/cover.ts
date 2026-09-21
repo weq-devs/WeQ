@@ -53,6 +53,9 @@ let logoUriCache: string | null | undefined;
  * prefer a bundled `.ttf`, then Windows' DengXian (`Deng.ttf`, a plain TTF that
  * ships with Win10/11). Throws if none is found — the caller surfaces it.
  *
+ * 注意：Windows 包**故意不带** cover.otf（16MB，见 electron-builder.yml 的
+ * extraResources）—— 那里有 DengXian / SimHei 兜底；mac/linux 才带打包字体。
+ *
  * Exported so the annual-report export pipeline (same satori+resvg chain) can
  * reuse the same font resolution instead of duplicating it.
  */
