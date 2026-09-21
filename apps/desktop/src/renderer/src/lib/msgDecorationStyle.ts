@@ -156,8 +156,7 @@ function fontMineLineSel(fontId: number): string {
 
 function fontTheirsLineSel(fontId: number): string {
   return (
-    `.message-line[data-font="${fontId}"].theirs, ` +
-    `.weq-forward-row[data-font="${fontId}"]`
+    `.message-line[data-font="${fontId}"].theirs, ` + `.weq-forward-row[data-font="${fontId}"]`
   );
 }
 

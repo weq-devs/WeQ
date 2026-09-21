@@ -7,7 +7,9 @@
  *
  *  - slice：九宫格拉伸点（npTc 的 zoomPoint）与整图尺寸的组合
  *    slice = { left: zx-1, top: zy-1, right: W-zx-1, bottom: H-zy-1 }
- *    恒等式 left + 2 + right === W，top + 2 + bottom === H
+ *    恒等式 left + 2 + right === W，top + 2 + bottom === H —— 校验通过后再按
+ *    {@link MIDDLE_GROW_PX} 把中央拉伸源单边加宽几像素（此时恒等式不再成立；
+ *    渲染侧的 width 跟着变小，四条边条/四角仍是 0.5 倍自然缩放）
  *  - 文字色：优先 config.json 的权威 color（`0xAARRGGBB`）；没有就用主题正文色
  *    （本地 png 没有 CDN 那套 2×2 填充图可判明暗，从简交给主题色）。
  *
@@ -29,6 +31,26 @@ export interface BubbleSlice {
   right: number;
   bottom: number;
 }
+
+/**
+ * 中央拉伸源单边「多吃」的源图像素上限（见 {@link buildLocalBubbleSkin}）。
+ *
+ * npTc 给的拉伸源只有 **2px**（恒等式 `left + 2 + right === W`）。这 2px 要铺满整个
+ * 气泡中段：一个字的消息里就是横拉 8~9 倍。浏览器对 border-image 的拉伸是**插值**的
+ * ——2px 被抹成一条平滑的竖条，而左右两角是 0.5 倍缩放、纹理是清晰的 2×2 颗粒。两者
+ * 在 x = 左切片 / 右切片 处交界：交界两侧的「颗粒」对不上，看上去就是**两条竖缝**
+ * （气泡越窄、拉伸倍率越大，缝越显眼；多行/宽气泡里它就是气泡的「身子」，反而不容易
+ * 注意到）。
+ *
+ * 把拉伸源单边多吃几个像素即可把倍率压下来（2px → 8px 就降 4 倍）。渲染侧的
+ * `border-image-width` 是按 `slice * scale` 算的，所以切片变窄时四条边条/四角**仍是
+ * 0.5 倍自然缩放**（贴图本身一个像素都不变，只是边条少画最后那几列/行），只有中段的
+ * 拉伸倍率下降。
+ *
+ * 不能吃太多：拉伸源两端的像素是**按边条原尺寸画**的装饰，卷进中段就会被拉伸。
+ * {@link buildLocalBubbleSkin} 里另外按切片大小做了上限（每次最多吃 1/8）。
+ */
+const MIDDLE_GROW_PX = 3;
 
 /** 一款气泡渲染所需的全部参数。 */
 export interface BubbleSkin {
@@ -128,12 +150,25 @@ export function buildLocalBubbleSkin(input: LocalBubbleInput): BubbleSkin | null
       return null;
     }
 
+    // 中央拉伸源加宽（理由见 MIDDLE_GROW_PX）。单边最多吃 1/8 切片：边条的最后几列/
+    // 行是「按原尺寸画」的装饰，卷进中段就会被拉伸变形。
+    const grow = Math.min(
+      MIDDLE_GROW_PX,
+      Math.max(0, Math.floor(Math.min(slice.left, slice.top, slice.right, slice.bottom) / 8)),
+    );
+    const stretched: BubbleSlice = {
+      left: slice.left - grow,
+      top: slice.top - grow,
+      right: slice.right - grow,
+      bottom: slice.bottom - grow,
+    };
+
     // 文字色:config.json 的权威色优先;没有就从简交给主题正文色(理由见模块头)。
     const textColor = input.color ? argbToCss(input.color) : 'var(--weq-fg-primary, #111111)';
 
     return {
       itemId: input.itemId,
-      slice,
+      slice: stretched,
       imageSize: size,
       textColor,
       localFile: input.pngPath,

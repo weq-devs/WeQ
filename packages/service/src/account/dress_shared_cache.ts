@@ -58,9 +58,11 @@ import { downloadUrlToFile } from './media_url';
  *
  * 1 = 最初的 FTF → TTF 修复；2 = 彩色表（`brsh`/`cglf` → COLRv1/CPAL）+ `eimg` 炫彩帧
  * 图包 + OTS 预检；3 = 修 `eimg` 偏移基准（20405 那类「数据区第 0 槽不是图片」的字体
- * 以前一帧都导不出来）。缓存里版本号低于它的产物会被就地重新派生（见文件头）。
+ * 以前一帧都导不出来）；4 = 气泡中央拉伸源加宽（`.9.png` 的 slice 存在气泡 sidecar
+ * 里，见 bubble_skin.ts 的 MIDDLE_GROW_PX —— 不 +1 的话已装气泡会一直用旧的 2px
+ * 拉伸源）。缓存里版本号低于它的产物会被就地重新派生（见文件头）。
  */
-export const DRESS_DERIVE_VERSION = 3;
+export const DRESS_DERIVE_VERSION = 4;
 
 /** 一组同尺寸的炫彩帧（同一款字体下可能有好几段，见 {@link readFontFx}）。 */
 export interface FontFxVariant {
