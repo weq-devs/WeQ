@@ -37,10 +37,54 @@
  * `chat.css` 的 `.context-active` 靠改 `background` 提示选中,但 border-image 画在
  * background 之上,纯色底会被完全盖住。所以装扮生效时改用一圈 outline 提示 —— 视觉上
  * 仍然明确,又不跟贴图打架。
+ *
+ * ## 文字颜色的优先级
+ *
+ * 气泡的 config.json 会声明一个文字色(「这个气泡上的字应该是白的」),但**字体自己的
+ * 声明高于它** —— 顺序是：
+ *
+ *   1. 字体文件自带的颜色（`brsh`/`cglf` 编译出的 `COLR`/`CPAL`）—— 字体说这个字形是
+ *      什么颜色就是什么颜色，气泡改不动它（COLR 图层直接指定了调色板项，CSS 的
+ *      `color` 根本不参与；只有调色板里那种「用前景色」的特殊项才会被 `color` 影响，
+ *      而我们的产物不用那一项）。
+ *   2. 气泡声明的文字色（{@link BubbleSkinCss.textColor}）—— 字体没上色的那些字形
+ *      （汉字、符号、以及 `cglf` 没圈中的部分）走它。
+ *   3. 主题正文色（`var(--weq-fg-primary)`）—— 既不选气泡也不选字体时的兵底。
+ *
+ * 所以这里的 `color: ${skin.textColor}` 只是第 2 级：它按在 `.message-content` 上，
+ * 字体里上过色的字形照样是字体自己的颜色。任何时候都不要把气泡文字色写成
+ * `-webkit-text-fill-color` 或带 `!important` 的形式 —— 那会把第 1 级压掉。
+ *
+ * ## 字体自带的炫彩动画
+ *
+ * `eimg` 炫彩/场景字体（实测 20405 / 20268）里还夹着多帧 PNG：字体「出现之初」在
+ * 气泡里放一次的光效/场景。做法是把帧图层画在气泡内容层的**伪元素**上（我方 `::before`、
+ * 对方/转发行 `::after`，见 {@link fontFxRules}），**左上角对齐、原尺寸不缩放不拉伸**；
+ * 气泡比所有画布都大就不放 —— 放上去只会被裁掉一大块，只剩半个特效。
+ *
+ * 层级 = 负 `z-index` + 内容层上的 `isolation: isolate`。负层级只有被隔离在内容层自己的
+ * 层叠上下文里，才是「位于气泡底图**之上**、文字**之下**」那一层；少了 isolation 它会逃到
+ * 祖先上下文，被气泡底图整个盖住（实测：只看得到从气泡边缘露出的一条）。
+ *
+ * 范围上 `inset: 0` + `overflow: hidden` 已经裁到气泡盒；挂了装扮气泡时再叠一层同几何的
+ * 九宫格遮罩（{@link fxClipMaskCss}）把九宫格圆角外的部分也裁掉，没挂装扮气泡就靠
+ * `border-radius: inherit` 跟着主题气泡自己的圆角走。
+ *
+ * 「放不放、放哪一段」要量完气泡尺寸才知道，所以行元素上的 `data-fontfx="<字体id>-<变体>"`
+ * 由渲染侧挂（见 hooks/useBubbleFontFx，值里带字体 id 是为了让同一元素上「生效字体」与
+ * 「逐条消息字体」两套规则不互相抢 `@keyframes`）。
+ *
+ * 与文字色的关系：炫彩是**画在气泡底图之上、文字之下**的一层，所以它盖得住气泡底色，
+ * 又不会糊住字。节奏不跟 QQ 的时间轴（见 {@link FONT_FX_FRAME_MS}）。
  */
 
-import type { ResolvedWidget } from '@weq/service';
-import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl } from './resourceUrl';
+import type { FontFx, ResolvedWidget } from '@weq/service';
+import {
+  dressBubbleUrl,
+  dressBubbleFrameUrl,
+  dressFontFrameUrl,
+  dressPendantFrameUrl,
+} from './resourceUrl';
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
@@ -66,8 +110,16 @@ export interface BubbleSkinCss {
 
 export interface FontSkinCss {
   itemId: number;
-  /** 字体文件的 url(weq-media://dressfont?id=…)。 */
+  /** 字体文件的 url(weq-media://dressfont?id=…&v=…)。 */
   fontUrl: string;
+  /**
+   * 产出这份 ttf 的转换链版本（服务侧 DressSharedCache 的 DRESS_DERIVE_VERSION）。
+   * 升级后产物被就地重做时它跟着变：① 拼进 url 让浏览器重取；② {@link preloadFont}
+   * 据此重新注册 face —— 否则 family 名没变，旧 face 会一直在 `document.fonts` 里赖到下次启动。
+   */
+  deriveVersion: number;
+  /** `eimg` 炫彩帧（按画布尺寸分好组）；没有这个表的字体为 null。 */
+  fx: FontFx | null;
 }
 
 /** 生效的挂件在消息头像上的叠加层选择器。 */
@@ -99,15 +151,39 @@ const STYLE_ID = 'weq-dress-skin';
 const BUBBLE_CONTENT_EXCLUSIONS =
   ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
 
+/** 气泡本体(真正贴九宫格 / 排文字的那个元素,装扮属性都挂在它所在的行上)。 */
+const BUBBLE_CONTENT = `.message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+
+/**
+ * 装扮生效的消息行选择器(不带 `.message-content`)。
+ *
+ * scope 决定作用到谁:`mine` 只管自己的消息(手 Q 语义),`all` 连对方的一起。
+ * 渲染侧的 `data-fontfx` 就挂在这种行元素上:伪元素层的位置已经被气泡占着,炫彩要
+ * 画在行内部的 `.message-content` 上,所以 CSS 得先选中行、再往下取内容层。
+ */
+function bubbleLineSelector(scope: DressScope): string {
+  return scope === 'all' ? '.message-line' : '.message-line.mine';
+}
+
 /**
  * 装扮生效的消息气泡选择器。
  *
  * scope 决定作用到谁:`mine` 只管自己的消息(手 Q 语义),`all` 连对方的一起。
  */
 function bubbleSelector(scope: DressScope): string {
-  const line = scope === 'all' ? '.message-line' : '.message-line.mine';
-  return `${line} .message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+  return `${bubbleLineSelector(scope)} ${BUBBLE_CONTENT}`;
 }
+
+/**
+ * 挂了炫彩帧的**我方**行（帧图层在 `::before`，见 {@link fontFxRules}）。
+ *
+ * 带上 `[data-fontfx]` 是有意的：九宫格遮罩（{@link fxClipMaskCss}）靠它只作用在真的有
+ * 帧的那些行上，没挂帧的消息一个字节也不多注入。
+ */
+const FX_MINE_LINE = '.message-line.mine[data-fontfx]';
+
+/** 挂了炫彩帧的**对方**行 + 转发行（帧图层在 `::after`，见 {@link fontFxRules}）。 */
+const FX_THEIRS_LINE = '.message-line.theirs[data-fontfx], .weq-forward-row[data-fontfx]';
 
 /**
  * 对方消息的气泡选择器。
@@ -117,7 +193,7 @@ function bubbleSelector(scope: DressScope): string {
  * 额外注入一组镜像规则。
  */
 function theirsBubbleSelector(): string {
-  return `.message-line.theirs .message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+  return `.message-line.theirs ${BUBBLE_CONTENT}`;
 }
 
 /** 四舍五入到 2 位小数,避免 0.5 缩放产生一长串浮点尾巴。 */
@@ -147,6 +223,226 @@ function frameAnimationCss(
   const duration = frameCount * frameTimeMs;
   const iterations = repeat > 0 ? repeat : 'infinite';
   return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
+}
+
+/**
+ * 给一个（可能是逗号列表的）选择器的**每一项**加后缀。
+ *
+ * CSS 的 `a, b c` 只给最后一项加后缀，直接拼接会让前面那项命中别的元素 ——
+ * 历史坑见 bubbleLinkMentionRules。
+ */
+export function appendToSelectors(sel: string, suffix: string): string {
+  return sel
+    .split(',')
+    .map((s) => `${s.trim()}${suffix}`)
+    .join(',\n');
+}
+
+/**
+ * 炫彩帧的帧时长（ms）—— **160ms/帧（≈6fps，1/4 倍速）**。
+ *
+ * 我们的视觉标准，不是 QQ 的时间轴：`eimg` 旁边那几张编排表（`scen`/`smap`/`fpid`）
+ * 参考太少、收益不成正比，所以不逆向。
+ *
+ * 曾经拍 40ms（25fps），实际观感是「闪一下就没看清」——素材本身是画得很细的场景/光效，
+ * 一帧只给 40ms 等于白画。160ms 是实测能看清每一帧、又不至于拖沓的档位（约 1/4 倍速）；
+ * 总时长随帧数（15 帧≈2.4s、30 帧≈4.8s），同一款字体几段动画长短不同是正常的。
+ */
+const FONT_FX_FRAME_MS = 160;
+
+/** 一款字体的炫彩素材（渲染侧需要的最小集：谁 + 产出它的转换链版本 + 帧几何）。 */
+export interface FontFxSkin {
+  itemId: number;
+  /** 产出这些帧的转换链版本 —— 拼进帧 url，见 {@link dressFontFrameUrl}。 */
+  deriveVersion: number;
+  fx: FontFx;
+}
+
+/** 一段炫彩动画的全部帧 url（按变体分组展开后的全局帧序）。 */
+export function fontFxFrameUrls(skin: FontFxSkin | null | undefined): string[] {
+  if (!skin) return [];
+  const total = skin.fx.variants.reduce((n, v) => n + v.frames.length, 0);
+  return Array.from({ length: total }, (_, i) =>
+    dressFontFrameUrl(skin.itemId, i + 1, skin.deriveVersion),
+  );
+}
+
+/**
+ * 挑一个变体播 —— 选**装得下这个气泡的最小一段**。
+ *
+ * `eimg` 里的帧分几段画布（实测 20405 是 350×141/82/76/49/109 五段），客户端按
+ * 「文字占几行」挑尺寸合适的那段。我们没有那套编排表，用几何近似：取能覆盖气泡
+ * （宽高都不小于气泡）里**面积最小的一段**——它就是最贴尺寸的那张画布。
+ *
+ * 一段都盖不住（气泡比所有画布都大）→ 返回 null，**不放**：放上去只会被气泡裁掉一大块，
+ * 变成半个特效，不如不放。
+ *
+ * @returns 变体序号（1-based，与 `data-fontfx` 的值一致），没合适的返回 null
+ */
+export function pickFontFxFariant(fx: FontFx, w: number, h: number): number | null {
+  let best: number | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < fx.variants.length; index += 1) {
+    const variant = fx.variants[index]!;
+    if (variant.frames.length === 0) continue;
+    if (variant.width < w || variant.height < h) continue;
+    const area = variant.width * variant.height;
+    if (area < bestArea) {
+      best = index + 1;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/**
+ * 字体炫彩动画的 CSS：每个变体一套 `@keyframes`，靠 `[data-fontfx="<id>-<变体>"]` 选中。
+ *
+ * 四个关键决定：
+ *
+ *  1. **画在一个专属图层上（`::before` / `::after`），不是元素本体的 `background`。**
+ *     元素本体的 `background` 会被它自己的 `border-image`（气泡底图）盖住 —— 这就是
+ *     「动画被气泡遮住、只在气泡圆角外露一点」的原因。伪元素带负 `z-index` 时画在
+ *     「元素自身背景/边框之上、文字之下」，正是「气泡里面、气泡底图之上」那一层。
+ *  2. **挑当前空着的那个伪元素。** 气泡底图占着元素本体（我方）或 `::before`（对方
+ *     镜像层），动效叠加层占着 `::after`（仅我方）—— 所以：
+ *       - 我方行（`.mine`）→ `::before`（`::after` 留给气泡自己的动效叠加层）
+ *       - 对方行 / 转发行 → `::after`（`::before` 被镜像底图占着）
+ *     两张伪元素只有两个，凑不齐时由 {@link fxClipRingCss} 的说明收尾。
+ *  3. **属性值带上字体 id**（`<id>-<变体>`，而不是裸变体号）。同一个元素上可能同时
+ *     有「生效字体」和「逐条消息字体」两套规则，键里不带 id 后面注入的那款会把前面
+ *     那款的 `@keyframes` 抢走。
+ *  4. **只放一次（`1` + `forwards`）**。它模拟的是「字体出现之初」那一下，不是循环
+ *     特效；帧序列自己会淡出，末帧归零后靠 `forwards` 停在「没有图」上，而不是弹回
+ *     第一帧。`steps(1)` 同其他装扮动画：让每个关键帧撑满自己的时间段，而不是按离散
+ *     属性默认的「过半才切」把每帧显示时长砍半。
+ *
+ * 挂不挂属性由渲染侧量完气泡尺寸决定（{@link pickFontFxFariant}），所以这段 CSS 对
+ * 「气泡比动画大」的消息天然是空转的。
+ */
+export interface FontFxSelectors {
+  /** 我方行的行级选择器（不含 `[data-fontfx]` 与 `.message-content`）。 */
+  mine: string;
+  /** 对方行（含转发行）的行级选择器；scope=mine 时不涉及对方，省掉即可。 */
+  theirs?: string;
+}
+
+export function fontFxRules(skin: FontFxSkin, sels: FontFxSelectors): string {
+  const { itemId, deriveVersion, fx } = skin;
+  const layers: { pseudo: '::before' | '::after'; sel: string; mirror?: boolean }[] = [
+    { pseudo: '::before', sel: sels.mine },
+    ...(sels.theirs ? [{ pseudo: '::after' as const, sel: sels.theirs, mirror: true }] : []),
+  ];
+  const rules: string[] = [
+    // 帧图层是绝对定位 + 负层级，得让 `.message-content` 同时当**包含块**和**层叠
+    // 上下文**：前者给 `inset: 0` 定位，后者把负层级锁在「元素自身背景/边框之上、文字
+    // 之下」那一层。挂装扮气泡时两条它已经有了（见 baseBubbleRule），这里补的是
+    // 「只换字体、没挂气泡」那条路径。
+    ...layers.map(
+      ({ sel }) =>
+        `${appendToSelectors(sel, '[data-fontfx]')} ${BUBBLE_CONTENT} {\n` +
+        `  position: relative;\n` +
+        `  isolation: isolate;\n` +
+        `}`,
+    ),
+  ];
+  fx.variants.forEach((variant, index) => {
+    if (variant.frames.length === 0) return;
+    const name = `weq-fontfx-${itemId}-${index + 1}`;
+    const start = firstIndex(fx, index);
+    const step = 100 / variant.frames.length;
+    const stops = variant.frames.map((_, i) => {
+      const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+      return `  ${pct}% { background-image: url("${dressFontFrameUrl(itemId, start + i + 1, deriveVersion)}"); }`;
+    });
+    // 末帧显式归零：帧序列本身就是渐隐的，不给一个 100% 会停在第一帧上。
+    stops.push(`  100% { background-image: none; }`);
+    const duration = variant.frames.length * FONT_FX_FRAME_MS;
+    rules.push([`@keyframes ${name} {`, ...stops, `}`].join('\n'));
+
+    for (const layer of layers) {
+      const target = appendToSelectors(
+        layer.sel,
+        `[data-fontfx="${itemId}-${index + 1}"] ${BUBBLE_CONTENT}${layer.pseudo}`,
+      );
+      rules.push(
+        target,
+        `{`,
+        ...fxLayerDecls(),
+        `  background-image: url("${dressFontFrameUrl(itemId, start + 1, deriveVersion)}");`,
+        // 原尺寸、不重复：不缩放也不拉伸（气泡比画布小就由气泡自己裁）。
+        `  background-size: auto;`,
+        // 对方行的整层被镜像，所以背景锚点也要反过来写，翻回来才落在气泡的左上角。
+        layer.mirror ? `  background-position: right top;` : `  background-position: left top;`,
+        `  background-repeat: no-repeat;`,
+        layer.mirror ? `  transform: scaleX(-1);` : '',
+        `  animation: ${name} ${duration}ms steps(1) 1 forwards;`,
+        `}`,
+        `@media (prefers-reduced-motion: reduce) {`,
+        `  ${target} { animation: none; background-image: none; }`,
+        `}`,
+      );
+    }
+  });
+  return rules.join('\n');
+}
+
+/**
+ * 帧图层的公共声明 —— 一个绝对定位、盖满气泡盒、压到文字下面的空盒子。
+ *
+ * `border-radius: inherit` 是给「没挂装扮气泡」的主题自带气泡兜底的：那种气泡没有
+ * 九宫格可裁（见 {@link fxClipRingCss}），只能跟着元素自己的圆角走。
+ */
+function fxLayerDecls(): string[] {
+  return [
+    `  content: "";`,
+    `  position: absolute;`,
+    `  inset: 0;`,
+    `  z-index: -1;`,
+    `  pointer-events: none;`,
+    `  border-radius: inherit;`,
+    `  overflow: hidden;`,
+  ];
+}
+
+/**
+ * 炫彩帧的「裁形」：用气泡九宫格当帧图层的遮罩，把帧裁成气泡形状。
+ *
+ * 帧是「气泡盒大小 + 原尺寸、左上角对齐」的一块贴图（实测画布就是气泡尺寸），超出
+ * 气泡形状的部分（主要是九宫格的大圆角外侧）本来会画到气泡外面去。这里用
+ * `-webkit-mask-box-image-*`（=`mask-border` 的前缀版，Chromium 实现了）把底图当成
+ * 九宫格遮罩贴在帧图层上 —— slice/width 与底图完全一致，遮罩形状因此与气泡一模一样。
+ *
+ * 两个实测要点：
+ *
+ *  - **`slice` 必须带 `fill`**。不带 `fill` 时中间那块（气泡本体）不在遮罩里，帧就
+ *    只剩边缘一圈可见（实测可见像素 9441 → 4399）；带上 `fill` 才是「完整裁形 +
+ *    零溢出」（可见 9441 与不遮罩持平，溢出 2346 → 56 像素）。
+ *  - **`-webkit-mask-box-image-width` 不能省**。默认宽度取 slice 的**源图像素值**，
+ *    而气泡底图是按 `BUBBLE_SCALE` 缩小画的；不给宽度，遮罩棱角会和气泡对不上。
+ *
+ * 只在该行真的挂了炫彩帧时才注入（调用方在选择器里带上 `[data-fontfx]`）。对方行的
+ * 帧图层整体被 `scaleX(-1)` 镜像（见 {@link fontFxRules}），遮罩也跟着翻 —— 而对方
+ * 显示的气泡本来就是镜像底图，两者天然对齐。
+ */
+export function fxClipMaskCss(
+  sel: string,
+  opts: { imageUrl: string; slice: string; width: string },
+): string {
+  return [
+    `${sel} {`,
+    `  -webkit-mask-box-image-source: url("${opts.imageUrl}");`,
+    `  -webkit-mask-box-image-slice: ${opts.slice};`,
+    `  -webkit-mask-box-image-width: ${opts.width};`,
+    `}`,
+  ].join('\n');
+}
+
+/** 第 `index` 个变体在全局帧序里的起始下标（帧 url 从 1 开始，所以外面要 +1）。 */
+function firstIndex(fx: FontFx, index: number): number {
+  let n = 0;
+  for (let i = 0; i < index; i += 1) n += fx.variants[i]?.frames.length ?? 0;
+  return n;
 }
 
 /** 气泡是否「限制」了文字颜色。 */
@@ -254,6 +550,9 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     // 用 isolation 而不是 z-index:0 —— 后者会连带改掉这个气泡相对同级元素的层级。
     `  isolation: isolate;`,
     `  background: transparent;`,
+    // 文字色优先级的第 2 级(见文件头):字体自己上过色的字形走 `COLR`,CSS 的
+    // `color` 根本改不动它。(dressfont 的调色板项都是真实颜色,没有用「前景色」
+    // 那个特殊调色板项。)绝不要改成 `-webkit-text-fill-color` 或加 `!important`。
     `  color: ${skin.textColor};`,
     `  border-style: solid;`,
     `  border-width: 0;`,
@@ -324,6 +623,29 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const m = bubbleMetrics(skin);
 
   const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
+
+  // 炫彩帧的裁形（见 fxClipMaskCss）：帧画在伪元素上，用同几何的九宫格遮罩把超出
+  // 气泡形状的部分裁掉。我方帧在 `::before`，对方的帧在 `::after`（遮罩跟着那层镜像）。
+  rules.push(
+    fxClipMaskCss(`${FX_MINE_LINE} ${BUBBLE_CONTENT}::before`, {
+      imageUrl: m.imageUrl,
+      slice: m.slice,
+      width: m.width,
+    }),
+  );
+  // 对方的帧与气泡动效叠加层**共用** `::after`：叠加层是贴在气泡外面的装饰，遮罩
+  // 会连它一起裁掉（而 `data-fontfx` 是一直挂在行上的，裁掉就不是一闪而过），所以
+  // 只有这个气泡自己没有动效时才给对方的帧加遮罩 —— 那种组合下帧会在九宫格圆角外
+  // 露出一小条，代价比永久削掉气泡装饰小。
+  if (theirsSel && !m.frameAnim) {
+    rules.push(
+      fxClipMaskCss(`${FX_THEIRS_LINE} ${BUBBLE_CONTENT}::after`, {
+        imageUrl: m.imageUrl,
+        slice: m.slice,
+        width: m.width,
+      }),
+    );
+  }
 
   // 动效叠加层:同一套九宫格、贴在静态底图之上。帧图(`bubbleframe/*.9.png`)中间是
   // 镂空的,只有上下两端的动效装饰,所以它只能「叠」不能「替」(见文件头第 2 点)。
@@ -457,9 +779,10 @@ function widgetFrameUrls(widget: ResolvedWidget | null): string[] {
   );
 }
 
-function fontRules(font: FontSkinCss, scope: DressScope): string {
+export function fontRules(font: FontSkinCss, scope: DressScope): string {
   // @font-face 不在这里声明 —— 字体经 FontFace API 预加载后注册进 document.fonts
   // (见 preloadFont)。那样字形在样式落地前就绪,不会触发 swap 的二次重排。
+  const fxSkin = toFontFxSkin(font);
   return [
     // fallback 必须留着 —— QQ 的装扮字体多是子集化的,缺字要能回退到正文字体。
     // 这里**不能**用 `inherit`:CSS 不允许 inherit 出现在逗号列表里,整条声明会被
@@ -467,7 +790,36 @@ function fontRules(font: FontSkinCss, scope: DressScope): string {
     `${bubbleSelector(scope)} {`,
     `  font-family: "${fontFamilyFor(font.itemId)}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;`,
     `}`,
-  ].join('\n');
+    // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
+    // 伪元素(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
+    // 行根本没换上这款字,不用给。
+    fxSkin
+      ? fontFxRules(fxSkin, {
+          mine: '.message-line.mine',
+          ...(scope === 'all' ? { theirs: '.message-line.theirs' } : {}),
+        })
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * 「谁 + 产出它的版本 + 帧几何」—— 两个渲染路径（生效字体 / 逐条消息字体）都把它
+ * 翻成同一形状，帧 url、`data-fontfx`、`@keyframes` 名才能对齐。
+ *
+ * 入参只要 `itemId/deriveVersion/fx` 三个字段：service 的 InstalledFont 与
+ * FontDerived 都是这个形状。没有 `eimg`（或解出来是空表）返回 null，调用方不必自己判。
+ */
+export function toFontFxSkin(
+  font: {
+    itemId: number;
+    deriveVersion: number;
+    fx: FontFx | null;
+  } | null,
+): FontFxSkin | null {
+  if (!font?.fx || font.fx.variants.length === 0) return null;
+  return { itemId: font.itemId, deriveVersion: font.deriveVersion, fx: font.fx };
 }
 
 /** `@font-face` 的 family 名 —— 与 service 侧 dress_shared_cache.fontFamilyFor 的约定必须一致。 */
@@ -507,11 +859,24 @@ function preloadImage(url: string): Promise<void> {
 /** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
 let registeredFace: FontFace | null = null;
 
+/**
+ * 已注册的 face 对应哪款字体的哪个产物版本 —— 判「要不要重注册」的键。
+ *
+ * 只看 family 不够:升级后产物是**就地重写同一个文件**,family 名没变,而旧 face
+ * 会一直赖在 `document.fonts` 里到下次启动 —— 表现就是「升级完字体没变化」。
+ */
+let registeredFaceKey: string | null = null;
+
+function faceKey(font: { itemId: number; deriveVersion: number }): string {
+  return `${font.itemId}:${font.deriveVersion}`;
+}
+
 /** 撤掉已注册的 face。取消字体时必须调,否则它会一直赖在 document.fonts 里。 */
 function unregisterFont(): void {
   if (!registeredFace) return;
   document.fonts.delete(registeredFace);
   registeredFace = null;
+  registeredFaceKey = null;
 }
 
 /**
@@ -526,7 +891,8 @@ function unregisterFont(): void {
  */
 async function preloadFont(font: FontSkinCss): Promise<void> {
   const family = fontFamilyFor(font.itemId);
-  if (registeredFace?.family === family) return;
+  const key = faceKey(font);
+  if (registeredFace?.family === family && registeredFaceKey === key) return;
 
   unregisterFont();
 
@@ -534,6 +900,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
     const face = await new FontFace(family, `url("${font.fontUrl}")`).load();
     document.fonts.add(face);
     registeredFace = face;
+    registeredFaceKey = key;
   } catch {
     // 字体坏了 / 文件丢了:静默跳过,CSS 里的 fallback 链会接住。
   }
@@ -609,6 +976,8 @@ export async function applyDressSkinPreloaded(
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
       ...bubbleFrameUrls(bubble).map((url) => preloadImage(url)),
       font ? preloadFont(font) : null,
+      // 炫彩帧同样要预先解码(帧多、播放短,第一圈逐帧解码就是可见的闪)。
+      ...fontFxFrameUrls(toFontFxSkin(font)).map((url) => preloadImage(url)),
       // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
       // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
       ...widgetFrameUrls(widget).map((url) => preloadImage(url)),

@@ -7,9 +7,14 @@
  */
 
 import { useEffect } from 'react';
-import type { DressManifest, ResolvedWidget } from '@weq/service';
+import type { DressManifest, InstalledFont, ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
-import { applyDressSkin, applyDressSkinPreloaded } from '../lib/dressSkin';
+import {
+  applyDressSkin,
+  applyDressSkinPreloaded,
+  toFontFxSkin,
+  type FontFxSkin,
+} from '../lib/dressSkin';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 
 /**
@@ -31,6 +36,17 @@ export function activeWidgetFromManifest(manifest: DressManifest): ResolvedWidge
   };
 }
 
+/**
+ * 生效字体的炫彩素材(没选字体 / 该款没有 `eimg` 时 null)。
+ *
+ * 气泡的炫彩层要挂在**行**上,而「挂不挂」得量完气泡尺寸才知道 —— 量在组件里做,
+ * 所以这份数据要广播给所有气泡(见 ActiveWidgetProvider 的 ActiveFontFxContext)。
+ */
+export function activeFontFxFromManifest(manifest: DressManifest): FontFxSkin | null {
+  const font = manifest.fonts.find((f) => f.itemId === manifest.activeFont);
+  return font ? toFontFxSkin(font) : null;
+}
+
 /** 从清单里挑出生效的那两款,翻成注入层要的形状。 */
 function activeSkins(manifest: DressManifest) {
   const bubble = manifest.bubbles.find((b) => b.itemId === manifest.activeBubble) ?? null;
@@ -48,7 +64,22 @@ function activeSkins(manifest: DressManifest) {
           animationRepeat: bubble.animationRepeat,
         }
       : null,
-    font: font ? { itemId: font.itemId, fontUrl: dressFontUrl(font.itemId) } : null,
+    font: font ? fontSkinCss(font) : null,
+  };
+}
+
+/**
+ * 清单里的一款字体 → 注入层要的形状。
+ *
+ * `deriveVersion` 两头都要用：url 里的版本戳（升级后浏览器重新取 ttf / 帧图）和
+ * `preloadFont` 的重新注册判据。所以它进 url，也留在结构里（见 lib/dressSkin）。
+ */
+function fontSkinCss(font: InstalledFont) {
+  return {
+    itemId: font.itemId,
+    fontUrl: dressFontUrl(font.itemId, font.deriveVersion),
+    deriveVersion: font.deriveVersion,
+    fx: font.fx ?? null,
   };
 }
 
@@ -86,6 +117,10 @@ export function useDressSkin(): void {
   trpc.account.dressup.onChanged.useSubscription(undefined, {
     onData: () => {
       void utils.account.dressup.getState.invalidate();
+      // 逐条消息（40801）的装扮也在 react-query 里（staleTime: Infinity）——升级后
+      // 字体产物被就地重做时，那些条目还挂着旧的派生版本号，不重解析就会一直用旧 ttf。
+      // 服务侧对这些 itemId 有内存缓存，重复解析不会重新下载/转换。
+      void utils.account.dressup.resolveMsgDecoration.invalidate();
     },
   });
 

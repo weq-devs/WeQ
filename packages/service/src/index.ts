@@ -111,14 +111,25 @@ export type { OnlineTicketNt } from './account/online_ticket';
 export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
-export { DressSharedCache, fontFamilyFor } from './account/dress_shared_cache';
+export {
+  DRESS_DERIVE_VERSION,
+  DressSharedCache,
+  fontFamilyFor,
+} from './account/dress_shared_cache';
 export { migrateDressData } from './account/dress_migrate';
 export type {
   DressManifest,
   InstalledFont,
 } from './account/dress_service';
 export type { DressScope, DressBackgroundSource } from './account/dress_config';
-export type { BubbleSidecar, PendantSidecar } from './account/dress_shared_cache';
+export type {
+  BubbleSidecar,
+  FontDerived,
+  FontFx,
+  FontFxVariant,
+  FontSidecar,
+  PendantSidecar,
+} from './account/dress_shared_cache';
 export { MsgDecorationCacheService } from './account/msg_decoration';
 export type { ResolvedMsgDecoration, ResolvedWidget } from './account/msg_decoration';
 export {

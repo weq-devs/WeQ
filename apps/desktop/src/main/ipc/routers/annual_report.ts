@@ -245,7 +245,7 @@ export const annualReportRouter = router({
       const [bubbles, fonts, widgets] = await Promise.all([
         resolveAll('bubbleId', input.bubbles, (r) => r.bubble),
         // 字体只需要「拿到了没有」——ttf 路径在主进程，渲染走 weq-media://dressfont。
-        resolveAll('fontId', input.fonts, (r) => (r.fontFile ? true : null)),
+        resolveAll('fontId', input.fonts, (r) => (r.font ? true : null)),
         resolveAll('widgetId', input.widgets, (r) => r.widget),
       ]);
       return { bubbles, fonts, widgets };

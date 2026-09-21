@@ -9,7 +9,12 @@
 
 import type { BubbleSkin } from './bubble_skin';
 import { DressConfigService, type DressScope, type DressBackgroundSource } from './dress_config';
-import { DressSharedCache, fontFamilyFor } from './dress_shared_cache';
+import {
+  DRESS_DERIVE_VERSION,
+  DressSharedCache,
+  type FontDerived,
+  type FontFx,
+} from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 
@@ -20,6 +25,13 @@ export interface InstalledFont {
   previewUrl?: string;
   family: string;
   file: string;
+  /**
+   * 产出这份产物的转换链版本（见 {@link DRESS_DERIVE_VERSION}）。渲染侧把它拼进字体
+   * URL：升级后产物被就地重做时 URL 跟着变，浏览器才会丢掉旧 face 重新取。
+   */
+  deriveVersion: number;
+  /** `eimg` 炫彩帧（按画布尺寸分好组）；字体里没有 `eimg` 时为 null。 */
+  fx: FontFx | null;
 }
 
 /**
@@ -88,18 +100,18 @@ export class DressService {
       }
     }
 
-    // 字体：从共享缓存推导路径。
+    // 字体：从共享缓存推导路径（+ sidecar 里的派生版本 / 炫彩帧几何）。
     const fonts: InstalledFont[] = [];
     for (const itemId of cfg.installedFonts) {
-      const file = this.cache.fontFile(itemId);
-      if (file) {
+      const derived = this.cache.fontDerived(itemId);
+      if (derived) {
         const meta = cfg.fontMeta[itemId];
         fonts.push({
-          itemId,
           name: meta?.name ?? '',
           previewUrl: meta?.previewUrl,
-          family: fontFamilyFor(itemId),
-          file,
+          // itemId / family / deriveVersion / fx 都来自 derived（family 就是
+          // fontFamilyFor(itemId)，见 DressSharedCache.fontDerived）。
+          ...derived,
         });
       }
     }
@@ -151,8 +163,35 @@ export class DressService {
   }
 
   /** fetch 版字体:同上 —— 只把 ttf 拿到共享缓存,不写「已装」清单。 */
-  async fetchFont(itemId: number): Promise<{ family: string; file: string }> {
+  async fetchFont(itemId: number): Promise<FontDerived> {
     return this.cache.installFont(itemId, '');
+  }
+
+  /**
+   * 升级后的自愈：把「已装」的那些字体产物重新派生一遍（转换链版本对不上的）。
+   *
+   * 账号打开时后台跑一次即可，**不阻塞启动**：缓存里还留着旧产物，用它渲染是正常的，
+   * 重新派生完成后推一次 `dressChanged` 前端就会换成新产物（彩色表 / 炫彩帧）。
+   *
+   * 逐条消息（40801）/ 导出 / 年度报告里那些非「已装」的字体不走这里 —— 它们每次按需
+   * fetch 都会发现版本对不上并就地重做（见 DressSharedCache.installFont）。
+   *
+   * @returns 真正重做了的款数（0 = 缓存已经都是当前版本，不必推前端）
+   */
+  async refreshDerived(): Promise<number> {
+    const cfg = this.config.read();
+    const ids = new Set<number>([...cfg.installedFonts, cfg.activeFont].filter((id) => id > 0));
+    let refreshed = 0;
+    for (const itemId of ids) {
+      if (this.cache.isFontDerived(itemId)) continue;
+      try {
+        const derived = await this.cache.installFont(itemId, '');
+        if (derived.deriveVersion === DRESS_DERIVE_VERSION) refreshed += 1;
+      } catch {
+        // 单款重做失败不打断其余款，也不影响启动。
+      }
+    }
+    return refreshed;
   }
 
   /**
@@ -178,12 +217,12 @@ export class DressService {
    */
   async installFont(itemId: number, name: string, previewUrl?: string): Promise<InstalledFont> {
     // 1. 下载/转换资源到共享缓存。
-    const { family, file } = await this.fetchFont(itemId);
+    const { family, file, deriveVersion, fx } = await this.fetchFont(itemId);
 
     // 2. 标记已装 + 记录商城元数据。
     this.config.markFontInstalled(itemId, { name, previewUrl });
 
-    return { itemId, name, previewUrl, family, file };
+    return { itemId, name, previewUrl, family, file, deriveVersion, fx };
   }
 
   /**
@@ -272,6 +311,16 @@ export class DressService {
   /** 已装字体的 ttf 路径。 */
   fontFile(itemId: number): string | null {
     return this.cache.fontFile(itemId);
+  }
+
+  /** 字体的完整派生信息（路径 + 派生版本 + 炫彩帧），未装返回 null。 */
+  fontDerived(itemId: number): FontDerived | null {
+    return this.cache.fontDerived(itemId);
+  }
+
+  /** 字体炫彩动画的某一帧（`frame` 从 1 开始）。 */
+  fontFrameFile(itemId: number, frame: number): string | null {
+    return this.cache.fontFrameFile(itemId, frame);
   }
 
   /** 已装气泡的本地九宫格 PNG 路径。 */

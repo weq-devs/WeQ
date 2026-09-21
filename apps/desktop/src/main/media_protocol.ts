@@ -386,10 +386,24 @@ export function handleMediaRequest(request: Request): Promise<Response> {
 
     // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
     // weq-asset 只服务仓库的 resources/ 树,读不了账号缓存目录。
+    // `revalidate`：这两个文件是**就地重写**的（升级后字体被重新派生、帧图重导出，
+    // 路径/文件名都不变），默认的裸响应会让渲染进程拿着上一版字节。带 `no-cache` +
+    // `Last-Modified` 后 Chromium 用 `If-Modified-Since` 重问，文件没变答 304（几乎零成本），
+    // 变了就拿到新字节。渲染侧另外给 url 拼了派生版本戳（见 resourceUrl），两者互补：
+    // 版本戳解决“同一会话里已注册的 face/已解码的图片 ”这种 http 缓存之外的身份问题。
     if (kind === 'dressfont') {
       const id = Number(q.get('id') ?? '0');
       const path = id ? services.dressInstall.fontFile(id) : null;
-      return path ? fileResponse(path) : notFound('dress font not installed');
+      return path ? revalidatingFileResponse(path) : notFound('dress font not installed');
+    }
+
+    // 字体的 eimg 炫彩帧(炫彩/场景字体独有,见服务侧 fontFrameFile)。与 dressbubble
+    // 同构:一个 `frame` 取一帧,帧序按 sidecar 里的变体分组展开。
+    if (kind === 'dressfontfx') {
+      const id = Number(q.get('id') ?? '0');
+      const frame = Number(q.get('frame') ?? '0');
+      const path = id && frame > 0 ? services.dressInstall.fontFrameFile(id, frame) : null;
+      return path ? revalidatingFileResponse(path) : notFound('dress font fx frame not available');
     }
 
     // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,

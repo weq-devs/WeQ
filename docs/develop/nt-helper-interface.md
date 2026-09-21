@@ -46,7 +46,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `getInitStatus()` | — | `number` | 全局初始化状态：`0`=可用，`-1`=过期，`-200`=损坏，`-201`=被篡改，`99`=未知。 |
 | `setLogPath(path)` | `path: string` | `Promise<void>` | 配置日志输出路径；内部 `logger::set_log_path`。 |
 | `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `Promise<AppidInfo>` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。 |
-| `convertFont(inputPath, outputPath)` | 俩字符串路径 | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。返回说明消息。 |
+| `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
 | `getMarketFaceKey(packetId)` | `packetId: string` | `Promise<MarketFaceKey \| null>` | 恢复商城表情包 QQTEA 密钥（自包含：抓 android.json 提示 → xydata 快路径 → 采样爆破）。返回 `null` 表示拿不到。 |
 | `queryDressResourceUrl(dtype, itemId, name)` | 三个字符串 | `DressResourceUrl \| null` | 纯本地查装扮资源下载 URL（font/bubble/widget × 部件名），不联网、不依赖协议。`null` = 本地包缺失或未命中（此时交给协议兜底）。 |
 
@@ -55,6 +55,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 - `AppidInfo = { appid: string; qua?: string; version?: string; build?: string }`
 - `MarketFaceKey = { timestamp: number; key: string; source: 'xydata' | 'brute-force' }`
 - `DressResourceUrl = { url: string; size: number }`
+- `ConvertFontOptions = { color?: boolean; colorChars?: string; assetsDir?: string; checkOts?: boolean }`（缺省即全开；`assetsDir: ''` 关图包，`color: false` 关彩色，`checkOts: false` 关校验）。早于该开关的 nt_helper 会忽略第三个参数（只做转换），调用方不必探测版本。
 
 ---
 

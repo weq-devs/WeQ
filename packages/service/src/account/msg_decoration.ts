@@ -30,6 +30,7 @@
 
 import type { DressService } from './dress_service';
 import type { BubbleSkin } from './bubble_skin';
+import type { FontDerived } from './dress_shared_cache';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const WIDGET_BASE = 'https://tianquan.gtimg.cn/faceAddon/item';
@@ -45,7 +46,14 @@ export type ResolvedWidget =
 
 export interface ResolvedMsgDecoration {
   bubble: BubbleSkin | null;
-  fontFile: string | null;
+  /**
+   * 字体：本地 ttf 路径 + 派生版本 + `eimg` 炫彩帧几何。null = 这款拿不到
+   * （没有离线 bundle 又没有在线实例 / 已下架）。
+   *
+   * 渲染侧只要路径与几何：字体字节走 `weq-media://dressfont?id=`，炫彩帧走
+   * `weq-media://dressfontfx?id=&frame=`，两边的参数都从这份数据里来。
+   */
+  font: FontDerived | null;
   widget: ResolvedWidget | null;
 }
 
@@ -53,8 +61,8 @@ export class MsgDecorationCacheService {
   private readonly logger = getLogger().child({ scope: 'msg-decoration' });
   private readonly bubbleResolved = new Map<number, BubbleSkin | null>();
   private readonly bubblePending = new Map<number, Promise<BubbleSkin | null>>();
-  private readonly fontResolved = new Map<number, string | null>();
-  private readonly fontPending = new Map<number, Promise<string | null>>();
+  private readonly fontResolved = new Map<number, FontDerived | null>();
+  private readonly fontPending = new Map<number, Promise<FontDerived | null>>();
   private readonly widgetResolved = new Map<number, ResolvedWidget>();
   private readonly widgetPending = new Map<number, Promise<ResolvedWidget>>();
 
@@ -65,12 +73,12 @@ export class MsgDecorationCacheService {
     fontId: number;
     widgetId: number;
   }): Promise<ResolvedMsgDecoration> {
-    const [bubble, fontFile, widget] = await Promise.all([
+    const [bubble, font, widget] = await Promise.all([
       ids.bubbleId > 0 ? this.resolveBubble(ids.bubbleId) : Promise.resolve(null),
       ids.fontId > 0 ? this.resolveFont(ids.fontId) : Promise.resolve(null),
       ids.widgetId > 0 ? this.resolveWidget(ids.widgetId) : Promise.resolve(null),
     ]);
-    return { bubble, fontFile, widget };
+    return { bubble, font, widget };
   }
 
   /** 猜测式回退:纯 item_id 拼接 CDN 预览图 URL,不做探测,成功率不保证。 */
@@ -154,21 +162,23 @@ export class MsgDecorationCacheService {
    * installs via installFont. Message rendering just needs the ttf file path
    * to hand back.
    */
-  private async resolveFont(itemId: number): Promise<string | null> {
+  private async resolveFont(itemId: number): Promise<FontDerived | null> {
     if (this.fontResolved.has(itemId)) return this.fontResolved.get(itemId)!;
     let pending = this.fontPending.get(itemId);
     if (!pending) {
       pending = this.dressInstall
         .fetchFont(itemId)
         .then((entry) => {
-          this.fontResolved.set(itemId, entry.file);
+          this.fontResolved.set(itemId, entry);
           this.fontPending.delete(itemId);
           this.logger.info('resolved msg font', {
             event: 'msg-font-resolved',
             itemId,
             file: entry.file,
+            deriveVersion: entry.deriveVersion,
+            fxVariants: entry.fx?.variants.length ?? 0,
           });
-          return entry.file;
+          return entry;
         })
         .catch((e) => {
           this.fontResolved.set(itemId, null);

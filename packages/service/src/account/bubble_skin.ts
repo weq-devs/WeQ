@@ -20,6 +20,7 @@
 
 import { readFileSync } from 'node:fs';
 import { getLogger, logErrorContext } from '../common/logger';
+import { pngSize } from '../common/zip';
 
 /** border-image 的四边切片(单位:源图像素)。 */
 export interface BubbleSlice {
@@ -152,15 +153,6 @@ export function buildLocalBubbleSkin(input: LocalBubbleInput): BubbleSkin | null
     });
     return null;
   }
-}
-
-/** PNG IHDR 里的宽高。非 PNG 或过短时返回 null。 */
-function pngSize(data: Buffer): { w: number; h: number } | null {
-  // 8 字节签名 + 4 长度 + 4 类型 'IHDR' + 4 宽 + 4 高
-  if (data.length < 24) return null;
-  if (data.readUInt32BE(0) !== 0x89504e47) return null;
-  if (data.toString('latin1', 12, 16) !== 'IHDR') return null;
-  return { w: data.readUInt32BE(16), h: data.readUInt32BE(20) };
 }
 
 /** 读 Android .9.png 的 npTc chunk,取九宫格拉伸点。 */

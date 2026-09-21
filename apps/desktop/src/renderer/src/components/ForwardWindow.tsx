@@ -35,6 +35,7 @@ import { client } from '../trpc/client';
 import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget';
+import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useOverlayLayer } from '../lib/overlayStack';
 import type { ResolvedWidget } from '@weq/service';
 
@@ -469,9 +470,13 @@ function ForwardRow({
   record: ForwardRecordWire;
   kind: 'c2c' | 'group';
 }): ReactElement {
+  const rowRef = useRef<HTMLDivElement | null>(null);
   const msgDec = useMsgDecoration(record.decoration);
   // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
+  // 炫彩只跟逐条消息字体走:生效字体的 font-family 规则只选中 .message-line（见
+  // lib/dressSkin 的 fontRules），转发行根本没换上那款字，只有光效没字会很怪。
+  const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
@@ -481,9 +486,11 @@ function ForwardRow({
 
   return (
     <div
+      ref={rowRef}
       className="weq-forward-row"
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
+      data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
     >
       <div className="weq-forward-avatar">
