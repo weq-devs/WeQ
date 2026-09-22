@@ -137,8 +137,16 @@ export type DbRepairReadiness =
   | 'ready'
   /** QQ 持有（`qqHolders` 里给 pid，界面可提供"结束 QQ 进程"）。 */
   | 'blocked-by-qq'
-  /** 非 QQ 的进程持有 —— 通常是 WeQ 自己（关掉账号里的这个账号即可）。 */
+  /** 既不是 QQ、也不是 WeQ 的第三方进程持有 —— 我们关不掉它，只能让用户自己处理。 */
   | 'blocked-by-other'
+  /**
+   * **只有 WeQ 自己**持有（`selfHolders` 里给 pid）。
+   *
+   * 不算阻断：那是我们自己的句柄，替换前 `releaseHandles()` 会关掉。之所以要单独成
+   * 一档而不是并入 `ready`，是因为界面上它值得单独说一句（Windows 的 Restart Manager
+   * 必定会列出 WeQ 自己），而文案与 `ready` 不同。
+   */
+  | 'self-hold'
   /** 锁探测本身失败（权限 / 平台不支持）：不阻断，但替换前会再查一次。 */
   | 'unknown-lock';
 
@@ -149,7 +157,9 @@ export interface DbRepairPreflight extends DbRepairTarget {
   holders: DbRepairLockHolder[];
   /** 其中被判为 QQ 的（界面"结束 QQ 进程"用）。 */
   qqHolders: DbRepairLockHolder[];
-  /** 其中被判为"非 QQ"的。 */
+  /** 其中被判为 WeQ 自己的（不阻断；界面据此说"这是我们自己开的，替换时会关"）。 */
+  selfHolders: DbRepairLockHolder[];
+  /** 其中被判为第三方进程的（真阻断）。 */
   otherHolders: DbRepairLockHolder[];
   /** 源库字节数。 */
   dbBytes: number;

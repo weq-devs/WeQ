@@ -18,6 +18,7 @@
 export {
   classifyLock,
   isQqProcessName,
+  isSelfProcessName,
 } from './lock';
 export type { DbRepairLockClassification, DbRepairLockProbe } from './lock';
 export { DEFAULT_BACKUP_KEEP, DbRepairHistory } from './history';

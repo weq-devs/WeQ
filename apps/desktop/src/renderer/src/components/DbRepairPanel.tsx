@@ -114,13 +114,19 @@ interface DbRepairStatusView {
   error: string | null;
 }
 
-type DbRepairReadiness = 'ready' | 'blocked-by-qq' | 'blocked-by-other' | 'unknown-lock';
+type DbRepairReadiness =
+  | 'ready'
+  | 'blocked-by-qq'
+  | 'blocked-by-other'
+  | 'self-hold'
+  | 'unknown-lock';
 
 /** 与主进程 `DbRepairPreflight` 对齐（只列展示用到的字段）。 */
 interface DbRepairPreflightView {
   readiness: DbRepairReadiness;
   holders: Array<{ pid: number; name: string }>;
   qqHolders: Array<{ pid: number; name: string }>;
+  selfHolders: Array<{ pid: number; name: string }>;
   otherHolders: Array<{ pid: number; name: string }>;
   dbPath: string;
   dbBytes: number;
@@ -328,8 +334,13 @@ const autoCheckedUins = new Set<string>();
 /**
  * 预检结论 → 界面措辞。
  *
- * `blocked-by-qq` 才给「结束 QQ」：`blocked-by-other` 的持有者通常是 WeQ 自己
- * （当前打开着这个账号），替换前会自动关掉，不需要用户动手。
+ * 三档的处置完全不同，别把它们合并：
+ *
+ *   - `blocked-by-qq`：给「结束 QQ」按钮（pid 由预检带上来，主进程还会二次校验）；
+ *   - `blocked-by-other`：**真外人在占**（其它工具 / 异常残留的进程），WeQ 关不掉它，
+ *     只能让用户自己去处理；
+ *   - `self-hold`：占着的就是 **WeQ 自己**。替换前会自动关掉这个账号，不需要用户动手 ——
+ *     Windows 上几乎每次都会命中这一档（Restart Manager 枚举的是"谁打开着文件"）。
  */
 const READINESS_COPY: Record<DbRepairReadiness, { label: string; tone: Tone; short: string }> = {
   ready: { label: '可以开始', tone: 'ok', short: '没有进程占用这个库，随时可以修。' },
@@ -339,9 +350,14 @@ const READINESS_COPY: Record<DbRepairReadiness, { label: string; tone: Tone; sho
     short: '修复要一边解密一边读，QQ 同时写会读出撕裂的页 —— 先结束这个账号的 QQ。',
   },
   'blocked-by-other': {
-    label: '有进程占用',
+    label: '被其它程序占用',
     tone: 'warn',
-    short: '通常是 WeQ 自己打开着这个账号：替换那一步会先关掉它，修完回启动页重开即可。',
+    short: '这个库被 WeQ 之外的进程占着，我们关不掉它 —— 先把它关掉再修。',
+  },
+  'self-hold': {
+    label: 'WeQ 自己开着（会自动释放）',
+    tone: 'ok',
+    short: '占着它的是 WeQ 自己（读消息时握着这个库）：替换前会自动关掉这个账号，不用你动手。',
   },
   'unknown-lock': {
     label: '占用情况不明',

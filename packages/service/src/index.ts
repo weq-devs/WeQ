@@ -398,6 +398,7 @@ export {
   dbRepairPaths,
   dbRepairRoot,
   isQqProcessName,
+  isSelfProcessName,
   makeStamp,
   productTempPath,
   renderDbRepairReportMarkdown,
