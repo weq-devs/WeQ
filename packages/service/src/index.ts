@@ -31,6 +31,8 @@ export type {
 
 export { createDirectInjectHook } from './bootstrap/inject';
 export type { InjectHook, PtraceHintChoice, PtraceHintAnswer } from './bootstrap/inject';
+export { runUnprivilegedInject } from './bootstrap/ptrace_flow';
+export type { DirectInjectFailure, PtraceInjectFlowDeps } from './bootstrap/ptrace_flow';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {

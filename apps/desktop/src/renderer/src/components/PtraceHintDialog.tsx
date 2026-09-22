@@ -7,6 +7,8 @@
  *     用下方输入的密码提权（sudo -S，未输入则再弹标准密码框）；
  *   - 「输入密码并提权」→ 回传 `skip` + 密码，本次直接 sudo 提权、不记忆；
  *   - 「不再提醒」→ 回传 `no-remind` + 密码，写入 global_config 后 sudo 提权；
+ *     「不再提醒」只静音本引导弹窗，**不等于**以后直接要密码：主进程每次仍会
+ *     先试免密直连，只有在被内核拒绝时才提权（顺序见 service 的 ptrace_flow）；
  *   - 关闭弹窗（✕ / ESC）→ 回传 `cancel`，本次不提权（注入失败）。
  *
  * 密码由本弹窗自绘输入（不再依赖 polkit 系统框），经
@@ -137,7 +139,8 @@ export function PtraceHintDialog(): ReactElement | null {
 
         <p className="weq-ptrace-foot">
           <ShieldAlert size={13} strokeWidth={1.85} aria-hidden />
-          关闭弹窗将本次取消提权；输入密码后回车可临时提权，「不再提醒」会记住选择并提权。
+          关闭弹窗将本次取消提权；输入密码后回车可临时提权。「不再提醒」只隐藏本弹窗，
+          之后仍会优先尝试免密注入，仅在被拒绝时才用密码提权。
         </p>
       </div>
     </Modal>

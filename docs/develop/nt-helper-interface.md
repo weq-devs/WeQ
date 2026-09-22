@@ -236,6 +236,8 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 > ✔️ Windows / Linux 注入需 **root / 特权**（ptrace / 远程线程），实践中抽到独立的 elevated worker 里做（如 `inject_worker.ts`），宿主无特权进程再走 hook socket 收怪。
 >
+> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/ptrace_flow.ts`（有单测）。
+>
 > ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己注入 → 写回原值」，见 `inject_elevation.ts` 的 `escalateViaPtraceScope`。
 
 ### 6.2 在线发包（均需已注入的 `pid`）

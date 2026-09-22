@@ -13,9 +13,13 @@
  *      dialog (macOS-style `sudo -S`, no polkit). The first time that refusal
  *      happens we ask the renderer to walk the user through disabling the
  *      protection (see `ptrace_hint.ts`); the user can retry, suppress the
- *      hint permanently (global_config), or type a password to escalate. When
- *      the host is already running as root — the web server on a headless
- *      box — we ptrace in-process directly; sudo would be pointless.
+ *      hint permanently (global_config), or type a password to escalate.
+ *      "Suppress" only silences that guidance dialog — the direct attempt
+ *      always runs first regardless. The ordering itself lives in
+ *      `@weq/service`'s `runUnprivilegedInject` so it can be unit tested; see
+ *      that module for why suppression must never short-circuit the direct
+ *      attempt. When the host is already running as root — the web server on a
+ *      headless box — we ptrace in-process directly; sudo would be pointless.
  *
  *      One host shape can't use the sudo child at all: an install that root
  *      cannot read — AppImage (payload on a FUSE mount without `allow_other`)
@@ -59,7 +63,7 @@ import {
   resolveSudoPath,
   writeYamaPtraceScope,
 } from '@weq/native';
-import type { InjectHook, UserConfigService } from '@weq/service';
+import { runUnprivilegedInject, type InjectHook, type UserConfigService } from '@weq/service';
 import { getLogger } from '@weq/service';
 import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
 import { getPtraceHintPrompt } from './ptrace_hint';
@@ -268,61 +272,33 @@ export function createLinuxInjectHook(
   }
 
   /**
-   * Unprivileged inject with the ptrace-hint flow:
-   *   1. try in-process — success means no password dialog at all;
-   *   2. non-permission failure → escalate via sudo (unchanged behaviour);
-   *   3. permission failure → ask the renderer once (unless suppressed):
-   *        retry      → try in-process again, then escalate on repeat failure
-   *        no-remind  → persist the suppression, then escalate (password)
-   *        skip       → escalate with the typed password, without remembering
-   *        cancel     → abort without escalating
+   * Unprivileged inject. The ordering contract lives in
+   * `@weq/service`'s `runUnprivilegedInject` (direct → hint → escalate), so it
+   * stays unit-testable; here we only wire the real side effects.
+   *
+   * The direct attempt is ALWAYS made first — even when the user ticked
+   * 「不再提醒」. That flag mutes the guidance dialog; it must not skip the
+   * passwordless path, or a user who once ticked it would be stuck on the sudo
+   * prompt forever even after turning ptrace_scope off.
    */
   async function injectUnprivileged(pid: number, uin: string): Promise<void> {
-    if (userConfig.getSettings().suppressPtraceHint) {
-      logger.info('ptrace hint suppressed by user; escalating directly', {
-        event: 'inject-sudo-suppressed',
-        pid,
-      });
-      await escalateWithPassword(pid, uin);
-      return;
-    }
-
-    const first = await tryDirectInject(pid, uin);
-    if (first === null) return;
-    if (!isPermissionError(first)) {
-      await escalateWithPassword(pid, uin);
-      return;
-    }
-
-    const prompt = getPtraceHintPrompt();
-    const answer = prompt ? await prompt() : { choice: 'skip' as const, password: '' };
-    if (answer.choice === 'cancel') {
-      logger.info('ptrace hint cancelled; inject aborted', {
-        event: 'inject-hint-cancelled',
-        pid,
-      });
-      throw new Error('已取消授权，未注入 QQ 进程。');
-    }
-    if (answer.choice === 'retry') {
-      const retry = await tryDirectInject(pid, uin);
-      if (retry === null) return;
-      if (isPermissionError(retry)) {
-        logger.warn('ptrace retry still permission-denied; escalating', {
-          event: 'inject-direct-retry-denied',
-          pid,
-        });
-      }
-      await escalateWithPassword(pid, uin, answer.password);
-      return;
-    }
-    if (answer.choice === 'no-remind') {
-      userConfig.setSettings({ suppressPtraceHint: true });
-      logger.info('ptrace hint permanently suppressed', {
-        event: 'ptrace-hint-suppressed',
-        pid,
-      });
-    }
-    await escalateWithPassword(pid, uin, answer.password);
+    await runUnprivilegedInject({
+      log: (level, message, context) => logger[level](message, { ...context, pid }),
+      tryDirect: async () => {
+        const err = await tryDirectInject(pid, uin);
+        if (err === null) return null;
+        return { permissionDenied: isPermissionError(err), message: err.message };
+      },
+      askHint: async () => {
+        const prompt = getPtraceHintPrompt();
+        return prompt ? await prompt() : { choice: 'skip' as const, password: '' };
+      },
+      escalate: (password) => escalateWithPassword(pid, uin, password),
+      suppressHint: () => {
+        userConfig.setSettings({ suppressPtraceHint: true });
+      },
+      isHintSuppressed: () => userConfig.getSettings().suppressPtraceHint,
+    });
   }
 
   /**

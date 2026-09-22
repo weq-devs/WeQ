@@ -471,9 +471,13 @@ export interface AppSettings {
   externalRkey: ExternalRkeyConfig;
   ssePush: SsePushConfig;
   /**
-   * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
-   * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
-   * 之后直接走 sudo 提权、不再弹窗。
+   * Linux 下是否不再弹「关闭 ptrace 保护」的引导弹窗。首次检测到直连注入被内核
+   * 拒绝（EPERM/EACCES）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」
+   * 后写入这里，之后被拒时直接走 sudo 提权、不再弹引导。
+   *
+   * 注意语义边界：它**只静音引导弹窗**，不代表"跳过直连、直接要密码"。直连尝试
+   * 永远在提权之前发生——用户即使勾过这里，只要 ptrace_scope 已经放开就仍然免密；
+   * 顺序由 `bootstrap/ptrace_flow.ts` 的 `runUnprivilegedInject` 钉住。
    */
   suppressPtraceHint: boolean;
   /**
