@@ -16,7 +16,7 @@ import {
   sqliteSidecarPaths,
 } from '../src/account/db_repair/files';
 import { DbRepairHistory, DEFAULT_BACKUP_KEEP } from '../src/account/db_repair/history';
-import { classifyLock, isQqProcessName } from '../src/account/db_repair/lock';
+import { classifyLock, isQqProcessName, isSelfProcessName } from '../src/account/db_repair/lock';
 import {
   dbRepairPaths,
   dbRepairRoot,
@@ -246,6 +246,19 @@ describe('isQqProcessName', () => {
   });
 });
 
+describe('isSelfProcessName', () => {
+  it.each([
+    ['WeQ.exe', true],
+    ['weq', true],
+    ['electron.exe', true],
+    ['', false],
+    ['QQ.exe', false],
+    ['crashpad_handler.exe', false],
+  ])('%s → %s', (name, expected) => {
+    expect(isSelfProcessName(name)).toBe(expected);
+  });
+});
+
 describe('classifyLock', () => {
   it('没有探测能力 → unknown-lock（不阻断，替换前会再查）', () => {
     const result = classifyLock(null);
@@ -269,16 +282,44 @@ describe('classifyLock', () => {
     });
     expect(result.readiness).toBe('blocked-by-qq');
     expect(result.qqHolders).toEqual([{ pid: 42, name: 'QQ.exe' }]);
+    expect(result.selfHolders).toEqual([]);
     expect(result.otherHolders).toEqual([]);
   });
 
-  it('非 QQ 持有 → blocked-by-other（通常是 WeQ 自己）', () => {
+  // 这条是 v1.1.2 修的 bug：Windows 的 Restart Manager 枚举的是"谁打开着文件"，只要
+  // 界面开着这个账号，WeQ 就一定在列表里。旧实现把它归成 blocked-by-other 并拒绝开修，
+  // 于是给出"请先关闭该账号"——而面板只能在账号打开时进入，等于死路。
+  it('WeQ 自己持有 → self-hold（不阻断，替换时会自动释放）', () => {
     const result = classifyLock({
       success: true,
       holders: [{ pid: 7, name: 'WeQ.exe' }],
     });
+    expect(result.readiness).toBe('self-hold');
+    expect(result.selfHolders).toEqual([{ pid: 7, name: 'WeQ.exe' }]);
+    expect(result.otherHolders).toEqual([]);
+  });
+
+  it('第三方进程持有 → blocked-by-other（才是真需要用户动手的）', () => {
+    const result = classifyLock({
+      success: true,
+      holders: [{ pid: 8, name: 'sqlitebrowser.exe' }],
+    });
     expect(result.readiness).toBe('blocked-by-other');
     expect(result.otherHolders).toHaveLength(1);
+    expect(result.selfHolders).toEqual([]);
+  });
+
+  it('WeQ 与第三方同时持有 → 按第三方报（WeQ 自己那份不算数）', () => {
+    const result = classifyLock({
+      success: true,
+      holders: [
+        { pid: 7, name: 'WeQ.exe' },
+        { pid: 8, name: 'sqlitebrowser.exe' },
+      ],
+    });
+    expect(result.readiness).toBe('blocked-by-other');
+    expect(result.selfHolders).toHaveLength(1);
+    expect(result.otherHolders).toEqual([{ pid: 8, name: 'sqlitebrowser.exe' }]);
   });
 
   it('名字拿不到时归到"其它"，不猜成 QQ', () => {
@@ -291,7 +332,18 @@ describe('classifyLock', () => {
     expect(result.readiness).toBe('blocked-by-qq');
   });
 
-  it('QQ 与其它进程同时持有 → 按 QQ 报（先结束 QQ 再处理 WeQ 自己）', () => {
+  it('selfPid 命中时名称为空也算自己（不依赖名字）', () => {
+    const result = classifyLock({ success: true, holders: [{ pid: 7, name: '' }] }, null, 7);
+    expect(result.readiness).toBe('self-hold');
+    expect(result.selfHolders).toEqual([{ pid: 7, name: '' }]);
+  });
+
+  it('qqPid 与 selfPid 同时命中 → QQ 优先（两个进程不可能同 pid，但归属要确定）', () => {
+    const result = classifyLock({ success: true, holders: [{ pid: 42, name: 'QQ.exe' }] }, 42, 42);
+    expect(result.readiness).toBe('blocked-by-qq');
+  });
+
+  it('QQ 与 WeQ 同时持有 → 按 QQ 报（先结束 QQ，WeQ 那份会自动释放）', () => {
     const result = classifyLock({
       success: true,
       holders: [
@@ -301,7 +353,8 @@ describe('classifyLock', () => {
     });
     expect(result.readiness).toBe('blocked-by-qq');
     expect(result.qqHolders).toHaveLength(1);
-    expect(result.otherHolders).toHaveLength(1);
+    expect(result.selfHolders).toHaveLength(1);
+    expect(result.otherHolders).toHaveLength(0);
   });
 });
 

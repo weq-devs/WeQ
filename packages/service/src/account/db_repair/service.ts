@@ -42,7 +42,7 @@ import {
   sweepStaleProducts,
 } from './files';
 import { DEFAULT_BACKUP_KEEP, DbRepairHistory } from './history';
-import { classifyLock, type DbRepairLockProbe } from './lock';
+import { classifyLock, type DbRepairLockClassification, type DbRepairLockProbe } from './lock';
 import {
   dbRepairPaths,
   dbRepairRoot,
@@ -148,6 +148,12 @@ export interface DbRepairDeps {
   probeLock?(dbPath: string): DbRepairLockProbe | null;
   /** 该账号的 QQ pid（`platform.resolveQqPid`），用于把持有者归到 QQ。 */
   qqPid?(uin: string): number | null;
+  /**
+   * WeQ 自己的进程 pid（默认 `process.pid`）—— 用于把**我们自己的句柄**从阻断条件里
+   * 摘出来。Windows 的 Restart Manager 枚举的是"谁打开着这个文件"，只要界面开着这个
+   * 账号，WeQ 就必然出现在持有者列表里；那是替换前会主动释放的句柄，不该拦。
+   */
+  selfPid?(): number | null;
   /**
    * 释放该库的所有句柄：修的就是当前打开的账号时关掉它（`bootstrap.closeAccount`
    * → 逐个 `Db.close()`），否则至少关掉该库的连接，并清掉宽容链路的只读连接。
@@ -268,18 +274,18 @@ export class DbRepairService {
    * 预检：能不能开修。只读、不落盘。
    *
    * `unknown-lock` 不阻断（探测失败 ≠ 没锁）：真正的把关在替换前那道复核。
+   * `self-hold`（只有 WeQ 自己拿着句柄）同样不阻断 —— 见 {@link classifyLock}。
    */
   preflight(uin: string, dbName: string): DbRepairPreflight {
     const target = this.resolveTarget(uin, dbName);
-    const qqPid = this.qqPid(uin);
-    const probe = this.deps.probeLock?.(target.dbPath) ?? null;
-    const lock = classifyLock(probe, qqPid);
+    const lock = this.classifyLock(target.dbPath, uin);
     const dbBytes = fileBytes(target.dbPath) ?? 0;
     return {
       ...target,
       readiness: lock.readiness,
       holders: lock.holders,
       qqHolders: lock.qqHolders,
+      selfHolders: lock.selfHolders,
       otherHolders: lock.otherHolders,
       dbBytes,
       freeBytes: freeBytesAt(target.dbDir),
@@ -332,7 +338,7 @@ export class DbRepairService {
     if (preflight.readiness === 'blocked-by-other') {
       throw new DbRepairError(
         'blocked',
-        `该数据库仍被占用（${describeHolders(preflight.otherHolders)}）—— 如果是 WeQ 自己打开的账号，请先关闭该账号`,
+        `该数据库被其它进程占用（${describeHolders(preflight.otherHolders)}）—— 请先关掉它们再试`,
       );
     }
 
@@ -420,7 +426,7 @@ export class DbRepairService {
       // ── 替换前：释放句柄 + 复核锁 ──
       this.deps.releaseHandles?.(uin, target.dbPath);
       emit({ phase: 'swapping', percent: 100, message: '正在替换数据库…' });
-      const lockAgain = classifyLock(this.deps.probeLock?.(target.dbPath) ?? null, this.qqPid(uin));
+      const lockAgain = this.classifyLock(target.dbPath, uin);
       if (lockAgain.readiness === 'blocked-by-qq') {
         throw new DbRepairError(
           'blocked',
@@ -430,7 +436,7 @@ export class DbRepairService {
       if (lockAgain.readiness === 'blocked-by-other') {
         throw new DbRepairError(
           'blocked',
-          `替换前复核发现该数据库仍被占用（${describeHolders(lockAgain.otherHolders)}），已中止`,
+          `替换前复核发现该数据库被其它进程占用（${describeHolders(lockAgain.otherHolders)}）—— 这些进程 WeQ 关不掉，请先关掉它们再试（已中止，源库未改动）`,
         );
       }
 
@@ -445,7 +451,7 @@ export class DbRepairService {
         });
       }
 
-      replaceFileSync(product, target.dbPath);
+      this.replaceIntoPlace(product, target.dbPath, target.uin, lockAgain);
       after = hashFileSync(target.dbPath);
 
       // ── 自检：产物不可用就自动还原（备份就是为了这一刻） ──
@@ -457,7 +463,7 @@ export class DbRepairService {
         if (backup) {
           // 自检可能已经打开过产物（留下它那一代的 sidecar），还原前同样得清掉。
           removeSqliteSidecars(target.dbPath);
-          this.installFromBackup(backup.path, target, stamp);
+          this.installFromBackup(backup.path, target, stamp, target.uin);
           restored = true;
         }
         this.log.error('db repair product failed verification', {
@@ -577,7 +583,7 @@ export class DbRepairService {
       );
     }
 
-    const lock = classifyLock(this.deps.probeLock?.(record.dbPath) ?? null, this.qqPid(uin));
+    const lock = this.classifyLock(record.dbPath, uin);
     if (lock.readiness === 'blocked-by-qq') {
       throw new DbRepairError(
         'blocked',
@@ -587,7 +593,7 @@ export class DbRepairService {
     if (lock.readiness === 'blocked-by-other') {
       throw new DbRepairError(
         'blocked',
-        `该数据库仍被占用（${describeHolders(lock.otherHolders)}）—— 请先关闭 WeQ 里打开的该账号`,
+        `该数据库被其它进程占用（${describeHolders(lock.otherHolders)}）—— 请先关掉它们再试`,
       );
     }
 
@@ -601,6 +607,7 @@ export class DbRepairService {
         record.backupPath,
         { dbDir: dirname(record.dbPath), dbName: record.dbName },
         stamp,
+        uin,
       );
       const restored = hashFileSync(record.dbPath);
       if (restored.sha256 !== record.beforeSha) {
@@ -674,6 +681,24 @@ export class DbRepairService {
     }
   }
 
+  /** WeQ 自己的 pid；注入的取不到就退回当前进程（服务与探测同进程）。 */
+  private selfPid(): number | null {
+    try {
+      return this.deps.selfPid?.() ?? process.pid;
+    } catch {
+      return process.pid;
+    }
+  }
+
+  /**
+   * 探测 + 归类。三个调用点（预检 / 替换前 / 回滚）共用一条口径 —— 分开写就容易出现
+   * "预检认得出自己、替换前认不出"这种一半修好的状态。
+   */
+  private classifyLock(dbPath: string, uin: string): DbRepairLockClassification {
+    const probe = this.deps.probeLock?.(dbPath) ?? null;
+    return classifyLock(probe, this.qqPid(uin), this.selfPid());
+  }
+
   private countBackups(uin: string): number {
     return this.history(uin)
       .list()
@@ -712,10 +737,60 @@ export class DbRepairService {
     backupPath: string,
     target: { dbDir: string; dbName: string },
     stamp: string,
+    uin: string,
   ): void {
     const staged = productTempPath(target.dbDir, target.dbName, `${stamp}-restore`);
     copyFileAndHashSync(backupPath, staged);
-    replaceFileSync(staged, join(target.dbDir, target.dbName));
+    // 回滚与修复走同一条替换路径：Windows 上都可能被别的进程抢先把库打开。
+    this.replaceIntoPlace(staged, join(target.dbDir, target.dbName), uin, null);
+  }
+
+  /**
+   * 原子替换：把 `from`（同目录临时文件）放到 `to`（真正的库位置）上。
+   *
+   * 正常情况下这就是一句 `rename`。但在 Windows 上还有一条真实存在的失败路径：Restart
+   * Manager 那次探测（{@link classifyLock}）与这次 `rename` 之间存在时间窗口，某个进程
+   * （最典型的是用户刚点开的 QQ）可能刚好把库打开 —— 此时 `rename` 会抛 `EPERM` /
+   * `EBUSY` / `EACCES`。裸的 Node 错误对用户毫无意义，所以这里把它翻译成"谁占着"。
+   *
+   * 只是**尽力而为的补充措辞**：重新探测一次是为了给用户一个 pid/进程名，探测不出就
+   * 退回通用说法。源库此时一个字节都没动（产物还在临时路径上），所以怎么报都不会更糟。
+   */
+  private replaceIntoPlace(
+    from: string,
+    to: string,
+    uin: string,
+    /** 替换前那次归类（拿不到就再探一次时退回它）。`null` = 调用方没有现成的。 */
+    lock: DbRepairLockClassification | null,
+  ): void {
+    try {
+      replaceFileSync(from, to);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code ?? '';
+      // 只有"被占用"这一类错误才值得重探；ENOSPC / EXDEV 之类与锁无关。
+      if (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') {
+        const holders = this.describeBlockers(this.classifyLock(to, uin), lock);
+        this.log.warn('database replacement was blocked by an open handle', {
+          event: 'db-repair-swap-blocked',
+          dbPath: to,
+          code,
+          holders: holders.map((holder) => `${holder.name || '未知进程'}:${holder.pid}`),
+        });
+        throw new DbRepairError(
+          'blocked',
+          `写入数据库文件时被占用挡住（${describeHolders(holders)}）—— 临时文件还在，源库没有被动过。关掉占着它的程序（QQ / 其它工具）后重试即可`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** 报错时优先用"刚刚重探"的结果，它为空再退回替换前那次。 */
+  private describeBlockers(
+    fresh: DbRepairLockClassification,
+    previous: DbRepairLockClassification | null,
+  ): DbRepairLockHolder[] {
+    return fresh.holders.length > 0 ? fresh.holders : (previous?.holders ?? []);
   }
 
   /**

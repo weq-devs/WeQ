@@ -77,6 +77,8 @@ interface HarnessOptions {
   unknownAccount?: boolean;
   /** 依次返回的锁探测结果；用完之后一直返回最后一项（默认"没锁"）。 */
   probes?: DbRepairLockProbe[];
+  /** WeQ 自己的 pid（默认 `null` = 不注入）；配合 `probes` 复现 Windows 的"自己占着"。 */
+  selfPid?: number | null;
   /** 覆盖假 native 的修复行为。 */
   recover?: (
     options: DbRepairRecoverOptions,
@@ -181,6 +183,7 @@ function createHarness(options: HarnessOptions = {}) {
       return { busy: 0, log: 0, checkpointed: 0, walBytes: 0, merged: true };
     },
     qqPid: () => null,
+    selfPid: () => options.selfPid ?? null,
     releaseHandles: () => {
       calls.released += 1;
     },
@@ -383,6 +386,46 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     ).rejects.toMatchObject({ code: 'blocked' });
     expect(h.calls.recover).toBe(0);
     expect(h.service.listRecords(REF)).toHaveLength(0);
+  });
+
+  // v1.1.2 的回归：Windows 上 Restart Manager 会把 WeQ 自己列成持有人（我们读消息时
+  // 就开着这个库）。旧实现把它当 blocked-by-other 拒绝开修，用户看到"请先关闭该账号"，
+  // 而面板只能在账号打开时进入 —— 死路。现在自己那份不算阻断，替换前照常释放。
+  it('只有 WeQ 自己持有（Windows 的常态）→ 不阻断，照常修完', async () => {
+    const h = createHarness({
+      selfPid: 7,
+      probes: [{ success: true, holders: [{ pid: 7, name: 'WeQ.exe' }] }],
+    });
+
+    const preflight = h.service.preflight(REF, 'nt_msg.db');
+    expect(preflight.readiness).toBe('self-hold');
+    expect(preflight.selfHolders).toEqual([{ pid: 7, name: 'WeQ.exe' }]);
+
+    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    expect(record.state).toBe('applied');
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+    // 句柄在替换前确实被释放过（而不是靠"碰巧没被挡住"）
+    expect(h.calls.released).toBe(1);
+  });
+
+  it('WeQ 自己之外还有第三方占用 → 预检就拦住，native 不启动', async () => {
+    const h = createHarness({
+      selfPid: 7,
+      probes: [
+        {
+          success: true,
+          holders: [
+            { pid: 7, name: 'WeQ.exe' },
+            { pid: 8, name: 'sqlitebrowser.exe' },
+          ],
+        },
+      ],
+    });
+    expect(h.service.preflight(REF, 'nt_msg.db').readiness).toBe('blocked-by-other');
+    await expect(
+      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+    ).rejects.toMatchObject({ code: 'blocked' });
+    expect(h.calls.recover).toBe(0);
   });
 
   it('同一时刻只允许一个修复任务', async () => {

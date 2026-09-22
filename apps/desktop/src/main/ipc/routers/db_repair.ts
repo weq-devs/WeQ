@@ -215,6 +215,18 @@ const deps: DbRepairDeps = {
   },
 
   /**
+   * WeQ 自己的 pid —— 服务层用它把我们自己的句柄从"占用"里摘出来。
+   *
+   * 为什么必须给：Windows 的 Restart Manager 枚举的是**谁打开着这个文件**，而界面只要
+   * 开着这个账号，WeQ 主进程就握着这个库（连接缓存）。不排除就会得到一句"请先关闭该
+   * 账号"，而修复面板只能在账号打开时进入 —— 那是死路。
+   *
+   * 主进程就是持有句柄的那个进程（`dbRepairRouter` 与 `platform.native` 同进程），所以
+   * 直接用 `process.pid`；显式写出来而不是让服务层默认，是为了让这层依赖一眼可见。
+   */
+  selfPid: () => process.pid,
+
+  /**
    * 替换前释放句柄。
    *
    * 修的就是当前打开的账号 → 整套关掉（`clearAccount()` 会 `dispose()` 掉每一个
