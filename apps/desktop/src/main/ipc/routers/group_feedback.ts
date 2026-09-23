@@ -259,13 +259,27 @@ export const groupFeedbackRouter = router({
           };
         }
         try {
-          await requireServices().flashTransfer.sendTuwenArkToGroup({
+          const result = await requireServices().flashTransfer.sendTuwenArkToGroup({
             groupId: Number(input.groupId),
             cardTitle: `${input.kind === 'pr' ? 'PR' : 'Issue'} #${input.number}`,
             desc: input.title,
             jumpUrl: `https://github.com/${REPO}/issues/${input.number}`,
             previewUrl: groupAvatarUrl(input.groupId),
           });
+          // OIDB 外层成功但业务层可能被拒（如 901501 appId 不匹配当前平台）。
+          if (result.errorCode !== 0) {
+            logger.warn('group feedback ark rejected by server', {
+              event: 'feedback-ark-rejected',
+              groupId: input.groupId,
+              errorCode: result.errorCode,
+              errorMessage: result.errorMessage,
+            });
+            return {
+              ok: false,
+              reason: 'send',
+              message: `服务端拒绝下发（errorCode=${result.errorCode}）：${result.errorMessage}`,
+            };
+          }
           return { ok: true };
         } catch (e) {
           logger.warn('group feedback ark send failed', {

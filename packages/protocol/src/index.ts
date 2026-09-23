@@ -54,7 +54,7 @@ export type { QqShowInfo } from './oidb/get-qq-show-url';
 export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 export { SendTuwenArk } from './oidb/send-tuwen-ark';
-export type { SendTuwenArkParams } from './oidb/send-tuwen-ark';
+export type { SendTuwenArkParams, SendTuwenArkResult } from './oidb/send-tuwen-ark';
 export { FetchClientKey } from './oidb/fetch-client-key';
 export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';

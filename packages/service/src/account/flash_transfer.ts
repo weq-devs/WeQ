@@ -19,6 +19,7 @@ import {
   uploadFlashMainFiles,
   type FlashUploadItem,
   type FlashUploadOptions,
+  type SendTuwenArkResult,
 } from '@weq/protocol';
 import { getLogger } from '../common/logger';
 
@@ -74,7 +75,13 @@ export class FlashTransferService {
     return { filesetUuid: pending.filesetUuid, shareUrl: pending.shareUrl };
   }
 
-  /** 群反馈：把已有 GitHub issue/PR 以图文 Ark 卡片发到群聊（0xdc2_34）。 */
+  /**
+   * 群反馈：把已有 GitHub issue/PR 以图文 Ark 卡片发到群聊（0xdc2_34）。
+   *
+   * 返回服务端的下发结果 —— **必须检查 `result.errorCode`**：OIDB 外层
+   * errorCode=0 不代表卡片发出去了，例如 PC/Linux 端用 Android 的 appId
+   * 会拿到 901501(`rule type not match appid`)。调用方不要再当它是 void。
+   */
   async sendTuwenArkToGroup(params: {
     groupId: number;
     /** 卡片标题（如 `Issue #123` / `PR #45`）。 */
@@ -83,8 +90,8 @@ export class FlashTransferService {
     desc: string;
     jumpUrl: string;
     previewUrl: string;
-  }): Promise<void> {
-    await SendTuwenArk.invoke(this.nt, this.resolvePid(), {
+  }): Promise<SendTuwenArkResult> {
+    return SendTuwenArk.invoke(this.nt, this.resolvePid(), {
       targetId: params.groupId,
       peerType: 1,
       title: params.cardTitle,

@@ -1,11 +1,12 @@
 /**
- * SendTuwenArk (0xdc2_34) 的离线单元测试:请求编码(黄金字节)+ 空响应解析。
+ * SendTuwenArk (0xdc2_34) 的离线单元测试:请求编码(黄金字节)+ 响应解析。
+ * 响应**不是**空 ack —— 服务端把「下发结果」放在 result 里,外层 OIDB
+ * errorCode 恒为 0,所以这里断言失败码(901501)会被如实解出来。
  *
  * 黄金字节按 0xdc2_34 的 RE 字段布局(见 src/oidb/send-tuwen-ark.ts)由 wire
  * format 手工构建,与 SnowLuma 的 byte-oracle 断言一致:
  *   - appInfo 字段顺序 1,2,3,5,11,12;meta 字段顺序 1,2
  *   - peerType=0(C2C)/field3=0/空 previewUrl 也要上 wire(pb_optional → force)
- * 联网的端到端发送在 `tools/send_tuwen_ark.ts`。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -88,9 +89,25 @@ describe('SendTuwenArk (0xdc2_34)', () => {
     expect(bytes).toEqual(GOLDEN_GROUP);
   });
 
-  it('decodes ack response to void (deserialize returns undefined)', () => {
+  it('解析空 ack 为成功(errorCode=0)', () => {
     const body = decode(SendTuwenArk.respSchema, new Uint8Array(0));
-    expect(SendTuwenArk.deserialize(body)).toBeUndefined();
+    const result = SendTuwenArk.deserialize(body);
+    expect(result.errorCode).toBe(0);
+    expect(SendTuwenArk.isOk(result)).toBe(true);
+  });
+
+  it('如实解出服务端业务错误码(901501),不静默当成功', () => {
+    // 真实抓到的 ack:群 673646675,errorCode=901501 «rule type not match appid»。
+    const ack = Buffer.from(
+      '0ac601080110d3909cc1021a0020fd82372a78696d6167656e7420736572766963655f6572726f723a3331395f5b6f6964625d2072756c652074797065206e6f74206d617463682061707069642c68747470733a2f2f6977696b692e776f612e636f6d2f70616765732f76696577706167652e616374696f6e3f7061676549643d34303131383735303933323c0a24e6b688e681afe4b88be58f91e5a4b1e8b4a528e99499e8afafe7a0813a39303135303129320d696d6167656e74206572726f7238bc8f8a5e4000',
+      'hex',
+    );
+    const result = SendTuwenArk.deserialize(decode(SendTuwenArk.respSchema, ack));
+    expect(result.targetId).toBe(673646675);
+    expect(result.errorCode).toBe(901501);
+    expect(result.errorMessage).toContain('rule type not match appid');
+    expect(result.detail?.message).toContain('901501');
+    expect(SendTuwenArk.isOk(result)).toBe(false);
   });
 
   it('round-trips serialize → decode', () => {

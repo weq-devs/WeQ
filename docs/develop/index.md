@@ -17,6 +17,7 @@ pnpm dev
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
+- [图文 Ark 卡片发送](./ark-send.md) — OIDB 0xdc2_34 的下发结果解析，以及 PC/Linux 端的已知实现缺口
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---

@@ -3281,9 +3281,12 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'send_tuwen_ark',
+    assistantOnly: true, // 真实发送消息（有外部副作用）→ 不进只读 MCP server，仅助手可用
     description:
       '给私聊或群聊发送一张【自定义图文 Ark 卡片】（OIDB 0xdc2_34：标题 + 描述 + 跳转链接 + 预览图）。' +
-      '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。',
+      '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。' +
+      '⚠️ 已知缺口：图文 Ark 的 appId 来自 Android 端，PC/Linux 端 imagent 会拒收并回 errorCode=901501' +
+      '（rule type not match appid）——本工具会如实返回该错误码，不再假装成功。',
     input: z.object({
       peerType: z.enum(['c2c', 'group']).describe('发送目标类型'),
       targetId: z.string().min(1).describe('目标 QQ 号（c2c）或群号（group），纯数字'),
@@ -3296,14 +3299,38 @@ export const AI_TOOLS: AiTool[] = [
       if (peerType !== 'group') {
         throw new Error('当前只支持发到群聊（peerType=group）。');
       }
-      await services().flashTransfer.sendTuwenArkToGroup({
+      const result = await services().flashTransfer.sendTuwenArkToGroup({
         groupId: Number(targetId.trim()),
         cardTitle: title,
         desc,
         jumpUrl,
         previewUrl,
       });
-      return { ok: true, peerType, targetId, hint: '卡片已发送（响应仅 ack，无法撤回）。' };
+      // 服务端会把「下发结果」放在 ack 的 result 里，外层 OIDB errorCode
+      // 恒为 0 —— 不透出 result.errorCode 就会把失败也报成「已发送」。
+      if (result.errorCode !== 0) {
+        return {
+          ok: false,
+          peerType,
+          targetId,
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+          detail: result.detail,
+          hint:
+            '服务端拒绝了下发（OIDB 外层成功，业务层失败）。' +
+            (result.errorCode === 901501
+              ? ' 901501 = 该 appId 与当前平台不匹配：图文 Ark（appId 100446242）是 Android 侧协议，' +
+                'PC/Linux 端 imagent 的 rule type 不收，属于已知实现缺口。'
+              : ''),
+        };
+      }
+      return {
+        ok: true,
+        peerType,
+        targetId,
+        errorCode: 0,
+        hint: '卡片已发送（响应无 message_id，无法撤回/设精华）。',
+      };
     },
   }),
 
