@@ -26,6 +26,7 @@ import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
+import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import {
@@ -754,6 +755,36 @@ function levelBracketFor(level?: number): number {
   if (level <= 60) return 4;
   if (level <= 80) return 5;
   return 6;
+}
+
+/**
+ * wire 层群成员 → 模板层 GroupMember。「已加载成员分页」和「群内搜索命中」共用同
+ * 一份映射，否则搜索结果会丢掉群主 / 等级 / bot 角标（ownerUid 只有群详情里有）。
+ */
+function groupMemberWireToMember(
+  m: GroupMemberWire,
+  ctx: {
+    ownerUid?: string;
+    levelConfigs: Array<{ level: number; levelName: string }>;
+    botUids: ReadonlySet<string>;
+  },
+): GroupMember {
+  return {
+    id: m.uid,
+    identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
+    identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
+    username: m.uid,
+    displayName: m.card || m.nick || m.uin || 'Member',
+    avatarUrl: senderAvatarSrc(m.uin),
+    kind: ctx.botUids.has(m.uid) ? 'bot' : 'human',
+    role: m.uid === ctx.ownerUid ? 'owner' : m.adminFlag > 0 ? 'admin' : 'member',
+    joinedAt: toIsoTime(m.joinTime.toString()),
+    lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
+    muteUntil: secondsToIsoTime(m.muteUntil),
+    customTitle: m.customTitle || null,
+    memberLevel: m.memberLevel,
+    levelName: levelNameFor(ctx.levelConfigs, m.memberLevel),
+  };
 }
 
 function levelNameFor(
@@ -3027,13 +3058,22 @@ export function MainView(): ReactElement {
     selectedUid,
   ]);
 
+  // 成员 wire → 模板层 GroupMember 的映射。群主 / 等级配置 / bot 名单只有上层有，
+  // 所以搜索结果也得走这里 —— 群资料面板的搜索命中与成员分页共用一份渲染形状。
+  const mapGroupMemberWire = useCallback(
+    (m: GroupMemberWire): GroupMember =>
+      groupMemberWireToMember(m, {
+        ownerUid: groupDetail.data?.ownerUid,
+        levelConfigs: groupLevelInfo.data?.levelConfigs ?? [],
+        botUids,
+      }),
+    [groupDetail.data, groupLevelInfo.data, botUids],
+  );
+
   // `loaded` is already oldest→newest; the template renders in array order.
   const loadedMessageWires = loaded;
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
-
-    const detail = groupDetail.data;
-    const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
 
     const allMemberWires = [...selectedGroupMemberWires];
     // Merge in only THIS group's on-demand-resolved senders.
@@ -3044,22 +3084,7 @@ export function MainView(): ReactElement {
       }
     });
 
-    const mapped: GroupMember[] = allMemberWires.map((m) => ({
-      id: m.uid,
-      identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
-      identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
-      username: m.uid,
-      displayName: m.card || m.nick || m.uin || 'Member',
-      avatarUrl: senderAvatarSrc(m.uin),
-      kind: botUids.has(m.uid) ? 'bot' : 'human',
-      role: m.uid === detail?.ownerUid ? 'owner' : m.adminFlag > 0 ? 'admin' : 'member',
-      joinedAt: toIsoTime(m.joinTime.toString()),
-      lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
-      muteUntil: secondsToIsoTime(m.muteUntil),
-      customTitle: m.customTitle || null,
-      memberLevel: m.memberLevel,
-      levelName: levelNameFor(levelConfigs, m.memberLevel),
-    }));
+    const mapped: GroupMember[] = allMemberWires.map(mapGroupMemberWire);
 
     return mapped.sort((a, b) => {
       const roleScore = { owner: 0, admin: 1, member: 2 };
@@ -3068,12 +3093,28 @@ export function MainView(): ReactElement {
   }, [
     selectedConversation,
     selectedUid,
-    groupDetail.data,
-    groupLevelInfo.data,
     selectedGroupMemberWires,
     missingMembers,
-    botUids,
+    mapGroupMemberWire,
   ]);
+
+  /**
+   * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
+   * 结果是「搜不到后面几页的人」，而且过滤后列表短于容器、没有滚动条，连
+   * 加载更多都触发不了。现在关键字交给 `account.searchGroupMembers` 在
+   * `group_member3` 上按群搜全群，命中项仍复用同一份 wire → GroupMember 映射
+   * （群主 / 等级 / bot 角标与成员分页一致）。
+   */
+  const [memberSearchKeyword, setMemberSearchKeyword] = useState('');
+  const groupMemberSearch = useGroupMemberSearch<GroupMemberWire>(
+    isGroup ? selectedUid : undefined,
+    memberSearchKeyword,
+    mapGroupMemberWire,
+  );
+  const memberSearch = useMemo(
+    () => (isGroup && selectedUid ? groupMemberSearch.view : null),
+    [isGroup, selectedUid, groupMemberSearch.view],
+  );
 
   // Resolve message senders / gray-tip targets that fall outside the loaded
   // member page. Messages render immediately with the uin fallback; the real
@@ -3307,6 +3348,8 @@ export function MainView(): ReactElement {
       selectedUid && (isDirect || isGroup)
         ? { id: selectedUid, kind: isGroup ? 'group' : 'direct' }
         : null;
+    // 换会话就清空群内成员搜索，否则新群的成员列表会顶着上一个群的关键字。
+    setMemberSearchKeyword('');
   }, [selectedUid, isDirect, isGroup]);
 
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
@@ -4058,6 +4101,9 @@ export function MainView(): ReactElement {
                       onLoadMoreGroupMembers={requestMoreGroupMembers}
                       groupMembersLoading={selectedGroupMembersLoading}
                       groupMembersError={selectedGroupMembersError}
+                      groupMemberSearch={memberSearch}
+                      onGroupMemberSearchChange={setMemberSearchKeyword}
+                      onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
                       onOpenNotificationSettings={noopAsync}
                       onSend={noopAsync}

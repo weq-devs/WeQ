@@ -11,6 +11,7 @@ import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
 import type { GroupUpdateInput } from './conversationDetails';
+import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
@@ -69,6 +70,9 @@ export function ChatMainContent({
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
+  groupMemberSearch,
+  onGroupMemberSearchChange,
+  onLoadMoreGroupMemberSearch,
   profileLoading,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
@@ -140,6 +144,12 @@ export function ChatMainContent({
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
+  /** 群资料面板的群内成员搜索（服务端搜全群）—— 关键字、命中成员与分页状态。 */
+  groupMemberSearch?: GroupMemberSearchView | null;
+  /** 群内成员搜索关键字变化（受控输入）。 */
+  onGroupMemberSearchChange?: (keyword: string) => void;
+  /** 追加下一页搜索命中。 */
+  onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
   onOpenNotificationSettings: () => void;
@@ -227,6 +237,9 @@ export function ChatMainContent({
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
       groupMembersLoading={groupMembersLoading}
       groupMembersError={groupMembersError}
+      groupMemberSearch={groupMemberSearch}
+      onGroupMemberSearchChange={onGroupMemberSearchChange}
+      onLoadMoreGroupMemberSearch={onLoadMoreGroupMemberSearch}
       profileLoading={profileLoading}
       onSend={onSend}
       onMessageAction={onMessageAction}

@@ -504,6 +504,20 @@ export class GroupInfoService {
   }
 
   /**
+   * Search one group's members by group card / nick / uin, paged. Lets the chat
+   * page's 群资料面板 search the whole group instead of only the member pages it
+   * has already paged in.
+   */
+  async searchMembersInGroup(
+    groupCode: bigint,
+    keyword: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<{ items: GroupMember[]; total: number }> {
+    return this.session.groupMembers.searchMembersInGroup(groupCode, keyword, limit, offset);
+  }
+
+  /**
    * List all groups a user belongs to.
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {

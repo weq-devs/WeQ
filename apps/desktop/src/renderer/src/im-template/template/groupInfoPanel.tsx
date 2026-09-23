@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { Bot, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
+import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
@@ -13,6 +14,9 @@ export function GroupInfoPanel({
   onLoadMoreMembers,
   loadingMoreMembers,
   loadingError,
+  memberSearch,
+  onMemberSearchChange,
+  onLoadMoreSearch,
   profileLoading,
   onOpenDetail,
   onOpenMember,
@@ -21,6 +25,15 @@ export function GroupInfoPanel({
   onLoadMoreMembers?: () => void;
   loadingMoreMembers?: boolean;
   loadingError?: string | null;
+  /**
+   * 群内成员搜索状态（服务端搜全群，见 useGroupMemberSearch）。为空时退化为
+   * 只在已加载的成员分页里过滤。
+   */
+  memberSearch?: GroupMemberSearchView | null;
+  /** 搜索关键字变化（受控）。 */
+  onMemberSearchChange?: (keyword: string) => void;
+  /** 追加下一页搜索命中。 */
+  onLoadMoreSearch?: () => void;
   /** 群详情（群资料）拉取中且资料尚未就绪时，meta 区域显示 skeleton。 */
   profileLoading?: boolean;
   onOpenDetail?: (detail: GroupInfoDetail) => void;
@@ -30,8 +43,6 @@ export function GroupInfoPanel({
   ) => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
-  // 成员列表已全量分页加载过一部分，搜索就在**已加载的**成员里做（客户端过滤，即时响应）。
-  const [memberSearch, setMemberSearch] = useState('');
   const group = conversation.group;
   const metaRows = [
     group.description ? ['群简介', group.description] : null,
@@ -44,40 +55,39 @@ export function GroupInfoPanel({
     group.entranceQ ? ['入群问题', group.entranceQ] : null,
   ].filter(Boolean) as string[][];
 
-  const requestMoreMembersNearBottom = useCallback(() => {
-    const list = memberListRef.current;
-    if (!list || !onLoadMoreMembers) return;
-    const distanceToBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
-    if (distanceToBottom <= 96) {
-      onLoadMoreMembers();
-    }
-  }, [onLoadMoreMembers]);
+  const keyword = (memberSearch?.keyword ?? '').trim();
+  const searching = keyword.length > 0;
+  // 搜索命中的成员与成员分页是两套数据，但渲染形状一样（都在 MainView 映射）。
+  const searchMembers = memberSearch?.members ?? [];
+  // 搜索还没生效（防抖 / 请求在飞）时，命中列表为空但不能报「没找到」——
+  // 结果没回来之前只能用 loading 占位。
+  const searchPending = Boolean(memberSearch?.loading);
+  const rows = searching ? searchMembers : conversation.members;
+  // 搜索与成员分页各自有错误 / 加载态，这里归一成一份，JSX 只判一个分支。
+  const activeError = searching ? (memberSearch?.error ?? null) : loadingError;
+  const fetching = searching ? searchPending : Boolean(loadingMoreMembers);
+  const fetchingMore = searching ? Boolean(memberSearch?.loadingMore) : Boolean(loadingMoreMembers);
 
+  const requestMoreNearBottom = useCallback(() => {
+    const list = memberListRef.current;
+    if (!list) return;
+    const distanceToBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+    if (distanceToBottom > 96) return;
+    if (searching) {
+      if (memberSearch?.hasMore) onLoadMoreSearch?.();
+      return;
+    }
+    onLoadMoreMembers?.();
+  }, [searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
+
+  // 列表比容器短时没有滚动事件，只能渲染后自己探一次底部；搜索把列表变短
+  // （甚至空）时同样要重跑，否则「加载更多」永远不会被触发。
   useEffect(() => {
     const list = memberListRef.current;
     if (!list) return undefined;
-    const frame = window.requestAnimationFrame(requestMoreMembersNearBottom);
+    const frame = window.requestAnimationFrame(requestMoreNearBottom);
     return () => window.cancelAnimationFrame(frame);
-  }, [conversation.members.length, requestMoreMembersNearBottom]);
-
-  // 换群要清空搜索词，否则新群的列表会顶着上一个群的过滤条件显示成空。
-  useEffect(() => {
-    setMemberSearch('');
-  }, [conversation.id]);
-
-  const keyword = memberSearch.trim().toLowerCase();
-  const filteredMembers = useMemo(() => {
-    if (!keyword) return conversation.members;
-    return conversation.members.filter((member) =>
-      [displayUserName(member), member.username, member.identityValue]
-        .filter(Boolean)
-        .some((field) => String(field).toLowerCase().includes(keyword)),
-    );
-  }, [conversation.members, keyword]);
-  // 还没把成员拉全时，搜索结果可能不完整 —— 给一句提示，别让人以为人真的不在群里。
-  const searchIncomplete = Boolean(
-    keyword && (loadingMoreMembers || conversation.members.length < conversation.group.memberCount),
-  );
+  }, [rows.length, searching, requestMoreNearBottom]);
 
   return (
     <aside className={cn('group-info-panel')} aria-label="群聊资料">
@@ -117,8 +127,8 @@ export function GroupInfoPanel({
         <header className={cn('group-info-heading group-info-title-row')}>
           <strong>
             群聊成员{' '}
-            {keyword
-              ? `${filteredMembers.length}/${conversation.group.memberCount}`
+            {searching
+              ? `${rows.length}/${memberSearch?.total ?? 0}`
               : conversation.group.memberCount}
           </strong>
         </header>
@@ -126,19 +136,19 @@ export function GroupInfoPanel({
           <Search size={13} />
           <input
             type="text"
-            value={memberSearch}
+            value={memberSearch?.keyword ?? ''}
             placeholder="搜索昵称 / 群名片 / QQ号"
             aria-label="搜索群成员"
             spellCheck={false}
-            onChange={(event) => setMemberSearch(event.target.value)}
+            onChange={(event) => onMemberSearchChange?.(event.target.value)}
           />
-          {memberSearch ? (
+          {memberSearch?.keyword ? (
             <button
               className={cn('group-info-member-search-clear')}
               type="button"
               title="清除搜索"
               aria-label="清除搜索"
-              onClick={() => setMemberSearch('')}
+              onClick={() => onMemberSearchChange?.('')}
             >
               <X size={12} />
             </button>
@@ -147,12 +157,12 @@ export function GroupInfoPanel({
         <div
           className={cn('group-info-member-list')}
           ref={memberListRef}
-          onScroll={requestMoreMembersNearBottom}
+          onScroll={requestMoreNearBottom}
         >
-          {keyword && filteredMembers.length === 0 && !loadingMoreMembers ? (
+          {searching && rows.length === 0 && !fetching ? (
             <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
           ) : null}
-          {filteredMembers.map((member) => (
+          {rows.map((member) => (
             <div
               className={cn(
                 'group-info-member-row',
@@ -208,16 +218,16 @@ export function GroupInfoPanel({
               ) : null}
             </div>
           ))}
-          {searchIncomplete ? (
+          {searching && rows.length > 0 && memberSearch?.hasMore ? (
             <div className={cn('group-info-member-hint')}>
-              已加载 {conversation.members.length} / {conversation.group.memberCount}，仍在拉取…
+              已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
             </div>
           ) : null}
-          {loadingError ? (
-            <div className={cn('group-info-member-error')}>加载失败：{loadingError}</div>
-          ) : loadingMoreMembers && conversation.members.length === 0 ? (
+          {activeError ? (
+            <div className={cn('group-info-member-error')}>加载失败：{activeError}</div>
+          ) : fetching && rows.length === 0 ? (
             <GroupMembersSkeleton rows={8} />
-          ) : loadingMoreMembers ? (
+          ) : fetchingMore ? (
             <div className={cn('group-info-member-loading')}>
               <GroupMembersSkeleton rows={1} />
             </div>

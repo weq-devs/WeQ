@@ -238,6 +238,53 @@ export class GroupMemberDb {
   }
 
   /**
+   * Search ONE group's members by group card (64003) / nick (20002) / uin (1002).
+   *
+   * The chat page used to search only the member pages it had already paged in,
+   * so a member sitting on page 5 was unfindable until every earlier page had
+   * been fetched (and the empty container meant no scroll to trigger more). This
+   * runs the LIKE match server-side scoped by 60001, so one query sees the whole
+   * group; LIMIT/OFFSET pages the matches for the panel's infinite scroll. The
+   * ORDER BY is total (card → nick → uid) so pages never overlap or skip rows.
+   *
+   * Active members only (64016 = 0 / null), same rule as
+   * {@link listMembersInGroup}.
+   */
+  async searchMembersInGroup(
+    groupCode: bigint,
+    keyword: string,
+    limit = 30,
+    offset = 0,
+  ): Promise<{ items: GroupMember[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const where =
+      `"60001" = ? AND ("64016" = 0 OR "64016" IS NULL)` +
+      ` AND (CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\'` +
+      ` OR "64003" LIKE ? ESCAPE '\\')`;
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(`SELECT COUNT(*) FROM group_member3 WHERE ${where}`, [
+        groupCode,
+        like,
+        like,
+        like,
+      ]),
+      this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM group_member3
+         WHERE ${where}
+         ORDER BY "64003" ASC, "20002" ASC, "1000" ASC
+         LIMIT ? OFFSET ?`,
+        [groupCode, like, like, like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map(rowToMember),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
+  }
+
+  /**
    * Get a single member's info.
    */
   async getMember(groupCode: bigint, uid: string): Promise<GroupMember | null> {
@@ -311,5 +358,7 @@ function toBigint(v: SqlValue | undefined): bigint {
 }
 
 function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (m) => `${m}`);
+  // 前缀必须是一个真的反斜杠 —— 否则 `%` / `_` 在 LIKE 里仍是通配符
+  // （搜「a_b」会连「axb」一起匹配，搜「%」等于全表命中）。
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
 }

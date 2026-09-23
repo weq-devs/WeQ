@@ -26,6 +26,7 @@ import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { ReplyJumpContext } from '../../components/QqMessageContent';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
+import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type {
   ClipboardEvent as ReactClipboardEvent,
   CSSProperties,
@@ -192,6 +193,9 @@ export function ChatPane({
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
+  groupMemberSearch,
+  onGroupMemberSearchChange,
+  onLoadMoreGroupMemberSearch,
   profileLoading,
   onSend,
   onMessageAction,
@@ -236,6 +240,12 @@ export function ChatPane({
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
+  /** 群资料面板的群内成员搜索（服务端搜全群）—— 关键字、命中成员与分页状态。 */
+  groupMemberSearch?: GroupMemberSearchView | null;
+  /** 群内成员搜索关键字变化（受控输入）。 */
+  onGroupMemberSearchChange?: (keyword: string) => void;
+  /** 追加下一页搜索命中。 */
+  onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
   onSend: (body: string) => Promise<void>;
@@ -1708,6 +1718,9 @@ export function ChatPane({
               onLoadMoreMembers={onLoadMoreGroupMembers}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
+              memberSearch={groupMemberSearch}
+              onMemberSearchChange={onGroupMemberSearchChange}
+              onLoadMoreSearch={onLoadMoreGroupMemberSearch}
               profileLoading={profileLoading}
             />
           ) : null}

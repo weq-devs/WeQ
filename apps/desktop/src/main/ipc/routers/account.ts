@@ -2264,6 +2264,33 @@ export const accountRouter = router({
       return members.map(groupMemberToWire);
     }),
 
+  /**
+   * Search ONE group's members by nick / group card / QQ number.
+   *
+   * The 群资料面板 used to filter only the member pages it had already paged
+   * in, so a member on a later page could not be found until every earlier page
+   * had been fetched. The match now runs server-side over the whole group, and
+   * LIMIT/OFFSET pages the matches for the panel's infinite scroll.
+   */
+  searchGroupMembers: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        keyword: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(200).default(30),
+        offset: z.number().int().min(0).default(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      const { items, total } = await requireServices().groupInfo.searchMembersInGroup(
+        BigInt(input.groupCode),
+        input.keyword,
+        input.limit,
+        input.offset,
+      );
+      return { members: items.map(groupMemberToWire), total };
+    }),
+
   /** List groups a specific user belongs to. */
   listUserGroups: procedure
     .input(
