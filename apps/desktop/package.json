@@ -36,7 +36,7 @@
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
-    "@xmldom/xmldom": "^0.9.10",
+    "@xmldom/xmldom": "^0.9.12",
     "d3": "^7.9.0",
     "electron-trpc": "^0.7.1",
     "electron-updater": "^6.3.9",
