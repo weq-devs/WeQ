@@ -29,6 +29,8 @@ export { UnreadInfoDb } from './unread_info';
 export type { UnreadInfoDbOptions, UnreadInfoResult } from './unread_info';
 
 export { AntiRecallDb } from './anti_recall';
+export { AnnualReportIndexDb } from './annual_report_index';
+export type { AnnualReportIndexInfo } from './annual_report_index';
 export type {
   AntiRecallKind,
   AntiRecallTarget,
