@@ -12,11 +12,13 @@
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
-import type { DressMallItem, RenderElement } from '@weq/service';
+import type { DressMallItem, RenderElement, SendElement } from '@weq/service';
 import {
   computeBkn,
   DressAppId,
@@ -411,6 +413,18 @@ function fmtMsDate(ms: bigint | number): string {
   const d = new Date(Number(ms));
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * 把模型给的路径规整成绝对路径：支持 `~` / `~/x`，相对路径按**本机当前工作目录**解析。
+ * 只做路径拼装，不碰文件系统（存在性由调用方用 `existsSync` 判，好给出人读报错）。
+ */
+function resolveLocalPath(input: string): string {
+  const text = input.trim();
+  if (!text) return '';
+  if (text === '~') return homedir();
+  if (text.startsWith('~/') || text.startsWith('~\\')) return resolve(homedir(), text.slice(2));
+  return isAbsolute(text) ? text : resolve(text);
 }
 
 /**
@@ -3113,12 +3127,23 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_download_rkeys',
     description:
-      '获取当前账号的媒体下载 rkey（图片 CDN 签名 URL 的 &rkey=… 片段）。type: 10=私聊图, 20=群聊图。' +
-      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。',
-    input: z.object({}),
-    run: async () => {
+      '获取当前账号的媒体下载 rkey（媒体 CDN 签名 URL 的 &rkey=… 片段）。' +
+      'type: 10=私聊图, 20=群图, 2=兜底（默认就这三档）。' +
+      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。' +
+      '\n【怎么用】拼在 CDN URL 后面：https://multimedia.nt.qq.com.cn/download?appid=<群 1407 / 私聊 1406>&fileid=<元素里的 fileid>&spec=0<rkey>。' +
+      'rkey 与「场景 × 媒体类型」绑定，用错组合会得到 appid is not match / invalid rkey。' +
+      '\n【已知】语音 / 视频的 rkey（14/24、12/22）**这个命令不给**：真机试过，传进去一律 170019002 (Service Failure)，' +
+      '可能是 0x9067_202 只服务图片。要下语音 / 视频得走 OIDB 解析 URL（见 media_url 的 resolvePttUrl / resolveVideoUrl）。',
+    input: z.object({
+      types: z
+        .array(z.number().int())
+        .min(1)
+        .optional()
+        .describe('要取的 rkey 类型，缺省 [10,20,2]；只想要私聊图或只想要群图时可传 [10] / [20]'),
+    }),
+    run: async ({ types }) => {
       const pid = onlinePid();
-      const items = await fetchDownloadRkeys(ntHelper(), pid);
+      const items = await fetchDownloadRkeys(ntHelper(), pid, types);
       return {
         ok: true,
         count: items.length,
@@ -3331,6 +3356,265 @@ export const AI_TOOLS: AiTool[] = [
         errorCode: 0,
         hint: '卡片已发送（响应无 message_id，无法撤回/设精华）。',
       };
+    },
+  }),
+
+  // ── 发消息（真实副作用） ─────────────────────────────────────────────
+  // 四个粒度：文本 / 媒体 / 文件 / 元素数组逃生舱。都走 services().messageSend，
+  // 业务逻辑（uid 解析、上传、回执归一化）在 @weq/service 里只写一遍。
+  //
+  // 真机联调期：这四个工具**临时开放给外部 MCP 面板**（原本标 assistantOnly，被
+  // server.ts 过滤掉）。联调结束后应恢复该标记，让外部面板回到严格只读。
+
+  tool({
+    name: 'send_text_message',
+    description:
+      '给群聊或私聊发送一条【真实的文本消息】（MessageSvc.PbSendMsg）。' +
+      '⚠️ 这是真实的发送行为：会直接出现在对方/群里，且**本工具不能撤回**（需要撤回时走界面）。' +
+      '⚠️ 需要该账号的 QQ 在线（完全离线模式下不可用），失败会如实返回 result / errMsg。' +
+      '\n【目标怎么写】群聊传群号（纯数字）；私聊传 QQ 号，或传 uid（find_contact / search_buddies 能拿到 uid，更稳）。' +
+      '\n【@ 与引用】at 传 QQ 号/uid 数组；引用回复传 replyToMsgSeq（get_messages 返回的 msgSeq）。' +
+      '\n【结果怎么看】ok=false 就是**没发出去**（result 非 0，hint 里解释了常见码：79 = 场景/参数不符）。别把“调用了”当“发送成功”。' +
+      '\n【不能代表什么】ok=true 只说明服务端接受了这条消息，不代表对方已读/已看到。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      text: z.string().min(1).max(4000).describe('消息正文'),
+      at: z.array(z.string()).optional().describe('要 @ 的人（QQ 号或 uid）'),
+      replyToMsgSeq: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('引用回复：被引用消息的 seq（群内/会话内序号）'),
+      replyToSenderUin: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('被引用消息发送者的 QQ 号（可选，带上更稳）'),
+    }),
+    run: async ({ peerType, targetId, text, at, replyToMsgSeq, replyToSenderUin }) => {
+      // 前置校验：未登录 QQ / 完全离线模式在这里就给出中文可读报错（与其它在线工具一致）。
+      onlinePid();
+      const outcome = await services().messageSend.sendText({
+        peerType,
+        targetId,
+        text,
+        ...(at && at.length > 0 ? { at } : {}),
+        ...(replyToMsgSeq !== undefined ? { replyToMsgSeq } : {}),
+        ...(replyToSenderUin !== undefined ? { replyToSenderUin } : {}),
+      });
+      return { ...outcome, sent: outcome.ok };
+    },
+  }),
+
+  tool({
+    name: 'send_media_message',
+    description:
+      '给群聊或私聊发送【图片 / 语音 / 视频】：先把本地文件传到 QQ 的富媒体上传服务（NTV2 + highway），再把消息发出去。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线（媒体上传走在线实例）。' +
+      '\n【path 怎么给】必须是**本机**上的文件路径（绝对路径，或 ~/ 开头）。支持：图片 jpg/png/gif/webp/bmp；' +
+      '语音 wav（自动转 SILK）或已是 SILK 的文件（mp3 等压缩格式不支持，仓库里没有转码器）；视频常见容器。' +
+      '\n【语音】不传 durationSec 时用文件里的真实时长；波形会自动从 WAV 算（真实振幅）。' +
+      '\n【视频】群聊建议给 width / height（不给也能发，但**安卓端会显示「文件已过期」**）；私聊固定不上报尺寸（服务端 schema 限制）。' +
+      '\n【结果怎么看】ok=false 就是没发出去（result / errMsg / hint 给出原因）。上传失败会直接报错（不会发半条）。' +
+      '\n【uploads 是什么】每个媒体一项 { kind, fileName, fileSize, md5Hex, fastUpload }。fastUpload=true 表示服务端已按 md5 存着这份资源，这次是**秒传**（一个字节没传，直接用服务端回的 msgInfo）；=false 才是真的传了字节。收端说「已过期」时看这里就能分清是上传失败还是别的。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（需要 uid），group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      kind: z.enum(['image', 'record', 'video']).describe('image=图片，record=语音，video=视频'),
+      path: z.string().min(1).describe('本机文件路径（绝对路径或 ~/ 开头）'),
+      fileName: z.string().optional().describe('收端显示的文件名（可选）'),
+      imageSubType: z
+        .number()
+        .int()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe('图片子类型：0 普通图，1 动画表情'),
+      summary: z.string().optional().describe('图片在会话列表/引用里的摘要文字（可选）'),
+      width: z.number().int().positive().optional().describe('像素宽（视频群聊建议给）'),
+      height: z.number().int().positive().optional().describe('像素高（视频群聊建议给）'),
+      // 不要求整数：语音时长天然带小数（如 1.6s），收端也是按秒数渲染。
+      durationSec: z
+        .number()
+        .min(0)
+        .max(3600)
+        .optional()
+        .describe('时长（秒，语音/视频，可带小数）'),
+    }),
+    run: async ({
+      peerType,
+      targetId,
+      kind,
+      path,
+      fileName,
+      imageSubType,
+      summary,
+      width,
+      height,
+      durationSec,
+    }) => {
+      onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
+      const filePath = resolveLocalPath(path);
+      if (!existsSync(filePath)) {
+        throw new Error(`文件不存在：${filePath}（path 必须是本机文件的实际路径）`);
+      }
+      const send = services().messageSend;
+      const common = {
+        peerType,
+        targetId,
+        ...(fileName !== undefined ? { fileName } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+      };
+
+      let outcome: Awaited<ReturnType<typeof send.sendMedia>>;
+      let note = '';
+      if (kind === 'record') {
+        // 语音：WAV → SILK（时长来自文件）；非 WAV/SILK 会在这一步如实报错。
+        // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
+        const { encodeFileToSilk } = await import('../voice');
+        const silk = await encodeFileToSilk(filePath);
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'record',
+          source: silk.silk,
+          durationSec: durationSec ?? silk.durationSec,
+          ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
+        });
+        note = `语音时长 ${durationSec ?? silk.durationSec}s（${silk.wav ? '波形按 WAV 真实振幅' : '波形用合成条'}）`;
+      } else if (kind === 'image') {
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'image',
+          source: filePath,
+          ...(imageSubType !== undefined ? { subType: imageSubType } : {}),
+          ...(summary !== undefined ? { summary } : {}),
+        });
+      } else {
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'video',
+          source: filePath,
+          ...(durationSec !== undefined ? { durationSec } : {}),
+        });
+        if (peerType === 'group' && (width === undefined || height === undefined)) {
+          note =
+            '未给 width/height：QQ-NT 安卓端可能把这条视频显示成「文件已过期」（服务端拿不到尺寸）。';
+        }
+      }
+
+      return {
+        ...outcome,
+        sent: outcome.ok,
+        kind,
+        path: filePath,
+        ...(note ? { note } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_file_message',
+    description:
+      '给群聊或私聊发送【文件】：群文件（传进群文件库并发布成气泡）/ 私聊离线文件。' +
+      '⚠️ 真实发送，不能撤销；需要该账号 QQ 在线。' +
+      '\n【和 send_media_message 的区别】文件走的是**另一条管线**（老 OIDB + highway 裸帧），不是 NTV2：' +
+      '群文件 = 0x6D6_0 申请 → highway 71 → 0x6D9_4 发布；私聊文件 = 0xE37_1700 申请 → highway 95 → 0xE37_800 finalize → PbSendMsg（trans0x211 路由）。' +
+      '所以文件**不受**图片/语音/视频那些格式限制，任意类型都行，且大文件是流式上传（不会整文件进内存）。' +
+      '\n【path 怎么给】必须是**本机**上的文件路径（绝对路径，或 ~/ 开头）。' +
+      '\n【fileName】收端显示的文件名；不给就用路径的文件名。' +
+      '\n【folderId】只对群聊有意义：传进群文件库的哪个目录，缺省 `/`（根目录）。' +
+      '\n【结果怎么看】ok=false 就是没发出去。fileName/fileSize/md5Hex/fileId 是服务端认的元数据；' +
+      'fastUpload=true 表示服务端已按 md5 存着这份文件（**秒传**，一个字节没传）。' +
+      '私聊还会给 finalized：=false 说明 0xE37_800 finalize 失败、已按不带 field6 的版本发出（文件仍可下载）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（需要 uid），group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      path: z.string().min(1).describe('本机文件路径（绝对路径或 ~/ 开头）'),
+      fileName: z.string().optional().describe('收端显示的文件名（可选，缺省用路径的文件名）'),
+      folderId: z.string().optional().describe('群文件目录（仅群聊；缺省 / 根目录）'),
+    }),
+    run: async ({ peerType, targetId, path, fileName, folderId }) => {
+      onlinePid();
+      const filePath = resolveLocalPath(path);
+      if (!existsSync(filePath)) {
+        throw new Error(`文件不存在：${filePath}（path 必须是本机文件的实际路径）`);
+      }
+      const outcome = await services().messageSend.sendFile({
+        peerType,
+        targetId,
+        path: filePath,
+        ...(fileName !== undefined ? { fileName } : {}),
+        ...(folderId !== undefined ? { folderId } : {}),
+      });
+      return {
+        ...outcome,
+        sent: outcome.ok,
+        path: filePath,
+        note: outcome.fastUpload
+          ? '服务端已按 md5 持有该文件，本次为秒传（未上传字节）。'
+          : '本次为真实上传（字节已上传）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_rich_message',
+    description:
+      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/窗口抖动）。' +
+      '文本、图片、语音、视频用更省事的 send_text_message / send_media_message，本工具是其余类型的入口。' +
+      '⚠️ 真实发送，不能撤回；需要 QQ 在线。' +
+      '\n【elements 写法】JSON 数组文本，每项必须有 kind：' +
+      '\n  {"kind":"text","textContent":"你好"}' +
+      '\n  {"kind":"at","atTargetUin":123456} / {"kind":"at","atTargetUid":"u_xxx"} / {"kind":"at","all":true}' +
+      '\n  {"kind":"face","faceId":178} 经典小黄脸；普通动态表情 {"kind":"face","faceId":324,"smallFace":true}；' +
+      '超级/动态表情需目录信息 {"kind":"face","faceId":358,"superSticker":{"packId":"1","stickerId":"33"}}' +
+      '\n  {"kind":"mface","marketEmoticonId":"<32位hex>","emojiPackId":123}（商城贴纸，id 从收消息的元素里拿）' +
+      '\n  {"kind":"reply","origMsgSeq":123,"origSenderUin":456}' +
+      '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条）' +
+      '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
+      '\n【结果怎么看】ok=false 就是没发出去；元素写错会在发送前报错（不会发半条）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      elements: z
+        .string()
+        .min(2)
+        .describe('元素数组的 JSON 文本，如 [{"kind":"markdown","markdownContent":"hi"}]'),
+    }),
+    run: async ({ peerType, targetId, elements }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(elements);
+      } catch (error) {
+        throw new Error(
+          `elements 不是合法 JSON：${error instanceof Error ? error.message : String(error)}。` +
+            '注意要传 JSON 文本（键名用双引号），例如 [{"kind":"face","faceId":178}]。',
+        );
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('elements 必须是至少一个元素的 JSON 数组。');
+      }
+      parsed.forEach((item, index) => {
+        if (
+          !item ||
+          typeof item !== 'object' ||
+          typeof (item as { kind?: unknown }).kind !== 'string'
+        ) {
+          throw new Error(`elements[${index}] 缺少 kind 字段（每项都要有 kind，见工具说明）。`);
+        }
+      });
+      onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
+      const outcome = await services().messageSend.sendElements({
+        peerType,
+        targetId,
+        elements: parsed as unknown as SendElement[],
+      });
+      return { ...outcome, sent: outcome.ok, elementCount: parsed.length };
     },
   }),
 

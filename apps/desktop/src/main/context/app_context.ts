@@ -108,6 +108,7 @@ import {
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
+  MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
   DbWatchService,
@@ -590,6 +591,8 @@ export interface AccountServices {
   peerStats: PeerStatsService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
   flashTransfer: FlashTransferService;
+  /** 发消息（文本/媒体，MessageSvc.PbSendMsg + NTV2 上传，需在线 QQ 发包）。 */
+  messageSend: MessageSendService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** QQ 收藏 (favorites) reader over collection.db. */
@@ -1333,6 +1336,7 @@ export function initAppContext(): AppContext {
           session,
           resolveOnlinePid,
         ),
+        messageSend: new MessageSendService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -1794,6 +1798,7 @@ export function initAppContext(): AppContext {
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
+        messageSend: new MessageSendService(platform.native.ntHelper, session, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
 

@@ -78,7 +78,8 @@ function liftTextElem(text: Record<string, unknown>): Record<string, unknown> | 
  */
 /**
  * 把老 wire 的 MARKET_FACE 提升成 codec 风格 mface 元素：
- * 只保留 marketEmoticonId / emojiPackId / encryptKey / previewWidth / previewHeight。
+ * 保留 marketEmoticonId / emojiPackId / encryptKey / previewWidth / previewHeight
+ * 以及发送侧回填用的 faceName / subType。
  */
 function liftMfaceElem(market: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'mface' };
@@ -87,6 +88,10 @@ function liftMfaceElem(market: Record<string, unknown>): Record<string, unknown>
   if (market.encryptKey !== undefined) out.encryptKey = market.encryptKey;
   if (market.previewWidth !== undefined) out.previewWidth = market.previewWidth;
   if (market.previewHeight !== undefined) out.previewHeight = market.previewHeight;
+  // faceName / subType 是**发送**才需要回填的槽位（见 send-elements 的 mface 分支）：
+  // 收侧带上它们，收到的商城表情才能原样再发出去（搬运/转发）。
+  if (market.faceName !== undefined) out.faceName = market.faceName;
+  if (market.subType !== undefined) out.subType = market.subType;
   return out;
 }
 
@@ -469,7 +474,12 @@ function liftElem(
   if (common?.serviceType === 48 && common.businessType === 21 && common.pbElem) {
     return liftVideoElem(decode(VIDEO_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
-  if (common?.serviceType === 48 && common.businessType === 22 && common.pbElem) {
+  // 语音：群聊 22；私聊实测（安卓真机抓包）是 12，两者都收。
+  if (
+    common?.serviceType === 48 &&
+    (common.businessType === 22 || common.businessType === 12) &&
+    common.pbElem
+  ) {
     return liftPttElem(decode(PTT_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
   if (common?.serviceType === 45 && common.pbElem) {

@@ -523,6 +523,24 @@ export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account
 export { PeerStatsService } from './account/peer_stats';
 export { FlashTransferService } from './account/flash_transfer';
 export {
+  buildMediaElement,
+  buildTextElements,
+  MessageSendService,
+  toOutcome,
+} from './account/message_send';
+export type {
+  MediaSource,
+  PttWaveformSource,
+  ResolvedSendTarget,
+  SendElement,
+  SendElementsParams,
+  SendMediaParams,
+  SendMessageOutcome,
+  SendPeerType,
+  SendScene,
+  SendTextParams,
+} from './account/message_send';
+export {
   FlashTransferFilesService,
   FlashTransferDownloadManager,
   FlashTransferClient,

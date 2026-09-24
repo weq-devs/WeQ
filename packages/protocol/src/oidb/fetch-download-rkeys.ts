@@ -32,7 +32,10 @@ const NTV2_RKEY_RESP = message([{ name: 'downloadRkey', tag: 4, type: DOWNLOAD_R
 export interface DownloadRkey {
   /** URL fragment as returned by QQ, e.g. `&rkey=CAQS…`. */
   rkey: string;
-  /** Media type: 10 = private image, 20 = group image, 2 = fallback. */
+  /**
+   * 媒体类型（与 `account/media_download` 的口径一致）：
+   * `10/20` = 私聊/群图，`12/22` = 私聊/群视频，`14/24` = 私聊/群语音，`2` = 兜底。
+   */
   type: number;
   /** Server TTL in seconds. */
   ttlSeconds: number;
@@ -48,7 +51,10 @@ export namespace FetchDownloadRkeys {
   export const respSchema = NTV2_RKEY_RESP;
 
   export interface Params {
-    /** Requested rkey types; defaults to private/group/fallback image rkeys. */
+    /**
+     * Requested rkey types; defaults to private/group/fallback image rkeys
+     * (10 / 20 / 2). 语音与视频要显式要 14/24 与 12/22 —— 服务端不会顺带下发。
+     */
     types?: number[];
   }
 
@@ -77,6 +83,10 @@ export namespace FetchDownloadRkeys {
     return out;
   };
 
-  export const invoke = (nt: OidbNative, pid: number): Promise<DownloadRkey[]> =>
-    invokeOidb(nt, pid, FetchDownloadRkeys as OidbSpec<Params, DownloadRkey[]>, {});
+  export const invoke = (
+    nt: OidbNative,
+    pid: number,
+    params: Params = {},
+  ): Promise<DownloadRkey[]> =>
+    invokeOidb(nt, pid, FetchDownloadRkeys as OidbSpec<Params, DownloadRkey[]>, params);
 }

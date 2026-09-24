@@ -29,9 +29,18 @@ export function fetchClientKey(nt: OnlineTicketNt, pid: number): Promise<ClientK
   return FetchClientKey.invoke(nt, pid);
 }
 
-/** Fetch rich-media download rkeys via OIDB 0x9067_202 (mirrors nt_helper). */
-export function fetchDownloadRkeys(nt: OnlineTicketNt, pid: number): Promise<DownloadRkey[]> {
-  return FetchDownloadRkeys.invoke(nt, pid);
+/**
+ * Fetch rich-media download rkeys via OIDB 0x9067_202 (mirrors nt_helper).
+ *
+ * `types` 缺省只取图片那三档（10/20/2）；要语音 / 视频的 rkey 得显式传
+ * 14/24、12/22 —— 它们各自绑场景，服务端不会顺带下发。
+ */
+export function fetchDownloadRkeys(
+  nt: OnlineTicketNt,
+  pid: number,
+  types?: number[],
+): Promise<DownloadRkey[]> {
+  return FetchDownloadRkeys.invoke(nt, pid, types ? { types } : {});
 }
 
 /**
