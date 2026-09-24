@@ -197,6 +197,7 @@ export function ChatPane({
   onGroupMemberSearchChange,
   onLoadMoreGroupMemberSearch,
   profileLoading,
+  sendAvailable = true,
   onSend,
   onMessageAction,
   draft,
@@ -248,6 +249,8 @@ export function ChatPane({
   onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
+  /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
+  sendAvailable?: boolean;
   onSend: (body: string) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
@@ -827,9 +830,16 @@ export function ChatPane({
   }
 
   async function sendEmojiMessage(item: EmojiItem) {
+    if (!sendAvailable || currentPreference.blocked || sending) {
+      return;
+    }
     setSending(true);
     try {
       await onSend(createEmojiToken(item));
+    } catch (error) {
+      // 表情消息是「点一下就发」的，没有可保留的输入缓冲；失败只记日志，
+      // 主界面已经用 toast 提示，别让它变成未处理的 Promise 拒绝。
+      console.error('[composer] send emoji failed:', error);
     } finally {
       setSending(false);
     }
@@ -839,11 +849,23 @@ export function ChatPane({
     const editor = currentComposerEditor();
     const nextBody = editor ? serializeComposer(editor) : body;
     const trimmed = nextBody.trim();
-    if (!trimmed || sending) {
+    if (!trimmed || !sendAvailable || currentPreference.blocked || sending) {
       return;
     }
 
     setSending(true);
+    try {
+      await onSend(trimmed);
+    } catch (error) {
+      // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
+      // 不能因为一次失败就把用户打好的字吞掉。
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+      console.error('[composer] send failed:', error);
+      return;
+    }
+
+    // 清空放在发送成功之后：失败时输入区保持原样，草稿也还在。
     setComposerBody('');
     if (conversation) {
       onDraftClear(conversation.id);
@@ -862,12 +884,8 @@ export function ChatPane({
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    try {
-      await onSend(trimmed);
-    } finally {
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-    }
+    setSending(false);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -910,7 +928,9 @@ export function ChatPane({
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (mobileComposerExpanded) {
+      // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
+      // 不能落到 submitMessage 上去。
+      if (mobileComposerExpanded || !sendAvailable) {
         insertComposerLineBreak();
         return;
       }
@@ -1292,6 +1312,9 @@ export function ChatPane({
     ...preference,
   };
   const composerActionRegistry = resolveComposerActionRegistry(composerActions);
+  const sendDisabled =
+    !sendAvailable || currentPreference.blocked || sending || body.trim().length === 0;
+  const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
   const composerActionContext: ComposerActionContext = {
     conversation,
     blocked: currentPreference.blocked,
@@ -1826,6 +1849,17 @@ export function ChatPane({
           onPaste={handleComposerPaste}
         />
         <button
+          type="button"
+          className={cn('composer-send', 'composer-desktop-tool')}
+          title={sendTitle}
+          aria-label={sendTitle}
+          disabled={sendDisabled}
+          onClick={() => void submitMessage()}
+        >
+          <SendHorizontal size={17} />
+          <strong>发送</strong>
+        </button>
+        <button
           className={cn('mobile-composer-expand-button')}
           type="button"
           title="展开输入"
@@ -1905,8 +1939,10 @@ export function ChatPane({
               <span />
               <button
                 type="button"
-                title="发送"
-                disabled={currentPreference.blocked || sending || !body.trim()}
+                className={cn('composer-send-expanded')}
+                title={sendTitle}
+                aria-label={sendTitle}
+                disabled={sendDisabled}
                 onClick={() => void submitMessage()}
               >
                 <SendHorizontal size={28} />

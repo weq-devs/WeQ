@@ -660,11 +660,15 @@ html[data-theme="dark"] .weq-chat-backdrop {
 }
 
 /* Floating "N new messages" pill — shown when live messages arrive while the
- * user is reading history. Click (or scrolling to the bottom) dismisses it. */
+ * user is reading history. Click (or scrolling to the bottom) dismisses it.
+ *
+ * 贴在**输入框上方**：bottom 用 --composer-height 让开 composer 那一行，
+ * 否则输入区露出来以后气泡会压在输入框上。
+ */
 .new-message-pill {
 	position: absolute;
 	z-index: 10;
-	bottom: 24px;
+	bottom: calc(var(--composer-height, 190px) + 14px);
 	right: 24px;
 	display: inline-flex;
 	height: 26px;
@@ -3235,6 +3239,64 @@ html[data-theme="dark"] .member-role-badge.admin {
 .composer-tools button:disabled {
 	cursor: not-allowed;
 	opacity: 0.42;
+}
+
+/* 发送键贴在输入框右下角（QQ PC 同款位置）。.composer 是 position:relative，
+   所以这里绝对定位即可，不占网格行。仅在桌面端渲染（带 composer-desktop-tool，
+   <760px 时被 responsive.css 隐藏）。 */
+.composer-send {
+	position: absolute;
+	z-index: 4;
+	right: 22px;
+	bottom: 20px;
+	display: inline-flex;
+	width: auto;
+	min-width: 68px;
+	height: 32px;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 0 13px;
+	border-radius: 7px;
+	background: var(--weq-accent-effective, #0099ff);
+	color: #ffffff;
+	font-size: 13px;
+	white-space: nowrap;
+	line-height: 1;
+	transition:
+		background-color 140ms ease,
+		opacity 140ms ease,
+		transform 140ms ease;
+}
+
+.composer-send strong {
+	font: inherit;
+	font-weight: 600;
+}
+
+.composer-send:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, #000000);
+	transform: translateY(-1px);
+}
+
+.composer-send:disabled {
+	background: #c5c9cf;
+	color: #ffffff;
+	cursor: not-allowed;
+	opacity: 1;
+}
+
+/* 给编辑器右侧留出按钮的位置，正文不会滑到按钮底下。只在桌面端生效 ——
+   小屏有独立的 composer 内边距（responsive.css），别把它盖掉。 */
+@media (min-width: 761px) {
+	.composer:has(> .composer-send) > .composer-editor {
+		padding-right: 96px;
+	}
+}
+
+html[data-theme="dark"] .composer-send:disabled {
+	background: #4a4f56;
+	color: #9ba1aa;
 }
 
 .composer-tools span {

@@ -1213,6 +1213,34 @@
 		opacity: 0.42;
 	}
 
+	/* 发送键：可发送时是主题色实心，未注入 / 无内容 / 发送中一律灰底白字，
+	   与桌面端 .composer-send 同一套语义。用 :not(:disabled) 抬权重，盖掉上面
+	   那条会把 hover/focus 底色设成 transparent 的规则。 */
+	.mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
+		background: var(--weq-accent-effective, #0099ff);
+		color: #ffffff;
+	}
+
+	.mobile-composer-expanded-tools .composer-send-expanded:disabled {
+		background: #c5c9cf;
+		color: #ffffff;
+		opacity: 1;
+	}
+
+	/* 深色下另有一条 `html[data-theme="dark"] … button:hover/:active/:focus`
+	   把底色设成 transparent（权重 0,3,2），比上面那条高，这里再抬一级盖回来。 */
+	html[data-theme="dark"]
+		.mobile-composer-expanded-tools
+		.composer-send-expanded:not(:disabled) {
+		background: var(--weq-accent-effective, #0099ff);
+		color: #ffffff;
+	}
+
+	html[data-theme="dark"] .mobile-composer-expanded-tools .composer-send-expanded:disabled {
+		background: #4a4f56;
+		color: #9ba1aa;
+	}
+
 	.mobile-composer-expanded .emoji-panel {
 		position: fixed;
 		right: 0;
@@ -1275,6 +1303,12 @@
 	}
 
 	.composer-tools .composer-desktop-tool {
+		display: none;
+	}
+
+	/* 桌面端的「发送」按钮直接挂在 .composer 下（不在 .composer-tools 里），
+	   上面那条选择器管不到，这里单独藏掉；移动端用展开面板里的发送键。 */
+	.composer > .composer-send {
 		display: none;
 	}
 

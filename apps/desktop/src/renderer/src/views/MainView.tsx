@@ -100,6 +100,8 @@ import {
   type ProfileExtInfo,
   type User,
   useChatShellController,
+  loadConversationDrafts,
+  withConversationDraft,
 } from '../im-template/template';
 import {
   qqMessageRenderer,
@@ -410,8 +412,6 @@ const fallbackPreference: ConversationPreference = {
   muted: false,
   blocked: false,
 };
-
-const emptyDrafts: ConversationDrafts = {};
 
 function groupAvatarSrc(groupCode: string): string | null {
   return groupCode ? `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0` : null;
@@ -1607,6 +1607,13 @@ export function MainView(): ReactElement {
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
+  // 「完全离线模式」（自动注入 QQ 总闸开启）。状态未读到前按不可发送处理。
+  const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 4000,
+    refetchInterval: 5000,
+  });
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 8000,
@@ -1740,6 +1747,9 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  // 输入框已经露出，草稿必须能存 —— 否则切会话/切视图就把用户打了一半的字丢了。
+  // 复用模板自带的本地草稿存储（localStorage），会话行上的「草稿」标记也据此显示。
+  const [drafts, setDrafts] = useState<ConversationDrafts>(() => loadConversationDrafts());
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -3899,8 +3909,22 @@ export function MainView(): ReactElement {
     }));
   }
 
-  function updateDraft(_: string, __: string): void {
-    // 只读浏览器暂不保存草稿，保留回调以满足模板接口。
+  const updateDraft = useCallback((conversationId: string, value: string): void => {
+    setDrafts((current) => withConversationDraft(current, conversationId, value));
+  }, []);
+
+  /**
+   * 发消息还没有接后端（本轮只做前端）。这里**必须抛出**而不是返回成功 ——
+   * composer 以「onSend 正常返回」为发送成功的信号，返回成功会把输入框清空，
+   * 用户会以为发出去了。抛错路径会保留原文，只弹提示。
+   */
+  async function sendMessage(_body: string): Promise<void> {
+    pushToast({
+      tone: 'warning',
+      message: '发送功能尚未接入',
+      detail: '输入框已经启用，但发消息的后端还在接线中，内容已为你保留在输入框里。',
+    });
+    throw new Error('send message is not wired up yet');
   }
 
   async function noopAsync(): Promise<void> {
@@ -3984,7 +4008,7 @@ export function MainView(): ReactElement {
                     selectedGroupConversationId={shell.selectedGroupConversationId}
                     selectedContactId={shell.selectedContactId}
                     conversationPrefs={conversationPrefs}
-                    drafts={emptyDrafts}
+                    drafts={drafts}
                     contacts={buddyContacts}
                     loading={sidebarLoading}
                     onLoadMoreConversations={loadMoreContacts}
@@ -4083,7 +4107,7 @@ export function MainView(): ReactElement {
                       loadingMessages={loadingInitialMessages}
                       atLatest={anchoredToLatest}
                       conversationPrefs={conversationPrefs}
-                      drafts={emptyDrafts}
+                      drafts={drafts}
                       query={shell.query}
                       onAcceptContactRequest={noopAsync}
                       onRejectContactRequest={noopAsync}
@@ -4105,8 +4129,11 @@ export function MainView(): ReactElement {
                       onGroupMemberSearchChange={setMemberSearchKeyword}
                       onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
+                      sendAvailable={Boolean(
+                        sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+                      )}
                       onOpenNotificationSettings={noopAsync}
-                      onSend={noopAsync}
+                      onSend={sendMessage}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

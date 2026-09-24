@@ -451,16 +451,9 @@ html[data-theme="dark"] .chat-empty {
   }
 
   .weq-readonly-chat .chat-pane {
-    grid-template-rows: var(--chat-header-height) minmax(0, 1fr);
+    /* 输入区保持可见（模板自带 composer，由 sendAvailable 控制发送按钮灰/亮），
+       这里不再压掉第三行网格，也不再 display:none。 */
     background: var(--chat-surface);
-  }
-
-  .weq-readonly-chat .composer {
-    display: none;
-  }
-
-  .weq-readonly-chat .chat-pane.with-group-info .group-info-panel {
-    grid-row: 2;
   }
 
   .weq-chat-action-bar {
@@ -4152,10 +4145,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 
-.weq-readonly-chat .chat-pane {
-  grid-template-rows: var(--chat-header-height) minmax(0, 1fr) 0 !important;
-}
-
 .weq-readonly-chat .message-scroll {
   grid-row: 2;
   background: var(--chat-surface) !important;
@@ -4178,14 +4167,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-readonly-chat .message-scroll::-webkit-scrollbar-thumb {
   background: transparent !important;
   box-shadow: none !important;
-}
-
-.weq-readonly-chat .composer {
-  display: none !important;
-}
-
-.weq-readonly-chat .chat-pane.with-group-info .group-info-panel {
-  grid-row: 2 !important;
 }
 
 /* Rail footer: settings button */
