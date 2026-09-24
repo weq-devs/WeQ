@@ -70,14 +70,21 @@ export const PTT: ProtoMessage = message([
   f('format', 29, 'uint32'),
 ]);
 
+/**
+ * 旧 wire 的 NotOnlineFile（私聊文件）。
+ *
+ * `subcmd` / `dangerEvel` 标了 `force`：发送侧要求它们**显式在 wire 上**
+ * （subcmd=1「私聊文件发送命令码」、dangerEvel=0「病毒扫描等级」），值本身是
+ * 定值但 QQ 端服务端的校验会看字段存在性。收侧不受影响（force 只管编码）。
+ */
 export const NOT_ONLINE_FILE: ProtoMessage = message([
   f('fileType', 1, 'uint32', { force: true }),
   f('fileUuid', 3, 'string'),
   f('fileMd5', 4, 'bytes'),
   f('fileName', 5, 'string'),
   f('fileSize', 6, 'uint64'),
-  f('subcmd', 9, 'uint32'),
-  f('dangerEvel', 50, 'uint32'),
+  f('subcmd', 9, 'uint32', { force: true }),
+  f('dangerEvel', 50, 'uint32', { force: true }),
   f('expireTime', 55, 'uint32'),
   f('fileHash', 57, 'string'),
 ]);
@@ -205,17 +212,25 @@ export const TRANS_ELEM: ProtoMessage = message([
 ]);
 
 /**
- * MARKET_FACE —— 商城表情（mface），只保留 codec 需要的 5 个字段：
+ * MARKET_FACE —— 商城表情（mface），收/发双向共用一份 schema：
  * tag 4=marketEmoticonId（原 faceId）、5=emojiPackId（原 tabId）、
  * 7=encryptKey（原 key）、10=previewWidth（原 imageWidth）、
- * 11=previewHeight（原 imageHeight）；其余字段一律丢弃。
+ * 11=previewHeight（原 imageHeight）是收侧渲染要的 5 个字段；
+ * tag 1=faceName、2=itemType、3=faceInfo、6=subType、13=pbReserve 是**发送**才需要
+ * 的槽位（QQ 端强校验，缺了新版客户端不渲染），收侧 lift 只做透传。
+ * 其余字段（8/9/12 等）一律丢弃。
  */
 export const MARKET_FACE: ProtoMessage = message([
+  f('faceName', 1, 'string'),
+  f('itemType', 2, 'uint32'),
+  f('faceInfo', 3, 'uint32'),
   f('marketEmoticonId', 4, 'bytes'),
   f('emojiPackId', 5, 'uint32'),
+  f('subType', 6, 'uint32'),
   f('encryptKey', 7, 'string'),
   f('previewWidth', 10, 'uint32'),
   f('previewHeight', 11, 'uint32'),
+  f('pbReserve', 13, 'bytes'),
 ]);
 
 export const CUSTOM_FACE: ProtoMessage = message([
@@ -598,6 +613,39 @@ export const MESSAGE_BODY: ProtoMessage = message([
 
 /** MsgBody.msgContent（tag 2）——老 wire 私聊文件的承载：notOnlineFile 在 tag 1。 */
 export const MSG_CONTENT: ProtoMessage = message([f('notOnlineFile', 1, NOT_ONLINE_FILE)]);
+
+// ---------- 私聊文件发送（msgContent 的完整形态） ----------
+
+/** `FileExtra.field6.field2` —— 服务端签发的下载路由（来自 0xE37_800 finalize）。 */
+export const PRIVATE_FILE_EXTRA_FIELD2: ProtoMessage = message([
+  { name: 'field1', tag: 1, type: 'uint32' },
+  { name: 'fileUuid', tag: 4, type: 'string' },
+  { name: 'fileName', tag: 5, type: 'string' },
+  { name: 'field6', tag: 6, type: 'uint32' },
+  { name: 'field7', tag: 7, type: 'bytes' },
+  { name: 'field8', tag: 8, type: 'bytes' },
+  { name: 'timestamp1', tag: 9, type: 'uint32' },
+  { name: 'fileHash', tag: 14, type: 'string' },
+  { name: 'selfUid', tag: 15, type: 'string' },
+  { name: 'destUid', tag: 16, type: 'string' },
+]);
+
+export const PRIVATE_FILE_EXTRA: ProtoMessage = message([
+  { name: 'field2', tag: 2, type: PRIVATE_FILE_EXTRA_FIELD2 },
+]);
+
+/**
+ * `MsgBody.msgContent` 的完整结构（发送私聊文件时用它）。
+ *
+ * 注意与收侧 `MSG_CONTENT` 的差别：这里 tag 1 叫 `file`（与 NapCat/SL 一致），
+ * 收侧沿用了旧命名 `notOnlineFile` —— 两者是**同一个 tag**，编号一致即可。
+ * `field6` 是可选的下载路由：`file` 本身已能让收端下载（真机验证），`field6` 是
+ * 加强项，finalize 失败时可以不带。
+ */
+export const FILE_EXTRA: ProtoMessage = message([
+  { name: 'file', tag: 1, type: NOT_ONLINE_FILE },
+  { name: 'field6', tag: 6, type: PRIVATE_FILE_EXTRA },
+]);
 
 export const PUSH_MSG_BODY: ProtoMessage = message([
   f('responseHead', 1, RESPONSE_HEAD),

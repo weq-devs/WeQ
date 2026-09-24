@@ -501,7 +501,7 @@ describe('decodeMessage 简化消息解码', () => {
     ]);
   });
 
-  it('把 marketFace 解析成 codec 风格 mface，只保留 5 个字段', () => {
+  it('把 marketFace 解析成 codec 风格 mface，保留渲染 5 字段 + 发送回填字段', () => {
     const bytes = encode(PUSH_MSG_BODY, {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
       body: {
@@ -537,6 +537,9 @@ describe('decodeMessage 简化消息解码', () => {
         encryptKey: 'key123',
         previewWidth: 100,
         previewHeight: 200,
+        // faceName 是发送侧要回填的槽位（收到的商城表情能原样再发出去）；
+        // subType 这里是 0，proto3 缺省不上 wire，所以解出来是 undefined。
+        faceName: 'drop-me',
       },
     ]);
   });

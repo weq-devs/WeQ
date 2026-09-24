@@ -4,26 +4,33 @@
  * `group-album.ts`. Each `pb<tag, T>` field becomes a `{ name, tag, type }`
  * entry; nested messages reference another schema; `pb_repeated` → `repeated`.
  *
- * Only the download/list request+response shapes are modelled (no upload).
+ * 下载/列表方向的请求+响应在这里；**上传**方向（0xE37_100 的 upload 段、
+ * highway 帧头、msgInfo 回写结构）在 `../highway/ntv2-schemas`，共用下面导出的
+ * NTV2 基础块（reqHead / scene / fileInfo / indexNode）。
+ *
+ * **文件**（群文件 / 私聊离线文件）的下载也在这里，但它的**上传/发布**是另一套老
+ * OIDB（0x6D6_0 / 0xE37_1700 / 0xE37_800 / 0x6D9_4），schema 在
+ * `./file-upload-schemas`。
  */
 
 import { message } from '../protobuf';
 
 // ───────────────────────── NTV2 rich media (ptt / video) ─────────────────────────
 
-const NTV2_COMMON_HEAD = message([
+export const NTV2_COMMON_HEAD = message([
   { name: 'requestId', tag: 1, type: 'uint32' },
   { name: 'command', tag: 2, type: 'uint32' },
 ]);
 
-const NTV2_C2C_USER_INFO = message([
+export const NTV2_C2C_USER_INFO = message([
   { name: 'accountType', tag: 1, type: 'uint32' },
   { name: 'targetUid', tag: 2, type: 'string' },
 ]);
 
-const NTV2_GROUP_INFO = message([{ name: 'groupUin', tag: 1, type: 'uint32' }]);
+export const NTV2_GROUP_INFO = message([{ name: 'groupUin', tag: 1, type: 'uint32' }]);
 
-const NTV2_SCENE_INFO = message([
+/** 上传/下载共用：requestType/businessType 由调用方按类型填（见 highway/ntv2-upload）。 */
+export const NTV2_SCENE_INFO = message([
   { name: 'requestType', tag: 101, type: 'uint32' },
   { name: 'businessType', tag: 102, type: 'uint32' },
   { name: 'subBusinessType', tag: 103, type: 'uint32', force: true },
@@ -32,22 +39,22 @@ const NTV2_SCENE_INFO = message([
   { name: 'group', tag: 202, type: NTV2_GROUP_INFO },
 ]);
 
-const NTV2_CLIENT_META = message([{ name: 'agentType', tag: 1, type: 'uint32' }]);
+export const NTV2_CLIENT_META = message([{ name: 'agentType', tag: 1, type: 'uint32' }]);
 
-const NTV2_REQ_HEAD = message([
+export const NTV2_REQ_HEAD = message([
   { name: 'common', tag: 1, type: NTV2_COMMON_HEAD },
   { name: 'scene', tag: 2, type: NTV2_SCENE_INFO },
   { name: 'client', tag: 3, type: NTV2_CLIENT_META },
 ]);
 
-const NTV2_FILE_TYPE = message([
+export const NTV2_FILE_TYPE = message([
   { name: 'type', tag: 1, type: 'uint32', force: true },
   { name: 'picFormat', tag: 2, type: 'uint32', force: true },
   { name: 'videoFormat', tag: 3, type: 'uint32', force: true },
   { name: 'voiceFormat', tag: 4, type: 'uint32', force: true },
 ]);
 
-const NTV2_FILE_INFO = message([
+export const NTV2_FILE_INFO = message([
   { name: 'fileSize', tag: 1, type: 'uint32' },
   { name: 'fileHash', tag: 2, type: 'string' },
   { name: 'fileSha1', tag: 3, type: 'string' },
@@ -59,7 +66,7 @@ const NTV2_FILE_INFO = message([
   { name: 'original', tag: 9, type: 'uint32', force: true },
 ]);
 
-const NTV2_INDEX_NODE = message([
+export const NTV2_INDEX_NODE = message([
   { name: 'info', tag: 1, type: NTV2_FILE_INFO },
   { name: 'fileUuid', tag: 2, type: 'string' },
   { name: 'storeId', tag: 3, type: 'uint32' },
@@ -106,7 +113,7 @@ export const NTV2_RICH_MEDIA_REQ = message([
   { name: 'downloadRkey', tag: 4, type: NTV2_DOWNLOAD_RKEY_REQ },
 ]);
 
-const NTV2_RESP_HEAD = message([
+export const NTV2_RESP_HEAD = message([
   { name: 'common', tag: 1, type: NTV2_COMMON_HEAD },
   { name: 'retCode', tag: 2, type: 'uint32' },
   { name: 'message', tag: 3, type: 'string' },
