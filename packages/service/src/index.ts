@@ -160,6 +160,8 @@ export { GuildDirectService, guildAvatarUrlFromMeta } from './account/guild_dire
 export type { GuildDirectSessionView, RenderGuildDirectMsg } from './account/guild_direct';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
+export { DraftService, chatTypeOf } from './account/draft';
+export type { SaveDraftInput, DraftPeerKind } from './account/draft';
 export { DeletedSessionService } from './account/deleted_session';
 export type { DeletedSessionSummary } from './account/deleted_session';
 export { OfficialAccountService } from './account/official_account';

@@ -28,9 +28,21 @@ export type MessagePart =
       type: 'emoji';
       item: EmojiItem;
       raw: string;
+    }
+  | {
+      /** 草稿正文里的非文本元素（图片 / 视频 / 文件 / ark…），原样透传。 */
+      type: 'element';
+      raw: string;
     };
 
-const tokenPattern = /\[\[chat:emoji:([a-z0-9_-]+):([^\]]+)\]\]|\[([^\]\n]{1,32})\]/gi;
+/** 草稿里的元素 token（图片 / 视频 / 文件 / markdown / ark…）—— 见 draftElements.ts。
+ * 放在表情包同一个 token 解析里，输入框的渲染与序列化都只有一条路径。 */
+const elementTokenPattern = '\\[\\[chat:elem:([^\\]]+)\\]\\]';
+
+const tokenPattern = new RegExp(
+  `${elementTokenPattern}|\\[\\[chat:emoji:([a-z0-9_-]+):([^\\]]+)\\]\\]|\\[([^\\]\\n]{1,32})\\]`,
+  'gi',
+);
 const basicEmojiItems: Array<[string, string]> = [
   ['微笑', '🙂'],
   ['开心', '😄'],
@@ -142,9 +154,17 @@ export function parseMessageParts(value: string): MessagePart[] {
       });
     }
 
-    const item = match[1]
-      ? findEmojiItem(match[1], safeDecode(match[2]))
-      : findEmojiItemByDisplayKey(match[3]);
+    if (match[1] !== undefined) {
+      // 元素 token：输入框把它当 chip 渲染，内容由 draftElements 还原。
+      parts.push({ type: 'element', raw: match[0] });
+      cursor = match.index + match[0].length;
+      match = tokenPattern.exec(value);
+      continue;
+    }
+
+    const item = match[2]
+      ? findEmojiItem(match[2], safeDecode(match[3]))
+      : findEmojiItemByDisplayKey(match[4]);
     if (item) {
       parts.push({
         type: 'emoji',

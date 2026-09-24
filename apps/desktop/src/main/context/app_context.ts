@@ -60,6 +60,7 @@ import {
   MsgService,
   RecentContactService,
   HiddenSessionService,
+  DraftService,
   DeletedSessionService,
   GuildDirectService,
   OfficialAccountService,
@@ -523,6 +524,8 @@ export interface AccountServices {
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
   guildDirect: GuildDirectService;
   hiddenSessions: HiddenSessionService;
+  /** 草稿（draft_storage_table_v1）读写。 */
+  drafts: DraftService;
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
@@ -1088,6 +1091,7 @@ export function initAppContext(): AppContext {
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
+        drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
@@ -1629,6 +1633,7 @@ export function initAppContext(): AppContext {
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
+        drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),

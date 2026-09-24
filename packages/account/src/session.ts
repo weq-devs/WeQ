@@ -16,6 +16,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  DraftDb,
   DeletedSessionDb,
   ServiceAssistantContactDb,
   UidMappingDb,
@@ -143,6 +144,8 @@ export interface AccountSession {
   readonly recentContactTops: RecentContactTopDb;
   /** 隐藏会话（hidden_session_storage_table_v1）。 */
   readonly hiddenSessions: HiddenSessionDb;
+  /** 草稿（draft_storage_table_v1）。 */
+  readonly drafts: DraftDb;
   /** 删除的会话（recent_contact_delete_storage）。 */
   readonly deletedSessions: DeletedSessionDb;
   /** 服务号联系人（service_assistant_contact，chatType 118）。 */
@@ -332,6 +335,12 @@ export async function openAccount(
     algo: a(msgDbPath),
   });
 
+  const drafts = new DraftDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
   const deletedSessions = new DeletedSessionDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
@@ -514,6 +523,7 @@ export async function openAccount(
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    drafts,
     deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
@@ -548,6 +558,7 @@ export async function openAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      drafts.close();
       deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();

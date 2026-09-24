@@ -1706,6 +1706,45 @@ export const accountRouter = router({
   }),
 
   /**
+   * 会话草稿（draft_storage_table_v1）—— 整表读。这张表只有几行，无需分页。
+   * `elements` 是按 40800 全量解析的正文（文本 / @ / 表情 / 图片 / 视频 / 文件 /
+   * markdown / ark / 引用…… 都在里面），交给前端按模板的 message 结构渲染。
+   */
+  listDrafts: procedure.query(async () => {
+    const drafts = await requireServices().drafts.listDrafts();
+    return drafts.map((d) => ({
+      storageKey: d.storageKey,
+      chatType: d.chatType,
+      targetUid: d.targetUid,
+      sendTime: d.sendTime.toString(),
+      elements: elementsToEditable(d.elements),
+    }));
+  }),
+
+  /**
+   * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
+   * 产品决定不做逐字写、也不做本地兜底：写不进 QQ 库就按没草稿处理。
+   *
+   * `elements` 为空 = 清掉该会话的草稿（QQ 清空输入框后也是这么做的）。
+   */
+  saveDraft: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        targetUid: z.string().min(1),
+        elements: z.array(z.any()),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await requireServices().drafts.saveDraft({
+        kind: input.kind,
+        targetUid: input.targetUid,
+        elements: elementsFromEditable(input.elements),
+      });
+      return true;
+    }),
+
+  /**
    * 删除的会话（recent_contact_delete_storage）—— 已解析出的最后消息时间/预览，
    * 供前端在删除会话合并入口中显示。
    */

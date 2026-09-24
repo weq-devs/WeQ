@@ -280,6 +280,24 @@
 	vertical-align: bottom;
 }
 
+/* 草稿里的元素 chip：输入框表达不了的元素（图片 / 视频 / 文件 / markdown /
+   ark / 引用…）在这里显示成 `[图片]` 这样的标签。内部的 chatToken 存着可无损
+   还原整条 wire 元素的 token（见 draftElements.ts）。 */
+.composer-element-token {
+	display: inline-block;
+	margin: 0 2px;
+	padding: 1px 7px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+	color: var(--weq-accent-effective, #0099ff);
+	font-size: 0.94em;
+	line-height: 1.5;
+	white-space: nowrap;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
 /* QQ face elements (FaceEmoji component): static APNG or Lottie. */
 .face-emoji {
 	display: inline-block;

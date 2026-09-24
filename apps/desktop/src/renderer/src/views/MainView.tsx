@@ -100,8 +100,9 @@ import {
   type ProfileExtInfo,
   type User,
   useChatShellController,
-  loadConversationDrafts,
-  withConversationDraft,
+  composerTextToElements,
+  elementsToComposerText,
+  toIpcElements,
 } from '../im-template/template';
 import {
   qqMessageRenderer,
@@ -1747,9 +1748,26 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
-  // 输入框已经露出，草稿必须能存 —— 否则切会话/切视图就把用户打了一半的字丢了。
-  // 复用模板自带的本地草稿存储（localStorage），会话行上的「草稿」标记也据此显示。
-  const [drafts, setDrafts] = useState<ConversationDrafts>(() => loadConversationDrafts());
+  // 草稿直接读写 QQ 自己的 draft_storage_table_v1 —— WeQ 不再另存一份缓存。
+  // 这里的内存副本只用来即时回显（边打边显示 / 会话列表的草稿标记），真正落库
+  // 只在「离开会话 / 离开消息页 / 应用退出」时做，见 flushDrafts。
+  const [drafts, setDrafts] = useState<ConversationDrafts>({});
+  /** 本次会话里被改过、还没落库的会话 id。 */
+  const dirtyDraftsRef = useRef<Set<string>>(new Set());
+  /**
+   * 还没落库的草稿正文（输入框实时值）。**刻意用 ref 而不是 state** —— 每敲一个
+   * 字都 setState 会让整棵 MainView 重渲，这是之前输入卡顿的主因。它只在「切会话 /
+   * 离开消息页 / 退出」时被读取并并进 state 或落库。
+   */
+  const pendingDraftsRef = useRef<ConversationDrafts>({});
+  /** 最新的草稿文本（flush 时读它，避免闭包拿到旧值）。 */
+  const draftsRef = useRef<ConversationDrafts>(drafts);
+  draftsRef.current = drafts;
+  /**
+   * flushDraft 定义在下面（依赖 conversations），但 handleSelectConversation 在它
+   * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
+   */
+  const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -2758,6 +2776,22 @@ export function MainView(): ReactElement {
         return;
       }
       // 真正切换到一个普通会话时才关闭 ARK Feed。
+      // 离开上一个会话 —— 这是草稿落库的主要时机。
+      const leaving = shell.activeConversationId;
+      if (leaving && leaving !== conversationId) {
+        flushDraftRef.current(leaving);
+      }
+      // 立刻把「还没落库的正文」并进 state —— 这样马上切回去也能看到刚才打的内容
+      // （flushDraft 是异步的，落库完成前不能只靠它更新 state）。切会话时一次，
+      // 不涉及逐字重渲。
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
+          if (text.trim()) next[id] = text;
+          else delete next[id];
+        }
+        return next;
+      });
       setArkFeedState(null);
       shell.selectConversation(conversationId);
     },
@@ -3909,9 +3943,125 @@ export function MainView(): ReactElement {
     }));
   }
 
+  /**
+   * 输入框改动**只记在 ref 里**，不碰 React state —— 每敲一个字都 setState 会让
+   * 整棵 MainView（含侧边栏 + 聊天区）重渲，这正是之前输入卡顿的主因。
+   * 真正的 state 更新与落库都推迟到 flushDraft（离开会话 / 离开消息页 / 退出）。
+   */
   const updateDraft = useCallback((conversationId: string, value: string): void => {
-    setDrafts((current) => withConversationDraft(current, conversationId, value));
+    if (value.trim()) pendingDraftsRef.current[conversationId] = value;
+    else delete pendingDraftsRef.current[conversationId];
+    dirtyDraftsRef.current.add(conversationId);
   }, []);
+
+  // 进入消息页时把 QQ 库里已有的草稿读进来（整表只有几行）。这是唯一一次读 ——
+  // 之后边打边改都只在内存，离开时才写回。
+  const draftQuery = trpc.account.listDrafts.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    const rows = draftQuery.data;
+    if (!rows) return;
+    const next: ConversationDrafts = {};
+    for (const row of rows) {
+      // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
+      const text = elementsToComposerText(row.elements ?? []);
+      if (text.trim()) next[row.targetUid] = text;
+    }
+    // 不覆盖本次会话里已经改过、还没落库的那几条 —— 以 pendingDraftsRef 为准
+    // （state 里的副本可能还没跟上）。
+    const merged: ConversationDrafts = { ...next };
+    for (const id of dirtyDraftsRef.current) {
+      const local = pendingDraftsRef.current[id];
+      if (local) merged[id] = local;
+      else delete merged[id];
+    }
+    setDrafts(merged);
+  }, [draftQuery.data]);
+
+  /**
+   * 把一个会话的草稿写回 QQ 库（或清掉）。**只在离开时调用**：产品决定不做逐字写、
+   * 也不做本地兜底 —— 写不进去就按没草稿处理。
+   */
+  const flushDraft = useCallback(
+    async (conversationId: string): Promise<void> => {
+      if (!dirtyDraftsRef.current.has(conversationId)) return;
+      const conv = conversations.find((c) => c.id === conversationId);
+      if (!conv) return;
+      const peer =
+        conv.type === 'group'
+          ? ({ kind: 'group', targetUid: conv.group.identityValue } as const)
+          : conv.type === 'direct'
+            ? ({ kind: 'c2c', targetUid: conv.otherUser.id } as const)
+            : null;
+      if (!peer) return;
+      dirtyDraftsRef.current.delete(conversationId);
+      const text =
+        pendingDraftsRef.current[conversationId] ?? draftsRef.current[conversationId] ?? '';
+      try {
+        await client.account.saveDraft.mutate({
+          kind: peer.kind,
+          targetUid: peer.targetUid,
+          elements: toIpcElements(composerTextToElements(text)),
+        });
+      } catch (e) {
+        // 不做兜底：写不进 QQ 库就丢掉这次草稿（按产品决定）。仍然把本地视为
+        // 未落盘，下次离开时再试一次。
+        dirtyDraftsRef.current.add(conversationId);
+        console.error('[MainView] Failed to save draft:', e);
+        return;
+      }
+      // 落库成功后再同步一次 state —— 会话列表的草稿标记 / 切回来时的回填都读它。
+      // 每次「离开」最多一次，不会退回逐字重渲。
+      setDrafts((current) => {
+        const next = { ...current };
+        if (text.trim()) next[conversationId] = text;
+        else delete next[conversationId];
+        return next;
+      });
+    },
+    [conversations],
+  );
+
+  /**
+   * 所有还在钉着的会话离开当前窗口 —— 一次把脏草稿全落库。
+   * 用在「离开消息页」与「应用退出」这两个场合。
+   */
+  const flushAllDirtyDrafts = useCallback((): void => {
+    for (const id of [...dirtyDraftsRef.current]) void flushDraft(id);
+  }, [flushDraft]);
+  flushDraftRef.current = (conversationId: string) => {
+    void flushDraft(conversationId);
+  };
+
+  // 应用退出 / 窗口关闭：尽力写一次，写不进去就算了（产品决定不做兜底）。
+  useEffect(() => {
+    const onUnload = (): void => {
+      for (const id of [...dirtyDraftsRef.current]) {
+        const conv = conversations.find((c) => c.id === id);
+        if (!conv) continue;
+        const peer =
+          conv.type === 'group'
+            ? { kind: 'group' as const, targetUid: conv.group.identityValue }
+            : conv.type === 'direct'
+              ? { kind: 'c2c' as const, targetUid: conv.otherUser.id }
+              : null;
+        if (!peer) continue;
+        // 同步路径上 fire-and-forget：unload 阶段拿不到 await 的机会。
+        void client.account.saveDraft
+          .mutate({
+            kind: peer.kind,
+            targetUid: peer.targetUid,
+            elements: toIpcElements(composerTextToElements(pendingDraftsRef.current[id] ?? '')),
+          })
+          .catch(() => undefined);
+      }
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [conversations]);
 
   /**
    * 发消息还没有接后端（本轮只做前端）。这里**必须抛出**而不是返回成功 ——
@@ -3975,8 +4125,19 @@ export function MainView(): ReactElement {
             }
             friendNoticeCount={contactRequests.length}
             groupNoticeCount={groupRequests.length}
-            onViewChange={shell.switchView}
-            onGoHome={() => shell.switchView('home')}
+            onViewChange={(view) => {
+              // 离开消息页 —— 另一个草稿落库时机。
+              if (shell.view === 'messages' && view !== 'messages') {
+                flushAllDirtyDrafts();
+              }
+              shell.switchView(view);
+            }}
+            onGoHome={() => {
+              if (shell.view === 'messages') {
+                flushAllDirtyDrafts();
+              }
+              shell.switchView('home');
+            }}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}

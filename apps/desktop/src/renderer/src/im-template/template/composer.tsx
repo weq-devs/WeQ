@@ -2,7 +2,9 @@
 import { useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { parseMessageParts } from './emojiPacks';
+import type { EmojiItem } from './emojiPacks';
 import { cn } from './classNames';
+import { elementLabel, tokenToElement } from './draftElements';
 
 export type ComposerMentionTrigger = {
   start: number;
@@ -125,25 +127,57 @@ export function replaceComposerTextRange(
 export function restoreComposer(editor: HTMLElement, value: string) {
   editor.replaceChildren();
 
-  parseMessageParts(value).forEach((part) => {
+  for (const part of parseMessageParts(value)) {
     if (part.type === 'text') {
       appendText(editor, part.value);
-      return;
+      continue;
     }
 
-    const image = document.createElement('img');
-    image.src = part.item.value;
-    image.alt = `[${part.item.name}]`;
-    image.title = part.item.name;
-    image.draggable = false;
-    image.dataset.chatToken = part.raw;
-    image.className = cn(
-      part.item.large
-        ? 'composer-token-image composer-sticker-token'
-        : 'composer-token-image composer-inline-emoji',
-    );
-    editor.append(image);
-  });
+    if (part.type === 'element') {
+      appendElementChip(editor, part.raw);
+      continue;
+    }
+
+    appendEmojiToken(editor, part);
+  }
+}
+
+/**
+ * 渲染一枚元素 chip —— 草稿里那些输入框表达不了的元素（图片 / 视频 / 文件 /
+ * markdown / ark / 引用…）。显示成 `[图片]` 这样的标签，`dataset.chatToken`
+ * 里存着可无损还原的 token，序列化时原样取回。
+ */
+function appendElementChip(editor: HTMLElement, raw: string) {
+  const element = tokenToElement(raw);
+  const label = element ? elementLabel(element) : '[消息]';
+  const chip = document.createElement('span');
+  chip.className = cn('composer-element-token');
+  chip.contentEditable = 'false';
+  chip.dataset.chatToken = raw;
+  chip.title = label;
+  chip.textContent = label;
+  editor.append(chip);
+}
+
+/** 模板自带表情包（图片 / 大表情）走 <img>。 */
+function appendEmojiToken(editor: HTMLElement, part: { item: EmojiItem; raw: string }) {
+  const item = part.item as {
+    value: string;
+    name: string;
+    large: boolean;
+  };
+  const image = document.createElement('img');
+  image.src = item.value;
+  image.alt = `[${item.name}]`;
+  image.title = item.name;
+  image.draggable = false;
+  image.dataset.chatToken = part.raw;
+  image.className = cn(
+    item.large
+      ? 'composer-token-image composer-sticker-token'
+      : 'composer-token-image composer-inline-emoji',
+  );
+  editor.append(image);
 }
 
 function serializeComposerNode(node: Node): string {

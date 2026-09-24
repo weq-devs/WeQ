@@ -64,6 +64,13 @@ export interface RecentContactSeq {
   sendTime: bigint;
 }
 
+/**
+ * `41136` 的置顶高位。排序键把「已置顶」编码成 bit 47，一次比较就能把置顶组
+ * 整体提前、组内仍按同一时间轴排。见
+ * `docs/database/nt_msg/recent-contact.md#41136--真正的排序键`。
+ */
+const PINNED_BIT = 140737488355328n; // 2^47
+
 export class RecentContactDb {
   private readonly qq: QqDb;
 
@@ -195,6 +202,36 @@ export class RecentContactDb {
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();
+  }
+
+  /**
+   * 把草稿时间镜像进 `recent_contact_v3_table`，并同步刷新排序键 `41136`。
+   *
+   * `41108`（草稿时间）与 `draft_storage_table_v1` 同会话行的 `40050` 逐秒相等；
+   * `41136 = 2^47 × [已置顶] + (有草稿 ? 草稿时间 : 40050)` —— 会话因此会被草稿
+   * 顶到列表前面。见 `docs/database/nt_msg/recent-contact.md`。
+   *
+   * `draftTime` 传 `null` / `0` 表示「删掉草稿」，此时排序时间回落到 `40050`。
+   * 目标会话不在 `recent_contact_v3_table` 里时是 no-op（草稿表可以有一行，会话
+   * 列表里却没有对应行 —— 那种状态下没有地方镜像）。
+   */
+  async setDraftTime(targetUid: string, draftTime: bigint | null): Promise<void> {
+    if (!targetUid) return;
+    const rows = await this.qq.query(
+      `SELECT "41104","40050" FROM recent_contact_v3_table WHERE "40021" = ? LIMIT 1`,
+      [targetUid],
+    );
+    const row = rows[0];
+    if (!row) return;
+    const pinned = toNum(row[0]) === 1;
+    const sendTime = toBigint(row[1]);
+    const draft = draftTime ?? 0n;
+    const effective = draft > 0n ? draft : sendTime;
+    const sortKey = effective + (pinned ? PINNED_BIT : 0n);
+    await this.qq.write(
+      `UPDATE recent_contact_v3_table SET "41108" = ?, "41136" = ? WHERE "40021" = ?`,
+      [draft, sortKey, targetUid],
+    );
   }
 }
 
