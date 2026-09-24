@@ -1722,6 +1722,22 @@ export const accountRouter = router({
   }),
 
   /**
+   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`，unix 秒）。
+   *
+   * 单独开一个轻量 query，是为了让**会话列表排序**在 `onDbChanged` 时能跟手：
+   * 输入框里的草稿正文由 `drafts` state 本地承载、不需要每次重读，但排序要在
+   * 每次库变化时都刷新。这里只跑一条几行的 SELECT，不去重读 / 重解整张草稿表
+   * （`listDrafts` 会解 `43002` 的 protobuf，代价大得多）。
+   */
+  listConversationDraftTimes: procedure.query(async () => {
+    const map = await requireServices().recentContacts.listDraftTimes();
+    return [...map].map(([targetUid, draftTime]) => ({
+      targetUid,
+      draftTime: draftTime.toString(),
+    }));
+  }),
+
+  /**
    * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
    * 产品决定不做逐字写、也不做本地兜底：写不进 QQ 库就按没草稿处理。
    *

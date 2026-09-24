@@ -183,6 +183,28 @@ describe('RecentContactDb.setDraftTime mirror', () => {
   });
 });
 
+describe('RecentContactDb.listDraftTimes', () => {
+  it('returns only conversations whose 41108 is a real draft time', async () => {
+    createFixture();
+    await contacts.setDraftTime(UID, 1790280959n);
+    const times = await contacts.listDraftTimes();
+    expect([...times]).toEqual([[UID, 1790280959n]]);
+  });
+
+  it('drops a conversation again once its draft is cleared', async () => {
+    createFixture();
+    await contacts.setDraftTime(GROUP, 1790285263n);
+    expect((await contacts.listDraftTimes()).has(GROUP)).toBe(true);
+    await contacts.setDraftTime(GROUP, null);
+    expect((await contacts.listDraftTimes()).has(GROUP)).toBe(false);
+  });
+
+  it('is empty when no conversation has a draft', async () => {
+    createFixture();
+    expect((await contacts.listDraftTimes()).size).toBe(0);
+  });
+});
+
 describe('element encode/decode stability used by the draft path', () => {
   it('keeps text + pic elements identical through decode → encode', () => {
     const wire = {

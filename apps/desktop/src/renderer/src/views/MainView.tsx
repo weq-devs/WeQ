@@ -24,6 +24,8 @@ import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
+import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
+import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
@@ -1693,6 +1695,14 @@ export function MainView(): ReactElement {
         void utils.account.listHiddenSessions.invalidate();
         void utils.account.listOfficialAccounts.invalidate();
         void utils.account.listServiceAccounts.invalidate();
+        // 会话列表的排序键：草稿时间（41108）。
+        void utils.account.listConversationDraftTimes.invalidate();
+        // 草稿正文：QQ 客户端写库后也要跟手。`listDrafts` 默认 `staleTime:
+        // Infinity`，不在这里 invalidate 就永远不会重读 —— 这正是「QQ 那边
+        // 写的草稿，WeQ 这边看不到」的原因。安全：下面合并 `draftQuery.data`
+        // 的 effect 只以 `pendingDraftsRef` 覆盖**脏会话**（本次会话里改过、
+        // 还没落库的），正在编辑的正文不会被回灌。
+        void utils.account.listDrafts.invalidate();
         void refreshWindow();
       },
       onError(err) {
@@ -1760,9 +1770,6 @@ export function MainView(): ReactElement {
    * 离开消息页 / 退出」时被读取并并进 state 或落库。
    */
   const pendingDraftsRef = useRef<ConversationDrafts>({});
-  /** 最新的草稿文本（flush 时读它，避免闭包拿到旧值）。 */
-  const draftsRef = useRef<ConversationDrafts>(drafts);
-  draftsRef.current = drafts;
   /**
    * flushDraft 定义在下面（依赖 conversations），但 handleSelectConversation 在它
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
@@ -2383,6 +2390,26 @@ export function MainView(): ReactElement {
     }
     return map;
   }, [topContacts.data]);
+  /**
+   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`）。会话列表排序
+   * 用它和最后消息时间取最大值：打了字（或有草稿）的会话要按草稿时间冒头，
+   * 而不是只看最新消息时间。见 `@weq/service/conversation-order`。
+   *
+   * 单独一条轻量 query（几行的 SELECT），这样 `onDbChanged` 时能跟手刷新排序；
+   * 真正的正文由 `drafts` state 承载，不在这里重读。
+   */
+  const draftTimesQuery = trpc.account.listConversationDraftTimes.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  });
+  /**
+   * 会话 id → 排序用草稿时间（毫秒），**只取库里的 `41108`**。输入框里还没落库的
+   * 草稿刻意不参与 —— 排序只认数据库的数据，边打字不该让会话跳位置。
+   */
+  const draftTimeByConv = useMemo(
+    () => draftSortTimes(draftTimesQuery.data ?? []),
+    [draftTimesQuery.data],
+  );
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
   const groupNameByCode = useMemo(() => {
@@ -2679,7 +2706,8 @@ export function MainView(): ReactElement {
             highlights,
           };
         })
-        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按最后消息时间倒序。
+        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按
+        // max(最后消息时间, 草稿时间) 倒序 —— 有草稿的会话不吃亏于「新消息」。
         .sort((a, b) => {
           const aTop = topTimeByConv[a.id];
           const bTop = topTimeByConv[b.id];
@@ -2688,7 +2716,10 @@ export function MainView(): ReactElement {
             if (bTop === undefined) return -1;
             return bTop - aTop;
           }
-          return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+          return (
+            conversationSortTime(b.updatedAt, draftTimeByConv[b.id]) -
+            conversationSortTime(a.updatedAt, draftTimeByConv[a.id])
+          );
         })
     );
   }, [
@@ -2705,6 +2736,7 @@ export function MainView(): ReactElement {
     unreadByConv,
     highlightsByConv,
     topTimeByConv,
+    draftTimeByConv,
     botUids,
   ]);
   const groupsById = useMemo(
@@ -2764,6 +2796,21 @@ export function MainView(): ReactElement {
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
 
+  /**
+   * 把「还没落库的正文」并进 state —— 切走会话后立刻切回来能回填、会话列表的草稿
+   * 标记也要亮。flushDraft 是异步的（落库完成前 state 不会动），所以不能只靠它。
+   */
+  const syncDraftsFromPending = useCallback((): void => {
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
+        if (text.trim()) next[id] = text;
+        else delete next[id];
+      }
+      return next;
+    });
+  }, []);
+
   const handleSelectConversation = useCallback(
     (conversationId: string, event?: React.MouseEvent) => {
       const conv = conversations.find((c) => c.id === conversationId);
@@ -2776,27 +2823,34 @@ export function MainView(): ReactElement {
         return;
       }
       // 真正切换到一个普通会话时才关闭 ARK Feed。
-      // 离开上一个会话 —— 这是草稿落库的主要时机。
-      const leaving = shell.activeConversationId;
-      if (leaving && leaving !== conversationId) {
-        flushDraftRef.current(leaving);
-      }
-      // 立刻把「还没落库的正文」并进 state —— 这样马上切回去也能看到刚才打的内容
-      // （flushDraft 是异步的，落库完成前不能只靠它更新 state）。切会话时一次，
-      // 不涉及逐字重渲。
-      setDrafts((current) => {
-        const next = { ...current };
-        for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
-          if (text.trim()) next[id] = text;
-          else delete next[id];
-        }
-        return next;
-      });
+      // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
+      // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
+      // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
+      // 进入」这些不走本函数的路径也能覆盖到。
+      syncDraftsFromPending();
       setArkFeedState(null);
       shell.selectConversation(conversationId);
     },
-    [conversations, shell],
+    [conversations, shell, syncDraftsFromPending],
   );
+
+  /**
+   * 离开会话的**唯一收口点**：`activeConversationId` 一变，就把上一个会话的脏草稿
+   * 写回库。私聊 A 打了一半切到 B ⇒ 这一步落库 A 的草稿（正文为空则清掉）。
+   *
+   * 之所以不用各调用点自己 flush：离开会话有四条路径 —— 点侧边栏、会话内「返回」、
+   * 搜索结果 / 文件跳转、从隐藏 / 删除 / 官方号选择器进入。它们各自调
+   * `shell.selectConversation` 或 `shell.backConversation`，只有第一条以前会落库。
+   * 盯住这一个状态，四条路径就都覆盖了。
+   */
+  const prevActiveConvRef = useRef<string | null>(shell.activeConversationId);
+  useEffect(() => {
+    const prev = prevActiveConvRef.current;
+    prevActiveConvRef.current = shell.activeConversationId;
+    if (!prev || prev === shell.activeConversationId) return;
+    flushDraftRef.current(prev);
+    syncDraftsFromPending();
+  }, [shell.activeConversationId, syncDraftsFromPending]);
 
   // Load the WeQ-deleted msgIds whenever the selected conversation changes so
   // the in-place "deleted" overlay is correct on entry. Stale responses from a
@@ -3949,8 +4003,10 @@ export function MainView(): ReactElement {
    * 真正的 state 更新与落库都推迟到 flushDraft（离开会话 / 离开消息页 / 退出）。
    */
   const updateDraft = useCallback((conversationId: string, value: string): void => {
-    if (value.trim()) pendingDraftsRef.current[conversationId] = value;
-    else delete pendingDraftsRef.current[conversationId];
+    // 清空要**保留 key、存空串**（不是 delete）—— 规则与理由见
+    // `@weq/service/draft-edit`：`delete` 会让「清空了」和「没动过」不可区分，
+    // 落库时就会把上一次的旧正文再写回去。
+    pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
     dirtyDraftsRef.current.add(conversationId);
   }, []);
 
@@ -3988,7 +4044,11 @@ export function MainView(): ReactElement {
   const flushDraft = useCallback(
     async (conversationId: string): Promise<void> => {
       if (!dirtyDraftsRef.current.has(conversationId)) return;
-      const conv = conversations.find((c) => c.id === conversationId);
+      // 主列表之外，隐藏会话 / 最近删除的会话也可能是当前打字的那个，都要能落库。
+      const conv =
+        conversations.find((c) => c.id === conversationId) ??
+        hiddenConversationsById.get(conversationId) ??
+        deletedConversationsById.get(conversationId);
       if (!conv) return;
       const peer =
         conv.type === 'group'
@@ -3998,8 +4058,9 @@ export function MainView(): ReactElement {
             : null;
       if (!peer) return;
       dirtyDraftsRef.current.delete(conversationId);
-      const text =
-        pendingDraftsRef.current[conversationId] ?? draftsRef.current[conversationId] ?? '';
+      // 脏会话在 pendingDraftsRef 里一定有值（含空串 = 用户已清空）。只读它，
+      // 绝不回退到已落库的旧正文 —— 那正是「删了内容草稿还在」的根因。
+      const text = localDraftToWrite(pendingDraftsRef.current, conversationId);
       try {
         await client.account.saveDraft.mutate({
           kind: peer.kind,
@@ -4015,6 +4076,9 @@ export function MainView(): ReactElement {
       }
       // 落库成功后再同步一次 state —— 会话列表的草稿标记 / 切回来时的回填都读它。
       // 每次「离开」最多一次，不会退回逐字重渲。
+      // 写库是异步的：期间用户可能又切回这个会话接着改（pending 已变、dirty 已重置）。
+      // 那种情况下这次落库的结果已经不是最新的，state 不能拿它盖掉新正文。
+      if (localDraftToWrite(pendingDraftsRef.current, conversationId) !== text) return;
       setDrafts((current) => {
         const next = { ...current };
         if (text.trim()) next[conversationId] = text;
@@ -4022,7 +4086,7 @@ export function MainView(): ReactElement {
         return next;
       });
     },
-    [conversations],
+    [conversations, hiddenConversationsById, deletedConversationsById],
   );
 
   /**
@@ -4040,7 +4104,10 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const onUnload = (): void => {
       for (const id of [...dirtyDraftsRef.current]) {
-        const conv = conversations.find((c) => c.id === id);
+        const conv =
+          conversations.find((c) => c.id === id) ??
+          hiddenConversationsById.get(id) ??
+          deletedConversationsById.get(id);
         if (!conv) continue;
         const peer =
           conv.type === 'group'
@@ -4054,14 +4121,17 @@ export function MainView(): ReactElement {
           .mutate({
             kind: peer.kind,
             targetUid: peer.targetUid,
-            elements: toIpcElements(composerTextToElements(pendingDraftsRef.current[id] ?? '')),
+            // 空串 = 清掉草稿（见 `@weq/service/draft-edit`）。
+            elements: toIpcElements(
+              composerTextToElements(localDraftToWrite(pendingDraftsRef.current, id)),
+            ),
           })
           .catch(() => undefined);
       }
     };
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
-  }, [conversations]);
+  }, [conversations, hiddenConversationsById, deletedConversationsById]);
 
   /**
    * 发消息还没有接后端（本轮只做前端）。这里**必须抛出**而不是返回成功 ——
