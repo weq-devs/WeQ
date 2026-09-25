@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import {
+  AudioLines,
   BarChart3,
   Bot,
   ChevronDown,
@@ -83,6 +84,7 @@ import {
   type ComposerQuote,
 } from './composerQuote';
 import { LinkCardPanel, linkCardToken, type LinkCardDraft } from './linkCardPanel';
+import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -384,6 +386,8 @@ export function ChatPane({
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [linkOpen, setLinkOpen] = useState(false);
+  // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
+  const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -461,6 +465,8 @@ export function ChatPane({
   const voiceBusyRef = useRef(false);
   const linkPanelRef = useRef<HTMLDivElement | null>(null);
   const linkButtonRef = useRef<HTMLButtonElement | null>(null);
+  const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
+  const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -871,6 +877,41 @@ export function ChatPane({
     };
   }, [linkOpen]);
 
+  useEffect(() => {
+    if (!aiVoiceOpen) {
+      return;
+    }
+
+    function closeAiVoiceFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        aiVoicePanelRef.current?.contains(target) ||
+        aiVoiceButtonRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target) ||
+        toolsButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setAiVoiceOpen(false);
+    }
+
+    function closeAiVoiceOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setAiVoiceOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeAiVoiceFromOutside);
+    document.addEventListener('keydown', closeAiVoiceOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeAiVoiceFromOutside);
+      document.removeEventListener('keydown', closeAiVoiceOnEscape);
+    };
+  }, [aiVoiceOpen]);
+
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
@@ -895,6 +936,8 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
+    // AI 声聊面板同理：私聊根本没有这个按钮，切过去时别把面板留在屏幕上。
+    setAiVoiceOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -1106,6 +1149,8 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
+    setLinkOpen(false);
+    setAiVoiceOpen(false);
     // 移动端长文展开态里没有卡片的位置，选完就把展开态收回去（正文会跟着搬回去）。
     if (mobileComposerExpanded) {
       closeMobileComposerExpanded();
@@ -1148,6 +1193,7 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setLinkOpen(false);
+    setAiVoiceOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -1216,6 +1262,7 @@ export function ChatPane({
       });
       setPendingSuperEmoji(null);
       setVoiceOpen(false);
+      setAiVoiceOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1225,6 +1272,7 @@ export function ChatPane({
     // 用户正在打的字原样留着。
     if (options.keepBody) {
       setVoiceOpen(false);
+      setAiVoiceOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1235,6 +1283,7 @@ export function ChatPane({
     releaseInlineImages();
     setPendingQuote(null);
     setVoiceOpen(false);
+    setAiVoiceOpen(false);
     if (conversation) {
       onDraftClear(conversation.id);
     }
@@ -1280,6 +1329,25 @@ export function ChatPane({
     // 用户正在打的那段字原样留在输入框里，不会被这次发送清掉。
     await submitMessage({
       extraTokens: [linkCardToken(card)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
+  }
+
+  /**
+   * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
+   * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
+   *
+   * 只做前端：这里不碰任何协议（`SendAiVoice` 那条 OIDB 还没接进来），只把
+   * 「文字 + 声线」编成一枚 ptt 元素 token 交给上层；`keepBody` 让用户正在打的
+   * 那段字原样留在输入框里。
+   */
+  async function sendAiVoice(draft: AiVoiceDraft) {
+    setAiVoiceOpen(false);
+    setPendingQuote(null);
+    await submitMessage({
+      extraTokens: [aiVoiceToken(draft)],
       text: '',
       keepBody: true,
       omitQuote: true,
@@ -1383,8 +1451,9 @@ export function ChatPane({
       return attachment;
     });
     setPendingSuperEmoji(null);
-    // 同上：视频 / 文件顶掉引用。
+    // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊面板（它同样占「单独发」这个槽位）。
     setPendingQuote(null);
+    setAiVoiceOpen(false);
   }
 
   function removeMediaAttachment() {
@@ -1720,6 +1789,7 @@ export function ChatPane({
     setToolsOpen(false);
     setEmojiOpen(false);
     setLinkOpen(false);
+    setAiVoiceOpen(false);
     setMobileComposerExpanded(true);
   }
 
@@ -1728,6 +1798,7 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setLinkOpen(false);
+    setAiVoiceOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -1736,6 +1807,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setVoiceOpen(false);
     setLinkOpen(false);
+    setAiVoiceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
@@ -1744,6 +1816,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setLinkOpen(false);
+    setAiVoiceOpen(false);
     setVoiceOpen((open) => !open);
   }
 
@@ -1752,7 +1825,18 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
+    setAiVoiceOpen(false);
     setLinkOpen((open) => !open);
+  }
+
+  /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
+  function toggleAiVoicePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
+    setAiVoiceOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -2006,6 +2090,10 @@ export function ChatPane({
   const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
+  // AI 声聊**只支持群聊**（协议目标字段是群号，私聊服务端不认），所以按钮与面板
+  // 只对群会话出现；合成出来的语音也只能单独发，所以面板开着时正文那一行让位。
+  const canUseAiVoice = conversation.type === 'group';
+  const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
   const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
   const composerActionContext: ComposerActionContext = {
     conversation,
@@ -2592,6 +2680,19 @@ export function ChatPane({
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
+          {/* AI 声聊仅群聊可见 —— 私聊里这个按钮整个不渲染。 */}
+          {canUseAiVoice ? (
+            <button
+              ref={aiVoiceButtonRef}
+              type="button"
+              className={cn('composer-tool', 'composer-desktop-tool', aiVoiceOpen && 'active')}
+              title={hasSingleSend ? singleSendHint : 'AI 声聊（合成语音，单独发送）'}
+              disabled={currentPreference.blocked || sending || hasSingleSend}
+              onClick={toggleAiVoicePanel}
+            >
+              <AudioLines size={21} strokeWidth={1.5} />
+            </button>
+          ) : null}
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
               key={action.id}
@@ -2649,6 +2750,15 @@ export function ChatPane({
             disabledHint={sendTitle}
             onSend={(card) => void sendLinkCard(card)}
             onClose={() => setLinkOpen(false)}
+          />
+        ) : null}
+        {aiVoicePanelActive ? (
+          <AiVoicePanel
+            panelRef={aiVoicePanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSend={(draft) => void sendAiVoice(draft)}
+            onClose={() => setAiVoiceOpen(false)}
           />
         ) : null}
         <input

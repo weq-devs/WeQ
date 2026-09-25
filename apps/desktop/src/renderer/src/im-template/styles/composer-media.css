@@ -1550,3 +1550,361 @@ html[data-theme="dark"] .link-card-preview-card {
     ) !important;
   }
 }
+
+/* ── AI 声聊面板（输入框工具栏「AI 声聊」按钮）──────────────────────────────
+ *
+ * 形态跟链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行 —— 选声线、
+ * 试听的同时，输入框里的文字照旧可编辑。**仅群聊**渲染这个面板（私聊连按钮都
+ * 没有，见 chatPane 的 canUseAiVoice）。
+ *
+ * 三块：要说的话（textarea） / 声线（分组 + 每条一个试听键） / 底部（单独发送）。
+ * 试听音频是 QQ 的静态样音，URL 由 voiceId 拼出（见 aiVoicePanel.tsx 与
+ * docs/develop/ai-voice.md），所以这里只管把播放态画出来。
+ *
+ * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ */
+
+.ai-voice-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(520px, calc(100% - 28px));
+  max-height: min(524px, calc(100dvh - 190px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: ai-voice-in 150ms ease-out;
+}
+
+@keyframes ai-voice-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.ai-voice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.ai-voice-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-voice-head-title svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 「仅群聊 · 单独发送」这类约束，写在标题旁边让人一眼看到。 */
+.ai-voice-head-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.ai-voice-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.ai-voice-close:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.ai-voice-body {
+  display: grid;
+  gap: 11px;
+  padding: 11px 12px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.ai-voice-field {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.ai-voice-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ai-voice-count {
+  margin-left: auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-voice-textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.ai-voice-textarea:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.ai-voice-textarea::placeholder {
+  color: var(--weq-fg-muted, #858585);
+}
+
+.ai-voice-voices {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-voice-voices-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ai-voice-voices-head svg {
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 84%, transparent);
+}
+
+/* 当前选中的声线名，跟在「声线」后面补一句，省得在列表里找。 */
+.ai-voice-selected {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-voice-voices-list {
+  display: grid;
+  gap: 8px;
+  max-height: 232px;
+  padding-right: 2px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.ai-voice-group {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-voice-group-label {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+}
+
+.ai-voice-group-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* 一枚声线 = 名字键 + 试听键，拼成一个胶囊。 */
+.ai-voice-chip {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.ai-voice-chip:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 42%, transparent);
+}
+
+.ai-voice-chip.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 68%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 13%, transparent);
+}
+
+.ai-voice-chip-pick {
+  padding: 4px 4px 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: color 130ms ease;
+}
+
+.ai-voice-chip.is-active .ai-voice-chip-pick {
+  color: var(--weq-accent-effective, #0099ff);
+  font-weight: 600;
+}
+
+.ai-voice-chip-play {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  margin: 2px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.ai-voice-chip-play:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 16%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
+.ai-voice-chip-play.is-playing {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  animation: ai-voice-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-voice-pulse {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+.ai-voice-error {
+  color: var(--media-danger, #f0483e);
+  font-size: 11.5px;
+}
+
+.ai-voice-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.ai-voice-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-voice-hint svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
+}
+
+.ai-voice-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+
+.ai-voice-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.ai-voice-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.ai-voice-btn.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+/* ── 深色：阴影加一档，输入底压暗（同链接卡片那套处理） ─────────────────── */
+
+html[data-theme="dark"] .ai-voice-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .ai-voice-textarea,
+html[data-theme="dark"] .ai-voice-chip {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+/* ── 小屏：面板收窄、声线区矮一点，别把整屏顶满 ─────────────────────────── */
+
+@media (max-width: 760px) {
+  .ai-voice-panel {
+    left: 8px;
+    width: calc(100% - 16px);
+    max-height: min(462px, calc(100dvh - 150px));
+  }
+
+  .ai-voice-voices-list {
+    max-height: 188px;
+  }
+}

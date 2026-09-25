@@ -29,13 +29,17 @@
 //
 // 所以对端 uid **不在** f1 这个位置 —— 想走私聊得先找到真正的对端字段，别硬塞 f1。
 //
-// **声线目录 / 试听**：QQ 客户端「AI 声聊」面板的样音是静态资源，URL 直接由 voiceId
-// 拼出，无签名、不需要在线实例：
-//   https://res.qpt.qq.com/qpilot/tts_sample/group/<voiceId>.wav
-// 2026-09-26 抓到 22 个候选 id（f34/f36/f37/f38、female1/2、m8/m14/m101、
-// male1/2/3、daji、houge、laibixiaoxin、lizeyan-2、lvbu、silang、suxinjiejie、
-// xueling、guangxi-m1、guangdong-f1）；完整清单与说明见 docs/develop/ai-voice.md。
-// 我们**不**把样音入库 —— 要试听就现拼上面的 URL。
+// **声线目录（另一条 OIDB）**：客户端的声线列表走 `OidbSvcTrpcTcp.0x929d_0`，
+// 响应 repeated 分组（推荐 / 搞怪 / 古风 / 现代），每条 item = { voiceId, 中文名,
+// 样音 URL }。2026-09-26 实测 4 组 / 30 条、去重 22 个 voiceId（同一条声线会
+// 出现在多个分组）。**本文件只实现 0x929b_0 合成**，目录没有走协议、由前端硬编码。
+//
+// 试听样音是 res.qpt.qq.com 上的静态对象，无签名、不需要在线实例：
+//   https://res.qpt.qq.com/qpilot/tts_sample/group/<样音文件名>.wav
+// ⚠️ 样音文件名**通常**等于 voiceId，但**不保证** —— `lucy-voice-lizeyan`
+// （霸道总裁）的样音是 `lucy-voice-lizeyan-2.wav`。要试听请用目录给的 URL，
+// 别拿 voiceId 硬拼。完整清单 / 分组 / 字段布局见 docs/develop/ai-voice.md。
+// 我们**不**把样音入库。
 
 import { message } from '../protobuf';
 import type { OidbNative } from '../transport';
