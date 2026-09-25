@@ -61,6 +61,19 @@ import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
+import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
+import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
+import {
+  createEmptyDraft,
+  createNode,
+  draftToProtocolPayload,
+  mfId,
+  type MfDraft,
+  type MfElement,
+  type MfNode,
+  type MfTarget,
+} from '../components/mergeForward/model';
+import type { MfPerson } from '../components/mergeForward/SenderPicker';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
@@ -1831,6 +1844,14 @@ export function MainView(): ReactElement {
     elements: RawElementWire;
   } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
+  // 合并转发：从聊天多选进入时带着一份草稿 + 会话成员候选；
+  // 「合成聊天记录」列表则走 MergeForwardLibraryDialog。
+  const [mergeForwardDraft, setMergeForwardDraft] = useState<{
+    draft: MfDraft;
+    senderMode: 'conversation' | 'global';
+    members: MfPerson[];
+  } | null>(null);
+  const [mergeForwardLibraryOpen, setMergeForwardLibraryOpen] = useState(false);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -2795,6 +2816,126 @@ export function MainView(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+
+  /* ── 合并转发（合成聊天记录）────────────────────────────────────────────
+   *
+   * 真正发包的接缝是 forwardMergeDraft —— 合并转发的协议（UploadLongMsg）
+   * 由另一分支接入，这里只把参数（SnowLuma 的 ForwardNodePayload 那一套：
+   * userUin / nickname / elements / time / decoration）准备好。 */
+  const mergeForwardSelf: MfPerson = useMemo(
+    () => ({
+      uid: selfProfile.data?.uid ?? '',
+      uin: user.identityValue,
+      name: user.displayName,
+    }),
+    [selfProfile.data?.uid, user],
+  );
+
+  /** 可转发到的会话（好友在前、群聊在后）；合并会话入口不可转发。 */
+  const mergeForwardTargets: MfTarget[] = useMemo(
+    () =>
+      conversations
+        .filter(
+          (c): c is Extract<Conversation, { type: 'group' | 'direct' }> =>
+            c.type === 'group' || c.type === 'direct',
+        )
+        .map((c) =>
+          c.type === 'group'
+            ? {
+                id: c.id,
+                kind: 'group' as const,
+                conv: c.group.identityValue,
+                name: c.group.name,
+                avatarUrl: c.group.avatarUrl,
+              }
+            : {
+                id: c.id,
+                kind: 'c2c' as const,
+                conv: c.otherUser.id,
+                name: c.otherUser.displayName,
+                avatarUrl: c.otherUser.avatarUrl,
+              },
+        ),
+    [conversations],
+  );
+
+  const mergeForwardSendAvailable = Boolean(
+    sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+  );
+
+  /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
+  const mergeForwardMembersOf = useCallback((c: Conversation): MfPerson[] => {
+    if (c.type === 'group') {
+      return c.members.map((m) => ({ uid: m.id, uin: m.identityValue, name: m.displayName }));
+    }
+    if (c.type === 'direct') {
+      return [
+        { uid: c.otherUser.id, uin: c.otherUser.identityValue, name: c.otherUser.displayName },
+      ];
+    }
+    return [];
+  }, []);
+
+  /** 多选的消息 → 一份草稿（保留渲染元素与逐条装扮，不丢）。 */
+  const buildMergeForwardDraft = useCallback((messages: Message[]): MfDraft => {
+    const now = Math.floor(Date.now() / 1000);
+    const nodes: MfNode[] = messages.map((message) => {
+      const sender = message.sender;
+      const senderInfo = {
+        uid: sender?.id ?? message.senderId,
+        uin: sender?.identityValue ?? '',
+        name: sender?.displayName || sender?.identityValue || '未知用户',
+      };
+      const elements = ((message as { qqElements?: MfElement[] }).qqElements ??
+        []) as MfElement[];
+      const parsed = Date.parse(message.createdAt);
+      const node = createNode(
+        senderInfo,
+        elements,
+        Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
+      );
+      const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
+      if (decoration) node.decoration = decoration;
+      if (message.id) node.sourceMsgId = message.id;
+      return node;
+    });
+    return { ...createEmptyDraft(), id: mfId('draft'), nodes };
+  }, []);
+
+  const handleMergeForward = useCallback(
+    (messages: Message[], c: Conversation) => {
+      if (messages.length === 0) return;
+      setMergeForwardDraft({
+        draft: buildMergeForwardDraft(messages),
+        senderMode: 'conversation',
+        members: mergeForwardMembersOf(c),
+      });
+    },
+    [buildMergeForwardDraft, mergeForwardMembersOf],
+  );
+
+  const persistMergeForwardDraft = useCallback(
+    async (draft: MfDraft) => {
+      await client.mergeForward.save.mutate({
+        id: draft.id,
+        title: draft.title,
+        createdAt: draft.createdAt,
+        nodes: draft.nodes,
+      });
+      void utils.mergeForward.list.invalidate();
+    },
+    [utils],
+  );
+
+  /**
+   * 发送接缝。协议尚未接入 —— 这里把参数准备好（日志里能看到），再抛一个
+   * 明确错误让上层「保留草稿」。另一分支接入时只需把这段换成真正的发送调用。
+   */
+  const forwardMergeDraft = useCallback(async (draft: MfDraft, target: MfTarget) => {
+    const payload = draftToProtocolPayload(draft, { kind: target.kind, conv: target.conv });
+    console.info('[merge-forward] payload ready (protocol not wired yet)', payload);
+    throw new Error('合并转发协议尚未接入，已保存为草稿');
+  }, []);
 
   /**
    * 把「还没落库的正文」并进 state —— 切走会话后立刻切回来能回填、会话列表的草稿
@@ -4212,6 +4353,7 @@ export function MainView(): ReactElement {
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
+            onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -4380,6 +4522,7 @@ export function MainView(): ReactElement {
                       onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                       onOpenGroupMember={handleOpenGroupMember}
                       onAddMessage={handleAddMessage}
+                      onMergeForward={handleMergeForward}
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
@@ -4625,6 +4768,28 @@ export function MainView(): ReactElement {
               selfUid={selfProfile.data?.uid}
               onClose={() => setAddMessageConv(null)}
               onInserted={() => void refreshWindow()}
+            />
+          ) : null}
+          {mergeForwardDraft ? (
+            <MergeForwardDialog
+              initialDraft={mergeForwardDraft.draft}
+              self={mergeForwardSelf}
+              senderMode={mergeForwardDraft.senderMode}
+              members={mergeForwardDraft.members}
+              targets={mergeForwardTargets}
+              sendAvailable={mergeForwardSendAvailable}
+              onClose={() => setMergeForwardDraft(null)}
+              onPersist={persistMergeForwardDraft}
+              onForward={forwardMergeDraft}
+            />
+          ) : null}
+          {mergeForwardLibraryOpen ? (
+            <MergeForwardLibraryDialog
+              self={mergeForwardSelf}
+              targets={mergeForwardTargets}
+              sendAvailable={mergeForwardSendAvailable}
+              onClose={() => setMergeForwardLibraryOpen(false)}
+              onForward={forwardMergeDraft}
             />
           ) : null}
           {deletedConv ? (

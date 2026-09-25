@@ -93,6 +93,7 @@ export function ChatMainContent({
   onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
+  onMergeForward,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
@@ -190,6 +191,8 @@ export function ChatMainContent({
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
+  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
+  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -262,6 +265,7 @@ export function ChatMainContent({
       onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
+      onMergeForward={onMergeForward}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}

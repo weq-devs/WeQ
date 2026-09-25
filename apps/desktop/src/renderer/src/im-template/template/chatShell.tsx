@@ -38,6 +38,7 @@ export function ChatShell({
   onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
+  onOpenMergeForward,
   onQueryChange,
   onQuickInvite,
   onCreateGroup,
@@ -76,6 +77,7 @@ export function ChatShell({
   onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
+  onOpenMergeForward: () => void;
   onQueryChange: (query: string) => void;
   onQuickInvite: () => void;
   onCreateGroup: () => void;
@@ -109,6 +111,7 @@ export function ChatShell({
           onOpenDbRepair={onOpenDbRepair}
           onOpenGuildDirect={onOpenGuildDirect}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
+          onOpenMergeForward={onOpenMergeForward}
           messageBadgeCount={messageBadgeCount}
           contactBadgeCount={contactBadgeCount}
           showTools={showTools}

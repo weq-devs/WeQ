@@ -254,6 +254,13 @@ export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
 export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
+export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export type {
+  MergeForwardDraft,
+  MergeForwardDraftInput,
+  MergeForwardNode,
+  MergeForwardSender,
+} from './account/merge_forward_drafts';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。

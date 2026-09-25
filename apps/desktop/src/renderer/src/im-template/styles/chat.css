@@ -5192,3 +5192,131 @@ html[data-theme="dark"] .chat-empty-logo {
 	height: 92px;
 	border-radius: 8px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   多选（右键「多选」→ 整行高亮 + 输入区换成操作条）
+   ══════════════════════════════════════════════════════════════════════════
+   主题色 / 深浅模式全部走 --weq-accent-effective + --weq-bg-*，不另写一份。 */
+
+.message-line.selection-mode {
+	cursor: pointer;
+}
+
+/* 选中行：整个矩形区域铺主题色底 + 虚线边框。用负 margin 抵消 padding/border，
+ * 避免选中时整行高度变化、列表跳一下。 */
+.message-line.is-selected {
+	margin: -5px -12px;
+	padding: 4px 11px;
+	border: 1px dashed color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 13%, transparent);
+}
+
+.message-line.is-selected .message-bubble {
+	background: transparent;
+}
+
+/* 行首的圆形勾选标。 */
+.message-select-mark {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	min-width: 20px;
+	margin-top: 6px;
+	border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
+	border-radius: 50%;
+	color: #ffffff;
+	background: transparent;
+	transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.message-line.is-selected .message-select-mark {
+	border-color: var(--weq-accent-effective, #0099f7);
+	background: var(--weq-accent-effective, #0099f7);
+}
+
+/* ── 输入区让位给操作条 ───────────────────────────────────────────────── */
+.composer.selection-mode {
+	grid-template-rows: minmax(0, 1fr);
+	padding: 10px 22px;
+}
+
+/* 多选时只剩操作条：其余子元素（工具行 / 编辑器 / 发送键 / 各种浮层）全藏起来。 */
+.composer.selection-mode > *:not(.selection-bar) {
+	display: none !important;
+}
+
+.selection-bar {
+	display: flex;
+	grid-column: 1 / -1;
+	align-items: center;
+	gap: 14px;
+	min-width: 0;
+}
+
+.selection-bar-info {
+	display: flex;
+	align-items: baseline;
+	gap: 5px;
+	color: var(--weq-fg-secondary, #6b7280);
+}
+
+.selection-bar-count {
+	font-size: 20px;
+	font-weight: 700;
+	color: var(--weq-accent-effective, #0099f7);
+	font-variant-numeric: tabular-nums;
+}
+
+.selection-bar-label {
+	font-size: 12px;
+}
+
+.selection-bar-actions {
+	display: flex;
+	margin-left: auto;
+	align-items: center;
+	gap: 8px;
+}
+
+.selection-action {
+	display: inline-flex;
+	height: 36px;
+	align-items: center;
+	gap: 6px;
+	padding: 0 14px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099f7) 26%, transparent);
+	border-radius: 10px;
+	color: inherit;
+	font-size: 13px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 6%, transparent);
+	cursor: pointer;
+	transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.selection-action:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 13%, transparent);
+}
+
+.selection-action:active:not(:disabled) {
+	transform: translateY(1px);
+}
+
+.selection-action:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.selection-action-primary {
+	border-color: transparent;
+	color: #ffffff;
+	background: var(--weq-accent-effective, #0099f7);
+	box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective, #0099f7) 32%, transparent);
+}
+
+.selection-action-primary:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 88%, #000000);
+}

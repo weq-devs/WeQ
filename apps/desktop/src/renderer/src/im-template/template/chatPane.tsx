@@ -18,11 +18,14 @@ import {
   Bug,
   Image as ImageIcon,
   Link2,
+  ClipboardCopy,
   MessageSquareText,
   Mic,
   SendHorizontal,
+  Share2,
   Smile,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { useThemeStore } from '../../state/theme';
@@ -289,6 +292,7 @@ export function ChatPane({
   onExportConversation,
   deletedIds,
   onRestoreMessage,
+  onMergeForward,
 }: {
   user: User;
   conversation: Conversation | undefined;
@@ -353,6 +357,8 @@ export function ChatPane({
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
+  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
+  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
@@ -401,6 +407,9 @@ export function ChatPane({
   const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
   const ttsEnabled = ttsProviders.length > 0;
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
+  // 多选：右键「多选」进入；此时输入框让位给「合并转发 / 删除 / 复制 JSON / 退出」。
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
     anchor: { x: number; y: number };
@@ -425,6 +434,25 @@ export function ChatPane({
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
     setGroupInfoDetail(detail);
   }
+
+  // 切会话时退出多选（选中集属于上一个会话）。
+  useEffect(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [conversation?.id]);
+
+  // 多选模式下按 Esc 退出。
+  useEffect(() => {
+    if (!selectionMode) return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSelectionMode(false);
+        setSelectedIds(new Set());
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selectionMode]);
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -454,6 +482,11 @@ export function ChatPane({
   const visibleMessages = useMemo(
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
+  );
+  // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
+  const selectedMessages = useMemo(
+    () => visibleMessages.filter((message) => selectedIds.has(message.id)),
+    [visibleMessages, selectedIds],
   );
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
@@ -1503,6 +1536,12 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
+    // 多选模式下右键 = 切换选中，不再弹菜单。
+    if (selectionMode) {
+      event.preventDefault();
+      toggleSelectMessage(message);
+      return;
+    }
     if (window.matchMedia('(max-width: 760px)').matches) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
@@ -1544,6 +1583,71 @@ export function ChatPane({
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
       variant: 'mobile',
     });
+  }
+
+  /** 进入多选：右键「多选」→ 选中该条并切到多选模式。 */
+  function enterSelection(message: Message) {
+    setContextMenu(null);
+    setDecorationCard(null);
+    window.getSelection()?.removeAllRanges();
+    setSelectionMode(true);
+    setSelectedIds(new Set([message.id]));
+  }
+
+  function toggleSelectMessage(message: Message) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) {
+        next.delete(message.id);
+      } else {
+        next.add(message.id);
+      }
+      return next;
+    });
+  }
+
+  function exitSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function mergeForwardSelected() {
+    if (!conversation || selectedMessages.length === 0) {
+      return;
+    }
+    const picked = selectedMessages;
+    exitSelection();
+    onMergeForward?.(picked, conversation);
+  }
+
+  function deleteSelectedMessages() {
+    if (!conversation) {
+      return;
+    }
+    const picked = selectedMessages;
+    exitSelection();
+    for (const message of picked) {
+      void onDeleteMessage?.(message, conversation);
+    }
+  }
+
+  function copySelectedMessagesJson() {
+    const payload = selectedMessages.map((message) => {
+      const sender = resolveMessageSender(message, conversation as Conversation, user);
+      const decoration = (message as { decoration?: unknown }).decoration ?? null;
+      const qqElements = (message as { qqElements?: unknown }).qqElements ?? null;
+      return {
+        msgId: message.id,
+        senderId: message.senderId,
+        senderUin: sender.identityValue,
+        senderName: displayUserName(sender),
+        createdAt: message.createdAt,
+        body: message.body,
+        decoration,
+        elements: qqElements,
+      };
+    });
+    void copyTextToClipboard(JSON.stringify(payload, null, 2));
   }
 
   function updateComposerHeight(height: number) {
@@ -1920,7 +2024,8 @@ export function ChatPane({
   //
   // 收起时置 0：网格那一行、把手的 bottom、右下角「N 条新消息」气泡的 bottom 都
   // 吃这个变量，于是整条输入区从布局里消失、气泡自动落回底边，不用各处单独判断。
-  const effectiveComposerHeight = composerCollapsed ? 0 : composerHeight;
+  // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
+  const effectiveComposerHeight = selectionMode ? 64 : composerCollapsed ? 0 : composerHeight;
   const paneStyle = {
     '--composer-height': `${effectiveComposerHeight}px`,
     '--desktop-composer-height': `${effectiveComposerHeight}px`,
@@ -1943,7 +2048,8 @@ export function ChatPane({
         'chat-pane',
         conversation.type === 'group' ? 'with-group-info' : '',
         conversation.type === 'group' && groupInfoCollapsed ? 'group-info-collapsed' : '',
-        composerCollapsed ? 'composer-collapsed' : '',
+        composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
+        selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
@@ -2280,9 +2386,13 @@ export function ChatPane({
                     recallRevokerName={message.recallRevokerName}
                     onRestore={onRestoreMessage}
                     onContextMenu={openMessageMenu}
+                    selected={selectionMode && selectedIds.has(message.id)}
+                    selectionMode={selectionMode}
+                    onToggleSelect={toggleSelectMessage}
                     onLongPress={openMobileMessageMenu}
                     onAction={onMessageAction}
                     onAvatarClick={
+                      !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
                       onOpenGroupMember
                         ? onOpenGroupMember
@@ -2368,11 +2478,54 @@ export function ChatPane({
           hasQuote && 'has-quote',
           voicePanelActive && 'voice-open',
           dropActive && 'is-dropping',
+          selectionMode && 'selection-mode',
         )}
         onDragOver={handleComposerDragOver}
         onDragLeave={handleComposerDragLeave}
         onDrop={handleComposerDrop}
       >
+        {selectionMode ? (
+          <div className={cn('selection-bar')}>
+            <div className={cn('selection-bar-info')}>
+              <span className={cn('selection-bar-count')}>{selectedIds.size}</span>
+              <span className={cn('selection-bar-label')}>条已选</span>
+            </div>
+            <div className={cn('selection-bar-actions')}>
+              <button
+                type="button"
+                className={cn('selection-action', 'selection-action-primary')}
+                title={sendAvailable ? '合并转发' : 'QQ 未在线或处于完全离线模式，暂不可发送'}
+                disabled={!sendAvailable || selectedMessages.length === 0}
+                onClick={mergeForwardSelected}
+              >
+                <Share2 size={17} />
+                <span>合并转发</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
+                onClick={deleteSelectedMessages}
+              >
+                <Trash2 size={17} />
+                <span>删除</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
+                onClick={copySelectedMessagesJson}
+              >
+                <ClipboardCopy size={17} />
+                <span>复制 JSON</span>
+              </button>
+              <button type="button" className={cn('selection-action')} onClick={exitSelection}>
+                <X size={17} />
+                <span>退出</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
         <ComposerResizeHandle
           height={composerHeight}
           minHeight={composerHeightMin}
@@ -2687,6 +2840,7 @@ export function ChatPane({
           onReply={startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
           replyBlockedReason={quoteBlockReason(contextMenu.message)}
+          onMultiSelect={enterSelection}
         />
       ) : null}
       {decorationCard ? (
