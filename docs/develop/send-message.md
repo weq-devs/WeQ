@@ -290,7 +290,8 @@ uid 的宽松度分两档：**纯文本私聊不强制 uid**（陌生人也能�
 
 MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file_message` /
 `send_rich_message`）在生产上应保持 `assistantOnly`（真实发送 = 有外部副作用，按仓库约定不进对外只读 MCP
-面板，只给内置助手）；真机联调期间临时摘掉了这个标记（`tools.ts:3366` 有恢复说明），
+面板，只给内置助手）；真机联调期间临时摘掉了这个标记（`tools.ts` 的「发消息（真实副作用）」
+小节开头有恢复说明），
 **联调结束要装回去**。失败一律回 `ok: false` + `result` / `errMsg` / `hint`，
 **不把「调用了」当「发成功」**。媒体消息的回执额外带 `uploads[]`（见第三节的「秒传实测结论」）。
 

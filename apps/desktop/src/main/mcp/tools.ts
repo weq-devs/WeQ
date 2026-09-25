@@ -3347,7 +3347,6 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'send_tuwen_ark',
-    assistantOnly: true, // 真实发送消息（有外部副作用）→ 不进只读 MCP server，仅助手可用
     description:
       '给私聊或群聊发送一张【自定义图文 Ark 卡片】（OIDB 0xdc2_34：标题 + 描述 + 跳转链接 + 预览图）。' +
       '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。' +
