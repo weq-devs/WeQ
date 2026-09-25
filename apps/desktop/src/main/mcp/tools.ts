@@ -3686,6 +3686,82 @@ export const AI_TOOLS: AiTool[] = [
     },
   }),
 
+  // ── 轻互动（真实副作用）：戳一戳 / 贴表情回应 ────────────────────────
+  // 都是 OIDB 包（不是消息），和上面四个发送工具同属「真机联调期临时开放」，
+  // 联调结束后同样应恢复 assistantOnly（见本节开头的说明）。
+
+  tool({
+    name: 'send_poke',
+    description:
+      '【戳一戳】（OIDB 0xED3_1）—— 群聊里戳某个成员，或私聊戳对方，会在会话里留下一条「戳一戳」灰条。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线。' +
+      '\n【和窗口抖动的区别】窗口抖动是**私聊消息**里的一个元素（只能私聊、必须独占一条），' +
+      '用 send_rich_message 发 {"kind":"poke","subType":1}；' +
+      '本工具是聊天窗口里那个「戳一戳」，群聊/私聊都能用，收端显示成灰条而不是抖动。' +
+      '\n【目标怎么写】peerType=group 时 targetId 传群号，targetUin 传被戳成员 QQ 号（不传 = 戳群）；' +
+      'peerType=c2c 时 targetId 传对方 QQ 号或 uid（不传 targetUin = 戳对方）。' +
+      '\n【结果怎么看】成功没有回执内容（服务端回空 ack）；失败会抛错误。' +
+      '\n⚠️ 尚未真机验证（协议字段与 SnowLuma / Lagrange / NapCat 三边一致，但没在真机上发过）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（group）或 QQ 号 / uid（c2c）'),
+      targetUin: z.string().optional().describe('被戳成员 QQ 号（仅群聊有意义；不给则戳群本身）'),
+    }),
+    run: async ({ peerType, targetId, targetUin }) => {
+      onlinePid(); // 需要在线且已注入的 QQ
+      await services().interaction.sendPoke({
+        peerType,
+        targetId,
+        ...(targetUin !== undefined ? { targetUin } : {}),
+      });
+      return {
+        ok: true,
+        peerType,
+        targetId,
+        ...(targetUin ? { targetUin } : {}),
+        hint: '戳一戳已发出（服务端只回空 ack，无法从回执确认对方是否收到）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'set_message_reaction',
+    description:
+      '【贴表情回应 / 撤回】给某条**群消息**贴一个表情回应，或撤回自己贴过的回应（OIDB 0x9082_1 / 0x9082_2）。' +
+      '⚠️ 真实操作：会改变群里那条消息上的表情回应，不能通过本工具撤销（只能再用 set=false 撤回自己的）。需要在线 QQ。' +
+      '\n【怎么定位消息】groupId 传群号，sequence 传该消息的 msgSeq —— ' +
+      'get_messages / get_messages_by_date 开 includeIds=true 会带 msgSeq，get_message_details 也返回 msgSeq。' +
+      '\n【表情怎么写】code 传表情 id：1–3 位是 QQ 小黄脸 id（如 76、124），更长的是 Unicode 码点（如 128516 = 😄）；' +
+      '客户端按长度自动分 type，不用手填。' +
+      '\n【set】true = 贴（缺省），false = 撤回自己贴的同一个表情。' +
+      '\n【已知缺口】只做了设置/撤回：查某个表情的回应人列表（0x9083_1）与常用表情目录（0x9084_1）没接。' +
+      '想知道某条消息当前有哪些回应，读 get_message_details 返回的 reactions[]（来自本地库 40062 列）。' +
+      '\n⚠️ 尚未真机验证。',
+    input: z.object({
+      groupId: z.string().min(1).describe('群号（纯数字）'),
+      sequence: z.number().int().positive().describe('目标消息的 msgSeq'),
+      code: z
+        .string()
+        .min(1)
+        .describe('表情 id：1–3 位小黄脸 id（如 76），或 Unicode 码点（如 128516）'),
+      set: z.boolean().default(true).describe('true=贴表情，false=撤回自己的回应'),
+    }),
+    run: async ({ groupId, sequence, code, set }) => {
+      onlinePid();
+      await services().interaction.setMessageReaction({ groupId, sequence, code, isSet: set });
+      return {
+        ok: true,
+        groupId,
+        sequence,
+        code,
+        set,
+        hint: set
+          ? '表情回应已发出（要确认是否生效可再看 get_message_details 的 reactions[]）。'
+          : '已撤回自己在该消息上贴的这个表情。',
+      };
+    },
+  }),
+
   // ── Web CGI 查询类 ──────────────────────────────────────────────────
 
   tool({

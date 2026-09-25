@@ -111,6 +111,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  InteractionService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -593,6 +594,8 @@ export interface AccountServices {
   flashTransfer: FlashTransferService;
   /** 发消息（文本/媒体，MessageSvc.PbSendMsg + NTV2 上传，需在线 QQ 发包）。 */
   messageSend: MessageSendService;
+  /** 轻互动：戳一戳（0xED3_1）+ 群消息贴表情（0x9082，需在线 QQ 发包）。 */
+  interaction: InteractionService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** QQ 收藏 (favorites) reader over collection.db. */
@@ -1337,6 +1340,7 @@ export function initAppContext(): AppContext {
           resolveOnlinePid,
         ),
         messageSend: new MessageSendService(platform.native.ntHelper, session, resolveOnlinePid),
+        interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -1799,6 +1803,7 @@ export function initAppContext(): AppContext {
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
         messageSend: new MessageSendService(platform.native.ntHelper, session, livePid),
+        interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
 

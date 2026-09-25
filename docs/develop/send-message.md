@@ -6,6 +6,11 @@
 > `packages/service/src/account/message_send.ts`（`MessageSendService`）、
 > `apps/desktop/src/main/mcp/tools.ts`（MCP 工具 `send_text_message` /
 > `send_media_message` / `send_file_message` / `send_rich_message`）。
+>
+> 相邻的**轻互动**（戳一戳 / 贴表情）不走这条管线，见
+> `packages/protocol/src/oidb/send-poke.ts`、`set-reaction.ts`、
+> `packages/service/src/account/interaction.ts` 与 MCP 的 `send_poke` /
+> `set_message_reaction`。
 
 ## 一、它是什么
 
@@ -254,6 +259,21 @@ MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file
 面板，只给内置助手）；真机联调期间临时摘掉了这个标记（`tools.ts:3366` 有恢复说明），
 **联调结束要装回去**。失败一律回 `ok: false` + `result` / `errMsg` / `hint`，
 **不把「调用了」当「发成功」**。媒体消息的回执额外带 `uploads[]`（见第三节的「秒传实测结论」）。
+
+同样在真机联调期临时开放的还有两个**轻互动**工具（真实副作用，同样应恢复
+`assistantOnly`）：`send_poke`（戳一戳）与 `set_message_reaction`（贴 / 撤表情回应）。
+它们**不是消息**，走的是独立 OIDB，与上表的 `poke` 元素（窗口抖动）是两回事：
+
+| 能力 | 协议 | SSO | 说明 |
+| --- | --- | --- | --- |
+| 戳一戳 | 0xED3_1 | `OidbSvcTrpcTcp.0xed3_1` | 群聊戳成员 / 私聊戳对方，收端是「戳一戳」灰条 |
+| 窗口抖动 | 0xED3 之外的 PbSendMsg | `MessageSvc.PbSendMsg` | 私聊消息里的 `commonElem svc 2` 元素，只能私聊且独占一条 |
+| 贴 / 撤表情回应 | 0x9082_1 / 0x9082_2 | `OidbSvcTrpcTcp.0x9082_N` | 群消息上的表情回应；`code` ≤3 位 = 小黄脸 id，>3 位 = Unicode 码点 |
+
+查询侧（0x9083_1 某表情的回应人列表、0x9084_1 常用表情目录）**没有对接**；要知道一条
+消息当前有哪些回应，读 `get_message_details` 的 `reactions[]`（来自本地库 40062 列）。
+
+这两条都**尚未真机验证**（字段与 SnowLuma / Lagrange / NapCat 三边一致，但没有实发过）。
 
 上传链路会把会话节点与每块 highway 回帧（`errorCode` / `segRetCode` / head hex）写进
 账号日志（`logger.info(..., { event: 'media-upload' })`，日志目录见 `getLogDir()`）——
