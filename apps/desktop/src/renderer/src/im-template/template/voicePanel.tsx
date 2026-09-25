@@ -23,7 +23,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CircleStop,
   Loader2,
   Mic,
   Pause,
@@ -641,6 +640,8 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
  * 不经过 React 渲染 —— 每帧只做 {@link BAR_COUNT} 次样式写入。
  */
 function VoiceWaveRing({ levels, active }: { levels: number[]; active: boolean }) {
+  // 录音时整圈转成录音红（见 composer-media.css 的 .voice-ring.is-active），
+  // 免得蓝色声纹环配红色录音键。
   const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -674,7 +675,7 @@ function VoiceWaveRing({ levels, active }: { levels: number[]; active: boolean }
   }, [levels]);
 
   return (
-    <div className={cn('voice-ring')} aria-hidden="true">
+    <div className={cn('voice-ring', active && 'is-active')} aria-hidden="true">
       {RING_BARS.map((bar, index) => (
         <span
           key={bar.angle}
@@ -905,20 +906,24 @@ export function VoicePanel({
               onContextMenu={(event) => event.preventDefault()}
             >
               {phase === 'requesting' ? (
-                <Loader2 size={22} className={cn('voice-spin')} />
+                <>
+                  <Loader2 size={20} className={cn('voice-spin')} />
+                  <strong>正在打开麦克风…</strong>
+                </>
               ) : busy ? (
-                <CircleStop size={22} />
+                <>
+                  {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
+                  <strong className={cn('voice-record-timer')}>
+                    {formatClipDuration(recorder.elapsedMs)}
+                  </strong>
+                  <em className={cn('voice-record-note')}>松开结束</em>
+                </>
               ) : (
-                <Mic size={22} />
+                <>
+                  <Mic size={22} />
+                  <strong>按住说话</strong>
+                </>
               )}
-              <strong>
-                {phase === 'requesting' ? '正在打开麦克风…' : busy ? '松开结束' : '按住说话'}
-              </strong>
-              {busy ? (
-                <em className={cn('voice-record-timer')}>
-                  {formatClipDuration(recorder.elapsedMs)}
-                </em>
-              ) : null}
             </button>
           </div>
         )}

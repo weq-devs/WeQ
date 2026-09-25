@@ -1,4 +1,4 @@
-﻿import { Copy, Download, Trash2, Edit3, Palette } from 'lucide-react';
+﻿import { Copy, Download, Trash2, Edit3, Palette, Quote } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -24,6 +24,8 @@ export function MessageContextMenu({
   onDelete,
   onEditRaw,
   onViewDecoration,
+  onReply,
+  replyBlockedReason,
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
@@ -32,6 +34,10 @@ export function MessageContextMenu({
   onDelete: (message: Message) => void;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
+  /** 引用：把这条消息挂到输入框上方（引用条）。 */
+  onReply?: (message: Message) => void;
+  /** 非空 = 这条消息不能引用（系统消息 / 缺少会话内序号…），按钮置灰并显示原因。 */
+  replyBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const decoration = (
@@ -87,6 +93,17 @@ export function MessageContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
+      {onReply ? (
+        <button
+          type="button"
+          title={replyBlockedReason ?? '引用这条消息'}
+          disabled={Boolean(replyBlockedReason)}
+          onClick={() => onReply(state.message)}
+        >
+          <Quote size={17} />
+          <span>引用</span>
+        </button>
+      ) : null}
       <button type="button" onClick={() => void onCopy(state.message)}>
         <Copy size={17} />
         <span>复制</span>

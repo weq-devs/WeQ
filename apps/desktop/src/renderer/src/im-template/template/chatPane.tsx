@@ -17,6 +17,7 @@ import {
   FolderOpen,
   Bug,
   Image as ImageIcon,
+  Link2,
   MessageSquareText,
   Mic,
   SendHorizontal,
@@ -71,6 +72,14 @@ import {
   collectFiles,
 } from './composerMediaStage';
 import { VoicePanel } from './voicePanel';
+import {
+  ComposerQuoteBar,
+  composerQuoteToken,
+  quoteBlockReason,
+  quoteFromMessage,
+  type ComposerQuote,
+} from './composerQuote';
+import { LinkCardPanel, linkCardToken, type LinkCardDraft } from './linkCardPanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -367,11 +376,15 @@ export function ChatPane({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
+  const [linkOpen, setLinkOpen] = useState(false);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
   const [mediaAttachment, setMediaAttachment] = useState<ComposerAttachment | null>(null);
   const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
+  // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
+  const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
@@ -418,6 +431,8 @@ export function ChatPane({
   const voicePanelRef = useRef<HTMLDivElement | null>(null);
   const voiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const voiceBusyRef = useRef(false);
+  const linkPanelRef = useRef<HTMLDivElement | null>(null);
+  const linkButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -788,6 +803,41 @@ export function ChatPane({
     };
   }, [voiceOpen]);
 
+  useEffect(() => {
+    if (!linkOpen) {
+      return;
+    }
+
+    function closeLinkFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        linkPanelRef.current?.contains(target) ||
+        linkButtonRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target) ||
+        toolsButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setLinkOpen(false);
+    }
+
+    function closeLinkOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setLinkOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeLinkFromOutside);
+    document.addEventListener('keydown', closeLinkOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeLinkFromOutside);
+      document.removeEventListener('keydown', closeLinkOnEscape);
+    };
+  }, [linkOpen]);
+
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
@@ -810,6 +860,8 @@ export function ChatPane({
       return null;
     });
     setPendingSuperEmoji(null);
+    // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
+    setPendingQuote(null);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -1014,6 +1066,8 @@ export function ChatPane({
       if (current) releaseAttachment(current);
       return null;
     });
+    // 「单独发」的卡片与引用互斥：挂上卡片就把引用条收起来。
+    setPendingQuote(null);
     setPendingSuperEmoji(item);
     setAttachmentError(null);
     setEmojiOpen(false);
@@ -1031,6 +1085,45 @@ export function ChatPane({
   }
 
   /**
+   * 右键菜单「引用」：把这条消息挂到输入框上方。
+   *
+   * 不能引用的消息（系统灰条 / 无 seq）在菜单里已经置灰，这里再兜一层。
+   * **嵌套引用是允许的**：引用的消息自己也是引用也行，只是它的 reply 元素会被排掉
+   * （见 composerQuote 的 composerQuoteElement / quotePreview），不会嵌到新引用里。
+   * 引用条与「只能单独发」的卡片互斥 —— 挂上引用就把卡片卸掉（预览地址一并释放），
+   * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
+   */
+  function startQuote(message: Message) {
+    if (quoteBlockReason(message)) {
+      return;
+    }
+    const quote = quoteFromMessage(message);
+    if (!quote) {
+      return;
+    }
+
+    setContextMenu(null);
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setPendingSuperEmoji(null);
+    setAttachmentError(null);
+    setPendingQuote(quote);
+    // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  function removeQuote() {
+    setPendingQuote(null);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  /**
    * 发消息。
    *
    * 内联图片本来就在正文里（`serializeComposer` 会把 `<img>` 上的 token 原样取回），
@@ -1040,7 +1133,15 @@ export function ChatPane({
    * 挂着视频 / 文件 / 超级表情时正文一律不参与本次发送：它们只能单独发，输入框里的
    * 文字原样留着。
    */
-  async function submitMessage(options: { extraTokens?: string[]; text?: string } = {}) {
+  async function submitMessage(
+    options: {
+      extraTokens?: string[];
+      text?: string;
+      keepBody?: boolean;
+      /** 独立发送（链接卡片）：本次不带引用，引用条的清理也在调用方。 */
+      omitQuote?: boolean;
+    } = {},
+  ) {
     const editor = currentComposerEditor();
     const nextBody = options.text ?? (editor ? serializeComposer(editor) : body);
     const trimmed = nextBody.trim();
@@ -1049,14 +1150,16 @@ export function ChatPane({
       : pendingSuperEmoji
         ? createEmojiToken(pendingSuperEmoji)
         : null;
-    const tokens = [...(singleToken ? [singleToken] : []), ...(options.extraTokens ?? [])];
+    // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
+    // 它描述的是「本消息在回复哪一条」，不是正文的一部分。
+    const quote = options.omitQuote ? null : pendingQuote;
+    const tokens = [
+      ...(quote ? [composerQuoteToken(quote)] : []),
+      ...(singleToken ? [singleToken] : []),
+      ...(options.extraTokens ?? []),
+    ];
     const text = singleToken ? '' : trimmed;
-    if (
-      (!text && tokens.length === 0) ||
-      !sendAvailable ||
-      currentPreference.blocked ||
-      sending
-    ) {
+    if ((!text && tokens.length === 0) || !sendAvailable || currentPreference.blocked || sending) {
       return;
     }
 
@@ -1085,9 +1188,19 @@ export function ChatPane({
       return;
     }
 
-    // 清空放在发送成功之后：失败时输入区保持原样，草稿、附件也还在。
+    // 链接卡片同样独立于正文（它自己就是一条完整的卡片消息）：发完不清输入框，
+    // 用户正在打的字原样留着。
+    if (options.keepBody) {
+      setVoiceOpen(false);
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+      return;
+    }
+
+    // 清空放在发送成功之后：失败时输入区保持原样，草稿、附件、引用也还在。
     setComposerBody('');
     releaseInlineImages();
+    setPendingQuote(null);
     setVoiceOpen(false);
     if (conversation) {
       onDraftClear(conversation.id);
@@ -1119,6 +1232,25 @@ export function ChatPane({
   async function sendTranscriptText(text: string) {
     if (!text) return;
     await submitMessage({ text });
+  }
+
+  /**
+   * 链接卡片面板「发送」：卡片编成一枚 ark 元素 token，走跟语音同一条发送通路
+   * （`extraTokens`）。只做前端：这里不拼任何协议，真正下发仍由 `onSend` 那一侧决定
+   * —— 没接上时它会报错，输入框里的文字与卡片都不会丢。
+   */
+  async function sendLinkCard(card: LinkCardDraft) {
+    setLinkOpen(false);
+    // 卡片是只能单独发的元素：它顶掉挂着的引用（跟视频 / 文件同一套互斥）。
+    setPendingQuote(null);
+    // `text: ''` —— 卡片自己就是完整的一条消息，不带输入框里的文字；`keepBody` 让
+    // 用户正在打的那段字原样留在输入框里，不会被这次发送清掉。
+    await submitMessage({
+      extraTokens: [linkCardToken(card)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -1218,6 +1350,8 @@ export function ChatPane({
       return attachment;
     });
     setPendingSuperEmoji(null);
+    // 同上：视频 / 文件顶掉引用。
+    setPendingQuote(null);
   }
 
   function removeMediaAttachment() {
@@ -1262,10 +1396,11 @@ export function ChatPane({
     if (media.length > 0) {
       // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
       setMedia(await createAttachment(media[0]));
-      // 表情 / 语音 / 更多面板跟卡片互斥，一并收起来。
+      // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
+      setLinkOpen(false);
       setAttachmentError(
         media.length > 1
           ? '视频 / 文件只能单独发送，只保留了第一个'
@@ -1480,6 +1615,7 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setEmojiOpen(false);
+    setLinkOpen(false);
     setMobileComposerExpanded(true);
   }
 
@@ -1487,6 +1623,7 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setVoiceOpen(false);
+    setLinkOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -1494,6 +1631,7 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setVoiceOpen(false);
+    setLinkOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
@@ -1501,7 +1639,16 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
+    setLinkOpen(false);
     setVoiceOpen((open) => !open);
+  }
+
+  function toggleLinkPanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -1743,13 +1890,15 @@ export function ChatPane({
   // 挂上以后正文编辑区让给卡片、输入框里的文字不参与本次发送。
   const hasSingleSend = mediaAttachment !== null || pendingSuperEmoji !== null;
   const singleSendHint = pendingSuperEmoji ? '超级表情只能单独发送' : '视频 / 文件只能单独发送';
-  // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片挂着时
-  // 发送键只看这张卡片。
+  // 引用是正文之外的第二种内容，而它**不占**「单独发」那个槽位（引用 + 正文一起发）。
+  const hasQuote = pendingQuote !== null;
+  // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片 / 引用
+  // 挂着时发送键也算有内容。
   const sendDisabled =
     !sendAvailable ||
     currentPreference.blocked ||
     sending ||
-    (body.trim().length === 0 && !hasSingleSend);
+    (body.trim().length === 0 && !hasSingleSend && !hasQuote);
   const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
@@ -1763,6 +1912,7 @@ export function ChatPane({
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
+      setLinkOpen(false);
     },
   };
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
@@ -2215,6 +2365,7 @@ export function ChatPane({
         className={cn(
           'composer',
           hasSingleSend && 'has-single-send',
+          hasQuote && 'has-quote',
           voicePanelActive && 'voice-open',
           dropActive && 'is-dropping',
         )}
@@ -2278,6 +2429,16 @@ export function ChatPane({
           >
             <FolderOpen size={21} strokeWidth={1.5} />
           </button>
+          <button
+            ref={linkButtonRef}
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool', linkOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '发送链接卡片（单独发送）'}
+            disabled={currentPreference.blocked || sending || hasSingleSend}
+            onClick={toggleLinkPanel}
+          >
+            <Link2 size={21} strokeWidth={1.5} />
+          </button>
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
               key={action.id}
@@ -2307,6 +2468,7 @@ export function ChatPane({
         ) : pendingSuperEmoji ? (
           <ComposerSuperEmojiStage item={pendingSuperEmoji} onRemove={removePendingSuperEmoji} />
         ) : null}
+        {pendingQuote ? <ComposerQuoteBar quote={pendingQuote} onRemove={removeQuote} /> : null}
         {emojiOpen && !mobileComposerExpanded ? (
           <EmojiPanel
             panelRef={emojiPanelRef}
@@ -2325,6 +2487,15 @@ export function ChatPane({
             onSendVoice={(clip) => void sendVoiceClip(clip)}
             onSendTranscript={(text) => void sendTranscriptText(text)}
             onBusyChange={handleVoiceBusyChange}
+          />
+        ) : null}
+        {linkOpen && !mobileComposerExpanded ? (
+          <LinkCardPanel
+            panelRef={linkPanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSend={(card) => void sendLinkCard(card)}
+            onClose={() => setLinkOpen(false)}
           />
         ) : null}
         <input
@@ -2513,6 +2684,9 @@ export function ChatPane({
           onDelete={deleteMessage}
           onEditRaw={onEditRaw ? editMessageRaw : undefined}
           onViewDecoration={viewDecoration}
+          onReply={startQuote}
+          // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
+          replyBlockedReason={quoteBlockReason(contextMenu.message)}
         />
       ) : null}
       {decorationCard ? (

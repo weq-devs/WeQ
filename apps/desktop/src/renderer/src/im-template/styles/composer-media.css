@@ -15,10 +15,16 @@
 /* 都在 .composer 里，变量挂在它身上，舞台 / 卡片 / 提示条都能拿到。 */
 .composer {
   --media-danger: #f0483e;
+  /* 录音态专属色：不用 --media-danger 那种正红（大面积糊在圆钮上太吵），换成
+     偏珊瑚的一对红，只给录音键和它的声纹环用。 */
+  --media-record: #ff6a5e;
+  --media-record-strong: #e8402f;
 }
 
 html[data-theme="dark"] .composer {
   --media-danger: #ff6f64;
+  --media-record: #ff8078;
+  --media-record-strong: #e5544b;
 }
 
 /* ── 「只能单独发」的卡片（占掉正文编辑区那一行）─────────────────────────
@@ -449,6 +455,11 @@ button.composer-single-thumb {
   color: var(--weq-accent-effective, #0099ff);
 }
 
+/* 录音中整圈声纹跟录音键一起转红，蓝环配红钮的撞色就没了。 */
+.voice-ring.is-active {
+  color: var(--media-record);
+}
+
 .voice-ring span {
   position: absolute;
   top: 0;
@@ -474,7 +485,7 @@ button.composer-single-thumb {
 .voice-pulse i {
   position: absolute;
   inset: 0;
-  border: 2px solid color-mix(in srgb, var(--media-danger) 46%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--media-record) 40%, transparent);
   border-radius: 50%;
   opacity: 0;
 }
@@ -546,31 +557,42 @@ button.composer-single-thumb {
   text-align: center;
 }
 
-.voice-record-timer {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 10px;
-  font-style: normal;
+/* 录音中的秒数就是主体：大号数字居中，tabular-nums 保证读数不跳。 */
+.voice-record-btn .voice-record-timer {
+  max-width: 62px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-.voice-record-btn.is-recording {
-  background: radial-gradient(
-    circle at 34% 26%,
-    color-mix(in srgb, var(--media-danger) 62%, #ffffff),
-    var(--media-danger) 72%
-  );
-  box-shadow:
-    0 14px 32px color-mix(in srgb, var(--media-danger) 44%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+/* 「松开结束」只当附注，压在秒数下面。 */
+.voice-record-note {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.04em;
 }
 
+/* 录音态：柔和的上下渐变替掉原来那个发白的径向红，红色光晕也收小收淡，
+   只靠颜色 + 轻微缩放表达「正在录」，不靠一大团红光。 */
+.voice-record-btn.is-recording {
+  background: linear-gradient(180deg, var(--media-record), var(--media-record-strong));
+  box-shadow:
+    0 6px 18px color-mix(in srgb, var(--media-record-strong) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* 等麦克风那段用浅底 + 深字：原来的灰底白字基本看不清。 */
 .voice-record-btn.is-waiting {
-  background: radial-gradient(
-    circle at 34% 26%,
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 46%, #ffffff),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 78%, transparent) 72%
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, var(--popover, #ffffff)),
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 20%, var(--popover, #ffffff))
   );
-  box-shadow: none;
+  color: var(--weq-fg-secondary, #666666);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-fg-muted, #858585) 20%, transparent);
 }
 
 .voice-record-btn.is-error {
@@ -934,6 +956,432 @@ button.composer-single-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 引用条（右键 → 引用）─────────────────────────────────────────────────
+ *
+ * 挂在正文上面那一行（见文件末尾的桌面 / 小屏网格规则），与「只能单独发」的卡片
+ * 共用同一个槽位的互斥关系：挂上任意一边就会把另一边清掉。
+ * 只描述「待发送的引用」，真正送出去的只有 reply 元素（见 composerQuote.tsx）。
+ */
+
+.composer-quote {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 22px 0 0;
+  padding: 5px 6px 5px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+}
+
+/* 左侧那根强调色竖条 —— QQ 引用块同款的位置标记。 */
+.composer-quote-rail {
+  width: 3px;
+  flex: 0 0 auto;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--weq-accent-effective, #0099ff);
+}
+
+.composer-quote-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.composer-quote-body strong {
+  max-width: 34%;
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-quote-body em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-quote-remove {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.composer-quote-remove:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 13%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+/* ── 链接卡片面板（图文 Ark 卡片，工具栏「链接」按钮）─────────────────────
+ *
+ * 形态跟表情面板一致：从输入框上沿弹出来的浮层，不挤占正文那一行 —— 填卡片的同时
+ * 输入框里的文字照旧可编辑。字段与预览的信息层级对齐气泡里的 Ark 新闻卡（标题 /
+ * 描述 / 小图 / 来源），改动即时反映到预览，尽量「所见即所得」。
+ *
+ * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ */
+
+.link-card-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(420px, calc(100% - 28px));
+  max-height: min(452px, calc(100dvh - 200px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: link-card-in 150ms ease-out;
+}
+
+@keyframes link-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.link-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.link-card-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.link-card-head-title svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.link-card-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.link-card-close:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.link-card-body {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.link-card-field {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.link-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+}
+
+.link-card-required,
+.link-card-optional {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+.link-card-required {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.link-card-optional {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
+  color: var(--weq-fg-muted, #858585);
+}
+
+.link-card-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.link-card-input:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 5%, transparent);
+}
+
+.link-card-input > svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 82%, transparent);
+}
+
+.link-card-input input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.link-card-input input:focus {
+  outline: none;
+}
+
+.link-card-input input::placeholder,
+.link-card-field textarea::placeholder {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
+}
+
+.link-card-count {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 10.5px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.link-card-field textarea {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: none;
+}
+
+.link-card-field textarea:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.link-card-field.is-invalid .link-card-input,
+.link-card-field.is-invalid textarea {
+  border-color: color-mix(in srgb, var(--media-danger, #f0483e) 60%, transparent);
+}
+
+.link-card-error {
+  color: var(--media-danger, #f0483e);
+  font-size: 11px;
+  font-style: normal;
+}
+
+/* 预览：对齐气泡里的 Ark 新闻卡（标题 + 描述在左、小图在右、末行是来源）。 */
+
+.link-card-preview {
+  display: grid;
+  gap: 5px;
+  margin-top: 1px;
+}
+
+.link-card-preview-label {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+}
+
+.link-card-preview-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 70%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
+}
+
+.link-card-preview-main {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 3px;
+}
+
+.link-card-preview-main strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-card-preview-main p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 11.5px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.link-card-preview-main p.is-placeholder {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 70%, transparent);
+}
+
+.link-card-preview-main small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 92%, transparent);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-card-preview-thumb {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 78%, transparent);
+}
+
+.link-card-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 底栏：提示 + 重置 / 发送。 */
+
+.link-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.link-card-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-card-hint svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
+}
+
+.link-card-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+
+.link-card-btn.ghost {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+}
+
+.link-card-btn.ghost:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 17%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.link-card-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.link-card-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.link-card-btn.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
 /* ── 深色下的阴影一档 ─────────────────────────────────────────────────────── */
 
 html[data-theme="dark"] .voice-panel {
@@ -942,6 +1390,17 @@ html[data-theme="dark"] .voice-panel {
 
 html[data-theme="dark"] .composer-single-remove {
   background: #2a2d32;
+}
+
+html[data-theme="dark"] .link-card-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+/* 深色下输入底再压暗一点，避免半透明浅灰叠在深底上发白。 */
+html[data-theme="dark"] .link-card-input,
+html[data-theme="dark"] .link-card-field textarea,
+html[data-theme="dark"] .link-card-preview-card {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
 /* ── 桌面端：语音条内联在输入框里（占掉正文那一行）──────────────────────
@@ -988,6 +1447,24 @@ html[data-theme="dark"] .composer-single-remove {
 
   .voice-panel-body > .voice-stage {
     align-self: center;
+  }
+
+  /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
+  .composer.has-quote {
+    grid-template-rows: 42px auto minmax(0, 1fr);
+  }
+
+  .composer.has-quote > .composer-quote {
+    grid-row: 2;
+  }
+
+  .composer.has-quote > .composer-editor {
+    grid-row: 3;
+  }
+
+  /* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
+  .composer.has-quote.voice-open > .voice-panel {
+    grid-row: 3;
   }
 }
 
@@ -1037,10 +1514,39 @@ html[data-theme="dark"] .composer-single-remove {
 	.voice-panel {
 		left: 8px;
 		width: calc(100% - 16px);
-	}
+	}  /* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
+  .voice-stage {
+    height: 150px;
+  }
 
-	/* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
-	.voice-stage {
-		height: 150px;
-	}
+  /* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
+     这一整套只在面板没开时生效（下面 :not 链），所以不会把面板那三行布局搞乱。 */
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
+    grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+  }
+
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+    > .composer-quote {
+    grid-row: 1;
+    margin: 0 0 6px;
+  }
+
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+    > .composer-editor {
+    grid-row: 2;
+  }
+
+  /* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
+     只是不跟面板挤同一格。 */
+  .composer.has-quote:has(> .emoji-panel) > .composer-quote,
+  .composer.has-quote:has(> .composer-plus-panel) > .composer-quote {
+    display: none;
+  }
+
+  /* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
+  .chat-pane:has(.composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))) {
+    --composer-height: calc(
+      var(--mobile-composer-editor-height, 42px) + 62px + 40px + env(safe-area-inset-bottom, 0px)
+    ) !important;
+  }
 }

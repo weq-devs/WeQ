@@ -1584,6 +1584,17 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	background: #f1f1f1;
 }
 
+/* 不可用的菜单项（如「引用」遇到系统消息 / 缺少会话内序号）：置灰且不跟着高亮。
+   带上深色变体，否则会被 screens.css 里那条深色 hover 盖掉。 */
+.message-context-menu button:disabled,
+.message-context-menu button:disabled:hover,
+html[data-theme="dark"] .message-context-menu button:disabled,
+html[data-theme="dark"] .message-context-menu button:disabled:hover {
+	background: transparent;
+	cursor: not-allowed;
+	opacity: 0.4;
+}
+
 .conversation-details {
 	position: absolute;
 	top: var(--chat-header-height);
