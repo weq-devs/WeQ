@@ -33,8 +33,8 @@ const sender = z.object({
 const node = z.object({
   id: z.string().min(1),
   sender,
-  /** 渲染视图元素，形状由渲染层决定，这里只保证是对象数组。 */
-  elements: z.array(z.record(z.string(), z.unknown())),
+  /** 内容**分段**，形状由渲染层决定，这里只保证是对象数组。 */
+  segs: z.array(z.any()),
   time: z.number(),
   decoration,
   sourceMsgId: z.string().optional(),
@@ -62,12 +62,53 @@ function draftStore(): MergeForwardDraftStore {
   return store;
 }
 
+/**
+ * 递归收集一份草稿里媒体分段引用的本机路径（图片 / 语音 / 视频 / 文件 / 缩略图）。
+ * `segs` 的形状由渲染层决定，所以只挑认识的字段，其余一律忽略。
+ */
+function collectMediaPaths(nodes: readonly unknown[]): string[] {
+  const out: string[] = [];
+  const walkSegs = (segs: unknown): void => {
+    if (!Array.isArray(segs)) return;
+    for (const seg of segs) {
+      if (!seg || typeof seg !== 'object') continue;
+      const s = seg as Record<string, unknown>;
+      if (typeof s.path === 'string' && s.path) out.push(s.path);
+      if (typeof s.thumbPath === 'string' && s.thumbPath) out.push(s.thumbPath);
+      if (s.t === 'node') walkSegs(s.segs);
+    }
+  };
+  for (const node of nodes) {
+    if (node && typeof node === 'object') walkSegs((node as Record<string, unknown>).segs);
+  }
+  return out;
+}
+
+/**
+ * 把草稿里引用的本机媒体登记为可预览。
+ *
+ * 草稿里存的路径都是用户之前亲手选过的，但 `FileResourceService` 的信任名单只在
+ * 内存里（重启 / 重新登录会重建），没有这一步，重启后预览会退回「未找到」。
+ */
+function trustDraftMedia(nodes: readonly unknown[]): void {
+  const fileResource = getAppContext().services?.fileResource;
+  if (!fileResource) return;
+  for (const path of collectMediaPaths(nodes)) fileResource.trustPath(path);
+}
+
 export const mergeForwardRouter = router({
   /** 当前账号的全部草稿，最近更新在前。 */
-  list: procedure.query(() => draftStore().list()),
+  list: procedure.query(() => {
+    const drafts = draftStore().list();
+    for (const draft of drafts) trustDraftMedia(draft.nodes);
+    return drafts;
+  }),
 
   /** 新建 / 覆盖一份草稿。 */
-  save: procedure.input(draftInput).mutation(({ input }) => draftStore().save(input)),
+  save: procedure.input(draftInput).mutation(({ input }) => {
+    trustDraftMedia(input.nodes);
+    return draftStore().save(input);
+  }),
 
   /** 删除一份草稿。 */
   remove: procedure

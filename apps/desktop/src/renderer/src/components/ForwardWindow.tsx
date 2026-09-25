@@ -718,11 +718,21 @@ function parseForwardPreviewData(data: Record<string, unknown>): {
   }
   const parsedArk = parseArkMultiMsg(data.arkData);
   if (parsedArk) return parsedArk;
-  const label = typeof data._label === 'string' ? data._label : '聊天记录';
+  // 本地合成的卡片（乐观渲染的合并转发）带 `_` 前缀的客户端专用字段：真消息里没有
+  // 这些字段（它们的预览行来自 XML / ark JSON），但同一张预览卡要长得一样。
+  const label =
+    typeof data._label === 'string' && data._label.trim() ? data._label.trim() : '聊天记录';
+  const news = Array.isArray(data._news)
+    ? (data._news as unknown[]).filter(
+        (line): line is string => typeof line === 'string' && line.trim().length > 0,
+      )
+    : [];
+  const summary =
+    typeof data._summary === 'string' && data._summary.trim() ? data._summary.trim() : '查看详情';
   return {
     mainTitle: label,
-    previewLines: [],
-    summary: '查看详情',
+    previewLines: news,
+    summary,
     source: label,
   };
 }

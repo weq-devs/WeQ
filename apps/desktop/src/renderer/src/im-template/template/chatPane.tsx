@@ -116,6 +116,8 @@ import { EmojiPanel } from './emojiPanel';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageBubble } from './messageBubble';
 import { MessageContextMenu } from './messageContextMenu';
+import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
+import { ReactionPicker } from './reactionPicker';
 import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
@@ -146,6 +148,7 @@ import {
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { trpc } from '../../trpc/client';
+import { useToast } from '../../components/Toast';
 
 const composerHeightStorageKey = 'chat-template.layout.composerHeight';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
@@ -412,6 +415,10 @@ export function ChatPane({
   const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
     onSuccess: () => emojiUtils.account.emojiPanel.overview.invalidate(),
   });
+  // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
+  const sendPoke = trpc.account.sendPoke.useMutation();
+  const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  const pushToast = useToast((state) => state.push);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
   // 服务商就没有文字转语音那一栏。
   const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -422,6 +429,14 @@ export function ChatPane({
   const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
   const ttsEnabled = ttsProviders.length > 0;
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
+  // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
+  const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
+  // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
+  const [reactionPicker, setReactionPicker] = useState<{
+    message: Message;
+    x: number;
+    y: number;
+  } | null>(null);
   // 多选：右键「多选」进入；此时输入框让位给「合并转发 / 删除 / 复制 JSON / 退出」。
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -698,6 +713,30 @@ export function ChatPane({
       window.removeEventListener('resize', closeMenu);
     };
   }, [contextMenuOpen]);
+
+  // 头像菜单同款：点外面 / Esc / 改窗口尺寸就收起。
+  const avatarMenuOpen = avatarMenu !== null;
+  useEffect(() => {
+    if (!avatarMenuOpen) {
+      return;
+    }
+    function closeAvatarMenu() {
+      setAvatarMenu(null);
+    }
+    function closeAvatarOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        closeAvatarMenu();
+      }
+    }
+    document.addEventListener('mousedown', closeAvatarMenu);
+    document.addEventListener('keydown', closeAvatarOnEscape);
+    window.addEventListener('resize', closeAvatarMenu);
+    return () => {
+      document.removeEventListener('mousedown', closeAvatarMenu);
+      document.removeEventListener('keydown', closeAvatarOnEscape);
+      window.removeEventListener('resize', closeAvatarMenu);
+    };
+  }, [avatarMenuOpen]);
 
   // Keep the desktop context menu glued to its message as the list scrolls,
   // instead of floating in place. Dismisses once the message leaves the list
@@ -1100,6 +1139,103 @@ export function ChatPane({
 
     syncComposerBody(editor);
     setMentionMenu(null);
+  }
+
+  /** 头像菜单「@他」：把 `@昵称 ` 写进输入框（没有活动的 @ 触发词就插在光标处）。 */
+  function mentionAvatar(sender: User) {
+    setAvatarMenu(null);
+    insertMention(sender as GroupMember);
+    window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+  }
+
+  /** 头像菜单「戳一戳」：群聊戳成员 / 私聊戳对方（OIDB 0xED3_1）。 */
+  function pokeAvatar(sender: User) {
+    setAvatarMenu(null);
+    if (!conversation) {
+      return;
+    }
+    const targetId =
+      conversation.type === 'group'
+        ? conversation.group.identityValue
+        : conversation.otherUser.identityValue;
+    const params =
+      conversation.type === 'group'
+        ? { peerType: 'group' as const, targetId, targetUin: sender.identityValue }
+        : { peerType: 'c2c' as const, targetId };
+    sendPoke.mutate(params, {
+      onSuccess: () => {
+        pushToast({ tone: 'success', message: '戳一戳已发出' });
+      },
+      onError: (error) => {
+        pushToast({
+          tone: 'error',
+          title: '戳一戳失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
+  }
+
+  function openAvatarMenu(event: ReactMouseEvent, sender: User) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    window.getSelection()?.removeAllRanges();
+    setAvatarMenu({
+      sender,
+      x: Math.min(event.clientX, window.innerWidth - 140),
+      y: Math.min(event.clientY, window.innerHeight - 72),
+    });
+  }
+
+  /** 右键消息「贴表情」：把表情面板锜在这条消息下面。 */
+  function openReactionPicker(message: Message) {
+    setContextMenu(null);
+    const idSelector = message.id.replace(/["\\]/g, '\\$&');
+    const el = messageScrollRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${idSelector}"]`,
+    );
+    const rect = el?.getBoundingClientRect();
+    setReactionPicker({
+      message,
+      x: rect
+        ? Math.min(rect.left, Math.max(8, window.innerWidth - 336))
+        : window.innerWidth / 2 - 160,
+      y: rect ? Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - 340)) : 120,
+    });
+  }
+
+  function chooseReaction(code: string) {
+    const picker = reactionPicker;
+    setReactionPicker(null);
+    if (!picker || !conversation || conversation.type !== 'group') {
+      return;
+    }
+    const seq = Number((picker.message as { msgSeq?: unknown }).msgSeq);
+    if (!Number.isFinite(seq) || seq <= 0) {
+      pushToast({ tone: 'warning', message: '这条消息缺少会话内序号，无法贴表情' });
+      return;
+    }
+    setMessageReaction.mutate(
+      {
+        groupId: conversation.group.identityValue,
+        sequence: seq,
+        code,
+        isSet: true,
+      },
+      {
+        onSuccess: () => {
+          pushToast({ tone: 'success', message: '表情回应已发出' });
+        },
+        onError: (error) => {
+          pushToast({
+            tone: 'error',
+            title: '贴表情失败',
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        },
+      },
+    );
   }
 
   function insertComposerLineBreak() {
@@ -1702,6 +1838,11 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
+    // 乐观渲染的合并转发还不在库里 —— 右键菜单的每一项都会写库 / 查库，直接不弹。
+    if (message.id.startsWith('optimistic-')) {
+      event.preventDefault();
+      return;
+    }
     // 多选模式下右键 = 切换选中，不再弹菜单。
     if (selectionMode) {
       event.preventDefault();
@@ -2202,6 +2343,14 @@ export function ChatPane({
     sending ||
     (body.trim().length === 0 && !hasSingleSend && !hasQuote);
   const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
+  // 轻互动（戳一戳 / 贴表情）与发送同条件：需要在线且已注入的 QQ。
+  const pokeBlockedReason = sendAvailable ? null : 'QQ 未在线或处于完全离线模式，暂不可戳一戳';
+  const reactionBlockedReason =
+    conversation.type !== 'group'
+      ? '仅群消息支持贴表情'
+      : !sendAvailable
+        ? 'QQ 未在线或处于完全离线模式，暂不可贴表情'
+        : null;
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
   // AI 声聊**只支持群聊**（协议目标字段是群号，私聊服务端不认），所以按钮与面板
@@ -2608,6 +2757,7 @@ export function ChatPane({
                         ? onOpenGroupMember
                         : undefined
                     }
+                    onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
                   />
                 </Fragment>,
               );
@@ -3133,6 +3283,29 @@ export function ChatPane({
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
           replyBlockedReason={quoteBlockReason(contextMenu.message)}
           onMultiSelect={enterSelection}
+          onReact={openReactionPicker}
+          // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
+          reactBlockedReason={
+            reactionBlockedReason ??
+            (Number((contextMenu.message as { msgSeq?: unknown }).msgSeq) > 0
+              ? null
+              : '这条消息缺少会话内序号，无法贴表情')
+          }
+        />
+      ) : null}
+      {avatarMenu ? (
+        <AvatarContextMenu
+          state={avatarMenu}
+          onMention={mentionAvatar}
+          onPoke={pokeAvatar}
+          pokeBlockedReason={pokeBlockedReason}
+        />
+      ) : null}
+      {reactionPicker ? (
+        <ReactionPicker
+          anchor={{ x: reactionPicker.x, y: reactionPicker.y }}
+          onSelect={chooseReaction}
+          onClose={() => setReactionPicker(null)}
         />
       ) : null}
       {decorationCard ? (

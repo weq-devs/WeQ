@@ -25,7 +25,7 @@ export {
   formatTime,
   messageToText,
   mediaRelPath,
-  annotateLocalPaths,
+  annotateExportPaths,
 } from './element_text';
 export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';

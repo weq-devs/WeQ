@@ -1595,6 +1595,73 @@ html[data-theme="dark"] .message-context-menu button:disabled:hover {
 	opacity: 0.4;
 }
 
+/* ---- 贴表情选择面板（ReactionPicker）------------------------------------ */
+.reaction-picker {
+	position: fixed;
+	z-index: 46;
+	display: flex;
+	flex-direction: column;
+	width: 328px;
+	max-height: 320px;
+	overflow: hidden;
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.98);
+	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+}
+
+.reaction-picker-head {
+	padding: 8px 12px;
+	border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+	color: #6b6f76;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.reaction-picker-body {
+	flex: 1 1 auto;
+	padding: 8px;
+	overflow-y: auto;
+}
+
+.reaction-picker-grid {
+	display: grid;
+	grid-template-columns: repeat(10, 1fr);
+	gap: 2px;
+}
+
+.reaction-picker-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.reaction-picker-cell:hover {
+	background: #f1f1f1;
+}
+
+.reaction-picker-cell img,
+.reaction-picker-cell .emoji-glyph {
+	display: block;
+	width: 20px;
+	height: 20px;
+	font-size: 18px;
+	line-height: 20px;
+}
+
+.reaction-picker-cell img {
+	object-fit: contain;
+}
+
 .conversation-details {
 	position: absolute;
 	top: var(--chat-header-height);

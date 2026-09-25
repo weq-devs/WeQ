@@ -43,9 +43,17 @@ interface BaseRenderData {
   /**
    * Export-only: relative path of this media inside the export bundle
    * (e.g. `media/image/xxx.jpg`). Absent in the live app; set by the exporter
-   * just before serialization so output files reference the bundled media.
+   * (`annotateExportPaths`) just before serialization so output files reference
+   * the bundled media.
+   *
+   * Named `exportPath` and not `localPath` on purpose: some elements carry a
+   * wire-level `localPath` of their own (PIC / FACE tag 45004 — the file's
+   * absolute path in QQ's own cache, see {@link RenderFaceElement}), and one key
+   * holding both meanings meant the exporter overwrote the cache path. Two
+   * meanings, two names: `localPath` = on this machine, `exportPath` = in the
+   * bundle.
    */
-  localPath?: string;
+  exportPath?: string;
 }
 
 export interface RenderTextElement {
@@ -212,7 +220,8 @@ export interface RenderFaceElement {
   data: BaseRenderData & {
     faceId: number;
     faceText: string;
-    faceExtDesc?: string;
+    /** Wire tag 45004 — local cache path (renamed from `faceExtDesc`). */
+    localPath?: string;
     superEmojiCategory?: string;
     AniStickerId?: string;
     superEmojiFlag1?: number;
@@ -783,7 +792,7 @@ function mapFace(el: FaceElement): RenderFaceElement {
     data: {
       faceId: el.faceId,
       faceText: el.faceText,
-      faceExtDesc: el.faceExtDesc,
+      localPath: el.localPath,
       superEmojiCategory: el.superEmojiCategory,
       AniStickerId: el.AniStickerId,
       // superEmojiFlag1: el.superEmojiFlag1,

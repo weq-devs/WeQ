@@ -7600,6 +7600,18 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   transform: none;
 }
 
+/* 自己的头像没有资料卡点击，但同样要能右键弹「@他 / 戳一戳」，所以用一层不改变
+   外观的包裹容器承载 onContextMenu。 */
+.message-avatar-wrap {
+  flex: none;
+  display: block;
+  border-radius: 50%;
+}
+
+.message-line.mine .message-avatar-wrap {
+  cursor: default;
+}
+
 html[data-theme="dark"] .weq-member-pop {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   background:
@@ -17395,11 +17407,13 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 /* Avatar rides the same easing so the whole row reads as deleted. */
 .message-line.is-deleted > .avatar,
+.message-line.is-deleted > .message-avatar-wrap,
 .message-line.is-deleted > .message-avatar-button {
   opacity: 0.6;
   transition: opacity 0.16s ease;
 }
 .message-line.is-deleted:hover > .avatar,
+.message-line.is-deleted:hover > .message-avatar-wrap,
 .message-line.is-deleted:hover > .message-avatar-button {
   opacity: 0.85;
 }
@@ -17510,6 +17524,54 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 .weq-msg-recall-tag svg {
   opacity: 0.85;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   乐观渲染标识 (im-template/messageBubble)
+   发出去但还没被 QQ 同步回来的合并转发：气泡下方一枚小标签告诉你它的状态。
+   sending = 转圈呼吸，sent = 静默绿，failed = 红。这条消息只活在前端 state 里。 */
+.weq-msg-optimistic-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  border-radius: 6px;
+  width: fit-content;
+  user-select: none;
+  color: var(--weq-fg-muted);
+  background: color-mix(in srgb, var(--weq-fg-muted) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+}
+
+.weq-msg-optimistic-tag.is-sending svg {
+  animation: weq-msg-optimistic-pulse 1.1s ease-in-out infinite;
+}
+
+.weq-msg-optimistic-tag.is-sent {
+  color: color-mix(in srgb, #34c759 74%, var(--weq-fg-muted));
+  background: color-mix(in srgb, #34c759 10%, transparent);
+  border-color: color-mix(in srgb, #34c759 24%, transparent);
+}
+
+.weq-msg-optimistic-tag.is-failed {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 10%, transparent);
+  border-color: color-mix(in srgb, #ff6b6b 26%, transparent);
+}
+
+@keyframes weq-msg-optimistic-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -22020,13 +22082,6 @@ html[data-theme="dark"] .weq-mf-preview {
   font-size: 11px;
 }
 
-.weq-mf-face-pop {
-  height: 260px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
 .weq-mf-error {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
@@ -22396,3 +22451,626 @@ html[data-theme="dark"] .weq-mf-preview {
   color: var(--destructive);
   background: color-mix(in srgb, var(--destructive) 12%, transparent);
 }
+
+/* ── 分段编辑器（合并转发重构新增）─────────────────────────────────────
+   一条消息 = 一串「分段」。这里定义分段列表、每段的小编辑器、以及嵌套节点。 */
+
+.weq-mf-row-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-row:hover .weq-mf-row-edit {
+  opacity: 1;
+}
+
+.weq-mf-row-edit:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-mf-avatar-img {
+  width: 40px;
+  height: 40px;
+}
+
+.weq-mf-mode-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-inline-editor-nested {
+  margin: 4px 0 0;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.weq-mf-inline-spacer {
+  flex: 1;
+}
+
+.weq-mf-seg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(46vh, 420px);
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.weq-mf-seg-empty {
+  padding: 14px 8px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.weq-mf-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-seg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-mf-seg-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.weq-mf-seg-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weq-mf-seg-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-seg-actions button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-seg-actions button.danger:hover:not(:disabled) {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
+
+.weq-mf-seg-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.weq-mf-add-wrap {
+  position: relative;
+}
+
+/* portal 到 body + fixed：不受对话框 overflow:hidden 裁切（以前在顶部会被切掉）；
+   z-index 用内联的 useOverlayLayer 值（对话框自己也占一层，CSS 数字会被压住），
+   这里的 61 只是未走 hook 时的保底。关闭靠文档级监听，不再挂全屏遮罩。 */
+.weq-mf-add-menu {
+  position: fixed;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 38px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-add-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.weq-mf-add-sep {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--weq-border-subtle);
+}
+
+/* 「插入聊天记录」：进入嵌套转发的**唯一**入口，做得比图标格显眼。 */
+.weq-mf-add-record {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  text-align: left;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-add-record:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-mf-add-record-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-mf-add-record-text b {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.weq-mf-add-record-text em {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.weq-mf-add-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-add-item:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-tool:hover:not(:disabled) {
+  border-style: solid;
+}
+
+.weq-mf-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.weq-mf-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weq-mf-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-input:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-input.mono,
+.weq-mf-textarea.mono {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.weq-mf-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-field input {
+  width: 90px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-file-thumb {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: var(--weq-bg-muted, transparent);
+}
+
+.weq-mf-file-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-note {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-at-editor,
+.weq-mf-face-editor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-mf-at {
+  font-weight: 700;
+}
+
+/* @ 候选浮层：定位 / 层级由 PortaledPopover 的内联样式给（portal 到 body +
+   useOverlayLayer 发层，静态 z-index 会被对话框压住），这里只管外观与内容约束。 */
+.weq-mf-at-menu {
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  max-height: min(58vh, 380px);
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-at-menu .weq-mf-search {
+  margin: 0 0 6px;
+}
+
+.weq-mf-at-menu .weq-mf-manual {
+  padding: 6px 2px 2px;
+}
+
+.weq-mf-at-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-mf-at-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-at-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 表情面板：同 @ 候选，定位 / 层级走 PortaledPopover。高度必须给死——
+   FacePicker 是 height:100%，没有确定高度就不出内容。 */
+.weq-mf-face-pop {
+  height: min(300px, 58vh);
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-nested {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+.weq-mf-nested-label {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+/* 嵌套转发的预览卡片。 */
+.weq-mf-nested-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-nested-title {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.weq-mf-nested-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-mf-nested-line {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-line-name {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted);
+}
+
+.weq-mf-nested-line-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-nested-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-nested-foot-action {
+  margin-left: auto;
+}
+
+.weq-mf-nested-line-empty {
+  color: var(--weq-fg-muted);
+  font-style: italic;
+}
+
+/* ── 「聊天记录」分段的编辑器：折叠=一张卡片，展开=带工具栏的编辑区 ────────── */
+.weq-mf-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-record-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-record-edit:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* 记录里的消息列表：一条消息 = 一行「头像 + 昵称 + 内容」。 */
+.weq-mf-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weq-mf-record-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-record-msg {
+  padding: 4px 2px;
+  border-radius: 12px;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-record-msg:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-record-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+/* 引用段的编辑器。 */
+.weq-mf-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-nested-bar-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-editing {
+  gap: 8px;
+  border-style: solid;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-nested-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+}
+
+.weq-mf-nested-bar-title {
+  flex: 1;
+  font-weight: 650;
+}
+
+.weq-mf-nested-sender {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  padding: 3px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  background: var(--weq-bg-surface);
+  cursor: pointer;
+}
+
+.weq-mf-nested-sender:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+}
+
+.weq-mf-nested-sender span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-nested-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  background: var(--weq-accent-effective);
+  cursor: pointer;
+}
+
+.weq-mf-nested-done:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+}
+
+/* 嵌在聊天记录里的编辑器：靠外层的工具栏进出，内层不再重复头部。 */
+.weq-mf-inline-editor-embedded {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+
+.weq-mf-inline-editor-embedded .weq-mf-inline-tools {
+  padding-top: 0.5rem;
+}
+

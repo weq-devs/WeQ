@@ -79,7 +79,11 @@ export function MergeForwardDialog({
 
   async function persist(): Promise<void> {
     await onPersist(draft);
-    pushToast({ tone: 'success', title: '草稿已保存', message: '下次可在「合成聊天记录」继续编辑' });
+    pushToast({
+      tone: 'success',
+      title: '草稿已保存',
+      message: '下次可在「合成聊天记录」继续编辑',
+    });
   }
 
   async function forward(): Promise<void> {
@@ -117,7 +121,12 @@ export function MergeForwardDialog({
       <div className="weq-mf">
         <header className="weq-mf-head">
           {step === 'targets' ? (
-            <button type="button" className="weq-mf-icon-btn" title="返回编辑" onClick={() => setStep('edit')}>
+            <button
+              type="button"
+              className="weq-mf-icon-btn"
+              title="返回编辑"
+              onClick={() => setStep('edit')}
+            >
               <ArrowLeft size={18} />
             </button>
           ) : (
@@ -143,7 +152,9 @@ export function MergeForwardDialog({
               <strong id="weq-mf-title">选择会话（{selected.size}）</strong>
             )}
             <span className="weq-mf-head-sub">
-              {step === 'edit' ? `${draft.nodes.length} 条预览消息 · 右键可修改` : '可多选，确认后一起转发'}
+              {step === 'edit'
+                ? `${draft.nodes.length} 条预览消息 · 右键可修改`
+                : '可多选，确认后一起转发'}
             </span>
           </div>
           <button type="button" className="weq-mf-icon-btn" title="退出" onClick={onClose}>

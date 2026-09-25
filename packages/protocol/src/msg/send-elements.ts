@@ -324,6 +324,21 @@ export interface SendVideoElement {
   thumbFileName?: string;
 }
 
+/**
+ * 文件（群文件 / 私聊文件）—— **只在合并转发的节点里有效**。
+ *
+ * 实时发文件走的是独立管线（`sendGroupFile` / `sendPrivateFile`），不是元素；文件也
+ * 不进 `richText.elems`：群聊节点用 `transElem(24)`、私聊节点用 `body.msgContent` 的
+ * `FileExtra`。这些编码在 `send-forward.ts` 里做，所以本类型只声明「我要发一个文件」。
+ */
+export interface SendFileElement {
+  kind: 'file';
+  /** 本机文件路径（上传按路径流式读，不进内存）。 */
+  source: MediaSource;
+  /** 收端显示的文件名；缺省用路径 basename。 */
+  fileName?: string;
+}
+
 /** 需要上传的三种元素。 */
 export type SendMediaElement = SendImageElement | SendRecordElement | SendVideoElement;
 
@@ -339,6 +354,7 @@ export type SendElement =
   | SendPokeElement
   | SendEmojiBounceElement
   | SendForwardElement
+  | SendFileElement
   | SendRawElement
   | SendMediaElement;
 
@@ -621,6 +637,12 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
       // 媒体元素必须先上传（拿到 msgInfo）才能拼 commonElem。
       throw new Error(
         `${element.kind} 元素需要先上传：请用 buildSendElemsWithMedia()，或给 sendMessage 传 media 上下文`,
+      );
+    case 'file':
+      // 文件不进 richText.elems：实时发送走 sendGroupFile / sendPrivateFile，
+      // 合并转发里由 send-forward.ts 编码成 transElem(24) / msgContent。
+      throw new Error(
+        'file 元素不能作为普通消息元素发送：实时发文件请用 sendGroupFile / sendPrivateFile，放进聊天记录请用 sendForward',
       );
     case 'text': {
       const str = requireNonEmpty(element.textContent, 'textContent', 'text');

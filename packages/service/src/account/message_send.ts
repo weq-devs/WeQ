@@ -591,10 +591,12 @@ export class MessageSendService {
     });
 
     // 第二步：发卡片。收端点开它才会按 resId 拉回上面那段内容。
+    // 卡片要带上 source / summary / news（前 4 行的「昵称: 内容摘要」）——缺了
+    // 这些收端就只剩一个标题，没有预览行（协议层由 sendForward 算好，见 upload.card）。
     const card = await this.sendElements({
       peerType: params.peerType,
       targetId: params.targetId,
-      elements: [{ kind: 'forward', resId: upload.resId }],
+      elements: [{ kind: 'forward', resId: upload.resId, ...upload.card }],
     });
     return {
       ok: card.ok,
@@ -612,13 +614,21 @@ export class MessageSendService {
   }
 }
 
-/** 节点（含嵌套层）里是否有需要 NTV2 上传的媒体元素。 */
+/**
+ * 节点（含嵌套层）里是否有需要上传的元素。
+ *
+ * 图片 / 语音 / 视频走 NTV2（所以要能解析出对方 uid）；文件走独立的文件管线，
+ * 私聊时同样需要 uid（上传与路由都按 uid 认人），所以一并计入。
+ */
 function nodesNeedUpload(nodes: readonly SendForwardNodeInput[]): boolean {
   for (const node of nodes) {
     if (
       node.elements.some(
         (element) =>
-          element.kind === 'image' || element.kind === 'record' || element.kind === 'video',
+          element.kind === 'image' ||
+          element.kind === 'record' ||
+          element.kind === 'video' ||
+          element.kind === 'file',
       )
     ) {
       return true;

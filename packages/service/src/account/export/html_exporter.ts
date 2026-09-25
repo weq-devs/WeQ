@@ -16,7 +16,7 @@
  *     background flicker that `content-visibility:auto` on each row caused
  *     (off-screen rows skip painting entirely → bubble backgrounds pop in/out).
  *   - Media is referenced by the same deterministic bundle-relative paths the
- *     other exporters use (`data.localPath`, stamped by `annotateLocalPaths`),
+ *     other exporters use (`data.exportPath`, stamped by `annotateExportPaths`),
  *     so the media stages don't change — `<img src="media/image/…">` etc.
  *   - Avatars use the public uin CDN url (project convention); local avatar
  *     files are produced in a *later* pipeline stage, so they aren't available
@@ -40,7 +40,7 @@ import type {
   DressWidgetManifest,
 } from './dress_export';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
-import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
+import { annotateExportPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
 import { UNICODE_FACE_MAP } from './unicode_face_map';
 import { SYSFACE_SUBDIR, MFACE_SUBDIR } from './sysface_export';
@@ -325,9 +325,9 @@ function isSystemOnly(elements: RenderElement[]): boolean {
   return elements.length > 0 && elements.every((e) => SYSTEM_KINDS.has(e.type));
 }
 
-/** Local bundle path stamped by `annotateLocalPaths`, if any. */
-function localPath(el: RenderElement): string | undefined {
-  return (el.data as { localPath?: string }).localPath;
+/** Bundle-relative path stamped by `annotateExportPaths`, if any. */
+function bundlePath(el: RenderElement): string | undefined {
+  return (el.data as { exportPath?: string }).exportPath;
 }
 
 /**
@@ -397,19 +397,19 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return `<span class="face">${label}</span>`;
     }
     case 'pic': {
-      const p = localPath(el);
+      const p = bundlePath(el);
       const cls = el.data.subType === 1 ? 'media emoji' : 'media';
       if (p)
         return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
       return `<span class="ph">${el.data.subType === 1 ? '[表情]' : '[图片]'}</span>`;
     }
     case 'video': {
-      const p = localPath(el);
+      const p = bundlePath(el);
       if (p) return `<video class="media" controls preload="none" src="${escapeHtml(p)}"></video>`;
       return '<span class="ph">[视频]</span>';
     }
     case 'ptt': {
-      const p = localPath(el);
+      const p = bundlePath(el);
       const name = el.data.fileName
         ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
         : '';
@@ -419,7 +419,7 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'file':
     case 'onlineFile': {
-      const p = localPath(el);
+      const p = bundlePath(el);
       const name = escapeHtml(el.data.fileName || '文件');
       const size = el.data.fileSize ? `<small>${fmtBytes(el.data.fileSize)}</small>` : '';
       if (p) return `<a class="file" href="${escapeHtml(p)}" download>📎 ${name} ${size}</a>`;
@@ -898,7 +898,7 @@ export async function exportToHtml(
       const exported = toExportedMessage(raw);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, opts.kind, exported);
-      if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
+      if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const day = dayKey(exported.sendTime);
       if (day !== lastDay) {
         await writeRow(`<div class="day"><span>${escapeHtml(day)}</span></div>`);

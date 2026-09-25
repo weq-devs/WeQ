@@ -17,7 +17,7 @@ import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
-import { annotateLocalPaths, collectFaceIds } from './element_text';
+import { annotateExportPaths, collectFaceIds } from './element_text';
 import { bigintReplacer } from './serialize';
 import {
   avatarUrlForUin,
@@ -156,7 +156,7 @@ export async function exportJsonConversation(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
-        if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
+        if (opts.withMediaPaths) annotateExportPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
         count += 1;
@@ -178,7 +178,7 @@ export async function exportJsonConversation(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
-        if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
+        if (opts.withMediaPaths) annotateExportPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(
           (count === 0 ? '' : ',\n') +

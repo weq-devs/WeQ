@@ -238,6 +238,7 @@ html[data-theme="dark"] .modal-nav button:hover,
 html[data-theme="dark"] .modal-nav button.active,
 html[data-theme="dark"] .profile-editor-close:hover,
 html[data-theme="dark"] .message-context-menu button:hover,
+html[data-theme="dark"] .reaction-picker-cell:hover,
 html[data-theme="dark"] .rail-menu-popover button:hover,
 html[data-theme="dark"] .sidebar-add-menu button:hover,
 html[data-theme="dark"] .notice-mini-menu button:hover,
@@ -386,10 +387,16 @@ html[data-theme="dark"] .rail-menu-popover,
 html[data-theme="dark"] .sidebar-add-menu,
 html[data-theme="dark"] .message-context-menu,
 html[data-theme="dark"] .notice-mini-menu,
+html[data-theme="dark"] .reaction-picker,
 html[data-theme="dark"] .emoji-panel {
 	border-color: rgba(255, 255, 255, 0.08);
 	background: rgba(43, 44, 46, 0.98);
 	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+}
+
+html[data-theme="dark"] .reaction-picker-head {
+	border-bottom-color: rgba(255, 255, 255, 0.08);
+	color: #9da3ad;
 }
 
 html[data-theme="dark"] .profile-popover {

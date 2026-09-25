@@ -354,6 +354,8 @@ export type {
   DownloadFilePage,
   FileListOptions,
 } from './account/file_resource';
+export { ComposeImageService, COMPOSE_IMAGE_EXTENSIONS } from './account/compose_image';
+export type { StagedComposeImage } from './account/compose_image';
 export { MediaResourceService } from './account/media_resource';
 export type {
   MediaResourceKind,

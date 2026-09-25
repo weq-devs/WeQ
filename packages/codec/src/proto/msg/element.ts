@@ -286,6 +286,19 @@ export const ElementWire = {
   /** Element sub-type (semantics depend on elementType). Optional. */
   subType: ProtoField(45003, ScalarType.UINT32, { optional: true }),
 
+  /**
+   * Local cache path of this element's file on the local machine. Lives in the
+   * generic band (45001..45099), not in a type-specific one:
+   *   - PIC: the original image's cache path, e.g.
+   *     `…/nt_data/Pic/<yyyy-mm>/Ori/<md5>.png`. Observed on a real draft
+   *     (2026-09-26), where the element carries nothing but this path.
+   *   - FACE: formerly documented as "extended description"; no non-empty
+   *     sample observed, so that meaning stays unverified.
+   * Renamed from `faceExtDesc` once the PIC meaning was observed — the old name
+   * only held because PIC's use of the tag had never been seen.
+   */
+  localPath: ProtoField(45004, ScalarType.STRING, { optional: true }),
+
   // ---- TEXT (elementType=1) ----
 
   /** Text content. Required for TEXT elements. */
@@ -827,9 +840,6 @@ export const ElementWire = {
   shareLocationText: ProtoField(52152, ScalarType.STRING, { optional: true }),
 
   // ---- FACE (elementType=6) ----
-
-  /** Extended description. Optional for FACE elements. */
-  faceExtDesc: ProtoField(45004, ScalarType.STRING, { optional: true }),
 
   /** Face id. Required for FACE elements. (`FaceIndex.DICE = 358`.) */
   faceId: ProtoField(47601, ScalarType.UINT32, { optional: true }),

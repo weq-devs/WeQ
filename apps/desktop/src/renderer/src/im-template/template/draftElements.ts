@@ -15,6 +15,8 @@
  * token 形如：`[[chat:elem:<base64url(JSON)>]]`
  */
 
+import { emojiUrl, localMediaUrl } from '../../lib/resourceUrl';
+
 /** 元素 token 的前缀 / 后缀，配合 composer 的 token 解析使用。 */
 export const ELEMENT_TOKEN_PREFIX = '[[chat:elem:';
 export const ELEMENT_TOKEN_SUFFIX = ']]';
@@ -132,6 +134,41 @@ export function elementLabel(element: unknown): string {
     default:
       return '[消息]';
   }
+}
+
+/**
+ * 输入框里画这枚元素 chip 时用的预览图 src；画不出来就返回 null（退回文本标签）。
+ *
+ * 只处理两类「本来就有图」的元素：
+ *   - pic：先用元素自带的本地预览地址（本会话里刚插进来的图是 blob:）；没有就
+ *     从 `localPath`（wire tag 45004）里剥出相对 QQ 图片缓存的相对路径 —— QQ 草稿里
+ *     的图片长成 `…/nt_data/Pic/<月>/Ori/<md5>.<ext>`，媒体协议按这个 rel 直接读得出来。
+ *   - face：按 faceId 拼系统表情资源地址（与 emojiPacks.systemFaceItem 同一规则）。
+ *
+ * 文件 / ark / 引用等本来就没有缩略图，继续走文本标签。
+ */
+export function elementPreviewSrc(element: unknown): string | null {
+  const kind = (element as { kind?: string } | null)?.kind;
+  const data = element as Record<string, unknown> | null;
+  if (kind === 'pic') {
+    const direct = typeof data?.localPreviewUrl === 'string' ? data.localPreviewUrl : '';
+    if (direct) return direct;
+    const rel = picRelFromLocalPath(data?.localPath);
+    return rel ? localMediaUrl('pic', rel) : null;
+  }
+  if (kind === 'face') {
+    const id = String(data?.faceId ?? '');
+    return /^\d+$/.test(id) ? emojiUrl(id, 'apng', `${id}.png`) : null;
+  }
+  return null;
+}
+
+/** `…/nt_data/Pic/<月>/Ori/<name>` → `<月>/Ori/<name>`（认不出就 null）。 */
+function picRelFromLocalPath(localPath: unknown): string | null {
+  if (typeof localPath !== 'string' || !localPath) return null;
+  const match = /[\\/]nt_data[\\/]Pic[\\/](.+)$/.exec(localPath);
+  const rel = match?.[1];
+  return rel ? rel.replace(/\\/g, '/') : null;
 }
 
 /**

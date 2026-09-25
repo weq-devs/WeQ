@@ -6,6 +6,11 @@
  * At least one of text/at/face/pic is required; reply (if on) becomes the
  * leading element and flips msgType to 9 on the backend.
  *
+ * Pictures come from a **local file** (`account.pickComposeImage`): the main
+ * process copies the chosen image into QQ's own Pic cache and hands back a ready
+ * pic element. Choosing a picture out of the conversation's history is gone — it
+ * could only re-send an image someone had already sent.
+ *
  * Everything routes through `account.insertMessage`; avatars come from the uin
  * (never the DB's stale URLs).
  */
@@ -38,11 +43,12 @@ import {
   toReplyElement,
   toReplyOrigElements,
   toWireElements,
+  type RenderEl,
   type ReplyTarget,
   type Segment,
 } from './composeModel';
 
-type View = 'main' | 'sender' | 'reply' | 'at' | 'face' | 'pic';
+type View = 'main' | 'sender' | 'reply' | 'at' | 'face';
 
 export function AddMessageModal({
   conversation,
@@ -111,6 +117,12 @@ export function AddMessageModal({
 
   const previewEls = useMemo(() => toPreviewElements(segments), [segments]);
 
+  // 预览要按图片落盘时那一刻去找图（月份要对上），否则会画不出来。
+  const previewSendTimeMs = useMemo(() => {
+    const pic = segments.find((s) => s.t === 'pic');
+    return pic ? pic.sendTimeMs : 0;
+  }, [segments]);
+
   function addSegment(seg: Segment): void {
     setSegments((prev) => [...prev, seg]);
     setError(null);
@@ -154,23 +166,30 @@ export function AddMessageModal({
     setView('main');
   }
 
-  async function pickImage(msg: PickedMessage): Promise<void> {
+  /**
+   * 选一张**本机图片**。主进程把它按 QQ 自己的命名规则拷进图片缓存
+   * （`nt_data/Pic/<当月>/Ori/<md5>.<ext>`）并回一个可直接插进消息的 pic 元素 ——
+   * 聊天渲染走 `weq-media://pic`，正是按「发送时间推月份 + 文件名」去那个目录找图，
+   * 所以落进缓存就意味着能画出来。
+   *
+   * 返回的 `sendTime` 同时被预览和 `insertMessage` 使用，必须一致；已经选过图时把它
+   * 传下去，让后面的图跟着落进同一个月（整条消息只有一个时间戳）。
+   */
+  async function pickLocalImage(): Promise<void> {
     try {
-      const raw = await client.account.getRawElements.query({ msgId: msg.msgId });
-      const picCodec = raw?.elements?.find((e: { kind?: string }) => e.kind === 'pic') as
-        | Record<string, unknown>
-        | undefined;
-      const picPreview = (msg.elements ?? []).find((e) => e.type === 'pic');
-      if (!picCodec || !picPreview) {
-        setError('这条消息里没有可用的图片');
-        setView('main');
-        return;
-      }
-      addSegment({ t: 'pic', id: nextId(), codec: picCodec, preview: picPreview });
-      setView('main');
-    } catch {
-      setError('读取图片失败');
-      setView('main');
+      const staged = await client.account.pickComposeImage.mutate({
+        sendTime: picSegmentSendTime(segments),
+      });
+      if (!staged) return; // 用户在文件框里点了取消
+      addSegment({
+        t: 'pic',
+        id: nextId(),
+        codec: staged.element as Record<string, unknown>,
+        preview: staged.preview as RenderEl,
+        sendTimeMs: staged.sendTime * 1000,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '插入图片失败');
     }
   }
 
@@ -187,6 +206,9 @@ export function AddMessageModal({
     if (replyOn && replyTarget) elements.push(toReplyElement(replyTarget, peerUid));
     elements.push(...toWireElements(segments));
 
+    // 图片拷进的是「选图那一刻」的月份目录，消息时间得跟着它一起走。
+    const sendTime = picSegmentSendTime(segments);
+
     setSubmitting(true);
     setError(null);
     try {
@@ -196,6 +218,7 @@ export function AddMessageModal({
         senderUid: sender.uid,
         senderUin: sender.uin,
         elements,
+        ...(sendTime ? { sendTime } : {}),
       });
       if (!res) {
         setError('插入失败：该会话没有可参照的历史消息');
@@ -309,7 +332,11 @@ export function AddMessageModal({
                 <ForwardKindContext.Provider value={kind}>
                   <ConvContext.Provider value={isGroup ? conv : ''}>
                     <div className="weq-compose-preview">
-                      <QqMessageContent elements={previewEls} sendTimeMs={0} msgId="" />
+                      <QqMessageContent
+                        elements={previewEls}
+                        sendTimeMs={previewSendTimeMs}
+                        msgId=""
+                      />
                     </div>
                   </ConvContext.Provider>
                 </ForwardKindContext.Provider>
@@ -348,7 +375,11 @@ export function AddMessageModal({
                 <button type="button" className="weq-compose-tool" onClick={() => setView('face')}>
                   <Smile size={15} /> 表情
                 </button>
-                <button type="button" className="weq-compose-tool" onClick={() => setView('pic')}>
+                <button
+                  type="button"
+                  className="weq-compose-tool"
+                  onClick={() => void pickLocalImage()}
+                >
                   <ImageIcon size={15} /> 图片
                 </button>
               </div>
@@ -411,15 +442,6 @@ export function AddMessageModal({
                 onPick={(m) => void pickReply(m)}
               />
             ) : null}
-            {view === 'pic' ? (
-              <MessagePicker
-                kind={kind}
-                conv={conv}
-                resolveName={resolveName}
-                imagesOnly
-                onPick={(m) => void pickImage(m)}
-              />
-            ) : null}
           </div>
         )}
       </div>
@@ -433,8 +455,13 @@ const VIEW_TITLE: Record<View, string> = {
   reply: '选择要回复的消息',
   at: '选择要提及的成员',
   face: '选择表情',
-  pic: '选择一张图片',
 };
+
+/** 消息时间要锚在第一张图落盘那一刻（unix 秒）；第二张图会跟着复制这个时间。 */
+function picSegmentSendTime(segments: Segment[]): number | undefined {
+  const pic = segments.find((s) => s.t === 'pic');
+  return pic ? Math.floor(pic.sendTimeMs / 1000) : undefined;
+}
 
 /** One authored segment: editable input for text, a removable chip otherwise. */
 function SegmentRow({
