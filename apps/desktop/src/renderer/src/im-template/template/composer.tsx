@@ -334,9 +334,14 @@ export function isNodeInside(parent: Node, child: Node) {
 export function ComposerResizeHandle({
   height,
   onHeightChange,
+  minHeight = 150,
+  maxHeight = 340,
 }: {
   height: number;
   onHeightChange: (height: number) => void;
+  /** 可拖拽的下限 / 上限（默认值跟 chatPane 的 loadLayoutNumber 夹取范围保持一致）。 */
+  minHeight?: number;
+  maxHeight?: number;
 }) {
   const startY = useRef(0);
   const startHeight = useRef(height);
@@ -348,7 +353,9 @@ export function ComposerResizeHandle({
     document.body.classList.add('is-resizing-composer');
 
     function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      onHeightChange(clamp(startHeight.current - (moveEvent.clientY - startY.current), 150, 340));
+      onHeightChange(
+        clamp(startHeight.current - (moveEvent.clientY - startY.current), minHeight, maxHeight),
+      );
     }
 
     function handlePointerUp() {

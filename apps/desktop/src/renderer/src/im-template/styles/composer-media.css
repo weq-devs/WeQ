@@ -1,0 +1,1011 @@
+/* ── 输入框的语音 / 图片 / 文件 ──────────────────────────────────────────────
+ * 见 composerMedia.ts（素材模型）、composerMediaStage.tsx（视频 / 文件卡片、
+ * 拖拽落点、预览灯箱）、voicePanel.tsx（按住说话的录音条 + 文字转语音）。
+ *
+ * 三者的落点约定：
+ *   - 图片像表情一样内联进正文编辑区（.composer-inline-attachment）；
+ *   - 视频 / 文件占掉正文编辑区那一行（.composer-media-stage），只能单独发；
+ *   - 语音条同样占掉那一行（文件末尾 .composer > .voice-panel 的桌面规则）。
+ *
+ * 颜色全部走主题 token（--weq-accent-effective / --weq-fg-* / --popover /
+ * --im-color-line），因此主题色与深浅模式自动跟随，这里不再各写一份。
+ */
+
+/* 都在 .composer 里，变量挂在它身上，舞台 / 卡片 / 提示条都能拿到。 */
+.composer {
+  --media-danger: #f0483e;
+}
+
+html[data-theme="dark"] .composer {
+  --media-danger: #ff6f64;
+}
+
+/* ── 视频 / 文件卡片（占掉正文编辑区那一行）───────────────────────────────
+ *
+ * 视频和文件只能单独发，所以不再排成托盘挂在输入框上面，而是直接占掉正文编辑区：
+ * 左边缩略图（视频可点开灯箱）、右边文件名 + 元信息、右上角移除。这张卡片出现时
+ * 正文编辑区加 .composer-row-hidden 被藏起来（DOM 保留），发送键只发这一个附件。
+ */
+
+.composer-media-stage {
+  display: flex;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  align-items: center;
+  /* 给右下角的发送键让位。 */
+  padding-right: 96px;
+}
+
+.composer-media-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
+}
+
+.composer-media-thumb {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
+  cursor: pointer;
+}
+
+.composer-media-card.is-file .composer-media-thumb {
+  cursor: default;
+}
+
+.composer-media-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.composer-media-file {
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 72%, var(--weq-fg-muted, #858585));
+}
+
+.composer-media-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.composer-media-play::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 55%;
+  transform: translate(-50%, -50%);
+  border-style: solid;
+  border-width: 4px 0 4px 7px;
+  border-color: transparent transparent transparent #ffffff;
+}
+
+.composer-media-duration {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-media-info {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.composer-media-info strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-media-info em {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.composer-media-note {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 88%, transparent);
+  font-size: 11px;
+}
+
+.composer-media-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 60%, transparent);
+  border-radius: 50%;
+  background: var(--popover, #ffffff);
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+  transition: color 130ms ease, background 130ms ease, transform 130ms ease;
+}
+
+.composer-media-remove:hover {
+  border-color: transparent;
+  background: var(--media-danger);
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+/* 内联进输入框的图片（像表情那样直接排进正文）。 */
+.composer-inline-attachment {
+  display: inline-block;
+  max-width: 180px;
+  max-height: 96px;
+  margin: 2px 4px 2px 0;
+  border-radius: 8px;
+  vertical-align: bottom;
+}
+
+/* 编辑区被语音条 / 媒体卡片顶掉时：只藏起来，DOM 不动（正文、光标选区都还在）。 */
+.composer-editor.composer-row-hidden {
+  display: none;
+}
+
+/* 附件相关的提示（超大 / 超数量）。绝对定位 —— 不能变成新的网格行。 */
+.composer-attachment-error {
+	position: absolute;
+	z-index: 14;
+	top: 4px;
+	right: 22px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--media-danger) 12%, var(--popover, #ffffff));
+	color: var(--media-danger);
+	font-size: 11.5px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+	pointer-events: none;
+}
+
+/* 语音条开着时收起主发送键 —— 语音条自己带「发送语音 / 发送文字」。 */
+.composer.voice-open > .composer-send {
+  display: none;
+}
+
+/* ── 拖拽落点 ─────────────────────────────────────────────────────────────── */
+
+.composer-drop-veil {
+  position: absolute;
+  z-index: 12;
+  inset: 4px 8px 6px 12px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed color-mix(in srgb, var(--weq-accent-effective, #0099ff) 62%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, var(--popover, #ffffff));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+  animation: composer-drop-in 140ms ease-out;
+}
+
+@keyframes composer-drop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+.composer-drop-veil-inner {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  color: var(--weq-accent-effective, #0099ff);
+  text-align: center;
+}
+
+.composer-drop-veil-inner strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.composer-drop-veil-inner span {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
+}
+
+/* ── 素材灯箱（附件放大看） ───────────────────────────────────────────────── */
+
+.composer-media-lb-layer {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(2px);
+}
+
+.composer-media-lb {
+  display: grid;
+  max-width: min(880px, 100%);
+  max-height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 16px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
+
+.composer-media-lb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
+}
+
+.composer-media-lb-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-media-lb-head em {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.composer-media-lb-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+}
+
+.composer-media-lb-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
+}
+
+.composer-media-lb-body {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  padding: 14px;
+  overflow: auto;
+}
+
+.composer-media-lb-body img,
+.composer-media-lb-body video {
+  max-width: 100%;
+  max-height: min(72dvh, 640px);
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+/* ── 语音面板 ─────────────────────────────────────────────────────────────── */
+
+.voice-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(400px, calc(100% - 28px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 14px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
+  outline: none;
+}
+
+/* 没配 TTS 就没有头部，正文独占整格 —— 否则它会被摆进那行 auto 里、按内容高度顶
+   在上边，声纹环就不居中了。 */
+.voice-panel:not(:has(> .voice-panel-head)) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.voice-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
+}
+
+/* 头部只在配了 TTS（有两个页签要切）时才有内容，所以页签自己居中。 */
+.voice-panel-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 2px;
+  margin: 0 auto;
+  padding: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 11%, transparent);
+}
+
+.voice-panel-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.voice-panel-tabs button:hover {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.voice-panel-tabs button.active {
+  background: var(--popover, #ffffff);
+  color: var(--weq-accent-effective, #0099ff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.voice-panel-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+/* ── 录音舞台：环形声纹 + 圆形录音键（QQ 原生那套）────────────────────────
+ *
+ * 尺寸刻意压在 126px 高：语音条是**内联在输入框里**的，这一行的高度得让它塞得进去
+ * （见 chatPane 的 composerHeightDefault），否则一开录音整个聊天区就要往下跳。
+ */
+
+.voice-stage {
+  position: relative;
+  display: grid;
+  height: 126px;
+  place-items: center;
+}
+
+.voice-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.voice-ring span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2.5px;
+  height: 20px;
+  margin: -10px 0 0 -1.25px;
+  border-radius: 2px;
+  background: currentColor;
+  will-change: transform, opacity;
+}
+
+.voice-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 76px;
+  height: 76px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.voice-pulse i {
+  position: absolute;
+  inset: 0;
+  border: 2px solid color-mix(in srgb, var(--media-danger) 46%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.voice-pulse.active i {
+  animation: voice-pulse 2.1s ease-out infinite;
+}
+
+.voice-pulse.active i:nth-child(2) {
+  animation-delay: 0.7s;
+}
+
+.voice-pulse.active i:nth-child(3) {
+  animation-delay: 1.4s;
+}
+
+@keyframes voice-pulse {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.62);
+  }
+}
+
+.voice-record-btn {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 70px;
+  height: 70px;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 68%, #ffffff),
+    var(--weq-accent-effective, #0099ff) 72%
+  );
+  color: #ffffff;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  box-shadow:
+    0 12px 28px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: transform 150ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+.voice-record-btn:hover {
+  transform: translateY(-1px);
+}
+
+.voice-record-btn:active,
+.voice-record-btn.is-recording {
+  transform: scale(0.965);
+}
+
+.voice-record-btn strong {
+  /* 圆里放不下就折成两行（例如「正在打开麦克风…」），不要撑出圆外。 */
+  max-width: 58px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.voice-record-timer {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-record-btn.is-recording {
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in srgb, var(--media-danger) 62%, #ffffff),
+    var(--media-danger) 72%
+  );
+  box-shadow:
+    0 14px 32px color-mix(in srgb, var(--media-danger) 44%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.voice-record-btn.is-waiting {
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 46%, #ffffff),
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 78%, transparent) 72%
+  );
+  box-shadow: none;
+}
+
+.voice-record-btn.is-error {
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in srgb, var(--media-danger) 54%, #ffffff),
+    color-mix(in srgb, var(--media-danger) 82%, transparent) 72%
+  );
+}
+
+.voice-spin {
+  animation: voice-spin 0.9s linear infinite;
+}
+
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 面板脚注 ─────────────────────────────────────────────────────────────── */
+
+.voice-panel-foot {
+  display: flex;
+  min-height: 16px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.voice-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+}
+
+.voice-hint.dim {
+  opacity: 0.72;
+}
+
+.voice-hint.ok {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.voice-hint kbd {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 90%, transparent);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-family: inherit;
+  font-size: 10.5px;
+}
+
+.voice-error {
+  color: var(--media-danger);
+  font-size: 11px;
+}
+
+/* ── 回顾态 ───────────────────────────────────────────────────────────────── */
+
+.voice-review {
+  display: grid;
+  gap: 10px;
+}
+
+.voice-review-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
+}
+
+.voice-review-play {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.voice-review-play:hover {
+  filter: brightness(1.06);
+  transform: scale(1.04);
+}
+
+.voice-review-play.is-playing {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 78%, #000000);
+}
+
+.voice-review-wave {
+  display: flex;
+  height: 34px;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 2px;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.voice-review-wave i {
+  display: block;
+  min-height: 10%;
+  flex: 1 1 0;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.62;
+}
+
+.voice-review-time {
+  flex: 0 0 auto;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-review-tag {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 11px;
+}
+
+.voice-review-text {
+  max-height: 68px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.voice-transcript-card {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 8%, transparent);
+}
+
+.voice-transcript-card.is-error {
+  border-color: color-mix(in srgb, var(--media-danger) 32%, transparent);
+  background: color-mix(in srgb, var(--media-danger) 8%, transparent);
+  color: var(--media-danger);
+}
+
+.voice-transcript-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.voice-transcript-card.is-error .voice-transcript-head {
+  color: var(--media-danger);
+}
+
+.voice-transcript-head span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.voice-transcript-head em {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.voice-transcript-card textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 9px;
+  background: var(--popover, #ffffff);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.voice-transcript-card textarea:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.voice-transcribe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective, #0099ff) 44%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease;
+}
+
+.voice-transcribe-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+}
+
+.voice-transcribe-btn:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+/* ── 动作按钮 ─────────────────────────────────────────────────────────────── */
+
+.voice-review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+
+.voice-btn.ghost {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+}
+
+.voice-btn.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 17%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.voice-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.voice-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.voice-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+/* ── 文字转语音 ───────────────────────────────────────────────────────────── */
+
+.voice-tts {
+  display: grid;
+  gap: 10px;
+}
+
+.voice-tts-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 8%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.voice-tts-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.voice-tts-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.voice-tts-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.voice-tts-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-tts-voice {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
+}
+
+.voice-tts-voice select {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 8px;
+  background: var(--popover, #ffffff);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.voice-tts-count {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 深色下的阴影一档 ─────────────────────────────────────────────────────── */
+
+html[data-theme="dark"] .voice-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .composer-media-remove {
+  background: #2a2d32;
+}
+
+/* ── 桌面端：语音条内联在输入框里（占掉正文那一行）──────────────────────
+ *
+ * 小屏（<=760px）保持从输入框上沿弹出的浮层；桌面端它是输入框里的一行 —— 正文
+ * 编辑区加 .composer-row-hidden 被藏起来，这一行交给录音键 + 声纹 + 回顾 / TTS。
+ *
+ * 这一形态下**不要任何外框**：边框、圆角、底色、阴影、头部那条分隔线全部去掉，
+ * 声纹环就直接坐在输入框自己的磨砂底上，看着是输入框的一部分，而不是另一个面板。
+ */
+
+@media (min-width: 761px) {
+  .composer > .voice-panel {
+    position: relative;
+    z-index: 6;
+    inset: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
+  .composer > .voice-panel .voice-panel-head {
+    padding: 0 4px 2px;
+    border-bottom: 0;
+  }
+
+  .voice-panel-body {
+    padding: 2px 4px 0;
+    overflow: auto;
+    scrollbar-width: thin;
+    /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
+       内容是坐在输入框里，而不是顶在上边。 */
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .voice-panel-body > .voice-stage {
+    align-self: center;
+  }
+}
+
+/* ── 小屏：视频 / 文件卡片挤进输入框第一行 ────────────────────────────────
+ *
+ * 小屏的 --composer-height 是在 responsive.css 里用 !important 算死的
+ * （编辑器高度 + 一行工具栏），卡片要占掉正文那一行，就得自己也抬一次，并且权重
+ * 压过那条规则。
+ */
+
+@media (max-width: 760px) {
+	.chat-pane:has(.composer.has-media) {
+		--composer-height: calc(124px + env(safe-area-inset-bottom, 0px)) !important;
+	}
+
+	.composer.has-media {
+		grid-template-rows: 62px 48px;
+	}
+
+	.composer-media-stage {
+		grid-row: 1;
+		padding-right: 0;
+	}
+
+	.composer-media-card {
+		padding: 4px 8px 4px 4px;
+	}
+
+	.composer-media-thumb {
+		width: 44px;
+		height: 44px;
+	}
+
+	.voice-panel {
+		left: 8px;
+		width: calc(100% - 16px);
+	}
+
+	/* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
+	.voice-stage {
+		height: 150px;
+	}
+}
