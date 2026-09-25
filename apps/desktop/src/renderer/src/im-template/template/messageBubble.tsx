@@ -81,6 +81,7 @@ export function MessageBubble({
   onLongPress,
   onAction,
   onAvatarClick,
+  onAvatarContextMenu,
   selected,
   selectionMode,
   onToggleSelect,
@@ -116,6 +117,8 @@ export function MessageBubble({
   onLongPress: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
+  /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
+  onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   /** 多选：这一行被选中（整行高亮 + 勾选标）。 */
   selected?: boolean;
   /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
@@ -318,6 +321,9 @@ export function MessageBubble({
             title="查看资料"
             aria-label={`查看 ${senderName} 的资料`}
             onClick={(event) => onAvatarClick(sender, { x: event.clientX, y: event.clientY })}
+            onContextMenu={
+              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+            }
           >
             <PendantOverlay
               name={senderName}
@@ -327,12 +333,19 @@ export function MessageBubble({
             />
           </button>
         ) : (
-          <PendantOverlay
-            name={senderName}
-            avatarUrl={senderAvatarUrl}
-            seed={senderSeed}
-            widget={lineWidget}
-          />
+          <span
+            className={cn('message-avatar-wrap')}
+            onContextMenu={
+              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+            }
+          >
+            <PendantOverlay
+              name={senderName}
+              avatarUrl={senderAvatarUrl}
+              seed={senderSeed}
+              widget={lineWidget}
+            />
+          </span>
         )
       ) : null}
       <div
@@ -468,13 +481,20 @@ export function MessageBubble({
         ) : null}
       </div>
       {mine ? (
-        <PendantOverlay
-          name={senderName}
-          avatarUrl={senderAvatarUrl}
-          seed={senderSeed}
-          widget={lineWidget}
-          fallbackUrl={pendantUrl}
-        />
+        <span
+          className={cn('message-avatar-wrap', 'is-self')}
+          onContextMenu={
+            onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+          }
+        >
+          <PendantOverlay
+            name={senderName}
+            avatarUrl={senderAvatarUrl}
+            seed={senderSeed}
+            widget={lineWidget}
+            fallbackUrl={pendantUrl}
+          />
+        </span>
       ) : null}
     </div>
   );

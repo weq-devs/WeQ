@@ -7600,6 +7600,18 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   transform: none;
 }
 
+/* 自己的头像没有资料卡点击，但同样要能右键弹「@他 / 戳一戳」，所以用一层不改变
+   外观的包裹容器承载 onContextMenu。 */
+.message-avatar-wrap {
+  flex: none;
+  display: block;
+  border-radius: 50%;
+}
+
+.message-line.mine .message-avatar-wrap {
+  cursor: default;
+}
+
 html[data-theme="dark"] .weq-member-pop {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   background:
@@ -17395,11 +17407,13 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 /* Avatar rides the same easing so the whole row reads as deleted. */
 .message-line.is-deleted > .avatar,
+.message-line.is-deleted > .message-avatar-wrap,
 .message-line.is-deleted > .message-avatar-button {
   opacity: 0.6;
   transition: opacity 0.16s ease;
 }
 .message-line.is-deleted:hover > .avatar,
+.message-line.is-deleted:hover > .message-avatar-wrap,
 .message-line.is-deleted:hover > .message-avatar-button {
   opacity: 0.85;
 }

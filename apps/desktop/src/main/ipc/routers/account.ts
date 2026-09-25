@@ -2860,6 +2860,53 @@ export const accountRouter = router({
     }),
 
   /**
+   * 戳一戳（OIDB 0xED3_1）：群聊里戳某个成员，或私聊戳对方，会话里留下一条
+   * 「戳一戳」灰条。**不是消息**，需要在线且已注入的 QQ 实例发包。
+   * `targetId` = 群号 / 私聊对方 QQ 号；`targetUin` 仅群聊里有意义（被戳成员 QQ 号）。
+   */
+  sendPoke: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        targetUin: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().interaction.sendPoke({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.targetUin ? { targetUin: input.targetUin } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /**
+   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已注入 QQ。
+   * `code` 1–3 位 = QQ 小黄脸 id，更长 = Unicode 码点（协议层按长度自动分 type）。
+   */
+  setMessageReaction: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        sequence: z.number().int().nonnegative(),
+        code: z.string().min(1),
+        isSet: z.boolean().default(true),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().interaction.setMessageReaction({
+        groupId: input.groupId,
+        sequence: input.sequence,
+        code: input.code,
+        isSet: input.isSet,
+      });
+      return { ok: true };
+    }),
+
+  /**
    * Insert a brand-new message into a conversation (c2c peer uid or group code).
    * `elements` is the authored array in editable wire form (bytes as
    * `{ type:'Buffer', data }`); it is byte-decoded here and validated in the
