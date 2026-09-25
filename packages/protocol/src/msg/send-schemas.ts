@@ -146,5 +146,32 @@ export const QFACE_EXTRA: ProtoMessage = message([
 /** 私聊窗口抖动（commonElem serviceType=2）的 pbElem。 */
 export const POKE_EXTRA: ProtoMessage = message([f('type', 1, 'uint32')]);
 
+/**
+ * 表情弹射（commonElem serviceType=23）的 pbElem —— 按真机抓包实测（2026-09-25）。
+ *
+ * 实测样本（`笑哭`×10）：`08 0D 10 0A 1A 06 E7AC91E593AD 32 13 08 B6 01 12 06 … 1A 06 …`
+ *
+ *   - tag 1  = 13   —— 未知，样本里恒为 13（疑似「表情弹射」这个 bizType/子类型）
+ *   - tag 2  = 10   —— **数量**（弹射几个；用户说的 0xa）
+ *   - tag 3  = 名字 —— 表情名，不带斜杠（`笑哭`）
+ *   - tag 6  = 嵌套，与 tag 3 冗余：`#1 = faceId(182)`、`#2 = 名字`、`#3 = 名字`
+ *
+ * 收端（elementType=27 EMOJI_BOUNCE）那套 tag 是 521xx，与这里的发送向编号完全不同，
+ * 两边只有语义对应、字节不通用，所以单独开一份 schema。
+ */
+/** 表情弹射 pbElem 的 tag 6 嵌套：faceId + 冗余的名字。 */
+export const EMOJI_BOUNCE_DETAIL: ProtoMessage = message([
+  f('faceId', 1, 'uint32'),
+  f('name', 2, 'string'),
+  f('name2', 3, 'string'),
+]);
+
+export const EMOJI_BOUNCE_EXTRA: ProtoMessage = message([
+  f('field1', 1, 'uint32'),
+  f('count', 2, 'uint32'),
+  f('name', 3, 'string'),
+  f('detail', 6, EMOJI_BOUNCE_DETAIL),
+]);
+
 /** 商城表情 MarketFace.pbReserve(13) 的内层：发送时置 field8=1（动画标记）。 */
 export const MARKET_FACE_PB_RESERVE: ProtoMessage = message([f('field8', 8, 'uint32')]);

@@ -20,6 +20,7 @@ import {
   isSendOk,
   MARKDOWN_COMMON_PB,
   MARKET_FACE_PB_RESERVE,
+  EMOJI_BOUNCE_EXTRA,
   POKE_EXTRA,
   PUSH_MSG_BODY,
   parseSendResponse,
@@ -350,6 +351,46 @@ describe('元素打包', () => {
       commonElem: { serviceType: 48, pbElem: new Uint8Array([1, 2]), businessType: 20 },
     };
     expect(buildSendElems([{ kind: 'raw', elem }])).toEqual([elem]);
+  });
+
+  it('表情弹射：字节与真机抓包逐字节一致（faceId 182 / 数量 10 / 笑哭）', () => {
+    const [elem] = buildSendElems([{ kind: 'emojiBounce', faceId: 182, count: 10, name: '笑哭' }]);
+    // 真机原包里那段 ELEM（含 tag 53 的 key + 长度前缀）原样拷来。
+    const real =
+      'aa032708171221080d100a1a06e7ac91e593ad321308b6011206e7ac91e593ad1a06e7ac91e593ad180d';
+    expect(hexOf(encode(ELEM, elem!))).toBe(real);
+
+    // 字段含义也钉住：serviceType=23、businessType=13、pbElem 里 count=10 / faceId=182。
+    const common = elem!.commonElem as {
+      serviceType: number;
+      businessType: number;
+      pbElem: Uint8Array;
+    };
+    expect(common.serviceType).toBe(23);
+    expect(common.businessType).toBe(13);
+    expect(decode(EMOJI_BOUNCE_EXTRA, common.pbElem)).toEqual({
+      field1: 13,
+      count: 10,
+      name: '笑哭',
+      detail: { faceId: 182, name: '笑哭', name2: '笑哭' },
+    });
+  });
+
+  it('表情弹射：count 缺省 1、name 可省（服务端按 faceId 渲染）', () => {
+    const [elem] = buildSendElems([{ kind: 'emojiBounce', faceId: 183 }]);
+    const common = elem!.commonElem as { pbElem: Uint8Array };
+    expect(decode(EMOJI_BOUNCE_EXTRA, common.pbElem)).toEqual({
+      field1: 13,
+      count: 1,
+      detail: { faceId: 183 },
+    });
+  });
+
+  it('表情弹射：非法 faceId 报错', () => {
+    expect(() => buildSendElems([{ kind: 'emojiBounce', faceId: -1 }])).toThrow(/faceId/);
+    expect(() => buildSendElems([{ kind: 'emojiBounce', faceId: 182, count: -1 }])).toThrow(
+      /count/,
+    );
   });
 });
 

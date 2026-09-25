@@ -39,7 +39,13 @@ import {
 import type { PttWaveformSource } from '../highway/ptt-waveform';
 import { encode } from '../protobuf';
 import { ELEM, MARKDOWN_COMMON_PB, TEXT_PB_RESERVE } from './schemas';
-import { MARKET_FACE_PB_RESERVE, POKE_EXTRA, QFACE_EXTRA, QSMALL_FACE_EXTRA } from './send-schemas';
+import {
+  EMOJI_BOUNCE_EXTRA,
+  MARKET_FACE_PB_RESERVE,
+  POKE_EXTRA,
+  QFACE_EXTRA,
+  QSMALL_FACE_EXTRA,
+} from './send-schemas';
 
 /** 发送场景 —— 少数元素受场景限制（比如窗口抖动只能私聊）。 */
 export type SendScene = 'group' | 'c2c' | 'group-temp';
@@ -155,6 +161,59 @@ export interface SendPokeElement {
 }
 
 /**
+ * 表情弹射（`commonElem serviceType=23`）—— 会让表情「弹进」聊天窗口的那种。
+ *
+ * 真机抓包实测（2026-09-25，见 send-schemas 的 {@link EMOJI_BOUNCE_EXTRA}）：
+ *
+ *   - `faceId` 是小黄脸 id（**不是** tag 3 那个名字，也不是 521xx 收侧那套）；
+ *   - `count` 是弹射个数（真机样本 10）；
+ *   - `name` 是表情名，**不带斜杠**（`笑哭`，不是 `[笑哭]` / `/笑哭`）。
+ *
+ * 已真机验证（2026-09-25，6 个 faceId 连发）：PC 协议原样重放能在手机端正常弹射，
+ * 内容与真机发的完全一致。验证过的行为：
+ *
+ *   - `faceId` 换成别的（5 / 66 / 14 / 324 / 183）都正常，**服务端不校验 id**；
+ *   - `name` 可以不给（服务端按 faceId 渲染）；
+ *   - 越界 id（试过 99999）不报错，服务端**兜底映射成默认表情**；
+ *   - `result=0` 只代表服务端收下了，id 是否有效看收端渲染。
+ *
+ * `count` 的范围（2026-09-26 真机实测，见下）：**QQ 把它当 int32 读**，超过
+ * 2^31-1 会按 32 位补码**回绕成负数**再渲染，不报错也不钳制。实测（发出去的
+ * 值 → QQ 实际显示）：
+ *
+ *   2147483647  (2^31-1)         →  2147483647
+ *   2147483648  (2^31)           → -2147483648
+ *   4294967295  (2^32-1)         → -1
+ *   4294967296  (2^32)           →  0
+ *   1099511627776 (2^40)         →  0
+ *   9007199254740991 (2^53-1)    → -1
+ *
+ * 即：低 32 位原样保留、按有符号解释，高 32 位被丢弃。`0` 与负数是**静默不弹**
+ * （服务端照样 result=0、群序号正常递增），不是错误。
+ *
+ * ⚠️ **本模块不做范围限制**（`count` 只要求非负安全整数，编码层按 64 位截断后
+ * 原样上 wire）—— 上面这套回绕是 **QQ 服务端/收端的行为**，不是我们的。调用方
+ * 想发多大就发多大，最终显示成什么由 QQ 决定。
+ *
+ * pbElem 里那个恒为 13 的 `field1` 与 `detail` 的冗余名字都按真机原样硬编码 ——
+ * 语义未知，换别的 faceId 时也照写，实测服务端接受。
+ */
+export interface SendEmojiBounceElement {
+  kind: 'emojiBounce';
+  /** 小黄脸 faceId（如 182 = 笑哭）。 */
+  faceId: number;
+  /**
+   * 弹射个数（真机样本 10；0 / 缺省按 1）。
+   *
+   * 本模块**不限制上限**。注意 QQ 按 int32 读这个字段：超过 2^31-1 会在收端
+   * 回绕成负数（`4294967295` 显示成 `-1`、`2^32` 显示成 `0`），详见接口注释。
+   */
+  count?: number;
+  /** 表情名（不带斜杠 / 方括号，如 `笑哭`）；缺省留空，服务端仍会按 faceId 渲染。 */
+  name?: string;
+}
+
+/**
  * 合并转发卡片（`com.tencent.multimsg` lightApp）。
  *
  * 只负责「引用一个已存在的 resId」这张卡片；真正把内容上传成长消息（拿到 resId）
@@ -266,6 +325,7 @@ export type SendElement =
   | SendXmlElement
   | SendMarkdownElement
   | SendPokeElement
+  | SendEmojiBounceElement
   | SendForwardElement
   | SendRawElement
   | SendMediaElement;
@@ -455,6 +515,35 @@ function buildMfaceElem(element: SendMfaceElement): Record<string, unknown> {
   };
 }
 
+/**
+ * 表情弹射 → `commonElem { serviceType: 23 }`。
+ *
+ * pbElem 的字段布局照真机抓包硬编码（见 send-schemas 的 EMOJI_BOUNCE_EXTRA）：
+ * `field1` 恒 13、`count` = 弹射个数、`name` = 表情名（不带斜杠）、
+ * `detail{faceId, name, name2}` 冗余一份。真机样本是 faceId=182(笑哭)/count=10/
+ * name='笑哭'，重放后手机端正常弹射。
+ */
+function buildEmojiBounceElem(element: SendEmojiBounceElement): Record<string, unknown> {
+  const faceId = requireNonNegativeInt(element.faceId, 'faceId', 'emojiBounce');
+  // 真机样本没有「数量 0」这种形态；缺省按 1（弹一个），与 poke 的宽松度一致。
+  const count =
+    element.count === undefined ? 1 : requireNonNegativeInt(element.count, 'count', 'emojiBounce');
+  // 名字缺省留空：服务端/收端都按 faceId 渲染，名字只是给人看的冗余。
+  const name = element.name ?? '';
+  return {
+    commonElem: {
+      serviceType: 23,
+      pbElem: encode(EMOJI_BOUNCE_EXTRA, {
+        field1: 13,
+        count,
+        name,
+        detail: { faceId, name, name2: name },
+      }),
+      businessType: 13,
+    },
+  };
+}
+
 function buildReplyElem(element: SendReplyElement): Record<string, unknown> {
   const seq = requirePositiveInt(element.origMsgSeq, 'origMsgSeq', 'reply');
   const outgoing: Record<string, unknown> = { origMsgSeq: [seq] };
@@ -571,6 +660,8 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
         },
       };
     }
+    case 'emojiBounce':
+      return buildEmojiBounceElem(element);
     case 'forward':
       return buildForwardElem(element);
     case 'raw':

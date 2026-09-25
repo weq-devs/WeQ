@@ -35,6 +35,7 @@ export type {
   SendXmlElement,
   SendMarkdownElement,
   SendPokeElement,
+  SendEmojiBounceElement,
   SendForwardElement,
   SendRawElement,
   SendMediaUploadReport,
@@ -65,6 +66,8 @@ export type {
 
 export {
   MESSAGE_CONTROL,
+  EMOJI_BOUNCE_DETAIL,
+  EMOJI_BOUNCE_EXTRA,
   POKE_EXTRA,
   QFACE_EXTRA,
   QSMALL_FACE_EXTRA,
