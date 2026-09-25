@@ -28,6 +28,14 @@
 //     目标报 31001 GenerateAudio err；chatType=3 也退回 31001（枚举校验）。
 //
 // 所以对端 uid **不在** f1 这个位置 —— 想走私聊得先找到真正的对端字段，别硬塞 f1。
+//
+// **声线目录 / 试听**：QQ 客户端「AI 声聊」面板的样音是静态资源，URL 直接由 voiceId
+// 拼出，无签名、不需要在线实例：
+//   https://res.qpt.qq.com/qpilot/tts_sample/group/<voiceId>.wav
+// 2026-09-26 抓到 22 个候选 id（f34/f36/f37/f38、female1/2、m8/m14/m101、
+// male1/2/3、daji、houge、laibixiaoxin、lizeyan-2、lvbu、silang、suxinjiejie、
+// xueling、guangxi-m1、guangdong-f1）；完整清单与说明见 docs/develop/ai-voice.md。
+// 我们**不**把样音入库 —— 要试听就现拼上面的 URL。
 
 import { message } from '../protobuf';
 import type { OidbNative } from '../transport';

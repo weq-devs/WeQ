@@ -18,6 +18,7 @@ pnpm dev
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
 - [图文 Ark 卡片发送](./ark-send.md) — OIDB 0xdc2_34 的下发结果解析，以及 PC/Linux 端的已知实现缺口
+- [AI 声聊](./ai-voice.md) — OIDB 0x929b_0 的声线 id 目录与试听音频 URL 构造（样音不入库）
 - [发消息](./send-message.md) — `MessageSvc.PbSendMsg` + 富媒体上传（NTV2/highway）+ 文件（群/私聊，老 OIDB + highway）、元素类型表、MCP 工具与已知缺口
 - [贡献指南](../../CONTRIBUTING.md)
 
