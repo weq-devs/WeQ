@@ -6,6 +6,9 @@
  * 反解成预览元素（图片 / 字符）。token 形态：
  *
  *   [[chat:face:<faceId>]]                     QQ 系统表情（图片，weq-asset）
+ *   [[chat:face:<faceId>:big]]                 同一枚表情按大表情（超级表情）发：
+ *                                              走 superSticker（serviceType 37）
+ *                                              那条 wire 形态，只能单独成一条消息
  *   [[chat:mface:<packId>:<hash>]]             商城表情（TEA 解密 GIF）
  *   [[chat:fav:<scope>:<bucket>:<v>:<file>]]   收藏自定义表情（weq-media cemoji）
  *   [[chat:gif:<dirHash>:<file>]]              关联 GIF（weq-media relemoji）
@@ -31,7 +34,10 @@ export type EmojiItem = {
   src: string | null;
   /** unicode 字形（非 unicode 为 ''）。 */
   glyph: string;
-  /** 大表情（贴纸）——用于输入框里的展示尺寸。 */
+  /**
+   * 大表情（超级表情）：按贴纸形态发（superSticker，只能单独成一条消息），面板与
+   * 占位卡片上用静态小图预览。
+   */
   large: boolean;
 };
 
@@ -41,7 +47,9 @@ export type MessagePart =
   | { type: 'element'; raw: string };
 
 const elementTokenPattern = '\\[\\[chat:elem:([^\\]]+)\\]\\]';
-const faceTokenPattern = '\\[\\[chat:face:([0-9]+)\\]\\]';
+// `:big` 走非捕获组 —— 面板里选大表情时才会带上，好让下游把它当贴纸发；捕获组
+// 序号不动，`itemFromMatch` 里按整串判断即可。
+const faceTokenPattern = '\\[\\[chat:face:([0-9]+)(?::big)?\\]\\]';
 const mfaceTokenPattern = '\\[\\[chat:mface:([^:\\]]+):([^\\]]+)\\]\\]';
 const favTokenPattern = '\\[\\[chat:fav:([^:\\]]+):([^:\\]]*):([^:\\]]+):([^\\]]+)\\]\\]';
 const gifTokenPattern = '\\[\\[chat:gif:([^:\\]]+):([^\\]]+)\\]\\]';
@@ -60,8 +68,11 @@ const tokenPattern = new RegExp(
 // ── token 构造 ────────────────────────────────────────────────────────────────
 
 /**
- * QQ 系统表情（图片）。`large` 表示大表情（超级表情 / 动态表情），面板与输入框
- * 都按贴纸尺寸展示；小黄脸等常规表情保持内联小图。
+ * QQ 系统表情（图片）。
+ *
+ * `large` = 这枚表情要按**大表情 / 超级表情**发：token 上多带一个 `:big`（下游据此
+ * 走 superSticker，且只能单独成一条消息）。小黄脸等常规表情保持内联小图，可以和文字
+ * 合成一条消息。
  */
 export function systemFaceItem(
   faceId: string | number,
@@ -73,7 +84,7 @@ export function systemFaceItem(
     kind: 'system',
     id,
     name: desc || `[表情${id}]`,
-    token: `[[chat:face:${id}]]`,
+    token: large ? `[[chat:face:${id}:big]]` : `[[chat:face:${id}]]`,
     src: emojiUrl(id, 'apng', `${id}.png`),
     glyph: '',
     large,
@@ -182,7 +193,7 @@ export function parseMessageParts(value: string): MessagePart[] {
 
 function itemFromMatch(match: RegExpExecArray): EmojiItem | null {
   // 捕获组顺序与 tokenPattern 一一对应：1=elem 2=face 3,4=mface 5,6,7,8=fav 9,10=gif。
-  if (match[2] !== undefined) return systemFaceItem(match[2], '');
+  if (match[2] !== undefined) return systemFaceItem(match[2], '', match[0].includes(':big'));
   if (match[3] !== undefined && match[4] !== undefined) {
     return marketFaceItem(match[3], match[4], '');
   }

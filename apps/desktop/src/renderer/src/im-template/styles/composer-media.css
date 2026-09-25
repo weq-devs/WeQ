@@ -1,10 +1,11 @@
 /* ── 输入框的语音 / 图片 / 文件 ──────────────────────────────────────────────
- * 见 composerMedia.ts（素材模型）、composerMediaStage.tsx（视频 / 文件卡片、
- * 拖拽落点、预览灯箱）、voicePanel.tsx（按住说话的录音条 + 文字转语音）。
+ * 见 composerMedia.ts（素材模型）、composerMediaStage.tsx（视频 / 文件 / 超级表情
+ * 卡片、拖拽落点、预览灯箱）、voicePanel.tsx（按住说话的录音条 + 文字转语音）。
  *
- * 三者的落点约定：
+ * 落点约定：
  *   - 图片像表情一样内联进正文编辑区（.composer-inline-attachment）；
- *   - 视频 / 文件占掉正文编辑区那一行（.composer-media-stage），只能单独发；
+ *   - 视频 / 文件 / 超级表情占掉正文编辑区那一行（.composer-single-stage），
+ *     只能单独发；
  *   - 语音条同样占掉那一行（文件末尾 .composer > .voice-panel 的桌面规则）。
  *
  * 颜色全部走主题 token（--weq-accent-effective / --weq-fg-* / --popover /
@@ -20,56 +21,71 @@ html[data-theme="dark"] .composer {
   --media-danger: #ff6f64;
 }
 
-/* ── 视频 / 文件卡片（占掉正文编辑区那一行）───────────────────────────────
+/* ── 「只能单独发」的卡片（占掉正文编辑区那一行）─────────────────────────
  *
- * 视频和文件只能单独发，所以不再排成托盘挂在输入框上面，而是直接占掉正文编辑区：
- * 左边缩略图（视频可点开灯箱）、右边文件名 + 元信息、右上角移除。这张卡片出现时
- * 正文编辑区加 .composer-row-hidden 被藏起来（DOM 保留），发送键只发这一个附件。
+ * 视频 / 文件 / 超级表情都只能单独发，所以不排成托盘挂在输入框上面，而是直接占掉正文
+ * 编辑区：一张**居中**的大卡片 —— 大图标 / 缩略图在上，名称 + 元信息 + 说明在下，
+ * 右上角移除。这张卡片出现时正文编辑区加 .composer-row-hidden 被藏起来（DOM 保留），
+ * 发送键只发这一个。
  */
 
-.composer-media-stage {
-  display: flex;
+.composer-single-stage {
+  display: grid;
   grid-column: 1 / -1;
   grid-row: 2;
   min-width: 0;
-  align-items: center;
-  /* 给右下角的发送键让位。 */
-  padding-right: 96px;
+  min-height: 0;
+  place-items: center;
+  /* 左右留一样的余量，卡片才是正中间；高度不够时自己滚（默认高度下塞得下）。 */
+  padding: 0 22px;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
-.composer-media-card {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 10px 5px 5px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
-}
-
-.composer-media-thumb {
+.composer-single-card {
   position: relative;
   display: grid;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
+  max-width: 100%;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 20px 8px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 30%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
+  text-align: center;
+}
+
+/* 大图标 / 缩略图 —— 卡片的主角。超级表情在这里用的是**小号静态图**，动画（lottie）
+   只留在消息气泡里播，输入框里不跑。 */
+.composer-single-thumb {
+  position: relative;
+  display: grid;
+  width: 76px;
+  height: 76px;
   place-items: center;
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 72%, var(--weq-fg-muted, #858585));
+}
+
+/* 只有视频的缩略图可点开灯箱。 */
+button.composer-single-thumb {
   cursor: pointer;
 }
 
-.composer-media-card.is-file .composer-media-thumb {
-  cursor: default;
+.composer-single-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-.composer-media-thumb video {
+.composer-single-thumb video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -78,54 +94,56 @@ html[data-theme="dark"] .composer {
   -webkit-user-drag: none;
 }
 
-.composer-media-file {
-  display: grid;
-  place-items: center;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 72%, var(--weq-fg-muted, #858585));
+.composer-single-glyph {
+  font-size: 34px;
+  line-height: 1;
 }
 
-.composer-media-play {
+.composer-single-play {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.46);
 }
 
-.composer-media-play::after {
+.composer-single-play::after {
   content: "";
   position: absolute;
   top: 50%;
   left: 55%;
   transform: translate(-50%, -50%);
   border-style: solid;
-  border-width: 4px 0 4px 7px;
+  border-width: 6px 0 6px 10px;
   border-color: transparent transparent transparent #ffffff;
 }
 
-.composer-media-duration {
+.composer-single-duration {
   position: absolute;
-  right: 3px;
-  bottom: 2px;
-  padding: 0 3px;
-  border-radius: 3px;
+  right: 4px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
   background: rgba(0, 0, 0, 0.55);
   color: #ffffff;
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 
-.composer-media-info {
+.composer-single-info {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  max-width: 240px;
+  gap: 1px;
+  justify-items: center;
 }
 
-.composer-media-info strong {
+.composer-single-info strong {
+  max-width: 100%;
   overflow: hidden;
   color: var(--weq-fg-primary, #111111);
   font-size: 13px;
@@ -134,24 +152,28 @@ html[data-theme="dark"] .composer {
   white-space: nowrap;
 }
 
-.composer-media-info em {
+.composer-single-info em {
   color: var(--weq-fg-muted, #858585);
   font-size: 11.5px;
   font-style: normal;
 }
 
-.composer-media-note {
+.composer-single-note {
+  max-width: 100%;
+  overflow: hidden;
   color: color-mix(in srgb, var(--weq-fg-muted, #858585) 88%, transparent);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.composer-media-remove {
+.composer-single-remove {
   position: absolute;
-  top: -7px;
-  right: -7px;
+  top: -8px;
+  right: -8px;
   display: grid;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 60%, transparent);
@@ -162,7 +184,7 @@ html[data-theme="dark"] .composer {
   transition: color 130ms ease, background 130ms ease, transform 130ms ease;
 }
 
-.composer-media-remove:hover {
+.composer-single-remove:hover {
   border-color: transparent;
   background: var(--media-danger);
   color: #ffffff;
@@ -918,7 +940,7 @@ html[data-theme="dark"] .voice-panel {
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
 }
 
-html[data-theme="dark"] .composer-media-remove {
+html[data-theme="dark"] .composer-single-remove {
   background: #2a2d32;
 }
 
@@ -969,7 +991,7 @@ html[data-theme="dark"] .composer-media-remove {
   }
 }
 
-/* ── 小屏：视频 / 文件卡片挤进输入框第一行 ────────────────────────────────
+/* ── 小屏：「只能单独发」的卡片挤进输入框第一行 ────────────────────────────────
  *
  * 小屏的 --composer-height 是在 responsive.css 里用 !important 算死的
  * （编辑器高度 + 一行工具栏），卡片要占掉正文那一行，就得自己也抬一次，并且权重
@@ -977,26 +999,39 @@ html[data-theme="dark"] .composer-media-remove {
  */
 
 @media (max-width: 760px) {
-	.chat-pane:has(.composer.has-media) {
-		--composer-height: calc(124px + env(safe-area-inset-bottom, 0px)) !important;
+	.chat-pane:has(.composer.has-single-send) {
+		--composer-height: calc(186px + env(safe-area-inset-bottom, 0px)) !important;
 	}
 
-	.composer.has-media {
-		grid-template-rows: 62px 48px;
+	.composer.has-single-send {
+		grid-template-rows: 124px 48px;
 	}
 
-	.composer-media-stage {
+	.composer-single-stage {
 		grid-row: 1;
-		padding-right: 0;
+		padding: 0 8px;
 	}
 
-	.composer-media-card {
-		padding: 4px 8px 4px 4px;
+	.composer-single-card {
+		gap: 3px;
+		padding: 8px 14px 6px;
 	}
 
-	.composer-media-thumb {
-		width: 44px;
-		height: 44px;
+	.composer-single-thumb {
+		width: 58px;
+		height: 58px;
+	}
+
+	.composer-single-info {
+		max-width: 200px;
+	}
+
+	.composer-single-info strong {
+		font-size: 12.5px;
+	}
+
+	.composer-single-note {
+		font-size: 10.5px;
 	}
 
 	.voice-panel {

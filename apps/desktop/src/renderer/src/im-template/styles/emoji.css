@@ -242,6 +242,24 @@
 	line-height: 1.2;
 }
 
+/* 「超级表情只能单独发送」的说明条 —— 贴在超级表情栏顶部，点之前就讲清楚它跟普通
+   表情的区别。 */
+.emoji-super-hint {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 6px 9px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+	color: color-mix(
+		in srgb,
+		var(--weq-accent-effective, #12a8ff) 82%,
+		var(--weq-fg-secondary, #666666)
+	);
+	font-size: 11.5px;
+	line-height: 1.4;
+}
+
 /* 分类 / 标签横滑片。 */
 .emoji-chip-row {
 	display: flex;

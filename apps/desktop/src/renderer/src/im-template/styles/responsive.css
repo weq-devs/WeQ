@@ -880,7 +880,8 @@
 
 	.conversation-details,
 	.group-info-panel,
-	.group-info-toggle {
+	.group-info-toggle,
+	.composer-toggle {
 		display: none;
 	}
 

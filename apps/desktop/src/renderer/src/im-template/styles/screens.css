@@ -676,6 +676,18 @@ html[data-theme="dark"] .group-info-toggle:focus-visible {
 	color: #cfd2d6;
 }
 
+html[data-theme="dark"] .composer-toggle {
+	border-color: #242527;
+	background: rgba(38, 39, 41, 0.94);
+	color: #8f9297;
+}
+
+html[data-theme="dark"] .composer-toggle:hover,
+html[data-theme="dark"] .composer-toggle:focus-visible {
+	background: #303133;
+	color: #cfd2d6;
+}
+
 html[data-theme="dark"] .details-card,
 html[data-theme="dark"] .details-toggle-row,
 html[data-theme="dark"] .details-row,

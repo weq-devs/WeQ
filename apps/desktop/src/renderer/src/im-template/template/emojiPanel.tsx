@@ -4,8 +4,10 @@
  *
  * 一栏一个来源，互不混排（「最近使用」因此不会被 Unicode 字符表情污染）：
  *   最近    ← emoji_com_used_table（codec 解析，真实库）
- *   系统    ← base_sys_emoji_table 按 81266 分类；只分「小黄脸表情」与「超级表情」
- *             两大块，超级表情块内再按原分类分栏（不再有顶部 chip）
+ *   表情    ← base_sys_emoji_table 按 81266 分类，**全部**按小图展示（含大表情）：
+ *             都能和文字合成一条消息
+ *   超级表情 ← 同一份数据里除「小黄脸表情」外的全部，按大表情展示（同原先的超级
+ *             表情块）；它们只能单独发，所以点选走 onSelectSuper，不落到输入框
  *   字符    ← 81214 非 0 的 Unicode 字符表情，单独一栏
  *   商城    ← market_emoticon_package_table；点包看全部，右上「+」弹灯箱搜索目录
  *   收藏    ← fav_emoji_info_storage_table（我喜欢的自定义表情）
@@ -26,6 +28,7 @@ import {
   Plus,
   Search,
   Smile,
+  Sparkles,
   Store,
   Type,
   X,
@@ -43,11 +46,12 @@ import {
   type EmojiItem,
 } from './emojiPacks';
 
-type TabId = 'recent' | 'system' | 'unicode' | 'market' | 'fav' | 'gif' | 'kaomoji';
+type TabId = 'recent' | 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'gif' | 'kaomoji';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'recent', label: '最近', icon: Clock },
-  { id: 'system', label: '系统表情', icon: Smile },
+  { id: 'face', label: '表情', icon: Smile },
+  { id: 'super', label: '超级表情', icon: Sparkles },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
   { id: 'fav', label: '收藏', icon: Heart },
@@ -55,7 +59,7 @@ const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'kaomoji', label: '颜文字', icon: MessageSquareQuote },
 ];
 
-/** 系统表情里「小黄脸表情」单独成块，其余分类全部并进「超级表情」。 */
+/** 系统表情里「小黄脸表情」不算超级表情，其余分类全部并进「超级表情」栏。 */
 const SMALL_FACE_LABEL = '小黄脸表情';
 
 const KAOMOJI_ITEMS: Array<[string, string]> = [
@@ -88,11 +92,15 @@ const KAOMOJI_ITEMS: Array<[string, string]> = [
 export function EmojiPanel({
   panelRef,
   onSelect,
+  onSelectSuper,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
+  /** 普通表情：插进输入框，可以和文字合成一条消息。 */
   onSelect: (item: EmojiItem) => void;
+  /** 超级表情：只能单独发，交给宿主挂成待发送卡片（缺省时退化成 onSelect）。 */
+  onSelectSuper?: (item: EmojiItem) => void;
 }) {
-  const [tab, setTab] = useState<TabId>('system');
+  const [tab, setTab] = useState<TabId>('face');
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -106,9 +114,9 @@ export function EmojiPanel({
   const favorites = overview.data?.favorites ?? [];
   const tags = overview.data?.tags ?? [];
 
-  // 系统表情只分两大块：小黄脸表情单独一块；其余（含动态大表情、QQ黄脸…）全部并进
-  // 「超级表情」并在块内按原分类分栏 —— 顶部不再放分类 chip。
-  const smallFaceGroups = systemGroups.filter((g) => g.label === SMALL_FACE_LABEL);
+  // 两栏吃的都是同一份系统表情（unicode 已经单独一栏了）：
+  //   「表情」= 全部，一律小图 —— 大表情在这里也只是普通表情，能和文字一起发；
+  //   「超级表情」= 除小黄脸外的全部，按大表情展示，点选只能单独发。
   const superGroups = systemGroups.filter((g) => g.label !== SMALL_FACE_LABEL);
 
   return (
@@ -126,7 +134,7 @@ export function EmojiPanel({
             }))}
             onSelect={onSelect}
           />
-        ) : tab === 'system' ? (
+        ) : tab === 'face' ? (
           <div className={cn('emoji-section')}>
             {overview.isLoading && systemGroups.length === 0 ? (
               <div className={cn('emoji-state')}>加载中…</div>
@@ -134,40 +142,45 @@ export function EmojiPanel({
             {!overview.isLoading && systemGroups.length === 0 ? (
               <div className={cn('emoji-state')}>没有系统表情</div>
             ) : null}
-            {smallFaceGroups.length > 0 ? (
-              <section className={cn('emoji-group')}>
-                <h3>小黄脸表情</h3>
+            {systemGroups.map((group) => (
+              <section className={cn('emoji-group')} key={group.key}>
+                <h3>{group.label}</h3>
                 <FaceGrid
-                  items={smallFaceGroups
-                    .flatMap((group) => group.items)
-                    .map((it) => ({
-                      key: it.id,
-                      title: it.desc,
-                      item: faceItemToEmoji(it),
-                    }))}
+                  items={group.items.map((it) => ({
+                    key: it.id,
+                    title: it.desc,
+                    item: faceItemToEmoji(it),
+                  }))}
                   onSelect={onSelect}
                 />
               </section>
+            ))}
+          </div>
+        ) : tab === 'super' ? (
+          <div className={cn('emoji-section')}>
+            {overview.isLoading && superGroups.length === 0 ? (
+              <div className={cn('emoji-state')}>加载中…</div>
+            ) : null}
+            {!overview.isLoading && superGroups.length === 0 ? (
+              <div className={cn('emoji-state')}>没有超级表情</div>
             ) : null}
             {superGroups.length > 0 ? (
-              <section className={cn('emoji-group')}>
-                <h3>超级表情</h3>
-                {superGroups.map((group) => (
-                  <div className={cn('emoji-subgroup')} key={group.key}>
-                    <h4>{group.label}</h4>
-                    <FaceGrid
-                      layout="super"
-                      items={group.items.map((it) => ({
-                        key: it.id,
-                        title: it.desc,
-                        item: faceItemToEmoji(it, true),
-                      }))}
-                      onSelect={onSelect}
-                    />
-                  </div>
-                ))}
-              </section>
+              <div className={cn('emoji-super-hint')}>超级表情只能单独发送，不会带上输入框里的文字</div>
             ) : null}
+            {superGroups.map((group) => (
+              <div className={cn('emoji-subgroup')} key={group.key}>
+                <h4>{group.label}</h4>
+                <FaceGrid
+                  layout="super"
+                  items={group.items.map((it) => ({
+                    key: it.id,
+                    title: `${it.desc}（超级表情，只能单独发送）`,
+                    item: faceItemToEmoji(it, true),
+                  }))}
+                  onSelect={onSelectSuper ?? onSelect}
+                />
+              </div>
+            ))}
           </div>
         ) : tab === 'unicode' ? (
           <CharacterGrid

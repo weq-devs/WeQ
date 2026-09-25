@@ -183,6 +183,62 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	transform: translateY(-50%);
 }
 
+/* 收起 / 展开输入区 —— 与群资料栏同一套交互：把手贴在两个区域的交界线上（这里是
+ * 输入区上沿，群资料栏是面板左边），平时隐形，鼠标压上去或键盘聚焦才浮出来。
+ *
+ * 挂在 .chat-pane 上而不是 .composer 里 —— 收起时 .composer 是 display:none，
+ * 放在里面会连把手一起藏掉。bottom 直接吃 --composer-height：收起时那个变量被
+ * 置 0，把手自动贴到底边，不用再写一条 collapsed 覆盖。
+ *
+ * z-index 9 压过 .composer-resize（8）—— 那根拖拽条横跨整条交界线，把手得在上面
+ * 才点得动；中间这 50px 让给把手，其余位置照常拖高度。 */
+.composer-toggle {
+	display: grid;
+	position: absolute;
+	z-index: 9;
+	left: 50%;
+	bottom: var(--composer-height, 190px);
+	width: 50px;
+	height: 20px;
+	place-items: center;
+	padding: 0;
+	border: 1px solid #dedede;
+	border-bottom: 0;
+	border-radius: 12px 12px 0 0;
+	outline: 0;
+	background: rgba(245, 245, 245, 0.92);
+	color: #999999;
+	cursor: pointer;
+	opacity: 0;
+	transform: translateX(-50%);
+	transition:
+		opacity 100ms ease-out,
+		background 100ms ease-out,
+		color 100ms ease-out;
+}
+
+.composer-toggle svg {
+	width: 16px;
+	height: 16px;
+}
+
+.composer-toggle:hover,
+.composer-toggle:focus-visible {
+	background: #ffffff;
+	color: #666666;
+	opacity: 1;
+}
+
+/* 收起来以后把手一直看得见 —— 否则没人知道去哪儿把输入框找回来。 */
+.chat-pane.composer-collapsed .composer-toggle {
+	opacity: 1;
+}
+
+/* 群资料栏展开时输入区只占左列，把手跟着挪到那一列的正中间。 */
+.chat-pane.with-group-info:not(.group-info-collapsed) .composer-toggle {
+	left: calc(50% - var(--group-info-panel-width) / 2);
+}
+
 .contact-profile-empty,
 .contact-profile-pane {
 	display: grid;
@@ -3292,6 +3348,14 @@ html[data-theme="dark"] .member-role-badge.admin {
 @media (min-width: 761px) {
 	.composer:has(> .composer-send) > .composer-editor {
 		padding-right: 96px;
+	}
+
+	/* 收起输入区：那一行高度已被 --composer-height:0 归零，这里再把 .composer 整个
+	 * 从布局里拿走（否则内容会溢出到消息区上）。消息区顺势长高，右下角「N 条新
+	 * 消息」气泡的 bottom 就是 --composer-height，于是自动落回底边。小屏有自己
+	 * 的输入框展开方式（.mobile-composer-expand-button），不参与这套。 */
+	.chat-pane.composer-collapsed .composer {
+		display: none;
 	}
 }
 
