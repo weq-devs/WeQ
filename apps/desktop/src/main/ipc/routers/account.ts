@@ -2837,6 +2837,20 @@ export const accountRouter = router({
     return albumAccessState();
   }),
 
+  /**
+   * 私聊「窗口抖动」—— 一条独立的消息，不跟正文 / 引用一起发。
+   *
+   * 走 `MessageSvc.PbSendMsg` 的 `poke` 元素（`commonElem serviceType=2`），
+   * 见 `MessageSendService.sendWindowShake`。**群聊没有这个能力**（服务端只认私聊），
+   * 所以这里不收 peerType，目标一律按私聊解析。
+   */
+  sendWindowShake: procedure
+    .input(z.object({ targetId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
+    }),
+
   // ---- database decrypt ----
 
   /** List encrypted `*.db` files under the open account's nt_db directory. */

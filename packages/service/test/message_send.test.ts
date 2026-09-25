@@ -433,6 +433,37 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(body.routingHead?.c2c?.uid).toBeUndefined();
   });
 
+  it('窗口抖动：私聊路由 + 独占一枚 commonElem(serviceType=2, businessType=1)', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendWindowShake({ targetId: 'u_friend' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.peerType).toBe('c2c');
+    expect(native.calls).toHaveLength(1);
+
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      routingHead?: { c2c?: { uin?: number; uid?: string }; grp?: unknown };
+      messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+    };
+    // 一律走私聊路由：群聊没有「窗口抖动」这个能力。
+    expect(body.routingHead?.c2c?.uin).toBe(20002);
+    expect(body.routingHead?.c2c?.uid).toBe('u_friend');
+    expect(body.routingHead?.grp).toBeUndefined();
+
+    const elems = body.messageBody?.richText?.elems ?? [];
+    // 必须独占一条：多带一个元素服务端就会拒绝。
+    expect(elems).toHaveLength(1);
+    const common = elems[0]!.commonElem as {
+      serviceType: number;
+      businessType: number;
+      pbElem: Uint8Array;
+    };
+    expect(common.serviceType).toBe(2);
+    expect(common.businessType).toBe(1);
+    expect(Array.from(common.pbElem)).toEqual([0x08, 0x01]);
+  });
+
   it('空文本当场报错，不发包', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);

@@ -4288,6 +4288,51 @@ export function MainView(): ReactElement {
     throw new Error('send message is not wired up yet');
   }
 
+  /**
+   * 私聊「窗口抖动」—— 直接接 protocol：`account.sendWindowShake` 走
+   * `MessageSvc.PbSendMsg` 的 `commonElem serviceType=2` 元素（见
+   * `MessageSendService.sendWindowShake`）。群聊没有这个能力，按钮已经在
+   * ChatPane 里按会话类型藏掉了，这里再兜一层。
+   */
+  async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '窗口抖动需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+
+    // 优先给 QQ 号：服务层会顺手补上 uid 一起写进 routingHead，本地 uid 目录里没有
+    // 这个人时也照样发得出去；连 QQ 号都拿不到（只有 uid）才退回 uid 反查。
+    const other = conversation.otherUser;
+    const targetId = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
+    let outcome: Awaited<ReturnType<typeof client.account.sendWindowShake.mutate>>;
+    try {
+      outcome = await client.account.sendWindowShake.mutate({ targetId });
+    } catch (error) {
+      // 传输层异常（离线 / 风控 / 原生失败）走这里：弹一次提示再抛，让 ChatPane 收尾。
+      pushToast({
+        tone: 'error',
+        message: '窗口抖动发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+
+    // 服务端明确拒绝（result != 0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
+    if (!outcome.ok) {
+      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
+      pushToast({
+        tone: 'error',
+        message: '窗口抖动发送失败',
+        detail: reason,
+      });
+      throw new Error(reason);
+    }
+  }
+
   async function noopAsync(): Promise<void> {
     return undefined;
   }
@@ -4507,6 +4552,7 @@ export function MainView(): ReactElement {
                       )}
                       onOpenNotificationSettings={noopAsync}
                       onSend={sendMessage}
+                      onSendWindowShake={sendWindowShake}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

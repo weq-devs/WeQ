@@ -77,6 +77,7 @@ export function ChatMainContent({
   sendAvailable,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
+  onSendWindowShake,
   onMessageAction,
   onDraftChange,
   onDraftClear,
@@ -158,6 +159,8 @@ export function ChatMainContent({
   sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
   onSend: (body: string) => Promise<void>;
+  /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
+  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
@@ -249,6 +252,7 @@ export function ChatMainContent({
       profileLoading={profileLoading}
       sendAvailable={sendAvailable}
       onSend={onSend}
+      onSendWindowShake={onSendWindowShake}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}

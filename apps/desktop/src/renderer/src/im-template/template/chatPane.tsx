@@ -27,6 +27,7 @@ import {
   Share2,
   Smile,
   Sparkles,
+  Vibrate,
   X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
@@ -272,6 +273,7 @@ export function ChatPane({
   profileLoading,
   sendAvailable = true,
   onSend,
+  onSendWindowShake,
   onMessageAction,
   draft,
   onDraftChange,
@@ -326,6 +328,11 @@ export function ChatPane({
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
   sendAvailable?: boolean;
   onSend: (body: string) => Promise<void>;
+  /**
+   * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
+   * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
+   */
+  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
   onDraftChange: (conversationId: string, value: string) => void;
@@ -1421,6 +1428,27 @@ export function ChatPane({
     });
   }
 
+  /**
+   * 私聊「窗口抖动」：点一下直接发一条独立消息，输入框里的正文、草稿、挂着的引用
+   * 都不动。真正的下发走 `onSendWindowShake`（应用层直接接 protocol 的
+   * `commonElem serviceType=2`），这里只负责置忙态、失败时报错。
+   */
+  async function sendWindowShake() {
+    if (conversation?.type !== 'direct' || !onSendWindowShake) return;
+    if (!sendAvailable || currentPreference.blocked || sending) return;
+
+    setSending(true);
+    try {
+      await onSendWindowShake(conversation);
+    } catch (error) {
+      // 应用层已经弹过提示，这里只留一条控制台记录（与 submitMessage 的失败路径一致）。
+      console.error('[composer] window shake failed:', error);
+    } finally {
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+    }
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing || event.key === 'Process') {
       return;
@@ -2180,6 +2208,9 @@ export function ChatPane({
   // 只对群会话出现；合成出来的语音也只能单独发，所以面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
+  // 窗口抖动**只支持私聊**（`commonElem serviceType=2`，服务端不认群聊场景），
+  // 所以按钮只在 direct 会话渲染 —— 群聊（含群临时会话）下整枚不出现。
+  const canUseWindowShake = conversation.type === 'direct' && Boolean(onSendWindowShake);
   // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
   // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
   const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
@@ -2744,6 +2775,18 @@ export function ChatPane({
           >
             <Rocket size={21} strokeWidth={1.5} />
           </button>
+          {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
+          {canUseWindowShake ? (
+            <button
+              type="button"
+              className={cn('composer-tool')}
+              title="窗口抖动"
+              disabled={!sendAvailable || currentPreference.blocked || sending}
+              onClick={() => void sendWindowShake()}
+            >
+              <Vibrate size={21} strokeWidth={1.5} />
+            </button>
+          ) : null}
           <button
             ref={voiceButtonRef}
             type="button"
@@ -3030,6 +3073,16 @@ export function ChatPane({
               >
                 <Rocket size={22} strokeWidth={1.5} />
               </button>
+              {canUseWindowShake ? (
+                <button
+                  type="button"
+                  title="窗口抖动"
+                  disabled={!sendAvailable || currentPreference.blocked || sending}
+                  onClick={() => void sendWindowShake()}
+                >
+                  <Vibrate size={22} strokeWidth={1.5} />
+                </button>
+              ) : null}
               <span />
               <button
                 type="button"
