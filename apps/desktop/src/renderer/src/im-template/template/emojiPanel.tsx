@@ -165,7 +165,9 @@ export function EmojiPanel({
               <div className={cn('emoji-state')}>没有超级表情</div>
             ) : null}
             {superGroups.length > 0 ? (
-              <div className={cn('emoji-super-hint')}>超级表情只能单独发送，不会带上输入框里的文字</div>
+              <div className={cn('emoji-super-hint')}>
+                超级表情只能单独发送，不会带上输入框里的文字
+              </div>
             ) : null}
             {superGroups.map((group) => (
               <div className={cn('emoji-subgroup')} key={group.key}>
@@ -371,9 +373,7 @@ function MarketTab({
   const packages = trpc.account.emojiPanel.marketPackages.useQuery();
 
   if (packId) {
-    return (
-      <MarketPackDetail packId={packId} onBack={() => onOpenPack(null)} onSelect={onSelect} />
-    );
+    return <MarketPackDetail packId={packId} onBack={() => onOpenPack(null)} onSelect={onSelect} />;
   }
 
   const list = packages.data ?? [];
@@ -394,9 +394,7 @@ function MarketTab({
       {packages.isLoading ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : list.length === 0 ? (
-        <div className={cn('emoji-state')}>
-          还没有添加商城表情包，点右上「添加」去搜索
-        </div>
+        <div className={cn('emoji-state')}>还没有添加商城表情包，点右上「添加」去搜索</div>
       ) : (
         <div className={cn('emoji-pack-list')}>
           {list.map((pkg) => (
@@ -496,7 +494,13 @@ function FavTab({
         const file = fav.thumbFile ?? fav.oriFile;
         if (!file) return null;
         const item = favEmojiItem(fav.scope, fav.bucket, variant, file, fav.hash);
-        return <FaceCell key={fav.id} cell={{ key: fav.id, title: fav.hash, item }} onSelect={onSelect} />;
+        return (
+          <FaceCell
+            key={fav.id}
+            cell={{ key: fav.id, title: fav.hash, item }}
+            onSelect={onSelect}
+          />
+        );
       })}
     </div>
   );
@@ -601,11 +605,7 @@ function EmojiCatalogLightbox({
   );
 
   return createPortal(
-    <div
-      className={cn('emoji-lb-layer')}
-      style={{ zIndex: layer }}
-      onMouseDown={onClose}
-    >
+    <div className={cn('emoji-lb-layer')} style={{ zIndex: layer }} onMouseDown={onClose}>
       <div className={cn('emoji-lb')} onMouseDown={(e) => e.stopPropagation()}>
         <div className={cn('emoji-lb-head')}>
           {openPackId ? (
@@ -634,7 +634,12 @@ function EmojiCatalogLightbox({
           ) : (
             <span className={cn('emoji-lb-title')}>{detail.data?.name ?? openPackId}</span>
           )}
-          <button type="button" className={cn('emoji-lb-close')} onClick={onClose} aria-label="关闭">
+          <button
+            type="button"
+            className={cn('emoji-lb-close')}
+            onClick={onClose}
+            aria-label="关闭"
+          >
             <X size={18} />
           </button>
         </div>
@@ -698,4 +703,3 @@ function faceItemToEmoji(
     ? unicodeFaceItem(it.glyph || it.id, it.desc)
     : systemFaceItem(it.id, it.desc, large);
 }
-

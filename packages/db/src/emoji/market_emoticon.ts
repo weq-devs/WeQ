@@ -33,10 +33,7 @@ export class MarketEmoticonDb extends QqDb {
   async listByPack(packId: string): Promise<MarketEmoticon[]> {
     let rows: SqlRow[];
     try {
-      rows = await this.query(
-        `SELECT ${SELECT_COLUMNS} FROM ${TABLE} WHERE "80943" = ?`,
-        [packId],
-      );
+      rows = await this.query(`SELECT ${SELECT_COLUMNS} FROM ${TABLE} WHERE "80943" = ?`, [packId]);
     } catch {
       return [];
     }

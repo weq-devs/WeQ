@@ -55,13 +55,9 @@ const favTokenPattern = '\\[\\[chat:fav:([^:\\]]+):([^:\\]]*):([^:\\]]+):([^\\]]
 const gifTokenPattern = '\\[\\[chat:gif:([^:\\]]+):([^\\]]+)\\]\\]';
 
 const tokenPattern = new RegExp(
-  [
-    elementTokenPattern,
-    faceTokenPattern,
-    mfaceTokenPattern,
-    favTokenPattern,
-    gifTokenPattern,
-  ].join('|'),
+  [elementTokenPattern, faceTokenPattern, mfaceTokenPattern, favTokenPattern, gifTokenPattern].join(
+    '|',
+  ),
   'gi',
 );
 
@@ -74,11 +70,7 @@ const tokenPattern = new RegExp(
  * 走 superSticker，且只能单独成一条消息）。小黄脸等常规表情保持内联小图，可以和文字
  * 合成一条消息。
  */
-export function systemFaceItem(
-  faceId: string | number,
-  desc: string,
-  large = false,
-): EmojiItem {
+export function systemFaceItem(faceId: string | number, desc: string, large = false): EmojiItem {
   const id = String(faceId);
   return {
     kind: 'system',

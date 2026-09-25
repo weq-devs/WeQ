@@ -45,9 +45,7 @@ export class FavEmojiDb extends QqDb {
   async listAll(): Promise<FavEmoji[]> {
     let rows: SqlRow[];
     try {
-      rows = await this.query(
-        `SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "80001" ASC`,
-      );
+      rows = await this.query(`SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "80001" ASC`);
     } catch {
       return [];
     }

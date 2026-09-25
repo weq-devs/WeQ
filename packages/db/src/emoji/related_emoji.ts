@@ -39,9 +39,7 @@ export class RelatedEmojiDb extends QqDb {
   async listAll(): Promise<RelatedEmoji[]> {
     let rows: SqlRow[];
     try {
-      rows = await this.query(
-        `SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "81045" DESC`,
-      );
+      rows = await this.query(`SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "81045" DESC`);
     } catch {
       return [];
     }

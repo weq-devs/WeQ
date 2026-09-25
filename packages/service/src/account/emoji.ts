@@ -335,10 +335,9 @@ export class EmojiService {
     const dbPath = this.emojiDbPath();
     if (!dbPath) return false;
     try {
-      await new EmojiComUsedDb(
-        this.platform.native.ntHelper,
-        this.emojiDbOptions(dbPath),
-      ).record(input);
+      await new EmojiComUsedDb(this.platform.native.ntHelper, this.emojiDbOptions(dbPath)).record(
+        input,
+      );
       return true;
     } catch {
       return false;
@@ -897,9 +896,7 @@ function stickerFields(
 
 function groupRank(group: PanelFaceGroup): number {
   if (group.unicode) return 900;
-  const idx = GROUP_ORDER.findIndex(
-    (k) => group.label.includes(k) || k.includes(group.label),
-  );
+  const idx = GROUP_ORDER.findIndex((k) => group.label.includes(k) || k.includes(group.label));
   return idx >= 0 ? idx : 500;
 }
 
@@ -923,7 +920,8 @@ function resolveRecent(
   const glyphFromExtra = entry.unicode && extra && !/^\d+$/.test(extra) ? extra : '';
 
   if (entry.unicode) {
-    const row = byUnicode.get(entry.faceId) ?? (glyphFromExtra ? byId.get(glyphFromExtra) : undefined);
+    const row =
+      byUnicode.get(entry.faceId) ?? (glyphFromExtra ? byId.get(glyphFromExtra) : undefined);
     const glyph = glyphFromExtra || row?.id || '';
     if (!glyph) return null;
     return {
