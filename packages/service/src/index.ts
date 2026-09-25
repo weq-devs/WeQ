@@ -532,6 +532,7 @@ export type {
   MediaSource,
   PttWaveformSource,
   ResolvedSendTarget,
+  SendDress,
   SendElement,
   SendElementsParams,
   SendMediaParams,

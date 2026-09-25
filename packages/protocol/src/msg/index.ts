@@ -13,11 +13,13 @@ export type { DecodedMessage, DecodedDress } from './decode';
 export {
   buildSendElems,
   buildSendElemsWithMedia,
+  buildDressElems,
   deflatePayload,
   isSendMediaElement,
 } from './send-elements';
 export type {
   MediaSendContext,
+  SendDress,
   SendMediaElement,
   SendImageElement,
   SendRecordElement,

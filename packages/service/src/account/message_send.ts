@@ -29,6 +29,7 @@ import {
   sendPrivateFile,
   type MediaSource,
   type PttWaveformSource,
+  type SendDress,
   type SendElement,
   type SendMediaUploadReport,
   type SendMessageReceipt,
@@ -45,6 +46,7 @@ const logger = getLogger().child({ scope: 'message-send' });
 export type {
   MediaSource,
   PttWaveformSource,
+  SendDress,
   SendElement,
   SendMediaUploadReport,
   SendScene,
@@ -70,6 +72,13 @@ export interface SendTextParams {
   /** 群号 / QQ 号 / uid（字符串或数字）。 */
   targetId: string | number;
   text: string;
+  /**
+   * 随这条消息一起带出的装扮（气泡 / 字体 / 挂件）。缺省不带。
+   *
+   * ⚠️ 真机实测过：服务端不采信客户端自报的装扮（result=0 但落库装扮全 0），
+   * 传了也不会改变收端看到的装扮。见 @weq/protocol 的 SendDress。
+   */
+  dress?: SendDress;
   /** @ 谁：QQ 号或 uid；命中不了会如实报错（不会假装 @ 上了）。 */
   at?: (string | number)[];
   /** 引用回复：被引用消息的群内/会话内 seq（`msgSeq`）。 */
@@ -84,6 +93,8 @@ export interface SendMediaParams {
   peerType: SendPeerType;
   targetId: string | number;
   kind: 'image' | 'record' | 'video';
+  /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
+  dress?: SendDress;
   /** 图片/视频：本地路径或字节；语音：SILK 字节或路径。 */
   source: MediaSource;
   /** 图片：0 普通 / 1 动画表情。 */
@@ -110,6 +121,8 @@ export interface SendElementsParams {
   targetId: string | number;
   /** 至少一个元素；媒体元素会自动走上传（需 uid）。 */
   elements: SendElement[];
+  /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
+  dress?: SendDress;
 }
 
 /**
@@ -259,6 +272,7 @@ export class MessageSendService {
       peerType: params.peerType,
       targetId: params.targetId,
       elements: buildTextElements(params),
+      ...(params.dress ? { dress: params.dress } : {}),
     });
   }
 
@@ -269,6 +283,7 @@ export class MessageSendService {
       peerType: params.peerType,
       targetId: params.targetId,
       elements: [element],
+      ...(params.dress ? { dress: params.dress } : {}),
     });
   }
 
@@ -410,6 +425,8 @@ export class MessageSendService {
       // 纯文本私聊允许没有 uid（陌生人第一句）；有就带上（新版客户端以 uid 为准）。
       ...(target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
       elements: params.elements,
+      // 装扮（气泡 / 字体 / 挂件）：不传就不写，请求字节与以前逐字节一致。
+      ...(params.dress ? { dress: params.dress } : {}),
       ...(needUpload
         ? {
             media: {

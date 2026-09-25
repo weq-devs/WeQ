@@ -438,6 +438,55 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(native.calls).toHaveLength(0);
   });
 
+  // ⚠️ 装扮是服务端不收的实验开关（真机实测落库全 0，见 @weq/protocol 的 SendDress）：
+  // 这些用例只断言「报文里带了什么」，不代表收端会看到这些装扮。
+  it('带装扮：三个 id 随报文发出（装扮 elem 在正文之前）', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendText({
+      peerType: 'group',
+      targetId: '2863253201',
+      text: '你好',
+      dress: { bubbleId: 2116371, fontId: 54981, widgetId: 104228 },
+    });
+
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+    };
+    const elems = body.messageBody?.richText?.elems ?? [];
+    expect(elems).toEqual([
+      { generalFlags: { widgetId: 104228, font: { fontId1: 54981 } } },
+      { bubble: { id: 2116371 } },
+      { text: { str: '你好' } },
+    ]);
+  });
+
+  it('不带装扮：报文里没有任何装扮 elem（与以前逐字节一致）', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendText({ peerType: 'group', targetId: '2863253201', text: '你好' });
+
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+    };
+    const elems = body.messageBody?.richText?.elems ?? [];
+    expect(elems).toEqual([{ text: { str: '你好' } }]);
+  });
+
+  it('非法装扮 id：联网之前就拦下', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendText({
+        peerType: 'group',
+        targetId: '2863253201',
+        text: '你好',
+        dress: { fontId: -5 },
+      }),
+    ).rejects.toThrow(/fontId/);
+    expect(native.calls).toHaveLength(0);
+  });
+
   it('媒体但 uid 缺失：联网之前就拦下', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);

@@ -353,6 +353,92 @@ describe('元素打包', () => {
   });
 });
 
+describe('发消息带装扮（dress）—— 服务端不收，仅保留打包行为', () => {
+  // ⚠️ 真机实测（2026-09-25）：服务端不采信客户端自报的装扮 —— 请求 result=0，
+  // 但落库的 40801 里 bubbleId/fontId/widgetId 全 0；逐字节重放真机那段
+  // generalFlags 结果一样。所以下面这些用例只钉「本地打包成什么字节」，
+  // **不代表收端会看到这些装扮**。详见 send-elements.ts 的 SendDress。
+  //
+  // 真机抓包里的装扮三件套：气泡 2116371 / 字体 54981 / 挂件 104228。
+  // 字体在真机包里写的是 fontId2(tag15)=116182（字节交换过的形态），本实现
+  // 统一不转、只往 fontId1(tag56) 原样写。
+  const DRESS = { bubbleId: 2116371, fontId: 54981, widgetId: 104228 };
+
+  it('装扮 elems 前置，且字体原样写 fontId1（不做字节交换）', () => {
+    const elems = buildSendElems([TEXT], { dress: DRESS });
+    // 顺序：generalFlags（挂件+字体）→ bubble → 正文，与真机一致。
+    expect(elems).toHaveLength(3);
+    expect(elems[0]).toEqual({
+      generalFlags: { widgetId: 104228, font: { fontId1: 54981 } },
+    });
+    expect(elems[1]).toEqual({ bubble: { id: 2116371 } });
+    expect(elems[2]).toEqual({ text: { str: 'hi' } });
+
+    // 编解码往返后仍然原样，不经任何字节交换。
+    const decoded = decode(ELEM, encode(ELEM, elems[0]!)) as {
+      generalFlags?: { widgetId?: number; font?: { fontId1?: number; fontId2?: number } };
+    };
+    expect(decoded.generalFlags?.widgetId).toBe(104228);
+    expect(decoded.generalFlags?.font?.fontId1).toBe(54981);
+    expect(decoded.generalFlags?.font?.fontId2).toBeUndefined();
+  });
+
+  it('只给部分装扮时按需产出：单挂件／单字体／单气泡', () => {
+    expect(buildSendElems([TEXT], { dress: { widgetId: 104228 } })).toEqual([
+      { generalFlags: { widgetId: 104228 } },
+      { text: { str: 'hi' } },
+    ]);
+    expect(buildSendElems([TEXT], { dress: { fontId: 54981 } })).toEqual([
+      { generalFlags: { font: { fontId1: 54981 } } },
+      { text: { str: 'hi' } },
+    ]);
+    expect(buildSendElems([TEXT], { dress: { bubbleId: 2116371 } })).toEqual([
+      { bubble: { id: 2116371 } },
+      { text: { str: 'hi' } },
+    ]);
+  });
+
+  it('不传 dress / 传全 0 时字节与以前完全一致（零回归）', () => {
+    const before = buildSendRequest({ groupId: 1234, elements: [TEXT], random: 1 });
+    const zeros = buildSendRequest({
+      groupId: 1234,
+      elements: [TEXT],
+      random: 1,
+      dress: { bubbleId: 0, fontId: 0, widgetId: 0 },
+    });
+    expect(hexOf(zeros.bytes)).toBe(hexOf(before.bytes));
+  });
+
+  it('装扮进请求体，且能被收侧 decodeMessage 解析成同一份 dress', () => {
+    const built = buildSendRequest({
+      groupId: 999,
+      elements: [TEXT],
+      random: 1,
+      dress: DRESS,
+    });
+    const req = decode(SEND_MESSAGE_REQUEST, built.bytes) as {
+      messageBody: { richText: { elems: Record<string, unknown>[] } };
+    };
+    // 发侧是 Request，收侧是 PushMsgBody —— 把 elems 搬到收侧的 body 里解一遍，
+    // 确认两边的装扮 schema 真的对得上（而不是只是自己 encode 自己 decode）。
+    const asPush = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: { richText: { elems: req.messageBody.richText.elems } },
+    });
+    expect(decodeMessage(asPush).dress).toEqual({
+      bubble: 2116371,
+      font: 54981,
+      widget: 104228,
+    });
+  });
+
+  it('非法装扮 id 在打包任何元素之前就报错', () => {
+    expect(() => buildSendElems([TEXT], { dress: { bubbleId: -1 } })).toThrow(/bubbleId/);
+    expect(() => buildSendElems([TEXT], { dress: { fontId: 1.5 } })).toThrow(/fontId/);
+    expect(() => buildSendElems([TEXT], { dress: { widgetId: Number.NaN } })).toThrow(/widgetId/);
+  });
+});
+
 describe('sendMessage / 响应解析', () => {
   it('发群消息：命令字 + 请求字节 + 回执', async () => {
     const responseBytes = encode(SEND_MESSAGE_RESPONSE, {

@@ -31,6 +31,7 @@ import {
   buildSendElemsWithMedia,
   isSendMediaElement,
   type MediaSendContext,
+  type SendDress,
   type SendElement,
   type SendMediaUploadReport,
   type SendScene,
@@ -63,6 +64,13 @@ export interface SendMessageParams {
   msgFlag?: number;
   /** 发送场景覆盖（窗口抖动等场景受限元素会用到）；缺省按 routing 推导。 */
   scene?: SendScene;
+  /**
+   * 随消息一起带出的装扮（气泡 / 字体 / 挂件）。缺省不带装扮。
+   *
+   * ⚠️ **实验结论：服务端不收**（真机实测 2026-09-25，请求 result=0 但落库装扮全 0）。
+   * 保留参数只为将来复现实验，见 `./send-elements` 的 {@link SendDress}。
+   */
+  dress?: SendDress;
   /**
    * 媒体上传上下文（元素里含 image / record / video 时必填）。
    *
@@ -231,6 +239,7 @@ function resolveMediaContext(
     pid: media.pid,
     uin: media.uin,
     scene: resolveScene(params),
+    ...(params.dress ? { dress: params.dress } : {}),
     // 群临时会话不算群场景：上传走私聊形状（与 SnowLuma 一致）。
     groupId: params.groupId,
     userUid: params.userUid ?? params.groupTemp?.toUid,
@@ -290,7 +299,11 @@ function assembleRequest(
 export function buildSendRequest(params: SendMessageParams): SendRequestBuild {
   const scene = resolveScene(params);
   const plan = resolveRouting(params);
-  return assembleRequest(params, plan, buildSendElems(params.elements, { scene }));
+  return assembleRequest(
+    params,
+    plan,
+    buildSendElems(params.elements, { scene, ...(params.dress ? { dress: params.dress } : {}) }),
+  );
 }
 
 /** 只要请求字节时的便捷入口。 */
@@ -310,7 +323,11 @@ export async function buildSendRequestWithMedia(
   const scene = resolveScene(params);
   const plan = resolveRouting(params);
   if (!params.elements.some((element) => isSendMediaElement(element))) {
-    return assembleRequest(params, plan, buildSendElems(params.elements, { scene }));
+    return assembleRequest(
+      params,
+      plan,
+      buildSendElems(params.elements, { scene, ...(params.dress ? { dress: params.dress } : {}) }),
+    );
   }
   const elems = await buildSendElemsWithMedia(
     params.elements,

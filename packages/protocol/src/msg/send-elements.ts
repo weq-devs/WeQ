@@ -178,6 +178,38 @@ export interface SendRawElement {
   elem: Record<string, unknown>;
 }
 
+/**
+ * 随消息一起带出的装扮（气泡 / 字体 / 挂件）—— **实验结论：服务端不收，已废弃**。
+ *
+ * 真机 QQ 客户端确实会把当前装扮显式塞进 PbSendMsg 的 elems（抓包实测：`elem.bubble`
+ * tag 9 = 2116371、`elem.generalFlags` tag 37 = { widgetId 104228, font.fontId2 116182 }），
+ * 于是照着做了一份同构实现。真机实测（2026-09-25）结论：
+ *
+ *   1. 请求带装扮 → `result=0` 发得出去，但**服务端落库时把装扮清成 0**
+ *      （数据库列 40801 解出来 bubbleId/fontId/widgetId 全 0），服务端不采信客户端
+ *      自报的装扮，而是按账号自己当前的装扮记录填。
+ *   2. 逐字节重放真机那段 `generalFlags`（连 tag 15/56/71/73/96 全带上）同样是 0 ——
+ *      所以不是「我们字段写少了 / 字节序不对」，是服务端只认自己的数据源。
+ *   3. 偶发看到某个字体 id「活下来」，是因为那个 id **本来就无效**（换账号重放立刻消失），
+ *      不是我们写对了位置。
+ *
+ * 结论：**这条路走不通，服务端不收客户端指定的装扮**。代码保留（不删）供将来复现实验，
+ * 但不要指望它能改变收端看到的装扮 —— 装扮只能靠账号自己的设置。
+ *
+ * 顺带记下两个已确认的 wire 事实，方便以后查别的：
+ *   - 收侧解码时 `font.fontId1`(tag 56) 直接可用；`fontId2`(tag 15) 是字节交换过的
+ *     uint16（`((v & 0xff) << 8) | (v >> 8)` 才是真 id）。
+ *   - 本实现当初「统一不转、只写 fontId1」，实验已证明这条路救不回来。
+ */
+export interface SendDress {
+  /** 气泡 itemId（0 / 缺省 = 不带）。 */
+  bubbleId?: number;
+  /** 聊天气泡字体 itemId（0 / 缺省 = 不带）。原样写进 fontId1，不做字节交换。 */
+  fontId?: number;
+  /** 挂件 itemId（0 / 缺省 = 不带）。 */
+  widgetId?: number;
+}
+
 /** 图片：上传后拼成 `commonElem(serviceType=48, businessType=20)`。 */
 export interface SendImageElement {
   kind: 'image';
@@ -255,6 +287,8 @@ export interface MediaSendContext {
   /** 自己账号的 uin（highway 帧头要带）。 */
   uin: string | number;
   scene: SendScene;
+  /** 随消息一起带出的装扮（气泡 / 字体 / 挂件），缺省不带。 */
+  dress?: SendDress;
   /** 群号（scene = group 时必填）。 */
   groupId?: number;
   /** 对方 uid（私聊 / 群临时会话必填）。 */
@@ -564,20 +598,63 @@ function assertScenePolicy(elements: readonly SendElement[], scene: SendScene | 
 }
 
 /**
+ * 装扮 id 校验：缺省 / 0 视为「不带」，其余必须是非负安全整数。
+ * 负数的成因基本是调用方拿错了值（比如把 -1 当成「用默认款」），所以直接报错。
+ */
+function normalizeDressId(value: number | undefined, what: string): number {
+  if (value === undefined || value === 0) return 0;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`dress.${what} 必须是非负整数，收到 ${String(value)}`);
+  }
+  return value;
+}
+
+/**
+ * 装扮 → **前置**的装扮 elems（真机抓包里它们排在正文元素之前）。
+ *
+ * 一个 `generalFlags` 同时承载字体与挂件（真机就是这么合的），气泡单独一个 elem；
+ * 三项都缺省 / 为 0 时返回空数组，一个字节都不多写 —— 不传 `dress` 就不会改变
+ * 现有消息的字节（回归面为零）。
+ */
+export function buildDressElems(dress: SendDress | undefined): Record<string, unknown>[] {
+  if (!dress) return [];
+  const out: Record<string, unknown>[] = [];
+
+  const widgetId = normalizeDressId(dress.widgetId, 'widgetId');
+  const fontId = normalizeDressId(dress.fontId, 'fontId');
+  if (widgetId > 0 || fontId > 0) {
+    const generalFlags: Record<string, unknown> = {};
+    if (widgetId > 0) generalFlags.widgetId = widgetId;
+    // 只写 fontId1、不做字节交换（真机写的是 fontId2，但两条路服务端都不认，见 SendDress）。
+    if (fontId > 0) generalFlags.font = { fontId1: fontId };
+    out.push({ generalFlags });
+  }
+
+  const bubbleId = normalizeDressId(dress.bubbleId, 'bubbleId');
+  if (bubbleId > 0) out.push({ bubble: { id: bubbleId } });
+
+  return out;
+}
+
+/**
  * 元素数组 → Elem proto 对象数组（同步，媒体元素会报错）。
  *
  * 全部校验都在**任何副作用之前**完成（媒体上传的版本会先把整条消息校验一遍），
  * 免得前半条已经产生副作用、后半条才报错。
+ *
+ * `options.dress` 给了就把装扮 elems 前置到元素数组最前面（与真机顺序一致）。
  */
 export function buildSendElems(
   elements: readonly SendElement[],
-  options: { scene?: SendScene } = {},
+  options: { scene?: SendScene; dress?: SendDress } = {},
 ): Record<string, unknown>[] {
   if (!Array.isArray(elements) || elements.length === 0) {
     throw new Error('消息不能为空');
   }
   assertScenePolicy(elements, options.scene);
-  return elements.map((element) => buildSendElem(element));
+  // 装扮先校验、先打包：坏 id 要在打包任何元素之前就报错。
+  const dressElems = buildDressElems(options.dress);
+  return [...dressElems, ...elements.map((element) => buildSendElem(element))];
 }
 
 // ───────────────────────── 媒体元素（先上传再打包） ─────────────────────────
@@ -658,8 +735,13 @@ export async function buildSendElemsWithMedia(
   if (!Array.isArray(elements) || elements.length === 0) throw new Error('消息不能为空');
   assertScenePolicy(elements, ctx.scene);
 
+  // 装扮与媒体无关，但顺序要和同步版本一致（装扮在最前）——先校验、先打包。
+  const dressElems = buildDressElems(ctx.dress);
+
   const hasMedia = elements.some((element) => isSendMediaElement(element));
-  if (!hasMedia) return elements.map((element) => buildSendElem(element));
+  if (!hasMedia) {
+    return [...dressElems, ...elements.map((element) => buildSendElem(element))];
+  }
 
   const slots: (Record<string, unknown> | null)[] = [];
   for (const element of elements) {
@@ -692,5 +774,5 @@ export async function buildSendElemsWithMedia(
     });
   }
 
-  return slots.map((value) => value as Record<string, unknown>);
+  return [...dressElems, ...slots.map((value) => value as Record<string, unknown>)];
 }
