@@ -263,8 +263,20 @@ export interface SendRawElement {
 export interface SendDress {
   /** 气泡 itemId（0 / 缺省 = 不带）。 */
   bubbleId?: number;
-  /** 聊天气泡字体 itemId（0 / 缺省 = 不带）。原样写进 fontId1，不做字节交换。 */
+  /**
+   * 聊天气泡字体 itemId（0 / 缺省 = 不带）。**真实 itemId**，原样写进
+   * `font.fontId1`(tag 56)。
+   */
   fontId?: number;
+  /**
+   * 同一个字体的另一个 wire 槽位（0 / 缺省 = 不带）：`font.fontId2`(tag 15)。
+   *
+   * 真机在这个槽位写的是**低 16 位字节序交换过**的形态（真实 54981 → wire
+   * 116182），收侧 decode 也是按同一规则还原（先看 fontId1，缺失才回退 fontId2
+   * 交换）。所以这里同样收**真实 itemId**，打包时自动交换成 tag 15 形态，
+   * 调用方不用自己算字节序。字体有两个 id 实现喵。
+   */
+  fontId2?: number;
   /** 挂件 itemId（0 / 缺省 = 不带）。 */
   widgetId?: number;
 }
@@ -701,6 +713,20 @@ function normalizeDressId(value: number | undefined, what: string): number {
 }
 
 /**
+ * 真实字体 itemId → `fontId2`(tag 15) 的 wire 形态：低 16 位字节序交换。
+ *
+ * 与收侧 {@link decodeMessage} 的回退规则互为逆运算（那里 `((v & 0xff) << 8) |
+ * (v >> 8)`），真机抓包也是这个形态。汉字字体 / 普通字体共用同一套换算。
+ *
+ * 注：真机那次抓包 tag 15 的原始值是 `116182`（= `0x1C5D6`），比本函数算出的
+ * `0xC5D6` 多一个 bit 16；收侧解码会把这个高位掩掉，两者都还原成 `54981`。
+ * 那个高位语义未知，这里按「与解码严格互逆」写。
+ */
+export function swapFontId16(itemId: number): number {
+  return ((itemId & 0xff) << 8) | ((itemId >>> 8) & 0xff);
+}
+
+/**
  * 装扮 → **前置**的装扮 elems（真机抓包里它们排在正文元素之前）。
  *
  * 一个 `generalFlags` 同时承载字体与挂件（真机就是这么合的），气泡单独一个 elem；
@@ -713,11 +739,18 @@ export function buildDressElems(dress: SendDress | undefined): Record<string, un
 
   const widgetId = normalizeDressId(dress.widgetId, 'widgetId');
   const fontId = normalizeDressId(dress.fontId, 'fontId');
-  if (widgetId > 0 || fontId > 0) {
+  const fontId2 = normalizeDressId(dress.fontId2, 'fontId2');
+  if (widgetId > 0 || fontId > 0 || fontId2 > 0) {
     const generalFlags: Record<string, unknown> = {};
     if (widgetId > 0) generalFlags.widgetId = widgetId;
-    // 只写 fontId1、不做字节交换（真机写的是 fontId2，但两条路服务端都不认，见 SendDress）。
-    if (fontId > 0) generalFlags.font = { fontId1: fontId };
+    // 字体两个槽位都按「调用方给真实 itemId」的约定写：fontId1 原样、fontId2 交换。
+    // 只给其中一个也能发（老客户端各认一个槽位），两个都给时收侧优先 fontId1。
+    if (fontId > 0 || fontId2 > 0) {
+      const font: Record<string, unknown> = {};
+      if (fontId > 0) font.fontId1 = fontId;
+      if (fontId2 > 0) font.fontId2 = swapFontId16(fontId2);
+      generalFlags.font = font;
+    }
     out.push({ generalFlags });
   }
 

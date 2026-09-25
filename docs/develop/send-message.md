@@ -51,11 +51,14 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
 | `xml` | `elem.richMsg.template1`（同上） | 否 |
 | `markdown` | commonElem svc 45 + MarkdownData | 否 |
 | `poke` | commonElem svc 2 + PbElem{type} | 否 |
-| `forward` | `elem.lightApp`（`com.tencent.multimsg` 卡片） | 否 |
+| `forward` | `elem.lightApp`（`com.tencent.multimsg` 卡片，只引用一个已有 resId） | 否 |
 | `image` | commonElem(48, 20).pbElem = msgInfo | **是** |
 | `record` | commonElem(48, 22).pbElem = msgInfo | **是** |
 | `video` | commonElem(48, 21).pbElem = msgInfo | **是** |
 | `raw` | 直接给 `Elem` proto 对象（逃生舱） | — |
+
+`forward` 卡片本身只是「指向一段已存在的长消息」的引用；要让它指向的内容是自己新发的，
+得先走下面第三节之二的上传（SsoSendLongMsg，返回 `resId`），再发这张卡。
 
 ## 三、媒体上传：0xE37_100 申请 + highway TCP 传字节
 
@@ -241,6 +244,37 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 
 闪传走的是 `multimedia.qfile.qq.com/sliceupload`（HTTPS + rkey），媒体上传走 highway TCP。
 **两者只共享哈希层**（`highway/hash-file.ts`、`sha1-stream.ts`），传输层不共用。
+
+## 三之四、合并转发（SsoSendLongMsg）
+
+发「聊天记录」是**两步**，协议实现在 `packages/protocol/src/msg/send-forward.ts`
+（读侧是同目录的 `get-forward.ts`，两个方向的 schema 字段号不同）：
+
+1. **上传内容**：把每条子消息编码成 `PushMsgBody`，包进
+   `LongMsgResult{ action[{ actionCommand: 'MultiMsg', actionData: { msgBody } }] }`，
+   gzip 后作为 `SendLongMsgReq.info.payload` 发给
+   `trpc.group.long_msg_interface.MsgService.SsoSendLongMsg`，拿回 `resId`。
+   群聊 `info.type=3` 且 `uid.uid` / `groupUin` 都是群号；私聊 `type=1` 且 `uid.uid` 是自己 uid；
+   `settings` 固定 `{4,1,7,0}`（与读侧的 `{2,0,0,0}` 不同）。
+2. **发卡片**：用 `{ kind: 'forward', resId }` 元素走普通 `MessageSvc.PbSendMsg`，
+   收端点开卡片才会按 resId 拉内容。**两步都要做** —— 只发卡片会指向一段不存在的内容。
+
+搬自 SnowLuma `packages/core/src/bridge/apis/forward.ts`，字段与 NapCatQQ 的
+`UploadForwardMsg`、Lagrange.Core 的 `LongMsgSendService` 三边核对过。三个要点：
+
+- **嵌套转发 piggyback**：节点给 `innerForward` 时递归先把内层传完，把「内层 resId 卡片 +
+  内层 msgBody（`actionCommand = uuid`）」一起放进外层 payload；卡片 JSON 里的 `uniseq`
+  与那个 `actionCommand` 必须相等（收端只拉一次最外层就能走完整棵树）。
+- **节点内媒体**：节点元素里的图片 / 语音 / 视频走同一套 NTV2 上传，私聊转发含媒体时必须
+  能解析出对方 uid（上传要有场景）。
+- **节点级装扮**：每个节点可选 `dress`（气泡 / 字体 / 挂件）。字体有**两个** wire 槽位：
+  `fontId` → `fontId1`(tag 56) 原样，`fontId2` → `fontId2`(tag 15) 的**低 16 位字节序交换**
+  形态（两个都收真实 itemId，换算在协议层做）。这条路径与普通发消息的 `dress` 是同一套
+  实现；普通实时消息实测服务端不采信，但**长消息上传是把字节原样存下来的**，收端解码走的
+  是常规 msg-push 路径，所以合并转发里的节点装扮更可能保住（尚未真机验证）。
+
+**尚未真机验证**：收发两个方向都做过离线单测（黄金字节 + 全链路 + 嵌套 uniseq 对齐），
+但没有真机实发过。
 
 ## 四、服务层与 MCP
 

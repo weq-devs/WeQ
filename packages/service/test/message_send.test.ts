@@ -13,11 +13,15 @@
 import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { gunzipSync, inflateSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   decode,
   encode,
+  LONG_MSG_RESULT,
   OIDB_GROUP_FILE_UPLOAD_RESP,
+  SEND_LONG_MSG_REQ,
+  SEND_LONG_MSG_RESP,
   SEND_MESSAGE_REQUEST,
   SEND_MESSAGE_RESPONSE,
 } from '@weq/protocol';
@@ -575,5 +579,187 @@ describe('sendFile（群文件 / 私聊文件）', () => {
     await expect(svc.sendFile({ peerType: 'group', targetId: '1', path: '  ' })).rejects.toThrow(
       /路径不能为空/,
     );
+  });
+});
+
+describe('sendForward（合并转发，离线）', () => {
+  /** 记账 native：长消息回 SendLongMsgResp，普通消息回 SendMessageResp。 */
+  function forwardNative(resId = 'res-forward') {
+    const calls: PacketCall[] = [];
+    return {
+      calls,
+      sendPacket: async (pid: number, cmd: string, body: Buffer): Promise<Buffer> => {
+        calls.push({ pid, cmd, body: new Uint8Array(body) });
+        if (cmd.includes('SsoSendLongMsg')) {
+          return Buffer.from(encode(SEND_LONG_MSG_RESP, { result: { resId } }));
+        }
+        return Buffer.from(
+          encode(SEND_MESSAGE_RESPONSE, { result: 0, groupSequence: 42, timestamp1: 1700000000 }),
+        );
+      },
+      sendOidbPacket: async (): Promise<Buffer> => {
+        throw new Error('这条用例不该走 OIDB');
+      },
+    };
+  }
+
+  it('群聊：先传长消息（SsoSendLongMsg）再发卡片（PbSendMsg）', async () => {
+    const native = forwardNative('res-g');
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendForward({
+      peerType: 'group',
+      targetId: '2863253201',
+      nodes: [
+        { userUin: 20002, nickname: '小明', elements: [{ kind: 'text', textContent: '你好' }] },
+      ],
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.resId).toBe('res-g');
+    expect(outcome.scene).toBe('group');
+    expect(outcome.levels).toBe(1);
+    expect(native.calls.map((c) => c.cmd)).toEqual([
+      'trpc.group.long_msg_interface.MsgService.SsoSendLongMsg',
+      'MessageSvc.PbSendMsg',
+    ]);
+
+    // 第一步：长消息请求里是群聊形状（type=3、uid.uid=群号）。
+    const longReq = decode(SEND_LONG_MSG_REQ, native.calls[0]!.body) as {
+      info?: { type?: number; uid?: { uid?: string }; groupUin?: number };
+    };
+    expect(longReq.info?.type).toBe(3);
+    expect(longReq.info?.uid?.uid).toBe('2863253201');
+    expect(longReq.info?.groupUin).toBe(2863253201);
+
+    // 第二步：卡片里带 resId。
+    const cardReq = decode(SEND_MESSAGE_REQUEST, native.calls[1]!.body) as {
+      routingHead?: { grp?: { groupCode?: number } };
+      messageBody?: { richText?: { elems?: { lightApp?: { data: Uint8Array } }[] } };
+    };
+    expect(cardReq.routingHead?.grp?.groupCode).toBe(2863253201n); // uint64 → bigint
+    const card = cardReq.messageBody?.richText?.elems?.[0]?.lightApp;
+    expect(card).toBeTruthy();
+    const cardJson = JSON.parse(
+      inflateSync(Buffer.from(card!.data).subarray(1)).toString('utf8'),
+    ) as { meta?: { detail?: { resid?: string } } };
+    expect(cardJson.meta?.detail?.resid).toBe('res-g');
+  });
+
+  it('私聊：长消息用自己 uid 的槽位，卡片走 c2c 路由', async () => {
+    const native = forwardNative('res-c');
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendForward({
+      peerType: 'c2c',
+      targetId: '20002',
+      nodes: [{ elements: [{ kind: 'text', textContent: 'hi' }] }],
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.uid).toBe('u_friend');
+    expect(outcome.scene).toBe('c2c');
+    const longReq = decode(SEND_LONG_MSG_REQ, native.calls[0]!.body) as {
+      info?: { type?: number; uid?: { uid?: string }; groupUin?: number };
+    };
+    expect(longReq.info?.type).toBe(1);
+    expect(longReq.info?.uid?.uid).toBe('u_me'); // 自己 uid
+    expect(longReq.info?.groupUin).toBeUndefined();
+
+    const cardReq = decode(SEND_MESSAGE_REQUEST, native.calls[1]!.body) as {
+      routingHead?: { c2c?: { uin?: number } };
+    };
+    expect(cardReq.routingHead?.c2c?.uin).toBe(20002);
+  });
+
+  it('嵌套转发：内层 + 外层各一次长消息上传，卡片用最外层 resId', async () => {
+    const calls: PacketCall[] = [];
+    let resSeq = 0;
+    const native = {
+      calls,
+      sendPacket: async (pid: number, cmd: string, body: Buffer): Promise<Buffer> => {
+        calls.push({ pid, cmd, body: new Uint8Array(body) });
+        if (cmd.includes('SsoSendLongMsg')) {
+          resSeq += 1;
+          return Buffer.from(encode(SEND_LONG_MSG_RESP, { result: { resId: `res-${resSeq}` } }));
+        }
+        return Buffer.from(
+          encode(SEND_MESSAGE_RESPONSE, { result: 0, groupSequence: 1, timestamp1: 1 }),
+        );
+      },
+      sendOidbPacket: async (): Promise<Buffer> => {
+        throw new Error('这条用例不该走 OIDB');
+      },
+    };
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendForward({
+      peerType: 'group',
+      targetId: '1',
+      nodes: [
+        {
+          elements: [{ kind: 'text', textContent: '外层' }],
+          innerForward: [{ elements: [{ kind: 'text', textContent: '内层' }] }],
+        },
+      ],
+    });
+    expect(outcome.resId).toBe('res-2'); // 最外层
+    expect(outcome.levels).toBe(2);
+    expect(calls.filter((c) => c.cmd.includes('SsoSendLongMsg'))).toHaveLength(2);
+
+    // 外层 payload 里应有 MultiMsg + 一条 uuid piggyback。
+    const outer = decode(SEND_LONG_MSG_REQ, calls[1]!.body) as { info?: { payload?: Uint8Array } };
+    const actions = decode(
+      LONG_MSG_RESULT,
+      new Uint8Array(gunzipSync(Buffer.from(outer.info!.payload!))),
+    ) as { action?: { actionCommand?: string }[] };
+    expect(actions.action).toHaveLength(2);
+    expect(actions.action![0]!.actionCommand).toBe('MultiMsg');
+  });
+
+  it('空 nodes 在联网前就拦下', async () => {
+    const native = forwardNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(svc.sendForward({ peerType: 'group', targetId: '1', nodes: [] })).rejects.toThrow(
+      /不能为空/,
+    );
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it('私聊含媒体但 uid 缺失：上传前就拦下', async () => {
+    const native = forwardNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendForward({
+        peerType: 'c2c',
+        targetId: '30003', // fakeSession 里没有这个 uin → uid 解析不到
+        nodes: [{ elements: [{ kind: 'image', source: new Uint8Array([1, 2, 3]) }] }],
+      }),
+    ).rejects.toThrow(/必须带 uid/);
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it('卡片那一步失败：ok=false 但 resId 仍返回（内容已在服务端）', async () => {
+    const calls: PacketCall[] = [];
+    const native = {
+      calls,
+      sendPacket: async (pid: number, cmd: string, body: Buffer): Promise<Buffer> => {
+        calls.push({ pid, cmd, body: new Uint8Array(body) });
+        if (cmd.includes('SsoSendLongMsg')) {
+          return Buffer.from(encode(SEND_LONG_MSG_RESP, { result: { resId: 'res-x' } }));
+        }
+        return Buffer.from(
+          encode(SEND_MESSAGE_RESPONSE, { result: 79, errMsg: 'rejected', timestamp1: 1 }),
+        );
+      },
+      sendOidbPacket: async (): Promise<Buffer> => {
+        throw new Error('这条用例不该走 OIDB');
+      },
+    };
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendForward({
+      peerType: 'group',
+      targetId: '1',
+      nodes: [{ elements: [{ kind: 'text', textContent: 'x' }] }],
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.resId).toBe('res-x');
+    expect(outcome.hint).toMatch(/卡片没发出去|重发/);
   });
 });

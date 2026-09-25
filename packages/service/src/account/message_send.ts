@@ -24,6 +24,7 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  sendForward as protocolSendForward,
   sendGroupFile,
   sendMessage,
   sendPrivateFile,
@@ -31,6 +32,7 @@ import {
   type PttWaveformSource,
   type SendDress,
   type SendElement,
+  type SendForwardParams as ProtocolSendForwardParams,
   type SendMediaUploadReport,
   type SendMessageReceipt,
   type SendScene,
@@ -123,6 +125,56 @@ export interface SendElementsParams {
   elements: SendElement[];
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
+}
+
+/**
+ * 合并转发里的一条子消息（节点）。
+ *
+ * 元素写法与 `send_rich_message` 完全一样（`@weq/protocol` 的 `SendElement`），
+ * 所以「把收到的消息原样再转发」可以把解码出来的元素直接塞进来。
+ */
+export interface SendForwardNodeInput {
+  /** 发送者 QQ 号；缺省自己。 */
+  userUin?: number;
+  /** 发送者昵称；缺省 QQ 号。 */
+  nickname?: string;
+  elements: SendElement[];
+  /** 显示时间（Unix 秒）；缺省当前时间。 */
+  time?: number;
+  /**
+   * 该节点自己的装扮（气泡 / 字体 / 挂件），可选。
+   *
+   * 字体两个 wire 槽位都能给：`fontId` 与 `fontId2` 都传**真实 itemId**，
+   * 协议层自动换算（tag 56 原样 / tag 15 字节交换）。
+   */
+  dress?: SendDress;
+  /** 该节点本身是一段嵌套转发。 */
+  innerForward?: SendForwardNodeInput[];
+}
+
+/** 发「合并转发 / 聊天记录」的参数。 */
+export interface SendForwardMessageParams {
+  peerType: SendPeerType;
+  /** 群号（群聊）或 QQ 号 / uid（私聊）。 */
+  targetId: string | number;
+  /** 转发内容（至少一个节点）。 */
+  nodes: SendForwardNodeInput[];
+}
+
+/** 发合并转发的回执（两步：先上传内容拿 resId，再发卡片）。 */
+export interface SendForwardOutcome {
+  ok: boolean;
+  peerType: SendPeerType;
+  targetId: string;
+  uid?: string;
+  scene: SendScene;
+  /** 服务端签发的长消息 id（卡片里的 `resid`）。 */
+  resId: string;
+  /** 嵌套层数（1 = 只有最外层）。 */
+  levels: number;
+  /** 发卡片那一步的回执（`MessageSvc.PbSendMsg`）。 */
+  card: SendMessageOutcome;
+  hint?: string;
 }
 
 /**
@@ -474,6 +526,80 @@ export class MessageSendService {
     }
     return outcome;
   }
+
+  /**
+   * 发「合并转发 / 聊天记录」—— 两步：
+   *
+   *   1. `SsoSendLongMsg` 上传内容拿到 `resId`（节点含媒体时顺带做 NTV2 上传）；
+   *   2. 发一张 `{ kind: 'forward', resId }` 卡片（走常规 PbSendMsg）。
+   *
+   * 目标是私聊时，`resId` 的 uid 槽位用**自己**的 uid；节点里含图片 / 语音 / 视频
+   * 还需要对方的 uid（上传场景），本地目录查不到就如实报错。
+   */
+  async sendForward(params: SendForwardMessageParams): Promise<SendForwardOutcome> {
+    if (!Array.isArray(params.nodes) || params.nodes.length === 0) {
+      throw new Error('合并转发至少需要一个节点（nodes 不能为空）。');
+    }
+    const needUpload = nodesNeedUpload(params.nodes);
+    const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
+    const pid = this.resolvePid();
+    const selfUin = this.selfUin();
+    const selfUid = this.session.uidMap.uidByUin(BigInt(selfUin)) ?? '';
+    if (!selfUid) {
+      throw new Error('本地 uid 目录里没有自己的 uid，无法发合并转发（重新登录一次通常就好了）。');
+    }
+
+    const upload = await protocolSendForward(this.nt, pid, {
+      ...(target.scene === 'group' ? { groupId: target.uin } : { userUin: target.uin }),
+      ...(target.scene !== 'group' && target.uid ? { userUid: target.uid } : {}),
+      selfUin,
+      selfUid,
+      nodes: params.nodes as ProtocolSendForwardParams['nodes'],
+      log: (message: string) => logger.info(message, { event: 'forward-upload' }),
+    });
+    logger.info(`合并转发内容已上传: resId=${upload.resId} levels=${upload.levels.length}`, {
+      event: 'forward-upload-summary',
+      scene: upload.scene,
+      targetId: target.targetId,
+      levels: upload.levels.length,
+    });
+
+    // 第二步：发卡片。收端点开它才会按 resId 拉回上面那段内容。
+    const card = await this.sendElements({
+      peerType: params.peerType,
+      targetId: params.targetId,
+      elements: [{ kind: 'forward', resId: upload.resId }],
+    });
+    return {
+      ok: card.ok,
+      peerType: target.peerType,
+      targetId: target.targetId,
+      ...(target.uid ? { uid: target.uid } : {}),
+      scene: upload.scene,
+      resId: upload.resId,
+      levels: upload.levels.length,
+      card,
+      hint: card.ok
+        ? `聊天记录已发送（resId=${upload.resId}，共 ${upload.levels.length} 层）。`
+        : '聊天记录内容已上传成功，但承载它的卡片没发出去 —— 内容在服务端，收端看不到，重发即可。',
+    };
+  }
+}
+
+/** 节点（含嵌套层）里是否有需要 NTV2 上传的媒体元素。 */
+function nodesNeedUpload(nodes: readonly SendForwardNodeInput[]): boolean {
+  for (const node of nodes) {
+    if (
+      node.elements.some(
+        (element) =>
+          element.kind === 'image' || element.kind === 'record' || element.kind === 'video',
+      )
+    ) {
+      return true;
+    }
+    if (node.innerForward && nodesNeedUpload(node.innerForward)) return true;
+  }
+  return false;
 }
 
 // ───────────────────────── 元素组装（纯函数，便于单测） ─────────────────────────

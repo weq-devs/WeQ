@@ -401,8 +401,9 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
   // **不代表收端会看到这些装扮**。详见 send-elements.ts 的 SendDress。
   //
   // 真机抓包里的装扮三件套：气泡 2116371 / 字体 54981 / 挂件 104228。
-  // 字体在真机包里写的是 fontId2(tag15)=116182（字节交换过的形态），本实现
-  // 统一不转、只往 fontId1(tag56) 原样写。
+  // 字体有两个 wire 槽位：fontId → fontId1(tag56) 原样；fontId2 → tag15 的
+  // 低 16 位字节序交换形态（真机那次原始值 116182，比交换结果多一个语义未知的
+  // bit 16，收侧解码会掩掉，两者都还原成 54981）。
   const DRESS = { bubbleId: 2116371, fontId: 54981, widgetId: 104228 };
 
   it('装扮 elems 前置，且字体原样写 fontId1（不做字节交换）', () => {
@@ -437,6 +438,37 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
       { bubble: { id: 2116371 } },
       { text: { str: 'hi' } },
     ]);
+  });
+
+  it('字体第二个 id：fontId2 自动做低 16 位字节交换后写进 tag 15', () => {
+    // 真机 tag15 的形态：54981 → 50646（0xC5D6）；收侧 decode 会交换回 54981。
+    expect(buildSendElems([TEXT], { dress: { fontId2: 54981 } })).toEqual([
+      { generalFlags: { font: { fontId2: 50646 } } },
+      { text: { str: 'hi' } },
+    ]);
+    // 两个槽位可以同时给。
+    expect(buildSendElems([TEXT], { dress: { fontId: 54981, fontId2: 54981 } })).toEqual([
+      { generalFlags: { font: { fontId1: 54981, fontId2: 50646 } } },
+      { text: { str: 'hi' } },
+    ]);
+  });
+
+  it('fontId2 进请求体后能被收侧 decodeMessage 还原成同一个字体 id', () => {
+    const built = buildSendRequest({
+      groupId: 999,
+      elements: [TEXT],
+      random: 1,
+      dress: { fontId2: 54981 },
+    });
+    const req = decode(SEND_MESSAGE_REQUEST, built.bytes) as {
+      messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+    };
+    const elems = req.messageBody?.richText?.elems ?? [];
+    const flags = decode(ELEM, encode(ELEM, elems[0]!)) as {
+      generalFlags?: { font?: { fontId1?: number; fontId2?: number } };
+    };
+    expect(flags.generalFlags?.font?.fontId1).toBeUndefined();
+    expect(flags.generalFlags?.font?.fontId2).toBe(50646);
   });
 
   it('不传 dress / 传全 0 时字节与以前完全一致（零回归）', () => {

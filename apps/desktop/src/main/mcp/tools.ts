@@ -3691,6 +3691,65 @@ export const AI_TOOLS: AiTool[] = [
   // 联调结束后同样应恢复 assistantOnly（见本节开头的说明）。
 
   tool({
+    name: 'send_forward_message',
+    description:
+      '【发合并转发 / 聊天记录】—— 把若干条消息打包成一张「聊天记录」卡片发给群聊或私聊。' +
+      '协议实现是 SsoSendLongMsg（不是普通发消息）：先上传内容拿 resId，再发承载它的卡片，两步都由本工具完成。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线（节点含图片/语音/视频时还要有对方 uid 才能上传）。' +
+      '\n【nodes 怎么写】JSON 数组文本，每项是一个节点：' +
+      '\n  {"userUin":123456,"nickname":"张三","elements":[{"kind":"text","textContent":"你好"}],"time":1700000000}' +
+      '\n  elements 与 send_rich_message 完全一样（text / at / face / mface / image / record / video / ark / xml / markdown / forward …），' +
+      '也可以把别处拿到的元素原样塞进来。userUin / nickname / time 都可选（缺省=自己、QQ 号、当前时间）。' +
+      '\n【嵌套转发】节点加 "innerForward":[ ...同结构的节点... ] 就是「转发里再转发」，会自动 piggyback，收端只拉一次就能展开整棵树（最多 8 层）。' +
+      '\n【节点装扮】节点可选 "dress":{"bubbleId":...,"fontId":...,"fontId2":...,"widgetId":...}（字体两个 id 都给真实 itemId 即可）。' +
+      '注意：普通实时消息实测服务端不采信客户端自报装扮；长消息是把字节原样存下来的，这条路径更可能保住，但尚未真机验证。' +
+      '\n【结果怎么看】ok=true 才算发出去；返回 resId（长消息 id）与 levels（层数）。' +
+      'ok=false 时看 card.result / card.errMsg：内容可能已上传成功但卡片没发出去，重发即可。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      nodes: z
+        .string()
+        .min(2)
+        .describe(
+          '节点数组的 JSON 文本，如 [{"userUin":123,"nickname":"张三","elements":[{"kind":"text","textContent":"hi"}]}]',
+        ),
+    }),
+    run: async ({ peerType, targetId, nodes }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(nodes);
+      } catch (error) {
+        throw new Error(
+          `nodes 不是合法 JSON：${error instanceof Error ? error.message : String(error)}。` +
+            '要传 JSON 文本（键名双引号），例如 [{"elements":[{"kind":"text","textContent":"hi"}]}]。',
+        );
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('nodes 必须是至少一个节点的 JSON 数组。');
+      }
+      parsed.forEach((item, index) => {
+        const node = item as { elements?: unknown; innerForward?: unknown } | null;
+        if (!node || typeof node !== 'object') {
+          throw new Error(`nodes[${index}] 必须是对象（节点）。`);
+        }
+        if (!Array.isArray(node.elements) && !Array.isArray(node.innerForward)) {
+          throw new Error(
+            `nodes[${index}] 缺少 elements（内容元素）或 innerForward（嵌套转发），见工具说明。`,
+          );
+        }
+      });
+      onlinePid(); // 同其它发送工具：离线 / 完全离线模式先报可读错误
+      const outcome = await services().messageSend.sendForward({
+        peerType,
+        targetId,
+        nodes: parsed as never,
+      });
+      return { ...outcome, sent: outcome.ok };
+    },
+  }),
+
+  tool({
     name: 'send_poke',
     description:
       '【戳一戳】（OIDB 0xED3_1）—— 群聊里戳某个成员，或私聊戳对方，会在会话里留下一条「戳一戳」灰条。' +

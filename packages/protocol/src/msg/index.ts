@@ -14,6 +14,7 @@ export {
   buildSendElems,
   buildSendElemsWithMedia,
   buildDressElems,
+  swapFontId16,
   deflatePayload,
   isSendMediaElement,
 } from './send-elements';
@@ -86,6 +87,30 @@ export {
 
 export { RecvLongMsg, fetchForwardRaw, SSO_RECV_LONG_MSG_CMD } from './get-forward';
 export type { RecvLongMsgParams, ForwardFetchResult } from './get-forward';
+export {
+  SendLongMsg,
+  sendForward,
+  uploadForward,
+  buildForwardNodeBody,
+  DEFAULT_SEND_SETTINGS,
+  FORWARD_MAX_DEPTH,
+  SSO_SEND_LONG_MSG_CMD,
+} from './send-forward';
+export type {
+  ForwardEncodeContext,
+  ForwardLevel,
+  ForwardNative,
+  ForwardNode,
+  LongMsgSettingsInput,
+  SendForwardParams,
+  SendForwardResult,
+} from './send-forward';
+export {
+  SEND_LONG_MSG_INFO,
+  SEND_LONG_MSG_REQ,
+  SEND_LONG_MSG_RESP,
+  SEND_LONG_MSG_RESP_RESULT,
+} from './send-forward';
 export {
   LONG_MSG_UID,
   LONG_MSG_SETTINGS,
