@@ -98,6 +98,10 @@ export function elementLabel(element: unknown): string {
       return String(data?.textContent ?? '@');
     case 'face':
       return String(data?.faceText ?? '[表情]');
+    // 表情弹射：chip 上直接写「×N」的总结（真机样本「你弹射了3个[大笑]」），
+    // 不认得这个字段的旧草稿就退回一个通用标签。
+    case 'emojiBounce':
+      return String(data?.emojiBounceTextSummary ?? data?.emojiBouncePcText ?? '[表情弹射]');
     case 'pic':
       return '[图片]';
     case 'video':

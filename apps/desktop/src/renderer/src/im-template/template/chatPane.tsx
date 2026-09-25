@@ -22,6 +22,7 @@ import {
   ClipboardCopy,
   MessageSquareText,
   Mic,
+  Rocket,
   SendHorizontal,
   Share2,
   Smile,
@@ -85,6 +86,7 @@ import {
 } from './composerQuote';
 import { LinkCardPanel, linkCardToken, type LinkCardDraft } from './linkCardPanel';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
+import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -388,6 +390,8 @@ export function ChatPane({
   const [linkOpen, setLinkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
+  // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
+  const [bounceOpen, setBounceOpen] = useState(false);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -467,6 +471,8 @@ export function ChatPane({
   const linkButtonRef = useRef<HTMLButtonElement | null>(null);
   const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
   const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const bouncePanelRef = useRef<HTMLDivElement | null>(null);
+  const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -912,6 +918,41 @@ export function ChatPane({
     };
   }, [aiVoiceOpen]);
 
+  useEffect(() => {
+    if (!bounceOpen) {
+      return;
+    }
+
+    function closeBounceFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        bouncePanelRef.current?.contains(target) ||
+        bounceButtonRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target) ||
+        toolsButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setBounceOpen(false);
+    }
+
+    function closeBounceOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setBounceOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeBounceFromOutside);
+    document.addEventListener('keydown', closeBounceOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeBounceFromOutside);
+      document.removeEventListener('keydown', closeBounceOnEscape);
+    };
+  }, [bounceOpen]);
+
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
@@ -936,8 +977,9 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
-    // AI 声聊面板同理：私聊根本没有这个按钮，切过去时别把面板留在屏幕上。
+    // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -1194,6 +1236,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setLinkOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -1263,6 +1306,7 @@ export function ChatPane({
       setPendingSuperEmoji(null);
       setVoiceOpen(false);
       setAiVoiceOpen(false);
+      setBounceOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1273,6 +1317,7 @@ export function ChatPane({
     if (options.keepBody) {
       setVoiceOpen(false);
       setAiVoiceOpen(false);
+      setBounceOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1284,6 +1329,7 @@ export function ChatPane({
     setPendingQuote(null);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     if (conversation) {
       onDraftClear(conversation.id);
     }
@@ -1348,6 +1394,27 @@ export function ChatPane({
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [aiVoiceToken(draft)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
+  }
+
+  /**
+   * 弹射表情面板「发射」：一枚 `emojiBounce` 元素编成 token 走既有的 `extraTokens`
+   * 通路（跟链接卡片 / 语音同一条）。弹射是**独立的一条消息** —— 不带输入框里的
+   * 文字、不带挂着的引用，`keepBody` 让用户正在打的字原样留着。
+   *
+   * 只做前端：这里不碰任何协议，真正下发由上层 `onSend` 决定（没接上会报错，
+   * 输入框里的内容不会丢）。
+   */
+  async function sendBounceEmoji(draft: BounceEmojiDraft) {
+    setBounceOpen(false);
+    setPendingQuote(null);
+    // 跟普通表情一样写回 QQ 的「最近使用」表（失败不影响发送）。
+    recordRecentEmoji.mutate({ faceId: draft.faceId, unicode: false, sourceType: 0 });
+    await submitMessage({
+      extraTokens: [bounceEmojiToken(draft)],
       text: '',
       keepBody: true,
       omitQuote: true,
@@ -1451,9 +1518,10 @@ export function ChatPane({
       return attachment;
     });
     setPendingSuperEmoji(null);
-    // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊面板（它同样占「单独发」这个槽位）。
+    // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊 / 弹射面板（同样占「单独发」槽位）。
     setPendingQuote(null);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
   }
 
   function removeMediaAttachment() {
@@ -1503,6 +1571,7 @@ export function ChatPane({
       setToolsOpen(false);
       setVoiceOpen(false);
       setLinkOpen(false);
+      setBounceOpen(false);
       setAttachmentError(
         media.length > 1
           ? '视频 / 文件只能单独发送，只保留了第一个'
@@ -1790,6 +1859,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setLinkOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setMobileComposerExpanded(true);
   }
 
@@ -1799,6 +1869,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setLinkOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -1808,6 +1879,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setLinkOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
@@ -1817,6 +1889,7 @@ export function ChatPane({
     setToolsOpen(false);
     setLinkOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setVoiceOpen((open) => !open);
   }
 
@@ -1826,6 +1899,7 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
+    setBounceOpen(false);
     setLinkOpen((open) => !open);
   }
 
@@ -1836,7 +1910,19 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setLinkOpen(false);
+    setBounceOpen(false);
     setAiVoiceOpen((open) => !open);
+  }
+
+  /** 弹射表情面板：和其余面板互斥；「只做面板」，发射走既有元素通路。 */
+  function toggleBouncePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -2094,6 +2180,9 @@ export function ChatPane({
   // 只对群会话出现；合成出来的语音也只能单独发，所以面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
+  // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
+  // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
+  const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
   const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
   const composerActionContext: ComposerActionContext = {
     conversation,
@@ -2105,6 +2194,8 @@ export function ChatPane({
       setToolsOpen(false);
       setVoiceOpen(false);
       setLinkOpen(false);
+      setAiVoiceOpen(false);
+      setBounceOpen(false);
     },
   };
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
@@ -2642,6 +2733,17 @@ export function ChatPane({
           >
             <Smile size={21} strokeWidth={1.5} />
           </button>
+          {/* 弹射表情：选一枚系统表情 + 个数，发射成一条独立消息。 */}
+          <button
+            ref={bounceButtonRef}
+            type="button"
+            className={cn('composer-tool', bounceOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '弹射表情（单独发送）'}
+            disabled={currentPreference.blocked || hasSingleSend}
+            onClick={toggleBouncePanel}
+          >
+            <Rocket size={21} strokeWidth={1.5} />
+          </button>
           <button
             ref={voiceButtonRef}
             type="button"
@@ -2759,6 +2861,15 @@ export function ChatPane({
             disabledHint={sendTitle}
             onSend={(draft) => void sendAiVoice(draft)}
             onClose={() => setAiVoiceOpen(false)}
+          />
+        ) : null}
+        {bouncePanelActive ? (
+          <BounceEmojiPanel
+            panelRef={bouncePanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSend={(draft) => void sendBounceEmoji(draft)}
+            onClose={() => setBounceOpen(false)}
           />
         ) : null}
         <input
@@ -2910,6 +3021,15 @@ export function ChatPane({
               >
                 <Smile size={22} strokeWidth={1.5} />
               </button>
+              <button
+                type="button"
+                title="弹射表情（单独发送）"
+                className={cn(bounceOpen && 'active')}
+                disabled={currentPreference.blocked}
+                onClick={toggleBouncePanel}
+              >
+                <Rocket size={22} strokeWidth={1.5} />
+              </button>
               <span />
               <button
                 type="button"
@@ -2927,6 +3047,15 @@ export function ChatPane({
                 panelRef={emojiPanelRef}
                 onSelect={insertEmoji}
                 onSelectSuper={stageSuperEmoji}
+              />
+            ) : null}
+            {bounceOpen ? (
+              <BounceEmojiPanel
+                panelRef={bouncePanelRef}
+                disabled={mediaSendDisabled}
+                disabledHint={sendTitle}
+                onSend={(draft) => void sendBounceEmoji(draft)}
+                onClose={() => setBounceOpen(false)}
               />
             ) : null}
           </section>

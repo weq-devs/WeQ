@@ -1179,8 +1179,8 @@
 		bottom: env(safe-area-inset-bottom, 0px);
 		left: 0;
 		z-index: 2;
-		display: grid;
-		grid-template-columns: 50px 50px 50px minmax(0, 1fr) 50px;
+		/* 表情 / 弹射 / 应用的扩展键都从左排，中间那段留白把发送键顶到最右。 */
+		display: flex;
 		align-items: center;
 		gap: 9px;
 		min-height: 64px;
@@ -1188,8 +1188,13 @@
 		background: #ffffff;
 	}
 
+	.mobile-composer-expanded-tools > span {
+		flex: 1 1 auto;
+	}
+
 	.mobile-composer-expanded-tools button {
 		display: grid;
+		flex: 0 0 auto;
 		width: 44px;
 		height: 44px;
 		place-items: center;
@@ -1257,10 +1262,24 @@
 		box-shadow: none;
 	}
 
+	/* 弹射面板在移动端展开态里同样贴底铺满（跟表情面板一个处理）。 */
+	.mobile-composer-expanded .bounce-panel {
+		position: fixed;
+		right: 0;
+		bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+		left: 0;
+		width: 100%;
+		max-height: min(560px, calc(100dvh - 96px));
+		margin: 0;
+		border: 0;
+		border-radius: 0;
+		background: #f8f8f9;
+		box-shadow: none;
+	}
+
 	.composer-tools {
-		display: grid;
+		display: flex;
 		grid-row: 2;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
 		align-items: stretch;
 		gap: 0;
 		padding: 0;
@@ -1271,11 +1290,11 @@
 	}
 
 	.composer-tools button {
-		width: 100%;
-		height: 100%;
+		/* 表情 / 弹射 / 更多（如需），外加应用层可追加的扩展键 —— 有几枚就均分几份。 */
+		flex: 1 1 0;
+		width: auto;
+		height: auto;
 		min-height: 40px;
-		justify-self: stretch;
-		align-self: stretch;
 		border-radius: 12px;
 		color: #17191f;
 		-webkit-tap-highlight-color: transparent;
