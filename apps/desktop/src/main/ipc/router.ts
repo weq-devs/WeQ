@@ -19,6 +19,7 @@ import { helpRouter } from './routers/help';
 import { groupFeedbackRouter } from './routers/group_feedback';
 import { wonderfulToolsRouter } from './routers/wonderful_tools';
 import { dbRepairRouter } from './routers/db_repair';
+import { mergeForwardRouter } from './routers/merge_forward';
 
 export const appRouter = router({
   bootstrap: bootstrapRouter,
@@ -32,6 +33,8 @@ export const appRouter = router({
    * 不持有库的时候做，所以它不该要求"有活动会话"（见 routers/db_repair.ts 的头注）。
    */
   dbRepair: dbRepairRouter,
+  /** 「合成聊天记录」草稿的本地持久化（合并转发发送由另一分支接入）。 */
+  mergeForward: mergeForwardRouter,
 });
 
 export type AppRouter = typeof appRouter;

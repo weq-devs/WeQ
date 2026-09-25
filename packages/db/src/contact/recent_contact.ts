@@ -64,6 +64,13 @@ export interface RecentContactSeq {
   sendTime: bigint;
 }
 
+/**
+ * `41136` 的置顶高位。排序键把「已置顶」编码成 bit 47，一次比较就能把置顶组
+ * 整体提前、组内仍按同一时间轴排。见
+ * `docs/database/nt_msg/recent-contact.md#41136--真正的排序键`。
+ */
+const PINNED_BIT = 140737488355328n; // 2^47
+
 export class RecentContactDb {
   private readonly qq: QqDb;
 
@@ -138,6 +145,31 @@ export class RecentContactDb {
       sendTime: toBigint(row[3]),
     }));
   }
+
+  /**
+   * 有草稿的会话 → 草稿时间（40021 -> 41108，unix 秒），只返回 `41108 > 0` 的行。
+   *
+   * `41108` 是草稿表 `draft_storage_table_v1."40050"` 的**跨表镜像**（QQ 自己在
+   * 保存草稿时写进来），所以排会话列表时不用去读草稿表、也不用解 `43002` 的
+   * protobuf —— 一条几行的 SELECT 就够了。见
+   * `docs/database/nt_msg/recent-contact.md#41136--真正的排序键`。
+   *
+   * 注意这是**尽力而为**的镜像：外部工具只写了草稿表、没同步这张表时，这里会
+   * 看不到那条草稿。调用方只该拿它做排序 / 展示，做不了主时回退到 `40050`。
+   */
+  async listDraftTimes(): Promise<Map<string, bigint>> {
+    const rows = await this.qq.query(
+      `SELECT "40021","41108" FROM recent_contact_v3_table WHERE "41108" > 0`,
+    );
+    const out = new Map<string, bigint>();
+    for (const row of rows) {
+      const targetUid = toStr(row[0]);
+      if (!targetUid) continue;
+      const draftTime = toBigint(row[1]);
+      if (draftTime > 0n) out.set(targetUid, draftTime);
+    }
+    return out;
+  }
   /**
    * Search conversations by display name (column 40094), newest first.
    * The recent-contact table is small (hundreds of rows), so the LIKE scan
@@ -195,6 +227,36 @@ export class RecentContactDb {
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();
+  }
+
+  /**
+   * 把草稿时间镜像进 `recent_contact_v3_table`，并同步刷新排序键 `41136`。
+   *
+   * `41108`（草稿时间）与 `draft_storage_table_v1` 同会话行的 `40050` 逐秒相等；
+   * `41136 = 2^47 × [已置顶] + (有草稿 ? 草稿时间 : 40050)` —— 会话因此会被草稿
+   * 顶到列表前面。见 `docs/database/nt_msg/recent-contact.md`。
+   *
+   * `draftTime` 传 `null` / `0` 表示「删掉草稿」，此时排序时间回落到 `40050`。
+   * 目标会话不在 `recent_contact_v3_table` 里时是 no-op（草稿表可以有一行，会话
+   * 列表里却没有对应行 —— 那种状态下没有地方镜像）。
+   */
+  async setDraftTime(targetUid: string, draftTime: bigint | null): Promise<void> {
+    if (!targetUid) return;
+    const rows = await this.qq.query(
+      `SELECT "41104","40050" FROM recent_contact_v3_table WHERE "40021" = ? LIMIT 1`,
+      [targetUid],
+    );
+    const row = rows[0];
+    if (!row) return;
+    const pinned = toNum(row[0]) === 1;
+    const sendTime = toBigint(row[1]);
+    const draft = draftTime ?? 0n;
+    const effective = draft > 0n ? draft : sendTime;
+    const sortKey = effective + (pinned ? PINNED_BIT : 0n);
+    await this.qq.write(
+      `UPDATE recent_contact_v3_table SET "41108" = ?, "41136" = ? WHERE "40021" = ?`,
+      [draft, sortKey, targetUid],
+    );
   }
 }
 

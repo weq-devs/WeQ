@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, RotateCcw, Sparkle } from 'lucide-react';
+import { Bot, Check, RotateCcw, Sparkle } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
@@ -81,6 +81,9 @@ export function MessageBubble({
   onLongPress,
   onAction,
   onAvatarClick,
+  selected,
+  selectionMode,
+  onToggleSelect,
 }: {
   message: Message;
   conversation: Conversation;
@@ -113,6 +116,11 @@ export function MessageBubble({
   onLongPress: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
+  /** 多选：这一行被选中（整行高亮 + 勾选标）。 */
+  selected?: boolean;
+  /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
+  selectionMode?: boolean;
+  onToggleSelect?: (message: Message) => void;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -267,13 +275,28 @@ export function MessageBubble({
         mine ? 'mine' : 'theirs',
         isDeleted && 'is-deleted',
         isQqDeleted && 'is-qq-deleted',
+        selectionMode && 'selection-mode',
+        selected && 'is-selected',
       )}
       data-message-id={message.id}
+      onClick={
+        selectionMode && onToggleSelect
+          ? (event) => {
+              event.stopPropagation();
+              onToggleSelect(message);
+            }
+          : undefined
+      }
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={msgWidget?.animated ? msgWidget.itemId : undefined}
     >
+      {selectionMode ? (
+        <span className={cn('message-select-mark')} aria-hidden>
+          {selected ? <Check size={13} strokeWidth={3.2} /> : null}
+        </span>
+      ) : null}
       {!mine ? (
         onAvatarClick ? (
           <button

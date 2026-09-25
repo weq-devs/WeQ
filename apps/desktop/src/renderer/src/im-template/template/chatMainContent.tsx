@@ -74,6 +74,7 @@ export function ChatMainContent({
   onGroupMemberSearchChange,
   onLoadMoreGroupMemberSearch,
   profileLoading,
+  sendAvailable,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
   onMessageAction,
@@ -92,6 +93,7 @@ export function ChatMainContent({
   onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
+  onMergeForward,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
@@ -152,6 +154,8 @@ export function ChatMainContent({
   onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
+  /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
+  sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
   onSend: (body: string) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -187,6 +191,8 @@ export function ChatMainContent({
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
+  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
+  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -241,6 +247,7 @@ export function ChatMainContent({
       onGroupMemberSearchChange={onGroupMemberSearchChange}
       onLoadMoreGroupMemberSearch={onLoadMoreGroupMemberSearch}
       profileLoading={profileLoading}
+      sendAvailable={sendAvailable}
       onSend={onSend}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
@@ -258,6 +265,7 @@ export function ChatMainContent({
       onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
+      onMergeForward={onMergeForward}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}

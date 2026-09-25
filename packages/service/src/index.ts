@@ -160,6 +160,8 @@ export { GuildDirectService, guildAvatarUrlFromMeta } from './account/guild_dire
 export type { GuildDirectSessionView, RenderGuildDirectMsg } from './account/guild_direct';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
+export { DraftService, chatTypeOf } from './account/draft';
+export type { SaveDraftInput, DraftPeerKind } from './account/draft';
 export { DeletedSessionService } from './account/deleted_session';
 export type { DeletedSessionSummary } from './account/deleted_session';
 export { OfficialAccountService } from './account/official_account';
@@ -201,6 +203,12 @@ export {
   type MarketPackItem,
   type MarketPackKey,
   type MarketPackFeeType,
+  type PanelFaceItem,
+  type PanelFaceGroup,
+  type PanelRecentItem,
+  type PanelFavItem,
+  type PanelRelatedTag,
+  type PanelRelatedGif,
 } from './account/emoji';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
@@ -246,6 +254,13 @@ export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
 export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
+export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export type {
+  MergeForwardDraft,
+  MergeForwardDraftInput,
+  MergeForwardNode,
+  MergeForwardSender,
+} from './account/merge_forward_drafts';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。

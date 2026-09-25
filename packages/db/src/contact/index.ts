@@ -12,6 +12,8 @@ export { RecentContactTopDb } from './recent_contact_top';
 export type { RecentContactTopDbOptions } from './recent_contact_top';
 export { HiddenSessionDb } from './hidden_session';
 export type { HiddenSessionDbOptions } from './hidden_session';
+export { DraftDb, draftStorageKey } from './draft';
+export type { Draft, DraftDbOptions, DraftWriteInput } from './draft';
 export { DeletedSessionDb } from './deleted_session';
 export type { DeletedSessionDbOptions } from './deleted_session';
 export { ServiceAssistantContactDb } from './service_assistant_contact';

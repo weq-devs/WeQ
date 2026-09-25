@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsUp,
   CirclePlus,
   Download,
@@ -15,26 +16,73 @@ import {
   Images,
   FolderOpen,
   Bug,
+  Image as ImageIcon,
+  Link2,
+  ClipboardCopy,
   MessageSquareText,
+  Mic,
   SendHorizontal,
+  Share2,
   Smile,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { useThemeStore } from '../../state/theme';
-import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type {
+  ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
   CSSProperties,
+  DragEvent as ReactDragEvent,
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
   RefObject,
 } from 'react';
 import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
+import {
+  attachmentToken,
+  clipboardFiles,
+  createAttachment,
+  createAttachments,
+  dataTransferHasFiles,
+  formatFileSize,
+  isImageFile,
+  MAX_ATTACHMENT_BYTES,
+  MAX_COMPOSER_ATTACHMENTS,
+  releaseAttachment,
+  voiceClipToken,
+  type ComposerAttachment,
+  type VoiceClip,
+} from './composerMedia';
+import {
+  ComposerDropVeil,
+  ComposerMediaStage,
+  ComposerSuperEmojiStage,
+  collectFiles,
+} from './composerMediaStage';
+import { VoicePanel } from './voicePanel';
+import {
+  ComposerQuoteBar,
+  composerQuoteToken,
+  quoteBlockReason,
+  quoteFromMessage,
+  type ComposerQuote,
+} from './composerQuote';
+import { LinkCardPanel, linkCardToken, type LinkCardDraft } from './linkCardPanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -92,10 +140,23 @@ import {
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
+import { trpc } from '../../trpc/client';
 
 const composerHeightStorageKey = 'chat-template.layout.composerHeight';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
-const mobileComposerMaxLines = 4;
+const composerCollapsedStorageKey = 'chat-template.layout.composerCollapsed';
+/**
+ * 输入区高度（桌面端可拖拽）。默认值按「语音条内联时也不用变高度」定：
+ *
+ *   composerHeight - 内边距 28 - 工具行 42 >= 语音面板（声纹舞台 126 + 脚注 ≈ 26）
+ *
+ * 语音条已经去掉外框和头部那一栏，整块只要 152px；算下来 222 就够，取 224 做下限，
+ * 这样点语音键不会再让输入区越长越高、把聊天区顶上去。比这个矮的存量拖拽值会被
+ * 自动夹上来。（配了 TTS 时头部会多出页签那一行，那种情况下语音面板内部自己滚动。）
+ */
+const composerHeightDefault = 230;
+const composerHeightMin = 224;
+const composerHeightMax = 430;
 
 type MentionMenuState = {
   query: string;
@@ -124,6 +185,14 @@ function saveGroupInfoCollapsed(value: boolean) {
   localStorage.setItem(groupInfoCollapsedStorageKey, value ? '1' : '0');
 }
 
+function loadComposerCollapsed() {
+  return localStorage.getItem(composerCollapsedStorageKey) === '1';
+}
+
+function saveComposerCollapsed(value: boolean) {
+  localStorage.setItem(composerCollapsedStorageKey, value ? '1' : '0');
+}
+
 function _hasGroupAnnouncements(conversation: Conversation) {
   return (
     conversation.type === 'group' &&
@@ -139,8 +208,8 @@ function getMessageDownloadUrl(message: Message) {
   }
 
   for (const part of parseMessageParts(message.body)) {
-    if (part.type === 'emoji' && part.item.type === 'image' && part.item.large) {
-      return part.item.value;
+    if (part.type === 'emoji' && part.item.large && part.item.src) {
+      return part.item.src;
     }
   }
 
@@ -197,6 +266,7 @@ export function ChatPane({
   onGroupMemberSearchChange,
   onLoadMoreGroupMemberSearch,
   profileLoading,
+  sendAvailable = true,
   onSend,
   onMessageAction,
   draft,
@@ -222,6 +292,7 @@ export function ChatPane({
   onExportConversation,
   deletedIds,
   onRestoreMessage,
+  onMergeForward,
 }: {
   user: User;
   conversation: Conversation | undefined;
@@ -248,6 +319,8 @@ export function ChatPane({
   onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
+  /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
+  sendAvailable?: boolean;
   onSend: (body: string) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
@@ -284,6 +357,8 @@ export function ChatPane({
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
+  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
+  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
@@ -293,14 +368,48 @@ export function ChatPane({
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [composerHeight, setComposerHeight] = useState(() =>
-    loadLayoutNumber(composerHeightStorageKey, 190, 150, 340),
+    loadLayoutNumber(
+      composerHeightStorageKey,
+      composerHeightDefault,
+      composerHeightMin,
+      composerHeightMax,
+    ),
   );
   const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
+  // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
+  const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [activeEmojiPackId, setActiveEmojiPackId] = useState('emoji');
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
+  const [linkOpen, setLinkOpen] = useState(false);
+  // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
+  // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
+  // 两者共用同一个槽位：挂上新的就把旧的卸掉。
+  const [mediaAttachment, setMediaAttachment] = useState<ComposerAttachment | null>(null);
+  const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
+  // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
+  const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const emojiUtils = trpc.useUtils();
+  const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
+    onSuccess: () => emojiUtils.account.emojiPanel.overview.invalidate(),
+  });
+  // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
+  // 服务商就没有文字转语音那一栏。
+  const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+  const ttsProviders = mediaSettings.data?.voiceTranscribe?.ttsProviders ?? [];
+  const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
+  const ttsEnabled = ttsProviders.length > 0;
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
+  // 多选：右键「多选」进入；此时输入框让位给「合并转发 / 删除 / 复制 JSON / 退出」。
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
     anchor: { x: number; y: number };
@@ -326,8 +435,34 @@ export function ChatPane({
     setGroupInfoDetail(detail);
   }
 
+  // 切会话时退出多选（选中集属于上一个会话）。
+  useEffect(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [conversation?.id]);
+
+  // 多选模式下按 Esc 退出。
+  useEffect(() => {
+    if (!selectionMode) return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSelectionMode(false);
+        setSelectedIds(new Set());
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selectionMode]);
+
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const voicePanelRef = useRef<HTMLDivElement | null>(null);
+  const voiceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const voiceBusyRef = useRef(false);
+  const linkPanelRef = useRef<HTMLDivElement | null>(null);
+  const linkButtonRef = useRef<HTMLButtonElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const expandedComposerEditorRef = useRef<HTMLDivElement | null>(null);
@@ -347,6 +482,11 @@ export function ChatPane({
   const visibleMessages = useMemo(
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
+  );
+  // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
+  const selectedMessages = useMemo(
+    () => visibleMessages.filter((message) => selectedIds.has(message.id)),
+    [visibleMessages, selectedIds],
   );
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
@@ -668,6 +808,106 @@ export function ChatPane({
   }, [toolsOpen]);
 
   useEffect(() => {
+    if (!voiceOpen) {
+      return;
+    }
+
+    // 正在录音（含请求麦克风）时不能因为点到外面就把这条丢掉。
+    function closeVoiceFromOutside(event: globalThis.MouseEvent) {
+      if (voiceBusyRef.current) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (voicePanelRef.current?.contains(target) || voiceButtonRef.current?.contains(target)) {
+        return;
+      }
+      setVoiceOpen(false);
+    }
+
+    function closeVoiceOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape' || voiceBusyRef.current) return;
+      setVoiceOpen(false);
+    }
+
+    document.addEventListener('mousedown', closeVoiceFromOutside);
+    document.addEventListener('keydown', closeVoiceOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeVoiceFromOutside);
+      document.removeEventListener('keydown', closeVoiceOnEscape);
+    };
+  }, [voiceOpen]);
+
+  useEffect(() => {
+    if (!linkOpen) {
+      return;
+    }
+
+    function closeLinkFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        linkPanelRef.current?.contains(target) ||
+        linkButtonRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target) ||
+        toolsButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setLinkOpen(false);
+    }
+
+    function closeLinkOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setLinkOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeLinkFromOutside);
+    document.addEventListener('keydown', closeLinkOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeLinkFromOutside);
+      document.removeEventListener('keydown', closeLinkOnEscape);
+    };
+  }, [linkOpen]);
+
+  // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
+  const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
+  mediaAttachmentRef.current = mediaAttachment;
+  const inlineImagesRef = useRef<ComposerAttachment[]>([]);
+  /** 释放所有内联图片的预览地址（发送成功 / 切会话 / 卸载时）。 */
+  const releaseInlineImages = useCallback(() => {
+    for (const item of inlineImagesRef.current) releaseAttachment(item);
+    inlineImagesRef.current = [];
+  }, []);
+  const attachmentConversationRef = useRef<string | null>(null);
+  useEffect(() => {
+    const conversationId = conversation?.id ?? null;
+    if (attachmentConversationRef.current === conversationId) {
+      return;
+    }
+    attachmentConversationRef.current = conversationId;
+    releaseInlineImages();
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setPendingSuperEmoji(null);
+    // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
+    setPendingQuote(null);
+    setAttachmentError(null);
+    setDropActive(false);
+  }, [conversation?.id, releaseInlineImages]);
+
+  useLayoutEffect(
+    () => () => {
+      releaseInlineImages();
+      if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
+    },
+    [releaseInlineImages],
+  );
+
+  useEffect(() => {
     if (!mentionMenu) {
       return;
     }
@@ -787,14 +1027,22 @@ export function ChatPane({
       return;
     }
 
-    const mobileEmojiMode = isMobileComposerViewport();
-    if (mobileEmojiMode && item.type === 'image' && item.large) {
-      void sendEmojiMessage(item);
-      return;
+    // 使用系统 / 字符表情时写回 QQ 的「最近使用」表（颜文字不算）。
+    if (item.kind === 'system') {
+      recordRecentEmoji.mutate({
+        faceId: Number(item.id) || 0,
+        unicode: false,
+        sourceType: 0,
+      });
+    } else if (item.kind === 'unicode' && !item.id.startsWith('kaomoji:')) {
+      recordRecentEmoji.mutate({ faceId: 0, unicode: true, extra: item.glyph });
     }
 
-    if (item.type === 'text') {
-      insertComposerText(item.value);
+    const mobileEmojiMode = isMobileComposerViewport();
+
+    // 字符 / 颜文字：直接插入字形文本。
+    if (!item.src) {
+      insertComposerText(item.glyph || item.name);
       if (!mobileEmojiMode) {
         setEmojiOpen(false);
       }
@@ -808,8 +1056,8 @@ export function ChatPane({
     }
 
     const image = document.createElement('img');
-    image.src = item.value;
-    image.alt = `[${item.name}]`;
+    image.src = item.src;
+    image.alt = item.name;
     image.title = item.name;
     image.draggable = false;
     image.dataset.chatToken = createEmojiToken(item);
@@ -826,25 +1074,167 @@ export function ChatPane({
     }
   }
 
-  async function sendEmojiMessage(item: EmojiItem) {
-    setSending(true);
-    try {
-      await onSend(createEmojiToken(item));
-    } finally {
-      setSending(false);
+  /**
+   * 选中一枚超级表情。
+   *
+   * 大表情只能单独发（跟视频 / 文件同一个约束），所以它不进输入框，而是占住「单独发」
+   * 那个槽位：先把已经挂着的视频 / 文件卸掉（预览地址一并释放），再挂上这张卡片，
+   * 并把表情 / 语音 / 更多面板收起来。
+   */
+  function stageSuperEmoji(item: EmojiItem) {
+    if (currentPreference.blocked || sending) {
+      return;
+    }
+
+    // 跟普通表情一样写回 QQ 的「最近使用」表。
+    if (item.kind === 'system') {
+      recordRecentEmoji.mutate({
+        faceId: Number(item.id) || 0,
+        unicode: false,
+        sourceType: 0,
+      });
+    }
+
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    // 「单独发」的卡片与引用互斥：挂上卡片就把引用条收起来。
+    setPendingQuote(null);
+    setPendingSuperEmoji(item);
+    setAttachmentError(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    // 移动端长文展开态里没有卡片的位置，选完就把展开态收回去（正文会跟着搬回去）。
+    if (mobileComposerExpanded) {
+      closeMobileComposerExpanded();
     }
   }
 
-  async function submitMessage() {
+  function removePendingSuperEmoji() {
+    setPendingSuperEmoji(null);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  /**
+   * 右键菜单「引用」：把这条消息挂到输入框上方。
+   *
+   * 不能引用的消息（系统灰条 / 无 seq）在菜单里已经置灰，这里再兜一层。
+   * **嵌套引用是允许的**：引用的消息自己也是引用也行，只是它的 reply 元素会被排掉
+   * （见 composerQuote 的 composerQuoteElement / quotePreview），不会嵌到新引用里。
+   * 引用条与「只能单独发」的卡片互斥 —— 挂上引用就把卡片卸掉（预览地址一并释放），
+   * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
+   */
+  function startQuote(message: Message) {
+    if (quoteBlockReason(message)) {
+      return;
+    }
+    const quote = quoteFromMessage(message);
+    if (!quote) {
+      return;
+    }
+
+    setContextMenu(null);
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setPendingSuperEmoji(null);
+    setAttachmentError(null);
+    setPendingQuote(quote);
+    // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  function removeQuote() {
+    setPendingQuote(null);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  /**
+   * 发消息。
+   *
+   * 内联图片本来就在正文里（`serializeComposer` 会把 `<img>` 上的 token 原样取回），
+   * 语音 / 视频 / 文件 / 超级表情的 token 在这里续到正文后面（`voiceClipToken` /
+   * `attachmentToken` / `createEmojiToken`）—— 素材走的都是草稿里既有的「元素 token」通路。
+   *
+   * 挂着视频 / 文件 / 超级表情时正文一律不参与本次发送：它们只能单独发，输入框里的
+   * 文字原样留着。
+   */
+  async function submitMessage(
+    options: {
+      extraTokens?: string[];
+      text?: string;
+      keepBody?: boolean;
+      /** 独立发送（链接卡片）：本次不带引用，引用条的清理也在调用方。 */
+      omitQuote?: boolean;
+    } = {},
+  ) {
     const editor = currentComposerEditor();
-    const nextBody = editor ? serializeComposer(editor) : body;
+    const nextBody = options.text ?? (editor ? serializeComposer(editor) : body);
     const trimmed = nextBody.trim();
-    if (!trimmed || sending) {
+    const singleToken = mediaAttachment
+      ? attachmentToken(mediaAttachment)
+      : pendingSuperEmoji
+        ? createEmojiToken(pendingSuperEmoji)
+        : null;
+    // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
+    // 它描述的是「本消息在回复哪一条」，不是正文的一部分。
+    const quote = options.omitQuote ? null : pendingQuote;
+    const tokens = [
+      ...(quote ? [composerQuoteToken(quote)] : []),
+      ...(singleToken ? [singleToken] : []),
+      ...(options.extraTokens ?? []),
+    ];
+    const text = singleToken ? '' : trimmed;
+    if ((!text && tokens.length === 0) || !sendAvailable || currentPreference.blocked || sending) {
       return;
     }
 
     setSending(true);
+    try {
+      await onSend(`${text}${tokens.join('')}`);
+    } catch (error) {
+      // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
+      // 不能因为一次失败就把用户打好的字吞掉。
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+      console.error('[composer] send failed:', error);
+      return;
+    }
+
+    // 视频 / 文件 / 超级表情单独发：只把这张卡片收掉，正文与草稿保持原样。
+    if (singleToken) {
+      setMediaAttachment((current) => {
+        if (current) releaseAttachment(current);
+        return null;
+      });
+      setPendingSuperEmoji(null);
+      setVoiceOpen(false);
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+      return;
+    }
+
+    // 链接卡片同样独立于正文（它自己就是一条完整的卡片消息）：发完不清输入框，
+    // 用户正在打的字原样留着。
+    if (options.keepBody) {
+      setVoiceOpen(false);
+      setSending(false);
+      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+      return;
+    }
+
+    // 清空放在发送成功之后：失败时输入区保持原样，草稿、附件、引用也还在。
     setComposerBody('');
+    releaseInlineImages();
+    setPendingQuote(null);
+    setVoiceOpen(false);
     if (conversation) {
       onDraftClear(conversation.id);
     }
@@ -862,12 +1252,38 @@ export function ChatPane({
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    try {
-      await onSend(trimmed);
-    } finally {
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-    }
+    setSending(false);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  /** 语音面板「发送」：语音本身编成 ptt 元素 token。 */
+  async function sendVoiceClip(clip: VoiceClip) {
+    await submitMessage({ extraTokens: [voiceClipToken(clip)] });
+  }
+
+  /** 语音面板「发送文字」：只把识别 / 合成的文字发出去。 */
+  async function sendTranscriptText(text: string) {
+    if (!text) return;
+    await submitMessage({ text });
+  }
+
+  /**
+   * 链接卡片面板「发送」：卡片编成一枚 ark 元素 token，走跟语音同一条发送通路
+   * （`extraTokens`）。只做前端：这里不拼任何协议，真正下发仍由 `onSend` 那一侧决定
+   * —— 没接上时它会报错，输入框里的文字与卡片都不会丢。
+   */
+  async function sendLinkCard(card: LinkCardDraft) {
+    setLinkOpen(false);
+    // 卡片是只能单独发的元素：它顶掉挂着的引用（跟视频 / 文件同一套互斥）。
+    setPendingQuote(null);
+    // `text: ''` —— 卡片自己就是完整的一条消息，不带输入框里的文字；`keepBody` 让
+    // 用户正在打的那段字原样留在输入框里，不会被这次发送清掉。
+    await submitMessage({
+      extraTokens: [linkCardToken(card)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -910,7 +1326,9 @@ export function ChatPane({
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (mobileComposerExpanded) {
+      // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
+      // 不能落到 submitMessage 上去。
+      if (mobileComposerExpanded || !sendAvailable) {
         insertComposerLineBreak();
         return;
       }
@@ -919,8 +1337,176 @@ export function ChatPane({
   }
 
   function handleComposerPaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    // 剪贴板里带文件（截图 / 复制的图片）就吃进来：图片直接内联插进输入框，
+    // 视频 / 文件挂成待发送的单独卡片。其余情况当纯文本贴。
+    const files = clipboardFiles(event.clipboardData);
+    if (files.length > 0) {
+      event.preventDefault();
+      void addFiles(files);
+      return;
+    }
     event.preventDefault();
     insertComposerText(event.clipboardData.getData('text/plain'));
+  }
+
+  // ── 图片（内联进输入框）/ 视频、文件（单独发）────────────────────────────
+
+  /**
+   * 图片像表情一样直接插进输入框：一个 `<img data-chat-token>`，token 里装着可无损
+   * 还原的 pic 元素。发送时 `serializeComposer` 会把它取回，跟草稿里其它元素同一条通路。
+   */
+  function insertInlineImage(attachment: ComposerAttachment) {
+    const editor = currentComposerEditor();
+    if (!editor || !attachment.url) {
+      return;
+    }
+
+    const image = document.createElement('img');
+    image.src = attachment.url;
+    image.alt = attachment.name;
+    image.title = `${attachment.name}（${formatFileSize(attachment.size)}）`;
+    image.draggable = false;
+    image.dataset.chatToken = attachmentToken(attachment);
+    image.className = cn('composer-token-image composer-inline-attachment');
+
+    insertComposerNode(editor, image, composerSelectionRef.current);
+    syncComposerBody(editor);
+  }
+
+  /**
+   * 视频 / 文件只能挂一个：新的顶掉旧的，旧预览地址释放。挂上它也会顶掉挂着的
+   * 超级表情 —— 「单独发」这个槽位一次只放一个。
+   */
+  function setMedia(attachment: ComposerAttachment) {
+    setMediaAttachment((current) => {
+      if (current && current.id !== attachment.id) releaseAttachment(current);
+      return attachment;
+    });
+    setPendingSuperEmoji(null);
+    // 同上：视频 / 文件顶掉引用。
+    setPendingQuote(null);
+  }
+
+  function removeMediaAttachment() {
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setAttachmentError(null);
+    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+  }
+
+  async function addFiles(files: File[]) {
+    if (files.length === 0 || currentPreference.blocked || sending) {
+      return;
+    }
+
+    const oversized: string[] = [];
+    const usable = files.filter((file) => {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        oversized.push(file.name);
+        return false;
+      }
+      return true;
+    });
+    if (usable.length === 0) {
+      setAttachmentError(`${oversized[0] ?? '文件'} 超过 100MB，已跳过`);
+      return;
+    }
+
+    const images = usable.filter(isImageFile);
+    const media = usable.filter((file) => !isImageFile(file));
+
+    if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
+      setAttachmentError(
+        pendingSuperEmoji
+          ? '超级表情只能单独发，先移除卡片再插图片'
+          : '视频 / 文件只能单独发，先移除卡片再插图片',
+      );
+      return;
+    }
+
+    if (media.length > 0) {
+      // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
+      setMedia(await createAttachment(media[0]));
+      // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
+      setEmojiOpen(false);
+      setToolsOpen(false);
+      setVoiceOpen(false);
+      setLinkOpen(false);
+      setAttachmentError(
+        media.length > 1
+          ? '视频 / 文件只能单独发送，只保留了第一个'
+          : images.length > 0
+            ? '视频 / 文件不能和图片一起发，图片已忽略'
+            : oversized.length > 0
+              ? `${oversized[0]} 超过 100MB，已跳过`
+              : null,
+      );
+      return;
+    }
+
+    const room = MAX_COMPOSER_ATTACHMENTS - inlineImagesRef.current.length;
+    if (room <= 0) {
+      setAttachmentError(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
+      return;
+    }
+
+    const created = await createAttachments(images.slice(0, room));
+    inlineImagesRef.current = [...inlineImagesRef.current, ...created];
+    for (const item of created) {
+      insertInlineImage(item);
+    }
+    setAttachmentError(
+      oversized.length > 0
+        ? `${oversized[0]} 超过 100MB，已跳过`
+        : images.length > room
+          ? `最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片，多余的已忽略`
+          : null,
+    );
+  }
+
+  function openMediaPicker(kind: 'image' | 'file') {
+    if (currentPreference.blocked || sending) {
+      return;
+    }
+    (kind === 'image' ? imageInputRef : fileInputRef).current?.click();
+  }
+
+  function handleMediaPickerChange(event: ReactChangeEvent<HTMLInputElement>) {
+    const files = collectFiles(event.target.files);
+    // 清空 value：同一个文件再选一次也要能触发 change。
+    event.target.value = '';
+    void addFiles(files);
+  }
+
+  // ── 拖拽投递 ──────────────────────────────────────────────────────────────
+
+  function handleComposerDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!dataTransferHasFiles(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!dropActive) setDropActive(true);
+  }
+
+  function handleComposerDragLeave(event: ReactDragEvent<HTMLDivElement>) {
+    // 在输入区内部移动时 relatedTarget 仍在容器里，不算离开。
+    const next = event.relatedTarget as Node | null;
+    if (next && event.currentTarget.contains(next)) {
+      return;
+    }
+    setDropActive(false);
+  }
+
+  function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (!dataTransferHasFiles(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    setDropActive(false);
+    void addFiles(clipboardFiles(event.dataTransfer));
   }
 
   function updateMentionMenu(editor = currentComposerEditor()) {
@@ -950,6 +1536,12 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
+    // 多选模式下右键 = 切换选中，不再弹菜单。
+    if (selectionMode) {
+      event.preventDefault();
+      toggleSelectMessage(message);
+      return;
+    }
     if (window.matchMedia('(max-width: 760px)').matches) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
@@ -991,6 +1583,71 @@ export function ChatPane({
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
       variant: 'mobile',
     });
+  }
+
+  /** 进入多选：右键「多选」→ 选中该条并切到多选模式。 */
+  function enterSelection(message: Message) {
+    setContextMenu(null);
+    setDecorationCard(null);
+    window.getSelection()?.removeAllRanges();
+    setSelectionMode(true);
+    setSelectedIds(new Set([message.id]));
+  }
+
+  function toggleSelectMessage(message: Message) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) {
+        next.delete(message.id);
+      } else {
+        next.add(message.id);
+      }
+      return next;
+    });
+  }
+
+  function exitSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function mergeForwardSelected() {
+    if (!conversation || selectedMessages.length === 0) {
+      return;
+    }
+    const picked = selectedMessages;
+    exitSelection();
+    onMergeForward?.(picked, conversation);
+  }
+
+  function deleteSelectedMessages() {
+    if (!conversation) {
+      return;
+    }
+    const picked = selectedMessages;
+    exitSelection();
+    for (const message of picked) {
+      void onDeleteMessage?.(message, conversation);
+    }
+  }
+
+  function copySelectedMessagesJson() {
+    const payload = selectedMessages.map((message) => {
+      const sender = resolveMessageSender(message, conversation as Conversation, user);
+      const decoration = (message as { decoration?: unknown }).decoration ?? null;
+      const qqElements = (message as { qqElements?: unknown }).qqElements ?? null;
+      return {
+        msgId: message.id,
+        senderId: message.senderId,
+        senderUin: sender.identityValue,
+        senderName: displayUserName(sender),
+        createdAt: message.createdAt,
+        body: message.body,
+        decoration,
+        elements: qqElements,
+      };
+    });
+    void copyTextToClipboard(JSON.stringify(payload, null, 2));
   }
 
   function updateComposerHeight(height: number) {
@@ -1062,20 +1719,45 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setEmojiOpen(false);
+    setLinkOpen(false);
     setMobileComposerExpanded(true);
   }
 
   function toggleEmojiPanel() {
     setContextMenu(null);
     setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
   function toggleToolsPanel() {
     setContextMenu(null);
     setEmojiOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
+
+  function toggleVoicePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setLinkOpen(false);
+    setVoiceOpen((open) => !open);
+  }
+
+  function toggleLinkPanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLinkOpen((open) => !open);
+  }
+
+  const handleVoiceBusyChange = useCallback((busy: boolean) => {
+    voiceBusyRef.current = busy;
+  }, []);
 
   function closeMobileComposerExpanded() {
     const editor = expandedComposerEditorRef.current;
@@ -1212,6 +1894,22 @@ export function ChatPane({
     });
   }
 
+  /**
+   * 收起 / 展开输入区。收起来时把挂在输入区上的浮层一并关掉（表情 / 语音 / 更多 /
+   * @ 菜单）—— 它们都锚在输入区上，输入区没了就会悬在半空。
+   */
+  function toggleComposerCollapsed() {
+    const next = !composerCollapsed;
+    setComposerCollapsed(next);
+    saveComposerCollapsed(next);
+    if (next) {
+      setEmojiOpen(false);
+      setToolsOpen(false);
+      setVoiceOpen(false);
+      setMentionMenu(null);
+    }
+  }
+
   async function copyMessage(message: Message) {
     const selectedText = window.getSelection()?.toString().trim();
     // Non-copyable messages (images/files/cards) render an empty body — fall
@@ -1292,6 +1990,23 @@ export function ChatPane({
     ...preference,
   };
   const composerActionRegistry = resolveComposerActionRegistry(composerActions);
+  // 「只能单独发」的卡片：视频 / 文件，或者一枚超级表情 —— 它们共用一个槽位，
+  // 挂上以后正文编辑区让给卡片、输入框里的文字不参与本次发送。
+  const hasSingleSend = mediaAttachment !== null || pendingSuperEmoji !== null;
+  const singleSendHint = pendingSuperEmoji ? '超级表情只能单独发送' : '视频 / 文件只能单独发送';
+  // 引用是正文之外的第二种内容，而它**不占**「单独发」那个槽位（引用 + 正文一起发）。
+  const hasQuote = pendingQuote !== null;
+  // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片 / 引用
+  // 挂着时发送键也算有内容。
+  const sendDisabled =
+    !sendAvailable ||
+    currentPreference.blocked ||
+    sending ||
+    (body.trim().length === 0 && !hasSingleSend && !hasQuote);
+  const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
+  // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
+  const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
+  const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
   const composerActionContext: ComposerActionContext = {
     conversation,
     blocked: currentPreference.blocked,
@@ -1300,11 +2015,20 @@ export function ChatPane({
       setContextMenu(null);
       setEmojiOpen(false);
       setToolsOpen(false);
+      setVoiceOpen(false);
+      setLinkOpen(false);
     },
   };
+  // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
+  // 整个聊天区往下跳）。面板内容装不下时它自己在内部滚动。
+  //
+  // 收起时置 0：网格那一行、把手的 bottom、右下角「N 条新消息」气泡的 bottom 都
+  // 吃这个变量，于是整条输入区从布局里消失、气泡自动落回底边，不用各处单独判断。
+  // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
+  const effectiveComposerHeight = selectionMode ? 64 : composerCollapsed ? 0 : composerHeight;
   const paneStyle = {
-    '--composer-height': `${composerHeight}px`,
-    '--desktop-composer-height': `${composerHeight}px`,
+    '--composer-height': `${effectiveComposerHeight}px`,
+    '--desktop-composer-height': `${effectiveComposerHeight}px`,
     '--mobile-composer-editor-height': `${mobileComposerEditorHeight}px`,
   } as CSSProperties;
   const hasPlusActions = composerActionRegistry.plusPanel.length > 0;
@@ -1324,6 +2048,8 @@ export function ChatPane({
         'chat-pane',
         conversation.type === 'group' ? 'with-group-info' : '',
         conversation.type === 'group' && groupInfoCollapsed ? 'group-info-collapsed' : '',
+        composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
+        selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
@@ -1660,9 +2386,13 @@ export function ChatPane({
                     recallRevokerName={message.recallRevokerName}
                     onRestore={onRestoreMessage}
                     onContextMenu={openMessageMenu}
+                    selected={selectionMode && selectedIds.has(message.id)}
+                    selectionMode={selectionMode}
+                    onToggleSelect={toggleSelectMessage}
                     onLongPress={openMobileMessageMenu}
                     onAction={onMessageAction}
                     onAvatarClick={
+                      !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
                       onOpenGroupMember
                         ? onOpenGroupMember
@@ -1727,8 +2457,82 @@ export function ChatPane({
         </>
       ) : null}
 
-      <div className={cn('composer')}>
-        <ComposerResizeHandle height={composerHeight} onHeightChange={updateComposerHeight} />
+      {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
+          平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
+          消失，只剩它在底边，负责把输入框再请回来。 */}
+      <button
+        className={cn('composer-toggle')}
+        type="button"
+        title={composerCollapsed ? '展开输入框' : '收起输入框'}
+        aria-label={composerCollapsed ? '展开输入框' : '收起输入框'}
+        aria-expanded={!composerCollapsed}
+        onClick={toggleComposerCollapsed}
+      >
+        {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
+
+      <div
+        className={cn(
+          'composer',
+          hasSingleSend && 'has-single-send',
+          hasQuote && 'has-quote',
+          voicePanelActive && 'voice-open',
+          dropActive && 'is-dropping',
+          selectionMode && 'selection-mode',
+        )}
+        onDragOver={handleComposerDragOver}
+        onDragLeave={handleComposerDragLeave}
+        onDrop={handleComposerDrop}
+      >
+        {selectionMode ? (
+          <div className={cn('selection-bar')}>
+            <div className={cn('selection-bar-info')}>
+              <span className={cn('selection-bar-count')}>{selectedIds.size}</span>
+              <span className={cn('selection-bar-label')}>条已选</span>
+            </div>
+            <div className={cn('selection-bar-actions')}>
+              <button
+                type="button"
+                className={cn('selection-action', 'selection-action-primary')}
+                title={sendAvailable ? '合并转发' : 'QQ 未在线或处于完全离线模式，暂不可发送'}
+                disabled={!sendAvailable || selectedMessages.length === 0}
+                onClick={mergeForwardSelected}
+              >
+                <Share2 size={17} />
+                <span>合并转发</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
+                onClick={deleteSelectedMessages}
+              >
+                <Trash2 size={17} />
+                <span>删除</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
+                onClick={copySelectedMessagesJson}
+              >
+                <ClipboardCopy size={17} />
+                <span>复制 JSON</span>
+              </button>
+              <button type="button" className={cn('selection-action')} onClick={exitSelection}>
+                <X size={17} />
+                <span>退出</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <ComposerResizeHandle
+          height={composerHeight}
+          minHeight={composerHeightMin}
+          maxHeight={composerHeightMax}
+          onHeightChange={updateComposerHeight}
+        />
+        <ComposerDropVeil visible={dropActive} />
         <div className={cn('composer-tools')}>
           {composerActionRegistry.mobileToolbar.map((action) => (
             <ComposerToolbarActionButton
@@ -1744,11 +2548,49 @@ export function ChatPane({
             ref={emojiButtonRef}
             type="button"
             className={cn('composer-tool', emojiOpen && 'active')}
-            title="表情"
-            disabled={currentPreference.blocked}
+            title={hasSingleSend ? singleSendHint : '表情'}
+            disabled={currentPreference.blocked || hasSingleSend}
             onClick={toggleEmojiPanel}
           >
-            <Smile size={27} />
+            <Smile size={21} strokeWidth={1.5} />
+          </button>
+          <button
+            ref={voiceButtonRef}
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool', voiceOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '语音'}
+            disabled={currentPreference.blocked || hasSingleSend}
+            onClick={toggleVoicePanel}
+          >
+            <Mic size={21} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool')}
+            title={hasSingleSend ? singleSendHint : '发送图片（直接插进输入框）'}
+            disabled={currentPreference.blocked || sending || hasSingleSend}
+            onClick={() => openMediaPicker('image')}
+          >
+            <ImageIcon size={21} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool')}
+            title="发送文件或视频（单独发送）"
+            disabled={currentPreference.blocked || sending}
+            onClick={() => openMediaPicker('file')}
+          >
+            <FolderOpen size={21} strokeWidth={1.5} />
+          </button>
+          <button
+            ref={linkButtonRef}
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool', linkOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '发送链接卡片（单独发送）'}
+            disabled={currentPreference.blocked || sending || hasSingleSend}
+            onClick={toggleLinkPanel}
+          >
+            <Link2 size={21} strokeWidth={1.5} />
           </button>
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
@@ -1774,14 +2616,51 @@ export function ChatPane({
             </button>
           ) : null}
         </div>
+        {mediaAttachment ? (
+          <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
+        ) : pendingSuperEmoji ? (
+          <ComposerSuperEmojiStage item={pendingSuperEmoji} onRemove={removePendingSuperEmoji} />
+        ) : null}
+        {pendingQuote ? <ComposerQuoteBar quote={pendingQuote} onRemove={removeQuote} /> : null}
         {emojiOpen && !mobileComposerExpanded ? (
           <EmojiPanel
             panelRef={emojiPanelRef}
-            activePackId={activeEmojiPackId}
-            onActivePackChange={setActiveEmojiPackId}
             onSelect={insertEmoji}
+            onSelectSuper={stageSuperEmoji}
           />
         ) : null}
+        {voicePanelActive ? (
+          <VoicePanel
+            panelRef={voicePanelRef}
+            canSend={!mediaSendDisabled}
+            sendHint={sendTitle}
+            transcribeEnabled={transcribeEnabled}
+            ttsEnabled={ttsEnabled}
+            ttsProviderCount={ttsProviders.length}
+            onSendVoice={(clip) => void sendVoiceClip(clip)}
+            onSendTranscript={(text) => void sendTranscriptText(text)}
+            onBusyChange={handleVoiceBusyChange}
+          />
+        ) : null}
+        {linkOpen && !mobileComposerExpanded ? (
+          <LinkCardPanel
+            panelRef={linkPanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSend={(card) => void sendLinkCard(card)}
+            onClose={() => setLinkOpen(false)}
+          />
+        ) : null}
+        <input
+          ref={imageInputRef}
+          type="file"
+          multiple
+          hidden
+          accept="image/*"
+          onChange={handleMediaPickerChange}
+        />
+        {/* 视频 / 文件只能单独发，不带 multiple —— 选了也只会留第一个。 */}
+        <input ref={fileInputRef} type="file" hidden onChange={handleMediaPickerChange} />
         {toolsOpen && hasPlusActions ? (
           <ComposerPlusPanel
             panelRef={toolsPanelRef}
@@ -1802,7 +2681,10 @@ export function ChatPane({
         ) : null}
         <div
           ref={composerEditorRef}
-          className={cn('composer-editor')}
+          className={cn(
+            'composer-editor',
+            (hasSingleSend || voicePanelActive) && 'composer-row-hidden',
+          )}
           role="textbox"
           aria-multiline="true"
           aria-disabled={currentPreference.blocked || sending}
@@ -1825,6 +2707,22 @@ export function ChatPane({
           onBlur={() => saveComposerSelection(composerEditorRef.current)}
           onPaste={handleComposerPaste}
         />
+        <button
+          type="button"
+          className={cn('composer-send', 'composer-desktop-tool')}
+          title={sendTitle}
+          aria-label={sendTitle}
+          disabled={sendDisabled}
+          onClick={() => void submitMessage()}
+        >
+          <SendHorizontal size={17} />
+          <strong>发送</strong>
+        </button>
+        {attachmentError ? (
+          <span className={cn('composer-attachment-error')} role="status">
+            {attachmentError}
+          </span>
+        ) : null}
         <button
           className={cn('mobile-composer-expand-button')}
           type="button"
@@ -1900,13 +2798,15 @@ export function ChatPane({
                 disabled={currentPreference.blocked}
                 onClick={toggleEmojiPanel}
               >
-                <Smile size={29} />
+                <Smile size={22} strokeWidth={1.5} />
               </button>
               <span />
               <button
                 type="button"
-                title="发送"
-                disabled={currentPreference.blocked || sending || !body.trim()}
+                className={cn('composer-send-expanded')}
+                title={sendTitle}
+                aria-label={sendTitle}
+                disabled={sendDisabled}
                 onClick={() => void submitMessage()}
               >
                 <SendHorizontal size={28} />
@@ -1915,9 +2815,8 @@ export function ChatPane({
             {emojiOpen ? (
               <EmojiPanel
                 panelRef={emojiPanelRef}
-                activePackId={activeEmojiPackId}
-                onActivePackChange={setActiveEmojiPackId}
                 onSelect={insertEmoji}
+                onSelectSuper={stageSuperEmoji}
               />
             ) : null}
           </section>
@@ -1938,6 +2837,10 @@ export function ChatPane({
           onDelete={deleteMessage}
           onEditRaw={onEditRaw ? editMessageRaw : undefined}
           onViewDecoration={viewDecoration}
+          onReply={startQuote}
+          // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
+          replyBlockedReason={quoteBlockReason(contextMenu.message)}
+          onMultiSelect={enterSelection}
         />
       ) : null}
       {decorationCard ? (

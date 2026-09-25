@@ -31,4 +31,13 @@ export class RecentContactService {
   getTopContacts(): Promise<RecentContactTop[]> {
     return this.session.recentContactTops.getTopContacts();
   }
+
+  /**
+   * 有草稿的会话 → 草稿时间（targetUid -> unix 秒）。读的是
+   * `recent_contact_v3_table."41108"`（草稿表 `40050` 的跨表镜像），只返回
+   * `41108 > 0` 的行。前端拿它和最后消息时间取最大值给会话排序。
+   */
+  listDraftTimes(): Promise<Map<string, bigint>> {
+    return this.session.recentContacts.listDraftTimes();
+  }
 }

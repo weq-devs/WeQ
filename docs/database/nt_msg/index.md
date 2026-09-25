@@ -16,7 +16,7 @@
 | `recent_contact_delete_storage` | 删除会话 | [deleted-session](./deleted-session.md) |
 | `msg_unread_info_table` | 未读信息 + 提醒高亮 | [unread-info](./unread-info.md) |
 | `nt_uid_mapping_table` | uid ↔ uin ↔ sortNo 目录 | [下见](#nt_uid_mapping_table) |
-| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容（WeQ 不解析） | [draft-storage](./draft-storage.md) |
+| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容（WeQ 读写） | [draft-storage](./draft-storage.md) |
 
 ### 消息行
 

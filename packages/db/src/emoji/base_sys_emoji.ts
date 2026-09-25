@@ -7,6 +7,7 @@
  *   81214  unicodeId   Unicode 字符表情的 face_id（如 😊 = 128522）；0 / 空表示非此类
  *   81221  special     特殊类表情标识（0 正常，1 特殊）
  *   81226  emojiType   1 系统表情 / 2 emoji 表情 / 3 动态可变表情（如掷骰子）
+ *   81266  category    分类名（如「小黄脸表情」「QQ黄脸」「emoji 表情」），可空
  *   81229  staticUrl   静态图片下载地址
  *   81230  apngUrl     APNG 图片下载地址（emoji 表情无此链接）
  *
@@ -27,11 +28,13 @@ export interface SysEmoji {
   unicodeId: number;
   special: number;
   emojiType: number;
+  /** 分类名（81266，如「小黄脸表情」「QQ黄脸」「emoji 表情」）；可空。 */
+  category: string;
   staticUrl: string;
   apngUrl: string;
 }
 
-const SELECT_COLUMNS = `"81211","81212","81214","81221","81226","81229","81230"`;
+const SELECT_COLUMNS = `"81211","81212","81214","81221","81226","81266","81229","81230"`;
 
 export class BaseSysEmojiDb extends QqDb {
   /** 列出 base_sys_emoji_table 的所有行。 */
@@ -59,7 +62,8 @@ function rowToSysEmoji(row: SqlRow): SysEmoji {
     unicodeId: Number(row[2] ?? 0),
     special: Number(row[3] ?? 0),
     emojiType: Number(row[4] ?? 0),
-    staticUrl: String(row[5] ?? ''),
-    apngUrl: String(row[6] ?? ''),
+    category: String(row[5] ?? ''),
+    staticUrl: String(row[6] ?? ''),
+    apngUrl: String(row[7] ?? ''),
   };
 }

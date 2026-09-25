@@ -183,6 +183,62 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	transform: translateY(-50%);
 }
 
+/* 收起 / 展开输入区 —— 与群资料栏同一套交互：把手贴在两个区域的交界线上（这里是
+ * 输入区上沿，群资料栏是面板左边），平时隐形，鼠标压上去或键盘聚焦才浮出来。
+ *
+ * 挂在 .chat-pane 上而不是 .composer 里 —— 收起时 .composer 是 display:none，
+ * 放在里面会连把手一起藏掉。bottom 直接吃 --composer-height：收起时那个变量被
+ * 置 0，把手自动贴到底边，不用再写一条 collapsed 覆盖。
+ *
+ * z-index 9 压过 .composer-resize（8）—— 那根拖拽条横跨整条交界线，把手得在上面
+ * 才点得动；中间这 50px 让给把手，其余位置照常拖高度。 */
+.composer-toggle {
+	display: grid;
+	position: absolute;
+	z-index: 9;
+	left: 50%;
+	bottom: var(--composer-height, 190px);
+	width: 50px;
+	height: 20px;
+	place-items: center;
+	padding: 0;
+	border: 1px solid #dedede;
+	border-bottom: 0;
+	border-radius: 12px 12px 0 0;
+	outline: 0;
+	background: rgba(245, 245, 245, 0.92);
+	color: #999999;
+	cursor: pointer;
+	opacity: 0;
+	transform: translateX(-50%);
+	transition:
+		opacity 100ms ease-out,
+		background 100ms ease-out,
+		color 100ms ease-out;
+}
+
+.composer-toggle svg {
+	width: 16px;
+	height: 16px;
+}
+
+.composer-toggle:hover,
+.composer-toggle:focus-visible {
+	background: #ffffff;
+	color: #666666;
+	opacity: 1;
+}
+
+/* 收起来以后把手一直看得见 —— 否则没人知道去哪儿把输入框找回来。 */
+.chat-pane.composer-collapsed .composer-toggle {
+	opacity: 1;
+}
+
+/* 群资料栏展开时输入区只占左列，把手跟着挪到那一列的正中间。 */
+.chat-pane.with-group-info:not(.group-info-collapsed) .composer-toggle {
+	left: calc(50% - var(--group-info-panel-width) / 2);
+}
+
 .contact-profile-empty,
 .contact-profile-pane {
 	display: grid;
@@ -660,11 +716,15 @@ html[data-theme="dark"] .weq-chat-backdrop {
 }
 
 /* Floating "N new messages" pill — shown when live messages arrive while the
- * user is reading history. Click (or scrolling to the bottom) dismisses it. */
+ * user is reading history. Click (or scrolling to the bottom) dismisses it.
+ *
+ * 贴在**输入框上方**：bottom 用 --composer-height 让开 composer 那一行，
+ * 否则输入区露出来以后气泡会压在输入框上。
+ */
 .new-message-pill {
 	position: absolute;
 	z-index: 10;
-	bottom: 24px;
+	bottom: calc(var(--composer-height, 190px) + 14px);
 	right: 24px;
 	display: inline-flex;
 	height: 26px;
@@ -1522,6 +1582,17 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 
 .message-context-menu button:hover {
 	background: #f1f1f1;
+}
+
+/* 不可用的菜单项（如「引用」遇到系统消息 / 缺少会话内序号）：置灰且不跟着高亮。
+   带上深色变体，否则会被 screens.css 里那条深色 hover 盖掉。 */
+.message-context-menu button:disabled,
+.message-context-menu button:disabled:hover,
+html[data-theme="dark"] .message-context-menu button:disabled,
+html[data-theme="dark"] .message-context-menu button:disabled:hover {
+	background: transparent;
+	cursor: not-allowed;
+	opacity: 0.4;
 }
 
 .conversation-details {
@@ -3205,11 +3276,12 @@ html[data-theme="dark"] .member-role-badge.admin {
 	content: "";
 }
 
+/* 图标之间只留一点缝：32px 的按钮 + 6px 间距，看着是一簇工具而不是散落的点。 */
 .composer-tools {
 	display: flex;
 	grid-column: 1 / -1;
 	align-items: center;
-	gap: 18px;
+	gap: 6px;
 	padding-right: 22px;
 }
 
@@ -3235,6 +3307,72 @@ html[data-theme="dark"] .member-role-badge.admin {
 .composer-tools button:disabled {
 	cursor: not-allowed;
 	opacity: 0.42;
+}
+
+/* 发送键贴在输入框右下角（QQ PC 同款位置）。.composer 是 position:relative，
+   所以这里绝对定位即可，不占网格行。仅在桌面端渲染（带 composer-desktop-tool，
+   <760px 时被 responsive.css 隐藏）。 */
+.composer-send {
+	position: absolute;
+	z-index: 4;
+	right: 22px;
+	bottom: 20px;
+	display: inline-flex;
+	width: auto;
+	min-width: 68px;
+	height: 32px;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 0 13px;
+	border-radius: 7px;
+	background: var(--weq-accent-effective, #0099ff);
+	color: #ffffff;
+	font-size: 13px;
+	white-space: nowrap;
+	line-height: 1;
+	transition:
+		background-color 140ms ease,
+		opacity 140ms ease,
+		transform 140ms ease;
+}
+
+.composer-send strong {
+	font: inherit;
+	font-weight: 600;
+}
+
+.composer-send:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, #000000);
+	transform: translateY(-1px);
+}
+
+.composer-send:disabled {
+	background: #c5c9cf;
+	color: #ffffff;
+	cursor: not-allowed;
+	opacity: 1;
+}
+
+/* 给编辑器右侧留出按钮的位置，正文不会滑到按钮底下。只在桌面端生效 ——
+   小屏有独立的 composer 内边距（responsive.css），别把它盖掉。 */
+@media (min-width: 761px) {
+	.composer:has(> .composer-send) > .composer-editor {
+		padding-right: 96px;
+	}
+
+	/* 收起输入区：那一行高度已被 --composer-height:0 归零，这里再把 .composer 整个
+	 * 从布局里拿走（否则内容会溢出到消息区上）。消息区顺势长高，右下角「N 条新
+	 * 消息」气泡的 bottom 就是 --composer-height，于是自动落回底边。小屏有自己
+	 * 的输入框展开方式（.mobile-composer-expand-button），不参与这套。 */
+	.chat-pane.composer-collapsed .composer {
+		display: none;
+	}
+}
+
+html[data-theme="dark"] .composer-send:disabled {
+	background: #4a4f56;
+	color: #9ba1aa;
 }
 
 .composer-tools span {
@@ -5053,4 +5191,132 @@ html[data-theme="dark"] .chat-empty-logo {
 	width: 100%;
 	height: 92px;
 	border-radius: 8px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   多选（右键「多选」→ 整行高亮 + 输入区换成操作条）
+   ══════════════════════════════════════════════════════════════════════════
+   主题色 / 深浅模式全部走 --weq-accent-effective + --weq-bg-*，不另写一份。 */
+
+.message-line.selection-mode {
+	cursor: pointer;
+}
+
+/* 选中行：整个矩形区域铺主题色底 + 虚线边框。用负 margin 抵消 padding/border，
+ * 避免选中时整行高度变化、列表跳一下。 */
+.message-line.is-selected {
+	margin: -5px -12px;
+	padding: 4px 11px;
+	border: 1px dashed color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 13%, transparent);
+}
+
+.message-line.is-selected .message-bubble {
+	background: transparent;
+}
+
+/* 行首的圆形勾选标。 */
+.message-select-mark {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	min-width: 20px;
+	margin-top: 6px;
+	border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
+	border-radius: 50%;
+	color: #ffffff;
+	background: transparent;
+	transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.message-line.is-selected .message-select-mark {
+	border-color: var(--weq-accent-effective, #0099f7);
+	background: var(--weq-accent-effective, #0099f7);
+}
+
+/* ── 输入区让位给操作条 ───────────────────────────────────────────────── */
+.composer.selection-mode {
+	grid-template-rows: minmax(0, 1fr);
+	padding: 10px 22px;
+}
+
+/* 多选时只剩操作条：其余子元素（工具行 / 编辑器 / 发送键 / 各种浮层）全藏起来。 */
+.composer.selection-mode > *:not(.selection-bar) {
+	display: none !important;
+}
+
+.selection-bar {
+	display: flex;
+	grid-column: 1 / -1;
+	align-items: center;
+	gap: 14px;
+	min-width: 0;
+}
+
+.selection-bar-info {
+	display: flex;
+	align-items: baseline;
+	gap: 5px;
+	color: var(--weq-fg-secondary, #6b7280);
+}
+
+.selection-bar-count {
+	font-size: 20px;
+	font-weight: 700;
+	color: var(--weq-accent-effective, #0099f7);
+	font-variant-numeric: tabular-nums;
+}
+
+.selection-bar-label {
+	font-size: 12px;
+}
+
+.selection-bar-actions {
+	display: flex;
+	margin-left: auto;
+	align-items: center;
+	gap: 8px;
+}
+
+.selection-action {
+	display: inline-flex;
+	height: 36px;
+	align-items: center;
+	gap: 6px;
+	padding: 0 14px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099f7) 26%, transparent);
+	border-radius: 10px;
+	color: inherit;
+	font-size: 13px;
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 6%, transparent);
+	cursor: pointer;
+	transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.selection-action:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 13%, transparent);
+}
+
+.selection-action:active:not(:disabled) {
+	transform: translateY(1px);
+}
+
+.selection-action:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.selection-action-primary {
+	border-color: transparent;
+	color: #ffffff;
+	background: var(--weq-accent-effective, #0099f7);
+	box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective, #0099f7) 32%, transparent);
+}
+
+.selection-action-primary:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 88%, #000000);
 }

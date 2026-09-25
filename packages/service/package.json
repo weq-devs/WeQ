@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./db-tolerance-copy": "./src/account/db_tolerance_copy.ts",
+    "./conversation-order": "./src/account/conversation_order.ts",
+    "./draft-edit": "./src/account/draft_edit.ts",
     "./report-time": "./src/account/annual_report/time.ts",
     "./report-assets": "./src/account/annual_report/report-assets.ts",
     "./report-mate": "./src/account/annual_report/report-mate.ts"

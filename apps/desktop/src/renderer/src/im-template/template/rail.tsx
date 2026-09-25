@@ -18,6 +18,7 @@ import {
   BarChart3,
   Images,
   DatabaseZap,
+  FileStack,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
@@ -43,6 +44,7 @@ export function AppRail({
   onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
+  onOpenMergeForward,
   messageBadgeCount = 0,
   contactBadgeCount = 0,
   showTools = true,
@@ -65,6 +67,8 @@ export function AppRail({
   onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
+  /** 「合成聊天记录」—— 合并转发的草稿箱（离线也能拼，存 weq 目录）。 */
+  onOpenMergeForward: () => void;
   messageBadgeCount?: number;
   contactBadgeCount?: number;
   showTools?: boolean;
@@ -88,6 +92,7 @@ export function AppRail({
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
     { id: 'dbRepair', label: '数据库修复', icon: DatabaseZap, onSelect: onOpenDbRepair },
+    { id: 'mergeForward', label: '合成聊天记录', icon: FileStack, onSelect: onOpenMergeForward },
     { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
     { id: 'qzoneAlbum', label: '空间相册', icon: Images, onSelect: onOpenQzoneAlbum },
     { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },

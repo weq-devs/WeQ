@@ -1,133 +1,162 @@
-﻿// @ts-nocheck
-export type EmojiPackType = 'image' | 'text';
+// @ts-nocheck
+/**
+ * 输入框 / 草稿里表情 token 的解析与构造。
+ *
+ * 面板选中的表情在输入框里以 token 字符串保存，`contentEditable` 再把 token
+ * 反解成预览元素（图片 / 字符）。token 形态：
+ *
+ *   [[chat:face:<faceId>]]                     QQ 系统表情（图片，weq-asset）
+ *   [[chat:face:<faceId>:big]]                 同一枚表情按大表情（超级表情）发：
+ *                                              走 superSticker（serviceType 37）
+ *                                              那条 wire 形态，只能单独成一条消息
+ *   [[chat:mface:<packId>:<hash>]]             商城表情（TEA 解密 GIF）
+ *   [[chat:fav:<scope>:<bucket>:<v>:<file>]]   收藏自定义表情（weq-media cemoji）
+ *   [[chat:gif:<dirHash>:<file>]]              关联 GIF（weq-media relemoji）
+ *   [[chat:elem:<base64url(JSON)>>]]           其它草稿元素（图片/文件/ark…，见 draftElements）
+ *
+ * 纯 Unicode 字符表情直接以字形文本插入，不产生 token（避免和图片表情混在同
+ * 一条「最近使用」里）。旧的 `[名字]` 写法仍按纯文本保留，不再解析成表情。
+ */
+
+import { emojiUrl, mediaUrl } from '../../lib/resourceUrl';
+
+export type EmojiKind = 'system' | 'unicode' | 'market' | 'fav' | 'related';
 
 export type EmojiItem = {
+  kind: EmojiKind;
+  /** 稳定 key（系统表情 = faceId；其它按 token 派生）。 */
   id: string;
+  /** 外显名（`[微笑]` / 文件名等）。 */
   name: string;
-  value: string;
-  type: EmojiPackType;
-  packId: string;
-  packName: string;
+  /** 插入输入框的 token。 */
+  token: string;
+  /** 预览图 src（unicode 为 null）。 */
+  src: string | null;
+  /** unicode 字形（非 unicode 为 ''）。 */
+  glyph: string;
+  /**
+   * 大表情（超级表情）：按贴纸形态发（superSticker，只能单独成一条消息），面板与
+   * 占位卡片上用静态小图预览。
+   */
   large: boolean;
 };
 
-export type EmojiPack = {
-  id: string;
-  name: string;
-  type: EmojiPackType;
-  size?: number;
-  items: EmojiItem[];
-};
-
 export type MessagePart =
-  | {
-      type: 'text';
-      value: string;
-    }
-  | {
-      type: 'emoji';
-      item: EmojiItem;
-      raw: string;
-    };
+  | { type: 'text'; value: string }
+  | { type: 'emoji'; item: EmojiItem; raw: string }
+  | { type: 'element'; raw: string };
 
-const tokenPattern = /\[\[chat:emoji:([a-z0-9_-]+):([^\]]+)\]\]|\[([^\]\n]{1,32})\]/gi;
-const basicEmojiItems: Array<[string, string]> = [
-  ['微笑', '🙂'],
-  ['开心', '😄'],
-  ['笑哭', '😂'],
-  ['眨眼', '😉'],
-  ['喜欢', '🥰'],
-  ['酷', '😎'],
-  ['思考', '🤔'],
-  ['惊讶', '😮'],
-  ['难过', '😢'],
-  ['生气', '😠'],
-  ['困', '😴'],
-  ['赞', '👍'],
-  ['鼓掌', '👏'],
-  ['OK', '👌'],
-  ['爱心', '❤️'],
-  ['星星', '✨'],
-  ['火花', '🔥'],
-  ['礼物', '🎁'],
-  ['咖啡', '☕'],
-  ['蛋糕', '🍰'],
-  ['西瓜', '🍉'],
-  ['猫猫', '🐱'],
-  ['狗狗', '🐶'],
-  ['鱼', '🐟'],
-  ['月亮', '🌙'],
-  ['太阳', '☀️'],
-  ['雨', '🌧️'],
-  ['彩虹', '🌈'],
-  ['文件', '📄'],
-  ['图片', '🖼️'],
-  ['音乐', '🎵'],
-  ['游戏', '🎮'],
-];
+const elementTokenPattern = '\\[\\[chat:elem:([^\\]]+)\\]\\]';
+// `:big` 走非捕获组 —— 面板里选大表情时才会带上，好让下游把它当贴纸发；捕获组
+// 序号不动，`itemFromMatch` 里按整串判断即可。
+const faceTokenPattern = '\\[\\[chat:face:([0-9]+)(?::big)?\\]\\]';
+const mfaceTokenPattern = '\\[\\[chat:mface:([^:\\]]+):([^\\]]+)\\]\\]';
+const favTokenPattern = '\\[\\[chat:fav:([^:\\]]+):([^:\\]]*):([^:\\]]+):([^\\]]+)\\]\\]';
+const gifTokenPattern = '\\[\\[chat:gif:([^:\\]]+):([^\\]]+)\\]\\]';
 
-const fufuItems: Array<[string, string]> = Array.from({ length: 17 }, (_, index) => {
-  const id = String(index + 1);
-  const fileId = id.padStart(3, '0');
-  return [id, `https://cdn.jsdmirror.com/gh/dogxii/face/fufu/fufu_${fileId}.gif`];
-});
-
-const kaomojiItems: Array<[string, string]> = [
-  ['开心', '(´▽`)'],
-  ['大笑', 'ヽ(°〇°)ﾉ'],
-  ['害羞', '(⁄ ⁄•⁄ω⁄•⁄ ⁄)'],
-  ['思考', '(´･_･`)'],
-  ['无语', '(¬_¬)'],
-  ['尴尬', '(・_・;)'],
-  ['哭泣', '(╥﹏╥)'],
-  ['生气', '(╬ ಠ益ಠ)'],
-  ['惊讶', 'Σ(ﾟДﾟ)'],
-  ['困', '(-.-)zzZ'],
-  ['爱心', '(｡♥‿♥｡)'],
-  ['星星眼', '(✧ω✧)'],
-  ['得意', 'ヽ(✿ﾟ▽ﾟ)ノ'],
-  ['耸肩', '¯\\_(ツ)_/¯'],
-  ['无奈', '┐(´∀｀)┌'],
-  ['傻笑', '(´∀`)'],
-  ['翻桌', '(╯°□°)╯︵ ┻━┻'],
-  ['摊手', '╮(╯_╰)╭'],
-  ['抱抱', 'ლ(´ ❥ `ლ)'],
-  ['拜托', 'm(_ _)m'],
-  ['叹气', '(´-ω-`)'],
-  ['再见', 'ヾ(￣▽￣)Bye~'],
-  ['躺平', '_(:з」∠)_'],
-  ['欢呼', '\\(^o^)/'],
-];
-
-export const emojiPacks: EmojiPack[] = [
-  createImagePack(
-    'emoji',
-    '表情',
-    basicEmojiItems.map(([name, symbol]) => [name, createPlaceholderEmojiDataUrl(symbol)]),
-    30,
-    false,
-  ),
-  createImagePack('fufu', '敷敷', fufuItems, 80, true),
-  createTextPack('kaomoji', '颜文字', kaomojiItems),
-];
-
-const emojiItemsByTokenKey = new Map(
-  emojiPacks.flatMap((pack) => pack.items.map((item) => [itemKey(pack.id, item.id), item])),
+const tokenPattern = new RegExp(
+  [
+    elementTokenPattern,
+    faceTokenPattern,
+    mfaceTokenPattern,
+    favTokenPattern,
+    gifTokenPattern,
+  ].join('|'),
+  'gi',
 );
 
-const emojiItemsByDisplayKey = new Map(
-  emojiPacks.flatMap((pack) =>
-    pack.items.flatMap((item) => [
-      [displayKey(item), item],
-      [`${pack.id}:${item.id}`, item],
-    ]),
-  ),
-);
+// ── token 构造 ────────────────────────────────────────────────────────────────
 
-export function createEmojiToken(item: EmojiItem) {
-  return `[${displayKey(item)}]`;
+/**
+ * QQ 系统表情（图片）。
+ *
+ * `large` = 这枚表情要按**大表情 / 超级表情**发：token 上多带一个 `:big`（下游据此
+ * 走 superSticker，且只能单独成一条消息）。小黄脸等常规表情保持内联小图，可以和文字
+ * 合成一条消息。
+ */
+export function systemFaceItem(
+  faceId: string | number,
+  desc: string,
+  large = false,
+): EmojiItem {
+  const id = String(faceId);
+  return {
+    kind: 'system',
+    id,
+    name: desc || `[表情${id}]`,
+    token: large ? `[[chat:face:${id}:big]]` : `[[chat:face:${id}]]`,
+    src: emojiUrl(id, 'apng', `${id}.png`),
+    glyph: '',
+    large,
+  };
 }
 
+/** Unicode 字符表情（直接插字形文本）。 */
+export function unicodeFaceItem(glyph: string, desc: string): EmojiItem {
+  return {
+    kind: 'unicode',
+    id: glyph,
+    name: desc || glyph,
+    token: glyph,
+    src: null,
+    glyph,
+    large: false,
+  };
+}
+
+/** 商城表情。 */
+export function marketFaceItem(packId: string, hash: string, name: string): EmojiItem {
+  return {
+    kind: 'market',
+    id: `${packId}:${hash}`,
+    name: name || hash,
+    token: `[[chat:mface:${packId}:${hash}]]`,
+    src: mediaUrl('mface', { pack: packId, hash, enc: 'tea' }),
+    glyph: '',
+    large: true,
+  };
+}
+
+/** 收藏自定义表情；`variant` 选中实际存在的那个文件（ori / thumb）。 */
+export function favEmojiItem(
+  scope: string,
+  bucket: string,
+  variant: 'ori' | 'thumb',
+  file: string,
+  name: string,
+): EmojiItem {
+  return {
+    kind: 'fav',
+    id: `${scope}:${bucket}:${file}`,
+    name: name || file,
+    token: `[[chat:fav:${scope}:${bucket}:${variant}:${file}]]`,
+    src: mediaUrl('cemoji', { scope, bucket, v: variant, file }),
+    glyph: '',
+    large: true,
+  };
+}
+
+/** 关联 GIF。 */
+export function relatedEmojiItem(dirHash: string, file: string, name: string): EmojiItem {
+  return {
+    kind: 'related',
+    id: `${dirHash}:${file}`,
+    name: name || file,
+    token: `[[chat:gif:${dirHash}:${file}]]`,
+    src: mediaUrl('relemoji', { hash: dirHash, file }),
+    glyph: '',
+    large: true,
+  };
+}
+
+/** 一枚表情的 token；unicode 直接是字形。 */
+export function createEmojiToken(item: EmojiItem): string {
+  return item.token;
+}
+
+// ── token 解析 ────────────────────────────────────────────────────────────────
+
+/** 把草稿正文拆成 文本 / 表情 / 元素 三类片段。 */
 export function parseMessageParts(value: string): MessagePart[] {
   const parts: MessagePart[] = [];
   tokenPattern.lastIndex = 0;
@@ -136,26 +165,19 @@ export function parseMessageParts(value: string): MessagePart[] {
 
   while (match) {
     if (match.index > cursor) {
-      parts.push({
-        type: 'text',
-        value: value.slice(cursor, match.index),
-      });
+      parts.push({ type: 'text', value: value.slice(cursor, match.index) });
     }
 
-    const item = match[1]
-      ? findEmojiItem(match[1], safeDecode(match[2]))
-      : findEmojiItemByDisplayKey(match[3]);
-    if (item) {
-      parts.push({
-        type: 'emoji',
-        item,
-        raw: match[0],
-      });
+    if (match[1] !== undefined) {
+      // 元素 token：输入框把它当 chip 渲染，内容由 draftElements 还原。
+      parts.push({ type: 'element', raw: match[0] });
     } else {
-      parts.push({
-        type: 'text',
-        value: match[0],
-      });
+      const item = itemFromMatch(match);
+      if (item) {
+        parts.push({ type: 'emoji', item, raw: match[0] });
+      } else {
+        parts.push({ type: 'text', value: match[0] });
+      }
     }
 
     cursor = match.index + match[0].length;
@@ -163,101 +185,35 @@ export function parseMessageParts(value: string): MessagePart[] {
   }
 
   if (cursor < value.length) {
-    parts.push({
-      type: 'text',
-      value: value.slice(cursor),
-    });
+    parts.push({ type: 'text', value: value.slice(cursor) });
   }
 
   return parts.length > 0 ? mergeAdjacentText(parts) : [{ type: 'text', value }];
 }
 
-function createImagePack(
-  id: string,
-  name: string,
-  items: Array<[string, string]>,
-  size: number,
-  large: boolean,
-): EmojiPack {
-  return {
-    id,
-    name,
-    type: 'image',
-    size,
-    items: items.map(([itemName, value]) => ({
-      id: itemName,
-      name: itemName,
-      value,
-      type: 'image',
-      packId: id,
-      packName: name,
-      large,
-    })),
-  };
-}
-
-function createTextPack(id: string, name: string, items: Array<[string, string]>): EmojiPack {
-  return {
-    id,
-    name,
-    type: 'text',
-    items: items.map(([itemName, value]) => ({
-      id: itemName,
-      name: itemName,
-      value,
-      type: 'text',
-      packId: id,
-      packName: name,
-      large: false,
-    })),
-  };
-}
-
-function findEmojiItem(packId: string, itemId: string) {
-  return emojiItemsByTokenKey.get(itemKey(packId, itemId));
-}
-
-function findEmojiItemByDisplayKey(key: string | undefined) {
-  if (!key) {
-    return undefined;
+function itemFromMatch(match: RegExpExecArray): EmojiItem | null {
+  // 捕获组顺序与 tokenPattern 一一对应：1=elem 2=face 3,4=mface 5,6,7,8=fav 9,10=gif。
+  if (match[2] !== undefined) return systemFaceItem(match[2], '', match[0].includes(':big'));
+  if (match[3] !== undefined && match[4] !== undefined) {
+    return marketFaceItem(match[3], match[4], '');
   }
-
-  return emojiItemsByDisplayKey.get(key);
-}
-
-function displayKey(item: EmojiItem) {
-  return item.packId === 'emoji' ? item.name : `${item.packName}:${item.id}`;
-}
-
-function itemKey(packId: string, itemId: string) {
-  return `${packId}:${itemId}`;
-}
-
-function createPlaceholderEmojiDataUrl(symbol: string) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, system-ui, sans-serif" font-size="48">${escapeSvgText(symbol)}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
-
-function escapeSvgText(value: string) {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function safeDecode(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
+  if (match[5] !== undefined && match[8] !== undefined) {
+    const variant = match[7] === 'ori' ? 'ori' : 'thumb';
+    return favEmojiItem(match[5], match[6] ?? '', variant, match[8], '');
   }
+  if (match[9] !== undefined && match[10] !== undefined) {
+    return relatedEmojiItem(match[9], match[10], '');
+  }
+  return null;
 }
 
-function mergeAdjacentText(parts: MessagePart[]) {
-  return parts.reduce<MessagePart[]>((merged, part) => {
+function mergeAdjacentText(parts: MessagePart[]): MessagePart[] {
+  return parts.reduce((merged, part) => {
     const previous = merged[merged.length - 1];
     if (part.type === 'text' && previous?.type === 'text') {
       previous.value += part.value;
       return merged;
     }
-
     merged.push(part);
     return merged;
   }, []);

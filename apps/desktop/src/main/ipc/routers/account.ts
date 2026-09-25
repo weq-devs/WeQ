@@ -35,6 +35,7 @@ import { sysEmojiRouter } from './sys_emoji';
 import { marketEmojiRouter } from './market_emoji';
 import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
+import { emojiPanelRouter } from './emoji_panel';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
@@ -970,6 +971,8 @@ export const accountRouter = router({
   customEmoji: customEmojiRouter,
   // ---- related-emoji (keyword → gif) cache browser ----
   relatedEmoji: relatedEmojiRouter,
+  // ---- 消息输入框表情面板（系统/字符/最近/收藏/商城/GIF）----
+  emojiPanel: emojiPanelRouter,
   // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
@@ -1704,6 +1707,61 @@ export const accountRouter = router({
     const hidden = await requireServices().hiddenSessions.listHiddenSessions();
     return hidden.map(hiddenSessionToWire);
   }),
+
+  /**
+   * 会话草稿（draft_storage_table_v1）—— 整表读。这张表只有几行，无需分页。
+   * `elements` 是按 40800 全量解析的正文（文本 / @ / 表情 / 图片 / 视频 / 文件 /
+   * markdown / ark / 引用…… 都在里面），交给前端按模板的 message 结构渲染。
+   */
+  listDrafts: procedure.query(async () => {
+    const drafts = await requireServices().drafts.listDrafts();
+    return drafts.map((d) => ({
+      storageKey: d.storageKey,
+      chatType: d.chatType,
+      targetUid: d.targetUid,
+      sendTime: d.sendTime.toString(),
+      elements: elementsToEditable(d.elements),
+    }));
+  }),
+
+  /**
+   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`，unix 秒）。
+   *
+   * 单独开一个轻量 query，是为了让**会话列表排序**在 `onDbChanged` 时能跟手：
+   * 输入框里的草稿正文由 `drafts` state 本地承载、不需要每次重读，但排序要在
+   * 每次库变化时都刷新。这里只跑一条几行的 SELECT，不去重读 / 重解整张草稿表
+   * （`listDrafts` 会解 `43002` 的 protobuf，代价大得多）。
+   */
+  listConversationDraftTimes: procedure.query(async () => {
+    const map = await requireServices().recentContacts.listDraftTimes();
+    return [...map].map(([targetUid, draftTime]) => ({
+      targetUid,
+      draftTime: draftTime.toString(),
+    }));
+  }),
+
+  /**
+   * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
+   * 产品决定不做逐字写、也不做本地兜底：写不进 QQ 库就按没草稿处理。
+   *
+   * `elements` 为空 = 清掉该会话的草稿（QQ 清空输入框后也是这么做的）。
+   */
+  saveDraft: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        targetUid: z.string().min(1),
+        elements: z.array(z.any()),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await requireServices().drafts.saveDraft({
+        kind: input.kind,
+        targetUid: input.targetUid,
+        elements: elementsFromEditable(input.elements),
+      });
+      return true;
+    }),
 
   /**
    * 删除的会话（recent_contact_delete_storage）—— 已解析出的最后消息时间/预览，

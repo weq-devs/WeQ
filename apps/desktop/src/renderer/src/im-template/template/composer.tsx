@@ -2,7 +2,9 @@
 import { useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { parseMessageParts } from './emojiPacks';
+import type { EmojiItem } from './emojiPacks';
 import { cn } from './classNames';
+import { elementLabel, tokenToElement } from './draftElements';
 
 export type ComposerMentionTrigger = {
   start: number;
@@ -125,25 +127,64 @@ export function replaceComposerTextRange(
 export function restoreComposer(editor: HTMLElement, value: string) {
   editor.replaceChildren();
 
-  parseMessageParts(value).forEach((part) => {
+  for (const part of parseMessageParts(value)) {
     if (part.type === 'text') {
       appendText(editor, part.value);
-      return;
+      continue;
     }
 
-    const image = document.createElement('img');
-    image.src = part.item.value;
-    image.alt = `[${part.item.name}]`;
-    image.title = part.item.name;
-    image.draggable = false;
-    image.dataset.chatToken = part.raw;
-    image.className = cn(
-      part.item.large
-        ? 'composer-token-image composer-sticker-token'
-        : 'composer-token-image composer-inline-emoji',
-    );
-    editor.append(image);
-  });
+    if (part.type === 'element') {
+      appendElementChip(editor, part.raw);
+      continue;
+    }
+
+    appendEmojiToken(editor, part);
+  }
+}
+
+/**
+ * 渲染一枚元素 chip —— 草稿里那些输入框表达不了的元素（图片 / 视频 / 文件 /
+ * markdown / ark / 引用…）。显示成 `[图片]` 这样的标签，`dataset.chatToken`
+ * 里存着可无损还原的 token，序列化时原样取回。
+ */
+function appendElementChip(editor: HTMLElement, raw: string) {
+  const element = tokenToElement(raw);
+  const label = element ? elementLabel(element) : '[消息]';
+  const chip = document.createElement('span');
+  chip.className = cn('composer-element-token');
+  chip.contentEditable = 'false';
+  chip.dataset.chatToken = raw;
+  chip.title = label;
+  chip.textContent = label;
+  editor.append(chip);
+}
+
+/** 表情 token：有预览图的走 <img>，字符表情直接插字形文本。 */
+function appendEmojiToken(editor: HTMLElement, part: { item: EmojiItem; raw: string }) {
+  const item = part.item as {
+    src: string | null;
+    name: string;
+    glyph: string;
+    large: boolean;
+  };
+
+  if (!item.src) {
+    editor.append(document.createTextNode(item.glyph || item.name));
+    return;
+  }
+
+  const image = document.createElement('img');
+  image.src = item.src;
+  image.alt = item.name;
+  image.title = item.name;
+  image.draggable = false;
+  image.dataset.chatToken = part.raw;
+  image.className = cn(
+    item.large
+      ? 'composer-token-image composer-sticker-token'
+      : 'composer-token-image composer-inline-emoji',
+  );
+  editor.append(image);
 }
 
 function serializeComposerNode(node: Node): string {
@@ -293,9 +334,14 @@ export function isNodeInside(parent: Node, child: Node) {
 export function ComposerResizeHandle({
   height,
   onHeightChange,
+  minHeight = 150,
+  maxHeight = 340,
 }: {
   height: number;
   onHeightChange: (height: number) => void;
+  /** 可拖拽的下限 / 上限（默认值跟 chatPane 的 loadLayoutNumber 夹取范围保持一致）。 */
+  minHeight?: number;
+  maxHeight?: number;
 }) {
   const startY = useRef(0);
   const startHeight = useRef(height);
@@ -307,7 +353,9 @@ export function ComposerResizeHandle({
     document.body.classList.add('is-resizing-composer');
 
     function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      onHeightChange(clamp(startHeight.current - (moveEvent.clientY - startY.current), 150, 340));
+      onHeightChange(
+        clamp(startHeight.current - (moveEvent.clientY - startY.current), minHeight, maxHeight),
+      );
     }
 
     function handlePointerUp() {
