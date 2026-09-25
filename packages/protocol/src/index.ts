@@ -17,6 +17,7 @@
  *   oidb/get-qq-show-url.ts      — GetQqShowUrl (0xFE1_3, QQ 秀 URL)。
  *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
  *   oidb/send-tuwen-ark.ts       — SendTuwenArk (0xdc2_34, 图文 Ark 卡片发送)。
+ *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
  *   oidb/flashtransfer/  — 闪传 fileset OIDB 服务 + 上传编排。
@@ -55,6 +56,12 @@ export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 export { SendTuwenArk } from './oidb/send-tuwen-ark';
 export type { SendTuwenArkParams, SendTuwenArkResult } from './oidb/send-tuwen-ark';
+export { SendAiVoice } from './oidb/send-ai-voice';
+export type {
+  SendAiVoiceParams,
+  SendAiVoiceResult,
+  AiVoiceFileInfo,
+} from './oidb/send-ai-voice';
 export { FetchClientKey } from './oidb/fetch-client-key';
 export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
