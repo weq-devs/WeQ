@@ -25,6 +25,18 @@ export interface SystemFaceEntry {
   emojiType: number;
   /** Unicode 字符表情的 code point；0 表示非此类（走本地图片资源）。 */
   unicodeId: number;
+  /**
+   * 能否按**超级/动态表情**发（commonElem serviceType 37）。判据是 emoji.db
+   * `base_sys_emoji_table` 的 81216/81217 都有值，见 {@link SysEmoji.sticker}。
+   *
+   * 为 true 时 `packId` / `stickerId` 才有意义；拼 QFaceExtra 时 faceId 还要一起
+   * 当 `qsid`（`(packId, stickerId)` 不唯一）。
+   */
+  sticker: boolean;
+  /** 表情包 id（81216 → `QFaceExtra.packId`）；非贴纸为空串。 */
+  packId: string;
+  /** 包内贴纸 id（81217 → `QFaceExtra.stickerId`）；非贴纸为空串。 */
+  stickerId: string;
 }
 
 /**
@@ -76,6 +88,22 @@ export interface PanelFaceItem {
   unicode: boolean;
   /** 字符表情的字形（非字符表情为 ''）。 */
   glyph: string;
+  /**
+   * 能否按**超级表情 / 动态贴纸**发送（commonElem serviceType 37）。
+   *
+   * 判据是 emoji.db 的 81216(packId) / 81217(stickerId) 都有值 —— 这是权威判据，
+   * 与「分类名是不是叫超级表情」无关：实测 371 行里有这两个 id 的正是 155 行，
+   * 而唯一没有它们的两类（小黄脸表情 / 字符表情）恰好都不在「超级表情」栏里，
+   * 所以当前按分类名分组与按本字段判定的**结果完全一致**。分类名会随版本改
+   * （已有「开学季限时表情8.27-9.14」这类带日期的脏名字），本字段不会。
+   *
+   * 为 true 时 {@link packId} / {@link stickerId} 才有意义。
+   */
+  sticker: boolean;
+  /** 表情包 id（81216 → `QFaceExtra.packId`）；非贴纸为空串。 */
+  packId: string;
+  /** 包内贴纸 id（81217 → `QFaceExtra.stickerId`）；非贴纸为空串。 */
+  stickerId: string;
 }
 
 /** 按 81266 分类的一组表情。 */
@@ -89,6 +117,13 @@ export interface PanelFaceGroup {
   /** 该组是否全部是 unicode 字符表情。 */
   unicode: boolean;
   items: PanelFaceItem[];
+  /**
+   * 该组内有多少枚带贴纸目录信息（81216/81217）的表情，即能走 svc 37 的。
+   *
+   * 用它就能在**不改分组逻辑**的前提下标出「哪几组是真贴纸」：`stickerCount`
+   * 等于 `items.length` 就是整组可发超级表情，为 0 就是整组都不行。
+   */
+  stickerCount: number;
 }
 
 /** 最近使用的一条（已解析成可渲染的形状）。 */
@@ -218,6 +253,9 @@ export class EmojiService {
         desc: r.desc,
         emojiType: r.emojiType,
         unicodeId: r.unicodeId,
+        sticker: r.sticker,
+        packId: r.packId,
+        stickerId: r.stickerId,
       }))
       .filter((r) => Number.isFinite(r.id) && r.desc);
     return this.sysFaces;
@@ -226,6 +264,9 @@ export class EmojiService {
   /**
    * 面板用：按 `81266` 分类列出内置表情。字符表情（`81214` 非 0，id 是字形）
    * 单独成组（`unicode: true`），不与小黄脸等图片表情混排。失败/缺库返回空表。
+   *
+   * 分组**保持按分类名**（前端「超级表情」栏就是靠 `label` 排除「小黄脸表情」），
+   * 但每项 / 每组额外带上 81216/81217 的贴纸信息，让上层不必再猜分类名。
    */
   async listPanelFaces(): Promise<PanelFaceGroup[]> {
     const rows = await this.loadSysFaceRows();
@@ -237,7 +278,14 @@ export class EmojiService {
       const key = `${r.emojiType}:${label}`;
       let group = groups.get(key);
       if (!group) {
-        group = { key, label, emojiType: r.emojiType, unicode, items: [] };
+        group = {
+          key,
+          label,
+          emojiType: r.emojiType,
+          unicode,
+          items: [],
+          stickerCount: 0,
+        };
         groups.set(key, group);
       }
       group.items.push({
@@ -245,7 +293,11 @@ export class EmojiService {
         desc: r.desc || r.id,
         unicode,
         glyph: unicode ? r.id : '',
+        sticker: r.sticker,
+        packId: r.packId,
+        stickerId: r.stickerId,
       });
+      if (r.sticker) group.stickerCount += 1;
     }
     return [...groups.values()].sort(compareFaceGroups);
   }
@@ -829,6 +881,20 @@ function isGlyphId(id: string): boolean {
   return id.length > 0 && !/^\d+$/.test(id);
 }
 
+/**
+ * 从 base_sys_emoji 的原始行取出「贴纸三件套」。行缺失（最近使用里遇到库里没有的
+ * 老 id）时返回全空，调用方照旧能渲染，只是发不了超级表情。
+ */
+function stickerFields(
+  row: SysEmoji | undefined,
+): Pick<PanelFaceItem, 'sticker' | 'packId' | 'stickerId'> {
+  return {
+    sticker: row?.sticker === true,
+    packId: row?.packId ?? '',
+    stickerId: row?.stickerId ?? '',
+  };
+}
+
 function groupRank(group: PanelFaceGroup): number {
   if (group.unicode) return 900;
   const idx = GROUP_ORDER.findIndex(
@@ -860,18 +926,31 @@ function resolveRecent(
     const row = byUnicode.get(entry.faceId) ?? (glyphFromExtra ? byId.get(glyphFromExtra) : undefined);
     const glyph = glyphFromExtra || row?.id || '';
     if (!glyph) return null;
-    return { id: glyph, desc: row?.desc || glyph, unicode: true, glyph };
+    return {
+      id: glyph,
+      desc: row?.desc || glyph,
+      unicode: true,
+      glyph,
+      ...stickerFields(row),
+    };
   }
 
   const row = byId.get(String(entry.faceId)) ?? byUnicode.get(entry.faceId);
   if (row && (row.unicodeId !== 0 || isGlyphId(row.id))) {
-    return { id: row.id, desc: row.desc || row.id, unicode: true, glyph: row.id };
+    return {
+      id: row.id,
+      desc: row.desc || row.id,
+      unicode: true,
+      glyph: row.id,
+      ...stickerFields(row),
+    };
   }
   return {
     id: String(entry.faceId),
     desc: row?.desc || `[表情${entry.faceId}]`,
     unicode: false,
     glyph: '',
+    ...stickerFields(row),
   };
 }
 
