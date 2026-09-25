@@ -159,16 +159,23 @@ function appendElementChip(editor: HTMLElement, raw: string) {
   editor.append(chip);
 }
 
-/** 模板自带表情包（图片 / 大表情）走 <img>。 */
+/** 表情 token：有预览图的走 <img>，字符表情直接插字形文本。 */
 function appendEmojiToken(editor: HTMLElement, part: { item: EmojiItem; raw: string }) {
   const item = part.item as {
-    value: string;
+    src: string | null;
     name: string;
+    glyph: string;
     large: boolean;
   };
+
+  if (!item.src) {
+    editor.append(document.createTextNode(item.glyph || item.name));
+    return;
+  }
+
   const image = document.createElement('img');
-  image.src = item.value;
-  image.alt = `[${item.name}]`;
+  image.src = item.src;
+  image.alt = item.name;
   image.title = item.name;
   image.draggable = false;
   image.dataset.chatToken = part.raw;

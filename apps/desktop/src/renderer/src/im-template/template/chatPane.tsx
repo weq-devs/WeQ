@@ -92,6 +92,7 @@ import {
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
+import { trpc } from '../../trpc/client';
 
 const composerHeightStorageKey = 'chat-template.layout.composerHeight';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
@@ -139,8 +140,8 @@ function getMessageDownloadUrl(message: Message) {
   }
 
   for (const part of parseMessageParts(message.body)) {
-    if (part.type === 'emoji' && part.item.type === 'image' && part.item.large) {
-      return part.item.value;
+    if (part.type === 'emoji' && part.item.large && part.item.src) {
+      return part.item.src;
     }
   }
 
@@ -302,7 +303,10 @@ export function ChatPane({
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [activeEmojiPackId, setActiveEmojiPackId] = useState('emoji');
+  const emojiUtils = trpc.useUtils();
+  const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
+    onSuccess: () => emojiUtils.account.emojiPanel.overview.invalidate(),
+  });
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
@@ -790,14 +794,22 @@ export function ChatPane({
       return;
     }
 
-    const mobileEmojiMode = isMobileComposerViewport();
-    if (mobileEmojiMode && item.type === 'image' && item.large) {
-      void sendEmojiMessage(item);
-      return;
+    // 使用系统 / 字符表情时写回 QQ 的「最近使用」表（颜文字不算）。
+    if (item.kind === 'system') {
+      recordRecentEmoji.mutate({
+        faceId: Number(item.id) || 0,
+        unicode: false,
+        sourceType: 0,
+      });
+    } else if (item.kind === 'unicode' && !item.id.startsWith('kaomoji:')) {
+      recordRecentEmoji.mutate({ faceId: 0, unicode: true, extra: item.glyph });
     }
 
-    if (item.type === 'text') {
-      insertComposerText(item.value);
+    const mobileEmojiMode = isMobileComposerViewport();
+
+    // 字符 / 颜文字：直接插入字形文本。
+    if (!item.src) {
+      insertComposerText(item.glyph || item.name);
       if (!mobileEmojiMode) {
         setEmojiOpen(false);
       }
@@ -811,8 +823,8 @@ export function ChatPane({
     }
 
     const image = document.createElement('img');
-    image.src = item.value;
-    image.alt = `[${item.name}]`;
+    image.src = item.src;
+    image.alt = item.name;
     image.title = item.name;
     image.draggable = false;
     image.dataset.chatToken = createEmojiToken(item);
@@ -826,22 +838,6 @@ export function ChatPane({
     syncComposerBody();
     if (!mobileEmojiMode) {
       setEmojiOpen(false);
-    }
-  }
-
-  async function sendEmojiMessage(item: EmojiItem) {
-    if (!sendAvailable || currentPreference.blocked || sending) {
-      return;
-    }
-    setSending(true);
-    try {
-      await onSend(createEmojiToken(item));
-    } catch (error) {
-      // 表情消息是「点一下就发」的，没有可保留的输入缓冲；失败只记日志，
-      // 主界面已经用 toast 提示，别让它变成未处理的 Promise 拒绝。
-      console.error('[composer] send emoji failed:', error);
-    } finally {
-      setSending(false);
     }
   }
 
@@ -1771,7 +1767,7 @@ export function ChatPane({
             disabled={currentPreference.blocked}
             onClick={toggleEmojiPanel}
           >
-            <Smile size={27} />
+            <Smile size={21} strokeWidth={1.5} />
           </button>
           {composerActionRegistry.desktopToolbar.map((action) => (
             <ComposerToolbarActionButton
@@ -1798,12 +1794,7 @@ export function ChatPane({
           ) : null}
         </div>
         {emojiOpen && !mobileComposerExpanded ? (
-          <EmojiPanel
-            panelRef={emojiPanelRef}
-            activePackId={activeEmojiPackId}
-            onActivePackChange={setActiveEmojiPackId}
-            onSelect={insertEmoji}
-          />
+          <EmojiPanel panelRef={emojiPanelRef} onSelect={insertEmoji} />
         ) : null}
         {toolsOpen && hasPlusActions ? (
           <ComposerPlusPanel
@@ -1934,7 +1925,7 @@ export function ChatPane({
                 disabled={currentPreference.blocked}
                 onClick={toggleEmojiPanel}
               >
-                <Smile size={29} />
+                <Smile size={22} strokeWidth={1.5} />
               </button>
               <span />
               <button
@@ -1949,12 +1940,7 @@ export function ChatPane({
               </button>
             </div>
             {emojiOpen ? (
-              <EmojiPanel
-                panelRef={emojiPanelRef}
-                activePackId={activeEmojiPackId}
-                onActivePackChange={setActiveEmojiPackId}
-                onSelect={insertEmoji}
-              />
+              <EmojiPanel panelRef={emojiPanelRef} onSelect={insertEmoji} />
             ) : null}
           </section>
         </div>

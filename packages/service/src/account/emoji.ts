@@ -7,8 +7,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from 'node:path';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import { BaseSysEmojiDb, MarketEmoticonPackageDb } from '@weq/db';
-import type { MarketEmoticonPackage } from '@weq/db';
+import {
+  BaseSysEmojiDb,
+  EmojiComUsedDb,
+  FavEmojiDb,
+  MarketEmoticonDb,
+  MarketEmoticonPackageDb,
+  RelatedEmojiDb,
+} from '@weq/db';
+import type { MarketEmoticonPackage, RecentEmojiEntry, RecentEmojiInput, SysEmoji } from '@weq/db';
 
 /** 系统表情清单项：faceId + 外显文字（如 "[微笑]"），供前端把 faceText 渲染成表情图。 */
 export interface SystemFaceEntry {
@@ -55,6 +62,72 @@ export interface MarketPackDetail {
   count: number;
   /** 表情列表（hash + 名称）。 */
   items: MarketPackItem[];
+  /** 明细来源：在线 android.json 还是本地 market_emoticon_table。 */
+  source?: 'online' | 'local';
+}
+
+/** 面板里的一枚系统 / 字符表情。 */
+export interface PanelFaceItem {
+  /** 稳定 key（图片表情 = faceId，字符表情 = 字形）。 */
+  id: string;
+  /** 外显文字（`[微笑]` / `/微笑` / 字形）。 */
+  desc: string;
+  /** 是否 unicode 字符表情（无本地图片，按字符渲染）。 */
+  unicode: boolean;
+  /** 字符表情的字形（非字符表情为 ''）。 */
+  glyph: string;
+}
+
+/** 按 81266 分类的一组表情。 */
+export interface PanelFaceGroup {
+  /** 分组 key（分类名的稳定 slug）。 */
+  key: string;
+  /** 分组显示名。 */
+  label: string;
+  /** 81226 类型（1 系统 / 2 动态大表情 / 3 互动）。 */
+  emojiType: number;
+  /** 该组是否全部是 unicode 字符表情。 */
+  unicode: boolean;
+  items: PanelFaceItem[];
+}
+
+/** 最近使用的一条（已解析成可渲染的形状）。 */
+export interface PanelRecentItem extends PanelFaceItem {
+  /** 使用时间（Unix 毫秒；0 未知）。 */
+  usedAt: number;
+}
+
+/** 收藏的一张自定义表情（已拆好磁盘寻址字段）。 */
+export interface PanelFavItem {
+  id: string;
+  hash: string;
+  /** `personal` / `recv`（对应 weq-media://cemoji 的 scope）。 */
+  scope: string;
+  /** recv 的月份桶，personal 为空串。 */
+  bucket: string;
+  /** 原图磁盘文件名（可能为空）。 */
+  oriFile: string | null;
+  /** 缩略图磁盘文件名（可能为空）。 */
+  thumbFile: string | null;
+  /** 在线 CDN 兜底（可空）。 */
+  remoteUrl: string;
+}
+
+/** GIF 表情的一个关键词标签。 */
+export interface PanelRelatedTag {
+  keyword: string;
+  /** 磁盘目录名 = md5(关键词)（对应 weq-media://relemoji 的 hash）。 */
+  dirHash: string;
+  count: number;
+  /** 封面 gif 文件名（可能为空）。 */
+  cover: string | null;
+}
+
+/** GIF 表情的一条（已拆好寻址字段）。 */
+export interface PanelRelatedGif {
+  hash: string;
+  /** 磁盘文件名（`<gifHash>.gif`）。 */
+  file: string;
 }
 
 /** 商城表情包解密密钥的恢复结果。 */
@@ -75,8 +148,14 @@ export interface MarketPackKey {
 export class EmojiService {
   /** emoji.db 是只读静态表，一个账号会话内缓存一次。 */
   private sysFaces: SystemFaceEntry[] | null = null;
+  /** base_sys_emoji_table 原始行（带分类 81266），面板用。 */
+  private sysFaceRaw: SysEmoji[] | null = null;
   /** 本地商城表情包清单，一个账号会话内缓存一次。 */
   private marketPackages: MarketEmoticonPackage[] | null = null;
+  /** 收藏（我喜欢的自定义表情）缓存。 */
+  private favorites: PanelFavItem[] | null = null;
+  /** 关联 GIF 分组缓存。 */
+  private relatedTags: PanelRelatedTag[] | null = null;
   /** packId → 在线详情（android.json），会话内缓存（含 in-flight 去重）。 */
   private packDetailCache = new Map<string, Promise<MarketPackDetail | null>>();
   /** packId → 解密密钥，会话内缓存（native 恢复较快但结果稳定，缓存省重复爆破）。 */
@@ -91,31 +170,281 @@ export class EmojiService {
    * 列出内置系统表情（id + 外显文字），用于前端把克隆体回复里的 `/捂脸` 这类
    * faceText 渲染成表情图。读 emoji.db 的 base_sys_emoji_table，失败/缺库返回空表。
    */
-  async listSystemFaces(): Promise<SystemFaceEntry[]> {
-    if (this.sysFaces) return this.sysFaces;
+  /** emoji.db 的绝对路径，不存在返回 null。 */
+  private emojiDbPath(): string | null {
     const dir = this.platform.ntDbDir(this.session.context.uin);
-    if (!dir) return [];
+    if (!dir) return null;
     const dbPath = join(dir, 'emoji.db');
-    if (!existsSync(dbPath)) return [];
+    return existsSync(dbPath) ? dbPath : null;
+  }
+
+  /** emoji.db 的连接参数（key + algo），配合 `new XxxDb(nt, opts)` 使用。 */
+  private emojiDbOptions(dbPath: string): {
+    dbPath: string;
+    key: string;
+    algo: ReturnType<typeof algoFor>;
+  } {
+    return {
+      dbPath,
+      key: this.session.context.dbKey,
+      algo: algoFor(this.session.context, dbPath),
+    };
+  }
+
+  /** base_sys_emoji_table 原始行（缓存一次）。 */
+  private async loadSysFaceRows(): Promise<SysEmoji[]> {
+    if (this.sysFaceRaw) return this.sysFaceRaw;
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
     try {
-      const db = new BaseSysEmojiDb(this.platform.native.ntHelper, {
-        dbPath,
-        key: this.session.context.dbKey,
-        algo: algoFor(this.session.context, dbPath),
-      });
-      const rows = await db.listAll();
-      this.sysFaces = rows
-        .map((r) => ({
-          id: Number(r.id),
-          desc: r.desc,
-          emojiType: r.emojiType,
-          unicodeId: r.unicodeId,
-        }))
-        .filter((r) => Number.isFinite(r.id) && r.desc);
-      return this.sysFaces;
+      const db = new BaseSysEmojiDb(this.platform.native.ntHelper, this.emojiDbOptions(dbPath));
+      this.sysFaceRaw = await db.listAll();
+      return this.sysFaceRaw;
     } catch {
       return [];
     }
+  }
+
+  /**
+   * 列出内置系统表情（id + 外显文字），用于前端把克隆体回复里的 `/捂脸` 这类
+   * faceText 渲染成表情图。只保留数字 id 的图片表情（字符表情 id 是字形，跳过）。
+   */
+  async listSystemFaces(): Promise<SystemFaceEntry[]> {
+    if (this.sysFaces) return this.sysFaces;
+    const rows = await this.loadSysFaceRows();
+    this.sysFaces = rows
+      .map((r) => ({
+        id: Number(r.id),
+        desc: r.desc,
+        emojiType: r.emojiType,
+        unicodeId: r.unicodeId,
+      }))
+      .filter((r) => Number.isFinite(r.id) && r.desc);
+    return this.sysFaces;
+  }
+
+  /**
+   * 面板用：按 `81266` 分类列出内置表情。字符表情（`81214` 非 0，id 是字形）
+   * 单独成组（`unicode: true`），不与小黄脸等图片表情混排。失败/缺库返回空表。
+   */
+  async listPanelFaces(): Promise<PanelFaceGroup[]> {
+    const rows = await this.loadSysFaceRows();
+    const groups = new Map<string, PanelFaceGroup>();
+    for (const r of rows) {
+      if (!r.id) continue;
+      const unicode = r.unicodeId !== 0 || isGlyphId(r.id);
+      const label = r.category || (r.emojiType === 3 ? '互动表情' : '其他表情');
+      const key = `${r.emojiType}:${label}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { key, label, emojiType: r.emojiType, unicode, items: [] };
+        groups.set(key, group);
+      }
+      group.items.push({
+        id: r.id,
+        desc: r.desc || r.id,
+        unicode,
+        glyph: unicode ? r.id : '',
+      });
+    }
+    return [...groups.values()].sort(compareFaceGroups);
+  }
+
+  /**
+   * 面板「最近使用」：读 emoji_com_used_table 解码后，配上 base_sys_emoji 的
+   * 外显文字 / 字形，得到可渲染列表（最新在前）。
+   */
+  async listRecentEmojis(): Promise<PanelRecentItem[]> {
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    let state: Awaited<ReturnType<EmojiComUsedDb['list']>>;
+    try {
+      state = await new EmojiComUsedDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).list();
+    } catch {
+      return [];
+    }
+    const { byId, byUnicode } = await this.faceLookups();
+    const out: PanelRecentItem[] = [];
+    for (const entry of state.entries) {
+      const resolved = resolveRecent(entry, byId, byUnicode);
+      if (resolved) out.push({ ...resolved, usedAt: entry.usedAt });
+    }
+    return out;
+  }
+
+  /**
+   * 前端「发送 / 使用」一个系统表情时，把它写回 emoji_com_used_table（与 QQ 共用）。
+   * 失败不影响发送，返回是否写入成功。
+   */
+  async recordRecentEmoji(input: RecentEmojiInput): Promise<boolean> {
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return false;
+    try {
+      await new EmojiComUsedDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).record(input);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 面板「收藏」：读 fav_emoji_info_storage_table，拆好 weq-media://cemoji 的寻址字段。
+   *
+   * 只保留「本地真的有文件」的条目 —— 收藏表里相当一部分条目对应的缓存早被清掉了
+   * （实测 259 条里磁盘只剩 136 张），显示出来也发不出去。ori / thumb 各自独立判
+   * 存在，页面用存在的那一个；`scope`/`bucket` 跟着实际选中的变体走，避免串位。
+   */
+  async listFavoriteEmojis(): Promise<PanelFavItem[]> {
+    if (this.favorites) return this.favorites;
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    try {
+      const rows = await new FavEmojiDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listAll();
+      this.favorites = rows
+        .map((row): PanelFavItem | null => {
+          const oriInfo = parseEmojiDiskPath(row.oriPath);
+          const thumbInfo = parseEmojiDiskPath(row.thumbPath);
+          const ori = this.usableFavVariant(oriInfo, 'ori');
+          const thumb = this.usableFavVariant(thumbInfo, 'thumb');
+          const chosen = thumb ?? ori;
+          if (!chosen) return null;
+          return {
+            id: row.id,
+            hash: row.hash,
+            scope: chosen.scope,
+            bucket: chosen.bucket,
+            oriFile: ori?.file ?? null,
+            thumbFile: thumb?.file ?? null,
+            remoteUrl: row.remoteUrl,
+          };
+        })
+        .filter((x): x is PanelFavItem => x !== null);
+      return this.favorites;
+    } catch {
+      return [];
+    }
+  }
+
+  /** 收藏的一个变体：仅当文件确实在磁盘上时才返回（否则 null，条目会被过滤掉）。 */
+  private usableFavVariant(
+    info: { scope: 'personal' | 'recv'; bucket: string; file: string } | null,
+    variant: 'ori' | 'thumb',
+  ): { scope: 'personal' | 'recv'; bucket: string; file: string } | null {
+    if (!info) return null;
+    return this.customEmojiLocalPath(info.scope, info.bucket, variant, info.file) ? info : null;
+  }
+
+  /**
+   * 收藏（自定义表情）文件的磁盘绝对路径 —— 与 `weq-media://cemoji` 的解析规则
+   * 一致（personal 平铺 / recv 按月分桶）。文件不在就返回 null，这样「面板能显示」
+   * 就等于「协议取得到、发得出去」。
+   */
+  private customEmojiLocalPath(
+    scope: 'personal' | 'recv',
+    bucket: string,
+    variant: 'ori' | 'thumb',
+    file: string,
+  ): string | null {
+    if (!file) return null;
+    const dir = variant === 'ori' ? 'Ori' : 'Thumb';
+    const uin = this.session.context.uin;
+    if (scope === 'recv') {
+      if (!/^\d{4}-\d{2}$/.test(bucket)) return null;
+      const root = this.platform.emojiRecvDir(uin);
+      return root ? existingFile(join(root, bucket, dir, file)) : null;
+    }
+    if (scope === 'personal') {
+      const root = this.platform.personalEmojiDir(uin);
+      return root ? existingFile(join(root, dir, file)) : null;
+    }
+    return null;
+  }
+
+  /**
+   * 面板「GIF 表情」标签：按关键词聚合 related_emoji_emoji_table，给出每组的
+   * 磁盘目录 hash（= md5(关键词)）与封面。按组的权重 / 数量排序。
+   */
+  async listRelatedTags(): Promise<PanelRelatedTag[]> {
+    if (this.relatedTags) return this.relatedTags;
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    try {
+      const rows = await new RelatedEmojiDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listAll();
+      const byKeyword = new Map<string, { dirHash: string; files: string[]; weight: number }>();
+      for (const row of rows) {
+        if (!row.keyword) continue;
+        const file = relatedFileName(row.localPath, row.gifHash);
+        const dirHash = relatedDirHash(row.localPath, row.keyword);
+        // 只统计本地真的有这个 gif 的行：没资源的标签 / 表情显示出来也发不出去。
+        if (!file || !this.relatedGifLocalPath(dirHash, file)) continue;
+        const bucket = byKeyword.get(row.keyword) ?? { dirHash, files: [], weight: row.weight };
+        if (!bucket.files.includes(file)) bucket.files.push(file);
+        bucket.weight = Math.max(bucket.weight, row.weight);
+        byKeyword.set(row.keyword, bucket);
+      }
+      this.relatedTags = [...byKeyword.entries()]
+        .map(([keyword, v]) => ({
+          keyword,
+          dirHash: v.dirHash,
+          count: v.files.length,
+          cover: v.files[0] ?? null,
+        }))
+        .filter((t) => t.count > 0)
+        .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
+      return this.relatedTags;
+    } catch {
+      return [];
+    }
+  }
+
+  /** 某个关键词标签下的全部 gif（供灯箱展示 / 发送）。 */
+  async listRelatedGifs(keyword: string): Promise<PanelRelatedGif[]> {
+    const tags = await this.listRelatedTags();
+    const tag = tags.find((t) => t.keyword === keyword);
+    if (!tag) return [];
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    try {
+      const rows = await new RelatedEmojiDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listAll();
+      const out: PanelRelatedGif[] = [];
+      const seen = new Set<string>();
+      for (const row of rows) {
+        if (row.keyword !== keyword) continue;
+        const file = relatedFileName(row.localPath, row.gifHash);
+        if (!file || seen.has(file)) continue;
+        if (!this.relatedGifLocalPath(tag.dirHash, file)) continue;
+        seen.add(file);
+        out.push({ hash: tag.dirHash, file });
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 关联 GIF 的磁盘绝对路径 —— 与 `weq-media://relemoji` 的解析规则一致
+   * （`emoji-related/emoji/<md5(关键词)>/<file>`）。不存在返回 null。
+   */
+  private relatedGifLocalPath(dirHash: string, file: string): string | null {
+    if (!dirHash || !file) return null;
+    const root = this.platform.emojiRelatedDir(this.session.context.uin);
+    return root ? existingFile(join(root, dirHash, file)) : null;
   }
 
   /**
@@ -124,21 +453,71 @@ export class EmojiService {
    */
   async listMarketPackages(): Promise<MarketEmoticonPackage[]> {
     if (this.marketPackages) return this.marketPackages;
-    const dir = this.platform.ntDbDir(this.session.context.uin);
-    if (!dir) return [];
-    const dbPath = join(dir, 'emoji.db');
-    if (!existsSync(dbPath)) return [];
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
     try {
-      const db = new MarketEmoticonPackageDb(this.platform.native.ntHelper, {
-        dbPath,
-        key: this.session.context.dbKey,
-        algo: algoFor(this.session.context, dbPath),
-      });
-      this.marketPackages = await db.listAll();
+      this.marketPackages = await new MarketEmoticonPackageDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listAll();
       return this.marketPackages;
     } catch {
       return [];
     }
+  }
+
+  /**
+   * 商城表情包明细：在线 android.json 优先（列表最全），缺网 / 拉不到时回退
+   * 本地 market_emoticon_table（hash + 名称），保证离线也能看已添加的表情。
+   */
+  async getMarketPackItems(packId: string): Promise<MarketPackDetail | null> {
+    const online = await this.getMarketPackDetail(packId);
+    if (online && online.items.length > 0) return { ...online, source: 'online' };
+
+    const local = await this.listLocalMarketItems(packId);
+    if (local.length === 0) return online ? { ...online, source: 'online' } : null;
+
+    return {
+      packId,
+      name: online?.name ?? '',
+      summary: online?.summary ?? '',
+      feeType: online?.feeType ?? 'unknown',
+      feeTypeRaw: online?.feeTypeRaw ?? 0,
+      updateTime: online?.updateTime ?? 0,
+      count: local.length,
+      items: local,
+      source: 'local',
+    };
+  }
+
+  /** 本地 market_emoticon_table 里某个包的全部表情。 */
+  private async listLocalMarketItems(packId: string): Promise<MarketPackItem[]> {
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    try {
+      const rows = await new MarketEmoticonDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listByPack(packId);
+      return rows.map((row) => ({ hash: row.hash, name: row.name, keywords: row.keywords }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** faceId / unicodeId → 原始系统表情行的两份索引。 */
+  private async faceLookups(): Promise<{
+    byId: Map<string, SysEmoji>;
+    byUnicode: Map<number, SysEmoji>;
+  }> {
+    const rows = await this.loadSysFaceRows();
+    const byId = new Map<string, SysEmoji>();
+    const byUnicode = new Map<number, SysEmoji>();
+    for (const row of rows) {
+      byId.set(row.id, row);
+      if (row.unicodeId) byUnicode.set(row.unicodeId, row);
+    }
+    return { byId, byUnicode };
   }
 
   /**
@@ -427,6 +806,117 @@ function findLocalPng(itemDir: string, hash: string): string | null {
     // Item directory missing / unreadable — nothing to serve.
   }
   return null;
+}
+
+// ── 表情面板 helpers ──────────────────────────────────────────────────────────
+
+/** 分类展示顺序；未命中排在后面。字符表情统一置最后。 */
+const GROUP_ORDER = [
+  '小黄脸表情',
+  '超级表情',
+  'QQ黄脸',
+  '企鹅',
+  '喜花妮',
+  '噗噗星人',
+  '汪汪',
+  '开学季',
+  '隐藏表情',
+  '互动表情',
+];
+
+/** id 不是纯数字 = 字符表情的字形（如 `😊`）。 */
+function isGlyphId(id: string): boolean {
+  return id.length > 0 && !/^\d+$/.test(id);
+}
+
+function groupRank(group: PanelFaceGroup): number {
+  if (group.unicode) return 900;
+  const idx = GROUP_ORDER.findIndex(
+    (k) => group.label.includes(k) || k.includes(group.label),
+  );
+  return idx >= 0 ? idx : 500;
+}
+
+function compareFaceGroups(a: PanelFaceGroup, b: PanelFaceGroup): number {
+  const ra = groupRank(a);
+  const rb = groupRank(b);
+  if (ra !== rb) return ra - rb;
+  return a.label.localeCompare(b.label);
+}
+
+/**
+ * 把一条最近使用记录解析成可渲染项：字符表情给出字形，图片表情给出 faceId。
+ * 兼容 QQ 的两种存法（码点 / 0 + 字形）与 `base_sys_emoji` 的两套 key。
+ */
+function resolveRecent(
+  entry: RecentEmojiEntry,
+  byId: Map<string, SysEmoji>,
+  byUnicode: Map<number, SysEmoji>,
+): PanelFaceItem | null {
+  const extra = entry.extra.trim();
+  const glyphFromExtra = entry.unicode && extra && !/^\d+$/.test(extra) ? extra : '';
+
+  if (entry.unicode) {
+    const row = byUnicode.get(entry.faceId) ?? (glyphFromExtra ? byId.get(glyphFromExtra) : undefined);
+    const glyph = glyphFromExtra || row?.id || '';
+    if (!glyph) return null;
+    return { id: glyph, desc: row?.desc || glyph, unicode: true, glyph };
+  }
+
+  const row = byId.get(String(entry.faceId)) ?? byUnicode.get(entry.faceId);
+  if (row && (row.unicodeId !== 0 || isGlyphId(row.id))) {
+    return { id: row.id, desc: row.desc || row.id, unicode: true, glyph: row.id };
+  }
+  return {
+    id: String(entry.faceId),
+    desc: row?.desc || `[表情${entry.faceId}]`,
+    unicode: false,
+    glyph: '',
+  };
+}
+
+/** 自定义表情磁盘绝对路径 → weq-media://cemoji 的 scope/bucket/file；解析不了返回 null。 */
+function parseEmojiDiskPath(
+  abs: string,
+): { scope: 'personal' | 'recv'; bucket: string; file: string } | null {
+  if (!abs) return null;
+  const parts = abs.split(/[\\/]/);
+  const file = parts[parts.length - 1] ?? '';
+  if (!file) return null;
+  if (parts.lastIndexOf('personal_emoji') >= 0) {
+    return { scope: 'personal', bucket: '', file };
+  }
+  const recvIdx = parts.lastIndexOf('emoji-recv');
+  if (recvIdx >= 0) {
+    const bucket = parts[recvIdx + 1] ?? '';
+    if (/^\d{4}-\d{2}$/.test(bucket)) return { scope: 'recv', bucket, file };
+  }
+  return null;
+}
+
+/** 关联 GIF 的磁盘文件名：优先取路径 basename（必须 .gif），否则用 gifHash 拼。 */
+function relatedFileName(localPath: string, gifHash: string): string | null {
+  const base = basename(localPath);
+  if (base?.toLowerCase().endsWith('.gif')) return base;
+  return gifHash ? `${gifHash}.gif` : null;
+}
+
+/** 关联 GIF 的磁盘目录 hash：路径上一级是 32 位 hex 就用它，否则用 md5(关键词)。 */
+function relatedDirHash(localPath: string, keyword: string): string {
+  const parts = localPath.split(/[\\/]/);
+  const dir = parts[parts.length - 2] ?? '';
+  if (/^[0-9a-f]{32}$/i.test(dir)) return dir.toLowerCase();
+  return createHash('md5').update(keyword, 'utf8').digest('hex');
+}
+
+function basename(p: string): string {
+  const parts = p.split(/[\\/]/);
+  return parts[parts.length - 1] ?? '';
+}
+
+/** 文件在磁盘上就返回其路径，否则 null（用于过滤「无本地资源」的收藏 / GIF）。 */
+function existingFile(path: string): string | null {
+  return existsSync(path) ? path : null;
 }
 
 // ── 商城表情包（在线拉取 + QQTEA 解密）helpers ─────────────────────────────────

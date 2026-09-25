@@ -203,6 +203,12 @@ export {
   type MarketPackItem,
   type MarketPackKey,
   type MarketPackFeeType,
+  type PanelFaceItem,
+  type PanelFaceGroup,
+  type PanelRecentItem,
+  type PanelFavItem,
+  type PanelRelatedTag,
+  type PanelRelatedGif,
 } from './account/emoji';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';

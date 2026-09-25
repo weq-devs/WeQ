@@ -23,6 +23,7 @@ import type { ProtoMessageType, ProtoFieldType } from '../core';
 import type { ScalarType } from '../core';
 
 import * as collection from '../proto/collection';
+import * as emojiComUsed from '../proto/emoji/emoji_com_used';
 import * as groupCustomLabels from '../proto/group_info/60241';
 import * as groupAddress from '../proto/group_info/60242';
 import * as groupBulletin from '../proto/group_info/64205';
@@ -44,6 +45,7 @@ import * as friendInfo from '../proto/user_info/friend_info';
 
 const MODULES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['collection', collection],
+  ['emoji/emoji_com_used', emojiComUsed],
   ['group_info/60241', groupCustomLabels],
   ['group_info/60242', groupAddress],
   ['group_info/64205', groupBulletin],
