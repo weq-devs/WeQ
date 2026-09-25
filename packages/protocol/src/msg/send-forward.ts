@@ -35,16 +35,19 @@
 
 import { randomUUID } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
+import { sendGroupFile, sendPrivateFile } from '../file/file-send';
 import { decode, encode, message, type ProtoMessage } from '../protobuf';
 import { sendPacket, type OidbNative, type TrpcNative } from '../transport';
 import { invokeTrpc, type TrpcSpec } from '../oidb/invoke';
 import { LONG_MSG_RESULT, LONG_MSG_SETTINGS, LONG_MSG_UID } from './get-forward';
+import { FILE_EXTRA } from './schemas';
 import {
   buildSendElems,
   buildSendElemsWithMedia,
   isSendMediaElement,
   type SendDress,
   type SendElement,
+  type SendFileElement,
   type SendScene,
 } from './send-elements';
 
@@ -174,6 +177,11 @@ export interface SendForwardResult {
   response: Record<string, unknown>;
   /** 每层明细：[0] 是最外层，其后是各嵌套层（上传完成顺序）。 */
   levels: ForwardLevel[];
+  /**
+   * 承载这整段内容的外层卡片元信息 —— 发卡片时把这些字段一起带上，收端才有
+   * 标题 / 预览行 / 摘要（见 {@link buildForwardCardMeta}）。
+   */
+  card: ForwardCardMeta;
 }
 
 // ---------- 预览文本（嵌套层卡片用） ----------
@@ -190,8 +198,17 @@ function previewFromElements(elements: readonly SendElement[]): string {
         return '[语音]';
       case 'video':
         return '[视频]';
+      case 'file':
+        return '[文件]';
       case 'forward':
         return '[聊天记录]';
+      case 'markdown':
+        return '[Markdown]';
+      case 'ark':
+      case 'xml':
+        return '[卡片]';
+      case 'emojiBounce':
+        return '[表情弹射]';
       case 'face':
       case 'mface':
         return '[表情]';
@@ -225,6 +242,175 @@ function previewLinesFromNodes(nodes: readonly ForwardNode[]): { text: string }[
   });
 }
 
+/**
+ * 承载整段聊天记录的那张**外层卡片**（`{ kind:'forward' }`）的预览元信息。
+ *
+ * 缺了它收端卡片就只有标题、没有预览行（「卡片封面没有预览内容」）。SnowLuma 的
+ * `buildForwardPreviewElement` 就是这么填的：source 由前 4 个昵称拼、summary
+ * 是「查看N条转发消息」、news 是前 4 行的「昵称: 内容摘要」。
+ */
+export interface ForwardCardMeta {
+  forwardSource: string;
+  forwardSummary: string;
+  forwardPrompt: string;
+  forwardNews: { text: string }[];
+  forwardTSum: number;
+}
+
+/** 由一组节点算出外层卡片的预览元信息（顶层 / 嵌套层共用）。 */
+export function buildForwardCardMeta(
+  nodes: readonly ForwardNode[],
+  isGroup: boolean,
+): ForwardCardMeta {
+  return {
+    forwardSource: deriveInnerSource(nodes, isGroup),
+    forwardSummary: `查看${nodes.length}条转发消息`,
+    forwardPrompt: '[聊天记录]',
+    forwardNews: previewLinesFromNodes(nodes),
+    forwardTSum: nodes.length,
+  };
+}
+
+// ---------- 节点内文件（群 transElem(24) / 私聊 msgContent） ----------
+
+/**
+ * 群文件 transElem(24) 的 elemValue 内层（跳过 3 字节头）—— 字段与 SnowLuma 的
+ * `GroupFileExtra` 逐一对齐（NapCat 也是这套）：外层 field1 固定 6，file 信息在
+ * `7.2`（inner.info），其中 field5 必须是 uint32 占位符（错位会让 sha 字节流污染它）。
+ */
+const GROUP_FILE_INFO_SEND: ProtoMessage = message([
+  { name: 'busId', tag: 1, type: 'uint32' },
+  { name: 'fileId', tag: 2, type: 'string' },
+  { name: 'fileSize', tag: 3, type: 'uint64' },
+  { name: 'fileName', tag: 4, type: 'string' },
+  { name: 'field5', tag: 5, type: 'uint32' },
+  { name: 'fileSha', tag: 6, type: 'bytes' },
+  { name: 'extInfoString', tag: 7, type: 'string' },
+  { name: 'fileMd5', tag: 8, type: 'bytes' },
+]);
+
+const GROUP_FILE_INNER_SEND: ProtoMessage = message([
+  { name: 'info', tag: 2, type: GROUP_FILE_INFO_SEND },
+]);
+
+const GROUP_FILE_EXTRA_SEND: ProtoMessage = message([
+  { name: 'field1', tag: 1, type: 'uint32' },
+  { name: 'fileName', tag: 2, type: 'string' },
+  { name: 'display', tag: 3, type: 'string' },
+  { name: 'inner', tag: 7, type: GROUP_FILE_INNER_SEND },
+]);
+
+/** 群文件 busId（0x6D6 / 0x6D9 群文件目录的固定桶）。 */
+const FORWARD_GROUP_FILE_BUS_ID = 102;
+
+/** hex → bytes（md5 / sha1）。 */
+function hexToBytesLocal(hex: string): Uint8Array {
+  const clean = hex.trim();
+  if (!clean || clean.length % 2 !== 0) return new Uint8Array(0);
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/**
+ * 节点里的文件 → 群聊的 `transElem(24)`。
+ *
+ * 长消息服务把字节原样存下来，收端按常规 msg-push 解出文件实体；走 `transElem(24)`
+ * 这条路是 SnowLuma / NapCat 真机验证过的（实时 PbSendMsg 的 transElem(24) 会被
+ * 服务端 result=79 拒收，但长消息上传不会）。文件本体先用 `sendGroupFile(publish:false)`
+ * 上传（只拿 fileId / 大小 / md5 / sha1，不发布气泡）。
+ */
+async function buildGroupFileForwardElem(
+  element: SendFileElement,
+  source: string,
+  ctx: ForwardEncodeContext,
+): Promise<Record<string, unknown>> {
+  const groupId = ctx.groupId;
+  if (!groupId) throw new Error('群聊合并转发里的文件需要 groupId');
+  const uploaded = await sendGroupFile(ctx.nt, ctx.pid, {
+    groupId,
+    filePath: source,
+    selfUin: ctx.selfUin,
+    publish: false,
+    ...(element.fileName ? { fileName: element.fileName } : {}),
+    ...(ctx.log ? { log: ctx.log } : {}),
+  });
+  const extraBytes = encode(GROUP_FILE_EXTRA_SEND, {
+    field1: 6,
+    fileName: uploaded.fileName,
+    display: '',
+    inner: {
+      info: {
+        busId: FORWARD_GROUP_FILE_BUS_ID,
+        fileId: uploaded.fileId,
+        fileSize: BigInt(uploaded.fileSize),
+        fileName: uploaded.fileName,
+        field5: 0,
+        fileSha: hexToBytesLocal(uploaded.sha1Hex),
+        extInfoString: '',
+        fileMd5: hexToBytesLocal(uploaded.md5Hex),
+      },
+    },
+  });
+  if (extraBytes.length > 0xffff) {
+    throw new Error(`群文件 transElem 过大（${extraBytes.length} > 65535）`);
+  }
+  const elemValue = new Uint8Array(3 + extraBytes.length);
+  elemValue[0] = 0x01;
+  elemValue[1] = (extraBytes.length >> 8) & 0xff;
+  elemValue[2] = extraBytes.length & 0xff;
+  elemValue.set(extraBytes, 3);
+  return { transElem: { elemType: 24, elemValue } };
+}
+
+/**
+ * 节点里的文件 → 私聊的 `body.msgContent`（`FileExtra{ file: NotOnlineFile }`）。
+ *
+ * 私聊文件不进 `richText.elems`；收端从 `msgContent` 解出文件实体。文件本体先
+ * `sendPrivateFile(send:false)` 上传（不真发，只拿 uuid / fileHash / 大小 / md5）。
+ */
+async function buildC2cFileForwardContent(
+  element: SendFileElement,
+  source: string,
+  ctx: ForwardEncodeContext,
+): Promise<Uint8Array> {
+  const userUid = ctx.userUid?.trim() ?? '';
+  if (!userUid) throw new Error('私聊合并转发里的文件需要 userUid（上传与路由都按 uid 认人）');
+  const uploaded = await sendPrivateFile(ctx.nt, ctx.pid, {
+    userUid,
+    selfUid: ctx.selfUid,
+    filePath: source,
+    selfUin: ctx.selfUin,
+    send: false,
+    ...(element.fileName ? { fileName: element.fileName } : {}),
+    ...(ctx.log ? { log: ctx.log } : {}),
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const sevenDays = 7 * 24 * 60 * 60;
+  return encode(FILE_EXTRA, {
+    file: {
+      fileType: 0,
+      fileUuid: uploaded.fileId,
+      fileMd5: hexToBytesLocal(uploaded.md5Hex),
+      fileName: uploaded.fileName,
+      fileSize: BigInt(uploaded.fileSize),
+      subcmd: 1,
+      dangerEvel: 0,
+      expireTime: now + sevenDays,
+      fileHash: uploaded.fileHash,
+    },
+  });
+}
+
+/** file 元素的 source 必须是本机路径（上传按路径流式读）。 */
+function forwardFilePath(element: SendFileElement): string {
+  const source = typeof element.source === 'string' ? element.source.trim() : '';
+  if (!source) {
+    throw new Error('合并转发里的 file 元素需要本机文件路径（source 为字符串）');
+  }
+  return source;
+}
+
 // ---------- 单个节点 → PushMsgBody ----------
 
 /** 单节点编码上下文（由 {@link sendForward} 组装）。 */
@@ -243,33 +429,69 @@ function randomUint32(): number {
   return Math.floor(Math.random() * 0x7fffffff) >>> 0 || 1;
 }
 
-/** 节点元素 → Elem proto 数组（含节点内媒体上传与可选装扮）。 */
+/**
+ * 节点元素 → Elem proto 数组（含节点内媒体上传与可选装扮）。
+ *
+ * 文件是特例：群聊编成 `transElem(24)` 进 elems；私聊不生成 elem，而是返回
+ * `msgContent`（`FileExtra`）由调用方挂到 `body.msgContent`。
+ */
 async function buildNodeElems(
   node: ForwardNode,
   ctx: ForwardEncodeContext,
-): Promise<Record<string, unknown>[]> {
+): Promise<{ elems: Record<string, unknown>[]; msgContent?: Uint8Array }> {
   const dress = node.dress;
   if (!Array.isArray(node.elements) || node.elements.length === 0) {
     throw new Error('合并转发节点至少要有一个元素');
   }
-  if (!node.elements.some(isSendMediaElement)) {
-    return buildSendElems(node.elements, { scene: ctx.scene, ...(dress ? { dress } : {}) });
+
+  const fileElements = node.elements.filter(
+    (element): element is SendFileElement => element.kind === 'file',
+  );
+  const otherElements = node.elements.filter((element) => element.kind !== 'file');
+  // 一条 c2c 消息只有一个 msgContent/FileExtra 槽位 —— 多给第二个文件会静默丢掉，
+  // 所以直接报错（对齐 SnowLuma 的私聊转发文件容量校验）。
+  if (ctx.scene !== 'group' && fileElements.length > 1) {
+    throw new Error('私聊合并转发的节点里最多只能有一个文件');
   }
-  // 节点内含媒体：先按目标场景上传 NTV2，再拼 commonElem(48)。
-  const userUid = ctx.userUid?.trim() ?? '';
-  if (ctx.scene !== 'group' && !userUid) {
-    throw new Error('私聊合并转发的节点里含图片/语音/视频时，需要 userUid（NTV2 上传要场景）');
+
+  const elems: Record<string, unknown>[] = [];
+  if (otherElements.length > 0) {
+    if (!otherElements.some(isSendMediaElement)) {
+      elems.push(
+        ...buildSendElems(otherElements, { scene: ctx.scene, ...(dress ? { dress } : {}) }),
+      );
+    } else {
+      // 节点内含媒体：先按目标场景上传 NTV2，再拼 commonElem(48)。
+      const userUid = ctx.userUid?.trim() ?? '';
+      if (ctx.scene !== 'group' && !userUid) {
+        throw new Error('私聊合并转发的节点里含图片/语音/视频时，需要 userUid（NTV2 上传要场景）');
+      }
+      elems.push(
+        ...(await buildSendElemsWithMedia(otherElements, {
+          nt: ctx.nt,
+          pid: ctx.pid,
+          uin: ctx.selfUin,
+          scene: ctx.scene,
+          ...(dress ? { dress } : {}),
+          ...(ctx.groupId !== undefined ? { groupId: ctx.groupId } : {}),
+          ...(userUid ? { userUid } : {}),
+          ...(ctx.log ? { log: ctx.log } : {}),
+        })),
+      );
+    }
   }
-  return buildSendElemsWithMedia(node.elements, {
-    nt: ctx.nt,
-    pid: ctx.pid,
-    uin: ctx.selfUin,
-    scene: ctx.scene,
-    ...(dress ? { dress } : {}),
-    ...(ctx.groupId !== undefined ? { groupId: ctx.groupId } : {}),
-    ...(userUid ? { userUid } : {}),
-    ...(ctx.log ? { log: ctx.log } : {}),
-  });
+
+  let msgContent: Uint8Array | undefined;
+  for (const file of fileElements) {
+    const source = forwardFilePath(file);
+    if (ctx.scene === 'group') {
+      elems.push(await buildGroupFileForwardElem(file, source, ctx));
+    } else {
+      msgContent = await buildC2cFileForwardContent(file, source, ctx);
+    }
+  }
+
+  return { elems, ...(msgContent ? { msgContent } : {}) };
 }
 
 /**
@@ -289,7 +511,7 @@ export async function buildForwardNodeBody(
     throw new Error(`合并转发节点 userUin 非法：${String(node.userUin ?? ctx.selfUin)}`);
   }
   const nickname = (node.nickname ?? '').trim() || String(fromUin);
-  const elems = await buildNodeElems(node, ctx);
+  const { elems, msgContent } = await buildNodeElems(node, ctx);
   const now = Math.floor(Date.now() / 1000);
   const isGroup = ctx.scene === 'group';
 
@@ -309,7 +531,7 @@ export async function buildForwardNodeBody(
       sequence: node.msgSeq && node.msgSeq > 0 ? node.msgSeq : randomUint32(),
       timestamp: node.time && node.time > 0 ? Math.floor(node.time) : now,
     },
-    body: { richText: { elems } },
+    body: { richText: { elems }, ...(msgContent ? { msgContent } : {}) },
   };
 }
 
@@ -362,11 +584,7 @@ async function uploadLevel(
             kind: 'forward',
             resId: inner.resId,
             forwardUuid: inner.uuid,
-            forwardSource: deriveInnerSource(node.innerForward, isGroup),
-            forwardSummary: `查看${node.innerForward.length}条转发消息`,
-            forwardPrompt: '[聊天记录]',
-            forwardNews: previewLinesFromNodes(node.innerForward),
-            forwardTSum: node.innerForward.length,
+            ...buildForwardCardMeta(node.innerForward, isGroup),
           },
         ],
       });
@@ -530,5 +748,6 @@ export async function sendForward(
     responseBytes: top.responseBytes,
     response: { result: { resId: top.resId } },
     levels,
+    card: buildForwardCardMeta(params.nodes, ctx.scene === 'group'),
   };
 }

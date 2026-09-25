@@ -64,13 +64,20 @@ import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
 import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
 import {
+  codecElementsToSegs,
   createEmptyDraft,
   createNode,
-  draftToProtocolPayload,
+  draftCardPreview,
+  draftTitle,
+  draftToSendNodes,
   mfId,
+  renderElementsToSegs,
+  validateDraft,
+  type MfCardPreview,
   type MfDraft,
   type MfElement,
   type MfNode,
+  type MfSeg,
   type MfTarget,
 } from '../components/mergeForward/model';
 import type { MfPerson } from '../components/mergeForward/SenderPicker';
@@ -392,6 +399,32 @@ type OnlineStatusWire = NonNullable<
 type RawElementWire = NonNullable<
   Awaited<ReturnType<typeof client.account.getRawElements.query>>
 >['elements'];
+
+/**
+ * 一条「乐观渲染」的合并转发消息 —— 只活在前端 state 里。
+ *
+ * 私聊的同步周期很长（群聊也慢），发出去之后不能干等 QQ 把消息同步回来才显示。
+ * 所以发送时先在目标会话末尾插一张同款「聊天记录」卡片，带状态标识；它不写库、
+ * 不落缓存文件，开关应用即消失。
+ */
+type OptimisticForward = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  title: string;
+  /** 预览消息条数。 */
+  count: number;
+  /**
+   * 卡片封面预览（标题 / 摘要 / 前 4 行）。与服务端生成的那份同口径（见
+   * `@weq/protocol` 的 buildForwardCardMeta），同步回来后卡片不会变样。
+   */
+  preview: MfCardPreview;
+  state: 'sending' | 'sent' | 'failed';
+  /** 发送成功后的长消息 id（卡片点开可拉取）。 */
+  resId?: string;
+  error?: string;
+  at: number;
+};
 
 type PendingScrollRestore = {
   conversationId: string;
@@ -998,6 +1031,48 @@ function messageSender(
 
   if (isMine) return user;
   return conversation.type === 'direct' ? conversation.otherUser : user;
+}
+
+/**
+ * 乐观渲染的合并转发 → 模板层 Message。
+ *
+ * 渲染成一张同款「聊天记录」卡片（`multiMsg` 元素）——与真消息同步回来后的样子一致，
+ * 因此同步到位后不会出现视觉跳变。状态标识（发送中 / 已发送 / 发送失败）通过额外
+ * 的 `optimistic` 字段带到气泡上，由 MessageBubble 画一个小标签。
+ */
+function optimisticToTemplate(
+  item: OptimisticForward,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: item.title,
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: [
+      {
+        type: 'multiMsg',
+        data: {
+          _label: item.preview.source,
+          _news: item.preview.news,
+          _summary: item.preview.summary,
+          ...(item.resId ? { resId: item.resId } : {}),
+        },
+      },
+    ],
+    msgId: item.id,
+    msgSeq: '',
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimistic: OptimisticForward['state'];
+    optimisticError?: string;
+  };
 }
 
 function messageToTemplate(
@@ -1852,6 +1927,8 @@ export function MainView(): ReactElement {
     members: MfPerson[];
   } | null>(null);
   const [mergeForwardLibraryOpen, setMergeForwardLibraryOpen] = useState(false);
+  // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
+  const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -2851,7 +2928,8 @@ export function MainView(): ReactElement {
             : {
                 id: c.id,
                 kind: 'c2c' as const,
-                conv: c.otherUser.id,
+                // 发送目标优先用 QQ 号（发送侧按 uin 查 uid 更稳），没拿到才退回 uid。
+                conv: c.otherUser.identityValue || c.otherUser.id,
                 name: c.otherUser.displayName,
                 avatarUrl: c.otherUser.avatarUrl,
               },
@@ -2876,42 +2954,71 @@ export function MainView(): ReactElement {
     return [];
   }, []);
 
-  /** 多选的消息 → 一份草稿（保留渲染元素与逐条装扮，不丢）。 */
-  const buildMergeForwardDraft = useCallback((messages: Message[]): MfDraft => {
-    const now = Math.floor(Date.now() / 1000);
-    const nodes: MfNode[] = messages.map((message) => {
-      const sender = message.sender;
-      const senderInfo = {
-        uid: sender?.id ?? message.senderId,
-        uin: sender?.identityValue ?? '',
-        name: sender?.displayName || sender?.identityValue || '未知用户',
-      };
-      const elements = ((message as { qqElements?: MfElement[] }).qqElements ??
-        []) as MfElement[];
-      const parsed = Date.parse(message.createdAt);
-      const node = createNode(
-        senderInfo,
-        elements,
-        Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
-      );
-      const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
-      if (decoration) node.decoration = decoration;
-      if (message.id) node.sourceMsgId = message.id;
-      return node;
-    });
-    return { ...createEmptyDraft(), id: mfId('draft'), nodes };
-  }, []);
+  /**
+   * 多选的消息 → 一份草稿。
+   *
+   * 关键：**回读每条消息的原始 wire 元素**（`account.getRawElements`）而不是只有
+   * 渲染元素 —— 图片 / 语音这类媒体要从原始元素里拿本机缓存路径，发送时才能真实
+   * 上传；拿不到（或离线）时退化为渲染元素派生的分段（媒体落成文本标签）。
+   */
+  const buildMergeForwardDraft = useCallback(
+    async (messages: Message[]): Promise<MfDraft> => {
+      const now = Math.floor(Date.now() / 1000);
+      const nodes: MfNode[] = [];
+      for (const message of messages) {
+        const sender = message.sender;
+        const senderInfo = {
+          uid: sender?.id ?? message.senderId,
+          uin: sender?.identityValue ?? '',
+          name: sender?.displayName || sender?.identityValue || '未知用户',
+        };
+        const msgId = (message as { msgId?: string }).msgId ?? message.id;
+        let segs: MfSeg[] = [];
+        if (msgId) {
+          try {
+            const raw = await client.account.getRawElements.query({ msgId });
+            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements);
+          } catch {
+            /* 回读失败就退回渲染元素 */
+          }
+        }
+        if (segs.length === 0) {
+          segs = renderElementsToSegs(
+            ((message as { qqElements?: MfElement[] }).qqElements ?? []) as MfElement[],
+          );
+        }
+        if (segs.length === 0) continue;
+        const parsed = Date.parse(message.createdAt);
+        const node = createNode(
+          senderInfo,
+          segs,
+          Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
+        );
+        const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
+        if (decoration) node.decoration = decoration;
+        if (msgId) node.sourceMsgId = msgId;
+        nodes.push(node);
+      }
+      return { ...createEmptyDraft(), id: mfId('draft'), nodes };
+    },
+    [client],
+  );
 
   const handleMergeForward = useCallback(
     (messages: Message[], c: Conversation) => {
       if (messages.length === 0) return;
-      setMergeForwardDraft({
-        draft: buildMergeForwardDraft(messages),
-        senderMode: 'conversation',
-        members: mergeForwardMembersOf(c),
-      });
+      const members = mergeForwardMembersOf(c);
+      void buildMergeForwardDraft(messages)
+        .then((draft) => setMergeForwardDraft({ draft, senderMode: 'conversation', members }))
+        .catch((error) =>
+          pushToast({
+            tone: 'error',
+            title: '准备转发失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        );
     },
-    [buildMergeForwardDraft, mergeForwardMembersOf],
+    [buildMergeForwardDraft, mergeForwardMembersOf, pushToast],
   );
 
   const persistMergeForwardDraft = useCallback(
@@ -2928,14 +3035,57 @@ export function MainView(): ReactElement {
   );
 
   /**
-   * 发送接缝。协议尚未接入 —— 这里把参数准备好（日志里能看到），再抛一个
-   * 明确错误让上层「保留草稿」。另一分支接入时只需把这段换成真正的发送调用。
+   * 发送一份合并转发。
+   *
+   * 流程：校验草稿 → 生成协议节点（媒体带本机路径，服务端真实上传 + SsoSendLongMsg）
+   * → **乐观渲染**一张「聊天记录」卡片到目标会话（私聊同步慢，等不到真消息；群聊同样
+   * 受益）。乐观消息只活在前端 state 里，**不落任何缓存 / 不写库**，并带「发送中 /
+   * 已发送 / 发送失败」标识。
    */
-  const forwardMergeDraft = useCallback(async (draft: MfDraft, target: MfTarget) => {
-    const payload = draftToProtocolPayload(draft, { kind: target.kind, conv: target.conv });
-    console.info('[merge-forward] payload ready (protocol not wired yet)', payload);
-    throw new Error('合并转发协议尚未接入，已保存为草稿');
-  }, []);
+  const forwardMergeDraft = useCallback(
+    async (draft: MfDraft, target: MfTarget) => {
+      const problem = validateDraft(draft);
+      if (problem) throw new Error(problem);
+      const nodes = draftToSendNodes(draft);
+      const peerType = target.kind === 'group' ? 'group' : 'c2c';
+      const title = draft.title || draftTitle(draft.nodes);
+      const preview = draftCardPreview(draft);
+      const optimisticId = `optimistic-${mfId('of')}`;
+      setOptimisticForwards((current) => [
+        ...current,
+        {
+          id: optimisticId,
+          convId: target.id,
+          title,
+          count: draft.nodes.length,
+          preview,
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+      const patch = (next: Partial<OptimisticForward>): void =>
+        setOptimisticForwards((current) =>
+          current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+        );
+      try {
+        const outcome = await client.account.sendForward.mutate({
+          peerType,
+          targetId: target.conv,
+          nodes,
+        });
+        if (!outcome.ok) {
+          const reason = outcome.card?.errMsg || outcome.hint || '发送失败';
+          patch({ state: 'failed', error: reason });
+          throw new Error(reason);
+        }
+        patch({ state: 'sent', resId: outcome.resId });
+      } catch (error) {
+        patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    },
+    [client],
+  );
 
   /**
    * 把「还没落库的正文」并进 state —— 切走会话后立刻切回来能回填、会话列表的草稿
@@ -3430,10 +3580,45 @@ export function MainView(): ReactElement {
     // Create a fast lookup map for member info
     const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
 
-    return loadedMessageWires
+    const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, selectedConversation, user, memberMap, botUids));
-  }, [loadedMessageWires, selectedConversation, user, currentGroupMembers, botUids]);
+    // 乐观渲染的合并转发接在末尾 —— 它们没有 msgSeq（gap 判定会跳过），只作为
+    // 「我刚刚发出了什么」的即时反馈。
+    const pending = optimisticForwards
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticToTemplate(item, selectedConversation, user));
+    return [...real, ...pending];
+  }, [
+    loadedMessageWires,
+    selectedConversation,
+    user,
+    currentGroupMembers,
+    botUids,
+    optimisticForwards,
+  ]);
+
+  /**
+   * 真实的合并转发卡片同步回来之后，把对应的乐观条目收掉（靠 resId 对账）。
+   * 私聊同步可能要等一会儿，这段期间乐观卡片就是唯一反馈；一旦真消息到，两者会
+   * 同时出现一张，所以按 resId 去重。未拿到 resId 的条目（发送中 / 失败）保留。
+   */
+  useEffect(() => {
+    if (optimisticForwards.length === 0) return;
+    const seen = new Set<string>();
+    for (const wire of loadedMessageWires) {
+      for (const element of wire.elements ?? []) {
+        if ((element as { type?: string }).type !== 'multiMsg') continue;
+        const resId = (element as { data?: { resId?: string } }).data?.resId;
+        if (resId) seen.add(resId);
+      }
+    }
+    if (seen.size === 0) return;
+    setOptimisticForwards((current) => {
+      const next = current.filter((item) => !item.resId || !seen.has(item.resId));
+      return next.length === current.length ? current : next;
+    });
+  }, [loadedMessageWires, optimisticForwards.length]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently

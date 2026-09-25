@@ -1536,6 +1536,11 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
+    // 乐观渲染的合并转发还不在库里 —— 右键菜单的每一项都会写库 / 查库，直接不弹。
+    if (message.id.startsWith('optimistic-')) {
+      event.preventDefault();
+      return;
+    }
     // 多选模式下右键 = 切换选中，不再弹菜单。
     if (selectionMode) {
       event.preventDefault();

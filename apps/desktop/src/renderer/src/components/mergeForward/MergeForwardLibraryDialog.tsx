@@ -119,7 +119,9 @@ export function MergeForwardLibraryDialog({
                       className="weq-mf-lib-item-main"
                       onClick={() => setEditing(draft)}
                     >
-                      <span className="weq-mf-lib-item-title">{draft.title || draftTitle(draft.nodes)}</span>
+                      <span className="weq-mf-lib-item-title">
+                        {draft.title || draftTitle(draft.nodes)}
+                      </span>
                       <span className="weq-mf-lib-item-meta">
                         {draft.nodes.length} 条 · {formatStamp(draft.updatedAt)}
                       </span>

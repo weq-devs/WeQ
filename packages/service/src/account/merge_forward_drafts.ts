@@ -29,13 +29,16 @@ export interface MergeForwardNode {
   /** 本地稳定 id（拖动排序 / React key）。 */
   id: string;
   sender: MergeForwardSender;
-  /** 渲染视图元素（`{type, data}`）；媒体与表情原样保存。 */
-  elements: unknown[];
+  /**
+   * 内容**分段**（`{t, ...}`，见前端 mergeForward/model.ts）。服务层不认识分段
+   * 内部结构，只保证是对象数组；编辑 / 预览 / 发送三处的语义由渲染层统一。
+   */
+  segs: unknown[];
   /** 该条消息的展示时间（unix 秒）。 */
   time: number;
   /** 逐条消息装扮（列 40801）。0 表示未设置 —— 求和时忽略。 */
   decoration?: { bubbleId: number; fontId: number; widgetId: number };
-  /** 来源消息 msgId（从真实消息带入时存在，接线时回读原始 wire 元素）。 */
+  /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
 }
 
@@ -69,9 +72,9 @@ function asNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-/** 宽松归一化一条元素 —— 只保证是对象，具体字段交给渲染层。 */
-function normalizeElement(raw: unknown): unknown {
-  return isObject(raw) ? raw : { type: 'text', data: { textContent: asString(raw) } };
+/** 宽松归一化一个分段 —— 只保证是对象，具体字段交给渲染层。 */
+function normalizeSeg(raw: unknown): unknown {
+  return isObject(raw) ? raw : { t: 'text', textContent: asString(raw) };
 }
 
 function normalizeDecoration(raw: unknown): MergeForwardNode['decoration'] | undefined {
@@ -94,11 +97,17 @@ function normalizeSender(raw: unknown): MergeForwardSender {
 
 function normalizeNode(raw: unknown, index: number): MergeForwardNode | null {
   if (!isObject(raw)) return null;
-  const elements = Array.isArray(raw.elements) ? raw.elements.map(normalizeElement) : [];
+  // `segs` 是本版的新字段；旧草稿存的是渲染元素 `elements`，这里保留给前端做迁移。
+  const source = Array.isArray(raw.segs)
+    ? raw.segs
+    : Array.isArray(raw.elements)
+      ? raw.elements
+      : [];
+  const segs = source.map(normalizeSeg);
   return {
     id: asString(raw.id) || `node-${index}`,
     sender: normalizeSender(raw.sender),
-    elements,
+    segs,
     time: asNumber(raw.time),
     ...(normalizeDecoration(raw.decoration)
       ? { decoration: normalizeDecoration(raw.decoration) }
@@ -110,7 +119,9 @@ function normalizeNode(raw: unknown, index: number): MergeForwardNode | null {
 function normalizeDraft(raw: unknown, fallbackId: string): MergeForwardDraft | null {
   if (!isObject(raw)) return null;
   const nodes = Array.isArray(raw.nodes)
-    ? raw.nodes.map((node, index) => normalizeNode(node, index)).filter((n): n is MergeForwardNode => n !== null)
+    ? raw.nodes
+        .map((node, index) => normalizeNode(node, index))
+        .filter((n): n is MergeForwardNode => n !== null)
     : [];
   return {
     id: asString(raw.id) || fallbackId,

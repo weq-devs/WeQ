@@ -310,6 +310,36 @@ describe('sendForward 全链路（离线）', () => {
     expect(actions[0]!.actionCommand).toBe('MultiMsg');
   });
 
+  it('外层卡片元信息：source / summary / news / tSum（收端卡片封面才有预览）', async () => {
+    const nt = fakeNative(['res-card']);
+    const result = await sendForward(nt as never, 1, {
+      ...params,
+      nodes: [
+        { userUin: 20002, nickname: '小明', elements: [{ kind: 'text', textContent: '你好呀' }] },
+        { userUin: 30003, nickname: '小红', elements: [{ kind: 'face', faceId: 14 }] },
+        {
+          userUin: 30003,
+          nickname: '小红',
+          elements: [{ kind: 'markdown', markdownContent: '# 标题' }],
+        },
+        { userUin: 40004, nickname: '小刚', elements: [{ kind: 'ark', arkData: '{"app":"x"}' }] },
+        { userUin: 50005, nickname: '小强', elements: [{ kind: 'text', textContent: '第 5 条' }] },
+      ],
+    });
+    expect(result.card).toEqual({
+      forwardSource: '小明和小红和小刚和小强的聊天记录',
+      forwardSummary: '查看5条转发消息',
+      forwardPrompt: '[聊天记录]',
+      forwardNews: [
+        { text: '小明: 你好呀' },
+        { text: '小红: [表情]' },
+        { text: '小红: [Markdown]' },
+        { text: '小刚: [卡片]' },
+      ],
+      forwardTSum: 5,
+    });
+  });
+
   it('私聊：info.type=1、uid.uid=selfUid、不带 groupUin', async () => {
     const nt = fakeNative(['res-c2c']);
     const result = await sendForward(nt as never, 1, {

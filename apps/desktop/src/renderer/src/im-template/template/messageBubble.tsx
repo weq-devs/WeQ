@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, Check, RotateCcw, Sparkle } from 'lucide-react';
+import { Bot, Check, Clock, RotateCcw, Sparkle, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
@@ -158,6 +158,19 @@ export function MessageBubble({
   // its content is intact, so we DON'T veil it (unlike delete). We just show a
   // small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
   // author recalled their own message; otherwise an admin recalled someone else's.
+  // 乐观渲染的合并转发状态标识（发送中 / 已发送 / 发送失败）。该消息只活在前端
+  // state 里，等 QQ 同步回真消息后自然消失。
+  const optimistic = (
+    message as { optimistic?: 'sending' | 'sent' | 'failed'; optimisticError?: string }
+  ).optimistic;
+  const optimisticText =
+    optimistic === 'sending'
+      ? '发送中…'
+      : optimistic === 'failed'
+        ? '发送失败'
+        : optimistic === 'sent'
+          ? '已发送'
+          : null;
   const recall = (
     message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }
   ).recall;
@@ -388,6 +401,19 @@ export function MessageBubble({
           <div className={cn('weq-msg-recall-tag')} title="防撤回已保留原消息">
             <RotateCcw size={12} />
             <span>{recallText}</span>
+          </div>
+        ) : null}
+        {optimisticText ? (
+          <div
+            className={cn('weq-msg-optimistic-tag', `is-${optimistic}`)}
+            title={
+              optimistic === 'failed'
+                ? (message as { optimisticError?: string }).optimisticError || '发送失败'
+                : '这条消息还没同步回来，先乐观显示'
+            }
+          >
+            {optimistic === 'failed' ? <X size={12} /> : <Clock size={12} />}
+            <span>{optimisticText}</span>
           </div>
         ) : null}
         {isDeleted ? (

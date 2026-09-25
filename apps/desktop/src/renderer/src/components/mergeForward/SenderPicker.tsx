@@ -21,7 +21,8 @@ export interface MfPerson {
   name: string;
 }
 
-function dedupe(list: MfPerson[]): MfPerson[] {
+/** 去重（uid 优先，其次 uin）：@ 选择器与发送人选择器共用同一份口径。 */
+export function dedupePersons(list: MfPerson[]): MfPerson[] {
   const seen = new Set<string>();
   const out: MfPerson[] = [];
   for (const p of list) {
@@ -57,12 +58,10 @@ export function SenderPicker({
   const needle = keyword.trim();
 
   const localFiltered = useMemo(() => {
-    const base = dedupe([self, ...(members ?? [])]);
+    const base = dedupePersons([self, ...(members ?? [])]);
     if (!needle) return base;
     const term = needle.toLowerCase();
-    return base.filter(
-      (p) => p.name.toLowerCase().includes(term) || p.uin.includes(term),
-    );
+    return base.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
   }, [members, self, needle]);
 
   // 全局模式：防抖后走统一搜索（好友在前、群友在后）。
@@ -80,7 +79,7 @@ export function SenderPicker({
 
   const friends: MfPerson[] = useMemo(() => {
     if (mode !== 'global') return [];
-    return dedupe(
+    return dedupePersons(
       (quick.data?.friends ?? []).map((f) => ({
         uid: f.uid,
         uin: f.uin,
@@ -91,7 +90,7 @@ export function SenderPicker({
 
   const groupMembers: MfPerson[] = useMemo(() => {
     if (mode !== 'global') return [];
-    return dedupe(
+    return dedupePersons(
       (quick.data?.groupMembers ?? []).map((m) => ({
         uid: m.memberUid,
         uin: m.memberUin,
@@ -188,14 +187,22 @@ export function SenderPicker({
               className="weq-mf-primary"
               disabled={manualUin.trim().length < 5}
               onClick={() =>
-                onPick({ uid: '', uin: manualUin.trim(), name: manualName.trim() || manualUin.trim() })
+                onPick({
+                  uid: '',
+                  uin: manualUin.trim(),
+                  name: manualName.trim() || manualUin.trim(),
+                })
               }
             >
               使用这个身份
             </button>
           </div>
         ) : (
-          <button type="button" className="weq-mf-manual-toggle" onClick={() => setManualOpen(true)}>
+          <button
+            type="button"
+            className="weq-mf-manual-toggle"
+            onClick={() => setManualOpen(true)}
+          >
             <UserPlus size={15} />
             直接填写 QQ 号和昵称
           </button>

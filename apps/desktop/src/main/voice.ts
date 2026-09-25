@@ -43,6 +43,22 @@ function normalizeSilk(silk: Buffer): Buffer {
 }
 
 /**
+ * Does this file carry SILK (so it needs decoding before a browser can play it)?
+ *
+ * 只认魔数，不看扩展名 —— QQ 的语音落盘是 `.amr`，用户手选的文件可能是 `.silk`，
+ * 也可能压根没扩展名。用魔数判断，非 SILK（wav/mp3/m4a…）直接流原文件。
+ */
+export function isSilkFile(filePath: string): boolean {
+  if (!filePath || !existsSync(filePath)) return false;
+  try {
+    const bytes = readFileSync(filePath);
+    return isSilk(bytes) || bytes.indexOf(SILK_MAGIC) >= 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Decode the SILK file at `silkPath` to a cached WAV; returns the WAV path, or
  * null if the source is missing or decoding fails.
  */

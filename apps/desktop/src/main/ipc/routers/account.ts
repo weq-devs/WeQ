@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import {
@@ -954,6 +954,25 @@ async function exportGroupFiles(
 
   return { outputDir: input.outputDir, total: work.length, ok, failed };
 }
+
+/**
+ * 合并转发媒体段选本机文件时的文件框配置。
+ *
+ * 只做「选择」：媒体在发送时真实上传（NTV2 / 文件管线），所以这里列扩展名是为了
+ * 让用户少挑错文件，不参与任何落盘 / 转码。`file` 不限扩展名。
+ */
+const PICK_SEND_FILE_SPEC: Record<
+  'image' | 'record' | 'video' | 'file',
+  { title: string; extensions: string[] }
+> = {
+  image: { title: '选择一张图片', extensions: [...COMPOSE_IMAGE_EXTENSIONS] },
+  record: {
+    title: '选择语音文件',
+    extensions: ['silk', 'slk', 'amr', 'wav', 'mp3', 'm4a', 'ogg', 'aac'],
+  },
+  video: { title: '选择视频文件', extensions: ['mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi'] },
+  file: { title: '选择文件', extensions: [] },
+};
 
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
@@ -2600,10 +2619,18 @@ export const accountRouter = router({
     )
     .query(async ({ input }) => {
       const service = requireServices().forwardMsgs;
+      // msgId 未必是真实消息 id —— 乐观渲染的合并转发用的是 `optimistic-<uuid>`
+      // 这种本地占位 id（它还没被 QQ 同步回来，库里根本没有这一行）。直接
+      // `BigInt()` 会抛「Cannot convert ... to a BigInt」。所以先做安全解析：
+      // 不是正整数就当缓存未命中，交给下面的 resId 远程拉取（真发出去的卡片
+      // 带服务端签发的 resId，点开就能拉到内容）。
+      const msgId = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
       const records =
-        input.kind === 'group'
-          ? await service.getGroupForward(BigInt(input.msgId))
-          : await service.getC2cForward(BigInt(input.msgId));
+        msgId === null || msgId <= 0n
+          ? []
+          : input.kind === 'group'
+            ? await service.getGroupForward(msgId)
+            : await service.getC2cForward(msgId);
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState();
@@ -2786,6 +2813,50 @@ export const accountRouter = router({
         element: elementsToEditable(staged.element),
         preview: staged.preview,
       };
+    }),
+
+  /**
+   * 合并转发（合成聊天记录）发送：打系统文件框选本机媒体给草稿里的媒体段用。
+   *
+   * 只负责「拿到一个本机绝对路径」—— 媒体在**发送时真实上传**（见 sendForward /
+   * send-elements 的 NTV2 上传），所以这里刻意不落任何缓存、不改动文件。用户取消
+   * 文件框时返回 null。文件服务器不接受的上传问题在发送时报错。
+   */
+  pickSendFile: procedure
+    .input(z.object({ kind: z.enum(['image', 'record', 'video', 'file']) }))
+    .mutation(async ({ input }) => {
+      const spec = PICK_SEND_FILE_SPEC[input.kind];
+      const picked = await getHost().pickFile({ title: spec.title, extensions: spec.extensions });
+      if (!picked) return null;
+      // 登记为「可预览」路径：它在上传前不在 nt_data 里，渲染层的本地预览图 /
+      // 音频要经 weq-media://localfile 取字节（见 FileResourceService.resolveLocalFile）。
+      requireServices().fileResource.trustPath(picked);
+      const info = await stat(picked).catch(() => null);
+      return { path: picked, fileName: basename(picked), size: info?.size ?? 0 };
+    }),
+
+  /**
+   * 发「合并转发 / 聊天记录」—— 两步：SsoSendLongMsg 上传拿 resId，再发承载它的卡片。
+   *
+   * 节点里的媒体（图片 / 语音 / 视频）在**发送时真实上传**：渲染层给的是本机绝对
+   * 路径，服务层按目标场景做 NTV2 上传。需要 QQ 在线且未开完全离线模式。
+   * `nodes` 的形状见 @weq/service 的 `SendForwardNodeInput`（含嵌套 `innerForward`）。
+   */
+  sendForward: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        nodes: z.array(z.any()).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendForward({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        nodes: input.nodes as never,
+      });
     }),
 
   /**

@@ -641,8 +641,16 @@ describe('sendForward（合并转发，离线）', () => {
     expect(card).toBeTruthy();
     const cardJson = JSON.parse(
       inflateSync(Buffer.from(card!.data).subarray(1)).toString('utf8'),
-    ) as { meta?: { detail?: { resid?: string } } };
+    ) as {
+      meta?: {
+        detail?: { resid?: string; source?: string; summary?: string; news?: { text?: string }[] };
+      };
+    };
     expect(cardJson.meta?.detail?.resid).toBe('res-g');
+    // 卡片封面要有预览内容：source / summary / news（少一样收端就只剩一个标题）。
+    expect(cardJson.meta?.detail?.source).toBe('小明的聊天记录');
+    expect(cardJson.meta?.detail?.summary).toBe('查看1条转发消息');
+    expect(cardJson.meta?.detail?.news).toEqual([{ text: '小明: 你好' }]);
   });
 
   it('私聊：长消息用自己 uid 的槽位，卡片走 c2c 路由', async () => {
