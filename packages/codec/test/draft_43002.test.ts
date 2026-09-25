@@ -65,10 +65,10 @@ describe('draft 43002 decode', () => {
     expect(entry.targetUid).toBe('673646675');
     const elements = (entry.elements ?? []).map(decodeElement);
     expect(elements.map((e) => e.kind)).toEqual(['text', 'pic']);
-    const pic = elements[1] as { fileName?: string; faceExtDesc?: string };
+    const pic = elements[1] as { fileName?: string; localPath?: string };
     expect(pic.fileName).toBe('5a09bd33e1cdb18f500d49edbd786c1b.png');
-    // 草稿的图片元素带本机路径，可以直接用来渲染。
-    expect(pic.faceExtDesc).toContain(
+    // 草稿的图片元素带本机路径（wire 45004），可以直接用来渲染。
+    expect(pic.localPath).toContain(
       '/nt_data/Pic/2026-09/Ori/5a09bd33e1cdb18f500d49edbd786c1b.png',
     );
   });

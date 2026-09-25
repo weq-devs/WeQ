@@ -70,7 +70,7 @@ import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from '.
 import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
-import { messageToText, annotateLocalPaths, collectFaceIds } from './element_text';
+import { messageToText, annotateExportPaths, collectFaceIds } from './element_text';
 import { backfillConversationMessages, type MessageBackfillDeps } from './msg_backfill';
 import type { DressService } from '../dress_service';
 import type { MsgDecoration } from '@weq/codec';
@@ -2750,7 +2750,7 @@ export class ExportTaskManager extends EventEmitter {
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);
         await expandForwards(msgs, 'c2c', exported);
-        if (withMediaPaths) annotateLocalPaths(exported.elements);
+        if (withMediaPaths) annotateExportPaths(exported.elements);
         const record = renderRecord(exported);
         await writer.write(count === 0 ? record : framing.between + record);
         count += 1;

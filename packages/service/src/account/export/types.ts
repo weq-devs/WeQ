@@ -79,7 +79,7 @@ export interface GroupExportOptions {
   collectFaces?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
-  /** Stamp media elements with their bundle relative path (`data.localPath`). */
+  /** Stamp media elements with their bundle relative path (`data.exportPath`). */
   withMediaPaths?: boolean;
   /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
   roam?: RoamMessageSource;

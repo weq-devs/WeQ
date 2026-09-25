@@ -1273,7 +1273,7 @@ function elementText(element: unknown): string {
     case 'at':
       return stringField(data, 'textContent');
     case 'face':
-      return stringField(data, 'faceText') || stringField(data, 'faceExtDesc') || '[Emoji]';
+      return stringField(data, 'faceText') || stringField(data, 'localPath') || '[Emoji]';
     case 'pic':
       return attachmentText('Image', data, 'fileName', 'summary');
     case 'file':

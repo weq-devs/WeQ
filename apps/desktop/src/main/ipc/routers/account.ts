@@ -51,6 +51,7 @@ import {
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
+  COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   getVoiceModel,
   buildBotExport,
@@ -2755,6 +2756,37 @@ export const accountRouter = router({
    * authorable element kind, derived from the codec Zod schemas.
    */
   composeElementSpecs: procedure.query(() => requireServices().msgs.getComposeSpecs()),
+
+  /**
+   * 新增消息用图：打系统文件框选一张**本机图片**，拷进 QQ 的图片缓存，返回可直接插进
+   * 消息的 pic 元素。
+   *
+   * 取代了旧的「从会话已有消息里挑一张图」—— 那条路只能发别人发过的图。图片按 QQ 自己的
+   * 规则落成 `nt_data/Pic/<当月>/Ori/<md5>.<ext>`，聊天渲染（`weq-media://pic` 按发送时间
+   * + 文件名找图）因此天然认得它。返回的 `sendTime` **必须**原样写进 `insertMessage`，
+   * 否则两边月份对不上就找不到图。
+   *
+   * `sendTime` 用来**锁定月份**：同一条消息里已经选过图时，调用方把上一张的 `sendTime`
+   * 传回来，新图就落到同一个月目录里 —— 否则两张图跨了月末月初，消息只有一个时间戳，
+   * 必然有一张按月份找不到。
+   *
+   * 用户在文件框里点取消时返回 null（不是失败）。
+   */
+  pickComposeImage: procedure
+    .input(z.object({ sendTime: z.number().int().positive().optional() }))
+    .mutation(async ({ input }) => {
+      const picked = await getHost().pickFile({
+        title: '选择一张图片',
+        extensions: [...COMPOSE_IMAGE_EXTENSIONS],
+      });
+      if (!picked) return null;
+      const staged = await requireServices().composeImage.stage(picked, input.sendTime);
+      return {
+        sendTime: staged.sendTime,
+        element: elementsToEditable(staged.element),
+        preview: staged.preview,
+      };
+    }),
 
   /**
    * Insert a brand-new message into a conversation (c2c peer uid or group code).

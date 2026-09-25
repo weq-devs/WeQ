@@ -22,7 +22,7 @@ import {
   toExportedMessage,
   type RoamMessageSource,
 } from './message_source';
-import { TABLE_HEADERS, messageToCells, annotateLocalPaths, collectFaceIds } from './element_text';
+import { TABLE_HEADERS, messageToCells, annotateExportPaths, collectFaceIds } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
@@ -48,7 +48,7 @@ export interface XlsxExportOptions {
   collectFaces?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
-  /** Stamp media elements with their bundle relative path (`data.localPath`). */
+  /** Stamp media elements with their bundle relative path (`data.exportPath`). */
   withMediaPaths?: boolean;
   /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
   roam?: RoamMessageSource;
@@ -104,7 +104,7 @@ export async function exportToXlsx(
     opts.collectSenders?.add(exported.senderUin);
     if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
     await expandForwards(msgs, opts.kind, exported);
-    if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
+    if (opts.withMediaPaths) annotateExportPaths(exported.elements);
     sheet.addRow(messageToCells(exported)).commit();
     rowsInSheet += 1;
     count += 1;

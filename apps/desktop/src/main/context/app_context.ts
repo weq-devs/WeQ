@@ -103,6 +103,7 @@ import {
   RelatedEmojiResourceService,
   FileResourceService,
   MediaResourceService,
+  ComposeImageService,
   ResourceCleanupService,
   WebQueryService,
   GapHistoryService,
@@ -581,6 +582,8 @@ export interface AccountServices {
   fileResource: FileResourceService;
   /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
   mediaResource: MediaResourceService;
+  /** 新增消息的图片：选本机图片 → 拷进 nt_data/Pic 当月 Ori 目录并产出 pic 元素。 */
+  composeImage: ComposeImageService;
   /** Clean up the account's nt_data resource trees (本地资源整理 → 清理释放). */
   resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
@@ -1328,6 +1331,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        composeImage: new ComposeImageService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -1800,6 +1804,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, staticPlatform),
         fileResource: new FileResourceService(session, staticPlatform),
         mediaResource: new MediaResourceService(session, staticPlatform),
+        composeImage: new ComposeImageService(session, staticPlatform),
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),

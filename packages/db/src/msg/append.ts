@@ -10,7 +10,7 @@
  *
  *   40001 msgId        → last + small random increment  (unique & monotonic)
  *   40002 msgRandom    → fresh random (part of the c2c UNIQUE(40027,40002,40005))
- *   40003 msgSeq       → last + 1
+ *   40003 msgSeq       → MAX(seq) + 1  (see below)
  *   40011 msgType      → caller (2 = plain, 9 = reply)
  *   40020 senderUid    → caller
  *   40033 senderUin    → caller
@@ -23,6 +23,14 @@
  *
  * The clone requires the conversation to already have at least one message
  * (returns null otherwise) — the intended use is appending to existing chats.
+ *
+ * `msgSeq` is taken from an explicit `MAX("40003")`, NOT from the template
+ * row. The two happen to agree today (the template IS the max-seq row), but
+ * they answer different questions — "which row do I copy the opaque columns
+ * from" vs "what seq must the next message have" — and only the latter may
+ * drift (seq ties, NULL/0 seq-less rows, a template rule change). Keeping them
+ * separate means a change to the clone rule can never silently renumber new
+ * messages into the middle of the conversation.
  */
 
 import type { SqlRow, SqlValue } from '@weq/native';
@@ -82,10 +90,17 @@ export async function appendClonedRow(
 
   const values = [...(lastRows[0] as SqlRow)] as SqlValue[];
   const lastMsgId = toBigint(values[col('40001')]);
-  const lastSeq = toBigint(values[col('40003')]);
+
+  // The conversation's current highest seq, via `MAX("40003")` (which walks the
+  // `(40027,40003)` index to its rightmost entry). COALESCE keeps an all-seqless
+  // partition at 0 → the new message becomes seq 1.
+  const maxSeqRows = await qq.query(
+    `SELECT COALESCE(MAX("40003"), 0) FROM ${table} WHERE ${partWhere}`,
+    [partValue],
+  );
+  const newSeq = toBigint(maxSeqRows[0]?.[0]) + 1n;
 
   const newMsgId = lastMsgId + BigInt(1 + Math.floor(Math.random() * 1000));
-  const newSeq = lastSeq + 1n;
 
   values[col('40001')] = newMsgId;
   values[col('40002')] = BigInt(Math.floor(Math.random() * 0x7fffffff));

@@ -4,7 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import { cn } from './classNames';
-import { elementLabel, tokenToElement } from './draftElements';
+import { elementLabel, elementPreviewSrc, tokenToElement } from './draftElements';
 
 export type ComposerMentionTrigger = {
   start: number;
@@ -144,19 +144,44 @@ export function restoreComposer(editor: HTMLElement, value: string) {
 
 /**
  * 渲染一枚元素 chip —— 草稿里那些输入框表达不了的元素（图片 / 视频 / 文件 /
- * markdown / ark / 引用…）。显示成 `[图片]` 这样的标签，`dataset.chatToken`
- * 里存着可无损还原的 token，序列化时原样取回。
+ * markdown / ark / 引用…）。
+ *
+ * 有预览图的（图片 / 系统表情）直接画成图，跟用户当次插进来时的形态一致 —— 重放
+ * 一份草稿不该把图和表情退化成 `[图片]` / `[表情]` 的文字。其余元素仍然是文字标签。
+ * 两种形态都把可无损还原的 token 存在 `dataset.chatToken` 上，序列化时原样取回。
  */
 function appendElementChip(editor: HTMLElement, raw: string) {
   const element = tokenToElement(raw);
   const label = element ? elementLabel(element) : '[消息]';
+  const src = element ? elementPreviewSrc(element) : null;
+
+  if (src) {
+    const image = document.createElement('img');
+    image.src = src;
+    image.alt = label;
+    image.title = label;
+    image.draggable = false;
+    image.dataset.chatToken = raw;
+    image.className = cn('composer-token-image composer-inline-attachment');
+    // 预览地址拿不到图（比如本会话里 blob: 地址已随刷新失效）就退回文字 chip，
+    // 别在输入框里留一枚破图。
+    image.onerror = () => image.replaceWith(elementChipNode(raw, label));
+    editor.append(image);
+    return;
+  }
+
+  editor.append(elementChipNode(raw, label));
+}
+
+/** 元素 chip 的纯文本形态（没有 / 取不到预览图时用）。 */
+function elementChipNode(raw: string, label: string): HTMLSpanElement {
   const chip = document.createElement('span');
   chip.className = cn('composer-element-token');
   chip.contentEditable = 'false';
   chip.dataset.chatToken = raw;
   chip.title = label;
   chip.textContent = label;
-  editor.append(chip);
+  return chip;
 }
 
 /** 表情 token：有预览图的走 <img>，字符表情直接插字形文本。 */

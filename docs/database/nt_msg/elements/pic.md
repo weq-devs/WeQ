@@ -61,6 +61,7 @@
 
 | tag | 字段名 | 类型 | 含义 |
 | --- | ------ | ---- | ---- |
+| 45004 | `localPath` | string | **本机原图缓存路径**（`…/nt_data/Pic/<yyyy-mm>/Ori/<md5>.png`）。注意它落在**通用段**而非 454xx；在草稿里是一张「纯图片草稿」唯一的内容 |
 | 45403 | `filePath` | string | 本地文件路径 |
 | 45511 | `picTransferState` | uint32 | 传输状态 |
 | 45513 | `transferVersion` | uint32 | 传输版本 |
@@ -72,6 +73,10 @@
 | 45507 | `transferFlag45507` | int64 | 近似常量哨兵，见总览 |
 | 45509 | `transferFlag45509` | uint32 | 恒为 1（与 45507 成对） |
 | 45600 | `picFlag45600` | bytes | 复杂嵌套结构（图片冗余信息），保留为原始字节 |
+
+> `45004` 早期叫 `faceExtDesc`（被当成 FACE 的「扩展描述」，因为只在通用段里见过 FACE 的注释）。
+> 2026-09-26 观测到一条草稿的纯 PIC 行把它写成本机原图缓存路径后，改名为 `localPath`。
+> FACE 上是否也用同一语义仍未确认 —— 见 [face.md](./face.md)。
 
 ## 五、观测到但语义未验证
 

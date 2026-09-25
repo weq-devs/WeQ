@@ -56,7 +56,7 @@ function sql() {
 
 const textEl = (text: string): Element => ({ kind: 'text', textContent: text }) as Element;
 const picEl = (): Element =>
-  ({ kind: 'pic', fileName: 'a.png', faceExtDesc: '/tmp/a.png' }) as unknown as Element;
+  ({ kind: 'pic', fileName: 'a.png', localPath: '/tmp/a.png' }) as unknown as Element;
 
 describe('DraftDb read/write', () => {
   it('writes a draft and reads back the same elements', async () => {
@@ -210,7 +210,7 @@ describe('element encode/decode stability used by the draft path', () => {
     const wire = {
       elementType: 2,
       fileName: 'a.png',
-      faceExtDesc: '/tmp/a.png',
+      localPath: '/tmp/a.png',
       md5Bytes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
     } as never;
     const el = decodeElement(wire);
