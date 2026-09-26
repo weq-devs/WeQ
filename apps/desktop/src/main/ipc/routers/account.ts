@@ -25,6 +25,7 @@ import {
 } from '../../context/app_context';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
+import { classifyChatType } from '@weq/codec';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -117,11 +118,18 @@ function requireScheduler(): import('@weq/service').ExportScheduler {
   return ctx.scheduler;
 }
 
-/** 会话类型判定（首页门面用；兼容字符串枚举与数字）。 */
+/**
+ * 会话类型判定（首页门面用；兼容字符串枚举与数字）。
+ *
+ * 走 codec 的严格分类而不是 `includes('C2C'/'GROUP')`：临时会话枚举名与群聊
+ * 枚举名互相包含（如 KCHATTYPETEMPC2CFROMGROUP 同时含 C2C 与 GROUP），子串
+ * 判会按判断顺序出错。这里只认真正落在 c2c_msg_table 的 direct 类（含 1 / 99 /
+ * 100 / 101）；dataline / service / official 各有独立数据源，返回 null 排除。
+ */
 function chatKindOf(chatType: unknown): 'c2c' | 'group' | null {
-  const s = String(chatType).toUpperCase();
-  if (s.includes('C2C') || s === '1') return 'c2c';
-  if (s.includes('GROUP') || s === '2') return 'group';
+  const kind = classifyChatType(chatType as string | number);
+  if (kind === 'direct') return 'c2c';
+  if (kind === 'group') return 'group';
   return null;
 }
 
@@ -3561,10 +3569,15 @@ export const accountRouter = router({
     // (KCHATTYPETEMPPUBLICACCOUNT=103) 等枚举名不含 'C2C' 的临时会话就是这样：
     // 消息其实在 c2c_msg_table，只是没进查询集。dataline 走独立表单独计数，
     // 其余一切都按 c2c 归类（能查到就显示真实条数，查不到才是 0）。
+    //
+    // 用 codec 的 classifyChatType 严格分类，不能按子串猜：群聊发起的临时会话
+    // KCHATTYPETEMPC2CFROMGROUP（100）名字里含 'GROUP'，按子串判会被丢进 group
+    // 查询集，而它的消息其实在 c2c_msg_table —— 于是恒显示 0 条、类型显示成
+    // 群聊、导出走群消息表导空。
     const kindOf = (chatType: string | number): 'group' | 'dataline' | 'c2c' => {
-      const t = String(chatType);
-      if (t.includes('GROUP')) return 'group';
-      if (t.includes('DATALINE')) return 'dataline';
+      const kind = classifyChatType(chatType);
+      if (kind === 'group') return 'group';
+      if (kind === 'dataline') return 'dataline';
       return 'c2c';
     };
 

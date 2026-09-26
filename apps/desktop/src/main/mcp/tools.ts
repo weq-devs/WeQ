@@ -257,11 +257,18 @@ function rangeWindow(
   return { startSec, endSec, label: `${fmtDate(startSec)} ~ ${fmtDate(endSec - 86400)}` };
 }
 
-/** 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。 */
+/**
+ * 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。
+ *
+ * 走 codec 的严格分类而不是 `includes('C2C'/'GROUP')`：临时会话枚举名与群聊
+ * 枚举名互相包含（KCHATTYPETEMPC2CFROMGROUP 同时含 C2C 与 GROUP），子串判既
+ * 会看判断顺序出错，也会漏掉名字里不含 'C2C' 的 KCHATTYPETEMPFRIENDVERIFY
+ * （101）。direct（1/99/100/101）归 c2c，group（2）归 group，其余排除。
+ */
 function convKindOf(chatType: unknown): 'c2c' | 'group' | null {
-  const s = String(chatType).toUpperCase();
-  if (s.includes('C2C') || s === '1') return 'c2c';
-  if (s.includes('GROUP') || s === '2') return 'group';
+  const kind = classifyChatType(chatType as string | number);
+  if (kind === 'direct') return 'c2c';
+  if (kind === 'group') return 'group';
   return null;
 }
 
@@ -916,7 +923,9 @@ export const AI_TOOLS: AiTool[] = [
         { uid: string; uin: string; name: string; remark: string; lastTime: string }
       >();
       for (const c of contacts) {
-        if (!String(c.chatType).includes('C2C')) continue;
+        // 用严格分类取"私聊"：`includes('C2C')` 会漏掉名字里没有 C2C 的
+        // KCHATTYPETEMPFRIENDVERIFY（101），也会把数据线/公众号当成人。
+        if (classifyChatType(c.chatType) !== 'direct') continue;
         if (!hit(c.targetRemark) && !hit(c.targetDisplayName) && !hit(c.senderNick)) continue;
         if (peopleMap.has(c.targetUid)) continue;
         const wire = recentContactToWire(c);
