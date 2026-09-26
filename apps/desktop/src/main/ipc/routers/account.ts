@@ -3001,6 +3001,119 @@ export const accountRouter = router({
       return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
     }),
 
+  // ---- Ark 卡片（输入框「图文 ark」面板）----
+
+  /**
+   * 发一张**任意 ark 卡片**：`arkData` 是一段 ark JSON，服务层原样编成 lightApp
+   * 元素（`{kind:'ark'}`）走常规 `MessageSvc.PbSendMsg`。
+   *
+   * 这条路不依赖任何平台下发规则（没有 appId 白名单），所以 PC / Linux 端也能发——
+   * 「图文 ark」（自己拼 JSON）与自定义卡片都用它，与 0xdc2_34 那条 Android
+   * appId 的图文协议不是一回事。
+   *
+   * `targetId` = 当前会话：群聊给群号，私聊给对方 QQ 号（或 uid）。
+   */
+  sendArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        arkData: z.string().min(1).max(200_000),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendArkCard(input);
+    }),
+
+  /**
+   * 发「推荐好友 / 推荐群」卡片：服务端先按 `contactId` 生成 ark JSON（0x12b6_0 /
+   * 0x8b7_5），再作为元素发到 `targetId` 那个会话。
+   *
+   * `kind` = 卡片推荐**什么**（`qq` 好友 / `group` 群），`contactId` = 被推荐的
+   * QQ 号 / 群号；别与 `targetId`（发到哪）填反。
+   */
+  sendContactArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        kind: z.enum(['qq', 'group']),
+        contactId: z.number().int().positive(),
+        phoneNumber: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendContactCard(input);
+    }),
+
+  /**
+   * 发一张**位置卡片**（trpc `LocationArk.SsoSendMessage`）。
+   *
+   * 经纬度是十进制度**字符串**；`region`（省市区）与 `address`（详细地址）由调用方
+   * 给出 —— 地图组件不做逆地理（没有安全密钥），地址是用户自己填 / 改的。
+   * 返回值里的 `hint` 会如实说明「响应无法判定业务结果」，不要当它是成功回执。
+   */
+  sendLocationArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        address: z.string().min(1),
+        region: z.string().min(1),
+        latitude: z.string().min(1),
+        longitude: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendLocationCard(input);
+    }),
+
+  /**
+   * 位置卡片面板的**地点搜索**（腾讯位置服务「关键词输入提示」）。
+   *
+   * 纯公网只读查询，**不需要 QQ 在线**。结果已归一化成面板要的形状：
+   * `region` 是拼好的省市区（直辖市去重），`address` 是**去掉省市区前缀**的详细
+   * 地址 —— 两者正好对应位置卡片的两个字段，点一条就能把卡片填好。
+   */
+  lbsSuggestPlaces: procedure
+    .input(
+      z.object({
+        keyword: z.string().min(1),
+        /** 当前地图中心，用于按距离排序（latitude 在前，别写反）。 */
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        region: z.string().optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+    )
+    .query(({ input }) =>
+      requireServices().lbs.suggestPlaces({
+        keyword: input.keyword,
+        ...(input.latitude !== undefined ? { latitude: input.latitude } : {}),
+        ...(input.longitude !== undefined ? { longitude: input.longitude } : {}),
+        ...(input.region ? { region: input.region } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }),
+    ),
+
+  /**
+   * 位置卡片面板的**逆地址解析**：地图上点一下 → 「地点名称 + 省市区 + 详细地址」。
+   *
+   * `poi_options=policy=5`（位置共享场景）在服务层写死 —— 这正是发位置卡片干的事。
+   * 同样不需要 QQ 在线；结果是**建议值**，面板里用户可以改。
+   */
+  lbsReverseGeocode: procedure
+    .input(z.object({ latitude: z.number(), longitude: z.number() }))
+    .query(({ input }) =>
+      requireServices().lbs.reverseGeocode({
+        latitude: input.latitude,
+        longitude: input.longitude,
+      }),
+    ),
+
   // ---- database decrypt ----
 
   /** List encrypted `*.db` files under the open account's nt_db directory. */

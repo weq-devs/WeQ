@@ -117,6 +117,11 @@ import {
   type GroupMember,
   type GroupNoticeHandleState,
   type GroupUpdateInput,
+  type ArkLocationProvider,
+  type ArkPayload,
+  arkCardSignature,
+  buildContactPlaceholderArk,
+  buildLocationArkJson,
   type Message,
   type MessageRenderer,
   type ProfileExtInfo,
@@ -425,6 +430,62 @@ type OptimisticForward = {
   error?: string;
   at: number;
 };
+
+/**
+ * 一条「乐观渲染」的 Ark 卡片消息 —— 与 {@link OptimisticForward} 同一套做法。
+ *
+ * 卡片发出去之后不能干等 QQ 同步回来（私聊滞后更明显），先在目标会话末尾插一张同款
+ * 卡片 + 状态标识。它只活在前端 state 里，不写库、不落缓存文件，开关应用即消失：
+ *
+ *   - 图文 / 自定义 JSON：发出去的就是这段 JSON，从一开始就是最终形状；
+ *   - 推荐好友 / 推荐群：先画一张本地占位卡，拿到服务端取回的那份 arkJson 后原位替换；
+ *   - 位置卡片：本地按发送字段拼一张（渲染器走静态地图缩略图那条路）。
+ */
+type OptimisticArk = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  /** 卡片渲染用的 ark JSON。 */
+  arkData: string;
+  /**
+   * 对账签名（`arkCardSignature`）：真消息同步回来时用它把乐观条目收掉。
+   * 「服务端会重新生成卡片内容」的位置卡片走坐标，其余的走 JSON 本体。
+   */
+  signature: string;
+  /**
+   * 发送回执给出的**这条消息的 msgSeq**（群聊取群内 seq，私聊取会话级 seq）。
+   *
+   * 真消息一同步回来就带这个 seq，所以这是最硬的对账依据 —— 比内容签名可靠得多，
+   * 而且位置卡片这种「服务端会重写卡片内容」的也能对得上。取不到（回执没给 seq，
+   * 或位置卡片那条 trpc 根本没有可解析的回包）时回退到签名。
+   */
+  expectedSeq?: string;
+  /** 发送回执里的 msgId（本地按 `random & 0x7fffffff` 推导），同样用于对账。 */
+  expectedMsgId?: string;
+  state: 'sending' | 'sent' | 'failed';
+  error?: string;
+  at: number;
+};
+
+/**
+ * 发送回执 → 期望的 msgSeq / msgId（对账用）。
+ *
+ * 服务端没给 seq（0）就不返回，让对账回退到内容签名。
+ */
+function expectedKeysOf(payload: {
+  peerType: 'c2c' | 'group';
+  groupSequence?: number;
+  privateSequence?: number;
+  messageId?: number;
+}): Pick<OptimisticArk, 'expectedSeq' | 'expectedMsgId'> {
+  const seq = payload.peerType === 'group' ? payload.groupSequence : payload.privateSequence;
+  return {
+    ...(seq && seq > 0 ? { expectedSeq: String(seq) } : {}),
+    ...(payload.messageId && payload.messageId > 0
+      ? { expectedMsgId: String(payload.messageId) }
+      : {}),
+  };
+}
 
 type PendingScrollRestore = {
   conversationId: string;
@@ -1071,6 +1132,38 @@ function optimisticToTemplate(
     qqElements: unknown[];
     msgId: string;
     optimistic: OptimisticForward['state'];
+    optimisticError?: string;
+  };
+}
+
+/**
+ * 乐观渲染的 Ark 卡片 → 模板层 Message。
+ *
+ * 走与真消息**同一条渲染通路**：一个 `ark` 元素交给 `QqArk`，所以同步到位后卡片
+ * 不会变样。状态标识（发送中 / 已发送 / 发送失败）通过额外的 `optimistic` 字段带到
+ * 气泡上，由 MessageBubble 画一个小标签（和乐观合并转发同款）。
+ */
+function optimisticArkToTemplate(
+  item: OptimisticArk,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: '',
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: [{ type: 'ark', data: { arkData: item.arkData } }],
+    msgId: item.id,
+    msgSeq: '',
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimistic: OptimisticArk['state'];
     optimisticError?: string;
   };
 }
@@ -1929,6 +2022,8 @@ export function MainView(): ReactElement {
   const [mergeForwardLibraryOpen, setMergeForwardLibraryOpen] = useState(false);
   // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
+  // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
+  const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -3588,7 +3683,11 @@ export function MainView(): ReactElement {
     const pending = optimisticForwards
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticToTemplate(item, selectedConversation, user));
-    return [...real, ...pending];
+    // 乐观 Ark 卡片接在最后 —— 同样没有 msgSeq（gap 判定会跳过）。
+    const pendingArks = optimisticArks
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
+    return [...real, ...pending, ...pendingArks];
   }, [
     loadedMessageWires,
     selectedConversation,
@@ -3596,6 +3695,7 @@ export function MainView(): ReactElement {
     currentGroupMembers,
     botUids,
     optimisticForwards,
+    optimisticArks,
   ]);
 
   /**
@@ -3619,6 +3719,60 @@ export function MainView(): ReactElement {
       return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticForwards.length]);
+
+  /**
+   * Ark 卡片的真消息同步回来之后，把对应的乐观条目收掉。判据按可靠性排队：
+   *
+   *   1. **msgSeq（首选）**：发送回执里带了这条消息的 seq（群聊群内 seq / 私聊会话级
+   *      seq），真消息同步回来就带同一个 seq —— 精确对账，连位置卡片这种「服务端会
+   *      重写卡片内容」的都能收掉；
+   *   2. **msgId**：回执里本地推导的 messageId，库里那条同名；
+   *   3. **内容签名**（`arkCardSignature`）：位置卡片走坐标，其余走 ark JSON 本体。
+   *      回执没给 seq / msgId 时的兜底。
+   *
+   * 后两者可能撞（同一条位置连发两次、同一张卡连发两次），所以按**出现次数**消耗：
+   * 同步回来几条就收掉几条，剩下的继续挂着等下一批。
+   *
+   * 依赖里带上 `optimisticArks` 本身：seq / msgId 是**拿到回执才补上**的，如果那一刻
+   * 真消息已经到了，必须再跑一轮才能收掉它（没得改时返回同一个数组，不会死循环）。
+   */
+  useEffect(() => {
+    if (optimisticArks.length === 0) return;
+    const seqs = new Set<string>();
+    const msgIds = new Set<string>();
+    const signatures = new Map<string, number>();
+    for (const wire of loadedMessageWires) {
+      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
+      if (wire.msgId) msgIds.add(String(wire.msgId));
+      for (const element of wire.elements ?? []) {
+        if ((element as { type?: string }).type !== 'ark') continue;
+        const signature = arkCardSignature(
+          String((element as { data?: { arkData?: unknown } }).data?.arkData ?? ''),
+        );
+        if (signature) signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+      }
+    }
+    if (seqs.size === 0 && msgIds.size === 0 && signatures.size === 0) return;
+    setOptimisticArks((current) => {
+      let changed = false;
+      const next = current.filter((item) => {
+        if (item.expectedSeq && seqs.has(item.expectedSeq)) {
+          changed = true;
+          return false;
+        }
+        if (item.expectedMsgId && msgIds.has(item.expectedMsgId)) {
+          changed = true;
+          return false;
+        }
+        const left = signatures.get(item.signature);
+        if (!left) return true;
+        signatures.set(item.signature, left - 1);
+        changed = true;
+        return false;
+      });
+      return changed ? next : current;
+    });
+  }, [loadedMessageWires, optimisticArks]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -4518,6 +4672,180 @@ export function MainView(): ReactElement {
     }
   }
 
+  /**
+   * 位置卡片要用的地理能力：地点搜索 + 逆地址解析，都走主进程的腾讯位置服务
+   * （渲染层 CSP 是 `connect-src 'self'`，而且 key 不该落进前端）。
+   *
+   * IPC 返回的形状与模板层的 `ArkPlaceSuggestion` / `ArkResolvedAddress` 结构一致，
+   * 所以这里直接透传，不做二次搬运。
+   */
+  const arkLocation = useMemo<ArkLocationProvider>(
+    () => ({
+      suggest: (keyword, center) =>
+        client.account.lbsSuggestPlaces.query({
+          keyword,
+          latitude: center.latitude,
+          longitude: center.longitude,
+        }),
+      reverse: (latitude, longitude) =>
+        client.account.lbsReverseGeocode.query({ latitude, longitude }),
+    }),
+    [],
+  );
+
+  /**
+   * Ark 卡片的目标会话 → IPC 的 `{peerType, targetId}`。
+   * 聚合会话（服务号 / 公众号 / 隐藏 / 删除）没有可发送的目标，返回 null。
+   */
+  function sendTargetOf(
+    conversation: Conversation,
+  ): { peerType: 'c2c' | 'group'; targetId: string } | null {
+    if (conversation.type === 'group') {
+      return { peerType: 'group', targetId: conversation.group.identityValue };
+    }
+    if (conversation.type === 'direct') {
+      const other = conversation.otherUser;
+      // 优先给 QQ 号：服务层会顺手补上 uid；只有 uid 时才退回 uid 反查。
+      return {
+        peerType: 'c2c',
+        targetId: /^\d+$/.test(other.identityValue) ? other.identityValue : other.id,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Ark 卡片面板「发送」—— 面板把卡片内容交上来，这里补上**当前会话**的
+   * peerType / targetId 再走 IPC。三类载荷对应三条 route：
+   *
+   *   推荐好友 / 推荐群 → account.sendContactArkCard（服务端取卡 → 发 lightApp 元素）
+   *   位置卡片          → account.sendLocationArkCard（trpc LocationArk 裸 SSO）
+   *   图文 / 自定义 JSON → account.sendArkCard（ark JSON → lightApp 元素）
+   *
+   * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
+   */
+  async function sendArkCard(conversation: Conversation, payload: ArkPayload): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送卡片需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+
+    // 目标会话：群聊给群号，私聊优先给 QQ 号（服务层会顺手补上 uid）。
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送卡片',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // ── 乐观卡片 ───────────────────────────────────────────────────────────
+    // 与合并转发同一条路子（见 forwardMergeDraft）：发出去之后不等 QQ 同步回来，先在
+    // 会话末尾插一张卡片 + 状态标识。只活在前端 state 里，不写库、不落缓存。
+    // 位置卡片与自定义 JSON 从一开始就是最终形状；推荐好友 / 推荐群先画一张本地占位
+    // 卡，拿到服务端取回的那份 arkJson 后原位替换（所以同步到位时不会跳变）。
+    const optimisticId = `optimistic-${mfId('oa')}`;
+    const startOptimistic = (arkData: string): void => {
+      setOptimisticArks((current) => [
+        ...current,
+        {
+          id: optimisticId,
+          convId: conversation.id,
+          arkData,
+          signature: arkCardSignature(arkData),
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+    };
+    const patchOptimistic = (next: Partial<OptimisticArk>): void =>
+      setOptimisticArks((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    try {
+      if (payload.type === 'contact') {
+        startOptimistic(buildContactPlaceholderArk(payload.kind, payload.contactId));
+        const outcome = await client.account.sendContactArkCard.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          kind: payload.kind,
+          contactId: payload.contactId,
+          ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
+        });
+        if (!outcome.ok) {
+          throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+        }
+        // 服务端取回的那份 arkJson 就是它下发的内容：用它替掉占位卡，顺便对齐签名；
+        // 同时记下回执给的 seq / msgId（真消息一回来就靠它们把乐观卡片收掉）。
+        patchOptimistic({
+          ...(outcome.arkJson
+            ? { arkData: outcome.arkJson, signature: arkCardSignature(outcome.arkJson) }
+            : {}),
+          ...expectedKeysOf(outcome),
+          state: 'sent',
+        });
+        pushToast({
+          tone: 'success',
+          message: payload.kind === 'qq' ? '推荐好友卡片已发送' : '推荐群卡片已发送',
+        });
+        return;
+      }
+
+      if (payload.type === 'location') {
+        startOptimistic(buildLocationArkJson(payload));
+        const outcome = await client.account.sendLocationArkCard.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          address: payload.address,
+          region: payload.region,
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+        });
+        // 这条 trpc 的回包格式没抓到样本，拿不到 seq / msgId —— 乐观卡片只能靠
+        // 「坐标签名」对账（服务端会重写卡片文案，但经纬度就是我们发出去的那两个数）。
+        patchOptimistic({ state: 'sent' });
+        // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
+        // 不给一个「已送达」的假信号。
+        pushToast({ tone: 'info', message: '位置卡片请求已发出', detail: outcome.hint });
+        return;
+      }
+
+      startOptimistic(payload.arkData);
+      const outcome = await client.account.sendArkCard.mutate({
+        peerType: target.peerType,
+        targetId: target.targetId,
+        arkData: payload.arkData,
+      });
+      if (!outcome.ok) {
+        throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+      }
+      patchOptimistic({
+        ...expectedKeysOf(outcome),
+        state: 'sent',
+      });
+      pushToast({ tone: 'success', message: '卡片已发送' });
+    } catch (error) {
+      // 失败不删卡：留着那张卡片 + 「发送失败」标识，比一个只闪现几秒的 toast 有用。
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      pushToast({
+        tone: 'error',
+        message: '卡片发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
   async function noopAsync(): Promise<void> {
     return undefined;
   }
@@ -4738,6 +5066,8 @@ export function MainView(): ReactElement {
                       onOpenNotificationSettings={noopAsync}
                       onSend={sendMessage}
                       onSendWindowShake={sendWindowShake}
+                      onSendArk={sendArkCard}
+                      arkLocation={arkLocation}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

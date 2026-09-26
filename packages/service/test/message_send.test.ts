@@ -18,7 +18,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   decode,
   encode,
+  GetBuddyRecommendArk,
+  GetGroupRecommendArk,
+  LOCATION_ARK_CMD,
   LONG_MSG_RESULT,
+  message,
   OIDB_GROUP_FILE_UPLOAD_RESP,
   SEND_LONG_MSG_REQ,
   SEND_LONG_MSG_RESP,
@@ -29,7 +33,9 @@ import type { AccountSession } from '@weq/account';
 import {
   buildMediaElement,
   buildTextElements,
+  decimalCoordinate,
   MessageSendService,
+  requireArkJson,
   toOutcome,
   type ResolvedSendTarget,
 } from '../src/account/message_send';
@@ -800,5 +806,236 @@ describe('sendForward（合并转发，离线）', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.resId).toBe('res-x');
     expect(outcome.hint).toMatch(/卡片没发出去|重发/);
+  });
+});
+
+// ─────────────────────── Ark 卡片：图文 / 推荐 / 位置 ───────────────────────
+
+/** 位置卡片请求 body 的字段布局（与 protocol 的实现对齐，这里只用于解码断言）。 */
+const LOCATION_ARK_REQ = message([
+  { name: 'targetUin', tag: 1, type: 'uint64' },
+  { name: 'peerType', tag: 2, type: 'uint32' },
+  { name: 'address', tag: 3, type: 'string' },
+  { name: 'region', tag: 4, type: 'string' },
+  { name: 'latitude', tag: 5, type: 'string' },
+  { name: 'longitude', tag: 6, type: 'string' },
+]);
+
+interface OidbCall {
+  pid: number;
+  command: number;
+  subCommand: number;
+  body: Uint8Array;
+  isUid: boolean;
+}
+
+/** 从解码后的 ELEM 里取出 ark 的 `lightApp.data`，还原成 JSON 字符串。 */
+function arkDataOf(elem: unknown): string {
+  const data = (elem as { lightApp?: { data?: Uint8Array } }).lightApp?.data;
+  if (!data) return '';
+  // 首个字节是标志位，之后是 deflate 流（与 protocol 的 deflatePayload / inflate 对应）。
+  return inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
+}
+
+/** 解出 PbSendMsg 里的元素数组。 */
+function elemsOf(body: Uint8Array): unknown[] {
+  const decoded = decode(SEND_MESSAGE_REQUEST, body) as {
+    messageBody?: { richText?: { elems?: unknown[] } };
+  };
+  return decoded.messageBody?.richText?.elems ?? [];
+}
+
+describe('Ark 卡片参数校验（纯函数）', () => {
+  it('requireArkJson：空 / 非法 JSON 报错，合法 JSON 去掉首尾空白', () => {
+    expect(requireArkJson('  {"a":1}  ')).toBe('{"a":1}');
+    expect(() => requireArkJson('   ')).toThrow(/不能为空/);
+    expect(() => requireArkJson('{oops}')).toThrow(/合法的 JSON/);
+  });
+
+  it('decimalCoordinate：非数字 / 越界报错，合法值原样（去空白）返回', () => {
+    expect(decimalCoordinate(' 31.763573 ', 'latitude', 90)).toBe('31.763573');
+    expect(() => decimalCoordinate('', 'latitude', 90)).toThrow(/十进制度数字符串/);
+    expect(() => decimalCoordinate('abc', 'latitude', 90)).toThrow(/十进制度数字符串/);
+    expect(() => decimalCoordinate('91', 'latitude', 90)).toThrow(/超出范围/);
+    expect(decimalCoordinate('180', 'longitude', 180)).toBe('180');
+  });
+});
+
+describe('MessageSendService.sendArkCard（离线集成）', () => {
+  it('ark JSON 编成 lightApp 元素发到群聊', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 7);
+    const ark = JSON.stringify({ app: 'com.tencent.tuwen.lua', view: 'news' });
+
+    const outcome = await svc.sendArkCard({ peerType: 'group', targetId: '123', arkData: ark });
+
+    expect(outcome.ok).toBe(true);
+    expect(native.calls).toHaveLength(1);
+    expect(native.calls[0]!.cmd).toBe('MessageSvc.PbSendMsg');
+    const elems = elemsOf(native.calls[0]!.body);
+    expect(elems).toHaveLength(1);
+    expect(arkDataOf(elems[0])).toBe(ark);
+  });
+
+  it('非法 JSON：一个字节都不发', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendArkCard({ peerType: 'group', targetId: '1', arkData: 'not json' }),
+    ).rejects.toThrow(/合法的 JSON/);
+    expect(native.calls).toHaveLength(0);
+  });
+});
+
+describe('MessageSendService.sendLocationCard（离线集成）', () => {
+  it('群聊：走 trpc 位置卡片命令字，peerType=1，六个字段齐全', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 99);
+
+    const outcome = await svc.sendLocationCard({
+      peerType: 'group',
+      targetId: '2863253201',
+      address: ' XX路2号 ',
+      region: '四川省成都市武侯区',
+      latitude: '30.572815',
+      longitude: '104.066801',
+    });
+
+    expect(native.calls).toHaveLength(1);
+    expect(native.calls[0]!.cmd).toBe(LOCATION_ARK_CMD);
+    expect(native.calls[0]!.pid).toBe(99);
+    const body = decode(LOCATION_ARK_REQ, native.calls[0]!.body) as Record<string, unknown>;
+    expect(Number(body.targetUin)).toBe(2863253201);
+    expect(body.peerType).toBe(1);
+    expect(body.address).toBe('XX路2号');
+    expect(body.region).toBe('四川省成都市武侯区');
+    expect(body.latitude).toBe('30.572815');
+    expect(body.longitude).toBe('104.066801');
+
+    // 回包解析不出业务结果：必须如实说「无法确认」，不能当成「已送达」。
+    expect(outcome.ok).toBe(true);
+    expect(outcome.hint).toMatch(/无法从回包确认/);
+    expect(outcome.address).toBe('XX路2号');
+  });
+
+  it('私聊：peerType=0 也必须上 wire', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendLocationCard({
+      peerType: 'c2c',
+      targetId: '20002',
+      address: 'A',
+      region: 'B',
+      latitude: '1.5',
+      longitude: '2.5',
+    });
+    const body = decode(LOCATION_ARK_REQ, native.calls[0]!.body) as Record<string, unknown>;
+    expect(body.peerType).toBe(0);
+    expect(body.targetUin).toBeDefined();
+  });
+
+  it('地址为空 / 经纬度越界：直接报错，不发包', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const base = {
+      peerType: 'group' as const,
+      targetId: '1',
+      address: 'A',
+      region: 'B',
+      latitude: '1',
+      longitude: '2',
+    };
+    await expect(svc.sendLocationCard({ ...base, region: '  ' })).rejects.toThrow(/省市区/);
+    await expect(svc.sendLocationCard({ ...base, address: ' ' })).rejects.toThrow(/详细地址/);
+    await expect(svc.sendLocationCard({ ...base, latitude: '999' })).rejects.toThrow(/超出范围/);
+    expect(native.calls).toHaveLength(0);
+  });
+});
+
+describe('MessageSendService.sendContactCard（离线集成）', () => {
+  /** 记账 native：OIDB 回一张指定 ark 的取卡响应，SSO 回一条成功的 PbSendMsg 回执。 */
+  function contactNative(arkJson: string): { oidb: OidbCall[]; sso: PacketCall[]; native: never } {
+    const oidb: OidbCall[] = [];
+    const sso: PacketCall[] = [];
+    const native = {
+      sendOidbPacket: async (
+        pid: number,
+        command: number,
+        subCommand: number,
+        body: Buffer,
+        isUid = false,
+      ): Promise<Buffer> => {
+        oidb.push({ pid, command, subCommand, body: new Uint8Array(body), isUid });
+        // 两条取卡协议的响应字段名不同（好友 ark / 群 arkJson），按命令字给对应的。
+        return Buffer.from(
+          command === GetBuddyRecommendArk.command
+            ? encode(GetBuddyRecommendArk.respSchema, { ark: arkJson })
+            : encode(GetGroupRecommendArk.respSchema, { errCode: 0, arkJson }),
+        );
+      },
+      sendPacket: async (pid: number, cmd: string, body: Buffer): Promise<Buffer> => {
+        sso.push({ pid, cmd, body: new Uint8Array(body) });
+        return Buffer.from(encode(SEND_MESSAGE_RESPONSE, { result: 0, groupSequence: 5 }));
+      },
+    };
+    return { oidb, sso, native: native as never };
+  }
+
+  it('推荐群：先 0x8b7_5 取卡（uin-form），再把卡当 lightApp 元素发出去', async () => {
+    const ark = JSON.stringify({ app: 'com.tencent.troopsharecard', view: 'group' });
+    const { oidb, sso, native } = contactNative(ark);
+    const svc = new MessageSendService(native, fakeSession(), () => 11);
+
+    const outcome = await svc.sendContactCard({
+      peerType: 'group',
+      targetId: '123',
+      kind: 'group',
+      contactId: 456789,
+    });
+
+    expect(oidb).toHaveLength(1);
+    expect(oidb[0]!.command).toBe(0x8b7);
+    expect(oidb[0]!.subCommand).toBe(5);
+    expect(oidb[0]!.isUid).toBe(true);
+    expect(oidb[0]!.pid).toBe(11);
+
+    expect(sso).toHaveLength(1);
+    expect(sso[0]!.cmd).toBe('MessageSvc.PbSendMsg');
+    const elems = elemsOf(sso[0]!.body);
+    expect(arkDataOf(elems[0])).toBe(ark);
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.kind).toBe('group');
+    expect(outcome.contactId).toBe(456789);
+    expect(outcome.arkJson).toBe(ark);
+  });
+
+  it('推荐好友：0x12b6_0（非 uin-form）+ 手机号占位符', async () => {
+    const ark = JSON.stringify({ app: 'com.tencent.troopsharecard' });
+    const { oidb, sso, native } = contactNative(ark);
+    const svc = new MessageSendService(native, fakeSession(), () => 1);
+
+    const outcome = await svc.sendContactCard({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      kind: 'qq',
+      contactId: 20002,
+    });
+
+    expect(oidb[0]!.command).toBe(0x12b6);
+    expect(oidb[0]!.subCommand).toBe(0);
+    expect(oidb[0]!.isUid).toBe(false);
+    expect(sso[0]!.cmd).toBe('MessageSvc.PbSendMsg');
+    expect(outcome.ok).toBe(true);
+    expect(outcome.kind).toBe('qq');
+  });
+
+  it('服务端没给卡（空 ark）：抛错，不发元素', async () => {
+    const { sso, native } = contactNative('');
+    const svc = new MessageSendService(native, fakeSession(), () => 1);
+    await expect(
+      svc.sendContactCard({ peerType: 'group', targetId: '1', kind: 'group', contactId: 2 }),
+    ).rejects.toThrow(/没有生成推荐卡片|空的/);
+    expect(sso).toHaveLength(0);
   });
 });

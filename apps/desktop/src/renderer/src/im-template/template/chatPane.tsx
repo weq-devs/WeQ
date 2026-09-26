@@ -85,7 +85,8 @@ import {
   quoteFromMessage,
   type ComposerQuote,
 } from './composerQuote';
-import { LinkCardPanel, linkCardToken, type LinkCardDraft } from './linkCardPanel';
+import { ArkPanel } from './arkPanel';
+import type { ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
@@ -277,6 +278,8 @@ export function ChatPane({
   sendAvailable = true,
   onSend,
   onSendWindowShake,
+  onSendArk,
+  arkLocation,
   onMessageAction,
   draft,
   onDraftChange,
@@ -336,6 +339,14 @@ export function ChatPane({
    * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
    */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  /**
+   * Ark 卡片面板「发送」—— 面板只收输入、不知道发到哪，所以把**当前会话**一起交回
+   * 应用层，由它补 peerType / targetId 再走 IPC（与 onSendWindowShake 同）。
+   * 抛出即失败：面板会显示原因并保留已填内容。
+   */
+  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
+  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入；不传就只有地图 + 手填）。 */
+  arkLocation?: ArkLocationProvider;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
   onDraftChange: (conversationId: string, value: string) => void;
@@ -397,7 +408,7 @@ export function ChatPane({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
-  const [linkOpen, setLinkOpen] = useState(false);
+  const [arkOpen, setArkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
@@ -489,8 +500,8 @@ export function ChatPane({
   const voicePanelRef = useRef<HTMLDivElement | null>(null);
   const voiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const voiceBusyRef = useRef(false);
-  const linkPanelRef = useRef<HTMLDivElement | null>(null);
-  const linkButtonRef = useRef<HTMLButtonElement | null>(null);
+  const arkPanelRef = useRef<HTMLDivElement | null>(null);
+  const arkButtonRef = useRef<HTMLButtonElement | null>(null);
   const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
   const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const bouncePanelRef = useRef<HTMLDivElement | null>(null);
@@ -895,7 +906,7 @@ export function ChatPane({
   }, [voiceOpen]);
 
   useEffect(() => {
-    if (!linkOpen) {
+    if (!arkOpen) {
       return;
     }
 
@@ -905,19 +916,19 @@ export function ChatPane({
         return;
       }
       if (
-        linkPanelRef.current?.contains(target) ||
-        linkButtonRef.current?.contains(target) ||
+        arkPanelRef.current?.contains(target) ||
+        arkButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
         toolsButtonRef.current?.contains(target)
       ) {
         return;
       }
-      setLinkOpen(false);
+      setArkOpen(false);
     }
 
     function closeLinkOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
-        setLinkOpen(false);
+        setArkOpen(false);
       }
     }
 
@@ -927,7 +938,7 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeLinkFromOutside);
       document.removeEventListener('keydown', closeLinkOnEscape);
     };
-  }, [linkOpen]);
+  }, [arkOpen]);
 
   useEffect(() => {
     if (!aiVoiceOpen) {
@@ -1334,7 +1345,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     // 移动端长文展开态里没有卡片的位置，选完就把展开态收回去（正文会跟着搬回去）。
     if (mobileComposerExpanded) {
@@ -1377,7 +1388,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
@@ -1506,22 +1517,24 @@ export function ChatPane({
   }
 
   /**
-   * 链接卡片面板「发送」：卡片编成一枚 ark 元素 token，走跟语音同一条发送通路
-   * （`extraTokens`）。只做前端：这里不拼任何协议，真正下发仍由 `onSend` 那一侧决定
-   * —— 没接上时它会报错，输入框里的文字与卡片都不会丢。
+   * Ark 卡片面板「发送」：面板已经收好了卡片（五类各有各的校验），这里只把
+   * **当前会话**一起交给应用层（`onSendArk`），由它补 peerType / targetId 再走 IPC。
+   *
+   * 不走输入框那条「元素 token」通路是有意的：推荐好友 / 推荐群 / 位置卡片根本编不
+   * 成草稿元素（取卡与位置卡片是两条独立协议），让「图文 / 自定义 JSON」也走同一条
+   * 路，五类卡片的行为才一致。
+   *
+   * 与旧的链接卡片一致：卡片是**独立的一条消息**，输入框里的文字原样留着；发送失败
+   * 会抛出来，面板负责显示原因并保留已填内容。
    */
-  async function sendLinkCard(card: LinkCardDraft) {
-    setLinkOpen(false);
-    // 卡片是只能单独发的元素：它顶掉挂着的引用（跟视频 / 文件同一套互斥）。
+  async function sendArkCard(payload: ArkPayload) {
+    if (!conversation || conversation.type === 'merged' || !onSendArk) {
+      throw new Error('这个会话不支持发送 Ark 卡片。');
+    }
+    // 卡片只能单独发：它顶掉挂着的引用（跟视频 / 文件同一套互斥）。
     setPendingQuote(null);
-    // `text: ''` —— 卡片自己就是完整的一条消息，不带输入框里的文字；`keepBody` 让
-    // 用户正在打的那段字原样留在输入框里，不会被这次发送清掉。
-    await submitMessage({
-      extraTokens: [linkCardToken(card)],
-      text: '',
-      keepBody: true,
-      omitQuote: true,
-    });
+    await onSendArk(conversation, payload);
+    setArkOpen(false);
   }
 
   /**
@@ -1734,7 +1747,7 @@ export function ChatPane({
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
-      setLinkOpen(false);
+      setArkOpen(false);
       setBounceOpen(false);
       setAttachmentError(
         media.length > 1
@@ -2026,7 +2039,7 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setEmojiOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     setMobileComposerExpanded(true);
@@ -2036,7 +2049,7 @@ export function ChatPane({
     setContextMenu(null);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
@@ -2046,7 +2059,7 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
@@ -2056,20 +2069,20 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
     setVoiceOpen((open) => !open);
   }
 
-  function toggleLinkPanel() {
+  function toggleArkPanel() {
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
-    setLinkOpen((open) => !open);
+    setArkOpen((open) => !open);
   }
 
   /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
@@ -2078,7 +2091,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setBounceOpen(false);
     setAiVoiceOpen((open) => !open);
   }
@@ -2089,7 +2102,7 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setLinkOpen(false);
+    setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen((open) => !open);
   }
@@ -2373,7 +2386,7 @@ export function ChatPane({
       setEmojiOpen(false);
       setToolsOpen(false);
       setVoiceOpen(false);
-      setLinkOpen(false);
+      setArkOpen(false);
       setAiVoiceOpen(false);
       setBounceOpen(false);
     },
@@ -2966,12 +2979,12 @@ export function ChatPane({
             <FolderOpen size={21} strokeWidth={1.5} />
           </button>
           <button
-            ref={linkButtonRef}
+            ref={arkButtonRef}
             type="button"
-            className={cn('composer-tool', 'composer-desktop-tool', linkOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '发送链接卡片（单独发送）'}
+            className={cn('composer-tool', 'composer-desktop-tool', arkOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '发送 Ark 卡片（单独发送）'}
             disabled={currentPreference.blocked || sending || hasSingleSend}
-            onClick={toggleLinkPanel}
+            onClick={toggleArkPanel}
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
@@ -3038,13 +3051,14 @@ export function ChatPane({
             onBusyChange={handleVoiceBusyChange}
           />
         ) : null}
-        {linkOpen && !mobileComposerExpanded ? (
-          <LinkCardPanel
-            panelRef={linkPanelRef}
+        {arkOpen && !mobileComposerExpanded ? (
+          <ArkPanel
+            panelRef={arkPanelRef}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
-            onSend={(card) => void sendLinkCard(card)}
-            onClose={() => setLinkOpen(false)}
+            location={arkLocation}
+            onSend={sendArkCard}
+            onClose={() => setArkOpen(false)}
           />
         ) : null}
         {aiVoicePanelActive ? (

@@ -7,6 +7,7 @@ import {
   GroupProfilePane,
 } from './profilePanes';
 import { ChatPane } from './chatPane';
+import type { ArkLocationProvider, ArkPayload } from './arkCards';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
@@ -78,6 +79,8 @@ export function ChatMainContent({
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
   onSendWindowShake,
+  onSendArk,
+  arkLocation,
   onMessageAction,
   onDraftChange,
   onDraftClear,
@@ -161,6 +164,10 @@ export function ChatMainContent({
   onSend: (body: string) => Promise<void>;
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
+  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
+  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
+  arkLocation?: ArkLocationProvider;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
@@ -253,6 +260,8 @@ export function ChatMainContent({
       sendAvailable={sendAvailable}
       onSend={onSend}
       onSendWindowShake={onSendWindowShake}
+      onSendArk={onSendArk}
+      arkLocation={arkLocation}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}

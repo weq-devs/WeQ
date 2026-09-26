@@ -24,10 +24,13 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  sendContactArk,
   sendForward as protocolSendForward,
   sendGroupFile,
   sendMessage,
   sendPrivateFile,
+  SendLocationArk,
+  type ContactArkKind,
   type MediaSource,
   type PttWaveformSource,
   type SendDress,
@@ -135,6 +138,95 @@ export interface SendElementsParams {
   elements: SendElement[];
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
+}
+
+// ───────────────────────────── Ark 卡片 ─────────────────────────────
+//
+// 三条通路，落点不同，返回值也不同，别混用：
+//   - {@link MessageSendService.sendArkCard}     任意 ark JSON → lightApp 元素（PbSendMsg）；
+//   - {@link MessageSendService.sendContactCard} 推荐好友 / 推荐群 → 先取卡再发元素；
+//   - {@link MessageSendService.sendLocationCard} 位置卡片 → trpc LocationArk.SsoSendMessage。
+
+/** 任意 ark 卡片（`{ kind:'ark', arkData }` 元素）的发送参数。 */
+export interface SendArkCardParams {
+  peerType: SendPeerType;
+  /** 群号 / QQ 号（或 uid）。 */
+  targetId: string | number;
+  /** 一段 ark JSON；原样编成 lightApp 元素下发。非空且必须是能 parse 的 JSON。 */
+  arkData: string;
+}
+
+/** 推荐好友 / 推荐群的发送参数。 */
+export interface SendContactCardParams {
+  /** 卡片发到哪。 */
+  peerType: SendPeerType;
+  /** 发送目标：群号 / 对方 QQ 号。 */
+  targetId: string | number;
+  /** 卡片推荐什么：`'qq'` = 好友，`'group'` = 群。 */
+  kind: ContactArkKind;
+  /** 被推荐的好友 QQ 号 / 群号（**不是**发送目标）。 */
+  contactId: number;
+  /** 推荐好友时的手机号；缺省由协议层写占位 `'-'`。 */
+  phoneNumber?: string;
+}
+
+/** 推荐卡片的发送结果（JSON 安全）。 */
+export interface SendContactCardOutcome {
+  ok: boolean;
+  peerType: SendPeerType;
+  targetId: string;
+  scene: SendScene;
+  kind: ContactArkKind;
+  /** 被推荐的好友 QQ 号 / 群号（回显）。 */
+  contactId: number;
+  /** 服务端生成的卡片 JSON —— 发出去的就是这一份。 */
+  arkJson: string;
+  /** 服务端 result（0 = 接受）。 */
+  result: number;
+  errMsg: string;
+  messageId: number;
+  /** 群内 seq（群聊回执）—— 真消息同步回来后用它给前端的乐观卡片对账。 */
+  groupSequence: number;
+  /** 会话级 seq（私聊回执）；同上。 */
+  privateSequence: number;
+  /** 服务端时间戳（秒）。 */
+  timestamp: number;
+  hint?: string;
+}
+
+/** 位置卡片的发送参数。 */
+export interface SendLocationCardParams {
+  peerType: SendPeerType;
+  targetId: string | number;
+  /** 详细地址（街道）—— 卡片正文里那行小字。 */
+  address: string;
+  /** 地址第一行（省市区）。 */
+  region: string;
+  /** 纬度，十进制度字符串（如 `'31.763573'`）。 */
+  latitude: string;
+  /** 经度，十进制度字符串（如 `'104.736101'`）。 */
+  longitude: string;
+}
+
+/**
+ * 位置卡片的发送结果。
+ *
+ * ⚠️ 该协议的**响应格式还没抓到样本**（见 `@weq/protocol` 的 send-location-ark），
+ * 所以这里只能如实报告「请求已发出 + 回包多少字节」，**不能**断言业务成功。
+ * `ok` 的含义是「没有传输层异常」，不是「对方收到了卡片」。
+ */
+export interface SendLocationCardOutcome {
+  ok: boolean;
+  peerType: SendPeerType;
+  targetId: string;
+  scene: SendScene;
+  address: string;
+  region: string;
+  latitude: string;
+  longitude: string;
+  /** 服务端回包字节数（解析不出业务结果，只用于排查）。 */
+  responseBytes: number;
+  hint: string;
 }
 
 /**
@@ -554,6 +646,113 @@ export class MessageSendService {
   }
 
   /**
+   * 发一张**任意 ark 卡片**：把一段 ark JSON 编成 `lightApp` 元素（`{kind:'ark'}`）
+   * 走常规 `MessageSvc.PbSendMsg`。
+   *
+   * 与 {@link sendLocationCard} / 图文卡片（0xdc2_34）不同，这条路不依赖任何
+   * 平台规则（没有 appId 白名单），所以 PC / Linux 端也能正常下发 —— 「推荐好友」
+   * 这类服务端生成的卡与自定义卡片都用它。
+   */
+  async sendArkCard(params: SendArkCardParams): Promise<SendMessageOutcome> {
+    return this.sendElements({
+      peerType: params.peerType,
+      targetId: params.targetId,
+      elements: [{ kind: 'ark', arkData: requireArkJson(params.arkData) }],
+    });
+  }
+
+  /**
+   * 发「推荐好友 / 推荐群」卡片（两步：0x12b6_0 / 0x8b7_5 取卡 → 发元素）。
+   *
+   * `targetId` 是**发到哪**（当前会话），`contactId` 是**推荐谁**，别填反。
+   * 取到空卡会抛错（服务端没给出卡片时不发一张空白卡）；发送被服务端拒绝不抛，
+   * 如实放进 `result` / `errMsg`，调用方必须检查 `ok`。
+   */
+  async sendContactCard(params: SendContactCardParams): Promise<SendContactCardOutcome> {
+    const target = this.resolveTarget(params.targetId, params.peerType, false);
+    const pid = this.resolvePid();
+    const phoneNumber = params.phoneNumber?.trim();
+    const result = await sendContactArk(this.nt, pid, {
+      peerType: target.peerType,
+      targetId: target.uin,
+      kind: params.kind,
+      contactId: params.contactId,
+      ...(phoneNumber ? { phoneNumber } : {}),
+      ...(target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
+    });
+    const receipt = result.receipt;
+    return {
+      ok: receipt.ok,
+      peerType: target.peerType,
+      targetId: target.targetId,
+      scene: target.scene,
+      kind: result.kind,
+      contactId: result.contactId,
+      arkJson: result.arkJson,
+      result: receipt.result,
+      errMsg: receipt.errMsg,
+      messageId: receipt.messageId,
+      groupSequence: receipt.groupSequence,
+      privateSequence: receipt.privateSequence,
+      timestamp: receipt.timestamp,
+      ...(receipt.ok
+        ? {}
+        : {
+            hint:
+              `服务端拒绝了下发（result=${receipt.result}）${receipt.errMsg ? `：${receipt.errMsg}` : '。'}` +
+              '推荐卡片是 lightApp 元素，正常不该被拒；先确认被推荐的好友 / 群对当前账号可见。',
+          }),
+    };
+  }
+
+  /**
+   * 发一张**位置卡片**（trpc `qq_lbs_ark.LocationArk.SsoSendMessage`）。
+   *
+   * 私聊 / 群聊同一条命令字，靠 `peerType` 区分（0 = 私聊，1 = 群聊）。经纬度是
+   * **十进制度字符串**，与卡片上给用户看的地址是两套东西：地址 / 省市区由调用方
+   * 提供（前端可让用户自己写了改），这里只做非空与范围校验。
+   */
+  async sendLocationCard(params: SendLocationCardParams): Promise<SendLocationCardOutcome> {
+    const address = params.address?.trim() ?? '';
+    const region = params.region?.trim() ?? '';
+    if (!address) throw new Error('位置卡片的详细地址不能为空。');
+    if (!region) throw new Error('位置卡片的省市区不能为空。');
+    const latitude = decimalCoordinate(params.latitude, 'latitude', 90);
+    const longitude = decimalCoordinate(params.longitude, 'longitude', 180);
+
+    const target = this.resolveTarget(params.targetId, params.peerType, false);
+    const pid = this.resolvePid();
+    const reply = await SendLocationArk.invoke(this.nt, pid, {
+      targetUin: target.uin,
+      peerType: target.scene === 'group' ? 1 : 0,
+      address,
+      region,
+      latitude,
+      longitude,
+    });
+    logger.info('location ark request sent', {
+      event: 'send-location-ark',
+      scene: target.scene,
+      targetId: target.targetId,
+      responseBytes: reply.byteLength,
+    });
+    return {
+      ok: true,
+      peerType: target.peerType,
+      targetId: target.targetId,
+      scene: target.scene,
+      address,
+      region,
+      latitude,
+      longitude,
+      responseBytes: reply.byteLength,
+      hint:
+        '位置卡片请求已发出。该协议的响应格式还没抓到样本，无法从回包确认业务结果 —— ' +
+        '请以对方会话里是否出现位置卡片为准。',
+    };
+  }
+
+  /**
    * 发「合并转发 / 聊天记录」—— 两步：
    *
    *   1. `SsoSendLongMsg` 上传内容拿到 `resId`（节点含媒体时顺带做 NTV2 上传）；
@@ -636,6 +835,38 @@ function nodesNeedUpload(nodes: readonly SendForwardNodeInput[]): boolean {
     if (node.innerForward && nodesNeedUpload(node.innerForward)) return true;
   }
   return false;
+}
+
+// ───────────────────────────── 参数校验（纯函数，便于单测） ─────────────────────────────
+
+/**
+ * ark 卡片载荷校验：非空 + 必须是能 parse 的 JSON。
+ *
+ * 收端按 JSON 解析 `lightApp.data`，塞一段非法 JSON 只会在对面显示一张空卡 ——
+ * 与其发出去，不如在这里报错。
+ */
+export function requireArkJson(value: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new Error('ark 卡片内容不能为空。');
+  try {
+    JSON.parse(text);
+  } catch {
+    throw new Error('ark 卡片内容必须是一段合法的 JSON 文本。');
+  }
+  return text;
+}
+
+/** 十进制度字符串校验（返回原字符串的 trim 结果，保留调用方的精度写法）。 */
+export function decimalCoordinate(value: string, what: string, limit: number): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const num = Number(text);
+  if (!text || !Number.isFinite(num)) {
+    throw new Error(`位置卡片的 ${what} 必须是十进制度数字符串，收到「${String(value)}」。`);
+  }
+  if (Math.abs(num) > limit) {
+    throw new Error(`位置卡片的 ${what} 超出范围（±${limit}），收到 ${text}。`);
+  }
+  return text;
 }
 
 // ───────────────────────── 元素组装（纯函数，便于单测） ─────────────────────────

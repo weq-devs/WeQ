@@ -1131,28 +1131,6 @@ button.composer-single-thumb {
   font-size: 12px;
 }
 
-.link-card-required,
-.link-card-optional {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 5px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-style: normal;
-  line-height: 16px;
-}
-
-.link-card-required {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
-}
-
-.link-card-optional {
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
-  color: var(--weq-fg-muted, #858585);
-}
-
 .link-card-input {
   display: flex;
   align-items: center;

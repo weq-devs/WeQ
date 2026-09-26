@@ -110,6 +110,7 @@ import {
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
+  LbsService,
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
@@ -604,6 +605,8 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
+  /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
+  lbs: LbsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
@@ -1350,6 +1353,7 @@ export function initAppContext(): AppContext {
         messageSend: new MessageSendService(platform.native.ntHelper, session, resolveOnlinePid),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
+        lbs: new LbsService(),
       };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -1815,6 +1819,7 @@ export function initAppContext(): AppContext {
         messageSend: new MessageSendService(platform.native.ntHelper, session, livePid),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
+        lbs: new LbsService(),
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening

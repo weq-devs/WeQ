@@ -542,21 +542,36 @@ export { InteractionService } from './account/interaction';
 export type { SendPokeParams } from './account/interaction';
 export { FlashTransferService } from './account/flash_transfer';
 export {
+  joinRegion,
+  LbsService,
+  stripRegionPrefix,
+  toLbsPlace,
+  toLbsResolvedAddress,
+} from './account/lbs';
+export type { LbsPlace, LbsResolvedAddress } from './account/lbs';
+export {
   buildMediaElement,
   buildTextElements,
+  decimalCoordinate,
   MessageSendService,
+  requireArkJson,
   toOutcome,
 } from './account/message_send';
 export type {
   MediaSource,
   PttWaveformSource,
   ResolvedSendTarget,
+  SendArkCardParams,
+  SendContactCardOutcome,
+  SendContactCardParams,
   SendDress,
   SendElement,
   SendElementsParams,
   SendForwardMessageParams,
   SendForwardNodeInput,
   SendForwardOutcome,
+  SendLocationCardOutcome,
+  SendLocationCardParams,
   SendMediaParams,
   SendMessageOutcome,
   SendPeerType,

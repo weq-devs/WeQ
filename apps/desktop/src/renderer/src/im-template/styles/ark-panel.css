@@ -1,0 +1,583 @@
+/**
+ * 输入框「Ark 卡片」面板（arkPanel.tsx）与位置选点地图（locationPicker.tsx）。
+ *
+ * 与 link-card-panel 同一套形态：从输入框上沿弹出来的浮层，不挤占正文那一行。
+ * 字段类的样式直接复用 composer-media.css 里的 `.link-card-*`（输入框 / 错误行 /
+ * 预览卡 / 按钮），这里只写面板外壳、tab 条与地图 —— 这样「图文卡片」那一栏与
+ * 重构前的链接卡片长得完全一样。
+ *
+ * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ */
+
+.ark-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(540px, calc(100% - 28px));
+  /* 高度上限 = **输入框上沿到会话头下沿**的真实可用高度（超出的内容面板内部滚动）。
+   *
+   * 早先写的是视口比例（`60dvh`），窗口一矮面板就顶进标题栏 / 会话头里 —— 上面那截
+   * 被 `.chat-main` 的 `overflow: hidden` 截掉，就点不到了。这里直接按布局算：
+   *   视口 - 标题栏(40) - 会话头(--chat-header-height) - 输入框(--composer-height) - 余量。
+   * 减到 236px 以下就退化到 236px（窗口极矮时宁可盖住会话头，也别只剩一条缝）。 */
+  max-height: min(
+    520px,
+    max(
+      236px,
+      calc(
+        100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) -
+          56px
+      )
+    )
+  );
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  /* 面板从输入框往上长，可能会压到会话头 / 标题栏的 `-webkit-app-region: drag`
+   * 区域。Electron 的拖拽命中测试跑在合成层之外，z-index 挡不住 —— 必须打一个
+   * no-drag 洞，否则面板顶部那截（tab 条与关闭按钮）会被吞掉、点不动。
+   * 与 .weq-ft / .group-album-dialog 同款解法。 */
+  -webkit-app-region: no-drag;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: link-card-in 150ms ease-out;
+}
+
+/* 关闭按钮贴在 tab 行尾（没有单独的标题栏）。行本身可能横向滚动，所以按钮用
+   sticky 钉在右边，滚到哪都在。 */
+.ark-close {
+  position: sticky;
+  right: 0;
+  display: grid;
+  width: 26px;
+  height: 22px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: var(--popover, #ffffff);
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.ark-close:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+/* ── 五个 tab ────────────────────────────────────────────────────────────── */
+
+.ark-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 60%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ark-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ark-tab {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.ark-tab:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 15%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.ark-tab.active {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-weight: 600;
+}
+
+/* ── 内容区 ──────────────────────────────────────────────────────────────── */
+
+.ark-body {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px 11px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.ark-grid-2 {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 520px) {
+  .ark-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ark-json {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.ark-json:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.ark-json-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* JSON 是否合法：一个小圆点就够了（绿色合法 / 红色不合法），具体原因挂在 title 上。 */
+.ark-json-state {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-right: auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ark-json-state.is-ok {
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, transparent);
+}
+
+.ark-json-state.is-bad {
+  color: var(--media-danger, #f0483e);
+}
+
+/* ── 卡片预览 ──────────────────────────────────────────────────────────────
+ *
+ * 预览用的是渲染器本体（QqArk），画出来就是对方收到的那张卡（含深色主题）。
+ * 卡片本体固定 290px（.weq-ark-container），在面板里居中放。
+ */
+
+.ark-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 11px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 60%, transparent);
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+}
+
+/* 预览是「看」的：不让指针事件穿到卡片的跳转上。 */
+.ark-preview-stage {
+  display: flex;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+/* 还拼不出卡（字段空着 / JSON 不合法）时的空位：一块虚线占位，避免面板抽动。 */
+.ark-preview-empty {
+  display: grid;
+  width: 290px;
+  max-width: 100%;
+  height: 84px;
+  place-items: center;
+  border: 1px dashed color-mix(in srgb, var(--weq-fg-muted, #858585) 26%, transparent);
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 55%, transparent);
+}
+
+/* ── 位置：搜索栏 + 建议下拉 ─────────────────────────────────────────────── */
+
+.ark-locate {
+  position: relative;
+}
+
+.ark-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.ark-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 5%, transparent);
+}
+
+.ark-search > svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 82%, transparent);
+}
+
+.ark-search input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.ark-search input:focus {
+  outline: none;
+}
+
+.ark-search input::placeholder {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
+}
+
+.ark-search-clear {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+}
+
+.ark-search-clear:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 16%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+/* 建议列表盖在地图上（绝对定位，别把地图顶下去）。 */
+
+.ark-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 8;
+  display: grid;
+  max-height: 208px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 84%, transparent);
+  border-radius: 10px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.ark-suggest-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ark-suggest-item.active,
+.ark-suggest-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+}
+
+.ark-suggest-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-suggest-title svg {
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.ark-suggest-addr {
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-locate-error {
+  margin: 0;
+  color: var(--media-danger, #f0483e);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ark-locate-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ark-locate-note {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 位置选点地图 ────────────────────────────────────────────────────────── */
+
+.ark-map {
+  position: relative;
+  /* 底下还有一张卡片预览要占位，选点图压到 150px（仍然是能看图的尺寸）。 */
+  height: 150px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.ark-map:active {
+  cursor: grabbing;
+}
+
+.ark-map.is-disabled {
+  pointer-events: none;
+  opacity: 0.62;
+}
+
+.ark-map-tiles {
+  position: absolute;
+  inset: 0;
+}
+
+.ark-map-tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+}
+
+/* 深色：高德没有暗色栅格瓦片，用滤镜把亮色底图翻成暗色（这是通用做法）。 */
+html[data-theme="dark"] .ark-map-tile {
+  filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.92) saturate(0.72);
+}
+
+html[data-theme="dark"] .ark-map {
+  background: #1b1e22;
+}
+
+.ark-map-pin {
+  position: absolute;
+  z-index: 3;
+  color: var(--weq-accent-effective, #0099ff);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.32));
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+
+.ark-map-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--popover, #ffffff) 92%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-family: inherit;
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, -50%);
+}
+
+.ark-map-hint:hover {
+  color: var(--weq-fg-primary, #111111);
+}
+
+.ark-map-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+}
+
+.ark-map-zoom button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--popover, #ffffff) 94%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
+}
+
+.ark-map-zoom button:hover:not(:disabled) {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.ark-map-zoom button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ark-map-credit {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 2px 6px;
+  border-top-left-radius: 6px;
+  background: color-mix(in srgb, var(--popover, #ffffff) 78%, transparent);
+  color: var(--weq-fg-muted, #858585);
+  font-size: 9.5px;
+  pointer-events: none;
+}
+
+/* ── 底栏 ────────────────────────────────────────────────────────────────── */
+
+.ark-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 7px 11px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.ark-foot-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-foot-hint.is-error {
+  color: var(--media-danger, #f0483e);
+}
+
+.ark-spin {
+  flex: 0 0 auto;
+  animation: ark-spin 900ms linear infinite;
+}
+
+@keyframes ark-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 必填标记：一个 `*` 就够了，不写「必填 / 可选」那两粒字。 */
+
+.ark-req {
+  color: var(--media-danger, #f0483e);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+}
+
+/* 面板内把字段类控件压紧一档（字段样式来自 composer-media.css）。 */
+
+.ark-panel .link-card-field {
+  gap: 3px;
+}
+
+.ark-panel .link-card-input input {
+  padding: 6px 0;
+}
+
+.ark-panel .link-card-field textarea {
+  padding: 6px 9px;
+}
+
+.ark-panel .link-card-preview-card {
+  gap: 8px;
+  padding: 7px 8px;
+}
+
+.ark-panel .link-card-preview-thumb {
+  width: 42px;
+  height: 42px;
+}
+
+.ark-panel .link-card-btn {
+  padding: 5px 10px;
+}
+
+/* ── 深色下压一档 ────────────────────────────────────────────────────────── */
+
+html[data-theme="dark"] .ark-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .ark-json,
+html[data-theme="dark"] .ark-search {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+html[data-theme="dark"] .ark-suggest {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+}
