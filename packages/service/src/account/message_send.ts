@@ -184,10 +184,17 @@ export interface SendContactCardOutcome {
   /** 服务端 result（0 = 接受）。 */
   result: number;
   errMsg: string;
-  messageId: number;
-  /** 群内 seq（群聊回执）—— 真消息同步回来后用它给前端的乐观卡片对账。 */
+  /**
+   * 这条消息的客户端 `random`（发送请求里那个字段，服务端原样回显）。
+   *
+   * 这是给前端的乐观卡片对账用的**主键**：它发送前就已知、回执里带回、写进本地库
+   * 的 40002、并被服务端历史 / 漫游原样保留。别用 msgId（雪花 id，服务端才分配）
+   * 或 seq（会话内序号，私聊本地库与服务端漫游还是两套编号）。
+   */
+  random: number;
+  /** 群内 seq（群聊回执）。仅作辅助判据；对账请用 {@link random}。 */
   groupSequence: number;
-  /** 会话级 seq（私聊回执）；同上。 */
+  /** 会话级 seq（私聊回执）。仅作辅助判据；对账请用 {@link random}。 */
   privateSequence: number;
   /** 服务端时间戳（秒）。 */
   timestamp: number;
@@ -322,7 +329,8 @@ export interface SendFileOutcome {
   /** 私聊回执：服务端 result（0 = 接受）。 */
   result?: number;
   errMsg?: string;
-  messageId?: number;
+  /** 客户端 `random`；私聊文件也是同一条 `PbSendMsg` 回执。 */
+  random?: number;
   privateSequence?: number;
   timestamp?: number;
   hint?: string;
@@ -337,14 +345,19 @@ export interface SendMessageOutcome {
   scene: SendScene;
   result: number;
   errMsg: string;
-  /** 本地推导的消息 id（`random & 0x7fffffff || seq`）。 */
-  messageId: number;
-  /** 群内 seq（群聊）。 */
+  /**
+   * 这条消息的客户端 `random`（发送请求里的字段，服务端回显、也写进本地库 40002）。
+   *
+   * 前端用它给乐观消息对账 —— 这是唯一「发送前已知 + 回执带回 + 库里同名 + 服务端
+   * 历史原样保留」的标识。msgId 是服务端雪花 id（对不上），seq 私聊本地库与漫游还是
+   * 两套编号，都不能当对账键。
+   */
+  random: number;
+  /** 群内 seq（群聊）。仅作辅助判据；对账请用 {@link random}。 */
   groupSequence: number;
-  /** 会话级 seq（私聊）。 */
+  /** 会话级 seq（私聊）。仅作辅助判据；对账请用 {@link random}。 */
   privateSequence: number;
   timestamp: number;
-  random: number;
   /**
    * 媒体消息：每个媒体元素的上传结果（非媒体消息不出现）。
    *
@@ -564,7 +577,7 @@ export class MessageSendService {
         ? {
             result: receipt.result,
             errMsg: receipt.errMsg,
-            messageId: receipt.messageId,
+            random: receipt.random,
             privateSequence: receipt.privateSequence,
             timestamp: receipt.timestamp,
           }
@@ -691,7 +704,7 @@ export class MessageSendService {
       arkJson: result.arkJson,
       result: receipt.result,
       errMsg: receipt.errMsg,
-      messageId: receipt.messageId,
+      random: receipt.random,
       groupSequence: receipt.groupSequence,
       privateSequence: receipt.privateSequence,
       timestamp: receipt.timestamp,
@@ -958,11 +971,10 @@ export function toOutcome(
     scene: receipt.scene,
     result: receipt.result,
     errMsg: receipt.errMsg,
-    messageId: receipt.messageId,
+    random: receipt.random,
     groupSequence: receipt.groupSequence,
     privateSequence: receipt.privateSequence,
     timestamp: receipt.timestamp,
-    random: receipt.random,
     ...(uploads.length > 0 ? { uploads } : {}),
     ...(receipt.ok
       ? {}

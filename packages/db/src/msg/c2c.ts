@@ -45,7 +45,12 @@ import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './a
 import { QqDb } from '../qq_db';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
+// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
+// this list positionally, so inserting it in the middle would silently shift
+// every column after it. It is the client-generated `random` we echo into the
+// send request — the one stable id shared by the DB, the send receipt, and the
+// server-fetched history (see C2cMsg.msgRandom).
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002"`;
 
 /**
  * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
@@ -856,6 +861,7 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
+    msgRandom: toBigint(row[11]),
   };
 }
 
@@ -873,5 +879,6 @@ function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
     msgSeq: toBigint(row[8]),
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
+    msgRandom: toBigint(row[12]),
   };
 }

@@ -540,12 +540,14 @@ describe('sendMessage / 响应解析', () => {
     expect(receipt.groupSequence).toBe(777);
     expect(receipt.privateSequence).toBe(0);
     expect(receipt.timestamp).toBe(1700000001);
-    expect(receipt.messageId).toBe(99);
+    // 对账主键是客户端 random（服务端原样回显、也写进本地库 40002），不是任何
+    // 服务端分配的编号。见 SendMessageOutcome.random 的注释。
+    expect(receipt.random).toBe(99);
     expect(receipt.errMsg).toBe('');
     expect(receipt.responseBytes).toEqual(responseBytes);
   });
 
-  it('私聊回执取 privateSequence，messageId 回退到 seq', async () => {
+  it('私聊回执取 privateSequence；random 原样返回供对账', async () => {
     const responseBytes = encode(SEND_MESSAGE_RESPONSE, {
       result: 0,
       timestamp1: 1700000002,
@@ -555,13 +557,13 @@ describe('sendMessage / 响应解析', () => {
     const receipt = await sendMessage(nt, 1, {
       userUin: 2,
       elements: [TEXT],
-      random: 0,
+      random: 4242,
       clientSequence: 5,
       msgFlag: 1700000000,
     });
     expect(receipt.scene).toBe('c2c');
     expect(receipt.privateSequence).toBe(31);
-    expect(receipt.messageId).toBe(31);
+    expect(receipt.random).toBe(4242);
   });
 
   it('服务端拒绝 / 空响应都不静默', async () => {

@@ -115,8 +115,6 @@ export interface SendMessageReceipt {
   timestamp: number;
   random: number;
   clientSequence: number;
-  /** 本地推导的消息 id：`random & 0x7fffffff || seq`（与 SnowLuma 一致）。 */
-  messageId: number;
   /** 实际发出去的请求字节（排查用）。 */
   requestBytes: Uint8Array;
   /** 服务端原始响应字节（排查用）。 */
@@ -374,7 +372,6 @@ export async function sendMessage(
   const built = await buildSendRequestWithMedia(params, (report) => uploads.push(report));
   const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
   const response = parseSendResponse(responseBytes);
-  const seq = built.scene === 'group' ? response.groupSequence : response.privateSequence;
   const ok = responseBytes.length > 0 && response.result === 0;
   const timestamp = response.timestamp1 || Math.floor(Date.now() / 1000);
 
@@ -389,7 +386,6 @@ export async function sendMessage(
     timestamp,
     random: built.random,
     clientSequence: built.clientSequence,
-    messageId: built.random & 0x7fffffff || seq,
     requestBytes: built.bytes,
     responseBytes,
     response,
@@ -493,7 +489,6 @@ export async function sendC2cFileMessage(
   const built = buildSendC2cFileRequest(params);
   const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
   const response = parseSendResponse(responseBytes);
-  const seq = response.privateSequence;
   const ok = responseBytes.length > 0 && response.result === 0;
 
   return {
@@ -507,7 +502,6 @@ export async function sendC2cFileMessage(
     timestamp: response.timestamp1 || Math.floor(Date.now() / 1000),
     random: built.random,
     clientSequence: built.clientSequence,
-    messageId: built.random & 0x7fffffff || seq,
     requestBytes: built.bytes,
     responseBytes,
     response,

@@ -35,6 +35,16 @@ export interface C2cMsg {
   msgType?: bigint;
   /** Sub message type (column 40012); see {@link msgType}. */
   subType?: bigint;
+  /**
+   * Message random (column 40002) — the client-generated id we put in the send
+   * request's `random` field. Unlike 40001 (a server snowflake id) and 40003 (a
+   * per-conversation seq), this value is known BEFORE sending, echoed in the
+   * send receipt, and carried verbatim into server-fetched history. That makes
+   * it the only reliable key for reconciling an optimistic local message with
+   * the real row once it syncs down. Optional: only the render read-paths
+   * select it (SELECT_COLUMNS).
+   */
+  msgRandom?: bigint;
   /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
   decoration?: MsgDecoration;
 }
@@ -61,6 +71,12 @@ export interface GroupMsg {
   msgType?: bigint;
   /** Sub message type (column 40012); see {@link msgType}. */
   subType?: bigint;
+  /**
+   * Message random (column 40002) — see {@link C2cMsg.msgRandom}. The sender's
+   * client-generated id, stable across the send receipt, the local row, and
+   * server-fetched history.
+   */
+  msgRandom?: bigint;
   /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
   decoration?: MsgDecoration;
 }

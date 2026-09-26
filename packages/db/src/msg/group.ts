@@ -46,7 +46,12 @@ import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './a
 import { QqDb } from '../qq_db';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801"`;
+// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
+// this list positionally, so inserting it in the middle would silently shift
+// every column after it. It is the client-generated `random` we echo into the
+// send request — the one stable id shared by the DB, the send receipt, and the
+// server-fetched history (see GroupMsg.msgRandom).
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801","40002"`;
 
 /**
  * rowid 键的**跨窗口跳空探针**（契约见 `SalvageWindowPlan.seekSql`）：给下一条真的存在
@@ -1119,6 +1124,7 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
+    msgRandom: toBigint(row[11]),
   };
 }
 
@@ -1137,6 +1143,7 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
     decoration: decodeDress(row[11]),
+    msgRandom: toBigint(row[12]),
   };
 }
 

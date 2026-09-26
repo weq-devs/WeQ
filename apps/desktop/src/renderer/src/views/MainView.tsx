@@ -238,6 +238,19 @@ type MessageWire = {
   msgId: string;
   /** In-conversation sequence number (column 40003); the seq-window cursor. */
   msgSeq: string;
+  /**
+   * Column 40002 — the client-generated send `random`. The optimistic-message
+   * reconciliation key (see OptimisticArk.cid): unlike msgId (server snowflake)
+   * and msgSeq (per-conversation, and a DIFFERENT numbering for c2c vs the
+   * server-fetched history), this value is known before sending and preserved
+   * unchanged by the server.
+   *
+   * Optional: the gap-fetch path (`fetchGapMessages`) returns a lighter shape
+   * that carries the server `contentHead.msgId` instead; those rows fall back to
+   * '' and simply never participate in cid reconciliation (the main timeline —
+   * where optimistic messages land — always has it).
+   */
+  msgRandom?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -256,6 +269,7 @@ type MessageWire = {
 type ChatMsgWire = {
   msgId: string;
   msgSeq: string;
+  msgRandom?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -270,6 +284,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
   return {
     msgId: w.msgId,
     msgSeq: w.msgSeq,
+    msgRandom: w.msgRandom ?? '',
     senderUid: w.senderUid,
     senderUin: w.senderUin,
     sendTime: w.sendTime,
@@ -427,6 +442,12 @@ type OptimisticForward = {
   state: 'sending' | 'sent' | 'failed';
   /** 发送成功后的长消息 id（卡片点开可拉取）。 */
   resId?: string;
+  /** 客户端 `random`（`SendMessageOutcome.random`）—— 与 Ark 同款对账主键。 */
+  cid?: string;
+  /** 发送回执给出的会话内真实 seq —— 与 Ark 同款，用于排序与缺口判定。 */
+  seq?: string;
+  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。见 {@link OptimisticArk.seqRejected}。 */
+  seqRejected?: boolean;
   error?: string;
   at: number;
 };
@@ -453,37 +474,63 @@ type OptimisticArk = {
    */
   signature: string;
   /**
-   * 发送回执给出的**这条消息的 msgSeq**（群聊取群内 seq，私聊取会话级 seq）。
+   * 这条消息的客户端 `random`（`SendMessageOutcome.random`）—— 对账**主键**。
    *
-   * 真消息一同步回来就带这个 seq，所以这是最硬的对账依据 —— 比内容签名可靠得多，
-   * 而且位置卡片这种「服务端会重写卡片内容」的也能对得上。取不到（回执没给 seq，
-   * 或位置卡片那条 trpc 根本没有可解析的回包）时回退到签名。
+   * 发送请求里就有它、服务端回执原样带回、写进本地库的 40002（`ChatMsgWire.msgRandom`）、
+   * 并被服务端历史 / 漫游原样保留。所以「真消息同步回来」时拿 `msgRandom` 一比就能精确
+   * 收掉，且不依赖任何服务端分配的编号。
+   *
+   * 为什么不能用别的：
+   *   - `msgId`（40001）是**服务端雪花 id**，发送前根本不知道，对不上（旧代码拿
+   *     `random & 0x7fffffff` 当 msgId 推导，与真实的 40001 无任何关系，那条分支从来没命中过）；
+   *   - `msgSeq`（40003）是会话内序号，**私聊本地库与服务端漫游还是两套编号**，
+   *     只有群聊能当辅助判据（见 {@link OptimisticArk.seq}）。
+   *
+   * 位置卡片那条 trpc 回包解析不出 random，取不到时回退到内容签名。
    */
-  expectedSeq?: string;
-  /** 发送回执里的 msgId（本地按 `random & 0x7fffffff` 推导），同样用于对账。 */
-  expectedMsgId?: string;
+  cid?: string;
+  /**
+   * 发送回执给出的**会话内真实 seq**（群聊 `groupSequence` / 私聊 `privateSequence`）。
+   *
+   * 实测（2026-09-27）这就是**本地库 40003 那一套**：群聊回执 seq 与库里 40003 直接相等；
+   * 私聊回执是「本地 max + 1、逐条递增」。所以它可用于：
+   *   - **排序**（乐观条目按它混进真实消息之间，而不是一律置底）；
+   *   - **缺口判定**的修正（见 chatPane 的 `messageGapCount`）；
+   *   - 作为 `cid` 之后的次要对账判据。
+   *
+   * `seq === 0` 的语义完全不同：服务端**收下了但没分配序号**（markdown / 签名错的 ark
+   * 这类静默丢弃）。那种条目不能当已发出处理 —— 见 {@link OptimisticArk.seqRejected}。
+   */
+  seq?: string;
+  /**
+   * 回执 seq 为 0：服务端收下却没给序号 —— 实测就是**静默丢弃**（`result=0`、`errMsg=''`
+   * 和成功一模一样，只有 seq 不同）。这种条目排序上仍置底（没有可信序号），并在发送后
+   * 立刻弹一次警告，别让用户以为对方收到了。
+   */
+  seqRejected?: boolean;
   state: 'sending' | 'sent' | 'failed';
   error?: string;
   at: number;
 };
 
 /**
- * 发送回执 → 期望的 msgSeq / msgId（对账用）。
+ * 发送回执 → 对账键与排序 seq（`cid` = random，`seq` = 会话内真实序号）。
  *
- * 服务端没给 seq（0）就不返回，让对账回退到内容签名。
+ * `random` 一定会有（协议层在发送前就生成了）；seq 群聊取 `groupSequence`、私聊取
+ * `privateSequence`，两者都是本地 40003 那一套（见 {@link OptimisticArk.seq}）。
+ * seq 为 0 = 服务端没分配序号（静默丢弃），此时打上 `seqRejected` 让上层提示。
  */
 function expectedKeysOf(payload: {
   peerType: 'c2c' | 'group';
   groupSequence?: number;
   privateSequence?: number;
-  messageId?: number;
-}): Pick<OptimisticArk, 'expectedSeq' | 'expectedMsgId'> {
+  random?: number;
+}): Pick<OptimisticArk, 'cid' | 'seq' | 'seqRejected'> {
   const seq = payload.peerType === 'group' ? payload.groupSequence : payload.privateSequence;
   return {
-    ...(seq && seq > 0 ? { expectedSeq: String(seq) } : {}),
-    ...(payload.messageId && payload.messageId > 0
-      ? { expectedMsgId: String(payload.messageId) }
-      : {}),
+    ...(payload.random && payload.random > 0 ? { cid: String(payload.random) } : {}),
+    ...(seq && seq > 0 ? { seq: String(seq) } : {}),
+    ...(seq === 0 ? { seqRejected: true } : {}),
   };
 }
 
@@ -1125,12 +1172,17 @@ function optimisticToTemplate(
       },
     ],
     msgId: item.id,
-    msgSeq: '',
+    // 回执给的**真实会话内 seq**（群聊 = 库里 40003；私聊实测是「本地 max + 1」同一套）。
+    // 带上它，乐观条目就能按 seq 混排进真实消息之间，而不是一律置底；seq 缺失
+    //（静默丢弃 / 位置卡片那条 trpc 回包解析不出）时留在 '' —— 渲染层会把它排到末尾。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
+    optimisticRejected?: boolean;
     optimistic: OptimisticForward['state'];
     optimisticError?: string;
   };
@@ -1157,15 +1209,76 @@ function optimisticArkToTemplate(
     createdAt: new Date(item.at).toISOString(),
     qqElements: [{ type: 'ark', data: { arkData: item.arkData } }],
     msgId: item.id,
-    msgSeq: '',
+    // 同 {@link optimisticToTemplate}：有真实 seq 就参与排序与缺口判定。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
+    optimisticRejected?: boolean;
     optimistic: OptimisticArk['state'];
     optimisticError?: string;
   };
+}
+
+/**
+ * 回执 seq 是否为 0（= 服务端收下但没分配序号）。
+ *
+ * 实测（markdown / 签名错的 ark）这种发送的回执与成功**完全一样**：`ok=true`、
+ * `result=0`、`errMsg=''`；唯一的区别就是 seq 恒为 0。所以它是「本条服务端可能静默
+ * 丢弃了」的唯一可靠信号（见 docs/develop/send-message.md 第六节）。
+ */
+function isSeqRejected(outcome: { groupSequence?: number; privateSequence?: number }): boolean {
+  return (outcome.groupSequence ?? 0) <= 0 && (outcome.privateSequence ?? 0) <= 0;
+}
+
+/**
+ * 把乐观条目并入真实消息序列。
+ *
+ * 乐观条目带**真实 seq** 时（回执给了 groupSequence / privateSequence），按 seq 插到
+ * 正确位置 —— 否则「我发一条 → 对方回一条」时，带 seq 的回复会被排到我们前面。
+ * 没有 seq 的（还在发送中、回执 seq=0 的静默失败、位置卡片那条 trpc 解析不出的）
+ * 留在末尾：它们没有可信位置，插进中间反而会打乱顺序。
+ *
+ * `real` 已按 seq 升序（最旧→最新）；同 seq 时乐观条目排在真实消息**之后**，
+ * 与「自己刚发的最新一条」直觉一致。
+ */
+function mergeOptimisticInto(real: Message[], pending: Message[]): Message[] {
+  if (pending.length === 0) return real;
+  const positioned = pending.filter((m): m is Message & { msgSeq: string } => Boolean(m.msgSeq));
+  const floating = pending.filter((m) => !m.msgSeq);
+  if (positioned.length === 0) return [...real, ...floating];
+
+  // 窗口下界：乐观 seq 比它还小，说明它不在当前加载的窗口里（用户往上翻过）。
+  // 那种情况下插到数组顶部会在它和窗口首条之间造出一个假缺口，所以按「无位置」处理。
+  let windowMin: bigint | null = null;
+  for (const message of real) {
+    if (!message.msgSeq) continue;
+    windowMin = BigInt(message.msgSeq);
+    break;
+  }
+  const merged = [...real];
+  const stayFloating: Message[] = [];
+  for (const item of positioned) {
+    const seq = BigInt(item.msgSeq);
+    if (windowMin !== null && seq < windowMin) {
+      stayFloating.push(item);
+      continue;
+    }
+    let at = merged.length;
+    for (let i = 0; i < merged.length; i += 1) {
+      const other = merged[i]!.msgSeq;
+      if (!other) continue; // 无 seq 的真实行（手机迁移）不参与比较
+      if (BigInt(other) > seq) {
+        at = i;
+        break;
+      }
+    }
+    merged.splice(at, 0, item);
+  }
+  return [...merged, ...stayFloating, ...floating];
 }
 
 function messageToTemplate(
@@ -3173,13 +3286,39 @@ export function MainView(): ReactElement {
           patch({ state: 'failed', error: reason });
           throw new Error(reason);
         }
-        patch({ state: 'sent', resId: outcome.resId });
+        // 卡片那一步的回执带 random / seq：与 Ark 同款，cid 用于对账、seq 用于
+        // 混排进真实消息之间（见 OptimisticForward.seq）。
+        const cardKeys = expectedKeysOf({
+          peerType,
+          ...(outcome.card?.groupSequence !== undefined
+            ? { groupSequence: outcome.card.groupSequence }
+            : {}),
+          ...(outcome.card?.privateSequence !== undefined
+            ? { privateSequence: outcome.card.privateSequence }
+            : {}),
+          ...(outcome.card?.random !== undefined ? { random: outcome.card.random } : {}),
+        });
+        patch({
+          state: 'sent',
+          resId: outcome.resId,
+          ...(cardKeys.cid ? { cid: cardKeys.cid } : {}),
+          ...(cardKeys.seq ? { seq: cardKeys.seq } : {}),
+        });
+        if (cardKeys.seqRejected) {
+          pushToast({
+            tone: 'warning',
+            message: '聊天记录卡片可能未被服务端接收',
+            detail:
+              '承载卡片的那步回了成功但没分配消息序号 —— 内容已上传，但收端很可能看不到这张卡。' +
+              '请让对方确认；若没有，重发一次。',
+          });
+        }
       } catch (error) {
         patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
         throw error;
       }
     },
-    [client],
+    [client, pushToast],
   );
 
   /**
@@ -3678,16 +3817,18 @@ export function MainView(): ReactElement {
     const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, selectedConversation, user, memberMap, botUids));
-    // 乐观渲染的合并转发接在末尾 —— 它们没有 msgSeq（gap 判定会跳过），只作为
-    // 「我刚刚发出了什么」的即时反馈。
+    // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
     const pending = optimisticForwards
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticToTemplate(item, selectedConversation, user));
-    // 乐观 Ark 卡片接在最后 —— 同样没有 msgSeq（gap 判定会跳过）。
+    // 乐观 Ark 卡片（同上）。
     const pendingArks = optimisticArks
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
-    return [...real, ...pending, ...pendingArks];
+    // 有真实 seq 的乐观条目按 seq 插进真实消息之间（对方在我们发出后回了消息时，
+    // 那条回复不能把我们的消息挤到下面）；没有 seq 的（发送中 / 静默丢弃 / 位置卡片）
+    // 一律留在末尾 —— 它们没有可信位置。
+    return mergeOptimisticInto(real, [...pending, ...pendingArks]);
   }, [
     loadedMessageWires,
     selectedConversation,
@@ -3723,27 +3864,33 @@ export function MainView(): ReactElement {
   /**
    * Ark 卡片的真消息同步回来之后，把对应的乐观条目收掉。判据按可靠性排队：
    *
-   *   1. **msgSeq（首选）**：发送回执里带了这条消息的 seq（群聊群内 seq / 私聊会话级
-   *      seq），真消息同步回来就带同一个 seq —— 精确对账，连位置卡片这种「服务端会
-   *      重写卡片内容」的都能收掉；
-   *   2. **msgId**：回执里本地推导的 messageId，库里那条同名；
-   *   3. **内容签名**（`arkCardSignature`）：位置卡片走坐标，其余走 ark JSON 本体。
-   *      回执没给 seq / msgId 时的兜底。
+   *   1. **cid（首选，= 客户端 random）**：`wire.msgRandom` 与发送时记下的 random 相等
+   *      —— 精确对账，连位置卡片这种「服务端会重写卡片内容」的也能收掉；群聊私聊通吃；
+   *   2. **seq（辅助）**：回执给出的会话内真实 seq（群聊 = 库里 40003；私聊实测也是
+   *      「本地 max + 1」那一套）。作为 cid 之后的次要对账判据；
+   *   3. **内容签名**（`arkCardSignature`）：位置卡片走坐标，其余走 ark JSON 本体 ——
+   *      cid 拿不到时的兜底（例如位置卡片那条 trpc 回包解析不出 random）。
    *
-   * 后两者可能撞（同一条位置连发两次、同一张卡连发两次），所以按**出现次数**消耗：
+   * 签名可能撞（同一条位置连发两次、同一张卡连发两次），所以按**出现次数**消耗：
    * 同步回来几条就收掉几条，剩下的继续挂着等下一批。
    *
-   * 依赖里带上 `optimisticArks` 本身：seq / msgId 是**拿到回执才补上**的，如果那一刻
+   * 只对**当前会话**的乐观条目对账：`loadedMessageWires` 是当前打开的会话，而
+   * `optimisticArks` 可能还有别的会话的条目。seq 判据尤其需要这道闸 —— 它是会话内序号，
+   * 别的会话完全可能有同一个数字。
+   *
+   * 依赖里带上 `optimisticArks` 本身：cid / seq 是**拿到回执才补上**的，如果那一刻
    * 真消息已经到了，必须再跑一轮才能收掉它（没得改时返回同一个数组，不会死循环）。
    */
   useEffect(() => {
     if (optimisticArks.length === 0) return;
+    const openConvId = selectedConversation?.id;
+    if (!openConvId) return;
+    const cids = new Set<string>();
     const seqs = new Set<string>();
-    const msgIds = new Set<string>();
     const signatures = new Map<string, number>();
     for (const wire of loadedMessageWires) {
+      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
       if (wire.msgSeq) seqs.add(String(wire.msgSeq));
-      if (wire.msgId) msgIds.add(String(wire.msgId));
       for (const element of wire.elements ?? []) {
         if ((element as { type?: string }).type !== 'ark') continue;
         const signature = arkCardSignature(
@@ -3752,15 +3899,17 @@ export function MainView(): ReactElement {
         if (signature) signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
       }
     }
-    if (seqs.size === 0 && msgIds.size === 0 && signatures.size === 0) return;
+    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
     setOptimisticArks((current) => {
       let changed = false;
       const next = current.filter((item) => {
-        if (item.expectedSeq && seqs.has(item.expectedSeq)) {
+        // 别的会话的条目不在这个窗口里，原样留着（见上方注释）。
+        if (item.convId !== openConvId) return true;
+        if (item.cid && cids.has(item.cid)) {
           changed = true;
           return false;
         }
-        if (item.expectedMsgId && msgIds.has(item.expectedMsgId)) {
+        if (item.seq && seqs.has(item.seq)) {
           changed = true;
           return false;
         }
@@ -3772,7 +3921,7 @@ export function MainView(): ReactElement {
       });
       return changed ? next : current;
     });
-  }, [loadedMessageWires, optimisticArks]);
+  }, [loadedMessageWires, optimisticArks, selectedConversation]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -4783,7 +4932,8 @@ export function MainView(): ReactElement {
           throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
         }
         // 服务端取回的那份 arkJson 就是它下发的内容：用它替掉占位卡，顺便对齐签名；
-        // 同时记下回执给的 seq / msgId（真消息一回来就靠它们把乐观卡片收掉）。
+        // 同时记下回执给的 random（cid，对账主键）与群聊辅助 seq —— 真消息一回来
+        // 就靠它们把乐观卡片收掉。
         patchOptimistic({
           ...(outcome.arkJson
             ? { arkData: outcome.arkJson, signature: arkCardSignature(outcome.arkJson) }
@@ -4791,6 +4941,16 @@ export function MainView(): ReactElement {
           ...expectedKeysOf(outcome),
           state: 'sent',
         });
+        if (isSeqRejected(outcome)) {
+          pushToast({
+            tone: 'warning',
+            message: `${payload.kind === 'qq' ? '推荐好友卡片' : '推荐群卡片'}可能未被服务端接收`,
+            detail:
+              '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。' +
+              '请让对方确认是否收到；若没有，换一种内容重发。',
+          });
+          return;
+        }
         pushToast({
           tone: 'success',
           message: payload.kind === 'qq' ? '推荐好友卡片已发送' : '推荐群卡片已发送',
@@ -4808,7 +4968,7 @@ export function MainView(): ReactElement {
           latitude: payload.latitude,
           longitude: payload.longitude,
         });
-        // 这条 trpc 的回包格式没抓到样本，拿不到 seq / msgId —— 乐观卡片只能靠
+        // 这条 trpc 的回包格式没抓到样本，拿不到 random / seq —— 乐观卡片只能靠
         // 「坐标签名」对账（服务端会重写卡片文案，但经纬度就是我们发出去的那两个数）。
         patchOptimistic({ state: 'sent' });
         // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
@@ -4830,6 +4990,16 @@ export function MainView(): ReactElement {
         ...expectedKeysOf(outcome),
         state: 'sent',
       });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '卡片可能未被服务端接收',
+          detail:
+            '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条（常见于签名 / 内容不合规）。' +
+            '请让对方确认是否收到；若没有，换一种内容重发。',
+        });
+        return;
+      }
       pushToast({ tone: 'success', message: '卡片已发送' });
     } catch (error) {
       // 失败不删卡：留着那张卡片 + 「发送失败」标识，比一个只闪现几秒的 toast 有用。

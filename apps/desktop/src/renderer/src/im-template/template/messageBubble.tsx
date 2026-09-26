@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, Check, Clock, RotateCcw, Sparkle, X } from 'lucide-react';
+import { Bot, Check, Clock, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
@@ -164,16 +164,26 @@ export function MessageBubble({
   // 乐观渲染的合并转发状态标识（发送中 / 已发送 / 发送失败）。该消息只活在前端
   // state 里，等 QQ 同步回真消息后自然消失。
   const optimistic = (
-    message as { optimistic?: 'sending' | 'sent' | 'failed'; optimisticError?: string }
+    message as {
+      optimistic?: 'sending' | 'sent' | 'failed';
+      optimisticError?: string;
+      /** 回执 seq=0：服务端收下却没分配序号 = 大概率被静默丢弃（见 MainView）。 */
+      optimisticRejected?: boolean;
+    }
   ).optimistic;
+  const optimisticRejected = (
+    message as { optimistic?: 'sending' | 'sent' | 'failed'; optimisticRejected?: boolean }
+  ).optimisticRejected;
   const optimisticText =
     optimistic === 'sending'
       ? '发送中…'
       : optimistic === 'failed'
         ? '发送失败'
-        : optimistic === 'sent'
-          ? '已发送'
-          : null;
+        : optimistic === 'sent' && optimisticRejected
+          ? '可能未送达'
+          : optimistic === 'sent'
+            ? '已发送'
+            : null;
   const recall = (
     message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }
   ).recall;
@@ -418,14 +428,26 @@ export function MessageBubble({
         ) : null}
         {optimisticText ? (
           <div
-            className={cn('weq-msg-optimistic-tag', `is-${optimistic}`)}
+            className={cn(
+              'weq-msg-optimistic-tag',
+              `is-${optimistic}`,
+              optimisticRejected && 'is-rejected',
+            )}
             title={
               optimistic === 'failed'
                 ? (message as { optimisticError?: string }).optimisticError || '发送失败'
-                : '这条消息还没同步回来，先乐观显示'
+                : optimisticRejected
+                  ? '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
+                  : '这条消息还没同步回来，先乐观显示'
             }
           >
-            {optimistic === 'failed' ? <X size={12} /> : <Clock size={12} />}
+            {optimistic === 'failed' ? (
+              <X size={12} />
+            ) : optimisticRejected ? (
+              <TriangleAlert size={12} />
+            ) : (
+              <Clock size={12} />
+            )}
             <span>{optimisticText}</span>
           </div>
         ) : null}

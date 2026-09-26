@@ -291,7 +291,6 @@ describe('toOutcome', () => {
       timestamp: 0,
       random: 1,
       clientSequence: 0,
-      messageId: 1,
       requestBytes: new Uint8Array(0),
       responseBytes: new Uint8Array(1),
       uploads: [],
@@ -329,7 +328,6 @@ describe('toOutcome', () => {
         timestamp: 1700000000,
         random: 111,
         clientSequence: 0,
-        messageId: 111,
         requestBytes: new Uint8Array(0),
         responseBytes: new Uint8Array(1),
         uploads: [],
@@ -347,6 +345,10 @@ describe('toOutcome', () => {
     );
     expect(outcome.ok).toBe(true);
     expect(outcome.groupSequence).toBe(7);
+    // 对账主键是客户端 random（服务端原样回显、也写进本地库 40002）——msgId 那条
+    // 推导路径已删，绝不能再冒出来当对账依据（见 send-message.md 第六节）。
+    expect(outcome.random).toBe(111);
+    expect(outcome).not.toHaveProperty('messageId');
     expect(outcome.hint).toBeUndefined();
     // JSON 安全：没有 bigint / bytes 混进来。
     expect(() => JSON.stringify(outcome)).not.toThrow();
@@ -365,7 +367,6 @@ describe('toOutcome', () => {
         timestamp: 1,
         random: 2,
         clientSequence: 0,
-        messageId: 2,
         requestBytes: new Uint8Array(0),
         responseBytes: new Uint8Array(0),
         uploads: [],
@@ -1008,6 +1009,9 @@ describe('MessageSendService.sendContactCard（离线集成）', () => {
     expect(outcome.kind).toBe('group');
     expect(outcome.contactId).toBe(456789);
     expect(outcome.arkJson).toBe(ark);
+    // 回执的 random 是前端对账主键：推荐卡片也必须带上（协议层发送前生成、服务端回显）。
+    expect(outcome.random).toBeGreaterThan(0);
+    expect(outcome).not.toHaveProperty('messageId');
   });
 
   it('推荐好友：0x12b6_0（非 uin-form）+ 手机号占位符', async () => {

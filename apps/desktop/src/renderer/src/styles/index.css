@@ -17564,6 +17564,13 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
   border-color: color-mix(in srgb, #ff6b6b 26%, transparent);
 }
 
+/* 回执 seq=0：服务端收下却没分配序号 = 大概率被静默丢弃，用琥珀色区别于成功的绿色。 */
+.weq-msg-optimistic-tag.is-rejected {
+  color: color-mix(in srgb, #e0a800 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, #e0a800 12%, transparent);
+  border-color: color-mix(in srgb, #e0a800 28%, transparent);
+}
+
 @keyframes weq-msg-optimistic-pulse {
   0%,
   100% {
