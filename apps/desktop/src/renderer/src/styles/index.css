@@ -15336,7 +15336,6 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
   padding: 5px 12px;
   border: 0;
   border-radius: 7px;
@@ -15349,6 +15348,9 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
 }
 .weq-wtools-rv-copy:hover {
   filter: brightness(1.06);
+}
+.weq-wtools-rv-result-head .weq-wtools-rv-seg:last-child {
+  margin-left: auto;
 }
 .weq-wtools-rv-json {
   overflow: auto;
@@ -23073,4 +23075,3 @@ html[data-theme="dark"] .weq-mf-preview {
 .weq-mf-inline-editor-embedded .weq-mf-inline-tools {
   padding-top: 0.5rem;
 }
-

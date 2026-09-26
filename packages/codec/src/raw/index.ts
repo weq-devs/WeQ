@@ -6,3 +6,4 @@ export * from './encode';
 export * from './registry';
 export * from './sanitize';
 export * from './reverse';
+export * from './aiview';
