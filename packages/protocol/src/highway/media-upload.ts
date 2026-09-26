@@ -371,6 +371,15 @@ export interface UploadPttParams {
   voiceFormat?: number;
   /** 缺省 `<md5>.amr`（SL 同）。 */
   fileName?: string;
+  /**
+   * 变声标记，缺省 `false`（原声）。
+   *
+   * 真机抓包（群聊 `0x126e_100` + 私聊 `0x126d_100`）对比原声/变声两条：
+   * 变声那条 `extBizInfo.ptt` 多出 tag4 `changeVoice: 1`，同时 tag12
+   * `bytesPbReserve` 从 `08 00 38 00` 变成 `08 01 38 00`（内嵌 `{1:1, 7:0}`）。
+   * 两处始终同步出现，其余字段（双端一致）不变，所以一条标记同时写这两处。
+   */
+  voiceChanged?: boolean;
 }
 
 const PTT_RESERVE_LEGACY = new Uint8Array([0x08, 0x00, 0x38, 0x00]);
@@ -391,12 +400,19 @@ const PTT_RESERVE_LEGACY = new Uint8Array([0x08, 0x00, 0x38, 0x00]);
  *
  *   尾部 `0A` 项的内容恰好就是群聊那 4 字节 —— 也就是说我们之前只把容器尾巴发出去
  *   了。私聊波形不渲染时就锚在这里（NapCat / SL 同样只发尾巴）。
+ *
+ * 变声（{@link UploadPttParams.voiceChanged}）只动上面那 4 字节的第 2 个字节：
+ * 原声 `08 00 38 00`、变声 `08 01 38 00`（即内嵌的 `{1:0|1, 7:0}`）。私聊 33 字节
+ * 容器的尾部 `0A` 项同一份字节，所以两条路径都跟着变。
  */
 export function buildPttReserve(
   target: MediaUploadTarget,
   clientRandomId: bigint | undefined,
+  voiceChanged = false,
 ): Uint8Array {
-  if (target.isGroup || clientRandomId === undefined) return PTT_RESERVE_LEGACY;
+  // 第 2 字节 = 内嵌字段 1（subType）：0 原声 / 1 变声。
+  const legacy = voiceChanged ? new Uint8Array([0x08, 0x01, 0x38, 0x00]) : PTT_RESERVE_LEGACY;
+  if (target.isGroup || clientRandomId === undefined) return legacy;
   const out = new Uint8Array(33);
   out.set([0x05, 0x02, 0x00, 0x01, 0x00], 0);
   const entry = (offset: number, tag: number, value: readonly number[]) => {
@@ -413,7 +429,7 @@ export function buildPttReserve(
   ]);
   entry(12, 0x08, [0x00, 0x00, 0x00, 0x01]);
   entry(19, 0x09, [0x00, 0x00, 0x00, 0x03]);
-  entry(26, 0x0a, [...PTT_RESERVE_LEGACY]);
+  entry(26, 0x0a, [...legacy]);
   return out;
 }
 
@@ -441,6 +457,8 @@ export async function uploadPttMsgInfo(
   // 不要让编码器拿到浮点。
   const duration = Math.round(params.duration ?? 0);
   const voiceFormat = params.voiceFormat ?? 1;
+  // 变声标记：默认 false = 原声（缺省不上 wire，与真机原声那条一致）。
+  const voiceChanged = params.voiceChanged === true;
   const fileName = params.fileName ?? `${hashes.md5Hex}.amr`;
   const waveform = buildPttWaveform(params.waveform);
   // 私聊语音的 reserve 里嵌着 clientRandomId，先把随机数定下来（群聊不需要）。
@@ -478,7 +496,9 @@ export async function uploadPttMsgInfo(
       pic: { textSummary: 'Nya~' },
       video: { bytesPbReserve: new Uint8Array(0) },
       ptt: {
-        bytesReserve: buildPttReserve(target, clientRandomId),
+        // 真机上变声那条：tag4 changeVoice=1 + bytesReserve 内嵌 {1:1}，两处同步。
+        ...(voiceChanged ? { changeVoice: 1 } : {}),
+        bytesReserve: buildPttReserve(target, clientRandomId, voiceChanged),
         bytesPbReserve: new Uint8Array(0),
         // 安卓真机抓包（0x126d_100）里私聊语音**没有**这个字段，群聊那套照旧。
         ...(target.isGroup ? { bytesGeneralFlags: generalFlags } : {}),
@@ -499,7 +519,11 @@ export async function uploadPttMsgInfo(
     log: options.log,
   });
 
-  const msgInfo = finalizeMediaMsgInfo(upload, { pttWaveform: waveform.bytes });
+  const msgInfo = finalizeMediaMsgInfo(upload, {
+    pttWaveform: waveform.bytes,
+    // 变声标记由客户端决定：服务端不回也得写进去（见 finalizeMediaMsgInfo 的 ptt）。
+    ...(voiceChanged ? { ptt: { changeVoice: 1 } } : {}),
+  });
   return {
     ...toResult(upload, msgInfo, {
       // 真机验证：私聊语音用 12（安卓抓包那样）并不会让收端画出波形，B 实验已回滚。

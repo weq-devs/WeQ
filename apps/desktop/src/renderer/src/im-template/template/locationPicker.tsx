@@ -53,7 +53,9 @@ function wrapLng(lng: number): number {
 function clampView(view: View): View {
   const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, view.zoom));
   const lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, view.lat));
-  return zoom === view.zoom && lat === view.lat ? view : { ...view, lng: wrapLng(view.lng), lat, zoom };
+  return zoom === view.zoom && lat === view.lat
+    ? view
+    : { ...view, lng: wrapLng(view.lng), lat, zoom };
 }
 
 /** 经纬度 → 世界像素坐标（Web Mercator，与瓦片同一套投影）。 */

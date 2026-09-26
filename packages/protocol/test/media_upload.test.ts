@@ -635,6 +635,67 @@ describe('uploadPttMsgInfo', () => {
     });
     expect(result.waveformMocked).toBe(false);
   });
+
+  it('原声（缺省）：ptt 不带 changeVoice、bytesReserve 是 {1:0}', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const result = await uploadPttMsgInfo(native, 9, GROUP_TARGET, {
+      source: new Uint8Array([0x02, 0x01]),
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { ptt?: { changeVoice?: number; bytesReserve?: Uint8Array } } };
+    };
+    // 缺省 = 原声：changeVoice 是 proto3 默认值 0，不上 wire。
+    expect(req.upload?.extBizInfo?.ptt?.changeVoice).toBeUndefined();
+    expect(Array.from(req.upload?.extBizInfo?.ptt?.bytesReserve ?? [])).toEqual([
+      0x08, 0x00, 0x38, 0x00,
+    ]);
+
+    // 产物 pbElem 里同样不该出现 changeVoice。
+    const pbElem = decode(UPLOAD_MSG_INFO, result.msgInfo) as {
+      extBizInfo?: { ptt?: { changeVoice?: number } };
+    };
+    expect(pbElem.extBizInfo?.ptt?.changeVoice).toBeUndefined();
+  });
+
+  it('变声：群聊 ptt 带 changeVoice=1，bytesReserve 内嵌 {1:1}', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const result = await uploadPttMsgInfo(native, 9, GROUP_TARGET, {
+      source: new Uint8Array([0x02, 0x01]),
+      voiceChanged: true,
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { ptt?: { changeVoice?: number; bytesReserve?: Uint8Array } } };
+    };
+    expect(req.upload?.extBizInfo?.ptt?.changeVoice).toBe(1);
+    expect(Array.from(req.upload?.extBizInfo?.ptt?.bytesReserve ?? [])).toEqual([
+      0x08, 0x01, 0x38, 0x00,
+    ]);
+
+    // 关键：变声标记必须留在最终 pbElem（服务端不回也不丢）。
+    const pbElem = decode(UPLOAD_MSG_INFO, result.msgInfo) as {
+      extBizInfo?: { ptt?: { changeVoice?: number; waveform?: Uint8Array } };
+    };
+    expect(pbElem.extBizInfo?.ptt?.changeVoice).toBe(1);
+    expect(
+      decodePttWaveform(pbElem.extBizInfo?.ptt?.waveform ?? new Uint8Array()).amplitudes.length,
+    ).toBe(PTT_WAVEFORM_BINS);
+  });
+
+  it('变声：私聊 33 字节 reserve 的尾部 0A 项也变成 08 01 38 00', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    await uploadPttMsgInfo(native, 9, C2C_TARGET, {
+      source: new Uint8Array([0x02, 0x01]),
+      voiceChanged: true,
+    });
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { extBizInfo?: { ptt?: { changeVoice?: number; bytesReserve?: Uint8Array } } };
+    };
+    expect(req.upload?.extBizInfo?.ptt?.changeVoice).toBe(1);
+    const reserve = Array.from(req.upload?.extBizInfo?.ptt?.bytesReserve ?? []);
+    expect(reserve).toHaveLength(33);
+    // 容器尾部：0A 00 04 | 08 01 38 00
+    expect(reserve.slice(26)).toEqual([0x0a, 0x00, 0x04, 0x08, 0x01, 0x38, 0x00]);
+  });
 });
 
 describe('uploadVideoMsgInfo', () => {

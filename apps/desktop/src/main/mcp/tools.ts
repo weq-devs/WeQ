@@ -2712,11 +2712,13 @@ export const AI_TOOLS: AiTool[] = [
     name: 'decode_blob',
     description:
       '把一段 hex / base64 二进制按 protobuf 或 JCE（QQHook TarsParser 语义）逆向解码成可读 JSON。' +
-      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树，' +
-      '并给出每个字段可能的含义（utf8 / bool / 时间戳 / zigzag / 定长 float 等）。' +
-      'tag ≥ 1001 的字段会尽量附上 QQ 全局词典里的字段名（小 tag 无全局含义、以嵌套上下文为准）。' +
-      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。' +
-      '返回 fields：{ tag, field?, value } 树；bytes 较大时只给摘要 hex。',
+      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树。' +
+      '**自动递归展开嵌套**：LEN 字段里能再解一层 message 就直接内联展开（默认到 16 层），' +
+      '不用再手动把子字段 hex 拆出来二次调用。' +
+      '返回 fields 是 CyberChef 风格的纯 JSON：{ "字段号": 值 }，嵌套是内联对象、repeated 是数组；' +
+      '能当可读文本的 bytes 直接给字符串，其余给小写 hex（0x…），超大 bytes 会截断并在 truncatedHex 标出。' +
+      'tag ≥ 1001 的字段名单独放在 names 图例（tag → 字段名）里，避免污染数据树；小 tag 无全局含义、以嵌套上下文为准。' +
+      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。',
     input: z.object({
       data: z
         .string()
@@ -2745,11 +2747,13 @@ export const AI_TOOLS: AiTool[] = [
         bytes: result.bytes,
         kind: result.kind,
         fields: result.fields,
+        ...(result.names ? { names: result.names } : {}),
+        ...(result.truncatedHex ? { truncatedHex: true } : {}),
         ...(result.guessNote ? { guessNote: result.guessNote } : {}),
         hint:
-          result.kind === 'guess'
+          result.kind === 'guess' || result.kind === 'none'
             ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
-            : '字段名只来自 QQ 全局 tag 词典；若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+            : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
       };
     },
   }),
@@ -2760,7 +2764,7 @@ export const AI_TOOLS: AiTool[] = [
       '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
       '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
       '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
-      '返回与 decode_blob 相同的 fields 树，并附 source（库/路径/SQL/列/字节数）。',
+      '返回与 decode_blob 相同的纯 JSON fields 树（嵌套自动展开）与 names 图例，并附 source（库/路径/SQL/列/字节数）。',
     input: z.object({
       dbName: z
         .string()
@@ -2842,7 +2846,7 @@ export const AI_TOOLS: AiTool[] = [
           ok: false,
           kind: 'none',
           bytes: 0,
-          fields: [],
+          fields: {},
           error: '目标单元格既不是 BLOB 也不是 TEXT。',
         };
       }
@@ -2864,6 +2868,8 @@ export const AI_TOOLS: AiTool[] = [
         bytes: decoded.bytes,
         kind: decoded.kind,
         fields: decoded.fields,
+        ...(decoded.names ? { names: decoded.names } : {}),
+        ...(decoded.truncatedHex ? { truncatedHex: true } : {}),
         ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
       };
     },
@@ -3500,6 +3506,13 @@ export const AI_TOOLS: AiTool[] = [
         .max(3600)
         .optional()
         .describe('时长（秒，语音/视频，可带小数）'),
+      voiceChanged: z
+        .boolean()
+        .optional()
+        .describe(
+          '语音：变声标记（缺省 false=原声）。置 true 时在 ptt 上写 changeVoice=1，' +
+            '与 QQ 客户端「变声」发出的消息一致（收端会显示变声标识）。',
+        ),
       ...dressInputShape,
     }),
     run: async ({
@@ -3513,6 +3526,7 @@ export const AI_TOOLS: AiTool[] = [
       width,
       height,
       durationSec,
+      voiceChanged,
       ...dressArgs
     }) => {
       onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
@@ -3543,6 +3557,7 @@ export const AI_TOOLS: AiTool[] = [
           kind: 'record',
           source: silk.silk,
           durationSec: durationSec ?? silk.durationSec,
+          ...(voiceChanged !== undefined ? { voiceChanged } : {}),
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
         });
         note = `语音时长 ${durationSec ?? silk.durationSec}s（${silk.wav ? '波形按 WAV 真实振幅' : '波形用合成条'}）`;
@@ -3640,6 +3655,7 @@ export const AI_TOOLS: AiTool[] = [
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
       '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
+      '\n  语音变声：{"kind":"record","source":"/绝对/路径.wav","voiceChanged":true}（缺省 false=原声）' +
       '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
       '\n【结果怎么看】ok=false 就是没发出去；元素写错会在发送前报错（不会发半条）。',
     input: z.object({

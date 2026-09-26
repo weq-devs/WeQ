@@ -2,15 +2,25 @@
  * 妙妙工具「Protobuf / JCE 逆向」面板。
  *
  * 输入 hex / base64 → 按 protobuf 或 JCE（QQHook TarsParser 语义）解析为
- * {tag: value} 简洁 JSON。类型不写进 JSON，可转换的值旁给出转换按钮：
+ * {tag: value} 简洁 JSON。默认「简洁」视图就是 CyberChef 风格的纯 JSON
+ * （嵌套自动展开、能当文本的 bytes 直接给字符串）；切到「详细」后每个可
+ * 转换的值旁再给出转换按钮：
  *   - bytes：hex ↔ 文本 / Base64 / 按 protobuf / 按 JCE 嵌套解析（混合嵌套）
  *   - 整数：有符号 ↔ 无符号 / bool / 时间戳 / zigzag / hex
  *   - fixed64/32：整数 ↔ float
  *   - 字符串：文本 ↔ hex
  */
 
-import { useCallback, useMemo, useState, type ReactElement } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactElement,
+} from 'react';
 import { Check, Copy, Eraser, Play } from 'lucide-react';
+import { lookupTag } from '@weq/codec/dictionary';
 import {
   bytesToBase64,
   bytesToHex,
@@ -58,6 +68,22 @@ function bytesLabel(b: Uint8Array): string {
   return `${b.length} 字节`;
 }
 
+/**
+ * 「简洁」= CyberChef 风格纯 JSON，不显示任何转换按钮。
+ * 「详细」= 每个标量旁再给出 bool / 时间 / hex / 按 protobuf 解析等按钮。
+ */
+const DetailCtx = createContext(false);
+
+/** 一键切换某个 tag 的字段名（词典只覆盖 tag ≥ 1001）。 */
+function tagLabel(tag: number): string | null {
+  const lookup = lookupTag(tag);
+  if (lookup.status === 'known') return lookup.names[0]?.name ?? null;
+  if (lookup.status === 'ambiguous') {
+    return lookup.names.map((n) => n.name).join(' | ');
+  }
+  return null;
+}
+
 /** 按对象身份分配稳定 key（同一 AST 节点跨渲染不变）。 */
 const rvItemIds = new WeakMap<object, number>();
 let rvItemSeq = 0;
@@ -82,6 +108,7 @@ export function ReverseTool(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [parseSeq, setParseSeq] = useState(0);
+  const [detail, setDetail] = useState(false);
 
   const runParse = useCallback((text: string, enc: RvEncoding, fmt: ParseFormat) => {
     try {
@@ -242,9 +269,35 @@ export function ReverseTool(): ReactElement {
               {copied ? <Check size={13} /> : <Copy size={13} />}
               {copied ? '已复制' : '复制 JSON'}
             </button>
+            <div className="weq-wtools-rv-seg" role="tablist" aria-label="展示模式">
+              {(
+                [
+                  { key: false, label: '简洁' },
+                  { key: true, label: '详细' },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.label}
+                  type="button"
+                  role="tab"
+                  aria-selected={detail === m.key}
+                  className={`weq-wtools-rv-seg-btn${detail === m.key ? ' is-on' : ''}`}
+                  title={
+                    m.key
+                      ? '显示每个值可转换的类型按钮（bool / 时间 / hex / 嵌套解析…）'
+                      : '只显示纯 JSON 结果（CyberChef 风格）'
+                  }
+                  onClick={() => setDetail(m.key)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="weq-wtools-rv-json">
-            <RvObject key={parseSeq} nodes={result.nodes} path="root" depth={0} comma={false} />
+            <DetailCtx.Provider value={detail}>
+              <RvObject key={parseSeq} nodes={result.nodes} path="root" depth={0} comma={false} />
+            </DetailCtx.Provider>
           </div>
         </div>
       ) : (
@@ -280,7 +333,7 @@ function RvObject({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 14 }}
+        style={{ marginLeft: depth * 7 }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -290,7 +343,7 @@ function RvObject({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {'{'}
       </div>
       <div className="weq-wtools-rv-tree">
@@ -305,7 +358,7 @@ function RvObject({
           />
         ))}
       </div>
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {'}'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -331,7 +384,7 @@ function RvList({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 14 }}
+        style={{ marginLeft: depth * 7 }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -341,13 +394,13 @@ function RvList({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {'['}
       </div>
       {items.map((it, i) => (
         <div
           className="weq-wtools-rv-row"
-          style={{ paddingLeft: (depth + 1) * 14 }}
+          style={{ paddingLeft: (depth + 1) * 7 }}
           key={`${path}.${rvItemKey(it)}`}
         >
           <span className="weq-wtools-rv-tag">{`t${it.tag}`}</span>
@@ -359,7 +412,7 @@ function RvList({
           />
         </div>
       ))}
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {']'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -385,7 +438,7 @@ function RvMap({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 14 }}
+        style={{ marginLeft: depth * 7 }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -395,13 +448,13 @@ function RvMap({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {'{'}
       </div>
       {entries.map((e, i) => (
         <div
           className="weq-wtools-rv-row"
-          style={{ paddingLeft: (depth + 1) * 14 }}
+          style={{ paddingLeft: (depth + 1) * 7 }}
           key={`${path}.${rvItemKey(e)}`}
         >
           <span className="weq-wtools-rv-key">"{rvKeyDisplay(e.key)}":</span>
@@ -413,7 +466,7 @@ function RvMap({
           />
         </div>
       ))}
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
         {'}'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -450,10 +503,12 @@ function RvRow({
   depth: number;
   comma: boolean;
 }): ReactElement {
+  const label = tagLabel(tag);
+  const keyText = label ? `"${tag} (${label})":` : `"${tag}":`;
   if (values.length === 1) {
     return (
-      <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 14 }}>
-        <span className="weq-wtools-rv-key">"{tag}":</span>
+      <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 7 }}>
+        <span className="weq-wtools-rv-key">{keyText}</span>
         <RvValueView v={values[0]!} path={path} depth={depth} comma={comma} />
       </div>
     );
@@ -462,8 +517,8 @@ function RvRow({
     (v) => v.k === 'int' || v.k === 'float' || v.k === 'fixed' || v.k === 'str' || v.k === 'bytes',
   );
   return (
-    <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 14 }}>
-      <span className="weq-wtools-rv-key">"{tag}":</span>
+    <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 7 }}>
+      <span className="weq-wtools-rv-key">{keyText}</span>
       {allInline ? (
         <span className="weq-wtools-rv-inline-arr">
           <span className="weq-wtools-rv-punct">[</span>
@@ -483,7 +538,7 @@ function RvRow({
             {values.map((v, i) => (
               <div
                 className="weq-wtools-rv-row"
-                style={{ paddingLeft: (depth + 1) * 14 }}
+                style={{ paddingLeft: (depth + 1) * 7 }}
                 key={rvItemKey(v)}
               >
                 <RvValueView
@@ -495,7 +550,7 @@ function RvRow({
               </div>
             ))}
           </div>
-          <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 14 }}>
+          <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
             {']'}
             {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
           </div>
@@ -558,6 +613,7 @@ function hexOfInt(raw: bigint, bits: number): string {
 
 /** 整数：默认按类型展示，可切换 bool / 时间 / 无符号 / zigzag / hex。 */
 function RvInt({ v, comma }: { v: Extract<RvValue, { k: 'int' }>; comma: boolean }): ReactElement {
+  const detail = useContext(DetailCtx);
   const [view, setView] = useState<'dec' | 'bool' | 'time' | 'unsigned' | 'zigzag' | 'hex'>('dec');
   const display = rvIntDisplay(v);
   const canBool = v.raw === 0n || v.raw === 1n;
@@ -565,9 +621,11 @@ function RvInt({ v, comma }: { v: Extract<RvValue, { k: 'int' }>; comma: boolean
   const canZigzag = v.bits === 0;
   const canUnsigned = v.bits > 0;
 
+  // 简洁模式下永远显示默认值，避免切换视图时残留上次的转换结果。
+  const effectiveView = detail ? view : 'dec';
   let shown: string;
   let cls = 'weq-wtools-rv-num';
-  switch (view) {
+  switch (effectiveView) {
     case 'bool':
       shown = v.raw === 1n ? 'true' : 'false';
       cls = 'weq-wtools-rv-str';
@@ -597,17 +655,21 @@ function RvInt({ v, comma }: { v: Extract<RvValue, { k: 'int' }>; comma: boolean
 
   return (
     <span className="weq-wtools-rv-value">
-      <span className={`${cls}${view !== 'dec' ? ' weq-wtools-rv-converted' : ''}`}>{shown}</span>
-      {toggles.map((t) => (
-        <button
-          key={t.key}
-          type="button"
-          className={`weq-wtools-rv-mini${view === t.key ? ' is-on' : ''}`}
-          onClick={() => setView(view === t.key ? 'dec' : t.key)}
-        >
-          {t.label}
-        </button>
-      ))}
+      <span className={`${cls}${effectiveView !== 'dec' ? ' weq-wtools-rv-converted' : ''}`}>
+        {shown}
+      </span>
+      {detail
+        ? toggles.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`weq-wtools-rv-mini${view === t.key ? ' is-on' : ''}`}
+              onClick={() => setView(view === t.key ? 'dec' : t.key)}
+            >
+              {t.label}
+            </button>
+          ))
+        : null}
       <RvComma comma={comma} />
     </span>
   );
@@ -621,9 +683,10 @@ function RvFixed({
   v: Extract<RvValue, { k: 'fixed' }>;
   comma: boolean;
 }): ReactElement {
+  const detail = useContext(DetailCtx);
   const [showFloat, setShowFloat] = useState(false);
   const dv = new DataView(v.bytes.buffer, v.bytes.byteOffset, v.bytes.length);
-  if (showFloat) {
+  if (showFloat && detail) {
     const f = v.bits === 64 ? dv.getFloat64(0, true) : dv.getFloat32(0, true);
     return (
       <span className="weq-wtools-rv-value">
@@ -643,9 +706,11 @@ function RvFixed({
   return (
     <span className="weq-wtools-rv-value">
       <span className="weq-wtools-rv-num">{u.toString()}</span>
-      <button type="button" className="weq-wtools-rv-mini" onClick={() => setShowFloat(true)}>
-        float
-      </button>
+      {detail ? (
+        <button type="button" className="weq-wtools-rv-mini" onClick={() => setShowFloat(true)}>
+          float
+        </button>
+      ) : null}
       <RvComma comma={comma} />
     </span>
   );
@@ -653,13 +718,16 @@ function RvFixed({
 
 /** JCE 字符串：文本 ↔ hex。 */
 function RvStr({ v, comma }: { v: Extract<RvValue, { k: 'str' }>; comma: boolean }): ReactElement {
+  const detail = useContext(DetailCtx);
   const [showHex, setShowHex] = useState(false);
   return (
     <span className="weq-wtools-rv-value">
       <span className="weq-wtools-rv-str">
-        {showHex ? JSON.stringify(truncate(bytesToHex(v.bytes), 96)) : JSON.stringify(v.text)}
+        {showHex && detail
+          ? JSON.stringify(truncate(bytesToHex(v.bytes), 96))
+          : JSON.stringify(v.text)}
       </span>
-      {v.bytes.length > 0 ? (
+      {detail && v.bytes.length > 0 ? (
         <button
           type="button"
           className={`weq-wtools-rv-mini${showHex ? ' is-on' : ''}`}
@@ -675,7 +743,7 @@ function RvStr({ v, comma }: { v: Extract<RvValue, { k: 'str' }>; comma: boolean
 
 type RvBytesMode = 'hex' | 'utf8' | 'base64' | 'proto' | 'jce';
 
-/** bytes：hex / 文本 / Base64 / 按 protobuf / 按 JCE 嵌套解析。 */
+/** bytes：能当嵌套消息解就默认展开，其余文本 / hex / Base64 一键切换。 */
 function RvBytes({
   v,
   path,
@@ -687,6 +755,55 @@ function RvBytes({
   depth: number;
   comma: boolean;
 }): ReactElement {
+  const detail = useContext(DetailCtx);
+  const [showRaw, setShowRaw] = useState(false);
+
+  // 解析器已经在 LEN / SIMPLE_LIST 上做过一层自动识别：默认直接内联展开，
+  // 需要看原始字节时再点「N bytes」切回去，避免每次手动点「按 protobuf 解析」。
+  if (v.nested) {
+    return (
+      <span className="weq-wtools-rv-value weq-wtools-rv-nested">
+        {detail ? (
+          <span className="weq-wtools-rv-nested-badge">
+            <button
+              type="button"
+              className={`weq-wtools-rv-mini${showRaw ? ' is-on' : ''}`}
+              onClick={() => setShowRaw(!showRaw)}
+            >
+              {showRaw ? '展开嵌套' : `${v.bytes.length} bytes`}
+            </button>
+            {!showRaw ? (
+              <span className="weq-wtools-rv-nested-kind">
+                嵌套 {v.nestedKind === 'jce' ? 'JCE' : 'protobuf'}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+        {showRaw ? (
+          <RvBytesRaw v={v} path={path} depth={depth} comma={comma} />
+        ) : (
+          <RvObject nodes={v.nested} path={`${path}.nested`} depth={depth} comma={comma} />
+        )}
+      </span>
+    );
+  }
+
+  return <RvBytesRaw v={v} path={path} depth={depth} comma={comma} />;
+}
+
+/** 没有嵌套（或用户切回原始字节）时的 hex / 文本 / Base64 / 手动解析视图。 */
+function RvBytesRaw({
+  v,
+  path,
+  depth,
+  comma,
+}: {
+  v: Extract<RvValue, { k: 'bytes' }>;
+  path: string;
+  depth: number;
+  comma: boolean;
+}): ReactElement {
+  const detail = useContext(DetailCtx);
   const [mode, setMode] = useState<RvBytesMode>(tryUtf8(v.bytes) ? 'utf8' : 'hex');
   const [expanded, setExpanded] = useState(false);
   const utf8 = useMemo(() => tryUtf8(v.bytes), [v.bytes]);
@@ -731,25 +848,30 @@ function RvBytes({
       shown = JSON.stringify(bytesToBase64(v.bytes));
       break;
     default:
-      shown = JSON.stringify(expanded || !long ? hex : truncate(hex, 96));
+      shown =
+        v.bytes.length === 0
+          ? JSON.stringify('')
+          : JSON.stringify(`0x${expanded || !long ? hex : truncate(hex, 96)}`);
   }
 
   return (
     <span className="weq-wtools-rv-value">
-      <span className={`weq-wtools-rv-str${mode !== 'hex' ? ' weq-wtools-rv-converted' : ''}`}>
+      <span
+        className={`weq-wtools-rv-str${detail && mode !== 'hex' ? ' weq-wtools-rv-converted' : ''}`}
+      >
         {shown}
       </span>
-      {long ? (
+      {detail ? (
         <button
           type="button"
           className="weq-wtools-rv-mini"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? '收起' : '展开全部字节'}
         >
-          {expanded ? '收起' : `${hex.length / 2} 字节`}
+          {expanded ? '收起' : `${v.bytes.length} 字节`}
         </button>
       ) : null}
-      {utf8 ? (
+      {detail && utf8 ? (
         <button
           type="button"
           className={`weq-wtools-rv-mini${mode === 'utf8' ? ' is-on' : ''}`}
@@ -758,14 +880,16 @@ function RvBytes({
           文本
         </button>
       ) : null}
-      <button
-        type="button"
-        className={`weq-wtools-rv-mini${mode === 'base64' ? ' is-on' : ''}`}
-        onClick={() => setMode(mode === 'base64' ? 'hex' : 'base64')}
-      >
-        Base64
-      </button>
-      {proto ? (
+      {detail ? (
+        <button
+          type="button"
+          className={`weq-wtools-rv-mini${mode === 'base64' ? ' is-on' : ''}`}
+          onClick={() => setMode(mode === 'base64' ? 'hex' : 'base64')}
+        >
+          Base64
+        </button>
+      ) : null}
+      {detail && proto ? (
         <button
           type="button"
           className={`weq-wtools-rv-mini${mode === 'proto' ? ' is-on' : ''}`}
@@ -774,7 +898,7 @@ function RvBytes({
           protobuf
         </button>
       ) : null}
-      {jce ? (
+      {detail && jce ? (
         <button
           type="button"
           className={`weq-wtools-rv-mini${mode === 'jce' ? ' is-on' : ''}`}
