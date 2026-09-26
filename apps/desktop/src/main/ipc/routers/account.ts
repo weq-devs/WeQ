@@ -13,8 +13,9 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
@@ -2999,6 +3000,118 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
       return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
+    }),
+
+  /**
+   * 发消息主链路：一条消息的元素数组。
+   *
+   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 窗口抖动 / 弹射表情，以及
+   * **图片 / 语音 / 视频**（媒体元素在服务层真实上传 NTV2）都走这里。
+   * 元素形状见 @weq/service 的 `SendElement`：媒体元素的 `source` 是本机绝对路径
+   * （优先）或字节（剪贴板等无路径来源）。字节以 `{ type:'Buffer', data }` 过 IPC，
+   * 这里用 `elementsFromEditable` 还原成 Uint8Array。
+   */
+  sendElements: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        elements: z.array(z.any()).min(1),
+        dress: z.any().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendElements({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        elements: elementsFromEditable(input.elements) as never,
+        ...(input.dress ? { dress: input.dress as never } : {}),
+      });
+    }),
+
+  /**
+   * 发文件（群文件 / 私聊文件）。文件走的是独立管线（老 OIDB + highway 裸帧），
+   * 不是媒体元素，所以单开一条 route —— 渲染层给本机**绝对路径**（`webUtils.getPathForFile`）。
+   */
+  sendFile: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        path: z.string().min(1),
+        fileName: z.string().min(1).optional(),
+        folderId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendFile({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        path: input.path,
+        ...(input.fileName ? { fileName: input.fileName } : {}),
+        ...(input.folderId ? { folderId: input.folderId } : {}),
+      });
+    }),
+
+  /**
+   * 发语音（录制 / 本机 TTS）。
+   *
+   * 渲染层录的是 webm/opus，浏览器能解但不是 QQ 要的 SILK；主进程的 `encodeFileToSilk`
+   * 只认 WAV / SILK。所以渲染层先用 WebAudio 把录音解成 24 kHz WAV（见 composerSend 的
+   * `decodeRecordingToWav`），这里再把这份 WAV 落成临时文件、转 SILK、连同真实波形发送。
+   *
+   * `wav` 是 IPC 安全的 `{ type:'Buffer', data }` 盒子（`elementsFromEditable` 还原）。
+   */
+  sendVoice: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        wav: z.any(),
+        durationSec: z.number().min(0).max(3600).optional(),
+        fileName: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const wav = elementsFromEditable(input.wav) as Uint8Array;
+      if (!(wav instanceof Uint8Array) || wav.byteLength === 0) {
+        throw new Error('语音数据为空，无法发送。');
+      }
+      // 临时文件：`encodeFileToSilk` 按路径读；放系统临时目录，转完即删。
+      const tempPath = join(tmpdir(), `weq-voice-${randomUUID()}.wav`);
+      await writeFile(tempPath, wav);
+      try {
+        // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
+        const { encodeFileToSilk } = await import('../../voice');
+        const silk = await encodeFileToSilk(tempPath);
+        return requireServices().messageSend.sendMedia({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          kind: 'record',
+          source: silk.silk,
+          durationSec: input.durationSec ?? silk.durationSec,
+          ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
+          ...(input.fileName ? { fileName: input.fileName } : {}),
+        });
+      } finally {
+        await unlink(tempPath).catch(() => undefined);
+      }
+    }),
+
+  /**
+   * AI 声聊（TTS）：`0x929b_0` 合成即发送（只支持群聊），**没有第二步** ——
+   * 不要再拼一条 ptt 元素手动发。见 `MessageSendService.sendAiVoice`。
+   */
+  sendAiVoice: procedure
+    .input(
+      z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendAiVoice(input);
     }),
 
   // ---- Ark 卡片（输入框「图文 ark」面板）----

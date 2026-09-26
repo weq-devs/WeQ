@@ -132,6 +132,13 @@ import {
   toIpcElements,
 } from '../im-template/template';
 import {
+  buildComposerSendPlan,
+  buildOptimisticRender,
+  decodeRecordingToWav,
+  type LocalMediaRef,
+  type SuperStickerEntry as ComposerSuperSticker,
+} from '../im-template/template/composerSend';
+import {
   qqMessageRenderer,
   ReplyJumpContext,
   ForwardKindContext,
@@ -1224,6 +1231,67 @@ function optimisticArkToTemplate(
 }
 
 /**
+ * 一条「乐观渲染」的普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件 / 引用 /
+ * 弹射表情 / 窗口抖动…）—— 与 {@link OptimisticArk} 同一套做法。
+ *
+ * 发出去之后不等 QQ 同步回来，先在目标会话里按真实气泡渲染出这条消息 + 状态标识；
+ * 本地媒体走 `localPath` / `localPreviewUrl` 直接预览。只活在前端 state 里，不写库、
+ * 不落缓存，开关应用即消失。元素形状与真实消息的 `qqElements` 同构（见
+ * `composerSend.buildOptimisticRender`），所以同步到位后不会跳变。
+ */ type OptimisticMessage = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  /** 纯文本预览（会话列表 / 气泡文本）。 */
+  body: string;
+  /** 渲染元素（`{type,data}`，与真实消息的 `qqElements` 同形）。 */
+  elements: unknown[];
+  /**
+   * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊那条 0x929b_0 回执）。
+   * 目前只用于 `aiVoice:<合成原文>`；按出现次数消耗。
+   */
+  signature?: string;
+  state: 'sending' | 'sent' | 'failed';
+  error?: string;
+  /** 客户端 `random`（回执带回）—— 对账主键。 */
+  cid?: string;
+  /** 回执给出的会话内真实 seq（群聊 / 私聊同一套）—— 用于排序与缺口判定。 */
+  seq?: string;
+  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。 */
+  seqRejected?: boolean;
+  at: number;
+};
+
+/** 乐观普通消息 → 模板层 Message（走与真实消息**同一条渲染通路**）。 */
+function optimisticMessageToTemplate(
+  item: OptimisticMessage,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: item.body,
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: item.elements,
+    msgId: item.id,
+    // 有真实 seq 就参与排序与缺口判定（同 Ark / 合并转发）。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimisticRejected?: boolean;
+    optimistic: OptimisticMessage['state'];
+    optimisticError?: string;
+  };
+}
+
+/**
  * 回执 seq 是否为 0（= 服务端收下但没分配序号）。
  *
  * 实测（markdown / 签名错的 ark）这种发送的回执与成功**完全一样**：`ok=true`、
@@ -2137,6 +2205,8 @@ export function MainView(): ReactElement {
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
   // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
+  // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -3825,10 +3895,14 @@ export function MainView(): ReactElement {
     const pendingArks = optimisticArks
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
+    // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
+    const pendingMessages = optimisticMessages
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
     // 有真实 seq 的乐观条目按 seq 插进真实消息之间（对方在我们发出后回了消息时，
     // 那条回复不能把我们的消息挤到下面）；没有 seq 的（发送中 / 静默丢弃 / 位置卡片）
     // 一律留在末尾 —— 它们没有可信位置。
-    return mergeOptimisticInto(real, [...pending, ...pendingArks]);
+    return mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
   }, [
     loadedMessageWires,
     selectedConversation,
@@ -3837,6 +3911,7 @@ export function MainView(): ReactElement {
     botUids,
     optimisticForwards,
     optimisticArks,
+    optimisticMessages,
   ]);
 
   /**
@@ -3922,6 +3997,60 @@ export function MainView(): ReactElement {
       return changed ? next : current;
     });
   }, [loadedMessageWires, optimisticArks, selectedConversation]);
+
+  /**
+   * 普通消息（文本 / 表情 / 媒体 / 文件…）的真消息同步回来后把乐观条目收掉。
+   *
+   * 判据与 Ark 同：cid（= 客户端 `random`）首选 —— 发送前已知、回执带回、库里 40002
+   * 同名；seq 作为次要对账（会话内序号，所以必须限定当前会话）。媒体消息同步本来就
+   * 比文本慢，未命中前乐观条目继续显示本地预览。
+   */
+  useEffect(() => {
+    if (optimisticMessages.length === 0) return;
+    const openConvId = selectedConversation?.id;
+    if (!openConvId) return;
+    const cids = new Set<string>();
+    const seqs = new Set<string>();
+    const signatures = new Map<string, number>();
+    for (const wire of loadedMessageWires) {
+      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
+      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
+      // AI 声聊回执没有 random / seq：真消息回来时靠「合成原文」签名收掉。
+      for (const element of wire.elements ?? []) {
+        const el = element as { type?: string; data?: Record<string, unknown> };
+        if (el.type !== 'ptt' || !el.data?.isAiVoice) continue;
+        const transcript = String(el.data.pttTranscript ?? '');
+        if (!transcript) continue;
+        const signature = `aiVoice:${transcript}`;
+        signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+      }
+    }
+    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
+    setOptimisticMessages((current) => {
+      let changed = false;
+      const next = current.filter((item) => {
+        if (item.convId !== openConvId) return true;
+        if (item.cid && cids.has(item.cid)) {
+          changed = true;
+          return false;
+        }
+        if (item.seq && seqs.has(item.seq)) {
+          changed = true;
+          return false;
+        }
+        if (item.signature) {
+          const left = signatures.get(item.signature);
+          if (left) {
+            signatures.set(item.signature, left - 1);
+            changed = true;
+            return false;
+          }
+        }
+        return true;
+      });
+      return changed ? next : current;
+    });
+  }, [loadedMessageWires, optimisticMessages, selectedConversation]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -4763,17 +4892,213 @@ export function MainView(): ReactElement {
   }, [conversations, hiddenConversationsById, deletedConversationsById]);
 
   /**
-   * 发消息还没有接后端（本轮只做前端）。这里**必须抛出**而不是返回成功 ——
-   * composer 以「onSend 正常返回」为发送成功的信号，返回成功会把输入框清空，
-   * 用户会以为发出去了。抛错路径会保留原文，只弹提示。
+   * 从表情面板目录里抽出「能按超级表情发」的 faceId → packId/stickerId。
+   *
+   * 面板 overview 的形状随分组嵌套，这里不写死结构：递归扫出带 `sticker===true`
+   * 且 `id/packId/stickerId` 齐全的项。`(packId, stickerId)` 不唯一，所以键必须是
+   * faceId（`id`）。
    */
-  async function sendMessage(_body: string): Promise<void> {
-    pushToast({
-      tone: 'warning',
-      message: '发送功能尚未接入',
-      detail: '输入框已经启用，但发消息的后端还在接线中，内容已为你保留在输入框里。',
+  function collectSuperStickers(value: unknown, out: Map<string, ComposerSuperSticker>): void {
+    if (Array.isArray(value)) {
+      for (const item of value) collectSuperStickers(item, out);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    if (
+      record.sticker === true &&
+      typeof record.id === 'string' &&
+      typeof record.packId === 'string' &&
+      record.packId &&
+      typeof record.stickerId === 'string' &&
+      record.stickerId
+    ) {
+      out.set(record.id, {
+        packId: record.packId,
+        stickerId: record.stickerId,
+        ...(typeof record.stickerType === 'number' ? { stickerType: record.stickerType } : {}),
+      });
+    }
+    for (const child of Object.values(record)) collectSuperStickers(child, out);
+  }
+
+  /**
+   * 发消息（输入框主链路）。
+   *
+   * `body` 是输入框序列化正文（文本 / @ / 引用 / 表情 / 图片 / 视频 / 语音 / 文件 /
+   * 弹射表情 / AI 声聊… 都可能在里面），`locals` 是其中媒体 / 文件的本地句柄。
+   * 这里把它翻成协议元素（见 {@link buildComposerSendPlan}）再分派 IPC：
+   *   - `elements` → `account.sendElements`（媒体在服务层真实上传）；
+   *   - `file`     → `account.sendFile`（独立文件管线，需要本机路径）；
+   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊）。
+   *
+   * 失败一律**抛错**：composer 以「onSend 正常返回」为发送成功信号，返回成功会清空
+   * 输入框；抛错路径会保留原文。服务端拒绝（result≠0）也不算成功。
+   */
+  async function sendMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
+    const conversation = selectedConversation;
+    if (!conversation) {
+      pushToast({ tone: 'warning', message: '没有选中的会话' });
+      throw new Error('no conversation');
+    }
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送消息',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // 只有带超级表情（`:big`）时才去拉目录；普通消息不为它多打一次 IPC。
+    const superStickers = new Map<string, ComposerSuperSticker>();
+    if (body.includes(':big')) {
+      try {
+        collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
+      } catch {
+        // 拉不到目录时保持空 Map —— 真发超级表情会由 buildComposerSendPlan 如实报错。
+      }
+    }
+
+    const plan = buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+
+    // ── 乐观渲染 ─────────────────────────────────────────────────────────
+    // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来
+    // +「发送中」标识。本地媒体用 localPath / localPreviewUrl 直接预览。只活在
+    // 前端 state 里，不写库、不落缓存文件。
+    const optimisticId = `optimistic-${mfId('msg')}`;
+    const render = buildOptimisticRender({ body, locals: locals ?? [], superStickers });
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: render.body,
+        elements: render.elements,
+        ...(plan.kind === 'aiVoice' ? { signature: `aiVoice:${plan.text}` } : {}),
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    let outcome: {
+      ok: boolean;
+      errMsg?: string;
+      hint?: string;
+      groupSequence?: number;
+      privateSequence?: number;
+      random?: number;
+    };
+    try {
+      if (plan.kind === 'file') {
+        outcome = await client.account.sendFile.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          path: plan.path,
+          fileName: plan.fileName,
+        });
+      } else if (plan.kind === 'voice') {
+        // 录音是 webm/opus，主进程只收 WAV/SILK：先在渲染层解成 24k WAV。
+        const wav = await decodeRecordingToWav(plan.recording);
+        outcome = await client.account.sendVoice.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          wav: toIpcElements([wav])[0],
+          ...(plan.durationSec ? { durationSec: plan.durationSec } : {}),
+          fileName: plan.fileName,
+        });
+      } else if (plan.kind === 'aiVoice') {
+        if (target.peerType !== 'group') {
+          pushToast({
+            tone: 'warning',
+            message: 'AI 声聊只支持群聊',
+            detail: '私聊没有这个能力，内容已为你保留在输入框里。',
+          });
+          throw new Error('ai voice requires group');
+        }
+        outcome = await client.account.sendAiVoice.mutate({
+          groupId: target.targetId,
+          voiceId: plan.voiceId,
+          text: plan.text,
+        });
+      } else {
+        outcome = await client.account.sendElements.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          elements: toIpcElements(plan.elements),
+        });
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({
+        tone: 'error',
+        message: '发送失败',
+        detail: reason,
+      });
+      throw error;
+    }
+
+    // 服务端明确拒绝（result≠0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
+    if (!outcome.ok) {
+      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({ tone: 'error', message: '发送失败', detail: reason });
+      throw new Error(reason);
+    }
+
+    // 回执里的 random / seq 用来对账与排序（与 Ark 同）。文件回执只有 random /
+    // privateSequence，AI 声聊回执两者都没有，所以分类处理。
+    if (plan.kind === 'file') {
+      const fileOutcome = outcome as Awaited<ReturnType<typeof client.account.sendFile.mutate>>;
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(fileOutcome.privateSequence !== undefined
+            ? { privateSequence: fileOutcome.privateSequence }
+            : {}),
+          ...(fileOutcome.random !== undefined ? { random: fileOutcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      return;
+    }
+    if (plan.kind === 'aiVoice') {
+      // 0x929b_0 回执没有 random / seq：只能靠内容签名（合成原文）对账。
+      patchOptimistic({ state: 'sent' });
+      return;
+    }
+    patchOptimistic({
+      ...expectedKeysOf({
+        peerType: target.peerType,
+        ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+        ...(outcome.privateSequence !== undefined
+          ? { privateSequence: outcome.privateSequence }
+          : {}),
+        ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+      }),
+      state: 'sent',
     });
-    throw new Error('send message is not wired up yet');
+    if (isSeqRejected(outcome)) {
+      pushToast({
+        tone: 'warning',
+        message: '这条消息可能未被服务端接收',
+        detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
+      });
+    }
   }
 
   /**
@@ -4796,15 +5121,36 @@ export function MainView(): ReactElement {
     // 这个人时也照样发得出去；连 QQ 号都拿不到（只有 uid）才退回 uid 反查。
     const other = conversation.otherUser;
     const targetId = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
+
+    // 乐观渲染：窗口抖动是一条独立灰条消息，第一时间插到会话末尾。
+    const optimisticId = `optimistic-${mfId('ws')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: '[窗口抖动]',
+        elements: [{ type: 'windowShake', data: {} }],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
     let outcome: Awaited<ReturnType<typeof client.account.sendWindowShake.mutate>>;
     try {
       outcome = await client.account.sendWindowShake.mutate({ targetId });
     } catch (error) {
       // 传输层异常（离线 / 风控 / 原生失败）走这里：弹一次提示再抛，让 ChatPane 收尾。
+      const reason = error instanceof Error ? error.message : String(error);
+      patchOptimistic({ state: 'failed', error: reason });
       pushToast({
         tone: 'error',
         message: '窗口抖动发送失败',
-        detail: error instanceof Error ? error.message : String(error),
+        detail: reason,
       });
       throw error;
     }
@@ -4812,6 +5158,7 @@ export function MainView(): ReactElement {
     // 服务端明确拒绝（result != 0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
     if (!outcome.ok) {
       const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
+      patchOptimistic({ state: 'failed', error: reason });
       pushToast({
         tone: 'error',
         message: '窗口抖动发送失败',
@@ -4819,6 +5166,7 @@ export function MainView(): ReactElement {
       });
       throw new Error(reason);
     }
+    patchOptimistic({ ...expectedKeysOf(outcome), state: 'sent' });
   }
 
   /**

@@ -29,6 +29,7 @@ import {
   sendGroupFile,
   sendMessage,
   sendPrivateFile,
+  SendAiVoice,
   SendLocationArk,
   type ContactArkKind,
   type MediaSource,
@@ -97,6 +98,40 @@ export interface SendTextParams {
 export interface SendWindowShakeParams {
   /** 私聊对端：QQ 号或 uid（窗口抖动不支持群聊 / 群临时会话）。 */
   targetId: string | number;
+}
+
+/**
+ * AI 声聊（TTS）发送参数。
+ *
+ * ⚠️ `0x929b_0` **本身就是一次发送** —— 服务端按 `text` + `voiceId` 合成语音后直接
+ * 落到 `groupId` 那个群里，不需要我们再拼一条 ptt 元素手动发一遍（见
+ * `@weq/protocol` 的 `SendAiVoice` 与 docs/develop/ai-voice.md）。所以这里只收
+ * 「群号 / 声线 / 文字」，没有第二步。
+ */
+export interface SendAiVoiceParams {
+  /** 目标**群号**（AI 声聊只支持群聊；私聊会把 uin 当群号查不到）。 */
+  groupId: string | number;
+  /** 声线 id（目录里的 `lucy-voice-*`；服务端按 id 查声线，不存在则报错）。 */
+  voiceId: string;
+  /** 要合成的文字。 */
+  text: string;
+}
+
+/** AI 声聊发送结果（JSON 安全）。合成即发送，所以回执就是这次发送的结果。 */
+export interface SendAiVoiceOutcome {
+  ok: boolean;
+  groupId: string;
+  voiceId: string;
+  text: string;
+  /** 内层返回码（实测成功恒为 1）。 */
+  retCode: number;
+  /** 合成音频的文件 md5（32 位 hex）；服务端拒绝时不出现。 */
+  fileHash?: string;
+  /** 合成音频的文件名（实测形如 `<md5>.amr`）。 */
+  fileName?: string;
+  /** 合成音频字节数。 */
+  fileSize?: number;
+  hint?: string;
 }
 
 /**
@@ -457,6 +492,53 @@ export class MessageSendService {
       targetId: params.targetId,
       elements: [{ kind: 'poke', subType: WINDOW_SHAKE_SUB_TYPE }],
     });
+  }
+
+  /**
+   * AI 声聊（TTS）：`0x929b_0` 把「文字 + 声线」交给服务端合成，**合成即发送**到群里，
+   * 不需要第二步（见 {@link SendAiVoiceParams}）。只支持群聊。
+   *
+   * 服务端拒绝（声线不存在 / 文字不合规等）由 OIDB 直接抛错，这里原样上抛；成功时如实
+   * 给出合成音频的文件信息，便于日后再排查「发出去了但收端说没声音」。
+   */
+  async sendAiVoice(params: SendAiVoiceParams): Promise<SendAiVoiceOutcome> {
+    const groupText = String(params.groupId).trim();
+    if (!/^\d+$/.test(groupText)) {
+      throw new Error(`AI 声聊只支持群聊，目标是群号（纯数字），收到「${groupText}」。`);
+    }
+    const groupCode = Number(groupText);
+    if (!Number.isSafeInteger(groupCode) || groupCode <= 0) {
+      throw new Error(`群号不合法：${groupText}`);
+    }
+    const voiceId = params.voiceId?.trim() ?? '';
+    if (!voiceId) throw new Error('AI 声聊的声线 id 不能为空。');
+    const text = params.text ?? '';
+    if (!text.trim()) throw new Error('AI 声聊的合成文字不能为空。');
+
+    const pid = this.resolvePid();
+    const result = await SendAiVoice.invoke(this.nt, pid, { groupCode, voiceId, text });
+    const info = result.audio?.node?.fileInfo;
+    const ok = SendAiVoice.isOk(result);
+    logger.info(ok ? `AI 声聊已合成并发送: ${voiceId}` : `AI 声聊返回 retCode=${result.retCode}`, {
+      event: 'send-ai-voice',
+      groupId: groupText,
+      voiceId,
+      retCode: result.retCode,
+      fileHash: info?.fileHash,
+    });
+    return {
+      ok,
+      groupId: groupText,
+      voiceId,
+      text,
+      retCode: result.retCode,
+      ...(info
+        ? { fileHash: info.fileHash, fileName: info.fileName, fileSize: info.fileSize }
+        : {}),
+      ...(ok
+        ? {}
+        : { hint: `服务端返回 retCode=${result.retCode}（成功应为 1），语音可能没有发出去。` }),
+    };
   }
 
   /** 图片 / 语音 / 视频（自动上传 NTV2）。 */

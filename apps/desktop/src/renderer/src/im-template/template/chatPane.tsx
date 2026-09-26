@@ -95,6 +95,8 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
+import { elementToToken } from './draftElements';
+import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import {
   ComposerResizeHandle,
   focusComposerEnd,
@@ -333,7 +335,12 @@ export function ChatPane({
   profileLoading?: boolean;
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
   sendAvailable?: boolean;
-  onSend: (body: string) => Promise<void>;
+  /**
+   * 发一条消息。`body` 是输入框序列化正文（含各类 token）；`locals` 是正文里那些
+   * 图片 / 视频 / 语音 / 文件的**本地句柄**（路径优先 / 字节兜底），应用层据此补上
+   * 媒体本体再走 IPC。
+   */
+  onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
   /**
    * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
    * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
@@ -1136,6 +1143,17 @@ export function ChatPane({
     token.className = cn('composer-mention-token');
     token.contentEditable = 'false';
     token.dataset.chatMention = label;
+    // 真正的 @ 语义（uid/uin）靠元素 token 带走：序列化时原样取回，发送时还原成
+    // `at` 元素。只留 label 的话发出去会退化成一串纯文本 `@昵称`，不会真的提醒对方。
+    const mentionUin = /^\d+$/.test(member.identityValue)
+      ? Number(member.identityValue)
+      : undefined;
+    token.dataset.chatToken = elementToToken({
+      kind: 'at',
+      textContent: label,
+      atTargetUid: member.id,
+      ...(mentionUin ? { atTargetUin: mentionUin } : {}),
+    });
     token.textContent = label;
 
     if (trigger) {
@@ -1409,6 +1427,40 @@ export function ChatPane({
    * 挂着视频 / 文件 / 超级表情时正文一律不参与本次发送：它们只能单独发，输入框里的
    * 文字原样留着。
    */
+  /**
+   * 收集本次要发的本地媒体句柄：内联图片 + 挂着的那张「单独发」卡片 + 调用方额外
+   * 交进来的（语音条）。key 与 composerSend 的 {@link localKeyOf} 的复算规则对齐。
+   *
+   * 优先给绝对路径（`webUtils.getPathForFile`）；剪贴板截图这类没有落盘来源的图
+   * 读不到路径，回退成字节。
+   */
+  async function collectLocalMedia(extra: LocalMediaRef[]): Promise<LocalMediaRef[]> {
+    const out: LocalMediaRef[] = [...extra];
+    const attachments = [...inlineImagesRef.current];
+    if (mediaAttachment) attachments.push(mediaAttachment);
+    for (const attachment of attachments) {
+      const key = attachment.url ?? `${attachment.name}:${attachment.size}`;
+      const path = window.weq?.pathForFile?.(attachment.file) ?? '';
+      // 预览地址只给乐观渲染用（发完即丢）；拿不到就退回本地路径 / 不预览。
+      const previewUrl = attachment.url ?? undefined;
+      if (path) {
+        out.push({ key, path, name: attachment.name, ...(previewUrl ? { previewUrl } : {}) });
+        continue;
+      }
+      try {
+        out.push({
+          key,
+          bytes: new Uint8Array(await attachment.file.arrayBuffer()),
+          name: attachment.name,
+          ...(previewUrl ? { previewUrl } : {}),
+        });
+      } catch {
+        // 读不出字节就让上层报缺路径 / 字节，而不是发一条空消息。
+      }
+    }
+    return out;
+  }
+
   async function submitMessage(
     options: {
       extraTokens?: string[];
@@ -1416,6 +1468,8 @@ export function ChatPane({
       keepBody?: boolean;
       /** 独立发送（链接卡片）：本次不带引用，引用条的清理也在调用方。 */
       omitQuote?: boolean;
+      /** 本条第额外本地媒体句柄（如语音条）。 */
+      locals?: LocalMediaRef[];
     } = {},
   ) {
     const editor = currentComposerEditor();
@@ -1439,9 +1493,13 @@ export function ChatPane({
       return;
     }
 
+    const payloadBody = `${text}${tokens.join('')}`;
     setSending(true);
     try {
-      await onSend(`${text}${tokens.join('')}`);
+      const locals = planNeedsLocalMedia(payloadBody)
+        ? await collectLocalMedia(options.locals ?? [])
+        : undefined;
+      await onSend(payloadBody, locals);
     } catch (error) {
       // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
       // 不能因为一次失败就把用户打好的字吞掉。
@@ -1505,9 +1563,27 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  /** 语音面板「发送」：语音本身编成 ptt 元素 token。 */
+  /** 语音面板「发送」：语音本身编成 ptt 元素 token；本地 blob 作为字节一并交出。 */
   async function sendVoiceClip(clip: VoiceClip) {
-    await submitMessage({ extraTokens: [voiceClipToken(clip)] });
+    const locals: LocalMediaRef[] = [];
+    if (clip.blob) {
+      try {
+        const bytes = new Uint8Array(await clip.blob.arrayBuffer());
+        locals.push({
+          key: `voice-${clip.id}.silk`,
+          bytes,
+          name: `voice-${clip.id}.silk`,
+          // 乐观渲染：直接放录音 blob（浏览器放得了 webm/opus），并用采样峰值画波形。
+          ...(clip.url ? { previewUrl: clip.url } : {}),
+          ...(clip.levels.length > 0
+            ? { waveform: clip.levels.map((level) => Math.round(level * 255)) }
+            : {}),
+        });
+      } catch {
+        // 读不出字节时让上层报错（不静默丢语音）。
+      }
+    }
+    await submitMessage({ extraTokens: [voiceClipToken(clip)], locals });
   }
 
   /** 语音面板「发送文字」：只把识别 / 合成的文字发出去。 */
@@ -2608,6 +2684,9 @@ export function ChatPane({
               'grayTipFileRecv',
               'grayTipTempSession',
               'qqDynamic',
+              // 乐观渲染的窗口抖动（收到侧 QQ 会丢弃 serviceType=2，所以只有自己
+              // 发出去那一下能看到；真正到达对方后由对方客户端的抖屏反馈）。
+              'windowShake',
             ];
             const grayTipOf = (message) => {
               const els = message.qqElements ?? [];
@@ -2658,6 +2737,12 @@ export function ChatPane({
                   return <GrayTipTempSessionMessage element={gt.el} />;
                 case 'groupCallEnded':
                   return <GroupCallEndedMessage element={gt.el} />;
+                case 'windowShake':
+                  return (
+                    <div className="weq-graytip text-center text-gray-500 text-xs py-2">
+                      窗口抖动
+                    </div>
+                  );
                 case 'qqDynamic': {
                   const d = (gt.el.data ?? {}) as Record<string, unknown>;
                   return (

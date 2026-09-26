@@ -846,6 +846,25 @@ function elemsOf(body: Uint8Array): unknown[] {
   return decoded.messageBody?.richText?.elems ?? [];
 }
 
+describe('MessageSendService.sendAiVoice 参数校验（纯函数）', () => {
+  it('非数字群号：明确报「只支持群聊 / 群号」', async () => {
+    const svc = new MessageSendService(fakeNative() as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendAiVoice({ groupId: '某群', voiceId: 'lucy-voice-1', text: 'hi' }),
+    ).rejects.toThrow(/只支持群聊/);
+  });
+
+  it('声线 id 为空 / 合成文字为空：在校验阶段就报错（不进 OIDB）', async () => {
+    const svc = new MessageSendService(fakeNative() as never, fakeSession(), () => 1);
+    await expect(svc.sendAiVoice({ groupId: '123', voiceId: '  ', text: 'hi' })).rejects.toThrow(
+      /声线 id/,
+    );
+    await expect(svc.sendAiVoice({ groupId: '123', voiceId: 'v', text: '   ' })).rejects.toThrow(
+      /合成文字/,
+    );
+  });
+});
+
 describe('Ark 卡片参数校验（纯函数）', () => {
   it('requireArkJson：空 / 非法 JSON 报错，合法 JSON 去掉首尾空白', () => {
     expect(requireArkJson('  {"a":1}  ')).toBe('{"a":1}');

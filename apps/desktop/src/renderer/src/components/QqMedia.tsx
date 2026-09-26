@@ -160,9 +160,17 @@ export function QqImage({
   const [cdnFailed, setCdnFailed] = useState(false);
   // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
   // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
-  // 真实消息的渲染元素不带这个字段，所以主时间线行为不变。
+  // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
+  // 真实消息的渲染元素不带这两个字段，所以主时间线行为不变。
   const localPath = str(data, 'localPath');
-  const src = localPath ? localFileUrl(localPath) : cdnSrc && !cdnFailed ? cdnSrc : proxySrc;
+  const localPreviewUrl = str(data, 'localPreviewUrl');
+  const src = localPath
+    ? localFileUrl(localPath)
+    : localPreviewUrl
+      ? localPreviewUrl
+      : cdnSrc && !cdnFailed
+        ? cdnSrc
+        : proxySrc;
 
   if (broken) {
     return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
@@ -243,11 +251,12 @@ export function QqVideo({
   const proxyCover = mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken });
   // 合并转发编辑器里拼的视频带 `localPath` / `thumbLocalPath`（本机绝对路径）——
   // 还没上传、不在 Video 缓存里，按发送时间 / 文件名去找会 404，直接从本机文件流
-  // （主进程只放行 nt_data 内 + 用户亲手选中的路径）。真实消息不带这两个字段，
-  // 主时间线行为不变。
+  // （主进程只放行 nt_data 内 + 用户亲手选中的路径）。乐观渲染的视频带
+  // `localPreviewUrl`（blob:）。真实消息不带这几个字段，主时间线行为不变。
   const localPath = str(data, 'localPath');
   const thumbLocalPath = str(data, 'thumbLocalPath');
-  const localCoverSrc = thumbLocalPath ? localFileUrl(thumbLocalPath) : '';
+  const localPreviewUrl = str(data, 'localPreviewUrl');
+  const localCoverSrc = thumbLocalPath ? localFileUrl(thumbLocalPath) : localPreviewUrl;
   const coverSrc = localCoverSrc
     ? localCoverSrc
     : coverCdn && !coverCdnFailed
@@ -264,7 +273,8 @@ export function QqVideo({
 
   const videoSrc = localPath
     ? localFileUrl(localPath)
-    : mediaUrl('video', {
+    : localPreviewUrl ||
+      mediaUrl('video', {
         t: sendTimeMs,
         name,
         token: fileToken,
@@ -554,8 +564,10 @@ export function QqVoice({
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
   // 合并转发编辑器里刚选的语音带 `localPath`（SILK 或音频文件）：主进程用
-  // `localfilevoice` 把 SILK 解码成 WAV 再流回来（浏览器放不了 SILK）。
+  // `localfilevoice` 把 SILK 解码成 WAV 再流回来（浏览器放不了 SILK）。乐观渲染的
+  // 录音带 `localPreviewUrl`（blob: 的 webm/opus），浏览器能直接播，无需 SILK 解码。
   const localPath = str(data, 'localPath');
+  const localPreviewUrl = str(data, 'localPreviewUrl');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
   // Duration comes from the element (wire tag 45906), NOT the waveform: AI 声聊
   // clips carry a fixed 30-byte synthetic strip, so waveform.length/10 is wrong
@@ -600,16 +612,18 @@ export function QqVoice({
       // mediaMsgId/conv/fwd 让主进程在本地 Ptt 文件缺失时能定位元素做 OIDB
       // 补全（转发子消息时是 carrier 的 msgId；`msgId` 留给转写写回用）。
       audio = new Audio(
-        localPath
-          ? localVoiceFileUrl(localPath)
-          : mediaUrl('ptt', {
-              t: sendTimeMs,
-              name,
-              token,
-              msgId: mediaMsgId || msgId,
-              conv,
-              ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
-            }),
+        localPreviewUrl
+          ? localPreviewUrl
+          : localPath
+            ? localVoiceFileUrl(localPath)
+            : mediaUrl('ptt', {
+                t: sendTimeMs,
+                name,
+                token,
+                msgId: mediaMsgId || msgId,
+                conv,
+                ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+              }),
       );
       audio.onended = () => setPlaying(false);
       audio.onerror = () => setPlaying(false);

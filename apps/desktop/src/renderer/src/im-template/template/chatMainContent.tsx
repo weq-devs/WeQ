@@ -7,6 +7,7 @@ import {
   GroupProfilePane,
 } from './profilePanes';
 import { ChatPane } from './chatPane';
+import type { LocalMediaRef } from './composerSend';
 import type { ArkLocationProvider, ArkPayload } from './arkCards';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
@@ -161,7 +162,7 @@ export function ChatMainContent({
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
   sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
-  onSend: (body: string) => Promise<void>;
+  onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */

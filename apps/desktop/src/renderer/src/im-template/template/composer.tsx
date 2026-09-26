@@ -155,6 +155,19 @@ function appendElementChip(editor: HTMLElement, raw: string) {
   const label = element ? elementLabel(element) : '[消息]';
   const src = element ? elementPreviewSrc(element) : null;
 
+  // @ 元素还原成输入框里的 mention span（带 token，可无损再往返）——而不是退化成
+  // 一枚普通文字 chip，否则重放草稿会把真正的 @ 变成纯文本。
+  if ((element as { kind?: string } | null)?.kind === 'at') {
+    const mention = document.createElement('span');
+    mention.className = cn('composer-mention-token');
+    mention.contentEditable = 'false';
+    mention.dataset.chatMention = label;
+    mention.dataset.chatToken = raw;
+    mention.textContent = label;
+    editor.append(mention);
+    return;
+  }
+
   if (src) {
     const image = document.createElement('img');
     image.src = src;
@@ -231,6 +244,12 @@ function serializeComposerNode(node: Node): string {
 
   if (!(node instanceof HTMLElement)) {
     return '';
+  }
+
+  // 带可还原 token 的元素优先（@ / 图片 / 文件…）：取回 token 而不是它的显示文字，
+  // 否则 @ 的目标 uid、图片的本体都会在序列化这一步丢掉。
+  if (node.dataset.chatToken) {
+    return node.dataset.chatToken;
   }
 
   if (node.dataset.chatMention) {
