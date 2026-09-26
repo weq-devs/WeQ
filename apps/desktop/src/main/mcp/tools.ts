@@ -3506,6 +3506,13 @@ export const AI_TOOLS: AiTool[] = [
         .max(3600)
         .optional()
         .describe('时长（秒，语音/视频，可带小数）'),
+      voiceChanged: z
+        .boolean()
+        .optional()
+        .describe(
+          '语音：变声标记（缺省 false=原声）。置 true 时在 ptt 上写 changeVoice=1，' +
+            '与 QQ 客户端「变声」发出的消息一致（收端会显示变声标识）。',
+        ),
       ...dressInputShape,
     }),
     run: async ({
@@ -3519,6 +3526,7 @@ export const AI_TOOLS: AiTool[] = [
       width,
       height,
       durationSec,
+      voiceChanged,
       ...dressArgs
     }) => {
       onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
@@ -3549,6 +3557,7 @@ export const AI_TOOLS: AiTool[] = [
           kind: 'record',
           source: silk.silk,
           durationSec: durationSec ?? silk.durationSec,
+          ...(voiceChanged !== undefined ? { voiceChanged } : {}),
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
         });
         note = `语音时长 ${durationSec ?? silk.durationSec}s（${silk.wav ? '波形按 WAV 真实振幅' : '波形用合成条'}）`;
@@ -3646,6 +3655,7 @@ export const AI_TOOLS: AiTool[] = [
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
       '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
+      '\n  语音变声：{"kind":"record","source":"/绝对/路径.wav","voiceChanged":true}（缺省 false=原声）' +
       '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
       '\n【结果怎么看】ok=false 就是没发出去；元素写错会在发送前报错（不会发半条）。',
     input: z.object({

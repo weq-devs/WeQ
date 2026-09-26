@@ -145,6 +145,23 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
 收端元素 `45925`，我们群聊/服务端漫游缓存里都能看到真波形）、收端元素缺 `45909/45911/45922`
 （群聊也缺，但群聊能画）。
 
+### 变声标记（2026-09-27 抓包对比）
+
+发一条原声、一条变声的群聊语音（同样是 `0x126e_100` + `PbSendMsg`），逐字段对比后只有两处不同：
+
+```
+extBizInfo.ptt.changeVoice (tag 4)   原声：字段缺席（=0）   变声：1
+extBizInfo.ptt.bytesReserve (tag 12) 原声：08 00 38 00      变声：08 01 38 00
+```
+
+两处是同一个标记的两份镜像（`bytesReserve` 内嵌 `{1:0|1, 7:0}` 的 `1` 就是它）。其余差异
+只是「换了一份重新编码的音频」：`fileSize` / `fileHash` / `fileSha1` / `fileUuid` / `waveform`
+/ `uploadTime` 全跟着变。
+
+实现：`UploadPttParams.voiceChanged`（缺省 `false` = 原声）。协议层同时写
+`changeVoice: 1` 与 `bytesReserve` 的那一字节；`finalizeMediaMsgInfo` 显式覆盖，保证服务端
+不回该字段时也不会丢（它纯属客户端意图）。
+
 ### 秒传（fast-upload）的实测结论
 
 `tryFastUploadCompleted: true` 下，命中与否由**服务端**按「资源是不是真的在」决定：命中 = 响应里

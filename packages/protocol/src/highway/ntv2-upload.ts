@@ -240,6 +240,13 @@ export function finalizeMediaMsgInfo(
      */
     pic?: Record<string, unknown>;
     pttWaveform?: Uint8Array;
+    /**
+     * 语音用：**强制**写进 outgoing `ptt` 的字段（覆盖服务端回的同名字段）。
+     *
+     * 变声标记 `changeVoice` 纯属客户端意图，服务端不一定原样带回；这里显式
+     * 写死，保证最终 `pbElem` 与真机一致（真机变声那条是 `changeVoice: 1`）。
+     */
+    ptt?: Record<string, unknown>;
   } = {},
 ): Uint8Array {
   const msgInfo = upload.msgInfo;
@@ -271,6 +278,7 @@ export function finalizeMediaMsgInfo(
   if (ptt || options.pttWaveform) {
     extBizInfo.ptt = {
       ...(ptt ?? {}),
+      ...(options.ptt ?? {}),
       ...(options.pttWaveform ? { waveform: options.pttWaveform } : {}),
     };
   }

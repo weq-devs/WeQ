@@ -122,6 +122,8 @@ export interface SendMediaParams {
   durationSec?: number;
   /** 语音：波形来源（给原始 WAV 就出真条，不给则由协议层合成一条）。 */
   waveform?: PttWaveformSource;
+  /** 语音：变声标记（缺省 false = 原声）。 */
+  voiceChanged?: boolean;
   /** 视频：封面（不给则按 width/height 合成一张纯色 PNG）。 */
   thumb?: MediaSource;
   /** 收端显示的文件名（图片/视频；缺省按 md5 + 扩展名）。 */
@@ -694,6 +696,7 @@ export function buildMediaElement(params: SendMediaParams): SendElement {
         source: params.source,
         ...(params.durationSec !== undefined ? { duration: params.durationSec } : {}),
         ...(params.waveform ? { waveform: params.waveform } : {}),
+        ...(params.voiceChanged ? { voiceChanged: params.voiceChanged } : {}),
         ...(params.fileName !== undefined ? { fileName: params.fileName } : {}),
       };
     case 'video':

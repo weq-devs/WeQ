@@ -308,6 +308,14 @@ export interface SendRecordElement {
   waveform?: PttWaveformSource;
   voiceFormat?: number;
   fileName?: string;
+  /**
+   * 变声标记，缺省 `false`（原声）。
+   *
+   * 真机抓包对比「原声 / 变声」两条群聊语音：变声那条 `extBizInfo.ptt` 多出
+   * `changeVoice: 1`（tag 4），且 `bytesReserve` 内嵌的 `{1:0,7:0}` 变成
+   * `{1:1,7:0}` —— 两处同步，其余字段完全一致。
+   */
+  voiceChanged?: boolean;
 }
 
 /** 视频：上传后拼成 `commonElem(serviceType=48, businessType=21)`（两个子文件）。 */
@@ -819,6 +827,13 @@ function assertMediaElement(element: SendMediaElement): void {
     // （`highway/media-upload` 的 `fileInfo.time`），这里只拦负数 / NaN。
     if (!Number.isFinite(element.duration) || element.duration < 0) {
       throw new Error(`record 元素的 duration 必须是非负秒数，收到 ${String(element.duration)}`);
+    }
+  }
+  if (element.kind === 'record' && element.voiceChanged !== undefined) {
+    if (typeof element.voiceChanged !== 'boolean') {
+      throw new Error(
+        `record 元素的 voiceChanged 必须是布尔值，收到 ${String(element.voiceChanged)}`,
+      );
     }
   }
   if (element.kind === 'video') {

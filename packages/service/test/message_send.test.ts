@@ -200,6 +200,27 @@ describe('buildMediaElement', () => {
     });
   });
 
+  it('语音：voiceChanged 只在给定时透传（缺省不带）', () => {
+    expect(
+      buildMediaElement({
+        peerType: 'c2c',
+        targetId: '1',
+        kind: 'record',
+        source: new Uint8Array([9]),
+      }),
+    ).toEqual({ kind: 'record', source: new Uint8Array([9]) });
+
+    expect(
+      buildMediaElement({
+        peerType: 'c2c',
+        targetId: '1',
+        kind: 'record',
+        source: new Uint8Array([9]),
+        voiceChanged: true,
+      }),
+    ).toEqual({ kind: 'record', source: new Uint8Array([9]), voiceChanged: true });
+  });
+
   it('未知类型 → 报错（不静默发空元素）', () => {
     expect(() =>
       buildMediaElement({ peerType: 'c2c', targetId: '1', kind: 'audio' as never, source: '/x' }),

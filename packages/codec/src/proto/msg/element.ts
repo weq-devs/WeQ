@@ -622,7 +622,7 @@ export const ElementWire = {
 
   pttFlag45909: ProtoField(45909, ScalarType.UINT32, { optional: true }),
 
-  /** Whether voice is changed/transformed. Required for PTT elements. */
+  /** 是否变声（发送侧对应 `extBizInfo.ptt.changeVoice`，见 docs/develop/send-message.md）。 */
   voiceChanged: ProtoField(45911, ScalarType.BOOL, { optional: true }),
 
   /** AI 声聊 marker. Present (=true) ONLY on AI-voice-chat clips; absent on
