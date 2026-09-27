@@ -57,7 +57,9 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'video':
       return withPath('[视频]', el);
     case 'ptt':
-      return withPath('[语音]', el);
+      // 带上文件名作为锚点：转写是最后跑完的一步，靠这个键把 `[语音: 名字]`
+      // 回写成 `[语音] 转写文本`（见 voice_rewrite）。
+      return withPath(el.data.fileName ? `[语音: ${el.data.fileName}]` : '[语音]', el);
     case 'file':
     case 'onlineFile':
       return withPath(`[文件: ${el.data.fileName || ''}]`, el);

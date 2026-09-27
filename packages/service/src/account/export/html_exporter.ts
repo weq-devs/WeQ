@@ -415,7 +415,9 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
         : '';
       if (p)
         return `<span class="voice"><audio controls preload="none" src="${escapeHtml(p)}"></audio>${name}</span>`;
-      return `<span class="ph">[语音]${el.data.fileName ? ` ${escapeHtml(el.data.fileName)}` : ''}</span>`;
+      // 没有音频文件时也带上同样的 `cap` 锚点：语音转写是最后跑完的一步，
+      // 靠 `<small class="cap">文件名</small>` 定位再把文件名换成转写文本。
+      return `<span class="ph">[语音]${name}</span>`;
     }
     case 'file':
     case 'onlineFile': {

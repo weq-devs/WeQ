@@ -111,6 +111,11 @@ export {
   type UrlDownloadCtx,
 } from './media_export';
 export {
+  rewriteVoiceTranscripts,
+  type VoiceRewriteOptions,
+  type VoiceRewriteStats,
+} from './voice_rewrite';
+export {
   scanConvMedia,
   mediaDirsFromAccountDir,
   mediaDirsFromNtDataDir,

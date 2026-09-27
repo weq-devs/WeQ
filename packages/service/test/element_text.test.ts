@@ -42,6 +42,19 @@ describe('elementToText / elementsToText', () => {
     expect(elementsToText(els)).toBe('[图片][表情][视频 → media/v.mp4][语音]');
   });
 
+  // 语音标签带上文件名，是给「转写回写」用的锚点：转写最后跑完，靠这个键把
+  // `[语音: 名字]` 换成 `[语音] 转写文本`（voice_rewrite）。没有文件名时保持旧形状。
+  it('ptt 带文件名（无文件名为旧形状）；有 exportPath 时路径保留', () => {
+    const els: RenderElement[] = [
+      { type: 'ptt', data: { fileName: 'a.silk' } } as RenderElement,
+      {
+        type: 'ptt',
+        data: { fileName: 'b.silk', exportPath: 'media/record/b.wav' },
+      } as RenderElement,
+    ];
+    expect(elementsToText(els)).toBe('[语音: a.silk][语音: b.silk → media/record/b.wav]');
+  });
+
   // 导出包内路径是 `exportPath`，**不是** `localPath` —— 后者是 PIC / FACE 元素
   // 自带的 wire 值（45004，本机 QQ 缓存里的绝对路径）。两个含义两个键，混用会
   // 让导出把所有媒体路径改写成无效的 `media/...` 相对路径。

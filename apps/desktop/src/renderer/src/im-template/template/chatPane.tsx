@@ -3178,7 +3178,7 @@ export function ChatPane({
             ref={bounceButtonRef}
             type="button"
             className={cn('composer-tool', bounceOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '弹射表情（单独发送）'}
+            title={hasSingleSend ? singleSendHint : '弹射表情'}
             disabled={currentPreference.blocked || hasSingleSend}
             onClick={toggleBouncePanel}
           >
@@ -3209,7 +3209,7 @@ export function ChatPane({
           <button
             type="button"
             className={cn('composer-tool', 'composer-desktop-tool')}
-            title={hasSingleSend ? singleSendHint : '发送图片（直接插进输入框）'}
+            title={hasSingleSend ? singleSendHint : '发送图片'}
             disabled={currentPreference.blocked || sending || hasSingleSend}
             onClick={() => openMediaPicker('image')}
           >
@@ -3218,7 +3218,7 @@ export function ChatPane({
           <button
             type="button"
             className={cn('composer-tool', 'composer-desktop-tool')}
-            title="发送文件或视频（单独发送）"
+            title="发送文件或视频"
             disabled={currentPreference.blocked || sending}
             onClick={() => openMediaPicker('file')}
           >
@@ -3228,7 +3228,7 @@ export function ChatPane({
             ref={arkButtonRef}
             type="button"
             className={cn('composer-tool', 'composer-desktop-tool', arkOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '发送 Ark 卡片（单独发送）'}
+            title={hasSingleSend ? singleSendHint : '发送 Ark 卡片'}
             disabled={currentPreference.blocked || sending || hasSingleSend}
             onClick={toggleArkPanel}
           >
@@ -3238,7 +3238,7 @@ export function ChatPane({
             ref={flashButtonRef}
             type="button"
             className={cn('composer-tool', 'composer-desktop-tool', flashOpen && 'active')}
-            title="闪传（选文件 / 文件夹，14 天有效）"
+            title="QQ闪传"
             disabled={currentPreference.blocked || sending}
             onClick={toggleFlashPanel}
           >
@@ -3502,7 +3502,7 @@ export function ChatPane({
               </button>
               <button
                 type="button"
-                title="弹射表情（单独发送）"
+                title="弹射表情"
                 className={cn(bounceOpen && 'active')}
                 disabled={currentPreference.blocked}
                 onClick={toggleBouncePanel}

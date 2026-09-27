@@ -31,6 +31,7 @@ import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
+import { rewriteVoiceTranscripts } from './voice_rewrite';
 import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
 import { createExportWriter } from './stream_utils';
 import {
@@ -49,6 +50,7 @@ import {
   copyFoundMedia,
   decodeFoundVoices,
   transcribeFoundVoices,
+  TRANSCRIPTS_FILE,
   downloadMissingImages,
   downloadMissingVideos,
   downloadMissingFiles,
@@ -1740,6 +1742,43 @@ export class ExportTaskManager extends EventEmitter {
             },
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
           );
+          // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
+          // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），
+          // 且要在任务标记 completed 之前 —— 前端一看到 completed 就会自动保存
+          // 整个 bundle，晚了用户就已经把旧文件拷走了。
+          // 消息导出失败 / 被取消时不回写：整个任务随后也会判失败，产物不完整。
+          const messagesWritten = await messageJob.then(
+            () => true,
+            () => false,
+          );
+          if (messagesWritten && !aborted()) {
+            this.touchStage(
+              task,
+              'transcribe',
+              { status: 'running', note: '正在把转写写回导出文件…' },
+              { persist: true },
+            );
+            try {
+              const transcripts = JSON.parse(
+                readFileSync(join(outDir, TRANSCRIPTS_FILE), 'utf-8'),
+              ) as Record<string, string>;
+              const w = rewriteVoiceTranscripts(this.exportFilePaths(task, outDir), transcripts, {
+                chatlabJson: task.chatlab === true,
+                onLog: (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
+              });
+              if (w.replaced > 0) {
+                this.log(id, 'transcribe', `已把 ${w.replaced} 条转写写回 ${w.files} 个导出文件`);
+              }
+            } catch (e) {
+              // 回写失败不阻断导出：文件里保留文件名锚点，转写结果仍在 transcripts.json。
+              this.log(
+                id,
+                'transcribe',
+                `转写回写失败（不影响导出）：${e instanceof Error ? e.message : String(e)}`,
+                'warn',
+              );
+            }
+          }
           this.touchStage(
             task,
             'transcribe',
@@ -2486,6 +2525,16 @@ export class ExportTaskManager extends EventEmitter {
         ...(r.failures ? { failures: r.failures } : {}),
       },
       { persist: true },
+    );
+  }
+
+  /** 本次导出会产出的消息文件路径（与 {@link exportMessages} 的命名规则一致）。 */
+  private exportFilePaths(task: ExportTask, outDir: string): string[] {
+    const formats = task.formats?.length ? task.formats : [task.format];
+    return formats.map((format) =>
+      format === 'html'
+        ? join(outDir, 'index.html')
+        : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`),
     );
   }
 
