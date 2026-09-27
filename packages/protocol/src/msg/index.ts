@@ -17,12 +17,15 @@ export {
   swapFontId16,
   deflatePayload,
   isSendMediaElement,
+  FLASH_PHOTO_FALLBACK_TEXT,
 } from './send-elements';
 export type {
   MediaSendContext,
   SendDress,
   SendMediaElement,
   SendImageElement,
+  SendFlashPhotoElement,
+  SendFlashPhotoPic,
   SendRecordElement,
   SendVideoElement,
   SendElement,
@@ -83,6 +86,8 @@ export {
   SEND_MESSAGE_RESPONSE,
   SEND_RICH_TEXT,
   MARKET_FACE_PB_RESERVE,
+  FLASH_PHOTO_PB,
+  FLASH_PHOTO_SERVICE_TYPE,
 } from './send-schemas';
 
 export { RecvLongMsg, fetchForwardRaw, SSO_RECV_LONG_MSG_CMD } from './get-forward';

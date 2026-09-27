@@ -201,3 +201,76 @@ export const MARKET_FACE_PB_RESERVE: ProtoMessage = message([
   f('originalSizes', 9, MARKET_FACE_SIZE, { repeated: true }),
   f('field10', 10, 'uint32', { force: true }),
 ]);
+
+// ---------- 闪照（commonElem serviceType=3） ----------
+//
+// 真机抓包（2026-09-27，私聊发一张闪照，与同一张图的普通图对照）解出的元素形态：
+//
+//   Elem {
+//     commonElem(53) {
+//       serviceType = 3                 ← 没有 businessType（抓包该字段缺失）
+//       pbElem = { pic(2) = NotOnlineImage }
+//     }
+//   }
+//   Elem { text(1) { str = '[闪照]请使用新版手机QQ查看闪照。' } }   ← 紧随其后，给老客户端兜底
+//
+// 与普通图（serviceType=48 + NTV2 msgInfo）完全不同：闪照走的是**老图片形态**，
+// 只带文件名 / 大小 / md5 / 尺寸 / 服务端签发的 `/…-…-<MD5>` 路径，没有 fileUuid、
+// rkey、下载 URL。收端靠 serviceType=3 把它渲染成「只能看一眼」。
+
+/** 闪照的 commonElem.serviceType。 */
+export const FLASH_PHOTO_SERVICE_TYPE = 3;
+
+/**
+ * 闪照 pbElem 里 NotOnlineImage 的 pbRes(29) 的 field20(20) 子结构。
+ *
+ * QQ 把这一段**整个写成显式 0 / 空串**（`08 00 12 00 18 00 20 00 28 00 3A 00`，
+ * 12 字节），不是 proto3 的缺省省略，所以每个字段都要 force。
+ */
+export const FLASH_PHOTO_PB_RESERVE2: ProtoMessage = message([
+  f('field1', 1, 'int32', { force: true }),
+  f('field2', 2, 'string', { force: true }),
+  f('field3', 3, 'int32', { force: true }),
+  f('field4', 4, 'int32', { force: true }),
+  f('field5', 5, 'int32', { force: true }),
+  f('field7', 7, 'string', { force: true }),
+]);
+
+/**
+ * 闪照 pbElem 里 NotOnlineImage 的 pbRes(29)：抓包是 58 字节的显式零值骨架 +
+ * 一份大写 md5（`md5Str`(31)，与 NTV2 那套 pbElem 里同一槽位同值）。
+ * 零值字段全 force（理由同上）。
+ */
+export const FLASH_PHOTO_PB_RESERVE: ProtoMessage = message([
+  f('subType', 1, 'int32', { force: true }),
+  f('field3', 3, 'int32', { force: true }),
+  f('field4', 4, 'int32', { force: true }),
+  f('field10', 10, 'int32', { force: true }),
+  f('field20', 20, FLASH_PHOTO_PB_RESERVE2),
+  f('md5Str', 31, 'string'),
+]);
+
+/**
+ * 闪照 pbElem 里的老式图片记录 —— 字段编号沿用收侧 {@link NOT_ONLINE_IMAGE}
+ * （`./schemas`），只有 `original`(13) 必须显式写 0，所以在这里单独声明一份。
+ *
+ * 抓包实测（同一张 1920×1437 的 jpg）：`picHeight`(8) = 1920、`picWidth`(9) = 1437
+ * —— 这个旧结构里 **tag 8 装的是宽、tag 9 是高**（与收侧字段名相反）。本 schema
+ * 照抄抓包，不做换算；调用方按 tag 语义给值即可（见 `SendFlashPhotoPic`）。
+ */
+export const FLASH_PHOTO_PIC: ProtoMessage = message([
+  f('filePath', 1, 'string'),
+  f('fileLen', 2, 'uint32'),
+  f('downloadPath', 3, 'string'),
+  f('imgType', 5, 'int32'),
+  f('picMd5', 7, 'bytes'),
+  f('picHeight', 8, 'uint32'),
+  f('picWidth', 9, 'uint32'),
+  f('resId', 10, 'string'),
+  // 抓包里显式写 0（`68 00`）。
+  f('original', 13, 'int32', { force: true }),
+  f('pbRes', 29, FLASH_PHOTO_PB_RESERVE),
+]);
+
+/** 闪照 commonElem(serviceType=3).pbElem（顶层只有 field 2 一层包装）。 */
+export const FLASH_PHOTO_PB: ProtoMessage = message([f('pic', 2, FLASH_PHOTO_PIC)]);
