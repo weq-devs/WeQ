@@ -53,13 +53,12 @@ export class ForwardMsgService {
   /**
    * Fetch a merged-forward chain by resId from QQ servers when the local 40900
    * cache is empty. resolvePid throws when QQ is offline; callers (IPC layer)
-   * additionally guard against "completely offline mode". The self long uid is
-   * resolved from the resident uid map, falling back to profile info.
+   * additionally guard against "completely offline mode". The self long uid
+   * comes from the session (resolved at open — the uid directory never has the
+   * owner's row, see `AccountSession.selfUid`).
    */
   async fetchRemote(resId: string): Promise<FetchedForwardRecord[]> {
-    const selfUid =
-      this.session.uidMap.uidByUin(BigInt(this.session.context.uin)) ??
-      (await this.session.profileInfo.getSelfUid());
+    const selfUid = this.session.selfUid;
     if (!selfUid) {
       throw new Error('self uid unavailable, cannot fetch merged forward');
     }

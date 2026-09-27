@@ -718,7 +718,9 @@ export async function sendForward(
   } else if (!Number.isSafeInteger(params.userUin) || (params.userUin as number) <= 0) {
     throw new Error(`userUin 非法: ${String(params.userUin)}`);
   }
-  if (!params.selfUid.trim()) throw new Error('合并转发需要 selfUid');
+  // 只有私聊用得上自己的 uid（上传请求的 info.uid.uid 和节点里的 toUid）；
+  // 群聊两处写的都是群号，所以这里不强制 —— 拿不到自己 uid 不该挡住发群。
+  if (!hasGroup && !params.selfUid.trim()) throw new Error('私聊合并转发需要 selfUid');
   const selfUin = Number(params.selfUin);
   if (!Number.isSafeInteger(selfUin) || selfUin <= 0) {
     throw new Error(`selfUin 非法: ${String(params.selfUin)}`);

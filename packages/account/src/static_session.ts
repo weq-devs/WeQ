@@ -444,6 +444,18 @@ export async function openStaticAccount(
   // ---- misc ----
   const misc = new MiscDb(nt, opts(join(dirPath, 'misc.db')));
 
+  // Same rule as the live session: resolve "my uid" from profile_info_v6 by
+  // uin rather than trusting the caller-supplied preview, which is picked by a
+  // heuristic (`ORDER BY 20003 DESC`) that mis-identifies the owner when the
+  // table has ties. The preview stays as the fallback.
+  let selfUid = '';
+  try {
+    selfUid = await profileInfo.getUidByUin(BigInt(uin));
+  } catch (e) {
+    console.error('[static-account] failed to resolve own uid from profile_info_v6:', e);
+  }
+  if (!selfUid) selfUid = self.uid ?? '';
+
   let disposed = false;
   return {
     context: {
@@ -454,6 +466,7 @@ export async function openStaticAccount(
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
+    selfUid,
     c2cMsgs,
     datalineMsgs,
     groupMsgs,

@@ -652,9 +652,11 @@ export class MessageSendService {
           '（路由与 FileExtra 都按 uid 认人）：先和 TA 有过一次会话，或用 find_contact 拿 uid 后直接传 uid。',
       );
     }
-    const selfUid = this.session.uidMap.uidByUin(BigInt(selfUin)) ?? '';
+    const selfUid = this.session.selfUid;
     if (!selfUid) {
-      throw new Error('本地 uid 目录里没有自己的 uid，无法发私聊文件（重新登录一次通常就好了）。');
+      throw new Error(
+        `读不到自己账号的 uid（profile_info_v6 里没有 QQ ${selfUin} 的映射），无法发私聊文件。`,
+      );
     }
 
     const result = await sendPrivateFile(this.nt, pid, {
@@ -906,9 +908,13 @@ export class MessageSendService {
     const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
-    const selfUid = this.session.uidMap.uidByUin(BigInt(selfUin)) ?? '';
-    if (!selfUid) {
-      throw new Error('本地 uid 目录里没有自己的 uid，无法发合并转发（重新登录一次通常就好了）。');
+    // 只有私聊转发需要把自己的 uid 填进上传请求；群聊那两处用的是群号，
+    // 所以拿不到自己 uid 不该挡住发群。
+    const selfUid = this.session.selfUid;
+    if (!selfUid && target.scene !== 'group') {
+      throw new Error(
+        `读不到自己账号的 uid（profile_info_v6 里没有 QQ ${selfUin} 的映射），无法发合并转发。`,
+      );
     }
 
     const upload = await protocolSendForward(this.nt, pid, {

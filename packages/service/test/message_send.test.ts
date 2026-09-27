@@ -49,9 +49,19 @@ afterAll(async () => {
   await fsp.rm(dir, { recursive: true, force: true });
 });
 
-/** 最小会话替身：只提供本服务用到的 context.uin 与 uidMap。 */
+/**
+ * 最小会话替身：只提供本服务用到的 `context.uin` / `uidMap` / `selfUid`。
+ *
+ * `selfUid` 在真实会话里打开时就解析好了，**不走 uidMap**（uid 目录只存对端，
+ * 没有自己那行）。默认给 `u_me`，需要时用 `selfUid` 覆盖成空来测报错分支。
+ */
 function fakeSession(
-  options: { uin?: number; uidOf?: Record<string, string>; uinOf?: Record<string, bigint> } = {},
+  options: {
+    uin?: number;
+    uidOf?: Record<string, string>;
+    uinOf?: Record<string, bigint>;
+    selfUid?: string;
+  } = {},
 ): AccountSession {
   const uidOf = options.uidOf ?? { '10001': 'u_me', '20002': 'u_friend' };
   const uinOf = options.uinOf ?? { u_friend: 20002n, u_me: 10001n };
@@ -61,6 +71,7 @@ function fakeSession(
       uidByUin: (uin: bigint) => uidOf[uin.toString()],
       uinByUid: (uid: string) => uinOf[uid],
     },
+    selfUid: options.selfUid ?? 'u_me',
   } as unknown as AccountSession;
 }
 
@@ -800,6 +811,55 @@ describe('sendForward（合并转发，离线）', () => {
       }),
     ).rejects.toThrow(/必须带 uid/);
     expect(native.calls).toHaveLength(0);
+  });
+
+  it('自己的 uid 来自 session.selfUid，不依赖 uid 目录', async () => {
+    const native = forwardNative('res-nodir');
+    // uidMap 里根本没有自己（真实环境就是这样：nt_uid_mapping_table 只存对端）。
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession({ selfUid: 'u_self_from_profile', uidOf: { '20002': 'u_friend' } }),
+      () => 1,
+    );
+    const outcome = await svc.sendForward({
+      peerType: 'c2c',
+      targetId: '20002',
+      nodes: [{ elements: [{ kind: 'text', textContent: 'hi' }] }],
+    });
+    expect(outcome.ok).toBe(true);
+    const longReq = decode(SEND_LONG_MSG_REQ, native.calls[0]!.body) as {
+      info?: { uid?: { uid?: string } };
+    };
+    expect(longReq.info?.uid?.uid).toBe('u_self_from_profile');
+  });
+
+  it('私聊：拿不到自己的 uid 时如实报错（不再提「重新登录」）', async () => {
+    const native = forwardNative();
+    const svc = new MessageSendService(native as never, fakeSession({ selfUid: '' }), () => 1);
+    await expect(
+      svc.sendForward({
+        peerType: 'c2c',
+        targetId: '20002',
+        nodes: [{ elements: [{ kind: 'text', textContent: 'hi' }] }],
+      }),
+    ).rejects.toThrow(/profile_info_v6/);
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it('群聊：拿不到自己的 uid 也要能发（上传用群号，不用自己 uid）', async () => {
+    const native = forwardNative('res-g-nouid');
+    const svc = new MessageSendService(native as never, fakeSession({ selfUid: '' }), () => 1);
+    const outcome = await svc.sendForward({
+      peerType: 'group',
+      targetId: '2863253201',
+      nodes: [{ elements: [{ kind: 'text', textContent: '你好' }] }],
+    });
+    expect(outcome.ok).toBe(true);
+    const longReq = decode(SEND_LONG_MSG_REQ, native.calls[0]!.body) as {
+      info?: { type?: number; uid?: { uid?: string }; groupUin?: number };
+    };
+    expect(longReq.info?.type).toBe(3);
+    expect(longReq.info?.uid?.uid).toBe('2863253201');
   });
 
   it('卡片那一步失败：ok=false 但 resId 仍返回（内容已在服务端）', async () => {

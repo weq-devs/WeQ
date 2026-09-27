@@ -334,10 +334,25 @@ export class ProfileInfoDb {
     return rows.map(rowToProfile);
   }
 
-  /** 账号自身的 uid（profile_info_v6 中 20003 最大行的 1000 列）。 */
-  async getSelfUid(): Promise<string> {
+  /**
+   * uid for one QQ number, read from `profile_info_v6`.
+   *
+   * **The only reliable local source for one's own uid**: the account's own row
+   * is never in `nt_uid_mapping_table` (that table lists peers you have
+   * interacted with, not the owner), so `uidMap.uidByUin(selfUin)` can never
+   * find it. See `AccountSession.selfUid`.
+   *
+   * One uin can have several rows — QQ keeps superseded uids around with a NULL
+   * nick / NULL `20003`. Prefer the live one: non-empty nick first, then newest
+   * `20003`. The ORDER BY matters; a bare `LIMIT 1` picks arbitrarily.
+   */
+  async getUidByUin(uin: bigint): Promise<string> {
     const rows = await this.qq.query(
-      `SELECT "1000" FROM profile_info_v6 ORDER BY "20003" DESC LIMIT 1`,
+      `SELECT "1000" FROM profile_info_v6
+       WHERE "1002" = ? AND "1000" IS NOT NULL AND "1000" <> ''
+       ORDER BY ("20002" IS NULL OR "20002" = '') ASC, "20003" DESC
+       LIMIT 1`,
+      [uin],
     );
     return String(rows[0]?.[0] ?? '');
   }

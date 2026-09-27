@@ -171,6 +171,7 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
 
 export class MediaUrlService {
   private readonly selfUid: string;
+  private readonly selfUin: string;
   private readonly profileInfo: AccountSession['profileInfo'];
   private resolvedSelfUid: string | undefined;
 
@@ -179,14 +180,18 @@ export class MediaUrlService {
     session: AccountSession,
     private readonly resolvePid: () => number,
   ) {
-    this.selfUid = session.uidMap.uidByUin(BigInt(session.context.uin)) ?? '';
+    // Resolved once at session open — `uidMap` never holds the owner's row.
+    this.selfUid = session.selfUid;
     this.profileInfo = session.profileInfo;
+    this.selfUin = session.context.uin;
   }
 
   private async getSelfUid(): Promise<string> {
     if (this.selfUid) return this.selfUid;
     if (this.resolvedSelfUid !== undefined) return this.resolvedSelfUid;
-    this.resolvedSelfUid = await this.profileInfo.getSelfUid();
+    this.resolvedSelfUid = /^\d+$/.test(this.selfUin)
+      ? await this.profileInfo.getUidByUin(BigInt(this.selfUin))
+      : '';
     return this.resolvedSelfUid;
   }
 
