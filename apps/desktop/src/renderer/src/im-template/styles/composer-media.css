@@ -1588,9 +1588,28 @@ html[data-theme="dark"] .link-card-preview-card {
   z-index: 30;
   display: grid;
   width: min(520px, calc(100% - 28px));
-  max-height: min(524px, calc(100dvh - 190px));
+  /* 高度上限 = **输入框上沿到会话头下沿**的真实可用高度（与 `.ark-panel` 同一条算法）。
+   *
+   * 早先写的是 `100dvh - 190px`：190 只当输入框高度，既没算标题栏(40) 也没算会话头
+   * (`--chat-header-height`)，窗口一矮面板就顶进标题栏 / 会话头里 —— 上面那截
+   * （标题行 + 关闭按钮）被 `.chat-pane` 的 `overflow: hidden` 截掉，就点不到了。
+   * 超出的内容面板内部滚动；减到 236px 以下就退化到 236px（窗口极矮时宁可盖住会话头，
+   * 也别只剩一条缝）。 */
+  max-height: min(
+    524px,
+    max(
+      236px,
+      calc(
+        100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) -
+          56px
+      )
+    )
+  );
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
+  /* 面板从输入框往上长，可能压到标题栏的 `-webkit-app-region: drag` 区域；Electron 的
+   * 拖拽命中测试在合成层之外，z-index 挡不住 —— 打一个 no-drag 洞（同 .ark-panel）。 */
+  -webkit-app-region: no-drag;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
   background: var(--popover, #ffffff);
@@ -1964,7 +1983,16 @@ html[data-theme="dark"] .ai-voice-chip {
   .ai-voice-panel {
     left: 8px;
     width: calc(100% - 16px);
-    max-height: min(462px, calc(100dvh - 150px));
+    max-height: min(
+      462px,
+      max(
+        236px,
+        calc(
+          100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) -
+            56px
+        )
+      )
+    );
   }
 
   .ai-voice-voices-list {

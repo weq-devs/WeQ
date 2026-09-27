@@ -222,7 +222,24 @@ export type ArkPayload =
       longitude: string;
     }
   | {
-      /** 任意 ark 卡片（图文 / 自定义 JSON 都落到这里）。 */
+      /**
+       * 图文卡片 —— 走**服务端下发**（OIDB 0xdc2_34），与群反馈的 GitHub
+       * issue/PR 卡片是同一条路。载荷给的是卡片四个字段，不是一段拼好的 ark JSON。
+       */
+      type: 'tuwen';
+      /** 跳转链接（必填，http/https）。 */
+      jumpUrl: string;
+      title: string;
+      desc: string;
+      /** 预览图；面板已把「留空用默认图」解析好再交上来。 */
+      previewUrl: string;
+    }
+  | {
+      /**
+       * 任意 ark 卡片 —— 客户端自己拼的那段 ark JSON 编成 `lightApp` 元素发出（走
+       * `account.sendArkCard`）。只有「自定义 JSON」那一栏落到这里；图文已改走
+       * {@link ArkPayload 的 `tuwen`}，不再自己拼卡。
+       */
       type: 'ark';
       arkData: string;
     };
@@ -306,14 +323,15 @@ export function buildContactPlaceholderArk(kind: 'qq' | 'group', contactId: numb
 /**
  * 乐观卡片的**对账签名** —— 真消息同步回来时靠它把乐观条目收掉（见 MainView）。
  *
- * 三种卡片各有一条可靠的不变量：
- *   - 图文 / 自定义 JSON：发出去的就是这段 JSON，服务端不改写它 → 用 JSON 本体；
- *   - 推荐好友 / 推荐群：服务端取回来的那份 `arkJson` 就是它下发的 → 同上（换成取回那份）；
+ * 每种卡片各有一条可靠的不变量：
  *   - 位置卡片：卡片由 QQ 服务端重新生成（文案可能和面板里不一样），但**经纬度是我们
- *     发出去的那两个数** → 用坐标。
- *
- * JSON 先过一遍 parse → stringify（键序不变，消掉缩进差异），坐标按 5 位小数归一 ——
- * 否则 `"39.909230"` 与 `"39.90923"` 会被当成两张不同的卡。
+ *     发出去的那两个数** → 用坐标（按 5 位小数归一，`"39.909230"` 与 `"39.90923"`
+ *     要是同一张卡）；
+ *   - 图文（0xdc2_34 / 带 jumpUrl 的卡片）：卡片同样是服务端出的，JSON 本体逐字比会
+ *     永远对不上（字段顺序 / 附加字段都会变），但**跳转链接是我们发出去、也是它下发的
+ *     那一条** → 用它；
+ *   - 其他（自定义 JSON / 推荐好友 / 推荐群）：发出去的就是这段 JSON、服务端不改写它
+ *     → 用 JSON 本体（parse → stringify 消掉缩进差异）。
  */
 export function arkCardSignature(arkJson: string): string {
   const raw = typeof arkJson === 'string' ? arkJson.trim() : '';
@@ -326,11 +344,36 @@ export function arkCardSignature(arkJson: string): string {
   }
   const coords = coordinatesOfArk(parsed);
   if (coords) return `loc:${coords}`;
+  const jumpUrl = jumpUrlOfArk(parsed);
+  if (jumpUrl) return `tuwen:${jumpUrl}`;
   try {
     return `ark:${JSON.stringify(parsed)}`;
   } catch {
     return raw;
   }
+}
+
+/** 卡片里表示「点击跳转」的字段名（与 components/ark/arkCards.ts 的 `fill('jump', …)` 同序）。 */
+const ARK_JUMP_KEYS = ['jumpUrl', 'jump_url', 'qqdocurl', 'url'] as const;
+
+/**
+ * 从任意 metaKey 里读出「点击跳转 URL」（图文卡片的对账判据）。
+ *
+ * 只看 meta 下的各块内容，不看顶层 —— 顶层 `url` 之类字段在别的卡片上有别的含义；
+ * 读不到就返回 null（调用方退回 JSON 本体签名）。
+ */
+function jumpUrlOfArk(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const meta = (parsed as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  for (const block of Object.values(meta as Record<string, unknown>)) {
+    if (!block || typeof block !== 'object') continue;
+    for (const key of ARK_JUMP_KEYS) {
+      const value = (block as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  }
+  return null;
 }
 
 /**

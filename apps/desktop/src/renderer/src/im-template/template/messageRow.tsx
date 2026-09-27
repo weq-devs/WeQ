@@ -27,7 +27,6 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
-import { WindowShakeMessage } from '../../components/WindowShakeMessage';
 import {
   GroupCallEndedMessage,
   GROUP_CALL_ENDED_SUBTYPES,
@@ -40,8 +39,9 @@ import { QqDynamic } from '../../components/QqDynamic';
  * 群通话 / 群课堂的「已结束」（CALL 元素，subType 16/25/29）也算：那条消息的发送者
  * 是空的，套气泡会凭空多出一个发送者，所以走灰条；发起那条有正常发送人，仍走气泡。
  *
- * 乐观渲染的窗口抖动（windowShake）也在内：收端 QQ 会丢弃 serviceType=2，只有自己
- * 发出去那一下看得到。
+ * 不在内：乐观渲染的窗口抖动（windowShake）不是灰条 —— 它是自己发出的一条消息，
+ * 由 `QqMessageContent` 在 `sticker-only` 容器里画成那枚「戳一戳」超级表情，落在
+ * 自己那一侧（见 `WindowShakeMessage`）。在这里拦下来会让那条分支永远走不到。
  */
 export const GRAY_TIP_KINDS: string[] = [
   'grayTipPoke',
@@ -51,7 +51,6 @@ export const GRAY_TIP_KINDS: string[] = [
   'grayTipFileRecv',
   'grayTipTempSession',
   'qqDynamic',
-  'windowShake',
 ];
 
 /** 一条消息携带的元素（模板层叫 qqElements，转发窗口用 elements）。 */
@@ -138,8 +137,6 @@ export function GrayTipLine({
       return <GrayTipTempSessionMessage element={gt.el as never} />;
     case 'groupCallEnded':
       return <GroupCallEndedMessage element={gt.el as never} />;
-    case 'windowShake':
-      return <WindowShakeMessage />;
     case 'qqDynamic': {
       const d = (gt.el.data ?? {}) as Record<string, unknown>;
       return (

@@ -41,6 +41,8 @@ import { encode } from '../protobuf';
 import { ELEM, MARKDOWN_COMMON_PB, TEXT_PB_RESERVE } from './schemas';
 import {
   EMOJI_BOUNCE_EXTRA,
+  FLASH_PHOTO_PB,
+  FLASH_PHOTO_SERVICE_TYPE,
   MARKET_FACE_PB_RESERVE,
   POKE_EXTRA,
   QFACE_EXTRA,
@@ -297,6 +299,69 @@ export interface SendImageElement {
   picFormat?: number;
 }
 
+/**
+ * 闪照（阅后即焚图）里的老式图片记录 —— 字段编号与收侧 `NOT_ONLINE_IMAGE` 一致，
+ * 但只有真机抓包里出现过的那几个（详见 `send-schemas` 的 `FLASH_PHOTO_PIC`）。
+ *
+ * 抓包（2026-09-27 私聊）实测取值，可作参照：
+ *   fileName = 'E4B0B65055D327B993D83E53A00309FD.jpg'（大写 md5 + 扩展名）
+ *   fileSize = 102474、md5Hex = 'e4b0b65055d327b993d83e53a00309fd'
+ *   downloadPath = resId = '/2863253201-1122281651-E4B0B65055D327B993D83E53A00309FD'
+ *   imgType = 1000（jpg）、picHeight = 1920、picWidth = 1437
+ *   md5Str = 'BBFCD4CAFC89868FA4501EF1B50E8818'
+ */
+export interface SendFlashPhotoPic {
+  /** 图片文件名（tag 1，老客户端用它显示 / 存盘）。 */
+  fileName: string;
+  /** 字节数（tag 2）。 */
+  fileSize: number;
+  /** 图片 MD5（tag 7，写进 wire 的是 16 字节原始摘要）。 */
+  md5Hex: string;
+  /**
+   * 服务端签发的图片路径 `/…-…-<MD5 大写>`（tag 3）。
+   *
+   * ⚠️ 这一段**不是本地能算出来的**：抓包里是 `/<10 位数字>-<10 位数字>-<MD5 大写>`，
+   * 既不是自己 uin 也不是对方 uin，只能从服务端（老图片上传 / 已有图片记录）拿。
+   * 缺省留空不上 wire —— 但那样服务端大概率不认这张图。
+   */
+  downloadPath?: string;
+  /** 资源 id（tag 10）；缺省与 {@link downloadPath} 同串（抓包两者一致）。 */
+  resId?: string;
+  /** 图片格式码（tag 5）：1000 = jpg（抓包值），缺省 1000。 */
+  imgType?: number;
+  /**
+   * tag 8 —— 抓包里装的是**宽**（1920×1437 的图写 1920）。
+   * 收侧 `NOT_ONLINE_IMAGE` 把 tag 8 命名成 picHeight，这里保持 wire 语义、名字沿用。
+   */
+  picHeight?: number;
+  /** tag 9 —— 抓包里装的是**高**（同上，写 1437）。 */
+  picWidth?: number;
+  /** `pbRes.md5Str`(31)：另一份大写 md5（抓包与 NTV2 那套 pbElem 同槽位同值）。 */
+  md5Str?: string;
+}
+
+/**
+ * 闪照：`commonElem(serviceType=3)` + 一条兜底纯文本，**一个元素产出两个 elem**。
+ *
+ * 与 {@link SendImageElement} 的区别：闪照**不上传**（没有 NTV2 那一步），只是把
+ * 一张已经在服务端的老式图片记录按 serviceType=3 重发一遍；也正因为如此，{@link pic}
+ * 里的 `downloadPath` / `md5Str` 必须由调用方提供（见 {@link SendFlashPhotoPic}）。
+ *
+ * QQ 真机会在图片 elem 后面再补一条纯文本 `[闪照]请使用新版手机QQ查看闪照。`，
+ * 让不认识 serviceType=3 的老客户端也有东西显示 —— 本实现默认同样补上
+ * （{@link FLASH_PHOTO_FALLBACK_TEXT}），可用 `fallbackText` 覆盖。
+ */
+export interface SendFlashPhotoElement {
+  kind: 'flashPhoto';
+  /** 老式图片记录。 */
+  pic: SendFlashPhotoPic;
+  /** 兜底文本；缺省 `[闪照]请使用新版手机QQ查看闪照。`。 */
+  fallbackText?: string;
+}
+
+/** 闪照的兜底文本（老客户端靠这条认出「这是闪照，去新版看」）。 */
+export const FLASH_PHOTO_FALLBACK_TEXT = '[闪照]请使用新版手机QQ查看闪照。';
+
 /** 语音：上传后拼成 `commonElem(serviceType=48, businessType=22)`。 */
 export interface SendRecordElement {
   kind: 'record';
@@ -363,6 +428,7 @@ export type SendElement =
   | SendEmojiBounceElement
   | SendForwardElement
   | SendFileElement
+  | SendFlashPhotoElement
   | SendRawElement
   | SendMediaElement;
 
@@ -669,6 +735,11 @@ function buildForwardElem(element: SendForwardElement): Record<string, unknown> 
 /** 单个元素 → Elem proto 对象。 */
 function buildSendElem(element: SendElement): Record<string, unknown> {
   switch (element.kind) {
+    case 'flashPhoto':
+      // 闪照是 1 → 2（图片 elem + 兜底文本 elem），走 buildSendElemList。
+      throw new Error(
+        'flashPhoto 元素产出两个 elem：请用 buildSendElems() / buildSendElemsWithMedia()（本函数只处理一对一元素）',
+      );
     case 'image':
     case 'record':
     case 'video':
@@ -746,6 +817,72 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
       throw new Error(`不支持发送的元素类型: ${String(unknown.kind)}`);
     }
   }
+}
+
+/**
+ * 闪照 → 两个 elem：`commonElem(serviceType=3)` + 一条兜底纯文本（QQ 真机就是这么发的）。
+ *
+ * pbElem 只有一层包装（field 2 = 老式 NotOnlineImage），字段与抓包逐字节对齐：
+ * 两个显式 0 骨架（`original` 与 `pbRes`）由 `send-schemas` 里的 force 负责。
+ */
+function buildFlashPhotoElems(element: SendFlashPhotoElement): Record<string, unknown>[] {
+  const pic = element.pic as SendFlashPhotoPic | undefined;
+  if (pic == null || typeof pic !== 'object') {
+    throw new Error('flashPhoto 元素缺少 pic（老式图片记录）');
+  }
+  const fileName = requireNonEmpty(pic.fileName, 'pic.fileName', 'flashPhoto');
+  const fileSize = requirePositiveInt(pic.fileSize, 'pic.fileSize', 'flashPhoto');
+  const md5Hex = (pic.md5Hex ?? '').trim();
+  if (!/^[0-9a-fA-F]{32}$/.test(md5Hex)) {
+    throw new Error(`flashPhoto 的 pic.md5Hex 必须是 32 位 hex，收到 "${String(pic.md5Hex)}"`);
+  }
+  for (const [name, value] of [
+    ['picHeight', pic.picHeight],
+    ['picWidth', pic.picWidth],
+  ] as const) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+      throw new Error(`flashPhoto 的 pic.${name} 必须是非负整数，收到 ${String(value)}`);
+    }
+  }
+  const downloadPath = pic.downloadPath ?? '';
+  const pbElem = encode(FLASH_PHOTO_PB, {
+    pic: {
+      filePath: fileName,
+      fileLen: fileSize,
+      downloadPath,
+      imgType: pic.imgType ?? 1000,
+      picMd5: hexToBytes(md5Hex),
+      picHeight: pic.picHeight ?? 0,
+      picWidth: pic.picWidth ?? 0,
+      // 抓包里 resId 与 downloadPath 是同一串；只给其中一个也能发。
+      resId: pic.resId ?? downloadPath,
+      original: 0,
+      pbRes: {
+        subType: 0,
+        field3: 0,
+        field4: 0,
+        field10: 0,
+        // 这一段是显式零值骨架（force 在 schema 上），少了字节就对不上抓包。
+        field20: { field1: 0, field2: '', field3: 0, field4: 0, field5: 0, field7: '' },
+        md5Str: pic.md5Str ?? '',
+      },
+    },
+  });
+  return [
+    { commonElem: { serviceType: FLASH_PHOTO_SERVICE_TYPE, pbElem } },
+    { text: { str: element.fallbackText ?? FLASH_PHOTO_FALLBACK_TEXT } },
+  ];
+}
+
+/**
+ * 单个元素 → 一组 Elem proto 对象。
+ *
+ * 绝大多数元素是一对一；闪照是唯一的一对多（图片 + 兜底文本），所以打包入口都走
+ * 这里而不是直接 {@link buildSendElem}。
+ */
+function buildSendElemList(element: SendElement): Record<string, unknown>[] {
+  if (element.kind === 'flashPhoto') return buildFlashPhotoElems(element);
+  return [buildSendElem(element)];
 }
 
 /** 场景限制校验（窗口抖动只能私聊、且必须独占一条消息）。 */
@@ -838,7 +975,7 @@ export function buildSendElems(
   assertScenePolicy(elements, options.scene);
   // 装扮先校验、先打包：坏 id 要在打包任何元素之前就报错。
   const dressElems = buildDressElems(options.dress);
-  return [...dressElems, ...elements.map((element) => buildSendElem(element))];
+  return [...dressElems, ...elements.flatMap((element) => buildSendElemList(element))];
 }
 
 // ───────────────────────── 媒体元素（先上传再打包） ─────────────────────────
@@ -931,16 +1068,17 @@ export async function buildSendElemsWithMedia(
 
   const hasMedia = elements.some((element) => isSendMediaElement(element));
   if (!hasMedia) {
-    return [...dressElems, ...elements.map((element) => buildSendElem(element))];
+    return [...dressElems, ...elements.flatMap((element) => buildSendElemList(element))];
   }
 
-  const slots: (Record<string, unknown> | null)[] = [];
+  // 每个槽位是一组 elem：媒体元素上传后才填，闪照这种一对多元素直接占满自己的槽位。
+  const slots: (Record<string, unknown>[] | null)[] = [];
   for (const element of elements) {
     if (isSendMediaElement(element)) {
       assertMediaElement(element);
       slots.push(null);
     } else {
-      slots.push(buildSendElem(element));
+      slots.push(buildSendElemList(element));
     }
   }
 
@@ -955,7 +1093,7 @@ export async function buildSendElemsWithMedia(
         : element.kind === 'record'
           ? await uploadPttMsgInfo(ctx.nt, ctx.pid, target, element, options)
           : await uploadVideoMsgInfo(ctx.nt, ctx.pid, target, element, options);
-    slots[index] = buildMediaElem(upload);
+    slots[index] = [buildMediaElem(upload)];
     ctx.onUpload?.({
       kind: element.kind,
       fileName: upload.fileName,
@@ -965,5 +1103,5 @@ export async function buildSendElemsWithMedia(
     });
   }
 
-  return [...dressElems, ...slots.map((value) => value as Record<string, unknown>)];
+  return [...dressElems, ...slots.flatMap((value) => value as Record<string, unknown>[])];
 }

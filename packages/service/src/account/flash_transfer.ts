@@ -146,11 +146,43 @@ export class FlashTransferService {
   }
 
   /**
-   * 群反馈：把已有 GitHub issue/PR 以图文 Ark 卡片发到群聊（0xdc2_34）。
+   * 发一张**图文 Ark 卡片**（0xdc2_34）：服务端按标题/描述/跳转链接/预览图生成卡片
+   * 直接下发到私聊或群聊。**输入框「图文」也走这条路** —— 同群反馈的 GitHub
+   * issue/PR 卡片（见 {@link sendTuwenArkToGroup}）是同一条协议，而不是客户端自己
+   * 拼一段 ark JSON 当 `lightApp` 元素发出去。
    *
    * 返回服务端的下发结果 —— **必须检查 `result.errorCode`**：OIDB 外层
-   * errorCode=0 不代表卡片发出去了，例如 PC/Linux 端用 Android 的 appId
-   * 会拿到 901501(`rule type not match appid`)。调用方不要再当它是 void。
+   * errorCode=0 不代表卡片发出去了，例如 PC/Linux 端用 Android 的 appId 会拿到
+   * 901501(`rule type not match appid`)。调用方不要再当它是 void。
+   */
+  async sendTuwenArk(params: {
+    /** 私聊 = 对方 QQ 号（peerType 0）；群聊 = 群号（peerType 1）。 */
+    targetId: number;
+    /** 0 = 私聊（C2C），1 = 群聊。 */
+    peerType: 0 | 1;
+    title: string;
+    desc: string;
+    jumpUrl: string;
+    previewUrl: string;
+    /** 会话列表外显文案；缺省 `[分享]`（与 SnowLuma / 群反馈卡片一致）。 */
+    summary?: string;
+  }): Promise<SendTuwenArkResult> {
+    return SendTuwenArk.invoke(this.nt, this.resolvePid(), {
+      targetId: params.targetId,
+      peerType: params.peerType,
+      title: params.title,
+      desc: params.desc,
+      summary: params.summary?.trim() || '[分享]',
+      jumpUrl: params.jumpUrl,
+      previewUrl: params.previewUrl,
+    });
+  }
+
+  /**
+   * 群反馈：把已有 GitHub issue/PR 以图文 Ark 卡片发到群聊（0xdc2_34）。
+   *
+   * 与 {@link sendTuwenArk} 同一条协议，只是固定群聊 + 标题/预览图的调用方约定。
+   * 同样**必须检查 `result.errorCode`**（详见 {@link sendTuwenArk}）。
    */
   async sendTuwenArkToGroup(params: {
     groupId: number;
@@ -161,12 +193,11 @@ export class FlashTransferService {
     jumpUrl: string;
     previewUrl: string;
   }): Promise<SendTuwenArkResult> {
-    return SendTuwenArk.invoke(this.nt, this.resolvePid(), {
+    return this.sendTuwenArk({
       targetId: params.groupId,
       peerType: 1,
       title: params.cardTitle,
       desc: params.desc,
-      summary: '[分享]',
       jumpUrl: params.jumpUrl,
       previewUrl: params.previewUrl,
     });

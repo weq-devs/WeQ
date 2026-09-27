@@ -910,23 +910,28 @@ export function VoicePanel({
           <span className={cn('voice-hint')}>
             <kbd>空格</kbd> 长按录音 · 最长 60 秒
           </span>
-          <label
-            className={cn('voice-pick-audio')}
-            title="选择本机音频文件当语音发送（自动转成 SILK）"
-          >
-            <FileAudio size={13} />
-            选择音频
-            <input
-              type="file"
-              accept="audio/*"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (file) void handlePickAudio(file);
-              }}
-            />
-          </label>
+          {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
+              发送按钮占满，这颗胶囊再挤进来就会和它们叠在一起，所以直接收掉 ——
+              要重选音频就退回录制态（点一下麦克风）再选。 */}
+          {phase !== 'review' ? (
+            <label
+              className={cn('voice-pick-audio')}
+              title="选择本机音频文件当语音发送（自动转成 SILK）"
+            >
+              <FileAudio size={13} />
+              选择音频
+              <input
+                type="file"
+                accept="audio/*"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void handlePickAudio(file);
+                }}
+              />
+            </label>
+          ) : null}
           {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
           {!recorder.error && recorder.transcribeError && !busy ? (
             <span className={cn('voice-error')}>{recorder.transcribeError}</span>

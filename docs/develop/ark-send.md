@@ -1,8 +1,12 @@
 # 图文 Ark 卡片发送（OIDB 0xdc2_34）
 
 > 实现：`packages/protocol/src/oidb/send-tuwen-ark.ts`（协议层）、
-> `packages/service/src/account/flash_transfer.ts`（`sendTuwenArkToGroup`）、
+> `packages/service/src/account/flash_transfer.ts`（`sendTuwenArk` / `sendTuwenArkToGroup`）、
 > `apps/desktop/src/main/mcp/tools.ts`（MCP 工具 `send_tuwen_ark`）。
+>
+> 走这条路的调用方：群反馈的 GitHub issue/PR 卡片（`group_feedback.submitIssueArk`）与
+> 输入框 Ark 面板的**「图文」**（`account.sendTuwenArk`）。面板的「自定义 JSON」仍是
+> 客户端拼 JSON 当 `lightApp` 发（`account.sendArkCard`），与这条协议不是一回事。
 
 ## 一、它是什么
 

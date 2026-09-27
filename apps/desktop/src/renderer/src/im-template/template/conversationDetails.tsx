@@ -15,7 +15,6 @@ import { cn } from './classNames';
 
 export {
   GroupInfoDetailDialog,
-  GroupLeftMembersDialog,
   GroupInfoPanel,
   type GroupInfoDetail,
 } from './groupInfoPanel';

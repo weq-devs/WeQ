@@ -17691,7 +17691,8 @@ html[data-theme="dark"] .weq-graytip-band {
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
 }
 
-/* 私聊窗口抖动的乐观渲染：一枚居中、会轻轻晃动的戳一戳贴纸（不是灰条）。 */
+/* 私聊窗口抖动的乐观渲染：自己发出的一条消息，画面是会轻轻晃动的戳一戳超级表情
+   （不是灰条）。容器由 QqMessageContent 以 sticker-only 渲染，这里只管表情的晃动。 */
 .weq-window-shake {
   display: flex;
   justify-content: center;
