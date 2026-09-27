@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
+import { avatarFromUin } from '../../lib/avatarResolver';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -117,7 +118,12 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
+import {
+  GroupInfoDetailDialog,
+  GroupLeftMembersDialog,
+  GroupInfoPanel,
+  type GroupInfoDetail,
+} from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageBubble } from './messageBubble';
@@ -147,7 +153,7 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
-import { FaceEmoji } from '../../components/FaceEmoji';
+import { WindowShakeMessage } from '../../components/WindowShakeMessage';
 import {
   GroupCallEndedMessage,
   GROUP_CALL_ENDED_SUBTYPES,
@@ -421,6 +427,8 @@ export function ChatPane({
     ),
   );
   const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
+  // 「已退群成员」灯箱：只读本地 group_member3（64016 = 1），不碰协议。
+  const [groupLeftMembersOpen, setGroupLeftMembersOpen] = useState(false);
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -468,8 +476,37 @@ export function ChatPane({
   });
   const ttsProviders = mediaSettings.data?.voiceTranscribe?.ttsProviders ?? [];
   const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
-  const ttsEnabled = ttsProviders.length > 0;
   const synthesizeSpeechMutation = trpc.bootstrap.synthesizeSpeech.useMutation();
+  // 「已退群成员」：只在灯箱打开时查本地 group_member3（64016 = 1），一次拉一页就够。
+  const groupLeftMembersQuery = trpc.account.listGroupLeftMembers.useQuery(
+    {
+      groupCode: conversation?.type === 'group' ? conversation.group.identityValue : '',
+      limit: 200,
+    },
+    { enabled: groupLeftMembersOpen && conversation?.type === 'group' },
+  );
+  // wire → 模板层成员（只画头像 + 名字 + QQ 号；与群资料面板同一份渲染形状）。
+  const groupLeftMemberRows = useMemo(
+    () =>
+      (
+        (groupLeftMembersQuery.data ?? []) as Array<{
+          uid: string;
+          uin: string;
+          card: string;
+          nick: string;
+        }>
+      ).map((m) => ({
+        id: m.uid,
+        identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
+        identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
+        username: m.uid,
+        displayName: m.card || m.nick || m.uin || 'Member',
+        avatarUrl: avatarFromUin(m.uin),
+        role: 'member' as const,
+        joinedAt: new Date(0).toISOString(),
+      })),
+    [groupLeftMembersQuery.data],
+  );
 
   /**
    * 输入框「文字转语音」：把文字交给**设置里配好的 TTS 服务商**合成，返回 base64 音频。
@@ -653,8 +690,14 @@ export function ChatPane({
       return () => window.cancelAnimationFrame(frame);
     }
 
-    // Nothing new at the tail (e.g. older history was prepended above).
+    // 尾部 id 没变，但列表内容可能变了。典型情况：打开会话时末尾挂着「数据库里还没有」
+    // 的乐观消息，它先成为尾部，随后真实历史在它**上面**补全 —— 尾部 id 一直没变，
+    // 早退就会停在第一页中间而不是底部。仍钉在底部（且是实时窗口）时就跟着贴底；
+    // 用户在看历史（atBottom=false）或脱离实时窗口时不动。
     if (newestId === lastMessageIdRef.current) {
+      if (atBottomRef.current && atLatest) {
+        scrollMessagesToBottomRef.current();
+      }
       return;
     }
 
@@ -2598,9 +2641,10 @@ export function ChatPane({
   // 占着那一行时仍是浮层，见 flash-composer.css 里那条 media query）。
   const flashPanelActive = flashOpen && !mobileComposerExpanded;
   const flashPanelInline = flashPanelActive && !hasSingleSend;
-  // AI 声聊**只支持群聊**（协议目标字段是群号，私聊服务端不认），所以按钮与面板
-  // 只对群会话出现；合成出来的语音也只能单独发，所以面板开着时正文那一行让位。
-  const canUseAiVoice = conversation.type === 'group';
+  // 「AI 声聊」面板：群聊有「AI 声聊 + 文字转语音」两个页签，私聊只有「文字转语音」
+  //（AI 声聊协议目标字段是群号，服务端不认私聊）。合成出来的语音只能单独发，所以
+  // 面板开着时正文那一行让位。
+  const canUseAiVoice = conversation.type === 'group' || conversation.type === 'direct';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
   // 窗口抖动**只支持私聊**（`commonElem serviceType=2`，服务端不认群聊场景），
   // 所以按钮只在 direct 会话渲染 —— 群聊（含群临时会话）下整枚不出现。
@@ -2895,14 +2939,10 @@ export function ChatPane({
                 case 'groupCallEnded':
                   return <GroupCallEndedMessage element={gt.el} />;
                 case 'windowShake':
-                  // 窗口抖动的乐观渲染不是灰条 —— 按「戳一戳」超级表情画（resources/pokeemoji
-                  // 的贴纸，subType=5），与收到的真实戳一戳同款。收端 QQ 会把 serviceType=2
-                  // 的窗口抖动丢弃，所以这一下只有自己看得见。
-                  return (
-                    <div className="weq-graytip weq-graytip-poke text-center py-2">
-                      <FaceEmoji element={{ faceId: 0, subType: 5 }} size={72} />
-                    </div>
-                  );
+                  // 窗口抖动的乐观渲染不是灰条 —— 画成一枚会轻微抖动的「戳一戳」贴纸
+                  //（见 WindowShakeMessage）。收端 QQ 会把 serviceType=2 的窗口抖动丢弃，
+                  // 所以这一下只有自己看得见。
+                  return <WindowShakeMessage />;
                 case 'qqDynamic': {
                   const d = (gt.el.data ?? {}) as Record<string, unknown>;
                   return (
@@ -3070,6 +3110,7 @@ export function ChatPane({
               onMemberSearchChange={onGroupMemberSearchChange}
               onLoadMoreSearch={onLoadMoreGroupMemberSearch}
               profileLoading={profileLoading}
+              onOpenLeftMembers={() => setGroupLeftMembersOpen(true)}
             />
           ) : null}
         </>
@@ -3244,13 +3285,13 @@ export function ChatPane({
           >
             <Zap size={21} strokeWidth={1.5} />
           </button>
-          {/* AI 声聊仅群聊可见 —— 私聊里这个按钮整个不渲染。 */}
+          {/* AI 声聊 / 文字转语音：私聊与群聊都显示这枚按钮。 */}
           {canUseAiVoice ? (
             <button
               ref={aiVoiceButtonRef}
               type="button"
               className={cn('composer-tool', 'composer-desktop-tool', aiVoiceOpen && 'active')}
-              title={hasSingleSend ? singleSendHint : 'AI 声聊（合成语音，单独发送）'}
+              title={hasSingleSend ? singleSendHint : 'AI 声聊 / 文字转语音（单独发送）'}
               disabled={currentPreference.blocked || sending || hasSingleSend}
               onClick={toggleAiVoicePanel}
             >
@@ -3300,13 +3341,6 @@ export function ChatPane({
             canSend={!mediaSendDisabled}
             sendHint={sendTitle}
             transcribeEnabled={transcribeEnabled}
-            ttsEnabled={ttsEnabled}
-            ttsProviders={ttsProviders.map((item) => ({
-              id: item.id,
-              name: item.name,
-              ...(item.voice ? { voice: item.voice } : {}),
-            }))}
-            onSynthesizeSpeech={synthesizeSpeech}
             onSendVoice={(clip) => void sendVoiceClip(clip)}
             onSendTranscript={(text) => void sendTranscriptText(text)}
             onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
@@ -3338,6 +3372,16 @@ export function ChatPane({
             panelRef={aiVoicePanelRef}
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
+            allowAiVoice={conversation.type === 'group'}
+            canSend={!mediaSendDisabled}
+            sendHint={sendTitle}
+            ttsProviders={ttsProviders.map((item) => ({
+              id: item.id,
+              name: item.name,
+              ...(item.voice ? { voice: item.voice } : {}),
+            }))}
+            onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
+            onSynthesizeSpeech={synthesizeSpeech}
             onSend={(draft) => void sendAiVoice(draft)}
             onClose={() => setAiVoiceOpen(false)}
           />
@@ -3598,6 +3642,17 @@ export function ChatPane({
         <MessageDecorationCard
           decoration={decorationCard.decoration}
           onClose={() => setDecorationCard(null)}
+        />
+      ) : null}
+      {groupLeftMembersOpen && conversation?.type === 'group' ? (
+        <GroupLeftMembersDialog
+          conversation={conversation}
+          members={groupLeftMemberRows}
+          loading={groupLeftMembersQuery.isFetching}
+          error={
+            groupLeftMembersQuery.error ? (groupLeftMembersQuery.error.message ?? '查询失败') : null
+          }
+          onClose={() => setGroupLeftMembersOpen(false)}
         />
       ) : null}
       {groupInfoDetail && conversation.type === 'group' ? (

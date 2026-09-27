@@ -2303,6 +2303,27 @@ export const accountRouter = router({
     }),
 
   /**
+   * List a group's **已退群** members (group_member3 64016 = 1). Backs the chat
+   * page's 「已退群成员」list — no protocol involved, reads the local table only.
+   */
+  listGroupLeftMembers: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(300).optional(),
+        offset: z.number().int().min(0).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.listLeftMembersInGroup(
+        BigInt(input.groupCode),
+        input.limit ?? 100,
+        input.offset ?? 0,
+      );
+      return members.map(groupMemberToWire);
+    }),
+
+  /**
    * List a group's members ordered by member level (高→低), paginated. Backs
    * the "群成员等级排行" lightbox (one query per scrolled page, never per member).
    */

@@ -24,10 +24,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Pause, Play, SendHorizontal, Sparkles, X } from 'lucide-react';
+import { AudioLines, Pause, Play, SendHorizontal, Sparkles, Type, X } from 'lucide-react';
 import type { RefObject } from 'react';
 import { cn } from './classNames';
 import { elementToToken } from './draftElements';
+import {
+  TtsComposer,
+  type TtsSpeechRequest,
+  type TtsSpeechResult,
+  type TtsVoiceProvider,
+} from './voicePanel';
 
 /** 样音前缀 —— 拼上样音文件名再加 `.wav` 就是试听地址。 */
 export const AI_VOICE_SAMPLE_BASE = 'https://res.qpt.qq.com/qpilot/tts_sample/group/';
@@ -201,16 +207,36 @@ export function AiVoicePanel({
   panelRef,
   disabled,
   disabledHint,
+  allowAiVoice = true,
+  canSend = true,
+  sendHint = '',
+  ttsProviders = [],
   onSend,
+  onSendAudioFile,
+  onSynthesizeSpeech,
   onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
   /** QQ 未在线 / 完全离线等：面板照常填，只是发不出去。 */
   disabled: boolean;
   disabledHint: string;
+  /**
+   * 是否展示「AI 声聊」页签。群聊 true（两个页签：AI 声聊 / 文字转语音）；
+   * 私聊 false —— 协议目标字段是群号，私聊只有「文字转语音」一个页签。
+   */
+  allowAiVoice?: boolean;
+  /** TTS 合成等服务商能力是否能发送（QQ 在线且允许注入）。 */
+  canSend?: boolean;
+  sendHint?: string;
+  ttsProviders?: TtsVoiceProvider[];
   onSend: (draft: AiVoiceDraft) => void;
+  /** 文字转语音：合成好的音频当普通语音条发（上层解 WAV 再转 SILK）。 */
+  onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
+  /** 文字交给已配置的 TTS 服务商合成（应用层注入，走 bootstrap.synthesizeSpeech）。 */
+  onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<'ai' | 'tts'>(allowAiVoice ? 'ai' : 'tts');
   const [text, setText] = useState('');
   const [voiceId, setVoiceId] = useState(AI_VOICE_CATALOG[0]?.id ?? '');
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -230,7 +256,7 @@ export function AiVoicePanel({
   const groups = useMemo(() => groupAiVoiceOptions(), []);
   const selected = aiVoiceOption(voiceId);
   const body = text.trim();
-  const canSend = body.length > 0 && !disabled;
+  const canSendAiVoice = body.length > 0 && !disabled;
 
   /** 播 / 停某条声线的样音。同一时刻只留一路。 */
   function toggleSample(key: string) {
@@ -263,7 +289,7 @@ export function AiVoicePanel({
 
   return (
     <div
-      className={cn('ai-voice-panel')}
+      className={cn('ai-voice-panel', allowAiVoice ? 'has-tabs' : 'is-direct')}
       ref={(node) => {
         if (panelRef) panelRef.current = node;
       }}
@@ -272,10 +298,16 @@ export function AiVoicePanel({
     >
       <header className={cn('ai-voice-head')}>
         <span className={cn('ai-voice-head-title')}>
-          <Sparkles size={14} strokeWidth={2.1} />
-          AI 声聊
+          {allowAiVoice ? (
+            <Sparkles size={14} strokeWidth={2.1} />
+          ) : (
+            <Type size={14} strokeWidth={2.1} />
+          )}
+          {allowAiVoice ? 'AI 声聊' : '文字转语音'}
         </span>
-        <span className={cn('ai-voice-head-tag')}>仅群聊 · 单独发送</span>
+        <span className={cn('ai-voice-head-tag')}>
+          {allowAiVoice ? '群聊 · 单独发送' : '单独发送'}
+        </span>
         <button
           type="button"
           className={cn('ai-voice-close')}
@@ -287,105 +319,142 @@ export function AiVoicePanel({
         </button>
       </header>
 
-      <div className={cn('ai-voice-body')}>
-        <label className={cn('ai-voice-field')}>
-          <span className={cn('ai-voice-label')}>
-            要说的话
-            <em className={cn('ai-voice-count')}>{text.length}/200</em>
-          </span>
-          <textarea
-            ref={textRef}
-            className={cn('ai-voice-textarea')}
-            rows={3}
-            maxLength={200}
-            value={text}
-            placeholder="输入要合成语音的文字，例如：在吗？我马上到。"
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                if (canSend) onSend({ text: body, voiceId });
-              }
-            }}
-          />
-        </label>
-
-        <div className={cn('ai-voice-voices')}>
-          <div className={cn('ai-voice-voices-head')}>
-            <AudioLines size={13} strokeWidth={2} />
-            声线
-            {selected ? <span className={cn('ai-voice-selected')}>{selected.name}</span> : null}
-          </div>
-          <div className={cn('ai-voice-voices-list')} role="radiogroup" aria-label="声线">
-            {groups.map((entry) => (
-              <div className={cn('ai-voice-group')} key={entry.group}>
-                <span className={cn('ai-voice-group-label')}>{entry.group}</span>
-                <div className={cn('ai-voice-group-items')}>
-                  {entry.items.map(({ option, key }) => {
-                    const active = option.id === voiceId;
-                    const playing = playingId === key;
-                    return (
-                      <div className={cn('ai-voice-chip', active && 'is-active')} key={key}>
-                        <button
-                          type="button"
-                          className={cn('ai-voice-chip-pick')}
-                          role="radio"
-                          aria-checked={active}
-                          title={`${option.name}（${option.id}）`}
-                          onClick={() => setVoiceId(option.id)}
-                        >
-                          {option.name}
-                        </button>
-                        <button
-                          type="button"
-                          className={cn('ai-voice-chip-play', playing && 'is-playing')}
-                          title={playing ? '停止试听' : `试听「${option.name}」`}
-                          aria-label={playing ? '停止试听' : `试听「${option.name}」`}
-                          onClick={() => toggleSample(key)}
-                        >
-                          {playing ? (
-                            <Pause size={11} strokeWidth={2.6} />
-                          ) : (
-                            <Play size={11} strokeWidth={2.6} />
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+      {allowAiVoice ? (
+        <div className={cn('ai-voice-panel-tabs')} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'ai'}
+            className={cn(tab === 'ai' && 'active')}
+            onClick={() => setTab('ai')}
+          >
+            <Sparkles size={13} strokeWidth={2.2} /> AI 声聊
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'tts'}
+            className={cn(tab === 'tts' && 'active')}
+            onClick={() => setTab('tts')}
+          >
+            <Type size={13} strokeWidth={2.2} /> 文字转语音
+          </button>
         </div>
+      ) : null}
 
-        {sampleError ? <span className={cn('ai-voice-error')}>{sampleError}</span> : null}
-      </div>
+      {tab === 'tts' ? (
+        <div className={cn('ai-voice-body', 'ai-voice-tts-body')}>
+          <TtsComposer
+            providers={ttsProviders}
+            canSend={canSend}
+            sendHint={sendHint}
+            onSendAudio={onSendAudioFile}
+            onSynthesize={onSynthesizeSpeech}
+          />
+        </div>
+      ) : (
+        <>
+          <div className={cn('ai-voice-body')}>
+            <label className={cn('ai-voice-field')}>
+              <span className={cn('ai-voice-label')}>
+                要说的话
+                <em className={cn('ai-voice-count')}>{text.length}/200</em>
+              </span>
+              <textarea
+                ref={textRef}
+                className={cn('ai-voice-textarea')}
+                rows={3}
+                maxLength={200}
+                value={text}
+                placeholder="输入要合成语音的文字，例如：在吗？我马上到。"
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    if (canSendAiVoice) onSend({ text: body, voiceId });
+                  }
+                }}
+              />
+            </label>
 
-      <footer className={cn('ai-voice-foot')}>
-        <span className={cn('ai-voice-hint')}>
-          {disabled ? (
-            disabledHint
-          ) : (
-            <>
-              <Sparkles size={11} strokeWidth={2.2} />
-              合成后单独发送，不带输入框里的文字
-            </>
-          )}
-        </span>
-        <button
-          type="button"
-          className={cn('ai-voice-btn', 'primary')}
-          title={disabled ? disabledHint : '合成并单独发送'}
-          disabled={!canSend}
-          onClick={() => {
-            if (!canSend) return;
-            onSend({ text: body, voiceId });
-          }}
-        >
-          <SendHorizontal size={13} strokeWidth={2.2} />
-          合成并发送
-        </button>
-      </footer>
+            <div className={cn('ai-voice-voices')}>
+              <div className={cn('ai-voice-voices-head')}>
+                <AudioLines size={13} strokeWidth={2} />
+                声线
+                {selected ? <span className={cn('ai-voice-selected')}>{selected.name}</span> : null}
+              </div>
+              <div className={cn('ai-voice-voices-list')} role="radiogroup" aria-label="声线">
+                {groups.map((entry) => (
+                  <div className={cn('ai-voice-group')} key={entry.group}>
+                    <span className={cn('ai-voice-group-label')}>{entry.group}</span>
+                    <div className={cn('ai-voice-group-items')}>
+                      {entry.items.map(({ option, key }) => {
+                        const active = option.id === voiceId;
+                        const playing = playingId === key;
+                        return (
+                          <div className={cn('ai-voice-chip', active && 'is-active')} key={key}>
+                            <button
+                              type="button"
+                              className={cn('ai-voice-chip-pick')}
+                              role="radio"
+                              aria-checked={active}
+                              title={`${option.name}（${option.id}）`}
+                              onClick={() => setVoiceId(option.id)}
+                            >
+                              {option.name}
+                            </button>
+                            <button
+                              type="button"
+                              className={cn('ai-voice-chip-play', playing && 'is-playing')}
+                              title={playing ? '停止试听' : `试听「${option.name}」`}
+                              aria-label={playing ? '停止试听' : `试听「${option.name}」`}
+                              onClick={() => toggleSample(key)}
+                            >
+                              {playing ? (
+                                <Pause size={11} strokeWidth={2.6} />
+                              ) : (
+                                <Play size={11} strokeWidth={2.6} />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {sampleError ? <span className={cn('ai-voice-error')}>{sampleError}</span> : null}
+          </div>
+
+          <footer className={cn('ai-voice-foot')}>
+            <span className={cn('ai-voice-hint')}>
+              {disabled ? (
+                disabledHint
+              ) : (
+                <>
+                  <Sparkles size={11} strokeWidth={2.2} />
+                  合成后单独发送，不带输入框里的文字
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              className={cn('ai-voice-btn', 'primary')}
+              title={disabled ? disabledHint : '合成并单独发送'}
+              disabled={!canSendAiVoice}
+              onClick={() => {
+                if (!canSendAiVoice) return;
+                onSend({ text: body, voiceId });
+              }}
+            >
+              <SendHorizontal size={13} strokeWidth={2.2} />
+              合成并发送
+            </button>
+          </footer>
+        </>
+      )}
     </div>
   );
 }

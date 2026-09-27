@@ -1849,6 +1849,43 @@ html[data-theme="dark"] .message-context-menu button:disabled:hover {
 	justify-content: flex-start;
 }
 
+/* 「已退群」入口：贴在成员标题行右侧，低饱和的幽灵按钮，主题色 / 深浅模式自动跟随。 */
+.group-info-left-members-button {
+	display: inline-flex;
+	margin-left: auto;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 8px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+	color: var(--weq-accent-effective);
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
+	transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.group-info-left-members-button:hover {
+	border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+	background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+/* 已退群列表：贴在群资料灯箱的同一套外壳里，列表自己滚动。 */
+.group-left-member-body {
+	display: flex;
+	flex-direction: column;
+	padding: 4px 6px 14px;
+}
+
+.group-left-member-id {
+	flex: 0 0 auto;
+	margin-left: auto;
+	color: var(--weq-fg-muted);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
 .group-invite-button {
 	display: grid;
 	width: 24px;

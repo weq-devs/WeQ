@@ -1605,6 +1605,52 @@ html[data-theme="dark"] .link-card-preview-card {
   }
 }
 
+/* 群聊面板比私聊多一行页签（AI 声聊 / 文字转语音），行高按需覆盖。 */
+.ai-voice-panel.has-tabs {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.ai-voice-panel.is-direct {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* 页签：只作切换，不抢标题行的位置。主题色 / 深浅模式跟随。 */
+.ai-voice-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.ai-voice-panel-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.ai-voice-panel-tabs button:hover {
+  color: var(--weq-fg-primary, #111111);
+}
+
+.ai-voice-panel-tabs button.active {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 文字转语音页签：复用 TtsComposer 的原样式，只去掉外层多余留白。 */
+.ai-voice-tts-body {
+  padding-top: 2px;
+}
+
 .ai-voice-head {
   display: flex;
   align-items: center;

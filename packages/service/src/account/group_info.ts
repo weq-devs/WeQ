@@ -474,6 +474,15 @@ export class GroupInfoService {
   }
 
   /**
+   * List a group's **已退群** members (64016 = 1). Backs the chat page's
+   * 「已退群成员」list; newest join first. See {@link listMembersInGroup}
+   * for the active-only counterpart.
+   */
+  async listLeftMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
+    return this.session.groupMembers.listLeftMembersInGroup(groupCode, limit, offset);
+  }
+
+  /**
    * List a group's members ordered by member level (高→低). Single paginated
    * query — used by the "群成员等级排行" lightbox, which infinite-scrolls.
    */

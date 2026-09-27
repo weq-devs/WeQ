@@ -10,6 +10,12 @@ interface GrayTipPokeMessageProps {
     data?: {
       grayTipXmlContent?: string;
       tipJson?: string;
+      /** 动作目标（被戳的人）—— 自带 uid + 昵称快照，见 48210/43210。 */
+      actionTarget?: { uid?: string; nickname?: string };
+      /** 动作发起者（戳的人）。 */
+      actionInitiator?: { uid?: string; nickname?: string };
+      /** 附加属性：按出场序平铺的 `nick_str{N}` / `uin_str{N}`。 */
+      actionAttributes?: Array<{ key?: string; value?: string }>;
     };
   };
   conversation: Conversation;
@@ -30,6 +36,40 @@ function addSelf(memberMap: Map<string, GroupMember>, user?: User): void {
   const self = user as unknown as GroupMember;
   if (user.id) memberMap.set(user.id, self);
   if (user.identityValue) memberMap.set(user.identityValue, self);
+}
+
+/**
+ * 灰条自带的人名解析器 —— 与 `conversationPreview.nameByUid` 同一套口径：
+ *   1. 按 uid 命中 `actionTarget` / `actionInitiator` 的昵称快照；
+ *   2. 否则按此人在灰条里的出场序取 `actionAttributes` 的 `nick_str{N}` /
+ *      `uin_str{N}`（QQ 把参与者按同样顺序平铺在这里）；
+ *   3. 再否则退到调用方给的 `uin` 提示（`<qq jp>`），最后才是裸 uid。
+ *
+ * 私聊戳一戳里「自己」那一半常常只有 uid（谁的 uid 都不在成员表里），这一层就是
+ * 为了不把它渲染成一串 base64 / 空白。
+ */
+function buildNameResolver(data: GrayTipPokeMessageProps['element']['data']) {
+  const byUid = new Map<string, string>();
+  for (const who of [data?.actionTarget, data?.actionInitiator]) {
+    const uid = String(who?.uid ?? '').trim();
+    const nick = String(who?.nickname ?? '').trim();
+    if (uid && nick) byUid.set(uid, nick);
+  }
+  const attrs = new Map<string, string>();
+  for (const item of data?.actionAttributes ?? []) {
+    const key = String(item?.key ?? '').trim();
+    if (key) attrs.set(key, String(item?.value ?? '').trim());
+  }
+  return (uid: string, personIndex: number, uinHint?: string): string => {
+    const known = uid ? byUid.get(uid) : undefined;
+    if (known) return known;
+    return (
+      attrs.get(`nick_str${personIndex + 1}`) ||
+      attrs.get(`uin_str${personIndex + 1}`) ||
+      (uinHint ?? '') ||
+      uid
+    );
+  };
 }
 
 function getNodeValue(node: Node, attribute: string): string {
@@ -116,11 +156,24 @@ export function GrayTipPokeMessage({
         addSelf(memberMap, user);
       }
 
+      const resolveName = buildNameResolver(element.data);
+      let personIndex = 0;
       const nodes = Array.from(gtip.childNodes).map((node, index) => {
         if (node.nodeName === 'qq') {
           const uin = getNodeValue(node, 'uin');
-          const member = memberMap.get(uin);
-          const name = member ? displayUserName(member) : getNodeValue(node, 'nm') || uin;
+          const uid = getNodeValue(node, 'uid');
+          const jp = getNodeValue(node, 'jp');
+          const key = uin || uid || jp;
+          const member = key ? memberMap.get(key) : undefined;
+          // 成员表命中就用群名片；否则退到灰条自带的 nm，再退到元素自带的
+          // actionInitiator/Target 昵称 / `uin_str{N}`（自己那条 uid 不在成员表里，
+          // 靠这一层还原），最后才是裸 id。
+          const name =
+            (member ? displayUserName(member) : '') ||
+            getNodeValue(node, 'nm') ||
+            resolveName(key, personIndex, jp) ||
+            key;
+          personIndex += 1;
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <span key={index} className="text-blue-500 cursor-pointer hover:underline">
@@ -186,6 +239,8 @@ export function GrayTipPokeMessage({
           addSelf(memberMap, user);
         }
 
+        const resolveName = buildNameResolver(element.data);
+        let personIndex = 0;
         const items =
           data.items?.map((item) => {
             const txt = item.txt || '';
@@ -198,7 +253,12 @@ export function GrayTipPokeMessage({
               const key = item.uid || item.uin || item.param?.[0] || '';
               const member = key ? memberMap.get(key) : undefined;
               const name =
-                (member ? displayUserName(member) : '') || item.nm || txt || item.uin || '';
+                (member ? displayUserName(member) : '') ||
+                item.nm ||
+                txt ||
+                resolveName(key, personIndex, item.uin) ||
+                '';
+              personIndex += 1;
               if (name) {
                 return (
                   <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
@@ -236,7 +296,7 @@ export function GrayTipPokeMessage({
     }
 
     return null;
-  }, [grayTipXmlContent, tipJson, conversation, message, user]);
+  }, [grayTipXmlContent, tipJson, conversation, message, user, element.data]);
 
   return content;
 }
