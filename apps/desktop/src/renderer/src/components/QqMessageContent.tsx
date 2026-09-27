@@ -90,6 +90,20 @@ export interface ForwardCarrier {
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
 
 /**
+ * 嵌套合并转发的**内联子记录**表（msgId → 该 multiMsg 的 subMsgs）。
+ *
+ * 40900 缓存里嵌套那一层是现成的（一条 multiMsg 记录的 `subMsgs` 就是它内部那串
+ * 子消息），所以再点进去时**不必重新查库**。转发窗口把当前这一层所有子记录的
+ * `subMsgs` 挂进这个表，{@link QqMessageContent} 的 multiMsg 分支就能直接把
+ * 内联记录交给预览卡片，省掉一次 IPC 往返。
+ *
+ * 未提供（主时间线、合成转发预览）时退回按 msgId / resId 现查 —— 行为与以前一致。
+ * `unknown[]` 是 `ForwardRecordWire[]`：这里不 import 那个类型，避免与
+ * ForwardWindow 形成类型环路，取值点自己收窄。
+ */
+export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
+
+/**
  * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
  *
  * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
@@ -681,16 +695,20 @@ export function QqMessageContent({
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
+  const forwardSubRecords = useContext(ForwardSubRecordsContext);
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const linkPreviewOn = useContext(LinkPreviewContext);
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
+    // 与下面 multiMsg 分支同一套内联子记录规则（Ark 形态的合并转发同样可嵌套）。
+    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={{ arkData: arkElement.data?.arkData }}
           msgId={msgId}
           kind={forwardKind}
+          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
         />
       </div>
     );
@@ -838,12 +856,16 @@ export function QqMessageContent({
 
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
   if (multiMsgElement) {
+    // 嵌套转发：如果宿主已经内联了这层子记录（转发窗口直接来自 40900），就把它交给
+    // 预览卡片 —— 点开时不必再查一次库。主时间线 / 合成转发预览没有这张表，退回现查。
+    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={(multiMsgElement.data ?? {}) as Record<string, unknown>}
           msgId={msgId}
           kind={forwardKind}
+          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
         />
       </div>
     );

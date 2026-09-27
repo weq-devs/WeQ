@@ -53,6 +53,7 @@ import {
   X,
 } from 'lucide-react';
 import { QqMessageContent } from '../QqMessageContent';
+import { GrayTipLine, grayTipOf } from '../../im-template/template/messageRow';
 import { FaceEmoji } from '../FaceEmoji';
 import { FacePicker } from '../compose/FacePicker';
 import { QqAvatar } from '../QqAvatar';
@@ -99,6 +100,14 @@ const SEG_META: Record<MfSegKind, { label: string; icon: ReactElement }> = {
   card: { label: '转发卡片', icon: <Forward size={15} /> },
   node: { label: '聊天记录', icon: <Layers size={15} /> },
 };
+
+/** 任意分段的头标（含只读的 opaque）。 */
+function segMeta(seg: MfSeg): { label: string; icon: ReactElement } {
+  // opaque 段没有菜单项，用一个通用头标 + 它的内容摘要（`[文件: x]` / `[撤回]`…）。
+  if (seg.t === 'opaque')
+    return { label: segLabel(seg) || '原样内容', icon: <FileText size={15} /> };
+  return SEG_META[seg.t];
+}
 
 const SEG_ORDER: MfSegKind[] = [
   'text',
@@ -431,9 +440,20 @@ function SegBubble({
   msgId?: string;
 }): ReactElement {
   if (isNestedContent(segs)) return <NestedCard segs={segs} />;
+  const elements = segsToRenderElements(segs);
+  // 灰条（撤回 / 戳一戳 / 群提示 / 群通话结束 / 动态…）走与主面板同一条分流：居中
+  // 一行，不套气泡。QqMessageContent 不认识这些 kind，不在这里分流就会画成空白。
+  const gray = grayTipOf({ qqElements: elements });
+  if (gray) {
+    return (
+      <div className="weq-forward-graytip">
+        <GrayTipLine gt={gray} />
+      </div>
+    );
+  }
   return (
     <QqMessageContent
-      elements={segsToRenderElements(segs) as never}
+      elements={elements as never}
       sendTimeMs={(time || 0) * 1000}
       msgId={msgId ?? ''}
     />
@@ -737,8 +757,8 @@ function SegRow({
     <div className="weq-mf-seg">
       <div className="weq-mf-seg-head">
         <span className="weq-mf-seg-kind">
-          {SEG_META[seg.t].icon}
-          {SEG_META[seg.t].label}
+          {segMeta(seg).icon}
+          {segMeta(seg).label}
         </span>
         <div className="weq-mf-seg-actions">
           <button
@@ -1401,6 +1421,17 @@ function SegEditor({
           value={seg.resId}
           onChange={(e) => onChange({ ...seg, resId: e.target.value.trim() })}
         />
+      );
+    case 'opaque':
+      // 从真实消息导入的复杂元素（灰条 / 红包 / 通话 / 本机没有缓存文件的媒体…）：
+      // 没有可编辑的字段，原样渲染（上面那层 SegBubble 已经把它画出来了）。这里只说明
+      // 它是怎么来的、这次转发会不会带上它。
+      return (
+        <p className="weq-mf-note">
+          {seg.sendText
+            ? '这条内容会以原样转发出去。'
+            : '这条内容只能在预览里看到 —— 协议发不出这种元素，转发时不会带上它。'}
+        </p>
       );
     case 'node':
       // 内容是一份聊天记录时，整条消息由 RecordContent 接管，走不到这里。

@@ -126,7 +126,7 @@ import {
 } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageBubble } from './messageBubble';
+import { MessageRow } from './messageRow';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
@@ -147,18 +147,6 @@ import type {
 } from './types';
 import { displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
-import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
-import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
-import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
-import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
-import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
-import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
-import { WindowShakeMessage } from '../../components/WindowShakeMessage';
-import {
-  GroupCallEndedMessage,
-  GROUP_CALL_ENDED_SUBTYPES,
-} from '../../components/GroupCallEndedMessage';
-import { QqDynamic } from '../../components/QqDynamic';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { trpc } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
@@ -2872,127 +2860,17 @@ export function ChatPane({
           <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
         ) : (
           (() => {
-            // Detect the gray-tip element (if any) a message carries.
-            // 群通话/群课堂的「已结束」（CALL 元素，subType 16/25/29）也走灰条：那条消息的
-            // 40020 是空的，谁也不属于，套气泡会凭空多出一个发送者。发起那条有正常
-            // 发送人，和私聊的 CALL 一样继续走气泡。
-            const GRAY_TIP_KINDS = [
-              'grayTipPoke',
-              'grayTipRevoke',
-              'grayTipGroup',
-              'grayTipXml',
-              'grayTipFileRecv',
-              'grayTipTempSession',
-              'qqDynamic',
-              // 乐观渲染的窗口抖动（收到侧 QQ 会丢弃 serviceType=2，所以只有自己
-              // 发出去那一下能看到；真正到达对方后由对方客户端的抖屏反馈）。
-              'windowShake',
-            ];
-            const grayTipOf = (message) => {
-              const els = message.qqElements ?? [];
-              for (const kind of GRAY_TIP_KINDS) {
-                const el = els.find((e) => e?.type === kind);
-                if (el) return { kind, el };
-              }
-              const callEnded = els.find(
-                (e) =>
-                  e?.type === 'call' && GROUP_CALL_ENDED_SUBTYPES.has(Number(e?.data?.subType)),
-              );
-              if (callEnded) return { kind: 'groupCallEnded', el: callEnded };
-              return null;
-            };
-
-            // Render one gray-tip row's inner component (no wrapper).
-            const renderGrayTip = (message, gt) => {
-              switch (gt.kind) {
-                case 'grayTipPoke':
-                  return (
-                    <GrayTipPokeMessage
-                      element={gt.el}
-                      conversation={conversation}
-                      message={message}
-                      user={user}
-                    />
-                  );
-                case 'grayTipRevoke':
-                  return (
-                    <GrayTipRevokeMessage
-                      element={gt.el}
-                      conversation={conversation}
-                      message={message}
-                    />
-                  );
-                case 'grayTipGroup':
-                  return (
-                    <GrayTipGroupMessage
-                      element={gt.el}
-                      conversation={conversation}
-                      message={message}
-                    />
-                  );
-                case 'grayTipXml':
-                  return <GrayTipXmlMessage element={gt.el} conversation={conversation} />;
-                case 'grayTipFileRecv':
-                  return <GrayTipFileRecvMessage element={gt.el} />;
-                case 'grayTipTempSession':
-                  return <GrayTipTempSessionMessage element={gt.el} />;
-                case 'groupCallEnded':
-                  return <GroupCallEndedMessage element={gt.el} />;
-                case 'windowShake':
-                  // 窗口抖动的乐观渲染不是灰条 —— 画成一枚会轻微抖动的「戳一戳」贴纸
-                  //（见 WindowShakeMessage）。收端 QQ 会把 serviceType=2 的窗口抖动丢弃，
-                  // 所以这一下只有自己看得见。
-                  return <WindowShakeMessage />;
-                case 'qqDynamic': {
-                  const d = (gt.el.data ?? {}) as Record<string, unknown>;
-                  return (
-                    <div className="flex justify-center py-1">
-                      <QqDynamic
-                        desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
-                        desc2={
-                          d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined
-                        }
-                        coverUrl={d.dynamicCoverUrl as string | undefined}
-                        zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
-                      />
-                    </div>
-                  );
-                }
-                default:
-                  return null;
-              }
-            };
-
-            // Gray tips (pokes, recalls, group notices) render as plain
-            // centered lines, gathered into runs only so a run can be
-            // flushed as a unit when a real message interrupts it.
+            // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
+            // 预览用的是同一份实现，所以三处的画法不会再各写一套。
             const out = [];
-            let band = null; // { messages: [{ message, gt }] }
-            const flushBand = () => {
-              if (!band) return;
-              for (const { message, gt } of band.messages) {
-                out.push(
-                  <div
-                    key={message.id}
-                    data-message-id={message.id}
-                    onContextMenu={(e) => openMessageMenu(e, message)}
-                  >
-                    {renderGrayTip(message, gt)}
-                  </div>,
-                );
-              }
-              band = null;
-            };
-
             visibleMessages.forEach((message, index) => {
               // A hole in the seq run means QQ has messages here that were
               // never synced locally. Checked for every row (gray tips
               // included — they occupy a seq too) and emitted before the row
               // that follows the hole.
-              const gap = messageGapCount(visibleMessages[index - 1], message);
+              const previous = visibleMessages[index - 1];
+              const gap = messageGapCount(previous, message);
               if (gap > 0) {
-                flushBand();
-                const previous = visibleMessages[index - 1];
                 out.push(
                   <MessageGapDivider
                     key={`gap-${message.id}`}
@@ -3011,43 +2889,30 @@ export function ChatPane({
                   />,
                 );
               }
-              const gt = grayTipOf(message);
-              if (gt) {
-                if (!band) band = { messages: [] };
-                band.messages.push({ message, gt });
-                return;
-              }
-              flushBand();
-              const previous = visibleMessages[index - 1];
-              const mine = message.senderId === user.id;
               const sender = resolveMessageSender(message, conversation, user);
               out.push(
                 <Fragment key={message.id}>
                   {shouldShowMessageTime(previous, message) ? (
                     <MessageTimeDivider value={message.createdAt} />
                   ) : null}
-                  <MessageBubble
+                  <MessageRow
                     message={message}
                     conversation={conversation}
+                    user={user}
                     sender={sender}
-                    mine={mine}
-                    senderName={displayUserName(sender)}
-                    senderAvatarUrl={sender.avatarUrl}
-                    senderSeed={sender.identityValue}
-                    senderKind={sender.kind}
+                    renderers={messageRenderers}
                     showSenderName={showSenderNames}
                     active={contextMenu?.message.id === message.id}
-                    renderers={messageRenderers}
                     deleted={deletedIds?.has(message.id) ?? false}
                     deletedKind={message.deletedKind}
                     recallRevokerName={message.recallRevokerName}
                     onRestore={onRestoreMessage}
                     onContextMenu={openMessageMenu}
-                    selected={selectionMode && selectedIds.has(message.id)}
-                    selectionMode={selectionMode}
-                    onToggleSelect={toggleSelectMessage}
                     onLongPress={openMobileMessageMenu}
                     onAction={onMessageAction}
+                    selectionMode={selectionMode}
+                    selected={selectionMode && selectedIds.has(message.id)}
+                    onToggleSelect={toggleSelectMessage}
                     onAvatarClick={
                       !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
@@ -3060,7 +2925,6 @@ export function ChatPane({
                 </Fragment>,
               );
             });
-            flushBand();
             return out;
           })()
         )}

@@ -180,6 +180,32 @@ export interface MfCardSeg {
 }
 
 /**
+ * 原样保留的「已渲染元素」段 —— 渲染与发送解耦的那一层。
+ *
+ * 渲染层（QqMessageContent）认识的每一种元素都能原封不动地进来，不再因为「这个分段
+ * 模型没有对应的可发送分支」而在导入时被丢弃或拍扁成文本。`element` 就是渲染视图
+ * （`{type,data}`），{@link segsToRenderElements} 把它原样交给 QqMessageContent ——
+ * 画出来和主消息面板一模一样：图片走 CDN、文件卡显示图标 + 文件名 + 大小、红包 /
+ * 通话 / 在线文件 / 位置共享 / 长消息 / 群收款 / 动态 / 机器人按钮各走自己的组件。
+ *
+ * **发送**与渲染刻意分开：协议只有 text/at/face/mface/reply/ark/xml/markdown/poke/
+ * emojiBounce/forward 这些可直接表达的元素，外加需要本机文件才能上传的
+ * image/record/video/file；像「红包卡片」「通话记录」「位置共享」这类没有对应发送
+ * 形态、或本机没有缓存文件的媒体，协议层发不出**它本身**。这时 `sendText` 给出一个
+ * 等价文本（`[文件: 报表.xlsx]` / `[红包/转账]`…），发送时按它降级 —— 与改造前完全
+ * 一致的行为，只是**预览不再跟着一起降级**。`sendText` 为空表示不参与发送（例如
+ * 纯展示用的灰条）；{@link validateSeg} 会据此决定要不要拦下。
+ */
+export interface MfOpaqueSeg {
+  t: 'opaque';
+  id: string;
+  /** 渲染视图元素：预览原样交给 QqMessageContent。 */
+  element: MfElement;
+  /** 发送时的等价文本（协议发不出这个元素本体的降级）；空 = 不发送这一段。 */
+  sendText?: string;
+}
+
+/**
  * 嵌套转发节点：内容是一串分段。**当 {@link MfNodeSeg.segs} 全是 `node` 段时，
  * 这个节点就是一段嵌套的合并转发**（对齐协议的 `ForwardNode.innerForward`）。
  */
@@ -207,10 +233,17 @@ export type MfSeg =
   | MfMarkdownSeg
   | MfEmojiBounceSeg
   | MfCardSeg
+  | MfOpaqueSeg
   | MfNodeSeg;
 
-/** 分段类型（用于「添加段」菜单 / 校验）。 */
-export type MfSegKind = MfSeg['t'];
+/**
+ * 可**手工新建**的分段类型（「添加段」菜单 / {@link blankSeg} 用）。
+ *
+ * 刻意排除 `opaque`：它是「从真实消息原样导入」的容器段，只能由
+ * {@link codecElementToSeg} / {@link renderElementsToSegs} 生成，编辑器不提供入口
+ * （它没有可编辑的字段，编辑它就等于把它降级成别的段、丢掉原始数据）。
+ */
+export type MfSegKind = Exclude<MfSeg['t'], 'opaque'>;
 
 /** 一条预览消息。 */
 export interface MfNode {
@@ -368,6 +401,8 @@ export function segLabel(seg: MfSeg): string {
       return '[表情弹射]';
     case 'card':
       return '[聊天记录]';
+    case 'opaque':
+      return opaqueLabel(seg.element) || '[消息]';
     case 'node':
       return '[聊天记录]';
   }
@@ -401,6 +436,10 @@ export function segHasContent(seg: MfSeg): boolean {
       return seg.faceId > 0;
     case 'card':
       return seg.resId.trim().length > 0;
+    case 'opaque':
+      // 只要渲染元素在，这一段就画得出来（媒体有没有本机文件不影响「有内容」——
+      // 这正是以前把「没下载的文件」判成空、进而拍扁成文本的那处错误）。
+      return Boolean(seg.element?.type);
     case 'node':
       return seg.segs.some(segHasContent);
   }
@@ -494,6 +533,8 @@ function previewTextOfSegs(segs: MfSeg[]): string {
       case 'face':
       case 'mface':
         return '[表情]';
+      case 'opaque':
+        return opaqueLabel(seg.element);
       default:
         break;
     }
@@ -548,6 +589,35 @@ const MEDIA_LABEL: Record<string, string> = {
   emojiBounce: '[表情弹射]',
   unknown: '[消息]',
 };
+
+/**
+ * 一个**渲染元素**的纯文本摘要 —— 供 {@link segLabel} / {@link previewTextOfSegs} 给
+ * opaque 段（以及任何没有专用分段类型的元素）生成一行说明。
+ *
+ * 优先取元素自带的可见文本（文本 / 提示 / 文件名 / 卡片摘要），取不到才退到
+ * {@link MEDIA_LABEL} 的固定标签 —— 这样「文件」会显示成 `[文件: 报表.xlsx]` 而不是
+ * 干巴巴的 `[文件]`，长文本消息也能显示出正文的开头。
+ */
+function opaqueLabel(element: MfElement | undefined): string {
+  const type = element?.type ?? '';
+  const data = (element?.data ?? {}) as Record<string, unknown>;
+  const text =
+    str(data, 'textContent') ||
+    str(data, 'markdownTextSummary') ||
+    str(data, 'markdownContent') ||
+    str(data, 'fileName') ||
+    str(data, 'callSummary') ||
+    str(data, 'shareLocationText');
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized) {
+    if (type === 'file') return `[文件: ${normalized}]`;
+    if (type === 'pic') return `[图片] ${normalized}`;
+    if (type === 'video') return `[视频] ${normalized}`;
+    if (type === 'ptt') return '[语音]';
+    return normalized.slice(0, 40);
+  }
+  return MEDIA_LABEL[type] ?? (type ? `[${type}]` : '');
+}
 
 /** 图片渲染元素：带上 `localPath`，预览层据此直接从本机文件取图（见 QqImage）。 */
 function imageRenderElement(seg: MfImageSeg): MfElement {
@@ -717,6 +787,12 @@ export function segsToRenderElements(segs: MfSeg[]): MfElement[] {
           },
         });
         break;
+      case 'opaque':
+        // 原样交给 QqMessageContent：它认识的所有元素（图片 / 视频 / 文件 / 语音 /
+        // 红包 / 通话 / 在线文件 / 位置共享 / 长消息 / 群收款 / 动态 / 机器人按钮 /
+        // 灰条…）都由它自己选合适的组件画，这里一个字都不改。
+        out.push(seg.element);
+        break;
       case 'node':
         // 嵌套内容由调用方先判 isNestedContent 交给专门的卡片组件，走不到这里；
         // 万一是混排残渣也退化成标签，至少不静默丢内容。
@@ -824,14 +900,36 @@ export function segToSendElement(seg: MfSeg): SendElement {
       };
     case 'card':
       return { kind: 'forward', resId: seg.resId };
+    case 'opaque':
+      // 协议发不出这个元素本体，退化成它等价的一段文本 —— 与改造前的发送行为一致。
+      // 调用方（{@link segsToSendElements}）已保证走到这里的 opaque 都有 sendText。
+      return { kind: 'text', textContent: seg.sendText ?? segLabel(seg) };
     case 'node':
       throw new Error('嵌套转发节点不能作为普通发送元素（应走 innerForward）');
   }
 }
 
-/** 分段数组 → 发送元素数组（要求全部是非 node 段、且都有内容）。 */
+/**
+ * 这一段**能发出去**吗。
+ *
+ * 与 {@link segHasContent} 的分工：那个决定「画不画」（包括 protocol 发不出、但收端
+ * 能显示的灰条 / 红包卡之类），这个决定「发不发」。opaque 段没有 `sendText` 时只能
+ * 渲染、不能发送（典型是各类灰条）—— 它照样画在预览里，只是不参与这次转发，
+ * 和改造前「导入时就把它丢掉」的结果在收端一致，但用户在预览里能看见它没被带上。
+ */
+export function segIsSendable(seg: MfSeg): boolean {
+  if (seg.t !== 'opaque') return segHasContent(seg);
+  return segHasContent(seg) && Boolean(seg.sendText?.trim());
+}
+
+/** 一组分段里有没有**能发送**的内容。 */
+export function segsHaveSendableContent(segs: MfSeg[]): boolean {
+  return segs.some(segIsSendable);
+}
+
+/** 分段数组 → 发送元素数组（要求全部是非 node 段；不可发送的 opaque 段被跳过）。 */
 export function segsToSendElements(segs: MfSeg[]): SendElement[] {
-  const usable = segs.filter(segHasContent);
+  const usable = segs.filter(segIsSendable);
   if (usable.length === 0) throw new Error('转发节点内容为空');
   if (usable.some((seg) => seg.t === 'node')) {
     throw new Error('一个节点里不能把嵌套转发和普通内容混在一起');
@@ -876,7 +974,11 @@ export function nestedSegsToSendNodes(segs: MfSeg[]): SendForwardNodeInput[] {
 /** 草稿 → 协议节点数组。发送前会先做 {@link validateDraft} 校验。 */
 export function draftToSendNodes(draft: MfDraft): SendForwardNodeInput[] {
   if (draft.nodes.length === 0) throw new Error('合并转发至少需要一条预览消息');
-  return draft.nodes.filter((node) => node.segs.some(segHasContent)).map(nodeToSendNode);
+  // 只发**发得出去**的消息：一条消息如果全是纯展示元素（灰条…），它在服务端会变成
+  // 一个空节点，不如整条跳过 —— 这与改造前「这些元素根本进不来」的收端结果一致。
+  const sendable = draft.nodes.filter((node) => segsHaveSendableContent(node.segs));
+  if (sendable.length === 0) throw new Error('这些内容发不出去');
+  return sendable.map(nodeToSendNode);
 }
 
 /** 「复制 JSON」用的可读载荷（协议发送形状；校验不过时给出原因而不是抛错）。 */
@@ -928,6 +1030,18 @@ function num(data: Record<string, unknown>, key: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+/** 把一个渲染元素包成 opaque 段（渲染原样、发送用等价文本）。 */
+function opaqueSeg(element: MfElement, sendText?: string): MfOpaqueSeg {
+  const text = sendText ?? opaqueLabel(element);
+  return { t: 'opaque', id: mfId('seg'), element, ...(text ? { sendText: text } : {}) };
+}
+
+/** 一个原始元素退成 opaque 段（画得出就画，画不出才返回 null）。 */
+function opaqueFor(rendered: MfElement | undefined, sendText: string): MfSeg | null {
+  if (!rendered?.type) return null;
+  return opaqueSeg(rendered, sendText);
+}
+
 /** 引用元素里「被引消息」的摘要（origElements 的文本部分；媒体取占位标签）。 */
 function replySummary(element: Record<string, unknown>): string | undefined {
   const list = element.origElements;
@@ -948,13 +1062,27 @@ function replySummary(element: Record<string, unknown>): string | undefined {
 
 /**
  * 本库原始 wire 元素（`account.getRawElements` 的产物，bytes 已被 box 成
- * `{type:'Buffer',data}`）→ 分段。**能再次上传发送**是重点：图片 / 语音取
- * `localPath` / `filePath` 作为发送 `source`；取不到本机文件的媒体退化为文本标签，
- * 而不是构造一个发不出去的段。
+ * `{type:'Buffer',data}`）→ 分段。
  *
- * 返回 null 表示这条元素不进转发（引用 / 灰条之类没有转发意义）。
+ * **两条原则**：
+ *   1. **一个元素都不丢**。渲染层能画的（图片 / 视频 / 文件 / 语音 / 红包 / 通话 /
+ *      在线文件 / 位置共享 / 长消息 / 机器人按钮 / 动态 / 灰条…）全部产出分段；
+ *      没有专用分段类型的走 {@link MfOpaqueSeg}，渲染原样交给 QqMessageContent。
+ *   2. **能上传的走专用分段**。图片 / 语音 / 视频 / 文件本机有文件时仍映射成
+ *      `image` / `record` / `video` / `file` 段（发送时真实上传）；本机没有的退成
+ *      opaque 段 —— 预览照样画出真图（走 CDN），发送按等价文本降级（与改造前一致）。
+ *
+ * 返回 null 只在「连 kind 都没有」时发生 —— 那种元素画不出也发不出，留着只会在
+ * 预览里变成一个空占位。
+ *
+ * `renderElement` 是**同一位置**上的渲染视图元素（主时间线的 `qqElements[i]`）。
+ * 有它就能把「本机没有文件的图片 / 视频 / 文件 / 语音」也画成真卡片，而不是一段
+ * `[图片]` 文本。
  */
-export function codecElementToSeg(element: Record<string, unknown>): MfSeg | null {
+export function codecElementToSeg(
+  element: Record<string, unknown>,
+  renderElement?: MfElement,
+): MfSeg | null {
   const kind = str(element, 'kind');
   switch (kind) {
     case 'text':
@@ -987,7 +1115,8 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
       };
     case 'mface': {
       const hex = boxedBytesToHex(element.marketEmoticonId);
-      if (!hex) return { t: 'text', id: mfId('seg'), text: '[商城表情]' };
+      // 拿不到贴纸 GUID 就发不出去（发送必须给 id），但预览仍能按渲染元素画出贴图。
+      if (!hex) return opaqueFor(renderElement, '[商城表情]');
       return {
         t: 'mface',
         id: mfId('seg'),
@@ -1001,7 +1130,9 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
     }
     case 'pic': {
       const path = str(element, 'localPath') || str(element, 'filePath');
-      if (!path) return { t: 'text', id: mfId('seg'), text: '[图片]' };
+      // 本机没有原图也能画（QqImage 走 CDN / 代理按 fileToken + 发送时间取），
+      // 只是发不出去 —— 所以退成 opaque 段而不是一段 `[图片]` 文本。
+      if (!path) return opaqueFor(renderElement, '[图片]');
       return {
         t: 'image',
         id: mfId('seg'),
@@ -1015,7 +1146,8 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
     }
     case 'ptt': {
       const path = str(element, 'filePath');
-      if (!path) return { t: 'text', id: mfId('seg'), text: '[语音]' };
+      // 语音没有本机 SILK 时放不出声，但气泡（时长 / 波形 / 转文字）画得出来。
+      if (!path) return opaqueFor(renderElement, '[语音]');
       return {
         t: 'record',
         id: mfId('seg'),
@@ -1030,7 +1162,8 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
         str(element, 'filePath') ||
         str(element, 'videoCoverLocalPath') ||
         str(element, 'fileThumbLocalPath');
-      if (!path) return { t: 'text', id: mfId('seg'), text: '[视频]' };
+      // 没有本地文件时 QqVideo 用封面 / CDN 出缩略图，照样是一张视频卡。
+      if (!path) return opaqueFor(renderElement, '[视频]');
       return {
         t: 'video',
         id: mfId('seg'),
@@ -1044,9 +1177,11 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
     }
     case 'file': {
       const path = str(element, 'filePath');
+      // 本机没有这个文件：**画成真正的文件卡**（图标 + 文件名 + 大小），而不是
+      // `[文件: xxx]` 那样一段纯文本。点它还能走 OIDB 下载（QqFile 自带那条链路）。
       if (!path) {
         const name = str(element, 'fileName');
-        return { t: 'text', id: mfId('seg'), text: name ? `[文件: ${name}]` : '[文件]' };
+        return opaqueFor(renderElement, name ? `[文件: ${name}]` : '[文件]');
       }
       return {
         t: 'file',
@@ -1070,7 +1205,8 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
     case 'multiMsg': {
       const resId = str(element, 'resId');
       if (resId) return { t: 'card', id: mfId('seg'), resId };
-      return { t: 'text', id: mfId('seg'), text: '[聊天记录]' };
+      // 没有 resId 只能看、不能再转（发送要 resId）—— 预览照样是那张记录卡。
+      return opaqueFor(renderElement, '[聊天记录]');
     }
     case 'emojiBounce':
       return {
@@ -1079,27 +1215,35 @@ export function codecElementToSeg(element: Record<string, unknown>): MfSeg | nul
         faceId: num(element, 'emojiBounceId'),
         ...(str(element, 'emojiBounceName') ? { name: str(element, 'emojiBounceName') } : {}),
       };
-    case 'grayTipRevoke':
-    case 'grayTipPoke':
-    case 'grayTipGroup':
-    case 'grayTipXml':
-    case 'grayTipFileRecv':
-    case 'grayTipTempSession':
-    case 'call':
-      return null;
+    // 灰条 / 通话记录 / 群收款 / 在线文件 / 位置共享 / 动态 / 机器人按钮 / 长消息…
+    // 全部走 opaque：预览由 QqMessageContent 按各自组件画（与主面板一致），发送按
+    // 等价文本降级。旧版在这里把灰条与 call 直接丢掉、其余拍成标签文本，正是
+    // 「大量元素没适配」的根因。
     default: {
-      const label = MEDIA_LABEL[kind] ?? '';
-      return label ? { t: 'text', id: mfId('seg'), text: label } : null;
+      const rendered = renderElement;
+      // `unknown` 是 codec 的「没认出这个 elementType」标记，渲染层也画不出来 ——
+      // 留着只会变成一个空占位，仍然跳过。
+      if (!rendered || rendered.type === 'unknown') return null;
+      // 协议发不出这些元素本体（红包 / 通话 / 在线文件 / 位置共享 / 灰条…），
+      // 所以只渲染、不参与发送。它们照样出现在预览里，只是不会被带到对方。
+      return opaqueSeg(rendered, '');
     }
   }
 }
 
-/** 一条消息的原始 wire 元素数组 → 分段数组（过滤掉不转发的元素）。 */
-export function codecElementsToSegs(elements: unknown[]): MfSeg[] {
+/**
+ * 一条消息的原始 wire 元素数组 → 分段数组。
+ *
+ * `renderElements` 是**同一位置**上的渲染视图元素（主时间线的 `qqElements`），
+ * 两者都是同一条 40800 列按顺序解出来的，所以按下标一一对应。有了它，「本机没有
+ * 缓存文件的媒体」也能导成能画出真卡片的 opaque 段，而不是一段文本。
+ */
+export function codecElementsToSegs(elements: unknown[], renderElements?: MfElement[]): MfSeg[] {
   const segs: MfSeg[] = [];
-  for (const element of elements) {
+  for (let i = 0; i < elements.length; i += 1) {
+    const element = elements[i];
     if (!element || typeof element !== 'object') continue;
-    const seg = codecElementToSeg(element as Record<string, unknown>);
+    const seg = codecElementToSeg(element as Record<string, unknown>, renderElements?.[i]);
     if (seg && segHasContent(seg)) segs.push(seg);
   }
   return segs;
@@ -1154,7 +1298,8 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             height: num(data, 'imgHeight'),
           });
         } else {
-          segs.push({ t: 'text', id: mfId('seg'), text: '[图片]' });
+          // 没有本机原图：照旧能画（QqImage 走 CDN / 代理），只是发不出去。
+          segs.push(opaqueSeg(element, '[图片]'));
         }
         break;
       }
@@ -1170,7 +1315,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             duration: num(data, 'pttDuration'),
           });
         } else {
-          segs.push({ t: 'text', id: mfId('seg'), text: '[语音]' });
+          segs.push(opaqueSeg(element, '[语音]'));
         }
         break;
       }
@@ -1191,7 +1336,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             ...(thumb ? { thumbPath: thumb } : {}),
           });
         } else {
-          segs.push({ t: 'text', id: mfId('seg'), text: '[视频]' });
+          segs.push(opaqueSeg(element, '[视频]'));
         }
         break;
       }
@@ -1206,8 +1351,9 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             size: num(data, 'fileSize'),
           });
         } else {
+          // 没有本机文件：画成真正的文件卡（图标 + 名称 + 大小），不再是 `[文件: x]`。
           const name = str(data, 'fileName');
-          segs.push({ t: 'text', id: mfId('seg'), text: name ? `[文件: ${name}]` : '[文件]' });
+          segs.push(opaqueSeg(element, name ? `[文件: ${name}]` : '[文件]'));
         }
         break;
       }
@@ -1221,12 +1367,16 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         break;
       }
       case 'mface':
-        segs.push({
-          t: 'mface',
-          id: mfId('seg'),
-          marketEmoticonId: str(data, 'marketEmoticonIdHex'),
-          emojiPackId: num(data, 'emojiPackId'),
-        });
+        if (/^[0-9a-fA-F]{32}$/.test(str(data, 'marketEmoticonIdHex'))) {
+          segs.push({
+            t: 'mface',
+            id: mfId('seg'),
+            marketEmoticonId: str(data, 'marketEmoticonIdHex'),
+            emojiPackId: num(data, 'emojiPackId'),
+          });
+        } else {
+          segs.push(opaqueSeg(element, '[商城表情]'));
+        }
         break;
       case 'ark':
         segs.push({ t: 'ark', id: mfId('seg'), arkData: str(data, 'arkData') });
@@ -1245,13 +1395,10 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         segs.push({ t: 'card', id: mfId('seg'), resId: str(data, 'resId') });
         break;
       default:
-        if (element?.type) {
-          segs.push({
-            t: 'text',
-            id: mfId('seg'),
-            text: MEDIA_LABEL[element.type] ?? '[消息]',
-          });
-        }
+        // 其余全部原样保留：灰条 / 通话 / 红包 / 在线文件 / 位置共享 / 长消息 /
+        // 机器人按钮 / 动态… 由 QqMessageContent 按各自组件画（与主面板一致）。
+        // `unknown` 是 codec 的「没认出这个 elementType」标记，渲染层也画不出来。
+        if (element?.type && element.type !== 'unknown') segs.push(opaqueSeg(element, ''));
     }
   }
   return segs;
@@ -1269,6 +1416,11 @@ function basename(path: string): string {
 export function validateDraft(draft: MfDraft): string | null {
   const usable = draft.nodes.filter((node) => node.segs.some(segHasContent));
   if (usable.length === 0) return '至少要有一条有内容的预览消息';
+  // 预览里有东西 ≠ 发得出去：整份草稿里至少要有一段**能发送**的内容，否则这次
+  // 转发在服务端会变成一张空卡片。
+  if (!draft.nodes.some((node) => segsHaveSendableContent(node.segs))) {
+    return '这些内容只能显示、发不出去（例如系统提示、红包 / 通话卡片）。请再加一条文本或图片再转发';
+  }
   for (const node of usable) {
     const problem = validateSegs(node.segs);
     if (problem) return `「${node.sender?.name || '未命名'}」的消息：${problem}`;
@@ -1313,6 +1465,11 @@ function validateSeg(seg: MfSeg): string | null {
       return null;
     case 'card':
       if (!seg.resId.trim()) return '聊天记录卡片缺少 resId';
+      return null;
+    case 'opaque':
+      // 纯展示元素（灰条、红包卡…）可以留在预览里，但这次转发带不走它 —— 只要
+      // 这条消息里还有别的能发的内容就放行，全靠它撑着的消息由 {@link validateDraft}
+      // 在整体层面拦下。
       return null;
     case 'node':
       // 发送者 QQ 允许为空（协议里可省略，卡片会退化成「QQ用户」）。

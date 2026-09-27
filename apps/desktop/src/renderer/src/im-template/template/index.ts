@@ -18,6 +18,7 @@ export * from './format';
 export * from './infoModals';
 export * from './layoutStorage';
 export * from './messageRenderers';
+export * from './messageRow';
 export * from './mentions';
 export * from './modalUtils';
 export * from './mobileProfileSheet';

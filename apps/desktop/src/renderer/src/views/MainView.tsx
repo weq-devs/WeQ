@@ -3258,18 +3258,21 @@ export function MainView(): ReactElement {
         };
         const msgId = (message as { msgId?: string }).msgId ?? message.id;
         let segs: MfSeg[] = [];
+        // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
+        // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
+        // 真卡片的 opaque 段，而不是一段 `[文件: x]` 文本。
+        const renderElements = ((message as { qqElements?: MfElement[] }).qqElements ??
+          []) as MfElement[];
         if (msgId) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
-            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements);
+            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements, renderElements);
           } catch {
             /* 回读失败就退回渲染元素 */
           }
         }
         if (segs.length === 0) {
-          segs = renderElementsToSegs(
-            ((message as { qqElements?: MfElement[] }).qqElements ?? []) as MfElement[],
-          );
+          segs = renderElementsToSegs(renderElements);
         }
         if (segs.length === 0) continue;
         const parsed = Date.parse(message.createdAt);

@@ -9384,6 +9384,19 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   gap: 12px;
 }
 
+/* 转发窗口 / 合成转发预览里的居中灰条行（撤回、戳一戳、群提示、群通话结束…）。
+   与主面板同一条分流（见 im-template/template/messageRow.tsx），只是左右留白更小。 */
+.weq-forward-graytip {
+  display: block;
+  padding: 0 4px;
+}
+.weq-forward-graytip > * {
+  width: 100%;
+}
+
+/* 深色模式：灰条里的灰字在深底上太淡，跟主面板的 weq-graytip 一样不用重映射 ——
+   这里只保证转发窗口的背景色与主面板一致，灰条自然可读。 */
+
 /* 消息装扮预览卡片样式 */
 .weq-decoration-card {
   padding: 20px 24px 24px;
