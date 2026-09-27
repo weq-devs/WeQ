@@ -6,7 +6,9 @@
  *      错位 —— 81216/81217 插在中间，后面的 special/emojiType/category/urls 全部
  *      跟着往后挪，错一位就是静默串列）；
  *   2. 81216(packId) / 81217(stickerId) 的「有没有」判定：两者都非空且非 '0'
- *      才算 sticker，只填一个 / 填 '0' / 填 NULL 都不算。
+ *      才算 sticker，只填一个 / 填 '0' / 填 NULL 都不算；
+ *   3. 81215(stickerType) 读到最后一位——它对应 `QFaceExtra.stickerType`，真机
+ *      （faceId 324，81215=1）核实过：缺了这个字段收端会把超级表情退化成小表情。
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -39,6 +41,8 @@ function seedDb(values: Record<string, string | number | null>): BaseSysEmojiDb 
     '81266',
     '81229',
     '81230',
+    // 81215 放在最后（与 SELECT_COLUMNS 一致）：按下标取值最怕的就是插在中间串位。
+    '81215',
   ];
   sql.exec(`CREATE TABLE base_sys_emoji_table (${columns.map((c) => `"${c}"`).join(', ')})`);
   const placeholders = columns.map(() => '?').join(', ');
@@ -62,6 +66,8 @@ describe('BaseSysEmojiDb', () => {
       81266: '',
       81229: 'https://static/358.png',
       81230: 'https://apng/358.png',
+      // 真机 faceId 324 实测 81215=1（→ QFaceExtra.stickerType）。
+      81215: 1,
     });
     expect(await db.listAll()).toEqual([
       {
@@ -70,6 +76,7 @@ describe('BaseSysEmojiDb', () => {
         unicodeId: 0,
         packId: '1',
         stickerId: '33',
+        stickerType: 1,
         sticker: true,
         special: 0,
         emojiType: 3,
@@ -101,6 +108,8 @@ describe('BaseSysEmojiDb', () => {
       });
       const [row] = await db.listAll();
       expect(row?.sticker, `case ${index}`).toBe(false);
+      // 非贴纸行没有 81215 → stickerType 按 0（不是 undefined/NaN）。
+      expect(row?.stickerType, `case ${index}`).toBe(0);
       expect(row?.category, `case ${index}`).toBe('小黄脸表情');
       // 分类列若因为串位被读成别的列，这里会立刻炸。
       expect(row?.emojiType, `case ${index}`).toBe(1);

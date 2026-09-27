@@ -23,15 +23,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FileAudio,
   Loader2,
   Mic,
   Pause,
   Play,
-  RotateCcw,
   SendHorizontal,
   Sparkles,
   Trash2,
   Type,
+  Wand2,
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { cn } from './classNames';
@@ -716,9 +717,11 @@ export function VoicePanel({
   sendHint,
   transcribeEnabled,
   ttsEnabled,
-  ttsProviderCount,
+  ttsProviders,
   onSendVoice,
   onSendTranscript,
+  onSendAudioFile,
+  onSynthesizeSpeech,
   onBusyChange,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
@@ -729,9 +732,24 @@ export function VoicePanel({
   transcribeEnabled: boolean;
   /** 设置里配了 TTS 服务商。 */
   ttsEnabled: boolean;
-  ttsProviderCount: number;
+  /** 可选的 TTS 服务商（空数组 = 没有「文字转语音」那一栏）。 */
+  ttsProviders: TtsVoiceProvider[];
   onSendVoice: (clip: VoiceClip) => void;
   onSendTranscript: (text: string) => void;
+  /**
+   * 选了一个本机音频文件（mp3 / m4a / wav / ogg…）当语音条发。
+   *
+   * 字节原样交给上层，由它在渲染层用 WebAudio 解成 24k WAV、再转 SILK 发送 ——
+   * 相当于内置一个格式转换器，不依赖 ffmpeg。
+   */
+  onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
+  /**
+   * 把文字交给已配置的 TTS 服务商合成（应用层注入，走 `bootstrap.synthesizeSpeech`）。
+   *
+   * 面板不碰 trpc：合成是联网的、还要读全局设置，所以与 `arkLocation` 同款注入。
+   * 不传就回退成「本机发音人只能试听」（既不发也发不出去）。
+   */
+  onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
   /** 收起不做按钮：这个面板是内嵌在输入框里的，再点一次工具栏那枚麦克风就行。 */
   onBusyChange: (busy: boolean) => void;
 }) {
@@ -740,6 +758,17 @@ export function VoicePanel({
   const { phase, beginRecord, endRecord, discard } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const busy = phase === 'recording' || phase === 'requesting';
+
+  /** 选一个本机音频文件当语音发（解码成 WAV 再转 SILK 的活在上层做）。 */
+  async function handlePickAudio(file: File): Promise<void> {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.byteLength === 0) return;
+      onSendAudioFile(bytes, file.name || 'audio');
+    } catch {
+      // 读不出字节时静默：不打断录音流程。
+    }
+  }
 
   // 面板自己抢焦点，这样空格长按不会落进正文（正文聚焦时空格就是打字）。
   useEffect(() => {
@@ -851,10 +880,11 @@ export function VoicePanel({
       <div className={cn('voice-panel-body')}>
         {tab === 'tts' ? (
           <TtsComposer
-            providerCount={ttsProviderCount}
+            providers={ttsProviders}
             canSend={canSend}
             sendHint={sendHint}
-            onSendVoice={onSendVoice}
+            onSendAudio={onSendAudioFile}
+            onSynthesize={onSynthesizeSpeech}
           />
         ) : phase === 'review' && recorder.clip ? (
           <VoiceReview
@@ -870,7 +900,9 @@ export function VoicePanel({
             onTranscribe={recorder.transcribeClip}
             onTranscriptChange={recorder.setTranscript}
             onDiscard={recorder.discard}
-            onSendVoice={() => onSendVoice({ ...recorder.clip, transcript: recorder.transcript })}
+            onSendVoice={(voiceChanged) =>
+              onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged })
+            }
             onSendTranscript={() => onSendTranscript(recorder.transcript.trim())}
           />
         ) : (
@@ -933,6 +965,23 @@ export function VoicePanel({
             <span className={cn('voice-hint')}>
               <kbd>空格</kbd> 长按录音 · 最长 60 秒
             </span>
+            <label
+              className={cn('voice-pick-audio')}
+              title="选择本机音频文件当语音发送（自动转成 SILK）"
+            >
+              <FileAudio size={13} />
+              选择音频
+              <input
+                type="file"
+                accept="audio/*"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void handlePickAudio(file);
+                }}
+              />
+            </label>
             {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
             {!recorder.error && recorder.transcribeError && !busy ? (
               <span className={cn('voice-error')}>{recorder.transcribeError}</span>
@@ -982,10 +1031,12 @@ function VoiceReview({
   onTranscribe: () => void;
   onTranscriptChange: (text: string) => void;
   onDiscard: () => void;
-  onSendVoice: () => void;
+  /** 发送语音；带上「变声标识」勾选态（协议已实现 `extBizInfo.ptt.changeVoice`）。 */
+  onSendVoice: (voiceChanged: boolean) => void;
   onSendTranscript: () => void;
 }) {
   const trimmed = transcript.trim();
+  const [voiceChanged, setVoiceChanged] = useState(false);
   return (
     <div className={cn('voice-review')}>
       <div className={cn('voice-review-head')}>
@@ -1072,10 +1123,20 @@ function VoiceReview({
         ) : null}
         <button
           type="button"
+          className={cn('voice-btn ghost', voiceChanged && 'is-active')}
+          title="变声标识：勾选后以变声模式发送（收端显示变声角标）"
+          aria-pressed={voiceChanged}
+          disabled={!canSend}
+          onClick={() => setVoiceChanged((value) => !value)}
+        >
+          <Wand2 size={14} /> {voiceChanged ? '变声' : '原声'}
+        </button>
+        <button
+          type="button"
           className={cn('voice-btn primary')}
           title={canSend ? '发送这条语音' : sendHint}
           disabled={!canSend}
-          onClick={onSendVoice}
+          onClick={() => onSendVoice(voiceChanged)}
         >
           <SendHorizontal size={14} /> 发送语音
         </button>
@@ -1086,98 +1147,163 @@ function VoiceReview({
 
 // ── 文字转语音 ───────────────────────────────────────────────────────────────
 
+/** 一个可选的 TTS 服务商（设置 → 语音配置 里存的）。 */
+export interface TtsVoiceProvider {
+  id: string;
+  name: string;
+  /** 服务商配置里的默认音色（可空）。 */
+  voice?: string;
+}
+
+export interface TtsSpeechRequest {
+  text: string;
+  providerId?: string;
+  /** 覆盖服务商默认音色。 */
+  voice?: string;
+}
+
+/** 合成结果：音频字节以 base64 过 IPC（小音频，不走临时文件）。 */
+export interface TtsSpeechResult {
+  providerName: string;
+  /** mp3 | wav …（决定交给 WebAudio 解码时的 MIME）。 */
+  format: string;
+  audioBase64: string;
+}
+
+/** base64 → bytes。不用 `Uint8Array.from(atob(…))`：大一点就会爆栈。 */
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+const TTS_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+};
+
 function TtsComposer({
-  providerCount,
+  providers,
   canSend,
   sendHint,
-  onSendVoice,
+  onSendAudio,
+  onSynthesize,
 }: {
-  providerCount: number;
+  providers: TtsVoiceProvider[];
   canSend: boolean;
   sendHint: string;
-  onSendVoice: (clip: VoiceClip) => void;
+  /** 合成好的音频当一条普通语音条发（上层解成 WAV 再转 SILK）。 */
+  onSendAudio: (bytes: Uint8Array, fileName: string) => void;
+  onSynthesize?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
 }) {
   const [text, setText] = useState('');
-  const [voiceName, setVoiceName] = useState('');
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [speaking, setSpeaking] = useState(false);
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
+  const [voice, setVoice] = useState('');
+  const [phase, setPhase] = useState<'idle' | 'preview' | 'send'>('idle');
+  const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    const read = () => {
-      const list = synth.getVoices();
-      const zh = list.filter((voice) => voice.lang?.toLowerCase().startsWith('zh'));
-      const rest = list.filter((voice) => !voice.lang?.toLowerCase().startsWith('zh'));
-      setVoices([...zh, ...rest]);
-    };
-    read();
-    synth.addEventListener?.('voiceschanged', read);
-    return () => {
-      synth.removeEventListener?.('voiceschanged', read);
-      synth.cancel();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (voiceName && voices.some((voice) => voice.name === voiceName)) return;
-    setVoiceName(voices[0]?.name ?? '');
-  }, [voiceName, voices]);
+  // 试听过的合成结果：同一段文字 + 同一个服务商/音色再点「发送」不重复合成（省一次钱）。
+  const cacheRef = useRef<{ key: string; bytes: Uint8Array; format: string } | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
 
   const body = text.trim();
-  const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+  const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
+  const ready = Boolean(onSynthesize) && provider !== null && body.length > 0;
+  const busy = phase !== 'idle';
+  /** 缓存键：文字 / 服务商 / 音色任一变了就得重新合成。 */
+  const cacheKey = `${provider?.id ?? ''}|${voice.trim()}|${body}`;
 
-  function speak(onDone?: () => void) {
-    if (!synth || !body) return;
-    synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(body);
-    const voice = voices.find((item) => item.name === voiceName);
-    if (voice) {
-      utterance.voice = voice;
-      utterance.lang = voice.lang;
-    } else {
-      utterance.lang = 'zh-CN';
-    }
-    utterance.rate = 1;
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => {
-      setSpeaking(false);
-      onDone?.();
-    };
-    utterance.onerror = () => {
-      setSpeaking(false);
-      setError('语音合成失败，换一个发音人试试');
-    };
+  // 换服务商就把音色覆盖清掉 —— 一个服务商的音色名在另一个那里没有意义。
+  useEffect(() => {
+    setVoice('');
+  }, [providerId]);
+
+  // 面板卸载（收起）时把试听中的音频停干净，别留个声音在后面念。
+  useEffect(
+    () => () => {
+      audioRef.current?.pause();
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    },
+    [],
+  );
+
+  /** 合成（带缓存）。抛错交给调用方提示。 */
+  async function synthesize(): Promise<{ bytes: Uint8Array; format: string } | null> {
+    if (!onSynthesize || !provider || !body) return null;
+    const cached = cacheRef.current;
+    if (cached && cached.key === cacheKey) return cached;
     setError(null);
-    synth.speak(utterance);
+    const result = await onSynthesize({
+      text: body,
+      providerId: provider.id,
+      ...(voice.trim() ? { voice: voice.trim() } : {}),
+    });
+    const bytes = base64ToBytes(result.audioBase64);
+    if (bytes.byteLength === 0) throw new Error('TTS 服务商返回了空音频。');
+    const value = { key: cacheKey, bytes, format: result.format || 'mp3' };
+    cacheRef.current = value;
+    return value;
   }
 
-  function handlePreview() {
-    // 正在读的时候再点一次就是停，别把同一句叠着念。
-    if (speaking && synth) {
-      synth.cancel();
-      setSpeaking(false);
+  function stopPlayback(): void {
+    audioRef.current?.pause();
+    setPlaying(false);
+  }
+
+  /** 试听：用合成出来的真音频放（不再用本机 speechSynthesis，试听的就是要发的那条）。 */
+  async function handlePreview(): Promise<void> {
+    if (!ready) return;
+    if (playing) {
+      stopPlayback();
       return;
     }
-    speak();
+    setPhase('preview');
+    try {
+      const result = await synthesize();
+      if (!result) return;
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      const url = URL.createObjectURL(
+        new Blob([result.bytes], { type: TTS_MIME[result.format] ?? 'audio/mpeg' }),
+      );
+      urlRef.current = url;
+      const audio = audioRef.current ?? new Audio();
+      audioRef.current = audio;
+      audio.onended = () => setPlaying(false);
+      audio.onpause = () => setPlaying(false);
+      audio.src = url;
+      audio.currentTime = 0;
+      setPlaying(true);
+      await audio.play().catch(() => setPlaying(false));
+    } catch (err) {
+      setPlaying(false);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPhase('idle');
+    }
   }
 
-  function handleSend() {
-    if (!body) return;
-    // 合成完成即发送：先把这条语音播出来，同时构造一条 TTS 语音交给上层。
-    speak();
-    onSendVoice({
-      id: createMediaId('tts'),
-      source: 'tts',
-      url: null,
-      blob: null,
-      // 中文按 ~4.2 字/秒估时长，只用来画语音条长度。
-      durationMs: Math.max(1200, (body.length / 4.2) * 1000),
-      levels: [],
-      transcript: body,
-      text: body,
-    });
+  /**
+   * 合成并发送：字节交给上层的**既有音频链路**（WebAudio 解码 → 24k WAV → SILK），
+   * 与「选择音频文件」走同一条路 —— 乐观预览 / 时长 / 波形都由那条链路自己处理。
+   */
+  async function handleSend(): Promise<void> {
+    if (!ready || !canSend) return;
+    setPhase('send');
+    try {
+      const result = await synthesize();
+      if (!result) return;
+      onSendAudio(result.bytes, `tts-${provider?.name ?? 'speech'}.${result.format}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPhase('idle');
+    }
   }
 
   return (
@@ -1185,7 +1311,9 @@ function TtsComposer({
       <div className={cn('voice-tts-note')}>
         <Sparkles size={13} />
         <span>
-          已配置 {providerCount} 个 TTS 服务商；此处用本机发音人合成，试听后发送该条语音。
+          {provider
+            ? `用「${provider.name}」合成，试听满意再发送；转 SILK 由本机完成。`
+            : '还没有配置 TTS 服务商：设置 → 语音配置 → TTS 服务商。'}
         </span>
       </div>
       <textarea
@@ -1198,17 +1326,16 @@ function TtsComposer({
       />
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
-          <span>发音人</span>
+          <span>服务商</span>
           <select
-            value={voiceName}
-            onChange={(event) => setVoiceName(event.target.value)}
-            disabled={voices.length === 0}
+            value={provider?.id ?? ''}
+            disabled={providers.length === 0}
+            onChange={(event) => setProviderId(event.target.value)}
           >
-            {voices.length === 0 ? <option value="">本机默认发音人</option> : null}
-            {voices.map((voice) => (
-              <option key={voice.name} value={voice.name}>
-                {voice.name}
-                {voice.lang ? `（${voice.lang}）` : ''}
+            {providers.length === 0 ? <option value="">未配置</option> : null}
+            {providers.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
               </option>
             ))}
           </select>
@@ -1217,25 +1344,49 @@ function TtsComposer({
           {text.length}/{MAX_TTS_CHARS}
         </span>
       </div>
+      <div className={cn('voice-tts-row')}>
+        <label className={cn('voice-tts-voice')}>
+          <span>音色</span>
+          <input
+            type="text"
+            value={voice}
+            spellCheck={false}
+            placeholder={provider?.voice || '默认音色，可留空'}
+            onChange={(event) => setVoice(event.target.value)}
+          />
+        </label>
+      </div>
       {error ? <span className={cn('voice-error')}>{error}</span> : null}
       <div className={cn('voice-review-actions')}>
         <button
           type="button"
           className={cn('voice-btn ghost')}
-          disabled={!body || !synth}
-          onClick={handlePreview}
+          // 试听中仍可点（再点一次 = 停止），只避开正在发送的那一瞬。
+          disabled={!ready || phase === 'send'}
+          onClick={() => void handlePreview()}
         >
-          {speaking ? <Pause size={14} /> : <RotateCcw size={14} />}
-          {speaking ? '停止' : '试听'}
+          {phase === 'preview' ? (
+            <Loader2 size={14} className={cn('voice-spin')} />
+          ) : playing ? (
+            <Pause size={14} />
+          ) : (
+            <Play size={14} />
+          )}
+          {playing ? '停止' : '试听'}
         </button>
         <button
           type="button"
           className={cn('voice-btn primary')}
           title={canSend ? '合成并发送' : sendHint}
-          disabled={!body || !synth || !canSend}
-          onClick={handleSend}
+          disabled={!ready || !canSend || busy}
+          onClick={() => void handleSend()}
         >
-          <SendHorizontal size={14} /> 合成并发送
+          {phase === 'send' ? (
+            <Loader2 size={14} className={cn('voice-spin')} />
+          ) : (
+            <SendHorizontal size={14} />
+          )}
+          合成并发送
         </button>
       </div>
     </div>

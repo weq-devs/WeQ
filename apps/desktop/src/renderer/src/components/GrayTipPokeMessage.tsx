@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Conversation, GroupMember, Message } from '../im-template/template/types';
+import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import littleIconUrl from '@resources/img/little_icon.png';
@@ -14,6 +14,22 @@ interface GrayTipPokeMessageProps {
   };
   conversation: Conversation;
   message: Message;
+  /**
+   * 当前登录用户。
+   *
+   * 私聊戳一戳的灰条里，**自己的 uid** 就是「谁戳了谁」的一半 —— 之前只把
+   * `message.sender` 和会话对端塞进成员表，自己那条查不到名字就退化成裸 uid。
+   * 带上当前用户后就能把 uid / uin 还原成自己的昵称。
+   */
+  user?: User;
+}
+
+/** 把「当前用户」也当作可解析的成员塞进成员表（uid / uin 两个键都认）。 */
+function addSelf(memberMap: Map<string, GroupMember>, user?: User): void {
+  if (!user) return;
+  const self = user as unknown as GroupMember;
+  if (user.id) memberMap.set(user.id, self);
+  if (user.identityValue) memberMap.set(user.identityValue, self);
 }
 
 function getNodeValue(node: Node, attribute: string): string {
@@ -59,7 +75,12 @@ function resolveTipImgSrc(src: string): string | null {
   return LOCAL_TIP_ICONS[src] ?? null;
 }
 
-export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPokeMessageProps) {
+export function GrayTipPokeMessage({
+  element,
+  conversation,
+  message,
+  user,
+}: GrayTipPokeMessageProps) {
   const { grayTipXmlContent, tipJson } = element.data || {};
 
   const content = useMemo(() => {
@@ -91,6 +112,8 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
             conversation.otherUser as GroupMember,
           );
         }
+        // 私聊戳一戳的另一半往往是「自己」（我戳了对方 / 对方戳了我）。
+        addSelf(memberMap, user);
       }
 
       const nodes = Array.from(gtip.childNodes).map((node, index) => {
@@ -159,6 +182,8 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
               conversation.otherUser as GroupMember,
             );
           }
+          // 私聊戳一戳的另一半往往是「自己」（同 XML 分支）。
+          addSelf(memberMap, user);
         }
 
         const items =
@@ -211,7 +236,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
     }
 
     return null;
-  }, [grayTipXmlContent, tipJson, conversation, message]);
+  }, [grayTipXmlContent, tipJson, conversation, message, user]);
 
   return content;
 }

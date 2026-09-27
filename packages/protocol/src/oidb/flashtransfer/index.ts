@@ -17,6 +17,8 @@ export { GetFilesetDetail } from './get-fileset-detail';
 export type { FlashFileInfo } from './get-fileset-detail';
 export {
   createFlashFileset,
+  commitFlashFileset,
+  uploadFlashThumbnail,
   stageFlashFileset,
   uploadFlashMainFiles,
   finishFlashUpload,

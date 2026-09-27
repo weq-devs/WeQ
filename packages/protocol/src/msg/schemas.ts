@@ -228,6 +228,9 @@ export const MARKET_FACE: ProtoMessage = message([
   f('emojiPackId', 5, 'uint32'),
   f('subType', 6, 'uint32'),
   f('encryptKey', 7, 'string'),
+  // tag 9 = mediaType（SnowLuma `MarketFace.mediaType`）。真机抓包里 QQ **显式写 0**
+  // （`48 00`），不是缺省省略；force 让编码器照写，发送字节与 QQ 完全一致。
+  f('mediaType', 9, 'uint32', { force: true }),
   f('previewWidth', 10, 'uint32'),
   f('previewHeight', 11, 'uint32'),
   f('pbReserve', 13, 'bytes'),

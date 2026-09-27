@@ -37,6 +37,8 @@ export interface SystemFaceEntry {
   packId: string;
   /** 包内贴纸 id（81217 → `QFaceExtra.stickerId`）；非贴纸为空串。 */
   stickerId: string;
+  /** 贴纸类型（81215 → `QFaceExtra.stickerType`，即 SnowLuma 的 `aniStickerType`）。 */
+  stickerType: number;
 }
 
 /**
@@ -104,6 +106,8 @@ export interface PanelFaceItem {
   packId: string;
   /** 包内贴纸 id（81217 → `QFaceExtra.stickerId`）；非贴纸为空串。 */
   stickerId: string;
+  /** 贴纸类型（81215 → `QFaceExtra.stickerType`）；非贴纸为 0。 */
+  stickerType: number;
 }
 
 /** 按 81266 分类的一组表情。 */
@@ -256,6 +260,7 @@ export class EmojiService {
         sticker: r.sticker,
         packId: r.packId,
         stickerId: r.stickerId,
+        stickerType: r.stickerType,
       }))
       .filter((r) => Number.isFinite(r.id) && r.desc);
     return this.sysFaces;
@@ -296,6 +301,7 @@ export class EmojiService {
         sticker: r.sticker,
         packId: r.packId,
         stickerId: r.stickerId,
+        stickerType: r.stickerType,
       });
       if (r.sticker) group.stickerCount += 1;
     }
@@ -886,11 +892,12 @@ function isGlyphId(id: string): boolean {
  */
 function stickerFields(
   row: SysEmoji | undefined,
-): Pick<PanelFaceItem, 'sticker' | 'packId' | 'stickerId'> {
+): Pick<PanelFaceItem, 'sticker' | 'packId' | 'stickerId' | 'stickerType'> {
   return {
     sticker: row?.sticker === true,
     packId: row?.packId ?? '',
     stickerId: row?.stickerId ?? '',
+    stickerType: row?.stickerType ?? 0,
   };
 }
 

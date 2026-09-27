@@ -138,7 +138,8 @@ export const QFACE_EXTRA: ProtoMessage = message([
   f('qsid', 3, 'int32'),
   f('sourceType', 4, 'int32'),
   f('stickerType', 5, 'int32'),
-  f('resultId', 6, 'string'),
+  // QQ 真机即使 resultId 为空也会显式写 `32 00`（抓包实测），用 force 保持字节一致。
+  f('resultId', 6, 'string', { force: true }),
   f('text', 7, 'string'),
   f('randomType', 9, 'int32'),
 ]);
@@ -173,5 +174,30 @@ export const EMOJI_BOUNCE_EXTRA: ProtoMessage = message([
   f('detail', 6, EMOJI_BOUNCE_DETAIL),
 ]);
 
-/** 商城表情 MarketFace.pbReserve(13) 的内层：发送时置 field8=1（动画标记）。 */
-export const MARKET_FACE_PB_RESERVE: ProtoMessage = message([f('field8', 8, 'uint32')]);
+// 商城表情 MarketFace（老 wire tag 6）发送向的 pbReserve(13)。
+//
+// 真机抓包（2026-09-27，QQ NT 发一张商城表情）解出这一段 44 字节：
+//   field1 ×2   = { width, height }（300×300、200×200）
+//   field2/5/6/7 = 0
+//   field8      = 1（动画/贴纸标记，与 SnowLuma、NapCat 一致）
+//   field9 ×2   = { width, height }（300×300、200×200）
+//   field10     = 0
+// 旧实现只写 field8=1（2 字节），这里补齐尺寸对；字段 1/9 是重复的尺寸子消息。
+export const MARKET_FACE_SIZE: ProtoMessage = message([
+  f('width', 1, 'uint32'),
+  f('height', 2, 'uint32'),
+]);
+
+// 真机的 0 值字段是**显式**写上去的（`10 00` / `2A 00` / `30 00` / `38 00` / `50 00`），
+// 不是 proto3 缺省省略出来的 —— 用 force 让编码器照写，字节与 QQ 完全一致。
+export const MARKET_FACE_PB_RESERVE: ProtoMessage = message([
+  f('previewSizes', 1, MARKET_FACE_SIZE, { repeated: true }),
+  f('field2', 2, 'uint32', { force: true }),
+  // field5 是 **LEN 型空值**（`2A 00`），不是 varint 0（`28 00`）—— 按 bytes 声明。
+  f('field5', 5, 'bytes', { force: true }),
+  f('field6', 6, 'uint32', { force: true }),
+  f('field7', 7, 'uint32', { force: true }),
+  f('animated', 8, 'uint32'),
+  f('originalSizes', 9, MARKET_FACE_SIZE, { repeated: true }),
+  f('field10', 10, 'uint32', { force: true }),
+]);

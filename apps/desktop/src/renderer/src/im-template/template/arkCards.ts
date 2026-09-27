@@ -334,6 +334,28 @@ export function arkCardSignature(arkJson: string): string {
 }
 
 /**
+ * 推荐好友 / 推荐群 面板里可选的一个条目（应用层注入）。
+ *
+ * 面板自己**不碰网络**：账号里的好友 / 群列表由应用层查好后交进来，面板只做过滤。
+ */
+export interface ArkContactEntry {
+  /** 发送用的 id：好友 = QQ 号（纯数字），群 = 群号。 */
+  id: string;
+  /** 主标题：备注优先，其次昵称 / 群名。 */
+  name: string;
+  /** 副标题：QQ 号 / 群号（+ 群成员数）。 */
+  sub?: string;
+  /** 头像 URL（拿不到就不画，退回图标）。 */
+  avatarUrl?: string;
+}
+
+/** 面板用的联系人 / 群候选列表（应用层注入；不传就只有手填号码一条路）。 */
+export interface ArkContactSource {
+  friends: ArkContactEntry[];
+  groups: ArkContactEntry[];
+}
+
+/**
  * 十进制数读值：空串 / 缺字段一律 null（`Number('')` 是 0，会把空字段当成真坐标）。
  */
 function decimalOf(value: unknown): number | null {

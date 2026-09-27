@@ -213,6 +213,67 @@
   color: color-mix(in srgb, var(--weq-fg-muted, #858585) 55%, transparent);
 }
 
+/* 位置那栏的紧凑预览：一行摘要，替换掉重复的静态地图卡（见 LocationPreviewCompact）。
+ * 面板因此矮了一大截，选点地图 + 字段不会被一张预览压得只剩一条缝。 */
+.ark-preview.is-compact {
+  padding: 7px 11px 9px;
+}
+
+.ark-loc-preview {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.ark-loc-preview > svg {
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.ark-loc-preview.is-empty {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+}
+
+.ark-loc-preview.is-empty > svg {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 60%, transparent);
+}
+
+.ark-loc-preview-text {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.ark-loc-preview-text strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-loc-preview-text em {
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-loc-preview-hint {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 72%, transparent);
+}
+
 /* ── 位置：搜索栏 + 建议下拉 ─────────────────────────────────────────────── */
 
 .ark-locate {
@@ -339,6 +400,147 @@
   overflow: hidden;
   color: var(--weq-fg-muted, #858585);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 推荐好友 / 群的选择器（搜索下拉）────────────────────────────────────── */
+
+.ark-contact {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+
+/* 「清空」小钮：贴着输入框右侧，只占 18px，不抢字段宽度。 */
+.ark-contact-clear {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 90%, transparent);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.ark-contact-clear:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 16%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+/* 选中提示行：头像 + 名字 + 号码，回答「我选的到底是谁」。 */
+.ark-contact-picked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 2px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+}
+
+.ark-contact-picked img,
+.ark-contact-picked > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  color: var(--weq-fg-muted, #858585);
+}
+
+.ark-contact-picked strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-contact-picked em {
+  flex: 0 0 auto;
+  font-style: normal;
+}
+
+/* 贴屏定位（top / left / width 由 JS 按输入框 rect 给，见 ContactSearch）：
+   面板本体 overflow:hidden，做成 absolute 会被卡片预览区截断。 */
+.ark-contact-list {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  max-height: 216px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 84%, transparent);
+  border-radius: 10px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.ark-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ark-contact-row.active,
+.ark-contact-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+}
+
+.ark-contact-row img,
+.ark-contact-fallback {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ark-contact-fallback {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 16%, transparent);
+  color: var(--weq-fg-muted, #858585);
+}
+
+.ark-contact-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ark-contact-text strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ark-contact-text em {
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -579,5 +781,9 @@ html[data-theme="dark"] .ark-search {
 }
 
 html[data-theme="dark"] .ark-suggest {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+}
+
+html[data-theme="dark"] .ark-contact-list {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
 }

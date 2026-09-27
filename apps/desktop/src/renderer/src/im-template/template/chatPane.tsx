@@ -24,6 +24,7 @@ import {
   Mic,
   Rocket,
   SendHorizontal,
+  Zap,
   Share2,
   Smile,
   Sparkles,
@@ -61,6 +62,7 @@ import {
   clipboardFiles,
   createAttachment,
   createAttachments,
+  createMediaId,
   dataTransferHasFiles,
   formatFileSize,
   isImageFile,
@@ -77,7 +79,8 @@ import {
   ComposerSuperEmojiStage,
   collectFiles,
 } from './composerMediaStage';
-import { VoicePanel } from './voicePanel';
+import { VoicePanel, type TtsSpeechResult } from './voicePanel';
+import { FlashComposer, type FlashSendPayload } from './flashComposer';
 import {
   ComposerQuoteBar,
   composerQuoteToken,
@@ -86,7 +89,7 @@ import {
   type ComposerQuote,
 } from './composerQuote';
 import { ArkPanel } from './arkPanel';
-import type { ArkLocationProvider, ArkPayload } from './arkCards';
+import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
@@ -144,6 +147,7 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
+import { FaceEmoji } from '../../components/FaceEmoji';
 import {
   GroupCallEndedMessage,
   GROUP_CALL_ENDED_SUBTYPES,
@@ -281,7 +285,9 @@ export function ChatPane({
   onSend,
   onSendWindowShake,
   onSendArk,
+  onSendFlash,
   arkLocation,
+  arkContacts,
   onMessageAction,
   draft,
   onDraftChange,
@@ -352,8 +358,15 @@ export function ChatPane({
    * 抛出即失败：面板会显示原因并保留已填内容。
    */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
+  /**
+   * 闪传文件框「发送」—— 面板收齐文件 + 封面后交回应用层，由它补 peerType / targetId
+   * 再走 IPC（与 onSendArk 同）。抛出即失败：面板保留已选文件并显示原因。
+   */
+  onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入；不传就只有地图 + 手填）。 */
   arkLocation?: ArkLocationProvider;
+  /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
+  arkContacts?: ArkContactSource;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
   onDraftChange: (conversationId: string, value: string) => void;
@@ -420,6 +433,16 @@ export function ChatPane({
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
   const [bounceOpen, setBounceOpen] = useState(false);
+  // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
+  // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
+  const [flashOpen, setFlashOpen] = useState(false);
+
+  // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
+  useEffect(() => {
+    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || bounceOpen) {
+      setFlashOpen(false);
+    }
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen]);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -446,6 +469,26 @@ export function ChatPane({
   const ttsProviders = mediaSettings.data?.voiceTranscribe?.ttsProviders ?? [];
   const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
   const ttsEnabled = ttsProviders.length > 0;
+  const synthesizeSpeechMutation = trpc.bootstrap.synthesizeSpeech.useMutation();
+
+  /**
+   * 输入框「文字转语音」：把文字交给**设置里配好的 TTS 服务商**合成，返回 base64 音频。
+   *
+   * 之前那一版用本机 `speechSynthesis` 只能出声、拿不到字节，所以「合成并发送」发出去的
+   * 是一条空语音 —— 现在合成真的发生在服务商那侧，字节回到渲染层当普通音频发送。
+   */
+  async function synthesizeSpeech(request: {
+    text: string;
+    providerId?: string;
+    voice?: string;
+  }): Promise<TtsSpeechResult> {
+    const result = await synthesizeSpeechMutation.mutateAsync(request);
+    return {
+      providerName: result.providerName,
+      format: result.format,
+      audioBase64: result.audioBase64,
+    };
+  }
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
   // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
@@ -513,6 +556,8 @@ export function ChatPane({
   const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const bouncePanelRef = useRef<HTMLDivElement | null>(null);
   const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const flashPanelRef = useRef<HTMLDivElement | null>(null);
+  const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -912,6 +957,41 @@ export function ChatPane({
     };
   }, [voiceOpen]);
 
+  // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
+  // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
+  useEffect(() => {
+    if (!flashOpen) return;
+
+    function closeFlashFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (flashPanelRef.current?.contains(target) || flashButtonRef.current?.contains(target)) {
+        return;
+      }
+      // 灯箱 `createPortal` 到 document.body（见 FlashComposer 的注释）：DOM 上已经
+      // 不算面板的子孙了。不认它会点一下灯箱就把整份草稿关掉。
+      if (target instanceof Element && target.closest('.flash-lightbox') !== null) {
+        return;
+      }
+      setFlashOpen(false);
+    }
+
+    function closeFlashOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      // 灯箱自己处理 Esc（只退回文件框）；它开着时这一层不要再抢。
+      if (document.querySelector('.flash-lightbox')) return;
+      setFlashOpen(false);
+    }
+
+    document.addEventListener('mousedown', closeFlashFromOutside);
+    document.addEventListener('keydown', closeFlashOnEscape);
+    // 灯箱打开时不允许误关：合成/发送中也不关（见 FlashComposer 自己的 Esc 处理）。
+    return () => {
+      document.removeEventListener('mousedown', closeFlashFromOutside);
+      document.removeEventListener('keydown', closeFlashOnEscape);
+    };
+  }, [flashOpen]);
+
   useEffect(() => {
     if (!arkOpen) {
       return;
@@ -926,7 +1006,10 @@ export function ChatPane({
         arkPanelRef.current?.contains(target) ||
         arkButtonRef.current?.contains(target) ||
         emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
+        toolsButtonRef.current?.contains(target) ||
+        // 好友 / 群的选择下拉挂在 document.body 上（不被预览区截断），在 DOM 里
+        // 已经不算面板的子孙了；不认它的话，点一行联系人会先把整个面板关掉。
+        (target instanceof Element && target.closest('.ark-contact-list') !== null)
       ) {
         return;
       }
@@ -1586,6 +1669,33 @@ export function ChatPane({
     await submitMessage({ extraTokens: [voiceClipToken(clip)], locals });
   }
 
+  /**
+   * 语音面板「选择音频」：把一个本机音频文件当语音条发。
+   *
+   * 字节原样交给 {@link sendVoiceClip} —— 它会把 blob 读成 bytes 塞进 ptt 元素的
+   * 本地句柄，主链路的 `decodeRecordingToWav` 再用 WebAudio 解码（mp3 / m4a / ogg…
+   * 浏览器能解的都能收），所以内置了一个格式转换器、不需要 ffmpeg。
+   */
+  async function sendAudioFile(bytes: Uint8Array, _fileName: string) {
+    const blob = new Blob([bytes]);
+    const url = URL.createObjectURL(blob);
+    const clip: VoiceClip = {
+      id: createMediaId('audio'),
+      source: 'record',
+      url,
+      blob,
+      durationMs: 0,
+      levels: [],
+      transcript: '',
+    };
+    try {
+      await sendVoiceClip(clip);
+    } finally {
+      // 乐观预览的 blob 要留到发送完成后再释放。
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
+  }
+
   /** 语音面板「发送文字」：只把识别 / 合成的文字发出去。 */
   async function sendTranscriptText(text: string) {
     if (!text) return;
@@ -1603,6 +1713,20 @@ export function ChatPane({
    * 与旧的链接卡片一致：卡片是**独立的一条消息**，输入框里的文字原样留着；发送失败
    * 会抛出来，面板负责显示原因并保留已填内容。
    */
+  /**
+   * 闪传文件框「确认 → 发送」：单独一条消息（顶掉挂着的引用），失败原样抛给面板。
+   *
+   * 与 Ark 卡片一样，闪传编不成输入框的元素 token（它是 fileset，不是 richText 元素），
+   * 所以走「面板 → 应用层 → IPC」这条独立通路。
+   */
+  async function sendFlashTransfer(payload: FlashSendPayload): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendFlash) {
+      throw new Error('这个会话不支持发送闪传。');
+    }
+    setPendingQuote(null);
+    await onSendFlash(conversation, payload);
+  }
+
   async function sendArkCard(payload: ArkPayload) {
     if (!conversation || conversation.type === 'merged' || !onSendArk) {
       throw new Error('这个会话不支持发送 Ark 卡片。');
@@ -1877,6 +2001,12 @@ export function ChatPane({
     if (!dataTransferHasFiles(event.dataTransfer)) {
       return;
     }
+    // 闪传文件框开着时拖拽归它（见 FlashComposer 里挂在 .composer 上的捕获监听）：
+    // 这里让开，否则整块输入区会亮起「松开即可添加」的纱，让人以为会铺成一张单独发的卡。
+    if (flashOpen) {
+      setDropActive(false);
+      return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     if (!dropActive) setDropActive(true);
@@ -1893,6 +2023,13 @@ export function ChatPane({
 
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
     if (!dataTransferHasFiles(event.dataTransfer)) {
+      return;
+    }
+    // 闪传文件框开着时落点归它（同上）。这里只吃掉这次事件 —— 不 preventDefault
+    // 的话浏览器会直接打开这个文件，那是更糟的结果。
+    if (flashOpen) {
+      event.preventDefault();
+      setDropActive(false);
       return;
     }
     event.preventDefault();
@@ -2158,7 +2295,22 @@ export function ChatPane({
     setVoiceOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setFlashOpen(false);
     setArkOpen((open) => !open);
+  }
+
+  /**
+   * 闪传文件框：与其余面板互斥，同一时刻只开一个。
+   */
+  function toggleFlashPanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setFlashOpen((open) => !open);
   }
 
   /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
@@ -2442,6 +2594,10 @@ export function ChatPane({
         : null;
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
+  // 闪传文件框同样是**内联**的：占掉正文编辑区那一行（小屏与「只能单独发」的卡片
+  // 占着那一行时仍是浮层，见 flash-composer.css 里那条 media query）。
+  const flashPanelActive = flashOpen && !mobileComposerExpanded;
+  const flashPanelInline = flashPanelActive && !hasSingleSend;
   // AI 声聊**只支持群聊**（协议目标字段是群号，私聊服务端不认），所以按钮与面板
   // 只对群会话出现；合成出来的语音也只能单独发，所以面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group';
@@ -2711,6 +2867,7 @@ export function ChatPane({
                       element={gt.el}
                       conversation={conversation}
                       message={message}
+                      user={user}
                     />
                   );
                 case 'grayTipRevoke':
@@ -2738,9 +2895,12 @@ export function ChatPane({
                 case 'groupCallEnded':
                   return <GroupCallEndedMessage element={gt.el} />;
                 case 'windowShake':
+                  // 窗口抖动的乐观渲染不是灰条 —— 按「戳一戳」超级表情画（resources/pokeemoji
+                  // 的贴纸，subType=5），与收到的真实戳一戳同款。收端 QQ 会把 serviceType=2
+                  // 的窗口抖动丢弃，所以这一下只有自己看得见。
                   return (
-                    <div className="weq-graytip text-center text-gray-500 text-xs py-2">
-                      窗口抖动
+                    <div className="weq-graytip weq-graytip-poke text-center py-2">
+                      <FaceEmoji element={{ faceId: 0, subType: 5 }} size={72} />
                     </div>
                   );
                 case 'qqDynamic': {
@@ -2935,6 +3095,7 @@ export function ChatPane({
           hasSingleSend && 'has-single-send',
           hasQuote && 'has-quote',
           voicePanelActive && 'voice-open',
+          flashPanelInline && 'flash-open',
           dropActive && 'is-dropping',
           selectionMode && 'selection-mode',
         )}
@@ -3073,6 +3234,16 @@ export function ChatPane({
           >
             <Link2 size={21} strokeWidth={1.5} />
           </button>
+          <button
+            ref={flashButtonRef}
+            type="button"
+            className={cn('composer-tool', 'composer-desktop-tool', flashOpen && 'active')}
+            title="闪传（选文件 / 文件夹，14 天有效）"
+            disabled={currentPreference.blocked || sending}
+            onClick={toggleFlashPanel}
+          >
+            <Zap size={21} strokeWidth={1.5} />
+          </button>
           {/* AI 声聊仅群聊可见 —— 私聊里这个按钮整个不渲染。 */}
           {canUseAiVoice ? (
             <button
@@ -3130,10 +3301,25 @@ export function ChatPane({
             sendHint={sendTitle}
             transcribeEnabled={transcribeEnabled}
             ttsEnabled={ttsEnabled}
-            ttsProviderCount={ttsProviders.length}
+            ttsProviders={ttsProviders.map((item) => ({
+              id: item.id,
+              name: item.name,
+              ...(item.voice ? { voice: item.voice } : {}),
+            }))}
+            onSynthesizeSpeech={synthesizeSpeech}
             onSendVoice={(clip) => void sendVoiceClip(clip)}
             onSendTranscript={(text) => void sendTranscriptText(text)}
+            onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
             onBusyChange={handleVoiceBusyChange}
+          />
+        ) : null}
+        {flashPanelActive ? (
+          <FlashComposer
+            panelRef={flashPanelRef}
+            canSend={!mediaSendDisabled}
+            sendHint={sendTitle}
+            onSend={sendFlashTransfer}
+            onClose={() => setFlashOpen(false)}
           />
         ) : null}
         {arkOpen && !mobileComposerExpanded ? (
@@ -3142,6 +3328,7 @@ export function ChatPane({
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
             location={arkLocation}
+            contacts={arkContacts}
             onSend={sendArkCard}
             onClose={() => setArkOpen(false)}
           />
@@ -3196,7 +3383,7 @@ export function ChatPane({
           ref={composerEditorRef}
           className={cn(
             'composer-editor',
-            (hasSingleSend || voicePanelActive) && 'composer-row-hidden',
+            (hasSingleSend || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
           )}
           role="textbox"
           aria-multiline="true"

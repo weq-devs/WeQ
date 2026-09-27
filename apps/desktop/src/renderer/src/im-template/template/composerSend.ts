@@ -57,7 +57,14 @@ export type ComposerSendPlan =
   | { kind: 'elements'; elements: unknown[] }
   | { kind: 'file'; path: string; fileName: string }
   | { kind: 'aiVoice'; text: string; voiceId: string }
-  | { kind: 'voice'; recording: Uint8Array; durationSec: number; fileName: string };
+  | {
+      kind: 'voice';
+      recording: Uint8Array;
+      durationSec: number;
+      fileName: string;
+      /** 变声标记（协议已实现）：勾上就带 true。 */
+      voiceChanged?: boolean;
+    };
 
 /** 语音重采样目标：与 `encodeFileToSilk` / 收端一致（24 kHz 单声道）。 */
 const VOICE_SAMPLE_RATE = 24000;
@@ -109,7 +116,15 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
       if (!Number.isSafeInteger(faceId) || faceId < 0) {
         throw new Error(`系统表情 id 不合法：${item.id}`);
       }
-      if (!item.large) return { kind: 'face', faceId };
+      if (!item.large) {
+        // 非「超级表情」栏选中的系统表情：
+        //   抓包实测（2026-09-27）QQ 对 id ≥ 260 的新版小表情走 commonElem **svc33**
+        //   （QSmallFaceExtra，带 preview 外显文字），老 FaceElem 只对 id < 260 的
+        //   经典小黄脸有效（否则服务端会静默换脸，SnowLuma issue #168）。
+        return faceId >= 260
+          ? { kind: 'face', faceId, smallFace: true, faceText: item.name }
+          : { kind: 'face', faceId, faceText: item.name };
+      }
       // 超级 / 动态表情必须走 svc 37（QFaceExtra），且需要目录里的 packId/stickerId ——
       // 走默认老 FaceElem 服务端会把 faceId 静默换成另一张脸。
       const entry = superStickers.get(item.id);
@@ -121,10 +136,13 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
       return {
         kind: 'face',
         faceId,
+        faceText: item.name,
         superSticker: {
           packId: entry.packId,
           stickerId: entry.stickerId,
           ...(entry.stickerType !== undefined ? { stickerType: entry.stickerType } : {}),
+          // QFaceExtra.text（抓包 324 → "/吃糖"）：收端靠它显示贴纸文字。
+          ...(item.name ? { text: item.name } : {}),
         },
       };
     }
@@ -134,7 +152,13 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
       const packId = item.id.slice(0, separator);
       const hash = item.id.slice(separator + 1);
       if (!packId || !hash) throw new Error(`商城表情 token 不完整：${item.id}`);
-      return { kind: 'mface', marketEmoticonId: hash, emojiPackId: Number(packId) };
+      // faceName 会原样写进 marketFace.faceName（真机抓包是 "[笑对人生]" 这种外显名）。
+      return {
+        kind: 'mface',
+        marketEmoticonId: hash,
+        emojiPackId: Number(packId),
+        ...(item.name ? { faceName: item.name } : {}),
+      };
     }
     case 'unicode':
       return { kind: 'text', textContent: item.glyph || item.name };
@@ -217,6 +241,7 @@ function mapWireElement(
         durationSec: element.duration !== undefined ? Number(element.duration) : 0,
         fileName:
           typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name,
+        ...(element.voiceChanged === true ? { voiceChanged: true } : {}),
       };
     }
     case 'file': {

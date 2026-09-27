@@ -18,7 +18,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { FormEvent, ReactNode, RefObject } from 'react';
+import { useOverlayLayer } from '../../lib/overlayStack';
 import {
   Braces,
   Image as ImageIcon,
@@ -27,6 +29,7 @@ import {
   MapPin,
   Newspaper,
   RotateCcw,
+  Search,
   SendHorizontal,
   Sparkles,
   UserPlus,
@@ -48,6 +51,8 @@ import {
   LINK_CARD_MAX_DESC_CHARS,
   LINK_CARD_MAX_TITLE_CHARS,
   LINK_CARD_MAX_URL_CHARS,
+  type ArkContactEntry,
+  type ArkContactSource,
   type ArkLocationProvider,
   type ArkPayload,
   type LinkCardDraft,
@@ -112,10 +117,248 @@ function ArkPreview({ arkData }: { arkData: string | null }) {
 }
 
 /**
+ * 号码输入 + 「从自己的好友 / 群列表里选」的搜索下拉。
+ *
+ * 两种输入方式并存（都要能用）：
+ *   - **手填**：输入框里打出纯数字就立刻算数（与旧面板一致，临时号 / 陌生人也发得出去）；
+ *   - **搜索选择**：打昵称 / 备注 / 号码都能过筛，点一行就把号码填进去，并在后面
+ *     显示选中的名字（避免「填了个 8 位数，不知道是谁」）。
+ *
+ * 列表由应用层注入（`contacts`），面板不碰网络。空列表时下拉不给「没有结果」的噪音，
+ * 直接回到手填。
+ */
+function ContactSearch({
+  entries,
+  icon: Icon,
+  placeholder,
+  value,
+  onChange,
+  disabled,
+}: {
+  entries: readonly ArkContactEntry[];
+  icon: typeof UserPlus;
+  placeholder: string;
+  /** 当前号码（纯数字字符串，空 = 还没填）。 */
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLSpanElement | null>(null);
+  /** 下拉挂到 `document.body`，向 overlayStack 领一个盖住面板的层级（见下面 place 注释）。 */
+  const layer = useOverlayLayer(open);
+  /**
+   * 下拉的贴屏坐标。
+   *
+   * 两条一起用才稳：
+   *   - `position: fixed` + `getBoundingClientRect()` 算出来的贴屏坐标；
+   *   - 列表本体 `createPortal` 挂到 `document.body`。
+   * 不能用 `position: absolute` 贴在字段下面 —— 面板本体是 `overflow: hidden`，输入框
+   * 下面紧接着就是卡片预览区，列表会被截在字段那一行里；而只要列表还长在面板里，
+   * 任何一层祖先的 `overflow` / `transform` 都可能又把它裁掉。挂到 body 上就彻底
+   * 跟裁剪无关了，`fixed` 的坐标才是真正的视口坐标。
+   */
+  const [anchor, setAnchor] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    /** 下方放不下 → 贴到字段上沿（再用 translateY(-100%) 对齐底边）。 */
+    flip: boolean;
+  } | null>(null);
+
+  const picked = useMemo(
+    () => entries.find((entry) => entry.id === value) ?? null,
+    [entries, value],
+  );
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return entries.slice(0, 8);
+    return entries
+      .filter(
+        (entry) =>
+          entry.id.includes(q) ||
+          entry.name.toLowerCase().includes(q) ||
+          (entry.sub ?? '').toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [entries, query]);
+
+  useEffect(() => {
+    if (!open) {
+      setAnchor(null);
+      return;
+    }
+    const place = (): void => {
+      const node = inputRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      // 下面放不下（面板贴着输入框往上长，底下常常只剩预览区的高度）就翻到上面。
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const flip = spaceBelow < 232 && rect.top > spaceBelow;
+      setAnchor({
+        top: flip ? rect.top - 4 : rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+        flip,
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    // 面板内部滚动 / 窗口滚动都要跟着走（capture 才能听到内层滚动）。
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
+
+  function handleType(text: string): void {
+    setQuery(text);
+    setOpen(true);
+    // 纯数字 = 手填号码，直接生效；其余情况先让用户从下拉里选（避免把
+    // 「张」这种半截昵称当成号码送出去）。
+    if (/^\d+$/.test(text.trim())) onChange(text.trim());
+  }
+
+  function pick(entry: ArkContactEntry): void {
+    onChange(entry.id);
+    setQuery(entry.name);
+    setOpen(false);
+  }
+
+  function clear(): void {
+    onChange('');
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div className={cn('ark-contact')}>
+      <span className={cn('link-card-input')} ref={inputRef}>
+        <Icon size={14} strokeWidth={1.9} />
+        <input
+          type="text"
+          value={query}
+          placeholder={placeholder}
+          spellCheck={false}
+          disabled={disabled}
+          onChange={(event) => handleType(event.target.value)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+        />
+        {entries.length > 0 ? <Search size={13} strokeWidth={2} aria-hidden /> : null}
+        {value || query ? (
+          <button
+            type="button"
+            className={cn('ark-contact-clear')}
+            title="清空"
+            aria-label="清空"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={clear}
+          >
+            <X size={12} strokeWidth={2.4} />
+          </button>
+        ) : null}
+      </span>
+
+      {picked ? (
+        <span className={cn('ark-contact-picked')}>
+          {picked.avatarUrl ? (
+            <img src={picked.avatarUrl} alt="" loading="lazy" />
+          ) : (
+            <Icon size={12} strokeWidth={2} />
+          )}
+          <strong>{picked.name}</strong>
+          {picked.sub ? <em>{picked.sub}</em> : null}
+        </span>
+      ) : null}
+
+      {open && anchor && results.length > 0
+        ? createPortal(
+            <ul
+              className={cn('ark-contact-list')}
+              role="listbox"
+              style={{
+                top: anchor.top,
+                left: anchor.left,
+                width: anchor.width,
+                ...(layer === undefined ? {} : { zIndex: layer }),
+                // 翻到上面时用 translateY(-100%) 把列表底边对齐到字段上沿。
+                ...(anchor.flip ? { transform: 'translateY(-100%)' } : {}),
+              }}
+            >
+              {results.map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={entry.id === value}
+                    className={cn('ark-contact-row', entry.id === value && 'active')}
+                    // 按住不让输入框失焦，否则 blur 先把列表收掉、点击落空。
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => pick(entry)}
+                  >
+                    {entry.avatarUrl ? (
+                      <img src={entry.avatarUrl} alt="" loading="lazy" />
+                    ) : (
+                      <span className={cn('ark-contact-fallback')}>
+                        <Icon size={12} strokeWidth={2} />
+                      </span>
+                    )}
+                    <span className={cn('ark-contact-text')}>
+                      <strong>{entry.name}</strong>
+                      {entry.sub ? <em>{entry.sub}</em> : null}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
  * 字段容器：label + 内容 + 错误行。
  *
  * 必填只用一个 `*`，不写「必填 / 可选」那两粒字 —— 面板里能省的字全省掉。
  */
+/**
+ * 位置那栏的紧凑预览 —— 不再重复画一张静态地图卡片。
+ *
+ * 位置 tab 里已经有一张**可交互**的选点地图（~150px）+ 四个字段，底下再叠一张
+ * 静态地图卡预览（~200px）纯属重复，还把面板顶得很高、严重挤压输入区。这里只留
+ * 一行摘要（地址 · 省市区），高度约 40px；真要确认整卡效果，预览卡本来就是「就是
+ * 对方收到的那张」的参考，位置卡片的渲染在气泡里也能看到。
+ */
+function LocationPreviewCompact({ draft }: { draft: ArkLocationDraft }) {
+  const address = draft.address.trim();
+  const region = draft.region.trim();
+  const hasSpot = draft.latitude.trim() !== '' && draft.longitude.trim() !== '';
+  const ready = Boolean(address && region && hasSpot);
+  return (
+    <div className={cn('ark-preview', 'is-compact')} aria-live="polite">
+      <div className={cn('ark-loc-preview', !ready && 'is-empty')}>
+        <MapPin size={14} strokeWidth={2.1} />
+        <span className={cn('ark-loc-preview-text')}>
+          {ready ? (
+            <>
+              <strong>{address}</strong>
+              <em>{region}</em>
+            </>
+          ) : (
+            <span className={cn('ark-loc-preview-hint')}>地点名称 · 省市区 · 地图落点</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function Field({
   label,
   required,
@@ -148,6 +391,7 @@ export function ArkPanel({
   disabled,
   disabledHint,
   location,
+  contacts,
   onSend,
   onClose,
 }: {
@@ -157,6 +401,8 @@ export function ArkPanel({
   disabledHint: string;
   /** 地点搜索 / 逆地址解析能力；不传则位置那栏只有地图与手填。 */
   location?: ArkLocationProvider;
+  /** 好友 / 群候选项（应用层注入）；不传则推荐好友 / 群只能手填号码。 */
+  contacts?: ArkContactSource;
   /** 交回应用层发送；**抛出即失败**，面板保留已填内容并显示原因。 */
   onSend: (payload: ArkPayload) => Promise<void>;
   onClose: () => void;
@@ -365,17 +611,14 @@ export function ArkPanel({
               required
               error={touched && problems.friend ? problems.friend : null}
             >
-              <span className={cn('link-card-input')}>
-                <UserPlus size={14} strokeWidth={1.9} />
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={friendId}
-                  placeholder="被推荐的好友"
-                  spellCheck={false}
-                  onChange={(event) => setFriendId(event.target.value)}
-                />
-              </span>
+              <ContactSearch
+                icon={UserPlus}
+                entries={contacts?.friends ?? []}
+                value={friendId}
+                placeholder="搜索好友，或直接填 QQ 号"
+                disabled={sending}
+                onChange={setFriendId}
+              />
             </Field>
             <Field label="手机号">
               <span className={cn('link-card-input')}>
@@ -394,17 +637,14 @@ export function ArkPanel({
 
         {tab === 'group' ? (
           <Field label="群号" required error={touched && problems.group ? problems.group : null}>
-            <span className={cn('link-card-input')}>
-              <Users size={14} strokeWidth={1.9} />
-              <input
-                type="text"
-                inputMode="numeric"
-                value={groupId}
-                placeholder="被推荐的群"
-                spellCheck={false}
-                onChange={(event) => setGroupId(event.target.value)}
-              />
-            </span>
+            <ContactSearch
+              icon={Users}
+              entries={contacts?.groups ?? []}
+              value={groupId}
+              placeholder="搜索群名，或直接填群号"
+              disabled={sending}
+              onChange={setGroupId}
+            />
           </Field>
         ) : null}
 
@@ -512,8 +752,14 @@ export function ArkPanel({
         ) : null}
       </form>
 
-      {/* 五种卡片都给一张真卡预览（画法与气泡里同一套：QqArk）。 */}
-      <ArkPreview arkData={previewArk} />
+      {/* 四种卡片给一张真卡预览（画法与气泡里同一套：QqArk）。位置那栏例外 ——
+          它自己就是一张可交互地图，再叠一张静态地图卡预览只会把面板顶高、挤压输入区，
+          所以改用一行紧凑摘要（见 LocationPreviewCompact）。 */}
+      {tab === 'location' ? (
+        <LocationPreviewCompact draft={locationDraft} />
+      ) : (
+        <ArkPreview arkData={previewArk} />
+      )}
 
       <footer className={cn('ark-foot')}>
         <span className={cn('ark-foot-hint', (error || shownProblem) && 'is-error')}>

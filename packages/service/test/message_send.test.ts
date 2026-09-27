@@ -1083,3 +1083,126 @@ describe('MessageSendService.sendContactCard（离线集成）', () => {
     expect(sso).toHaveLength(0);
   });
 });
+
+/**
+ * 商城表情的 `encryptKey` 回填。
+ *
+ * 真机实测（2026-09-27）：QQ 发商城表情一定带 16 字符密钥；**空密钥会被服务端
+ * 挂住不回包**（`reply timeout for request N`，实测三轮都超时），带上就 `result=0`。
+ * 这里断言回填真的写进了上 wire 的报文。
+ */
+describe('MessageSendService：商城表情 encryptKey 回填', () => {
+  const MFACE = {
+    kind: 'mface',
+    marketEmoticonId: 'a32a7d86b4742dc78697883fe9dd68f1',
+    emojiPackId: 243630,
+    faceName: '[笑对人生]',
+  } as const;
+
+  /** 取报文里第一个 marketFace 元素。 */
+  function marketFaceOf(body: Uint8Array): Record<string, unknown> {
+    const decoded = decode(SEND_MESSAGE_REQUEST, body) as {
+      messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+    };
+    const elems = decoded.messageBody?.richText?.elems ?? [];
+    const found = elems.find((e) => e.marketFace)?.marketFace;
+    if (!found) throw new Error('报文里没有 marketFace 元素');
+    return found as Record<string, unknown>;
+  }
+
+  it('空密钥 → 用包解析器补上（真机密钥，写进报文）', async () => {
+    const native = fakeNative();
+    const asked: string[] = [];
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      async (packId) => {
+        asked.push(packId);
+        return '145fb68a7df26c50';
+      },
+    );
+    await svc.sendElements({ peerType: 'c2c', targetId: '20002', elements: [MFACE] });
+
+    expect(asked).toEqual(['243630']);
+    expect(marketFaceOf(native.calls[0]!.body).encryptKey).toBe('145fb68a7df26c50');
+    // previewWidth/Height 与 mediaType 也是抓包对齐的固定值。
+    expect(marketFaceOf(native.calls[0]!.body).previewWidth).toBe(200);
+    expect(marketFaceOf(native.calls[0]!.body).mediaType).toBe(0);
+  });
+
+  it('已带密钥 → 不查解析器，原样发出', async () => {
+    const native = fakeNative();
+    let calls = 0;
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      async () => {
+        calls += 1;
+        return 'other-key-000000';
+      },
+    );
+    await svc.sendElements({
+      peerType: 'c2c',
+      targetId: '20002',
+      elements: [{ ...MFACE, encryptKey: 'already-key-0000' }],
+    });
+    expect(calls).toBe(0);
+    expect(marketFaceOf(native.calls[0]!.body).encryptKey).toBe('already-key-0000');
+  });
+
+  it('同一个包在一条消息里只查一次（两个包查两次）', async () => {
+    const native = fakeNative();
+    const asked: string[] = [];
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      async (packId) => {
+        asked.push(packId);
+        return '145fb68a7df26c50';
+      },
+    );
+    await svc.sendElements({
+      peerType: 'c2c',
+      targetId: '20002',
+      elements: [
+        MFACE,
+        { ...MFACE },
+        { ...MFACE, emojiPackId: 7, marketEmoticonId: 'b'.repeat(32) },
+      ],
+    });
+    expect(asked).toEqual(['243630', '7']);
+    const elems = (
+      decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+        messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
+      }
+    ).messageBody?.richText?.elems as Record<string, unknown>[];
+    for (const elem of elems) {
+      expect((elem.marketFace as Record<string, unknown>).encryptKey).toBe('145fb68a7df26c50');
+    }
+  });
+
+  it('解析失败 → 保持空密钥（不阻塞发送，也不编一个假密钥）', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      async () => {
+        throw new Error('CDN 不可达');
+      },
+    );
+    await svc.sendElements({ peerType: 'c2c', targetId: '20002', elements: [MFACE] });
+    // 空密钥按 proto3 缺省不上 wire（不是显式空串），与旧行为逐字节一致。
+    expect(marketFaceOf(native.calls[0]!.body).encryptKey).toBeUndefined();
+  });
+
+  it('没注入解析器 → 字节与旧行为一致（不带密钥）', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await svc.sendElements({ peerType: 'c2c', targetId: '20002', elements: [MFACE] });
+    expect(marketFaceOf(native.calls[0]!.body).encryptKey).toBeUndefined();
+  });
+});
