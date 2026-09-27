@@ -161,6 +161,14 @@ const composerHeightDefault = 230;
 const composerHeightMin = 224;
 const composerHeightMax = 430;
 
+/**
+ * 移动布局下输入框最多长到几行 —— 超过就内部滚动，并露出「展开」按钮（见
+ * `scheduleMobileComposerMeasure` / responsive.css 的 `.mobile-composer-long`）。
+ * 桌面端走的是上面那套可拖拽的 `composerHeight`，与这里无关；但测量函数两种布局都会
+ * 跑到，常量必须在。
+ */
+const mobileComposerMaxLines = 4;
+
 type MentionMenuState = {
   query: string;
   activeIndex: number;

@@ -13,6 +13,7 @@
  */
 
 import { DOMParser, type Node } from '@xmldom/xmldom';
+import { flashPreviewLabel } from './flashShare';
 
 export type PreviewNode =
   | { t: 'text'; text: string }
@@ -70,7 +71,7 @@ export function previewNodes(preview: unknown): PreviewNode[] {
   // 里存成 [markdown, text] 两个元素，TEXT 元素带 textContent 但 49093 是空的。
   if (kind === 'text') {
     const text = str(el.textContent).trim();
-    if (hasVisibleText(text)) return [{ t: 'text', text }];
+    if (hasVisibleText(text)) return [{ t: 'text', text: flashPreviewLabel(text) }];
   }
 
   // 机器人 markdown：49093 只有 "[Markdown]" 标签，正文在 49099（次选 48705 摘
@@ -84,7 +85,7 @@ export function previewNodes(preview: unknown): PreviewNode[] {
   }
 
   const display = str(el.displayText).trim();
-  if (hasVisibleText(display)) return [{ t: 'text', text: display }];
+  if (hasVisibleText(display)) return [{ t: 'text', text: flashPreviewLabel(display) }];
 
   const label = KIND_LABEL[kind];
   return label ? [{ t: 'text', text: label }] : [];

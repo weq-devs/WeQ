@@ -31,7 +31,7 @@ import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from '.
 import { QqMarkdown, looksLikeMarkdown } from './QqMarkdown';
 import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
 import { QqArk } from './ark/QqArk';
-import { QqFlashTransfer } from './QqFlashTransfer';
+import { QqFlashTransfer, QqFlashTransferLink } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
 import { QqGroupReceipt } from './QqGroupReceipt';
 import { QqCall } from './QqCall';
@@ -42,6 +42,7 @@ import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
+import { parseFlashShareCode } from '../lib/flashShare';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -732,6 +733,22 @@ export function QqMessageContent({
           markdownContent={String(flashElement.data?.markdownContent ?? '')}
           info={flashElement.data?.flashTransferInfo}
         />
+      </div>
+    );
+  }
+
+  // Linux / 鸿蒙端 QQ 收不到闪传卡片：服务端把它降级成一条纯文本
+  // （`对方通过QQ闪传发送文件给你…https://qfile.qq.com/q/<code>`）。把这段裸文本
+  // 换成原生卡片外观 —— 短码解析出 filesetId 后仍走同一个文件浏览弹窗。
+  const flashLinkCode = elements
+    .map((element) =>
+      element.type === 'text' ? parseFlashShareCode(String(element.data?.textContent ?? '')) : null,
+    )
+    .find((code): code is string => code !== null);
+  if (flashLinkCode) {
+    return (
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-flash')}>
+        <QqFlashTransferLink code={flashLinkCode} />
       </div>
     );
   }

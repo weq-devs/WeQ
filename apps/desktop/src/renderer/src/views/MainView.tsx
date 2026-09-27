@@ -25,6 +25,7 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
 import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
@@ -1258,10 +1259,14 @@ function optimisticArkToTemplate(
   /** 渲染元素（`{type,data}`，与真实消息的 `qqElements` 同形）。 */
   elements: unknown[];
   /**
-   * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊那条 0x929b_0 回执）。
-   * 目前只用于 `aiVoice:<合成原文>`；按出现次数消耗。
+   * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
+   * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。
+   *   · AI 声聊：`aiVoice:<合成原文>`。
+   *   · 闪传：`flash:<filesetUuid>`（Windows / 安卓收到的真卡片）或
+   *     `flash:<分享短码>`（Linux / 鸿蒙收到的降级纯文本）—— 两者互斥，哪条先
+   *     回来都能把乐观卡片收掉。
    */
-  signature?: string;
+  signatures?: string[];
   state: 'sending' | 'sent' | 'failed';
   error?: string;
   /** 客户端 `random`（回执带回）—— 对账主键。 */
@@ -1633,6 +1638,9 @@ function elementText(element: unknown): string {
 
   switch (type) {
     case 'text':
+      // Linux / 鸿蒙端的闪传降级文本：别把整段「对方通过QQ闪传发送文件给你…」原样塞进
+      // 会话列表预览 / 正文摘要，换成「[QQ闪传] <文件名>」（与真卡片 markdown 的写法一致）。
+      return flashPreviewLabel(stringField(data, 'textContent'));
     case 'at':
       return stringField(data, 'textContent');
     case 'face':
@@ -4035,26 +4043,29 @@ export function MainView(): ReactElement {
       }
     }
     if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
+    // 与普通消息那条同一套：结论在 updater 外面算好，不在 updater 里消耗 `signatures`
+    // 的计数（开发构建会把 updater 跑两遍、以第二遍为准，副作用会让它漏判）。
+    const dropIds = new Set<string>();
+    for (const item of optimisticArks) {
+      // 别的会话的条目不在这个窗口里，原样留着（见上方注释）。
+      if (item.convId !== openConvId) continue;
+      if (item.cid && cids.has(item.cid)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (item.seq && seqs.has(item.seq)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      const left = signatures.get(item.signature);
+      if (!left) continue;
+      signatures.set(item.signature, left - 1);
+      dropIds.add(item.id);
+    }
+    if (dropIds.size === 0) return;
     setOptimisticArks((current) => {
-      let changed = false;
-      const next = current.filter((item) => {
-        // 别的会话的条目不在这个窗口里，原样留着（见上方注释）。
-        if (item.convId !== openConvId) return true;
-        if (item.cid && cids.has(item.cid)) {
-          changed = true;
-          return false;
-        }
-        if (item.seq && seqs.has(item.seq)) {
-          changed = true;
-          return false;
-        }
-        const left = signatures.get(item.signature);
-        if (!left) return true;
-        signatures.set(item.signature, left - 1);
-        changed = true;
-        return false;
-      });
-      return changed ? next : current;
+      const next = current.filter((item) => !dropIds.has(item.id));
+      return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticArks, selectedConversation]);
 
@@ -4072,6 +4083,10 @@ export function MainView(): ReactElement {
     const cids = new Set<string>();
     const seqs = new Set<string>();
     const signatures = new Map<string, number>();
+    /** 给某个对账签名加一次出现次数（同一签名可能来自多条消息）。 */
+    const bump = (signature: string): void => {
+      signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+    };
     for (const wire of loadedMessageWires) {
       if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
       if (wire.msgSeq) seqs.add(String(wire.msgSeq));
@@ -4084,41 +4099,57 @@ export function MainView(): ReactElement {
           const info = el.data?.flashTransferInfo as { fileSetId?: unknown } | undefined;
           const fileSetId = typeof info?.fileSetId === 'string' ? info.fileSetId : '';
           if (fileSetId) {
-            signatures.set(`flash:${fileSetId}`, (signatures.get(`flash:${fileSetId}`) ?? 0) + 1);
+            bump(`flash:${fileSetId}`);
           }
+          continue;
+        }
+        // Linux / 鸿蒙端收到的闪传会降级成纯文本（卡片元素一概没有），只剩分享短码；
+        // 发送回执的 shareUrl 也是同一个短码，所以这里补一条短码签名 —— 让发出的乐观
+        // 卡片能被这条降级文本收掉。
+        if (el.type === 'text') {
+          const code = parseFlashShareCode(String(el.data?.textContent ?? ''));
+          if (code) bump(`flash:${code}`);
           continue;
         }
         if (el.type !== 'ptt' || !el.data?.isAiVoice) continue;
         const transcript = String(el.data.pttTranscript ?? '');
         if (!transcript) continue;
-        const signature = `aiVoice:${transcript}`;
-        signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+        bump(`aiVoice:${transcript}`);
       }
     }
     if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
+    // 对账结论必须在 updater **外面**算完：updater 里一旦消耗 `signatures` 的计数，它
+    // 就不再纯净 —— React 的开发构建会把 updater 跑两遍，**第二次的结果才是最终值**
+    // （react-dom `updateReducerImpl`：多跑的那遍丢掉结果，再用同一份 base state 跑一遍）。
+    // 第一遍把计数减到 0，第二遍就会当成「签名没命中」而保留乐观消息；闪传 / AI 声聊拿不到
+    // cid / seq、只能靠签名对账，于是卡片永远收不掉。
+    const dropIds = new Set<string>();
+    for (const item of optimisticMessages) {
+      if (item.convId !== openConvId) continue;
+      if (item.cid && cids.has(item.cid)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (item.seq && seqs.has(item.seq)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (!item.signatures || item.signatures.length === 0) continue;
+      // 签名会撞（同一条内容连发两次），所以按**出现次数**消耗；多个签名取任一命中。
+      let matched = false;
+      for (const signature of item.signatures) {
+        const left = signatures.get(signature);
+        if (!left) continue;
+        signatures.set(signature, left - 1);
+        matched = true;
+        break;
+      }
+      if (matched) dropIds.add(item.id);
+    }
+    if (dropIds.size === 0) return;
     setOptimisticMessages((current) => {
-      let changed = false;
-      const next = current.filter((item) => {
-        if (item.convId !== openConvId) return true;
-        if (item.cid && cids.has(item.cid)) {
-          changed = true;
-          return false;
-        }
-        if (item.seq && seqs.has(item.seq)) {
-          changed = true;
-          return false;
-        }
-        if (item.signature) {
-          const left = signatures.get(item.signature);
-          if (left) {
-            signatures.set(item.signature, left - 1);
-            changed = true;
-            return false;
-          }
-        }
-        return true;
-      });
-      return changed ? next : current;
+      const next = current.filter((item) => !dropIds.has(item.id));
+      return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation]);
 
@@ -5088,7 +5119,7 @@ export function MainView(): ReactElement {
         convId: conversation.id,
         body: render.body,
         elements: render.elements,
-        ...(plan.kind === 'aiVoice' ? { signature: `aiVoice:${plan.text}` } : {}),
+        ...(plan.kind === 'aiVoice' ? { signatures: [`aiVoice:${plan.text}`] } : {}),
         state: 'sending',
         at: Date.now(),
       },
@@ -5332,8 +5363,9 @@ export function MainView(): ReactElement {
    *
    * 与 Ark 卡片同一套：先插一条**乐观渲染**的闪传卡片（走真消息同一条渲染通路，
    * 见 `buildFlashOptimisticElement`），再发。flash 的回执不给 seq（0x93d7 只回显目标），
-   * 所以对账靠**签名**：发出后拿到 `filesetUuid`，真消息回来时它的
-   * `flashTransferInfo.fileSetId` 是同一个值 —— 扫到就把乐观条目收掉（见上面对账 effect）。
+   * 所以对账靠**签名**：发出后拿到 `filesetUuid` + `shareUrl`，真消息回来时要么带
+   * `flashTransferInfo.fileSetId`（Win / 安卓的真卡片），要么是被降级成纯文本的分享
+   * 短码（Linux / 鸿蒙）—— 两条签名扫到任一条就把乐观条目收掉（见上面对账 effect）。
    */
   async function sendFlashTransfer(
     conversation: Conversation,
@@ -5400,9 +5432,12 @@ export function MainView(): ReactElement {
         ...(payload.coverDataUrl ? { coverBase64: payload.coverDataUrl } : {}),
       });
       // 给乐观卡片补上 filesetId（自己点开也能看文件），并打上对账签名。
+      // Windows / 安卓端回来的真卡片带 filesetUuid；Linux / 鸿蒙端被服务端降级成纯文本，
+      // 只剩回执 shareUrl 里的分享短码 —— 两条都登记，哪条先到都能把乐观卡片收掉。
+      const shareCode = flashShareCodeOfUrl(result.shareUrl);
       patchOptimistic({
         state: 'sent',
-        signature: `flash:${result.filesetUuid}`,
+        signatures: [`flash:${result.filesetUuid}`, ...(shareCode ? [`flash:${shareCode}`] : [])],
         elements: [
           buildFlashOptimisticElement({
             title,
