@@ -12,6 +12,7 @@ export * from './conversationDetails';
 export * from './demoData';
 export * from './draftElements';
 export * from './arkCards';
+export * from './flashComposer';
 export * from './defaultAvatar';
 export * from './format';
 export * from './infoModals';

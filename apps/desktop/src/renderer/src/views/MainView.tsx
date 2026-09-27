@@ -22,6 +22,8 @@ import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
+import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
 import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
@@ -117,8 +119,12 @@ import {
   type GroupMember,
   type GroupNoticeHandleState,
   type GroupUpdateInput,
+  type ArkContactSource,
   type ArkLocationProvider,
   type ArkPayload,
+  type FlashSendPayload,
+  buildFlashOptimisticElement,
+  flashDescOf,
   arkCardSignature,
   buildContactPlaceholderArk,
   buildLocationArkJson,
@@ -4018,6 +4024,16 @@ export function MainView(): ReactElement {
       // AI 声聊回执没有 random / seq：真消息回来时靠「合成原文」签名收掉。
       for (const element of wire.elements ?? []) {
         const el = element as { type?: string; data?: Record<string, unknown> };
+        // 闪传（0x93d7）回执也不给 seq：真消息带 flashTransferInfo.fileSetId，
+        // 与发出时拿到的 filesetUuid 是同一个值，拿它当签名。
+        if (el.type === 'markdown') {
+          const info = el.data?.flashTransferInfo as { fileSetId?: unknown } | undefined;
+          const fileSetId = typeof info?.fileSetId === 'string' ? info.fileSetId : '';
+          if (fileSetId) {
+            signatures.set(`flash:${fileSetId}`, (signatures.get(`flash:${fileSetId}`) ?? 0) + 1);
+          }
+          continue;
+        }
         if (el.type !== 'ptt' || !el.data?.isAiVoice) continue;
         const transcript = String(el.data.pttTranscript ?? '');
         if (!transcript) continue;
@@ -4051,6 +4067,40 @@ export function MainView(): ReactElement {
       return changed ? next : current;
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation]);
+
+  /**
+   * 发送失败的乐观条目不要一直挂在会话末尾。
+   *
+   * 之前失败后会永久占位，视觉上像「这条一直在发送」；而且它没有 seq，永远被排到
+   * 队尾。这里在失败后按固定 TTL 自动收掉三条乐观队列（普通消息 / Ark 卡片 / 合并
+   * 转发）里的对应条目 —— toast 已经说明过失败原因，用户不会因此丢信息。发送中 /
+   * 已发送的条目不动。
+   */
+  useEffect(() => {
+    const FAILED_TTL_MS = 6000;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const now = Date.now();
+    const sweep = (items: { id: string; state: string; at: number }[]): void => {
+      for (const item of items) {
+        if (item.state !== 'failed') continue;
+        const remaining = Math.max(0, FAILED_TTL_MS - (now - item.at));
+        timers.push(
+          setTimeout(() => {
+            // 三个队列都过一遍：id 带前缀，互不冲突，命中哪个删哪个。
+            setOptimisticMessages((current) => current.filter((x) => x.id !== item.id));
+            setOptimisticArks((current) => current.filter((x) => x.id !== item.id));
+            setOptimisticForwards((current) => current.filter((x) => x.id !== item.id));
+          }, remaining),
+        );
+      }
+    };
+    sweep(optimisticMessages);
+    sweep(optimisticArks);
+    sweep(optimisticForwards);
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [optimisticMessages, optimisticArks, optimisticForwards]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -5018,6 +5068,7 @@ export function MainView(): ReactElement {
           targetId: target.targetId,
           wav: toIpcElements([wav])[0],
           ...(plan.durationSec ? { durationSec: plan.durationSec } : {}),
+          ...(plan.voiceChanged ? { voiceChanged: true } : {}),
           fileName: plan.fileName,
         });
       } else if (plan.kind === 'aiVoice') {
@@ -5189,6 +5240,137 @@ export function MainView(): ReactElement {
     }),
     [],
   );
+
+  /**
+   * Ark 面板「推荐好友 / 推荐群」的可选项：把已经查好的好友（`buddies` + `profiles`
+   * 补昵称/备注）与全部群（`allGroups`）拍平成面板能直接过滤的列表。
+   *
+   * 面板自己不碰 trpc（与 `arkLocation` 同一约定），所以这里只交数据、不做增量拉取：
+   * 好友上限 2000、群上限 2000，已经是主界面会话列表用的同一批数据。
+   */
+  const arkContacts = useMemo<ArkContactSource>(() => {
+    const profileByUid = new Map(
+      (profiles.data ?? []).map((profile) => [profile.uid, profile] as const),
+    );
+    const friends = (buddies.data ?? []).map((buddy) => {
+      const profile = profileByUid.get(buddy.uid);
+      return {
+        // 发给服务端的是 QQ 号（纯数字）；uid 只有当好友列表里没号时才退化使用。
+        id: buddy.uin,
+        name: (profile?.remark || profile?.nick || '').trim() || buddy.uin,
+        sub: `QQ ${buddy.uin}`,
+        avatarUrl: cachedAvatarUrl(avatarFromUin(buddy.uin, 100) ?? undefined) ?? undefined,
+      };
+    });
+    const groups = (allGroups.data ?? []).map((group) => ({
+      id: group.groupCode,
+      name: (group.remark || group.groupName || '').trim() || group.groupCode,
+      sub: group.memberCount ? `${group.memberCount} 人` : '群聊',
+      avatarUrl:
+        cachedAvatarUrl(avatarFromGroupCode(group.groupCode, 100) ?? undefined) ?? undefined,
+    }));
+    return { friends, groups };
+  }, [buddies.data, profiles.data, allGroups.data]);
+
+  /**
+   * 闪传文件框「发送」—— 面板给一组本地文件 + 封面，这里补上目标会话走 IPC。
+   *
+   * 与 Ark 卡片同一套：先插一条**乐观渲染**的闪传卡片（走真消息同一条渲染通路，
+   * 见 `buildFlashOptimisticElement`），再发。flash 的回执不给 seq（0x93d7 只回显目标），
+   * 所以对账靠**签名**：发出后拿到 `filesetUuid`，真消息回来时它的
+   * `flashTransferInfo.fileSetId` 是同一个值 —— 扫到就把乐观条目收掉（见上面对账 effect）。
+   */
+  async function sendFlashTransfer(
+    conversation: Conversation,
+    payload: FlashSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '闪传需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送闪传',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    const first = payload.files[0];
+    const title =
+      payload.name.trim() ||
+      (payload.files.length === 1 && first
+        ? first.name
+        : `${first?.name ?? '文件'}等${payload.files.length}个文件`);
+    const fileBytes = payload.files.reduce((sum, file) => sum + (file.size || 0), 0);
+    const desc = flashDescOf(payload.files);
+    const coverUrl = payload.coverDataUrl || undefined;
+
+    const optimisticId = `optimistic-${mfId('fl')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: `[QQ闪传] ${title}`,
+        elements: [
+          buildFlashOptimisticElement({
+            title,
+            desc,
+            ...(coverUrl ? { coverUrl } : {}),
+            fileBytes,
+          }),
+        ],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    try {
+      const result = await client.account.sendFlashTransfer.mutate({
+        peerType: target.peerType,
+        targetId: target.targetId,
+        files: payload.files.map((file) => ({ path: file.path, name: file.name })),
+        ...(payload.name.trim() ? { name: payload.name.trim() } : {}),
+        ...(payload.coverDataUrl ? { coverBase64: payload.coverDataUrl } : {}),
+      });
+      // 给乐观卡片补上 filesetId（自己点开也能看文件），并打上对账签名。
+      patchOptimistic({
+        state: 'sent',
+        signature: `flash:${result.filesetUuid}`,
+        elements: [
+          buildFlashOptimisticElement({
+            title,
+            desc,
+            ...(coverUrl ? { coverUrl } : {}),
+            fileBytes,
+            filesetId: result.filesetUuid,
+          }),
+        ],
+      });
+      pushToast({
+        tone: 'success',
+        message: '闪传已发出',
+        detail: `${title} · 卡片已经落到会话里，封面与文件正在后台传输`,
+      });
+    } catch (err) {
+      patchOptimistic({
+        state: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
 
   /**
    * Ark 卡片的目标会话 → IPC 的 `{peerType, targetId}`。
@@ -5586,6 +5768,8 @@ export function MainView(): ReactElement {
                       onSendWindowShake={sendWindowShake}
                       onSendArk={sendArkCard}
                       arkLocation={arkLocation}
+                      arkContacts={arkContacts}
+                      onSendFlash={sendFlashTransfer}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

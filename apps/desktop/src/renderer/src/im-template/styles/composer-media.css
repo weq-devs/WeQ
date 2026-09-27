@@ -655,6 +655,28 @@ button.composer-single-thumb {
   font-size: 11px;
 }
 
+/* 「选择音频」：脚注里的一枚小胶囊，静默地把本机音频当语音发（自动转 SILK）。 */
+.voice-pick-audio {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 6%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
+}
+
+.voice-pick-audio:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
 /* ── 回顾态 ───────────────────────────────────────────────────────────────── */
 
 .voice-review {
@@ -860,6 +882,13 @@ button.composer-single-thumb {
   color: var(--weq-fg-primary, #111111);
 }
 
+/* 「变声」开关勾上时的选中态（主题色）。 */
+.voice-btn.ghost.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 15%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-weight: 600;
+}
+
 .voice-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
   color: #ffffff;
@@ -937,7 +966,8 @@ button.composer-single-thumb {
   font-size: 12px;
 }
 
-.voice-tts-voice select {
+.voice-tts-voice select,
+.voice-tts-voice input {
   min-width: 0;
   flex: 1 1 auto;
   padding: 5px 8px;
@@ -947,6 +977,15 @@ button.composer-single-thumb {
   color: var(--weq-fg-primary, #111111);
   font-family: inherit;
   font-size: 12px;
+}
+
+.voice-tts-voice input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.voice-tts-voice input::placeholder {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
 }
 
 .voice-tts-count {

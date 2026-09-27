@@ -157,20 +157,23 @@ export function QqImage({
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
   const cdnSrc = cdnImageUrl(cdn, conv !== '', token, orig);
-  const [cdnFailed, setCdnFailed] = useState(false);
   // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
   // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
   // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
   // 真实消息的渲染元素不带这两个字段，所以主时间线行为不变。
+  //
+  // 源按优先级排队，加载失败换下一个：渲染层 `<input type=file>` 选进来的路径不会
+  // 被主进程 `trustPath` 登记，`localfile` 会 404 —— 这时必须回退到乐观渲染的 blob
+  // `localPreviewUrl`，否则明明有本地预览却画成「未找到」。
   const localPath = str(data, 'localPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
-  const src = localPath
-    ? localFileUrl(localPath)
-    : localPreviewUrl
-      ? localPreviewUrl
-      : cdnSrc && !cdnFailed
-        ? cdnSrc
-        : proxySrc;
+  const candidates: string[] = [];
+  if (localPath) candidates.push(localFileUrl(localPath));
+  if (localPreviewUrl && !candidates.includes(localPreviewUrl)) candidates.push(localPreviewUrl);
+  if (cdnSrc) candidates.push(cdnSrc);
+  if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
+  const [srcIndex, setSrcIndex] = useState(0);
+  const src = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
 
   if (broken) {
     return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
@@ -191,7 +194,7 @@ export function QqImage({
         alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
         draggable={false}
         onError={() => {
-          if (src === cdnSrc) setCdnFailed(true);
+          if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
           else setBroken(true);
         }}
       />

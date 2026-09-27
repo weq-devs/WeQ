@@ -51,6 +51,14 @@ export interface SysEmoji {
    */
   stickerId: string;
   /**
+   * 贴纸类型（81215）—— 对应 `QFaceExtra.stickerType`（SnowLuma 的 `aniStickerType`）。
+   *
+   * 真机抓包（2026-09-27）核实：faceId 324 的 81215=1，QQ 发的 svc37 QFaceExtra 里
+   * `stickerType=1`、`packId=1`(81216)、`stickerId=12`(81217) —— 三者一一对应。旧实现
+   * 不读 81215，svc37 缺 stickerType，收端会退化成内联小表情。
+   */
+  stickerType: number;
+  /**
    * 是否带超级/动态表情目录信息（81216 与 81217 都非空）。
    *
    * 这是「能不能按贴纸发」的**权威判据** —— 比 `category`（81266）文案稳：
@@ -66,7 +74,7 @@ export interface SysEmoji {
   apngUrl: string;
 }
 
-const SELECT_COLUMNS = `"81211","81212","81214","81216","81217","81221","81226","81266","81229","81230"`;
+const SELECT_COLUMNS = `"81211","81212","81214","81216","81217","81221","81226","81266","81229","81230","81215"`;
 
 export class BaseSysEmojiDb extends QqDb {
   /** 列出 base_sys_emoji_table 的所有行。 */
@@ -102,5 +110,6 @@ function rowToSysEmoji(row: SqlRow): SysEmoji {
     category: String(row[7] ?? ''),
     staticUrl: String(row[8] ?? ''),
     apngUrl: String(row[9] ?? ''),
+    stickerType: Number(row[10] ?? 0),
   };
 }

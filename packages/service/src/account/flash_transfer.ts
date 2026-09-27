@@ -4,21 +4,24 @@
  * 与 PeerStatsService 同构：注入发生在账号 bootstrap，这里只负责在已注入的
  * 在线 pid 上发包。QQ 离线 / 风控失败原样上抛，由 router 统一转成用户提示。
  *
- * 群反馈路径（uploadBundleToGroup）：「发起 fileset → commit/complete → 缩略图
- * 全流程（封面先就绪）→ 发闪传消息 → 主文件上传在后台继续」。消息到达时封面
- * 已可显示，主文件随后传完即可被对端下载。
+ * 通用路径（sendFlashTransfer）奉行「**先发后传**」：申请 fileset → commit/complete
+ * （只登记元数据，不传字节）→ 0x93d7 发消息 → 封面与主文件的字节上传全部丢到后台。
+ * 消息发出去那一刻调用方就拿到 `filesetUuid`，不用等任何上传；上传结果只写日志
+ * （进度另走 FlashTransferFilesService）。群反馈路径（uploadBundleToGroup）复用同一条。
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  commitFlashFileset,
   createFlashFileset,
   GetFilesetDetail,
   SendFlashMsg,
   SendTuwenArk,
-  stageFlashFileset,
   uploadFlashMainFiles,
+  uploadFlashThumbnail,
   type FlashUploadItem,
   type FlashUploadOptions,
+  type FlashUploaderInfo,
   type SendTuwenArkResult,
 } from '@weq/protocol';
 import { getLogger } from '../common/logger';
@@ -28,9 +31,88 @@ const logger = getLogger().child({ scope: 'flash-transfer' });
 export class FlashTransferService {
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
   ) {}
+
+  /**
+   * 发一条闪传（fileset）消息给私聊 / 群聊 —— 输入框「闪传」用的通用路径。
+   *
+   * 时序（**先发后传**）：申请 fileset（0x93cf）→ commit/complete（0x93d0/0x93db，
+   * 只登记文件清单，不传字节）→ 0x93d7 发消息 → **立刻返回**；封面缩略图
+   * （0x12a9 三段）与主文件分片上传全部在返回后在后台跑。
+   *
+   * 所以调用方拿到 `filesetUuid` 时消息已经在会话里了，不用等任何一个字节上传完。
+   * 上传结果只写日志；调用方要等上传收尾时可 await 返回的 `uploaded`。
+   *
+   * 与 `uploadBundleToGroup` 的差别只有目标与命名：这条接受任意私聊 / 群聊目标，
+   * 且可以由调用方给封面 PNG 路径（`thumbPath`）。
+   */
+  async sendFlashTransfer(params: {
+    files: FlashUploadItem[];
+    /** `c2c` = 私聊（可给 QQ 号或 uid），`group` = 群聊（群号）。 */
+    peerType: 'c2c' | 'group';
+    targetId: string;
+    /** fileset 标题（卡片名）；缺省单文件用文件名、多文件用「<首文件>等N个文件」。 */
+    name?: string;
+    /** 可选封面：**真实 PNG** 路径（协议会读 IHDR 取宽高并上传为缩略图）。 */
+    thumbPath?: string;
+    uploader: FlashUploaderInfo;
+  }): Promise<{ filesetUuid: string; shareUrl: string; uploaded: Promise<void> }> {
+    const pid = this.resolvePid();
+    const pending = await createFlashFileset(this.nt, pid, params.files, {
+      ...(params.name?.trim() ? { name: params.name.trim() } : {}),
+      ...(params.thumbPath ? { thumbPath: params.thumbPath } : {}),
+      uploader: params.uploader,
+    });
+
+    // 只登记元数据（文件清单），不管字节 —— 这一步必须在 0x93d7 之前，否则对端点开
+    // 会看不到文件列表。commit/complete 是两次快速往返，不涉及上传。
+    await commitFlashFileset(this.nt, pid, pending);
+
+    if (params.peerType === 'group') {
+      const groupId = Number(params.targetId.trim());
+      if (!Number.isSafeInteger(groupId) || groupId <= 0) {
+        throw new Error(`群号不合法：${params.targetId}`);
+      }
+      await SendFlashMsg.invoke(this.nt, pid, { filesetUuid: pending.filesetUuid, groupId });
+    } else {
+      await SendFlashMsg.invoke(this.nt, pid, {
+        filesetUuid: pending.filesetUuid,
+        targetUid: this.resolveUid(params.targetId),
+      });
+    }
+
+    // 消息已发出；封面与主文件的字节上传全部丢后台（不阻塞调用方）。两者串行：
+    // 先让封面就绪（对端卡片一到就有缩略图），再传主文件。
+    const uploaded = (async () => {
+      await uploadFlashThumbnail(this.nt, pid, pending);
+      await uploadFlashMainFiles(this.nt, pid, pending);
+    })().catch((error: unknown) => {
+      logger.error('flash upload failed in background', {
+        event: 'flash-upload-failed',
+        filesetUuid: pending.filesetUuid,
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      });
+    });
+
+    return { filesetUuid: pending.filesetUuid, shareUrl: pending.shareUrl, uploaded };
+  }
+
+  /**
+   * 私聊目标 → uid。
+   *
+   * 纯数字按 QQ 号去本地目录（`nt_uid_mapping_table`）换 uid —— 闪传的发送接口只吃
+   * uid，给 QQ 号是发不出去的；非纯数字原样当 uid。查不到直接报错而不是拿号码硬发。
+   */
+  private resolveUid(target: string): string {
+    const text = target.trim();
+    if (!text) throw new Error('私聊闪传需要对方的 QQ 号或 uid。');
+    if (!/^\d+$/.test(text)) return text;
+    const uid = this.session.uidMap.uidByUin(BigInt(text));
+    if (!uid) throw new Error(`本地目录里查不到 ${text} 的 uid，无法发私聊闪传。`);
+    return uid;
+  }
 
   /** 用 filesetUuid 换取闪传分享链接（拿不到时为 ''）。 */
   async getShareLink(filesetUuid: string): Promise<string> {
@@ -43,36 +125,24 @@ export class FlashTransferService {
   /**
    * 群反馈：把一组本地文件（正文 + 日志）以闪传形式发到群聊。
    *
-   * 时序：0x93cf 申请 fileset → 0x93d0 commit → 0x93db complete → 缩略图
-   * prepare/apply/sliceupload（封面先就绪）→ 0x93d7 发消息 → 主文件并行
-   * 100/103/分片上传 + 0x93d1 在后台执行。返回时消息已发出，封面已可显示；
-   * 主文件上传结果只记日志（失败则对端暂时无法下载该 fileset）。
+   * 与通用路径同一条时序（先发后传，见 `sendFlashTransfer`）：0x93cf 申请 →
+   * commit/complete 登记清单 → 0x93d7 发消息并返回 → 封面与主文件上传在后台跑。
+   * 上传结果只记日志（失败则对端暂时无法下载该 fileset）。
    */
   async uploadBundleToGroup(params: {
     files: FlashUploadItem[];
     options: FlashUploadOptions;
     groupId: number;
-  }): Promise<{ filesetUuid: string; shareUrl: string }> {
-    const pid = this.resolvePid();
-    const pending = await createFlashFileset(this.nt, pid, params.files, params.options);
-
-    // 先 commit + complete + 缩略图全流程，封面就绪后再发群消息。
-    await stageFlashFileset(this.nt, pid, pending);
-    await SendFlashMsg.invoke(this.nt, pid, {
-      filesetUuid: pending.filesetUuid,
-      groupId: params.groupId,
+  }): Promise<{ filesetUuid: string; shareUrl: string; uploaded: Promise<void> }> {
+    // 与通用路径同一套时序（只差目标固定成群）。
+    return this.sendFlashTransfer({
+      files: params.files,
+      peerType: 'group',
+      targetId: String(params.groupId),
+      ...(params.options.name ? { name: params.options.name } : {}),
+      ...(params.options.thumbPath ? { thumbPath: params.options.thumbPath } : {}),
+      uploader: params.options.uploader,
     });
-
-    // 消息已发出；主文件上传继续在后台完成（不阻塞调用方）。
-    void uploadFlashMainFiles(this.nt, pid, pending).catch((error: unknown) => {
-      logger.error('feedback flash main files upload failed in background', {
-        event: 'feedback-flash-upload-failed',
-        filesetUuid: pending.filesetUuid,
-        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
-      });
-    });
-
-    return { filesetUuid: pending.filesetUuid, shareUrl: pending.shareUrl };
   }
 
   /**

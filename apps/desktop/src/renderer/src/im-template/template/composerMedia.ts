@@ -46,6 +46,11 @@ export type VoiceClip = {
   transcript: string;
   /** TTS 合成的原文；录音来源为空。 */
   text?: string;
+  /**
+   * 变声标记（`extBizInfo.ptt.changeVoice`）。协议已实现，面板上的「变声」开关
+   * 勾上就带 `true`，收端会显示变声角标、播放变声后的音频。
+   */
+  voiceChanged?: boolean;
 };
 
 /** 一次最多挂多少个附件（跟 QQ 的量级对齐，也防手滑拖进来一整个目录）。 */
@@ -233,6 +238,8 @@ export function voiceClipToElement(clip: VoiceClip): Record<string, unknown> {
     // 转录文本跟着元素走（wire 45923 就是干这个的），转录过就一起带上。
     pttTranscript: clip.transcript,
     source: clip.source,
+    // 变声标识（协议已实现）：勾了就带上去，收端据此显示变声角标。
+    ...(clip.voiceChanged ? { voiceChanged: true } : {}),
   };
 }
 

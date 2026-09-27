@@ -8,7 +8,8 @@ import {
 } from './profilePanes';
 import { ChatPane } from './chatPane';
 import type { LocalMediaRef } from './composerSend';
-import type { ArkLocationProvider, ArkPayload } from './arkCards';
+import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
+import type { FlashSendPayload } from './flashComposer';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
@@ -82,6 +83,8 @@ export function ChatMainContent({
   onSendWindowShake,
   onSendArk,
   arkLocation,
+  arkContacts,
+  onSendFlash,
   onMessageAction,
   onDraftChange,
   onDraftClear,
@@ -169,6 +172,10 @@ export function ChatMainContent({
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
   arkLocation?: ArkLocationProvider;
+  /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
+  arkContacts?: ArkContactSource;
+  /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
+  onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
@@ -263,6 +270,8 @@ export function ChatMainContent({
       onSendWindowShake={onSendWindowShake}
       onSendArk={onSendArk}
       arkLocation={arkLocation}
+      arkContacts={arkContacts}
+      onSendFlash={onSendFlash}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}

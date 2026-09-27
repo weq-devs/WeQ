@@ -101,6 +101,14 @@ import {
   type ChatMsgWire,
 } from '../serde';
 
+/**
+ * 闪传封面图大小上限（1 MB）。
+ *
+ * 与前端提示一致；协议侧本身没有硬限制，但缩略图过大会把整条 fileset 的首包拖长
+ * （封面是**发送前**同步上传的），所以在这里设一道闸。
+ */
+const FLASH_COVER_MAX_BYTES = 1024 * 1024;
+
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
@@ -3072,6 +3080,8 @@ export const accountRouter = router({
         wav: z.any(),
         durationSec: z.number().min(0).max(3600).optional(),
         fileName: z.string().min(1).optional(),
+        /** 变声标记（协议已实现的 `extBizInfo.ptt.changeVoice`）。 */
+        voiceChanged: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -3095,9 +3105,80 @@ export const accountRouter = router({
           durationSec: input.durationSec ?? silk.durationSec,
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
           ...(input.fileName ? { fileName: input.fileName } : {}),
+          ...(input.voiceChanged ? { voiceChanged: true } : {}),
         });
       } finally {
         await unlink(tempPath).catch(() => undefined);
+      }
+    }),
+
+  /**
+   * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
+   *
+   * 与语音 / 文件同一条输入框入口，但走的是 fileset 管线（不是普通消息元素）：
+   * 申请 → commit/complete → 0x93d7 发消息 → **立刻返回**。封面与主文件上传在后台
+   * 继续（先发后传），所以这个 mutation 不会被大文件拖住。
+   * 返回 `{ filesetUuid, shareUrl }`，前端拿 uuid 做乐观条目的对账签名。
+   *
+   * `coverBase64` 是渲染层用 canvas 拼出来的 **PNG**（封面图要从 `resources/fileicon`
+   * 拼，所以合成放在渲染层——主进程没有 canvas）。这里只做大小与落盘。
+   */
+  sendFlashTransfer: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        files: z
+          .array(z.object({ path: z.string().min(1), name: z.string().optional() }))
+          .min(1)
+          .max(200),
+        /** fileset 标题（卡片名）；缺省由服务层按文件名 / 数量拼。 */
+        name: z.string().max(120).optional(),
+        /** 封面 PNG（可带 `data:image/png;base64,` 前缀），≤ 1 MB。 */
+        coverBase64: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const services = requireServices();
+      const record = services.accountConfig.getRecord();
+
+      let coverPath: string | null = null;
+      if (input.coverBase64) {
+        const bytes = Buffer.from(input.coverBase64.replace(/^data:[^,]*,/, ''), 'base64');
+        if (bytes.byteLength === 0) throw new Error('封面图数据为空。');
+        if (bytes.byteLength > FLASH_COVER_MAX_BYTES) {
+          throw new Error(`封面图不能超过 ${FLASH_COVER_MAX_BYTES / 1024 / 1024} MB。`);
+        }
+        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.png`);
+        await writeFile(coverPath, bytes);
+      }
+
+      const uploads = services.flashTransfer.sendFlashTransfer({
+        files: input.files,
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+        ...(coverPath ? { thumbPath: coverPath } : {}),
+        uploader: {
+          uin: record?.uin ?? '',
+          nickname: record?.displayName ?? '',
+          uid: record?.uid ?? '',
+        },
+      });
+
+      try {
+        const result = await uploads;
+        // 后台上传（封面 + 主文件）还在用这个临时封面文件：等它跑完（成败都算）再删。
+        if (coverPath) {
+          const path = coverPath;
+          void result.uploaded.finally(() => unlink(path).catch(() => undefined));
+        }
+        return { filesetUuid: result.filesetUuid, shareUrl: result.shareUrl };
+      } catch (err) {
+        // 发消息就失败了：后台上传根本没启动，直接删临时封面。
+        if (coverPath) await unlink(coverPath).catch(() => undefined);
+        throw err;
       }
     }),
 

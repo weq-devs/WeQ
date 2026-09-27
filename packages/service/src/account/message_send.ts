@@ -416,7 +416,45 @@ export class MessageSendService {
     private readonly nt: Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'>,
     private readonly session: AccountSession,
     private readonly resolvePid: () => number,
+    /**
+     * 商城表情包密钥解析器（`EmojiService.getMarketPackKey`）。
+     *
+     * 给了就把 mface 元素里空的 `encryptKey` 补上：真机抓包（2026-09-27）里 QQ 发
+     * 商城表情一定带 16 字符密钥（= `md5(str(seed))[:16]`，实例 pack 243630 →
+     * `145fb68a7df26c50`），收端靠它解密贴纸图；发空串对方解不出图。
+     */
+    private readonly marketFaceKey?: (packId: string) => Promise<string | null>,
   ) {}
+
+  /**
+   * 把 mface 元素里缺失的 `encryptKey` 补齐（同一个包只查一次，失败不阻塞发送）。
+   * 没有注入解析器 / 元素里已经有密钥时原样返回，请求字节与以前一致。
+   */
+  private async fillMarketFaceKeys(elements: SendElement[]): Promise<SendElement[]> {
+    if (!this.marketFaceKey) return elements;
+    if (!elements.some((e) => e.kind === 'mface' && !e.encryptKey)) return elements;
+    const resolve = this.marketFaceKey;
+    // 缓存的是**在飞的 promise**而不是结果：同一条消息里两个同包表情会被
+    // `Promise.all` 同时启动，用「先查缓存再 await」会重复查两次（真正的去重靠
+    // 共享同一个 promise）。
+    const inFlight = new Map<string, Promise<string | null>>();
+    const lookup = (packId: string): Promise<string | null> => {
+      const existing = inFlight.get(packId);
+      if (existing) return existing;
+      const pending = resolve(packId).catch(() => null);
+      inFlight.set(packId, pending);
+      return pending;
+    };
+    return Promise.all(
+      elements.map(async (element) => {
+        if (element.kind !== 'mface' || element.encryptKey) return element;
+        const packId = String(element.emojiPackId ?? '').trim();
+        if (!packId || packId === '0') return element;
+        const key = await lookup(packId);
+        return key ? { ...element, encryptKey: key } : element;
+      }),
+    );
+  }
 
   /** 自己账号的 uin（highway 帧头与路由都用它）。 */
   private selfUin(): string {
@@ -685,13 +723,15 @@ export class MessageSendService {
     const needUpload = elementsNeedUpload(params.elements);
     const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
+    // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
+    const elements = await this.fillMarketFaceKeys(params.elements);
 
     const uploads: SendMediaUploadReport[] = [];
     const receipt = await sendMessage(this.nt, pid, {
       ...(target.scene === 'group' ? { groupId: target.uin } : { userUin: target.uin }),
       // 纯文本私聊允许没有 uid（陌生人第一句）；有就带上（新版客户端以 uid 为准）。
       ...(target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
-      elements: params.elements,
+      elements,
       // 装扮（气泡 / 字体 / 挂件）：不传就不写，请求字节与以前逐字节一致。
       ...(params.dress ? { dress: params.dress } : {}),
       ...(needUpload

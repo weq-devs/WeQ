@@ -1,0 +1,478 @@
+/**
+ * 输入框「闪传」文件框（flashComposer.tsx）。
+ *
+ * 桌面端它**内联进输入框**：整块正文那一格就是拖动区，空的时候中间只有一句
+ * 「点击打开文件选择」，点了开系统文件管理器，文件也可以直接拖进来（含文件夹）。
+ * 没有图标、没有说明文字、没有一排小按钮 —— 页面里不再教怎么用。
+ *
+ * 兜底：小屏（≤760px）与「只能单独发」的卡片占着正文那一行时，退回从输入框上沿
+ * 弹出来的浮层（`@media (min-width: 761px)` 段只在 `.composer.flash-open` 下内联）。
+ *
+ * 颜色全走主题 token（--popover / --weq-fg-* / --weq-accent-effective /
+ * --im-color-line），主题色与深浅模式自动跟随。
+ */
+
+.flash-composer {
+  position: absolute;
+  right: 0;
+  bottom: 16px;
+  left: 22px;
+  z-index: 25;
+  display: grid;
+  max-height: min(60vh, 520px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 14px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
+  outline: none;
+  animation: link-card-in 150ms ease-out;
+  /* 压在标题栏 / 会话头的 drag 区域上时也得点得动（同 .ark-panel）。 */
+  -webkit-app-region: no-drag;
+}
+
+/* 整块落点：第一行给文件清单（有文件时），最后一行给「点击打开文件选择」那一句
+   （报错也排在它下面）。一个子元素都没有别的，所以空态第一行就吃掉整格。 */
+.flash-composer-body {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+/* ── 落点本身 ───────────────────────────────────────────────────────────────
+ *
+ * 铺满整格、居中一句话，点击开文件选择器。没有边框 / 底色 / 图标 —— 它就是输入框
+ * 空着时的占位提示。拖文件进来时整块落点亮一层强调色（`.is-dragging`）。
+ */
+
+.flash-picker {
+  display: grid;
+  /* 浮层形态下这一句得有自己的高度，不然整块会塌成一行字挤在顶上。 */
+  min-height: 96px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+/* 闪电就是工具栏那枚「闪传」的同款图标：不额外上色，跟着那行字一起变灰 / 变强调色。 */
+.flash-picker svg {
+  display: block;
+}
+
+/* 落点里面的报错（只有拿不到路径的文件才会出现）：贴着那句话往下排一行。 */
+.flash-picker .flash-error {
+  max-width: 420px;
+  margin: 0;
+  text-align: center;
+}
+
+.flash-picker:hover {
+  color: var(--weq-fg-secondary, #666666);
+}
+
+.flash-picker:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 62%, transparent);
+  outline-offset: -2px;
+}
+
+.flash-composer.is-dragging .flash-composer-body {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+}
+
+.flash-composer.is-dragging .flash-picker {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 桌面端内联形态：去掉外框 / 底色 / 阴影，占掉正文编辑区那一行。
+   只在 `.composer.flash-open`（chatPane 打的标记，见 flashPanelInline）下生效 ——
+   「只能单独发」的卡片已经占着那一行时，文件框退回去当浮层。 */
+@media (min-width: 761px) {
+  .composer.flash-open > .flash-composer {
+    position: relative;
+    z-index: 6;
+    inset: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .composer.flash-open > .flash-composer .flash-composer-body {
+    gap: 2px;
+    padding-bottom: 2px;
+  }
+
+  /* 已经有文件时「点击打开文件选择」只占贴底那一小行，清单把剩下的高度全吃掉。 */
+  .composer.flash-open > .flash-composer .flash-picker {
+    min-height: 0;
+    padding: 2px 4px;
+    border-radius: 8px;
+    font-size: 11.5px;
+  }
+
+  .composer.flash-open > .flash-composer .flash-picker:hover {
+    background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+  }
+
+  /* 已经有清单一行的贴底提示：图标也跟着收小，别把高度从清单那里抢走。 */
+  .composer.flash-open > .flash-composer .flash-file-list ~ .flash-picker {
+    gap: 4px;
+  }
+
+  .composer.flash-open > .flash-composer .flash-file-list ~ .flash-picker svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .composer.flash-open > .flash-composer .flash-file-list {
+    gap: 0;
+    margin: 0;
+    padding: 0 4px;
+  }
+
+  .composer.flash-open > .flash-composer .flash-file-list li {
+    padding: 3px 4px;
+  }
+
+  .composer.flash-open > .flash-composer .flash-error {
+    margin: 2px 4px 0;
+  }
+
+  .composer.flash-open > .flash-composer > .flash-composer-foot {
+    padding: 2px 4px 0;
+    border-top: 0;
+  }
+
+  /* 引用条占正文上面那一行时，闪传文件框跟着到第三行（同 .voice-panel）。 */
+  .composer.has-quote.flash-open > .flash-composer {
+    grid-row: 3;
+  }
+
+  /* 文件框占掉正文那一行、自己带「确认」键，主发送键让位（同 .composer.voice-open）。
+     只在桌面内联形态下藏 —— 小屏文件框是浮层，主发送键还得留着。 */
+  .composer.flash-open > .composer-send {
+    display: none;
+  }
+}
+
+/* ── 文件清单 ───────────────────────────────────────────────────────────── */
+
+.flash-file-list {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 0 12px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.flash-file-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.flash-file-list li:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+}
+
+.flash-file-list img {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.flash-file-name {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flash-file-list em {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.flash-file-remove {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 88%, transparent);
+  cursor: pointer;
+}
+
+.flash-file-remove:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 14%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.flash-error {
+  margin: 6px 12px 0;
+  color: var(--media-danger, #f0483e);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── 底栏 ───────────────────────────────────────────────────────────────── */
+
+.flash-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 70%, transparent);
+}
+
+.flash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
+}
+
+.flash-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.flash-btn.primary:disabled {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 26%, transparent);
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 90%, transparent);
+  cursor: not-allowed;
+}
+
+.flash-btn.ghost {
+  border-color: color-mix(in srgb, var(--im-color-line, #dedede) 86%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+}
+
+.flash-btn.ghost:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.flash-btn.ghost:disabled {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 70%, transparent);
+  cursor: not-allowed;
+}
+
+.flash-spin {
+  animation: weq-spin 900ms linear infinite;
+}
+
+/* ── 封面灯箱 ───────────────────────────────────────────────────────────── */
+
+.flash-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000000 46%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-app-region: no-drag;
+}
+
+.flash-lightbox-card {
+  display: grid;
+  width: min(560px, 100%);
+  /* 窗口矮的时候封面那一格先让位（图片本来就是 cover，裁一点不糊），
+     底下的标题 / 文件清单 / 按钮始终看得见。 */
+  max-height: 100%;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 84%, transparent);
+  border-radius: 16px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.4);
+  animation: link-card-in 160ms ease-out;
+}
+
+.flash-lightbox-cover {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  aspect-ratio: 480 / 270;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 8%, transparent);
+}
+
+.flash-lightbox-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.flash-lightbox-cover-empty {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 80%, transparent);
+}
+
+.flash-lightbox-cover-busy {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, #000000 42%, transparent);
+  color: #ffffff;
+}
+
+.flash-lightbox-body {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.flash-lightbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flash-lightbox-label {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+}
+
+.flash-lightbox-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 84%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.flash-lightbox-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  outline: none;
+}
+
+.flash-lightbox-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+}
+
+.flash-lightbox-sep {
+  opacity: 0.6;
+}
+
+.flash-lightbox-files {
+  display: grid;
+  gap: 2px;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.flash-lightbox-files li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 11.5px;
+}
+
+.flash-lightbox-files img {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.flash-lightbox-files span {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flash-lightbox-files em {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.flash-lightbox-more {
+  color: var(--weq-fg-muted, #858585);
+  font-style: italic;
+}
+
+.flash-lightbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 10px 14px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 70%, transparent);
+}
+
+/* ── 深色下压一档 ────────────────────────────────────────────────────────── */
+
+html[data-theme="dark"] .flash-composer {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+}
+
+html[data-theme="dark"] .flash-lightbox-card {
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}

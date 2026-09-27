@@ -193,6 +193,21 @@ describe('元素打包', () => {
     expect(smallCommon.businessType).toBe(1);
     expect(decode(QSMALL_FACE_EXTRA, smallCommon.pbElem)).toEqual({ faceId: 5 });
 
+    // 抓包对齐：svc33 的 pbElem 带 preview/preview2（表情外显文字，如 faceId 324 →
+    // "/吃糖"）。
+    const withPreview = roundTrip({
+      kind: 'face',
+      faceId: 324,
+      faceText: '/吃糖',
+      smallFace: true,
+    });
+    const previewCommon = withPreview.commonElem as { pbElem: Uint8Array };
+    expect(decode(QSMALL_FACE_EXTRA, previewCommon.pbElem)).toEqual({
+      faceId: 324,
+      preview: '/吃糖',
+      preview2: '/吃糖',
+    });
+
     // 动态/超级表情：commonElem 37。
     const superSticker = roundTrip({
       kind: 'face',
@@ -207,8 +222,62 @@ describe('元素打包', () => {
       qsid: 260,
       sourceType: 1,
       stickerType: 1,
+      // 抓包对齐：QQ 即使 resultId 为空也显式写 `32 00`（schema 里 force）。
+      resultId: '',
       randomType: 1,
     });
+  });
+
+  it('抓包黄金字节：mface / svc33 / svc37 与真机 QQ 逐字节一致', () => {
+    // 2026-09-27 真机抓的三条 `MessageSvc.PbSendMsg`，这里的 expected 是从请求体里
+    // 切出来的**单个 Elem**（mface 用 `32 74 ...` 那段、两条 face 用 `AA 03 ...`）。
+    // 任何字段号/字段顺序/`force` 改动都会让这组断言报红。
+    const cases: { name: string; element: SendElement; expected: string }[] = [
+      {
+        name: 'mface',
+        element: {
+          kind: 'mface',
+          marketEmoticonId: 'a32a7d86b4742dc78697883fe9dd68f1',
+          emojiPackId: 243630,
+          encryptKey: '145fb68a7df26c50',
+          faceName: '[笑对人生]',
+          previewWidth: 200,
+          previewHeight: 200,
+        },
+        expected:
+          '3274' +
+          '0a0e5be7ac91e5afb9e4babae7949f5d' +
+          '1006' +
+          '1801' +
+          '2210a32a7d86b4742dc78697883fe9dd68f1' +
+          '28aeef0e' +
+          '3003' +
+          '3a1031343566623638613764663236633530' +
+          '4800' +
+          '50c801' +
+          '58c801' +
+          '6a2c0a0608ac0210ac020a0608c80110c80110002a003000380040014a0608ac0210ac024a0608c80110c8015000',
+      },
+      {
+        name: 'svc33 小（内联）',
+        element: { kind: 'face', faceId: 324, faceText: '/吃糖', smallFace: true },
+        expected: 'aa031b0821121508c40212072fe59083e7b3961a072fe59083e7b3961801',
+      },
+      {
+        name: 'svc37 大（超级表情）',
+        element: {
+          kind: 'face',
+          faceId: 324,
+          superSticker: { packId: '1', stickerId: '12', stickerType: 1, text: '/吃糖' },
+        },
+        expected: 'aa03210825121b0a01311202313218c4022001280132003a072fe59083e7b39648011801',
+      },
+    ];
+
+    for (const { name, element, expected } of cases) {
+      const [built] = buildSendElems([element]);
+      expect(hexOf(encode(ELEM, built!)), `${name} 的 Elem 字节应与真机一致`).toBe(expected);
+    }
   });
 
   it('mface：常量槽位 + GUID 两种入参等价', () => {
@@ -227,11 +296,28 @@ describe('元素打包', () => {
     expect(marketFace.subType).toBe(3);
     expect(marketFace.emojiPackId).toBe(5);
     expect(marketFace.encryptKey).toBe('0');
-    expect(marketFace.previewWidth).toBe(300);
-    expect(marketFace.previewHeight).toBe(300);
+    // 抓包对齐：默认预览尺寸 200（旧实现 300）；mediaType(9) 是 QQ 显式写的 0。
+    expect(marketFace.previewWidth).toBe(200);
+    expect(marketFace.previewHeight).toBe(200);
+    expect(marketFace.mediaType).toBe(0);
     expect(hexOf(marketFace.marketEmoticonId as Uint8Array)).toBe(guidHex);
+    // pbReserve：field1/field9 各带 300/200 两套尺寸对 + animated(8)=1；
+    // field2/5/6/7/10 是 QQ 显式写的 0（其中 field5 是 LEN 型空值 `2a 00`）。
     expect(decode(MARKET_FACE_PB_RESERVE, marketFace.pbReserve as Uint8Array)).toEqual({
-      field8: 1,
+      previewSizes: [
+        { width: 300, height: 300 },
+        { width: 200, height: 200 },
+      ],
+      field2: 0,
+      field5: new Uint8Array(0),
+      field6: 0,
+      field7: 0,
+      animated: 1,
+      originalSizes: [
+        { width: 300, height: 300 },
+        { width: 200, height: 200 },
+      ],
+      field10: 0,
     });
 
     const fromBytes = roundTrip({

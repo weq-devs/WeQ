@@ -490,8 +490,14 @@ function buildFaceElem(element: SendFaceElement): Record<string, unknown> {
           stickerId,
           qsid: faceId,
           sourceType: sticker.sourceType ?? 1,
-          stickerType: sticker.stickerType,
-          text: sticker.text,
+          // stickerType（目录 81215 / SnowLuma 的 aniStickerType）：真机抓包里
+          // faceId 324 是 1。**不能缺**：少了收端不认 svc37，退化成内联小表情。
+          stickerType: sticker.stickerType ?? 1,
+          // QQ 显式写空的 resultId（`32 00`）；schema 里这个字段是 force 的。
+          resultId: '',
+          // QFaceExtra.text：抓包实测 QQ 会带上表情外显文字（324 → "/吃糖"），
+          // 缺了收端可能不把它当大贴纸渲染。
+          text: sticker.text ?? element.faceText,
           randomType: sticker.randomType ?? 1,
         }),
         businessType: 1,
@@ -499,10 +505,13 @@ function buildFaceElem(element: SendFaceElement): Record<string, unknown> {
     };
   }
   if (element.smallFace) {
+    // 真机抓包（2026-09-27）对齐：QQ 的 QSmallFaceExtra 一定带 preview/preview2
+    // （表情外显文字，如 faceId 324 → "/吃糖"），旧实现只写 faceId。
+    const preview = element.faceText ?? '';
     return {
       commonElem: {
         serviceType: 33,
-        pbElem: encode(QSMALL_FACE_EXTRA, { faceId }),
+        pbElem: encode(QSMALL_FACE_EXTRA, { faceId, preview, preview2: preview }),
         businessType: 1,
       },
     };
@@ -532,9 +541,12 @@ function buildMfaceElem(element: SendMfaceElement): Record<string, unknown> {
     throw new Error(`mface 元素的 emojiPackId 必须是非负整数，收到 ${String(element.emojiPackId)}`);
   }
 
-  // 常量（itemType=6 / faceInfo=1 / subType=3 / 300×300 / pbReserve.field8=1）与
-  // SnowLuma `makeMarketFaceElem`、NapCat `PacketMsgMarkFaceElement.buildElement` 一致：
+  // 常量（itemType=6 / faceInfo=1 / subType=3 / pbReserve.animated=1）与 SnowLuma
+  // `makeMarketFaceElem`、NapCat `PacketMsgMarkFaceElement.buildElement` 一致：
   // 服务端靠这几个值把它当成商城贴纸转发。
+  //
+  // 真机抓包（2026-09-27）对齐：previewWidth/Height=200（旧实现写 300）、pbReserve
+  // 是一段带 300/200 两套尺寸对的 44 字节结构（旧实现只写 field8=1）。
   return {
     marketFace: {
       faceName: element.faceName ?? '',
@@ -544,9 +556,27 @@ function buildMfaceElem(element: SendMfaceElement): Record<string, unknown> {
       emojiPackId,
       subType: element.subType ?? 3,
       encryptKey: element.encryptKey ?? '',
-      previewWidth: element.previewWidth ?? 300,
-      previewHeight: element.previewHeight ?? 300,
-      pbReserve: encode(MARKET_FACE_PB_RESERVE, { field8: 1 }),
+      // QQ 显式写 0（schema 里 force），保持逐字节一致。
+      mediaType: 0,
+      previewWidth: element.previewWidth ?? 200,
+      previewHeight: element.previewHeight ?? 200,
+      pbReserve: encode(MARKET_FACE_PB_RESERVE, {
+        previewSizes: [
+          { width: 300, height: 300 },
+          { width: 200, height: 200 },
+        ],
+        // 真机这几个槽位是显式 0（schema 里 force），别删；field5 是 LEN 型空值。
+        field2: 0,
+        field5: new Uint8Array(0),
+        field6: 0,
+        field7: 0,
+        animated: 1,
+        originalSizes: [
+          { width: 300, height: 300 },
+          { width: 200, height: 200 },
+        ],
+        field10: 0,
+      }),
     },
   };
 }
