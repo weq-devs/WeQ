@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Bot, Search, X } from 'lucide-react';
+import { Bot, Search, UserMinus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -20,6 +20,7 @@ export function GroupInfoPanel({
   profileLoading,
   onOpenDetail,
   onOpenMember,
+  onOpenLeftMembers,
 }: {
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
@@ -41,6 +42,8 @@ export function GroupInfoPanel({
     member: GroupConversationView['members'][number],
     anchor: { x: number; y: number },
   ) => void;
+  /** 打开「已退群成员」列表（数据由上层拉取，见 GroupLeftMembersDialog）。 */
+  onOpenLeftMembers?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
@@ -62,7 +65,10 @@ export function GroupInfoPanel({
   // 搜索还没生效（防抖 / 请求在飞）时，命中列表为空但不能报「没找到」——
   // 结果没回来之前只能用 loading 占位。
   const searchPending = Boolean(memberSearch?.loading);
-  const rows = searching ? searchMembers : conversation.members;
+  // uid 为空 / null 的成员是无效行（群成员表里可能有这种占位），不显示。
+  const rows = (searching ? searchMembers : conversation.members).filter(
+    (member) => String(member.id ?? '').trim() !== '',
+  );
   // 搜索与成员分页各自有错误 / 加载态，这里归一成一份，JSX 只判一个分支。
   const activeError = searching ? (memberSearch?.error ?? null) : loadingError;
   const fetching = searching ? searchPending : Boolean(loadingMoreMembers);
@@ -131,6 +137,16 @@ export function GroupInfoPanel({
               ? `${rows.length}/${memberSearch?.total ?? 0}`
               : conversation.group.memberCount}
           </strong>
+          {onOpenLeftMembers ? (
+            <button
+              className={cn('group-info-left-members-button')}
+              type="button"
+              title="查看已退群的成员"
+              onClick={onOpenLeftMembers}
+            >
+              <UserMinus size={13} strokeWidth={2} /> 已退群
+            </button>
+          ) : null}
         </header>
         <div className={cn('group-info-member-search')}>
           <Search size={13} />
@@ -306,6 +322,91 @@ export function GroupInfoDetailDialog({
               ))}
             </div>
           ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * 「已退群成员」列表（group_member3 64016 = 1）。
+ *
+ * 数据由上层拉取（chatPane 的 `listGroupLeftMembers`），这里只负责画：一行一个头像 +
+ * 显示名 + QQ 号。与群资料灯箱同一套外壳（modal-scrim / group-info-detail-dialog），
+ * 主题色与深浅模式自动跟随。
+ */
+export function GroupLeftMembersDialog({
+  conversation,
+  members,
+  loading,
+  error,
+  onClose,
+}: {
+  conversation: GroupConversationView;
+  members: GroupConversationView['members'];
+  loading: boolean;
+  error?: string | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  const rows = members.filter((member) => String(member.id ?? '').trim() !== '');
+
+  return (
+    <div
+      className={cn('modal-scrim', 'group-info-detail-scrim')}
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        className={cn('group-info-detail-dialog')}
+        role="dialog"
+        aria-modal="true"
+        aria-label="已退群成员"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <strong>已退群成员</strong>
+            <span>{conversation.group.name}</span>
+          </div>
+          <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className={cn('group-info-detail-body', 'group-left-member-body')}>
+          {error ? (
+            <div className={cn('group-info-member-error')}>加载失败：{error}</div>
+          ) : loading && rows.length === 0 ? (
+            <GroupMembersSkeleton rows={8} />
+          ) : rows.length === 0 ? (
+            <p className={cn('placeholder-text')}>暂无已退群成员</p>
+          ) : (
+            rows.map((member) => (
+              <div className={cn('group-info-member-row')} key={member.id || member.identityValue}>
+                <div className="member-avatar-wrap">
+                  <Avatar
+                    name={displayUserName(member)}
+                    avatarUrl={member.avatarUrl}
+                    seed={member.identityValue}
+                  />
+                </div>
+                <span className="member-name-text">
+                  <span className="member-name-with-badge">
+                    <span className="member-display-name">{displayUserName(member)}</span>
+                  </span>
+                </span>
+                <small className={cn('group-left-member-id')}>{member.identityValue}</small>
+              </div>
+            ))
+          )}
         </div>
       </section>
     </div>

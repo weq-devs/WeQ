@@ -17678,6 +17678,42 @@ html[data-theme="dark"] .weq-graytip-band {
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
 }
 
+/* 私聊窗口抖动的乐观渲染：一枚居中、会轻轻晃动的戳一戳贴纸（不是灰条）。 */
+.weq-window-shake {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.weq-window-shake img,
+.weq-window-shake .face-emoji {
+  transform-origin: 50% 62%;
+  animation: weq-window-shake 820ms ease-in-out infinite;
+}
+
+@keyframes weq-window-shake {
+  0%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  22% {
+    transform: rotate(-3.4deg) translateX(-2px);
+  }
+  48% {
+    transform: rotate(2.6deg) translateX(2px);
+  }
+  72% {
+    transform: rotate(-1.6deg) translateX(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-window-shake img,
+  .weq-window-shake .face-emoji {
+    animation: none;
+  }
+}
+
 /* 群通话灰条：图标与文字同行居中（发起人名字用 .weq-graytip-accent 着色）。 */
 .weq-group-call {
   display: flex;

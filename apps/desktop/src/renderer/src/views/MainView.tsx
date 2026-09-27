@@ -3783,7 +3783,11 @@ export function MainView(): ReactElement {
       }
     });
 
-    const mapped: GroupMember[] = allMemberWires.map(mapGroupMemberWire);
+    // uid 为空的成员是无效行（群成员表里可能有空 uid 的占位），不进成员列表 /
+    // 成员表 —— 它们解析不出人，只会多出一行空白。
+    const mapped: GroupMember[] = allMemberWires
+      .map(mapGroupMemberWire)
+      .filter((member) => String(member.id ?? '').trim() !== '');
 
     return mapped.sort((a, b) => {
       const roleScore = { owner: 0, admin: 1, member: 2 };

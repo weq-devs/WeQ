@@ -13,10 +13,10 @@
  * 面板本身不进浮层：收起不做按钮（没有外框也没有 ✕），再点一次工具栏那枚麦克风、
  * 或点到输入框外面就关掉它。
  *
- * 两处「配了才出现」的能力：
- *   - 语音转录（设置 → 语音配置里选了离线转录模型）：录音时顺带跑
- *     `SpeechRecognition`，松开就把识别文字带出来；回顾态里也能再转一次。
- *   - 文字转语音（配了 TTS 服务商）：另开一个页签，输入文字 → 合成语音 → 发送。
+ * 「配了才出现」的能力只剩语音转录（设置 → 语音配置里选了离线转录模型）：录音时顺带跑
+ * `SpeechRecognition`，松开就把识别文字带出来；回顾态里也能再转一次。
+ * **文字转语音已经从本面板移到「AI 声聊」面板**（私聊 / 群聊都在那边，见
+ * aiVoicePanel.tsx；`TtsComposer` 仍在本文件导出、由它复用）。
  *
  * 发送只把结果交给上层（`onSendVoice` / `onSendTranscript`），本模块不碰协议。
  */
@@ -716,12 +716,9 @@ export function VoicePanel({
   canSend,
   sendHint,
   transcribeEnabled,
-  ttsEnabled,
-  ttsProviders,
   onSendVoice,
   onSendTranscript,
   onSendAudioFile,
-  onSynthesizeSpeech,
   onBusyChange,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
@@ -730,10 +727,6 @@ export function VoicePanel({
   sendHint: string;
   /** 设置里选了离线转录模型。 */
   transcribeEnabled: boolean;
-  /** 设置里配了 TTS 服务商。 */
-  ttsEnabled: boolean;
-  /** 可选的 TTS 服务商（空数组 = 没有「文字转语音」那一栏）。 */
-  ttsProviders: TtsVoiceProvider[];
   onSendVoice: (clip: VoiceClip) => void;
   onSendTranscript: (text: string) => void;
   /**
@@ -743,19 +736,12 @@ export function VoicePanel({
    * 相当于内置一个格式转换器，不依赖 ffmpeg。
    */
   onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
-  /**
-   * 把文字交给已配置的 TTS 服务商合成（应用层注入，走 `bootstrap.synthesizeSpeech`）。
-   *
-   * 面板不碰 trpc：合成是联网的、还要读全局设置，所以与 `arkLocation` 同款注入。
-   * 不传就回退成「本机发音人只能试听」（既不发也发不出去）。
-   */
-  onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
   /** 收起不做按钮：这个面板是内嵌在输入框里的，再点一次工具栏那枚麦克风就行。 */
   onBusyChange: (busy: boolean) => void;
 }) {
-  const [tab, setTab] = useState<'record' | 'tts'>('record');
+  // 文字转语音已移到「AI 声聊」面板（私聊 / 群聊都在那里），这里只剩录音。
   const recorder = useVoiceRecorder({ canTranscribe: transcribeEnabled });
-  const { phase, beginRecord, endRecord, discard } = recorder;
+  const { phase, beginRecord, endRecord } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const busy = phase === 'recording' || phase === 'requesting';
 
@@ -781,8 +767,6 @@ export function VoicePanel({
 
   // 空格长按 = 按住说话；松开即停。正文 / 输入框聚焦时不抢。
   useEffect(() => {
-    if (tab !== 'record') return;
-
     function isTypingTarget(target: EventTarget | null): boolean {
       if (!(target instanceof HTMLElement)) return false;
       if (target.isContentEditable) return true;
@@ -818,7 +802,7 @@ export function VoicePanel({
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
     };
-  }, [beginRecord, endRecord, phase, tab]);
+  }, [beginRecord, endRecord, phase]);
 
   // 录音期间的「松手」在 window 上听：录音键在录音中会重渲染（换图标 / 计时器），
   // 挂在按钮上的 onPointerUp 一旦丢了捕获就收不到 —— 表现就是「按住了却自己断掉」。
@@ -837,11 +821,6 @@ export function VoicePanel({
     };
   }, [endRecord, phase]);
 
-  // 切到合成页签时把正在录的那条收干净。
-  useEffect(() => {
-    if (tab === 'tts' && (phase === 'recording' || phase === 'requesting')) discard();
-  }, [discard, phase, tab]);
-
   return (
     <div
       className={cn('voice-panel')}
@@ -852,41 +831,8 @@ export function VoicePanel({
       tabIndex={-1}
       aria-label="语音"
     >
-      {/* 头部只在真的有两个页签（配了 TTS）时才出现：平时这一栏（标题 / 按住说话
-          的提示）整条都不渲染，录音界面就是光秃秃一个声纹环，彻底看成输入框的一部分。 */}
-      {ttsEnabled ? (
-        <header className={cn('voice-panel-head')}>
-          <div className={cn('voice-panel-tabs')}>
-            <button
-              type="button"
-              className={cn(tab === 'record' && 'active')}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setTab('record')}
-            >
-              <Mic size={13} /> 录音
-            </button>
-            <button
-              type="button"
-              className={cn(tab === 'tts' && 'active')}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setTab('tts')}
-            >
-              <Type size={13} /> 文字转语音
-            </button>
-          </div>
-        </header>
-      ) : null}
-
       <div className={cn('voice-panel-body')}>
-        {tab === 'tts' ? (
-          <TtsComposer
-            providers={ttsProviders}
-            canSend={canSend}
-            sendHint={sendHint}
-            onSendAudio={onSendAudioFile}
-            onSynthesize={onSynthesizeSpeech}
-          />
-        ) : phase === 'review' && recorder.clip ? (
+        {phase === 'review' && recorder.clip ? (
           <VoiceReview
             clip={recorder.clip}
             transcript={recorder.transcript}
@@ -960,42 +906,40 @@ export function VoicePanel({
           </div>
         )}
 
-        {tab === 'record' ? (
-          <div className={cn('voice-panel-foot')}>
-            <span className={cn('voice-hint')}>
-              <kbd>空格</kbd> 长按录音 · 最长 60 秒
+        <div className={cn('voice-panel-foot')}>
+          <span className={cn('voice-hint')}>
+            <kbd>空格</kbd> 长按录音 · 最长 60 秒
+          </span>
+          <label
+            className={cn('voice-pick-audio')}
+            title="选择本机音频文件当语音发送（自动转成 SILK）"
+          >
+            <FileAudio size={13} />
+            选择音频
+            <input
+              type="file"
+              accept="audio/*"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void handlePickAudio(file);
+              }}
+            />
+          </label>
+          {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
+          {!recorder.error && recorder.transcribeError && !busy ? (
+            <span className={cn('voice-error')}>{recorder.transcribeError}</span>
+          ) : null}
+          {!recorder.error && !recorder.transcribeError && transcribeEnabled && busy ? (
+            <span className={cn('voice-hint ok')}>
+              <Sparkles size={12} /> 正在转文字…
             </span>
-            <label
-              className={cn('voice-pick-audio')}
-              title="选择本机音频文件当语音发送（自动转成 SILK）"
-            >
-              <FileAudio size={13} />
-              选择音频
-              <input
-                type="file"
-                accept="audio/*"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (file) void handlePickAudio(file);
-                }}
-              />
-            </label>
-            {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
-            {!recorder.error && recorder.transcribeError && !busy ? (
-              <span className={cn('voice-error')}>{recorder.transcribeError}</span>
-            ) : null}
-            {!recorder.error && !recorder.transcribeError && transcribeEnabled && busy ? (
-              <span className={cn('voice-hint ok')}>
-                <Sparkles size={12} /> 正在转文字…
-              </span>
-            ) : null}
-            {!recorder.error && !recorder.transcribeError && !transcribeEnabled && !busy ? (
-              <span className={cn('voice-hint dim')}>未配置转录模型，仅发送语音</span>
-            ) : null}
-          </div>
-        ) : null}
+          ) : null}
+          {!recorder.error && !recorder.transcribeError && !transcribeEnabled && !busy ? (
+            <span className={cn('voice-hint dim')}>未配置转录模型，仅发送语音</span>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -1187,7 +1131,7 @@ const TTS_MIME: Record<string, string> = {
   flac: 'audio/flac',
 };
 
-function TtsComposer({
+export function TtsComposer({
   providers,
   canSend,
   sendHint,
