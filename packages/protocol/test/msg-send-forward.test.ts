@@ -477,10 +477,24 @@ describe('错误路径（联网之前拦下）', () => {
     expect(nt.calls).toHaveLength(0);
   });
 
-  it('selfUid / selfUin 非法在联网前报错', async () => {
+  it('私聊缺 selfUid / selfUin 非法在联网前报错', async () => {
     const nt = fakeNative();
-    await expect(sendForward(nt as never, 1, { ...ok, selfUid: '  ' })).rejects.toThrow(/selfUid/);
-    await expect(sendForward(nt as never, 1, { ...ok, selfUin: 'abc' })).rejects.toThrow(/selfUin/);
+    // 私聊才用得上自己的 uid（上传请求的 info.uid.uid 和节点里的 toUid）；
+    // 群聊两处写的都是群号，所以群聊不强制 selfUid。
+    const privateOk = { ...ok, groupId: undefined, userUin: 20002 };
+    await expect(sendForward(nt as never, 1, { ...privateOk, selfUid: '  ' })).rejects.toThrow(
+      /selfUid/,
+    );
+    await expect(sendForward(nt as never, 1, { ...privateOk, selfUin: 'abc' })).rejects.toThrow(
+      /selfUin/,
+    );
     expect(nt.calls).toHaveLength(0);
+  });
+
+  it('群聊不要求 selfUid（两处 uid 都填群号）', async () => {
+    const nt = fakeNative();
+    await expect(sendForward(nt as never, 1, { ...ok, selfUid: '  ' })).resolves.toMatchObject({
+      cmd: expect.any(String),
+    });
   });
 });
