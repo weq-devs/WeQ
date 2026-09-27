@@ -62,6 +62,10 @@ import {
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
+import {
+  GroupLeftMembersDialog,
+  type GroupLeftMemberRow,
+} from '../components/GroupLeftMembersDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
 import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
@@ -128,6 +132,7 @@ import {
   arkCardSignature,
   buildContactPlaceholderArk,
   buildLocationArkJson,
+  buildTuwenArkJson,
   type Message,
   type MessageRenderer,
   type ProfileExtInfo,
@@ -1534,6 +1539,9 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   'emojiBounce',
   'qqDynamic',
   'shareLocation',
+  // 私聊「窗口抖动」的乐观渲染元素（WeQ 自己的内部 kind —— 收端 QQ 会丢弃
+  // serviceType=2，所以只在发送方本地短暂存在；见 QqMessageContent 的 windowShake 分支）。
+  'windowShake',
   // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
   // tag block, AIO_OP (subType=15) only names the group a temp session came from.
   'grayTipFileRecv',
@@ -2189,6 +2197,12 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  // 「已退群成员」灯箱：与群公告 / 群精华同一层（应用层持有开关，数据只读本地
+  // group_member3 64016=1，不碰协议）。
+  const [groupLeftMembersDialog, setGroupLeftMembersDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
     anchor: { x: number; y: number };
@@ -2346,6 +2360,16 @@ export function MainView(): ReactElement {
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setEssenceDialog({
         groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
+
+  const handleOpenGroupLeftMembers = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupLeftMembersDialog({
+        groupCode: conversation.group.identityValue,
         groupName: conversation.group.name,
       });
     },
@@ -3651,6 +3675,29 @@ export function MainView(): ReactElement {
   const groupExt = trpc.account.getGroupExt.useQuery(
     { groupCode: selectedUid },
     { enabled: Boolean(selectedUid && isGroup) },
+  );
+  // 「已退群成员」：与群公告 / 群精华同一层 —— 灯箱打开时才查本地 group_member3
+  // （64016=1），一次拉一页就够，不碰协议。
+  const groupLeftMembers = trpc.account.listGroupLeftMembers.useQuery(
+    { groupCode: groupLeftMembersDialog?.groupCode ?? '', limit: 200 },
+    { enabled: Boolean(groupLeftMembersDialog) },
+  );
+  const groupLeftMemberRows = useMemo<GroupLeftMemberRow[]>(
+    () =>
+      (
+        (groupLeftMembers.data ?? []) as Array<{
+          uid: string;
+          uin: string;
+          card: string;
+          nick: string;
+        }>
+      ).map((member) => ({
+        id: member.uid,
+        displayName: member.card || member.nick || member.uin || 'Member',
+        identity: member.uin && member.uin !== '0' ? member.uin : member.uid,
+        avatarUrl: avatarFromUin(member.uin),
+      })),
+    [groupLeftMembers.data],
   );
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
@@ -5177,7 +5224,8 @@ export function MainView(): ReactElement {
     const other = conversation.otherUser;
     const targetId = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
 
-    // 乐观渲染：窗口抖动是一条独立灰条消息，第一时间插到会话末尾。
+    // 乐观渲染：窗口抖动是**自己发出的一条消息**（戳一戳超级表情），第一时间插到
+    // 会话末尾；由 QqMessageContent 认领 `windowShake` 元素渲染。
     const optimisticId = `optimistic-${mfId('ws')}`;
     setOptimisticMessages((current) => [
       ...current,
@@ -5403,7 +5451,9 @@ export function MainView(): ReactElement {
    *
    *   推荐好友 / 推荐群 → account.sendContactArkCard（服务端取卡 → 发 lightApp 元素）
    *   位置卡片          → account.sendLocationArkCard（trpc LocationArk 裸 SSO）
-   *   图文 / 自定义 JSON → account.sendArkCard（ark JSON → lightApp 元素）
+   *   图文              → account.sendTuwenArk（0xdc2_34 服务端下发，与群反馈的
+   *                        GitHub issue/PR 卡片同一条路）
+   *   自定义 JSON       → account.sendArkCard（自己拼的 ark JSON → lightApp 元素）
    *
    * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
    */
@@ -5508,6 +5558,44 @@ export function MainView(): ReactElement {
         // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
         // 不给一个「已送达」的假信号。
         pushToast({ tone: 'info', message: '位置卡片请求已发出', detail: outcome.hint });
+        return;
+      }
+
+      if (payload.type === 'tuwen') {
+        // 图文卡片：**服务端下发**（0xdc2_34），与群反馈的 GitHub issue/PR 卡片同一条路 ——
+        // 不再自己拼一段 `com.tencent.tuwen.lua` 的 ark JSON 当 lightApp 元素发（那样必然
+        // 失败）。协议要的是纯数字目标（私聊 = QQ 号，群聊 = 群号）。
+        const targetId = target.targetId;
+        if (!/^\d+$/.test(targetId)) {
+          throw new Error(
+            '图文卡片需要纯数字目标：私聊要 QQ 号。当前会话只拿得到 UID，请改用「自定义 JSON」发送。',
+          );
+        }
+        // 乐观卡片：用同一份字段拼出与旧版同形的 news 卡，发出去就有反馈。真卡片由服务端
+        // 生成、靠 `tuwen:<jumpUrl>` 签名收掉（见 arkCardSignature）。
+        startOptimistic(
+          buildTuwenArkJson({
+            jumpUrl: payload.jumpUrl,
+            title: payload.title,
+            desc: payload.desc,
+            previewUrl: payload.previewUrl,
+          }),
+        );
+        const outcome = await client.account.sendTuwenArk.mutate({
+          peerType: target.peerType,
+          targetId,
+          title: payload.title,
+          desc: payload.desc,
+          jumpUrl: payload.jumpUrl,
+          previewUrl: payload.previewUrl,
+        });
+        if (!outcome.ok) {
+          throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+        }
+        // 0xdc2_34 的回包没有 random / seq（服务端也不给 message_id），乐观条目只能靠
+        // jumpUrl 签名对账，这里只把状态改成已发送。
+        patchOptimistic({ state: 'sent' });
+        pushToast({ tone: 'success', message: '图文卡片已发送' });
         return;
       }
 
@@ -5785,6 +5873,7 @@ export function MainView(): ReactElement {
                       onOpenGroupEssence={handleOpenGroupEssence}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
+                      onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
                       groupBugOnline={groupBugStatus.data?.online ?? false}
                       onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                       onOpenGroupMember={handleOpenGroupMember}
@@ -5959,6 +6048,15 @@ export function MainView(): ReactElement {
               groupId={groupBugDialog.groupCode}
               groupName={groupBugDialog.groupName}
               onClose={() => setGroupBugDialog(null)}
+            />
+          ) : null}
+          {groupLeftMembersDialog ? (
+            <GroupLeftMembersDialog
+              groupName={groupLeftMembersDialog.groupName}
+              members={groupLeftMemberRows}
+              loading={groupLeftMembers.isFetching}
+              error={groupLeftMembers.error ? (groupLeftMembers.error.message ?? '查询失败') : null}
+              onClose={() => setGroupLeftMembersDialog(null)}
             />
           ) : null}
           {essenceDialog ? (

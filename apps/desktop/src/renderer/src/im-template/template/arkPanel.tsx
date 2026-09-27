@@ -6,8 +6,8 @@
  *   1. 推荐好友     → 服务端取卡（0x12b6_0），发一张可点击的好友卡
  *   2. 推荐群       → 服务端取卡（0x8b7_5），发一张可点击的群卡
  *   3. 位置卡片     → 搜索 / 地图点选 + 手写地名，走 trpc LocationArk.SsoSendMessage
- *   4. 图文 ark     → 表单拼 `com.tencent.tuwen.lua` 的 news 卡（与旧面板一致）
- *   5. 自定义 JSON  → 自己写一段 ark JSON，原样下发
+ *   4. 图文 ark     → 服务端下发（0xdc2_34，与群反馈的 GitHub issue/PR 卡片同一条路）
+ *   5. 自定义 JSON  → 自己写一段 ark JSON，原样下发（lightApp 元素）
  *
  * 只做前端：面板不 import 任何 trpc / 协议，收齐输入后交回 `onSend(payload)`，
  * 由 chatPane 补上「发给哪个会话」再交给应用层（与 aiVoicePanel / bounceEmojiPanel 同）。
@@ -51,6 +51,7 @@ import {
   LINK_CARD_MAX_DESC_CHARS,
   LINK_CARD_MAX_TITLE_CHARS,
   LINK_CARD_MAX_URL_CHARS,
+  resolvedLinkCardIcon,
   type ArkContactEntry,
   type ArkContactSource,
   type ArkLocationProvider,
@@ -521,7 +522,17 @@ export function ArkPanel({
           longitude: locationDraft.longitude.trim(),
         };
       case 'tuwen':
-        return { type: 'ark', arkData: buildTuwenArkJson(tuwen) };
+        // 图文**不再**自己拼 ark JSON 当 lightApp 发（那条路必然失败），改走服务端下发：
+        // 与群反馈的 GitHub issue/PR 卡片同一协议（见 MainView → account.sendTuwenArk）。
+        // 面板只把四个字段交上去，卡片由服务端生成。
+        return {
+          type: 'tuwen',
+          jumpUrl: tuwen.jumpUrl.trim(),
+          title: tuwen.title.trim(),
+          desc: tuwen.desc.trim(),
+          // 预览图留空时用默认图 —— 服务端会把空值当缺字段，这里先解析好。
+          previewUrl: resolvedLinkCardIcon(tuwen),
+        };
       case 'json':
         return jsonCheck.ok ? { type: 'ark', arkData: jsonCheck.pretty } : null;
       default:

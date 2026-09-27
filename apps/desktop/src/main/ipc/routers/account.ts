@@ -3216,15 +3216,16 @@ export const accountRouter = router({
       return requireServices().messageSend.sendAiVoice(input);
     }),
 
-  // ---- Ark 卡片（输入框「图文 ark」面板）----
+  // ---- Ark 卡片（输入框「Ark 卡片」面板）----
 
   /**
    * 发一张**任意 ark 卡片**：`arkData` 是一段 ark JSON，服务层原样编成 lightApp
    * 元素（`{kind:'ark'}`）走常规 `MessageSvc.PbSendMsg`。
    *
-   * 这条路不依赖任何平台下发规则（没有 appId 白名单），所以 PC / Linux 端也能发——
-   * 「图文 ark」（自己拼 JSON）与自定义卡片都用它，与 0xdc2_34 那条 Android
-   * appId 的图文协议不是一回事。
+   * 这条路不依赖任何平台下发规则（没有 appId 白名单），所以 PC / Linux 端也能发 ——
+   * 面板里只有「自定义 JSON」那一栏用它。输入框的「图文」**不再**自己拼 ark JSON，
+   * 改走 {@link sendTuwenArk}（服务端下发的 0xdc2_34，与群反馈的 GitHub issue/PR
+   * 卡片同一条路）。
    *
    * `targetId` = 当前会话：群聊给群号，私聊给对方 QQ 号（或 uid）。
    */
@@ -3239,6 +3240,57 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
       return requireServices().messageSend.sendArkCard(input);
+    }),
+
+  /**
+   * 发一张**图文 Ark 卡片**（OIDB 0xdc2_34）：服务端按标题 / 描述 / 跳转链接 /
+   * 预览图生成卡片直接下发 —— 与群反馈的 GitHub issue/PR 卡片（`submitIssueArk`）
+   * 是**同一条路**。
+   *
+   * 与 {@link sendArkCard} 的区别：那条是把**客户端自己拼的 ark JSON** 当 `lightApp`
+   * 元素发出去（「自定义 JSON」那栏用），输入框的「图文」不再走它。返回值里的 `ok`
+   * 取自服务端的**业务 result** —— OIDB 外层 errorCode=0 也可能根本没下发出去
+   * （见 `docs/develop/ark-send.md`），不要把「调用了」当「发成功」。
+   */
+  sendTuwenArk: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        /** 私聊 = 对方 QQ 号，群聊 = 群号（都是纯数字）。 */
+        targetId: z.string().regex(/^\d+$/),
+        title: z.string().min(1).max(80),
+        desc: z.string().max(200).optional(),
+        jumpUrl: z.string().url().max(512),
+        previewUrl: z.string().max(512).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const targetId = Number(input.targetId);
+      if (!Number.isSafeInteger(targetId) || targetId <= 0) {
+        throw new Error(`图文卡片的目标不合法：${input.targetId}`);
+      }
+      const result = await requireServices().flashTransfer.sendTuwenArk({
+        targetId,
+        peerType: input.peerType === 'group' ? 1 : 0,
+        title: input.title.trim(),
+        desc: (input.desc ?? '').trim(),
+        jumpUrl: input.jumpUrl.trim(),
+        previewUrl: (input.previewUrl ?? '').trim(),
+      });
+      const ok = result.errorCode === 0;
+      return {
+        ok,
+        errorCode: result.errorCode,
+        errMsg: result.errorMessage,
+        ...(ok
+          ? {}
+          : {
+              hint:
+                `服务端拒绝下发（errorCode=${result.errorCode}）：${result.errorMessage}` +
+                (result.detail?.message ? `；${result.detail.message}` : ''),
+            }),
+      };
     }),
 
   /**

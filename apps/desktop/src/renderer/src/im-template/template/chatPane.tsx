@@ -32,7 +32,6 @@ import {
   X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
-import { avatarFromUin } from '../../lib/avatarResolver';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -118,12 +117,7 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import {
-  GroupInfoDetailDialog,
-  GroupLeftMembersDialog,
-  GroupInfoPanel,
-  type GroupInfoDetail,
-} from './conversationDetails';
+import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageBubble } from './messageBubble';
@@ -153,7 +147,6 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
-import { WindowShakeMessage } from '../../components/WindowShakeMessage';
 import {
   GroupCallEndedMessage,
   GROUP_CALL_ENDED_SUBTYPES,
@@ -307,6 +300,7 @@ export function ChatPane({
   onOpenGroupEssence,
   onOpenGroupAnalytics,
   onOpenGroupBug,
+  onOpenGroupLeftMembers,
   groupBugOnline,
   onOpenBuddyAnalytics,
   onOpenGroupMember,
@@ -386,6 +380,11 @@ export function ChatPane({
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  /**
+   * 群资料面板「已退群」入口：把信号交给应用层，由它拉本地 group_member3 并弹出灯箱
+   * （与群公告 / 群精华同层，见 components/GroupLeftMembersDialog）。不传则入口不渲染。
+   */
+  onOpenGroupLeftMembers?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
   onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: 'direct' }>) => void;
@@ -427,8 +426,6 @@ export function ChatPane({
     ),
   );
   const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
-  // 「已退群成员」灯箱：只读本地 group_member3（64016 = 1），不碰协议。
-  const [groupLeftMembersOpen, setGroupLeftMembersOpen] = useState(false);
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -477,36 +474,6 @@ export function ChatPane({
   const ttsProviders = mediaSettings.data?.voiceTranscribe?.ttsProviders ?? [];
   const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
   const synthesizeSpeechMutation = trpc.bootstrap.synthesizeSpeech.useMutation();
-  // 「已退群成员」：只在灯箱打开时查本地 group_member3（64016 = 1），一次拉一页就够。
-  const groupLeftMembersQuery = trpc.account.listGroupLeftMembers.useQuery(
-    {
-      groupCode: conversation?.type === 'group' ? conversation.group.identityValue : '',
-      limit: 200,
-    },
-    { enabled: groupLeftMembersOpen && conversation?.type === 'group' },
-  );
-  // wire → 模板层成员（只画头像 + 名字 + QQ 号；与群资料面板同一份渲染形状）。
-  const groupLeftMemberRows = useMemo(
-    () =>
-      (
-        (groupLeftMembersQuery.data ?? []) as Array<{
-          uid: string;
-          uin: string;
-          card: string;
-          nick: string;
-        }>
-      ).map((m) => ({
-        id: m.uid,
-        identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
-        identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
-        username: m.uid,
-        displayName: m.card || m.nick || m.uin || 'Member',
-        avatarUrl: avatarFromUin(m.uin),
-        role: 'member' as const,
-        joinedAt: new Date(0).toISOString(),
-      })),
-    [groupLeftMembersQuery.data],
-  );
 
   /**
    * 输入框「文字转语音」：把文字交给**设置里配好的 TTS 服务商**合成，返回 base64 音频。
@@ -2884,9 +2851,6 @@ export function ChatPane({
               'grayTipFileRecv',
               'grayTipTempSession',
               'qqDynamic',
-              // 乐观渲染的窗口抖动（收到侧 QQ 会丢弃 serviceType=2，所以只有自己
-              // 发出去那一下能看到；真正到达对方后由对方客户端的抖屏反馈）。
-              'windowShake',
             ];
             const grayTipOf = (message) => {
               const els = message.qqElements ?? [];
@@ -2938,11 +2902,6 @@ export function ChatPane({
                   return <GrayTipTempSessionMessage element={gt.el} />;
                 case 'groupCallEnded':
                   return <GroupCallEndedMessage element={gt.el} />;
-                case 'windowShake':
-                  // 窗口抖动的乐观渲染不是灰条 —— 画成一枚会轻微抖动的「戳一戳」贴纸
-                  //（见 WindowShakeMessage）。收端 QQ 会把 serviceType=2 的窗口抖动丢弃，
-                  // 所以这一下只有自己看得见。
-                  return <WindowShakeMessage />;
                 case 'qqDynamic': {
                   const d = (gt.el.data ?? {}) as Record<string, unknown>;
                   return (
@@ -3110,7 +3069,9 @@ export function ChatPane({
               onMemberSearchChange={onGroupMemberSearchChange}
               onLoadMoreSearch={onLoadMoreGroupMemberSearch}
               profileLoading={profileLoading}
-              onOpenLeftMembers={() => setGroupLeftMembersOpen(true)}
+              onOpenLeftMembers={
+                onOpenGroupLeftMembers ? () => onOpenGroupLeftMembers(conversation) : undefined
+              }
             />
           ) : null}
         </>
@@ -3642,17 +3603,6 @@ export function ChatPane({
         <MessageDecorationCard
           decoration={decorationCard.decoration}
           onClose={() => setDecorationCard(null)}
-        />
-      ) : null}
-      {groupLeftMembersOpen && conversation?.type === 'group' ? (
-        <GroupLeftMembersDialog
-          conversation={conversation}
-          members={groupLeftMemberRows}
-          loading={groupLeftMembersQuery.isFetching}
-          error={
-            groupLeftMembersQuery.error ? (groupLeftMembersQuery.error.message ?? '查询失败') : null
-          }
-          onClose={() => setGroupLeftMembersOpen(false)}
         />
       ) : null}
       {groupInfoDetail && conversation.type === 'group' ? (

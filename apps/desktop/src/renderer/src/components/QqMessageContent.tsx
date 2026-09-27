@@ -38,6 +38,7 @@ import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
+import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
@@ -802,6 +803,19 @@ export function QqMessageContent({
     );
   }
 
+  // 私聊「窗口抖动」的**乐观渲染**（`windowShake` 元素）：不是灰条 —— 它是**自己发出
+  // 的一条消息**，画面就是那枚「戳一戳」超级表情（会轻轻晃动）。收端 QQ 会丢弃
+  // serviceType=2 的窗口抖动，所以这一下只有发送方看得见。走 sticker-only：表情本身
+  // 不带气泡底板，与真实超级表情一致，位置也落在自己那一侧（见 WindowShakeMessage）。
+  const windowShakeElement = elements.find((element) => element.type === 'windowShake');
+  if (windowShakeElement) {
+    return (
+      <div className={cn('message-content', 'sticker-only')}>
+        <WindowShakeMessage />
+      </div>
+    );
+  }
+
   // 机器人卡片：QQ 把同一条消息同时写成 markdown 正文 + 一串等效的 text/at 元素
   // （给不支持 markdown 的老客户端降级用）。两个都渲染会出现重影，所以 markdown
   // 一旦在场就独占正文，纯文本副本整体丢弃。底部的内联键盘按钮跟在正文后面。
@@ -1011,6 +1025,7 @@ const HANDLED_KINDS = new Set([
   'shareLocation',
   'qqDynamic',
   'emojiBounce',
+  'windowShake',
 ]);
 
 /**

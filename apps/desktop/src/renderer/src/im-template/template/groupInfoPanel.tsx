@@ -42,7 +42,10 @@ export function GroupInfoPanel({
     member: GroupConversationView['members'][number],
     anchor: { x: number; y: number },
   ) => void;
-  /** 打开「已退群成员」列表（数据由上层拉取，见 GroupLeftMembersDialog）。 */
+  /**
+   * 打开「已退群成员」列表。灯箱与数据都在应用层（见 components/GroupLeftMembersDialog），
+   * 模板层只递一个「用户点了我」的信号。
+   */
   onOpenLeftMembers?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
@@ -322,91 +325,6 @@ export function GroupInfoDetailDialog({
               ))}
             </div>
           ) : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-/**
- * 「已退群成员」列表（group_member3 64016 = 1）。
- *
- * 数据由上层拉取（chatPane 的 `listGroupLeftMembers`），这里只负责画：一行一个头像 +
- * 显示名 + QQ 号。与群资料灯箱同一套外壳（modal-scrim / group-info-detail-dialog），
- * 主题色与深浅模式自动跟随。
- */
-export function GroupLeftMembersDialog({
-  conversation,
-  members,
-  loading,
-  error,
-  onClose,
-}: {
-  conversation: GroupConversationView;
-  members: GroupConversationView['members'];
-  loading: boolean;
-  error?: string | null;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  const rows = members.filter((member) => String(member.id ?? '').trim() !== '');
-
-  return (
-    <div
-      className={cn('modal-scrim', 'group-info-detail-scrim')}
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <section
-        className={cn('group-info-detail-dialog')}
-        role="dialog"
-        aria-modal="true"
-        aria-label="已退群成员"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <strong>已退群成员</strong>
-            <span>{conversation.group.name}</span>
-          </div>
-          <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className={cn('group-info-detail-body', 'group-left-member-body')}>
-          {error ? (
-            <div className={cn('group-info-member-error')}>加载失败：{error}</div>
-          ) : loading && rows.length === 0 ? (
-            <GroupMembersSkeleton rows={8} />
-          ) : rows.length === 0 ? (
-            <p className={cn('placeholder-text')}>暂无已退群成员</p>
-          ) : (
-            rows.map((member) => (
-              <div className={cn('group-info-member-row')} key={member.id || member.identityValue}>
-                <div className="member-avatar-wrap">
-                  <Avatar
-                    name={displayUserName(member)}
-                    avatarUrl={member.avatarUrl}
-                    seed={member.identityValue}
-                  />
-                </div>
-                <span className="member-name-text">
-                  <span className="member-name-with-badge">
-                    <span className="member-display-name">{displayUserName(member)}</span>
-                  </span>
-                </span>
-                <small className={cn('group-left-member-id')}>{member.identityValue}</small>
-              </div>
-            ))
-          )}
         </div>
       </section>
     </div>

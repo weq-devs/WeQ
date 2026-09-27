@@ -97,6 +97,7 @@ export function ChatMainContent({
   onOpenGroupEssence,
   onOpenGroupAnalytics,
   onOpenGroupBug,
+  onOpenGroupLeftMembers,
   groupBugOnline,
   onOpenBuddyAnalytics,
   onOpenGroupMember,
@@ -188,6 +189,8 @@ export function ChatMainContent({
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
+  /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
+  onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
   onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
@@ -284,6 +287,7 @@ export function ChatMainContent({
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
+      onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
       onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
