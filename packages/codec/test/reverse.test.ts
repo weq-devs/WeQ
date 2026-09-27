@@ -108,6 +108,19 @@ describe('reverse protobuf decode', () => {
     expect(rvNodesToJson(nested!)).toEqual({ '4': 1 });
   });
 
+  it('LEN 字段自动向下展开一层嵌套消息', () => {
+    const t3 = nodes.find((n) => n.tag === 3);
+    if (t3?.value.k !== 'bytes') throw new Error('not bytes');
+    expect(t3.value.nestedKind).toBe('protobuf');
+    expect(rvNodesToJson(t3.value.nested!)).toEqual({ '4': 1 });
+  });
+
+  it('可读文本不当作嵌套消息', () => {
+    const t2 = nodes.find((n) => n.tag === 2);
+    if (t2?.value.k !== 'bytes') throw new Error('not bytes');
+    expect(t2.value.nested).toBeUndefined();
+  });
+
   it('fixed64 keeps raw bits for 3.14', () => {
     const t7 = nodes.find((n) => n.tag === 7);
     expect(t7?.value.k).toBe('fixed');
@@ -120,7 +133,7 @@ describe('reverse protobuf decode', () => {
     const json = rvNodesToJson(nodes);
     expect(json['1']).toBe(150);
     expect(json['2']).toBe('hi');
-    expect(json['3']).toBe('2001'); // 0x20 0x01 含控制字符 → hex
+    expect(json['3']).toEqual({ '4': 1 }); // 0x20 0x01 自动展开成嵌套 message
     expect(json['5']).toEqual([1, 2, 3]);
     expect(json['6']).toBe('18446744073709551615'); // 超出 2^53 → 字符串
     expect(json['7']).toBe('4614253070214989087'); // 超出 2^53 → 字符串
@@ -243,9 +256,9 @@ describe('reverse JCE decode (QQHook TarsParser semantics)', () => {
         '6': 1.5,
         '7': [1, 2, 3],
         '8': { k: 'v' },
-        '9': 'deadbeef',
+        '9': '0xdeadbeef',
         '10': { '1': 7 },
-        '11': '080112026869',
+        '11': { '1': 1, '2': 'hi' }, // SIMPLE_LIST 里嵌的 protobuf 自动展开
       },
     });
   });

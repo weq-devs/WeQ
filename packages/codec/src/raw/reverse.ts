@@ -23,6 +23,12 @@ import { readVarint, zigzagDecode } from './varint';
 // 类型定义
 // ---------------------------------------------------------------------------
 
+/**
+ * 嵌套解码的最大深度。超过后 LEN 字段退回原始 bytes，避免畸形数据把递归
+ * 撑爆（QQ 真实消息最多嵌套几层，16 足够）。
+ */
+export const RV_MAX_DEPTH = 16;
+
 /** 一个字段：{tag: value}。tag 恒为数字，value 为任意取值。 */
 export interface RvNode {
   tag: number;
@@ -38,8 +44,19 @@ export type RvValue =
   | { k: 'fixed'; bytes: Uint8Array; bits: 32 | 64 }
   /** 文本：JCE STRING1/STRING4。 */
   | { k: 'str'; text: string; bytes: Uint8Array }
-  /** 原始字节：protobuf LEN 字段、JCE SIMPLE_LIST。 */
-  | { k: 'bytes'; bytes: Uint8Array }
+  /**
+   * 原始字节：protobuf LEN 字段、JCE SIMPLE_LIST。
+   *
+   * 若内容不是可读文本、又能被完整地再解一层（protobuf 优先，JCE 兜底），
+   * 就把那棵树顺带放进 `nested` —— 渲染层默认直接展开，用户可以一键切回
+   * hex。原始 `bytes` 始终保留。
+   */
+  | {
+      k: 'bytes';
+      bytes: Uint8Array;
+      nested?: RvNode[];
+      nestedKind?: 'protobuf' | 'jce';
+    }
   /** 嵌套对象：protobuf 嵌套消息 / JCE STRUCT。 */
   | { k: 'obj'; fields: RvNode[] }
   /** JCE LIST：元素各自带 head。 */
@@ -169,8 +186,16 @@ export function decodeUtf8Loose(b: Uint8Array): string {
 // protobuf 解码
 // ---------------------------------------------------------------------------
 
-/** 递归解码 protobuf 顶层消息，返回 {tag: value} 字段列表。失败抛 WireError。 */
-export function decodeProtobuf(buf: Uint8Array): RvNode[] {
+/**
+ * 递归解码 protobuf 消息，返回 {tag: value} 字段列表。失败抛 WireError。
+ *
+ * LEN 字段（wire type 2）会尝试向下再解一层，成功时挂在 `value.nested` 上：
+ *   - 只有「完整消费全部字节、无解析错误、至少 1 个字段」才算嵌套消息；
+ *   - 若同一段字节本身也是合法可读文本、且只能解出 1 个字段，按文本处理
+ *     （避免把 "hi" 误判成 `{13: 105}`）—— 需要时仍可在 UI 里手动切换；
+ *   - depth 达到 RV_MAX_DEPTH 后不再下钻。
+ */
+export function decodeProtobuf(buf: Uint8Array, depth = 0): RvNode[] {
   const nodes: RvNode[] = [];
   for (const wf of iterFields(buf)) {
     let value: RvValue;
@@ -181,9 +206,13 @@ export function decodeProtobuf(buf: Uint8Array): RvNode[] {
       case 1:
         value = { k: 'fixed', bytes: wf.payload.slice(), bits: 64 };
         break;
-      case 2:
-        value = { k: 'bytes', bytes: wf.payload.slice() };
+      case 2: {
+        const payload = wf.payload.slice();
+        value = { k: 'bytes', bytes: payload };
+        const nested = nestedBytes(payload, depth);
+        if (nested) value = { ...value, nested: nested.nodes, nestedKind: nested.kind };
         break;
+      }
       case 5:
         value = { k: 'fixed', bytes: wf.payload.slice(), bits: 32 };
         break;
@@ -195,15 +224,43 @@ export function decodeProtobuf(buf: Uint8Array): RvNode[] {
   return nodes;
 }
 
-/** 尝试按 protobuf 完整解析（全部字节被消费、无错误），失败返回 null。 */
-export function tryDecodeProtobuf(buf: Uint8Array): RvNode[] | null {
+/**
+ * 尝试把一段 LEN 载荷再解一层（protobuf 优先，JCE 兜底），返回嵌套树。
+ * 判据见 {@link decodeProtobuf} 注释。
+ */
+function nestedBytes(
+  payload: Uint8Array,
+  depth: number,
+): { nodes: RvNode[]; kind: 'protobuf' | 'jce' } | null {
+  if (depth + 1 >= RV_MAX_DEPTH || payload.length < 2) return null;
+  const text = tryUtf8(payload);
+
+  const proto = tryDecodeProtobufAt(payload, depth + 1);
+  if (proto && proto.length > 0 && (text === null || proto.length >= 2)) {
+    return { nodes: proto, kind: 'protobuf' };
+  }
+  if (text !== null) return null;
+
+  // 非文本、protobuf 解不动时再试 JCE（QQ 的 envelope 里两格式会互相嵌套）
+  const jce = tryDecodeJceAt(payload, depth + 1);
+  if (jce && jce.length > 0) return { nodes: jce, kind: 'jce' };
+  return null;
+}
+
+/** 同 tryDecodeProtobuf，但保留当前递归深度。 */
+function tryDecodeProtobufAt(buf: Uint8Array, depth: number): RvNode[] | null {
   if (buf.length === 0) return null;
   try {
-    const nodes = decodeProtobuf(buf);
+    const nodes = decodeProtobuf(buf, depth);
     return nodes.length > 0 ? nodes : null;
   } catch {
     return null;
   }
+}
+
+/** 尝试按 protobuf 完整解析（全部字节被消费、无错误），失败返回 null。 */
+export function tryDecodeProtobuf(buf: Uint8Array): RvNode[] | null {
+  return tryDecodeProtobufAt(buf, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,9 +296,11 @@ const MAX_CONTAINER_SIZE = 1_000_000;
 class JceReader {
   private readonly buf: Uint8Array;
   private pos = 0;
+  private readonly depth: number;
 
-  constructor(buf: Uint8Array) {
+  constructor(buf: Uint8Array, depth = 0) {
     this.buf = buf;
+    this.depth = depth;
   }
 
   private get remaining(): number {
@@ -455,24 +514,37 @@ class JceReader {
     }
     const size = this.readSize();
     this.guardSize(size, 1);
-    return { k: 'bytes', bytes: this.readBytes(size) };
+    const bytes = this.readBytes(size);
+    const value: Extract<RvValue, { k: 'bytes' }> = { k: 'bytes', bytes };
+    // SIMPLE_LIST 常常装的是「再一层 protobuf/JCE」（混合嵌套），自动下钻。
+    const nested = nestedBytes(bytes, this.depth);
+    if (nested) {
+      value.nested = nested.nodes;
+      value.nestedKind = nested.kind;
+    }
+    return value;
   }
 }
 
 /** 解码 JCE 顶层消息。失败抛 ReverseError。 */
-export function decodeJce(buf: Uint8Array): RvNode[] {
-  return new JceReader(buf).readTopLevel();
+export function decodeJce(buf: Uint8Array, depth = 0): RvNode[] {
+  return new JceReader(buf, depth).readTopLevel();
 }
 
-/** 尝试按 JCE 完整解析，失败返回 null。 */
-export function tryDecodeJce(buf: Uint8Array): RvNode[] | null {
+/** 同 tryDecodeJce，但保留当前递归深度。 */
+function tryDecodeJceAt(buf: Uint8Array, depth: number): RvNode[] | null {
   if (buf.length === 0) return null;
   try {
-    const nodes = decodeJce(buf);
+    const nodes = decodeJce(buf, depth);
     return nodes.length > 0 ? nodes : null;
   } catch {
     return null;
   }
+}
+
+/** 尝试按 JCE 完整解析，失败返回 null。 */
+export function tryDecodeJce(buf: Uint8Array): RvNode[] | null {
+  return tryDecodeJceAt(buf, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -538,8 +610,10 @@ export function rvValueToJson(v: RvValue): RvJson {
     case 'str':
       return v.text;
     case 'bytes':
-      // 默认显示：合法可打印 UTF-8 当作文本，否则 hex（转换按钮切换）
-      return tryUtf8(v.bytes) ?? bytesToHex(v.bytes);
+      // 默认显示：嵌套消息 > 合法可打印 UTF-8 文本 > hex（UI 里可切换）
+      if (v.nested) return rvNodesToJson(v.nested);
+      if (v.bytes.length === 0) return '';
+      return tryUtf8(v.bytes) ?? `0x${bytesToHex(v.bytes)}`;
     case 'obj':
       return rvNodesToJson(v.fields);
     case 'list':

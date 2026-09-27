@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
+import { AnnualReportIndexDb } from '@weq/db';
 import {
   createWin32Platform,
   createLinuxPlatform,
@@ -59,6 +60,7 @@ import {
   MsgService,
   RecentContactService,
   HiddenSessionService,
+  DraftService,
   DeletedSessionService,
   GuildDirectService,
   OfficialAccountService,
@@ -101,14 +103,18 @@ import {
   RelatedEmojiResourceService,
   FileResourceService,
   MediaResourceService,
+  ComposeImageService,
   ResourceCleanupService,
   WebQueryService,
   GapHistoryService,
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
+  LbsService,
+  MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  InteractionService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -139,6 +145,7 @@ import { createDressNameResolver } from '../dress_names';
 import {
   openAccount,
   openStaticAccount,
+  algoFor,
   type AccountContext,
   type AccountSession,
 } from '@weq/account';
@@ -227,6 +234,17 @@ let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
 /** Guards against running more than one full health check at a time. */
 let dbHealthCheckRunning = false;
+/**
+ * 年度报告索引的一次性预热句柄（每次开账号重置）。
+ *
+ * 建索引本身是一次短 DDL，但**新**建时要全表扫一遍写 B-tree —— 那段时间会占住
+ * `nt_msg.db` 的连接（native 对同一个库的查询是串行化的），把用户此刻的聊天页
+ * 查询排到后面。所以这里刻意**延迟一小段**再动手：等打开账号后的首屏查询都跑完，
+ * 再在后台把索引补上。已经建好的库上这个调用是 ~9ms 的 no-op。
+ */
+let annualIndexWarmup: ReturnType<typeof setTimeout> | null = null;
+/** 延迟多久开始建索引 —— 避开开账号瞬间那一批首屏查询。 */
+const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -313,6 +331,60 @@ export function closeSalvageConnections(ctx: AppContext): number {
     });
   }
   return closed;
+}
+
+/**
+ * 年度报告索引的后台预热 —— 开账号时调一次，把两个派生索引补齐。
+ *
+ * 为什么放在这里（而不是打开报告时）：这两个索引让报告第一页从 ~0.9s 降到
+ * ~0.06s（实测 200 万行），但**第一次**建它要全表扫一遍写 B-tree。native 对同一个
+ * 库的查询是串行化的（实测：一个慢查询会把同库的 `SELECT 1` 挡 1.5s），所以若等到
+ * 用户打开报告那一刻才建，用户会先等一次建索引 —— 恰好把优化抵消掉。放在开账号后
+ * 的后台，用户还没走到报告页，这次建索引就是「白捡」的。
+ *
+ * 三个刻意的选择：
+ *   • **延迟 {@link ANNUAL_INDEX_WARMUP_DELAY_MS}**：避开开账号瞬间那一批首屏查询
+ *     （会话列表 / 未读 / 联系人），别让建索引跟它们抢连接。
+ *   • **best-effort**：静态快照、只读目录、无写权限都会抛错，一律只记日志 ——
+ *     报告不该因为装不上索引就打不开，只是慢一点。
+ *   • **幂等**：已建好的库上是 ~9ms 的 no-op，所以每次开账号都可以无脑跑一次。
+ *
+ * 返回前会核对 session 仍是当前账号 —— 期间用户切了账号就整个丢弃。
+ */
+function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
+  if (annualIndexWarmup) {
+    clearTimeout(annualIndexWarmup);
+    annualIndexWarmup = null;
+  }
+  const logger = getLogger().child({ scope: 'annual-report-index' });
+  annualIndexWarmup = setTimeout(() => {
+    annualIndexWarmup = null;
+    // 期间切过账号 / 关过账号就放弃：索引属于刚打开的那个会话。
+    if (ctx.account !== session) return;
+    void (async () => {
+      const db = new AnnualReportIndexDb(platform.native.ntHelper, {
+        dbPath: session.msgDbPath,
+        key: session.context.dbKey,
+        algo: algoFor(session.context, session.msgDbPath),
+      });
+      try {
+        const installed = await db.ensure();
+        logger.info('annual report indexes ready', {
+          event: 'annual-index-ready',
+          accountUin: session.context.uin,
+          indexes: installed.map((index) => index.name),
+        });
+      } finally {
+        db.close();
+      }
+    })().catch((error) => {
+      logger.warn('failed to build annual report indexes (report still works, just slower)', {
+        event: 'annual-index-failed',
+        accountUin: session.context.uin,
+        ...logErrorContext(error),
+      });
+    });
+  }, ANNUAL_INDEX_WARMUP_DELAY_MS);
 }
 
 /**
@@ -455,6 +527,8 @@ export interface AccountServices {
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
   guildDirect: GuildDirectService;
   hiddenSessions: HiddenSessionService;
+  /** 草稿（draft_storage_table_v1）读写。 */
+  drafts: DraftService;
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
@@ -509,6 +583,8 @@ export interface AccountServices {
   fileResource: FileResourceService;
   /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
   mediaResource: MediaResourceService;
+  /** 新增消息的图片：选本机图片 → 拷进 nt_data/Pic 当月 Ori 目录并产出 pic 元素。 */
+  composeImage: ComposeImageService;
   /** Clean up the account's nt_data resource trees (本地资源整理 → 清理释放). */
   resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
@@ -523,8 +599,14 @@ export interface AccountServices {
   peerStats: PeerStatsService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
   flashTransfer: FlashTransferService;
+  /** 发消息（文本/媒体，MessageSvc.PbSendMsg + NTV2 上传，需在线 QQ 发包）。 */
+  messageSend: MessageSendService;
+  /** 轻互动：戳一戳（0xED3_1）+ 群消息贴表情（0x9082，需在线 QQ 发包）。 */
+  interaction: InteractionService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
+  /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
+  lbs: LbsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
@@ -1018,6 +1100,7 @@ export function initAppContext(): AppContext {
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
+        drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
@@ -1251,6 +1334,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        composeImage: new ComposeImageService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -1266,7 +1350,16 @@ export function initAppContext(): AppContext {
           session,
           resolveOnlinePid,
         ),
+        messageSend: new MessageSendService(
+          platform.native.ntHelper,
+          session,
+          resolveOnlinePid,
+          // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
+          (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+        ),
+        interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
+        lbs: new LbsService(),
       };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -1347,6 +1440,10 @@ export function initAppContext(): AppContext {
           });
         });
       }
+
+      // 年度报告第一页要用的两个派生索引也在这里后台补齐。延迟一点再动手，
+      // 细节与取舍见 warmAnnualReportIndex 的注释。
+      warmAnnualReportIndex(this, session, platform);
 
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
@@ -1554,6 +1651,7 @@ export function initAppContext(): AppContext {
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
+        drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
@@ -1716,6 +1814,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, staticPlatform),
         fileResource: new FileResourceService(session, staticPlatform),
         mediaResource: new MediaResourceService(session, staticPlatform),
+        composeImage: new ComposeImageService(session, staticPlatform),
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
@@ -1723,7 +1822,12 @@ export function initAppContext(): AppContext {
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
+        messageSend: new MessageSendService(platform.native.ntHelper, session, livePid, (packId) =>
+          emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+        ),
+        interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
+        lbs: new LbsService(),
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
@@ -1785,6 +1889,11 @@ export function initAppContext(): AppContext {
         });
       }
 
+      // 刻意**不**给静态账号建年度报告索引：导入目录是用户自己带过来的备份
+      // （PC 快照 / 手机备份），WeQ 不该在里面留下任何 DDL。代价只是这类账号打开
+      // 报告时慢一点 —— 与「备份保持原样」相比，这个代价可以接受。
+      // （实时账号的预热见上面在线路径里的 warmAnnualReportIndex 调用。）
+
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
@@ -1804,6 +1913,13 @@ export function initAppContext(): AppContext {
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
+      // 取消还没触发的索引预热：索引属于刚关掉的那个会话，别在关账号后
+      // 还去写它的库（此刻 this.account 已改成 null，定时器里的守卫也会兜住，
+      // 这里显式清掉只是不留悬挂的定时器）。
+      if (annualIndexWarmup) {
+        clearTimeout(annualIndexWarmup);
+        annualIndexWarmup = null;
+      }
       unmountDbWatch();
       ssePush?.stop();
       ssePush = null;

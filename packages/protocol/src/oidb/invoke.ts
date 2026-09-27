@@ -17,7 +17,12 @@ import { sendOidb, sendPacket, type OidbNative, type TrpcNative } from '../trans
 /** A single OIDB command. */
 export interface OidbSpec<TParams, TResult> {
   command: number;
-  subCommand: number;
+  subCommand?: number;
+  /**
+   * 从参数动态解析 sub-command（0x9082：1 = 贴表情，2 = 撤回）。优先于
+   * {@link subCommand}。
+   */
+  resolveSubCommand?: (params: TParams) => number;
   uinForm?: boolean;
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
@@ -31,10 +36,16 @@ export async function invokeOidb<TParams, TResult>(
   spec: OidbSpec<TParams, TResult>,
   params: TParams,
 ): Promise<TResult> {
+  const subCommand = spec.resolveSubCommand ? spec.resolveSubCommand(params) : spec.subCommand;
+  if (subCommand === undefined) {
+    throw new Error(
+      `OIDB spec 0x${spec.command.toString(16)} 既没有 subCommand 也没有 resolveSubCommand`,
+    );
+  }
   const reqBytes = encode(spec.reqSchema, spec.serialize(params));
   const respBytes = await sendOidb(nt, pid, {
     command: spec.command,
-    subCommand: spec.subCommand,
+    subCommand,
     body: reqBytes,
     isUid: spec.uinForm ?? false,
   });

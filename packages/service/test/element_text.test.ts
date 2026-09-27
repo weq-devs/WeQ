@@ -32,14 +32,40 @@ describe('elementToText / elementsToText', () => {
     expect(elementsToText(els)).toBe('[微笑][表情]');
   });
 
-  it('pic / video / ptt 给标签；有 localPath 时追加 → 路径', () => {
+  it('pic / video / ptt 给标签；有 exportPath 时追加 → 路径', () => {
     const els: RenderElement[] = [
       { type: 'pic', data: { subType: 0 } } as RenderElement,
       { type: 'pic', data: { subType: 1 } } as RenderElement,
-      { type: 'video', data: { localPath: 'media/v.mp4' } } as RenderElement,
+      { type: 'video', data: { exportPath: 'media/v.mp4' } } as RenderElement,
       { type: 'ptt', data: {} } as RenderElement,
     ];
     expect(elementsToText(els)).toBe('[图片][表情][视频 → media/v.mp4][语音]');
+  });
+
+  // 语音标签带上文件名，是给「转写回写」用的锚点：转写最后跑完，靠这个键把
+  // `[语音: 名字]` 换成 `[语音] 转写文本`（voice_rewrite）。没有文件名时保持旧形状。
+  it('ptt 带文件名（无文件名为旧形状）；有 exportPath 时路径保留', () => {
+    const els: RenderElement[] = [
+      { type: 'ptt', data: { fileName: 'a.silk' } } as RenderElement,
+      {
+        type: 'ptt',
+        data: { fileName: 'b.silk', exportPath: 'media/record/b.wav' },
+      } as RenderElement,
+    ];
+    expect(elementsToText(els)).toBe('[语音: a.silk][语音: b.silk → media/record/b.wav]');
+  });
+
+  // 导出包内路径是 `exportPath`，**不是** `localPath` —— 后者是 PIC / FACE 元素
+  // 自带的 wire 值（45004，本机 QQ 缓存里的绝对路径）。两个含义两个键，混用会
+  // 让导出把所有媒体路径改写成无效的 `media/...` 相对路径。
+  it('wire 级 localPath 不参与导出路径渲染', () => {
+    const els: RenderElement[] = [
+      {
+        type: 'pic',
+        data: { subType: 0, localPath: '/home/x/.config/QQ/nt_data/Pic/2026-09/Ori/a.png' },
+      } as RenderElement,
+    ];
+    expect(elementsToText(els)).toBe('[图片]');
   });
 
   it('file / onlineFile 带文件名（空名回退）', () => {

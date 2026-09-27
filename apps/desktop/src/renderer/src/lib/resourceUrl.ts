@@ -194,10 +194,20 @@ export function redbagSkinUrl(skinId: string): string {
   return mediaUrl('redbag', { id: skinId });
 }
 
-/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */ export function localFileUrl(
-  absPath: string,
-): string {
+/**
+ * Preview a trusted local file by absolute path (合并转发编辑器里刚选的媒体 / 真实
+ * 消息 `localPath` 指向的 QQ 缓存文件）。主进程只放行 `nt_data` 树内 + 用户亲手选中的
+ * 路径（见 FileResourceService.resolveLocalFile），其余 404。
+ *
+ * 图片 / 文件卡封面 / 视频原片都走这条；语音走 {@link localVoiceFileUrl}。
+ */
+export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });
+}
+
+/** 同上，但用于语音：SILK 会在主进程解码成 WAV 再流回来（浏览器放不了 SILK）。 */
+export function localVoiceFileUrl(absPath: string): string {
+  return mediaUrl('localfilevoice', { path: absPath });
 }
 
 /**

@@ -171,4 +171,22 @@ describe('GroupMsgDb ordering (offline fixture)', () => {
     expect(sameSeqInversions([...before].reverse())).toHaveLength(0);
     expect(sameSeqInversions(after)).toHaveLength(0);
   });
+
+  /**
+   * 40002 (msgRandom) 是乐观消息对账的主键：它是客户端发送前生成的 `random`，回执带回、
+   * 写进本行、并被服务端历史原样保留。锁住「它被读出来了」以及「加在 SELECT_COLUMNS 末尾
+   * 没有把别的列挤位」——后者是最危险的静默回归（列是按位置索引的）。
+   */
+  it('exposes column 40002 as msgRandom without shifting other columns', async () => {
+    createFixture();
+
+    const latest = await db.listLatest(GROUP, 40);
+    const rendered = [...latest].reverse();
+    // fixture 的 tie 列（= 40002）依次写成了 900/100/700/10/500/300/800。
+    expect(rendered.map((m) => Number(m.msgRandom))).toEqual([900, 100, 700, 10, 500, 300, 800]);
+    // 同一次读取里，按位置索引的老列仍然正确（一旦 40002 插在中间，这些都会错位）。
+    expect(rendered.map((m) => Number(m.msgSeq))).toEqual([10, 11, 12, 12, 12, 13, 14]);
+    expect(rendered.map((m) => Number(m.msgId))).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(rendered.map((m) => Number(m.subType))).toEqual([16, 16, 16, 16, 16, 16, 16]);
+  });
 });

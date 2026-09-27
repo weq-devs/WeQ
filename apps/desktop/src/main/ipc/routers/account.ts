@@ -13,8 +13,9 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
@@ -24,6 +25,7 @@ import {
 } from '../../context/app_context';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
+import { classifyChatType } from '@weq/codec';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -35,6 +37,7 @@ import { sysEmojiRouter } from './sys_emoji';
 import { marketEmojiRouter } from './market_emoji';
 import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
+import { emojiPanelRouter } from './emoji_panel';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
@@ -50,6 +53,7 @@ import {
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
+  COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   getVoiceModel,
   buildBotExport,
@@ -98,6 +102,14 @@ import {
   type ChatMsgWire,
 } from '../serde';
 
+/**
+ * 闪传封面图大小上限（1 MB）。
+ *
+ * 与前端提示一致；协议侧本身没有硬限制，但缩略图过大会把整条 fileset 的首包拖长
+ * （封面是**发送前**同步上传的），所以在这里设一道闸。
+ */
+const FLASH_COVER_MAX_BYTES = 1024 * 1024;
+
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
@@ -114,11 +126,18 @@ function requireScheduler(): import('@weq/service').ExportScheduler {
   return ctx.scheduler;
 }
 
-/** 会话类型判定（首页门面用；兼容字符串枚举与数字）。 */
+/**
+ * 会话类型判定（首页门面用；兼容字符串枚举与数字）。
+ *
+ * 走 codec 的严格分类而不是 `includes('C2C'/'GROUP')`：临时会话枚举名与群聊
+ * 枚举名互相包含（如 KCHATTYPETEMPC2CFROMGROUP 同时含 C2C 与 GROUP），子串
+ * 判会按判断顺序出错。这里只认真正落在 c2c_msg_table 的 direct 类（含 1 / 99 /
+ * 100 / 101）；dataline / service / official 各有独立数据源，返回 null 排除。
+ */
 function chatKindOf(chatType: unknown): 'c2c' | 'group' | null {
-  const s = String(chatType).toUpperCase();
-  if (s.includes('C2C') || s === '1') return 'c2c';
-  if (s.includes('GROUP') || s === '2') return 'group';
+  const kind = classifyChatType(chatType as string | number);
+  if (kind === 'direct') return 'c2c';
+  if (kind === 'group') return 'group';
   return null;
 }
 
@@ -953,6 +972,25 @@ async function exportGroupFiles(
   return { outputDir: input.outputDir, total: work.length, ok, failed };
 }
 
+/**
+ * 合并转发媒体段选本机文件时的文件框配置。
+ *
+ * 只做「选择」：媒体在发送时真实上传（NTV2 / 文件管线），所以这里列扩展名是为了
+ * 让用户少挑错文件，不参与任何落盘 / 转码。`file` 不限扩展名。
+ */
+const PICK_SEND_FILE_SPEC: Record<
+  'image' | 'record' | 'video' | 'file',
+  { title: string; extensions: string[] }
+> = {
+  image: { title: '选择一张图片', extensions: [...COMPOSE_IMAGE_EXTENSIONS] },
+  record: {
+    title: '选择语音文件',
+    extensions: ['silk', 'slk', 'amr', 'wav', 'mp3', 'm4a', 'ogg', 'aac'],
+  },
+  video: { title: '选择视频文件', extensions: ['mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi'] },
+  file: { title: '选择文件', extensions: [] },
+};
+
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
@@ -970,6 +1008,8 @@ export const accountRouter = router({
   customEmoji: customEmojiRouter,
   // ---- related-emoji (keyword → gif) cache browser ----
   relatedEmoji: relatedEmojiRouter,
+  // ---- 消息输入框表情面板（系统/字符/最近/收藏/商城/GIF）----
+  emojiPanel: emojiPanelRouter,
   // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
@@ -1706,6 +1746,61 @@ export const accountRouter = router({
   }),
 
   /**
+   * 会话草稿（draft_storage_table_v1）—— 整表读。这张表只有几行，无需分页。
+   * `elements` 是按 40800 全量解析的正文（文本 / @ / 表情 / 图片 / 视频 / 文件 /
+   * markdown / ark / 引用…… 都在里面），交给前端按模板的 message 结构渲染。
+   */
+  listDrafts: procedure.query(async () => {
+    const drafts = await requireServices().drafts.listDrafts();
+    return drafts.map((d) => ({
+      storageKey: d.storageKey,
+      chatType: d.chatType,
+      targetUid: d.targetUid,
+      sendTime: d.sendTime.toString(),
+      elements: elementsToEditable(d.elements),
+    }));
+  }),
+
+  /**
+   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`，unix 秒）。
+   *
+   * 单独开一个轻量 query，是为了让**会话列表排序**在 `onDbChanged` 时能跟手：
+   * 输入框里的草稿正文由 `drafts` state 本地承载、不需要每次重读，但排序要在
+   * 每次库变化时都刷新。这里只跑一条几行的 SELECT，不去重读 / 重解整张草稿表
+   * （`listDrafts` 会解 `43002` 的 protobuf，代价大得多）。
+   */
+  listConversationDraftTimes: procedure.query(async () => {
+    const map = await requireServices().recentContacts.listDraftTimes();
+    return [...map].map(([targetUid, draftTime]) => ({
+      targetUid,
+      draftTime: draftTime.toString(),
+    }));
+  }),
+
+  /**
+   * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
+   * 产品决定不做逐字写、也不做本地兜底：写不进 QQ 库就按没草稿处理。
+   *
+   * `elements` 为空 = 清掉该会话的草稿（QQ 清空输入框后也是这么做的）。
+   */
+  saveDraft: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        targetUid: z.string().min(1),
+        elements: z.array(z.any()),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await requireServices().drafts.saveDraft({
+        kind: input.kind,
+        targetUid: input.targetUid,
+        elements: elementsFromEditable(input.elements),
+      });
+      return true;
+    }),
+
+  /**
    * 删除的会话（recent_contact_delete_storage）—— 已解析出的最后消息时间/预览，
    * 供前端在删除会话合并入口中显示。
    */
@@ -2208,6 +2303,27 @@ export const accountRouter = router({
     }),
 
   /**
+   * List a group's **已退群** members (group_member3 64016 = 1). Backs the chat
+   * page's 「已退群成员」list — no protocol involved, reads the local table only.
+   */
+  listGroupLeftMembers: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(300).optional(),
+        offset: z.number().int().min(0).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.listLeftMembersInGroup(
+        BigInt(input.groupCode),
+        input.limit ?? 100,
+        input.offset ?? 0,
+      );
+      return members.map(groupMemberToWire);
+    }),
+
+  /**
    * List a group's members ordered by member level (高→低), paginated. Backs
    * the "群成员等级排行" lightbox (one query per scrolled page, never per member).
    */
@@ -2541,10 +2657,18 @@ export const accountRouter = router({
     )
     .query(async ({ input }) => {
       const service = requireServices().forwardMsgs;
+      // msgId 未必是真实消息 id —— 乐观渲染的合并转发用的是 `optimistic-<uuid>`
+      // 这种本地占位 id（它还没被 QQ 同步回来，库里根本没有这一行）。直接
+      // `BigInt()` 会抛「Cannot convert ... to a BigInt」。所以先做安全解析：
+      // 不是正整数就当缓存未命中，交给下面的 resId 远程拉取（真发出去的卡片
+      // 带服务端签发的 resId，点开就能拉到内容）。
+      const msgId = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
       const records =
-        input.kind === 'group'
-          ? await service.getGroupForward(BigInt(input.msgId))
-          : await service.getC2cForward(BigInt(input.msgId));
+        msgId === null || msgId <= 0n
+          ? []
+          : input.kind === 'group'
+            ? await service.getGroupForward(msgId)
+            : await service.getC2cForward(msgId);
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState();
@@ -2699,6 +2823,128 @@ export const accountRouter = router({
   composeElementSpecs: procedure.query(() => requireServices().msgs.getComposeSpecs()),
 
   /**
+   * 新增消息用图：打系统文件框选一张**本机图片**，拷进 QQ 的图片缓存，返回可直接插进
+   * 消息的 pic 元素。
+   *
+   * 取代了旧的「从会话已有消息里挑一张图」—— 那条路只能发别人发过的图。图片按 QQ 自己的
+   * 规则落成 `nt_data/Pic/<当月>/Ori/<md5>.<ext>`，聊天渲染（`weq-media://pic` 按发送时间
+   * + 文件名找图）因此天然认得它。返回的 `sendTime` **必须**原样写进 `insertMessage`，
+   * 否则两边月份对不上就找不到图。
+   *
+   * `sendTime` 用来**锁定月份**：同一条消息里已经选过图时，调用方把上一张的 `sendTime`
+   * 传回来，新图就落到同一个月目录里 —— 否则两张图跨了月末月初，消息只有一个时间戳，
+   * 必然有一张按月份找不到。
+   *
+   * 用户在文件框里点取消时返回 null（不是失败）。
+   */
+  pickComposeImage: procedure
+    .input(z.object({ sendTime: z.number().int().positive().optional() }))
+    .mutation(async ({ input }) => {
+      const picked = await getHost().pickFile({
+        title: '选择一张图片',
+        extensions: [...COMPOSE_IMAGE_EXTENSIONS],
+      });
+      if (!picked) return null;
+      const staged = await requireServices().composeImage.stage(picked, input.sendTime);
+      return {
+        sendTime: staged.sendTime,
+        element: elementsToEditable(staged.element),
+        preview: staged.preview,
+      };
+    }),
+
+  /**
+   * 合并转发（合成聊天记录）发送：打系统文件框选本机媒体给草稿里的媒体段用。
+   *
+   * 只负责「拿到一个本机绝对路径」—— 媒体在**发送时真实上传**（见 sendForward /
+   * send-elements 的 NTV2 上传），所以这里刻意不落任何缓存、不改动文件。用户取消
+   * 文件框时返回 null。文件服务器不接受的上传问题在发送时报错。
+   */
+  pickSendFile: procedure
+    .input(z.object({ kind: z.enum(['image', 'record', 'video', 'file']) }))
+    .mutation(async ({ input }) => {
+      const spec = PICK_SEND_FILE_SPEC[input.kind];
+      const picked = await getHost().pickFile({ title: spec.title, extensions: spec.extensions });
+      if (!picked) return null;
+      // 登记为「可预览」路径：它在上传前不在 nt_data 里，渲染层的本地预览图 /
+      // 音频要经 weq-media://localfile 取字节（见 FileResourceService.resolveLocalFile）。
+      requireServices().fileResource.trustPath(picked);
+      const info = await stat(picked).catch(() => null);
+      return { path: picked, fileName: basename(picked), size: info?.size ?? 0 };
+    }),
+
+  /**
+   * 发「合并转发 / 聊天记录」—— 两步：SsoSendLongMsg 上传拿 resId，再发承载它的卡片。
+   *
+   * 节点里的媒体（图片 / 语音 / 视频）在**发送时真实上传**：渲染层给的是本机绝对
+   * 路径，服务层按目标场景做 NTV2 上传。需要 QQ 在线且未开完全离线模式。
+   * `nodes` 的形状见 @weq/service 的 `SendForwardNodeInput`（含嵌套 `innerForward`）。
+   */
+  sendForward: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        nodes: z.array(z.any()).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendForward({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        nodes: input.nodes as never,
+      });
+    }),
+
+  /**
+   * 戳一戳（OIDB 0xED3_1）：群聊里戳某个成员，或私聊戳对方，会话里留下一条
+   * 「戳一戳」灰条。**不是消息**，需要在线且已注入的 QQ 实例发包。
+   * `targetId` = 群号 / 私聊对方 QQ 号；`targetUin` 仅群聊里有意义（被戳成员 QQ 号）。
+   */
+  sendPoke: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        targetUin: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().interaction.sendPoke({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.targetUin ? { targetUin: input.targetUin } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /**
+   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已注入 QQ。
+   * `code` 1–3 位 = QQ 小黄脸 id，更长 = Unicode 码点（协议层按长度自动分 type）。
+   */
+  setMessageReaction: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        sequence: z.number().int().nonnegative(),
+        code: z.string().min(1),
+        isSet: z.boolean().default(true),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().interaction.setMessageReaction({
+        groupId: input.groupId,
+        sequence: input.sequence,
+        code: input.code,
+        isSet: input.isSet,
+      });
+      return { ok: true };
+    }),
+
+  /**
    * Insert a brand-new message into a conversation (c2c peer uid or group code).
    * `elements` is the authored array in editable wire form (bytes as
    * `{ type:'Buffer', data }`); it is byte-decoded here and validated in the
@@ -2778,6 +3024,370 @@ export const accountRouter = router({
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
   }),
+
+  /**
+   * 私聊「窗口抖动」—— 一条独立的消息，不跟正文 / 引用一起发。
+   *
+   * 走 `MessageSvc.PbSendMsg` 的 `poke` 元素（`commonElem serviceType=2`），
+   * 见 `MessageSendService.sendWindowShake`。**群聊没有这个能力**（服务端只认私聊），
+   * 所以这里不收 peerType，目标一律按私聊解析。
+   */
+  sendWindowShake: procedure
+    .input(z.object({ targetId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
+    }),
+
+  /**
+   * 发消息主链路：一条消息的元素数组。
+   *
+   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 窗口抖动 / 弹射表情，以及
+   * **图片 / 语音 / 视频**（媒体元素在服务层真实上传 NTV2）都走这里。
+   * 元素形状见 @weq/service 的 `SendElement`：媒体元素的 `source` 是本机绝对路径
+   * （优先）或字节（剪贴板等无路径来源）。字节以 `{ type:'Buffer', data }` 过 IPC，
+   * 这里用 `elementsFromEditable` 还原成 Uint8Array。
+   */
+  sendElements: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        elements: z.array(z.any()).min(1),
+        dress: z.any().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendElements({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        elements: elementsFromEditable(input.elements) as never,
+        ...(input.dress ? { dress: input.dress as never } : {}),
+      });
+    }),
+
+  /**
+   * 发文件（群文件 / 私聊文件）。文件走的是独立管线（老 OIDB + highway 裸帧），
+   * 不是媒体元素，所以单开一条 route —— 渲染层给本机**绝对路径**（`webUtils.getPathForFile`）。
+   */
+  sendFile: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        path: z.string().min(1),
+        fileName: z.string().min(1).optional(),
+        folderId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendFile({
+        peerType: input.peerType,
+        targetId: input.targetId,
+        path: input.path,
+        ...(input.fileName ? { fileName: input.fileName } : {}),
+        ...(input.folderId ? { folderId: input.folderId } : {}),
+      });
+    }),
+
+  /**
+   * 发语音（录制 / 本机 TTS）。
+   *
+   * 渲染层录的是 webm/opus，浏览器能解但不是 QQ 要的 SILK；主进程的 `encodeFileToSilk`
+   * 只认 WAV / SILK。所以渲染层先用 WebAudio 把录音解成 24 kHz WAV（见 composerSend 的
+   * `decodeRecordingToWav`），这里再把这份 WAV 落成临时文件、转 SILK、连同真实波形发送。
+   *
+   * `wav` 是 IPC 安全的 `{ type:'Buffer', data }` 盒子（`elementsFromEditable` 还原）。
+   */
+  sendVoice: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        wav: z.any(),
+        durationSec: z.number().min(0).max(3600).optional(),
+        fileName: z.string().min(1).optional(),
+        /** 变声标记（协议已实现的 `extBizInfo.ptt.changeVoice`）。 */
+        voiceChanged: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const wav = elementsFromEditable(input.wav) as Uint8Array;
+      if (!(wav instanceof Uint8Array) || wav.byteLength === 0) {
+        throw new Error('语音数据为空，无法发送。');
+      }
+      // 临时文件：`encodeFileToSilk` 按路径读；放系统临时目录，转完即删。
+      const tempPath = join(tmpdir(), `weq-voice-${randomUUID()}.wav`);
+      await writeFile(tempPath, wav);
+      try {
+        // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
+        const { encodeFileToSilk } = await import('../../voice');
+        const silk = await encodeFileToSilk(tempPath);
+        return requireServices().messageSend.sendMedia({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          kind: 'record',
+          source: silk.silk,
+          durationSec: input.durationSec ?? silk.durationSec,
+          ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
+          ...(input.fileName ? { fileName: input.fileName } : {}),
+          ...(input.voiceChanged ? { voiceChanged: true } : {}),
+        });
+      } finally {
+        await unlink(tempPath).catch(() => undefined);
+      }
+    }),
+
+  /**
+   * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
+   *
+   * 与语音 / 文件同一条输入框入口，但走的是 fileset 管线（不是普通消息元素）：
+   * 申请 → commit/complete → 0x93d7 发消息 → **立刻返回**。封面与主文件上传在后台
+   * 继续（先发后传），所以这个 mutation 不会被大文件拖住。
+   * 返回 `{ filesetUuid, shareUrl }`，前端拿 uuid 做乐观条目的对账签名。
+   *
+   * `coverBase64` 是渲染层用 canvas 拼出来的 **PNG**（封面图要从 `resources/fileicon`
+   * 拼，所以合成放在渲染层——主进程没有 canvas）。这里只做大小与落盘。
+   */
+  sendFlashTransfer: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        files: z
+          .array(z.object({ path: z.string().min(1), name: z.string().optional() }))
+          .min(1)
+          .max(200),
+        /** fileset 标题（卡片名）；缺省由服务层按文件名 / 数量拼。 */
+        name: z.string().max(120).optional(),
+        /** 封面 PNG（可带 `data:image/png;base64,` 前缀），≤ 1 MB。 */
+        coverBase64: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const services = requireServices();
+      const record = services.accountConfig.getRecord();
+
+      let coverPath: string | null = null;
+      if (input.coverBase64) {
+        const bytes = Buffer.from(input.coverBase64.replace(/^data:[^,]*,/, ''), 'base64');
+        if (bytes.byteLength === 0) throw new Error('封面图数据为空。');
+        if (bytes.byteLength > FLASH_COVER_MAX_BYTES) {
+          throw new Error(`封面图不能超过 ${FLASH_COVER_MAX_BYTES / 1024 / 1024} MB。`);
+        }
+        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.png`);
+        await writeFile(coverPath, bytes);
+      }
+
+      const uploads = services.flashTransfer.sendFlashTransfer({
+        files: input.files,
+        peerType: input.peerType,
+        targetId: input.targetId,
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+        ...(coverPath ? { thumbPath: coverPath } : {}),
+        uploader: {
+          uin: record?.uin ?? '',
+          nickname: record?.displayName ?? '',
+          uid: record?.uid ?? '',
+        },
+      });
+
+      try {
+        const result = await uploads;
+        // 后台上传（封面 + 主文件）还在用这个临时封面文件：等它跑完（成败都算）再删。
+        if (coverPath) {
+          const path = coverPath;
+          void result.uploaded.finally(() => unlink(path).catch(() => undefined));
+        }
+        return { filesetUuid: result.filesetUuid, shareUrl: result.shareUrl };
+      } catch (err) {
+        // 发消息就失败了：后台上传根本没启动，直接删临时封面。
+        if (coverPath) await unlink(coverPath).catch(() => undefined);
+        throw err;
+      }
+    }),
+
+  /**
+   * AI 声聊（TTS）：`0x929b_0` 合成即发送（只支持群聊），**没有第二步** ——
+   * 不要再拼一条 ptt 元素手动发。见 `MessageSendService.sendAiVoice`。
+   */
+  sendAiVoice: procedure
+    .input(
+      z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendAiVoice(input);
+    }),
+
+  // ---- Ark 卡片（输入框「Ark 卡片」面板）----
+
+  /**
+   * 发一张**任意 ark 卡片**：`arkData` 是一段 ark JSON，服务层原样编成 lightApp
+   * 元素（`{kind:'ark'}`）走常规 `MessageSvc.PbSendMsg`。
+   *
+   * 这条路不依赖任何平台下发规则（没有 appId 白名单），所以 PC / Linux 端也能发 ——
+   * 面板里只有「自定义 JSON」那一栏用它。输入框的「图文」**不再**自己拼 ark JSON，
+   * 改走 {@link sendTuwenArk}（服务端下发的 0xdc2_34，与群反馈的 GitHub issue/PR
+   * 卡片同一条路）。
+   *
+   * `targetId` = 当前会话：群聊给群号，私聊给对方 QQ 号（或 uid）。
+   */
+  sendArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        arkData: z.string().min(1).max(200_000),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendArkCard(input);
+    }),
+
+  /**
+   * 发一张**图文 Ark 卡片**（OIDB 0xdc2_34）：服务端按标题 / 描述 / 跳转链接 /
+   * 预览图生成卡片直接下发 —— 与群反馈的 GitHub issue/PR 卡片（`submitIssueArk`）
+   * 是**同一条路**。
+   *
+   * 与 {@link sendArkCard} 的区别：那条是把**客户端自己拼的 ark JSON** 当 `lightApp`
+   * 元素发出去（「自定义 JSON」那栏用），输入框的「图文」不再走它。返回值里的 `ok`
+   * 取自服务端的**业务 result** —— OIDB 外层 errorCode=0 也可能根本没下发出去
+   * （见 `docs/develop/ark-send.md`），不要把「调用了」当「发成功」。
+   */
+  sendTuwenArk: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        /** 私聊 = 对方 QQ 号，群聊 = 群号（都是纯数字）。 */
+        targetId: z.string().regex(/^\d+$/),
+        title: z.string().min(1).max(80),
+        desc: z.string().max(200).optional(),
+        jumpUrl: z.string().url().max(512),
+        previewUrl: z.string().max(512).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const targetId = Number(input.targetId);
+      if (!Number.isSafeInteger(targetId) || targetId <= 0) {
+        throw new Error(`图文卡片的目标不合法：${input.targetId}`);
+      }
+      const result = await requireServices().flashTransfer.sendTuwenArk({
+        targetId,
+        peerType: input.peerType === 'group' ? 1 : 0,
+        title: input.title.trim(),
+        desc: (input.desc ?? '').trim(),
+        jumpUrl: input.jumpUrl.trim(),
+        previewUrl: (input.previewUrl ?? '').trim(),
+      });
+      const ok = result.errorCode === 0;
+      return {
+        ok,
+        errorCode: result.errorCode,
+        errMsg: result.errorMessage,
+        ...(ok
+          ? {}
+          : {
+              hint:
+                `服务端拒绝下发（errorCode=${result.errorCode}）：${result.errorMessage}` +
+                (result.detail?.message ? `；${result.detail.message}` : ''),
+            }),
+      };
+    }),
+
+  /**
+   * 发「推荐好友 / 推荐群」卡片：服务端先按 `contactId` 生成 ark JSON（0x12b6_0 /
+   * 0x8b7_5），再作为元素发到 `targetId` 那个会话。
+   *
+   * `kind` = 卡片推荐**什么**（`qq` 好友 / `group` 群），`contactId` = 被推荐的
+   * QQ 号 / 群号；别与 `targetId`（发到哪）填反。
+   */
+  sendContactArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        kind: z.enum(['qq', 'group']),
+        contactId: z.number().int().positive(),
+        phoneNumber: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendContactCard(input);
+    }),
+
+  /**
+   * 发一张**位置卡片**（trpc `LocationArk.SsoSendMessage`）。
+   *
+   * 经纬度是十进制度**字符串**；`region`（省市区）与 `address`（详细地址）由调用方
+   * 给出 —— 地图组件不做逆地理（没有安全密钥），地址是用户自己填 / 改的。
+   * 返回值里的 `hint` 会如实说明「响应无法判定业务结果」，不要当它是成功回执。
+   */
+  sendLocationArkCard: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        address: z.string().min(1),
+        region: z.string().min(1),
+        latitude: z.string().min(1),
+        longitude: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().messageSend.sendLocationCard(input);
+    }),
+
+  /**
+   * 位置卡片面板的**地点搜索**（腾讯位置服务「关键词输入提示」）。
+   *
+   * 纯公网只读查询，**不需要 QQ 在线**。结果已归一化成面板要的形状：
+   * `region` 是拼好的省市区（直辖市去重），`address` 是**去掉省市区前缀**的详细
+   * 地址 —— 两者正好对应位置卡片的两个字段，点一条就能把卡片填好。
+   */
+  lbsSuggestPlaces: procedure
+    .input(
+      z.object({
+        keyword: z.string().min(1),
+        /** 当前地图中心，用于按距离排序（latitude 在前，别写反）。 */
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        region: z.string().optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+    )
+    .query(({ input }) =>
+      requireServices().lbs.suggestPlaces({
+        keyword: input.keyword,
+        ...(input.latitude !== undefined ? { latitude: input.latitude } : {}),
+        ...(input.longitude !== undefined ? { longitude: input.longitude } : {}),
+        ...(input.region ? { region: input.region } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }),
+    ),
+
+  /**
+   * 位置卡片面板的**逆地址解析**：地图上点一下 → 「地点名称 + 省市区 + 详细地址」。
+   *
+   * `poi_options=policy=5`（位置共享场景）在服务层写死 —— 这正是发位置卡片干的事。
+   * 同样不需要 QQ 在线；结果是**建议值**，面板里用户可以改。
+   */
+  lbsReverseGeocode: procedure
+    .input(z.object({ latitude: z.number(), longitude: z.number() }))
+    .query(({ input }) =>
+      requireServices().lbs.reverseGeocode({
+        latitude: input.latitude,
+        longitude: input.longitude,
+      }),
+    ),
 
   // ---- database decrypt ----
 
@@ -3113,10 +3723,15 @@ export const accountRouter = router({
     // (KCHATTYPETEMPPUBLICACCOUNT=103) 等枚举名不含 'C2C' 的临时会话就是这样：
     // 消息其实在 c2c_msg_table，只是没进查询集。dataline 走独立表单独计数，
     // 其余一切都按 c2c 归类（能查到就显示真实条数，查不到才是 0）。
+    //
+    // 用 codec 的 classifyChatType 严格分类，不能按子串猜：群聊发起的临时会话
+    // KCHATTYPETEMPC2CFROMGROUP（100）名字里含 'GROUP'，按子串判会被丢进 group
+    // 查询集，而它的消息其实在 c2c_msg_table —— 于是恒显示 0 条、类型显示成
+    // 群聊、导出走群消息表导空。
     const kindOf = (chatType: string | number): 'group' | 'dataline' | 'c2c' => {
-      const t = String(chatType);
-      if (t.includes('GROUP')) return 'group';
-      if (t.includes('DATALINE')) return 'dataline';
+      const kind = classifyChatType(chatType);
+      if (kind === 'group') return 'group';
+      if (kind === 'dataline') return 'dataline';
       return 'c2c';
     };
 

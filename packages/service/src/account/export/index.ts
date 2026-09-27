@@ -25,7 +25,7 @@ export {
   formatTime,
   messageToText,
   mediaRelPath,
-  annotateLocalPaths,
+  annotateExportPaths,
 } from './element_text';
 export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';
@@ -110,6 +110,11 @@ export {
   type StageProgress,
   type UrlDownloadCtx,
 } from './media_export';
+export {
+  rewriteVoiceTranscripts,
+  type VoiceRewriteOptions,
+  type VoiceRewriteStats,
+} from './voice_rewrite';
 export {
   scanConvMedia,
   mediaDirsFromAccountDir,

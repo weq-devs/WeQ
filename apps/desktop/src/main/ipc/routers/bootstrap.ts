@@ -1261,6 +1261,47 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  /**
+   * 输入框「文字转语音」：用**已配置的 TTS 服务商**把一段文字合成成音频。
+   *
+   * 返回 base64 而不是写临时文件：字节要回到渲染层当成一条普通的「本地音频」走既有
+   * 语音发送链路（WebAudio 解码 → 24k WAV → SILK），不落盘、不用管临时文件清理。
+   * 没配任何服务商时抛错 —— 前端据此把「文字转语音」那一栏藏起来。
+   */
+  synthesizeSpeech: procedure
+    .input(
+      z.object({
+        text: z.string().min(1).max(500),
+        /** 不传 = 用最近更新的那个（设置里的排序就是更新时间倒序）。 */
+        providerId: z.string().optional(),
+        /** 覆盖服务商默认音色（preset 模式）。 */
+        voice: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const bootstrap = requireBootstrap();
+      const providers = bootstrap.userConfig.getSettings().voiceTranscribe.ttsProviders;
+      if (providers.length === 0) {
+        throw new Error('还没有配置 TTS 服务商：设置 → 语音配置 → TTS 服务商。');
+      }
+      const cfg = input.providerId
+        ? providers.find((p) => p.id === input.providerId)
+        : providers[0];
+      if (!cfg) throw new Error(`找不到 TTS 服务商：${input.providerId}`);
+      const { audio, format } = await bootstrap.tts.synthesize(cfg, input.text, {
+        ...(input.voice ? { voice: input.voice } : {}),
+        timeoutMs: 60_000,
+      });
+      if (audio.length === 0) throw new Error('TTS 服务商返回了空音频。');
+      return {
+        providerId: cfg.id,
+        providerName: cfg.name,
+        vendor: cfg.vendor,
+        format: format || cfg.format || 'mp3',
+        audioBase64: Buffer.from(audio).toString('base64'),
+      };
+    }),
+
   /** 「测试」：用该配置合成一句样例，返回 base64 供前端试听。 */
   testTtsProvider: procedure
     .input(

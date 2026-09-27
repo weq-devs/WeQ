@@ -10,7 +10,7 @@
  * intentionally small.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
@@ -27,6 +27,19 @@ exposeElectronTRPC();
 
 const weqBridge = {
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  /**
+   * 用户选 / 拖 / 粘贴进来的文件的**本机绝对路径**（Electron 32+ 的 `webUtils`）。
+   *
+   * 发消息时优先按路径把媒体 / 文件交给主进程（省内存、大文件/视频最稳）；剪贴板
+   * 等没有落盘来源的图拿不到路径，调用方回退成读字节。取不到（不在用户盘上）返回 ''。
+   */
+  pathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file) ?? '';
+    } catch {
+      return '';
+    }
+  },
   /** Reveal the daemon docroot (推文静态文件目录) in the system file manager. */
   revealPath: (path: string): Promise<boolean> =>
     ipcRenderer.invoke('daemon:reveal-path', path) as Promise<boolean>,

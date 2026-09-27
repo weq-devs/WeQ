@@ -12,11 +12,13 @@
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
-import type { DressMallItem, RenderElement } from '@weq/service';
+import type { DressMallItem, RenderElement, SendDress, SendElement } from '@weq/service';
 import {
   computeBkn,
   DressAppId,
@@ -255,11 +257,18 @@ function rangeWindow(
   return { startSec, endSec, label: `${fmtDate(startSec)} ~ ${fmtDate(endSec - 86400)}` };
 }
 
-/** 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。 */
+/**
+ * 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。
+ *
+ * 走 codec 的严格分类而不是 `includes('C2C'/'GROUP')`：临时会话枚举名与群聊
+ * 枚举名互相包含（KCHATTYPETEMPC2CFROMGROUP 同时含 C2C 与 GROUP），子串判既
+ * 会看判断顺序出错，也会漏掉名字里不含 'C2C' 的 KCHATTYPETEMPFRIENDVERIFY
+ * （101）。direct（1/99/100/101）归 c2c，group（2）归 group，其余排除。
+ */
 function convKindOf(chatType: unknown): 'c2c' | 'group' | null {
-  const s = String(chatType).toUpperCase();
-  if (s.includes('C2C') || s === '1') return 'c2c';
-  if (s.includes('GROUP') || s === '2') return 'group';
+  const kind = classifyChatType(chatType as string | number);
+  if (kind === 'direct') return 'c2c';
+  if (kind === 'group') return 'group';
   return null;
 }
 
@@ -414,6 +423,18 @@ function fmtMsDate(ms: bigint | number): string {
 }
 
 /**
+ * 把模型给的路径规整成绝对路径：支持 `~` / `~/x`，相对路径按**本机当前工作目录**解析。
+ * 只做路径拼装，不碰文件系统（存在性由调用方用 `existsSync` 判，好给出人读报错）。
+ */
+function resolveLocalPath(input: string): string {
+  const text = input.trim();
+  if (!text) return '';
+  if (text === '~') return homedir();
+  if (text.startsWith('~/') || text.startsWith('~\\')) return resolve(homedir(), text.slice(2));
+  return isAbsolute(text) ? text : resolve(text);
+}
+
+/**
  * Declare a tool with full arg-type inference inside `run`, erased to the
  * non-generic `AiTool` for storage in `AI_TOOLS`.
  */
@@ -425,6 +446,47 @@ function tool<I extends z.ZodRawShape>(def: {
   assistantOnly?: boolean;
 }): AiTool {
   return def as unknown as AiTool;
+}
+
+/**
+ * 三个发送工具共用的「带装扮」入参：气泡 / 字体 / 挂件三个 itemId（都可选）。
+ *
+ * ⚠️ **实验结论：服务端不收**（真机实测：请求 result=0 但落库装扮全 0，逐字节重放真机
+ * 那段 generalFlags 也一样）。所以传了**不会**改变收端看到的装扮 —— 这几个参数目前只是
+ * 一个可复现实验的开关，别当成能用的功能。详见 @weq/protocol 的 SendDress。
+ */
+const dressInputShape = {
+  dressBubbleId: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('气泡 itemId（⚠️ 服务端不采信，实测无效；保留用于复现实验）'),
+  dressFontId: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('字体 itemId（⚠️ 服务端不采信，实测无效；保留用于复现实验）'),
+  dressWidgetId: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('挂件 itemId（⚠️ 服务端不采信，实测无效；保留用于复现实验）'),
+} as const;
+
+/** 三个 dressXxxId 拼成协议层的 SendDress；都没给时返回 undefined（=不带装扮）。 */
+function dressFromArgs(args: {
+  dressBubbleId?: number;
+  dressFontId?: number;
+  dressWidgetId?: number;
+}): SendDress | undefined {
+  const dress: SendDress = {};
+  if (args.dressBubbleId !== undefined) dress.bubbleId = args.dressBubbleId;
+  if (args.dressFontId !== undefined) dress.fontId = args.dressFontId;
+  if (args.dressWidgetId !== undefined) dress.widgetId = args.dressWidgetId;
+  return Object.keys(dress).length > 0 ? dress : undefined;
 }
 
 export const AI_TOOLS: AiTool[] = [
@@ -861,7 +923,9 @@ export const AI_TOOLS: AiTool[] = [
         { uid: string; uin: string; name: string; remark: string; lastTime: string }
       >();
       for (const c of contacts) {
-        if (!String(c.chatType).includes('C2C')) continue;
+        // 用严格分类取"私聊"：`includes('C2C')` 会漏掉名字里没有 C2C 的
+        // KCHATTYPETEMPFRIENDVERIFY（101），也会把数据线/公众号当成人。
+        if (classifyChatType(c.chatType) !== 'direct') continue;
         if (!hit(c.targetRemark) && !hit(c.targetDisplayName) && !hit(c.senderNick)) continue;
         if (peopleMap.has(c.targetUid)) continue;
         const wire = recentContactToWire(c);
@@ -2657,11 +2721,13 @@ export const AI_TOOLS: AiTool[] = [
     name: 'decode_blob',
     description:
       '把一段 hex / base64 二进制按 protobuf 或 JCE（QQHook TarsParser 语义）逆向解码成可读 JSON。' +
-      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树，' +
-      '并给出每个字段可能的含义（utf8 / bool / 时间戳 / zigzag / 定长 float 等）。' +
-      'tag ≥ 1001 的字段会尽量附上 QQ 全局词典里的字段名（小 tag 无全局含义、以嵌套上下文为准）。' +
-      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。' +
-      '返回 fields：{ tag, field?, value } 树；bytes 较大时只给摘要 hex。',
+      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树。' +
+      '**自动递归展开嵌套**：LEN 字段里能再解一层 message 就直接内联展开（默认到 16 层），' +
+      '不用再手动把子字段 hex 拆出来二次调用。' +
+      '返回 fields 是 CyberChef 风格的纯 JSON：{ "字段号": 值 }，嵌套是内联对象、repeated 是数组；' +
+      '能当可读文本的 bytes 直接给字符串，其余给小写 hex（0x…），超大 bytes 会截断并在 truncatedHex 标出。' +
+      'tag ≥ 1001 的字段名单独放在 names 图例（tag → 字段名）里，避免污染数据树；小 tag 无全局含义、以嵌套上下文为准。' +
+      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。',
     input: z.object({
       data: z
         .string()
@@ -2690,11 +2756,13 @@ export const AI_TOOLS: AiTool[] = [
         bytes: result.bytes,
         kind: result.kind,
         fields: result.fields,
+        ...(result.names ? { names: result.names } : {}),
+        ...(result.truncatedHex ? { truncatedHex: true } : {}),
         ...(result.guessNote ? { guessNote: result.guessNote } : {}),
         hint:
-          result.kind === 'guess'
+          result.kind === 'guess' || result.kind === 'none'
             ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
-            : '字段名只来自 QQ 全局 tag 词典；若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+            : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
       };
     },
   }),
@@ -2705,7 +2773,7 @@ export const AI_TOOLS: AiTool[] = [
       '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
       '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
       '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
-      '返回与 decode_blob 相同的 fields 树，并附 source（库/路径/SQL/列/字节数）。',
+      '返回与 decode_blob 相同的纯 JSON fields 树（嵌套自动展开）与 names 图例，并附 source（库/路径/SQL/列/字节数）。',
     input: z.object({
       dbName: z
         .string()
@@ -2787,7 +2855,7 @@ export const AI_TOOLS: AiTool[] = [
           ok: false,
           kind: 'none',
           bytes: 0,
-          fields: [],
+          fields: {},
           error: '目标单元格既不是 BLOB 也不是 TEXT。',
         };
       }
@@ -2809,6 +2877,8 @@ export const AI_TOOLS: AiTool[] = [
         bytes: decoded.bytes,
         kind: decoded.kind,
         fields: decoded.fields,
+        ...(decoded.names ? { names: decoded.names } : {}),
+        ...(decoded.truncatedHex ? { truncatedHex: true } : {}),
         ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
       };
     },
@@ -3113,12 +3183,23 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_download_rkeys',
     description:
-      '获取当前账号的媒体下载 rkey（图片 CDN 签名 URL 的 &rkey=… 片段）。type: 10=私聊图, 20=群聊图。' +
-      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。',
-    input: z.object({}),
-    run: async () => {
+      '获取当前账号的媒体下载 rkey（媒体 CDN 签名 URL 的 &rkey=… 片段）。' +
+      'type: 10=私聊图, 20=群图, 2=兜底（默认就这三档）。' +
+      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。' +
+      '\n【怎么用】拼在 CDN URL 后面：https://multimedia.nt.qq.com.cn/download?appid=<群 1407 / 私聊 1406>&fileid=<元素里的 fileid>&spec=0<rkey>。' +
+      'rkey 与「场景 × 媒体类型」绑定，用错组合会得到 appid is not match / invalid rkey。' +
+      '\n【已知】语音 / 视频的 rkey（14/24、12/22）**这个命令不给**：真机试过，传进去一律 170019002 (Service Failure)，' +
+      '可能是 0x9067_202 只服务图片。要下语音 / 视频得走 OIDB 解析 URL（见 media_url 的 resolvePttUrl / resolveVideoUrl）。',
+    input: z.object({
+      types: z
+        .array(z.number().int())
+        .min(1)
+        .optional()
+        .describe('要取的 rkey 类型，缺省 [10,20,2]；只想要私聊图或只想要群图时可传 [10] / [20]'),
+    }),
+    run: async ({ types }) => {
       const pid = onlinePid();
-      const items = await fetchDownloadRkeys(ntHelper(), pid);
+      const items = await fetchDownloadRkeys(ntHelper(), pid, types);
       return {
         ok: true,
         count: items.length,
@@ -3281,7 +3362,6 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'send_tuwen_ark',
-    assistantOnly: true, // 真实发送消息（有外部副作用）→ 不进只读 MCP server，仅助手可用
     description:
       '给私聊或群聊发送一张【自定义图文 Ark 卡片】（OIDB 0xdc2_34：标题 + 描述 + 跳转链接 + 预览图）。' +
       '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。' +
@@ -3330,6 +3410,437 @@ export const AI_TOOLS: AiTool[] = [
         targetId,
         errorCode: 0,
         hint: '卡片已发送（响应无 message_id，无法撤回/设精华）。',
+      };
+    },
+  }),
+
+  // ── 发消息（真实副作用） ─────────────────────────────────────────────
+  // 四个粒度：文本 / 媒体 / 文件 / 元素数组逃生舱。都走 services().messageSend，
+  // 业务逻辑（uid 解析、上传、回执归一化）在 @weq/service 里只写一遍。
+  //
+  // 真机联调期：这四个工具**临时开放给外部 MCP 面板**（原本标 assistantOnly，被
+  // server.ts 过滤掉）。联调结束后应恢复该标记，让外部面板回到严格只读。
+
+  // 三个发送工具共用的「带装扮」入参 —— 注意这是**未通过真机验证**的实验开关：
+  // 服务端不采信客户端自报的装扮（实测落库全 0），详见 @weq/protocol 的 SendDress。
+
+  tool({
+    name: 'send_text_message',
+    description:
+      '给群聊或私聊发送一条【真实的文本消息】（MessageSvc.PbSendMsg）。' +
+      '⚠️ 这是真实的发送行为：会直接出现在对方/群里，且**本工具不能撤回**（需要撤回时走界面）。' +
+      '⚠️ 需要该账号的 QQ 在线（完全离线模式下不可用），失败会如实返回 result / errMsg。' +
+      '\n【目标怎么写】群聊传群号（纯数字）；私聊传 QQ 号，或传 uid（find_contact / search_buddies 能拿到 uid，更稳）。' +
+      '\n【@ 与引用】at 传 QQ 号/uid 数组；引用回复传 replyToMsgSeq（get_messages 返回的 msgSeq）。' +
+      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信，' +
+      '传了也改变不了收端看到的装扮（详见 SendDress 注释）。' +
+      '\n【结果怎么看】ok=false 就是**没发出去**（result 非 0，hint 里解释了常见码：79 = 场景/参数不符）。别把“调用了”当“发送成功”。' +
+      '\n【不能代表什么】ok=true 只说明服务端接受了这条消息，不代表对方已读/已看到。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      text: z.string().min(1).max(4000).describe('消息正文'),
+      at: z.array(z.string()).optional().describe('要 @ 的人（QQ 号或 uid）'),
+      replyToMsgSeq: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('引用回复：被引用消息的 seq（群内/会话内序号）'),
+      replyToSenderUin: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('被引用消息发送者的 QQ 号（可选，带上更稳）'),
+      ...dressInputShape,
+    }),
+    run: async ({
+      peerType,
+      targetId,
+      text,
+      at,
+      replyToMsgSeq,
+      replyToSenderUin,
+      ...dressArgs
+    }) => {
+      // 前置校验：未登录 QQ / 完全离线模式在这里就给出中文可读报错（与其它在线工具一致）。
+      onlinePid();
+      const dress = dressFromArgs(dressArgs);
+      const outcome = await services().messageSend.sendText({
+        peerType,
+        targetId,
+        text,
+        ...(at && at.length > 0 ? { at } : {}),
+        ...(replyToMsgSeq !== undefined ? { replyToMsgSeq } : {}),
+        ...(replyToSenderUin !== undefined ? { replyToSenderUin } : {}),
+        ...(dress ? { dress } : {}),
+      });
+      return { ...outcome, sent: outcome.ok };
+    },
+  }),
+
+  tool({
+    name: 'send_media_message',
+    description:
+      '给群聊或私聊发送【图片 / 语音 / 视频】：先把本地文件传到 QQ 的富媒体上传服务（NTV2 + highway），再把消息发出去。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线（媒体上传走在线实例）。' +
+      '\n【path 怎么给】必须是**本机**上的文件路径（绝对路径，或 ~/ 开头）。支持：图片 jpg/png/gif/webp/bmp；' +
+      '语音 wav（自动转 SILK）或已是 SILK 的文件（mp3 等压缩格式不支持，仓库里没有转码器）；视频常见容器。' +
+      '\n【语音】不传 durationSec 时用文件里的真实时长；波形会自动从 WAV 算（真实振幅）。' +
+      '\n【视频】群聊建议给 width / height（不给也能发，但**安卓端会显示「文件已过期」**）；私聊固定不上报尺寸（服务端 schema 限制）。' +
+      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
+      '\n【结果怎么看】ok=false 就是没发出去（result / errMsg / hint 给出原因）。上传失败会直接报错（不会发半条）。' +
+      '\n【uploads 是什么】每个媒体一项 { kind, fileName, fileSize, md5Hex, fastUpload }。fastUpload=true 表示服务端已按 md5 存着这份资源，这次是**秒传**（一个字节没传，直接用服务端回的 msgInfo）；=false 才是真的传了字节。收端说「已过期」时看这里就能分清是上传失败还是别的。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（需要 uid），group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      kind: z.enum(['image', 'record', 'video']).describe('image=图片，record=语音，video=视频'),
+      path: z.string().min(1).describe('本机文件路径（绝对路径或 ~/ 开头）'),
+      fileName: z.string().optional().describe('收端显示的文件名（可选）'),
+      imageSubType: z
+        .number()
+        .int()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe('图片子类型：0 普通图，1 动画表情'),
+      summary: z.string().optional().describe('图片在会话列表/引用里的摘要文字（可选）'),
+      width: z.number().int().positive().optional().describe('像素宽（视频群聊建议给）'),
+      height: z.number().int().positive().optional().describe('像素高（视频群聊建议给）'),
+      // 不要求整数：语音时长天然带小数（如 1.6s），收端也是按秒数渲染。
+      durationSec: z
+        .number()
+        .min(0)
+        .max(3600)
+        .optional()
+        .describe('时长（秒，语音/视频，可带小数）'),
+      voiceChanged: z
+        .boolean()
+        .optional()
+        .describe(
+          '语音：变声标记（缺省 false=原声）。置 true 时在 ptt 上写 changeVoice=1，' +
+            '与 QQ 客户端「变声」发出的消息一致（收端会显示变声标识）。',
+        ),
+      ...dressInputShape,
+    }),
+    run: async ({
+      peerType,
+      targetId,
+      kind,
+      path,
+      fileName,
+      imageSubType,
+      summary,
+      width,
+      height,
+      durationSec,
+      voiceChanged,
+      ...dressArgs
+    }) => {
+      onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
+      const filePath = resolveLocalPath(path);
+      if (!existsSync(filePath)) {
+        throw new Error(`文件不存在：${filePath}（path 必须是本机文件的实际路径）`);
+      }
+      const send = services().messageSend;
+      const dress = dressFromArgs(dressArgs);
+      const common = {
+        peerType,
+        targetId,
+        ...(dress ? { dress } : {}),
+        ...(fileName !== undefined ? { fileName } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+      };
+
+      let outcome: Awaited<ReturnType<typeof send.sendMedia>>;
+      let note = '';
+      if (kind === 'record') {
+        // 语音：WAV → SILK（时长来自文件）；非 WAV/SILK 会在这一步如实报错。
+        // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
+        const { encodeFileToSilk } = await import('../voice');
+        const silk = await encodeFileToSilk(filePath);
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'record',
+          source: silk.silk,
+          durationSec: durationSec ?? silk.durationSec,
+          ...(voiceChanged !== undefined ? { voiceChanged } : {}),
+          ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
+        });
+        note = `语音时长 ${durationSec ?? silk.durationSec}s（${silk.wav ? '波形按 WAV 真实振幅' : '波形用合成条'}）`;
+      } else if (kind === 'image') {
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'image',
+          source: filePath,
+          ...(imageSubType !== undefined ? { subType: imageSubType } : {}),
+          ...(summary !== undefined ? { summary } : {}),
+        });
+      } else {
+        outcome = await send.sendMedia({
+          ...common,
+          kind: 'video',
+          source: filePath,
+          ...(durationSec !== undefined ? { durationSec } : {}),
+        });
+        if (peerType === 'group' && (width === undefined || height === undefined)) {
+          note =
+            '未给 width/height：QQ-NT 安卓端可能把这条视频显示成「文件已过期」（服务端拿不到尺寸）。';
+        }
+      }
+
+      return {
+        ...outcome,
+        sent: outcome.ok,
+        kind,
+        path: filePath,
+        ...(note ? { note } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_file_message',
+    description:
+      '给群聊或私聊发送【文件】：群文件（传进群文件库并发布成气泡）/ 私聊离线文件。' +
+      '⚠️ 真实发送，不能撤销；需要该账号 QQ 在线。' +
+      '\n【和 send_media_message 的区别】文件走的是**另一条管线**（老 OIDB + highway 裸帧），不是 NTV2：' +
+      '群文件 = 0x6D6_0 申请 → highway 71 → 0x6D9_4 发布；私聊文件 = 0xE37_1700 申请 → highway 95 → 0xE37_800 finalize → PbSendMsg（trans0x211 路由）。' +
+      '所以文件**不受**图片/语音/视频那些格式限制，任意类型都行，且大文件是流式上传（不会整文件进内存）。' +
+      '\n【path 怎么给】必须是**本机**上的文件路径（绝对路径，或 ~/ 开头）。' +
+      '\n【fileName】收端显示的文件名；不给就用路径的文件名。' +
+      '\n【folderId】只对群聊有意义：传进群文件库的哪个目录，缺省 `/`（根目录）。' +
+      '\n【结果怎么看】ok=false 就是没发出去。fileName/fileSize/md5Hex/fileId 是服务端认的元数据；' +
+      'fastUpload=true 表示服务端已按 md5 存着这份文件（**秒传**，一个字节没传）。' +
+      '私聊还会给 finalized：=false 说明 0xE37_800 finalize 失败、已按不带 field6 的版本发出（文件仍可下载）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（需要 uid），group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      path: z.string().min(1).describe('本机文件路径（绝对路径或 ~/ 开头）'),
+      fileName: z.string().optional().describe('收端显示的文件名（可选，缺省用路径的文件名）'),
+      folderId: z.string().optional().describe('群文件目录（仅群聊；缺省 / 根目录）'),
+    }),
+    run: async ({ peerType, targetId, path, fileName, folderId }) => {
+      onlinePid();
+      const filePath = resolveLocalPath(path);
+      if (!existsSync(filePath)) {
+        throw new Error(`文件不存在：${filePath}（path 必须是本机文件的实际路径）`);
+      }
+      const outcome = await services().messageSend.sendFile({
+        peerType,
+        targetId,
+        path: filePath,
+        ...(fileName !== undefined ? { fileName } : {}),
+        ...(folderId !== undefined ? { folderId } : {}),
+      });
+      return {
+        ...outcome,
+        sent: outcome.ok,
+        path: filePath,
+        note: outcome.fastUpload
+          ? '服务端已按 md5 持有该文件，本次为秒传（未上传字节）。'
+          : '本次为真实上传（字节已上传）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_rich_message',
+    description:
+      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/窗口抖动）。' +
+      '文本、图片、语音、视频用更省事的 send_text_message / send_media_message，本工具是其余类型的入口。' +
+      '⚠️ 真实发送，不能撤回；需要 QQ 在线。' +
+      '\n【elements 写法】JSON 数组文本，每项必须有 kind：' +
+      '\n  {"kind":"text","textContent":"你好"}' +
+      '\n  {"kind":"at","atTargetUin":123456} / {"kind":"at","atTargetUid":"u_xxx"} / {"kind":"at","all":true}' +
+      '\n  {"kind":"face","faceId":178} 经典小黄脸；普通动态表情 {"kind":"face","faceId":324,"smallFace":true}；' +
+      '超级/动态表情需目录信息 {"kind":"face","faceId":358,"superSticker":{"packId":"1","stickerId":"33"}}' +
+      '\n  {"kind":"mface","marketEmoticonId":"<32位hex>","emojiPackId":123}（商城贴纸，id 从收消息的元素里拿）' +
+      '\n  {"kind":"reply","origMsgSeq":123,"origSenderUin":456}' +
+      '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条）' +
+      '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
+      'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
+      '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
+      '\n  语音变声：{"kind":"record","source":"/绝对/路径.wav","voiceChanged":true}（缺省 false=原声）' +
+      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
+      '\n【结果怎么看】ok=false 就是没发出去；元素写错会在发送前报错（不会发半条）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      elements: z
+        .string()
+        .min(2)
+        .describe('元素数组的 JSON 文本，如 [{"kind":"markdown","markdownContent":"hi"}]'),
+      ...dressInputShape,
+    }),
+    run: async ({ peerType, targetId, elements, ...dressArgs }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(elements);
+      } catch (error) {
+        throw new Error(
+          `elements 不是合法 JSON：${error instanceof Error ? error.message : String(error)}。` +
+            '注意要传 JSON 文本（键名用双引号），例如 [{"kind":"face","faceId":178}]。',
+        );
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('elements 必须是至少一个元素的 JSON 数组。');
+      }
+      parsed.forEach((item, index) => {
+        if (
+          !item ||
+          typeof item !== 'object' ||
+          typeof (item as { kind?: unknown }).kind !== 'string'
+        ) {
+          throw new Error(`elements[${index}] 缺少 kind 字段（每项都要有 kind，见工具说明）。`);
+        }
+      });
+      onlinePid(); // 同 send_text_message：离线/完全离线模式先报可读错误
+      const dress = dressFromArgs(dressArgs);
+      const outcome = await services().messageSend.sendElements({
+        peerType,
+        targetId,
+        elements: parsed as unknown as SendElement[],
+        ...(dress ? { dress } : {}),
+      });
+      return { ...outcome, sent: outcome.ok, elementCount: parsed.length };
+    },
+  }),
+
+  // ── 轻互动（真实副作用）：戳一戳 / 贴表情回应 ────────────────────────
+  // 都是 OIDB 包（不是消息），和上面四个发送工具同属「真机联调期临时开放」，
+  // 联调结束后同样应恢复 assistantOnly（见本节开头的说明）。
+
+  tool({
+    name: 'send_forward_message',
+    description:
+      '【发合并转发 / 聊天记录】—— 把若干条消息打包成一张「聊天记录」卡片发给群聊或私聊。' +
+      '协议实现是 SsoSendLongMsg（不是普通发消息）：先上传内容拿 resId，再发承载它的卡片，两步都由本工具完成。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线（节点含图片/语音/视频时还要有对方 uid 才能上传）。' +
+      '\n【nodes 怎么写】JSON 数组文本，每项是一个节点：' +
+      '\n  {"userUin":123456,"nickname":"张三","elements":[{"kind":"text","textContent":"你好"}],"time":1700000000}' +
+      '\n  elements 与 send_rich_message 完全一样（text / at / face / mface / image / record / video / ark / xml / markdown / forward …），' +
+      '也可以把别处拿到的元素原样塞进来。userUin / nickname / time 都可选（缺省=自己、QQ 号、当前时间）。' +
+      '\n【嵌套转发】节点加 "innerForward":[ ...同结构的节点... ] 就是「转发里再转发」，会自动 piggyback，收端只拉一次就能展开整棵树（最多 8 层）。' +
+      '\n【节点装扮】节点可选 "dress":{"bubbleId":...,"fontId":...,"fontId2":...,"widgetId":...}（字体两个 id 都给真实 itemId 即可）。' +
+      '注意：普通实时消息实测服务端不采信客户端自报装扮；长消息是把字节原样存下来的，这条路径更可能保住，但尚未真机验证。' +
+      '\n【结果怎么看】ok=true 才算发出去；返回 resId（长消息 id）与 levels（层数）。' +
+      'ok=false 时看 card.result / card.errMsg：内容可能已上传成功但卡片没发出去，重发即可。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（群聊）或 QQ 号 / uid（私聊）'),
+      nodes: z
+        .string()
+        .min(2)
+        .describe(
+          '节点数组的 JSON 文本，如 [{"userUin":123,"nickname":"张三","elements":[{"kind":"text","textContent":"hi"}]}]',
+        ),
+    }),
+    run: async ({ peerType, targetId, nodes }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(nodes);
+      } catch (error) {
+        throw new Error(
+          `nodes 不是合法 JSON：${error instanceof Error ? error.message : String(error)}。` +
+            '要传 JSON 文本（键名双引号），例如 [{"elements":[{"kind":"text","textContent":"hi"}]}]。',
+        );
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('nodes 必须是至少一个节点的 JSON 数组。');
+      }
+      parsed.forEach((item, index) => {
+        const node = item as { elements?: unknown; innerForward?: unknown } | null;
+        if (!node || typeof node !== 'object') {
+          throw new Error(`nodes[${index}] 必须是对象（节点）。`);
+        }
+        if (!Array.isArray(node.elements) && !Array.isArray(node.innerForward)) {
+          throw new Error(
+            `nodes[${index}] 缺少 elements（内容元素）或 innerForward（嵌套转发），见工具说明。`,
+          );
+        }
+      });
+      onlinePid(); // 同其它发送工具：离线 / 完全离线模式先报可读错误
+      const outcome = await services().messageSend.sendForward({
+        peerType,
+        targetId,
+        nodes: parsed as never,
+      });
+      return { ...outcome, sent: outcome.ok };
+    },
+  }),
+
+  tool({
+    name: 'send_poke',
+    description:
+      '【戳一戳】（OIDB 0xED3_1）—— 群聊里戳某个成员，或私聊戳对方，会在会话里留下一条「戳一戳」灰条。' +
+      '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线。' +
+      '\n【和窗口抖动的区别】窗口抖动是**私聊消息**里的一个元素（只能私聊、必须独占一条），' +
+      '用 send_rich_message 发 {"kind":"poke","subType":1}；' +
+      '本工具是聊天窗口里那个「戳一戳」，群聊/私聊都能用，收端显示成灰条而不是抖动。' +
+      '\n【目标怎么写】peerType=group 时 targetId 传群号，targetUin 传被戳成员 QQ 号（不传 = 戳群）；' +
+      'peerType=c2c 时 targetId 传对方 QQ 号或 uid（不传 targetUin = 戳对方）。' +
+      '\n【结果怎么看】成功没有回执内容（服务端回空 ack）；失败会抛错误。' +
+      '\n⚠️ 尚未真机验证（协议字段与 SnowLuma / Lagrange / NapCat 三边一致，但没在真机上发过）。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      targetId: z.string().min(1).describe('群号（group）或 QQ 号 / uid（c2c）'),
+      targetUin: z.string().optional().describe('被戳成员 QQ 号（仅群聊有意义；不给则戳群本身）'),
+    }),
+    run: async ({ peerType, targetId, targetUin }) => {
+      onlinePid(); // 需要在线且已注入的 QQ
+      await services().interaction.sendPoke({
+        peerType,
+        targetId,
+        ...(targetUin !== undefined ? { targetUin } : {}),
+      });
+      return {
+        ok: true,
+        peerType,
+        targetId,
+        ...(targetUin ? { targetUin } : {}),
+        hint: '戳一戳已发出（服务端只回空 ack，无法从回执确认对方是否收到）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'set_message_reaction',
+    description:
+      '【贴表情回应 / 撤回】给某条**群消息**贴一个表情回应，或撤回自己贴过的回应（OIDB 0x9082_1 / 0x9082_2）。' +
+      '⚠️ 真实操作：会改变群里那条消息上的表情回应，不能通过本工具撤销（只能再用 set=false 撤回自己的）。需要在线 QQ。' +
+      '\n【怎么定位消息】groupId 传群号，sequence 传该消息的 msgSeq —— ' +
+      'get_messages / get_messages_by_date 开 includeIds=true 会带 msgSeq，get_message_details 也返回 msgSeq。' +
+      '\n【表情怎么写】code 传表情 id：1–3 位是 QQ 小黄脸 id（如 76、124），更长的是 Unicode 码点（如 128516 = 😄）；' +
+      '客户端按长度自动分 type，不用手填。' +
+      '\n【set】true = 贴（缺省），false = 撤回自己贴的同一个表情。' +
+      '\n【已知缺口】只做了设置/撤回：查某个表情的回应人列表（0x9083_1）与常用表情目录（0x9084_1）没接。' +
+      '想知道某条消息当前有哪些回应，读 get_message_details 返回的 reactions[]（来自本地库 40062 列）。' +
+      '\n⚠️ 尚未真机验证。',
+    input: z.object({
+      groupId: z.string().min(1).describe('群号（纯数字）'),
+      sequence: z.number().int().positive().describe('目标消息的 msgSeq'),
+      code: z
+        .string()
+        .min(1)
+        .describe('表情 id：1–3 位小黄脸 id（如 76），或 Unicode 码点（如 128516）'),
+      set: z.boolean().default(true).describe('true=贴表情，false=撤回自己的回应'),
+    }),
+    run: async ({ groupId, sequence, code, set }) => {
+      onlinePid();
+      await services().interaction.setMessageReaction({ groupId, sequence, code, isSet: set });
+      return {
+        ok: true,
+        groupId,
+        sequence,
+        code,
+        set,
+        hint: set
+          ? '表情回应已发出（要确认是否生效可再看 get_message_details 的 reactions[]）。'
+          : '已撤回自己在该消息上贴的这个表情。',
       };
     },
   }),

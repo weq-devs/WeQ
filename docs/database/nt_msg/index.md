@@ -16,7 +16,7 @@
 | `recent_contact_delete_storage` | 删除会话 | [deleted-session](./deleted-session.md) |
 | `msg_unread_info_table` | 未读信息 + 提醒高亮 | [unread-info](./unread-info.md) |
 | `nt_uid_mapping_table` | uid ↔ uin ↔ sortNo 目录 | [下见](#nt_uid_mapping_table) |
-| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容（WeQ 不解析） | [draft-storage](./draft-storage.md) |
+| `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容（WeQ 读写） | [draft-storage](./draft-storage.md) |
 
 ### 消息行
 
@@ -47,6 +47,32 @@
 所有有用的复合索引都建在它上面（`(40027,40003)` 等）；而应用层是按 uid 找会话的，
 `40021` 恰恰**没有索引**。所以走快路径查 c2c 消息，必须先 uid → sortNo 翻译一次。
 这张表很小且稳定，WeQ 在会话启动时整表读进内存（`UidMap`）常驻。
+
+### WeQ 建的派生索引
+
+QQ 给两张消息表建的复合索引**全部以会话键打头**（`(40027,40003)`、`(40027,40058)`…）。
+这对「按会话翻消息」是够的，但**跨全库、按时间窗**的统计（年度报告）一条都用不上 ——
+只能全表扫描并回表。WeQ 因此在开账号后于后台就地补两个覆盖索引：
+
+| 索引名 | 表 | 列 | 服务于 |
+| ------ | -- | -- | ------ |
+| `weq_annual_sendtime_dir_group` | `group_msg_table` | `(40050,40040)` | 年度报告第一页 / 历史以来的方向计数 |
+| `weq_annual_sendtime_dir_c2c` | `c2c_msg_table` | `(40050,40040)` | 同上（私聊侧） |
+
+过滤列（sendTime）与取值列（sentSource）都在索引里，查询退化成一次索引区间扫描，
+不再碰表本体（实测 200 万行 / 2GB：0.9s → 0.06s）。这与[搜索的 FTS 索引](../fts.md)
+**不是一回事**：那个是内容副本 + 倒排，只能落在 WeQ 自己的派生库里；这两个是就地
+`CREATE INDEX` 的普通 B-tree，**SQLite 自己维护**，QQ 写入时自动更新，WeQ 没有任何
+同步逻辑。
+
+与 QQ 共存的实测结论：schema 只多出两个 index 对象、表结构不动，`PRAGMA
+integrity_check` 照常 `ok`，QQ 运行中 INSERT / UPDATE / DELETE 后索引即时一致；
+`PRAGMA schema_version` 会 +1，但那是 SQLite 每次 DDL 的正常行为，不是 QQ 的校验
+指纹（QQ 自己也在持续改它）。代价是每次写入的一点写放大（30 万行插入 1.12s → 1.25s）
+与索引占用的空间（约表体的 1–2%）。
+
+> 与[防撤回](../../guide/anti-recall.md)一样，这属于「WeQ 往 QQ 的实时库里写 DDL」。
+> 只对实时账号生效；导入的静态备份（PC 快照 / 手机备份）**不写**，保持原样。
 
 ---
 

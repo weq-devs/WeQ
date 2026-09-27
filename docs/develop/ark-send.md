@@ -1,8 +1,12 @@
 # 图文 Ark 卡片发送（OIDB 0xdc2_34）
 
 > 实现：`packages/protocol/src/oidb/send-tuwen-ark.ts`（协议层）、
-> `packages/service/src/account/flash_transfer.ts`（`sendTuwenArkToGroup`）、
+> `packages/service/src/account/flash_transfer.ts`（`sendTuwenArk` / `sendTuwenArkToGroup`）、
 > `apps/desktop/src/main/mcp/tools.ts`（MCP 工具 `send_tuwen_ark`）。
+>
+> 走这条路的调用方：群反馈的 GitHub issue/PR 卡片（`group_feedback.submitIssueArk`）与
+> 输入框 Ark 面板的**「图文」**（`account.sendTuwenArk`）。面板的「自定义 JSON」仍是
+> 客户端拼 JSON 当 `lightApp` 发（`account.sendArkCard`），与这条协议不是一回事。
 
 ## 一、它是什么
 
@@ -76,6 +80,15 @@ appId，`rule type not match appid` 就是「这个 appId 不属于本平台的�
    `packages/protocol` 里补对应协议，而不是硬套 Android 的 appId；
 3. 在能稳定下发前，MCP 工具保留「返回错误码」的行为 —— 失败要能被调用方看见，
    不要再回到静默成功。
+
+## 四、MCP 暴露范围
+
+`send_tuwen_ark` 是真实发送（有外部副作用）的工具，按仓库约定本该 `assistantOnly`
+（只在内置助手里可见）。**这里保留它对外部只读 MCP 面板开放**：图文卡片是纯文本 +
+链接的卡片消息，不是可执行的载荷，且工具本身已经把服务端的业务错误码如实透出
+（见第二节），外部客户端拿到的是「发失败 + 原因」而不是假成功。已知的
+`901501` 缺口意味着它在 PC/Linux 上大概率发不出去 —— 这是有意的行为，别为了
+「看起来能用」而把错误码吞掉。
 
 ---
 

@@ -2,7 +2,9 @@
 import { useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { parseMessageParts } from './emojiPacks';
+import type { EmojiItem } from './emojiPacks';
 import { cn } from './classNames';
+import { elementLabel, elementPreviewSrc, tokenToElement } from './draftElements';
 
 export type ComposerMentionTrigger = {
   start: number;
@@ -125,25 +127,102 @@ export function replaceComposerTextRange(
 export function restoreComposer(editor: HTMLElement, value: string) {
   editor.replaceChildren();
 
-  parseMessageParts(value).forEach((part) => {
+  for (const part of parseMessageParts(value)) {
     if (part.type === 'text') {
       appendText(editor, part.value);
-      return;
+      continue;
     }
 
+    if (part.type === 'element') {
+      appendElementChip(editor, part.raw);
+      continue;
+    }
+
+    appendEmojiToken(editor, part);
+  }
+}
+
+/**
+ * 渲染一枚元素 chip —— 草稿里那些输入框表达不了的元素（图片 / 视频 / 文件 /
+ * markdown / ark / 引用…）。
+ *
+ * 有预览图的（图片 / 系统表情）直接画成图，跟用户当次插进来时的形态一致 —— 重放
+ * 一份草稿不该把图和表情退化成 `[图片]` / `[表情]` 的文字。其余元素仍然是文字标签。
+ * 两种形态都把可无损还原的 token 存在 `dataset.chatToken` 上，序列化时原样取回。
+ */
+function appendElementChip(editor: HTMLElement, raw: string) {
+  const element = tokenToElement(raw);
+  const label = element ? elementLabel(element) : '[消息]';
+  const src = element ? elementPreviewSrc(element) : null;
+
+  // @ 元素还原成输入框里的 mention span（带 token，可无损再往返）——而不是退化成
+  // 一枚普通文字 chip，否则重放草稿会把真正的 @ 变成纯文本。
+  if ((element as { kind?: string } | null)?.kind === 'at') {
+    const mention = document.createElement('span');
+    mention.className = cn('composer-mention-token');
+    mention.contentEditable = 'false';
+    mention.dataset.chatMention = label;
+    mention.dataset.chatToken = raw;
+    mention.textContent = label;
+    editor.append(mention);
+    return;
+  }
+
+  if (src) {
     const image = document.createElement('img');
-    image.src = part.item.value;
-    image.alt = `[${part.item.name}]`;
-    image.title = part.item.name;
+    image.src = src;
+    image.alt = label;
+    image.title = label;
     image.draggable = false;
-    image.dataset.chatToken = part.raw;
-    image.className = cn(
-      part.item.large
-        ? 'composer-token-image composer-sticker-token'
-        : 'composer-token-image composer-inline-emoji',
-    );
+    image.dataset.chatToken = raw;
+    image.className = cn('composer-token-image composer-inline-attachment');
+    // 预览地址拿不到图（比如本会话里 blob: 地址已随刷新失效）就退回文字 chip，
+    // 别在输入框里留一枚破图。
+    image.onerror = () => image.replaceWith(elementChipNode(raw, label));
     editor.append(image);
-  });
+    return;
+  }
+
+  editor.append(elementChipNode(raw, label));
+}
+
+/** 元素 chip 的纯文本形态（没有 / 取不到预览图时用）。 */
+function elementChipNode(raw: string, label: string): HTMLSpanElement {
+  const chip = document.createElement('span');
+  chip.className = cn('composer-element-token');
+  chip.contentEditable = 'false';
+  chip.dataset.chatToken = raw;
+  chip.title = label;
+  chip.textContent = label;
+  return chip;
+}
+
+/** 表情 token：有预览图的走 <img>，字符表情直接插字形文本。 */
+function appendEmojiToken(editor: HTMLElement, part: { item: EmojiItem; raw: string }) {
+  const item = part.item as {
+    src: string | null;
+    name: string;
+    glyph: string;
+    large: boolean;
+  };
+
+  if (!item.src) {
+    editor.append(document.createTextNode(item.glyph || item.name));
+    return;
+  }
+
+  const image = document.createElement('img');
+  image.src = item.src;
+  image.alt = item.name;
+  image.title = item.name;
+  image.draggable = false;
+  image.dataset.chatToken = part.raw;
+  image.className = cn(
+    item.large
+      ? 'composer-token-image composer-sticker-token'
+      : 'composer-token-image composer-inline-emoji',
+  );
+  editor.append(image);
 }
 
 function serializeComposerNode(node: Node): string {
@@ -165,6 +244,12 @@ function serializeComposerNode(node: Node): string {
 
   if (!(node instanceof HTMLElement)) {
     return '';
+  }
+
+  // 带可还原 token 的元素优先（@ / 图片 / 文件…）：取回 token 而不是它的显示文字，
+  // 否则 @ 的目标 uid、图片的本体都会在序列化这一步丢掉。
+  if (node.dataset.chatToken) {
+    return node.dataset.chatToken;
   }
 
   if (node.dataset.chatMention) {
@@ -293,9 +378,14 @@ export function isNodeInside(parent: Node, child: Node) {
 export function ComposerResizeHandle({
   height,
   onHeightChange,
+  minHeight = 150,
+  maxHeight = 340,
 }: {
   height: number;
   onHeightChange: (height: number) => void;
+  /** 可拖拽的下限 / 上限（默认值跟 chatPane 的 loadLayoutNumber 夹取范围保持一致）。 */
+  minHeight?: number;
+  maxHeight?: number;
 }) {
   const startY = useRef(0);
   const startHeight = useRef(height);
@@ -307,7 +397,9 @@ export function ComposerResizeHandle({
     document.body.classList.add('is-resizing-composer');
 
     function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      onHeightChange(clamp(startHeight.current - (moveEvent.clientY - startY.current), 150, 340));
+      onHeightChange(
+        clamp(startHeight.current - (moveEvent.clientY - startY.current), minHeight, maxHeight),
+      );
     }
 
     function handlePointerUp() {

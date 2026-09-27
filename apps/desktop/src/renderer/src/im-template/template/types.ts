@@ -254,6 +254,13 @@ export type Message = {
   conversationId: string;
   senderId: string;
   body: string;
+  /**
+   * Per-conversation sequence (column 40003 for synced rows). Used by chatPane to
+   * spot seq gaps and to place optimistic rows among real ones. Empty string for
+   * messages with no trustworthy seq (optimistic rows still sending, or silent
+   * rejects); those fall to the end of the timeline.
+   */
+  msgSeq?: string;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';
   createdAt: string;

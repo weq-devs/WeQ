@@ -46,7 +46,12 @@ import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './a
 import { QqDb } from '../qq_db';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801"`;
+// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
+// this list positionally, so inserting it in the middle would silently shift
+// every column after it. It is the client-generated `random` we echo into the
+// send request — the one stable id shared by the DB, the send receipt, and the
+// server-fetched history (see GroupMsg.msgRandom).
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801","40002"`;
 
 /**
  * rowid 键的**跨窗口跳空探针**（契约见 `SalvageWindowPlan.seekSql`）：给下一条真的存在
@@ -511,12 +516,15 @@ export class GroupMsgDb {
    *
    * The year is derived with `'localtime'` so buckets line up with the
    * report's local-midnight year boundaries.
+   *
+   * 先对 `40058` 做 DISTINCT 再转年份，而不是直接 `DISTINCT strftime(...)`：
+   * 后者逐行算 `strftime`（大库上 1s 级），前者只在真正互异的日期上算。`strftime`
+   * 是 `40058` 的纯函数，结果集严格相同。
    */
   async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
-       FROM group_msg_table
-       WHERE "40058" > 0`,
+      `SELECT DISTINCT CAST(strftime('%Y', d, 'unixepoch', 'localtime') AS INTEGER) AS y
+       FROM (SELECT DISTINCT "40058" AS d FROM group_msg_table WHERE "40058" > 0)`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
@@ -896,20 +904,17 @@ export class GroupMsgDb {
       whereParams.push(BigInt(opts.endTime));
     }
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    // 一次条件聚合，不用 `GROUP BY`：分组会多一个临时 B-tree，而 `40040` 的取值
+    // 只有 0/1，总数与「发出的」两条一算，收到数就是它们的差。年度报告第一页要
+    // 求开屏即出，这条查询在三张表 × 多个页面里被反复调用，值得省这一趟排序。
     const rows = await this.qq.query(
-      `SELECT "40040" AS mine, COUNT(*) AS n
-       FROM group_msg_table${where}
-       GROUP BY 1`,
+      `SELECT COUNT(*) AS n, SUM(CASE WHEN "40040" = 1 THEN 1 ELSE 0 END) AS sent
+       FROM group_msg_table${where}`,
       whereParams,
     );
-    let sent = 0;
-    let received = 0;
-    for (const row of rows) {
-      const mine = Number(row[0] ?? 0);
-      const n = Number(row[1] ?? 0);
-      if (mine === 1) sent = n;
-      else received = n;
-    }
+    const total = Number(rows[0]?.[0] ?? 0);
+    const sent = Number(rows[0]?.[1] ?? 0);
+    const received = total - sent;
     return { sent, received };
   }
 
@@ -1119,6 +1124,7 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
+    msgRandom: toBigint(row[11]),
   };
 }
 
@@ -1137,6 +1143,7 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
     decoration: decodeDress(row[11]),
+    msgRandom: toBigint(row[12]),
   };
 }
 

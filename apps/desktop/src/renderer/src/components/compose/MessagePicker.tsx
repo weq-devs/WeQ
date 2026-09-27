@@ -1,8 +1,8 @@
 /**
  * Message picker — lists a conversation's recent messages (via account.listLatest)
  * rendered faithfully with QqMessageContent, and lets the user click one. Used
- * for choosing a reply target (all messages) and for lifting an existing image
- * (`imagesOnly`).
+ * for choosing a reply target. (Pictures for a new message no longer come from
+ * here — they're picked from a local file, see `account.pickComposeImage`.)
  */
 
 import { useMemo, type ReactElement } from 'react';
@@ -25,24 +25,16 @@ export function MessagePicker({
   conv,
   resolveName,
   onPick,
-  imagesOnly = false,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
   resolveName: (uid: string, uin: string) => string;
   onPick: (msg: PickedMessage) => void;
-  imagesOnly?: boolean;
 }): ReactElement {
   const query = trpc.account.listLatest.useQuery({ kind, conv, limit: 80 }, { staleTime: 10_000 });
 
-  const messages = useMemo(() => {
-    const rows = (query.data ?? []) as unknown as PickedMessage[];
-    const list = imagesOnly
-      ? rows.filter((m) => (m.elements ?? []).some((e) => e.type === 'pic'))
-      : rows;
-    // Newest first.
-    return list;
-  }, [query.data, imagesOnly]);
+  // Newest first.
+  const messages = useMemo(() => (query.data ?? []) as unknown as PickedMessage[], [query.data]);
 
   return (
     <ForwardKindContext.Provider value={kind}>
@@ -51,7 +43,7 @@ export function MessagePicker({
           {query.isLoading ? (
             <div className="weq-face-empty">加载中…</div>
           ) : messages.length === 0 ? (
-            <div className="weq-face-empty">{imagesOnly ? '最近消息里没有图片' : '暂无消息'}</div>
+            <div className="weq-face-empty">暂无消息</div>
           ) : (
             messages.map((m) => (
               <button key={m.msgId} type="button" className="weq-msg-row" onClick={() => onPick(m)}>

@@ -882,7 +882,7 @@ export class MsgService {
 
   /** Current account's own uid (for `senderUid=self` filters). '' if unresolved. */
   selfUid(): string {
-    return this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';
+    return this.session.selfUid;
   }
 
   /**

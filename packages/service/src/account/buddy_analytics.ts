@@ -348,7 +348,7 @@ export class BuddyAnalyticsService {
     const now = Math.floor(Date.now() / 1000);
     const startTime = window ? window.startTime : days > 0 ? now - days * 86400 : undefined;
     const endTime = window ? window.endTime : days > 0 ? now : undefined;
-    const selfUid = this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';
+    const selfUid = this.session.selfUid;
 
     // 全好友 uid（分页拉到底，避免漏人）。
     const uids: string[] = [];

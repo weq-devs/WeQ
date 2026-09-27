@@ -32,7 +32,14 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
-import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
+import {
+  QqMessageContent,
+  ConvContext,
+  ForwardCarrierContext,
+  ForwardKindContext,
+  ForwardSubRecordsContext,
+} from './QqMessageContent';
+import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
@@ -238,6 +245,55 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
 
+/**
+ * 转发窗口里给灰条组件用的最小会话上下文。
+ *
+ * 灰条（撤回 / 戳一戳 / 群提示 / XML 提示）优先按 `conversation.members` 把 uid 解析
+ * 成昵称；转发窗口没有成员表，于是它们退回灰条自带的 nick 字段 —— 这正是主面板在
+ * 「成员不在已加载分页里」时的同一条退路。这里给一个空成员的会话对象即可让类型与
+ * 分支都成立，不会凭空造出假名字。
+ */
+function forwardGrayTipConversation(kind: 'c2c' | 'group'): never {
+  const base = {
+    id: '',
+    updatedAt: '',
+    lastMessage: null,
+    members: [] as unknown[],
+    preference: { pinned: false, muted: false, blocked: false },
+    unreadCount: 0,
+  };
+  if (kind === 'group') {
+    return {
+      ...base,
+      type: 'group',
+      group: {
+        id: '',
+        name: '',
+        identityLabel: 'Group',
+        identityValue: '',
+        avatarUrl: null,
+        announcement: null,
+        memberCount: 0,
+        role: 'member',
+      },
+      otherUser: null,
+    } as never;
+  }
+  return {
+    ...base,
+    type: 'direct',
+    otherUser: {
+      id: '',
+      identityLabel: 'UID',
+      identityValue: '',
+      username: '',
+      displayName: '',
+      avatarUrl: null,
+    },
+    group: null,
+  } as never;
+}
+
 // ---- single window -------------------------------------------------------
 
 function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement {
@@ -389,12 +445,39 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <X size={16} strokeWidth={1.9} />
         </button>
       </header>
-      <ConvContext.Provider value={win.conv}>
-        <ForwardCarrierContext.Provider value={carrier}>
-          <ForwardScroll win={win} />
-        </ForwardCarrierContext.Provider>
-      </ConvContext.Provider>
+      <ForwardKindContext.Provider value={win.kind}>
+        <ConvContext.Provider value={win.conv}>
+          <ForwardCarrierContext.Provider value={carrier}>
+            <ForwardSubRecordsProvider records={win.records ?? []}>
+              <ForwardScroll win={win} />
+            </ForwardSubRecordsProvider>
+          </ForwardCarrierContext.Provider>
+        </ConvContext.Provider>
+      </ForwardKindContext.Provider>
     </section>
+  );
+}
+
+/**
+ * 把当前这一层每条记录内联的 `subMsgs` 挂成 msgId → 子记录表，供嵌套转发的预览卡
+ * 直接取用（点进去时不必再查一次库）。
+ */
+function ForwardSubRecordsProvider({
+  records,
+  children,
+}: {
+  records: ForwardRecordWire[];
+  children: ReactElement;
+}): ReactElement {
+  const table = useMemo(() => {
+    const map = new Map<string, unknown[]>();
+    for (const record of records) {
+      if (record.subMsgs && record.subMsgs.length > 0) map.set(record.msgId, record.subMsgs);
+    }
+    return map;
+  }, [records]);
+  return (
+    <ForwardSubRecordsContext.Provider value={table}>{children}</ForwardSubRecordsContext.Provider>
   );
 }
 
@@ -484,6 +567,34 @@ function ForwardRow({
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
   const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
 
+  // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
+  // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。
+  const gray = grayTipOf(record);
+  if (gray) {
+    // 灰条组件要 conversation / message 来把 uid 解析成昵称。转发窗口里没有会话成员表，
+    // 但灰条自带的 nick 字段 + 发送人快照够用 —— 走与主面板完全相同的分支（拿不到
+    // 成员表时它们本来就退回 nick 字段，不会凭空造名字）。
+    const graySender = {
+      id: record.senderUid || record.senderUin || '',
+      identityLabel: 'UID',
+      identityValue: record.senderUin || record.senderUid || '',
+      username: record.senderUid || record.senderUin || '',
+      displayName: record.sendNick || record.senderUin || record.senderUid || '',
+      avatarUrl: null,
+      kind: 'human' as const,
+    };
+    return (
+      <div className="weq-forward-graytip" data-message-id={record.msgId}>
+        <GrayTipLine
+          gt={gray}
+          conversation={forwardGrayTipConversation(kind)}
+          message={{ id: record.msgId, sender: graySender } as never}
+          user={graySender as never}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={rowRef}
@@ -514,9 +625,10 @@ function ForwardRow({
 
 /**
  * One forwarded message's content. Uses the same QqMessageContent component the
- * main timeline uses, so text / face / image / sticker / file / reply quote all
- * draw identically. A nested multiMsg element delegates back into the same
- * preview-bubble path used in the main chat — clicking it opens another window.
+ * main timeline uses, so text / face / image / sticker / file / reply quote / 红包 /
+ * 通话 / 在线文件 / 位置共享 / 长消息 / 机器人按钮 / 灰条 all draw identically —
+ * including nested forwards, which now resolve their inline sub-records through
+ * {@link ForwardSubRecordsContext} instead of a hand-rolled branch here.
  */
 function ForwardBubble({
   record,
@@ -527,24 +639,7 @@ function ForwardBubble({
   kind: 'c2c' | 'group';
   sendTimeMs: number;
 }): ReactElement {
-  // Nested forward: render the preview bubble. We have the sub-payload inline
-  // (record.subMsgs) so the click handler does NOT need to round-trip the DB
-  // again — it opens the next window with `records` already populated.
-  const multiMsgIndex = record.elements.findIndex((el) => el?.type === 'multiMsg');
-  if (multiMsgIndex !== -1) {
-    const multi = record.elements[multiMsgIndex];
-    return (
-      <div className="weq-forward-bubble qq-bubble-shell">
-        <ForwardMultiMsgPreview
-          data={(multi?.data ?? {}) as Record<string, unknown>}
-          nestedRecords={record.subMsgs ?? []}
-          msgId={record.msgId}
-          kind={kind}
-        />
-      </div>
-    );
-  }
-
+  void kind;
   return (
     <div className="weq-forward-bubble qq-bubble-shell">
       <QqMessageContent
@@ -718,11 +813,21 @@ function parseForwardPreviewData(data: Record<string, unknown>): {
   }
   const parsedArk = parseArkMultiMsg(data.arkData);
   if (parsedArk) return parsedArk;
-  const label = typeof data._label === 'string' ? data._label : '聊天记录';
+  // 本地合成的卡片（乐观渲染的合并转发）带 `_` 前缀的客户端专用字段：真消息里没有
+  // 这些字段（它们的预览行来自 XML / ark JSON），但同一张预览卡要长得一样。
+  const label =
+    typeof data._label === 'string' && data._label.trim() ? data._label.trim() : '聊天记录';
+  const news = Array.isArray(data._news)
+    ? (data._news as unknown[]).filter(
+        (line): line is string => typeof line === 'string' && line.trim().length > 0,
+      )
+    : [];
+  const summary =
+    typeof data._summary === 'string' && data._summary.trim() ? data._summary.trim() : '查看详情';
   return {
     mainTitle: label,
-    previewLines: [],
-    summary: '查看详情',
+    previewLines: news,
+    summary,
     source: label,
   };
 }

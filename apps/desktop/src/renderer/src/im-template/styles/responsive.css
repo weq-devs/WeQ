@@ -880,7 +880,8 @@
 
 	.conversation-details,
 	.group-info-panel,
-	.group-info-toggle {
+	.group-info-toggle,
+	.composer-toggle {
 		display: none;
 	}
 
@@ -1178,8 +1179,8 @@
 		bottom: env(safe-area-inset-bottom, 0px);
 		left: 0;
 		z-index: 2;
-		display: grid;
-		grid-template-columns: 50px 50px 50px minmax(0, 1fr) 50px;
+		/* 表情 / 弹射 / 应用的扩展键都从左排，中间那段留白把发送键顶到最右。 */
+		display: flex;
 		align-items: center;
 		gap: 9px;
 		min-height: 64px;
@@ -1187,8 +1188,13 @@
 		background: #ffffff;
 	}
 
+	.mobile-composer-expanded-tools > span {
+		flex: 1 1 auto;
+	}
+
 	.mobile-composer-expanded-tools button {
 		display: grid;
+		flex: 0 0 auto;
 		width: 44px;
 		height: 44px;
 		place-items: center;
@@ -1213,6 +1219,34 @@
 		opacity: 0.42;
 	}
 
+	/* 发送键：可发送时是主题色实心，未注入 / 无内容 / 发送中一律灰底白字，
+	   与桌面端 .composer-send 同一套语义。用 :not(:disabled) 抬权重，盖掉上面
+	   那条会把 hover/focus 底色设成 transparent 的规则。 */
+	.mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
+		background: var(--weq-accent-effective, #0099ff);
+		color: #ffffff;
+	}
+
+	.mobile-composer-expanded-tools .composer-send-expanded:disabled {
+		background: #c5c9cf;
+		color: #ffffff;
+		opacity: 1;
+	}
+
+	/* 深色下另有一条 `html[data-theme="dark"] … button:hover/:active/:focus`
+	   把底色设成 transparent（权重 0,3,2），比上面那条高，这里再抬一级盖回来。 */
+	html[data-theme="dark"]
+		.mobile-composer-expanded-tools
+		.composer-send-expanded:not(:disabled) {
+		background: var(--weq-accent-effective, #0099ff);
+		color: #ffffff;
+	}
+
+	html[data-theme="dark"] .mobile-composer-expanded-tools .composer-send-expanded:disabled {
+		background: #4a4f56;
+		color: #9ba1aa;
+	}
+
 	.mobile-composer-expanded .emoji-panel {
 		position: fixed;
 		right: 0;
@@ -1228,10 +1262,24 @@
 		box-shadow: none;
 	}
 
+	/* 弹射面板在移动端展开态里同样贴底铺满（跟表情面板一个处理）。 */
+	.mobile-composer-expanded .bounce-panel {
+		position: fixed;
+		right: 0;
+		bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+		left: 0;
+		width: 100%;
+		max-height: min(560px, calc(100dvh - 96px));
+		margin: 0;
+		border: 0;
+		border-radius: 0;
+		background: #f8f8f9;
+		box-shadow: none;
+	}
+
 	.composer-tools {
-		display: grid;
+		display: flex;
 		grid-row: 2;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
 		align-items: stretch;
 		gap: 0;
 		padding: 0;
@@ -1242,11 +1290,11 @@
 	}
 
 	.composer-tools button {
-		width: 100%;
-		height: 100%;
+		/* 表情 / 弹射 / 更多（如需），外加应用层可追加的扩展键 —— 有几枚就均分几份。 */
+		flex: 1 1 0;
+		width: auto;
+		height: auto;
 		min-height: 40px;
-		justify-self: stretch;
-		align-self: stretch;
 		border-radius: 12px;
 		color: #17191f;
 		-webkit-tap-highlight-color: transparent;
@@ -1275,6 +1323,12 @@
 	}
 
 	.composer-tools .composer-desktop-tool {
+		display: none;
+	}
+
+	/* 桌面端的「发送」按钮直接挂在 .composer 下（不在 .composer-tools 里），
+	   上面那条选择器管不到，这里单独藏掉；移动端用展开面板里的发送键。 */
+	.composer > .composer-send {
 		display: none;
 	}
 

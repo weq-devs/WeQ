@@ -9,14 +9,20 @@
 // 只有 sliceupload 路径会上报主文件 sha1/size,服务端据此把 fileset 标记为完成
 // (对端可下载);小文件也统一走 sliceupload,不走小文件 PUT。
 //
-// 编排拆成三段,方便「封面先就绪、先发送、主文件上传在后台继续」的调用方:
+// 编排拆成几段,方便「先把消息发出去、上传全放后台」的调用方:
 //   createFlashFileset    —— 校验 + 申请 fileset(发起),返回 pending;
-//   stageFlashFileset     —— commit → complete → 缩略图 prepare/apply/sliceupload
-//                            封面就绪,可以先行发送;
+//   commitFlashFileset    —— commit → complete(只登记元数据,不传文件);
+//   uploadFlashThumbnail  —— 缩略图 prepare/apply/sliceupload(封面就绪);
+//   stageFlashFileset     —— commit + 缩略图(需要「发送前封面就绪」时用);
 //   uploadFlashMainFiles  —— 主文件并行 100(prepare)/103(apply)→ 并行分片上传
 //                            → 0x93d1 状态;
 //   finishFlashUpload     —— stage + uploadFlashMainFiles 连续执行;
 //   uploadFlashFiles      —— create + finish 连续执行(等价于旧行为)。
+//
+// 「先发后传」的推荐时序(见 FlashTransferService.sendFlashTransfer):
+//   create → **commit** → 0x93d7 发消息 → 后台(缩略图 + 主文件)。
+// commit/complete 只是元数据登记(让对端点开就有文件清单),不是上传,必须排在发送前;
+// 真正的字节上传(封面与主文件)全部挪到消息发出之后在后台跑。
 
 import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
@@ -174,8 +180,11 @@ export async function createFlashFileset(
   };
 }
 
-/** 阶段B1:commit → complete → 缩略图 prepare/apply/sliceupload(封面先就绪)。 */
-export async function stageFlashFileset(
+/** 阶段B0:commit → complete(只登记文件元数据,不传任何字节)。
+ *
+ * 0x93d7 之前跑完这一步,对端点开文件集就能看到文件清单(大小 / 名字 / 序号);
+ * 字节上传留到后面。 */
+export async function commitFlashFileset(
   nt: OidbNative,
   pid: number,
   pending: FlashFilesetPending,
@@ -193,13 +202,36 @@ export async function stageFlashFileset(
   }));
   await CommitFile.invoke(nt, pid, { filesetUuid, entries });
   await CompleteFileset.invoke(nt, pid, { filesetUuid });
+}
 
-  // 缩略图在发送前完整上传:prepare → apply → sliceupload,让卡片封面先就绪。
-  if (pending.thumbPath !== undefined) {
-    const thumb = await prepareThumbnail(nt, pid, filesetUuid, pending.thumbPath, items.length + 1);
-    await applyThumbnail(thumb);
-    await sliceuploadThumbnail(thumb);
-  }
+/** 阶段B1:缩略图完整上传:prepare → apply → sliceupload(让卡片封面就绪)。
+ *
+ * 可放在消息发出之后(先发后传),也可以放在发送前(要在卡片里立刻看到封面时)。 */
+export async function uploadFlashThumbnail(
+  nt: OidbNative,
+  pid: number,
+  pending: FlashFilesetPending,
+): Promise<void> {
+  if (pending.thumbPath === undefined) return;
+  const thumb = await prepareThumbnail(
+    nt,
+    pid,
+    pending.filesetUuid,
+    pending.thumbPath,
+    pending.items.length + 1,
+  );
+  await applyThumbnail(thumb);
+  await sliceuploadThumbnail(thumb);
+}
+
+/** 阶段B1':commit → complete → 缩略图上传(封面先就绪,然后才发消息的老时序)。 */
+export async function stageFlashFileset(
+  nt: OidbNative,
+  pid: number,
+  pending: FlashFilesetPending,
+): Promise<void> {
+  await commitFlashFileset(nt, pid, pending);
+  await uploadFlashThumbnail(nt, pid, pending);
 }
 
 /** 阶段B2:主文件 prepare/apply + 并行分片上传 → 0x93d1 状态。 */

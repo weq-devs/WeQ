@@ -1,4 +1,4 @@
-﻿import { Copy, Download, Trash2, Edit3, Palette } from 'lucide-react';
+﻿import { Copy, Download, Trash2, Edit3, ListChecks, Palette, Quote, SmilePlus } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -24,6 +24,11 @@ export function MessageContextMenu({
   onDelete,
   onEditRaw,
   onViewDecoration,
+  onReply,
+  replyBlockedReason,
+  onMultiSelect,
+  onReact,
+  reactBlockedReason,
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
@@ -32,6 +37,16 @@ export function MessageContextMenu({
   onDelete: (message: Message) => void;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
+  /** 引用：把这条消息挂到输入框上方（引用条）。 */
+  onReply?: (message: Message) => void;
+  /** 非空 = 这条消息不能引用（系统消息 / 缺少会话内序号…），按钮置灰并显示原因。 */
+  replyBlockedReason?: string | null;
+  /** 进入多选：把这条消息加入选择集并切到多选模式。 */
+  onMultiSelect?: (message: Message) => void;
+  /** 贴表情：打开表情面板给这条群消息贴一个回应。 */
+  onReact?: (message: Message) => void;
+  /** 非空 = 这条消息不能贴表情（非群聊 / QQ 未在线 / 缺 seq），按钮置灰并显示原因。 */
+  reactBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const decoration = (
@@ -87,6 +102,34 @@ export function MessageContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
+      {onMultiSelect ? (
+        <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
+          <ListChecks size={17} />
+          <span>多选</span>
+        </button>
+      ) : null}
+      {onReply ? (
+        <button
+          type="button"
+          title={replyBlockedReason ?? '引用这条消息'}
+          disabled={Boolean(replyBlockedReason)}
+          onClick={() => onReply(state.message)}
+        >
+          <Quote size={17} />
+          <span>引用</span>
+        </button>
+      ) : null}
+      {onReact ? (
+        <button
+          type="button"
+          title={reactBlockedReason ?? '给这条消息贴一个表情'}
+          disabled={Boolean(reactBlockedReason)}
+          onClick={() => onReact(state.message)}
+        >
+          <SmilePlus size={17} />
+          <span>贴表情</span>
+        </button>
+      ) : null}
       <button type="button" onClick={() => void onCopy(state.message)}>
         <Copy size={17} />
         <span>复制</span>

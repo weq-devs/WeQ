@@ -127,7 +127,17 @@ function ContactCard({ v }: { v: ArkValues }): ReactElement {
     >
       <div className="weq-ark-contact-body">
         {v.avatar ? (
-          <img className="weq-ark-contact-avatar" src={arkImg(v.avatar)} alt="" loading="lazy" />
+          <img
+            className="weq-ark-contact-avatar"
+            src={arkImg(v.avatar)}
+            alt=""
+            loading="lazy"
+            onError={(e) => {
+              // 号拼出来的外链头像（推荐卡占位）遇到不存在的号码会 404，
+              // 宁可不出图，也不要一个碎图标（与 ArkLocation 同一条规则）。
+              e.currentTarget.style.display = 'none';
+            }}
+          />
         ) : null}
         <div className="weq-ark-contact-main">
           <div className="weq-ark-contact-name">{v.name || v.title || v.source || '推荐名片'}</div>

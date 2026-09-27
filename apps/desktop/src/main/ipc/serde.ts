@@ -245,6 +245,13 @@ export interface ChatMsgWire {
   kind: 'c2c' | 'group';
   msgId: string;
   msgSeq: string;
+  /**
+   * Column 40002 — the client-generated `random` echoed into the send request.
+   * Stable across the send receipt, this row, and server-fetched history, so the
+   * renderer reconciles optimistic messages against it (never against msgId /
+   * msgSeq, which are server-assigned and differ per conversation kind).
+   */
+  msgRandom: string;
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: string;
   senderUid: string;
@@ -361,6 +368,7 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     kind: 'c2c',
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),
+    msgRandom: (m.msgRandom ?? 0n).toString(),
     conv: m.targetUid,
     senderUid: m.senderUid,
     senderUin: m.senderUin.toString(),
@@ -377,6 +385,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     kind: 'group',
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),
+    msgRandom: (m.msgRandom ?? 0n).toString(),
     conv: m.targetGroupCode,
     senderUid: m.senderUid,
     senderUin: m.senderUin.toString(),

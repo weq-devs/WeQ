@@ -79,6 +79,25 @@ export class GroupMemberDb {
   }
 
   /**
+   * List a group's **已退群** members (64016 = 1), newest join first.
+   *
+   * QQ keeps the member row after someone leaves (only 64016 flips to 1), so
+   * this is the opposite filter of {@link listMembersInGroup}. Rows with an
+   * empty uid are dropped here too — they can't be resolved to a person and
+   * would render as a blank row.
+   */
+  async listLeftMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3
+       WHERE "60001" = ? AND "64016" = 1 AND "1000" IS NOT NULL AND "1000" <> ''
+       ORDER BY "64007" DESC
+       LIMIT ? OFFSET ?`,
+      [groupCode, limit, offset],
+    );
+    return rows.map(rowToMember);
+  }
+
+  /**
    * List a group's members ordered by member level (高→低), active only.
    * Single paginated query (LIMIT/OFFSET) so the renderer can infinite-scroll
    * a "等级排行" without ever firing one query per member. Ties break by older

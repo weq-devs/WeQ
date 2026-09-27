@@ -70,6 +70,8 @@ export const PicElementSchema = BaseElementFieldsSchema.extend({
   summary: z.array(z.string()),
   cdnHost: z.string(),
   filePath: z.string().optional(),
+  /** Wire tag 45004 — local cache path of the original image. */
+  localPath: z.string().optional(),
   picTransferState: z.number().optional(),
   transferVersion: z.number().optional(),
   picFlag45817: z.number().optional(),
@@ -283,7 +285,8 @@ export const FaceElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('face'),
   faceId: z.number(),
   faceText: z.string(),
-  faceExtDesc: z.string().optional(),
+  /** Wire tag 45004 — local cache path (see `proto/msg/element.ts`). */
+  localPath: z.string().optional(),
   superEmojiCategory: z.string().optional(),
   AniStickerId: z.string().optional(),
   superEmojiFlag1: z.number().optional(),

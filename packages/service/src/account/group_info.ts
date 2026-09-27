@@ -474,6 +474,15 @@ export class GroupInfoService {
   }
 
   /**
+   * List a group's **已退群** members (64016 = 1). Backs the chat page's
+   * 「已退群成员」list; newest join first. See {@link listMembersInGroup}
+   * for the active-only counterpart.
+   */
+  async listLeftMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
+    return this.session.groupMembers.listLeftMembersInGroup(groupCode, limit, offset);
+  }
+
+  /**
    * List a group's members ordered by member level (高→低). Single paginated
    * query — used by the "群成员等级排行" lightbox, which infinite-scrolls.
    */
@@ -909,12 +918,7 @@ export class GroupInfoService {
   async pickTopSelfLevelGroup(): Promise<SelfGroupLevel | null> {
     const selfUin = String(this.session.context.uin ?? '');
     if (!selfUin) return null;
-    let myUid: string | undefined;
-    try {
-      myUid = this.session.uidMap.uidByUin(BigInt(selfUin));
-    } catch {
-      myUid = undefined;
-    }
+    const myUid: string | undefined = this.session.selfUid || undefined;
 
     const groupDetails = await this.session.groupDetail.listAll(2000, 0);
     let best: SelfGroupLevel | null = null;
@@ -1121,10 +1125,7 @@ export class GroupInfoService {
     const now = Math.floor(Date.now() / 1000);
     const startTime = window ? window.startTime : days > 0 ? now - days * 86400 : undefined;
     const endTime = window ? window.endTime : days > 0 ? now : undefined;
-    const selfUid =
-      by === 'me'
-        ? (this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '')
-        : '';
+    const selfUid = by === 'me' ? this.session.selfUid : '';
 
     const groups = await this.session.groupDetail.listAll(2000, 0);
     const nameByCode = new Map(groups.map((g) => [String(g.groupCode), g.groupName]));

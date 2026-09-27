@@ -7,6 +7,9 @@ import {
   GroupProfilePane,
 } from './profilePanes';
 import { ChatPane } from './chatPane';
+import type { LocalMediaRef } from './composerSend';
+import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
+import type { FlashSendPayload } from './flashComposer';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
@@ -74,8 +77,14 @@ export function ChatMainContent({
   onGroupMemberSearchChange,
   onLoadMoreGroupMemberSearch,
   profileLoading,
+  sendAvailable,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
+  onSendWindowShake,
+  onSendArk,
+  arkLocation,
+  arkContacts,
+  onSendFlash,
   onMessageAction,
   onDraftChange,
   onDraftClear,
@@ -88,10 +97,12 @@ export function ChatMainContent({
   onOpenGroupEssence,
   onOpenGroupAnalytics,
   onOpenGroupBug,
+  onOpenGroupLeftMembers,
   groupBugOnline,
   onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
+  onMergeForward,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
@@ -152,8 +163,20 @@ export function ChatMainContent({
   onLoadMoreGroupMemberSearch?: () => void;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
+  /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
+  sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
-  onSend: (body: string) => Promise<void>;
+  onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
+  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
+  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
+  /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
+  arkLocation?: ArkLocationProvider;
+  /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
+  arkContacts?: ArkContactSource;
+  /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
+  onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
@@ -166,6 +189,8 @@ export function ChatMainContent({
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
+  /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
+  onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
   onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
@@ -187,6 +212,8 @@ export function ChatMainContent({
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
+  /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
+  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -241,7 +268,13 @@ export function ChatMainContent({
       onGroupMemberSearchChange={onGroupMemberSearchChange}
       onLoadMoreGroupMemberSearch={onLoadMoreGroupMemberSearch}
       profileLoading={profileLoading}
+      sendAvailable={sendAvailable}
       onSend={onSend}
+      onSendWindowShake={onSendWindowShake}
+      onSendArk={onSendArk}
+      arkLocation={arkLocation}
+      arkContacts={arkContacts}
+      onSendFlash={onSendFlash}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}
@@ -254,10 +287,12 @@ export function ChatMainContent({
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
+      onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
       onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
+      onMergeForward={onMergeForward}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}

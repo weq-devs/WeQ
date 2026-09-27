@@ -13,7 +13,7 @@ import { statSync } from 'node:fs';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
-import { annotateLocalPaths, collectFaceIds } from './element_text';
+import { annotateExportPaths, collectFaceIds } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ExportedMessage, ExportFormat, ExportResult, GroupExportOptions } from './types';
 
@@ -50,7 +50,7 @@ export async function runGroupExport(
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
       await expandForwards(msgs, 'group', exported);
-      if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
+      if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const record = renderRecord(exported);
       await writer.write(count === 0 ? record : framing.between + record);
       count += 1;

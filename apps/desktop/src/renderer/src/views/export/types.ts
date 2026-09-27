@@ -7,6 +7,8 @@
  * tRPC procedures and which are recorded for a not-yet-built backend.
  */
 
+import { classifyChatType } from '@weq/codec';
+
 /** Left-rail modes. */
 export type ExportMode =
   | 'full'
@@ -296,9 +298,20 @@ export function groupAvatarUrl(code: string): string | null {
   return code ? `https://p.qlogo.cn/gh/${code}/${code}/0` : null;
 }
 
-/** chatType string → conversation kind. */
+/**
+ * chatType（40010，可能是枚举名字符串或数字）→ 导出选择列表的会话种类。
+ *
+ * 用 codec 的 `classifyChatType` 严格 allowlist，**不要**退回
+ * `String(chatType).includes('GROUP')` —— `KCHATTYPETEMPC2CFROMGROUP`（100，
+ * 群聊发起的临时会话）名字里同时含 'C2C' 和 'GROUP'，按子串判会把每一条临时
+ * 会话误当成群聊：头像拼成群头像、计数去群消息表按 uid 查恒得 0、导出也走错
+ * 消息表而导空。同一坑在 MainView 的 avatarSrc 已按「先判 C2C」绕过。
+ *
+ * 只分 'group' | 'c2c'：群聊（2）归 group；direct / dataline / 未知类型一律按
+ * c2c 处理（与 `listConversationsWithCount` 的计数分流保持一致）。
+ */
 export function chatKind(chatType: string | number): 'group' | 'c2c' {
-  return String(chatType).includes('GROUP') ? 'group' : 'c2c';
+  return classifyChatType(chatType) === 'group' ? 'group' : 'c2c';
 }
 
 /** Compact thousands formatting (1234 → 1,234). */

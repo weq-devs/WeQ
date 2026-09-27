@@ -5,6 +5,8 @@ interface Window {
   weq: {
     openLogDir(): Promise<boolean>;
     revealPath(path: string): Promise<boolean>;
+    /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */
+    pathForFile?(file: File): string;
     channel: {
       open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
       prepare(theme?: 'system' | 'light' | 'dark'): Promise<{ partition: string; url: string }>;

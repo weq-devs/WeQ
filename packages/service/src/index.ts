@@ -160,6 +160,8 @@ export { GuildDirectService, guildAvatarUrlFromMeta } from './account/guild_dire
 export type { GuildDirectSessionView, RenderGuildDirectMsg } from './account/guild_direct';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
+export { DraftService, chatTypeOf } from './account/draft';
+export type { SaveDraftInput, DraftPeerKind } from './account/draft';
 export { DeletedSessionService } from './account/deleted_session';
 export type { DeletedSessionSummary } from './account/deleted_session';
 export { OfficialAccountService } from './account/official_account';
@@ -201,6 +203,12 @@ export {
   type MarketPackItem,
   type MarketPackKey,
   type MarketPackFeeType,
+  type PanelFaceItem,
+  type PanelFaceGroup,
+  type PanelRecentItem,
+  type PanelFavItem,
+  type PanelRelatedTag,
+  type PanelRelatedGif,
 } from './account/emoji';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
@@ -246,6 +254,13 @@ export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
 export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
+export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export type {
+  MergeForwardDraft,
+  MergeForwardDraftInput,
+  MergeForwardNode,
+  MergeForwardSender,
+} from './account/merge_forward_drafts';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
@@ -339,6 +354,8 @@ export type {
   DownloadFilePage,
   FileListOptions,
 } from './account/file_resource';
+export { ComposeImageService, COMPOSE_IMAGE_EXTENSIONS } from './account/compose_image';
+export type { StagedComposeImage } from './account/compose_image';
 export { MediaResourceService } from './account/media_resource';
 export type {
   MediaResourceKind,
@@ -521,7 +538,46 @@ export type {
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { InteractionService } from './account/interaction';
+export type { SendPokeParams } from './account/interaction';
 export { FlashTransferService } from './account/flash_transfer';
+export {
+  joinRegion,
+  LbsService,
+  stripRegionPrefix,
+  toLbsPlace,
+  toLbsResolvedAddress,
+} from './account/lbs';
+export type { LbsPlace, LbsResolvedAddress } from './account/lbs';
+export {
+  buildMediaElement,
+  buildTextElements,
+  decimalCoordinate,
+  MessageSendService,
+  requireArkJson,
+  toOutcome,
+} from './account/message_send';
+export type {
+  MediaSource,
+  PttWaveformSource,
+  ResolvedSendTarget,
+  SendArkCardParams,
+  SendContactCardOutcome,
+  SendContactCardParams,
+  SendDress,
+  SendElement,
+  SendElementsParams,
+  SendForwardMessageParams,
+  SendForwardNodeInput,
+  SendForwardOutcome,
+  SendLocationCardOutcome,
+  SendLocationCardParams,
+  SendMediaParams,
+  SendMessageOutcome,
+  SendPeerType,
+  SendScene,
+  SendTextParams,
+} from './account/message_send';
 export {
   FlashTransferFilesService,
   FlashTransferDownloadManager,

@@ -46,11 +46,12 @@ export function createReportQueries(
     qzone?: ReportQzoneCapability;
   } = {},
 ): ReportQueries {
-  // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
-  // 反查，不在这里对 c2c 消息表做任何推断扫描。群聊方向计数按 uid 精确匹配
-  // 40020，和 chat 里既有的 selfUid / 群活跃统计口径一致。
+  // 自己的 uid 在会话打开时就解析好了（见 AccountSession.selfUid）—— uid 目录
+  // （nt_uid_mapping_table）只存对端，查不到自己。不在这里对 c2c 消息表做任何
+  // 推断扫描。群聊方向计数按 uid 精确匹配 40020，和 chat 里既有的 selfUid /
+  // 群活跃统计口径一致。
   const selfUin = BigInt(Number(session.context.uin) || 0);
-  const selfUid = selfUin > 0n ? (session.uidMap.uidByUin(selfUin) ?? '') : '';
+  const selfUid = session.selfUid;
 
   type DirectionCounts = {
     c2cSent: number;

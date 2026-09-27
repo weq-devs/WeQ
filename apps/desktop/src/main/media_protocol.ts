@@ -17,7 +17,8 @@
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
  *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
  *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
- *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
+ *   weq-media://localfile?path=<absPath>                      → trusted local file bytes (media preview)
+ *   weq-media://localfilevoice?path=<absPath>                 → trusted local voice (SILK 解码成 WAV)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
  *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
@@ -50,7 +51,7 @@ import {
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { resolveResource } from './resource';
-import { decodeSilkToWav } from './voice';
+import { decodeSilkToWav, isSilkFile } from './voice';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -640,13 +641,26 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           return path ? fileResponse(path) : notFound('relemoji not found');
         }
         case 'localfile': {
-          // Image preview for a file living under nt_data/File/Ori. The service
-          // re-validates the path is inside the Ori tree AND is a real file, so a
-          // crafted `path` can't read outside the File dir. Bytes stream off disk.
+          // Media preview for a trusted local file: either under the account's
+          // nt_data tree (QQ 自己的媒体缓存) or a file the user just picked in one
+          // of our dialogs. The service re-validates the path AND that it's a real
+          // file, so a crafted `path` can't read arbitrary files. Bytes stream off
+          // disk (Range is honored, so local videos play / seek).
           const path = q.get('path') ?? '';
           if (!path) return notFound('localfile needs path');
           const resolved = await services.fileResource.resolveLocalFile(path);
           return resolved ? fileResponse(resolved) : notFound('localfile not found');
+        }
+        case 'localfilevoice': {
+          // 同上，但语音：选进来的可能是 SILK（浏览器放不了），解码成缓存 WAV 再回；
+          // 已经是可播格式（wav/mp3/m4a…）时 decode 失败，原样按后缀 MIME 流出。
+          const path = q.get('path') ?? '';
+          if (!path) return notFound('localfilevoice needs path');
+          const resolved = await services.fileResource.resolveLocalFile(path);
+          if (!resolved) return notFound('localfilevoice not found');
+          if (!isSilkFile(resolved)) return fileResponse(resolved);
+          const wav = await decodeSilkToWav(resolved);
+          return wav ? fileResponse(wav) : notFound('localfilevoice decode failed');
         }
         case 'localmedia': {
           // Local media caches (PhotoWall / Qzone / Pic / Video). `kind` picks the

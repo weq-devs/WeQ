@@ -23,6 +23,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  DraftDb,
   DeletedSessionDb,
   ServiceAssistantContactDb,
   UidMappingDb,
@@ -382,6 +383,8 @@ export async function openStaticAccount(
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
   const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
   const hiddenSessions = new HiddenSessionDb(nt, opts(msgDbPath));
+
+  const drafts = new DraftDb(nt, opts(msgDbPath));
   const deletedSessions = new DeletedSessionDb(nt, opts(msgDbPath));
   const serviceAssistantContacts = new ServiceAssistantContactDb(nt, opts(msgDbPath));
   // 服务号（118）消息表结构同 c2c，复用 C2cMsgDb 只换表名；分区键是 appId（40035）。
@@ -441,6 +444,18 @@ export async function openStaticAccount(
   // ---- misc ----
   const misc = new MiscDb(nt, opts(join(dirPath, 'misc.db')));
 
+  // Same rule as the live session: resolve "my uid" from profile_info_v6 by
+  // uin rather than trusting the caller-supplied preview, which is picked by a
+  // heuristic (`ORDER BY 20003 DESC`) that mis-identifies the owner when the
+  // table has ties. The preview stays as the fallback.
+  let selfUid = '';
+  try {
+    selfUid = await profileInfo.getUidByUin(BigInt(uin));
+  } catch (e) {
+    console.error('[static-account] failed to resolve own uid from profile_info_v6:', e);
+  }
+  if (!selfUid) selfUid = self.uid ?? '';
+
   let disposed = false;
   return {
     context: {
@@ -451,12 +466,14 @@ export async function openStaticAccount(
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
+    selfUid,
     c2cMsgs,
     datalineMsgs,
     groupMsgs,
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    drafts,
     deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
@@ -491,6 +508,7 @@ export async function openStaticAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      drafts.close();
       deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();

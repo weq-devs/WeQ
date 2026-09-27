@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, RotateCcw, Sparkle } from 'lucide-react';
+import { Bot, Check, Clock, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
@@ -81,6 +81,10 @@ export function MessageBubble({
   onLongPress,
   onAction,
   onAvatarClick,
+  onAvatarContextMenu,
+  selected,
+  selectionMode,
+  onToggleSelect,
 }: {
   message: Message;
   conversation: Conversation;
@@ -113,6 +117,13 @@ export function MessageBubble({
   onLongPress: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
+  /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
+  onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
+  /** 多选：这一行被选中（整行高亮 + 勾选标）。 */
+  selected?: boolean;
+  /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
+  selectionMode?: boolean;
+  onToggleSelect?: (message: Message) => void;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -150,6 +161,29 @@ export function MessageBubble({
   // its content is intact, so we DON'T veil it (unlike delete). We just show a
   // small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
   // author recalled their own message; otherwise an admin recalled someone else's.
+  // 乐观渲染的合并转发状态标识（发送中 / 已发送 / 发送失败）。该消息只活在前端
+  // state 里，等 QQ 同步回真消息后自然消失。
+  const optimistic = (
+    message as {
+      optimistic?: 'sending' | 'sent' | 'failed';
+      optimisticError?: string;
+      /** 回执 seq=0：服务端收下却没分配序号 = 大概率被静默丢弃（见 MainView）。 */
+      optimisticRejected?: boolean;
+    }
+  ).optimistic;
+  const optimisticRejected = (
+    message as { optimistic?: 'sending' | 'sent' | 'failed'; optimisticRejected?: boolean }
+  ).optimisticRejected;
+  const optimisticText =
+    optimistic === 'sending'
+      ? '发送中…'
+      : optimistic === 'failed'
+        ? '发送失败'
+        : optimistic === 'sent' && optimisticRejected
+          ? '可能未送达'
+          : optimistic === 'sent'
+            ? '已发送'
+            : null;
   const recall = (
     message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }
   ).recall;
@@ -267,13 +301,28 @@ export function MessageBubble({
         mine ? 'mine' : 'theirs',
         isDeleted && 'is-deleted',
         isQqDeleted && 'is-qq-deleted',
+        selectionMode && 'selection-mode',
+        selected && 'is-selected',
       )}
       data-message-id={message.id}
+      onClick={
+        selectionMode && onToggleSelect
+          ? (event) => {
+              event.stopPropagation();
+              onToggleSelect(message);
+            }
+          : undefined
+      }
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={msgWidget?.animated ? msgWidget.itemId : undefined}
     >
+      {selectionMode ? (
+        <span className={cn('message-select-mark')} aria-hidden>
+          {selected ? <Check size={13} strokeWidth={3.2} /> : null}
+        </span>
+      ) : null}
       {!mine ? (
         onAvatarClick ? (
           <button
@@ -282,6 +331,9 @@ export function MessageBubble({
             title="查看资料"
             aria-label={`查看 ${senderName} 的资料`}
             onClick={(event) => onAvatarClick(sender, { x: event.clientX, y: event.clientY })}
+            onContextMenu={
+              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+            }
           >
             <PendantOverlay
               name={senderName}
@@ -291,12 +343,19 @@ export function MessageBubble({
             />
           </button>
         ) : (
-          <PendantOverlay
-            name={senderName}
-            avatarUrl={senderAvatarUrl}
-            seed={senderSeed}
-            widget={lineWidget}
-          />
+          <span
+            className={cn('message-avatar-wrap')}
+            onContextMenu={
+              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+            }
+          >
+            <PendantOverlay
+              name={senderName}
+              avatarUrl={senderAvatarUrl}
+              seed={senderSeed}
+              widget={lineWidget}
+            />
+          </span>
         )
       ) : null}
       <div
@@ -367,6 +426,31 @@ export function MessageBubble({
             <span>{recallText}</span>
           </div>
         ) : null}
+        {optimisticText ? (
+          <div
+            className={cn(
+              'weq-msg-optimistic-tag',
+              `is-${optimistic}`,
+              optimisticRejected && 'is-rejected',
+            )}
+            title={
+              optimistic === 'failed'
+                ? (message as { optimisticError?: string }).optimisticError || '发送失败'
+                : optimisticRejected
+                  ? '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
+                  : '这条消息还没同步回来，先乐观显示'
+            }
+          >
+            {optimistic === 'failed' ? (
+              <X size={12} />
+            ) : optimisticRejected ? (
+              <TriangleAlert size={12} />
+            ) : (
+              <Clock size={12} />
+            )}
+            <span>{optimisticText}</span>
+          </div>
+        ) : null}
         {isDeleted ? (
           <div
             className={cn('weq-msg-deleted-veil')}
@@ -419,13 +503,20 @@ export function MessageBubble({
         ) : null}
       </div>
       {mine ? (
-        <PendantOverlay
-          name={senderName}
-          avatarUrl={senderAvatarUrl}
-          seed={senderSeed}
-          widget={lineWidget}
-          fallbackUrl={pendantUrl}
-        />
+        <span
+          className={cn('message-avatar-wrap', 'is-self')}
+          onContextMenu={
+            onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+          }
+        >
+          <PendantOverlay
+            name={senderName}
+            avatarUrl={senderAvatarUrl}
+            seed={senderSeed}
+            widget={lineWidget}
+            fallbackUrl={pendantUrl}
+          />
+        </span>
       ) : null}
     </div>
   );

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Bot, Search, X } from 'lucide-react';
+import { Bot, Search, UserMinus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -20,6 +20,7 @@ export function GroupInfoPanel({
   profileLoading,
   onOpenDetail,
   onOpenMember,
+  onOpenLeftMembers,
 }: {
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
@@ -41,6 +42,11 @@ export function GroupInfoPanel({
     member: GroupConversationView['members'][number],
     anchor: { x: number; y: number },
   ) => void;
+  /**
+   * 打开「已退群成员」列表。灯箱与数据都在应用层（见 components/GroupLeftMembersDialog），
+   * 模板层只递一个「用户点了我」的信号。
+   */
+  onOpenLeftMembers?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
@@ -62,7 +68,10 @@ export function GroupInfoPanel({
   // 搜索还没生效（防抖 / 请求在飞）时，命中列表为空但不能报「没找到」——
   // 结果没回来之前只能用 loading 占位。
   const searchPending = Boolean(memberSearch?.loading);
-  const rows = searching ? searchMembers : conversation.members;
+  // uid 为空 / null 的成员是无效行（群成员表里可能有这种占位），不显示。
+  const rows = (searching ? searchMembers : conversation.members).filter(
+    (member) => String(member.id ?? '').trim() !== '',
+  );
   // 搜索与成员分页各自有错误 / 加载态，这里归一成一份，JSX 只判一个分支。
   const activeError = searching ? (memberSearch?.error ?? null) : loadingError;
   const fetching = searching ? searchPending : Boolean(loadingMoreMembers);
@@ -131,6 +140,16 @@ export function GroupInfoPanel({
               ? `${rows.length}/${memberSearch?.total ?? 0}`
               : conversation.group.memberCount}
           </strong>
+          {onOpenLeftMembers ? (
+            <button
+              className={cn('group-info-left-members-button')}
+              type="button"
+              title="查看已退群的成员"
+              onClick={onOpenLeftMembers}
+            >
+              <UserMinus size={13} strokeWidth={2} /> 已退群
+            </button>
+          ) : null}
         </header>
         <div className={cn('group-info-member-search')}>
           <Search size={13} />

@@ -617,7 +617,7 @@ function formatDraftPreview(value: string | undefined) {
   }
 
   return value
-    .replace(/\[\[chat:emoji:[^\]]+\]\]/g, '[表情]')
+    .replace(/\[\[chat:(?:emoji|face|mface|fav|gif):[^\]]+\]\]/g, '[表情]')
     .replace(/\[[^\]\n]{1,32}\]/g, '[表情]')
     .replace(/\s+/g, ' ')
     .trim();

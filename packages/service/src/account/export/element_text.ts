@@ -34,8 +34,13 @@ function truncate(s: string, max: number): string {
 
 /** Append ` (relPath)` when an export injected a bundled-media path. */
 function withPath(label: string, el: RenderElement): string {
-  const p = (el.data as { localPath?: string }).localPath;
+  const p = bundleRelPath(el);
   return p ? `${label.replace(/\]$/, '')} → ${p}]` : label;
+}
+
+/** Bundle-relative path stamped by {@link annotateExportPaths}, if any. */
+function bundleRelPath(el: RenderElement): string | undefined {
+  return (el.data as { exportPath?: string }).exportPath;
 }
 
 /** One element → its text fragment. `depth` scales nested-forward indentation. */
@@ -52,7 +57,9 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'video':
       return withPath('[视频]', el);
     case 'ptt':
-      return withPath('[语音]', el);
+      // 带上文件名作为锚点：转写是最后跑完的一步，靠这个键把 `[语音: 名字]`
+      // 回写成 `[语音] 转写文本`（见 voice_rewrite）。
+      return withPath(el.data.fileName ? `[语音: ${el.data.fileName}]` : '[语音]', el);
     case 'file':
     case 'onlineFile':
       return withPath(`[文件: ${el.data.fileName || ''}]`, el);
@@ -184,15 +191,22 @@ export function mediaRelPath(el: RenderElement): string | null {
 
 /**
  * Mutate a message's media elements in place, stamping each with its bundle
- * relative path (`data.localPath`). Recurses into reply quotes so quoted media
+ * relative path (`data.exportPath`). Recurses into reply quotes so quoted media
  * is referenced too. Called by the exporters only when media export is on.
+ *
+ * The key is `exportPath`, deliberately NOT `localPath`: several wire elements
+ * already carry a `localPath` of their own — PIC / FACE tag 45004, the file's
+ * **absolute path on this machine** in QQ's own cache. Stamping the bundle path
+ * onto that same key silently overwrote the recorded cache path, so the two now
+ * live under two names: `localPath` = where the file is on this machine,
+ * `exportPath` = where it sits inside the export bundle.
  */
-export function annotateLocalPaths(elements: RenderElement[]): void {
+export function annotateExportPaths(elements: RenderElement[]): void {
   for (const el of elements) {
     const rel = mediaRelPath(el);
-    if (rel) (el.data as { localPath?: string }).localPath = rel;
+    if (rel) (el.data as { exportPath?: string }).exportPath = rel;
     if (el.type === 'reply' && Array.isArray(el.data.origElements)) {
-      annotateLocalPaths(el.data.origElements);
+      annotateExportPaths(el.data.origElements);
     }
   }
 }

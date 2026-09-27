@@ -89,7 +89,13 @@ Restart Manager、Linux 走 fcntl 写锁）。
 ## 4. Protobuf / JCE 逆向
 
 把 hex / base64 输入，按 **protobuf** 或 **JCE**（QQHook TarsParser 语义）解析为 `{tag: value}`
-的简洁 JSON。类型不写进 JSON，可转换的值旁给出转换按钮：
+的简洁 JSON（对齐 CyberChef 的 Protobuf Decode）。**嵌套 message 会自动逐层展开**，不用再手动把
+子字段的 hex 拿出来二次解析；`tag ≥ 1001` 的字段名直接跟在字段号后面显示。
+
+顶部可切换两种视图：
+
+- **简洁**（默认）：纯 JSON，只有字段号与值 —— 能当可读文本的 bytes 直接给字符串，其余给 `0x…` hex。
+- **详细**：每个值旁再出现转换按钮，用于逐个值做旁路解读：
 
 | 类型 | 可转换 |
 | --- | --- |
@@ -99,6 +105,11 @@ Restart Manager、Linux 走 fcntl 写锁）。
 | 字符串 | 文本 ↔ hex |
 
 面板支持自动识别格式、复制结果、清空、载入示例。适合研究 QQ 协议里那些二进制字段。
+
+> [!note]
+>
+> MCP 的 `decode_blob` / `decode_db_blob` 也是同一套输出：纯 JSON `fields` 树（嵌套自动展开）
+> 外加一个 `names` 图例，把树里出现过的 `tag ≥ 1001` 字段名单独列出来，避免字段名把数据树撑长。
 
 ## 5. 完全离线模式
 

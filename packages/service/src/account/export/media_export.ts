@@ -8,7 +8,7 @@
  *   image  — CDN-complete the still-missing images into media/image/
  *
  * Destination paths are deterministic from each ref's original fileName (see
- * {@link mediaRelPath}), so the message file's injected `localPath` values match
+ * {@link mediaRelPath}), so the message file's injected `exportPath` values match
  * what these stages write — whether or not a given download succeeds.
  *
  * video / file / ptt CDN download is OIDB-backed: missing originals are

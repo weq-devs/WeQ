@@ -4,9 +4,11 @@
  * (b) the wire form sent to `account.insertMessage`.
  *
  * A message is an ordered list of {@link Segment}s. Text/at/face are authored
- * inline; pic reuses a real `pic` element lifted from an existing message (so
- * its CDN fields stay valid — we can't upload new images from an offline DB
- * tool). An optional reply is prepended separately by the modal.
+ * inline; pic comes from a **locally picked file** that the main process stages
+ * into QQ's own image cache (`nt_data/Pic/<month>/Ori/<md5>.<ext>`) — that cache
+ * is what the `weq-media://pic` render path resolves against, so an offline tool
+ * can author a picture message without uploading anything. An optional reply is
+ * prepended separately by the modal.
  */
 
 /** One authored piece of a message. */
@@ -14,8 +16,19 @@ export type Segment =
   | { t: 'text'; id: string; text: string }
   | { t: 'at'; id: string; uid: string; uin: string; name: string }
   | { t: 'face'; id: string; faceId: number; faceText: string }
-  /** `codec` = editable-wire pic element (for submit); `preview` = render element. */
-  | { t: 'pic'; id: string; codec: Record<string, unknown>; preview: RenderEl };
+  /**
+   * `codec` = editable-wire pic element (for submit); `preview` = render element.
+   * `sendTimeMs` is the instant the image was staged into the Pic cache — the
+   * preview and the inserted message MUST share it, or the month bucket won't
+   * line up and the renderer looks for the file in the wrong folder.
+   */
+  | {
+      t: 'pic';
+      id: string;
+      codec: Record<string, unknown>;
+      preview: RenderEl;
+      sendTimeMs: number;
+    };
 
 /** A message picked as the reply target. */
 export interface ReplyTarget {

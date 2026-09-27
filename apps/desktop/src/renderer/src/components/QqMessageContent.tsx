@@ -31,16 +31,18 @@ import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from '.
 import { QqMarkdown, looksLikeMarkdown } from './QqMarkdown';
 import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
 import { QqArk } from './ark/QqArk';
-import { QqFlashTransfer } from './QqFlashTransfer';
+import { QqFlashTransfer, QqFlashTransferLink } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
 import { QqGroupReceipt } from './QqGroupReceipt';
 import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
+import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
+import { parseFlashShareCode } from '../lib/flashShare';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -88,6 +90,20 @@ export interface ForwardCarrier {
   kind: 'c2c' | 'group';
 }
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
+
+/**
+ * 嵌套合并转发的**内联子记录**表（msgId → 该 multiMsg 的 subMsgs）。
+ *
+ * 40900 缓存里嵌套那一层是现成的（一条 multiMsg 记录的 `subMsgs` 就是它内部那串
+ * 子消息），所以再点进去时**不必重新查库**。转发窗口把当前这一层所有子记录的
+ * `subMsgs` 挂进这个表，{@link QqMessageContent} 的 multiMsg 分支就能直接把
+ * 内联记录交给预览卡片，省掉一次 IPC 往返。
+ *
+ * 未提供（主时间线、合成转发预览）时退回按 msgId / resId 现查 —— 行为与以前一致。
+ * `unknown[]` 是 `ForwardRecordWire[]`：这里不 import 那个类型，避免与
+ * ForwardWindow 形成类型环路，取值点自己收窄。
+ */
+export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
 
 /**
  * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
@@ -681,16 +697,20 @@ export function QqMessageContent({
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
+  const forwardSubRecords = useContext(ForwardSubRecordsContext);
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const linkPreviewOn = useContext(LinkPreviewContext);
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
+    // 与下面 multiMsg 分支同一套内联子记录规则（Ark 形态的合并转发同样可嵌套）。
+    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={{ arkData: arkElement.data?.arkData }}
           msgId={msgId}
           kind={forwardKind}
+          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
         />
       </div>
     );
@@ -713,6 +733,22 @@ export function QqMessageContent({
           markdownContent={String(flashElement.data?.markdownContent ?? '')}
           info={flashElement.data?.flashTransferInfo}
         />
+      </div>
+    );
+  }
+
+  // Linux / 鸿蒙端 QQ 收不到闪传卡片：服务端把它降级成一条纯文本
+  // （`对方通过QQ闪传发送文件给你…https://qfile.qq.com/q/<code>`）。把这段裸文本
+  // 换成原生卡片外观 —— 短码解析出 filesetId 后仍走同一个文件浏览弹窗。
+  const flashLinkCode = elements
+    .map((element) =>
+      element.type === 'text' ? parseFlashShareCode(String(element.data?.textContent ?? '')) : null,
+    )
+    .find((code): code is string => code !== null);
+  if (flashLinkCode) {
+    return (
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-flash')}>
+        <QqFlashTransferLink code={flashLinkCode} />
       </div>
     );
   }
@@ -802,6 +838,19 @@ export function QqMessageContent({
     );
   }
 
+  // 私聊「窗口抖动」的**乐观渲染**（`windowShake` 元素）：不是灰条 —— 它是**自己发出
+  // 的一条消息**，画面就是那枚「戳一戳」超级表情（会轻轻晃动）。收端 QQ 会丢弃
+  // serviceType=2 的窗口抖动，所以这一下只有发送方看得见。走 sticker-only：表情本身
+  // 不带气泡底板，与真实超级表情一致，位置也落在自己那一侧（见 WindowShakeMessage）。
+  const windowShakeElement = elements.find((element) => element.type === 'windowShake');
+  if (windowShakeElement) {
+    return (
+      <div className={cn('message-content', 'sticker-only')}>
+        <WindowShakeMessage />
+      </div>
+    );
+  }
+
   // 机器人卡片：QQ 把同一条消息同时写成 markdown 正文 + 一串等效的 text/at 元素
   // （给不支持 markdown 的老客户端降级用）。两个都渲染会出现重影，所以 markdown
   // 一旦在场就独占正文，纯文本副本整体丢弃。底部的内联键盘按钮跟在正文后面。
@@ -838,12 +887,16 @@ export function QqMessageContent({
 
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
   if (multiMsgElement) {
+    // 嵌套转发：如果宿主已经内联了这层子记录（转发窗口直接来自 40900），就把它交给
+    // 预览卡片 —— 点开时不必再查一次库。主时间线 / 合成转发预览没有这张表，退回现查。
+    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={(multiMsgElement.data ?? {}) as Record<string, unknown>}
           msgId={msgId}
           kind={forwardKind}
+          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
         />
       </div>
     );
@@ -1011,6 +1064,7 @@ const HANDLED_KINDS = new Set([
   'shareLocation',
   'qqDynamic',
   'emojiBounce',
+  'windowShake',
 ]);
 
 /**

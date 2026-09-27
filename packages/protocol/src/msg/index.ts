@@ -10,8 +10,112 @@ export { SSO_GET_GROUP_MSG_CMD, SSO_GET_C2C_MSG_CMD } from './get-history';
 export { decodeMessage } from './decode';
 export type { DecodedMessage, DecodedDress } from './decode';
 
+export {
+  buildSendElems,
+  buildSendElemsWithMedia,
+  buildDressElems,
+  swapFontId16,
+  deflatePayload,
+  isSendMediaElement,
+  FLASH_PHOTO_FALLBACK_TEXT,
+} from './send-elements';
+export type {
+  MediaSendContext,
+  SendDress,
+  SendMediaElement,
+  SendImageElement,
+  SendFlashPhotoElement,
+  SendFlashPhotoPic,
+  SendRecordElement,
+  SendVideoElement,
+  SendElement,
+  SendTextElement,
+  SendAtElement,
+  SendFaceElement,
+  SendSuperSticker,
+  SendMfaceElement,
+  SendReplyElement,
+  SendArkElement,
+  SendXmlElement,
+  SendMarkdownElement,
+  SendPokeElement,
+  SendEmojiBounceElement,
+  SendForwardElement,
+  SendRawElement,
+  SendMediaUploadReport,
+  SendScene,
+} from './send-elements';
+
+export {
+  buildSendRequest,
+  buildSendRequestBytes,
+  buildSendRequestWithMedia,
+  isSendOk,
+  nextClientSequence,
+  parseSendResponse,
+  sendC2cMessage,
+  sendGroupMessage,
+  sendGroupTempMessage,
+  sendMessage,
+  SEND_MSG_CMD,
+  SendMsg,
+} from './send';
+export type {
+  SendGroupTempTarget,
+  SendMessageParams,
+  SendMessageReceipt,
+  SendMessageResponseInfo,
+  SendRequestBuild,
+} from './send';
+
+export {
+  MESSAGE_CONTROL,
+  EMOJI_BOUNCE_DETAIL,
+  EMOJI_BOUNCE_EXTRA,
+  POKE_EXTRA,
+  QFACE_EXTRA,
+  QSMALL_FACE_EXTRA,
+  ROUTING_C2C,
+  ROUTING_GROUP,
+  ROUTING_GROUP_TEMP,
+  ROUTING_HEAD,
+  ROUTING_TRANS_0X211,
+  SEND_CONTENT_HEAD,
+  SEND_MESSAGE_BODY,
+  SEND_MESSAGE_REQUEST,
+  SEND_MESSAGE_RESPONSE,
+  SEND_RICH_TEXT,
+  MARKET_FACE_PB_RESERVE,
+  FLASH_PHOTO_PB,
+  FLASH_PHOTO_SERVICE_TYPE,
+} from './send-schemas';
+
 export { RecvLongMsg, fetchForwardRaw, SSO_RECV_LONG_MSG_CMD } from './get-forward';
 export type { RecvLongMsgParams, ForwardFetchResult } from './get-forward';
+export {
+  SendLongMsg,
+  sendForward,
+  uploadForward,
+  buildForwardNodeBody,
+  DEFAULT_SEND_SETTINGS,
+  FORWARD_MAX_DEPTH,
+  SSO_SEND_LONG_MSG_CMD,
+} from './send-forward';
+export type {
+  ForwardEncodeContext,
+  ForwardLevel,
+  ForwardNative,
+  ForwardNode,
+  LongMsgSettingsInput,
+  SendForwardParams,
+  SendForwardResult,
+} from './send-forward';
+export {
+  SEND_LONG_MSG_INFO,
+  SEND_LONG_MSG_REQ,
+  SEND_LONG_MSG_RESP,
+  SEND_LONG_MSG_RESP_RESULT,
+} from './send-forward';
 export {
   LONG_MSG_UID,
   LONG_MSG_SETTINGS,

@@ -45,7 +45,7 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
-import { datalineName, toChatTypeNumber } from '@weq/codec';
+import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
 import { Avatar, Segmented } from './export/widgets';
 import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
@@ -532,8 +532,10 @@ export function ExportView(): ReactElement {
         // 会漏掉字符串形态，官方号因此混进列表。统一转数字再判。
         const chatTypeNum = toChatTypeNumber(c.chatType);
         if (chatTypeNum === 103 || chatTypeNum === 118) return false;
-        // 排除群聊
-        if (String(c.chatType).includes('GROUP')) return false;
+        // 排除群聊：不能按子串判 —— 群聊发起的临时会话
+        // KCHATTYPETEMPC2CFROMGROUP（100）名字里含 'GROUP'，但它其实是私聊，
+        // 有有效 uin 就该出现在这里。
+        if (classifyChatType(c.chatType) === 'group') return false;
         // 需要有效的uin
         return c.targetUin && c.targetUin !== '0';
       })

@@ -16,6 +16,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  DraftDb,
   DeletedSessionDb,
   ServiceAssistantContactDb,
   UidMappingDb,
@@ -129,8 +130,23 @@ export interface AccountSession {
    * Resident uid ↔ uin ↔ sortNo directory (nt_uid_mapping_table), loaded once
    * at session open. Used to translate a peer uid to its c2c partition number
    * (column 40027) so private-chat queries hit the composite index.
+   *
+   * **Note**: this directory lists *peers*, never the account owner — QQ does
+   * not put your own row in it. Use {@link selfUid} for your own uid.
    */
   readonly uidMap: UidMap;
+  /**
+   * This account's own uid (its "long uid" routing handle), or `''` when it
+   * cannot be resolved.
+   *
+   * Deliberately **not** read from {@link uidMap}: QQ's `nt_uid_mapping_table`
+   * only contains peers you have interacted with, so `uidMap.uidByUin` never
+   * finds the owner. Resolved once at open from `profile_info_v6` (by uin) —
+   * the one local place that maps your own uin to your uid. Everything that
+   * needs "my uid" (merged-forward upload, c2c media, own avatar/dress, …)
+   * must read it from here instead of re-deriving it.
+   */
+  readonly selfUid: string;
   /** Private-chat messages. */
   readonly c2cMsgs: C2cMsgDb;
   /** 数据线（我的手机/我的电脑）消息，dataline_msg_table，结构同 c2c。 */
@@ -143,6 +159,8 @@ export interface AccountSession {
   readonly recentContactTops: RecentContactTopDb;
   /** 隐藏会话（hidden_session_storage_table_v1）。 */
   readonly hiddenSessions: HiddenSessionDb;
+  /** 草稿（draft_storage_table_v1）。 */
+  readonly drafts: DraftDb;
   /** 删除的会话（recent_contact_delete_storage）。 */
   readonly deletedSessions: DeletedSessionDb;
   /** 服务号联系人（service_assistant_contact，chatType 118）。 */
@@ -332,6 +350,12 @@ export async function openAccount(
     algo: a(msgDbPath),
   });
 
+  const drafts = new DraftDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
   const deletedSessions = new DeletedSessionDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
@@ -502,18 +526,36 @@ export async function openAccount(
     algo: a(guild1DbPath),
   });
 
+  // Resolve "my uid" once, here. The resident uid directory cannot answer this
+  // (QQ only writes peers into nt_uid_mapping_table), so profile_info_v6 is the
+  // real source; the uidMap lookup stays first only as a courtesy for QQ builds
+  // that do happen to carry the owner's row. A failure must not block login —
+  // degrade to '' and let the caller report it at the point of use.
+  const selfUin = /^\d+$/.test(ctx.uin) ? BigInt(ctx.uin) : 0n;
+  let selfUid = uidMap.uidByUin(selfUin) ?? '';
+  if (!selfUid) {
+    try {
+      selfUid = await profileInfo.getUidByUin(selfUin);
+    } catch (e) {
+      console.error('[account] failed to resolve own uid from profile_info_v6:', e);
+      selfUid = '';
+    }
+  }
+
   let disposed = false;
   return {
     context: { ...ctx, algos: resolvedAlgos },
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
+    selfUid,
     c2cMsgs,
     datalineMsgs,
     groupMsgs,
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    drafts,
     deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
@@ -548,6 +590,7 @@ export async function openAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      drafts.close();
       deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();

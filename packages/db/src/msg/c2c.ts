@@ -45,7 +45,12 @@ import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './a
 import { QqDb } from '../qq_db';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
+// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
+// this list positionally, so inserting it in the middle would silently shift
+// every column after it. It is the client-generated `random` we echo into the
+// send request — the one stable id shared by the DB, the send receipt, and the
+// server-fetched history (see C2cMsg.msgRandom).
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002"`;
 
 /**
  * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
@@ -500,12 +505,16 @@ export class C2cMsgDb {
    * The year is derived with `'localtime'` so buckets line up exactly with the
    * report's local-midnight boundaries. The caller caches the result for the
    * session's data revision.
+   *
+   * 先对 `40058` 做 DISTINCT 再转年份，而不是直接 `DISTINCT strftime(...)`：
+   * 后者会把 `strftime` 逐行算一遍（大库上是 1s 级），前者只在真正互异的日期上
+   * 算 —— `strftime` 是 `40058` 的纯函数，所以两者结果集严格相同。一天一行，
+   * 互异值只有几百个，收益随表变大而放大。
    */
   async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
-       FROM ${this.table}
-       WHERE "40058" > 0`,
+      `SELECT DISTINCT CAST(strftime('%Y', d, 'unixepoch', 'localtime') AS INTEGER) AS y
+       FROM (SELECT DISTINCT "40058" AS d FROM ${this.table} WHERE "40058" > 0)`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
@@ -553,20 +562,16 @@ export class C2cMsgDb {
       params.push(BigInt(opts.endTime));
     }
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    // 与 GroupMsgDb.countByDirection 同款：一次条件聚合代替 `GROUP BY`，省掉
+    // 那个临时 B-tree。`40040` 只有 0/1 两种取值，所以收到数 = 总数 − 发出数。
     const rows = await this.qq.query(
-      `SELECT "40040" AS mine, COUNT(*) AS n
-       FROM ${this.table}${where}
-       GROUP BY 1`,
+      `SELECT COUNT(*) AS n, SUM(CASE WHEN "40040" = 1 THEN 1 ELSE 0 END) AS sent
+       FROM ${this.table}${where}`,
       params,
     );
-    let sent = 0;
-    let received = 0;
-    for (const row of rows) {
-      const mine = Number(row[0] ?? 0);
-      const n = Number(row[1] ?? 0);
-      if (mine === 1) sent = n;
-      else received = n;
-    }
+    const total = Number(rows[0]?.[0] ?? 0);
+    const sent = Number(rows[0]?.[1] ?? 0);
+    const received = total - sent;
     return { sent, received };
   }
 
@@ -856,6 +861,7 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
+    msgRandom: toBigint(row[11]),
   };
 }
 
@@ -873,5 +879,6 @@ function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
     msgSeq: toBigint(row[8]),
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
+    msgRandom: toBigint(row[12]),
   };
 }

@@ -257,16 +257,49 @@ export class FileResourceService {
   }
 
   /**
-   * Validate + resolve an absolute path that MUST live under `File/Ori`, for the
-   * image-preview media protocol. Returns the path only when it's inside the
-   * tree AND is a real file — a crafted `path` can't escape to read other files.
+   * 用户在本应用的文件框里**亲手选中过**的文件（绝对路径）。`weq-media://localfile`
+   * 除了 `nt_data` 树内的文件，只放行这一份名单 —— 渲染层因此不能拿这条协议当
+   * 「读任意文件」的通用读取器，最多只能预览用户自己选进来的那几个。
+   */
+  private readonly trustedPaths = new Set<string>();
+
+  /**
+   * 把一个用户刚选中的文件登记为可预览（主进程文件框返回后调用）。
+   *
+   * 合并转发 / 合成聊天记录里选的媒体在**上传前**是本机任意路径，不在 `nt_data`
+   * 里，所以预览必须靠这份名单；文件名可能出现同样的路径再选一次，Set 天然去重。
+   */
+  trustPath(absPath: string): void {
+    if (absPath) this.trustedPaths.add(resolve(absPath));
+  }
+
+  /** Absolute `nt_data` dir for the open account (the media containment boundary). */
+  private ntDataRoot(): string | null {
+    return this.platform.ntDataDir(this.session.context.uin);
+  }
+
+  /**
+   * Validate + resolve an absolute path for the preview media protocol
+   * (`weq-media://localfile` / `localfilevoice`).
+   *
+   * 只放行两类路径：
+   *   1. 账号 `nt_data` 树内（QQ 自己的媒体缓存：File/Ori、Pic、Video、Ptt、Emoji…）——
+   *      真实消息里带的 `localPath` 基本都落在这里，预览 / 转发的媒体才画得出来；
+   *   2. 用户刚通过本应用文件框选中的路径（见 {@link trustPath}）。
+   *
+   * 并且必须是一个真实文件 —— 拼出来的 `path` 因此无法越界读其它文件。
    */
   async resolveLocalFile(absPath: string): Promise<string | null> {
-    const root = this.oriRoot();
-    if (!root || !absPath) return null;
+    if (!absPath) return null;
     const abs = resolve(absPath);
-    const base = resolve(root);
-    if (abs !== base && !abs.startsWith(base + sep)) return null;
+    const roots = [this.oriRoot(), this.ntDataRoot()].filter((root): root is string =>
+      Boolean(root),
+    );
+    const inside = roots.some((root) => {
+      const base = resolve(root);
+      return abs === base || abs.startsWith(base + sep);
+    });
+    if (!inside && !this.trustedPaths.has(abs)) return null;
     try {
       const st = await stat(abs);
       if (st.isFile()) return abs;

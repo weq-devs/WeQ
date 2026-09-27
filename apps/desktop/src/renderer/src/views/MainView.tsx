@@ -22,8 +22,13 @@ import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
+import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
+import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
+import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
@@ -58,7 +63,31 @@ import {
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
+import {
+  GroupLeftMembersDialog,
+  type GroupLeftMemberRow,
+} from '../components/GroupLeftMembersDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
+import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
+import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
+import {
+  codecElementsToSegs,
+  createEmptyDraft,
+  createNode,
+  draftCardPreview,
+  draftTitle,
+  draftToSendNodes,
+  mfId,
+  renderElementsToSegs,
+  validateDraft,
+  type MfCardPreview,
+  type MfDraft,
+  type MfElement,
+  type MfNode,
+  type MfSeg,
+  type MfTarget,
+} from '../components/mergeForward/model';
+import type { MfPerson } from '../components/mergeForward/SenderPicker';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
@@ -95,12 +124,32 @@ import {
   type GroupMember,
   type GroupNoticeHandleState,
   type GroupUpdateInput,
+  type ArkContactSource,
+  type ArkLocationProvider,
+  type ArkPayload,
+  type FlashSendPayload,
+  buildFlashOptimisticElement,
+  flashDescOf,
+  arkCardSignature,
+  buildContactPlaceholderArk,
+  buildLocationArkJson,
+  buildTuwenArkJson,
   type Message,
   type MessageRenderer,
   type ProfileExtInfo,
   type User,
   useChatShellController,
+  composerTextToElements,
+  elementsToComposerText,
+  toIpcElements,
 } from '../im-template/template';
+import {
+  buildComposerSendPlan,
+  buildOptimisticRender,
+  decodeRecordingToWav,
+  type LocalMediaRef,
+  type SuperStickerEntry as ComposerSuperSticker,
+} from '../im-template/template/composerSend';
 import {
   qqMessageRenderer,
   ReplyJumpContext,
@@ -208,6 +257,19 @@ type MessageWire = {
   msgId: string;
   /** In-conversation sequence number (column 40003); the seq-window cursor. */
   msgSeq: string;
+  /**
+   * Column 40002 — the client-generated send `random`. The optimistic-message
+   * reconciliation key (see OptimisticArk.cid): unlike msgId (server snowflake)
+   * and msgSeq (per-conversation, and a DIFFERENT numbering for c2c vs the
+   * server-fetched history), this value is known before sending and preserved
+   * unchanged by the server.
+   *
+   * Optional: the gap-fetch path (`fetchGapMessages`) returns a lighter shape
+   * that carries the server `contentHead.msgId` instead; those rows fall back to
+   * '' and simply never participate in cid reconciliation (the main timeline —
+   * where optimistic messages land — always has it).
+   */
+  msgRandom?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -226,6 +288,7 @@ type MessageWire = {
 type ChatMsgWire = {
   msgId: string;
   msgSeq: string;
+  msgRandom?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -240,6 +303,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
   return {
     msgId: w.msgId,
     msgSeq: w.msgSeq,
+    msgRandom: w.msgRandom ?? '',
     senderUid: w.senderUid,
     senderUin: w.senderUin,
     sendTime: w.sendTime,
@@ -375,6 +439,120 @@ type RawElementWire = NonNullable<
   Awaited<ReturnType<typeof client.account.getRawElements.query>>
 >['elements'];
 
+/**
+ * 一条「乐观渲染」的合并转发消息 —— 只活在前端 state 里。
+ *
+ * 私聊的同步周期很长（群聊也慢），发出去之后不能干等 QQ 把消息同步回来才显示。
+ * 所以发送时先在目标会话末尾插一张同款「聊天记录」卡片，带状态标识；它不写库、
+ * 不落缓存文件，开关应用即消失。
+ */
+type OptimisticForward = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  title: string;
+  /** 预览消息条数。 */
+  count: number;
+  /**
+   * 卡片封面预览（标题 / 摘要 / 前 4 行）。与服务端生成的那份同口径（见
+   * `@weq/protocol` 的 buildForwardCardMeta），同步回来后卡片不会变样。
+   */
+  preview: MfCardPreview;
+  state: 'sending' | 'sent' | 'failed';
+  /** 发送成功后的长消息 id（卡片点开可拉取）。 */
+  resId?: string;
+  /** 客户端 `random`（`SendMessageOutcome.random`）—— 与 Ark 同款对账主键。 */
+  cid?: string;
+  /** 发送回执给出的会话内真实 seq —— 与 Ark 同款，用于排序与缺口判定。 */
+  seq?: string;
+  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。见 {@link OptimisticArk.seqRejected}。 */
+  seqRejected?: boolean;
+  error?: string;
+  at: number;
+};
+
+/**
+ * 一条「乐观渲染」的 Ark 卡片消息 —— 与 {@link OptimisticForward} 同一套做法。
+ *
+ * 卡片发出去之后不能干等 QQ 同步回来（私聊滞后更明显），先在目标会话末尾插一张同款
+ * 卡片 + 状态标识。它只活在前端 state 里，不写库、不落缓存文件，开关应用即消失：
+ *
+ *   - 图文 / 自定义 JSON：发出去的就是这段 JSON，从一开始就是最终形状；
+ *   - 推荐好友 / 推荐群：先画一张本地占位卡，拿到服务端取回的那份 arkJson 后原位替换；
+ *   - 位置卡片：本地按发送字段拼一张（渲染器走静态地图缩略图那条路）。
+ */
+type OptimisticArk = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  /** 卡片渲染用的 ark JSON。 */
+  arkData: string;
+  /**
+   * 对账签名（`arkCardSignature`）：真消息同步回来时用它把乐观条目收掉。
+   * 「服务端会重新生成卡片内容」的位置卡片走坐标，其余的走 JSON 本体。
+   */
+  signature: string;
+  /**
+   * 这条消息的客户端 `random`（`SendMessageOutcome.random`）—— 对账**主键**。
+   *
+   * 发送请求里就有它、服务端回执原样带回、写进本地库的 40002（`ChatMsgWire.msgRandom`）、
+   * 并被服务端历史 / 漫游原样保留。所以「真消息同步回来」时拿 `msgRandom` 一比就能精确
+   * 收掉，且不依赖任何服务端分配的编号。
+   *
+   * 为什么不能用别的：
+   *   - `msgId`（40001）是**服务端雪花 id**，发送前根本不知道，对不上（旧代码拿
+   *     `random & 0x7fffffff` 当 msgId 推导，与真实的 40001 无任何关系，那条分支从来没命中过）；
+   *   - `msgSeq`（40003）是会话内序号，**私聊本地库与服务端漫游还是两套编号**，
+   *     只有群聊能当辅助判据（见 {@link OptimisticArk.seq}）。
+   *
+   * 位置卡片那条 trpc 回包解析不出 random，取不到时回退到内容签名。
+   */
+  cid?: string;
+  /**
+   * 发送回执给出的**会话内真实 seq**（群聊 `groupSequence` / 私聊 `privateSequence`）。
+   *
+   * 实测（2026-09-27）这就是**本地库 40003 那一套**：群聊回执 seq 与库里 40003 直接相等；
+   * 私聊回执是「本地 max + 1、逐条递增」。所以它可用于：
+   *   - **排序**（乐观条目按它混进真实消息之间，而不是一律置底）；
+   *   - **缺口判定**的修正（见 chatPane 的 `messageGapCount`）；
+   *   - 作为 `cid` 之后的次要对账判据。
+   *
+   * `seq === 0` 的语义完全不同：服务端**收下了但没分配序号**（markdown / 签名错的 ark
+   * 这类静默丢弃）。那种条目不能当已发出处理 —— 见 {@link OptimisticArk.seqRejected}。
+   */
+  seq?: string;
+  /**
+   * 回执 seq 为 0：服务端收下却没给序号 —— 实测就是**静默丢弃**（`result=0`、`errMsg=''`
+   * 和成功一模一样，只有 seq 不同）。这种条目排序上仍置底（没有可信序号），并在发送后
+   * 立刻弹一次警告，别让用户以为对方收到了。
+   */
+  seqRejected?: boolean;
+  state: 'sending' | 'sent' | 'failed';
+  error?: string;
+  at: number;
+};
+
+/**
+ * 发送回执 → 对账键与排序 seq（`cid` = random，`seq` = 会话内真实序号）。
+ *
+ * `random` 一定会有（协议层在发送前就生成了）；seq 群聊取 `groupSequence`、私聊取
+ * `privateSequence`，两者都是本地 40003 那一套（见 {@link OptimisticArk.seq}）。
+ * seq 为 0 = 服务端没分配序号（静默丢弃），此时打上 `seqRejected` 让上层提示。
+ */
+function expectedKeysOf(payload: {
+  peerType: 'c2c' | 'group';
+  groupSequence?: number;
+  privateSequence?: number;
+  random?: number;
+}): Pick<OptimisticArk, 'cid' | 'seq' | 'seqRejected'> {
+  const seq = payload.peerType === 'group' ? payload.groupSequence : payload.privateSequence;
+  return {
+    ...(payload.random && payload.random > 0 ? { cid: String(payload.random) } : {}),
+    ...(seq && seq > 0 ? { seq: String(seq) } : {}),
+    ...(seq === 0 ? { seqRejected: true } : {}),
+  };
+}
+
 type PendingScrollRestore = {
   conversationId: string;
   previousHeight: number;
@@ -410,8 +588,6 @@ const fallbackPreference: ConversationPreference = {
   muted: false,
   blocked: false,
 };
-
-const emptyDrafts: ConversationDrafts = {};
 
 function groupAvatarSrc(groupCode: string): string | null {
   return groupCode ? `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0` : null;
@@ -984,6 +1160,211 @@ function messageSender(
   return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
+/**
+ * 乐观渲染的合并转发 → 模板层 Message。
+ *
+ * 渲染成一张同款「聊天记录」卡片（`multiMsg` 元素）——与真消息同步回来后的样子一致，
+ * 因此同步到位后不会出现视觉跳变。状态标识（发送中 / 已发送 / 发送失败）通过额外
+ * 的 `optimistic` 字段带到气泡上，由 MessageBubble 画一个小标签。
+ */
+function optimisticToTemplate(
+  item: OptimisticForward,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: item.title,
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: [
+      {
+        type: 'multiMsg',
+        data: {
+          _label: item.preview.source,
+          _news: item.preview.news,
+          _summary: item.preview.summary,
+          ...(item.resId ? { resId: item.resId } : {}),
+        },
+      },
+    ],
+    msgId: item.id,
+    // 回执给的**真实会话内 seq**（群聊 = 库里 40003；私聊实测是「本地 max + 1」同一套）。
+    // 带上它，乐观条目就能按 seq 混排进真实消息之间，而不是一律置底；seq 缺失
+    //（静默丢弃 / 位置卡片那条 trpc 回包解析不出）时留在 '' —— 渲染层会把它排到末尾。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimisticRejected?: boolean;
+    optimistic: OptimisticForward['state'];
+    optimisticError?: string;
+  };
+}
+
+/**
+ * 乐观渲染的 Ark 卡片 → 模板层 Message。
+ *
+ * 走与真消息**同一条渲染通路**：一个 `ark` 元素交给 `QqArk`，所以同步到位后卡片
+ * 不会变样。状态标识（发送中 / 已发送 / 发送失败）通过额外的 `optimistic` 字段带到
+ * 气泡上，由 MessageBubble 画一个小标签（和乐观合并转发同款）。
+ */
+function optimisticArkToTemplate(
+  item: OptimisticArk,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: '',
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: [{ type: 'ark', data: { arkData: item.arkData } }],
+    msgId: item.id,
+    // 同 {@link optimisticToTemplate}：有真实 seq 就参与排序与缺口判定。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimisticRejected?: boolean;
+    optimistic: OptimisticArk['state'];
+    optimisticError?: string;
+  };
+}
+
+/**
+ * 一条「乐观渲染」的普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件 / 引用 /
+ * 弹射表情 / 窗口抖动…）—— 与 {@link OptimisticArk} 同一套做法。
+ *
+ * 发出去之后不等 QQ 同步回来，先在目标会话里按真实气泡渲染出这条消息 + 状态标识；
+ * 本地媒体走 `localPath` / `localPreviewUrl` 直接预览。只活在前端 state 里，不写库、
+ * 不落缓存，开关应用即消失。元素形状与真实消息的 `qqElements` 同构（见
+ * `composerSend.buildOptimisticRender`），所以同步到位后不会跳变。
+ */ type OptimisticMessage = {
+  id: string;
+  /** 目标会话 id（模板层 Conversation.id）。 */
+  convId: string;
+  /** 纯文本预览（会话列表 / 气泡文本）。 */
+  body: string;
+  /** 渲染元素（`{type,data}`，与真实消息的 `qqElements` 同形）。 */
+  elements: unknown[];
+  /**
+   * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
+   * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。
+   *   · AI 声聊：`aiVoice:<合成原文>`。
+   *   · 闪传：`flash:<filesetUuid>`（Windows / 安卓收到的真卡片）或
+   *     `flash:<分享短码>`（Linux / 鸿蒙收到的降级纯文本）—— 两者互斥，哪条先
+   *     回来都能把乐观卡片收掉。
+   */
+  signatures?: string[];
+  state: 'sending' | 'sent' | 'failed';
+  error?: string;
+  /** 客户端 `random`（回执带回）—— 对账主键。 */
+  cid?: string;
+  /** 回执给出的会话内真实 seq（群聊 / 私聊同一套）—— 用于排序与缺口判定。 */
+  seq?: string;
+  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。 */
+  seqRejected?: boolean;
+  at: number;
+};
+
+/** 乐观普通消息 → 模板层 Message（走与真实消息**同一条渲染通路**）。 */
+function optimisticMessageToTemplate(
+  item: OptimisticMessage,
+  conversation: Conversation,
+  user: User,
+): Message {
+  return {
+    id: item.id,
+    conversationId: conversation.id,
+    senderId: user.id,
+    sender: user,
+    body: item.body,
+    createdAt: new Date(item.at).toISOString(),
+    qqElements: item.elements,
+    msgId: item.id,
+    // 有真实 seq 就参与排序与缺口判定（同 Ark / 合并转发）。
+    msgSeq: item.seq ?? '',
+    optimisticRejected: item.seqRejected,
+    optimistic: item.state,
+    optimisticError: item.error,
+  } as Message & {
+    qqElements: unknown[];
+    msgId: string;
+    optimisticRejected?: boolean;
+    optimistic: OptimisticMessage['state'];
+    optimisticError?: string;
+  };
+}
+
+/**
+ * 回执 seq 是否为 0（= 服务端收下但没分配序号）。
+ *
+ * 实测（markdown / 签名错的 ark）这种发送的回执与成功**完全一样**：`ok=true`、
+ * `result=0`、`errMsg=''`；唯一的区别就是 seq 恒为 0。所以它是「本条服务端可能静默
+ * 丢弃了」的唯一可靠信号（见 docs/develop/send-message.md 第六节）。
+ */
+function isSeqRejected(outcome: { groupSequence?: number; privateSequence?: number }): boolean {
+  return (outcome.groupSequence ?? 0) <= 0 && (outcome.privateSequence ?? 0) <= 0;
+}
+
+/**
+ * 把乐观条目并入真实消息序列。
+ *
+ * 乐观条目带**真实 seq** 时（回执给了 groupSequence / privateSequence），按 seq 插到
+ * 正确位置 —— 否则「我发一条 → 对方回一条」时，带 seq 的回复会被排到我们前面。
+ * 没有 seq 的（还在发送中、回执 seq=0 的静默失败、位置卡片那条 trpc 解析不出的）
+ * 留在末尾：它们没有可信位置，插进中间反而会打乱顺序。
+ *
+ * `real` 已按 seq 升序（最旧→最新）；同 seq 时乐观条目排在真实消息**之后**，
+ * 与「自己刚发的最新一条」直觉一致。
+ */
+function mergeOptimisticInto(real: Message[], pending: Message[]): Message[] {
+  if (pending.length === 0) return real;
+  const positioned = pending.filter((m): m is Message & { msgSeq: string } => Boolean(m.msgSeq));
+  const floating = pending.filter((m) => !m.msgSeq);
+  if (positioned.length === 0) return [...real, ...floating];
+
+  // 窗口下界：乐观 seq 比它还小，说明它不在当前加载的窗口里（用户往上翻过）。
+  // 那种情况下插到数组顶部会在它和窗口首条之间造出一个假缺口，所以按「无位置」处理。
+  let windowMin: bigint | null = null;
+  for (const message of real) {
+    if (!message.msgSeq) continue;
+    windowMin = BigInt(message.msgSeq);
+    break;
+  }
+  const merged = [...real];
+  const stayFloating: Message[] = [];
+  for (const item of positioned) {
+    const seq = BigInt(item.msgSeq);
+    if (windowMin !== null && seq < windowMin) {
+      stayFloating.push(item);
+      continue;
+    }
+    let at = merged.length;
+    for (let i = 0; i < merged.length; i += 1) {
+      const other = merged[i]!.msgSeq;
+      if (!other) continue; // 无 seq 的真实行（手机迁移）不参与比较
+      if (BigInt(other) > seq) {
+        at = i;
+        break;
+      }
+    }
+    merged.splice(at, 0, item);
+  }
+  return [...merged, ...stayFloating, ...floating];
+}
+
 function messageToTemplate(
   message: MessageWire,
   conversation: Conversation,
@@ -1163,6 +1544,9 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   'emojiBounce',
   'qqDynamic',
   'shareLocation',
+  // 私聊「窗口抖动」的乐观渲染元素（WeQ 自己的内部 kind —— 收端 QQ 会丢弃
+  // serviceType=2，所以只在发送方本地短暂存在；见 QqMessageContent 的 windowShake 分支）。
+  'windowShake',
   // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
   // tag block, AIO_OP (subType=15) only names the group a temp session came from.
   'grayTipFileRecv',
@@ -1254,10 +1638,13 @@ function elementText(element: unknown): string {
 
   switch (type) {
     case 'text':
+      // Linux / 鸿蒙端的闪传降级文本：别把整段「对方通过QQ闪传发送文件给你…」原样塞进
+      // 会话列表预览 / 正文摘要，换成「[QQ闪传] <文件名>」（与真卡片 markdown 的写法一致）。
+      return flashPreviewLabel(stringField(data, 'textContent'));
     case 'at':
       return stringField(data, 'textContent');
     case 'face':
-      return stringField(data, 'faceText') || stringField(data, 'faceExtDesc') || '[Emoji]';
+      return stringField(data, 'faceText') || stringField(data, 'localPath') || '[Emoji]';
     case 'pic':
       return attachmentText('Image', data, 'fileName', 'summary');
     case 'file':
@@ -1607,6 +1994,13 @@ export function MainView(): ReactElement {
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
+  // 「完全离线模式」（自动注入 QQ 总闸开启）。状态未读到前按不可发送处理。
+  const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 4000,
+    refetchInterval: 5000,
+  });
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 8000,
@@ -1685,6 +2079,14 @@ export function MainView(): ReactElement {
         void utils.account.listHiddenSessions.invalidate();
         void utils.account.listOfficialAccounts.invalidate();
         void utils.account.listServiceAccounts.invalidate();
+        // 会话列表的排序键：草稿时间（41108）。
+        void utils.account.listConversationDraftTimes.invalidate();
+        // 草稿正文：QQ 客户端写库后也要跟手。`listDrafts` 默认 `staleTime:
+        // Infinity`，不在这里 invalidate 就永远不会重读 —— 这正是「QQ 那边
+        // 写的草稿，WeQ 这边看不到」的原因。安全：下面合并 `draftQuery.data`
+        // 的 effect 只以 `pendingDraftsRef` 覆盖**脏会话**（本次会话里改过、
+        // 还没落库的），正在编辑的正文不会被回灌。
+        void utils.account.listDrafts.invalidate();
         void refreshWindow();
       },
       onError(err) {
@@ -1740,6 +2142,23 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  // 草稿直接读写 QQ 自己的 draft_storage_table_v1 —— WeQ 不再另存一份缓存。
+  // 这里的内存副本只用来即时回显（边打边显示 / 会话列表的草稿标记），真正落库
+  // 只在「离开会话 / 离开消息页 / 应用退出」时做，见 flushDrafts。
+  const [drafts, setDrafts] = useState<ConversationDrafts>({});
+  /** 本次会话里被改过、还没落库的会话 id。 */
+  const dirtyDraftsRef = useRef<Set<string>>(new Set());
+  /**
+   * 还没落库的草稿正文（输入框实时值）。**刻意用 ref 而不是 state** —— 每敲一个
+   * 字都 setState 会让整棵 MainView 重渲，这是之前输入卡顿的主因。它只在「切会话 /
+   * 离开消息页 / 退出」时被读取并并进 state 或落库。
+   */
+  const pendingDraftsRef = useRef<ConversationDrafts>({});
+  /**
+   * flushDraft 定义在下面（依赖 conversations），但 handleSelectConversation 在它
+   * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
+   */
+  const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -1786,6 +2205,12 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  // 「已退群成员」灯箱：与群公告 / 群精华同一层（应用层持有开关，数据只读本地
+  // group_member3 64016=1，不碰协议）。
+  const [groupLeftMembersDialog, setGroupLeftMembersDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
     anchor: { x: number; y: number };
@@ -1796,6 +2221,20 @@ export function MainView(): ReactElement {
     elements: RawElementWire;
   } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
+  // 合并转发：从聊天多选进入时带着一份草稿 + 会话成员候选；
+  // 「合成聊天记录」列表则走 MergeForwardLibraryDialog。
+  const [mergeForwardDraft, setMergeForwardDraft] = useState<{
+    draft: MfDraft;
+    senderMode: 'conversation' | 'global';
+    members: MfPerson[];
+  } | null>(null);
+  const [mergeForwardLibraryOpen, setMergeForwardLibraryOpen] = useState(false);
+  // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
+  const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
+  // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
+  const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
+  // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -1929,6 +2368,16 @@ export function MainView(): ReactElement {
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setEssenceDialog({
         groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
+
+  const handleOpenGroupLeftMembers = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupLeftMembersDialog({
+        groupCode: conversation.group.identityValue,
         groupName: conversation.group.name,
       });
     },
@@ -2355,6 +2804,26 @@ export function MainView(): ReactElement {
     }
     return map;
   }, [topContacts.data]);
+  /**
+   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`）。会话列表排序
+   * 用它和最后消息时间取最大值：打了字（或有草稿）的会话要按草稿时间冒头，
+   * 而不是只看最新消息时间。见 `@weq/service/conversation-order`。
+   *
+   * 单独一条轻量 query（几行的 SELECT），这样 `onDbChanged` 时能跟手刷新排序；
+   * 真正的正文由 `drafts` state 承载，不在这里重读。
+   */
+  const draftTimesQuery = trpc.account.listConversationDraftTimes.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  });
+  /**
+   * 会话 id → 排序用草稿时间（毫秒），**只取库里的 `41108`**。输入框里还没落库的
+   * 草稿刻意不参与 —— 排序只认数据库的数据，边打字不该让会话跳位置。
+   */
+  const draftTimeByConv = useMemo(
+    () => draftSortTimes(draftTimesQuery.data ?? []),
+    [draftTimesQuery.data],
+  );
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
   const groupNameByCode = useMemo(() => {
@@ -2651,7 +3120,8 @@ export function MainView(): ReactElement {
             highlights,
           };
         })
-        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按最后消息时间倒序。
+        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按
+        // max(最后消息时间, 草稿时间) 倒序 —— 有草稿的会话不吃亏于「新消息」。
         .sort((a, b) => {
           const aTop = topTimeByConv[a.id];
           const bTop = topTimeByConv[b.id];
@@ -2660,7 +3130,10 @@ export function MainView(): ReactElement {
             if (bTop === undefined) return -1;
             return bTop - aTop;
           }
-          return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+          return (
+            conversationSortTime(b.updatedAt, draftTimeByConv[b.id]) -
+            conversationSortTime(a.updatedAt, draftTimeByConv[a.id])
+          );
         })
     );
   }, [
@@ -2677,6 +3150,7 @@ export function MainView(): ReactElement {
     unreadByConv,
     highlightsByConv,
     topTimeByConv,
+    draftTimeByConv,
     botUids,
   ]);
   const groupsById = useMemo(
@@ -2736,6 +3210,243 @@ export function MainView(): ReactElement {
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
 
+  /* ── 合并转发（合成聊天记录）────────────────────────────────────────────
+   *
+   * 真正发包的接缝是 forwardMergeDraft —— 合并转发的协议（UploadLongMsg）
+   * 由另一分支接入，这里只把参数（SnowLuma 的 ForwardNodePayload 那一套：
+   * userUin / nickname / elements / time / decoration）准备好。 */
+  const mergeForwardSelf: MfPerson = useMemo(
+    () => ({
+      uid: selfProfile.data?.uid ?? '',
+      uin: user.identityValue,
+      name: user.displayName,
+    }),
+    [selfProfile.data?.uid, user],
+  );
+
+  /** 可转发到的会话（好友在前、群聊在后）；合并会话入口不可转发。 */
+  const mergeForwardTargets: MfTarget[] = useMemo(
+    () =>
+      conversations
+        .filter(
+          (c): c is Extract<Conversation, { type: 'group' | 'direct' }> =>
+            c.type === 'group' || c.type === 'direct',
+        )
+        .map((c) =>
+          c.type === 'group'
+            ? {
+                id: c.id,
+                kind: 'group' as const,
+                conv: c.group.identityValue,
+                name: c.group.name,
+                avatarUrl: c.group.avatarUrl,
+              }
+            : {
+                id: c.id,
+                kind: 'c2c' as const,
+                // 发送目标优先用 QQ 号（发送侧按 uin 查 uid 更稳），没拿到才退回 uid。
+                conv: c.otherUser.identityValue || c.otherUser.id,
+                name: c.otherUser.displayName,
+                avatarUrl: c.otherUser.avatarUrl,
+              },
+        ),
+    [conversations],
+  );
+
+  const mergeForwardSendAvailable = Boolean(
+    sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+  );
+
+  /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
+  const mergeForwardMembersOf = useCallback((c: Conversation): MfPerson[] => {
+    if (c.type === 'group') {
+      return c.members.map((m) => ({ uid: m.id, uin: m.identityValue, name: m.displayName }));
+    }
+    if (c.type === 'direct') {
+      return [
+        { uid: c.otherUser.id, uin: c.otherUser.identityValue, name: c.otherUser.displayName },
+      ];
+    }
+    return [];
+  }, []);
+
+  /**
+   * 多选的消息 → 一份草稿。
+   *
+   * 关键：**回读每条消息的原始 wire 元素**（`account.getRawElements`）而不是只有
+   * 渲染元素 —— 图片 / 语音这类媒体要从原始元素里拿本机缓存路径，发送时才能真实
+   * 上传；拿不到（或离线）时退化为渲染元素派生的分段（媒体落成文本标签）。
+   */
+  const buildMergeForwardDraft = useCallback(
+    async (messages: Message[]): Promise<MfDraft> => {
+      const now = Math.floor(Date.now() / 1000);
+      const nodes: MfNode[] = [];
+      for (const message of messages) {
+        const sender = message.sender;
+        const senderInfo = {
+          uid: sender?.id ?? message.senderId,
+          uin: sender?.identityValue ?? '',
+          name: sender?.displayName || sender?.identityValue || '未知用户',
+        };
+        const msgId = (message as { msgId?: string }).msgId ?? message.id;
+        let segs: MfSeg[] = [];
+        // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
+        // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
+        // 真卡片的 opaque 段，而不是一段 `[文件: x]` 文本。
+        const renderElements = ((message as { qqElements?: MfElement[] }).qqElements ??
+          []) as MfElement[];
+        if (msgId) {
+          try {
+            const raw = await client.account.getRawElements.query({ msgId });
+            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements, renderElements);
+          } catch {
+            /* 回读失败就退回渲染元素 */
+          }
+        }
+        if (segs.length === 0) {
+          segs = renderElementsToSegs(renderElements);
+        }
+        if (segs.length === 0) continue;
+        const parsed = Date.parse(message.createdAt);
+        const node = createNode(
+          senderInfo,
+          segs,
+          Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
+        );
+        const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
+        if (decoration) node.decoration = decoration;
+        if (msgId) node.sourceMsgId = msgId;
+        nodes.push(node);
+      }
+      return { ...createEmptyDraft(), id: mfId('draft'), nodes };
+    },
+    [client],
+  );
+
+  const handleMergeForward = useCallback(
+    (messages: Message[], c: Conversation) => {
+      if (messages.length === 0) return;
+      const members = mergeForwardMembersOf(c);
+      void buildMergeForwardDraft(messages)
+        .then((draft) => setMergeForwardDraft({ draft, senderMode: 'conversation', members }))
+        .catch((error) =>
+          pushToast({
+            tone: 'error',
+            title: '准备转发失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    },
+    [buildMergeForwardDraft, mergeForwardMembersOf, pushToast],
+  );
+
+  const persistMergeForwardDraft = useCallback(
+    async (draft: MfDraft) => {
+      await client.mergeForward.save.mutate({
+        id: draft.id,
+        title: draft.title,
+        createdAt: draft.createdAt,
+        nodes: draft.nodes,
+      });
+      void utils.mergeForward.list.invalidate();
+    },
+    [utils],
+  );
+
+  /**
+   * 发送一份合并转发。
+   *
+   * 流程：校验草稿 → 生成协议节点（媒体带本机路径，服务端真实上传 + SsoSendLongMsg）
+   * → **乐观渲染**一张「聊天记录」卡片到目标会话（私聊同步慢，等不到真消息；群聊同样
+   * 受益）。乐观消息只活在前端 state 里，**不落任何缓存 / 不写库**，并带「发送中 /
+   * 已发送 / 发送失败」标识。
+   */
+  const forwardMergeDraft = useCallback(
+    async (draft: MfDraft, target: MfTarget) => {
+      const problem = validateDraft(draft);
+      if (problem) throw new Error(problem);
+      const nodes = draftToSendNodes(draft);
+      const peerType = target.kind === 'group' ? 'group' : 'c2c';
+      const title = draft.title || draftTitle(draft.nodes);
+      const preview = draftCardPreview(draft);
+      const optimisticId = `optimistic-${mfId('of')}`;
+      setOptimisticForwards((current) => [
+        ...current,
+        {
+          id: optimisticId,
+          convId: target.id,
+          title,
+          count: draft.nodes.length,
+          preview,
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+      const patch = (next: Partial<OptimisticForward>): void =>
+        setOptimisticForwards((current) =>
+          current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+        );
+      try {
+        const outcome = await client.account.sendForward.mutate({
+          peerType,
+          targetId: target.conv,
+          nodes,
+        });
+        if (!outcome.ok) {
+          const reason = outcome.card?.errMsg || outcome.hint || '发送失败';
+          patch({ state: 'failed', error: reason });
+          throw new Error(reason);
+        }
+        // 卡片那一步的回执带 random / seq：与 Ark 同款，cid 用于对账、seq 用于
+        // 混排进真实消息之间（见 OptimisticForward.seq）。
+        const cardKeys = expectedKeysOf({
+          peerType,
+          ...(outcome.card?.groupSequence !== undefined
+            ? { groupSequence: outcome.card.groupSequence }
+            : {}),
+          ...(outcome.card?.privateSequence !== undefined
+            ? { privateSequence: outcome.card.privateSequence }
+            : {}),
+          ...(outcome.card?.random !== undefined ? { random: outcome.card.random } : {}),
+        });
+        patch({
+          state: 'sent',
+          resId: outcome.resId,
+          ...(cardKeys.cid ? { cid: cardKeys.cid } : {}),
+          ...(cardKeys.seq ? { seq: cardKeys.seq } : {}),
+        });
+        if (cardKeys.seqRejected) {
+          pushToast({
+            tone: 'warning',
+            message: '聊天记录卡片可能未被服务端接收',
+            detail:
+              '承载卡片的那步回了成功但没分配消息序号 —— 内容已上传，但收端很可能看不到这张卡。' +
+              '请让对方确认；若没有，重发一次。',
+          });
+        }
+      } catch (error) {
+        patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    },
+    [client, pushToast],
+  );
+
+  /**
+   * 把「还没落库的正文」并进 state —— 切走会话后立刻切回来能回填、会话列表的草稿
+   * 标记也要亮。flushDraft 是异步的（落库完成前 state 不会动），所以不能只靠它。
+   */
+  const syncDraftsFromPending = useCallback((): void => {
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
+        if (text.trim()) next[id] = text;
+        else delete next[id];
+      }
+      return next;
+    });
+  }, []);
+
   const handleSelectConversation = useCallback(
     (conversationId: string, event?: React.MouseEvent) => {
       const conv = conversations.find((c) => c.id === conversationId);
@@ -2748,11 +3459,34 @@ export function MainView(): ReactElement {
         return;
       }
       // 真正切换到一个普通会话时才关闭 ARK Feed。
+      // 先同步回填一次草稿，这样切换那一帧 ChatPane 就能拿到目标会话的正文（它只在
+      // conversation.id 变化时读一次 draft）。真正的落库不在这里做 —— 统一交给下面
+      // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
+      // 进入」这些不走本函数的路径也能覆盖到。
+      syncDraftsFromPending();
       setArkFeedState(null);
       shell.selectConversation(conversationId);
     },
-    [conversations, shell],
+    [conversations, shell, syncDraftsFromPending],
   );
+
+  /**
+   * 离开会话的**唯一收口点**：`activeConversationId` 一变，就把上一个会话的脏草稿
+   * 写回库。私聊 A 打了一半切到 B ⇒ 这一步落库 A 的草稿（正文为空则清掉）。
+   *
+   * 之所以不用各调用点自己 flush：离开会话有四条路径 —— 点侧边栏、会话内「返回」、
+   * 搜索结果 / 文件跳转、从隐藏 / 删除 / 官方号选择器进入。它们各自调
+   * `shell.selectConversation` 或 `shell.backConversation`，只有第一条以前会落库。
+   * 盯住这一个状态，四条路径就都覆盖了。
+   */
+  const prevActiveConvRef = useRef<string | null>(shell.activeConversationId);
+  useEffect(() => {
+    const prev = prevActiveConvRef.current;
+    prevActiveConvRef.current = shell.activeConversationId;
+    if (!prev || prev === shell.activeConversationId) return;
+    flushDraftRef.current(prev);
+    syncDraftsFromPending();
+  }, [shell.activeConversationId, syncDraftsFromPending]);
 
   // Load the WeQ-deleted msgIds whenever the selected conversation changes so
   // the in-place "deleted" overlay is correct on entry. Stale responses from a
@@ -2953,6 +3687,29 @@ export function MainView(): ReactElement {
     { groupCode: selectedUid },
     { enabled: Boolean(selectedUid && isGroup) },
   );
+  // 「已退群成员」：与群公告 / 群精华同一层 —— 灯箱打开时才查本地 group_member3
+  // （64016=1），一次拉一页就够，不碰协议。
+  const groupLeftMembers = trpc.account.listGroupLeftMembers.useQuery(
+    { groupCode: groupLeftMembersDialog?.groupCode ?? '', limit: 200 },
+    { enabled: Boolean(groupLeftMembersDialog) },
+  );
+  const groupLeftMemberRows = useMemo<GroupLeftMemberRow[]>(
+    () =>
+      (
+        (groupLeftMembers.data ?? []) as Array<{
+          uid: string;
+          uin: string;
+          card: string;
+          nick: string;
+        }>
+      ).map((member) => ({
+        id: member.uid,
+        displayName: member.card || member.nick || member.uin || 'Member',
+        identity: member.uin && member.uin !== '0' ? member.uin : member.uid,
+        avatarUrl: avatarFromUin(member.uin),
+      })),
+    [groupLeftMembers.data],
+  );
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
@@ -3084,7 +3841,11 @@ export function MainView(): ReactElement {
       }
     });
 
-    const mapped: GroupMember[] = allMemberWires.map(mapGroupMemberWire);
+    // uid 为空的成员是无效行（群成员表里可能有空 uid 的占位），不进成员列表 /
+    // 成员表 —— 它们解析不出人，只会多出一行空白。
+    const mapped: GroupMember[] = allMemberWires
+      .map(mapGroupMemberWire)
+      .filter((member) => String(member.id ?? '').trim() !== '');
 
     return mapped.sort((a, b) => {
       const roleScore = { owner: 0, admin: 1, member: 2 };
@@ -3191,10 +3952,240 @@ export function MainView(): ReactElement {
     // Create a fast lookup map for member info
     const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
 
-    return loadedMessageWires
+    const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, selectedConversation, user, memberMap, botUids));
-  }, [loadedMessageWires, selectedConversation, user, currentGroupMembers, botUids]);
+    // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
+    const pending = optimisticForwards
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticToTemplate(item, selectedConversation, user));
+    // 乐观 Ark 卡片（同上）。
+    const pendingArks = optimisticArks
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticArkToTemplate(item, selectedConversation, user));
+    // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
+    const pendingMessages = optimisticMessages
+      .filter((item) => item.convId === selectedConversation.id)
+      .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
+    // 有真实 seq 的乐观条目按 seq 插进真实消息之间（对方在我们发出后回了消息时，
+    // 那条回复不能把我们的消息挤到下面）；没有 seq 的（发送中 / 静默丢弃 / 位置卡片）
+    // 一律留在末尾 —— 它们没有可信位置。
+    return mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
+  }, [
+    loadedMessageWires,
+    selectedConversation,
+    user,
+    currentGroupMembers,
+    botUids,
+    optimisticForwards,
+    optimisticArks,
+    optimisticMessages,
+  ]);
+
+  /**
+   * 真实的合并转发卡片同步回来之后，把对应的乐观条目收掉（靠 resId 对账）。
+   * 私聊同步可能要等一会儿，这段期间乐观卡片就是唯一反馈；一旦真消息到，两者会
+   * 同时出现一张，所以按 resId 去重。未拿到 resId 的条目（发送中 / 失败）保留。
+   */
+  useEffect(() => {
+    if (optimisticForwards.length === 0) return;
+    const seen = new Set<string>();
+    for (const wire of loadedMessageWires) {
+      for (const element of wire.elements ?? []) {
+        if ((element as { type?: string }).type !== 'multiMsg') continue;
+        const resId = (element as { data?: { resId?: string } }).data?.resId;
+        if (resId) seen.add(resId);
+      }
+    }
+    if (seen.size === 0) return;
+    setOptimisticForwards((current) => {
+      const next = current.filter((item) => !item.resId || !seen.has(item.resId));
+      return next.length === current.length ? current : next;
+    });
+  }, [loadedMessageWires, optimisticForwards.length]);
+
+  /**
+   * Ark 卡片的真消息同步回来之后，把对应的乐观条目收掉。判据按可靠性排队：
+   *
+   *   1. **cid（首选，= 客户端 random）**：`wire.msgRandom` 与发送时记下的 random 相等
+   *      —— 精确对账，连位置卡片这种「服务端会重写卡片内容」的也能收掉；群聊私聊通吃；
+   *   2. **seq（辅助）**：回执给出的会话内真实 seq（群聊 = 库里 40003；私聊实测也是
+   *      「本地 max + 1」那一套）。作为 cid 之后的次要对账判据；
+   *   3. **内容签名**（`arkCardSignature`）：位置卡片走坐标，其余走 ark JSON 本体 ——
+   *      cid 拿不到时的兜底（例如位置卡片那条 trpc 回包解析不出 random）。
+   *
+   * 签名可能撞（同一条位置连发两次、同一张卡连发两次），所以按**出现次数**消耗：
+   * 同步回来几条就收掉几条，剩下的继续挂着等下一批。
+   *
+   * 只对**当前会话**的乐观条目对账：`loadedMessageWires` 是当前打开的会话，而
+   * `optimisticArks` 可能还有别的会话的条目。seq 判据尤其需要这道闸 —— 它是会话内序号，
+   * 别的会话完全可能有同一个数字。
+   *
+   * 依赖里带上 `optimisticArks` 本身：cid / seq 是**拿到回执才补上**的，如果那一刻
+   * 真消息已经到了，必须再跑一轮才能收掉它（没得改时返回同一个数组，不会死循环）。
+   */
+  useEffect(() => {
+    if (optimisticArks.length === 0) return;
+    const openConvId = selectedConversation?.id;
+    if (!openConvId) return;
+    const cids = new Set<string>();
+    const seqs = new Set<string>();
+    const signatures = new Map<string, number>();
+    for (const wire of loadedMessageWires) {
+      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
+      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
+      for (const element of wire.elements ?? []) {
+        if ((element as { type?: string }).type !== 'ark') continue;
+        const signature = arkCardSignature(
+          String((element as { data?: { arkData?: unknown } }).data?.arkData ?? ''),
+        );
+        if (signature) signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+      }
+    }
+    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
+    // 与普通消息那条同一套：结论在 updater 外面算好，不在 updater 里消耗 `signatures`
+    // 的计数（开发构建会把 updater 跑两遍、以第二遍为准，副作用会让它漏判）。
+    const dropIds = new Set<string>();
+    for (const item of optimisticArks) {
+      // 别的会话的条目不在这个窗口里，原样留着（见上方注释）。
+      if (item.convId !== openConvId) continue;
+      if (item.cid && cids.has(item.cid)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (item.seq && seqs.has(item.seq)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      const left = signatures.get(item.signature);
+      if (!left) continue;
+      signatures.set(item.signature, left - 1);
+      dropIds.add(item.id);
+    }
+    if (dropIds.size === 0) return;
+    setOptimisticArks((current) => {
+      const next = current.filter((item) => !dropIds.has(item.id));
+      return next.length === current.length ? current : next;
+    });
+  }, [loadedMessageWires, optimisticArks, selectedConversation]);
+
+  /**
+   * 普通消息（文本 / 表情 / 媒体 / 文件…）的真消息同步回来后把乐观条目收掉。
+   *
+   * 判据与 Ark 同：cid（= 客户端 `random`）首选 —— 发送前已知、回执带回、库里 40002
+   * 同名；seq 作为次要对账（会话内序号，所以必须限定当前会话）。媒体消息同步本来就
+   * 比文本慢，未命中前乐观条目继续显示本地预览。
+   */
+  useEffect(() => {
+    if (optimisticMessages.length === 0) return;
+    const openConvId = selectedConversation?.id;
+    if (!openConvId) return;
+    const cids = new Set<string>();
+    const seqs = new Set<string>();
+    const signatures = new Map<string, number>();
+    /** 给某个对账签名加一次出现次数（同一签名可能来自多条消息）。 */
+    const bump = (signature: string): void => {
+      signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+    };
+    for (const wire of loadedMessageWires) {
+      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
+      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
+      // AI 声聊回执没有 random / seq：真消息回来时靠「合成原文」签名收掉。
+      for (const element of wire.elements ?? []) {
+        const el = element as { type?: string; data?: Record<string, unknown> };
+        // 闪传（0x93d7）回执也不给 seq：真消息带 flashTransferInfo.fileSetId，
+        // 与发出时拿到的 filesetUuid 是同一个值，拿它当签名。
+        if (el.type === 'markdown') {
+          const info = el.data?.flashTransferInfo as { fileSetId?: unknown } | undefined;
+          const fileSetId = typeof info?.fileSetId === 'string' ? info.fileSetId : '';
+          if (fileSetId) {
+            bump(`flash:${fileSetId}`);
+          }
+          continue;
+        }
+        // Linux / 鸿蒙端收到的闪传会降级成纯文本（卡片元素一概没有），只剩分享短码；
+        // 发送回执的 shareUrl 也是同一个短码，所以这里补一条短码签名 —— 让发出的乐观
+        // 卡片能被这条降级文本收掉。
+        if (el.type === 'text') {
+          const code = parseFlashShareCode(String(el.data?.textContent ?? ''));
+          if (code) bump(`flash:${code}`);
+          continue;
+        }
+        if (el.type !== 'ptt' || !el.data?.isAiVoice) continue;
+        const transcript = String(el.data.pttTranscript ?? '');
+        if (!transcript) continue;
+        bump(`aiVoice:${transcript}`);
+      }
+    }
+    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
+    // 对账结论必须在 updater **外面**算完：updater 里一旦消耗 `signatures` 的计数，它
+    // 就不再纯净 —— React 的开发构建会把 updater 跑两遍，**第二次的结果才是最终值**
+    // （react-dom `updateReducerImpl`：多跑的那遍丢掉结果，再用同一份 base state 跑一遍）。
+    // 第一遍把计数减到 0，第二遍就会当成「签名没命中」而保留乐观消息；闪传 / AI 声聊拿不到
+    // cid / seq、只能靠签名对账，于是卡片永远收不掉。
+    const dropIds = new Set<string>();
+    for (const item of optimisticMessages) {
+      if (item.convId !== openConvId) continue;
+      if (item.cid && cids.has(item.cid)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (item.seq && seqs.has(item.seq)) {
+        dropIds.add(item.id);
+        continue;
+      }
+      if (!item.signatures || item.signatures.length === 0) continue;
+      // 签名会撞（同一条内容连发两次），所以按**出现次数**消耗；多个签名取任一命中。
+      let matched = false;
+      for (const signature of item.signatures) {
+        const left = signatures.get(signature);
+        if (!left) continue;
+        signatures.set(signature, left - 1);
+        matched = true;
+        break;
+      }
+      if (matched) dropIds.add(item.id);
+    }
+    if (dropIds.size === 0) return;
+    setOptimisticMessages((current) => {
+      const next = current.filter((item) => !dropIds.has(item.id));
+      return next.length === current.length ? current : next;
+    });
+  }, [loadedMessageWires, optimisticMessages, selectedConversation]);
+
+  /**
+   * 发送失败的乐观条目不要一直挂在会话末尾。
+   *
+   * 之前失败后会永久占位，视觉上像「这条一直在发送」；而且它没有 seq，永远被排到
+   * 队尾。这里在失败后按固定 TTL 自动收掉三条乐观队列（普通消息 / Ark 卡片 / 合并
+   * 转发）里的对应条目 —— toast 已经说明过失败原因，用户不会因此丢信息。发送中 /
+   * 已发送的条目不动。
+   */
+  useEffect(() => {
+    const FAILED_TTL_MS = 6000;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const now = Date.now();
+    const sweep = (items: { id: string; state: string; at: number }[]): void => {
+      for (const item of items) {
+        if (item.state !== 'failed') continue;
+        const remaining = Math.max(0, FAILED_TTL_MS - (now - item.at));
+        timers.push(
+          setTimeout(() => {
+            // 三个队列都过一遍：id 带前缀，互不冲突，命中哪个删哪个。
+            setOptimisticMessages((current) => current.filter((x) => x.id !== item.id));
+            setOptimisticArks((current) => current.filter((x) => x.id !== item.id));
+            setOptimisticForwards((current) => current.filter((x) => x.id !== item.id));
+          }, remaining),
+        );
+      }
+    };
+    sweep(optimisticMessages);
+    sweep(optimisticArks);
+    sweep(optimisticForwards);
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [optimisticMessages, optimisticArks, optimisticForwards]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -3899,8 +4890,790 @@ export function MainView(): ReactElement {
     }));
   }
 
-  function updateDraft(_: string, __: string): void {
-    // 只读浏览器暂不保存草稿，保留回调以满足模板接口。
+  /**
+   * 输入框改动**只记在 ref 里**，不碰 React state —— 每敲一个字都 setState 会让
+   * 整棵 MainView（含侧边栏 + 聊天区）重渲，这正是之前输入卡顿的主因。
+   * 真正的 state 更新与落库都推迟到 flushDraft（离开会话 / 离开消息页 / 退出）。
+   */
+  const updateDraft = useCallback((conversationId: string, value: string): void => {
+    // 清空要**保留 key、存空串**（不是 delete）—— 规则与理由见
+    // `@weq/service/draft-edit`：`delete` 会让「清空了」和「没动过」不可区分，
+    // 落库时就会把上一次的旧正文再写回去。
+    pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
+    dirtyDraftsRef.current.add(conversationId);
+  }, []);
+
+  // 进入消息页时把 QQ 库里已有的草稿读进来（整表只有几行）。这是唯一一次读 ——
+  // 之后边打边改都只在内存，离开时才写回。
+  const draftQuery = trpc.account.listDrafts.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    const rows = draftQuery.data;
+    if (!rows) return;
+    const next: ConversationDrafts = {};
+    for (const row of rows) {
+      // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
+      const text = elementsToComposerText(row.elements ?? []);
+      if (text.trim()) next[row.targetUid] = text;
+    }
+    // 不覆盖本次会话里已经改过、还没落库的那几条 —— 以 pendingDraftsRef 为准
+    // （state 里的副本可能还没跟上）。
+    const merged: ConversationDrafts = { ...next };
+    for (const id of dirtyDraftsRef.current) {
+      const local = pendingDraftsRef.current[id];
+      if (local) merged[id] = local;
+      else delete merged[id];
+    }
+    setDrafts(merged);
+  }, [draftQuery.data]);
+
+  /**
+   * 把一个会话的草稿写回 QQ 库（或清掉）。**只在离开时调用**：产品决定不做逐字写、
+   * 也不做本地兜底 —— 写不进去就按没草稿处理。
+   */
+  const flushDraft = useCallback(
+    async (conversationId: string): Promise<void> => {
+      if (!dirtyDraftsRef.current.has(conversationId)) return;
+      // 主列表之外，隐藏会话 / 最近删除的会话也可能是当前打字的那个，都要能落库。
+      const conv =
+        conversations.find((c) => c.id === conversationId) ??
+        hiddenConversationsById.get(conversationId) ??
+        deletedConversationsById.get(conversationId);
+      if (!conv) return;
+      const peer =
+        conv.type === 'group'
+          ? ({ kind: 'group', targetUid: conv.group.identityValue } as const)
+          : conv.type === 'direct'
+            ? ({ kind: 'c2c', targetUid: conv.otherUser.id } as const)
+            : null;
+      if (!peer) return;
+      dirtyDraftsRef.current.delete(conversationId);
+      // 脏会话在 pendingDraftsRef 里一定有值（含空串 = 用户已清空）。只读它，
+      // 绝不回退到已落库的旧正文 —— 那正是「删了内容草稿还在」的根因。
+      const text = localDraftToWrite(pendingDraftsRef.current, conversationId);
+      try {
+        await client.account.saveDraft.mutate({
+          kind: peer.kind,
+          targetUid: peer.targetUid,
+          elements: toIpcElements(composerTextToElements(text)),
+        });
+      } catch (e) {
+        // 不做兜底：写不进 QQ 库就丢掉这次草稿（按产品决定）。仍然把本地视为
+        // 未落盘，下次离开时再试一次。
+        dirtyDraftsRef.current.add(conversationId);
+        console.error('[MainView] Failed to save draft:', e);
+        return;
+      }
+      // 落库成功后再同步一次 state —— 会话列表的草稿标记 / 切回来时的回填都读它。
+      // 每次「离开」最多一次，不会退回逐字重渲。
+      // 写库是异步的：期间用户可能又切回这个会话接着改（pending 已变、dirty 已重置）。
+      // 那种情况下这次落库的结果已经不是最新的，state 不能拿它盖掉新正文。
+      if (localDraftToWrite(pendingDraftsRef.current, conversationId) !== text) return;
+      setDrafts((current) => {
+        const next = { ...current };
+        if (text.trim()) next[conversationId] = text;
+        else delete next[conversationId];
+        return next;
+      });
+    },
+    [conversations, hiddenConversationsById, deletedConversationsById],
+  );
+
+  /**
+   * 所有还在钉着的会话离开当前窗口 —— 一次把脏草稿全落库。
+   * 用在「离开消息页」与「应用退出」这两个场合。
+   */
+  const flushAllDirtyDrafts = useCallback((): void => {
+    for (const id of [...dirtyDraftsRef.current]) void flushDraft(id);
+  }, [flushDraft]);
+  flushDraftRef.current = (conversationId: string) => {
+    void flushDraft(conversationId);
+  };
+
+  // 应用退出 / 窗口关闭：尽力写一次，写不进去就算了（产品决定不做兜底）。
+  useEffect(() => {
+    const onUnload = (): void => {
+      for (const id of [...dirtyDraftsRef.current]) {
+        const conv =
+          conversations.find((c) => c.id === id) ??
+          hiddenConversationsById.get(id) ??
+          deletedConversationsById.get(id);
+        if (!conv) continue;
+        const peer =
+          conv.type === 'group'
+            ? { kind: 'group' as const, targetUid: conv.group.identityValue }
+            : conv.type === 'direct'
+              ? { kind: 'c2c' as const, targetUid: conv.otherUser.id }
+              : null;
+        if (!peer) continue;
+        // 同步路径上 fire-and-forget：unload 阶段拿不到 await 的机会。
+        void client.account.saveDraft
+          .mutate({
+            kind: peer.kind,
+            targetUid: peer.targetUid,
+            // 空串 = 清掉草稿（见 `@weq/service/draft-edit`）。
+            elements: toIpcElements(
+              composerTextToElements(localDraftToWrite(pendingDraftsRef.current, id)),
+            ),
+          })
+          .catch(() => undefined);
+      }
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [conversations, hiddenConversationsById, deletedConversationsById]);
+
+  /**
+   * 从表情面板目录里抽出「能按超级表情发」的 faceId → packId/stickerId。
+   *
+   * 面板 overview 的形状随分组嵌套，这里不写死结构：递归扫出带 `sticker===true`
+   * 且 `id/packId/stickerId` 齐全的项。`(packId, stickerId)` 不唯一，所以键必须是
+   * faceId（`id`）。
+   */
+  function collectSuperStickers(value: unknown, out: Map<string, ComposerSuperSticker>): void {
+    if (Array.isArray(value)) {
+      for (const item of value) collectSuperStickers(item, out);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    if (
+      record.sticker === true &&
+      typeof record.id === 'string' &&
+      typeof record.packId === 'string' &&
+      record.packId &&
+      typeof record.stickerId === 'string' &&
+      record.stickerId
+    ) {
+      out.set(record.id, {
+        packId: record.packId,
+        stickerId: record.stickerId,
+        ...(typeof record.stickerType === 'number' ? { stickerType: record.stickerType } : {}),
+      });
+    }
+    for (const child of Object.values(record)) collectSuperStickers(child, out);
+  }
+
+  /**
+   * 发消息（输入框主链路）。
+   *
+   * `body` 是输入框序列化正文（文本 / @ / 引用 / 表情 / 图片 / 视频 / 语音 / 文件 /
+   * 弹射表情 / AI 声聊… 都可能在里面），`locals` 是其中媒体 / 文件的本地句柄。
+   * 这里把它翻成协议元素（见 {@link buildComposerSendPlan}）再分派 IPC：
+   *   - `elements` → `account.sendElements`（媒体在服务层真实上传）；
+   *   - `file`     → `account.sendFile`（独立文件管线，需要本机路径）；
+   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊）。
+   *
+   * 失败一律**抛错**：composer 以「onSend 正常返回」为发送成功信号，返回成功会清空
+   * 输入框；抛错路径会保留原文。服务端拒绝（result≠0）也不算成功。
+   */
+  async function sendMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
+    const conversation = selectedConversation;
+    if (!conversation) {
+      pushToast({ tone: 'warning', message: '没有选中的会话' });
+      throw new Error('no conversation');
+    }
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送消息',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // 只有带超级表情（`:big`）时才去拉目录；普通消息不为它多打一次 IPC。
+    const superStickers = new Map<string, ComposerSuperSticker>();
+    if (body.includes(':big')) {
+      try {
+        collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
+      } catch {
+        // 拉不到目录时保持空 Map —— 真发超级表情会由 buildComposerSendPlan 如实报错。
+      }
+    }
+
+    const plan = buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+
+    // ── 乐观渲染 ─────────────────────────────────────────────────────────
+    // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来
+    // +「发送中」标识。本地媒体用 localPath / localPreviewUrl 直接预览。只活在
+    // 前端 state 里，不写库、不落缓存文件。
+    const optimisticId = `optimistic-${mfId('msg')}`;
+    const render = buildOptimisticRender({ body, locals: locals ?? [], superStickers });
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: render.body,
+        elements: render.elements,
+        ...(plan.kind === 'aiVoice' ? { signatures: [`aiVoice:${plan.text}`] } : {}),
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    let outcome: {
+      ok: boolean;
+      errMsg?: string;
+      hint?: string;
+      groupSequence?: number;
+      privateSequence?: number;
+      random?: number;
+    };
+    try {
+      if (plan.kind === 'file') {
+        outcome = await client.account.sendFile.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          path: plan.path,
+          fileName: plan.fileName,
+        });
+      } else if (plan.kind === 'voice') {
+        // 录音是 webm/opus，主进程只收 WAV/SILK：先在渲染层解成 24k WAV。
+        const wav = await decodeRecordingToWav(plan.recording);
+        outcome = await client.account.sendVoice.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          wav: toIpcElements([wav])[0],
+          ...(plan.durationSec ? { durationSec: plan.durationSec } : {}),
+          ...(plan.voiceChanged ? { voiceChanged: true } : {}),
+          fileName: plan.fileName,
+        });
+      } else if (plan.kind === 'aiVoice') {
+        if (target.peerType !== 'group') {
+          pushToast({
+            tone: 'warning',
+            message: 'AI 声聊只支持群聊',
+            detail: '私聊没有这个能力，内容已为你保留在输入框里。',
+          });
+          throw new Error('ai voice requires group');
+        }
+        outcome = await client.account.sendAiVoice.mutate({
+          groupId: target.targetId,
+          voiceId: plan.voiceId,
+          text: plan.text,
+        });
+      } else {
+        outcome = await client.account.sendElements.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          elements: toIpcElements(plan.elements),
+        });
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({
+        tone: 'error',
+        message: '发送失败',
+        detail: reason,
+      });
+      throw error;
+    }
+
+    // 服务端明确拒绝（result≠0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
+    if (!outcome.ok) {
+      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({ tone: 'error', message: '发送失败', detail: reason });
+      throw new Error(reason);
+    }
+
+    // 回执里的 random / seq 用来对账与排序（与 Ark 同）。文件回执只有 random /
+    // privateSequence，AI 声聊回执两者都没有，所以分类处理。
+    if (plan.kind === 'file') {
+      const fileOutcome = outcome as Awaited<ReturnType<typeof client.account.sendFile.mutate>>;
+      patchOptimistic({
+        ...expectedKeysOf({
+          peerType: target.peerType,
+          ...(fileOutcome.privateSequence !== undefined
+            ? { privateSequence: fileOutcome.privateSequence }
+            : {}),
+          ...(fileOutcome.random !== undefined ? { random: fileOutcome.random } : {}),
+        }),
+        state: 'sent',
+      });
+      return;
+    }
+    if (plan.kind === 'aiVoice') {
+      // 0x929b_0 回执没有 random / seq：只能靠内容签名（合成原文）对账。
+      patchOptimistic({ state: 'sent' });
+      return;
+    }
+    patchOptimistic({
+      ...expectedKeysOf({
+        peerType: target.peerType,
+        ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
+        ...(outcome.privateSequence !== undefined
+          ? { privateSequence: outcome.privateSequence }
+          : {}),
+        ...(outcome.random !== undefined ? { random: outcome.random } : {}),
+      }),
+      state: 'sent',
+    });
+    if (isSeqRejected(outcome)) {
+      pushToast({
+        tone: 'warning',
+        message: '这条消息可能未被服务端接收',
+        detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
+      });
+    }
+  }
+
+  /**
+   * 私聊「窗口抖动」—— 直接接 protocol：`account.sendWindowShake` 走
+   * `MessageSvc.PbSendMsg` 的 `commonElem serviceType=2` 元素（见
+   * `MessageSendService.sendWindowShake`）。群聊没有这个能力，按钮已经在
+   * ChatPane 里按会话类型藏掉了，这里再兜一层。
+   */
+  async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '窗口抖动需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+
+    // 优先给 QQ 号：服务层会顺手补上 uid 一起写进 routingHead，本地 uid 目录里没有
+    // 这个人时也照样发得出去；连 QQ 号都拿不到（只有 uid）才退回 uid 反查。
+    const other = conversation.otherUser;
+    const targetId = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
+
+    // 乐观渲染：窗口抖动是**自己发出的一条消息**（戳一戳超级表情），第一时间插到
+    // 会话末尾；由 QqMessageContent 认领 `windowShake` 元素渲染。
+    const optimisticId = `optimistic-${mfId('ws')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: '[窗口抖动]',
+        elements: [{ type: 'windowShake', data: {} }],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    let outcome: Awaited<ReturnType<typeof client.account.sendWindowShake.mutate>>;
+    try {
+      outcome = await client.account.sendWindowShake.mutate({ targetId });
+    } catch (error) {
+      // 传输层异常（离线 / 风控 / 原生失败）走这里：弹一次提示再抛，让 ChatPane 收尾。
+      const reason = error instanceof Error ? error.message : String(error);
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({
+        tone: 'error',
+        message: '窗口抖动发送失败',
+        detail: reason,
+      });
+      throw error;
+    }
+
+    // 服务端明确拒绝（result != 0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
+    if (!outcome.ok) {
+      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
+      patchOptimistic({ state: 'failed', error: reason });
+      pushToast({
+        tone: 'error',
+        message: '窗口抖动发送失败',
+        detail: reason,
+      });
+      throw new Error(reason);
+    }
+    patchOptimistic({ ...expectedKeysOf(outcome), state: 'sent' });
+  }
+
+  /**
+   * 位置卡片要用的地理能力：地点搜索 + 逆地址解析，都走主进程的腾讯位置服务
+   * （渲染层 CSP 是 `connect-src 'self'`，而且 key 不该落进前端）。
+   *
+   * IPC 返回的形状与模板层的 `ArkPlaceSuggestion` / `ArkResolvedAddress` 结构一致，
+   * 所以这里直接透传，不做二次搬运。
+   */
+  const arkLocation = useMemo<ArkLocationProvider>(
+    () => ({
+      suggest: (keyword, center) =>
+        client.account.lbsSuggestPlaces.query({
+          keyword,
+          latitude: center.latitude,
+          longitude: center.longitude,
+        }),
+      reverse: (latitude, longitude) =>
+        client.account.lbsReverseGeocode.query({ latitude, longitude }),
+    }),
+    [],
+  );
+
+  /**
+   * Ark 面板「推荐好友 / 推荐群」的可选项：把已经查好的好友（`buddies` + `profiles`
+   * 补昵称/备注）与全部群（`allGroups`）拍平成面板能直接过滤的列表。
+   *
+   * 面板自己不碰 trpc（与 `arkLocation` 同一约定），所以这里只交数据、不做增量拉取：
+   * 好友上限 2000、群上限 2000，已经是主界面会话列表用的同一批数据。
+   */
+  const arkContacts = useMemo<ArkContactSource>(() => {
+    const profileByUid = new Map(
+      (profiles.data ?? []).map((profile) => [profile.uid, profile] as const),
+    );
+    const friends = (buddies.data ?? []).map((buddy) => {
+      const profile = profileByUid.get(buddy.uid);
+      return {
+        // 发给服务端的是 QQ 号（纯数字）；uid 只有当好友列表里没号时才退化使用。
+        id: buddy.uin,
+        name: (profile?.remark || profile?.nick || '').trim() || buddy.uin,
+        sub: `QQ ${buddy.uin}`,
+        avatarUrl: cachedAvatarUrl(avatarFromUin(buddy.uin, 100) ?? undefined) ?? undefined,
+      };
+    });
+    const groups = (allGroups.data ?? []).map((group) => ({
+      id: group.groupCode,
+      name: (group.remark || group.groupName || '').trim() || group.groupCode,
+      sub: group.memberCount ? `${group.memberCount} 人` : '群聊',
+      avatarUrl:
+        cachedAvatarUrl(avatarFromGroupCode(group.groupCode, 100) ?? undefined) ?? undefined,
+    }));
+    return { friends, groups };
+  }, [buddies.data, profiles.data, allGroups.data]);
+
+  /**
+   * 闪传文件框「发送」—— 面板给一组本地文件 + 封面，这里补上目标会话走 IPC。
+   *
+   * 与 Ark 卡片同一套：先插一条**乐观渲染**的闪传卡片（走真消息同一条渲染通路，
+   * 见 `buildFlashOptimisticElement`），再发。flash 的回执不给 seq（0x93d7 只回显目标），
+   * 所以对账靠**签名**：发出后拿到 `filesetUuid` + `shareUrl`，真消息回来时要么带
+   * `flashTransferInfo.fileSetId`（Win / 安卓的真卡片），要么是被降级成纯文本的分享
+   * 短码（Linux / 鸿蒙）—— 两条签名扫到任一条就把乐观条目收掉（见上面对账 effect）。
+   */
+  async function sendFlashTransfer(
+    conversation: Conversation,
+    payload: FlashSendPayload,
+  ): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '闪传需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送闪传',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    const first = payload.files[0];
+    const title =
+      payload.name.trim() ||
+      (payload.files.length === 1 && first
+        ? first.name
+        : `${first?.name ?? '文件'}等${payload.files.length}个文件`);
+    const fileBytes = payload.files.reduce((sum, file) => sum + (file.size || 0), 0);
+    const desc = flashDescOf(payload.files);
+    const coverUrl = payload.coverDataUrl || undefined;
+
+    const optimisticId = `optimistic-${mfId('fl')}`;
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        convId: conversation.id,
+        body: `[QQ闪传] ${title}`,
+        elements: [
+          buildFlashOptimisticElement({
+            title,
+            desc,
+            ...(coverUrl ? { coverUrl } : {}),
+            fileBytes,
+          }),
+        ],
+        state: 'sending',
+        at: Date.now(),
+      },
+    ]);
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+      setOptimisticMessages((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    try {
+      const result = await client.account.sendFlashTransfer.mutate({
+        peerType: target.peerType,
+        targetId: target.targetId,
+        files: payload.files.map((file) => ({ path: file.path, name: file.name })),
+        ...(payload.name.trim() ? { name: payload.name.trim() } : {}),
+        ...(payload.coverDataUrl ? { coverBase64: payload.coverDataUrl } : {}),
+      });
+      // 给乐观卡片补上 filesetId（自己点开也能看文件），并打上对账签名。
+      // Windows / 安卓端回来的真卡片带 filesetUuid；Linux / 鸿蒙端被服务端降级成纯文本，
+      // 只剩回执 shareUrl 里的分享短码 —— 两条都登记，哪条先到都能把乐观卡片收掉。
+      const shareCode = flashShareCodeOfUrl(result.shareUrl);
+      patchOptimistic({
+        state: 'sent',
+        signatures: [`flash:${result.filesetUuid}`, ...(shareCode ? [`flash:${shareCode}`] : [])],
+        elements: [
+          buildFlashOptimisticElement({
+            title,
+            desc,
+            ...(coverUrl ? { coverUrl } : {}),
+            fileBytes,
+            filesetId: result.filesetUuid,
+          }),
+        ],
+      });
+      pushToast({
+        tone: 'success',
+        message: '闪传已发出',
+        detail: `${title} · 卡片已经落到会话里，封面与文件正在后台传输`,
+      });
+    } catch (err) {
+      patchOptimistic({
+        state: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Ark 卡片的目标会话 → IPC 的 `{peerType, targetId}`。
+   * 聚合会话（服务号 / 公众号 / 隐藏 / 删除）没有可发送的目标，返回 null。
+   */
+  function sendTargetOf(
+    conversation: Conversation,
+  ): { peerType: 'c2c' | 'group'; targetId: string } | null {
+    if (conversation.type === 'group') {
+      return { peerType: 'group', targetId: conversation.group.identityValue };
+    }
+    if (conversation.type === 'direct') {
+      const other = conversation.otherUser;
+      // 优先给 QQ 号：服务层会顺手补上 uid；只有 uid 时才退回 uid 反查。
+      return {
+        peerType: 'c2c',
+        targetId: /^\d+$/.test(other.identityValue) ? other.identityValue : other.id,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Ark 卡片面板「发送」—— 面板把卡片内容交上来，这里补上**当前会话**的
+   * peerType / targetId 再走 IPC。三类载荷对应三条 route：
+   *
+   *   推荐好友 / 推荐群 → account.sendContactArkCard（服务端取卡 → 发 lightApp 元素）
+   *   位置卡片          → account.sendLocationArkCard（trpc LocationArk 裸 SSO）
+   *   图文              → account.sendTuwenArk（0xdc2_34 服务端下发，与群反馈的
+   *                        GitHub issue/PR 卡片同一条路）
+   *   自定义 JSON       → account.sendArkCard（自己拼的 ark JSON → lightApp 元素）
+   *
+   * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
+   */
+  async function sendArkCard(conversation: Conversation, payload: ArkPayload): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发送卡片需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+
+    // 目标会话：群聊给群号，私聊优先给 QQ 号（服务层会顺手补上 uid）。
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发送卡片',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // ── 乐观卡片 ───────────────────────────────────────────────────────────
+    // 与合并转发同一条路子（见 forwardMergeDraft）：发出去之后不等 QQ 同步回来，先在
+    // 会话末尾插一张卡片 + 状态标识。只活在前端 state 里，不写库、不落缓存。
+    // 位置卡片与自定义 JSON 从一开始就是最终形状；推荐好友 / 推荐群先画一张本地占位
+    // 卡，拿到服务端取回的那份 arkJson 后原位替换（所以同步到位时不会跳变）。
+    const optimisticId = `optimistic-${mfId('oa')}`;
+    const startOptimistic = (arkData: string): void => {
+      setOptimisticArks((current) => [
+        ...current,
+        {
+          id: optimisticId,
+          convId: conversation.id,
+          arkData,
+          signature: arkCardSignature(arkData),
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+    };
+    const patchOptimistic = (next: Partial<OptimisticArk>): void =>
+      setOptimisticArks((current) =>
+        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
+      );
+
+    try {
+      if (payload.type === 'contact') {
+        startOptimistic(buildContactPlaceholderArk(payload.kind, payload.contactId));
+        const outcome = await client.account.sendContactArkCard.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          kind: payload.kind,
+          contactId: payload.contactId,
+          ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
+        });
+        if (!outcome.ok) {
+          throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+        }
+        // 服务端取回的那份 arkJson 就是它下发的内容：用它替掉占位卡，顺便对齐签名；
+        // 同时记下回执给的 random（cid，对账主键）与群聊辅助 seq —— 真消息一回来
+        // 就靠它们把乐观卡片收掉。
+        patchOptimistic({
+          ...(outcome.arkJson
+            ? { arkData: outcome.arkJson, signature: arkCardSignature(outcome.arkJson) }
+            : {}),
+          ...expectedKeysOf(outcome),
+          state: 'sent',
+        });
+        if (isSeqRejected(outcome)) {
+          pushToast({
+            tone: 'warning',
+            message: `${payload.kind === 'qq' ? '推荐好友卡片' : '推荐群卡片'}可能未被服务端接收`,
+            detail:
+              '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。' +
+              '请让对方确认是否收到；若没有，换一种内容重发。',
+          });
+          return;
+        }
+        pushToast({
+          tone: 'success',
+          message: payload.kind === 'qq' ? '推荐好友卡片已发送' : '推荐群卡片已发送',
+        });
+        return;
+      }
+
+      if (payload.type === 'location') {
+        startOptimistic(buildLocationArkJson(payload));
+        const outcome = await client.account.sendLocationArkCard.mutate({
+          peerType: target.peerType,
+          targetId: target.targetId,
+          address: payload.address,
+          region: payload.region,
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+        });
+        // 这条 trpc 的回包格式没抓到样本，拿不到 random / seq —— 乐观卡片只能靠
+        // 「坐标签名」对账（服务端会重写卡片文案，但经纬度就是我们发出去的那两个数）。
+        patchOptimistic({ state: 'sent' });
+        // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
+        // 不给一个「已送达」的假信号。
+        pushToast({ tone: 'info', message: '位置卡片请求已发出', detail: outcome.hint });
+        return;
+      }
+
+      if (payload.type === 'tuwen') {
+        // 图文卡片：**服务端下发**（0xdc2_34），与群反馈的 GitHub issue/PR 卡片同一条路 ——
+        // 不再自己拼一段 `com.tencent.tuwen.lua` 的 ark JSON 当 lightApp 元素发（那样必然
+        // 失败）。协议要的是纯数字目标（私聊 = QQ 号，群聊 = 群号）。
+        const targetId = target.targetId;
+        if (!/^\d+$/.test(targetId)) {
+          throw new Error(
+            '图文卡片需要纯数字目标：私聊要 QQ 号。当前会话只拿得到 UID，请改用「自定义 JSON」发送。',
+          );
+        }
+        // 乐观卡片：用同一份字段拼出与旧版同形的 news 卡，发出去就有反馈。真卡片由服务端
+        // 生成、靠 `tuwen:<jumpUrl>` 签名收掉（见 arkCardSignature）。
+        startOptimistic(
+          buildTuwenArkJson({
+            jumpUrl: payload.jumpUrl,
+            title: payload.title,
+            desc: payload.desc,
+            previewUrl: payload.previewUrl,
+          }),
+        );
+        const outcome = await client.account.sendTuwenArk.mutate({
+          peerType: target.peerType,
+          targetId,
+          title: payload.title,
+          desc: payload.desc,
+          jumpUrl: payload.jumpUrl,
+          previewUrl: payload.previewUrl,
+        });
+        if (!outcome.ok) {
+          throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+        }
+        // 0xdc2_34 的回包没有 random / seq（服务端也不给 message_id），乐观条目只能靠
+        // jumpUrl 签名对账，这里只把状态改成已发送。
+        patchOptimistic({ state: 'sent' });
+        pushToast({ tone: 'success', message: '图文卡片已发送' });
+        return;
+      }
+
+      startOptimistic(payload.arkData);
+      const outcome = await client.account.sendArkCard.mutate({
+        peerType: target.peerType,
+        targetId: target.targetId,
+        arkData: payload.arkData,
+      });
+      if (!outcome.ok) {
+        throw new Error(outcome.hint ?? outcome.errMsg ?? '服务端拒绝了这张卡片');
+      }
+      patchOptimistic({
+        ...expectedKeysOf(outcome),
+        state: 'sent',
+      });
+      if (isSeqRejected(outcome)) {
+        pushToast({
+          tone: 'warning',
+          message: '卡片可能未被服务端接收',
+          detail:
+            '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条（常见于签名 / 内容不合规）。' +
+            '请让对方确认是否收到；若没有，换一种内容重发。',
+        });
+        return;
+      }
+      pushToast({ tone: 'success', message: '卡片已发送' });
+    } catch (error) {
+      // 失败不删卡：留着那张卡片 + 「发送失败」标识，比一个只闪现几秒的 toast 有用。
+      patchOptimistic({
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      pushToast({
+        tone: 'error',
+        message: '卡片发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   async function noopAsync(): Promise<void> {
@@ -3951,12 +5724,24 @@ export function MainView(): ReactElement {
             }
             friendNoticeCount={contactRequests.length}
             groupNoticeCount={groupRequests.length}
-            onViewChange={shell.switchView}
-            onGoHome={() => shell.switchView('home')}
+            onViewChange={(view) => {
+              // 离开消息页 —— 另一个草稿落库时机。
+              if (shell.view === 'messages' && view !== 'messages') {
+                flushAllDirtyDrafts();
+              }
+              shell.switchView(view);
+            }}
+            onGoHome={() => {
+              if (shell.view === 'messages') {
+                flushAllDirtyDrafts();
+              }
+              shell.switchView('home');
+            }}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
+            onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -3984,7 +5769,7 @@ export function MainView(): ReactElement {
                     selectedGroupConversationId={shell.selectedGroupConversationId}
                     selectedContactId={shell.selectedContactId}
                     conversationPrefs={conversationPrefs}
-                    drafts={emptyDrafts}
+                    drafts={drafts}
                     contacts={buddyContacts}
                     loading={sidebarLoading}
                     onLoadMoreConversations={loadMoreContacts}
@@ -4083,7 +5868,7 @@ export function MainView(): ReactElement {
                       loadingMessages={loadingInitialMessages}
                       atLatest={anchoredToLatest}
                       conversationPrefs={conversationPrefs}
-                      drafts={emptyDrafts}
+                      drafts={drafts}
                       query={shell.query}
                       onAcceptContactRequest={noopAsync}
                       onRejectContactRequest={noopAsync}
@@ -4105,8 +5890,16 @@ export function MainView(): ReactElement {
                       onGroupMemberSearchChange={setMemberSearchKeyword}
                       onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
+                      sendAvailable={Boolean(
+                        sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+                      )}
                       onOpenNotificationSettings={noopAsync}
-                      onSend={noopAsync}
+                      onSend={sendMessage}
+                      onSendWindowShake={sendWindowShake}
+                      onSendArk={sendArkCard}
+                      arkLocation={arkLocation}
+                      arkContacts={arkContacts}
+                      onSendFlash={sendFlashTransfer}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}
@@ -4118,10 +5911,12 @@ export function MainView(): ReactElement {
                       onOpenGroupEssence={handleOpenGroupEssence}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
+                      onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
                       groupBugOnline={groupBugStatus.data?.online ?? false}
                       onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                       onOpenGroupMember={handleOpenGroupMember}
                       onAddMessage={handleAddMessage}
+                      onMergeForward={handleMergeForward}
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
@@ -4293,6 +6088,15 @@ export function MainView(): ReactElement {
               onClose={() => setGroupBugDialog(null)}
             />
           ) : null}
+          {groupLeftMembersDialog ? (
+            <GroupLeftMembersDialog
+              groupName={groupLeftMembersDialog.groupName}
+              members={groupLeftMemberRows}
+              loading={groupLeftMembers.isFetching}
+              error={groupLeftMembers.error ? (groupLeftMembers.error.message ?? '查询失败') : null}
+              onClose={() => setGroupLeftMembersDialog(null)}
+            />
+          ) : null}
           {essenceDialog ? (
             <GroupEssenceDialog
               groupCode={essenceDialog.groupCode}
@@ -4367,6 +6171,28 @@ export function MainView(): ReactElement {
               selfUid={selfProfile.data?.uid}
               onClose={() => setAddMessageConv(null)}
               onInserted={() => void refreshWindow()}
+            />
+          ) : null}
+          {mergeForwardDraft ? (
+            <MergeForwardDialog
+              initialDraft={mergeForwardDraft.draft}
+              self={mergeForwardSelf}
+              senderMode={mergeForwardDraft.senderMode}
+              members={mergeForwardDraft.members}
+              targets={mergeForwardTargets}
+              sendAvailable={mergeForwardSendAvailable}
+              onClose={() => setMergeForwardDraft(null)}
+              onPersist={persistMergeForwardDraft}
+              onForward={forwardMergeDraft}
+            />
+          ) : null}
+          {mergeForwardLibraryOpen ? (
+            <MergeForwardLibraryDialog
+              self={mergeForwardSelf}
+              targets={mergeForwardTargets}
+              sendAvailable={mergeForwardSendAvailable}
+              onClose={() => setMergeForwardLibraryOpen(false)}
+              onForward={forwardMergeDraft}
             />
           ) : null}
           {deletedConv ? (

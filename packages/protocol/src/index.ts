@@ -17,6 +17,11 @@
  *   oidb/get-qq-show-url.ts      — GetQqShowUrl (0xFE1_3, QQ 秀 URL)。
  *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
  *   oidb/send-tuwen-ark.ts       — SendTuwenArk (0xdc2_34, 图文 Ark 卡片发送)。
+ *   oidb/send-contact-ark.ts     — 推荐好友 / 推荐群 Ark 卡片（0x12b6_0 取卡 + 0x8b7_5 取卡 → PbSendMsg 直接发送）。
+ *   oidb/send-location-ark.ts    — SendLocationArk (trpc LocationArk.SsoSendMessage, 位置卡片发送)。
+ *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
+ *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
+ *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
  *   oidb/flashtransfer/  — 闪传 fileset OIDB 服务 + 上传编排。
@@ -55,6 +60,35 @@ export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 export { SendTuwenArk } from './oidb/send-tuwen-ark';
 export type { SendTuwenArkParams, SendTuwenArkResult } from './oidb/send-tuwen-ark';
+export {
+  GetBuddyRecommendArk,
+  GetGroupRecommendArk,
+  getContactArk,
+  sendBuddyContactArk,
+  sendContactArk,
+  sendGroupContactArk,
+} from './oidb/send-contact-ark';
+export type {
+  BuddyRecommendArkParams,
+  ContactArkKind,
+  ContactArkNative,
+  ContactArkPeerType,
+  GroupRecommendArkParams,
+  SendContactArkParams,
+  SendContactArkResult,
+} from './oidb/send-contact-ark';
+export { SendLocationArk, LOCATION_ARK_CMD } from './oidb/send-location-ark';
+export type { SendLocationArkParams } from './oidb/send-location-ark';
+export { SendAiVoice } from './oidb/send-ai-voice';
+export type {
+  SendAiVoiceParams,
+  SendAiVoiceResult,
+  AiVoiceFileInfo,
+} from './oidb/send-ai-voice';
+export { SendPoke } from './oidb/send-poke';
+export type { SendPokeParams } from './oidb/send-poke';
+export { SetReaction } from './oidb/set-reaction';
+export type { SetReactionParams } from './oidb/set-reaction';
 export { FetchClientKey } from './oidb/fetch-client-key';
 export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
@@ -67,3 +101,4 @@ export * from './highway';
 export * from './oidb/flashtransfer';
 
 export * from './msg';
+export * from './file';

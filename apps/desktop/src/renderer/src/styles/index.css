@@ -451,16 +451,9 @@ html[data-theme="dark"] .chat-empty {
   }
 
   .weq-readonly-chat .chat-pane {
-    grid-template-rows: var(--chat-header-height) minmax(0, 1fr);
+    /* 输入区保持可见（模板自带 composer，由 sendAvailable 控制发送按钮灰/亮），
+       这里不再压掉第三行网格，也不再 display:none。 */
     background: var(--chat-surface);
-  }
-
-  .weq-readonly-chat .composer {
-    display: none;
-  }
-
-  .weq-readonly-chat .chat-pane.with-group-info .group-info-panel {
-    grid-row: 2;
   }
 
   .weq-chat-action-bar {
@@ -4152,10 +4145,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 
-.weq-readonly-chat .chat-pane {
-  grid-template-rows: var(--chat-header-height) minmax(0, 1fr) 0 !important;
-}
-
 .weq-readonly-chat .message-scroll {
   grid-row: 2;
   background: var(--chat-surface) !important;
@@ -4178,14 +4167,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-readonly-chat .message-scroll::-webkit-scrollbar-thumb {
   background: transparent !important;
   box-shadow: none !important;
-}
-
-.weq-readonly-chat .composer {
-  display: none !important;
-}
-
-.weq-readonly-chat .chat-pane.with-group-info .group-info-panel {
-  grid-row: 2 !important;
 }
 
 /* Rail footer: settings button */
@@ -7619,6 +7600,18 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   transform: none;
 }
 
+/* 自己的头像没有资料卡点击，但同样要能右键弹「@他 / 戳一戳」，所以用一层不改变
+   外观的包裹容器承载 onContextMenu。 */
+.message-avatar-wrap {
+  flex: none;
+  display: block;
+  border-radius: 50%;
+}
+
+.message-line.mine .message-avatar-wrap {
+  cursor: default;
+}
+
 html[data-theme="dark"] .weq-member-pop {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   background:
@@ -9390,6 +9383,19 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   flex-direction: column;
   gap: 12px;
 }
+
+/* 转发窗口 / 合成转发预览里的居中灰条行（撤回、戳一戳、群提示、群通话结束…）。
+   与主面板同一条分流（见 im-template/template/messageRow.tsx），只是左右留白更小。 */
+.weq-forward-graytip {
+  display: block;
+  padding: 0 4px;
+}
+.weq-forward-graytip > * {
+  width: 100%;
+}
+
+/* 深色模式：灰条里的灰字在深底上太淡，跟主面板的 weq-graytip 一样不用重映射 ——
+   这里只保证转发窗口的背景色与主面板一致，灰条自然可读。 */
 
 /* 消息装扮预览卡片样式 */
 .weq-decoration-card {
@@ -15343,7 +15349,6 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
   padding: 5px 12px;
   border: 0;
   border-radius: 7px;
@@ -15356,6 +15361,9 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
 }
 .weq-wtools-rv-copy:hover {
   filter: brightness(1.06);
+}
+.weq-wtools-rv-result-head .weq-wtools-rv-seg:last-child {
+  margin-left: auto;
 }
 .weq-wtools-rv-json {
   overflow: auto;
@@ -17414,11 +17422,13 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 /* Avatar rides the same easing so the whole row reads as deleted. */
 .message-line.is-deleted > .avatar,
+.message-line.is-deleted > .message-avatar-wrap,
 .message-line.is-deleted > .message-avatar-button {
   opacity: 0.6;
   transition: opacity 0.16s ease;
 }
 .message-line.is-deleted:hover > .avatar,
+.message-line.is-deleted:hover > .message-avatar-wrap,
 .message-line.is-deleted:hover > .message-avatar-button {
   opacity: 0.85;
 }
@@ -17532,6 +17542,61 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   乐观渲染标识 (im-template/messageBubble)
+   发出去但还没被 QQ 同步回来的合并转发：气泡下方一枚小标签告诉你它的状态。
+   sending = 转圈呼吸，sent = 静默绿，failed = 红。这条消息只活在前端 state 里。 */
+.weq-msg-optimistic-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  border-radius: 6px;
+  width: fit-content;
+  user-select: none;
+  color: var(--weq-fg-muted);
+  background: color-mix(in srgb, var(--weq-fg-muted) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+}
+
+.weq-msg-optimistic-tag.is-sending svg {
+  animation: weq-msg-optimistic-pulse 1.1s ease-in-out infinite;
+}
+
+.weq-msg-optimistic-tag.is-sent {
+  color: color-mix(in srgb, #34c759 74%, var(--weq-fg-muted));
+  background: color-mix(in srgb, #34c759 10%, transparent);
+  border-color: color-mix(in srgb, #34c759 24%, transparent);
+}
+
+.weq-msg-optimistic-tag.is-failed {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 10%, transparent);
+  border-color: color-mix(in srgb, #ff6b6b 26%, transparent);
+}
+
+/* 回执 seq=0：服务端收下却没分配序号 = 大概率被静默丢弃，用琥珀色区别于成功的绿色。 */
+.weq-msg-optimistic-tag.is-rejected {
+  color: color-mix(in srgb, #e0a800 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, #e0a800 12%, transparent);
+  border-color: color-mix(in srgb, #e0a800 28%, transparent);
+}
+
+@keyframes weq-msg-optimistic-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    群精华角标 (im-template/messageBubble)
    消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，气泡右下角打一个
    「四芒星 精华」小标。作为气泡 grid 的最后一行，右对齐、margin-top 上贴气泡
@@ -17624,6 +17689,43 @@ html[data-theme="dark"] .weq-graytip-band {
 }
 .weq-graytip-muted {
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+
+/* 私聊窗口抖动的乐观渲染：自己发出的一条消息，画面是会轻轻晃动的戳一戳超级表情
+   （不是灰条）。容器由 QqMessageContent 以 sticker-only 渲染，这里只管表情的晃动。 */
+.weq-window-shake {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.weq-window-shake img,
+.weq-window-shake .face-emoji {
+  transform-origin: 50% 62%;
+  animation: weq-window-shake 820ms ease-in-out infinite;
+}
+
+@keyframes weq-window-shake {
+  0%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  22% {
+    transform: rotate(-3.4deg) translateX(-2px);
+  }
+  48% {
+    transform: rotate(2.6deg) translateX(2px);
+  }
+  72% {
+    transform: rotate(-1.6deg) translateX(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-window-shake img,
+  .weq-window-shake .face-emoji {
+    animation: none;
+  }
 }
 
 /* 群通话灰条：图标与文字同行居中（发起人名字用 .weq-graytip-accent 着色）。 */
@@ -21596,4 +21698,1437 @@ html.weq-theme-ripple::view-transition-new(root) {
 	html.weq-theme-ripple::view-transition-new(root) {
 		animation: none;
 	}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   合并转发 / 合成聊天记录（components/mergeForward/*）
+   ══════════════════════════════════════════════════════════════════════════
+   颜色全部走主题 token（--weq-accent-effective / --weq-fg-* / --weq-bg-*），
+   高低模式自动跟随。预览行复用 .weq-forward-* 的那套 class，因此逐条消息的
+   装扮（气泡 / 字体 / 挂件）与真正打开合并转发时一模一样。 */
+
+.weq-mf-modal,
+.weq-mf-lib-modal {
+  overflow: hidden;
+}
+
+.weq-mf,
+.weq-mf-lib {
+  display: flex;
+  flex-direction: column;
+  max-height: min(86vh, 760px);
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────────── */
+.weq-mf-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-head-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 700;
+}
+
+.weq-mf-head-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-mf-head-avatar-plain {
+  border-radius: 10px;
+}
+
+.weq-mf-head-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-mf-head-title strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.weq-mf-title-input {
+  width: 100%;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 650;
+  background: transparent;
+  outline: none;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.weq-mf-title-input:hover {
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-mf-title-input:focus {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-head-sub {
+  padding-left: 6px;
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-icon-btn {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.weq-mf-icon-btn:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* ── 主体 / 页脚 ─────────────────────────────────────────────────────── */
+.weq-mf-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-mf-foot {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-foot-spacer {
+  flex: 1;
+}
+
+.weq-mf-soft,
+.weq-mf-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+.weq-mf-soft {
+  border: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-soft:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mf-primary {
+  border: 1px solid transparent;
+  color: #fff;
+  background: var(--weq-accent-effective);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+}
+
+.weq-mf-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+}
+
+.weq-mf-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.weq-mf-primary:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── 编辑区：预览列表 ─────────────────────────────────────────────────── */
+.weq-mf-composer {
+  display: flex;
+  flex-direction: column;
+  height: min(62vh, 520px);
+  min-height: 0;
+}
+
+.weq-mf-preview {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 1rem 1.1rem 1.4rem;
+  overflow-y: auto;
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 6%, transparent),
+      transparent 70%
+    ),
+    var(--weq-bg-elevated);
+}
+
+html[data-theme="dark"] .weq-mf-preview {
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      transparent 70%
+    ),
+    color-mix(in srgb, var(--weq-bg-surface) 82%, black);
+}
+
+.weq-mf-preview-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+}
+
+.weq-mf-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-row {
+  padding: 4px 2px;
+  border-radius: 12px;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-avatar {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.weq-mf-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  text-transform: uppercase;
+}
+
+/* 悬停插入：一条细线 + 居中的小胶囊，平时几乎不可见。 */
+.weq-mf-insert {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  height: 20px;
+  margin: 1px 0;
+  padding: 0 10px;
+  border: 1px dashed transparent;
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-slot:hover .weq-mf-insert,
+.weq-mf-insert:focus-visible {
+  opacity: 1;
+}
+
+.weq-mf-insert:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mf-add {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  height: 32px;
+  margin-top: 8px;
+  padding: 0 16px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-add:hover {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* ── 内联消息编辑器 ───────────────────────────────────────────────────── */
+.weq-mf-inline-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 4px 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 10px 26px -18px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
+}
+
+.weq-mf-inline-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.weq-mf-sender-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px 0 2px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-sender-chip:hover {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-sender-chip img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.weq-mf-inline-hint {
+  margin-left: auto;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-textarea {
+  min-height: 74px;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-primary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: var(--weq-bg-elevated);
+  outline: none;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-textarea:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-segs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-mf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-chip-keep {
+  border-style: dashed;
+}
+
+.weq-mf-inline-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.weq-mf-inline-spacer {
+  flex: 1;
+}
+
+.weq-mf-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+
+.weq-mf-tool:hover,
+.weq-mf-tool.active {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-keep-note {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-error {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  color: var(--destructive);
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+
+/* ── 右键菜单 ─────────────────────────────────────────────────────────── */
+.weq-mf-menu {
+  position: fixed;
+  z-index: 5000;
+  display: flex;
+  flex-direction: column;
+  min-width: 154px;
+  padding: 5px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.weq-mf-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.weq-mf-menu button:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-menu button.danger:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+/* ── 发送人 / 会话选择器 ──────────────────────────────────────────────── */
+.weq-mf-picker,
+.weq-mf-targets {
+  display: flex;
+  flex-direction: column;
+  height: min(62vh, 520px);
+  min-height: 0;
+}
+
+.weq-mf-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem 0.2rem;
+}
+
+.weq-mf-picker-head strong {
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.weq-mf-picker-spacer {
+  flex: 1;
+}
+
+.weq-mf-search {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.7rem 0.9rem 0.5rem;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-elevated);
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-search:focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-search-input {
+  flex: 1;
+  border: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: transparent;
+  outline: none;
+}
+
+.weq-mf-picker-scroll,
+.weq-mf-target-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 0 0.6rem 0.6rem;
+  overflow-y: auto;
+}
+
+.weq-mf-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.2rem 1rem;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.weq-mf-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.5rem 0.35rem;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-person,
+.weq-mf-target {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.weq-mf-person:hover,
+.weq-mf-target:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-target.checked {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-person-avatar,
+.weq-mf-target-avatar {
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.weq-mf-person-name,
+.weq-mf-target-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-person-uin,
+.weq-mf-target-uin {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-mf-target-check {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  border-radius: 6px;
+  color: #fff;
+  background: transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.weq-mf-target-check.on {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+/* 手动填 QQ 号 + 昵称 */
+.weq-mf-manual {
+  flex-shrink: 0;
+  padding: 0.6rem 0.9rem 0.85rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-manual-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-manual-toggle:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.weq-mf-manual-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.weq-mf-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: var(--weq-bg-elevated);
+  outline: none;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-input:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+/* ── 合成聊天列表 ─────────────────────────────────────────────────────── */
+.weq-mf-lib-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  overflow-y: auto;
+}
+
+.weq-mf-lib-new {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+  border-radius: 12px;
+  color: var(--weq-accent-effective);
+  text-align: left;
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-lib-new:hover {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-lib-new span {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-lib-new strong {
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.weq-mf-lib-new em {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.weq-mf-lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-mf-lib-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  border-radius: 10px;
+  transition: background 0.12s ease;
+}
+
+.weq-mf-lib-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-lib-item-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 9px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-lib-item-title {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-lib-item-meta {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-mf-lib-item-btn {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.weq-mf-lib-item-btn:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-lib-item-btn.danger:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+
+/* ── 分段编辑器（合并转发重构新增）─────────────────────────────────────
+   一条消息 = 一串「分段」。这里定义分段列表、每段的小编辑器、以及嵌套节点。 */
+
+.weq-mf-row-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-row:hover .weq-mf-row-edit {
+  opacity: 1;
+}
+
+.weq-mf-row-edit:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-mf-avatar-img {
+  width: 40px;
+  height: 40px;
+}
+
+.weq-mf-mode-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-inline-editor-nested {
+  margin: 4px 0 0;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.weq-mf-inline-spacer {
+  flex: 1;
+}
+
+.weq-mf-seg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(46vh, 420px);
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.weq-mf-seg-empty {
+  padding: 14px 8px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.weq-mf-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-seg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-mf-seg-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.weq-mf-seg-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weq-mf-seg-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-seg-actions button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-seg-actions button.danger:hover:not(:disabled) {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
+
+.weq-mf-seg-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.weq-mf-add-wrap {
+  position: relative;
+}
+
+/* portal 到 body + fixed：不受对话框 overflow:hidden 裁切（以前在顶部会被切掉）；
+   z-index 用内联的 useOverlayLayer 值（对话框自己也占一层，CSS 数字会被压住），
+   这里的 61 只是未走 hook 时的保底。关闭靠文档级监听，不再挂全屏遮罩。 */
+.weq-mf-add-menu {
+  position: fixed;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 38px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-add-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.weq-mf-add-sep {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--weq-border-subtle);
+}
+
+/* 「插入聊天记录」：进入嵌套转发的**唯一**入口，做得比图标格显眼。 */
+.weq-mf-add-record {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  text-align: left;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-add-record:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-mf-add-record-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-mf-add-record-text b {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.weq-mf-add-record-text em {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.weq-mf-add-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-add-item:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-tool:hover:not(:disabled) {
+  border-style: solid;
+}
+
+.weq-mf-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.weq-mf-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weq-mf-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-input:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-input.mono,
+.weq-mf-textarea.mono {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.weq-mf-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-field input {
+  width: 90px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-file-thumb {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: var(--weq-bg-muted, transparent);
+}
+
+.weq-mf-file-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-note {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-at-editor,
+.weq-mf-face-editor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-mf-at {
+  font-weight: 700;
+}
+
+/* @ 候选浮层：定位 / 层级由 PortaledPopover 的内联样式给（portal 到 body +
+   useOverlayLayer 发层，静态 z-index 会被对话框压住），这里只管外观与内容约束。 */
+.weq-mf-at-menu {
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  max-height: min(58vh, 380px);
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-at-menu .weq-mf-search {
+  margin: 0 0 6px;
+}
+
+.weq-mf-at-menu .weq-mf-manual {
+  padding: 6px 2px 2px;
+}
+
+.weq-mf-at-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-mf-at-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-at-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 表情面板：同 @ 候选，定位 / 层级走 PortaledPopover。高度必须给死——
+   FacePicker 是 height:100%，没有确定高度就不出内容。 */
+.weq-mf-face-pop {
+  height: min(300px, 58vh);
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-nested {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+.weq-mf-nested-label {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+/* 嵌套转发的预览卡片。 */
+.weq-mf-nested-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-nested-title {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.weq-mf-nested-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-mf-nested-line {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-line-name {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted);
+}
+
+.weq-mf-nested-line-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-nested-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-nested-foot-action {
+  margin-left: auto;
+}
+
+.weq-mf-nested-line-empty {
+  color: var(--weq-fg-muted);
+  font-style: italic;
+}
+
+/* ── 「聊天记录」分段的编辑器：折叠=一张卡片，展开=带工具栏的编辑区 ────────── */
+.weq-mf-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-record-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-record-edit:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* 记录里的消息列表：一条消息 = 一行「头像 + 昵称 + 内容」。 */
+.weq-mf-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weq-mf-record-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-record-msg {
+  padding: 4px 2px;
+  border-radius: 12px;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-record-msg:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-record-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+/* 引用段的编辑器。 */
+.weq-mf-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-nested-bar-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-editing {
+  gap: 8px;
+  border-style: solid;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-nested-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+}
+
+.weq-mf-nested-bar-title {
+  flex: 1;
+  font-weight: 650;
+}
+
+.weq-mf-nested-sender {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  padding: 3px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  background: var(--weq-bg-surface);
+  cursor: pointer;
+}
+
+.weq-mf-nested-sender:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+}
+
+.weq-mf-nested-sender span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-nested-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  background: var(--weq-accent-effective);
+  cursor: pointer;
+}
+
+.weq-mf-nested-done:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+}
+
+/* 嵌在聊天记录里的编辑器：靠外层的工具栏进出，内层不再重复头部。 */
+.weq-mf-inline-editor-embedded {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+
+.weq-mf-inline-editor-embedded .weq-mf-inline-tools {
+  padding-top: 0.5rem;
 }
