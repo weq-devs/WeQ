@@ -36,14 +36,14 @@ const CAPTURE_FLASH_ELEM = [
   'aa03fe01080312f90112f601',
   '0a2445344230423635303535443332374239393344383345353341303033303946442e6a7067',
   '10caa006',
-  '1a372f323836333235333230312d313132323238313635312d4534423042363530353544333237'
-    + '423939334438334535334130303330394644',
+  '1a372f323836333235333230312d313132323238313635312d4534423042363530353544333237' +
+    '423939334438334535334130303330394644',
   '28e807',
   '3a10e4b0b65055d327b993d83e53a00309fd',
   '40800f',
   '489d0b',
-  '52372f323836333235333230312d313132323238313635312d4534423042363530353544333237'
-    + '423939334438334535334130303330394644',
+  '52372f323836333235333230312d313132323238313635312d4534423042363530353544333237' +
+    '423939334438334535334130303330394644',
   '6800',
   'ea013a0800180020005000a2010c080012001800200028003a00',
   'fa01204242464344344341464338393836384641343530314546314235304538383138',
@@ -97,7 +97,11 @@ describe('闪照元素打包', () => {
 
   it('serviceType=3 且不写 businessType，pbElem 里是老式图片记录', () => {
     const elems = buildSendElems([FLASH_ELEMENT], { scene: 'c2c' });
-    const common = elems[0]!.commonElem as { serviceType: number; businessType?: number; pbElem: Uint8Array };
+    const common = elems[0]!.commonElem as {
+      serviceType: number;
+      businessType?: number;
+      pbElem: Uint8Array;
+    };
     expect(common.serviceType).toBe(FLASH_PHOTO_SERVICE_TYPE);
     // 普通图（serviceType=48）才带 businessType，闪照抓包里没有这个字段。
     expect(common.businessType).toBeUndefined();
@@ -113,9 +117,9 @@ describe('闪照元素打包', () => {
     expect(pic.picHeight).toBe(1920);
     expect(pic.picWidth).toBe(1437);
     expect(pic.original).toBe(0);
-    expect([...(pic.picMd5 as Uint8Array)].map((b) => b.toString(16).padStart(2, '0')).join('')).toBe(
-      CAPTURE_PIC.md5Hex,
-    );
+    expect(
+      [...(pic.picMd5 as Uint8Array)].map((b) => b.toString(16).padStart(2, '0')).join(''),
+    ).toBe(CAPTURE_PIC.md5Hex);
     const pbRes = pic.pbRes as Record<string, unknown>;
     expect(pbRes.md5Str).toBe(CAPTURE_PIC.md5Str);
     expect(pbRes.subType).toBe(0);
@@ -151,15 +155,20 @@ describe('闪照元素打包', () => {
   });
 
   it('fallbackText 可覆盖（仍是一个图片 + 一条文本）', () => {
-    const elems = buildSendElems([{ kind: 'flashPhoto', pic: CAPTURE_PIC, fallbackText: '看这里' }], {
-      scene: 'c2c',
-    });
+    const elems = buildSendElems(
+      [{ kind: 'flashPhoto', pic: CAPTURE_PIC, fallbackText: '看这里' }],
+      {
+        scene: 'c2c',
+      },
+    );
     expect((elems[1]!.text as { str: string }).str).toBe('看这里');
   });
 
   it('校验：md5 / 文件名 / 大小不合法时在打包前报错', () => {
-    const bad = (pic: Partial<SendFlashPhotoElement['pic']>): (() => unknown) => () =>
-      buildSendElems([{ kind: 'flashPhoto', pic: { ...CAPTURE_PIC, ...pic } }], { scene: 'c2c' });
+    const bad =
+      (pic: Partial<SendFlashPhotoElement['pic']>): (() => unknown) =>
+      () =>
+        buildSendElems([{ kind: 'flashPhoto', pic: { ...CAPTURE_PIC, ...pic } }], { scene: 'c2c' });
     expect(bad({ md5Hex: 'e4b0' })).toThrow(/32 位 hex/);
     expect(bad({ fileName: '' })).toThrow(/pic\.fileName/);
     expect(bad({ fileSize: 0 })).toThrow(/pic\.fileSize/);
