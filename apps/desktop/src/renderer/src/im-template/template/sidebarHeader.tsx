@@ -1,6 +1,6 @@
 ﻿// @ts-nocheck
 import { ChevronRight, Plus, Search, UserPlus, UsersRound } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
@@ -19,6 +19,8 @@ export function SidebarHeader({
   contactTab,
   onContactTabChange,
   activeNotice,
+  searchPanel,
+  onSearchFocus,
   friendNoticeCount: _friendNoticeCount = 0,
   groupNoticeCount: _groupNoticeCount = 0,
 }: {
@@ -34,6 +36,14 @@ export function SidebarHeader({
   contactTab: ContactTab;
   onContactTabChange: (tab: ContactTab) => void;
   activeNotice: 'friend' | 'group' | null;
+  /**
+   * 挂在搜索框正下方的浮层（统一搜索下拉 / 最近搜索）。
+   *
+   * 由 SidebarHeader 自己渲染，而不是塞进可滚动的 sidebar-body —— 挂在 body 里
+   * 的话它会跟着列表一起被滚走，会话列表滚到中间时根本看不见。
+   */
+  searchPanel?: ReactNode;
+  onSearchFocus?: () => void;
   friendNoticeCount?: number;
   groupNoticeCount?: number;
 }) {
@@ -141,10 +151,12 @@ export function SidebarHeader({
           <input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
+            onFocus={() => onSearchFocus?.()}
             placeholder="搜索"
           />
         </label>
         <div className={cn('desktop-sidebar-add')}>{renderAddMenu()}</div>
+        {searchPanel ? <div className={cn('search-panel-slot')}>{searchPanel}</div> : null}
       </div>
       {view === 'contacts' ? (
         <div className={cn('contact-tools')}>

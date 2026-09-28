@@ -16,6 +16,12 @@ export { DraftDb, draftStorageKey } from './draft';
 export type { Draft, DraftDbOptions, DraftWriteInput } from './draft';
 export { DeletedSessionDb } from './deleted_session';
 export type { DeletedSessionDbOptions } from './deleted_session';
+export { SearchHistoryDb } from './search_history';
+export type {
+  SearchHistoryDbOptions,
+  SearchHistoryEntry,
+  SearchHistoryKind,
+} from './search_history';
 export { ServiceAssistantContactDb } from './service_assistant_contact';
 export type { ServiceAssistantContactDbOptions } from './service_assistant_contact';
 export type {

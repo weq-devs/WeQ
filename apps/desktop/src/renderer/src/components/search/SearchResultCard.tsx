@@ -17,7 +17,8 @@ export function c2cAvatarSrc(uin: string): string | null {
   return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
 }
 
-function fileExtIcon(fileName: string): string {
+/** 文件名 → 通用文件图标（resources 里的 png 名）。 */
+export function fileExtIcon(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
     doc: 'doc.png',
@@ -89,7 +90,8 @@ function fileExtIcon(fileName: string): string {
   return map[ext] ?? 'unknown.png';
 }
 
-function Avatar({
+/** 头像：加载失败/无地址时退回首字。搜索下拉与「最近搜索」共用。 */
+export function SearchAvatar({
   url,
   fallbackText,
   className = 'weq-search-avatar',
@@ -139,7 +141,7 @@ export function SearchResultCard({
     case 'conversation': {
       const isGroup = hit.chatType === 2;
       media = (
-        <Avatar
+        <SearchAvatar
           url={isGroup ? groupAvatarSrc(hit.targetUid) : c2cAvatarSrc(hit.targetUin)}
           fallbackText={hit.name.slice(0, 1)}
         />
@@ -150,7 +152,7 @@ export function SearchResultCard({
     }
     case 'friend': {
       media = (
-        <Avatar
+        <SearchAvatar
           url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })}
           fallbackText={hit.nick.slice(0, 1)}
         />
@@ -161,7 +163,10 @@ export function SearchResultCard({
     }
     case 'groupMember': {
       media = (
-        <Avatar url={groupAvatarSrc(hit.groupCode)} fallbackText={hit.groupName.slice(0, 1)} />
+        <SearchAvatar
+          url={groupAvatarSrc(hit.groupCode)}
+          fallbackText={hit.groupName.slice(0, 1)}
+        />
       );
       title = hit.groupName;
       subtitle = (
@@ -172,7 +177,7 @@ export function SearchResultCard({
     case 'chatRecord': {
       const isGroup = hit.source === 'group';
       media = (
-        <Avatar
+        <SearchAvatar
           url={isGroup ? groupAvatarSrc(hit.targetUid) : c2cAvatarSrc(hit.targetUin)}
           fallbackText={hit.name.slice(0, 1)}
         />

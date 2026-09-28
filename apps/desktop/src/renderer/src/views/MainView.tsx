@@ -94,6 +94,7 @@ import { RecalledMessagesModal } from '../components/compose/RecalledMessagesMod
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
+import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
 import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
 import type {
@@ -103,6 +104,7 @@ import type {
   SearchHit,
   SlowSearchResult,
 } from '../components/search/types';
+import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
@@ -2757,6 +2759,10 @@ export function MainView(): ReactElement {
   // so the user can reach contact/group results underneath. Clicking the
   // search box or typing a new query restores the dropdown.
   const [searchDismissed, setSearchDismissed] = useState(false);
+  // 搜索框是否被点开 —— 点开且什么都没输入时显示「最近搜索」。
+  const [searchFocused, setSearchFocused] = useState(false);
+  // QQ 自己的最近搜索命中（nt_msg.db 的 search_history），一次读回后常驻。
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryHit[] | null>(null);
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
@@ -4597,6 +4603,26 @@ export function MainView(): ReactElement {
     return () => window.clearTimeout(timer);
   }, [searchQuery, shell.view]);
 
+  // 搜索框刚点开、还什么都没输入 → 显示 QQ 自己的「最近搜索」（search_history 表，
+  // 只读、只有几行）。读一次就常驻，不在每次聚焦时重新拉。
+  useEffect(() => {
+    if (!searchFocused || searchQuery || searchHistory !== null) return undefined;
+    if (shell.view !== 'messages' && shell.view !== 'contacts') return undefined;
+    let cancelled = false;
+    client.account.searchHistory
+      .query({ limit: 20 })
+      .then((items) => {
+        if (!cancelled) setSearchHistory(items as SearchHistoryHit[]);
+      })
+      .catch((err) => {
+        console.error('[search] searchHistory failed', err);
+        if (!cancelled) setSearchHistory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchFocused, searchQuery, searchHistory, shell.view]);
+
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
   const jumpToConvSeq = useCallback(
@@ -4662,6 +4688,22 @@ export function MainView(): ReactElement {
       }
     },
     [jumpToConvSeq, searchQuery],
+  );
+
+  // 「最近搜索」命中点击 → 直接开那个会话。文件命中只有 msgId、没有会话内 seq，
+  // 所以只打开会话（不弹「未找到该消息位置」）。
+  const openHistoryHit = useCallback(
+    (entry: SearchHistoryHit): void => {
+      setSearchFocused(false);
+      if (entry.kind === 'file') {
+        const group = entry.chatType === 2;
+        jumpToConvSeq(group ? 'group' : 'c2c', group ? entry.groupCode : entry.uid);
+        return;
+      }
+      const conv = entry.kind === 'friend' ? entry.uid : entry.groupCode;
+      jumpToConvSeq(entry.kind === 'friend' ? 'c2c' : 'group', conv);
+    },
+    [jumpToConvSeq],
   );
 
   // Load the newest page whenever the open conversation changes. The render-time
@@ -4861,9 +4903,12 @@ export function MainView(): ReactElement {
   }, [selectedConversation?.id, templateMessages.length]);
 
   useEffect(() => {
-    if (!searchQuery) return undefined;
+    if (!searchQuery && !searchFocused) return undefined;
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setSearchDismissed(true);
+      if (event.key === 'Escape') {
+        setSearchDismissed(true);
+        setSearchFocused(false);
+      }
     }
     function onMouseDown(event: MouseEvent): void {
       const target = event.target;
@@ -4871,6 +4916,7 @@ export function MainView(): ReactElement {
         // Click inside the search box → restore the dropdown.
         if (target.closest('.search-box')) {
           setSearchDismissed(false);
+          setSearchFocused(true);
           return;
         }
         // Click inside the dropdown itself → let them pick a result.
@@ -4881,6 +4927,8 @@ export function MainView(): ReactElement {
       // Click anywhere else in the sidebar body → temporarily hide the
       // dropdown so the user can reach the contact/group list underneath.
       setSearchDismissed(true);
+      // 点开搜索框但什么都没输入时显示的是「最近搜索」，同样点外面就收起。
+      setSearchFocused(false);
     }
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onMouseDown);
@@ -4888,7 +4936,7 @@ export function MainView(): ReactElement {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onMouseDown);
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchFocused]);
 
   function updateConversationPreference(
     conversationId: string,
@@ -5799,6 +5847,27 @@ export function MainView(): ReactElement {
             onOpenHelp={() => setHelpOpen(true)}
             onOpenInvite={noopAsync}
             onQueryChange={shell.setQuery}
+            onSearchFocus={() => {
+              setSearchFocused(true);
+              setSearchDismissed(false);
+            }}
+            // 搜索框下方的浮层：输入了就走统一搜索下拉，点开但空着就显示「最近搜索」。
+            // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
+            searchPanel={
+              searchQuery && !searchDismissed ? (
+                <SearchDropdown
+                  keyword={searchQuery}
+                  quick={searchQuick}
+                  quickLoading={searchQuickLoading}
+                  slow={searchSlow}
+                  slowLoading={searchSlowLoading}
+                  onSelect={openSearchHit}
+                  onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
+                />
+              ) : searchFocused && !searchQuery && searchHistory && searchHistory.length > 0 ? (
+                <SearchHistoryPanel items={searchHistory} onSelect={openHistoryHit} />
+              ) : null
+            }
             onQuickInvite={noopAsync}
             onCreateGroup={noopAsync}
             onOpenFriendNotices={() => shell.openContactNotice('friend')}
@@ -5829,17 +5898,6 @@ export function MainView(): ReactElement {
                     onSelectGroup={shell.selectGroup}
                     activateToolsOnSelect={false}
                   />
-                  {searchQuery && !searchDismissed ? (
-                    <SearchDropdown
-                      keyword={searchQuery}
-                      quick={searchQuick}
-                      quickLoading={searchQuickLoading}
-                      slow={searchSlow}
-                      slowLoading={searchSlowLoading}
-                      onSelect={openSearchHit}
-                      onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
-                    />
-                  ) : null}
                   <OverlayScrollbar
                     targetSelector=".app-shell .sidebar-body"
                     className="weq-sidebar-scrollbar"

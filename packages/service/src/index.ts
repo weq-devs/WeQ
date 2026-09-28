@@ -276,6 +276,7 @@ export type {
   ChatRecordSearchHit,
   FileSearchHit,
   ConversationRecordHit,
+  SearchHistoryHit,
   QuickSearchResult,
   SlowSearchResult,
   MoreSearchResult,

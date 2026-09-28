@@ -22,6 +22,7 @@ import {
   GroupMsgDb,
   RecentContactDb,
   RecentContactTopDb,
+  SearchHistoryDb,
   HiddenSessionDb,
   DraftDb,
   DeletedSessionDb,
@@ -382,6 +383,7 @@ export async function openStaticAccount(
   const groupMsgs = new GroupMsgDb(nt, opts(msgDbPath));
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
   const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
+  const searchHistory = new SearchHistoryDb(nt, opts(msgDbPath));
   const hiddenSessions = new HiddenSessionDb(nt, opts(msgDbPath));
 
   const drafts = new DraftDb(nt, opts(msgDbPath));
@@ -472,6 +474,7 @@ export async function openStaticAccount(
     groupMsgs,
     recentContacts,
     recentContactTops,
+    searchHistory,
     hiddenSessions,
     drafts,
     deletedSessions,
@@ -507,6 +510,7 @@ export async function openStaticAccount(
       groupMsgs.close();
       recentContacts.close();
       recentContactTops.close();
+      searchHistory.close();
       hiddenSessions.close();
       drafts.close();
       deletedSessions.close();

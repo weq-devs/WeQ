@@ -15,6 +15,7 @@ import {
   GroupMsgDb,
   RecentContactDb,
   RecentContactTopDb,
+  SearchHistoryDb,
   HiddenSessionDb,
   DraftDb,
   DeletedSessionDb,
@@ -155,6 +156,8 @@ export interface AccountSession {
   readonly groupMsgs: GroupMsgDb;
   /** Recent-conversation list. */
   readonly recentContacts: RecentContactDb;
+  /** 最近搜索命中（search_history，搜索框空着时下拉里展示的那一份）。 */
+  readonly searchHistory: SearchHistoryDb;
   /** 置顶会话（recent_contact_top_table）。 */
   readonly recentContactTops: RecentContactTopDb;
   /** 隐藏会话（hidden_session_storage_table_v1）。 */
@@ -339,6 +342,12 @@ export async function openAccount(
   });
 
   const recentContactTops = new RecentContactTopDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
+  const searchHistory = new SearchHistoryDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: a(msgDbPath),
@@ -554,6 +563,7 @@ export async function openAccount(
     groupMsgs,
     recentContacts,
     recentContactTops,
+    searchHistory,
     hiddenSessions,
     drafts,
     deletedSessions,
@@ -589,6 +599,7 @@ export async function openAccount(
       groupMsgs.close();
       recentContacts.close();
       recentContactTops.close();
+      searchHistory.close();
       hiddenSessions.close();
       drafts.close();
       deletedSessions.close();

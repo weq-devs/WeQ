@@ -21,6 +21,8 @@ export function ChatShell({
   railFooterContent,
   friendNoticeCount,
   groupNoticeCount,
+  searchPanel,
+  onSearchFocus,
   sidebarContent,
   mainContent,
   children,
@@ -61,6 +63,9 @@ export function ChatShell({
   railFooterContent?: ReactNode;
   friendNoticeCount: number;
   groupNoticeCount: number;
+  /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
+  searchPanel?: ReactNode;
+  onSearchFocus?: () => void;
   sidebarContent: ReactNode;
   mainContent: ReactNode;
   children?: ReactNode;
@@ -141,6 +146,8 @@ export function ChatShell({
             contactTab={contactTab}
             onContactTabChange={onContactTabChange}
             activeNotice={activeNotice}
+            searchPanel={searchPanel}
+            onSearchFocus={onSearchFocus}
             friendNoticeCount={friendNoticeCount}
             groupNoticeCount={groupNoticeCount}
           />

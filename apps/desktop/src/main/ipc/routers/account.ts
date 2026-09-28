@@ -2602,6 +2602,16 @@ export const accountRouter = router({
       return requireServices().unifiedSearch.slowSearch(input.keyword, input.limit);
     }),
 
+  /**
+   * QQ 自己的「最近搜索」（nt_msg.db 的 search_history 表）——搜索框空着、刚点开
+   * 时下拉里显示的那一份，最近搜过的在最前。只读、只有几行。
+   */
+  searchHistory: procedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }).default({}))
+    .query(async ({ input }) => {
+      return requireServices().unifiedSearch.searchHistory(input.limit);
+    }),
+
   /** Full paginated results for a search category (the "more" modal). */
   searchMore: procedure
     .input(

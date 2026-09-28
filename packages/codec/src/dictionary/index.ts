@@ -8,7 +8,7 @@
  * schema hierarchy alongside the bytes. Small tags (1, 2, 3, …) are reused
  * freely by nested messages and carry no global meaning, so we never name them.
  *
- * That premise holds for 665 of the 674 (tag, name) pairs in the tree. The
+ * That premise holds for 620 of the 629 (tag, name) pairs in the tree. The
  * remaining 9 tags genuinely disagree between schemas (40010 is `isSender` on
  * an element but `chatType` in the unread blob, 1005 is `uid` or `key`, …), so
  * `lookupTag` reports those as `ambiguous` with every candidate name rather
@@ -42,6 +42,7 @@ import * as profileExt from '../proto/profile/21000';
 import * as profileCategory from '../proto/profile/25011';
 import * as profileOnlineStatus from '../proto/profile/48902';
 import * as friendInfo from '../proto/user_info/friend_info';
+import * as searchHistory from '../proto/msg/search_history';
 
 const MODULES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['collection', collection],
@@ -58,6 +59,7 @@ const MODULES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['msg/40900', msgCache],
   ['msg/48902', msgUnread],
   ['msg/element', msgElement],
+  ['msg/search_history', searchHistory],
   ['profile/20057', profileCustomStatus],
   ['profile/20072', profileGroupRelation],
   ['profile/21000', profileExt],

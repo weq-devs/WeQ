@@ -128,6 +128,36 @@ export interface QuickSearchResult {
   groupMembers: GroupMemberSearchHit[];
 }
 
+/**
+ * One `search_history` row（QQ 的「最近搜索」）— already JSON-safe, so the IPC
+ * layer returns the array as-is.
+ *
+ * `kind` picks which fields matter:
+ *   - friend      — uid / uin / nick / categoryName(好友分组) / matchedText
+ *   - groupMember — uid / uin / nick / groupCard / groupCode / groupName
+ *   - group       — groupCode / groupName（群头像用群号）
+ *   - file        — fileName / fileSize / groupCode / groupName / sendTime /
+ *                   msgId（file 的 uid/nick 是发送者）
+ */
+export interface SearchHistoryHit {
+  kind: 'friend' | 'groupMember' | 'group' | 'file';
+  uid: string;
+  uin: string;
+  qid: string;
+  name: string;
+  nick: string;
+  groupCard: string;
+  categoryName: string;
+  groupCode: string;
+  groupName: string;
+  chatType: number;
+  fileName: string;
+  fileSize: number;
+  sendTime: string;
+  msgId: string;
+  matchedText: string;
+}
+
 export interface SlowSearchResult {
   chatRecords: ChatRecordSearchHit[];
   files: FileSearchHit[];
@@ -311,6 +341,35 @@ export class UnifiedSearchService {
       })),
       groupMembers: memberHits,
     };
+  }
+
+  /**
+   * QQ 自己的「最近搜索命中」列表（`nt_msg.db` 的 `search_history` 表）——
+   * 搜索框空着时下拉里显示的那一份，最近搜过的在最前。
+   *
+   * 只读、只有几行，不需要分页；一行里带齐了展示需要的名字 / 头像种子
+   * （uid / uin / 群号）和命中的那一段名字。
+   */
+  async searchHistory(limit = 20): Promise<SearchHistoryHit[]> {
+    const rows = await this.session.searchHistory.list(limit);
+    return rows.map((r) => ({
+      kind: r.kind,
+      uid: r.uid,
+      uin: r.uin.toString(),
+      qid: r.qid,
+      name: r.name,
+      nick: r.nick,
+      groupCard: r.groupCard,
+      categoryName: r.categoryName,
+      groupCode: r.groupCode > 0n ? r.groupCode.toString() : '',
+      groupName: r.groupName,
+      chatType: r.chatType,
+      fileName: r.fileName,
+      fileSize: r.fileSize,
+      sendTime: r.sendTime.toString(),
+      msgId: r.msgId,
+      matchedText: r.matchedText,
+    }));
   }
 
   /** Slow categories: chat records + files. Cached per keyword (30s TTL). */

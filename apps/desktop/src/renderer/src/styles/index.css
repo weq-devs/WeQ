@@ -8060,13 +8060,15 @@ html[data-theme="dark"] .chat-empty-logo {
   position: relative;
 }
 
+/* 定位交给搜索框下面的 .search-panel-slot（见 sidebar.css），这里只给外观。
+   以前它是绝对定位在 .sidebar-body 顶部的，会被会话列表一起滚走。
+   宽度由 slot（= 搜索框那一列）撑满，别再写死左右内边距。 */
 .weq-search-dropdown {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 60;
-  margin: 6px 8px 0;
+  margin: 6px 0 0;
   background: var(--popover, #ffffff);
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;

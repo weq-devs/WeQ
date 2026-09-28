@@ -59,11 +59,37 @@
 }
 
 .search-row {
+	position: relative;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) 42px;
 	gap: 10px;
 	align-items: center;
 	padding: 0 18px;
+}
+
+/*
+ * 搜索框正下方的浮层（统一搜索下拉 / 最近搜索）。
+ *
+ * 两个要点：
+ *   1. 锚在 .search-row 上，而不是塞进可滚动的 .sidebar-body —— 之前它绝对定位在 body
+ *      顶部，会话列表一滚就跟着内容一起被卷走，列表在中间/底部时输入什么都看不到。
+ *   2. 宽度跟 .sidebar-header（= 整个侧栏）对齐，左右各让 8px，和以前一样；
+ *      不要再用「行内边距 + 按钮宽度」去凑搜索框那一列 —— .app-shell 下那列留不留
+ *      按钮随布局变，硬算就会缩成一小条。
+ */
+.search-panel-slot {
+	position: absolute;
+	top: 100%;
+	left: 8px;
+	right: 8px;
+	z-index: 60;
+	/* 只负责定位（浮层与搜索框之间的 6px 间距由浮层自己的 margin-top 给）：
+	   空隙不挡下面会话列表的点击。 */
+	pointer-events: none;
+}
+
+.search-panel-slot > * {
+	pointer-events: auto;
 }
 
 .search-box {
