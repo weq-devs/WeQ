@@ -95,6 +95,11 @@ export type GroupMember = User & {
   customTitle?: string | null;
   memberLevel?: number;
   levelName?: string | null;
+  /**
+   * 成员 QQ 号（group_member3 1002）。空串 / `'0'` = 表里没有可用 uin 的占位行，
+   * 群成员列表据此把它和空 uid 的行一起剔除。
+   */
+  uin?: string;
 };
 
 export type ConversationHighlightKind =

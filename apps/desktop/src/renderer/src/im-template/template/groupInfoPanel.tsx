@@ -68,9 +68,13 @@ export function GroupInfoPanel({
   // 搜索还没生效（防抖 / 请求在飞）时，命中列表为空但不能报「没找到」——
   // 结果没回来之前只能用 loading 占位。
   const searchPending = Boolean(memberSearch?.loading);
-  // uid 为空 / null 的成员是无效行（群成员表里可能有这种占位），不显示。
+  // uid / uin 为空 / null 的成员是无效行（群成员表里可能有这种占位），不显示；
+  // uin 为 `'0'` 同样表示表里没有可用 QQ 号。
   const rows = (searching ? searchMembers : conversation.members).filter(
-    (member) => String(member.id ?? '').trim() !== '',
+    (member) =>
+      String(member.id ?? '').trim() !== '' &&
+      String(member.uin ?? '').trim() !== '' &&
+      member.uin !== '0',
   );
   // 搜索与成员分页各自有错误 / 加载态，这里归一成一份，JSX 只判一个分支。
   const activeError = searching ? (memberSearch?.error ?? null) : loadingError;

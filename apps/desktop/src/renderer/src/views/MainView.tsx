@@ -955,6 +955,7 @@ function groupMemberWireToMember(
     identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
     identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
     username: m.uid,
+    uin: m.uin,
     displayName: m.card || m.nick || m.uin || 'Member',
     avatarUrl: senderAvatarSrc(m.uin),
     kind: ctx.botUids.has(m.uid) ? 'bot' : 'human',
@@ -3862,11 +3863,17 @@ export function MainView(): ReactElement {
       }
     });
 
-    // uid 为空的成员是无效行（群成员表里可能有空 uid 的占位），不进成员列表 /
-    // 成员表 —— 它们解析不出人，只会多出一行空白。
+    // uid / uin 为空的成员是无效行（群成员表里可能有这种占位），不进成员列表 /
+    // 成员表 —— 它们解析不出人，只会多出一行空白；uin 为空 / `'0'` 时展示只能退
+    // 回 uid，同样没有意义。
     const mapped: GroupMember[] = allMemberWires
       .map(mapGroupMemberWire)
-      .filter((member) => String(member.id ?? '').trim() !== '');
+      .filter(
+        (member) =>
+          String(member.id ?? '').trim() !== '' &&
+          String(member.uin ?? '').trim() !== '' &&
+          member.uin !== '0',
+      );
 
     return mapped.sort((a, b) => {
       const roleScore = { owner: 0, admin: 1, member: 2 };

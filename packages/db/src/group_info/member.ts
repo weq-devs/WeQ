@@ -83,13 +83,15 @@ export class GroupMemberDb {
    *
    * QQ keeps the member row after someone leaves (only 64016 flips to 1), so
    * this is the opposite filter of {@link listMembersInGroup}. Rows with an
-   * empty uid are dropped here too — they can't be resolved to a person and
-   * would render as a blank row.
+   * empty uid / uin are dropped here too — they can't be resolved to a person,
+   * and would render as a blank row or a raw uid with no QQ number.
    */
   async listLeftMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_member3
-       WHERE "60001" = ? AND "64016" = 1 AND "1000" IS NOT NULL AND "1000" <> ''
+       WHERE "60001" = ? AND "64016" = 1
+         AND "1000" IS NOT NULL AND "1000" <> ''
+         AND "1002" IS NOT NULL AND "1002" <> 0
        ORDER BY "64007" DESC
        LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
