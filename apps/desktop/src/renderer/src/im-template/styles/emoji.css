@@ -552,7 +552,7 @@ html[data-theme="dark"] .emoji-lb {
 	outline: 0;
 	background: transparent;
 	color: var(--weq-fg-primary, #111111);
-	font-size: 17px;
+	font-size: 13.5px;
 	line-height: 1.5;
 	overflow: auto;
 	white-space: pre-wrap;

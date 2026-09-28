@@ -10,13 +10,17 @@
  * would take FaceEmoji's Lottie branch and loop the sticker forever.
  *
  * The count is parsed out of `emojiBounceTextSummary` (e.g. 「你弹射了3个[大笑]」);
- * no digits found → no badge, which is the right answer for a single bounce.
+ * no digits found → no badge, which is the right answer for a single bounce. The
+ * badge reuses the composer panel's compact formatting (21.47亿 / 1.5万) so an
+ * int32-max bounce can't stretch the corner badge across the whole row.
  */
 
 import type { ReactElement } from 'react';
 import { FaceEmoji } from './FaceEmoji';
+import { formatBounceCount } from '../lib/bounceCount';
 
-const BOUNCE_SIZE = 40;
+/** 大表情尺寸 —— 与贴表情（QqMessageContent 的 STICKER_SIZE）同一档。 */
+const BOUNCE_SIZE = 135;
 
 /** First run of digits in the summary text — QQ's phrasing varies by client. */
 function parseCount(summary: string | undefined): number | null {
@@ -45,7 +49,7 @@ export function QqEmojiBounce({
   return (
     <span className="weq-emoji-bounce" title={summary || label}>
       <FaceEmoji element={{ faceId: emojiBounceId ?? 0, faceText: label }} size={BOUNCE_SIZE} />
-      {count ? <span className="weq-emoji-bounce-count">×{count}</span> : null}
+      {count ? <span className="weq-emoji-bounce-count">×{formatBounceCount(count)}</span> : null}
     </span>
   );
 }

@@ -8434,26 +8434,55 @@ html[data-theme="dark"] .chat-empty-logo {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-/* 表情弹射 (elementType=27)：静态表情 + 右下角 ×N 角标。 */
+/* 表情弹射 (elementType=27)：大表情 + 右下角 ×N（黄字蓝边，0.3s 一闪）。 */
 .weq-emoji-bounce {
   position: relative;
   display: inline-block;
   line-height: 0;
 }
+
+/* 角标「闪变」：水平 0.3s → 倾斜 15° 0.3s → 循环。steps(1, end) 让每一段都保持
+   起始帧、到点硬切过去，中间不插值 —— 要的就是这种闪变，不要补间。 */
+@keyframes weq-emoji-bounce-count-tick {
+  0% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(15deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
 .weq-emoji-bounce-count {
   position: absolute;
-  right: -4px;
-  bottom: -2px;
-  min-width: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: #e2403a;
-  color: #ffffff;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  right: 4px;
+  bottom: 4px;
+  color: #ffd21e;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* 蓝描边画在字形外面，所以用 8 向 text-shadow；`-webkit-text-stroke` 的描边是压在
+     字形边界上的，会把黄色填充啃掉一圈。 */
+  text-shadow:
+    -2px -2px 0 #12a8ff,
+    2px -2px 0 #12a8ff,
+    -2px 2px 0 #12a8ff,
+    2px 2px 0 #12a8ff,
+    -2px 0 0 #12a8ff,
+    2px 0 0 #12a8ff,
+    0 -2px 0 #12a8ff,
+    0 2px 0 #12a8ff;
+  animation: weq-emoji-bounce-count-tick 0.6s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-emoji-bounce-count {
+    animation: none;
+  }
 }
 
 /* 动作按钮 */

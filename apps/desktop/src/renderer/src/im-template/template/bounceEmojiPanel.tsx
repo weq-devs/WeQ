@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { RefObject } from 'react';
 import { Rocket, Search, SendHorizontal, Smile, Sparkles, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { formatBounceCount } from '../../lib/bounceCount';
 import { cn } from './classNames';
 import { elementToToken } from './draftElements';
 import { systemFaceItem } from './emojiPacks';
@@ -52,21 +53,6 @@ function bareFaceName(desc: string, faceId: string): string {
   const trimmed = desc.trim();
   const inner = /^\[(.*)\]$/.exec(trimmed)?.[1];
   return (inner ?? trimmed) || faceId;
-}
-
-/**
- * 数字的紧凑写法 —— 角标只有十几个字符宽，`2,147,483,647` 放不下，
- * 用 `21.47亿` / `1.5万` 这种。
- */
-export function formatBounceCount(count: number): string {
-  if (!Number.isFinite(count)) return '—';
-  if (count < 10000) return String(count);
-  if (count >= 100000000) {
-    const text = Math.round((count / 100000000) * 100) / 100;
-    return `${text}亿`;
-  }
-  const text = Math.round((count / 10000) * 100) / 100;
-  return `${text}万`;
 }
 
 /**

@@ -14,6 +14,7 @@
 
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { flashPreviewLabel } from './flashShare';
+import { SELF_LABEL } from './selfIdentity';
 
 export type PreviewNode =
   | { t: 'text'; text: string }
@@ -44,7 +45,13 @@ const KIND_LABEL: Record<string, string> = {
 
 type Rec = Record<string, unknown>;
 
-export function previewNodes(preview: unknown): PreviewNode[] {
+/** 没有「自己」身份上下文时的占位集合（如公会私信列表）。 */
+const NO_SELF: ReadonlySet<string> = new Set();
+
+export function previewNodes(
+  preview: unknown,
+  selfIdentities: ReadonlySet<string> = NO_SELF,
+): PreviewNode[] {
   if (!preview || typeof preview !== 'object') return [];
   const el = preview as Rec;
   const kind = str(el.kind);
@@ -63,7 +70,7 @@ export function previewNodes(preview: unknown): PreviewNode[] {
   // 灰条优先读自带的 payload —— 它比 displayText 完整，且灰条常常根本没有
   // displayText（全库 400 条会话里 grayTipGroup/Poke/Xml 无一例外）。
   if (kind.startsWith('grayTip')) {
-    const nodes = grayTipNodes(el, kind);
+    const nodes = grayTipNodes(el, kind, selfIdentities);
     if (nodes?.length) return nodes;
   }
 
@@ -101,7 +108,7 @@ export function previewNodesToText(nodes: PreviewNode[]): string {
 
 // ---------- 灰条 ----------------------------------------------------------
 
-function grayTipNodes(el: Rec, kind: string): PreviewNode[] | null {
+function grayTipNodes(el: Rec, kind: string, self: ReadonlySet<string>): PreviewNode[] | null {
   if (kind === 'grayTipRevoke') {
     const text = str(el.recallDisplayText).trim();
     return text ? [{ t: 'text', text }] : null;
@@ -117,7 +124,7 @@ function grayTipNodes(el: Rec, kind: string): PreviewNode[] | null {
   }
 
   // 戳一戳 / XML 类灰条（表情回应、入群邀请、…）：两种等价编码，XML 更常见。
-  const names = nameByUid(el);
+  const names = nameByUid(el, self);
   const xml = str(el.grayTipXmlContent);
   if (xml) {
     const nodes = parseGtipXml(xml, names);
@@ -239,16 +246,16 @@ function parseTipJson(raw: string, names: NameLookup): PreviewNode[] {
 }
 
 /**
- * 灰条里人名的本地解析器。优先按 uid 命中元素自带的 actionInitiator/Target
- * 昵称；命中不了就按此人在灰条里的出场序取 actionAttributes 的 `uin_str{N}`
- * （QQ 把参与者的 uin 按同样的顺序平铺在这里），至少给出一个 QQ 号而不是一
- * 串 base64 uid。
+ * 灰条里人名的本地解析器。先认「自己」（uid 命中调用方给的身份集合就写「你」）；
+ * 否则按 uid 命中元素自带的 actionInitiator/Target 昵称；再命中不了就按此人在灰
+ * 条里的出场序取 actionAttributes 的 `uin_str{N}`（QQ 把参与者的 uin 按同样的顺
+ * 序平铺在这里），至少给出一个 QQ 号而不是一串 base64 uid。
  */
 interface NameLookup {
   resolve(uid: string, personIndex: number, uinHint?: string): string;
 }
 
-function nameByUid(el: Rec): NameLookup {
+function nameByUid(el: Rec, self: ReadonlySet<string>): NameLookup {
   const byUid = new Map<string, string>();
   for (const key of ['actionInitiator', 'actionTarget']) {
     const who = el[key] as Rec | undefined;
@@ -266,6 +273,7 @@ function nameByUid(el: Rec): NameLookup {
 
   return {
     resolve(uid, personIndex, uinHint) {
+      if (self.has(uid)) return SELF_LABEL;
       const known = byUid.get(uid);
       if (known) return known;
       // nick_str1/uin_str1/… 与 <qq> 节点的出场序一一对应（1-based）。

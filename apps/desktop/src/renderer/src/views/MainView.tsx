@@ -25,6 +25,7 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
 import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
@@ -654,6 +655,8 @@ function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | n
   const identityValue = openedUin ?? 'unknown';
   return {
     id: `self:${identityValue}`,
+    // 灰条（戳一戳等）里的 `<qq uin=u_…>` 装的是 uid，认「我」要靠它。
+    uid: selfProfile?.uid || undefined,
     identityLabel: 'UIN',
     identityValue,
     username: `uin-${identityValue}`,
@@ -1020,7 +1023,8 @@ function contactToConversation(
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
-  const nodes = previewNodes(c.preview);
+  // 「自己」的身份集合：戳一戳灰条的预览里我这半只带 uid，需要它才能渲染成「你」。
+  const nodes = previewNodes(c.preview, new Set(selfIdentityValues(user)));
   const preview = previewNodesToText(nodes) || null;
   const updatedAt = toIsoTime(c.sendTime);
   const preference: ConversationPreference = {

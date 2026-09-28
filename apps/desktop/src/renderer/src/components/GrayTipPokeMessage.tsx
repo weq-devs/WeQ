@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
+import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
 import littleIconUrl from '@resources/img/little_icon.png';
 
 interface GrayTipPokeMessageProps {
@@ -23,19 +24,23 @@ interface GrayTipPokeMessageProps {
   /**
    * 当前登录用户。
    *
-   * 私聊戳一戳的灰条里，**自己的 uid** 就是「谁戳了谁」的一半 —— 之前只把
-   * `message.sender` 和会话对端塞进成员表，自己那条查不到名字就退化成裸 uid。
-   * 带上当前用户后就能把 uid / uin 还原成自己的昵称。
+   * 私聊戳一戳的灰条里，「自己」必是其中一方（我戳了对方 / 对方戳了我）。这一半
+   * **不解析 uin / uid / 昵称**，直接写「你」（见 {@link isSelfPerson}）—— 与 QQ
+   * 一致，也省得把一串和自己无关的 id / 昵称摆进灰条。
    */
   user?: User;
 }
 
-/** 把「当前用户」也当作可解析的成员塞进成员表（uid / uin 两个键都认）。 */
-function addSelf(memberMap: Map<string, GroupMember>, user?: User): void {
-  if (!user) return;
-  const self = user as unknown as GroupMember;
-  if (user.id) memberMap.set(user.id, self);
-  if (user.identityValue) memberMap.set(user.identityValue, self);
+/**
+ * 灰条里这个 `<qq>` / `url` 节点是不是「我」。
+ *
+ * 身份串集合由 `selfIdentityValues` 统一收集（`id` = `self:<uin>`、`identityValue`
+ * = uin、`uid` = `u_…`）：**灰条的 `<qq uin=…>` 里装的常常就是 uid**（真机样本
+ * `<qq uin="u_mGIBTBW7gF4Wocw8zapc6w" nm="" />`），只比 uin 的话「我」这一半永远
+ * 命中不了，只能落到后面的昵称解析上，把自己的 QQ 号原样渲染出来。
+ */
+function isSelfPerson(self: ReadonlySet<string>, keys: Array<string | undefined>): boolean {
+  return keys.some((key) => isSelfIdentity(self, key));
 }
 
 /**
@@ -124,6 +129,9 @@ export function GrayTipPokeMessage({
   const { grayTipXmlContent, tipJson } = element.data || {};
 
   const content = useMemo(() => {
+    // 「自己」的身份串集合：灰条里我这半可能只带 uid（uin 属性里塞的也是 uid），
+    // 只认 uin 会漏判，统一收进集合再比对。
+    const self = new Set(selfIdentityValues(user));
     if (grayTipXmlContent) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(grayTipXmlContent, 'text/xml');
@@ -152,8 +160,6 @@ export function GrayTipPokeMessage({
             conversation.otherUser as GroupMember,
           );
         }
-        // 私聊戳一戳的另一半往往是「自己」（我戳了对方 / 对方戳了我）。
-        addSelf(memberMap, user);
       }
 
       const resolveName = buildNameResolver(element.data);
@@ -165,14 +171,14 @@ export function GrayTipPokeMessage({
           const jp = getNodeValue(node, 'jp');
           const key = uin || uid || jp;
           const member = key ? memberMap.get(key) : undefined;
-          // 成员表命中就用群名片；否则退到灰条自带的 nm，再退到元素自带的
-          // actionInitiator/Target 昵称 / `uin_str{N}`（自己那条 uid 不在成员表里，
-          // 靠这一层还原），最后才是裸 id。
-          const name =
-            (member ? displayUserName(member) : '') ||
-            getNodeValue(node, 'nm') ||
-            resolveName(key, personIndex, jp) ||
-            key;
+          // 自己那一半直接写「你」；其余人成员表命中就用群名片，否则退到灰条自带的
+          // nm，再退到元素自带的 actionInitiator/Target 昵称 / `uin_str{N}`，最后才是裸 id。
+          const name = isSelfPerson(self, [uin, uid, jp])
+            ? SELF_LABEL
+            : (member ? displayUserName(member) : '') ||
+              getNodeValue(node, 'nm') ||
+              resolveName(key, personIndex, jp) ||
+              key;
           personIndex += 1;
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
@@ -235,8 +241,6 @@ export function GrayTipPokeMessage({
               conversation.otherUser as GroupMember,
             );
           }
-          // 私聊戳一戳的另一半往往是「自己」（同 XML 分支）。
-          addSelf(memberMap, user);
         }
 
         const resolveName = buildNameResolver(element.data);
@@ -252,12 +256,14 @@ export function GrayTipPokeMessage({
             if (item.type === 'qq' || item.type === 'url') {
               const key = item.uid || item.uin || item.param?.[0] || '';
               const member = key ? memberMap.get(key) : undefined;
-              const name =
-                (member ? displayUserName(member) : '') ||
-                item.nm ||
-                txt ||
-                resolveName(key, personIndex, item.uin) ||
-                '';
+              // 自己那一半直接写「你」（同 XML 分支）。
+              const name = isSelfPerson(self, [item.uin, item.uid])
+                ? SELF_LABEL
+                : (member ? displayUserName(member) : '') ||
+                  item.nm ||
+                  txt ||
+                  resolveName(key, personIndex, item.uin) ||
+                  '';
               personIndex += 1;
               if (name) {
                 return (

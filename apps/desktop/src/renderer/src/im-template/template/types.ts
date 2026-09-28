@@ -3,6 +3,13 @@ import type { PreviewNode } from '../../lib/conversationPreview';
 
 export type User = {
   id: string;
+  /**
+   * QQ uid（`u_…`），只有登录账号（MainView 的 `currentUser`）才有。
+   *
+   * 灰条里的 `<qq uin=u_…>` 装的其实是 **uid**（真机样本见
+   * `GrayTipPokeMessage.isSelfPerson`），光靠下面那个 uin 比不出来「我」。
+   */
+  uid?: string;
   identityLabel: string;
   identityValue: string;
   username: string;

@@ -2123,8 +2123,8 @@ html[data-theme="dark"] .ai-voice-chip {
 }
 
 .bounce-preview-face {
-  width: 52px;
-  height: 52px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -2136,22 +2136,35 @@ html[data-theme="dark"] .ai-voice-chip {
   color: var(--weq-fg-muted, #9a9aa2);
 }
 
-/* ×N 角标 —— 与聊天窗口里 `QqEmojiBounce` 的角标同一套形状与配色。 */
+/* ×N —— 与聊天窗口里 `QqEmojiBounce` 同一套字形（黄字蓝边）与「闪变」。
+   预览里的表情是居中的 72px 图、舞台 96px，四边正好各留 12px，所以 12px 就是
+   表情的右下角（小屏 52px / 76px 同理）。 */
 .bounce-preview-count {
   position: absolute;
-  right: -6px;
-  bottom: 8px;
-  min-width: 18px;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: var(--media-danger, #e2403a);
-  color: #ffffff;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 16px;
-  text-align: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  right: 12px;
+  bottom: 12px;
+  color: #ffd21e;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow:
+    -2px -2px 0 #12a8ff,
+    2px -2px 0 #12a8ff,
+    -2px 2px 0 #12a8ff,
+    2px 2px 0 #12a8ff,
+    -2px 0 0 #12a8ff,
+    2px 0 0 #12a8ff,
+    0 -2px 0 #12a8ff,
+    0 2px 0 #12a8ff;
+  animation: weq-emoji-bounce-count-tick 0.6s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bounce-preview-count {
+    animation: none;
+  }
 }
 
 .bounce-controls {
@@ -2504,8 +2517,12 @@ html[data-theme="dark"] .bounce-search {
   }
 
   .bounce-preview-face {
-    width: 40px;
-    height: 40px;
+    width: 52px;
+    height: 52px;
+  }
+
+  .bounce-preview-count {
+    font-size: 12px;
   }
 
   .bounce-picker {
