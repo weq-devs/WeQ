@@ -13386,44 +13386,213 @@ html[data-theme="dark"] .weq-provider-modal {
   color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
   max-width: 20rem;
 }
-/* Wrap each reused bubble so the restore action / status tag floats over its
-   top-right corner. Both affordances share one visual language with the in-chat
-   deleted state: solid-accent 恢复 primary, amber frosted QQ删除 tag. Always
-   visible here (this IS the restore surface) — no hover-gating. */
+/* 缺失消息弹窗 (GapMessagesModal) 仍是逐条 .weq-deleted-row 的朴素列表；卡片式的
+   删除 / 撤回列表改用下面这套共用的 .weq-msglist-* 版式。 */
 .weq-deleted-row {
-  position: relative;
   transition: background 0.15s;
 }
 
-.weq-deleted-row.is-clickable {
+/* ─────────────────────────────────────────────────────────────────────────
+   消息列表面板共用版式（components/compose/DeletedMessagesModal +
+   RecalledMessagesModal）
+   两个面板是同一套骨架：顶部工具栏（下拉筛选 + 消息正文搜索）+ 每条消息一张卡片，
+   卡片之间以一条细分割线隔开。卡片头承载一行元信息，卡片体是原消息气泡 ——
+     · 撤回面板：谁撤回了谁的消息 + 撤回时间 + 跳转；气泡自带的 .weq-msg-recall-tag
+       被抑制（hideRecallTag），两处撤回标识不再互相重叠；
+     · 删除面板：删除来源（WeQ / QQ 删除）+ 谁的的消息 + 发送时间 + 恢复；气泡自带的
+       「已删除 / QQ删除」徽标被抑制（hideDeletedBadge）。
+   ───────────────────────────────────────────────────────────────────────── */
+.weq-msglist-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  flex-shrink: 0;
+}
+.weq-msglist-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-msglist-field-label {
+  flex-shrink: 0;
+}
+.weq-msglist-select {
+  max-width: 9rem;
+  height: 26px;
+  padding: 0 0.4rem;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
   cursor: pointer;
 }
+.weq-msglist-select:focus-visible,
+.weq-msglist-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
+  outline: none;
+}
+.weq-msglist-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 8rem;
+  height: 26px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-muted);
+  transition: border-color 0.14s ease;
+}
+.weq-msglist-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--weq-fg-primary);
+}
+.weq-msglist-count {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.weq-msglist-reset {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 0.65rem;
+  font-family: inherit;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.weq-msglist-reset:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
 
-.weq-deleted-row.is-clickable:hover {
+.weq-msglist-list {
+  display: flex;
+  flex-direction: column;
+}
+.weq-msglist-item {
+  padding: 0.7rem 1rem 0.85rem;
+  transition: background 0.15s ease;
+}
+/* 每条之间一条细分割线 —— 撤回信息与原消息各占一行，干净清楚、互不重叠。 */
+.weq-msglist-item + .weq-msglist-item {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-msglist-item.is-clickable {
+  cursor: pointer;
+}
+.weq-msglist-item.is-clickable:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
 }
-
-.weq-deleted-row.is-clickable:active {
+.weq-msglist-item.is-clickable:active {
   background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
 }
-.weq-deleted-row .weq-deleted-restore,
-.weq-deleted-row .weq-deleted-tag {
-  position: absolute;
-  top: 4px;
-  right: 8px;
+.weq-msglist-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* 与下方消息拉开距离：头像挂件是 60px 的舞台、以头像中心对齐且再上移 4px，比
+     36px 的头像顶部高出 16px（见 chat.css 的 .weq-avatar-pendant）。间距小于这
+     个数，挂件就会盖到上面这行撤回 / 删除信息上。1.4rem 留出 ~6px 安全余量。 */
+  margin-bottom: 1.4rem;
+}
+.weq-msglist-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-msglist-line {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-msglist-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.weq-msglist-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+  transition: color 0.12s ease;
+}
+.weq-msglist-item.is-clickable:hover .weq-msglist-jump {
+  color: var(--weq-accent-effective);
+}
+
+/* 删除来源徽标（删除面板专属）：WeQ 删除（可恢复）走强调色，QQ 删除（不可恢复）
+   更安静 —— 语义由文字本身承载，不另换色相。 */
+.weq-msglist-kind {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+.weq-msglist-kind.is-qq {
+  color: color-mix(in srgb, var(--weq-accent-effective) 58%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+/* 卡片头右侧的「恢复」——沿用聊天区那颗强调色小按钮的观感，但改成随流布局。 */
+.weq-msglist-restore {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
   height: 22px;
   padding: 0 9px;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-/* 恢复 — accent primary, flattened (small radius, no heavy shadow). */
-.weq-deleted-row .weq-deleted-restore {
   color: #fff;
   background: linear-gradient(
     180deg,
@@ -13431,38 +13600,24 @@ html[data-theme="dark"] .weq-provider-modal {
     var(--weq-accent-effective)
   );
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  border-radius: 6px;
   cursor: pointer;
   transition: transform 0.12s ease, filter 0.12s ease;
 }
-.weq-deleted-row .weq-deleted-restore:hover {
+.weq-msglist-restore:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
 }
-.weq-deleted-row .weq-deleted-restore:active {
+.weq-msglist-restore:active {
   transform: translateY(0);
 }
-.weq-deleted-row .weq-deleted-restore:disabled {
+.weq-msglist-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
   transform: none;
   filter: none;
-}
-/* 撤回者+时间 / QQ删除 — NOT a bubble: a flat accent caption. Small radius, no
-   frosted glass, no bold, faint accent tint. QQ删除 (not restorable) reads a
-   touch quieter via lower opacity + the label itself, not a different hue. */
-.weq-deleted-row .weq-deleted-tag {
-  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-muted));
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
-}
-/* Own messages render right-aligned, so the top-RIGHT corner is occupied by the
-   bubble itself — flip the caption to the free left side instead. */
-.weq-deleted-row.is-mine .weq-deleted-restore,
-.weq-deleted-row.is-mine .weq-deleted-tag {
-  right: auto;
-  left: 8px;
 }
 
 /* face picker */

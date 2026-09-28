@@ -75,7 +75,9 @@ export function MessageBubble({
   renderers,
   deleted,
   deletedKind,
+  hideDeletedBadge,
   recallRevokerName,
+  hideRecallTag,
   onRestore,
   onContextMenu,
   onLongPress,
@@ -106,11 +108,22 @@ export function MessageBubble({
    */
   deletedKind?: 'weq' | 'qq';
   /**
+   * 宿主自绘「已删除 / QQ删除」标识时置位：只保留气泡本身那种半透明已删除观感
+   * （见 `.message-line.is-deleted .message-bubble`），不再在气泡右下角叠那枚小标签。
+   * 「删除列表」面板用它 —— 列表本身就在讲已删除，徽标是重复信息。
+   */
+  hideDeletedBadge?: boolean;
+  /**
    * Recall reviser's display name — shown in the 撤回 tag when an admin recalled
    * someone else's message (`recall.sameSender === false`). Resolved by the
    * parent from `message.recall.revokeUid`.
    */
   recallRevokerName?: string;
+  /**
+   * 宿主已在气泡上方自绘撤回信息（撤回者 + 时间）时置位：不再在气泡下方渲染
+   * `.weq-msg-recall-tag`，避免同一件事在一行里出现两遍 / 互相重叠。
+   */
+  hideRecallTag?: boolean;
   /** Restore a WeQ-deleted message (only used when `deleted`). */
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu: (event: ReactMouseEvent, message: Message) => void;
@@ -420,7 +433,7 @@ export function MessageBubble({
             <span>精华</span>
           </span>
         ) : null}
-        {recallText ? (
+        {recallText && !hideRecallTag ? (
           <div className={cn('weq-msg-recall-tag')} title="防撤回已保留原消息">
             <RotateCcw size={12} />
             <span>{recallText}</span>
@@ -451,7 +464,7 @@ export function MessageBubble({
             <span>{optimisticText}</span>
           </div>
         ) : null}
-        {isDeleted ? (
+        {isDeleted && !hideDeletedBadge ? (
           <div
             className={cn('weq-msg-deleted-veil')}
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
