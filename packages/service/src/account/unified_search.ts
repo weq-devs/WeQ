@@ -141,6 +141,12 @@ export interface QuickSearchResult {
  */
 export interface SearchHistoryHit {
   kind: 'friend' | 'groupMember' | 'group' | 'file';
+  /**
+   * `search_history."100210"` — 自增主键，越大越新。QQ 淘汰旧行时会删行，所以它
+   * 不连续，但每一行唯一；渲染层拿它做稳定 key（同一个人可能被搜过多次，光靠
+   * uid / 群号之类去重会撞）。
+   */
+  histId: string;
   uid: string;
   uin: string;
   qid: string;
@@ -354,6 +360,7 @@ export class UnifiedSearchService {
     const rows = await this.session.searchHistory.list(limit);
     return rows.map((r) => ({
       kind: r.kind,
+      histId: r.histId.toString(),
       uid: r.uid,
       uin: r.uin.toString(),
       qid: r.qid,

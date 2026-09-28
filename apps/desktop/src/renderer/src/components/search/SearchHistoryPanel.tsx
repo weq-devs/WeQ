@@ -88,9 +88,11 @@ export function SearchHistoryPanel({
   if (items.length === 0) return null;
   return (
     <div className="weq-search-dropdown" role="listbox" aria-label="最近搜索">
-      {items.map((item, index) => (
+      {items.map((item) => (
         <HistoryRow
-          key={`${item.kind}:${item.groupCode}:${item.uid}:${item.name}:${index}`}
+          // `histId` 是 search_history 的自增主键，每一行唯一且随内容稳定 —— 同一个
+          // 人被搜过多次、或两个同名文件，都不会撞 key（所以不该拿数组下标兜底）。
+          key={item.histId}
           item={item}
           onSelect={onSelect}
         />

@@ -456,7 +456,14 @@ export function ChatPane({
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
   const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
-    onSuccess: () => emojiUtils.account.emojiPanel.overview.invalidate(),
+    // 写入成功后刷新整份 overview 缓存。这里必须带 `refetchType: 'all'`：选完表情
+    // 面板会立刻关闭，`EmojiPanel` 卸载后 overview 的 observer 退订、query 变成
+    // inactive，而 invalidate 默认只重取 active 的 query —— inactive 的只会被标记成
+    // stale 却不真正重取；又因为全局 `refetchOnMount: false`，下次打开面板也不会补
+    // 一次，于是「最近使用」还是旧顺序（刚点的表情排不到第一）。带 all 就在写入后
+    // 直接把缓存刷成新数据，下一次打开读到的就是对的。
+    onSuccess: () =>
+      emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
   });
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
