@@ -152,6 +152,12 @@ export type DirectConversation = ConversationBase & {
    * 退化为群号；非临时会话为空。
    */
   tempSourceGroupName?: string | null;
+  /**
+   * 群聊发起的临时会话的**来源群号**（60001 原值）。发消息要用它：临时会话回复对方
+   * 必须走 `routingHead.grpTmp`（来源群号 + 对方 uid），退化成普通 c2c 会被服务端
+   * 当成非好友消息拒收。非临时会话为空。
+   */
+  tempSourceGroupCode?: string | null;
 };
 
 export type GroupConversation = ConversationBase & {

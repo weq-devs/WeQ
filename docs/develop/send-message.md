@@ -19,9 +19,16 @@
 
 | 场景 | routingHead | contentHead | 备注 |
 | --- | --- | --- | --- |
-| 群聊 | `grp.groupCode` | `{ type: 1 }` | 不带 c2cCmd，也不带 ctrl |
-| 私聊 | `c2c.{uin, uid}` | `{ type: 1, c2cCmd: 11 }` | 带 `ctrl.msgFlag`（Unix 秒） |
-| 群临时会话 | `grpTmp.{groupUin, toUid}` | `{ type: 1, c2cCmd: 11 }` | 带 `ctrl.msgFlag` |
+| 群聊 | `grp.groupCode` | `{ type: 1 }` | 不带 c2cCmd / subType，也不带时间戳 |
+| 私聊 | `c2c.{uin, uid}` | `{ type: 1, c2cCmd: 11 }` | 带 `ctrl.msgFlag`（Request field 12，Unix 秒） |
+| 群临时会话 | `grpTmp.{groupUin, toUid}` | `{ type: 1, subType: 0, c2cCmd: 0 }`（两个 0 **显式**上 wire） | 带 `syncCookie.msgFlag`（Request **field 6**，Unix 秒） |
+
+群临时会话那两格是按真机抓包对齐的（2026-09-29，QQ NT 在群里发起临时会话）：同一份请求里
+`grpTmp` 的字段号是 **3 / 4**（不是网上常见的 1 / 2）、`contentHead` 把 `subType=0` 与
+`c2cCmd=0` 都写出来、时间戳落在 **field 6**（内容是 `08 <varint 秒>` 这么一小段 `{ msgFlag }`）。
+私聊那条仍是既有形状（`c2cCmd=11` + `ctrl`@12）：那是**验证过能发出去**的字节，且没有再抓过
+私聊包，所以两边**故意不一致**。实现见 `send-schemas.ts` 的 `SEND_CONTENT_HEAD_TEMP` /
+`SEND_SYNC_COOKIE` / `SEND_MESSAGE_REQUEST_TEMP`，以及 `send.ts` 的 `RoutingPlan.timestampField`。
 
 消息体是 `messageBody.richText.elems[]` —— 一个 `Elem` 数组。
 
@@ -305,6 +312,27 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 uid 的宽松度分两档：**纯文本私聊不强制 uid**（陌生人也能发第一句），
 **媒体必须 uid**（NTV2 上传与路由都按 uid 认人），查不到就如实报错并说明去哪拿。
 
+**群临时会话**（`recent_contact.chatType = 100`「群里发起的临时会话」）额外给一个
+`tempGroupCode`（该会话行的列 60001 `tempSourceGroupCode`）：给了就走 `routingHead.grpTmp`
+（来源群号 + 对方 uid），**不是** c2c —— 对方往往不是好友，普通 c2c 会被服务端当成非好友
+消息拒收。这一支的 uid 是**必填**（`grpTmp.toUid` 只认 uid），QQ 号会在本地目录里反查。
+前端侧：会话映射带上了 `tempSourceGroupCode`（`Conversation`），输入框主链路（`sendElements`
+/ `sendVoice`）把它随 `tempGroupCode` 一起过 IPC；发文件会直接告知暂不支持（文件走私聊专用的
+`trans0x211` 管线，临时会话还没验证）。
+
+已接线与未接线（同一会话里能点到但**仍走 c2c**的入口）：
+
+| 入口 | 临时会话 | 说明 |
+| --- | --- | --- |
+| 输入框文本 / @ / 表情 / 图片 / 视频（`sendElements`） | ✅ grpTmp | 本次接线 |
+| 语音（`sendVoice` → `sendMedia`） | ✅ grpTmp | 本次接线（录音与 TTS 同一入口） |
+| 文件（`sendFile`）/ 闪传 | ❌ 直接提示不支持 | 私聊文件走 `trans0x211`，临时会话的对应管线未知 |
+| 合并转发 / Ark 卡片 / 推荐卡片 / 位置卡片 | ❌ 仍走 c2c | 这些入口没传 `tempGroupCode`（要接就把参数透到各自的 `sendElements`） |
+| 窗口抖动（`sendWindowShake`） | ❌ 仍走 c2c | `poke` 元素服务端只收直接私聊；按钮目前仍会显示 |
+
+这套临时会话路由**尚未真机验证**（协议层离线单测已覆盖），发一条后要看回执 `scene`
+是否为 `group-temp`、`privateSequence` 是否非 0。
+
 MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file_message` /
 `send_rich_message`）在生产上应保持 `assistantOnly`（真实发送 = 有外部副作用，按仓库约定不进对外只读 MCP
 面板，只给内置助手）；真机联调期间临时摘掉了这个标记（`tools.ts` 的「发消息（真实副作用）」
@@ -355,6 +383,9 @@ MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file
   所以前端做发送时必须**自己乐观渲染**，不能等本地库。乐观条目的对账键是**客户端
   `random`**（回执带回、写进本地库 40002、服务端历史原样保留），不是 msgId / seq ——
   见第六节。
+- **私聊文本的时间戳格子还没对齐真机**：真机（群临时会话包）把 Unix 秒写在 Request field 6
+  （`syncCookie`），私聊文本目前写 field 12（`ctrl`，取自 SnowLuma）。两者都能发出去，但要
+  逐字节复刻真机得再抓一条**好友私聊**的真机包来定论 —— `c2cCmd` 该是 11 还是 0 同理。
 - **markdown 是账号级硬限制**：普通账号发的 `commonElem{serviceType:45}` 会被服务端静默丢掉
   （`result=0`，但群里没有 seq/回显；私聊只留一条 `[空消息]`）。markdown 只有官方机器人身份
   （`@tencent-connect/qqbot-nodejs` 那条通道）才发得出去。

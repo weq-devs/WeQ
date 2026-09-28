@@ -472,6 +472,42 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(body.routingHead?.c2c?.uid).toBeUndefined();
   });
 
+  it('群临时会话：给来源群号就走 grpTmp（不是 c2c），toUid 取对方 uid', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const outcome = await svc.sendText({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      tempGroupCode: '2863253201',
+      text: 'hi',
+    });
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      routingHead?: { grpTmp?: { groupUin?: bigint; toUid?: string }; c2c?: unknown };
+    };
+    // uint64 解出来是 bigint（保精度）；toUid 就是对方 uid，不是 QQ 号。
+    expect(body.routingHead?.grpTmp).toEqual({ groupUin: 2863253201n, toUid: 'u_friend' });
+    expect(body.routingHead?.c2c).toBeUndefined();
+    // 场景按 wire 路由如实上报（group-temp），peerType 仍是调用方给的那档 ——
+    // 前端拿 peerType 选对账序号（c2c 那一套 privateSequence）。
+    expect(outcome.scene).toBe('group-temp');
+    expect(outcome.peerType).toBe('c2c');
+    expect(outcome.privateSequence).toBe(43);
+    expect(outcome.uid).toBe('u_friend');
+  });
+
+  it('群临时会话：QQ 号换不到 uid 就在联网前报错（grpTmp 只认 uid）', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendText({ peerType: 'c2c', targetId: '30003', tempGroupCode: '555', text: 'hi' }),
+    ).rejects.toThrow(/uid/);
+    await expect(
+      svc.sendText({ peerType: 'c2c', targetId: 'u_friend', tempGroupCode: '群号', text: 'hi' }),
+    ).rejects.toThrow(/纯数字/);
+    // 两条都在拼包之前就拒了，一个字节都没发。
+    expect(native.calls).toHaveLength(0);
+  });
+
   it('窗口抖动：私聊路由 + 独占一枚 commonElem(serviceType=2, businessType=1)', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);

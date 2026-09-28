@@ -1,10 +1,17 @@
 /**
  * 发消息 —— `MessageSvc.PbSendMsg`（原始 SSO 命令，无 OIDB 信封）。
  *
- * 三个场景共用同一条命令，只差 routingHead / contentHead：
- *   群聊       routingHead.grp.groupCode      + contentHead { type: 1 }
- *   私聊       routingHead.c2c.{uin,uid}      + contentHead { type:1, c2cCmd:11 } + ctrl.msgFlag
- *   群临时会话 routingHead.grpTmp{groupUin,toUid} + contentHead { type:1, c2cCmd:11 } + ctrl.msgFlag
+ * 三个场景共用同一条命令，只差 routingHead / contentHead / 时间戳格子：
+ *   群聊       routingHead.grp.groupCode          + contentHead { type: 1 }
+ *   私聊       routingHead.c2c.{uin,uid}          + contentHead { type:1, c2cCmd:11 }
+ *                                                 + ctrl.msgFlag（field 12）
+ *   群临时会话 routingHead.grpTmp{groupUin,toUid} + contentHead { type:1, subType:0, c2cCmd:0 }
+ *                                                 + syncCookie.msgFlag（field 6）
+ *
+ * 私聊与群临时会话**不是同一套字节**，两边都有真机说法：私聊那两个值（c2cCmd=11 +
+ * ctrl@12）是被真机验证过能发出去的既有形状；群临时会话按 2026-09-29 的真机抓包对齐
+ * —— `subType=0` / `c2cCmd=0` 显式写、时间戳落在 field 6。见 `./send-schemas` 的
+ * SEND_CONTENT_HEAD_TEMP / SEND_SYNC_COOKIE，以及 `resolveRouting` 里的逐场景说明。
  * （对照 SnowLuma `packages/core/src/bridge/apis/message.ts` 的 sendGroup /
  * sendPrivate / sendGroupTempMessage。）
  *
@@ -21,11 +28,15 @@
 
 import { randomInt } from 'node:crypto';
 import type { MediaNative } from '../highway/ntv2-upload';
-import { decode, encode } from '../protobuf';
+import { decode, encode, type ProtoMessage } from '../protobuf';
 import { sendPacket, type TrpcNative } from '../transport';
 import { invokeTrpc, type TrpcSpec } from '../oidb/invoke';
 import { toInt } from '../oidb/shared';
-import { SEND_MESSAGE_REQUEST, SEND_MESSAGE_RESPONSE } from './send-schemas';
+import {
+  SEND_MESSAGE_REQUEST,
+  SEND_MESSAGE_REQUEST_TEMP,
+  SEND_MESSAGE_RESPONSE,
+} from './send-schemas';
 import {
   buildSendElems,
   buildSendElemsWithMedia,
@@ -60,7 +71,10 @@ export interface SendMessageParams {
   random?: number;
   /** 客户端序号；缺省群聊 0、私聊/临时会话自增。 */
   clientSequence?: number;
-  /** 覆盖 ctrl.msgFlag（Unix 秒）；缺省当前时间（只有私聊/临时会话带 ctrl）。 */
+  /**
+   * 覆盖时间戳（Unix 秒）；缺省当前时间。只有私聊（`ctrl`，field 12）与群临时会话
+   * （`syncCookie`，field 6）带；群聊不带。
+   */
   msgFlag?: number;
   /** 发送场景覆盖（窗口抖动等场景受限元素会用到）；缺省按 routing 推导。 */
   scene?: SendScene;
@@ -161,8 +175,16 @@ interface RoutingPlan {
   scene: SendScene;
   routingHead: Record<string, unknown>;
   contentHead: Record<string, unknown>;
-  /** 需要 ctrl 的场景（私聊/临时会话）才带。 */
-  needsControl: boolean;
+  /**
+   * 请求容器用哪份 schema —— 群临时会话要「零值也上 wire」的那份
+   * （{@link SEND_MESSAGE_REQUEST_TEMP}），其余场景用主 schema。
+   */
+  requestSchema: ProtoMessage;
+  /**
+   * 时间戳写哪一格：私聊 `ctrl`（field 12，既有形状）/ 群临时会话 `syncCookie`
+   * （field 6，2026-09-29 真机抓包）/ 群聊 `null`（不带）。
+   */
+  timestampField: 'ctrl' | 'syncCookie' | null;
 }
 
 /** 校验目标三选一并给出 routingHead / contentHead。 */
@@ -179,9 +201,10 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
     return {
       scene: 'group',
       routingHead: { grp: { groupCode: params.groupId } },
-      // 群聊不带 c2cCmd/subType，也不带 ctrl。
+      // 群聊不带 c2cCmd/subType，也不带时间戳。
       contentHead: { type: 1 },
-      needsControl: false,
+      requestSchema: SEND_MESSAGE_REQUEST,
+      timestampField: null,
     };
   }
 
@@ -198,7 +221,8 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
         },
       },
       contentHead: { type: 1, subType: 0, c2cCmd: 11 },
-      needsControl: true,
+      requestSchema: SEND_MESSAGE_REQUEST,
+      timestampField: 'ctrl',
     };
   }
 
@@ -210,8 +234,11 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
   return {
     scene: 'group-temp',
     routingHead: { grpTmp: { groupUin: temp.groupUin, toUid: temp.toUid } },
-    contentHead: { type: 1, subType: 0, c2cCmd: 11 },
-    needsControl: true,
+    // 同一套 c2c 形状，但真机（2026-09-29 抓包）把 subType=0 / c2cCmd=0 也显式写出来，
+    // 时间戳则落在 field 6：所以这里换 schema + 换格子，与私聊那支**故意不一样**。
+    contentHead: { type: 1, subType: 0, c2cCmd: 0 },
+    requestSchema: SEND_MESSAGE_REQUEST_TEMP,
+    timestampField: 'syncCookie',
   };
 }
 
@@ -256,10 +283,11 @@ function assembleRequest(
   if (!Number.isSafeInteger(random) || random < 0) {
     throw new Error(`random 非法: ${String(params.random)}`);
   }
+  // 私聊与群临时会话（= 带时间戳的那两种场景）用自增序号，群聊固定 0。
   const clientSequence =
     params.clientSequence !== undefined
       ? params.clientSequence
-      : plan.needsControl
+      : plan.timestampField !== null
         ? nextClientSequence()
         : 0;
   if (!Number.isSafeInteger(clientSequence) || clientSequence < 0) {
@@ -273,8 +301,8 @@ function assembleRequest(
     clientSequence,
     random,
   };
-  if (plan.needsControl) {
-    request.ctrl = { msgFlag: params.msgFlag ?? Math.floor(Date.now() / 1000) };
+  if (plan.timestampField !== null) {
+    request[plan.timestampField] = { msgFlag: params.msgFlag ?? Math.floor(Date.now() / 1000) };
   }
 
   return {
@@ -283,7 +311,7 @@ function assembleRequest(
     clientSequence,
     elems,
     request,
-    bytes: encode(SEND_MESSAGE_REQUEST, request),
+    bytes: encode(plan.requestSchema, request),
   };
 }
 
@@ -437,7 +465,10 @@ export interface SendC2cFileParams {
   fileExtra: Uint8Array;
   random?: number;
   clientSequence?: number;
-  /** 覆盖 ctrl.msgFlag（Unix 秒）；缺省当前时间。 */
+  /**
+   * 覆盖时间戳（Unix 秒）；缺省当前时间。写在 `syncCookie`（field 6）—— 与群临时会话
+   * 同一格「真机实测的位置」；私聊**文本**消息目前仍写 field 12（`ctrl`）。
+   */
   msgFlag?: number;
 }
 
@@ -462,7 +493,9 @@ export function buildSendC2cFileRequest(params: SendC2cFileParams): SendRequestB
     messageBody: { msgContent: params.fileExtra },
     clientSequence,
     random,
-    ctrl: { msgFlag: params.msgFlag ?? Math.floor(Date.now() / 1000) },
+    // 时间戳走 field 6（`syncCookie`）：真机在群临时会话上实测的位置，这里按同一格对齐。
+    // 私聊文本走的仍是 field 12（`ctrl`）—— 两者都能发出，别以为其中一处是笔误。
+    syncCookie: { msgFlag: params.msgFlag ?? Math.floor(Date.now() / 1000) },
   };
 
   return {

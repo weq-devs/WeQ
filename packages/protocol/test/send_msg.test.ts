@@ -127,7 +127,7 @@ describe('buildSendRequest 请求拼装', () => {
     expect(decode(TEXT_PB_RESERVE, text.pbReserve)).toEqual({ subType: 1, atTargetUid: 'all' });
   });
 
-  it('群临时会话走 grpTmp + c2cCmd', () => {
+  it('群临时会话走 grpTmp + 真机的 contentHead / 时间戳格子', () => {
     const built = buildSendRequest({
       groupTemp: { groupUin: 555, toUid: 'u_t' },
       elements: [TEXT],
@@ -139,10 +139,39 @@ describe('buildSendRequest 请求拼装', () => {
     expect(built.scene).toBe('group-temp');
     // uint64 解出来是 bigint（保精度）。
     expect(req.routingHead).toEqual({ grpTmp: { groupUin: 555n, toUid: 'u_t' } });
-    expect(req.contentHead).toEqual({ type: 1, c2cCmd: 11 });
-    expect(req.ctrl).toEqual({ msgFlag: 1700000000 });
-    // 群聊不写 ctrl；私聊/临时会话才写。
-    expect(buildSendRequest({ groupId: 1, elements: [TEXT] }).request.ctrl).toBeUndefined();
+    // 2026-09-29 真机抓包：subType=0 / c2cCmd=0 显式上 wire —— 所以解出来两个 0 都在。
+    expect(req.contentHead).toEqual({ type: 1, subType: 0, c2cCmd: 0 });
+    // 时间戳在 field 6（syncCookie），不是私聊那一格的 ctrl(field 12)。
+    expect(req.syncCookie).toEqual({ msgFlag: 1700000000 });
+    expect(req.ctrl).toBeUndefined();
+    // 群聊既不写时间戳，也不写 c2cCmd / subType。
+    const group = buildSendRequest({ groupId: 1, elements: [TEXT] }).request;
+    expect(group.ctrl).toBeUndefined();
+    expect(group.syncCookie).toBeUndefined();
+  });
+
+  it('群临时会话 = 黄金字节（两个 0 显式上 wire + 时间戳在 field 6）', () => {
+    const built = buildSendRequest({
+      groupTemp: { groupUin: 555, toUid: 'u_t' },
+      elements: [{ kind: 'text', textContent: 'hi' }],
+      random: 3,
+      clientSequence: 9,
+      msgFlag: 1700000000,
+    });
+    expect(hexOf(built.bytes)).toBe(
+      // routingHead.grpTmp { groupUin: 555, toUid: 'u_t' }
+      '0a0a1a0818ab042203755f74' +
+        // contentHead { type: 1, subType: 0, c2cCmd: 0 }
+        '1206080110001800' +
+        // messageBody.richText.elems[0].text.str = "hi"
+        '1a0a0a0812060a040a026869' +
+        // clientSequence = 9
+        '2009' +
+        // random = 3
+        '2803' +
+        // syncCookie.msgFlag = 1700000000
+        '32060880e2cfaa06',
+    );
   });
 
   it('random 缺省非 0，私聊 clientSequence 缺省自增', () => {

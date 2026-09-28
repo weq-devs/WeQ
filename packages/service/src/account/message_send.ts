@@ -13,7 +13,9 @@
  *
  * 目标 `targetId` 的三种写法都收：
  *   - 群聊：群号；
- *   - 私聊：**QQ 号**（走本地 uid 目录补 uid）或 **uid**（反查 QQ 号）。
+ *   - 私聊：**QQ 号**（走本地 uid 目录补 uid）或 **uid**（反查 QQ 号）；
+ *   - 群临时会话：私聊那种写法 + `tempGroupCode`（来源群号 60001），走 `grpTmp` 路由
+ *     —— 见 {@link GroupTempSource}。
  *
  * 私聊的 uid 解析有两档宽松度：
  *   - 纯文本消息**不强制**要 uid（routingHead.c2c 只给 uin 也能发出去）——
@@ -61,6 +63,36 @@ export type {
 /** 发送目标类型。 */
 export type SendPeerType = 'c2c' | 'group';
 
+/**
+ * 群临时会话的来源群号 —— 传了就走 `routingHead.grpTmp`（**不是** c2c）。
+ *
+ * 「群里发起的临时会话」（本地库 `recent_contact.chatType = 100`，对方往往不是好友）
+ * 里回复对方时，服务端只认「来源群号 + 对方 uid」这条路由：退化成普通 c2c 会被当成
+ * 非好友消息拒收。来源群号就在该会话行上（列 60001 `tempSourceGroupCode`，会话标题
+ * 的「来自 xx 群」也是它）。
+ *
+ * 给了就必须能解析出对方 uid（`grpTmp.toUid` 是必填的，且只认 uid）；对端 QQ 号在
+ * wire 上不需要，只有本地目录查得到时才带上（回显 / 日志用）。
+ */
+export type GroupTempSource = string | number;
+
+/**
+ * 群临时会话的目标解析结果。
+ *
+ * 与 {@link ResolvedSendTarget} 分开，是因为「必填 uid」这条正好相反：私聊纯文本不强制
+ * uid，而临时会话**必须**有 uid（服务端按 uid 认人）；`uin` 只是回显，拿不到就是 0。
+ */
+export interface ResolvedGroupTempTarget {
+  /** 来源群号（wire 上就是 `routingHead.grpTmp.groupUin`）。 */
+  groupUin: number;
+  /** 对方 uid（必填，wire 上就是 `grpTmp.toUid`）。 */
+  toUid: string;
+  /** 对方 QQ 号；本地目录查不到时为 0（wire 上不需要）。 */
+  uin: number;
+  /** 回显用：调用方给的原值。 */
+  targetId: string;
+}
+
 /** 目标解析结果（`uid` 可能为空：纯文本私聊不强制）。 */
 export interface ResolvedSendTarget {
   peerType: SendPeerType;
@@ -77,6 +109,8 @@ export interface SendTextParams {
   peerType: SendPeerType;
   /** 群号 / QQ 号 / uid（字符串或数字）。 */
   targetId: string | number;
+  /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
+  tempGroupCode?: GroupTempSource;
   text: string;
   /**
    * 随这条消息一起带出的装扮（气泡 / 字体 / 挂件）。缺省不带。
@@ -142,6 +176,8 @@ const WINDOW_SHAKE_SUB_TYPE = 1;
 export interface SendMediaParams {
   peerType: SendPeerType;
   targetId: string | number;
+  /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
+  tempGroupCode?: GroupTempSource;
   kind: 'image' | 'record' | 'video';
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
@@ -171,6 +207,8 @@ export interface SendMediaParams {
 export interface SendElementsParams {
   peerType: SendPeerType;
   targetId: string | number;
+  /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
+  tempGroupCode?: GroupTempSource;
   /** 至少一个元素；媒体元素会自动走上传（需 uid）。 */
   elements: SendElement[];
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
@@ -506,13 +544,55 @@ export class MessageSendService {
     return { peerType, scene: 'c2c', uin, uid, targetId: text };
   }
 
-  /** 文本消息（可带 @ / 引用回复）。 */
+  /**
+   * 解析群临时会话目标：来源群号（必给、纯数字）+ 对方 uid（必填）。
+   *
+   * 目标写法与私聊一致：非纯数字按 uid 直接收下，纯数字当 QQ 号、去本地 uid 目录换 uid。
+   * 换不到就如实报错 —— 临时会话的 `grpTmp.toUid` **只能是 uid**（服务端按 uid 认人），
+   * 不是「发不出去也先发一条」。来源群号从会话行（`recent_contact` 列 60001）来。
+   */
+  resolveGroupTempTarget(
+    input: string | number,
+    groupCode: GroupTempSource,
+  ): ResolvedGroupTempTarget {
+    const groupText = String(groupCode).trim();
+    if (!/^\d+$/.test(groupText)) {
+      throw new Error(`群临时会话的来源群号必须是纯数字，收到「${groupText}」。`);
+    }
+    const groupUin = Number(groupText);
+    if (!Number.isSafeInteger(groupUin) || groupUin <= 0) {
+      throw new Error(`群临时会话的来源群号不合法：${groupText}`);
+    }
+
+    const text = String(input).trim();
+    if (!text) throw new Error('目标不能为空。');
+
+    if (!/^\d+$/.test(text)) {
+      // 已经是 uid：直接用（wire 上就只需要它），QQ 号能反查出来就一并回显。
+      const uin = Number(this.session.uidMap.uinByUid(text) ?? 0);
+      return { groupUin, toUid: text, uin: Number.isSafeInteger(uin) ? uin : 0, targetId: text };
+    }
+
+    const uin = Number(text);
+    if (!Number.isSafeInteger(uin) || uin <= 0) throw new Error(`QQ 号不合法：${text}`);
+    const toUid = this.session.uidMap.uidByUin(BigInt(uin)) ?? '';
+    if (!toUid) {
+      throw new Error(
+        `本地 uid 目录里没有 QQ ${text} 的 uid，而群临时会话必须带对方 uid（grpTmp 路由只认 uid）：` +
+          '先和 TA 有过一次会话（uid 会进 nt_uid_mapping_table），或用 find_contact 拿到 uid 后直接传 uid。',
+      );
+    }
+    return { groupUin, toUid, uin, targetId: text };
+  }
+
+  /** 文本消息（可带 @ / 引用回复 / 群临时会话来源群号）。 */
   async sendText(params: SendTextParams): Promise<SendMessageOutcome> {
     const text = params.text ?? '';
     if (!text.trim()) throw new Error('消息文本不能为空。');
     return this.sendElements({
       peerType: params.peerType,
       targetId: params.targetId,
+      ...(params.tempGroupCode !== undefined ? { tempGroupCode: params.tempGroupCode } : {}),
       elements: buildTextElements(params),
       ...(params.dress ? { dress: params.dress } : {}),
     });
@@ -587,6 +667,7 @@ export class MessageSendService {
     return this.sendElements({
       peerType: params.peerType,
       targetId: params.targetId,
+      ...(params.tempGroupCode !== undefined ? { tempGroupCode: params.tempGroupCode } : {}),
       elements: [element],
       ...(params.dress ? { dress: params.dress } : {}),
     });
@@ -723,16 +804,36 @@ export class MessageSendService {
       throw new Error('消息至少需要一个元素。');
     }
     const needUpload = elementsNeedUpload(params.elements);
-    const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
+    // 群临时会话（给了来源群号）走 grpTmp 路由：目标不走 resolveTarget —— 它只认群/私聊
+    // 两套写法，而临时会话的 toUid 是必填的（私聊纯文本允许没 uid，刚好相反）。
+    const groupTemp =
+      params.tempGroupCode === undefined
+        ? null
+        : this.resolveGroupTempTarget(params.targetId, params.tempGroupCode);
+    const target: ResolvedSendTarget = groupTemp
+      ? {
+          peerType: params.peerType,
+          scene: 'group-temp',
+          uin: groupTemp.uin,
+          uid: groupTemp.toUid,
+          targetId: groupTemp.targetId,
+        }
+      : this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = await this.fillMarketFaceKeys(params.elements);
 
     const uploads: SendMediaUploadReport[] = [];
     const receipt = await sendMessage(this.nt, pid, {
-      ...(target.scene === 'group' ? { groupId: target.uin } : { userUin: target.uin }),
+      // 路由三选一：群临时会话（grpTmp）/ 群聊（grp）/ 私聊（c2c）。
+      ...(groupTemp
+        ? { groupTemp: { groupUin: groupTemp.groupUin, toUid: groupTemp.toUid } }
+        : target.scene === 'group'
+          ? { groupId: target.uin }
+          : { userUin: target.uin }),
       // 纯文本私聊允许没有 uid（陌生人第一句）；有就带上（新版客户端以 uid 为准）。
-      ...(target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
+      // 临时会话不算这条路（toUid 已经由 groupTemp 带走），所以显式排掉。
+      ...(!groupTemp && target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
       elements,
       // 装扮（气泡 / 字体 / 挂件）：不传就不写，请求字节与以前逐字节一致。
       ...(params.dress ? { dress: params.dress } : {}),

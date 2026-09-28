@@ -983,6 +983,17 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
 }
 
 /**
+ * 群聊发起的临时会话的来源群号（60001）；非临时会话 / 值为 0 时返回 null。
+ *
+ * 发消息要用它：临时会话回复对方必须走 `routingHead.grpTmp`（来源群号 + 对方 uid），
+ * 退化成普通 c2c 会被服务端当成非好友消息拒收。
+ */
+function tempSourceGroupCode(c: RecentContactWire): string | null {
+  const code = c.tempSourceGroupCode;
+  return code && code !== '0' ? code : null;
+}
+
+/**
  * 群聊发起的临时会话的来源群名（60001 是原始群号）。群不在我的群列表里（退群 /
  * 从未加入）时退化为群号，至少还能认出是哪个群。
  */
@@ -990,9 +1001,8 @@ function tempSourceGroupName(
   c: RecentContactWire,
   groupNameByCode: Map<string, string>,
 ): string | null {
-  const code = c.tempSourceGroupCode;
-  if (!code || code === '0') return null;
-  return groupNameByCode.get(code) || code;
+  const code = tempSourceGroupCode(c);
+  return code ? groupNameByCode.get(code) || code : null;
 }
 
 /** 40051 预览元素的 kind（text / face / grayTip* / …），拿不到返回 null。 */
@@ -1051,6 +1061,7 @@ function contactToConversation(
       lastMessage,
       chatType: c.chatType,
       tempSourceGroupName: tempSourceGroupName(c, groupNameByCode),
+      tempSourceGroupCode: tempSourceGroupCode(c),
     };
   }
 
@@ -5065,7 +5076,7 @@ export function MainView(): ReactElement {
    * 这里把它翻成协议元素（见 {@link buildComposerSendPlan}）再分派 IPC：
    *   - `elements` → `account.sendElements`（媒体在服务层真实上传）；
    *   - `file`     → `account.sendFile`（独立文件管线，需要本机路径）；
-   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊）。
+   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊；**不做乐观渲染**）。
    *
    * 失败一律**抛错**：composer 以「onSend 正常返回」为发送成功信号，返回成功会清空
    * 输入框；抛错路径会保留原文。服务端拒绝（result≠0）也不算成功。
@@ -5110,24 +5121,35 @@ export function MainView(): ReactElement {
     // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来
     // +「发送中」标识。本地媒体用 localPath / localPreviewUrl 直接预览。只活在
     // 前端 state 里，不写库、不落缓存文件。
+    //
+    // **AI 声聊除外**（`0x929b_0` 合成即发送）：语音是**服务端**合成后直接落进群里的，
+    // 我们这边那个 ptt 元素只是个占位（本地没有音频、回执也没有 random / seq 可对账），
+    // 画一条假气泡只会和真消息重影 / 排错位置。等 QQ 同步回来就是真气泡；失败靠 toast。
+    // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
+    // 照常乐观渲染。
+    const optimistic = plan.kind !== 'aiVoice';
     const optimisticId = `optimistic-${mfId('msg')}`;
-    const render = buildOptimisticRender({ body, locals: locals ?? [], superStickers });
-    setOptimisticMessages((current) => [
-      ...current,
-      {
-        id: optimisticId,
-        convId: conversation.id,
-        body: render.body,
-        elements: render.elements,
-        ...(plan.kind === 'aiVoice' ? { signatures: [`aiVoice:${plan.text}`] } : {}),
-        state: 'sending',
-        at: Date.now(),
-      },
-    ]);
-    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
+    if (optimistic) {
+      const render = buildOptimisticRender({ body, locals: locals ?? [], superStickers });
+      setOptimisticMessages((current) => [
+        ...current,
+        {
+          id: optimisticId,
+          convId: conversation.id,
+          body: render.body,
+          elements: render.elements,
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+    }
+    // 没有乐观条目（AI 声聊）时是个 no-op：下面失败 / 成功路径照旧调它，不必到处分叉。
+    const patchOptimistic = (next: Partial<OptimisticMessage>): void => {
+      if (!optimistic) return;
       setOptimisticMessages((current) =>
         current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
       );
+    };
 
     let outcome: {
       ok: boolean;
@@ -5139,6 +5161,16 @@ export function MainView(): ReactElement {
     };
     try {
       if (plan.kind === 'file') {
+        if (target.tempGroupCode) {
+          // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
+          // 管线：与其发一条大概率被拒的 c2c 文件，不如如实说清楚。
+          pushToast({
+            tone: 'warning',
+            message: '群临时会话暂不支持发文件',
+            detail: '文件走的是私聊专用的 trans0x211 管线，临时会话还没有对应实现。',
+          });
+          throw new Error('temp session file unsupported');
+        }
         outcome = await client.account.sendFile.mutate({
           peerType: target.peerType,
           targetId: target.targetId,
@@ -5151,6 +5183,7 @@ export function MainView(): ReactElement {
         outcome = await client.account.sendVoice.mutate({
           peerType: target.peerType,
           targetId: target.targetId,
+          ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           wav: toIpcElements([wav])[0],
           ...(plan.durationSec ? { durationSec: plan.durationSec } : {}),
           ...(plan.voiceChanged ? { voiceChanged: true } : {}),
@@ -5174,6 +5207,7 @@ export function MainView(): ReactElement {
         outcome = await client.account.sendElements.mutate({
           peerType: target.peerType,
           targetId: target.targetId,
+          ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           elements: toIpcElements(plan.elements),
         });
       }
@@ -5213,8 +5247,7 @@ export function MainView(): ReactElement {
       return;
     }
     if (plan.kind === 'aiVoice') {
-      // 0x929b_0 回执没有 random / seq：只能靠内容签名（合成原文）对账。
-      patchOptimistic({ state: 'sent' });
+      // AI 声聊没有乐观条目可收（见上），回执也没有 random / seq 可对账 —— 到此为止。
       return;
     }
     patchOptimistic({
@@ -5463,21 +5496,32 @@ export function MainView(): ReactElement {
   }
 
   /**
-   * Ark 卡片的目标会话 → IPC 的 `{peerType, targetId}`。
+   * 会话 → IPC 的 `{peerType, targetId, tempGroupCode?}`。
    * 聚合会话（服务号 / 公众号 / 隐藏 / 删除）没有可发送的目标，返回 null。
+   *
+   * 群聊发起的临时会话仍是 c2c 形状，但要多带一个**来源群号** —— 服务层据此改走
+   * `routingHead.grpTmp`（见 `MessageSendService` 的 `GroupTempSource`），否则服务端
+   * 会把它当成非好友之间的普通私聊拒收。
    */
-  function sendTargetOf(
-    conversation: Conversation,
-  ): { peerType: 'c2c' | 'group'; targetId: string } | null {
+  function sendTargetOf(conversation: Conversation): {
+    peerType: 'c2c' | 'group';
+    targetId: string;
+    /** 群临时会话的来源群号（60001）；非临时会话不出现。 */
+    tempGroupCode?: string;
+  } | null {
     if (conversation.type === 'group') {
       return { peerType: 'group', targetId: conversation.group.identityValue };
     }
     if (conversation.type === 'direct') {
       const other = conversation.otherUser;
-      // 优先给 QQ 号：服务层会顺手补上 uid；只有 uid 时才退回 uid 反查。
+      const tempGroupCode = conversation.tempSourceGroupCode;
       return {
         peerType: 'c2c',
-        targetId: /^\d+$/.test(other.identityValue) ? other.identityValue : other.id,
+        // 临时会话的 wire 路由只认 uid（grpTmp.toUid）→ 优先给 uid；普通私聊反过来，
+        // 优先给 QQ 号（服务层顺手补 uid，连陌生人也能发第一句）。
+        targetId:
+          tempGroupCode || !/^\d+$/.test(other.identityValue) ? other.id : other.identityValue,
+        ...(tempGroupCode ? { tempGroupCode } : {}),
       };
     }
     return null;

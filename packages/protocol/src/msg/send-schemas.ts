@@ -66,15 +66,46 @@ export const ROUTING_HEAD: ProtoMessage = message([
 
 // ---------- ContentHead / MessageBody ----------
 
-/** 发送侧 ContentHead：群聊只给 type=1；私聊/临时会话另给 c2cCmd=11。 */
+/** 发送侧 ContentHead：群聊只给 type=1；私聊另给 c2cCmd=11（零值按 proto3 缺省省略）。 */
 export const SEND_CONTENT_HEAD: ProtoMessage = message([
   f('type', 1, 'uint32'),
   f('subType', 2, 'uint32'),
   f('c2cCmd', 3, 'uint32'),
 ]);
 
-/** 控制结构（Request field 12）。私聊/临时会话带 msgFlag=当前秒；群聊不带。 */
+/**
+ * 群临时会话的 ContentHead —— 与 {@link SEND_CONTENT_HEAD} 同字段，区别只在
+ * **零值也上 wire**：真机抓包（2026-09-29，QQ NT 在群里发起临时会话）是
+ * `12 06 08 01 10 00 18 00`，`subType=0` 与 `c2cCmd=0` 都显式写出来，
+ * 而 proto3 缺省会把这俩 0 省掉。
+ *
+ * 单独开一份、而不是给共用那份加 `force`：群聊 / 私聊的字节都已被真机验证过
+ * （群聊黄金字节见 `test/send_msg.test.ts`），不该跟着变 —— `./send` 按场景选 schema。
+ */
+export const SEND_CONTENT_HEAD_TEMP: ProtoMessage = message([
+  f('type', 1, 'uint32'),
+  f('subType', 2, 'uint32', { force: true }),
+  f('c2cCmd', 3, 'uint32', { force: true }),
+]);
+
+/**
+ * 控制结构（Request field 12）。**私聊文本**带 msgFlag=当前秒（真机验证过能发出去）；
+ * 群聊不带，群临时会话改走 field 6（见 {@link SEND_SYNC_COOKIE}）。
+ */
 export const MESSAGE_CONTROL: ProtoMessage = message([f('msgFlag', 1, 'int32')]);
+
+/**
+ * 时间戳容器（Request field 6）—— 真机抓包实测（2026-09-29）：群临时会话把 Unix 秒
+ * 写在这一格，内容是一小段 protobuf，如 `08 A7 99 EA D5 06` = `{ msgFlag: 1790610599 }`。
+ *
+ * 这一格历史上按 SnowLuma 的名字叫 `syncCookie` 且声明成 `bytes`：字段号与 wire 形态
+ * （都是 len-delimited）完全一样，只是「解自己的请求」时会得到一串裸字节。这里按真机
+ * 解出来的类型声明成嵌套消息，于是 msgFlag 有名字。
+ *
+ * 私聊**文本**消息目前仍写 field 12（{@link MESSAGE_CONTROL}）；群临时会话与私聊文件
+ * 走这一格 —— 见 `./send` 里 `RoutingPlan.timestampField` 的说明。
+ */
+export const SEND_SYNC_COOKIE: ProtoMessage = message([f('msgFlag', 1, 'uint32')]);
 
 /** 发送侧 RichText：只装 elems（收侧还有 notOnlineFile / ptt）。 */
 export const SEND_RICH_TEXT: ProtoMessage = message([f('elems', 2, ELEM, { repeated: true })]);
@@ -92,12 +123,24 @@ export const SEND_MESSAGE_REQUEST: ProtoMessage = message([
   f('messageBody', 3, SEND_MESSAGE_BODY),
   f('clientSequence', 4, 'uint32'),
   f('random', 5, 'uint32'),
-  f('syncCookie', 6, 'bytes'),
+  f('syncCookie', 6, SEND_SYNC_COOKIE),
   f('via', 8, 'uint32'),
   f('dataStatist', 9, 'uint32'),
   f('ctrl', 12, MESSAGE_CONTROL),
   f('multiSendSeq', 14, 'uint32'),
 ]);
+
+/**
+ * 群临时会话用的请求容器 —— 与 {@link SEND_MESSAGE_REQUEST} 逐字段相同，只把
+ * `contentHead` 换成「零值也上 wire」的 {@link SEND_CONTENT_HEAD_TEMP}。
+ *
+ * 用映射而不是手抄一遍字段表：主 schema 一改这里跟着走，不会漂移。
+ */
+export const SEND_MESSAGE_REQUEST_TEMP: ProtoMessage = message(
+  SEND_MESSAGE_REQUEST.fields.map((field) =>
+    field.name === 'contentHead' ? { ...field, type: SEND_CONTENT_HEAD_TEMP } : field,
+  ),
+);
 
 /**
  * 发送响应：result(1)=0 才是真的发出去了；routing 不同回执字段不同 ——

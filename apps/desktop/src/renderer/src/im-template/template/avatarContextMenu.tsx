@@ -11,7 +11,7 @@ export type AvatarContextMenuState = {
 
 /**
  * 右键消息里某个头像弹出的轻互动菜单：
- *   - 「@他」把 `@昵称 ` 写进输入框（纯前端编辑，不限在线状态）；
+ *   - 「@Ta」把 `@昵称 ` 写进输入框（纯前端编辑，不限在线状态）；
  *   - 「戳一戳」走 OIDB 0xED3_1 发包，需要在线且已注入的 QQ —— 不可用时置灰并说明原因。
  */
 export function AvatarContextMenu({
@@ -60,7 +60,7 @@ export function AvatarContextMenu({
     >
       <button type="button" title="在输入框里 @ 这个人" onClick={() => onMention(state.sender)}>
         <AtSign size={17} />
-        <span>@他</span>
+        <span>@Ta</span>
       </button>
       <button
         type="button"

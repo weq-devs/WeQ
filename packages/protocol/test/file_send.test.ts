@@ -321,14 +321,15 @@ describe('sendPrivateFile', () => {
       routingHead?: { trans0x211?: { ccCmd?: number; uid?: string } };
       contentHead?: { type?: number };
       messageBody?: { richText?: unknown; msgContent?: Uint8Array };
-      ctrl?: { msgFlag?: number };
+      // 时间戳走 field 6（`syncCookie`）—— 与群临时会话同一格（真机实测的位置）。
+      syncCookie?: { msgFlag?: number };
     };
     expect(native.packetCalls[0]!.cmd).toBe('MessageSvc.PbSendMsg');
     expect(sent.routingHead?.trans0x211?.ccCmd).toBe(4);
     expect(sent.routingHead?.trans0x211?.uid).toBe('u_TEST');
     expect(sent.contentHead?.type).toBe(1);
     expect(sent.messageBody?.richText).toBeUndefined();
-    expect(sent.ctrl?.msgFlag).toBeGreaterThan(0);
+    expect(sent.syncCookie?.msgFlag).toBeGreaterThan(0);
 
     const extra = decode(FILE_EXTRA, sent.messageBody!.msgContent!) as {
       file?: {

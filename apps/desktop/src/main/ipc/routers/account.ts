@@ -3047,12 +3047,16 @@ export const accountRouter = router({
    * 元素形状见 @weq/service 的 `SendElement`：媒体元素的 `source` 是本机绝对路径
    * （优先）或字节（剪贴板等无路径来源）。字节以 `{ type:'Buffer', data }` 过 IPC，
    * 这里用 `elementsFromEditable` 还原成 Uint8Array。
+   *
+   * `tempGroupCode` 只在「群里发起的临时会话」里给（会话行的 60001 来源群号）：给了
+   * 就走 `routingHead.grpTmp` 而不是 c2c —— 见 `MessageSendService` 的 `GroupTempSource`。
    */
   sendElements: procedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
       }),
@@ -3062,6 +3066,7 @@ export const accountRouter = router({
       return requireServices().messageSend.sendElements({
         peerType: input.peerType,
         targetId: input.targetId,
+        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
         elements: elementsFromEditable(input.elements) as never,
         ...(input.dress ? { dress: input.dress as never } : {}),
       });
@@ -3100,12 +3105,15 @@ export const accountRouter = router({
    * `decodeRecordingToWav`），这里再把这份 WAV 落成临时文件、转 SILK、连同真实波形发送。
    *
    * `wav` 是 IPC 安全的 `{ type:'Buffer', data }` 盒子（`elementsFromEditable` 还原）。
+   *
+   * `tempGroupCode` 同 `sendElements`：群临时会话里给来源群号，走 grpTmp 路由。
    */
   sendVoice: procedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
         wav: z.any(),
         durationSec: z.number().min(0).max(3600).optional(),
         fileName: z.string().min(1).optional(),
@@ -3129,6 +3137,7 @@ export const accountRouter = router({
         return requireServices().messageSend.sendMedia({
           peerType: input.peerType,
           targetId: input.targetId,
+          ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
           kind: 'record',
           source: silk.silk,
           durationSec: input.durationSec ?? silk.durationSec,
