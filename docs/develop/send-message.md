@@ -102,9 +102,10 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
   显示「视频已过期」）。
 - **语音的 `bytesReserve` 分场景，形状不同**（真机抓包 2026-09-24）：
   - 群聊：4 字节 `08 00 38 00`，并带 `bytesGeneralFlags`（照抄 NapCat）。
-  - 私聊：**33 字节容器**（见下），且**不带** `bytesGeneralFlags`。
-  NapCat / SnowLuma 把群聊那 4 字节直接用在私聊上 —— 恰好是容器的最后一格，发出去不报错，
-  但 QQ 端私聊语音**画不出波形**（群聊正常）。详见「私聊语音波形」。
+  - 私聊：**33 字节容器**（见下）。
+- **私聊的 `bytesGeneralFlags` 一个字节都不能带**（2026-09-30 单变量 A/B 定位）：带上 NapCat
+  的 14 字节 private 那条，收端 QQ 就不画波形；去掉即恢复，与 `bytesReserve` 的形状无关。
+  详见「私聊语音波形」。
 - **视频尺寸**：群聊必须带真实宽高（0×0 会让 QQ-NT 安卓端显示「文件已过期」），
   私聊固定 0（服务端 schema 会拒非 0）。
 - **视频分块 sha1**：`hash.fileSha1` 是「每个完整 1 MiB 块一条中间态 + 末条整文件 sha1」。
@@ -128,12 +129,26 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
   存储桶里。`finalizeMediaMsgInfo` 把服务端响应里的 pic **按 key 补齐**而不是重建，
   就是为了不把这两个字段丢掉。
 
-### 私聊语音波形（2026-09-24 实机定位）
+### 私聊语音波形（2026-09-24 抓包 → 2026-09-30 单变量定位）
 
 现象：我们自己发的**群聊语音** QQ 端有波形，**私聊语音**是平的。
 
-结论：不是波形字节算错、也不是 `commonElem.businessType`（试过私聊 12，无效、已回滚），
-而是 `extBizInfo.ptt.bytesReserve` 的**形状**。用安卓真机抓包（`0x126d_100`）逐字段对出来：
+**结论（2026-09-30 更新）：私聊不能带 `extBizInfo.ptt.bytesGeneralFlags`。** 在另一份实现上
+把「同一段音频、同一版本、只有这一个字段不同」的四种组合都跑了一遍：
+
+| 私聊 `bytesGeneralFlags` | `bytesReserve` | 收端波形 |
+| --- | --- | --- |
+| 14 字节（NapCat private） | 33 字节容器 | 平的 |
+| 14 字节（NapCat private） | 裸 4 字节 | 平的 |
+| 缺席 | 33 字节容器 | 有波形 |
+| 缺席 | 裸 4 字节 | **有波形** |
+
+也就是说 `bytesReserve` 的**形状不是决定因素**（发裸 4 字节照样能画），`commonElem.businessType`
+的 12 / 22 也不是（flags 在场时两种都平、去掉后两种都有波形）。群聊那条 10 字节 flags 一直
+照发，群聊波形一直正常。
+
+历史结论（2026-09-24）：用安卓真机抓包（`0x126d_100`）逐字段对出来，私聊的 reserve 是
+33 字节容器：
 
 ```
 05 02 00 01 00                       ← 固定头
@@ -143,12 +158,14 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
 0A 00 04 08 00 38 00                 ← 尾部恰好就是群聊那 4 字节
 ```
 
-即 `0A` 项的内容 = `08 00 38 00`；NapCat / SL 只发了这一格（连长度前缀一并丢），所以私聊
-波形不渲染。实现见 `buildPttReserve()`（`src/highway/media-upload.ts`）：私聊走 33 字节容器、
-群聊照旧 4 字节，且因为容器内嵌 `clientRandomId`，私聊语音的 `clientRandomId` 必须与
-`upload.clientRandomId` **用同一个值**（`makeClientRandomId()` 已提为可注入参数）。
+即 `0A` 项的内容 = `08 00 38 00`；NapCat / SL 当时只发了这一格（连长度前缀一并丢），于是把
+「私聊波形不渲染」归因于形状 —— 按上面的 A/B 这是**误判**（当年这次改动是否只动了容器，已
+无法回溯）。容器继续按抓包发：真机就是这样，发它不报错也不影响波形。实现见
+`buildPttReserve()`（`src/highway/media-upload.ts`）：私聊走 33 字节容器、群聊照旧 4 字节，
+且因为容器内嵌 `clientRandomId`，私聊语音的 `clientRandomId` 必须与 `upload.clientRandomId`
+**用同一个值**（`makeClientRandomId()` 已提为可注入参数）。
 
-顺带排除的两条（都**不是**原因）：`ptt.waveform` 的振幅字节（服务端把发送端的波形原样带到
+顺带排除的（都**不是**原因）：`ptt.waveform` 的振幅字节（服务端把发送端的波形原样带到
 收端元素 `45925`，我们群聊/服务端漫游缓存里都能看到真波形）、收端元素缺 `45909/45911/45922`
 （群聊也缺，但群聊能画）。
 

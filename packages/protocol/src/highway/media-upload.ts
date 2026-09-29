@@ -66,6 +66,7 @@ export const RICH_MEDIA_BUSINESS_TYPE = {
    *
    * 曾试过按安卓抓包把私聊改成 12（`0x126d_100` + `PbSendMsg` 两条抓包里是 12），
    * 真机发出去后收端（QQ）**依然不画波形**，所以回滚 —— 私聊波形平不是这个值的问题。
+   * 真正的开关是私聊**不能带** `extBizInfo.ptt.bytesGeneralFlags`，见 {@link uploadPttMsgInfo}。
    */
   voice: 22,
 } as const;
@@ -399,7 +400,11 @@ const PTT_RESERVE_LEGACY = new Uint8Array([0x08, 0x00, 0x38, 0x00]);
  *   ```
  *
  *   尾部 `0A` 项的内容恰好就是群聊那 4 字节 —— 也就是说我们之前只把容器尾巴发出去
- *   了。私聊波形不渲染时就锚在这里（NapCat / SL 同样只发尾巴）。
+ *   了，当时把「私聊波形不渲染」锚在这里。
+ *
+ *   ⚠️ 2026-09-30 单变量 A/B：形状**不是**原因。私聊发裸 4 字节照样能画出波形；反过来
+ *   带着 33 字节容器、只要补上那 14 字节 `bytesGeneralFlags` 就仍然是平的。容器继续按
+ *   抓包发（真机确实如此、发它不报错），但别再把它当成波形的原因。
  *
  * 变声（{@link UploadPttParams.voiceChanged}）只动上面那 4 字节的第 2 个字节：
  * 原声 `08 00 38 00`、变声 `08 01 38 00`（即内嵌的 `{1:0|1, 7:0}`）。私聊 33 字节
@@ -441,8 +446,10 @@ export interface UploadPttResult extends MediaUploadResult {
 /**
  * 上传一段语音，返回 outgoing commonElem.pbElem。
  *
- * 群聊与私聊的 `bytesGeneralFlags` 不同（照抄 NapCat 的 group/private 两条）——
- * 写错会让旧客户端的兼容消息体解析不出语音，所以按场景分流。
+ * `bytesGeneralFlags` 按场景分流：群聊照抄 NapCat 的 10 字节那条；私聊**一个字节都不发**。
+ * 这不只是「照抄」—— 2026-09-30 的单变量 A/B 证明私聊只要带上 NapCat 的 14 字节 private
+ * 那条，收端 QQ 就**不画波形**（其余字段逐字节相同），去掉立刻恢复（安卓真机抓包
+ * `0x126d_100` 里私聊同样没有这个字段）。所以私聊这条别再按 NapCat 加回来。
  */
 export async function uploadPttMsgInfo(
   nt: MediaNative,
@@ -500,7 +507,8 @@ export async function uploadPttMsgInfo(
         ...(voiceChanged ? { changeVoice: 1 } : {}),
         bytesReserve: buildPttReserve(target, clientRandomId, voiceChanged),
         bytesPbReserve: new Uint8Array(0),
-        // 安卓真机抓包（0x126d_100）里私聊语音**没有**这个字段，群聊那套照旧。
+        // 私聊必须缺席：真机 A/B 过 —— 带上 NapCat 的 14 字节 private 那条收端就不画波形
+        // （安卓抓包 0x126d_100 里私聊同样没有这个字段），群聊那套照旧。
         ...(target.isGroup ? { bytesGeneralFlags: generalFlags } : {}),
         waveform: waveform.bytes,
       },
@@ -526,7 +534,8 @@ export async function uploadPttMsgInfo(
   });
   return {
     ...toResult(upload, msgInfo, {
-      // 真机验证：私聊语音用 12（安卓抓包那样）并不会让收端画出波形，B 实验已回滚。
+      // 真机验证：私聊语音用 12（安卓抓包那样）并不会让收端画出波形，B 实验已回滚 ——
+      // 私聊画不出波形的原因在 bytesGeneralFlags，不在这个值（见 uploadPttMsgInfo）。
       businessType: RICH_MEDIA_BUSINESS_TYPE.voice,
       fileName,
       fileSize: bytes.length,

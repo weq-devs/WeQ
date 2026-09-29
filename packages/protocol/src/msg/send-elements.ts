@@ -1033,8 +1033,8 @@ function resolveMediaTarget(ctx: MediaSendContext): MediaUploadTarget {
 /**
  * 上传结果 → Elem proto 对象。
  *
- * `businessType` 不再在这里按 kind 猜：上传方知道场景（群 / 私聊），而两边的取值
- * 不一定相同（私聊语音实测是 12，见 `RICH_MEDIA_BUSINESS_TYPE.voiceC2c`）。
+ * `businessType` 不再在这里按 kind 猜：上传方知道场景（群 / 私聊），而两边的取值以后可能不同
+ * （目前语音两边都是 22，见 `RICH_MEDIA_BUSINESS_TYPE.voice`）。
  */
 function buildMediaElem(upload: MediaUploadResult): Record<string, unknown> {
   return {
@@ -1047,7 +1047,8 @@ function buildMediaElem(upload: MediaUploadResult): Record<string, unknown> {
 }
 
 // 注：实验 B（私聊语音 businessType 12）真机验证无效，已回滚为群/私聊同为 22 ——
-// 见 `RICH_MEDIA_BUSINESS_TYPE.voice`。
+// 见 `RICH_MEDIA_BUSINESS_TYPE.voice`。私聊画不出波形的真凶在 `bytesGeneralFlags`
+// （见 `highway/media-upload.ts` 的 `uploadPttMsgInfo`），与这个值无关。
 
 /**
  * 元素数组 → Elem proto 对象数组（**含媒体上传**）。
