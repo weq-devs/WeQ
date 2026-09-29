@@ -4010,6 +4010,33 @@ html[data-theme="dark"] .weq-filerow-name {
   color: #c0392b;
 }
 
+/* 语气徽标：情绪 + 识别到的非语音声音事件（来自 SenseVoice 富标签）。 */
+.weq-voice-tone {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 5px;
+}
+
+.weq-voice-tone-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.weq-voice-tone-chip.is-emotion {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 整体资源分析弹窗
  * ════════════════════════════════════════════════════════════════════════ */

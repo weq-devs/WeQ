@@ -2349,6 +2349,8 @@ export const AI_TOOLS: AiTool[] = [
     name: 'transcribe_voice_message',
     description:
       '把某条消息里的本地语音（ptt）交给 WeQ 已下载的语音转写模型即时转成文字。' +
+      '除了文字，SenseVoice 还会给出说话人的语气情绪 emotion（如 开心/难过/生气）和识别到的非语音声音事件 events' +
+      '（如 笑声/掌声/背景音）——它们是模型自带的多任务输出，回答“对方说话什么语气”这类问题时很有用。' +
       '只读本机已缓存的语音文件、不联网拉取，结果**不会写回数据库**（要写回 QQ 供导出复用属于改库副作用，不在本工具范围）。' +
       '如果该语音之前已经转写（get_message_details 的 media[].transcript 非空），直接读即可，无需再调本工具。' +
       '定位消息用 msgId：get_messages 开 includeIds 或 list_recalled_messages 会返回。' +
@@ -2417,6 +2419,10 @@ export const AI_TOOLS: AiTool[] = [
         if (res.ok && res.text) {
           entry.ok = true;
           entry.transcript = res.text;
+          // Emotion / sound events come free with SenseVoice — surface them as
+          // structured fields so the model can reason about tone, not just words.
+          if (res.emotion) entry.emotion = res.emotion.label;
+          if (res.events?.length) entry.events = res.events.map((e) => e.label);
         } else {
           entry.ok = false;
           entry.error = res.error ?? '语音转写失败';

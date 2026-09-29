@@ -15,6 +15,7 @@ import { fork } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import type { VoiceTagDisplay } from './tags';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,7 +35,15 @@ function resolveWorkerPath(): string {
 
 export interface TranscribeResult {
   success: boolean;
+  /** Transcript, with every SenseVoice control tag stripped. */
   text?: string;
+  /**
+   * Speaker tone from the SenseVoice emotion tag (😊 开心 / 😔 难过 …), or null
+   * when the clip carried no tag. Present on success only.
+   */
+  emotion?: VoiceTagDisplay | null;
+  /** Sound events the model recognized (🎵 背景音 / 😂 笑声 / 👏 掌声 …). */
+  events?: VoiceTagDisplay[];
   error?: string;
 }
 
@@ -44,6 +53,16 @@ export interface TranscribeModelPaths {
   /** Path to the tokens file (tokens.txt). */
   tokens: string;
 }
+
+/** Messages the worker posts back over IPC. */
+type TranscribeWorkerMessage =
+  | {
+      type?: 'final';
+      text?: string;
+      emotion?: VoiceTagDisplay | null;
+      events?: VoiceTagDisplay[];
+    }
+  | { type?: 'error'; error?: string };
 
 /**
  * Transcribe 16 kHz mono WAV bytes with the given sherpa model. `engine`
@@ -75,9 +94,14 @@ export function transcribeWav(
       return;
     }
 
-    worker.on('message', (msg: { type?: string; text?: string; error?: string }) => {
+    worker.on('message', (msg: TranscribeWorkerMessage) => {
       if (msg?.type === 'final') {
-        done({ success: true, text: msg.text ?? '' });
+        done({
+          success: true,
+          text: msg.text ?? '',
+          emotion: msg.emotion ?? null,
+          events: msg.events ?? [],
+        });
         worker.disconnect();
         worker.kill();
       } else if (msg?.type === 'error') {
