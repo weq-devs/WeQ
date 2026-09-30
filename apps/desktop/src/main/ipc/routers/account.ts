@@ -25,7 +25,11 @@ import {
 } from '../../context/app_context';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, ProtoMsg } from '@weq/codec';
+import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+
+/** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
+const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -3574,6 +3578,59 @@ export const accountRouter = router({
     });
   }),
   // ---- group album ----
+
+  /**
+   * 查一个红包的领取明细（`hb_pc_detail`）。
+   *
+   * 与「发消息」同条件：需要**在线且已注入**的 QQ —— 红包包走 hook 上的
+   * `sendPacket`（`tenpay.com` 的 p_skey 只是请求体里的一个字段，光有票据发不出去）。
+   * p_skey 按域缓存在 `RedBagService` 里，重复点击不会每次都打 OIDB。
+   */
+  redbagDetail: procedure
+    .input(
+      z.object({
+        msgId: z.string().min(1).describe('红包消息的 msgId（查 40001 得到）'),
+        kind: z.enum(['c2c', 'group']).describe('会话类型'),
+        conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      const pid = services.accountConfig.getRecord()?.qqPid;
+      if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+
+      const id = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+      if (id === null) throw new Error(`msgId 无效：${input.msgId}`);
+
+      // 定位信息全靠消息本体：48417 是 `{2: packetId, 3: orderId}`。
+      const raw = await services.msgs.getRawElements(id);
+      if (!raw) throw new Error('找不到这条消息（可能已被清理）。');
+      const wallet = raw.elements.find((el) => el.kind === 'wallet') as
+        | { walletFlag48417?: Uint8Array }
+        | undefined;
+      if (!wallet?.walletFlag48417) throw new Error('这条消息不是红包（缺少 48417）。');
+
+      let orderId = '';
+      let packetId = '';
+      try {
+        const decoded = walletFlag48417Wire.decode(wallet.walletFlag48417);
+        orderId = decoded.orderId ?? '';
+        packetId = decoded.packetId ? Buffer.from(decoded.packetId).toString('hex') : '';
+      } catch {
+        throw new Error('这个红包的 48417 结构无法解析。');
+      }
+      if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
+
+      // peerUin：群就是群号；私聊要 uid → uin。
+      const peerUin =
+        input.kind === 'group'
+          ? input.conv
+          : String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+      if (!peerUin) throw new Error('解析不出红包的领取方 QQ 号。');
+
+      return services.redbag.detail({ orderId, packetId, peerUin, peerType: input.kind }, pid);
+    }),
 
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
   listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {

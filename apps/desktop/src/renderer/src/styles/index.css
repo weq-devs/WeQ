@@ -23318,3 +23318,237 @@ html[data-theme="dark"] .weq-mf-preview {
 .weq-mf-inline-editor-embedded .weq-mf-inline-tools {
   padding-top: 0.5rem;
 }
+
+/* ---- 红包领取明细灯箱 ------------------------------------------------ */
+/* 封面作底 + 顶部向下弧线：弧线以上露封面，弧线以下用表面色遮住，弧线正中嵌头像。 */
+
+.weq-redbag-card.is-clickable {
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+.weq-redbag-card.is-clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+.weq-redbag-card.is-clickable:active {
+  transform: translateY(0);
+}
+.weq-redbag-card.is-clickable:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-redbag-detail-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.weq-redbag-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 48px));
+  max-height: min(560px, calc(100vh - 64px));
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 70px -30px rgba(7, 12, 24, 0.55);
+}
+
+.weq-redbag-detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 26%, transparent);
+  color: #fff;
+  cursor: pointer;
+}
+.weq-redbag-detail-close:hover {
+  background: color-mix(in srgb, #000 40%, transparent);
+}
+
+/* 上半：封面底（固定高度，保证弧线位置稳定） */
+.weq-redbag-detail-hero {
+  position: relative;
+  flex: none;
+  height: 190px;
+  overflow: hidden;
+}
+.weq-redbag-detail-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  user-select: none;
+}
+
+/* 向下弧线：path 填表面色，盖住封面下半，弧线正中留一个圆给头像 */
+.weq-redbag-detail-arc {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 40px;
+  display: block;
+  color: var(--weq-bg-surface);
+}
+.weq-redbag-detail-arc path {
+  fill: currentColor;
+}
+
+.weq-redbag-detail-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 2px 10px -4px rgba(0, 0, 0, 0.4);
+}
+.weq-redbag-detail-avatar .weq-avatar-img,
+.weq-redbag-detail-avatar .weq-avatar-fallback {
+  border-radius: 50%;
+}
+
+.weq-redbag-detail-hero-text {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 74px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-hero-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.weq-redbag-detail-hero-wishing {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 下半：白色（深色模式用表面色）遮住封面 */
+.weq-redbag-detail-sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 16px 16px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-redbag-detail-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px 10px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.weq-redbag-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-redbag-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+/* 自己那一条底灰 */
+.weq-redbag-detail-item.is-mine {
+  background: var(--muted);
+}
+
+.weq-redbag-detail-item .weq-avatar-img,
+.weq-redbag-detail-item .weq-avatar-fallback {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.weq-redbag-detail-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.weq-redbag-detail-item-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-redbag-detail-crown {
+  flex-shrink: 0;
+  color: #f0a92c; /* 金色皇冠 */
+}
+.weq-redbag-detail-item-time {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+.weq-redbag-detail-item-amount {
+  flex-shrink: 0;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.weq-redbag-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 140px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.weq-redbag-detail-empty.is-error {
+  color: var(--weq-fg-secondary);
+}
+.weq-redbag-detail-hint {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}

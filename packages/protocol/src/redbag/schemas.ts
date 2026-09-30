@@ -37,6 +37,12 @@ export const RED_BAG_PRE_PACK_CMD = 'hb_pc_pre_pack';
 /** 口令池命令：拉一批候选口令给口令红包用。 */
 export const RED_BAG_PASSWORD_POOL_CMD = 'trpc.qqhb.hbpanel.Hongbao.SsoGetToken';
 
+/** `hb_pc_detail`：查一个红包的领取明细（不领取，只读）。 */
+export const RED_BAG_DETAIL_CMD = 'hb_pc_detail';
+
+/** `hb_pc_grab`：抢红包（点开并领取）。 */
+export const RED_BAG_GRAB_CMD = 'hb_pc_grab';
+
 /** `f4 scene` 的取值：领取方是私聊还是群。 */
 export const RED_BAG_SCENE = { c2c: 1, group: 3 } as const;
 
@@ -134,4 +140,123 @@ export const RED_BAG_PASSWORD_POOL_RESP = message([
   { name: 'passwords', tag: 1, type: 'string', repeated: true },
   { name: 'flag2', tag: 2, type: 'uint32' },
   { name: 'flag3', tag: 3, type: 'uint32' },
+]);
+
+// ─────────────────── hb_pc_detail / hb_pc_grab ───────────────────
+//
+// 两条命令与 pre_pack 共用同一套 `sso_handle` 信封、salt 派生与 f101 签名，只是
+// pack 子消息换成「定位哪一个红包」的参数。样本：
+//
+//   私聊 detail   `/tmp/bag_datail.log`（单领取人）
+//   群  detail   `/tmp/group_detail.log`（两个领取人）
+//   私聊 grab     `/tmp/bag_grab.log`
+//   群  grab     `/tmp/group_grab.log`（后面还跟一条 0x5cf_11 上报）
+//
+// 明细响应里那句「领取列表」是 f3.4（repeated），f3.3 是**首个**领取人（首抢），
+// 所以只有一个领取人时两者逐字节相同 —— `bag_datail.log` 正是这种情形。
+
+/** detail 的 `f3`：定位红包（`f1` 订单号 + `f2` packetId + `f6` 会话）。 */
+export const RED_BAG_DETAIL_QUERY = message([
+  /** 红包订单号 / nonce（32 位 hex 字符串），来自消息 tag 48451。 */
+  { name: 'orderId', tag: 1, type: 'string' },
+  /** 32 字节 packetId（tag 48417.2），十六进制原样搬过来。 */
+  { name: 'packetId', tag: 2, type: 'bytes' },
+  /** 领取方：私聊 = 对方 uin，群 = 群号。 */
+  { name: 'peerUin', tag: 6, type: 'uint64' },
+  /** 私聊 0 / 群 1（detail 与 grab 一致，样本齐全）。 */
+  { name: 'sceneFlag', tag: 7, type: 'uint32' },
+  /** 抓包恒 0。 */
+  { name: 'flag8', tag: 8, type: 'uint32', force: true },
+  /** 抓包恒 20。 */
+  { name: 'flag9', tag: 9, type: 'uint32' },
+]);
+
+/** grab 的 `f3`：在 detail 的基础上多几项（昵称、第二串 id、两个开关）。 */
+export const RED_BAG_GRAB_QUERY = message([
+  { name: 'orderId', tag: 1, type: 'string' },
+  { name: 'packetId', tag: 2, type: 'bytes' },
+  /** 领取者昵称（抓包写的是自己）。 */
+  { name: 'nickname', tag: 4, type: 'string' },
+  { name: 'peerUin', tag: 6, type: 'uint64' },
+  /** 与 detail 同一个 scene：私聊 0 / 群 1。 */
+  { name: 'flag7', tag: 7, type: 'uint32' },
+  /** 第二串 32 位 hex id（tag 48418）。 */
+  { name: 'token', tag: 9, type: 'string' },
+  { name: 'flag10', tag: 10, type: 'uint32', force: true },
+  { name: 'flag11', tag: 11, type: 'uint32' },
+]);
+
+/** 明细里的一条领取记录。 */
+export const RED_BAG_CLAIM = message([
+  { name: 'uin', tag: 2, type: 'uint64' },
+  { name: 'nickname', tag: 3, type: 'string' },
+  /** 领取金额，单位**分**（群样本两人 7 + 3 = 总额 10）。 */
+  { name: 'amount', tag: 4, type: 'uint32' },
+  /** 领取时间（unix 秒）。 */
+  { name: 'claimTime', tag: 5, type: 'uint64' },
+]);
+
+/** 明细里的红包概况（`f3.2`）。 */
+export const RED_BAG_DETAIL_SUMMARY = message([
+  { name: 'senderUin', tag: 2, type: 'uint64' },
+  { name: 'senderNickname', tag: 3, type: 'string' },
+  /** 祝福语 / 口令。 */
+  { name: 'wishing', tag: 4, type: 'string' },
+  { name: 'totalNum', tag: 5, type: 'uint32' },
+  /** 总金额，单位**分**。 */
+  { name: 'totalAmount', tag: 6, type: 'uint32' },
+  /** 金额分配：1 = 等额、2 = 拼手气（与 pre_pack 的 f7 一致）。 */
+  { name: 'split', tag: 7, type: 'uint32' },
+  /** 已领取人数。 */
+  { name: 'claimedCount', tag: 8, type: 'uint32' },
+  { name: 'flag9', tag: 9, type: 'uint32' },
+  { name: 'expireTime', tag: 11, type: 'uint64' },
+  { name: 'flag15', tag: 15, type: 'uint32' },
+  { name: 'flag16', tag: 16, type: 'uint32' },
+  { name: 'flag17', tag: 17, type: 'uint32' },
+  { name: 'flag18', tag: 18, type: 'uint64' },
+]);
+
+/** 明细响应正文（`f3`）：概况 + 首抢 + **repeated 领取列表**。 */
+export const RED_BAG_DETAIL_BODY = message([
+  { name: 'summary', tag: 2, type: RED_BAG_DETAIL_SUMMARY },
+  { name: 'firstClaim', tag: 3, type: RED_BAG_CLAIM },
+  { name: 'claims', tag: 4, type: RED_BAG_CLAIM, repeated: true },
+]);
+
+/** `hb_pc_detail` 明文请求：与 pre_pack 同构，`f3` 换成定位参数。 */
+export const RED_BAG_DETAIL_REQ = message([
+  { name: 'sender', tag: 1, type: RED_BAG_SENDER },
+  { name: 'query', tag: 3, type: RED_BAG_DETAIL_QUERY },
+  { name: 'nonce', tag: 101, type: 'bytes' },
+]);
+
+/** `hb_pc_detail` 明文响应。 */
+export const RED_BAG_DETAIL_RESP = message([
+  { name: 'code', tag: 1, type: 'uint32' },
+  { name: 'message', tag: 2, type: 'string' },
+  { name: 'body', tag: 3, type: RED_BAG_DETAIL_BODY },
+  { name: 'nonce', tag: 101, type: 'bytes' },
+]);
+
+/** `hb_pc_grab` 明文请求。 */
+export const RED_BAG_GRAB_REQ = message([
+  { name: 'sender', tag: 1, type: RED_BAG_SENDER },
+  { name: 'query', tag: 3, type: RED_BAG_GRAB_QUERY },
+  { name: 'nonce', tag: 101, type: 'bytes' },
+]);
+
+/** 抢红包响应正文（`f3`）：多一个 `f1` 状态位，领取列表退化成单条 `f3`。 */
+export const RED_BAG_GRAB_BODY = message([
+  { name: 'flag1', tag: 1, type: 'uint32' },
+  { name: 'summary', tag: 2, type: RED_BAG_DETAIL_SUMMARY },
+  { name: 'claim', tag: 3, type: RED_BAG_CLAIM },
+]);
+
+/** `hb_pc_grab` 明文响应。 */
+export const RED_BAG_GRAB_RESP = message([
+  { name: 'code', tag: 1, type: 'uint32' },
+  { name: 'message', tag: 2, type: 'string' },
+  { name: 'body', tag: 3, type: RED_BAG_GRAB_BODY },
+  { name: 'nonce', tag: 101, type: 'bytes' },
 ]);

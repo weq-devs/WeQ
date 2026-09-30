@@ -96,6 +96,8 @@ export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
 export type { DownloadRkey } from './oidb/fetch-download-rkeys';
 export { FetchPskeyOidb } from './oidb/fetch-pskey';
 export {
+  RedBagDetail,
+  RedBagGrab,
   decodeSsoHandlePacket,
   encodeSsoHandleRequest,
   fetchTenpayPsKey,
@@ -106,13 +108,19 @@ export {
   RED_BAG_SALT_BYTES,
 } from './redbag';
 export type {
+  RedBagClaim,
+  RedBagDetailResult,
+  RedBagDetailSummary,
+  RedBagGrabResult,
   RedBagKind,
+  RedBagLocateParams,
   RedBagPacketView,
   RedBagPeerType,
   RedBagPrePackParams,
   RedBagPrePackResult,
   RedBagSplit,
 } from './redbag';
+export { signRedBagRequest, RED_BAG_SIGN_SALT1, RED_BAG_SIGN_SALT2 } from './redbag/sign';
 export {
   decryptRedBagPayload,
   deriveRedBagIv,
@@ -123,6 +131,16 @@ export {
   RED_BAG_SALT_LENGTH,
 } from './redbag/crypto';
 export {
+  RED_BAG_DETAIL_BODY,
+  RED_BAG_DETAIL_CMD,
+  RED_BAG_DETAIL_QUERY,
+  RED_BAG_DETAIL_REQ,
+  RED_BAG_DETAIL_RESP,
+  RED_BAG_GRAB_BODY,
+  RED_BAG_GRAB_CMD,
+  RED_BAG_GRAB_QUERY,
+  RED_BAG_GRAB_REQ,
+  RED_BAG_GRAB_RESP,
   RED_BAG_KIND,
   RED_BAG_PASSWORD_POOL_CMD,
   RED_BAG_PASSWORD_POOL_REQ,

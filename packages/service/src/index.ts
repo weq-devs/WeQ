@@ -213,6 +213,12 @@ export {
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
+export {
+  RedBagService,
+  type RedBagDetailQuery,
+  type RedBagDetailView,
+  type RedBagNative,
+} from './account/redbag';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
