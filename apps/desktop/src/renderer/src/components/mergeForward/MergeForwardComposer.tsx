@@ -274,6 +274,27 @@ export function MergeForwardComposer({
           <div key={node.id} className="weq-mf-slot">
             {!editor && index === 0 ? <InsertButton onClick={() => startInsert(0)} /> : null}
 
+            {/* 新消息插在这一行前面：只有「插到末尾」时才会走列表外的那个编辑器，
+                插在中间 / 开头时必须在这里就地画出来，否则按钮藏了、面板却没出现。 */}
+            {editor && editor.nodeId === null && editor.at === index ? (
+              <NodeEditor
+                segs={editor.segs}
+                onChange={(segs) => setEditor((cur) => (cur ? { ...cur, segs } : cur))}
+                sender={editor.sender}
+                onPickSender={() => setPickerFor({ kind: 'editor' })}
+                onSave={saveEditor}
+                onCancel={() => {
+                  setEditor(null);
+                  setError(null);
+                }}
+                error={error}
+                self={self}
+                members={members}
+                senderMode={senderMode}
+                depth={0}
+              />
+            ) : null}
+
             {editor && editor.nodeId === node.id ? (
               <NodeEditor
                 segs={editor.segs}
