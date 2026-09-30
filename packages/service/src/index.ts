@@ -217,6 +217,7 @@ export {
   RedBagService,
   type RedBagDetailQuery,
   type RedBagDetailView,
+  type RedBagGrabView,
   type RedBagNative,
 } from './account/redbag';
 export { FileSearchService } from './account/file_search';

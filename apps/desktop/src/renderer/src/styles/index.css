@@ -23353,7 +23353,9 @@ html[data-theme="dark"] .weq-mf-preview {
   display: flex;
   flex-direction: column;
   width: min(360px, calc(100vw - 48px));
-  max-height: min(560px, calc(100vh - 64px));
+  /* 高度定死（360×540 正好是通用封面 432×648 的等比缩放）：
+     「领取记录 / 开 / 领取结果」三态来回切，卡片尺寸与位置一点都不动。 */
+  height: min(540px, calc(100vh - 64px));
   overflow: hidden;
   border-radius: 18px;
   background: var(--weq-bg-surface);
@@ -23551,4 +23553,166 @@ html[data-theme="dark"] .weq-mf-preview {
 .weq-redbag-detail-hint {
   color: var(--weq-fg-muted);
   font-size: 11px;
+}
+
+/* ---- 无白板态：开 / 领取结果 / 自己发的 ---------------------------------
+   这三态都不画弧线、不铺白板，封面直接铺满整张卡片 —— 所以卡片用封面原图的
+   432×648 比例撑满，切到结果态时尺寸**一点不变**。 */
+.weq-redbag-detail-plain {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-redbag-detail-plain .weq-redbag-detail-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 封面文字（发送者 + 祝福语）：位置与有白板态的 hero 文字对齐 */
+.weq-redbag-detail-plain-text {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  /* 有白板态里 hero 高 190、文字块 bottom:74px ⇒ 文字底边落在 y=116。
+     这里用 top + 反向位移复刻同一条基线，两种态切来切去不会跳。 */
+  top: 116px;
+  transform: translateY(-100%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+
+/* 查询中 / 报错：直接压在封面上 */
+.weq-redbag-detail-plain-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #ffe7c2;
+  font-size: 13px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-plain-loading.is-error {
+  color: #fff;
+}
+
+/* 圆形「开」按钮 + 小字 */
+.weq-redbag-detail-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.weq-redbag-detail-open-btn {
+  /* 通用封面 432×648 的中下部本来就印着一个金色圆（y 452~562 / 高 648），
+     按钮按同一比例落在它正上方，128% 缩放后正好严丝合缝。 */
+  position: absolute;
+  top: 78.2%;
+  left: 50%;
+  display: flex;
+  width: 92px;
+  height: 92px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 34%, #fffdf6 0%, #ffeec4 62%, #f7d99a 100%);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.2),
+    0 14px 30px -12px rgba(90, 8, 4, 0.7);
+  color: #c8231a;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+.weq-redbag-detail-open-btn:hover:not(:disabled) {
+  transform: translate(-50%, -50%) scale(1.04);
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.26),
+    0 18px 34px -12px rgba(90, 8, 4, 0.75);
+}
+.weq-redbag-detail-open-btn:active:not(:disabled) {
+  transform: translate(-50%, -50%) scale(0.97);
+}
+.weq-redbag-detail-open-btn:disabled {
+  cursor: default;
+}
+.weq-redbag-detail-open-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+.weq-redbag-detail-open-hint {
+  position: absolute;
+  top: calc(78.2% + 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90%;
+  color: #ffe7c2;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-open-hint.is-error {
+  color: #ffd9d3;
+}
+
+/* 领取结果：头像落在有白板态里弧线头像的**同一位置**（hero 高 190、头像
+   bottom:10px ⇒ 中心 y≈149，占固定卡高 540 的 27.6%），金额写在它正下方。 */
+.weq-redbag-detail-avatar.is-standalone {
+  position: absolute;
+  top: 27.6%;
+  bottom: auto;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+}
+.weq-redbag-detail-result {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  /* 头像底边在 27.6% + 31px，文字从这里往下排。 */
+  top: calc(27.6% + 42px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-result-amount {
+  font-size: 17px;
+  font-weight: 500;
+}
+.weq-redbag-detail-result-amount strong {
+  color: #ffd76e;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0 3px;
+}
+.weq-redbag-detail-result-meta {
+  color: rgba(255, 231, 194, 0.85);
+  font-size: 12px;
 }

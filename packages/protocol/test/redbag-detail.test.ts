@@ -158,4 +158,35 @@ describe('hb_pc_grab（群样本）', () => {
     // 抢红包响应里的概况是精简版（没有总个数 / 总额，只有已领人数）。
     expect(result.summary).toMatchObject({ claimedCount: 2, senderNickname: '1-H3CoF6' });
   });
+
+  it('serialize 把 token / nickname 映射到 wire 字段', () => {
+    const body = RedBagGrab.serialize({
+      uin: 2863253201,
+      pskey: SENDER.pskey,
+      orderId: '88b13e5bca0ebdfc3d1e7213c7a24f20',
+      packetId: hexBytes('48b851a49e28691b106de099aa666f0e934402bf2e43996a73d3e6676288154e'),
+      token: '166b57138f7f6dcfe93f3495b1c5ba02',
+      nickname: 'eSTKim',
+      peerUin: 673646675,
+      scene: 1,
+      nonce: new Uint8Array(16),
+    }) as { query: Record<string, unknown> };
+    // 消息 tag 48418 就是 grab 的 query.f9（token）。
+    expect(body.query.token).toBe('166b57138f7f6dcfe93f3495b1c5ba02');
+    expect(body.query.nickname).toBe('eSTKim');
+    expect(body.query.flag7).toBe(1);
+  });
+
+  it('token / nickname 缺省时按空串编码（拦不拦是服务层的事）', () => {
+    const body = RedBagGrab.serialize({
+      uin: 2863253201,
+      pskey: SENDER.pskey,
+      orderId: '88b13e5bca0ebdfc3d1e7213c7a24f20',
+      packetId: new Uint8Array(32),
+      peerUin: 673646675,
+      scene: 1,
+    }) as { query: Record<string, unknown> };
+    expect(body.query.token).toBe('');
+    expect(body.query.nickname).toBe('');
+  });
 });

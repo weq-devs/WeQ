@@ -18,8 +18,13 @@
  */
 
 import type { NtHelperBinding } from '@weq/native';
-import type { RedBagClaim, RedBagDetailResult, RedBagDetailSummary } from '@weq/protocol';
-import { RedBagDetail, RED_BAG_PSKEY_DOMAIN } from '@weq/protocol';
+import type {
+  RedBagClaim,
+  RedBagDetailResult,
+  RedBagDetailSummary,
+  RedBagGrabResult,
+} from '@weq/protocol';
+import { RedBagDetail, RedBagGrab, RED_BAG_PSKEY_DOMAIN } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
@@ -34,6 +39,11 @@ export interface RedBagDetailQuery {
   orderId: string;
   /** 32 字节 packetId（消息 tag 48417.f2），hex 字符串。 */
   packetId: string;
+  /**
+   * 第二串 32 位 hex id（消息 tag 48418）。只有抢红包（grab）用得到，
+   * 查详情（detail）不需要，所以是可选的。
+   */
+  token?: string;
   /** 领取方：私聊 = 对方 uin，群 = 群号。 */
   peerUin: string;
   /** 私聊传 `'c2c'`（wire 0），群传 `'group'`（wire 1）。 */
@@ -42,6 +52,10 @@ export interface RedBagDetailQuery {
 
 /** 面向前端的领取明细。 */
 export interface RedBagDetailView {
+  /** 当前登录账号的 QQ 号 —— 前端用来高亮「我」那一条。 */
+  selfUin: string;
+  /** 自己在这个红包里的领取记录；没领过就是 null。 */
+  selfClaim: RedBagClaim | null;
   /** 红包总个数。 */
   totalNum: number;
   /** 总金额，单位**分**。 */
@@ -66,8 +80,11 @@ export interface RedBagDetailView {
 function viewFrom(
   summary: RedBagDetailSummary | undefined,
   claims: RedBagClaim[],
+  selfUin: string,
 ): RedBagDetailView {
   return {
+    selfUin,
+    selfClaim: claims.find((c) => c.uin === selfUin) ?? null,
     totalNum: summary?.totalNum ?? 0,
     totalAmount: summary?.totalAmount ?? 0,
     claimedCount: summary?.claimedCount ?? claims.length,
@@ -77,6 +94,46 @@ function viewFrom(
     lucky: summary?.split === 2,
     claims,
     expireTime: summary?.expireTime ?? 0,
+  };
+}
+
+/** 抢红包（`hb_pc_grab`）的结果：自己抢到的那一份 + 概况。 */
+export interface RedBagGrabView {
+  /** 自己抢到的金额，单位**分**。 */
+  amount: number;
+  /** 领取时间（unix 秒）。 */
+  claimTime: number;
+  /** 抢到者的 QQ 号（服务端回的就是自己）。 */
+  uin: string;
+  /** 抢到者的昵称。 */
+  nickname: string;
+  /** 发红包者 QQ 号。 */
+  senderUin: string;
+  /** 发红包者昵称。 */
+  senderNickname: string;
+  /** 祝福语 / 口令。 */
+  wishing: string;
+  /** 是否拼手气。 */
+  lucky: boolean;
+  /** 已领取人数。 */
+  claimedCount: number;
+}
+
+function grabViewFrom(result: RedBagGrabResult): RedBagGrabView {
+  const claim = result.claim;
+  if (!claim) {
+    throw new Error('红包 grab 成功但回包里没有自己那一份领取记录。');
+  }
+  return {
+    amount: claim.amount,
+    claimTime: claim.claimTime,
+    uin: claim.uin,
+    nickname: claim.nickname,
+    senderUin: result.summary?.senderUin ?? '',
+    senderNickname: result.summary?.senderNickname ?? '',
+    wishing: result.summary?.wishing ?? '',
+    lucky: result.summary?.split === 2,
+    claimedCount: result.summary?.claimedCount ?? 0,
   };
 }
 
@@ -149,6 +206,63 @@ export class RedBagService {
         `红包详情查询失败：code=${result.bizCode} message=${result.bizMessage || '(空)'}`,
       );
     }
-    return viewFrom(result.summary, result.claims);
+    return viewFrom(result.summary, result.claims, this.session.context.uin);
+  }
+
+  /**
+   * 抢一个红包（`hb_pc_grab`）—— **这一步真的会扣钱**（服务端记一笔自己的领取）。
+   *
+   * 与 {@link detail} 共用 sender / p_skey / 签名，只是 pack 换成 grab 的定位参数，
+   * 并且多要两样东西：
+   *   - `token`（消息 tag 48418）：服务端认这个第二串 id；
+   *   - 自己当时的昵称（抓包写的就是自己），取不到就留空让服务端自己决定。
+   *
+   * 返回的就是自己抢到的那一份金额 / 时间，不再是整张领取列表。
+   */
+  async grab(query: RedBagDetailQuery, pid: number): Promise<RedBagGrabView> {
+    if (!query.token) throw new Error('这个红包缺少领取 token（消息 tag 48418）。');
+
+    const selfUin = this.session.context.uin;
+    let nickname = '';
+    try {
+      const profile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
+      nickname = profile?.nick ?? '';
+    } catch {
+      /* 本地 profile_info 查不到就留空 —— 不影响抢红包。 */
+    }
+
+    const run = async (): Promise<RedBagGrabResult> => {
+      const pskey = await this.pskey();
+      return RedBagGrab.invoke(this.nt, pid, {
+        uin: selfUin,
+        pskey,
+        orderId: query.orderId,
+        packetId: query.packetId,
+        token: query.token,
+        nickname,
+        peerUin: query.peerUin,
+        scene: query.peerType === 'group' ? 1 : 0,
+      });
+    };
+
+    let result: RedBagGrabResult;
+    try {
+      result = await run();
+    } catch (error) {
+      this.logger.warn('red bag grab failed; retrying with a fresh p_skey', {
+        event: 'redbag-grab-retry',
+        orderId: query.orderId,
+        ...logErrorContext(error),
+      });
+      this.invalidate();
+      result = await run();
+    }
+
+    if (result.bizCode !== 0) {
+      throw new Error(
+        `红包领取失败：code=${result.bizCode} message=${result.bizMessage || '(空)'}`,
+      );
+    }
+    return grabViewFrom(result);
   }
 }
