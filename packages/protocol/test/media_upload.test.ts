@@ -457,6 +457,53 @@ describe('uploadImageMsgInfo', () => {
     expect(req.upload?.extBizInfo?.pic?.bytesPbReserveC2c).toBeUndefined();
   });
 
+  it('指纹免字节：不读本地文件，按 md5/sha1/尺寸报 fast-upload', async () => {
+    const native = makeNative({ oidb: () => uploadResponse() });
+    const md5Hex = '0f343b0931126a20f133d67c2b018a3b';
+    const sha1Hex = '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8';
+    const result = await uploadImageMsgInfo(native, 42, C2C_TARGET, {
+      // 故意给一个不存在的路径：有指纹就不该去读它（读了会 ENOENT）。
+      source: '/definitely/missing.png',
+      fingerprint: { md5Hex, sha1Hex, fileSize: 1234, width: 640, height: 360 },
+    });
+
+    expect(native.oidbCalls).toHaveLength(1);
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[0]!.body) as {
+      upload?: { uploadInfo?: { fileInfo?: Record<string, unknown> }[] };
+    };
+    const fileInfo = req.upload?.uploadInfo?.[0]?.fileInfo as {
+      fileSize?: number;
+      fileHash?: string;
+      fileSha1?: string;
+      width?: number;
+      height?: number;
+    };
+    expect(fileInfo.fileSize).toBe(1234);
+    expect(fileInfo.fileHash).toBe(md5Hex);
+    expect(fileInfo.fileSha1).toBe(sha1Hex);
+    expect(fileInfo.width).toBe(640);
+    expect(fileInfo.height).toBe(360);
+
+    expect(result.fastUpload).toBe(true);
+    expect(result.md5Hex).toBe(md5Hex);
+    expect(result.sha1Hex).toBe(sha1Hex);
+    expect(result.fileSize).toBe(1234);
+  });
+
+  it('指纹免字节：服务端坚持要字节时抛 fastOnlyError', async () => {
+    const native = makeNative({ oidb: () => uploadResponse({ uKey: 'need-bytes' }) });
+    await expect(
+      uploadImageMsgInfo(native, 42, C2C_TARGET, {
+        source: '/missing.png',
+        fingerprint: {
+          md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+          sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+          fileSize: 1,
+        },
+      }),
+    ).rejects.toThrow(/免字节/);
+  });
+
   it('覆盖尺寸/格式时按调用方给的走', async () => {
     const native = makeNative({ oidb: () => uploadResponse() });
     const result = await uploadImageMsgInfo(native, 1, GROUP_TARGET, {

@@ -46,7 +46,7 @@ import {
   OIDB_OFFLINE_FILE_FINALIZE_REQ,
   OIDB_OFFLINE_FILE_FINALIZE_RESP,
 } from '../oidb/file-upload-schemas';
-import { ensureRetCodeZero, toInt } from '../oidb/shared';
+import { cleanNtLocalPath, ensureRetCodeZero, toInt } from '../oidb/shared';
 import { encode, message } from '../protobuf';
 import { sendC2cFileMessage, type SendMessageReceipt } from '../msg/send';
 import { FILE_EXTRA } from '../msg/schemas';
@@ -178,12 +178,13 @@ export async function sendGroupFile(
   const senderUin = toInt(params.selfUin);
   if (senderUin <= 0) throw new Error('群文件需要合法的 selfUin');
 
-  const stat = await fsp.stat(params.filePath);
+  const filePath = cleanNtLocalPath(params.filePath);
+  const stat = await fsp.stat(filePath);
   if (stat.size === 0) throw new Error('群文件不能为空');
-  const fileName = params.fileName?.trim() || path.basename(params.filePath) || 'file.bin';
+  const fileName = params.fileName?.trim() || path.basename(filePath) || 'file.bin';
   const folderId = params.folderId?.trim() || '/';
 
-  const hashes = await hashFileStreaming(params.filePath);
+  const hashes = await hashFileStreaming(filePath);
   const upload = await invokeOidb(nt, pid, UploadGroupFile, {
     groupId,
     fileName,
@@ -220,7 +221,7 @@ export async function sendGroupFile(
     });
     // 先拿会话再开文件句柄：会话失败时不泄漏已打开的 fd（uploadHighwayHttp 拥有 source）。
     const session = await fetchHighwaySession(nt, pid);
-    const source = await FileChunkSource.open(params.filePath, hashes.fileSize);
+    const source = await FileChunkSource.open(filePath, hashes.fileSize);
     await uploadHighwayHttp({
       session,
       uin: String(senderUin),
@@ -402,12 +403,13 @@ export async function sendPrivateFile(
   const senderUin = toInt(params.selfUin);
   if (senderUin <= 0) throw new Error('私聊文件需要合法的 selfUin');
 
-  const stat = await fsp.stat(params.filePath);
+  const filePath = cleanNtLocalPath(params.filePath);
+  const stat = await fsp.stat(filePath);
   if (stat.size === 0) throw new Error('私聊文件不能为空');
-  const fileName = params.fileName?.trim() || path.basename(params.filePath) || 'file.bin';
+  const fileName = params.fileName?.trim() || path.basename(filePath) || 'file.bin';
 
   // 「前 10 MiB」的上限是 0x98A000（见 hash-file 注释），只有私聊要它。
-  const hashes = await hashFileStreaming(params.filePath, { headLimit: FILE_MD5_HEAD_LIMIT });
+  const hashes = await hashFileStreaming(filePath, { headLimit: FILE_MD5_HEAD_LIMIT });
   if (!hashes.headMd5) throw new Error('私聊文件缺少 md510M 校验和');
 
   const upload = await invokeOidb(nt, pid, UploadPrivateFile, {
@@ -470,7 +472,7 @@ export async function sendPrivateFile(
       uploadPort: port,
     });
     const session = await fetchHighwaySession(nt, pid);
-    const source = await FileChunkSource.open(params.filePath, hashes.fileSize);
+    const source = await FileChunkSource.open(filePath, hashes.fileSize);
     await uploadHighwayHttp({
       session,
       uin: String(senderUin),

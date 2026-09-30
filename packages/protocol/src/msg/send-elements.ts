@@ -29,6 +29,7 @@ import { deflateSync } from 'node:zlib';
 import type { MediaNative } from '../highway/ntv2-upload';
 import {
   RICH_MEDIA_SERVICE_TYPE,
+  type MediaFingerprint,
   type MediaSource,
   type MediaUploadResult,
   type MediaUploadTarget,
@@ -306,7 +307,7 @@ export interface SendDress {
 /** 图片：上传后拼成 `commonElem(serviceType=48, businessType=20)`。 */
 export interface SendImageElement {
   kind: 'image';
-  /** 本地路径或内存字节。 */
+  /** 本地路径或内存字节。给 `fingerprint` 时可留空（不读）。 */
   source: MediaSource;
   /** 收端显示的文件名；缺省 `<md5><扩展名>`。 */
   fileName?: string;
@@ -317,6 +318,11 @@ export interface SendImageElement {
   width?: number;
   height?: number;
   picFormat?: number;
+  /**
+   * 资源已在服务端的指纹（md5Hex + sha1Hex + 尺寸）。转发一条**已有**消息里的图片
+   * 时给：跳过读本地文件，直接走 NTV2 fast-upload（对齐 SnowLuma 的 forward 路径）。
+   */
+  fingerprint?: MediaFingerprint;
 }
 
 /**
@@ -401,12 +407,14 @@ export interface SendRecordElement {
    * `{1:1,7:0}` —— 两处同步，其余字段完全一致。
    */
   voiceChanged?: boolean;
+  /** 资源已在服务端时的指纹：转发已有语音时给，跳过读本地文件。 */
+  fingerprint?: MediaFingerprint;
 }
 
 /** 视频：上传后拼成 `commonElem(serviceType=48, businessType=21)`（两个子文件）。 */
 export interface SendVideoElement {
   kind: 'video';
-  /** 本地路径（流式上传）或内存字节。 */
+  /** 本地路径（流式上传）或内存字节。给 `fingerprint` 时可留空（不读）。 */
   source: MediaSource;
   /** 封面；不给则按 width/height 合成一张纯色 PNG。 */
   thumb?: MediaSource;
@@ -415,6 +423,8 @@ export interface SendVideoElement {
   height?: number;
   fileName?: string;
   thumbFileName?: string;
+  /** 资源已在服务端时的指纹：转发已有视频时给，跳过读本地文件。 */
+  fingerprint?: MediaFingerprint;
 }
 
 /**
@@ -1010,8 +1020,15 @@ function assertMediaElement(element: SendMediaElement): void {
   const validSource =
     (typeof source === 'string' && source.trim().length > 0) ||
     (source instanceof Uint8Array && source.length > 0);
-  if (!validSource) {
+  // 有 fingerprint = 资源已在服务端（转发已有媒体），不需要本机字节 / 路径。
+  if (!validSource && !element.fingerprint) {
     throw new Error(`${element.kind} 元素的 source 必须是非空路径或 Uint8Array`);
+  }
+  if (element.fingerprint) {
+    const fp = element.fingerprint;
+    if (!/^[0-9a-fA-F]{32}$/.test(fp.md5Hex) || !/^[0-9a-fA-F]{40}$/.test(fp.sha1Hex)) {
+      throw new Error(`${element.kind} 元素的 fingerprint 需要 32 位 hex md5 与 40 位 hex sha1`);
+    }
   }
   if (element.kind === 'record' && element.duration !== undefined) {
     // 允许小数（录音时长天然不是整秒，如 1.4s）—— 上 wire 时按秒四舍五入

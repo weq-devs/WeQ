@@ -37,7 +37,13 @@ export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transp
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';
 
-export { toInt, ensureRetCodeZero, bytesToHex, bytesToHexUpper } from './oidb/shared';
+export {
+  toInt,
+  ensureRetCodeZero,
+  bytesToHex,
+  bytesToHexUpper,
+  cleanNtLocalPath,
+} from './oidb/shared';
 
 export { normalizeMediaNode } from './oidb/media-schemas';
 export type { MediaIndexNode } from './oidb/media-schemas';

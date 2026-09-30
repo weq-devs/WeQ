@@ -306,8 +306,20 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 - **嵌套转发 piggyback**：节点给 `innerForward` 时递归先把内层传完，把「内层 resId 卡片 +
   内层 msgBody（`actionCommand = uuid`）」一起放进外层 payload；卡片 JSON 里的 `uniseq`
   与那个 `actionCommand` 必须相等（收端只拉一次最外层就能走完整棵树）。
+- **转发已有的 resId 卡片**：节点里是「转发一张已存在的聊天记录」（`{kind:'forward', resId}`）
+  时，会先用 `SsoRecvLongMsg` 把这个 resId 的原始 actions 拉下来，以**原卡片的 uniseq**
+  为 `actionCommand` 随包 piggyback 进本层（对齐 NapCat）—— 收端按 uniseq 就地展开，
+  不必再向服务器单独拉一次。拉取失败只记日志、卡片照发；原卡片的 source / summary /
+  news / tSum 从 XML（`m_fileName` / `<source>` / `<title>` / `tSum`）或 Ark 的 `meta.detail`
+  里带上，收端才有预览行。
 - **节点内媒体**：节点元素里的图片 / 语音 / 视频走同一套 NTV2 上传，私聊转发含媒体时必须
   能解析出对方 uid（上传要有场景）。
+- **转发已有媒体走免字节上传**：转发一条**已有**消息里的图片 / 语音 / 视频时，元素带
+  `fingerprint`（来自 wire 的 `md5Bytes`(45406)/`md5`(45424) + `contentHash`(45408, sha1) + 尺寸），就**不读
+  本机文件**，直接把这些报给 NTV2 走 fast-upload（服务端仍坚持要字节时抛 `fastOnlyError`）。
+  对齐 SnowLuma 的 `element.noByteFallback` / `imageDataFromFingerprint`。
+- **本机路径要剥 `::NTOSFull::`**：QQ NT 的 45004 / 45403 等路径字段常带这个虚拟前缀，
+  不是真实路径；渲染层读出来与协议层 `cleanNtLocalPath()` 都会剥掉，否则 `stat` 必 ENOENT。
 - **节点级装扮**：每个节点可选 `dress`（气泡 / 字体 / 挂件）。字体有**两个** wire 槽位，
   两条通道必须分清：
   - **透传（转发已有消息走这条）**：`fontId1Raw` → `fontId1`(tag 56)、`fontId2Raw` →

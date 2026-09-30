@@ -72,6 +72,7 @@ import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
 import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
 import {
+  cleanNtPath,
   codecElementsToSegs,
   createEmptyDraft,
   createNode,
@@ -3333,14 +3334,17 @@ export function MainView(): ReactElement {
           const kind = text(el.kind);
           if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video' && kind !== 'file') return;
           // 元素自带路径 = 发得出去，不用找（口径与 codecElementToSeg 一致）。
-          const existing =
+          // 剥掉 `::NTOSFull::` 虚拟前缀再判断 —— 带前缀的「路径」不是真文件，
+          // 当成 existing 会既找不到缓存、又在发送时 ENOENT。
+          const existing = cleanNtPath(
             kind === 'pic'
               ? text(el.localPath) || text(el.filePath)
               : kind === 'ptt'
                 ? text(el.filePath)
                 : kind === 'video'
                   ? text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath)
-                  : text(el.filePath);
+                  : text(el.filePath),
+          );
           if (existing) return;
           const name = text(el.fileName).trim();
           if (!name) return;

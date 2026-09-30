@@ -45,3 +45,18 @@ export function bytesToHex(bytes: Uint8Array): string {
 export function bytesToHexUpper(bytes: Uint8Array): string {
   return bytesToHex(bytes).toUpperCase();
 }
+
+/** QQ NT 本地缓存路径的虚拟根前缀（`::NTOSFull::/…`）。 */
+const NT_LOCAL_PATH_PREFIX = '::NTOSFull::';
+
+/**
+ * 剥掉 QQ NT 本地路径的 `::NTOSFull::` 前缀，得到真正能 `stat` / `readFile` 的路径。
+ *
+ * 这个前缀是 NT 的「路径根标记」（DB 里 45004 / 45403 等路径字段常带它），不是文件
+ * 系统的一部分 —— 直接拿去做文件操作必定 ENOENT。所有「按本机路径读字节」的入口都
+ * 应先过这里。
+ */
+export function cleanNtLocalPath(path: string): string {
+  const p = path.trim();
+  return p.startsWith(NT_LOCAL_PATH_PREFIX) ? p.slice(NT_LOCAL_PATH_PREFIX.length) : p;
+}

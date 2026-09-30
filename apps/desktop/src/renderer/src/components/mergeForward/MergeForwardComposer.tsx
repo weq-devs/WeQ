@@ -1419,7 +1419,19 @@ function SegEditor({
           className="weq-mf-input mono"
           placeholder="已有聊天记录的 resId"
           value={seg.resId}
-          onChange={(e) => onChange({ ...seg, resId: e.target.value.trim() })}
+          onChange={(e) =>
+            // 手工改 resId 后，原来那套 uniseq / 预览就失效了：换一张卡必须一起清掉，
+            // 否则会把旧卡片的 uniseq 硬套到新 resId 上（收端对不上 piggyback 反而更坏）。
+            onChange({
+              ...seg,
+              resId: e.target.value.trim(),
+              uniseq: undefined,
+              source: undefined,
+              summary: undefined,
+              news: undefined,
+              tSum: undefined,
+            })
+          }
         />
       );
     case 'opaque':
