@@ -277,10 +277,30 @@ export interface SendDress {
    * 116182），收侧 decode 也是按同一规则还原（先看 fontId1，缺失才回退 fontId2
    * 交换）。所以这里同样收**真实 itemId**，打包时自动交换成 tag 15 形态，
    * 调用方不用自己算字节序。字体有两个 id 实现喵。
+   *
+   * ⚠️ 只能拿它填「真实 itemId」。手里已经是原始 wire 值（从已有消息透传）时
+   * 必须用 {@link fontId2Raw} —— 那才是原始值的通道。
    */
   fontId2?: number;
   /** 挂件 itemId（0 / 缺省 = 不带）。 */
   widgetId?: number;
+  /**
+   * **原样**写进 `font.fontId1`(tag 56) 的原始 wire 值（0 / 缺省 = 不带）。
+   *
+   * 与 {@link fontId} 写入 tag 56 的行为一致（tag 56 本来就是真实 itemId），只是
+   * 用来区分「这个值是从已有消息的 40801 `41525` 透传出来的」。同时给时本字段优先。
+   */
+  fontId1Raw?: number;
+  /**
+   * **原样**写进 `font.fontId2`(tag 15) 的原始 wire 值（0 / 缺省 = 不带），
+   * **不做字节交换**。
+   *
+   * 用于透传已有消息的装扮：40801 的 `41531` 与元素 tag 15 **恒等**（真机实测
+   * `41531 = 116182` == `generalFlags.font.fontId2 = 116182`），低 16 位是交换过的
+   * itemId，bit 16 是标志位。走 {@link fontId2} 那条「真实 itemId → 自动交换」的
+   * 路会把这个标志位丢掉，所以透传必须走本字段。
+   */
+  fontId2Raw?: number;
 }
 
 /** 图片：上传后拼成 `commonElem(serviceType=48, businessType=20)`。 */
@@ -937,15 +957,19 @@ export function buildDressElems(dress: SendDress | undefined): Record<string, un
   const widgetId = normalizeDressId(dress.widgetId, 'widgetId');
   const fontId = normalizeDressId(dress.fontId, 'fontId');
   const fontId2 = normalizeDressId(dress.fontId2, 'fontId2');
-  if (widgetId > 0 || fontId > 0 || fontId2 > 0) {
+  const fontId1Raw = normalizeDressId(dress.fontId1Raw, 'fontId1Raw');
+  const fontId2Raw = normalizeDressId(dress.fontId2Raw, 'fontId2Raw');
+  // 字体槽位：`*Raw` 是「原样写」通道，优先；没给才用「真实 itemId」的便利字段做换算。
+  // 两个槽位都只给其中一个也能发（老客户端各认一个槽位），都给时收侧优先 fontId1。
+  const font1 = fontId1Raw > 0 ? fontId1Raw : fontId;
+  const font2 = fontId2Raw > 0 ? fontId2Raw : fontId2 > 0 ? swapFontId16(fontId2) : 0;
+  if (widgetId > 0 || font1 > 0 || font2 > 0) {
     const generalFlags: Record<string, unknown> = {};
     if (widgetId > 0) generalFlags.widgetId = widgetId;
-    // 字体两个槽位都按「调用方给真实 itemId」的约定写：fontId1 原样、fontId2 交换。
-    // 只给其中一个也能发（老客户端各认一个槽位），两个都给时收侧优先 fontId1。
-    if (fontId > 0 || fontId2 > 0) {
+    if (font1 > 0 || font2 > 0) {
       const font: Record<string, unknown> = {};
-      if (fontId > 0) font.fontId1 = fontId;
-      if (fontId2 > 0) font.fontId2 = swapFontId16(fontId2);
+      if (font1 > 0) font.fontId1 = font1;
+      if (font2 > 0) font.fontId2 = font2;
       generalFlags.font = font;
     }
     out.push({ generalFlags });

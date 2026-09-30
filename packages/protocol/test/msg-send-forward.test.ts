@@ -252,6 +252,61 @@ describe('节点级装扮（含字体两个 id）', () => {
     ]);
   });
 
+  it('fontId1Raw / fontId2Raw 原样写进 tag 56 / tag 15（透传，不换算）', async () => {
+    // 真机一行：40801 的 41531 = 116182 = 0x1C5D6（低 16 位是交换过的 54981，bit 16 是标志位）。
+    // 元素 tag 15 与它恒等，所以透传就是把 116182 原样抄进去 —— 不能走 swapFontId16(54981)=50646。
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        dress: { bubbleId: 2116371, fontId2Raw: 116182, widgetId: 104228 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems[0]).toEqual({
+      generalFlags: { widgetId: 104228, font: { fontId2: 116182 } },
+    });
+    // 标志位没丢：low16 还原回真实 itemId 54981。
+    const decoded = decodeMessage(
+      encode(PUSH_MSG_BODY, {
+        body: { richText: { elems: [{ generalFlags: { font: { fontId2: 116182 } } }] } },
+      }),
+    );
+    expect(decoded.dress.font).toBe(54981);
+    expect(elems[1]).toEqual({ bubble: { id: 2116371 } });
+  });
+
+  it('raw 通道优先于「真实 itemId」便利字段', async () => {
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        // fontId/fontId2（真实 itemId）与 raw 同时给：raw 说了算。
+        dress: { fontId1Raw: 20671, fontId: 999, fontId2Raw: 116182, fontId2: 54981 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems[0]).toEqual({ generalFlags: { font: { fontId1: 20671, fontId2: 116182 } } });
+  });
+
+  it('只给 raw font2 时不写 fontId1 槽位（与真机一致）', async () => {
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        dress: { fontId2Raw: 73767 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems).toEqual([
+      { generalFlags: { font: { fontId2: 73767 } } },
+      { text: { str: 'hi' } },
+    ]);
+  });
+
   it('不传 dress 时元素与以前逐字节一致（零回归）', async () => {
     const body = await buildForwardNodeBody(
       { userUin: 1, elements: [{ kind: 'text', textContent: 'hi' }] },

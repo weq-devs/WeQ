@@ -3732,7 +3732,10 @@ export const AI_TOOLS: AiTool[] = [
       '\n  elements 与 send_rich_message 完全一样（text / at / face / mface / image / record / video / ark / xml / markdown / forward …），' +
       '也可以把别处拿到的元素原样塞进来。userUin / nickname / time 都可选（缺省=自己、QQ 号、当前时间）。' +
       '\n【嵌套转发】节点加 "innerForward":[ ...同结构的节点... ] 就是「转发里再转发」，会自动 piggyback，收端只拉一次就能展开整棵树（最多 8 层）。' +
-      '\n【节点装扮】节点可选 "dress":{"bubbleId":...,"fontId":...,"fontId2":...,"widgetId":...}（字体两个 id 都给真实 itemId 即可）。' +
+      '\n【节点装扮】节点可选 "dress"：bubbleId / widgetId 直接写 itemId；字体给**原始 wire 值**——' +
+      '"fontId1Raw"(→tag 56) 与 "fontId2Raw"(→tag 15) 原样透传，即 40801 的 41525 / 41531。' +
+      '⚠️ 从已有消息透传时**不要**用 "fontId"/"fontId2"（那是「真实 itemId → 自动字节交换」的便利通道）：' +
+      '41531 的低 16 位是交换过的 itemId、bit 16 是标志位，反推会把它丢掉（真机 41531=116182 原样就是 tag 15）。' +
       '注意：普通实时消息实测服务端不采信客户端自报装扮；长消息是把字节原样存下来的，这条路径更可能保住，但尚未真机验证。' +
       '\n【结果怎么看】ok=true 才算发出去；返回 resId（长消息 id）与 levels（层数）。' +
       'ok=false 时看 card.result / card.errMsg：内容可能已上传成功但卡片没发出去，重发即可。',

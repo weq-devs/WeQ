@@ -245,6 +245,23 @@ export type MfSeg =
  */
 export type MfSegKind = Exclude<MfSeg['t'], 'opaque'>;
 
+/**
+ * 逐条消息装扮（列 40801 解出）。
+ *
+ * `fontId1Raw` / `fontId2Raw` 是字体两个槽位的**原始 wire 值**（可选 —— 旧草稿
+ * 里没有），转发时原样抄进节点，绝不用 `fontId` 反推（那样会丢 bit 16 标志位，
+ * 见 codec 的 `MsgDecoration.fontId2Raw`）。
+ */
+export interface MfDecoration {
+  bubbleId: number;
+  fontId: number;
+  widgetId: number;
+  /** 41525 原值 → elem `font.fontId1`(tag 56)。0 / 缺省 = 未设置。 */
+  fontId1Raw?: number;
+  /** 41531 原值 → elem `font.fontId2`(tag 15)，含标志位。0 / 缺省 = 未设置。 */
+  fontId2Raw?: number;
+}
+
 /** 一条预览消息。 */
 export interface MfNode {
   /** 本地稳定 id（排序 / React key）。 */
@@ -255,7 +272,7 @@ export interface MfNode {
   /** 展示时间（unix 秒）。 */
   time: number;
   /** 逐条消息装扮（列 40801）。0 = 未设置。 */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: MfDecoration;
   /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
 }
@@ -937,14 +954,45 @@ export function segsToSendElements(segs: MfSeg[]): SendElement[] {
   return usable.map(segToSendElement);
 }
 
+/**
+ * 逐条消息装扮（列 40801 的 `{bubbleId,fontId,widgetId}`）→ 协议节点的 `dress`。
+ *
+ * 三项全 0 / 缺省时返回 undefined —— 不传 `dress` 就不会往节点里多写一个字节
+ * （见 @weq/protocol 的 `buildDressElems`）。
+ *
+ * 字体走 **原值透传**（`fontId1Raw` / `fontId2Raw`），不做任何换算：40801 的
+ * `41525` / `41531` 与 elem 的 tag 56 / tag 15 是恒等映射，`fontId` 只是解码出来给
+ * 人看 / 查资源的，用它反推会丢掉 `41531` 的 bit 16 标志位。
+ */
+function decorationToDress(
+  decoration: MfDecoration | undefined,
+): SendForwardNodeInput['dress'] | undefined {
+  if (!decoration) return undefined;
+  const dress: NonNullable<SendForwardNodeInput['dress']> = {};
+  if (decoration.bubbleId > 0) dress.bubbleId = decoration.bubbleId;
+  const fontId1Raw = decoration.fontId1Raw ?? 0;
+  const fontId2Raw = decoration.fontId2Raw ?? 0;
+  // 只在**真的有字体**时透传：`41531 = 65536`（低 16 位为 0）只是标志位、没有字体，
+  // 写出去只会多一个空字体 elem。
+  const hasFont = fontId1Raw > 0 || (fontId2Raw & 0xffff) > 0;
+  if (hasFont) {
+    if (fontId1Raw > 0) dress.fontId1Raw = fontId1Raw;
+    if (fontId2Raw > 0) dress.fontId2Raw = fontId2Raw;
+  }
+  if (decoration.widgetId > 0) dress.widgetId = decoration.widgetId;
+  return Object.keys(dress).length > 0 ? dress : undefined;
+}
+
 /** 一个普通预览消息 → 协议节点（内容为元素）。 */
 export function nodeToSendNode(node: MfNode): SendForwardNodeInput {
   const uin = Number(node.sender?.uin) || 0;
   const inner = isNestedContent(node.segs) ? nestedSegsToSendNodes(node.segs) : undefined;
+  const dress = decorationToDress(node.decoration);
   return {
     ...(uin > 0 ? { userUin: uin } : {}),
     ...(node.sender?.name ? { nickname: node.sender.name } : {}),
     ...(node.time ? { time: node.time } : {}),
+    ...(dress ? { dress } : {}),
     elements: inner ? [] : segsToSendElements(node.segs),
     ...(inner ? { innerForward: inner } : {}),
   };
@@ -1034,6 +1082,48 @@ function num(data: Record<string, unknown>, key: string): number {
 function opaqueSeg(element: MfElement, sendText?: string): MfOpaqueSeg {
   const text = sendText ?? opaqueLabel(element);
   return { t: 'opaque', id: mfId('seg'), element, ...(text ? { sendText: text } : {}) };
+}
+
+/** Ark lightApp 的 `data` 是 JSON 文本；解析失败 / 非对象返回 null。 */
+function parseArk(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * 从「聊天记录」元素里抠出服务端 resId —— 再转发时只有拿着它才能把卡片编译成
+ * `{kind:'forward', resId}`。三个来源（与 `ForwardWindow.forwardResIdOf` 同规则）：
+ *   1. `resId`（codec MULTI_MSG / structLongMsg 的 48601）；
+ *   2. `xmlContent` 里的 `m_resid`（部分卡片 48601 为空，只有 XML）；
+ *   3. `com.tencent.multimsg` Ark 包装的 `meta.detail.resid`。
+ *
+ * 取不到时返回 `''` —— 没有 resId 的卡片发不出去，调用方退成只读的 opaque 段。
+ */
+function forwardResIdOf(element: Record<string, unknown>): string {
+  const direct = str(element, 'resId').trim();
+  if (direct) return direct;
+  const xml = str(element, 'xmlContent');
+  if (xml) {
+    const match = /m_resid\s*=\s*["']([^"']+)["']/i.exec(xml);
+    if (match?.[1]) return match[1].trim();
+  }
+  // 只认 multimsg 卡：其它 Ark 的 detail 里也可能有 resid，但那是别的东西。
+  const ark = parseArk(element.arkData);
+  if (ark && ark.app === 'com.tencent.multimsg') {
+    const meta = ark.meta as Record<string, unknown> | undefined;
+    const detail = meta?.detail as Record<string, unknown> | undefined;
+    const resid = detail?.resid ?? detail?.resId;
+    if (typeof resid === 'string') return resid.trim();
+  }
+  return '';
 }
 
 /** 一个原始元素退成 opaque 段（画得出就画，画不出才返回 null）。 */
@@ -1191,8 +1281,13 @@ export function codecElementToSeg(
         size: num(element, 'fileSize'),
       };
     }
-    case 'ark':
+    case 'ark': {
+      // `com.tencent.multimsg` 卡片本质就是一段「聊天记录」：再转发时应该继续是
+      // 一张记录卡（发送编译成 forward 元素），把 Ark 原样塞进节点收端只会打不开。
+      const resId = forwardResIdOf(element);
+      if (resId) return { t: 'card', id: mfId('seg'), resId };
       return { t: 'ark', id: mfId('seg'), arkData: str(element, 'arkData') };
+    }
     case 'markdown':
       return {
         t: 'markdown',
@@ -1203,7 +1298,9 @@ export function codecElementToSeg(
           : {}),
       };
     case 'multiMsg': {
-      const resId = str(element, 'resId');
+      // resId 不一定就在 48601：部分卡片只有 XML 的 m_resid（见 forwardResIdOf），
+      // 不给这层兜底的话，从聊天记录里再转一次会整段丢掉（resId 空 ⇒ 分段没内容）。
+      const resId = forwardResIdOf(element);
       if (resId) return { t: 'card', id: mfId('seg'), resId };
       // 没有 resId 只能看、不能再转（发送要 resId）—— 预览照样是那张记录卡。
       return opaqueFor(renderElement, '[聊天记录]');
@@ -1378,9 +1475,15 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
           segs.push(opaqueSeg(element, '[商城表情]'));
         }
         break;
-      case 'ark':
-        segs.push({ t: 'ark', id: mfId('seg'), arkData: str(data, 'arkData') });
+      case 'ark': {
+        const resId = forwardResIdOf(data);
+        segs.push(
+          resId
+            ? { t: 'card', id: mfId('seg'), resId }
+            : { t: 'ark', id: mfId('seg'), arkData: str(data, 'arkData') },
+        );
         break;
+      }
       case 'markdown':
         segs.push({
           t: 'markdown',
@@ -1391,9 +1494,12 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             : {}),
         });
         break;
-      case 'multiMsg':
-        segs.push({ t: 'card', id: mfId('seg'), resId: str(data, 'resId') });
+      case 'multiMsg': {
+        const resId = forwardResIdOf(data);
+        if (resId) segs.push({ t: 'card', id: mfId('seg'), resId });
+        else segs.push(opaqueSeg(element, '[聊天记录]'));
         break;
+      }
       default:
         // 其余全部原样保留：灰条 / 通话 / 红包 / 在线文件 / 位置共享 / 长消息 /
         // 机器人按钮 / 动态… 由 QqMessageContent 按各自组件画（与主面板一致）。
@@ -1496,7 +1602,7 @@ export function coerceDraft(raw: {
     segs?: unknown[];
     elements?: unknown[];
     time: number;
-    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+    decoration?: MfDecoration;
     sourceMsgId?: string;
   }>;
 }): MfDraft {

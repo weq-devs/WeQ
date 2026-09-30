@@ -283,8 +283,18 @@ type MessageWire = {
   deletedKind?: 'weq' | 'qq';
   /** Recall marker: message whose QQ recall was intercepted (content intact). */
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  /** Per-message decoration from column 40801 (0 = not set). */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  /**
+   * Per-message decoration from column 40801 (0 = not set).
+   * `fontId1Raw` / `fontId2Raw` 是字体两槽位的原始 wire 值（41525 / 41531），
+   * 转发时原样透传；不要用 `fontId` 反推（会丢 bit 16）。
+   */
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 /** The unified chat-message wire from the account router → local MessageWire. */
@@ -299,7 +309,13 @@ type ChatMsgWire = {
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -1443,7 +1459,13 @@ function messageToTemplate(
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;
-    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+    decoration?: {
+      bubbleId: number;
+      fontId: number;
+      widgetId: number;
+      fontId1Raw?: number;
+      fontId2Raw?: number;
+    };
   };
 }
 
@@ -3293,6 +3315,59 @@ export function MainView(): ReactElement {
   }, []);
 
   /**
+   * 给「本机 `nt_data` 里有缓存、但 40800 元素里没写路径」的媒体补上 `localPath`。
+   *
+   * 收到的图片 / 语音 / 视频 / 文件通常**不带** `localPath`(45004)（那个 tag 基本只
+   * 在 QQ 自己发出 / 草稿里出现），但缓存文件是有的。不补的话导入后会被降级成
+   * `[图片]` 文本（见 codecElementToSeg），转发出去就真的只剩一行文字。按
+   * (发送时间, 文件名) 走主进程的 FileSearchService 找文件（与 `weq-media://pic`
+   * 同一条链路），找不到就保持原样。
+   */
+  const hydrateMergeForwardMedia = useCallback(
+    async (elements: unknown[], sendTimeMs: number): Promise<void> => {
+      const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+      await Promise.all(
+        elements.map(async (raw) => {
+          if (!raw || typeof raw !== 'object') return;
+          const el = raw as Record<string, unknown>;
+          const kind = text(el.kind);
+          if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video' && kind !== 'file') return;
+          // 元素自带路径 = 发得出去，不用找（口径与 codecElementToSeg 一致）。
+          const existing =
+            kind === 'pic'
+              ? text(el.localPath) || text(el.filePath)
+              : kind === 'ptt'
+                ? text(el.filePath)
+                : kind === 'video'
+                  ? text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath)
+                  : text(el.filePath);
+          if (existing) return;
+          const name = text(el.fileName).trim();
+          if (!name) return;
+          const type = kind === 'pic' ? (Number(el.subType) === 1 ? 'emoji' : 'pic') : kind;
+          try {
+            const hit = await client.account.mediaResource.findLocalFile.query({
+              t: sendTimeMs,
+              name,
+              kind: type,
+            });
+            // 图片（含自定义表情）读 localPath；语音 / 视频 / 文件读 filePath —— 两个
+            // 都写上，卖导入函数不必再关心哪种媒体读哪个字段。
+            const found = hit.source ?? (type === 'emoji' ? hit.thumb : null);
+            if (found) {
+              el.localPath = found;
+              el.filePath = found;
+            }
+          } catch {
+            /* 找不到就保持原样（仍会退化成文本） */
+          }
+        }),
+      );
+    },
+    [client],
+  );
+
+  /**
    * 多选的消息 → 一份草稿。
    *
    * 关键：**回读每条消息的原始 wire 元素**（`account.getRawElements`）而不是只有
@@ -3311,6 +3386,8 @@ export function MainView(): ReactElement {
           name: sender?.displayName || sender?.identityValue || '未知用户',
         };
         const msgId = (message as { msgId?: string }).msgId ?? message.id;
+        const parsed = Date.parse(message.createdAt);
+        const sendTimeMs = Number.isFinite(parsed) ? parsed : now * 1000;
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
         // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
@@ -3320,7 +3397,11 @@ export function MainView(): ReactElement {
         if (msgId) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
-            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements, renderElements);
+            if (raw?.elements?.length) {
+              // 先把缓存里有、元素里没写的媒体路径补上，图片 / 语音才能真正转发出去。
+              await hydrateMergeForwardMedia(raw.elements, sendTimeMs);
+              segs = codecElementsToSegs(raw.elements, renderElements);
+            }
           } catch {
             /* 回读失败就退回渲染元素 */
           }
@@ -3329,12 +3410,7 @@ export function MainView(): ReactElement {
           segs = renderElementsToSegs(renderElements);
         }
         if (segs.length === 0) continue;
-        const parsed = Date.parse(message.createdAt);
-        const node = createNode(
-          senderInfo,
-          segs,
-          Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
-        );
+        const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000));
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
         if (msgId) node.sourceMsgId = msgId;
@@ -3342,7 +3418,7 @@ export function MainView(): ReactElement {
       }
       return { ...createEmptyDraft(), id: mfId('draft'), nodes };
     },
-    [client],
+    [client, hydrateMergeForwardMedia],
   );
 
   const handleMergeForward = useCallback(
