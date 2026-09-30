@@ -17,7 +17,14 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
-import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import {
+  classifyChatType,
+  datalineName,
+  isDatalineSelfUid,
+  isDatalineUid,
+  ProtoMsg,
+} from '@weq/codec';
+import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 import { parseInput } from '@weq/codec/raw';
 import {
   decodeSsoHandlePacket,
@@ -439,6 +446,54 @@ function resolveLocalPath(input: string): string {
   if (text === '~') return homedir();
   if (text.startsWith('~/') || text.startsWith('~\\')) return resolve(homedir(), text.slice(2));
   return isAbsolute(text) ? text : resolve(text);
+}
+
+/** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
+const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
+
+/**
+ * 从一条红包消息本体里凑出定位参数 —— 详情 / 抢红包共用。
+ *
+ * 字段全在消息里，不依赖消息库外的缓存：48417 = `{2: packetId, 3: orderId}`（按
+ * BYTES 收，这里自己解），48418 = 领取 token（仅抢红包用到）；私聊的 peerUin 用
+ * conv（对方 uid）查 uid→uin 映射，群聊直接用群号。
+ */
+async function resolveRedBagTarget(
+  svc: AccountServices,
+  input: { msgId: string; kind: 'c2c' | 'group'; conv: string },
+): Promise<{ orderId: string; packetId: string; token: string; peerUin: string }> {
+  const id = safeBigint(input.msgId);
+  if (id === null) throw new Error(`msgId 无效：${input.msgId}（应为数字字符串）`);
+
+  const raw = await svc.msgs.getRawElements(id);
+  if (!raw) throw new Error('找不到这条消息（可能已被清理）。');
+  const wallet = raw.elements.find((el) => el.kind === 'wallet') as
+    | { walletFlag48417?: Uint8Array; walletFlag48418?: string }
+    | undefined;
+  if (!wallet?.walletFlag48417) throw new Error('这条消息不是红包（缺少 48417 定位块）。');
+
+  let orderId = '';
+  let packetId = '';
+  try {
+    const decoded = walletFlag48417Wire.decode(wallet.walletFlag48417);
+    orderId = decoded.orderId ?? '';
+    packetId = decoded.packetId ? Buffer.from(decoded.packetId).toString('hex') : '';
+  } catch {
+    throw new Error('这个红包的 48417 结构无法解析。');
+  }
+  if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
+
+  const peerUin =
+    input.kind === 'group'
+      ? input.conv
+      : String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+  if (!peerUin) {
+    throw new Error(
+      '解析不出红包的领取方 QQ 号：私聊请传对方 uid（find_contact / search_buddies 可拿到），且该 uid 需在本机 uid 映射表里。',
+    );
+  }
+
+  return { orderId, packetId, token: wallet.walletFlag48418 ?? '', peerUin };
 }
 
 /**
@@ -4483,6 +4538,90 @@ export const AI_TOOLS: AiTool[] = [
           ? '红包订单已建好并拿到二维码：扫码（或把 qrcodePngBase64 拼成 data:image/png;base64,… 展示）后在财付通里付款才真正发出。'
           : '服务端没有给出二维码；bizCode / bizMessage 是它的原始回执，plainHex 是解密后的明文，可交给 decode_redbag_packet 交叉核对。',
       };
+    },
+  }),
+
+  // ── 红包：查看领取明细 / 抢红包（hb_pc_detail / hb_pc_grab）──────────────
+  // 与 pack_red_bag 一样，两个都要「在线且已注入」的 QQ：红包包走 hook 上的
+  // sendPacket，tenpay.com 的 p_skey 只是请求体里的一个字段。
+  //
+  // 真机联调期：grab_red_bag **临时开放给外部 MCP 面板**（它真的会记一笔领取 /
+  // 扣钱，本应标 assistantOnly，被 server.ts 挡在公开面板外）。联调结束后应恢复
+  // 该标记；get_red_bag_detail 是纯查询，可以长期对外开放。
+
+  tool({
+    name: 'get_red_bag_detail',
+    description:
+      '【查看红包领取明细】读一个 QQ 红包的领取记录（PC 端那条 `hb_pc_detail`），返回总个数 / 总额、' +
+      '祝福语、发红包者、是否拼手气、以及完整的领取列表（谁、多少钱、什么时候领的）。' +
+      '\n【怎么定位红包】msgId 是该红包消息的 msgId，来自 get_messages / get_messages_by_date 的 includeIds=true 输出' +
+      '（或 execute_sql 查 40001 / list_deleted_messages 等）；kind 是该会话类型，conv 与读该消息时一致。' +
+      '红包本体里的 orderId / packetId / token 会自动解出来，调用方不用管。' +
+      '\n【只读】不领取、不改变红包状态；重复调用是安全的。但需要该账号 QQ **在线且已注入**（完全离线模式下不可用）。' +
+      '\n【结果怎么看】totalAmount / claims[].amount 的单位是**分**；selfClaim 是自己那一条（没领过是 null）；' +
+      'claimedCount 是已领人数，可能小于 totalNum（还有剩余）。失败会原样抛服务端业务错误，不会假装成功。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('红包消息的 msgId（40001，数字字符串）'),
+    }),
+    run: async ({ kind, conv, msgId }) => {
+      const svc = services();
+      const pid = onlinePid();
+      const target = await resolveRedBagTarget(svc, { msgId, kind, conv });
+      const detail = await svc.redbag.detail({ ...target, peerType: kind }, pid);
+      return {
+        ok: true,
+        kind,
+        conv,
+        msgId,
+        note: '金额单位是分（totalAmount / claims[].amount）；时间字段是 unix 秒。',
+        ...detail,
+      };
+    },
+  }),
+
+  tool({
+    name: 'grab_red_bag',
+    description:
+      '【抢红包】**真的会领一笔**（PC 端那条 `hb_pc_grab`）：服务端按当前账号记一次领取，成功后返回自己抢到的金额 / 时间。' +
+      '⚠️ 这是有副作用的操作，**不能撤销**（要领回的只能是这笔钱本身，没有回滚接口）；自己的红包 / 已领过的红包 / 领完的红包都会被服务端拒绝，' +
+      '本条返回 ok=false + 业务错误。' +
+      '\n【怎么定位红包】msgId / kind / conv 与 get_red_bag_detail 完全一致；orderId、packetId、领取 token 会自动从消息本体解出。' +
+      '\n【建议】先 get_red_bag_detail 看 selfClaim：如果已经有了就别再抢（重复调用会被拒）；自己发的红包也不要抢。' +
+      '\n【前置条件】需要该账号 QQ **在线且已注入**（完全离线模式不可用）。' +
+      '\n【结果怎么看】ok=true 时 amount（单位分）就是自己领到的钱；ok=false 时 error 是服务端原始原因（如已领完 / 已领过 / 该红包不可领）。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('红包消息的 msgId（40001，数字字符串）'),
+    }),
+    run: async ({ kind, conv, msgId }) => {
+      const svc = services();
+      const pid = onlinePid();
+      const target = await resolveRedBagTarget(svc, { msgId, kind, conv });
+      try {
+        const result = await svc.redbag.grab({ ...target, peerType: kind }, pid);
+        return {
+          ok: true,
+          kind,
+          conv,
+          msgId,
+          note: 'amount 单位是分；claimTime 是 unix 秒。',
+          ...result,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          kind,
+          conv,
+          msgId,
+          error: error instanceof Error ? error.message : String(error),
+          hint:
+            '服务端拒绝了这个红包（常见原因：自己的红包 / 已经领过 / 已领完 / 已过期 / token 不匹配）。' +
+            '可先 get_red_bag_detail 看 selfClaim 与 claimedCount。',
+        };
+      }
     },
   }),
 
