@@ -615,6 +615,14 @@ export interface NtHelperBinding {
    * already be protobuf-encoded; the raw reply body is returned.
    */
   sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
+  /**
+   * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.
+   *
+   * `signInput` 是 `sender` 与 `pack` 两条子消息的 protobuf 字节直接拼接（没有外层
+   * tag / 长度）。算法只在原生产物里，调用方不需要知道它是什么；收到 16 字节填回
+   * `f101` 即可。
+   */
+  signRedBagRequest(signInput: Buffer): Buffer;
 
   // --- font conversion ---
   /**

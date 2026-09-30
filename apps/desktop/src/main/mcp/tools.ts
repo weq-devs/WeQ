@@ -18,6 +18,13 @@ import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import { parseInput } from '@weq/codec/raw';
+import {
+  decodeSsoHandlePacket,
+  prePackRedBag,
+  RedBagPasswordPool,
+  RedBagPrePack,
+} from '@weq/protocol';
 import type { DressMallItem, RenderElement, SendDress, SendElement } from '@weq/service';
 import {
   computeBkn,
@@ -30,7 +37,7 @@ import {
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
-import { decodeBlobHex, decodeBlobText } from './blob_decoder';
+import { decodeBlobBytes, decodeBlobHex, decodeBlobText } from './blob_decoder';
 import {
   JS_SANDBOX_DEFAULT_TIMEOUT_MS,
   JS_SANDBOX_MAX_TIMEOUT_MS,
@@ -4287,6 +4294,192 @@ export const AI_TOOLS: AiTool[] = [
         };
       }
       return { ok: true, packId, hash, path, hint: '明文 GIF 已落盘，可用文件工具查看。' };
+    },
+  }),
+
+  // ── 红包（sso_handle 加密载荷）────────────────────────────────────────────
+  // 红包载荷不是 OIDB、也不是 JCE：它是「16B salt + AES-128-CBC」，key/iv 由 salt
+  // 现场派生（协议实现与推导见 @weq/protocol 的 redbag 与 docs/develop/redbag.md）。
+  // 所以喂给 decode_blob 只会得到乱码，必须先走这一层。
+  //
+  // 真机联调期：pack_red_bag **临时开放给外部 MCP 面板**（原本标 assistantOnly，会被
+  // server.ts 过滤掉）。它会在服务端建一个红包订单，属于有副作用的工具；
+  // 联调结束后应恢复该标记，让外部面板回到严格只读（与上面那批 send_* 同理）。
+
+  tool({
+    name: 'decode_redbag_packet',
+    description:
+      '解码一个 QQ 红包 `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 包（发红包 / 抢红包走的那条 trpc），把加密载荷解成可读 JSON。' +
+      '输入是**抓包日志里那个裸 protobuf 字节的 hex**（形如 `{1:"hb_pc_pre_pack", 5:{1:<16B>, 2:<密文>}}`），上行 / 下行自动识别。' +
+      '\n【为什么不能用 decode_blob】红包载荷既不是 OIDB 信封也不是 JCE：它是「16 字节 salt + AES-128-CBC(PKCS#7)」，AES key/iv 由 salt 现场派生，' +
+      '所以直接丢密文给 decode_blob 只会得到乱码或猜测树。' +
+      '\n【返回什么】direction（request/response）、子命令或状态码、salt、明文 hex、以及明文的 protobuf JSON 树（风格同 decode_blob）。' +
+      '若是 `hb_pc_pre_pack` 的响应，额外给出二维码 PNG 的 base64（可直接拼成 data URL 显示）、边长与领取 token。' +
+      '\n【边界】只对 `hb_pc_pre_pack` 认识的字段做解释；其他子命令只给出 protobuf 树（没有样本，不猜字段含义）。',
+    input: z.object({
+      data: z.string().min(1).describe('sso_handle 包的 hex（允许空格 / 冒号 / 0x 前缀）'),
+    }),
+    run: async ({ data }) => {
+      let packet: ReturnType<typeof decodeSsoHandlePacket>;
+      try {
+        packet = decodeSsoHandlePacket(new Uint8Array(parseInput(data, 'hex')));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          ok: false,
+          error: `不是红包 sso_handle 包：${message}`,
+          hint: '要传整包的 protobuf 字节（从 msg 日志的 hexdump 粘过来即可），别只给密文那一段；也确认它确实是 sso_handle 那条命令的包。',
+        };
+      }
+
+      const plain = decodeBlobBytes(packet.plain, 'protobuf');
+
+      // 只有 pre_pack 的响应里有二维码，用带 schema 的解析补上 PNG / token。
+      let qrcode: { bytes: number; size?: number; token?: string; pngBase64?: string } | undefined;
+      if (packet.direction === 'response') {
+        try {
+          const parsed = RedBagPrePack.deserialize(packet.plain);
+          if (parsed.qrcode) {
+            qrcode = {
+              bytes: parsed.qrcode.length,
+              ...(parsed.qrcodeSize !== undefined ? { size: parsed.qrcodeSize } : {}),
+              ...(parsed.qrcodeToken ? { token: parsed.qrcodeToken } : {}),
+              pngBase64: Buffer.from(parsed.qrcode).toString('base64'),
+            };
+          }
+        } catch {
+          // 不是 pre_pack 响应（字段对不上），保持只给 protobuf 树。
+        }
+      }
+
+      return {
+        ok: true,
+        direction: packet.direction,
+        ...(packet.cmd ? { cmd: packet.cmd } : {}),
+        ...(packet.code !== undefined ? { code: packet.code } : {}),
+        ...(packet.message !== undefined ? { message: packet.message } : {}),
+        salt: Buffer.from(packet.salt).toString('hex'),
+        cipherBytes: packet.body.length,
+        plainBytes: packet.plain.length,
+        plainHex: Buffer.from(packet.plain).toString('hex'),
+        fields: plain.fields,
+        ...(plain.names ? { names: plain.names } : {}),
+        ...(qrcode ? { qrcode } : {}),
+        hint:
+          'fields 的键是 protobuf 字段号，嵌套已展开；明文是 protobuf 时 kind=protobuf，否则看 kind=guess 的提示。' +
+          '红包 key/iv 每包由 salt 派生，同一段密文离开 salt 解不开（所以别只存密文）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_red_bag_passwords',
+    description:
+      '【口令红包的候选口令】拉一批服务端给的口令短句（`trpc.qqhb.hbpanel.Hongbao.SsoGetToken`），' +
+      '发口令红包时挑一条填进 pack_red_bag 的 password。' +
+      '\n【抓包样本】9 条中文短句，如「可爱不是长久之计，可爱我是长久之计」「近朱者赤，近你者甜」「发红包的人最帅」；' +
+      '顺序就是服务端给的顺序，没有权重信息。' +
+      '\n【怎么用】选定后把整句原样传给 pack_red_bag 的 password（口令红包的 f5 就是这句本身，不是祝福语）。' +
+      '也可以自己编一个口令——字段就是字符串，服务端没校验它必须来自这个池子（但没验证过自编口令能不能被领）。' +
+      '\n需要该账号 QQ 在线。',
+    input: z.object({}),
+    run: async () => {
+      const pid = onlinePid();
+      const passwords = await RedBagPasswordPool.invoke(ntHelper(), pid);
+      return {
+        ok: true,
+        count: passwords.length,
+        passwords,
+        hint: '挑一条传给 pack_red_bag 的 password（kind 会自动按口令红包走）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'pack_red_bag',
+    description:
+      '【下单发红包（预打包）】走 PC 端那条 `hb_pc_pre_pack`：先取 tenpay 的 p_skey，再让服务端生成这一个红包的**二维码 + 领取 token**。' +
+      '支持 群/私聊 × 普通/口令 × 等额/拼手气（这三种组合的字段映射都已由五份真机抓包定死，见 docs/develop/redbag.md）。' +
+      '⚠️ 这一步**不扣钱**——它只是下单出码，真正付款在二维码 / 财付通 H5 里完成；也**不能撤销**（订单已在服务端建好）。需要该账号 QQ 在线。' +
+      '\n【参数怎么填】peerType 决定 recvUin 是群号（group）还是好友 QQ 号（c2c）；totalAmount 的单位是**分**（0.03 元传 3）；' +
+      'kind=password 时必须给 password（可先 get_red_bag_passwords 挑一条）—— 口令红包的 f5 就是口令本身，且必然是拼手气。' +
+      'nickname 默认取本机资料里**你自己**的昵称（请求 f3.8，五份抓包都是它）。' +
+      '\n【结果怎么看】ok=true 且带 qrcodePngBase64 才是拿到了码；qrcodeToken 是领取标识。' +
+      'ok=false 时看 bizCode / bizMessage 与 hint：服务端拒绝会在那里如实给出，不会假装成功。' +
+      '\n请求里那 16 字节 f101 是**请求签名**：服务端会校验，对不上就直接回 66201015 数据检查失败、二维码为空。' +
+      '签名由原生产物（nt_helper 的 signRedBagRequest）现算，调用方不用管。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（好友），group=群聊'),
+      recvUin: z.string().min(1).describe('领取方：群号（group）或好友 QQ 号（c2c）'),
+      totalNum: z.number().int().min(1).max(100).describe('红包个数'),
+      totalAmount: z.number().int().min(1).describe('总金额，单位**分**（0.01 元传 1）'),
+      kind: z
+        .enum(['normal', 'password'])
+        .optional()
+        .describe('红包类型：normal=普通（默认），password=口令（给了 password 就自动按它走）'),
+      split: z
+        .enum(['equal', 'lucky'])
+        .optional()
+        .describe('金额分配：equal=等额，lucky=拼手气；缺省「普通=等额、口令=拼手气」'),
+      wishing: z.string().max(60).optional().describe('普通红包的祝福语（缺省不发）'),
+      password: z
+        .string()
+        .max(60)
+        .optional()
+        .describe('口令红包的口令（可先 get_red_bag_passwords）'),
+      nickname: z
+        .string()
+        .max(60)
+        .optional()
+        .describe('请求 f3.8：发红包者的昵称（不给就取本机资料里自己的昵称）'),
+    }),
+    run: async ({
+      peerType,
+      recvUin,
+      totalNum,
+      totalAmount,
+      kind,
+      split,
+      wishing,
+      password,
+      nickname,
+    }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const selfNick = (await services().profile.getSelfProfile())?.nick ?? '';
+      const result = await prePackRedBag(ntHelper(), pid, {
+        uin,
+        peerType,
+        recvUin,
+        totalNum,
+        totalAmount,
+        ...(kind !== undefined ? { kind } : {}),
+        ...(split !== undefined ? { split } : {}),
+        ...(wishing !== undefined ? { wishing } : {}),
+        ...(password !== undefined ? { password } : {}),
+        nickname: nickname ?? selfNick,
+      });
+      const ok = result.code === '0' && result.bizCode === 0;
+      return {
+        ok,
+        peerType,
+        recvUin,
+        totalNum,
+        totalAmount,
+        code: result.code,
+        message: result.message,
+        bizCode: result.bizCode,
+        bizMessage: result.bizMessage,
+        ...(result.qrcodeSize !== undefined ? { qrcodeSize: result.qrcodeSize } : {}),
+        ...(result.qrcodeToken ? { qrcodeToken: result.qrcodeToken } : {}),
+        ...(result.qrcode
+          ? { qrcodePngBase64: Buffer.from(result.qrcode).toString('base64') }
+          : {}),
+        plainHex: Buffer.from(result.plain).toString('hex'),
+        hint: ok
+          ? '红包订单已建好并拿到二维码：扫码（或把 qrcodePngBase64 拼成 data:image/png;base64,… 展示）后在财付通里付款才真正发出。'
+          : '服务端没有给出二维码；bizCode / bizMessage 是它的原始回执，plainHex 是解密后的明文，可交给 decode_redbag_packet 交叉核对。',
+      };
     },
   }),
 

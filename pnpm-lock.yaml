@@ -77,6 +77,9 @@ importers:
       '@weq/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@weq/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@weq/service':
         specifier: workspace:*
         version: link:../../packages/service

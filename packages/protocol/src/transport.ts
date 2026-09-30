@@ -19,6 +19,8 @@ export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'
 export type OidbNative = Pick<NtHelperBinding, 'sendOidbPacket'>;
 /** Narrow type — only the raw-packet sender. */
 export type TrpcNative = Pick<NtHelperBinding, 'sendPacket'>;
+/** Narrow type — only the red bag request signer. */
+export type RedBagSignNative = Pick<NtHelperBinding, 'signRedBagRequest'>;
 
 export interface OidbRequest {
   /** OIDB command, e.g. 0x9067. */
@@ -55,4 +57,16 @@ export async function sendPacket(
 ): Promise<Uint8Array> {
   const reply = await nt.sendPacket(pid, cmd, Buffer.from(body));
   return new Uint8Array(reply);
+}
+
+/**
+ * Sign a red bag pre-pack request (`hb_pc_pre_pack`) and return the 16-byte
+ * plaintext `f101`.
+ *
+ * The signature algorithm deliberately lives in the native addon only — this
+ * package just hands over `signInput` (the `sender` ‖ `pack` sub-message bytes)
+ * and gets the value back.
+ */
+export function signRedBagRequest(nt: RedBagSignNative, signInput: Uint8Array): Uint8Array {
+  return new Uint8Array(nt.signRedBagRequest(Buffer.from(signInput)));
 }
