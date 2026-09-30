@@ -32,7 +32,7 @@ const SECOND_BAND_START = 230000; // open-ended crawl begins here after the gap
 // ---- defaults (all overridable via CLI) ------------------------------------
 const DEFAULT_CSV = '../resources/emoji/market.csv';
 const DEFAULT_CONCURRENCY = 2;
-const DEFAULT_EMPTY_THRESHOLD = 100; // consecutive misses that mean "reached end"
+const DEFAULT_EMPTY_THRESHOLD = 50; // consecutive misses that mean "reached end"
 const DEFAULT_DELAY = 0.12; // polite per-request sleep (seconds), + jitter
 const WINDOW = 40; // ids fetched per parallel batch
 const RETRIES = 4; // retries for transient (non-404) failures
