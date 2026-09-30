@@ -66,6 +66,7 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
+import { MsgDressEditor } from './MsgDressEditor';
 import {
   blankNestedRecordSeg,
   blankSeg,
@@ -75,6 +76,7 @@ import {
   segHasContent,
   segLabel,
   segsToRenderElements,
+  type MfDecoration,
   type MfDraft,
   type MfNode,
   type MfSeg,
@@ -185,6 +187,8 @@ export function MergeForwardComposer({
   >(null);
   const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 正在编辑装扮的节点 id（null = 没开卡片）。 */
+  const [dressFor, setDressFor] = useState<string | null>(null);
 
   const nodes = draft.nodes;
 
@@ -239,6 +243,19 @@ export function MergeForwardComposer({
   function changeSender(nodeId: string, person: MfPerson): void {
     commit(nodes.map((n) => (n.id === nodeId ? { ...n, sender: personToSender(person) } : n)));
     setPickerFor(null);
+  }
+
+  /** 改一条消息的装扮。`decoration` 为 undefined = 清空。 */
+  function changeDecoration(nodeId: string, decoration: MfDecoration | undefined): void {
+    commit(
+      nodes.map((n) => {
+        if (n.id !== nodeId) return n;
+        if (decoration) return { ...n, decoration };
+        const next = { ...n };
+        delete next.decoration;
+        return next;
+      }),
+    );
   }
 
   if (pickerFor) {
@@ -316,6 +333,7 @@ export function MergeForwardComposer({
               <PreviewRow
                 node={node}
                 onOpen={() => startEdit(node, index)}
+                onEditDress={() => setDressFor(node.id)}
                 onAvatar={() => setPickerFor({ kind: 'node', id: node.id })}
                 onContextMenu={(x, y) => setMenu({ nodeId: node.id, x, y })}
               />
@@ -353,6 +371,15 @@ export function MergeForwardComposer({
           </button>
         ) : null}
       </div>
+
+      {dressFor ? (
+        <MsgDressEditor
+          decoration={nodes.find((n) => n.id === dressFor)?.decoration}
+          uin={nodes.find((n) => n.id === dressFor)?.sender?.uin}
+          onChange={(decoration) => changeDecoration(dressFor, decoration)}
+          onClose={() => setDressFor(null)}
+        />
+      ) : null}
 
       {menu ? (
         <NodeMenu
@@ -392,11 +419,13 @@ function InsertButton({ onClick }: { onClick: () => void }): ReactElement {
 function PreviewRow({
   node,
   onOpen,
+  onEditDress,
   onAvatar,
   onContextMenu,
 }: {
   node: MfNode;
   onOpen: () => void;
+  onEditDress: () => void;
   onAvatar: () => void;
   onContextMenu: (x: number, y: number) => void;
 }): ReactElement {
@@ -437,6 +466,14 @@ function PreviewRow({
           <span className="weq-forward-row-time weq-mf-row-time">{formatNodeTime(node.time)}</span>
           <button type="button" className="weq-mf-row-edit" onClick={onOpen}>
             <Pencil size={12} /> 编辑
+          </button>
+          <button
+            type="button"
+            className={cn('weq-mf-row-dress', node.decoration && 'is-on')}
+            title="编辑装扮（气泡 / 挂件 / 字体）"
+            onClick={onEditDress}
+          >
+            <Sparkles size={12} /> 装扮
           </button>
         </div>
         <div className="weq-forward-bubble weq-mf-bubble qq-bubble-shell">
