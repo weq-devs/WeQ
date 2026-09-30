@@ -2789,6 +2789,8 @@ export const AI_TOOLS: AiTool[] = [
       '返回 fields 是 CyberChef 风格的纯 JSON：{ "字段号": 值 }，嵌套是内联对象、repeated 是数组；' +
       '能当可读文本的 bytes 直接给字符串，其余给小写 hex（0x…），超大 bytes 会截断并在 truncatedHex 标出。' +
       'tag ≥ 1001 的字段名单独放在 names 图例（tag → 字段名）里，避免污染数据树；小 tag 无全局含义、以嵌套上下文为准。' +
+      '**QQ 数据包开头的长度前缀会自动识别并剥离**（如 `00 00 00 D5 …`）：枚举 4/2/1 字节 × 大小端，' +
+      '只有「读出的值 = 整包或负载长度」且剥完能完整解析时才采用，宽度不硬编码；命中时结果里给 prefix 说明剥掉了什么。' +
       '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。',
     input: z.object({
       data: z
@@ -2819,12 +2821,15 @@ export const AI_TOOLS: AiTool[] = [
         kind: result.kind,
         fields: result.fields,
         ...(result.names ? { names: result.names } : {}),
+        ...(result.prefix ? { prefix: result.prefix } : {}),
         ...(result.truncatedHex ? { truncatedHex: true } : {}),
         ...(result.guessNote ? { guessNote: result.guessNote } : {}),
         hint:
           result.kind === 'guess' || result.kind === 'none'
-            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
-            : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。已自动试过剥离长度前缀；可调 format 强制，或检查字节是否被截断。'
+            : result.prefix
+              ? `已自动剥离 ${result.prefix.width} 字节长度前缀（${result.prefix.declared === 'total' ? '整包长度' : '负载长度'}）：fields 是剥离后的树。`
+              : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
       };
     },
   }),
@@ -2835,6 +2840,7 @@ export const AI_TOOLS: AiTool[] = [
       '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
       '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
       '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
+      '（BLOB 里若带 QQ 数据包开头的长度前缀，会自动识别并剥离，宽度不硬编码。）' +
       '返回与 decode_blob 相同的纯 JSON fields 树（嵌套自动展开）与 names 图例，并附 source（库/路径/SQL/列/字节数）。',
     input: z.object({
       dbName: z
@@ -2940,6 +2946,7 @@ export const AI_TOOLS: AiTool[] = [
         kind: decoded.kind,
         fields: decoded.fields,
         ...(decoded.names ? { names: decoded.names } : {}),
+        ...(decoded.prefix ? { prefix: decoded.prefix } : {}),
         ...(decoded.truncatedHex ? { truncatedHex: true } : {}),
         ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
       };

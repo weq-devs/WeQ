@@ -18,6 +18,7 @@
 
 import { iterFields, WireError } from './wire';
 import { readVarint, zigzagDecode } from './varint';
+import { detectLengthPrefixes, type LengthPrefix } from './prefix';
 
 // ---------------------------------------------------------------------------
 // 类型定义
@@ -545,6 +546,39 @@ function tryDecodeJceAt(buf: Uint8Array, depth: number): RvNode[] | null {
 /** 尝试按 JCE 完整解析，失败返回 null。 */
 export function tryDecodeJce(buf: Uint8Array): RvNode[] | null {
   return tryDecodeJceAt(buf, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 长度前缀自动剥离（QQ 数据包常见的 `00 00 00 D5 …` 开头）
+// ---------------------------------------------------------------------------
+
+/** 一次「剥离长度前缀后再解析」的结果。 */
+export interface PrefixedDecode {
+  kind: 'protobuf' | 'jce';
+  nodes: RvNode[];
+  /** 被剥掉的长度前缀。 */
+  prefix: LengthPrefix;
+}
+
+/**
+ * 自动识别并剥离开头的长度前缀，再按 protobuf（优先）/ JCE 解析。
+ *
+ * 判定顺序：对每个「数值自洽」的前缀候选（见 {@link detectLengthPrefixes}），
+ * 先试 protobuf、再试 JCE；**只有解析完整成功**才接受该候选 —— 数值自洽只是
+ * 必要条件，解析通过才算真认得。因此：
+ *   - 没有长度前缀的正常数据不会被误削（候选解析失败就原样返回 null）；
+ *   - 前缀宽度 / 字节序由数据自己决定，不硬编码 4 字节大端。
+ *
+ * 调用方拿到 null 时应回退到不剥前缀的正常解析路径。
+ */
+export function tryDecodeAfterLengthPrefix(buf: Uint8Array): PrefixedDecode | null {
+  for (const prefix of detectLengthPrefixes(buf)) {
+    const proto = tryDecodeProtobufAt(prefix.body, 0);
+    if (proto) return { kind: 'protobuf', nodes: proto, prefix };
+    const jce = tryDecodeJceAt(prefix.body, 0);
+    if (jce) return { kind: 'jce', nodes: jce, prefix };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
