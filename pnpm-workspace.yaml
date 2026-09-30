@@ -2,6 +2,13 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies:
-  - electron
-  - esbuild
+# pnpm 12.1 起，workspace 任务依赖环从"静默乱序执行"变成硬错误
+# （ERR_PNPM_TASK_CYCLE）。native <-> testkit 是刻意保留的环，
+# 这里降级为警告，保持 pnpm 10 的行为。
+ignoreWorkspaceCycles: true
+
+# pnpm 11 起用 allowBuilds 取代 onlyBuiltDependencies；旧键会被静默忽略，
+# 导致 pnpm install 因 ERR_PNPM_IGNORED_BUILDS 直接失败。
+allowBuilds:
+  electron: true
+  esbuild: true
