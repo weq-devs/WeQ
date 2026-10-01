@@ -64,6 +64,7 @@ import {
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
+import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
   type GroupLeftMemberRow,
@@ -72,6 +73,7 @@ import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
 import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
 import {
+  cleanNtPath,
   codecElementsToSegs,
   createEmptyDraft,
   createNode,
@@ -131,6 +133,7 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
   arkCardSignature,
@@ -283,8 +286,18 @@ type MessageWire = {
   deletedKind?: 'weq' | 'qq';
   /** Recall marker: message whose QQ recall was intercepted (content intact). */
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  /** Per-message decoration from column 40801 (0 = not set). */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  /**
+   * Per-message decoration from column 40801 (0 = not set).
+   * `fontId1Raw` / `fontId2Raw` 是字体两槽位的原始 wire 值（41525 / 41531），
+   * 转发时原样透传；不要用 `fontId` 反推（会丢 bit 16）。
+   */
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 /** The unified chat-message wire from the account router → local MessageWire. */
@@ -299,7 +312,13 @@ type ChatMsgWire = {
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -1443,7 +1462,13 @@ function messageToTemplate(
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;
-    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+    decoration?: {
+      bubbleId: number;
+      fontId: number;
+      widgetId: number;
+      fontId1Raw?: number;
+      fontId2Raw?: number;
+    };
   };
 }
 
@@ -3293,6 +3318,62 @@ export function MainView(): ReactElement {
   }, []);
 
   /**
+   * 给「本机 `nt_data` 里有缓存、但 40800 元素里没写路径」的媒体补上 `localPath`。
+   *
+   * 收到的图片 / 语音 / 视频 / 文件通常**不带** `localPath`(45004)（那个 tag 基本只
+   * 在 QQ 自己发出 / 草稿里出现），但缓存文件是有的。不补的话导入后会被降级成
+   * `[图片]` 文本（见 codecElementToSeg），转发出去就真的只剩一行文字。按
+   * (发送时间, 文件名) 走主进程的 FileSearchService 找文件（与 `weq-media://pic`
+   * 同一条链路），找不到就保持原样。
+   */
+  const hydrateMergeForwardMedia = useCallback(
+    async (elements: unknown[], sendTimeMs: number): Promise<void> => {
+      const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+      await Promise.all(
+        elements.map(async (raw) => {
+          if (!raw || typeof raw !== 'object') return;
+          const el = raw as Record<string, unknown>;
+          const kind = text(el.kind);
+          if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video' && kind !== 'file') return;
+          // 元素自带路径 = 发得出去，不用找（口径与 codecElementToSeg 一致）。
+          // 剥掉 `::NTOSFull::` 虚拟前缀再判断 —— 带前缀的「路径」不是真文件，
+          // 当成 existing 会既找不到缓存、又在发送时 ENOENT。
+          const existing = cleanNtPath(
+            kind === 'pic'
+              ? text(el.localPath) || text(el.filePath)
+              : kind === 'ptt'
+                ? text(el.filePath)
+                : kind === 'video'
+                  ? text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath)
+                  : text(el.filePath),
+          );
+          if (existing) return;
+          const name = text(el.fileName).trim();
+          if (!name) return;
+          const type = kind === 'pic' ? (Number(el.subType) === 1 ? 'emoji' : 'pic') : kind;
+          try {
+            const hit = await client.account.mediaResource.findLocalFile.query({
+              t: sendTimeMs,
+              name,
+              kind: type,
+            });
+            // 图片（含自定义表情）读 localPath；语音 / 视频 / 文件读 filePath —— 两个
+            // 都写上，卖导入函数不必再关心哪种媒体读哪个字段。
+            const found = hit.source ?? (type === 'emoji' ? hit.thumb : null);
+            if (found) {
+              el.localPath = found;
+              el.filePath = found;
+            }
+          } catch {
+            /* 找不到就保持原样（仍会退化成文本） */
+          }
+        }),
+      );
+    },
+    [client],
+  );
+
+  /**
    * 多选的消息 → 一份草稿。
    *
    * 关键：**回读每条消息的原始 wire 元素**（`account.getRawElements`）而不是只有
@@ -3311,6 +3392,8 @@ export function MainView(): ReactElement {
           name: sender?.displayName || sender?.identityValue || '未知用户',
         };
         const msgId = (message as { msgId?: string }).msgId ?? message.id;
+        const parsed = Date.parse(message.createdAt);
+        const sendTimeMs = Number.isFinite(parsed) ? parsed : now * 1000;
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
         // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
@@ -3320,7 +3403,11 @@ export function MainView(): ReactElement {
         if (msgId) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
-            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements, renderElements);
+            if (raw?.elements?.length) {
+              // 先把缓存里有、元素里没写的媒体路径补上，图片 / 语音才能真正转发出去。
+              await hydrateMergeForwardMedia(raw.elements, sendTimeMs);
+              segs = codecElementsToSegs(raw.elements, renderElements);
+            }
           } catch {
             /* 回读失败就退回渲染元素 */
           }
@@ -3329,12 +3416,7 @@ export function MainView(): ReactElement {
           segs = renderElementsToSegs(renderElements);
         }
         if (segs.length === 0) continue;
-        const parsed = Date.parse(message.createdAt);
-        const node = createNode(
-          senderInfo,
-          segs,
-          Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
-        );
+        const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000));
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
         if (msgId) node.sourceMsgId = msgId;
@@ -3342,7 +3424,7 @@ export function MainView(): ReactElement {
       }
       return { ...createEmptyDraft(), id: mfId('draft'), nodes };
     },
-    [client],
+    [client, hydrateMergeForwardMedia],
   );
 
   const handleMergeForward = useCallback(
@@ -5562,6 +5644,67 @@ export function MainView(): ReactElement {
    * `routingHead.grpTmp`（见 `MessageSendService` 的 `GroupTempSource`），否则服务端
    * 会把它当成非好友之间的普通私聊拒收。
    */
+  /**
+   * 红包面板「发红包」—— 面板只收「金额 / 个数 / 是否口令 / 祝福语」，这里补目标会话走
+   * IPC 下单出码（`hb_pc_pre_pack`），成功后弹二维码灯箱。
+   *
+   * **不做乐观渲染**：这一步只是下单出码，不扣钱，真实红包消息要等 QQ 付款后自己同步
+   * 回来。在线校验与消息发送按钮同一套。
+   */
+  async function sendRedPacket(conversation: Conversation, draft: RedPacketDraft): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发红包需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发红包',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // 私聊给 uid（路由器会查 uid→uin），群聊给群号。
+    const conv =
+      target.peerType === 'group'
+        ? target.targetId
+        : conversation.type === 'direct'
+          ? conversation.otherUser.id
+          : target.targetId;
+
+    try {
+      const result = await client.account.redbagSend.mutate({
+        kind: target.peerType,
+        conv,
+        totalNum: draft.totalNum,
+        totalAmount: draft.totalAmount,
+        lucky: draft.lucky,
+        ...(draft.password ? { password: draft.password } : {}),
+        // 普通红包的祝福语（协议侧与口令共用 f5）；口令红包时 draft.wishing 为 null。
+        ...(draft.wishing ? { wishing: draft.wishing } : {}),
+      });
+      if (result.qrcodeBase64) {
+        openRedBagQrcode({
+          qrcodeBase64: result.qrcodeBase64,
+          lucky: result.lucky,
+          password: draft.password !== null,
+          totalNum: draft.totalNum,
+          totalAmount: draft.totalAmount,
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      pushToast({ tone: 'error', title: '红包发送失败', detail: message });
+      throw e;
+    }
+  }
+
   function sendTargetOf(conversation: Conversation): {
     peerType: 'c2c' | 'group';
     targetId: string;
@@ -6013,6 +6156,7 @@ export function MainView(): ReactElement {
                       arkLocation={arkLocation}
                       arkContacts={arkContacts}
                       onSendFlash={sendFlashTransfer}
+                      onSendRedPacket={sendRedPacket}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

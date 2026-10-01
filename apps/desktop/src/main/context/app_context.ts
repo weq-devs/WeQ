@@ -43,6 +43,7 @@ import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
+import type { VoiceTagDisplay } from '../transcribe/tags';
 import { createLinuxInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
@@ -85,6 +86,7 @@ import {
   AgentLabService,
   AssistantService,
   CollectionService,
+  RedBagService,
   createDressService,
   migrateDressData,
   DressConfigService,
@@ -609,6 +611,8 @@ export interface AccountServices {
   lbs: LbsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
+  /** 红包：下单出码 / 领取明细（`hb_pc_pre_pack` / `hb_pc_detail`，需要在线且已注入的 QQ）。 */
+  redbag: RedBagService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
   dressInstall: import('@weq/service').DressService;
   /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
@@ -623,6 +627,21 @@ export interface NativeInitError {
   status: number | null;
   /** Underlying message (diagnostics; not shown verbatim to users). */
   message: string;
+}
+
+/**
+ * Result of one SILK → text transcription. Besides the text, SenseVoice also
+ * reports the speaker's tone (`emotion`) and any non-speech sounds it heard
+ * (`events`) — both straight off the model's inline rich tags, no extra model.
+ */
+export interface TranscribeSilkResult {
+  ok: boolean;
+  text?: string;
+  /** Speaker tone (😊 开心 / 😔 难过 …), null when the clip had no emotion tag. */
+  emotion?: VoiceTagDisplay | null;
+  /** Sound events (🎵 背景音 / 😂 笑声 / 👏 掌声 …). */
+  events?: VoiceTagDisplay[];
+  error?: string;
 }
 
 export interface AppContext {
@@ -735,7 +754,7 @@ export interface AppContext {
    * independent (the model is a global setting), so callers that already have a
    * path — e.g. the Ptt cache browser — can skip the message-lookup dance.
    */
-  transcribeSilk(silkPath: string): Promise<{ ok: boolean; text?: string; error?: string }>;
+  transcribeSilk(silkPath: string): Promise<TranscribeSilkResult>;
 }
 
 let cached: AppContext | undefined;
@@ -785,7 +804,7 @@ export function initAppContext(): AppContext {
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
       },
-      transcribeSilk(): Promise<{ ok: boolean; text?: string; error?: string }> {
+      transcribeSilk(): Promise<TranscribeSilkResult> {
         return Promise.resolve({ ok: false, error: '原生组件未就绪' });
       },
     };
@@ -882,9 +901,7 @@ export function initAppContext(): AppContext {
   // Shared voice/transcription closures — both the export manager and AgentLab
   // need the same "silk → text" pipeline (model resolved lazily so a model
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
-  const transcribeSilk = async (
-    silkPath: string,
-  ): Promise<{ ok: boolean; text?: string; error?: string }> => {
+  const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getSettings().voiceTranscribe.modelId;
     if (!modelId) return { ok: false, error: '未选择转录模型' };
     const model = getVoiceModel(modelId);
@@ -903,7 +920,7 @@ export function initAppContext(): AppContext {
       { engine: model.engine, languages: model.languages },
     );
     return r.success
-      ? { ok: true, text: r.text ?? '' }
+      ? { ok: true, text: r.text ?? '', emotion: r.emotion ?? null, events: r.events ?? [] }
       : { ok: false, error: r.error ?? '识别失败' };
   };
   /** True only when a transcription model is configured AND downloaded. */
@@ -1034,6 +1051,8 @@ export function initAppContext(): AppContext {
         session,
         resolveOnlinePid,
       );
+      // 红包领取明细：查详情要在线注入（hook 发包），p_skey 按域缓存在服务里。
+      const redbagSvc = new RedBagService(platform.native.ntHelper, session, resolveOnlinePid);
       // 个性装扮：新架构（cache/config 分离）。
       // 1. 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
@@ -1138,6 +1157,7 @@ export function initAppContext(): AppContext {
         }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        redbag: redbagSvc,
         dressInstall,
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
@@ -1590,6 +1610,8 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
+      // 红包领取明细：静态账号下 onlinePid 会抛错，前端会先拦（需要在线注入）。
+      const redbagSvc = new RedBagService(platform.native.ntHelper, session, livePid);
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
       // 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
@@ -1689,6 +1711,7 @@ export function initAppContext(): AppContext {
         }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        redbag: redbagSvc,
         dressInstall,
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,

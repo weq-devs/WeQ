@@ -39,7 +39,7 @@ import { sendGroupFile, sendPrivateFile } from '../file/file-send';
 import { decode, encode, message, type ProtoMessage } from '../protobuf';
 import { sendPacket, type OidbNative, type TrpcNative } from '../transport';
 import { invokeTrpc, type TrpcSpec } from '../oidb/invoke';
-import { LONG_MSG_RESULT, LONG_MSG_SETTINGS, LONG_MSG_UID } from './get-forward';
+import { fetchForwardRaw, LONG_MSG_RESULT, LONG_MSG_SETTINGS, LONG_MSG_UID } from './get-forward';
 import { FILE_EXTRA } from './schemas';
 import {
   buildSendElems,
@@ -48,6 +48,7 @@ import {
   type SendDress,
   type SendElement,
   type SendFileElement,
+  type SendForwardElement,
   type SendScene,
 } from './send-elements';
 
@@ -231,6 +232,9 @@ function deriveInnerSource(nodes: readonly ForwardNode[], isGroup: boolean): str
     if (nicks.length >= 4) break;
   }
   if (nicks.length === 0) return isGroup ? '群聊的聊天记录' : '聊天记录';
+  // 多个发言人不再拼「A和B和C的聊天记录」（那串名字越长越难看），QQ 同款直接写
+  // 「群聊的聊天记录」；一 / 两个人仍保留「A和B的聊天记录」。
+  if (nicks.length > 2) return '群聊的聊天记录';
   return `${nicks.join('和')}的聊天记录`;
 }
 
@@ -551,6 +555,55 @@ interface UploadedLevel {
   responseBytes: Uint8Array;
 }
 
+/**
+ * 节点里「转发一张**已存在**的聊天记录」（`{kind:'forward', resId}`）时，把这个 resId
+ * 的内层 actions 拉下来，以**原卡片的 uniseq** 作为 actionCommand piggyback 进本层。
+ *
+ * 与 NapCat `SendMsg.uploadForwardedNodesPacket` 的 `node.data.id` 分支同款：卡片保留
+ * 自己的 `resId` / `uniseq`，随包再带一份内层内容 —— 收端展开外层长消息时按
+ * `uniseq → actionCommand` 就地取到内层，不必再向服务器单独拉一次。内层深层的
+ * piggyback（原始 actionCommand）原样带上。
+ *
+ * 拉取失败**不阻断**发送：卡片本身还在，只是收端可能要多发一次自己的服务器请求。
+ */
+async function piggybackExternalForward(
+  ctx: ForwardEncodeContext,
+  resId: string,
+  uuid: string,
+  innerActions: InnerAction[],
+  seen: Set<string>,
+): Promise<void> {
+  const selfUid = ctx.selfUid.trim();
+  if (!selfUid) {
+    // RecvLongMsg 的请求里要写自己的 uid（群聊转发时可能拿不到）。
+    ctx.log?.(`聊天记录卡片 ${resId} 跳过随包展开：缺少 selfUid`);
+    return;
+  }
+  let fetched: Awaited<ReturnType<typeof fetchForwardRaw>>;
+  try {
+    fetched = await fetchForwardRaw(ctx.nt, ctx.pid, { selfUid, resId });
+  } catch (error) {
+    ctx.log?.(
+      `拉取聊天记录 ${resId} 失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+    return;
+  }
+  if (fetched.error || fetched.actions.length === 0) {
+    ctx.log?.(`拉取聊天记录 ${resId} 失败：${fetched.error ?? '没有 action'}`);
+    return;
+  }
+  for (const action of fetched.actions) {
+    const cmd = typeof action.actionCommand === 'string' ? action.actionCommand : '';
+    const body = (action.actionData as { msgBody?: unknown } | undefined)?.msgBody;
+    if (!cmd || !Array.isArray(body) || body.length === 0) continue;
+    // 内层自己的 MultiMsg 内容改挂到卡片的 uniseq 下；更深层的 piggyback 原样带上。
+    const key = cmd === 'MultiMsg' ? uuid : cmd;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    innerActions.push({ uuid: key, msgBody: body as Record<string, unknown>[] });
+  }
+}
+
 async function uploadLevel(
   ctx: ForwardEncodeContext,
   nodes: readonly ForwardNode[],
@@ -567,6 +620,8 @@ async function uploadLevel(
   const isGroup = ctx.scene === 'group';
   const innerActions: InnerAction[] = [];
   const prepared: ForwardNode[] = [];
+  // 已经 piggyback 的 actionCommand：同一 uuid 只留一份（收端按 uuid 建索引）。
+  const piggybacked = new Set<string>();
 
   // 先把嵌套层递归传完 —— 内层 resId / uuid 出来之后，外层卡片才写得出来。
   for (const node of nodes) {
@@ -574,8 +629,11 @@ async function uploadLevel(
       const inner = await uploadLevel(ctx, node.innerForward, settings, levels, depth + 1);
       // 关键：外层卡片 JSON 的 uniseq 必须与 piggyback 的 actionCommand 一致，
       // 收端才能一次拉取走完整棵树（SnowLuma / NapCat 同款对齐）。
-      innerActions.push({ uuid: inner.uuid, msgBody: inner.msgBody });
-      innerActions.push(...inner.innerActions);
+      for (const action of [{ uuid: inner.uuid, msgBody: inner.msgBody }, ...inner.innerActions]) {
+        if (piggybacked.has(action.uuid)) continue;
+        piggybacked.add(action.uuid);
+        innerActions.push(action);
+      }
       prepared.push({
         ...node,
         innerForward: undefined,
@@ -590,7 +648,31 @@ async function uploadLevel(
       });
       continue;
     }
-    prepared.push(node);
+
+    // 节点里若含「转发一张**已存在**的聊天记录」的卡片：拉取它指向的 resId，按卡片自己的
+    // uniseq piggyback 到本层（对齐 NapCat，见 piggybackExternalForward）。卡片本身
+    // 原样保留，只补一个确定的 forwardUuid。
+    const forwardCards = node.elements.filter(
+      (element: SendElement): element is SendForwardElement =>
+        element.kind === 'forward' && element.resId.trim().length > 0,
+    );
+    if (forwardCards.length === 0) {
+      prepared.push(node);
+      continue;
+    }
+    const rewritten = new Map<SendForwardElement, string>();
+    for (const card of forwardCards) {
+      const uuid = (card.forwardUuid ?? '').trim() || randomUUID();
+      rewritten.set(card, uuid);
+      await piggybackExternalForward(ctx, card.resId.trim(), uuid, innerActions, piggybacked);
+    }
+    prepared.push({
+      ...node,
+      elements: node.elements.map((element: SendElement) => {
+        const uuid = rewritten.get(element as SendForwardElement);
+        return uuid ? ({ ...element, forwardUuid: uuid } as SendForwardElement) : element;
+      }),
+    });
   }
 
   const msgBody = await Promise.all(prepared.map((node) => buildForwardNodeBody(node, ctx)));

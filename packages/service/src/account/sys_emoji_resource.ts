@@ -58,9 +58,27 @@ export interface SysEmojiPage {
   total: number;
 }
 
+/**
+ * 一个「可指定结果」的动画表情：`<faceId>/lottie/` 里直接放着
+ * `<faceId>_<n>.json` 结果片段（骰子点数 / 包剪锤出拳 / 活动随机表情…）。
+ *
+ * 这是「能带 innerId 发送」的**唯一判据**：本地有哪个结果片段，就发得出哪个
+ * innerId。三个经典随机表情（114 篮球 / 358 骰子 / 359 包剪锤）之外，活动限定的
+ * 表情（如中秋 / 国庆 / 开学季）也会随 QQ 更新出现在这里，所以**不能硬编码**。
+ */
+export interface SysInnerFace {
+  /** 表情目录名解析出的 faceId（只收纯数字目录）。 */
+  faceId: number;
+  /** 该表情可用的 innerId（结果编号，升序、去重，如 `['1','2','3','4','5','6']`）。 */
+  innerIds: string[];
+}
+
 export class SysEmojiResourceService {
   /** Cached, sorted list of face directory names (the set changes rarely). */
   private names: string[] | null = null;
+
+  /** Cached list of faces that carry innerId result clips (骰子等)；见 listInnerFaces。 */
+  private innerFaces: SysInnerFace[] | null = null;
 
   /**
    * @param extraRoot Mirror root for faces WeQ downloaded itself. Resolved
@@ -117,9 +135,50 @@ export class SysEmojiResourceService {
     return { entries, nextCursor, total };
   }
 
-  /** Forget the cached directory listing (after a bulk download adds faces). */
+  /** Forget the cached directory listings (after a bulk download adds faces). */
   invalidate(): void {
     this.names = null;
+    this.innerFaces = null;
+  }
+
+  /**
+   * 列出**支持 innerId（可指定结果）**的内置表情及其可用 innerId 取值。
+   *
+   * 判据纯粹是磁盘事实：`<faceId>/lottie/<faceId>_<n>.json` 存在。没有结果片段的
+   * 表情（普通小黄脸 / 大部分贴纸）不会出现；活动限定的随机表情只要 QQ 下了资源
+   * 也会自动进来，所以这是**动态**列表，不要硬编码 faceId。
+   *
+   * 只扫每个纯数字目录的 `lottie/` 一层，且结果在整个会话内缓存（资源集很少变），
+   * 调用方拿到后按名/需求排序即可。
+   */
+  async listInnerFaces(): Promise<SysInnerFace[]> {
+    if (this.innerFaces) return this.innerFaces;
+    const roots = this.roots();
+    if (roots.length === 0) return [];
+    /** faceId → innerId 集合（跨 root 合并）。 */
+    const merged = new Map<number, Set<string>>();
+    for (const root of roots) {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await readdir(root, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (!e.isDirectory() || !/^\d+$/.test(e.name)) continue;
+        const ids = await collectInnerIds(join(root, e.name, 'lottie'), e.name);
+        if (ids.length === 0) continue;
+        const faceId = Number(e.name);
+        const set = merged.get(faceId) ?? new Set<string>();
+        for (const id of ids) set.add(id);
+        merged.set(faceId, set);
+      }
+    }
+    const out: SysInnerFace[] = [...merged.entries()]
+      .map(([faceId, set]) => ({ faceId, innerIds: [...set].sort(compareNumericStrings) }))
+      .sort((a, b) => a.faceId - b.faceId);
+    this.innerFaces = out;
+    return out;
   }
 
   /**
@@ -181,6 +240,41 @@ async function pickFile(dir: string, name: string, ext: string): Promise<string 
   if (candidates.includes(exact)) return exact;
   candidates.sort();
   return candidates[0]!;
+}
+
+/**
+ * List `<name>_<n>.json` result clips directly inside `dir` (tolerates a missing
+ * dir). Only the numeric `n` suffix counts — files like `surprise/100.json` sit in
+ * a sub-directory and are never matched (readdir is non-recursive).
+ */
+async function collectInnerIds(dir: string, name: string): Promise<string[]> {
+  let files: import('node:fs').Dirent[];
+  try {
+    files = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const pattern = new RegExp(`^${escapeRegExp(name)}_(\\d+)\\.json$`);
+  const out = new Set<string>();
+  for (const f of files) {
+    if (!f.isFile()) continue;
+    const m = pattern.exec(f.name);
+    if (m) out.add(m[1]!);
+  }
+  return [...out];
+}
+
+/** Escape a literal string for use inside a RegExp (face dir names are numeric, but be safe). */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Numeric strings (`'2' < '10'`) ascend numerically; non-numeric fall back to lexicographic. */
+function compareNumericStrings(a: string, b: string): number {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return a.localeCompare(b);
 }
 
 /** Numeric ids ascend numerically and sort before non-numeric (glyph) names. */

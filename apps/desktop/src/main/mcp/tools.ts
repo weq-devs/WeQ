@@ -17,7 +17,21 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
-import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import {
+  classifyChatType,
+  datalineName,
+  isDatalineSelfUid,
+  isDatalineUid,
+  ProtoMsg,
+} from '@weq/codec';
+import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+import { parseInput } from '@weq/codec/raw';
+import {
+  decodeSsoHandlePacket,
+  prePackRedBag,
+  RedBagPasswordPool,
+  RedBagPrePack,
+} from '@weq/protocol';
 import type { DressMallItem, RenderElement, SendDress, SendElement } from '@weq/service';
 import {
   computeBkn,
@@ -30,7 +44,7 @@ import {
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
-import { decodeBlobHex, decodeBlobText } from './blob_decoder';
+import { decodeBlobBytes, decodeBlobHex, decodeBlobText } from './blob_decoder';
 import {
   JS_SANDBOX_DEFAULT_TIMEOUT_MS,
   JS_SANDBOX_MAX_TIMEOUT_MS,
@@ -432,6 +446,65 @@ function resolveLocalPath(input: string): string {
   if (text === '~') return homedir();
   if (text.startsWith('~/') || text.startsWith('~\\')) return resolve(homedir(), text.slice(2));
   return isAbsolute(text) ? text : resolve(text);
+}
+
+/** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
+const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
+
+/**
+ * 从一条红包消息本体里凑出定位参数 —— 详情 / 抢红包共用。
+ *
+ * 字段全在消息里，不依赖消息库外的缓存：48417 = `{2: packetId, 3: orderId}`（按
+ * BYTES 收，这里自己解），48418 = 领取 token（仅抢红包用到）；私聊的 peerUin 用
+ * conv（对方 uid）查 uid→uin 映射，群聊直接用群号。
+ */
+async function resolveRedBagTarget(
+  svc: AccountServices,
+  input: { msgId: string; kind: 'c2c' | 'group'; conv: string },
+): Promise<{ orderId: string; packetId: string; token: string; peerUin: string }> {
+  const id = safeBigint(input.msgId);
+  if (id === null) throw new Error(`msgId 无效：${input.msgId}（应为数字字符串）`);
+
+  const raw = await svc.msgs.getRawElements(id);
+  if (!raw) throw new Error('找不到这条消息（可能已被清理）。');
+  const wallet = raw.elements.find((el) => el.kind === 'wallet') as
+    | { walletFlag48417?: Uint8Array; walletFlag48418?: string }
+    | undefined;
+  if (!wallet?.walletFlag48417) throw new Error('这条消息不是红包（缺少 48417 定位块）。');
+
+  let orderId = '';
+  let packetId = '';
+  try {
+    const decoded = walletFlag48417Wire.decode(wallet.walletFlag48417);
+    orderId = decoded.orderId ?? '';
+    packetId = decoded.packetId ? Buffer.from(decoded.packetId).toString('hex') : '';
+  } catch {
+    throw new Error('这个红包的 48417 结构无法解析。');
+  }
+  if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
+
+  // peerUin = 这个红包的**领取方**（recvUin）：群红包是群号；私聊红包是「谁被发了
+  // 这个红包」—— 自己收到的 = 自己 uin，自己发出去的 = 对方 uin。
+  //
+  // ⚠️ 私聊不能直接传会话对端：服务端会把它当成另一个红包定位参数，回
+  // `109020052 红包已失效`（真机复现过）。方向由该消息的发送者判断。
+  let peerUin: string;
+  if (input.kind === 'group') {
+    peerUin = input.conv;
+  } else {
+    const peerUinFromConv = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+    const selfUin = String((await svc.profile.getSelfProfile())?.uin ?? '');
+    const msg = await svc.msgs.getC2cMessageById(input.conv, id);
+    const sentBySelf = selfUin !== '' && msg !== null && String(msg.senderUin) === selfUin;
+    peerUin = sentBySelf ? peerUinFromConv : selfUin || peerUinFromConv;
+  }
+  if (!peerUin) {
+    throw new Error(
+      '解析不出红包的领取方 QQ 号：私聊请传对方 uid（find_contact / search_buddies 可拿到），且该 uid 需在本机 uid 映射表里。',
+    );
+  }
+
+  return { orderId, packetId, token: wallet.walletFlag48418 ?? '', peerUin };
 }
 
 /**
@@ -2349,6 +2422,8 @@ export const AI_TOOLS: AiTool[] = [
     name: 'transcribe_voice_message',
     description:
       '把某条消息里的本地语音（ptt）交给 WeQ 已下载的语音转写模型即时转成文字。' +
+      '除了文字，SenseVoice 还会给出说话人的语气情绪 emotion（如 开心/难过/生气）和识别到的非语音声音事件 events' +
+      '（如 笑声/掌声/背景音）——它们是模型自带的多任务输出，回答“对方说话什么语气”这类问题时很有用。' +
       '只读本机已缓存的语音文件、不联网拉取，结果**不会写回数据库**（要写回 QQ 供导出复用属于改库副作用，不在本工具范围）。' +
       '如果该语音之前已经转写（get_message_details 的 media[].transcript 非空），直接读即可，无需再调本工具。' +
       '定位消息用 msgId：get_messages 开 includeIds 或 list_recalled_messages 会返回。' +
@@ -2417,6 +2492,10 @@ export const AI_TOOLS: AiTool[] = [
         if (res.ok && res.text) {
           entry.ok = true;
           entry.transcript = res.text;
+          // Emotion / sound events come free with SenseVoice — surface them as
+          // structured fields so the model can reason about tone, not just words.
+          if (res.emotion) entry.emotion = res.emotion.label;
+          if (res.events?.length) entry.events = res.events.map((e) => e.label);
         } else {
           entry.ok = false;
           entry.error = res.error ?? '语音转写失败';
@@ -2727,6 +2806,8 @@ export const AI_TOOLS: AiTool[] = [
       '返回 fields 是 CyberChef 风格的纯 JSON：{ "字段号": 值 }，嵌套是内联对象、repeated 是数组；' +
       '能当可读文本的 bytes 直接给字符串，其余给小写 hex（0x…），超大 bytes 会截断并在 truncatedHex 标出。' +
       'tag ≥ 1001 的字段名单独放在 names 图例（tag → 字段名）里，避免污染数据树；小 tag 无全局含义、以嵌套上下文为准。' +
+      '**QQ 数据包开头的长度前缀会自动识别并剥离**（如 `00 00 00 D5 …`）：枚举 4/2/1 字节 × 大小端，' +
+      '只有「读出的值 = 整包或负载长度」且剥完能完整解析时才采用，宽度不硬编码；命中时结果里给 prefix 说明剥掉了什么。' +
       '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。',
     input: z.object({
       data: z
@@ -2757,12 +2838,15 @@ export const AI_TOOLS: AiTool[] = [
         kind: result.kind,
         fields: result.fields,
         ...(result.names ? { names: result.names } : {}),
+        ...(result.prefix ? { prefix: result.prefix } : {}),
         ...(result.truncatedHex ? { truncatedHex: true } : {}),
         ...(result.guessNote ? { guessNote: result.guessNote } : {}),
         hint:
           result.kind === 'guess' || result.kind === 'none'
-            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
-            : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。已自动试过剥离长度前缀；可调 format 强制，或检查字节是否被截断。'
+            : result.prefix
+              ? `已自动剥离 ${result.prefix.width} 字节长度前缀（${result.prefix.declared === 'total' ? '整包长度' : '负载长度'}）：fields 是剥离后的树。`
+              : 'fields 的键是 wire 字段号，嵌套已展开；names 给出其中 tag ≥ 1001 的 QQ 字段名。若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
       };
     },
   }),
@@ -2773,6 +2857,7 @@ export const AI_TOOLS: AiTool[] = [
       '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
       '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
       '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
+      '（BLOB 里若带 QQ 数据包开头的长度前缀，会自动识别并剥离，宽度不硬编码。）' +
       '返回与 decode_blob 相同的纯 JSON fields 树（嵌套自动展开）与 names 图例，并附 source（库/路径/SQL/列/字节数）。',
     input: z.object({
       dbName: z
@@ -2878,6 +2963,7 @@ export const AI_TOOLS: AiTool[] = [
         kind: decoded.kind,
         fields: decoded.fields,
         ...(decoded.names ? { names: decoded.names } : {}),
+        ...(decoded.prefix ? { prefix: decoded.prefix } : {}),
         ...(decoded.truncatedHex ? { truncatedHex: true } : {}),
         ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
       };
@@ -3660,7 +3746,9 @@ export const AI_TOOLS: AiTool[] = [
       '\n  {"kind":"mface","marketEmoticonId":"<32位hex>","emojiPackId":123}（商城贴纸，id 从收消息的元素里拿）' +
       '\n  {"kind":"reply","origMsgSeq":123,"origSenderUin":456}' +
       '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
-      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条）' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条；' +
+      '可选 "combo":0~3 = 连击次数，缺省 0）' +
+      '\n  {"kind":"pokeEmoji","pokeId":3,"combo":1}（戳一戳互动表情：pokeId 0~6、combo 0~3，群聊/私聊都能发）' +
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
       '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
@@ -3725,7 +3813,10 @@ export const AI_TOOLS: AiTool[] = [
       '\n  elements 与 send_rich_message 完全一样（text / at / face / mface / image / record / video / ark / xml / markdown / forward …），' +
       '也可以把别处拿到的元素原样塞进来。userUin / nickname / time 都可选（缺省=自己、QQ 号、当前时间）。' +
       '\n【嵌套转发】节点加 "innerForward":[ ...同结构的节点... ] 就是「转发里再转发」，会自动 piggyback，收端只拉一次就能展开整棵树（最多 8 层）。' +
-      '\n【节点装扮】节点可选 "dress":{"bubbleId":...,"fontId":...,"fontId2":...,"widgetId":...}（字体两个 id 都给真实 itemId 即可）。' +
+      '\n【节点装扮】节点可选 "dress"：bubbleId / widgetId 直接写 itemId；字体给**原始 wire 值**——' +
+      '"fontId1Raw"(→tag 56) 与 "fontId2Raw"(→tag 15) 原样透传，即 40801 的 41525 / 41531。' +
+      '⚠️ 从已有消息透传时**不要**用 "fontId"/"fontId2"（那是「真实 itemId → 自动字节交换」的便利通道）：' +
+      '41531 的低 16 位是交换过的 itemId、bit 16 是标志位，反推会把它丢掉（真机 41531=116182 原样就是 tag 15）。' +
       '注意：普通实时消息实测服务端不采信客户端自报装扮；长消息是把字节原样存下来的，这条路径更可能保住，但尚未真机验证。' +
       '\n【结果怎么看】ok=true 才算发出去；返回 resId（长消息 id）与 levels（层数）。' +
       'ok=false 时看 card.result / card.errMsg：内容可能已上传成功但卡片没发出去，重发即可。',
@@ -4287,6 +4378,276 @@ export const AI_TOOLS: AiTool[] = [
         };
       }
       return { ok: true, packId, hash, path, hint: '明文 GIF 已落盘，可用文件工具查看。' };
+    },
+  }),
+
+  // ── 红包（sso_handle 加密载荷）────────────────────────────────────────────
+  // 红包载荷不是 OIDB、也不是 JCE：它是「16B salt + AES-128-CBC」，key/iv 由 salt
+  // 现场派生（协议实现与推导见 @weq/protocol 的 redbag 与 docs/develop/redbag.md）。
+  // 所以喂给 decode_blob 只会得到乱码，必须先走这一层。
+  //
+  // 真机联调期：pack_red_bag **临时开放给外部 MCP 面板**（原本标 assistantOnly，会被
+  // server.ts 过滤掉）。它会在服务端建一个红包订单，属于有副作用的工具；
+  // 联调结束后应恢复该标记，让外部面板回到严格只读（与上面那批 send_* 同理）。
+
+  tool({
+    name: 'decode_redbag_packet',
+    description:
+      '解码一个 QQ 红包 `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 包（发红包 / 抢红包走的那条 trpc），把加密载荷解成可读 JSON。' +
+      '输入是**抓包日志里那个裸 protobuf 字节的 hex**（形如 `{1:"hb_pc_pre_pack", 5:{1:<16B>, 2:<密文>}}`），上行 / 下行自动识别。' +
+      '\n【为什么不能用 decode_blob】红包载荷既不是 OIDB 信封也不是 JCE：它是「16 字节 salt + AES-128-CBC(PKCS#7)」，AES key/iv 由 salt 现场派生，' +
+      '所以直接丢密文给 decode_blob 只会得到乱码或猜测树。' +
+      '\n【返回什么】direction（request/response）、子命令或状态码、salt、明文 hex、以及明文的 protobuf JSON 树（风格同 decode_blob）。' +
+      '若是 `hb_pc_pre_pack` 的响应，额外给出二维码 PNG 的 base64（可直接拼成 data URL 显示）、边长与领取 token。' +
+      '\n【边界】只对 `hb_pc_pre_pack` 认识的字段做解释；其他子命令只给出 protobuf 树（没有样本，不猜字段含义）。',
+    input: z.object({
+      data: z.string().min(1).describe('sso_handle 包的 hex（允许空格 / 冒号 / 0x 前缀）'),
+    }),
+    run: async ({ data }) => {
+      let packet: ReturnType<typeof decodeSsoHandlePacket>;
+      try {
+        packet = decodeSsoHandlePacket(new Uint8Array(parseInput(data, 'hex')));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          ok: false,
+          error: `不是红包 sso_handle 包：${message}`,
+          hint: '要传整包的 protobuf 字节（从 msg 日志的 hexdump 粘过来即可），别只给密文那一段；也确认它确实是 sso_handle 那条命令的包。',
+        };
+      }
+
+      const plain = decodeBlobBytes(packet.plain, 'protobuf');
+
+      // 只有 pre_pack 的响应里有二维码，用带 schema 的解析补上 PNG / token。
+      let qrcode: { bytes: number; size?: number; token?: string; pngBase64?: string } | undefined;
+      if (packet.direction === 'response') {
+        try {
+          const parsed = RedBagPrePack.deserialize(packet.plain);
+          if (parsed.qrcode) {
+            qrcode = {
+              bytes: parsed.qrcode.length,
+              ...(parsed.qrcodeSize !== undefined ? { size: parsed.qrcodeSize } : {}),
+              ...(parsed.qrcodeToken ? { token: parsed.qrcodeToken } : {}),
+              pngBase64: Buffer.from(parsed.qrcode).toString('base64'),
+            };
+          }
+        } catch {
+          // 不是 pre_pack 响应（字段对不上），保持只给 protobuf 树。
+        }
+      }
+
+      return {
+        ok: true,
+        direction: packet.direction,
+        ...(packet.cmd ? { cmd: packet.cmd } : {}),
+        ...(packet.code !== undefined ? { code: packet.code } : {}),
+        ...(packet.message !== undefined ? { message: packet.message } : {}),
+        salt: Buffer.from(packet.salt).toString('hex'),
+        cipherBytes: packet.body.length,
+        plainBytes: packet.plain.length,
+        plainHex: Buffer.from(packet.plain).toString('hex'),
+        fields: plain.fields,
+        ...(plain.names ? { names: plain.names } : {}),
+        ...(qrcode ? { qrcode } : {}),
+        hint:
+          'fields 的键是 protobuf 字段号，嵌套已展开；明文是 protobuf 时 kind=protobuf，否则看 kind=guess 的提示。' +
+          '红包 key/iv 每包由 salt 派生，同一段密文离开 salt 解不开（所以别只存密文）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_red_bag_passwords',
+    description:
+      '【口令红包的候选口令】拉一批服务端给的口令短句（`trpc.qqhb.hbpanel.Hongbao.SsoGetToken`），' +
+      '发口令红包时挑一条填进 pack_red_bag 的 password。' +
+      '\n【抓包样本】9 条中文短句，如「可爱不是长久之计，可爱我是长久之计」「近朱者赤，近你者甜」「发红包的人最帅」；' +
+      '顺序就是服务端给的顺序，没有权重信息。' +
+      '\n【怎么用】选定后把整句原样传给 pack_red_bag 的 password（口令红包的 f5 就是这句本身，不是祝福语）。' +
+      '也可以自己编一个口令——字段就是字符串，服务端没校验它必须来自这个池子（但没验证过自编口令能不能被领）。' +
+      '\n需要该账号 QQ 在线。',
+    input: z.object({}),
+    run: async () => {
+      const pid = onlinePid();
+      const passwords = await RedBagPasswordPool.invoke(ntHelper(), pid);
+      return {
+        ok: true,
+        count: passwords.length,
+        passwords,
+        hint: '挑一条传给 pack_red_bag 的 password（kind 会自动按口令红包走）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'pack_red_bag',
+    description:
+      '【下单发红包（预打包）】走 PC 端那条 `hb_pc_pre_pack`：先取 tenpay 的 p_skey，再让服务端生成这一个红包的**二维码 + 领取 token**。' +
+      '支持 群/私聊 × 普通/口令 × 等额/拼手气（这三种组合的字段映射都已由五份真机抓包定死，见 docs/develop/redbag.md）。' +
+      '⚠️ 这一步**不扣钱**——它只是下单出码，真正付款在二维码 / 财付通 H5 里完成；也**不能撤销**（订单已在服务端建好）。需要该账号 QQ 在线。' +
+      '\n【参数怎么填】peerType 决定 recvUin 是群号（group）还是好友 QQ 号（c2c）；totalAmount 的单位是**分**（0.03 元传 3）；' +
+      'kind=password 时必须给 password（可先 get_red_bag_passwords 挑一条）—— 口令红包的 f5 就是口令本身，且必然是拼手气。' +
+      'nickname 默认取本机资料里**你自己**的昵称（请求 f3.8，五份抓包都是它）。' +
+      '\n【结果怎么看】ok=true 且带 qrcodePngBase64 才是拿到了码；qrcodeToken 是领取标识。' +
+      'ok=false 时看 bizCode / bizMessage 与 hint：服务端拒绝会在那里如实给出，不会假装成功。' +
+      '\n请求里那 16 字节 f101 是**请求签名**：服务端会校验，对不上就直接回 66201015 数据检查失败、二维码为空。' +
+      '签名由原生产物（nt_helper 的 signRedBagRequest）现算，调用方不用管。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('c2c=私聊（好友），group=群聊'),
+      recvUin: z.string().min(1).describe('领取方：群号（group）或好友 QQ 号（c2c）'),
+      totalNum: z.number().int().min(1).max(100).describe('红包个数'),
+      totalAmount: z.number().int().min(1).describe('总金额，单位**分**（0.01 元传 1）'),
+      kind: z
+        .enum(['normal', 'password'])
+        .optional()
+        .describe('红包类型：normal=普通（默认），password=口令（给了 password 就自动按它走）'),
+      split: z
+        .enum(['equal', 'lucky'])
+        .optional()
+        .describe('金额分配：equal=等额，lucky=拼手气；缺省「普通=等额、口令=拼手气」'),
+      wishing: z.string().max(60).optional().describe('普通红包的祝福语（缺省不发）'),
+      password: z
+        .string()
+        .max(60)
+        .optional()
+        .describe('口令红包的口令（可先 get_red_bag_passwords）'),
+      nickname: z
+        .string()
+        .max(60)
+        .optional()
+        .describe('请求 f3.8：发红包者的昵称（不给就取本机资料里自己的昵称）'),
+    }),
+    run: async ({
+      peerType,
+      recvUin,
+      totalNum,
+      totalAmount,
+      kind,
+      split,
+      wishing,
+      password,
+      nickname,
+    }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const selfNick = (await services().profile.getSelfProfile())?.nick ?? '';
+      const result = await prePackRedBag(ntHelper(), pid, {
+        uin,
+        peerType,
+        recvUin,
+        totalNum,
+        totalAmount,
+        ...(kind !== undefined ? { kind } : {}),
+        ...(split !== undefined ? { split } : {}),
+        ...(wishing !== undefined ? { wishing } : {}),
+        ...(password !== undefined ? { password } : {}),
+        nickname: nickname ?? selfNick,
+      });
+      const ok = result.code === '0' && result.bizCode === 0;
+      return {
+        ok,
+        peerType,
+        recvUin,
+        totalNum,
+        totalAmount,
+        code: result.code,
+        message: result.message,
+        bizCode: result.bizCode,
+        bizMessage: result.bizMessage,
+        ...(result.qrcodeSize !== undefined ? { qrcodeSize: result.qrcodeSize } : {}),
+        ...(result.qrcodeToken ? { qrcodeToken: result.qrcodeToken } : {}),
+        ...(result.qrcode
+          ? { qrcodePngBase64: Buffer.from(result.qrcode).toString('base64') }
+          : {}),
+        plainHex: Buffer.from(result.plain).toString('hex'),
+        hint: ok
+          ? '红包订单已建好并拿到二维码：扫码（或把 qrcodePngBase64 拼成 data:image/png;base64,… 展示）后在财付通里付款才真正发出。'
+          : '服务端没有给出二维码；bizCode / bizMessage 是它的原始回执，plainHex 是解密后的明文，可交给 decode_redbag_packet 交叉核对。',
+      };
+    },
+  }),
+
+  // ── 红包：查看领取明细 / 抢红包（hb_pc_detail / hb_pc_grab）──────────────
+  // 与 pack_red_bag 一样，两个都要「在线且已注入」的 QQ：红包包走 hook 上的
+  // sendPacket，tenpay.com 的 p_skey 只是请求体里的一个字段。
+  //
+  // 真机联调期：grab_red_bag **临时开放给外部 MCP 面板**（它真的会记一笔领取 /
+  // 扣钱，本应标 assistantOnly，被 server.ts 挡在公开面板外）。联调结束后应恢复
+  // 该标记；get_red_bag_detail 是纯查询，可以长期对外开放。
+
+  tool({
+    name: 'get_red_bag_detail',
+    description:
+      '【查看红包领取明细】读一个 QQ 红包的领取记录（PC 端那条 `hb_pc_detail`），返回总个数 / 总额、' +
+      '祝福语、发红包者、是否拼手气、以及完整的领取列表（谁、多少钱、什么时候领的）。' +
+      '\n【怎么定位红包】msgId 是该红包消息的 msgId，来自 get_messages / get_messages_by_date 的 includeIds=true 输出' +
+      '（或 execute_sql 查 40001 / list_deleted_messages 等）；kind 是该会话类型，conv 与读该消息时一致。' +
+      '红包本体里的 orderId / packetId / token 会自动解出来，调用方不用管。' +
+      '\n【只读】不领取、不改变红包状态；重复调用是安全的。但需要该账号 QQ **在线且已注入**（完全离线模式下不可用）。' +
+      '\n【结果怎么看】totalAmount / claims[].amount 的单位是**分**；selfClaim 是自己那一条（没领过是 null）；' +
+      'claimedCount 是已领人数，可能小于 totalNum（还有剩余）。失败会原样抛服务端业务错误，不会假装成功。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('红包消息的 msgId（40001，数字字符串）'),
+    }),
+    run: async ({ kind, conv, msgId }) => {
+      const svc = services();
+      const pid = onlinePid();
+      const target = await resolveRedBagTarget(svc, { msgId, kind, conv });
+      const detail = await svc.redbag.detail({ ...target, peerType: kind }, pid);
+      return {
+        ok: true,
+        kind,
+        conv,
+        msgId,
+        note: '金额单位是分（totalAmount / claims[].amount）；时间字段是 unix 秒。',
+        ...detail,
+      };
+    },
+  }),
+
+  tool({
+    name: 'grab_red_bag',
+    description:
+      '【抢红包】**真的会领一笔**（PC 端那条 `hb_pc_grab`）：服务端按当前账号记一次领取，成功后返回自己抢到的金额 / 时间。' +
+      '⚠️ 这是有副作用的操作，**不能撤销**（要领回的只能是这笔钱本身，没有回滚接口）；自己的红包 / 已领过的红包 / 领完的红包都会被服务端拒绝，' +
+      '本条返回 ok=false + 业务错误。' +
+      '\n【怎么定位红包】msgId / kind / conv 与 get_red_bag_detail 完全一致；orderId、packetId、领取 token 会自动从消息本体解出。' +
+      '\n【建议】先 get_red_bag_detail 看 selfClaim：如果已经有了就别再抢（重复调用会被拒）；自己发的红包也不要抢。' +
+      '\n【前置条件】需要该账号 QQ **在线且已注入**（完全离线模式不可用）。' +
+      '\n【结果怎么看】ok=true 时 amount（单位分）就是自己领到的钱；ok=false 时 error 是服务端原始原因（如已领完 / 已领过 / 该红包不可领）。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('红包消息的 msgId（40001，数字字符串）'),
+    }),
+    run: async ({ kind, conv, msgId }) => {
+      const svc = services();
+      const pid = onlinePid();
+      const target = await resolveRedBagTarget(svc, { msgId, kind, conv });
+      try {
+        const result = await svc.redbag.grab({ ...target, peerType: kind }, pid);
+        return {
+          ok: true,
+          kind,
+          conv,
+          msgId,
+          note: 'amount 单位是分；claimTime 是 unix 秒。',
+          ...result,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          kind,
+          conv,
+          msgId,
+          error: error instanceof Error ? error.message : String(error),
+          hint:
+            '服务端拒绝了这个红包（常见原因：自己的红包 / 已经领过 / 已领完 / 已过期 / token 不匹配）。' +
+            '可先 get_red_bag_detail 看 selfClaim 与 claimedCount。',
+        };
+      }
     },
   }),
 

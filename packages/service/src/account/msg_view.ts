@@ -230,6 +230,11 @@ export interface RenderFaceElement {
     superEmojiFlag3?: number;
     superEmojiFlag4?: number;
     canChain?: boolean;
+    /**
+     * 戳一戳互动表情的连击次数（本机库 tag 47617）—— subType=5 的戳一戳用它决定
+     * 显示尺寸，见前端 `lib/pokeFace.ts`。
+     */
+    interactiveFaceCombo?: number;
   };
 }
 
@@ -801,6 +806,7 @@ function mapFace(el: FaceElement): RenderFaceElement {
       // superEmojiFlag3: el.superEmojiFlag3,
       // superEmojiFlag4: el.superEmojiFlag4,
       canChain: el.canChain,
+      interactiveFaceCombo: el.interactiveFaceCombo,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

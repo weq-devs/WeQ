@@ -15531,6 +15531,15 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
   font-size: 12px;
   color: #7c8a99;
 }
+.weq-wtools-rv-prefix-note {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(212, 140, 20, 0.14);
+  color: #9a6410;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .weq-wtools-rv-copy {
   display: inline-flex;
   align-items: center;
@@ -15721,6 +15730,10 @@ html[data-theme="dark"] .weq-wtools-rv-kind.is-jce {
 }
 html[data-theme="dark"] .weq-wtools-rv-meta {
   color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-rv-prefix-note {
+  background: rgba(226, 168, 74, 0.16);
+  color: #e2a84a;
 }
 html[data-theme="dark"] .weq-wtools-rv-json {
   background: #10141a;
@@ -23317,4 +23330,887 @@ html[data-theme="dark"] .weq-mf-preview {
 
 .weq-mf-inline-editor-embedded .weq-mf-inline-tools {
   padding-top: 0.5rem;
+}
+
+/* ── 逐条消息装扮编辑（合并转发）────────────────────────────────────── */
+/* 「装扮」按钮与「编辑」并列，平时隐起、悬停才出现。 */
+.weq-mf-row-dress {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.weq-mf-row:hover .weq-mf-row-dress {
+  opacity: 1;
+}
+
+.weq-mf-row-dress:hover,
+.weq-mf-row-dress.is-on {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-mf-row-dress.is-on {
+  opacity: 1;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 遮罩层：卡片居中，点空白关闭。 */
+.weq-mf-dress-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.weq-mf-dress-layer-sub {
+  background: color-mix(in srgb, #000 30%, transparent);
+}
+
+.weq-mf-dress-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(420px, 92vw);
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 60px -24px rgb(0 0 0 / 0.5);
+}
+
+.weq-mf-dress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-mf-dress-head strong {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--weq-fg-primary);
+}
+
+.weq-mf-dress-head-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-mf-dress-x {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-dress-x:hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-mf-dress-preview-wrap {
+  display: flex;
+  align-items: center;
+  min-height: 66px;
+  padding: 0.7rem 0.8rem;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      120% 100% at 0% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
+      transparent 70%
+    ),
+    var(--weq-bg-elevated);
+}
+
+.weq-mf-dress-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.weq-mf-dress-preview-avatar {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+}
+
+.weq-mf-dress-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-dress-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.weq-mf-dress-field-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  width: 62px;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+}
+
+.weq-mf-dress-input {
+  width: 108px;
+  flex: none;
+}
+
+.weq-mf-dress-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-dress-mall {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-dress-mall:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-mf-dress-clear {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-dress-clear:hover:not(:disabled) {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.weq-mf-dress-clear:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.weq-mf-dress-note {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-dress-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/* ── 商城灯箱 ────────────────────────────────────────────────────────── */
+.weq-mf-mall-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(460px, 94vw);
+  max-height: min(76vh, 560px);
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 60px -24px rgb(0 0 0 / 0.5);
+}
+
+.weq-mf-mall-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-elevated);
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-mall-search:focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-mall-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: transparent;
+  outline: none;
+}
+
+.weq-mf-mall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.weq-mf-mall-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.weq-mf-mall-item:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+}
+
+.weq-mf-mall-item.is-current {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-mall-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 68px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 12%, transparent);
+}
+
+.weq-mf-mall-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-mf-mall-noimg {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-mall-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--weq-accent-effective);
+}
+
+.weq-mf-mall-name {
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-mall-id {
+  color: var(--weq-fg-muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10.5px;
+}
+
+.weq-mf-mall-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.4rem 1rem;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.weq-mf-mall-empty.is-warn {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-mf-mall-hint {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-spin {
+  animation: weq-mf-spin 0.9s linear infinite;
+}
+
+@keyframes weq-mf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+html[data-theme="dark"] .weq-mf-dress-card,
+html[data-theme="dark"] .weq-mf-mall-card {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+}
+
+/* ---- 红包领取明细灯箱 ------------------------------------------------ */
+/* 封面作底 + 顶部向下弧线：弧线以上露封面，弧线以下用表面色遮住，弧线正中嵌头像。 */
+
+.weq-redbag-card.is-clickable {
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+.weq-redbag-card.is-clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+.weq-redbag-card.is-clickable:active {
+  transform: translateY(0);
+}
+.weq-redbag-card.is-clickable:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-redbag-detail-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.weq-redbag-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 48px));
+  /* 高度定死（360×540 正好是通用封面 432×648 的等比缩放）：
+     「领取记录 / 开 / 领取结果」三态来回切，卡片尺寸与位置一点都不动。 */
+  height: min(540px, calc(100vh - 64px));
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 70px -30px rgba(7, 12, 24, 0.55);
+}
+
+.weq-redbag-detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 26%, transparent);
+  color: #fff;
+  cursor: pointer;
+}
+.weq-redbag-detail-close:hover {
+  background: color-mix(in srgb, #000 40%, transparent);
+}
+
+/* 上半：封面底（固定高度，保证弧线位置稳定） */
+.weq-redbag-detail-hero {
+  position: relative;
+  flex: none;
+  height: 190px;
+  overflow: hidden;
+}
+.weq-redbag-detail-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  user-select: none;
+}
+
+/* 向下弧线：path 填表面色，盖住封面下半，弧线正中留一个圆给头像 */
+.weq-redbag-detail-arc {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 40px;
+  display: block;
+  color: var(--weq-bg-surface);
+}
+.weq-redbag-detail-arc path {
+  fill: currentColor;
+}
+
+.weq-redbag-detail-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 2px 10px -4px rgba(0, 0, 0, 0.4);
+}
+.weq-redbag-detail-avatar .weq-avatar-img,
+.weq-redbag-detail-avatar .weq-avatar-fallback {
+  border-radius: 50%;
+}
+
+.weq-redbag-detail-hero-text {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 74px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-hero-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.weq-redbag-detail-hero-wishing {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 下半：白色（深色模式用表面色）遮住封面 */
+.weq-redbag-detail-sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 16px 16px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-redbag-detail-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px 10px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.weq-redbag-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-redbag-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+/* 自己那一条底灰 */
+.weq-redbag-detail-item.is-mine {
+  background: var(--muted);
+}
+
+.weq-redbag-detail-item .weq-avatar-img,
+.weq-redbag-detail-item .weq-avatar-fallback {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.weq-redbag-detail-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.weq-redbag-detail-item-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-redbag-detail-crown {
+  flex-shrink: 0;
+  color: #f0a92c; /* 金色皇冠 */
+}
+.weq-redbag-detail-item-time {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+.weq-redbag-detail-item-amount {
+  flex-shrink: 0;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.weq-redbag-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 140px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.weq-redbag-detail-empty.is-error {
+  color: var(--weq-fg-secondary);
+}
+.weq-redbag-detail-hint {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+/* ---- 无白板态：开 / 领取结果 / 自己发的 ---------------------------------
+   这三态都不画弧线、不铺白板，封面直接铺满整张卡片 —— 所以卡片用封面原图的
+   432×648 比例撑满，切到结果态时尺寸**一点不变**。 */
+.weq-redbag-detail-plain {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-redbag-detail-plain .weq-redbag-detail-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 封面文字（发送者 + 祝福语）：位置与有白板态的 hero 文字对齐 */
+.weq-redbag-detail-plain-text {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  /* 有白板态里 hero 高 190、文字块 bottom:74px ⇒ 文字底边落在 y=116。
+     这里用 top + 反向位移复刻同一条基线，两种态切来切去不会跳。 */
+  top: 116px;
+  transform: translateY(-100%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+
+/* 查询中 / 报错：直接压在封面上 */
+.weq-redbag-detail-plain-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #ffe7c2;
+  font-size: 13px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-plain-loading.is-error {
+  color: #fff;
+}
+
+/* 圆形「开」按钮 + 小字 */
+.weq-redbag-detail-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.weq-redbag-detail-open-btn {
+  /* 通用封面 432×648 的中下部本来就印着一个金色圆（y 452~562 / 高 648），
+     按钮按同一比例落在它正上方，128% 缩放后正好严丝合缝。 */
+  position: absolute;
+  top: 78.2%;
+  left: 50%;
+  display: flex;
+  width: 92px;
+  height: 92px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 34%, #fffdf6 0%, #ffeec4 62%, #f7d99a 100%);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.2),
+    0 14px 30px -12px rgba(90, 8, 4, 0.7);
+  color: #c8231a;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+.weq-redbag-detail-open-btn:hover:not(:disabled) {
+  transform: translate(-50%, -50%) scale(1.04);
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.26),
+    0 18px 34px -12px rgba(90, 8, 4, 0.75);
+}
+.weq-redbag-detail-open-btn:active:not(:disabled) {
+  transform: translate(-50%, -50%) scale(0.97);
+}
+.weq-redbag-detail-open-btn:disabled {
+  cursor: default;
+}
+.weq-redbag-detail-open-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+.weq-redbag-detail-open-hint {
+  position: absolute;
+  top: calc(78.2% + 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90%;
+  color: #ffe7c2;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-open-hint.is-error {
+  color: #ffd9d3;
+}
+
+/* 领取结果：头像落在有白板态里弧线头像的**同一位置**（hero 高 190、头像
+   bottom:10px ⇒ 中心 y≈149，占固定卡高 540 的 27.6%），金额写在它正下方。 */
+.weq-redbag-detail-avatar.is-standalone {
+  position: absolute;
+  top: 27.6%;
+  bottom: auto;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+}
+.weq-redbag-detail-result {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  /* 头像底边在 27.6% + 31px，文字从这里往下排。 */
+  top: calc(27.6% + 42px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: #ffe7c2;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+.weq-redbag-detail-result-amount {
+  font-size: 17px;
+  font-weight: 500;
+}
+.weq-redbag-detail-result-amount strong {
+  color: #ffd76e;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0 3px;
+}
+.weq-redbag-detail-result-meta {
+  color: rgba(255, 231, 194, 0.85);
+  font-size: 12px;
+}
+
+/* ---- 红包支付二维码灯箱（发红包下单后） ---- */
+.weq-redbag-qr-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 46%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.weq-redbag-qr {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(320px, calc(100vw - 48px));
+  padding: 26px 24px 22px;
+  border-radius: 18px;
+  background: var(--weq-bg-surface, #ffffff);
+  color: var(--weq-fg-primary, #111111);
+  box-shadow: 0 28px 70px -30px rgba(7, 12, 24, 0.6);
+}
+
+.weq-redbag-qr-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.weq-redbag-qr-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 24%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.weq-redbag-qr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-redbag-qr-img {
+  width: 216px;
+  height: 216px;
+  border-radius: 12px;
+  background: #ffffff;
+  object-fit: contain;
+  user-select: none;
+}
+
+.weq-redbag-qr-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.weq-redbag-qr-amount {
+  color: var(--weq-fg-primary, #111111);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-redbag-qr-count {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12.5px;
+}
+
+.weq-redbag-qr-hint {
+  margin: 0;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
+  text-align: center;
 }

@@ -15,12 +15,16 @@ import { MergeForwardDraftStore } from '@weq/service';
 import { getAppContext, requireBootstrap } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
-/** 逐条消息装扮（列 40801）。0 = 未设置。 */
+/** 逐条消息装扮（列 40801）。0 = 未设置。raw 字段是字体两槽位的原始 wire 值。 */
 const decoration = z
   .object({
     bubbleId: z.number().int().nonnegative(),
     fontId: z.number().int().nonnegative(),
     widgetId: z.number().int().nonnegative(),
+    /** 41525 原值 → 元素 tag 56。透传用，绝不换算。 */
+    fontId1Raw: z.number().int().nonnegative().optional(),
+    /** 41531 原值 → 元素 tag 15（含 bit 16 标志位）。透传用，绝不换算。 */
+    fontId2Raw: z.number().int().nonnegative().optional(),
   })
   .optional();
 

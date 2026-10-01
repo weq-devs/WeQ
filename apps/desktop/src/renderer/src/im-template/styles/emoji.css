@@ -1201,6 +1201,33 @@ html[data-theme="dark"] .emoji-lb {
 	color: #c0392b;
 }
 
+/* 语气徽标：情绪 + 识别到的非语音声音事件（来自 SenseVoice 富标签）。 */
+.qq-voice-tone {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-bottom: 5px;
+}
+
+.qq-voice-tone-chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 7px;
+	border: 1px solid rgba(0, 0, 0, 0.07);
+	border-radius: 999px;
+	background: rgba(0, 0, 0, 0.035);
+	color: #5b6472;
+	font-size: 11px;
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.qq-voice-tone-chip.is-emotion {
+	border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+	background: color-mix(in srgb, var(--weq-accent-effective) 10%, white);
+	color: color-mix(in srgb, var(--weq-accent-effective) 70%, #1f2937);
+}
+
 /* Fallback chip when a media element can't be located/decoded. */
 .qq-media-fallback {
 	color: inherit;

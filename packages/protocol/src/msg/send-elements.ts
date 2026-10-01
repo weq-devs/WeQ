@@ -29,6 +29,7 @@ import { deflateSync } from 'node:zlib';
 import type { MediaNative } from '../highway/ntv2-upload';
 import {
   RICH_MEDIA_SERVICE_TYPE,
+  type MediaFingerprint,
   type MediaSource,
   type MediaUploadResult,
   type MediaUploadTarget,
@@ -102,6 +103,15 @@ export interface SendSuperSticker {
   sourceType?: number;
   randomType?: number;
   text?: string;
+  /**
+   * 指定动画结果（QFaceExtra.resultId，tag 6）—— 即收侧 FACE 的 `innerId`
+   * （本机库 tag 47607）。骰子/包剪锤/篮球这类随机表情：留空（缺省）= 服务端随机，
+   * 填 "1".."6" = 指定点数 / 出拳结果，收端渲染 `lottie/<faceId>_<innerId>.json`。
+   *
+   * ⚠️ 只有能解析出目录信息（superSticker）的动态/超级表情才允许带它；收侧的
+   * innerId 与这里的取值一一对应（SnowLuma 93b5c1b `face.resultId`）。
+   */
+  resultId?: string;
 }
 
 /**
@@ -156,10 +166,38 @@ export interface SendMarkdownElement {
   markdownTextSummary?: string;
 }
 
-/** 窗口抖动（只有私聊、且必须独占一条消息）。 */
+/**
+ * 戳一戳互动表情 / 窗口抖动（只有私聊、且必须独占一条消息）。
+ *
+ * `combo` 是**连击次数**（wire 上 pbElem field 7，本机库 FACE 的 `47617`）：单戳为
+ * 0，双击 / 三击是 1 / 2（QQ 一般最多三连击）。缺省 0。
+ */
 export interface SendPokeElement {
   kind: 'poke';
   subType: number;
+  /** 连击次数（0~3；缺省 0）。抓包：0 连击写 `38 00`、1 连击写 `38 01`。 */
+  combo?: number;
+}
+
+/**
+ * 戳一戳**互动表情**（`commonElem serviceType=2`）—— 与 {@link SendPokeElement}
+ * （窗口抖动）共用同一条 wire，但是**独立的一条路**，不要混：窗口抖动是历史功能、
+ * 服务端只收直接私聊；互动表情群聊 / 私聊都能发（2026-10-01 抓到群聊样本）。
+ *
+ * wire 布局（安卓抓包）：
+ *   commonElem.serviceType = 2
+ *   commonElem.pbElem      = { type: pokeId, combo }   ← field 1 / field 7
+ *   commonElem.businessType = pokeId
+ *
+ * `pokeId` 是表情编号（0..6，对应 `resources/pokeemoji/<id>.png`；0 与 1 是同一张图）。
+ * 抓包实测：pokeId=1 → `08 01 … 18 01`；pokeId=6 → `08 06 … 18 06`（businessType 同步）。
+ */
+export interface SendPokeEmojiElement {
+  kind: 'pokeEmoji';
+  /** 互动表情编号（0..6）。 */
+  pokeId: number;
+  /** 连击次数（0~3；缺省 0）。wire 上是 pbElem field 7，本机库 FACE 的 `47617`。 */
+  combo?: number;
 }
 
 /**
@@ -277,16 +315,36 @@ export interface SendDress {
    * 116182），收侧 decode 也是按同一规则还原（先看 fontId1，缺失才回退 fontId2
    * 交换）。所以这里同样收**真实 itemId**，打包时自动交换成 tag 15 形态，
    * 调用方不用自己算字节序。字体有两个 id 实现喵。
+   *
+   * ⚠️ 只能拿它填「真实 itemId」。手里已经是原始 wire 值（从已有消息透传）时
+   * 必须用 {@link fontId2Raw} —— 那才是原始值的通道。
    */
   fontId2?: number;
   /** 挂件 itemId（0 / 缺省 = 不带）。 */
   widgetId?: number;
+  /**
+   * **原样**写进 `font.fontId1`(tag 56) 的原始 wire 值（0 / 缺省 = 不带）。
+   *
+   * 与 {@link fontId} 写入 tag 56 的行为一致（tag 56 本来就是真实 itemId），只是
+   * 用来区分「这个值是从已有消息的 40801 `41525` 透传出来的」。同时给时本字段优先。
+   */
+  fontId1Raw?: number;
+  /**
+   * **原样**写进 `font.fontId2`(tag 15) 的原始 wire 值（0 / 缺省 = 不带），
+   * **不做字节交换**。
+   *
+   * 用于透传已有消息的装扮：40801 的 `41531` 与元素 tag 15 **恒等**（真机实测
+   * `41531 = 116182` == `generalFlags.font.fontId2 = 116182`），低 16 位是交换过的
+   * itemId，bit 16 是标志位。走 {@link fontId2} 那条「真实 itemId → 自动交换」的
+   * 路会把这个标志位丢掉，所以透传必须走本字段。
+   */
+  fontId2Raw?: number;
 }
 
 /** 图片：上传后拼成 `commonElem(serviceType=48, businessType=20)`。 */
 export interface SendImageElement {
   kind: 'image';
-  /** 本地路径或内存字节。 */
+  /** 本地路径或内存字节。给 `fingerprint` 时可留空（不读）。 */
   source: MediaSource;
   /** 收端显示的文件名；缺省 `<md5><扩展名>`。 */
   fileName?: string;
@@ -297,6 +355,11 @@ export interface SendImageElement {
   width?: number;
   height?: number;
   picFormat?: number;
+  /**
+   * 资源已在服务端的指纹（md5Hex + sha1Hex + 尺寸）。转发一条**已有**消息里的图片
+   * 时给：跳过读本地文件，直接走 NTV2 fast-upload（对齐 SnowLuma 的 forward 路径）。
+   */
+  fingerprint?: MediaFingerprint;
 }
 
 /**
@@ -381,12 +444,14 @@ export interface SendRecordElement {
    * `{1:1,7:0}` —— 两处同步，其余字段完全一致。
    */
   voiceChanged?: boolean;
+  /** 资源已在服务端时的指纹：转发已有语音时给，跳过读本地文件。 */
+  fingerprint?: MediaFingerprint;
 }
 
 /** 视频：上传后拼成 `commonElem(serviceType=48, businessType=21)`（两个子文件）。 */
 export interface SendVideoElement {
   kind: 'video';
-  /** 本地路径（流式上传）或内存字节。 */
+  /** 本地路径（流式上传）或内存字节。给 `fingerprint` 时可留空（不读）。 */
   source: MediaSource;
   /** 封面；不给则按 width/height 合成一张纯色 PNG。 */
   thumb?: MediaSource;
@@ -395,6 +460,8 @@ export interface SendVideoElement {
   height?: number;
   fileName?: string;
   thumbFileName?: string;
+  /** 资源已在服务端时的指纹：转发已有视频时给，跳过读本地文件。 */
+  fingerprint?: MediaFingerprint;
 }
 
 /**
@@ -425,6 +492,7 @@ export type SendElement =
   | SendXmlElement
   | SendMarkdownElement
   | SendPokeElement
+  | SendPokeEmojiElement
   | SendEmojiBounceElement
   | SendForwardElement
   | SendFileElement
@@ -559,8 +627,9 @@ function buildFaceElem(element: SendFaceElement): Record<string, unknown> {
           // stickerType（目录 81215 / SnowLuma 的 aniStickerType）：真机抓包里
           // faceId 324 是 1。**不能缺**：少了收端不认 svc37，退化成内联小表情。
           stickerType: sticker.stickerType ?? 1,
-          // QQ 显式写空的 resultId（`32 00`）；schema 里这个字段是 force 的。
-          resultId: '',
+          // 指定结果（骰子点数等）来自收侧 innerId；缺省留空，QQ 会显式写 `32 00`
+          // （schema 里这个字段是 force 的），服务端据此随机。
+          resultId: sticker.resultId ?? '',
           // QFaceExtra.text：抓包实测 QQ 会带上表情外显文字（324 → "/吃糖"），
           // 缺了收端可能不把它当大贴纸渲染。
           text: sticker.text ?? element.faceText,
@@ -795,11 +864,28 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
       };
     case 'poke': {
       const type = requireNonNegativeInt(element.subType, 'subType', 'poke');
+      const combo =
+        element.combo === undefined ? 0 : requireNonNegativeInt(element.combo, 'combo', 'poke');
       return {
         commonElem: {
           serviceType: 2,
-          pbElem: encode(POKE_EXTRA, { type }),
+          pbElem: encode(POKE_EXTRA, { type, combo }),
           businessType: type,
+        },
+      };
+    }
+    case 'pokeEmoji': {
+      // 与窗口抖动共用 pbElem，只是表情编号走 pokeId（群聊 / 私聊都不受限）。
+      const pokeId = requireNonNegativeInt(element.pokeId, 'pokeId', 'pokeEmoji');
+      const combo =
+        element.combo === undefined
+          ? 0
+          : requireNonNegativeInt(element.combo, 'combo', 'pokeEmoji');
+      return {
+        commonElem: {
+          serviceType: 2,
+          pbElem: encode(POKE_EXTRA, { type: pokeId, combo }),
+          businessType: pokeId,
         },
       };
     }
@@ -937,15 +1023,19 @@ export function buildDressElems(dress: SendDress | undefined): Record<string, un
   const widgetId = normalizeDressId(dress.widgetId, 'widgetId');
   const fontId = normalizeDressId(dress.fontId, 'fontId');
   const fontId2 = normalizeDressId(dress.fontId2, 'fontId2');
-  if (widgetId > 0 || fontId > 0 || fontId2 > 0) {
+  const fontId1Raw = normalizeDressId(dress.fontId1Raw, 'fontId1Raw');
+  const fontId2Raw = normalizeDressId(dress.fontId2Raw, 'fontId2Raw');
+  // 字体槽位：`*Raw` 是「原样写」通道，优先；没给才用「真实 itemId」的便利字段做换算。
+  // 两个槽位都只给其中一个也能发（老客户端各认一个槽位），都给时收侧优先 fontId1。
+  const font1 = fontId1Raw > 0 ? fontId1Raw : fontId;
+  const font2 = fontId2Raw > 0 ? fontId2Raw : fontId2 > 0 ? swapFontId16(fontId2) : 0;
+  if (widgetId > 0 || font1 > 0 || font2 > 0) {
     const generalFlags: Record<string, unknown> = {};
     if (widgetId > 0) generalFlags.widgetId = widgetId;
-    // 字体两个槽位都按「调用方给真实 itemId」的约定写：fontId1 原样、fontId2 交换。
-    // 只给其中一个也能发（老客户端各认一个槽位），两个都给时收侧优先 fontId1。
-    if (fontId > 0 || fontId2 > 0) {
+    if (font1 > 0 || font2 > 0) {
       const font: Record<string, unknown> = {};
-      if (fontId > 0) font.fontId1 = fontId;
-      if (fontId2 > 0) font.fontId2 = swapFontId16(fontId2);
+      if (font1 > 0) font.fontId1 = font1;
+      if (font2 > 0) font.fontId2 = font2;
       generalFlags.font = font;
     }
     out.push({ generalFlags });
@@ -986,8 +1076,15 @@ function assertMediaElement(element: SendMediaElement): void {
   const validSource =
     (typeof source === 'string' && source.trim().length > 0) ||
     (source instanceof Uint8Array && source.length > 0);
-  if (!validSource) {
+  // 有 fingerprint = 资源已在服务端（转发已有媒体），不需要本机字节 / 路径。
+  if (!validSource && !element.fingerprint) {
     throw new Error(`${element.kind} 元素的 source 必须是非空路径或 Uint8Array`);
+  }
+  if (element.fingerprint) {
+    const fp = element.fingerprint;
+    if (!/^[0-9a-fA-F]{32}$/.test(fp.md5Hex) || !/^[0-9a-fA-F]{40}$/.test(fp.sha1Hex)) {
+      throw new Error(`${element.kind} 元素的 fingerprint 需要 32 位 hex md5 与 40 位 hex sha1`);
+    }
   }
   if (element.kind === 'record' && element.duration !== undefined) {
     // 允许小数（录音时长天然不是整秒，如 1.4s）—— 上 wire 时按秒四舍五入

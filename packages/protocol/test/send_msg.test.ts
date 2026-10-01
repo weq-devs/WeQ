@@ -255,6 +255,24 @@ describe('元素打包', () => {
       resultId: '',
       randomType: 1,
     });
+
+    // 指定结果的随机表情（骰子点数 / 包剪锤出拳）：resultId = 收侧 innerId。
+    const withResult = roundTrip({
+      kind: 'face',
+      faceId: 358,
+      superSticker: { packId: '1', stickerId: '33', stickerType: 2, resultId: '5' },
+    });
+    const resultCommon = withResult.commonElem as { serviceType: number; pbElem: Uint8Array };
+    expect(resultCommon.serviceType).toBe(37);
+    expect(decode(QFACE_EXTRA, resultCommon.pbElem)).toEqual({
+      packId: '1',
+      stickerId: '33',
+      qsid: 358,
+      sourceType: 1,
+      stickerType: 2,
+      resultId: '5',
+      randomType: 1,
+    });
   });
 
   it('抓包黄金字节：mface / svc33 / svc37 与真机 QQ 逐字节一致', () => {
@@ -459,6 +477,39 @@ describe('元素打包', () => {
     expect(poke.serviceType).toBe(2);
     expect(poke.businessType).toBe(1);
     expect(decode(POKE_EXTRA, poke.pbElem)).toEqual({ type: 1 });
+    // 缺省连击 0：pbElem 只有 `08 01`，一个字节都不多写。
+    expect(hexOf(poke.pbElem)).toBe('0801');
+
+    // 连击次数 = wire 上 pbElem 的 field 7（tag 0x38）。1 连击按真机抓包写 `38 01`。
+    const combo = roundTrip({ kind: 'poke', subType: 1, combo: 1 }, 'c2c').commonElem as {
+      serviceType: number;
+      businessType: number;
+      pbElem: Uint8Array;
+    };
+    expect(combo.serviceType).toBe(2);
+    expect(combo.businessType).toBe(1);
+    expect(hexOf(combo.pbElem)).toBe('08013801');
+    expect(decode(POKE_EXTRA, combo.pbElem)).toEqual({ type: 1, combo: 1 });
+  });
+
+  it('戳一戳互动表情：pokeId 同时写进 pbElem field1 与 businessType（群聊可用）', () => {
+    // 抓包：pokeId=6 在群里发 → `08 06 … 18 06`（pbElem field1 = businessType = 6）。
+    const emoji = roundTrip({ kind: 'pokeEmoji', pokeId: 6 }, 'group').commonElem as {
+      serviceType: number;
+      pbElem: Uint8Array;
+      businessType: number;
+    };
+    expect(emoji.serviceType).toBe(2);
+    expect(emoji.businessType).toBe(6);
+    expect(hexOf(emoji.pbElem)).toBe('0806');
+
+    // combo 还是 field 7（tag 0x38）；与窗口抖动的「群聊拒绝」无关。
+    const withCombo = roundTrip({ kind: 'pokeEmoji', pokeId: 2, combo: 3 }, 'group').commonElem as {
+      pbElem: Uint8Array;
+      businessType: number;
+    };
+    expect(withCombo.businessType).toBe(2);
+    expect(decode(POKE_EXTRA, withCombo.pbElem)).toEqual({ type: 2, combo: 3 });
   });
 
   it('raw 原样透传（给媒体等未适配类型当逃生舱）', () => {
@@ -732,6 +783,11 @@ describe('校验失败', () => {
       '抖动不独占',
       { userUin: 2, elements: [{ kind: 'poke', subType: 1 }, text('x')], random: 1 },
       /必须独占一条消息/,
+    ],
+    [
+      '连击次数为负',
+      { userUin: 2, elements: [{ kind: 'poke', subType: 1, combo: -1 }], random: 1 },
+      /combo 必须是非负整数/,
     ],
     [
       'mface GUID 非 hex',

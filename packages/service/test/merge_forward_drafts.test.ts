@@ -60,6 +60,42 @@ describe('MergeForwardDraftStore', () => {
     expect(list[0]?.id).toBe('draft-1');
   });
 
+  it('装扮的原始字体槽位（fontId1Raw / fontId2Raw）落盘后不丢', () => {
+    // 40801 的 41525 / 41531 与元素 tag 56 / tag 15 恒等，转发要靠这两个原值透传。
+    // 旧版 normalizeDecoration 只重建 {bubbleId,fontId,widgetId}，会把它们剪掉。
+    const path = tmpFile();
+    const store = new MergeForwardDraftStore(path);
+    store.save({
+      id: 'draft-raw',
+      nodes: [
+        {
+          id: 'n1',
+          sender,
+          segs: [{ t: 'text', id: 's1', text: '你好' }],
+          time: 1,
+          // 真机一行：41531 = 116182（bit 16 标志位 + low16 交换过的 54981）。
+          decoration: {
+            bubbleId: 2116371,
+            fontId: 54981,
+            widgetId: 104228,
+            fontId1Raw: 20671,
+            fontId2Raw: 116182,
+          },
+        },
+      ],
+    });
+
+    // 重新从磁盘读一遍（不靠内存里的对象）。
+    const reloaded = new MergeForwardDraftStore(path).get('draft-raw');
+    expect(reloaded?.nodes[0]?.decoration).toEqual({
+      bubbleId: 2116371,
+      fontId: 54981,
+      widgetId: 104228,
+      fontId1Raw: 20671,
+      fontId2Raw: 116182,
+    });
+  });
+
   it('旧草稿（只有 elements）→ 归一成 segs，不丢', () => {
     const path = tmpFile();
     writeFileSync(

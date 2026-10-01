@@ -245,6 +245,16 @@ export const WalletDetailWire = {
   receiptList: ProtoField(48461, () => ReceiptListWire, { optional: true }),
 };
 
+/**
+ * Nested block for redbag tag 48417. `f2` 是 32 字节 packetId（群/私聊红包都有），
+ * `f3` 是订单号 / nonce，两者一起供 `hb_pc_detail` 定位红包。
+ */
+export const WalletFlag48417Wire = {
+  flag1: ProtoField(1, ScalarType.UINT32, { optional: true }),
+  packetId: ProtoField(2, ScalarType.BYTES, { optional: true }),
+  orderId: ProtoField(3, ScalarType.STRING, { optional: true }),
+};
+
 /** Nested message for wallet extension (tag 48421, WALLET elements). */
 export const WalletExtWire = {
   flag3: ProtoField(3, ScalarType.BOOL, { optional: true }),
@@ -900,8 +910,12 @@ export const ElementWire = {
   /** 互动表情版本号, e.g. "7.2.0". Usually empty. */
   interactiveFaceVersion: ProtoField(47616, ScalarType.STRING, { optional: true }),
 
-  /** Values 0/1/2/3. */
-  faceFlag47617: ProtoField(47617, ScalarType.UINT32, { optional: true }),
+  /**
+   * 戳一戳互动表情的**连击次数**（wire 上 `commonElem(serviceType=2).pbElem` 的
+   * field 7，安卓抓包 2026-10-01 对齐）。取值 0/1/2/3 —— 0 单戳、1/2/3 = 二/三/四
+   * 连击，QQ 一般最多三连击。
+   */
+  interactiveFaceCombo: ProtoField(47617, ScalarType.UINT32, { optional: true }),
 
   /** Always 0. */
   faceFlag47618: ProtoField(47618, ScalarType.UINT32, { optional: true }),
@@ -1238,6 +1252,12 @@ export const ElementWire = {
    */
   walletRedbagType: ProtoField(48412, ScalarType.UINT32, { optional: true }),
 
+  /**
+   * 红包定位块（elementType=9）。wire 上是嵌套消息 `{1, 2: packetId, 3: orderId}`，
+   * 但这里**故意按 BYTES 收**：`ProtoField` 的嵌套解码遇到非 protobuf 内容会整条抛错，
+   * 而这个 tag 在历史库里未必都是红包。需要 orderId / packetId 的调用方（红包详情）
+   * 自己按 `WalletFlag48417Wire` 解一次即可。
+   */
   walletFlag48417: ProtoField(48417, ScalarType.BYTES, { optional: true }),
   walletFlag48418: ProtoField(48418, ScalarType.STRING, { optional: true }),
   walletFlag48419: ProtoField(48419, ScalarType.UINT32, { optional: true }),

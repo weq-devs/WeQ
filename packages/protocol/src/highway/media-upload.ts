@@ -30,6 +30,7 @@ import {
   type Ntv2UploadInfoInput,
   runNtv2Upload,
 } from './ntv2-upload';
+import { cleanNtLocalPath } from '../oidb/shared';
 import { buildPttWaveform, type PttWaveformSource } from './ptt-waveform';
 import { Sha1Stream } from './sha1-stream';
 import type { Ntv2UploadResp } from './ntv2-schemas';
@@ -94,6 +95,56 @@ export interface MediaUploadOptions {
   log?: (message: string) => void;
 }
 
+/**
+ * 「免字节上传」指纹 —— 资源已经在服务端时给（典型场景：转发一条已有消息里的
+ * 图片 / 语音 / 视频），用来跳过读本地文件。
+ *
+ * NTV2 只报 md5 / sha1 / 尺寸，服务端命中 fast-upload 直接回 msgInfo（`runNtv2Upload`
+ * 在没有 uKey 时不需要字节；服务端仍坚持要字节时抛 `fastOnlyError`）。对齐 SnowLuma 的
+ * `imageDataFromFingerprint`（`element.noByteFallback` 那条路）。
+ */
+export interface MediaFingerprint {
+  /** 32 位 hex md5。 */
+  md5Hex: string;
+  /** 40 位 hex sha1。 */
+  sha1Hex: string;
+  /** 字节数（fast-upload 的 fileSize）。 */
+  fileSize: number;
+  /** 收端显示的文件名；缺省按 md5 + 扩展名。 */
+  fileName?: string;
+  /** 图片：宽 / 高（像素）。 */
+  width?: number;
+  height?: number;
+  /** 图片格式码（1000 jpg / 1001 png / 2000 gif…）。 */
+  picFormat?: number;
+}
+
+/** 免字节路径下不读字节，用这个占位（`runNtv2Upload` 只看有没有 uKey）。 */
+const EMPTY_MEDIA_BYTES = new Uint8Array(0);
+
+/** hex → bytes（不够长 / 非法返回空数组）。 */
+function hexToBytesLocal(hex: string): Uint8Array {
+  const s = (hex ?? '').trim();
+  if (!s || s.length % 2 !== 0) return new Uint8Array(0);
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(s.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** 指纹 → 哈希三元组；md5 / sha1 长度不对时返回 null（退回读字节的路）。 */
+function fingerprintHashes(fp: MediaFingerprint | undefined): {
+  md5: Uint8Array;
+  sha1: Uint8Array;
+  md5Hex: string;
+  sha1Hex: string;
+} | null {
+  if (!fp) return null;
+  const md5 = hexToBytesLocal(fp.md5Hex);
+  const sha1 = hexToBytesLocal(fp.sha1Hex);
+  if (md5.length !== 16 || sha1.length !== 20) return null;
+  return { md5, sha1, md5Hex: fp.md5Hex.toLowerCase(), sha1Hex: fp.sha1Hex.toLowerCase() };
+}
+
 /** 上传结果：`msgInfo` 直接进 outgoing commonElem.pbElem。 */
 export interface MediaUploadResult {
   /** commonElem(serviceType=48).pbElem 字节。 */
@@ -115,9 +166,11 @@ export interface MediaUploadResult {
 
 async function readMediaSource(source: MediaSource, what: string): Promise<Uint8Array> {
   if (typeof source === 'string') {
-    if (!source.trim()) throw new Error(`${what} 来源不能是空路径`);
-    const bytes = new Uint8Array(await fsp.readFile(source));
-    if (bytes.length === 0) throw new Error(`${what} 文件是空的: ${source}`);
+    // NT 的本地缓存路径常带 `::NTOSFull::` 虚拟前缀，直接 readFile 会 ENOENT。
+    const filePath = cleanNtLocalPath(source);
+    if (!filePath) throw new Error(`${what} 来源不能是空路径`);
+    const bytes = new Uint8Array(await fsp.readFile(filePath));
+    if (bytes.length === 0) throw new Error(`${what} 文件是空的: ${filePath}`);
     return bytes;
   }
   if (!(source instanceof Uint8Array)) throw new Error(`${what} 来源必须是文件路径或 Uint8Array`);
@@ -244,6 +297,8 @@ export interface UploadImageParams {
   width?: number;
   height?: number;
   picFormat?: number;
+  /** 资源已在服务端时的指纹：给了就跳过读本地文件（转发已有图片）。 */
+  fingerprint?: MediaFingerprint;
 }
 
 function extBizPlaceholders(isGroup: boolean) {
@@ -272,15 +327,20 @@ export async function uploadImageMsgInfo(
   params: UploadImageParams,
   options: MediaUploadOptions = {},
 ): Promise<MediaUploadResult> {
-  const bytes = await readMediaSource(params.source, '图片');
+  const fp = params.fingerprint;
+  // 有指纹就是「转发已有图片」：不读本地文件，直接把哈希报给服务端走 fast-upload。
+  const bytes = fp ? EMPTY_MEDIA_BYTES : await readMediaSource(params.source, '图片');
   const detected = detectImageFormat(bytes);
-  const picFormat = params.picFormat ?? (detected.width > 0 ? detected.format : PIC_FORMAT_JPEG);
-  const width = params.width ?? detected.width;
-  const height = params.height ?? detected.height;
+  const picFormat =
+    params.picFormat ?? fp?.picFormat ?? (detected.width > 0 ? detected.format : PIC_FORMAT_JPEG);
+  const width = params.width ?? fp?.width ?? detected.width;
+  const height = params.height ?? fp?.height ?? detected.height;
   const subType = params.subType ?? 0;
   const summary = params.summary ?? (subType === 1 ? '[动画表情]' : '[图片]');
-  const hashes = computeHashes(bytes);
-  const fileName = params.fileName ?? `${hashes.md5Hex}${PIC_EXT_BY_FORMAT[picFormat] ?? '.jpg'}`;
+  const hashes = fingerprintHashes(fp) ?? computeHashes(bytes);
+  const fileSize = fp ? fp.fileSize : bytes.length;
+  const fileName =
+    params.fileName ?? fp?.fileName ?? `${hashes.md5Hex}${PIC_EXT_BY_FORMAT[picFormat] ?? '.jpg'}`;
 
   const uploads: MediaSubFileUpload[] = [
     {
@@ -295,7 +355,7 @@ export async function uploadImageMsgInfo(
   const uploadInfo: Ntv2UploadInfoInput[] = [
     {
       fileInfo: {
-        fileSize: bytes.length,
+        fileSize,
         fileHash: hashes.md5Hex,
         fileSha1: hashes.sha1Hex,
         fileName,
@@ -348,7 +408,7 @@ export async function uploadImageMsgInfo(
   return toResult(upload, msgInfo, {
     businessType: RICH_MEDIA_BUSINESS_TYPE.image,
     fileName,
-    fileSize: bytes.length,
+    fileSize,
     md5Hex: hashes.md5Hex,
     sha1Hex: hashes.sha1Hex,
     width,
@@ -381,6 +441,8 @@ export interface UploadPttParams {
    * 两处始终同步出现，其余字段（双端一致）不变，所以一条标记同时写这两处。
    */
   voiceChanged?: boolean;
+  /** 资源已在服务端时的指纹：给了就跳过读本地文件（转发已有语音）。 */
+  fingerprint?: MediaFingerprint;
 }
 
 const PTT_RESERVE_LEGACY = new Uint8Array([0x08, 0x00, 0x38, 0x00]);
@@ -458,15 +520,18 @@ export async function uploadPttMsgInfo(
   params: UploadPttParams,
   options: MediaUploadOptions = {},
 ): Promise<UploadPttResult> {
-  const bytes = await readMediaSource(params.source, '语音');
-  const hashes = computeHashes(bytes);
+  const fp = params.fingerprint;
+  // 有指纹就是「转发已有语音」：不读本地文件，直接把哈希报给服务端走 fast-upload。
+  const bytes = fp ? EMPTY_MEDIA_BYTES : await readMediaSource(params.source, '语音');
+  const hashes = fingerprintHashes(fp) ?? computeHashes(bytes);
+  const fileSize = fp ? fp.fileSize : bytes.length;
   // `fileInfo.time` 是 uint32 秒：调用方给的小数（1.6s）在这里四舍五入，
   // 不要让编码器拿到浮点。
   const duration = Math.round(params.duration ?? 0);
   const voiceFormat = params.voiceFormat ?? 1;
   // 变声标记：默认 false = 原声（缺省不上 wire，与真机原声那条一致）。
   const voiceChanged = params.voiceChanged === true;
-  const fileName = params.fileName ?? `${hashes.md5Hex}.amr`;
+  const fileName = params.fileName ?? fp?.fileName ?? `${hashes.md5Hex}.amr`;
   const waveform = buildPttWaveform(params.waveform);
   // 私聊语音的 reserve 里嵌着 clientRandomId，先把随机数定下来（群聊不需要）。
   const clientRandomId = target.isGroup ? undefined : makeClientRandomId();
@@ -483,7 +548,7 @@ export async function uploadPttMsgInfo(
     uploadInfo: [
       {
         fileInfo: {
-          fileSize: bytes.length,
+          fileSize,
           fileHash: hashes.md5Hex,
           fileSha1: hashes.sha1Hex,
           fileName,
@@ -538,7 +603,7 @@ export async function uploadPttMsgInfo(
       // 私聊画不出波形的原因在 bytesGeneralFlags，不在这个值（见 uploadPttMsgInfo）。
       businessType: RICH_MEDIA_BUSINESS_TYPE.voice,
       fileName,
-      fileSize: bytes.length,
+      fileSize,
       md5Hex: hashes.md5Hex,
       sha1Hex: hashes.sha1Hex,
       width: 0,
@@ -562,6 +627,8 @@ export interface UploadVideoParams {
   height?: number;
   fileName?: string;
   thumbFileName?: string;
+  /** 资源已在服务端时的指纹：给了就跳过读本地文件（转发已有视频）。 */
+  fingerprint?: MediaFingerprint;
 }
 
 /**
@@ -582,16 +649,25 @@ export async function uploadVideoMsgInfo(
   params: UploadVideoParams,
   options: MediaUploadOptions = {},
 ): Promise<MediaUploadResult> {
+  const fp = params.fingerprint;
   const isFile = typeof params.source === 'string';
-  const size = isFile
-    ? (await fsp.stat(params.source as string)).size
-    : (params.source as Uint8Array).length;
+  const sourcePath = isFile ? cleanNtLocalPath(params.source as string) : '';
+  const size = fp
+    ? fp.fileSize
+    : isFile
+      ? (await fsp.stat(sourcePath)).size
+      : (params.source as Uint8Array).length;
   if (size === 0) throw new Error('视频文件是空的');
 
-  const videoHashes = isFile
-    ? await hashVideoFile(params.source as string, size)
-    : hashVideoBytes(params.source as Uint8Array);
-  const fileName = params.fileName ?? `${videoHashes.md5Hex}.mp4`;
+  // 转发已有视频：没有字节，分块 sha1 也拿不到 —— 服务端 fast-upload 命中时不需要它
+  // （SnowLuma 的 fingerprint 路径同样 `sha1Blocks: []`）。
+  const fpVideo = fingerprintHashes(fp);
+  const videoHashes = fpVideo
+    ? { ...fpVideo, sha1Blocks: [] as Uint8Array[] }
+    : isFile
+      ? await hashVideoFile(sourcePath, size)
+      : hashVideoBytes(params.source as Uint8Array);
+  const fileName = params.fileName ?? fp?.fileName ?? `${videoHashes.md5Hex}.mp4`;
 
   const width = params.width ?? 0;
   const height = params.height ?? 0;
@@ -661,9 +737,11 @@ export async function uploadVideoMsgInfo(
       {
         source: 'top',
         cmdId: target.isGroup ? VIDEO_HIGHWAY_GROUP : VIDEO_HIGHWAY_C2C,
-        ...(isFile
-          ? { fileSource: { filePath: params.source as string, fileSize: size } }
-          : { bytes: params.source as Uint8Array }),
+        ...(fp
+          ? { bytes: EMPTY_MEDIA_BYTES }
+          : isFile
+            ? { fileSource: { filePath: sourcePath, fileSize: size } }
+            : { bytes: params.source as Uint8Array }),
         md5: videoHashes.md5,
         // 视频主文件要带分块 sha1（服务端按块校验 + 拼接）。
         sha1: videoHashes.sha1Blocks,

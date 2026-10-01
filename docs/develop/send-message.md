@@ -57,7 +57,7 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
 | `ark` | `elem.lightApp.data`（deflate + 0x01 头） | 否 |
 | `xml` | `elem.richMsg.template1`（同上） | 否 |
 | `markdown` | commonElem svc 45 + MarkdownData | 否 |
-| `poke` | commonElem svc 2 + PbElem{type} | 否 |
+| `poke` | commonElem svc 2 + PbElem{type, combo} | 否 |
 | `forward` | `elem.lightApp`（`com.tencent.multimsg` 卡片，只引用一个已有 resId） | 否 |
 | `image` | commonElem(48, 20).pbElem = msgInfo | **是** |
 | `record` | commonElem(48, 22).pbElem = msgInfo | **是** |
@@ -306,13 +306,35 @@ schema 在 `src/oidb/file-upload-schemas.ts`，highway 扩展在 `src/highway/fi
 - **嵌套转发 piggyback**：节点给 `innerForward` 时递归先把内层传完，把「内层 resId 卡片 +
   内层 msgBody（`actionCommand = uuid`）」一起放进外层 payload；卡片 JSON 里的 `uniseq`
   与那个 `actionCommand` 必须相等（收端只拉一次最外层就能走完整棵树）。
+- **转发已有的 resId 卡片**：节点里是「转发一张已存在的聊天记录」（`{kind:'forward', resId}`）
+  时，会先用 `SsoRecvLongMsg` 把这个 resId 的原始 actions 拉下来，以**原卡片的 uniseq**
+  为 `actionCommand` 随包 piggyback 进本层（对齐 NapCat）—— 收端按 uniseq 就地展开，
+  不必再向服务器单独拉一次。拉取失败只记日志、卡片照发；原卡片的 source / summary /
+  news / tSum 从 XML（`m_fileName` / `<source>` / `<title>` / `tSum`）或 Ark 的 `meta.detail`
+  里带上，收端才有预览行。
 - **节点内媒体**：节点元素里的图片 / 语音 / 视频走同一套 NTV2 上传，私聊转发含媒体时必须
   能解析出对方 uid（上传要有场景）。
-- **节点级装扮**：每个节点可选 `dress`（气泡 / 字体 / 挂件）。字体有**两个** wire 槽位：
-  `fontId` → `fontId1`(tag 56) 原样，`fontId2` → `fontId2`(tag 15) 的**低 16 位字节序交换**
-  形态（两个都收真实 itemId，换算在协议层做）。这条路径与普通发消息的 `dress` 是同一套
-  实现；普通实时消息实测服务端不采信，但**长消息上传是把字节原样存下来的**，收端解码走的
-  是常规 msg-push 路径，所以合并转发里的节点装扮更可能保住（尚未真机验证）。
+- **转发已有媒体走免字节上传**：转发一条**已有**消息里的图片 / 语音 / 视频时，元素带
+  `fingerprint`（来自 wire 的 `md5Bytes`(45406)/`md5`(45424) + `contentHash`(45408, sha1) + 尺寸），就**不读
+  本机文件**，直接把这些报给 NTV2 走 fast-upload（服务端仍坚持要字节时抛 `fastOnlyError`）。
+  对齐 SnowLuma 的 `element.noByteFallback` / `imageDataFromFingerprint`。
+- **本机路径要剥 `::NTOSFull::`**：QQ NT 的 45004 / 45403 等路径字段常带这个虚拟前缀，
+  不是真实路径；渲染层读出来与协议层 `cleanNtLocalPath()` 都会剥掉，否则 `stat` 必 ENOENT。
+- **节点级装扮**：每个节点可选 `dress`（气泡 / 字体 / 挂件）。字体有**两个** wire 槽位，
+  两条通道必须分清：
+  - **透传（转发已有消息走这条）**：`fontId1Raw` → `fontId1`(tag 56)、`fontId2Raw` →
+    `fontId2`(tag 15)，两者都**原样写、不做任何换算**。取值来源就是 DB 列 40801：
+    `41525` / `41531`。40801 与元素字段是**恒等映射**（真机实测 `41531 = 116182` 与
+    元素 `generalFlags.font.fontId2 = 116182` 完全相等）。
+  - **便利通道**：`fontId` → tag 56 原样；`fontId2` → tag 15 的**低 16 位字节序交换**形态
+    （收真实 itemId，换算在协议层做）。
+
+  ⚠️ **绝不能用 `fontId`（解码出来的 itemId）去反推 font2**：`41531` 的低 16 位是交换过的
+  itemId，**bit 16 是标志位**（真机每条 40801 都置位；真实字体 54981 的 41531 是 `0x1C5D6`，
+  而 `swap16(54981) = 0xC5D6`）。反推会把标志位丢掉，收端可能直接忽略这个字体。
+  这条路径与普通发消息的 `dress` 是同一套实现；普通实时消息实测服务端不采信，但**长消息
+  上传是把字节原样存下来的**，收端解码走的是常规 msg-push 路径，所以合并转发里的节点装扮
+  更可能保住（尚未真机验证）。
 
 **尚未真机验证**：收发两个方向都做过离线单测（黄金字节 + 全链路 + 嵌套 uniseq 对齐），
 但没有真机实发过。

@@ -20,6 +20,9 @@ import {
   rvNodesToJson,
   rvValueToJson,
   tryDecodeJce,
+  tryDecodeAfterLengthPrefix,
+  detectLengthPrefix,
+  detectLengthPrefixes,
   tryDecodeProtobuf,
   tryUtf8,
   twoComplement,
@@ -277,6 +280,70 @@ describe('reverse JCE decode (QQHook TarsParser semantics)', () => {
 });
 
 // ---------------------------------------------------------------- grouping
+
+describe('reverse 长度前缀自动识别', () => {
+  /** 示例包：4 字节大端前缀 0xD5 = 213 = 整包长度（含前缀自身）。 */
+  const FRAMED_HEX =
+    '00 00 00 D5 0A 08 12 06 08 D3 90 9C C1 02 12 06 08 01 10 00 18 00 1A B2 01 ' +
+    '0A AF 01 12 48 AA 02 45 08 00 80 01 00 88 01 A4 AE 06 9A 01 38 78 D6 8B 07 ' +
+    'C8 01 00 F0 01 00 F8 01 00 90 02 00 C8 02 00 98 03 02 A0 03 04 B0 03 00 B8 03 ' +
+    '00 C0 03 00 B8 04 02 C0 04 00 CA 04 0A 08 00 10 00 18 00 20 00 38 00 80 06 00 ' +
+    '12 07 4A 05 08 93 96 81 01 12 1D AA 03 1A 08 02 12 14 08 06 12 00 18 00 20 00 ' +
+    '2A 00 32 00 38 00 40 00 48 00 50 00 18 06 12 3B 0A 39 0A 37 5B E6 88 B3 E4 B8 ' +
+    '80 E6 88 B3 5D E8 AF B7 E4 BD BF E7 94 A8 E6 9C 80 E6 96 B0 E7 89 88 E6 89 8B ' +
+    'E6 9C BA 51 51 E4 BD 93 E9 AA 8C E6 96 B0 E5 8A 9F E8 83 BD E3 80 82 20 8D F3 ' +
+    '01 28 E1 C5 82 EE 01';
+
+  it('识别出 4 字节大端整包长度前缀', () => {
+    const buf = HEX(FRAMED_HEX);
+    expect(buf.length).toBe(213);
+    const prefix = detectLengthPrefix(buf);
+    expect(prefix).not.toBeNull();
+    expect(prefix!.width).toBe(4);
+    expect(prefix!.endian).toBe('be');
+    expect(prefix!.declared).toBe('total');
+    expect(prefix!.value).toBe(213);
+    expect(prefix!.body.length).toBe(209);
+  });
+
+  it('剥离前缀后能完整解析（原字节解析失败）', () => {
+    const buf = HEX(FRAMED_HEX);
+    expect(tryDecodeProtobuf(buf)).toBeNull();
+    expect(tryDecodeJce(buf)).toBeNull();
+    const hit = tryDecodeAfterLengthPrefix(buf);
+    expect(hit).not.toBeNull();
+    expect(hit!.kind).toBe('protobuf');
+    expect(rvNodesToJson(hit!.nodes)['1']).toEqual({ '2': { '1': 673646675 } });
+  });
+
+  it('以负载长度为前缀（不含自身）同样识别', () => {
+    // 4 字节大端 = 6 = 负载长度（不含前缀自身）→ declared: payload
+    const framed = HEX('00 00 00 06 08 01 12 02 68 69');
+    const prefix = detectLengthPrefix(framed);
+    expect(prefix!.declared).toBe('payload');
+    expect(prefix!.body).toEqual(HEX('08 01 12 02 68 69'));
+    const hit = tryDecodeAfterLengthPrefix(framed);
+    expect(hit!.kind).toBe('protobuf');
+  });
+
+  it('没有前缀的正常数据不会被误削', () => {
+    const plain = HEX('08 01 12 02 68 69');
+    expect(detectLengthPrefix(plain)).toBeNull();
+    expect(tryDecodeAfterLengthPrefix(plain)).toBeNull();
+    expect(tryDecodeProtobuf(plain)).not.toBeNull();
+  });
+
+  it('2 / 1 字节前缀也按数值自洽识别，不硬编码 4 字节', () => {
+    // 负载 6 字节；2 字节大端 = 0x0008 = 8 = 整包长度（含 2 字节前缀）
+    const two = HEX('00 08 08 01 12 02 68 69');
+    const p2 = detectLengthPrefixes(two).find((p) => p.width === 2);
+    expect(p2?.declared).toBe('total');
+    // 1 字节 = 0x07 = 7 = 整包长度（含 1 字节前缀）
+    const one = HEX('07 08 01 12 02 68 69');
+    const p1 = detectLengthPrefixes(one).find((p) => p.width === 1);
+    expect(p1?.declared).toBe('total');
+  });
+});
 
 describe('reverse grouping', () => {
   const mk = (tag: number, n: bigint): RvNode => ({

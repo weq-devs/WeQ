@@ -15,6 +15,7 @@
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
+import { parseSenseVoiceRichText, type VoiceTagDisplay } from './tags';
 
 const requireFn = createRequire(__filename);
 
@@ -27,15 +28,6 @@ interface WorkerParams {
   wavData: Buffer | Uint8Array | { type: 'Buffer'; data: number[] };
   sampleRate: number;
   languages?: string[];
-}
-
-/** Every `<|...|>` technical / emotion / event tag SenseVoice can emit. */
-const TAG_RE = /<\|[^|]*\|>/g;
-
-/** Strip all sherpa control tags and collapse whitespace → plain text. */
-function toPlainText(text: string): string {
-  if (!text) return '';
-  return text.replace(TAG_RE, '').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -89,7 +81,16 @@ function prepareSherpaRuntimeEnv(): void {
   }
 }
 
-function emit(msg: { type: 'final'; text: string } | { type: 'error'; error: string }): void {
+interface FinalMessage {
+  type: 'final';
+  text: string;
+  /** Speaker tone parsed from the SenseVoice emotion tag (null = untagged). */
+  emotion: VoiceTagDisplay | null;
+  /** Sound events parsed from the SenseVoice event tags (BGM / 笑声 / 掌声 …). */
+  events: VoiceTagDisplay[];
+}
+
+function emit(msg: FinalMessage | { type: 'error'; error: string }): void {
   if (typeof process.send === 'function') process.send(msg);
 }
 
@@ -122,7 +123,7 @@ function run(params: WorkerParams): void {
 
     const wav = normalizeBuffer(params.wavData);
     if (wav.length <= 44) {
-      emit({ type: 'final', text: '' });
+      emit({ type: 'final', text: '', emotion: null, events: [] });
       process.exit(0);
       return;
     }
@@ -149,7 +150,11 @@ function run(params: WorkerParams): void {
     recognizer.decode(stream);
     const result = recognizer.getResult(stream);
 
-    emit({ type: 'final', text: toPlainText(result?.text ?? '') });
+    // SenseVoice's raw output carries the emotion + sound-event tags inline;
+    // split them out here so the parent gets structured fields instead of a
+    // string it would have to re-parse.
+    const rich = parseSenseVoiceRichText(result?.text ?? '');
+    emit({ type: 'final', text: rich.text, emotion: rich.emotion, events: rich.events });
     process.exit(0);
   } catch (e) {
     emit({ type: 'error', error: String(e) });

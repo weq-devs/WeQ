@@ -19,6 +19,8 @@ import { ElevationPasswordDialog } from './components/ElevationPasswordDialog';
 import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
+import { RedBagDetailHost } from './components/RedBagDetailDialog';
+import { RedBagQrcodeHost } from './components/RedBagQrcodeDialog';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
@@ -188,6 +190,8 @@ export default function App(): ReactElement {
             </DesktopOnly>
             <ImageLightbox />
             <VideoLightbox />
+            <RedBagDetailHost />
+            <RedBagQrcodeHost />
             <MarketFaceLightbox />
             <ForwardWindowHost />
           </ActiveWidgetProvider>

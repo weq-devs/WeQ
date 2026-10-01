@@ -184,6 +184,8 @@ function mapWireElement(
     case 'xml':
     case 'markdown':
     case 'forward':
+    // 戳一戳互动表情（pokeId + combo）：草稿形状与协议 `SendPokeEmojiElement` 一致。
+    case 'pokeEmoji':
       // 这些元素收 / 发同形（协议层 `SendElement` 与 codec 元素字段一致），原样装箱。
       return element;
     case 'emojiBounce':
@@ -522,15 +524,31 @@ function renderElementOf(
         },
         text: String(element.textContent ?? ''),
       };
-    case 'face':
+    case 'face': {
+      // 指定结果（随机表情）：superSticker.resultId 就是收侧 innerId，乐观气泡也
+      // 带上它，FaceEmoji 才会立刻播 `<faceId>_<innerId>.json` 那个结果片段。
+      const resultId = (element.superSticker as { resultId?: unknown } | undefined)?.resultId;
       return {
         type: 'face',
         data: {
           faceId: element.faceId,
           faceText: element.faceText,
           ...(element.superSticker ? {} : { subType: 1 }),
+          ...(typeof resultId === 'string' && resultId !== '' ? { innerId: resultId } : {}),
         },
         text: String(element.faceText ?? '[表情]'),
+      };
+    }
+    case 'pokeEmoji':
+      // 乐观渲染成收到侧同款的戳一戳（FACE subType=5 + 连击），FaceEmoji 据此定尺寸。
+      return {
+        type: 'face',
+        data: {
+          faceId: Number(element.pokeId) || 0,
+          subType: 5,
+          interactiveFaceCombo: Number(element.combo) || 0,
+        },
+        text: '[戳一戳]',
       };
     case 'mface':
       return {

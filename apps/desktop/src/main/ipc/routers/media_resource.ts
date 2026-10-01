@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
+import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -65,6 +66,32 @@ export const mediaResourceRouter = router({
   }),
 
   /**
+   * Resolve ONE message media element to its on-disk file.
+   *
+   * 收到的图片 / 语音 / 视频在 40800 里通常**不带** `localPath`(45004)，但 QQ 的
+   * `nt_data` 缓存里其实有文件 —— 主进程按发送时间推月份、按文件名在 Ori/Thumb
+   * 里找（与 `weq-media://pic` 同一条 FileSearchService 链路）。合并转发导入真实
+   * 消息时用它补路径，否则媒体会被降级成 `[图片]` 文本。只读、不下载。
+   */
+  findLocalFile: procedure
+    .input(
+      z.object({
+        /** 消息发送时间（毫秒）。 */
+        t: z.number().int().nonnegative(),
+        name: z.string().min(1),
+        kind: z.enum(['pic', 'emoji', 'ptt', 'video', 'file']),
+      }),
+    )
+    .query(async ({ input }) => {
+      const { source, thumb } = await requireServices().fileSearch.findFile(
+        input.t,
+        input.name,
+        input.kind,
+      );
+      return { source, thumb };
+    }),
+
+  /**
    * Transcribe one cached voice clip (语音 → 转文字). `rel` is the same Ptt-tree
    * path the browser streams through `weq-media://localvoice`; the service
    * re-validates it stays inside the tree. There's no message behind a cache
@@ -76,10 +103,12 @@ export const mediaResourceRouter = router({
    */
   transcribeVoice: procedure
     .input(z.object({ rel: z.string() }))
-    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+    .mutation(async ({ input }): Promise<TranscribeResult> => {
       const silk = await requireServices().mediaResource.resolveFile('ptt', input.rel);
       if (!silk) return { success: false, error: '语音文件不存在' };
       const r = await getAppContext().transcribeSilk(silk);
-      return r.ok ? { success: true, text: r.text ?? '' } : { success: false, error: r.error };
+      return r.ok
+        ? { success: true, text: r.text ?? '', emotion: r.emotion ?? null, events: r.events ?? [] }
+        : { success: false, error: r.error };
     }),
 });

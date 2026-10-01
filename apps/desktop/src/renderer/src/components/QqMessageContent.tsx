@@ -147,6 +147,8 @@ type FaceData = {
   faceText?: string;
   innerId?: string;
   subType?: number;
+  /** 戳一戳的连击次数（47617）—— 决定显示尺寸。 */
+  interactiveFaceCombo?: number;
 };
 
 type RenderElement = {
@@ -186,6 +188,8 @@ function faceProps(data: Record<string, unknown> = {}): FaceData {
     faceText: typeof data.faceText === 'string' ? data.faceText : undefined,
     innerId: typeof data.innerId === 'string' ? data.innerId : undefined,
     subType: typeof data.subType === 'number' ? data.subType : Number(data.subType) || undefined,
+    interactiveFaceCombo:
+      data.interactiveFaceCombo === undefined ? undefined : Number(data.interactiveFaceCombo),
   };
 }
 
@@ -682,11 +686,22 @@ export function QqMessageContent({
   sendTimeMs,
   msgId,
   isSender = true,
+  conversation,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
   msgId: string;
   isSender?: boolean;
+  /**
+   * 当前会话（渲染器注册表带进来的）—— 红包明细要拿 conv / 会话类型。
+   * 不传时退回 `ConvContext`（转发窗口只有群号那一路）。
+   */
+  conversation?: {
+    type?: string;
+    id?: string;
+    /** 私聊里 `otherUser.id` 就是对方 uid。 */
+    otherUser?: { id?: string | null } | null;
+  };
 }) {
   // A `multiMsg` element (合并转发) always takes over the whole bubble: it
   // renders as the preview card (title + preview lines + "查看详情" footer).
@@ -768,12 +783,22 @@ export function QqMessageContent({
       );
     }
     // 转账 / 红包 使用原有组件
+    // 红包明细的会话标识：群 = 群号，私聊 = 对方 uid。
+    const redbagKind: 'c2c' | 'group' =
+      conversation?.type === 'group' ? 'group' : (forwardKind ?? 'c2c');
+    const redbagConv =
+      conversation?.type === 'group'
+        ? (conversation.id ?? groupCode)
+        : (conversation?.otherUser?.id ?? '');
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
         <QqWallet
           detail={walletElement.data?.walletDetail}
           redbagType={redbagType}
           designatedUin={walletElement.data?.walletDesignatedUin}
+          msgId={msgId}
+          conv={redbagConv}
+          kind={redbagKind}
           skinId={
             (
               (walletElement.data?.walletDetail as Record<string, unknown> | undefined)
@@ -1082,13 +1107,19 @@ export const qqMessageRenderer: MessageRenderer = {
       (element) => element?.type !== undefined && HANDLED_KINDS.has(element.type),
     );
   },
-  render: ({ message, mine }) => {
+  render: ({ message, conversation, mine }) => {
     const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
     return (
-      <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={mine} />
+      <QqMessageContent
+        elements={elements}
+        sendTimeMs={sendTimeMs}
+        msgId={msgId}
+        isSender={mine}
+        conversation={conversation}
+      />
     );
   },
 };

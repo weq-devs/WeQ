@@ -24,6 +24,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Smile } from 'lucide-react';
 import type { FaceElement } from '@weq/codec';
 import { emojiUrl, resourceUrl } from '@renderer/lib/resourceUrl';
+import {
+  POKE_FACE_MAX_ID,
+  POKE_FACE_SUBTYPE,
+  pokeFaceMirror,
+  pokeFaceSize,
+} from '@renderer/lib/pokeFace';
 import { cn } from '@renderer/lib/utils';
 import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
@@ -36,14 +42,12 @@ const INTRO_PLAYS: Record<number, number> = {
   359: 2, // 石头剪刀布
 };
 
-/** subType=5 poke faces stream from resources/pokeemoji/<faceId>.png (ids 0-6). */
-const POKE_FACE_SUBTYPE = 5;
-const POKE_FACE_MAX_ID = 6;
-
 export type FaceEmojiProps = {
   element: Pick<FaceElement, 'faceId' | 'innerId'> & {
     faceText?: string;
     subType?: number;
+    /** 戳一戳的连击次数（本机库 47617）—— 决定显示尺寸，见 `lib/pokeFace.ts`。 */
+    interactiveFaceCombo?: number;
   };
   /** Box size — number (px) or any CSS length string (e.g. "1.3em"). */
   size?: number | string;
@@ -97,16 +101,20 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
   const apngSrc = emojiUrl(idStr, 'apng', `${faceId}.png`);
 
   // subType=5 poke faces: static PNG from the bundled pokeemoji set. Ids run
-  // 0-6; anything out of range falls back to 0.
+  // 0-6; anything out of range falls back to 0. The combo count (47617) drives the
+  // shown size; records without it keep whatever `size` the caller passed.
   if (subType === POKE_FACE_SUBTYPE) {
     const pokeId =
       Number.isInteger(faceId) && faceId >= 0 && faceId <= POKE_FACE_MAX_ID ? faceId : 0;
+    const combo = element.interactiveFaceCombo;
+    const pokeDim = combo === undefined ? undefined : `${pokeFaceSize(combo)}px`;
+    const style = pokeDim ? { width: pokeDim, height: pokeDim } : boxStyle;
     return (
       <FaceImage
         src={resourceUrl('pokeemoji', `${pokeId}.png`)}
         label={label}
-        style={boxStyle}
-        className={cn(className, !isSender && 'face-poke-mirror')}
+        style={style}
+        className={cn(className, pokeFaceMirror(pokeId, isSender) && 'face-poke-mirror')}
       />
     );
   }

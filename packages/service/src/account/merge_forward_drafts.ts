@@ -36,8 +36,20 @@ export interface MergeForwardNode {
   segs: unknown[];
   /** 该条消息的展示时间（unix 秒）。 */
   time: number;
-  /** 逐条消息装扮（列 40801）。0 表示未设置 —— 求和时忽略。 */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  /**
+   * 逐条消息装扮（列 40801）。0 表示未设置 —— 求和时忽略。
+   *
+   * `fontId1Raw` / `fontId2Raw`（41525 / 41531 的**原始 wire 值**）必须一并透传：
+   * 转发时原样写回元素 tag 56 / tag 15，用 `fontId` 反推会丢掉 `fontId2Raw` 的
+   * bit 16 标志位。
+   */
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
   /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
 }
@@ -77,13 +89,26 @@ function normalizeSeg(raw: unknown): unknown {
   return isObject(raw) ? raw : { t: 'text', textContent: asString(raw) };
 }
 
+function asOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function normalizeDecoration(raw: unknown): MergeForwardNode['decoration'] | undefined {
   if (!isObject(raw)) return undefined;
   const bubbleId = asNumber(raw.bubbleId);
   const fontId = asNumber(raw.fontId);
   const widgetId = asNumber(raw.widgetId);
   if (!bubbleId && !fontId && !widgetId) return undefined;
-  return { bubbleId, fontId, widgetId };
+  // raw 字段原样带过：漏掉就等于转发时丢标志位（见 MergeForwardNode.decoration）。
+  const fontId1Raw = asOptionalNumber(raw.fontId1Raw);
+  const fontId2Raw = asOptionalNumber(raw.fontId2Raw);
+  return {
+    bubbleId,
+    fontId,
+    widgetId,
+    ...(fontId1Raw !== undefined ? { fontId1Raw } : {}),
+    ...(fontId2Raw !== undefined ? { fontId2Raw } : {}),
+  };
 }
 
 function normalizeSender(raw: unknown): MergeForwardSender {

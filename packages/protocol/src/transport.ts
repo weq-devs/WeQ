@@ -12,6 +12,7 @@
  */
 
 import type { NtHelperBinding } from '@weq/native';
+import { signRedBagRequest as signRedBagRequestTs } from './redbag/sign';
 
 /** The native methods this layer uses. */
 export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
@@ -19,6 +20,8 @@ export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'
 export type OidbNative = Pick<NtHelperBinding, 'sendOidbPacket'>;
 /** Narrow type — only the raw-packet sender. */
 export type TrpcNative = Pick<NtHelperBinding, 'sendPacket'>;
+/** Narrow type — only the red bag request signer. */
+export type RedBagSignNative = Pick<NtHelperBinding, 'signRedBagRequest'>;
 
 export interface OidbRequest {
   /** OIDB command, e.g. 0x9067. */
@@ -55,4 +58,22 @@ export async function sendPacket(
 ): Promise<Uint8Array> {
   const reply = await nt.sendPacket(pid, cmd, Buffer.from(body));
   return new Uint8Array(reply);
+}
+
+/**
+ * Sign a red bag pre-pack request (`hb_pc_pre_pack`) and return the 16-byte
+ * plaintext `f101`.
+ *
+ * The signature algorithm deliberately lives in the native addon only — this
+ * package just hands over `signInput` (the `sender` ‖ `pack` sub-message bytes)
+ * and gets the value back.
+ */
+export function signRedBagRequest(nt: RedBagSignNative, signInput: Uint8Array): Uint8Array {
+  // 原生导出优先（2026-09-30 才加进 nt_helper：`feat(sign): QQ钱包签名算法`），
+  // 而仓库 pin 的构建可能还没有它 —— 那种情况下退到 TS 侧同一算法的实现
+  // （`./redbag/sign`，固定向量与原生逐字节一致）。
+  if (typeof nt?.signRedBagRequest === 'function') {
+    return new Uint8Array(nt.signRedBagRequest(Buffer.from(signInput)));
+  }
+  return signRedBagRequestTs(signInput);
 }

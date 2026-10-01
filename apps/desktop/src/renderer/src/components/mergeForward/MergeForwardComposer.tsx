@@ -66,6 +66,7 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
+import { MsgDressEditor } from './MsgDressEditor';
 import {
   blankNestedRecordSeg,
   blankSeg,
@@ -75,6 +76,7 @@ import {
   segHasContent,
   segLabel,
   segsToRenderElements,
+  type MfDecoration,
   type MfDraft,
   type MfNode,
   type MfSeg,
@@ -185,6 +187,8 @@ export function MergeForwardComposer({
   >(null);
   const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 正在编辑装扮的节点 id（null = 没开卡片）。 */
+  const [dressFor, setDressFor] = useState<string | null>(null);
 
   const nodes = draft.nodes;
 
@@ -241,6 +245,19 @@ export function MergeForwardComposer({
     setPickerFor(null);
   }
 
+  /** 改一条消息的装扮。`decoration` 为 undefined = 清空。 */
+  function changeDecoration(nodeId: string, decoration: MfDecoration | undefined): void {
+    commit(
+      nodes.map((n) => {
+        if (n.id !== nodeId) return n;
+        if (decoration) return { ...n, decoration };
+        const next = { ...n };
+        delete next.decoration;
+        return next;
+      }),
+    );
+  }
+
   if (pickerFor) {
     return (
       <SenderPicker
@@ -274,6 +291,27 @@ export function MergeForwardComposer({
           <div key={node.id} className="weq-mf-slot">
             {!editor && index === 0 ? <InsertButton onClick={() => startInsert(0)} /> : null}
 
+            {/* 新消息插在这一行前面：只有「插到末尾」时才会走列表外的那个编辑器，
+                插在中间 / 开头时必须在这里就地画出来，否则按钮藏了、面板却没出现。 */}
+            {editor && editor.nodeId === null && editor.at === index ? (
+              <NodeEditor
+                segs={editor.segs}
+                onChange={(segs) => setEditor((cur) => (cur ? { ...cur, segs } : cur))}
+                sender={editor.sender}
+                onPickSender={() => setPickerFor({ kind: 'editor' })}
+                onSave={saveEditor}
+                onCancel={() => {
+                  setEditor(null);
+                  setError(null);
+                }}
+                error={error}
+                self={self}
+                members={members}
+                senderMode={senderMode}
+                depth={0}
+              />
+            ) : null}
+
             {editor && editor.nodeId === node.id ? (
               <NodeEditor
                 segs={editor.segs}
@@ -295,6 +333,7 @@ export function MergeForwardComposer({
               <PreviewRow
                 node={node}
                 onOpen={() => startEdit(node, index)}
+                onEditDress={() => setDressFor(node.id)}
                 onAvatar={() => setPickerFor({ kind: 'node', id: node.id })}
                 onContextMenu={(x, y) => setMenu({ nodeId: node.id, x, y })}
               />
@@ -332,6 +371,15 @@ export function MergeForwardComposer({
           </button>
         ) : null}
       </div>
+
+      {dressFor ? (
+        <MsgDressEditor
+          decoration={nodes.find((n) => n.id === dressFor)?.decoration}
+          uin={nodes.find((n) => n.id === dressFor)?.sender?.uin}
+          onChange={(decoration) => changeDecoration(dressFor, decoration)}
+          onClose={() => setDressFor(null)}
+        />
+      ) : null}
 
       {menu ? (
         <NodeMenu
@@ -371,11 +419,13 @@ function InsertButton({ onClick }: { onClick: () => void }): ReactElement {
 function PreviewRow({
   node,
   onOpen,
+  onEditDress,
   onAvatar,
   onContextMenu,
 }: {
   node: MfNode;
   onOpen: () => void;
+  onEditDress: () => void;
   onAvatar: () => void;
   onContextMenu: (x: number, y: number) => void;
 }): ReactElement {
@@ -416,6 +466,14 @@ function PreviewRow({
           <span className="weq-forward-row-time weq-mf-row-time">{formatNodeTime(node.time)}</span>
           <button type="button" className="weq-mf-row-edit" onClick={onOpen}>
             <Pencil size={12} /> 编辑
+          </button>
+          <button
+            type="button"
+            className={cn('weq-mf-row-dress', node.decoration && 'is-on')}
+            title="编辑装扮（气泡 / 挂件 / 字体）"
+            onClick={onEditDress}
+          >
+            <Sparkles size={12} /> 装扮
           </button>
         </div>
         <div className="weq-forward-bubble weq-mf-bubble qq-bubble-shell">
@@ -1419,7 +1477,19 @@ function SegEditor({
           className="weq-mf-input mono"
           placeholder="已有聊天记录的 resId"
           value={seg.resId}
-          onChange={(e) => onChange({ ...seg, resId: e.target.value.trim() })}
+          onChange={(e) =>
+            // 手工改 resId 后，原来那套 uniseq / 预览就失效了：换一张卡必须一起清掉，
+            // 否则会把旧卡片的 uniseq 硬套到新 resId 上（收端对不上 piggyback 反而更坏）。
+            onChange({
+              ...seg,
+              resId: e.target.value.trim(),
+              uniseq: undefined,
+              source: undefined,
+              summary: undefined,
+              news: undefined,
+              tSum: undefined,
+            })
+          }
         />
       );
     case 'opaque':
