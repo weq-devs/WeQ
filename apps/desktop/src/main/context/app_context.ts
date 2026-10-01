@@ -85,6 +85,7 @@ import {
   AgentLabService,
   AssistantService,
   CollectionService,
+  RedBagService,
   createDressService,
   migrateDressData,
   DressConfigService,
@@ -609,6 +610,8 @@ export interface AccountServices {
   lbs: LbsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
+  /** 红包领取明细（`hb_pc_detail`，需要在线且已注入的 QQ）。 */
+  redbag: RedBagService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
   dressInstall: import('@weq/service').DressService;
   /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
@@ -1034,6 +1037,8 @@ export function initAppContext(): AppContext {
         session,
         resolveOnlinePid,
       );
+      // 红包领取明细：查详情要在线注入（hook 发包），p_skey 按域缓存在服务里。
+      const redbagSvc = new RedBagService(platform.native.ntHelper, session, resolveOnlinePid);
       // 个性装扮：新架构（cache/config 分离）。
       // 1. 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
@@ -1138,6 +1143,7 @@ export function initAppContext(): AppContext {
         }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        redbag: redbagSvc,
         dressInstall,
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
@@ -1590,6 +1596,8 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
+      // 红包领取明细：静态账号下 onlinePid 会抛错，前端会先拦（需要在线注入）。
+      const redbagSvc = new RedBagService(platform.native.ntHelper, session, livePid);
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
       // 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
@@ -1689,6 +1697,7 @@ export function initAppContext(): AppContext {
         }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        redbag: redbagSvc,
         dressInstall,
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,

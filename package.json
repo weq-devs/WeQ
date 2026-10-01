@@ -5,7 +5,7 @@
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
   "license": "GPL-3.0-or-later",
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@12.8.1",
   "engines": {
     "node": ">=22"
   },

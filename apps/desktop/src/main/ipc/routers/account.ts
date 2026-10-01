@@ -25,7 +25,11 @@ import {
 } from '../../context/app_context';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, ProtoMsg } from '@weq/codec';
+import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+
+/** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
+const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -542,6 +546,56 @@ function requireOnlineQqForWeb(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
+}
+
+/** detail / grab 共用的定位入参。 */
+const redbagLocateInput = z.object({
+  msgId: z.string().min(1).describe('红包消息的 msgId（查 40001 得到）'),
+  kind: z.enum(['c2c', 'group']).describe('会话类型'),
+  conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+});
+
+/**
+ * 从一条红包消息本体里凑出定位参数 —— detail / grab 共用。
+ *
+ * 字段全在消息里，不依赖数据库外的任何缓存：
+ *   - 48417 = `{2: packetId, 3: orderId}`（嵌套块，按 BYTES 收，这里自己解）；
+ *   - 48418 = 领取 token（grab 才用得到）；
+ *   - 私聊的 peerUin 要拿 conv（对方 uid）查 uid→uin 映射，群聊直接用群号。
+ */
+async function resolveRedBagTarget(
+  services: ReturnType<typeof requireServices>,
+  input: { msgId: string; kind: 'c2c' | 'group'; conv: string },
+): Promise<{ orderId: string; packetId: string; token: string; peerUin: string }> {
+  const id = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+  if (id === null) throw new Error(`msgId 无效：${input.msgId}`);
+
+  const raw = await services.msgs.getRawElements(id);
+  if (!raw) throw new Error('找不到这条消息（可能已被清理）。');
+  const wallet = raw.elements.find((el) => el.kind === 'wallet') as
+    | { walletFlag48417?: Uint8Array; walletFlag48418?: string }
+    | undefined;
+  if (!wallet?.walletFlag48417) throw new Error('这条消息不是红包（缺少 48417）。');
+
+  let orderId = '';
+  let packetId = '';
+  try {
+    const decoded = walletFlag48417Wire.decode(wallet.walletFlag48417);
+    orderId = decoded.orderId ?? '';
+    packetId = decoded.packetId ? Buffer.from(decoded.packetId).toString('hex') : '';
+  } catch {
+    throw new Error('这个红包的 48417 结构无法解析。');
+  }
+  if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
+
+  // peerUin：群就是群号；私聊要 uid → uin。
+  const peerUin =
+    input.kind === 'group'
+      ? input.conv
+      : String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+  if (!peerUin) throw new Error('解析不出红包的领取方 QQ 号。');
+
+  return { orderId, packetId, token: wallet.walletFlag48418 ?? '', peerUin };
 }
 
 async function listGroupBulletinsWithWebFallback(
@@ -3574,6 +3628,40 @@ export const accountRouter = router({
     });
   }),
   // ---- group album ----
+
+  /**
+   * 查一个红包的领取明细（`hb_pc_detail`）。
+   *
+   * 与「发消息」同条件：需要**在线且已注入**的 QQ —— 红包包走 hook 上的
+   * `sendPacket`（`tenpay.com` 的 p_skey 只是请求体里的一个字段，光有票据发不出去）。
+   * p_skey 按域缓存在 `RedBagService` 里，重复点击不会每次都打 OIDB。
+   */
+  redbagDetail: procedure.input(redbagLocateInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    const target = await resolveRedBagTarget(services, input);
+    return services.redbag.detail({ ...target, peerType: input.kind }, pid);
+  }),
+
+  /**
+   * 抢一个红包（`hb_pc_grab`）—— **真的会扣钱 / 记一笔领取**。
+   *
+   * 只有红包卡片上没有自己的领取记录时前端才会走到这里；成功回包里带的就是
+   * 自己抢到的那一份（金额 + 时间），所以灯箱直接从「查看领取记录」切到
+   * 「你领取到了 ¥x.xx」。
+   *
+   * 前置条件与 {@link redbagDetail} 完全一致：在线 + 已注入（走 hook 发包）。
+   */
+  redbagGrab: procedure.input(redbagLocateInput).mutation(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    const target = await resolveRedBagTarget(services, input);
+    return services.redbag.grab({ ...target, peerType: input.kind }, pid);
+  }),
 
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
   listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {

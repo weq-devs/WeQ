@@ -31,6 +31,7 @@ import {
   rvIntDisplay,
   rvNodesToJson,
   rvTimestampRange,
+  tryDecodeAfterLengthPrefix,
   tryDecodeJce,
   tryDecodeProtobuf,
   tryUtf8,
@@ -58,6 +59,8 @@ interface RvResult {
   bytes: Uint8Array;
   nodes: RvNode[];
   kind: ParseKind;
+  /** 自动剥离的长度前缀描述（没有前缀时为 undefined）。 */
+  prefixNote?: string;
 }
 
 function truncate(s: string, max: number): string {
@@ -66,6 +69,18 @@ function truncate(s: string, max: number): string {
 
 function bytesLabel(b: Uint8Array): string {
   return `${b.length} 字节`;
+}
+
+/** 自动剥离长度前缀时的可读说明（说明宽度 / 字节序 / 声明的长度语义）。 */
+function describePrefix(prefix: {
+  width: number;
+  endian: 'be' | 'le';
+  value: number;
+  declared: 'total' | 'payload';
+}): string {
+  const endian = prefix.endian === 'be' ? '大端' : '小端';
+  const declared = prefix.declared === 'total' ? '整包长度' : '负载长度';
+  return `已自动剥离 ${prefix.width} 字节${endian}长度前缀（值 ${prefix.value} = ${declared}）`;
 }
 
 /**
@@ -113,33 +128,48 @@ export function ReverseTool(): ReactElement {
   const runParse = useCallback((text: string, enc: RvEncoding, fmt: ParseFormat) => {
     try {
       const bytes = parseInput(text, enc);
-      let nodes: RvNode[];
-      let kind: ParseKind;
-      if (fmt === 'protobuf') {
-        nodes = decodeProtobuf(bytes);
-        kind = 'protobuf';
-      } else if (fmt === 'jce') {
-        nodes = decodeJce(bytes);
-        kind = 'jce';
-      } else {
+      const accept = (nodes: RvNode[], kind: ParseKind, prefixNote?: string): void => {
+        setResult({ bytes, nodes, kind, ...(prefixNote ? { prefixNote } : {}) });
+        setError(null);
+        setCopied(false);
+        setParseSeq((s) => s + 1);
+      };
+
+      // 先按不剥前缀的常规路径解析；失败后再自动识别 QQ 数据包开头的长度前缀
+      // （如 `00 00 00 D5 …`）重试。宽度 / 字节序由数据自证，不硬编码 4 字节。
+      const direct = (): { nodes: RvNode[]; kind: ParseKind } | null => {
+        if (fmt === 'protobuf') return { nodes: decodeProtobuf(bytes), kind: 'protobuf' };
+        if (fmt === 'jce') return { nodes: decodeJce(bytes), kind: 'jce' };
         const proto = tryDecodeProtobuf(bytes);
+        if (proto) return { nodes: proto, kind: 'protobuf' };
         const jce = tryDecodeJce(bytes);
-        if (proto) {
-          nodes = proto;
-          kind = 'protobuf';
-        } else if (jce) {
-          nodes = jce;
-          kind = 'jce';
-        } else {
-          setResult(null);
-          setError('无法识别为 protobuf 或 JCE。请检查输入是否为完整的 hex / base64 字节。');
-          return;
-        }
+        if (jce) return { nodes: jce, kind: 'jce' };
+        return null;
+      };
+
+      let parsed: { nodes: RvNode[]; kind: ParseKind } | null;
+      try {
+        parsed = direct();
+      } catch {
+        parsed = null; // 强制格式下抛出：交给前缀路径再试一次
       }
-      setResult({ bytes, nodes, kind });
-      setError(null);
-      setCopied(false);
-      setParseSeq((s) => s + 1);
+      if (parsed) {
+        accept(parsed.nodes, parsed.kind);
+        return;
+      }
+
+      const stripped = tryDecodeAfterLengthPrefix(bytes);
+      if (stripped && (fmt === 'auto' || stripped.kind === fmt)) {
+        accept(stripped.nodes, stripped.kind, describePrefix(stripped.prefix));
+        return;
+      }
+
+      setResult(null);
+      setError(
+        fmt === 'auto'
+          ? '无法识别为 protobuf 或 JCE。请检查输入是否为完整的 hex / base64 字节。'
+          : `无法按 ${fmt} 完整解析（已尝试自动剥离长度前缀）。请检查输入或换用「自动」。`,
+      );
     } catch (e) {
       setResult(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -240,6 +270,14 @@ export function ReverseTool(): ReactElement {
             <span className="weq-wtools-rv-meta">
               {fieldCount} 个字段 · {bytesLabel(result.bytes)}
             </span>
+            {result.prefixNote ? (
+              <span
+                className="weq-wtools-rv-prefix-note"
+                title="解析前自动识别并剥离的 QQ 数据包长度前缀"
+              >
+                {result.prefixNote}
+              </span>
+            ) : null}
             <div className="weq-wtools-rv-seg" role="tablist" aria-label="解析格式">
               {(['auto', 'protobuf', 'jce'] as const).map((f) => (
                 <button

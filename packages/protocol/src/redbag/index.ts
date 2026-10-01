@@ -30,6 +30,14 @@ import { decryptRedBagPayload, encryptRedBagPayload, RED_BAG_SALT_LENGTH } from 
 import {
   RED_BAG_KIND,
   RED_BAG_PACK_INFO,
+  RED_BAG_DETAIL_CMD,
+  RED_BAG_DETAIL_QUERY,
+  RED_BAG_DETAIL_REQ,
+  RED_BAG_DETAIL_RESP,
+  RED_BAG_GRAB_CMD,
+  RED_BAG_GRAB_QUERY,
+  RED_BAG_GRAB_REQ,
+  RED_BAG_GRAB_RESP,
   RED_BAG_PASSWORD_POOL_CMD,
   RED_BAG_PASSWORD_POOL_REQ,
   RED_BAG_PASSWORD_POOL_RESP,
@@ -343,3 +351,291 @@ export namespace RedBagPasswordPool {
 
 /** 本包 salt 的长度常量，导出给调用方做校验 / 展示。 */
 export const RED_BAG_SALT_BYTES = RED_BAG_SALT_LENGTH;
+
+// ───────────────── hb_pc_detail / hb_pc_grab ─────────────────
+//
+// 查领取记录（detail）与抢红包（grab）与 pre_pack 共用同一套 sso_handle 信封、
+// salt 派生和 f101 签名，只是把 pack 子消息换成「定位哪一个红包」。样本见
+// `packages/protocol/test/redbag.test.ts` 的黄金样本注释。
+
+/** 一条领取记录。 */
+export interface RedBagClaim {
+  /** 领取人 QQ 号。 */
+  uin: string;
+  /** 领取人当时的昵称。 */
+  nickname: string;
+  /** 领取到的金额，单位**分**。 */
+  amount: number;
+  /** 领取时间（unix 秒）。 */
+  claimTime: number;
+}
+
+/** 红包概况（detail / grab 响应共用）。 */
+export interface RedBagDetailSummary {
+  readonly senderUin?: string;
+  readonly senderNickname?: string;
+  /** 祝福语；口令红包则是口令本身。 */
+  readonly wishing?: string;
+  /** 红包总个数。 */
+  readonly totalNum?: number;
+  /** 总金额，单位**分**。 */
+  readonly totalAmount?: number;
+  /** 金额分配：1 = 等额、2 = 拼手气。 */
+  readonly split?: number;
+  /** 已领取人数。 */
+  readonly claimedCount?: number;
+  /** 红包过期时间（unix 秒）。 */
+  readonly expireTime?: number;
+}
+
+/** `hb_pc_detail` 的结果：概况 + 领取列表。 */
+export interface RedBagDetailResult {
+  /** 下行 f1，字符串 `"0"` 表示成功。 */
+  code: string;
+  /** 下行 f2，抓包 `"success"`。 */
+  message: string;
+  /** 明文 f1，抓包 0 表示业务成功。 */
+  bizCode: number;
+  /** 明文 f2，抓包 `"ok"`。 */
+  bizMessage: string;
+  readonly summary?: RedBagDetailSummary;
+  /** 全部领取记录（含首抢）；服务端顺序即返回顺序。 */
+  claims: RedBagClaim[];
+  /** 解密后的完整明文，字段有漂移时用它对账。 */
+  plain: Uint8Array;
+}
+
+/** `hb_pc_grab` 的结果：抢到的这一份 + 概况。 */
+export interface RedBagGrabResult {
+  code: string;
+  message: string;
+  bizCode: number;
+  bizMessage: string;
+  readonly summary?: RedBagDetailSummary;
+  /** 本次抢到的记录（服务端按请求者自己去重，所以只回这一条）。 */
+  readonly claim?: RedBagClaim;
+  plain: Uint8Array;
+}
+
+/** detail / grab 共用的定位参数（来自消息里的 wallet 元素）。 */
+export interface RedBagLocateParams {
+  /** 请求者自己的 QQ 号（明文 f1.1 的 sender.uin）。 */
+  uin: number | bigint | string;
+  /** `tenpay.com` 的 p_skey（明文 f1.3）。 */
+  pskey: string;
+  /** 红包订单号 / nonce（32 位 hex），来自消息 tag 48451。 */
+  orderId: string;
+  /** 32 字节 packetId，来自消息 tag 48417.f2（hex 或字节都行）。 */
+  packetId: string | Uint8Array;
+  /** 领取方：私聊 = 对方 uin，群 = 群号。 */
+  peerUin: number | bigint | string;
+  /** pack.f7：私聊 0 / 群 1。 */
+  scene: number;
+  /** 明文 f101；缺省现算，显式传入只用于复现抓包。 */
+  nonce?: Uint8Array;
+  /** 明文 f1.2，抓包恒为 10。 */
+  senderChannel?: number;
+}
+
+function toPacketBytes(packetId: string | Uint8Array): Uint8Array {
+  if (packetId instanceof Uint8Array) return packetId;
+  const clean = packetId.replace(/^0x/i, '').replace(/[^0-9a-fA-F]/g, '');
+  if (clean.length % 2 !== 0) throw new Error(`红包 packetId hex 长度必须是偶数：${packetId}`);
+  return Uint8Array.from((clean.match(/../g) ?? []).map((pair) => Number.parseInt(pair, 16)));
+}
+
+/** 把一条解码出来的 claim 记录整理成结果形状。 */
+function toClaim(raw: Record<string, unknown> | undefined): RedBagClaim | undefined {
+  if (!raw) return undefined;
+  const uin = raw.uin as bigint | number | undefined;
+  if (uin === undefined) return undefined;
+  return {
+    uin: String(uin),
+    nickname: String(raw.nickname ?? ''),
+    amount: Number(raw.amount ?? 0),
+    claimTime: Number(raw.claimTime ?? 0),
+  };
+}
+
+function toSummary(raw: Record<string, unknown> | undefined): RedBagDetailSummary | undefined {
+  if (!raw) return undefined;
+  const out: Record<string, unknown> = {};
+  if (raw.senderUin !== undefined) out.senderUin = String(raw.senderUin);
+  if (raw.senderNickname !== undefined) out.senderNickname = String(raw.senderNickname);
+  if (raw.wishing !== undefined) out.wishing = String(raw.wishing);
+  for (const key of ['totalNum', 'totalAmount', 'split', 'claimedCount'] as const) {
+    if (raw[key] !== undefined) out[key] = Number(raw[key]);
+  }
+  if (raw.expireTime !== undefined) out.expireTime = Number(raw.expireTime);
+  return out as RedBagDetailSummary;
+}
+
+/** detail 的 sender + query 拼出的「待签字节」（与 pre_pack 同一套）。 */
+function locateSignInput(
+  sender: Record<string, unknown>,
+  query: Record<string, unknown>,
+  schema: typeof RED_BAG_DETAIL_QUERY,
+): Uint8Array {
+  const a = encode(RED_BAG_SENDER, sender);
+  const b = encode(schema, query);
+  const joined = new Uint8Array(a.length + b.length);
+  joined.set(a, 0);
+  joined.set(b, a.length);
+  return joined;
+}
+
+/** 解开一条 detail / grab 的回包并校验方向。 */
+function decodeLocateReply(
+  replyBytes: Uint8Array,
+  what: string,
+): { code: string; message: string; plain: Uint8Array } {
+  const packet = decodeSsoHandlePacket(replyBytes);
+  if (packet.direction !== 'response') {
+    throw new Error(`红包 ${what} 回包不是 sso_handle 下行信封。`);
+  }
+  return { code: packet.code ?? '', message: packet.message ?? '', plain: packet.plain };
+}
+
+/** 查一个红包的领取明细（`hb_pc_detail`）。 */
+export namespace RedBagDetail {
+  export const command = RED_BAG_SSO_HANDLE_CMD;
+  export const cmd = RED_BAG_DETAIL_CMD;
+  export const reqSchema = RED_BAG_DETAIL_REQ;
+  export const respSchema = RED_BAG_DETAIL_RESP;
+
+  export type Params = RedBagLocateParams;
+  export type Result = RedBagDetailResult;
+
+  export const serialize = (p: Params): Record<string, unknown> => {
+    if (!p.pskey) throw new Error('红包 detail 需要 tenpay.com 的 p_skey');
+    if (!p.orderId) throw new Error('红包 detail 需要 orderId（消息 tag 48451）');
+    const nonce = p.nonce ?? new Uint8Array(randomBytes(16));
+    if (nonce.length !== 16) throw new Error(`红包 nonce 必须是 16 字节，收到 ${nonce.length}`);
+    return {
+      sender: { uin: p.uin, channel: p.senderChannel ?? 10, pskey: p.pskey },
+      query: {
+        orderId: p.orderId,
+        packetId: toPacketBytes(p.packetId),
+        peerUin: p.peerUin,
+        sceneFlag: p.scene,
+        flag8: 0,
+        flag9: 20,
+      },
+      nonce,
+    };
+  };
+
+  export const deserialize = (plain: Uint8Array): Result => {
+    const body = decode(RED_BAG_DETAIL_RESP, plain);
+    const detail = body.body as Record<string, unknown> | undefined;
+    const claims = ((detail?.claims as Record<string, unknown>[] | undefined) ?? [])
+      .map(toClaim)
+      .filter((c): c is RedBagClaim => c !== undefined);
+    return {
+      code: '',
+      message: '',
+      bizCode: Number(body.code ?? 0),
+      bizMessage: String(body.message ?? ''),
+      ...(toSummary(detail?.summary as Record<string, unknown> | undefined)
+        ? { summary: toSummary(detail?.summary as Record<string, unknown> | undefined) }
+        : {}),
+      claims,
+      plain,
+    };
+  };
+
+  export const invoke = async (
+    nt: TrpcNative & RedBagSignNative,
+    pid: number,
+    params: Params,
+  ): Promise<Result> => {
+    const body = serialize(params);
+    const nonce =
+      params.nonce ??
+      signRedBagRequest(
+        nt,
+        locateSignInput(
+          body.sender as Record<string, unknown>,
+          body.query as Record<string, unknown>,
+          RED_BAG_DETAIL_QUERY,
+        ),
+      );
+    const reqBytes = encode(reqSchema, { ...body, nonce });
+    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
+    const reply = decodeLocateReply(replyBytes, 'detail');
+    return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
+  };
+}
+
+/** 抢红包（`hb_pc_grab`）。 */
+export namespace RedBagGrab {
+  export const command = RED_BAG_SSO_HANDLE_CMD;
+  export const cmd = RED_BAG_GRAB_CMD;
+  export const reqSchema = RED_BAG_GRAB_REQ;
+  export const respSchema = RED_BAG_GRAB_RESP;
+
+  /** grab 比 detail 多一个领取者昵称（抓包写的是自己）。 */
+  export type Params = RedBagLocateParams & { nickname?: string; token?: string };
+  export type Result = RedBagGrabResult;
+
+  export const serialize = (p: Params): Record<string, unknown> => {
+    if (!p.pskey) throw new Error('红包 grab 需要 tenpay.com 的 p_skey');
+    if (!p.orderId) throw new Error('红包 grab 需要 orderId（消息 tag 48451）');
+    const nonce = p.nonce ?? new Uint8Array(randomBytes(16));
+    if (nonce.length !== 16) throw new Error(`红包 nonce 必须是 16 字节，收到 ${nonce.length}`);
+    return {
+      sender: { uin: p.uin, channel: p.senderChannel ?? 10, pskey: p.pskey },
+      query: {
+        orderId: p.orderId,
+        packetId: toPacketBytes(p.packetId),
+        nickname: p.nickname ?? '',
+        peerUin: p.peerUin,
+        flag7: p.scene,
+        token: p.token ?? '',
+        flag10: 0,
+        flag11: 1,
+      },
+      nonce,
+    };
+  };
+
+  export const deserialize = (plain: Uint8Array): Result => {
+    const body = decode(RED_BAG_GRAB_RESP, plain);
+    const detail = body.body as Record<string, unknown> | undefined;
+    return {
+      code: '',
+      message: '',
+      bizCode: Number(body.code ?? 0),
+      bizMessage: String(body.message ?? ''),
+      ...(toSummary(detail?.summary as Record<string, unknown> | undefined)
+        ? { summary: toSummary(detail?.summary as Record<string, unknown> | undefined) }
+        : {}),
+      ...(toClaim(detail?.claim as Record<string, unknown> | undefined)
+        ? { claim: toClaim(detail?.claim as Record<string, unknown> | undefined) }
+        : {}),
+      plain,
+    };
+  };
+
+  export const invoke = async (
+    nt: TrpcNative & RedBagSignNative,
+    pid: number,
+    params: Params,
+  ): Promise<Result> => {
+    const body = serialize(params);
+    const nonce =
+      params.nonce ??
+      signRedBagRequest(
+        nt,
+        locateSignInput(
+          body.sender as Record<string, unknown>,
+          body.query as Record<string, unknown>,
+          RED_BAG_GRAB_QUERY,
+        ),
+      );
+    const reqBytes = encode(reqSchema, { ...body, nonce });
+    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
+    const reply = decodeLocateReply(replyBytes, 'grab');
+    return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
+  };
+}

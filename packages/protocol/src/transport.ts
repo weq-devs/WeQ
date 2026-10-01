@@ -12,6 +12,7 @@
  */
 
 import type { NtHelperBinding } from '@weq/native';
+import { signRedBagRequest as signRedBagRequestTs } from './redbag/sign';
 
 /** The native methods this layer uses. */
 export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
@@ -68,5 +69,11 @@ export async function sendPacket(
  * and gets the value back.
  */
 export function signRedBagRequest(nt: RedBagSignNative, signInput: Uint8Array): Uint8Array {
-  return new Uint8Array(nt.signRedBagRequest(Buffer.from(signInput)));
+  // 原生导出优先（2026-09-30 才加进 nt_helper：`feat(sign): QQ钱包签名算法`），
+  // 而仓库 pin 的构建可能还没有它 —— 那种情况下退到 TS 侧同一算法的实现
+  // （`./redbag/sign`，固定向量与原生逐字节一致）。
+  if (typeof nt?.signRedBagRequest === 'function') {
+    return new Uint8Array(nt.signRedBagRequest(Buffer.from(signInput)));
+  }
+  return signRedBagRequestTs(signInput);
 }

@@ -18,7 +18,7 @@
 ## 开发环境
 
 - **Node.js** ≥ 22
-- **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@10.33.2`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
+- **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@12.8.1`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
 
 ```bash
 pnpm i             # 安装依赖
