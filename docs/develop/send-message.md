@@ -57,7 +57,7 @@ encode: { kind, ... } --build--> proto 树 --encode(ELEM)--> bytes
 | `ark` | `elem.lightApp.data`（deflate + 0x01 头） | 否 |
 | `xml` | `elem.richMsg.template1`（同上） | 否 |
 | `markdown` | commonElem svc 45 + MarkdownData | 否 |
-| `poke` | commonElem svc 2 + PbElem{type} | 否 |
+| `poke` | commonElem svc 2 + PbElem{type, combo} | 否 |
 | `forward` | `elem.lightApp`（`com.tencent.multimsg` 卡片，只引用一个已有 resId） | 否 |
 | `image` | commonElem(48, 20).pbElem = msgInfo | **是** |
 | `record` | commonElem(48, 22).pbElem = msgInfo | **是** |

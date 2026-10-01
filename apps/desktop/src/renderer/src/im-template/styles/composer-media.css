@@ -2529,3 +2529,314 @@ html[data-theme="dark"] .bounce-search {
     max-height: 168px;
   }
 }
+
+/* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
+ *
+ * 形态与弹射表情 / 链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行。
+ * 三块：预览 + 连击（左右并排） / 表情网格；底部是「单独发送」。
+ * 连击只有 0..3，所以控制件是**四枚按档位逐渐变大的按钮**（不是输入框 / 滑块）——
+ * 点一下预览区立刻跟着变大，所见即所发。
+ *
+ * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ */
+
+.poke-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(420px, calc(100% - 28px));
+  max-height: min(496px, calc(100dvh - 190px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: poke-in 150ms ease-out;
+}
+
+@keyframes poke-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.poke-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.poke-head-title svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
+.poke-head-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.poke-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.poke-close:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.poke-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 11px 12px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/* ── 预览（左） + 连击（右） ─────────────────────────────────────────────── */
+
+.poke-stage {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.poke-preview {
+  display: grid;
+  min-height: 176px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      circle at 50% 36%,
+      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
+      transparent 68%
+    ),
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+}
+
+.poke-preview-face {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-controls {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.poke-label {
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 连击 0..3：四枚按钮，图按档位逐渐变大。 */
+.poke-combo {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.poke-combo-btn {
+  display: grid;
+  height: 58px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  cursor: pointer;
+  transition: border-color 130ms ease, background 130ms ease, transform 130ms ease;
+}
+
+.poke-combo-btn img {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-combo-btn:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-combo-btn.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
+}
+
+/* ── 表情网格 ────────────────────────────────────────────────────────────── */
+
+.poke-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 48px);
+  gap: 6px;
+}
+
+.poke-cell {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.poke-cell img {
+  display: block;
+  max-width: 40px;
+  max-height: 40px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-cell:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-cell.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+}
+
+/* ── 底部 ────────────────────────────────────────────────────────────────── */
+
+.poke-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poke-hint svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
+}
+
+.poke-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+
+.poke-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.poke-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.poke-btn.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+/* ── 深色：阴影加一档，输入底压暗 ────────────────────────────────────────── */
+
+html[data-theme="dark"] .poke-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .poke-preview,
+html[data-theme="dark"] .poke-combo-btn {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+/* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  .poke-panel {
+    left: 8px;
+    width: calc(100% - 16px);
+    max-height: min(452px, calc(100dvh - 150px));
+  }
+
+  .poke-stage {
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .poke-preview {
+    min-height: 128px;
+  }
+}

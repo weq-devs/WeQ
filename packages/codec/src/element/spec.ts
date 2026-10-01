@@ -302,7 +302,8 @@ export const FaceElementSchema = BaseElementFieldsSchema.extend({
   faceFlag47614: z.number().optional(),
   interactiveFaceName2: z.string().optional(),
   interactiveFaceVersion: z.string().optional(),
-  faceFlag47617: z.number().optional(),
+  /** 戳一戳互动表情的连击次数（本机库 tag 47617；发送侧是 pbElem 的 field 7）。 */
+  interactiveFaceCombo: z.number().optional(),
   faceFlag47618: z.number().optional(),
   faceFlag47619: z.number().optional(),
   faceFlag47620: z.number().optional(),

@@ -39,6 +39,7 @@ export type {
   SendXmlElement,
   SendMarkdownElement,
   SendPokeElement,
+  SendPokeEmojiElement,
   SendEmojiBounceElement,
   SendForwardElement,
   SendRawElement,

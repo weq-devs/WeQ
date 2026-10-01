@@ -900,8 +900,12 @@ export const ElementWire = {
   /** 互动表情版本号, e.g. "7.2.0". Usually empty. */
   interactiveFaceVersion: ProtoField(47616, ScalarType.STRING, { optional: true }),
 
-  /** Values 0/1/2/3. */
-  faceFlag47617: ProtoField(47617, ScalarType.UINT32, { optional: true }),
+  /**
+   * 戳一戳互动表情的**连击次数**（wire 上 `commonElem(serviceType=2).pbElem` 的
+   * field 7，安卓抓包 2026-10-01 对齐）。取值 0/1/2/3 —— 0 单戳、1/2/3 = 二/三/四
+   * 连击，QQ 一般最多三连击。
+   */
+  interactiveFaceCombo: ProtoField(47617, ScalarType.UINT32, { optional: true }),
 
   /** Always 0. */
   faceFlag47618: ProtoField(47618, ScalarType.UINT32, { optional: true }),

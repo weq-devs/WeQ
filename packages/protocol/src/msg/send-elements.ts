@@ -157,10 +157,38 @@ export interface SendMarkdownElement {
   markdownTextSummary?: string;
 }
 
-/** 窗口抖动（只有私聊、且必须独占一条消息）。 */
+/**
+ * 戳一戳互动表情 / 窗口抖动（只有私聊、且必须独占一条消息）。
+ *
+ * `combo` 是**连击次数**（wire 上 pbElem field 7，本机库 FACE 的 `47617`）：单戳为
+ * 0，双击 / 三击是 1 / 2（QQ 一般最多三连击）。缺省 0。
+ */
 export interface SendPokeElement {
   kind: 'poke';
   subType: number;
+  /** 连击次数（0~3；缺省 0）。抓包：0 连击写 `38 00`、1 连击写 `38 01`。 */
+  combo?: number;
+}
+
+/**
+ * 戳一戳**互动表情**（`commonElem serviceType=2`）—— 与 {@link SendPokeElement}
+ * （窗口抖动）共用同一条 wire，但是**独立的一条路**，不要混：窗口抖动是历史功能、
+ * 服务端只收直接私聊；互动表情群聊 / 私聊都能发（2026-10-01 抓到群聊样本）。
+ *
+ * wire 布局（安卓抓包）：
+ *   commonElem.serviceType = 2
+ *   commonElem.pbElem      = { type: pokeId, combo }   ← field 1 / field 7
+ *   commonElem.businessType = pokeId
+ *
+ * `pokeId` 是表情编号（0..6，对应 `resources/pokeemoji/<id>.png`；0 与 1 是同一张图）。
+ * 抓包实测：pokeId=1 → `08 01 … 18 01`；pokeId=6 → `08 06 … 18 06`（businessType 同步）。
+ */
+export interface SendPokeEmojiElement {
+  kind: 'pokeEmoji';
+  /** 互动表情编号（0..6）。 */
+  pokeId: number;
+  /** 连击次数（0~3；缺省 0）。wire 上是 pbElem field 7，本机库 FACE 的 `47617`。 */
+  combo?: number;
 }
 
 /**
@@ -455,6 +483,7 @@ export type SendElement =
   | SendXmlElement
   | SendMarkdownElement
   | SendPokeElement
+  | SendPokeEmojiElement
   | SendEmojiBounceElement
   | SendForwardElement
   | SendFileElement
@@ -825,11 +854,28 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
       };
     case 'poke': {
       const type = requireNonNegativeInt(element.subType, 'subType', 'poke');
+      const combo =
+        element.combo === undefined ? 0 : requireNonNegativeInt(element.combo, 'combo', 'poke');
       return {
         commonElem: {
           serviceType: 2,
-          pbElem: encode(POKE_EXTRA, { type }),
+          pbElem: encode(POKE_EXTRA, { type, combo }),
           businessType: type,
+        },
+      };
+    }
+    case 'pokeEmoji': {
+      // 与窗口抖动共用 pbElem，只是表情编号走 pokeId（群聊 / 私聊都不受限）。
+      const pokeId = requireNonNegativeInt(element.pokeId, 'pokeId', 'pokeEmoji');
+      const combo =
+        element.combo === undefined
+          ? 0
+          : requireNonNegativeInt(element.combo, 'combo', 'pokeEmoji');
+      return {
+        commonElem: {
+          serviceType: 2,
+          pbElem: encode(POKE_EXTRA, { type: pokeId, combo }),
+          businessType: pokeId,
         },
       };
     }

@@ -147,6 +147,8 @@ type FaceData = {
   faceText?: string;
   innerId?: string;
   subType?: number;
+  /** 戳一戳的连击次数（47617）—— 决定显示尺寸。 */
+  interactiveFaceCombo?: number;
 };
 
 type RenderElement = {
@@ -186,6 +188,8 @@ function faceProps(data: Record<string, unknown> = {}): FaceData {
     faceText: typeof data.faceText === 'string' ? data.faceText : undefined,
     innerId: typeof data.innerId === 'string' ? data.innerId : undefined,
     subType: typeof data.subType === 'number' ? data.subType : Number(data.subType) || undefined,
+    interactiveFaceCombo:
+      data.interactiveFaceCombo === undefined ? undefined : Number(data.interactiveFaceCombo),
   };
 }
 

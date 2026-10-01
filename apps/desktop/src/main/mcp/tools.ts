@@ -3667,7 +3667,9 @@ export const AI_TOOLS: AiTool[] = [
       '\n  {"kind":"mface","marketEmoticonId":"<32位hex>","emojiPackId":123}（商城贴纸，id 从收消息的元素里拿）' +
       '\n  {"kind":"reply","origMsgSeq":123,"origSenderUin":456}' +
       '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
-      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条）' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条；' +
+      '可选 "combo":0~3 = 连击次数，缺省 0）' +
+      '\n  {"kind":"pokeEmoji","pokeId":3,"combo":1}（戳一戳互动表情：pokeId 0~6、combo 0~3，群聊/私聊都能发）' +
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
       '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
