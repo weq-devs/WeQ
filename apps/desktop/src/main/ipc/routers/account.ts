@@ -31,6 +31,7 @@ import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
+import type { TranscribeResult } from '../../transcribe/engine';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
@@ -4357,7 +4358,7 @@ export const accountRouter = router({
         msgId: z.string().default(''),
       }),
     )
-    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+    .mutation(async ({ input }): Promise<TranscribeResult> => {
       const ctx = getAppContext();
       const boot = ctx.bootstrap;
       const services = ctx.services;
@@ -4401,11 +4402,19 @@ export const accountRouter = router({
       const text = result.text ?? '';
       if (input.msgId) {
         // Best-effort: a failed back-write must not lose the text we just got.
+        // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
+        // field QQ itself reads, so it must stay a plain string. Emotion and
+        // events ride alongside in the response instead.
         await services.msgs
           .setPttTranscript(BigInt(input.msgId), input.name, text)
           .catch(() => false);
       }
-      return { success: true, text };
+      return {
+        success: true,
+        text,
+        emotion: result.emotion ?? null,
+        events: result.events ?? [],
+      };
     }),
 
   /** 数据库损坏反馈：打包日志/settings.db/密钥算法配置/检查报告到缓存目录，并打开文件夹 + GitHub/QQ。 */

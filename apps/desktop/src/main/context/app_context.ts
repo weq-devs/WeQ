@@ -43,6 +43,7 @@ import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
+import type { VoiceTagDisplay } from '../transcribe/tags';
 import { createLinuxInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
@@ -628,6 +629,21 @@ export interface NativeInitError {
   message: string;
 }
 
+/**
+ * Result of one SILK → text transcription. Besides the text, SenseVoice also
+ * reports the speaker's tone (`emotion`) and any non-speech sounds it heard
+ * (`events`) — both straight off the model's inline rich tags, no extra model.
+ */
+export interface TranscribeSilkResult {
+  ok: boolean;
+  text?: string;
+  /** Speaker tone (😊 开心 / 😔 难过 …), null when the clip had no emotion tag. */
+  emotion?: VoiceTagDisplay | null;
+  /** Sound events (🎵 背景音 / 😂 笑声 / 👏 掌声 …). */
+  events?: VoiceTagDisplay[];
+  error?: string;
+}
+
 export interface AppContext {
   /** null when native failed to load — check `nativeError` first. */
   platform: Platform | null;
@@ -738,7 +754,7 @@ export interface AppContext {
    * independent (the model is a global setting), so callers that already have a
    * path — e.g. the Ptt cache browser — can skip the message-lookup dance.
    */
-  transcribeSilk(silkPath: string): Promise<{ ok: boolean; text?: string; error?: string }>;
+  transcribeSilk(silkPath: string): Promise<TranscribeSilkResult>;
 }
 
 let cached: AppContext | undefined;
@@ -788,7 +804,7 @@ export function initAppContext(): AppContext {
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
       },
-      transcribeSilk(): Promise<{ ok: boolean; text?: string; error?: string }> {
+      transcribeSilk(): Promise<TranscribeSilkResult> {
         return Promise.resolve({ ok: false, error: '原生组件未就绪' });
       },
     };
@@ -885,9 +901,7 @@ export function initAppContext(): AppContext {
   // Shared voice/transcription closures — both the export manager and AgentLab
   // need the same "silk → text" pipeline (model resolved lazily so a model
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
-  const transcribeSilk = async (
-    silkPath: string,
-  ): Promise<{ ok: boolean; text?: string; error?: string }> => {
+  const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getSettings().voiceTranscribe.modelId;
     if (!modelId) return { ok: false, error: '未选择转录模型' };
     const model = getVoiceModel(modelId);
@@ -906,7 +920,7 @@ export function initAppContext(): AppContext {
       { engine: model.engine, languages: model.languages },
     );
     return r.success
-      ? { ok: true, text: r.text ?? '' }
+      ? { ok: true, text: r.text ?? '', emotion: r.emotion ?? null, events: r.events ?? [] }
       : { ok: false, error: r.error ?? '识别失败' };
   };
   /** True only when a transcription model is configured AND downloaded. */

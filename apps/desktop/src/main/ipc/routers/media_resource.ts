@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
+import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -102,10 +103,12 @@ export const mediaResourceRouter = router({
    */
   transcribeVoice: procedure
     .input(z.object({ rel: z.string() }))
-    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+    .mutation(async ({ input }): Promise<TranscribeResult> => {
       const silk = await requireServices().mediaResource.resolveFile('ptt', input.rel);
       if (!silk) return { success: false, error: '语音文件不存在' };
       const r = await getAppContext().transcribeSilk(silk);
-      return r.ok ? { success: true, text: r.text ?? '' } : { success: false, error: r.error };
+      return r.ok
+        ? { success: true, text: r.text ?? '', emotion: r.emotion ?? null, events: r.events ?? [] }
+        : { success: false, error: r.error };
     }),
 });

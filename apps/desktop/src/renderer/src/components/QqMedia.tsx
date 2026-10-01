@@ -597,12 +597,18 @@ export function QqVoice({
   const storedTranscript = str(data, 'pttTranscript');
   const [transcript, setTranscript] = useState<string | null>(null);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  // SenseVoice reports the speaker's tone + any non-speech sounds as rich tags
+  // (see main `transcribe/tags.ts`); we render them as a badge above the text.
+  const [emotion, setEmotion] = useState<{ emoji: string; label: string } | null>(null);
+  const [events, setEvents] = useState<string[]>([]);
 
   useEffect(() => {
     // Reset the player + transcript if the message identity changes underneath us.
     setPlaying(false);
     setTranscript(null);
     setTranscribeError(null);
+    setEmotion(null);
+    setEvents([]);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -650,8 +656,13 @@ export function QqVoice({
     transcribe
       .mutateAsync({ t: sendTimeMs, name, token, msgId })
       .then((res) => {
-        if (res.success) setTranscript(res.text ?? '');
-        else setTranscribeError(res.error ?? '识别失败');
+        if (res.success) {
+          setTranscript(res.text ?? '');
+          setEmotion(res.emotion ?? null);
+          setEvents((res.events ?? []).map((e) => `${e.emoji ? `${e.emoji} ` : ''}${e.label}`));
+        } else {
+          setTranscribeError(res.error ?? '识别失败');
+        }
       })
       .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
   };
@@ -718,6 +729,21 @@ export function QqVoice({
 
       {hasResult ? (
         <div className={cn('qq-voice-transcript', transcribeError && 'is-error')}>
+          {!transcribeError && (emotion || events.length > 0) ? (
+            <div className="qq-voice-tone">
+              {emotion ? (
+                <span className="qq-voice-tone-chip is-emotion">
+                  {emotion.emoji ? `${emotion.emoji} ` : ''}
+                  {emotion.label}
+                </span>
+              ) : null}
+              {events.map((ev) => (
+                <span key={ev} className="qq-voice-tone-chip">
+                  {ev}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
         </div>
       ) : null}
