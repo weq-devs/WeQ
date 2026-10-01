@@ -207,13 +207,21 @@ export const RED_BAG_DETAIL_SUMMARY = message([
   { name: 'totalAmount', tag: 6, type: 'uint32' },
   /** 金额分配：1 = 等额、2 = 拼手气（与 pre_pack 的 f7 一致）。 */
   { name: 'split', tag: 7, type: 'uint32' },
-  /** 已领取人数。 */
-  { name: 'claimedCount', tag: 8, type: 'uint32' },
+  /**
+   * 领取方场景：1 = 私聊、2 = 群。
+   *
+   * ⚠️ 这个 tag 曾按 `claimedCount`（已领取人数）解析 —— 那是误判：群详情的 f8
+   * 恒为 2，恰好与「群样本里 2 人领取」撞上，于是被当成了人数。真机对照已证伪：
+   * 同群一个「只 1 人领取」的红包照样回 2，而真正的领取人数在 tag 16。
+   */
+  { name: 'scene', tag: 8, type: 'uint32' },
   { name: 'flag9', tag: 9, type: 'uint32' },
   { name: 'expireTime', tag: 11, type: 'uint64' },
   { name: 'flag15', tag: 15, type: 'uint32' },
-  { name: 'flag16', tag: 16, type: 'uint32' },
-  { name: 'flag17', tag: 17, type: 'uint32' },
+  /** 已领取人数（与领取列表长度一一对应）。 */
+  { name: 'claimedCount', tag: 16, type: 'uint32' },
+  /** 已领取金额合计，单位**分**（等于领取列表金额之和）。 */
+  { name: 'claimedAmount', tag: 17, type: 'uint32' },
   { name: 'flag18', tag: 18, type: 'uint64' },
 ]);
 

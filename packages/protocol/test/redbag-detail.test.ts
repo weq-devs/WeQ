@@ -111,7 +111,14 @@ describe('hb_pc_detail（群样本，两个领取人）', () => {
     expect(packet.code).toBe('0');
     expect(result.bizCode).toBe(0);
     expect(result.bizMessage).toBe('ok');
-    expect(result.summary).toMatchObject({ totalNum: 2, totalAmount: 10, claimedCount: 2 });
+    // f8 = 场景（群=2），f16 = 已领人数，f17 = 已领金额合计。
+    expect(result.summary).toMatchObject({
+      totalNum: 2,
+      totalAmount: 10,
+      scene: 2,
+      claimedCount: 2,
+      claimedAmount: 10,
+    });
     expect(result.claims).toHaveLength(2);
     expect(result.claims[0]).toMatchObject({ nickname: 'eSTKim', amount: 7 });
     expect(result.claims[1]).toMatchObject({ nickname: 'H3CoF6', amount: 3 });
@@ -155,8 +162,10 @@ describe('hb_pc_grab（群样本）', () => {
     const result = RedBagGrab.deserialize(packet.plain);
     expect(result.bizCode).toBe(0);
     expect(result.claim).toMatchObject({ uin: '2863253201', nickname: 'eSTKim', amount: 2 });
-    // 抢红包响应里的概况是精简版（没有总个数 / 总额，只有已领人数）。
-    expect(result.summary).toMatchObject({ claimedCount: 2, senderNickname: '1-H3CoF6' });
+    // 抢红包响应里的概况是精简版：既没有总个数 / 总额，也**没有已领人数** ——
+    // 唯一的 "2" 是 tag 8 的领取方场景（群 = 2），不是已领人数。
+    expect(result.summary).toMatchObject({ scene: 2, senderNickname: '1-H3CoF6' });
+    expect(result.summary?.claimedCount).toBeUndefined();
   });
 
   it('serialize 把 token / nickname 映射到 wire 字段', () => {
@@ -188,5 +197,30 @@ describe('hb_pc_grab（群样本）', () => {
     }) as { query: Record<string, unknown> };
     expect(body.query.token).toBe('');
     expect(body.query.nickname).toBe('');
+  });
+});
+
+describe('hb_pc_detail（私聊样本，单个领取人）', () => {
+  // 真机抓包（2026-10-01，账号 2863253201）。响应直接解析：f8 = 场景（私聊 = 1），
+  // f16 = 已领人数（1），f17 = 已领金额（2 分）—— 私聊的 f8 也验证了「场景」语义。
+  it('响应解析出概况与一个领取人', () => {
+    const respHex =
+      '0a01301207737563636573732295010a10a81fd86c4e6def7a81bda32459b7d650128001d9f597' +
+      'fae660a26c3d9e42a6790b06aa9c3d63ec936b3e39a5e2c1adac14a33845fe59823b807d714b7c' +
+      '9dc04e521ffd395d2596d9c05ffb822f575494bb41942671a2c5165ddfd7b4b4869c3a88955336' +
+      '762a7db8b38c4785f230a8ad21dad6767b3dff8241b19afb4af9f8ef1870455737a6f35340c632' +
+      '7fe7f4a973a68d2e';
+    const packet = decodeSsoHandlePacket(hexBytes(respHex));
+    const result = RedBagDetail.deserialize(packet.plain);
+    expect(result.bizCode).toBe(0);
+    expect(result.summary).toMatchObject({
+      totalNum: 1,
+      totalAmount: 2,
+      scene: 1,
+      claimedCount: 1,
+      claimedAmount: 2,
+    });
+    expect(result.claims).toHaveLength(1);
+    expect(result.claims[0]).toMatchObject({ nickname: 'eSTKim', amount: 2 });
   });
 });

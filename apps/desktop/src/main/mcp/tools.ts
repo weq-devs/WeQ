@@ -483,10 +483,21 @@ async function resolveRedBagTarget(
   }
   if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
 
-  const peerUin =
-    input.kind === 'group'
-      ? input.conv
-      : String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+  // peerUin = 这个红包的**领取方**（recvUin）：群红包是群号；私聊红包是「谁被发了
+  // 这个红包」—— 自己收到的 = 自己 uin，自己发出去的 = 对方 uin。
+  //
+  // ⚠️ 私聊不能直接传会话对端：服务端会把它当成另一个红包定位参数，回
+  // `109020052 红包已失效`（真机复现过）。方向由该消息的发送者判断。
+  let peerUin: string;
+  if (input.kind === 'group') {
+    peerUin = input.conv;
+  } else {
+    const peerUinFromConv = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+    const selfUin = String((await svc.profile.getSelfProfile())?.uin ?? '');
+    const msg = await svc.msgs.getC2cMessageById(input.conv, id);
+    const sentBySelf = selfUin !== '' && msg !== null && String(msg.senderUin) === selfUin;
+    peerUin = sentBySelf ? peerUinFromConv : selfUin || peerUinFromConv;
+  }
   if (!peerUin) {
     throw new Error(
       '解析不出红包的领取方 QQ 号：私聊请传对方 uid（find_contact / search_buddies 可拿到），且该 uid 需在本机 uid 映射表里。',

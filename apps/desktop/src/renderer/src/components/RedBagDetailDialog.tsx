@@ -15,6 +15,10 @@
  *
  * 打开前先确认 QQ 在线且已注入 —— 与发消息按钮同条件（见 MainView 的 sendAvailable）。
  * 详情由主进程 `account.redbagDetail` 现取；抢红包走 `account.redbagGrab`（**真的会扣钱**）。
+ *
+ * 查详情失败**不挡「开」按钮**：失败时就当没查到，封面照常给「开」。其中业务码
+ * 私聊 109026670（「您的操作已提交，请确认是否已生效」）/ 群聊 66243906 是预期情况
+ * —— 别人发来的红包自己没领本来就不让看领取情况 —— 静默吞掉；其余报错用 toast 一下。
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
@@ -23,6 +27,7 @@ import { create } from 'zustand';
 import { Crown, RefreshCw, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
+import { useToast } from './Toast';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useEscapeToClose } from '../im-template/template/modalUtils';
@@ -80,6 +85,17 @@ function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+/**
+ * `hb_pc_detail` 对「别人发给自己、自己还没领」的红包会回业务码 —— 不点「开」本来
+ * 就不让看领取情况，属于设计如此，不是故障。这些码静默吞掉：不弹 toast，照常给「开」。
+ *   - 109026670「您的操作已提交，请确认是否已生效」：私聊红包
+ *   - 66243906：群聊红包
+ */
+const RED_BAG_DETAIL_EXPECTED_CODES = ['109026670', '66243906'] as const;
+function isExpectedDetailMiss(message: string): boolean {
+  return RED_BAG_DETAIL_EXPECTED_CODES.some((code) => message.includes(code));
+}
+
 function formatTime(sec: number): string {
   if (!sec) return '';
   const d = new Date(sec * 1000);
@@ -121,17 +137,19 @@ function RedBagDetailDialog({
 }): ReactElement {
   useEscapeToClose(onClose);
   const layer = useOverlayLayer(true);
+  const pushToast = useToast((s) => s.push);
   const [detail, setDetail] = useState<RedBagDetailWire | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [grabbing, setGrabbing] = useState(false);
   const [grabError, setGrabError] = useState<string | null>(null);
   const [result, setResult] = useState<RedBagGrabWire | null>(null);
+  // 自定义封面是从 moggy CDN 现取的：skinId 有值但图挂掉（404 / 下架）时回退默认封面。
+  const [coverBroken, setCoverBroken] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    setError(null);
+    setCoverBroken(false);
     setResult(null);
     setGrabError(null);
     client.account.redbagDetail
@@ -142,7 +160,11 @@ function RedBagDetailDialog({
       })
       .catch((e: unknown) => {
         if (!alive) return;
-        setError(e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        // 预期情况静默吞掉；其余报错 Toast 一下即可 —— 无论哪种，卡片都照常给「开」按钮。
+        if (!isExpectedDetailMiss(message)) {
+          pushToast({ tone: 'error', title: '红包详情查询失败', detail: message });
+        }
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -150,11 +172,12 @@ function RedBagDetailDialog({
     return () => {
       alive = false;
     };
-  }, [target.msgId, target.kind, target.conv]);
+  }, [target.msgId, target.kind, target.conv, pushToast]);
 
-  const cover = target.skinId
-    ? redbagSkinUrl(String(target.skinId))
-    : resourceUrl('img', 'normal_bag.png');
+  const cover =
+    target.skinId && !coverBroken
+      ? redbagSkinUrl(String(target.skinId))
+      : resourceUrl('img', 'normal_bag.png');
 
   const selfUin = detail?.selfUin ?? '';
   const hasOwnClaim = Boolean(detail?.selfClaim);
@@ -225,7 +248,15 @@ function RedBagDetailDialog({
           <>
             {/* 封面底 + 顶部向下弧线：弧线以上露出封面，弧线以下由白板盖住，头像骑在弧线正中 */}
             <div className="weq-redbag-detail-hero">
-              <img className="weq-redbag-detail-cover" src={cover} alt="" draggable={false} />
+              <img
+                className="weq-redbag-detail-cover"
+                src={cover}
+                alt=""
+                draggable={false}
+                onError={() => {
+                  if (target.skinId) setCoverBroken(true);
+                }}
+              />
               <div className="weq-redbag-detail-hero-text">
                 <span className="weq-redbag-detail-hero-name">{senderLabel}</span>
                 {detail?.wishing ? (
@@ -301,17 +332,20 @@ function RedBagDetailDialog({
         ) : (
           /* 无白板态：封面铺满整张卡片（开 / 领取结果 / 自己发的 都走这里） */
           <div className="weq-redbag-detail-plain">
-            <img className="weq-redbag-detail-cover" src={cover} alt="" draggable={false} />
+            <img
+              className="weq-redbag-detail-cover"
+              src={cover}
+              alt=""
+              draggable={false}
+              onError={() => {
+                if (target.skinId) setCoverBroken(true);
+              }}
+            />
             {coverText}
             {loading ? (
               <div className="weq-redbag-detail-plain-loading">
                 <RefreshCw size={20} className="weq-gap-spin" />
                 <span>正在查询…</span>
-              </div>
-            ) : error ? (
-              <div className="weq-redbag-detail-plain-loading is-error">
-                <span>{error}</span>
-                <span className="weq-redbag-detail-hint">查明细需要 QQ 在线且已注入。</span>
               </div>
             ) : result ? (
               /* 领取结果：发送者头像落在领取记录弧线头像的同一位置，下面一行金额 */
@@ -323,9 +357,12 @@ function RedBagDetailDialog({
                   <div className="weq-redbag-detail-result-amount">
                     你领取到了 <strong>{formatAmount(result.amount)}</strong> 元
                   </div>
-                  <div className="weq-redbag-detail-result-meta">
-                    已领取 {result.claimedCount}/{detail?.totalNum || '?'} 个
-                  </div>
+                  {/* grab 响应的概况不带已领人数，拿不到就整行不显示。 */}
+                  {result.claimedCount > 0 ? (
+                    <div className="weq-redbag-detail-result-meta">
+                      已领取 {result.claimedCount}/{detail?.totalNum || '?'} 个
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : (

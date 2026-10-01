@@ -133,6 +133,8 @@ function grabViewFrom(result: RedBagGrabResult): RedBagGrabView {
     senderNickname: result.summary?.senderNickname ?? '',
     wishing: result.summary?.wishing ?? '',
     lucky: result.summary?.split === 2,
+    // grab 响应的概况是精简版，**不带**已领人数（tag 16 缺失）—— 拿不到就是 0，
+    // 前端在 0 时隐藏「已领取 x/y」那一行，不瞎编。
     claimedCount: result.summary?.claimedCount ?? 0,
   };
 }

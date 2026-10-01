@@ -382,8 +382,12 @@ export interface RedBagDetailSummary {
   readonly totalAmount?: number;
   /** 金额分配：1 = 等额、2 = 拼手气。 */
   readonly split?: number;
-  /** 已领取人数。 */
+  /** 领取方场景：1 = 私聊、2 = 群（wire tag 8，**不是**领取人数）。 */
+  readonly scene?: number;
+  /** 已领取人数（wire tag 16）。 */
   readonly claimedCount?: number;
+  /** 已领取金额合计，单位**分**（wire tag 17）。 */
+  readonly claimedAmount?: number;
   /** 红包过期时间（unix 秒）。 */
   readonly expireTime?: number;
 }
@@ -423,11 +427,17 @@ export interface RedBagLocateParams {
   uin: number | bigint | string;
   /** `tenpay.com` 的 p_skey（明文 f1.3）。 */
   pskey: string;
-  /** 红包订单号 / nonce（32 位 hex），来自消息 tag 48451。 */
+  /** 红包订单号 / nonce（32 位 hex），来自消息 tag 48417.f3。 */
   orderId: string;
   /** 32 字节 packetId，来自消息 tag 48417.f2（hex 或字节都行）。 */
   packetId: string | Uint8Array;
-  /** 领取方：私聊 = 对方 uin，群 = 群号。 */
+  /**
+   * 红包的**领取方**（recvUin）：群 = 群号；私聊 = 被发红包的那个 uin
+   * （自己收到的 = 自己，自己发出去的 = 对方）。
+   *
+   * ⚠️ **不是**会话对端：私聊传对端会被服务端当成另一个红包定位参数，回
+   * `109020052 红包已失效`（真机复现）。
+   */
   peerUin: number | bigint | string;
   /** pack.f7：私聊 0 / 群 1。 */
   scene: number;
@@ -463,7 +473,14 @@ function toSummary(raw: Record<string, unknown> | undefined): RedBagDetailSummar
   if (raw.senderUin !== undefined) out.senderUin = String(raw.senderUin);
   if (raw.senderNickname !== undefined) out.senderNickname = String(raw.senderNickname);
   if (raw.wishing !== undefined) out.wishing = String(raw.wishing);
-  for (const key of ['totalNum', 'totalAmount', 'split', 'claimedCount'] as const) {
+  for (const key of [
+    'totalNum',
+    'totalAmount',
+    'split',
+    'scene',
+    'claimedCount',
+    'claimedAmount',
+  ] as const) {
     if (raw[key] !== undefined) out[key] = Number(raw[key]);
   }
   if (raw.expireTime !== undefined) out.expireTime = Number(raw.expireTime);

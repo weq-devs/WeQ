@@ -109,6 +109,15 @@ export function QqWallet({
   const nick = useNickByUin(isDesignated ? uin : null);
   const dialog = useAppDialog();
 
+  // 自定义皮肤是从 moggy CDN 现取的：skinId 有值但图挂掉（404 / 下架）时回退默认封面,
+  // 别让卡片裂成一张破图。换 skinId 时重新给自定义封面一次机会。hook 必须在转账
+  // 卡片提前 return 之前调用。
+  const skinIdStr = typeof skinId === 'number' && skinId > 0 ? String(skinId) : null;
+  const [skinBroken, setSkinBroken] = useState(false);
+  useEffect(() => {
+    setSkinBroken(false);
+  }, [skinIdStr]);
+
   // redbagType 1 → 转账卡片。
   const isTransfer = fine === 1 || (!fineKnown && coarse === 1);
   if (isTransfer) {
@@ -149,7 +158,8 @@ export function QqWallet({
   const isPassword = fine === 6 || (!fineKnown && coarse === 2);
   const bagImage = isPassword ? 'password_bag.png' : 'normal_bag.png';
   const label = fineKnown ? REDBAG_LABEL[fine] : undefined;
-  const skinIdStr = typeof skinId === 'number' && skinId > 0 ? String(skinId) : null;
+  const coverSrc =
+    skinIdStr && !skinBroken ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage);
 
   /**
    * 点红包卡片 → 先看在线注入状态（与发消息按钮同条件），有则开领取明细灯箱。
@@ -202,9 +212,12 @@ export function QqWallet({
     >
       <img
         className="weq-redbag-img"
-        src={skinIdStr ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage)}
+        src={coverSrc}
         alt=""
         draggable={false}
+        onError={() => {
+          if (skinIdStr) setSkinBroken(true);
+        }}
       />
       {isDesignated ? (
         <div className="weq-redbag-tag weq-redbag-tag--designated">
