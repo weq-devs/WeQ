@@ -183,12 +183,12 @@ export function PokeEmojiPanel({
         if (panelRef) panelRef.current = node;
       }}
       role="dialog"
-      aria-label="戳一戳"
+      aria-label="互动表情"
     >
       <header className={cn('poke-head')}>
         <span className={cn('poke-head-title')}>
           <Hand size={14} strokeWidth={2.1} />
-          戳一戳
+          互动表情
         </span>
         <span className={cn('poke-head-tag')}>{random ? '随机表情' : '单独发送'}</span>
         <button

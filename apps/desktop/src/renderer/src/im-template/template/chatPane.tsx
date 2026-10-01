@@ -17,6 +17,7 @@ import {
   Images,
   FolderOpen,
   Bug,
+  Gift,
   Hand,
   Image as ImageIcon,
   Link2,
@@ -93,6 +94,7 @@ import { ArkPanel } from './arkPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
 import {
   PokeEmojiPanel,
   pokeEmojiToken,
@@ -290,6 +292,7 @@ export function ChatPane({
   onSendWindowShake,
   onSendArk,
   onSendFlash,
+  onSendRedPacket,
   arkLocation,
   arkContacts,
   onMessageAction,
@@ -368,6 +371,12 @@ export function ChatPane({
    * 再走 IPC（与 onSendArk 同）。抛出即失败：面板保留已选文件并显示原因。
    */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /**
+   * 红包面板「发红包」—— 面板只收「类型 / 金额 / 个数 / 祝福语（口令）」，发送目标
+   * （私聊对方 / 群号）由应用层补，所以把**当前会话**一起交回（与 onSendArk 同）。
+   * 抛出即失败：面板会显示原因并保留已填内容。
+   */
+  onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入；不传就只有地图 + 手填）。 */
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
@@ -448,13 +457,25 @@ export function ChatPane({
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
   const [flashOpen, setFlashOpen] = useState(false);
+  // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
+  // 下单出码后由应用层弹二维码灯箱。
+  const [redPacketOpen, setRedPacketOpen] = useState(false);
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || bounceOpen || pokeOpen) {
+    if (
+      emojiOpen ||
+      toolsOpen ||
+      voiceOpen ||
+      arkOpen ||
+      aiVoiceOpen ||
+      bounceOpen ||
+      pokeOpen ||
+      redPacketOpen
+    ) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen, pokeOpen]);
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen, pokeOpen, redPacketOpen]);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -482,6 +503,11 @@ export function ChatPane({
   // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
   const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
     enabled: pokeOpen,
+    staleTime: 5 * 60_000,
+  });
+  // 口令候选池：只在红包面板打开、且 QQ 在线时拉一次。
+  const redbagPasswordsQuery = trpc.account.redbagPasswords.useQuery(undefined, {
+    enabled: redPacketOpen && sendAvailable,
     staleTime: 5 * 60_000,
   });
   const pushToast = useToast((state) => state.push);
@@ -582,6 +608,8 @@ export function ChatPane({
   const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
   const pokePanelRef = useRef<HTMLDivElement | null>(null);
   const pokeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
+  const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1168,6 +1196,39 @@ export function ChatPane({
       document.removeEventListener('keydown', closePokeOnEscape);
     };
   }, [pokeOpen]);
+
+  useEffect(() => {
+    if (!redPacketOpen) {
+      return;
+    }
+
+    function closeRedPacketFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        redPacketPanelRef.current?.contains(target) ||
+        redPacketButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setRedPacketOpen(false);
+    }
+
+    function closeRedPacketOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setRedPacketOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeRedPacketFromOutside);
+    document.addEventListener('keydown', closeRedPacketOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeRedPacketFromOutside);
+      document.removeEventListener('keydown', closeRedPacketOnEscape);
+    };
+  }, [redPacketOpen]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
@@ -1809,6 +1870,21 @@ export function ChatPane({
     setPendingQuote(null);
     await onSendArk(conversation, payload);
     setArkOpen(false);
+  }
+
+  /**
+   * 红包面板「发红包」：把当前会话与草稿交给应用层，由它补目标走 IPC 下单出码。
+   *
+   * 成功才关面板 —— 下单失败（服务端拒绝 / 未在线）就保留面板与已填内容，错误由
+   * 应用层 toast 出来（与 ark / 闪传同一套）。
+   */
+  async function sendRedPacket(draft: RedPacketDraft): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendRedPacket) {
+      throw new Error('这个会话不支持发红包。');
+    }
+    setPendingQuote(null);
+    await onSendRedPacket(conversation, draft);
+    setRedPacketOpen(false);
   }
 
   /**
@@ -2468,6 +2544,19 @@ export function ChatPane({
     setPokeOpen((open) => !open);
   }
 
+  /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
+  function toggleRedPacketPanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setPokeOpen(false);
+    setRedPacketOpen((open) => !open);
+  }
+
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
     voiceBusyRef.current = busy;
   }, []);
@@ -2744,6 +2833,8 @@ export function ChatPane({
   const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
   // 戳一戳：群聊 / 私聊都能发（协议上 serviceType 2 的互动表情不分场景）。
   const pokePanelActive = pokeOpen && !mobileComposerExpanded;
+  // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
+  const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
   const composerActionContext: ComposerActionContext = {
     conversation,
@@ -2758,6 +2849,7 @@ export function ChatPane({
       setAiVoiceOpen(false);
       setBounceOpen(false);
       setPokeOpen(false);
+      setRedPacketOpen(false);
     },
   };
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
@@ -3201,11 +3293,22 @@ export function ChatPane({
             ref={pokeButtonRef}
             type="button"
             className={cn('composer-tool', pokeOpen && 'active')}
-            title={hasSingleSend ? singleSendHint : '戳一戳'}
+            title={hasSingleSend ? singleSendHint : '互动表情'}
             disabled={currentPreference.blocked || hasSingleSend}
             onClick={togglePokePanel}
           >
             <Hand size={21} strokeWidth={1.5} />
+          </button>
+          {/* 红包：群聊三档类型 / 私聊两档，下单后弹二维码灯箱。 */}
+          <button
+            ref={redPacketButtonRef}
+            type="button"
+            className={cn('composer-tool', redPacketOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '发红包'}
+            disabled={currentPreference.blocked}
+            onClick={toggleRedPacketPanel}
+          >
+            <Gift size={21} strokeWidth={1.5} />
           </button>
           {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
           {canUseWindowShake ? (
@@ -3388,6 +3491,19 @@ export function ChatPane({
             onClose={() => setPokeOpen(false)}
           />
         ) : null}
+        {redPacketPanelActive ? (
+          <RedPacketPanel
+            panelRef={redPacketPanelRef}
+            group={conversation.type === 'group'}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            passwords={redbagPasswordsQuery.data ?? []}
+            passwordsLoading={redbagPasswordsQuery.isFetching}
+            onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
+            onSend={(draft) => sendRedPacket(draft)}
+            onClose={() => setRedPacketOpen(false)}
+          />
+        ) : null}
         <input
           ref={imageInputRef}
           type="file"
@@ -3548,12 +3664,21 @@ export function ChatPane({
               </button>
               <button
                 type="button"
-                title="戳一戳"
+                title="互动表情"
                 className={cn(pokeOpen && 'active')}
                 disabled={currentPreference.blocked}
                 onClick={togglePokePanel}
               >
                 <Hand size={22} strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                title="发红包"
+                className={cn(redPacketOpen && 'active')}
+                disabled={currentPreference.blocked}
+                onClick={toggleRedPacketPanel}
+              >
+                <Gift size={22} strokeWidth={1.5} />
               </button>
               {canUseWindowShake ? (
                 <button
@@ -3602,6 +3727,19 @@ export function ChatPane({
                 randomFaces={randomFacesQuery.data?.items ?? []}
                 onSendRandom={(draft) => void sendRandomFace(draft)}
                 onClose={() => setPokeOpen(false)}
+              />
+            ) : null}
+            {redPacketOpen ? (
+              <RedPacketPanel
+                panelRef={redPacketPanelRef}
+                group={conversation.type === 'group'}
+                disabled={mediaSendDisabled}
+                disabledHint={sendTitle}
+                passwords={redbagPasswordsQuery.data ?? []}
+                passwordsLoading={redbagPasswordsQuery.isFetching}
+                onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
+                onSend={(draft) => sendRedPacket(draft)}
+                onClose={() => setRedPacketOpen(false)}
               />
             ) : null}
           </section>

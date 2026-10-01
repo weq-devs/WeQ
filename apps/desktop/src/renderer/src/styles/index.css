@@ -24120,3 +24120,97 @@ html[data-theme="dark"] .weq-mf-mall-card {
   color: rgba(255, 231, 194, 0.85);
   font-size: 12px;
 }
+
+/* ---- 红包支付二维码灯箱（发红包下单后） ---- */
+.weq-redbag-qr-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 46%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.weq-redbag-qr {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(320px, calc(100vw - 48px));
+  padding: 26px 24px 22px;
+  border-radius: 18px;
+  background: var(--weq-bg-surface, #ffffff);
+  color: var(--weq-fg-primary, #111111);
+  box-shadow: 0 28px 70px -30px rgba(7, 12, 24, 0.6);
+}
+
+.weq-redbag-qr-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.weq-redbag-qr-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 24%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.weq-redbag-qr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-redbag-qr-img {
+  width: 216px;
+  height: 216px;
+  border-radius: 12px;
+  background: #ffffff;
+  object-fit: contain;
+  user-select: none;
+}
+
+.weq-redbag-qr-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.weq-redbag-qr-amount {
+  color: var(--weq-fg-primary, #111111);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-redbag-qr-count {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12.5px;
+}
+
+.weq-redbag-qr-hint {
+  margin: 0;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
+  text-align: center;
+}

@@ -64,6 +64,7 @@ import {
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
+import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
   type GroupLeftMemberRow,
@@ -132,6 +133,7 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
   arkCardSignature,
@@ -5642,6 +5644,67 @@ export function MainView(): ReactElement {
    * `routingHead.grpTmp`（见 `MessageSendService` 的 `GroupTempSource`），否则服务端
    * 会把它当成非好友之间的普通私聊拒收。
    */
+  /**
+   * 红包面板「发红包」—— 面板只收「金额 / 个数 / 是否口令 / 祝福语」，这里补目标会话走
+   * IPC 下单出码（`hb_pc_pre_pack`），成功后弹二维码灯箱。
+   *
+   * **不做乐观渲染**：这一步只是下单出码，不扣钱，真实红包消息要等 QQ 付款后自己同步
+   * 回来。在线校验与消息发送按钮同一套。
+   */
+  async function sendRedPacket(conversation: Conversation, draft: RedPacketDraft): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发红包需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发红包',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // 私聊给 uid（路由器会查 uid→uin），群聊给群号。
+    const conv =
+      target.peerType === 'group'
+        ? target.targetId
+        : conversation.type === 'direct'
+          ? conversation.otherUser.id
+          : target.targetId;
+
+    try {
+      const result = await client.account.redbagSend.mutate({
+        kind: target.peerType,
+        conv,
+        totalNum: draft.totalNum,
+        totalAmount: draft.totalAmount,
+        lucky: draft.lucky,
+        ...(draft.password ? { password: draft.password } : {}),
+        // 普通红包的祝福语（协议侧与口令共用 f5）；口令红包时 draft.wishing 为 null。
+        ...(draft.wishing ? { wishing: draft.wishing } : {}),
+      });
+      if (result.qrcodeBase64) {
+        openRedBagQrcode({
+          qrcodeBase64: result.qrcodeBase64,
+          lucky: result.lucky,
+          password: draft.password !== null,
+          totalNum: draft.totalNum,
+          totalAmount: draft.totalAmount,
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      pushToast({ tone: 'error', title: '红包发送失败', detail: message });
+      throw e;
+    }
+  }
+
   function sendTargetOf(conversation: Conversation): {
     peerType: 'c2c' | 'group';
     targetId: string;
@@ -6093,6 +6156,7 @@ export function MainView(): ReactElement {
                       arkLocation={arkLocation}
                       arkContacts={arkContacts}
                       onSendFlash={sendFlashTransfer}
+                      onSendRedPacket={sendRedPacket}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}

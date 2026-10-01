@@ -10,6 +10,7 @@ import { ChatPane } from './chatPane';
 import type { LocalMediaRef } from './composerSend';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
+import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
@@ -85,6 +86,7 @@ export function ChatMainContent({
   arkLocation,
   arkContacts,
   onSendFlash,
+  onSendRedPacket,
   onMessageAction,
   onDraftChange,
   onDraftClear,
@@ -177,6 +179,8 @@ export function ChatMainContent({
   arkContacts?: ArkContactSource;
   /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
+  onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
@@ -275,6 +279,7 @@ export function ChatMainContent({
       arkLocation={arkLocation}
       arkContacts={arkContacts}
       onSendFlash={onSendFlash}
+      onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}

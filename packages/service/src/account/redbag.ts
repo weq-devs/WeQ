@@ -24,7 +24,13 @@ import type {
   RedBagDetailSummary,
   RedBagGrabResult,
 } from '@weq/protocol';
-import { RedBagDetail, RedBagGrab, RED_BAG_PSKEY_DOMAIN } from '@weq/protocol';
+import {
+  prePackRedBag,
+  RedBagDetail,
+  RedBagGrab,
+  RedBagPasswordPool,
+  RED_BAG_PSKEY_DOMAIN,
+} from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
@@ -48,6 +54,43 @@ export interface RedBagDetailQuery {
   peerUin: string;
   /** 私聊传 `'c2c'`（wire 0），群传 `'group'`（wire 1）。 */
   peerType: 'c2c' | 'group';
+}
+
+/**
+ * 发一个红包（`hb_pc_pre_pack`）的输入。
+ *
+ * 这一步只**下单出码**，不扣钱 —— 真正付款在手机 QQ 里完成（QQ 会用当前账号
+ * 直接拉起支付页），二维码是扫码回退。
+ */
+export interface RedBagSendParams {
+  /** 领取方是私聊（好友）还是群。 */
+  peerType: 'c2c' | 'group';
+  /** 领取方：私聊传好友 QQ 号，群聊传群号。 */
+  recvUin: string;
+  /** 红包个数。 */
+  totalNum: number;
+  /** 总金额，单位**分**。 */
+  totalAmount: number;
+  /** 是否拼手气（false = 普通等额）。 */
+  lucky: boolean;
+  /** 口令红包的口令；给了就按口令红包走（必然拼手气，真机抓包规则）。 */
+  password?: string;
+  /** 普通红包的祝福语。 */
+  wishing?: string;
+}
+
+/** 发红包的结果：服务端生成的二维码（base64 PNG）与领取 token。 */
+export interface RedBagSendView {
+  /** 下行 f1，字符串 `"0"` 表示成功。 */
+  code: string;
+  /** 下行 f2，抓包 `"success"`。 */
+  message: string;
+  /** 订单号 / 领取 token（明文 f3.3）。 */
+  qrcodeToken: string;
+  /** 二维码 PNG 的 base64（明文 f3.1），拿不到时为 null。 */
+  qrcodeBase64: string | null;
+  /** 拼手气还是等额。 */
+  lucky: boolean;
 }
 
 /** 面向前端的领取明细。 */
@@ -168,6 +211,72 @@ export class RedBagService {
   /** 丢弃缓存的 p_skey，下次重新取。 */
   invalidate(): void {
     this.creds.invalidate(RED_BAG_PSKEY_DOMAIN);
+  }
+
+  /**
+   * 发一个红包（`hb_pc_pre_pack`）—— 下单出码，**不扣钱**。
+   *
+   * 与 detail / grab 共用 sender / p_skey / 签名；这里额外取自己的昵称（明文 f3.8，
+   * 五份抓包都是它）。服务端拒绝时如实抛出错误（bizCode / bizMessage）。
+   */
+  async send(params: RedBagSendParams, pid: number): Promise<RedBagSendView> {
+    // 口令红包必然是拼手气（真机抓包规则）：无论调用方怎么传都归一化成拼手气。
+    const lucky = params.password ? true : params.lucky;
+    // 拼手气要把总金额按分随机分给每个人，所以每人至少 1 分 —— 即「总金额 ≥ 个数」，
+    // 相等时每人正好 1 分，服务端也接受。
+    if (lucky && params.totalAmount < params.totalNum) {
+      throw new Error('拼手气红包的总金额（分）不能少于个数（每人至少 1 分）。');
+    }
+    const selfUin = this.session.context.uin;
+    let nickname = '';
+    try {
+      const profile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
+      nickname = profile?.nick ?? '';
+    } catch {
+      /* 本地 profile_info 查不到就留空 —— 不影响下单。 */
+    }
+
+    const run = async () => {
+      const pskey = await this.pskey();
+      return prePackRedBag(this.nt, pid, {
+        uin: selfUin,
+        pskey,
+        peerType: params.peerType,
+        recvUin: params.recvUin,
+        totalNum: params.totalNum,
+        totalAmount: params.totalAmount,
+        kind: params.password ? 'password' : 'normal',
+        split: lucky ? 'lucky' : 'equal',
+        ...(params.password ? { password: params.password } : {}),
+        ...(params.wishing ? { wishing: params.wishing } : {}),
+        nickname,
+      });
+    };
+
+    // ⚠️ 下单有副作用（服务端建订单），不换票重试：重试会多建一单。p_skey 在
+    // `pskey()` 里现取，失败就如实抛出，由用户重新点一次。
+    const result = await run();
+
+    if (result.code !== '0' || result.bizCode !== 0) {
+      throw new Error(
+        `红包发送失败：code=${result.code || '?'} 业务码=${result.bizCode} ${result.bizMessage || result.message || ''}`.trim(),
+      );
+    }
+    if (!result.qrcode) {
+      throw new Error('红包已下单，但服务端没有返回二维码。');
+    }
+    return {
+      code: result.code,
+      message: result.message,
+      qrcodeToken: result.qrcodeToken ?? '',
+      qrcodeBase64: Buffer.from(result.qrcode).toString('base64'),
+      lucky,
+    };
+  }
+
+  /** 拉一批口令红包的候选口令（`SsoGetToken`）。 */
+  async passwords(pid: number): Promise<string[]> {
+    return RedBagPasswordPool.invoke(this.nt, pid);
   }
 
   /**

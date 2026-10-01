@@ -3674,6 +3674,67 @@ export const accountRouter = router({
     return services.redbag.grab({ ...target, peerType: input.kind }, pid);
   }),
 
+  /**
+   * 发一个红包（`hb_pc_pre_pack`）—— **只下单出码，不扣钱**。
+   *
+   * 前置条件与 {@link redbagDetail} 完全一致（在线 + 已注入，走 hook 发包）。返回的
+   * 是这一单的**二维码 PNG（base64）**，前端在灯箱里展示；真正付款由手机 QQ 完成
+   * （QQ 会用当前账号直接拉起支付页），扫码只是回退。
+   *
+   * `conv`：群聊传群号，私聊传对方 uid（会话 id）或 QQ 号 —— 私聊这里要的是**对方
+   * QQ 号**（recvUin），uid 会先查 uid→uin 映射。
+   */
+  redbagSend: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']).describe('会话类型'),
+        conv: z.string().min(1).describe('私聊为对方 uid / QQ 号，群聊为群号'),
+        totalNum: z.number().int().min(1).max(100).describe('红包个数'),
+        totalAmount: z.number().int().min(1).describe('总金额，单位分'),
+        lucky: z.boolean().describe('是否拼手气（false = 普通等额）'),
+        password: z.string().max(60).optional().describe('口令红包的口令'),
+        wishing: z.string().max(60).optional().describe('普通红包的祝福语'),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      const pid = services.accountConfig.getRecord()?.qqPid;
+      if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+
+      let recvUin: string;
+      if (input.kind === 'group') {
+        recvUin = input.conv;
+      } else if (/^\d+$/.test(input.conv)) {
+        recvUin = input.conv;
+      } else {
+        recvUin = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+      }
+      if (!recvUin) throw new Error('解析不出红包的领取方 QQ 号。');
+
+      return services.redbag.send(
+        {
+          peerType: input.kind,
+          recvUin,
+          totalNum: input.totalNum,
+          totalAmount: input.totalAmount,
+          lucky: input.lucky,
+          ...(input.password ? { password: input.password } : {}),
+          ...(input.wishing ? { wishing: input.wishing } : {}),
+        },
+        pid,
+      );
+    }),
+
+  /** 口令红包的候选口令池（`SsoGetToken`）。需要在线且已注入的 QQ。 */
+  redbagPasswords: procedure.query(async () => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    return services.redbag.passwords(pid);
+  }),
+
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
   listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
     const services = requireServices();

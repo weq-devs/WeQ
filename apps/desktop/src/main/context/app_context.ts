@@ -611,7 +611,7 @@ export interface AccountServices {
   lbs: LbsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
-  /** 红包领取明细（`hb_pc_detail`，需要在线且已注入的 QQ）。 */
+  /** 红包：下单出码 / 领取明细（`hb_pc_pre_pack` / `hb_pc_detail`，需要在线且已注入的 QQ）。 */
   redbag: RedBagService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
   dressInstall: import('@weq/service').DressService;
