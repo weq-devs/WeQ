@@ -13,6 +13,10 @@
  * 自己发的红包（`senderUin === selfUin`）不给「开」按钮 —— 抢自己的红包没有意义，
  * 点了服务端也会拒。
  *
+ * 群聊红包自己不在领取名单里时，还要先看**领完没有**：已领人数已追平总个数就不给
+ * 「开」（改提示「红包已领完」），否则点下去必被服务端拒、在「未领 → 开 → 抢失败」
+ * 之间反复空转。总个数未知（详情查失败）时不判定，照常给「开」。
+ *
  * 打开前先确认 QQ 在线且已注入 —— 与发消息按钮同条件（见 MainView 的 sendAvailable）。
  * 详情由主进程 `account.redbagDetail` 现取；抢红包走 `account.redbagGrab`（**真的会扣钱**）。
  *
@@ -187,6 +191,16 @@ function RedBagDetailDialog({
   const senderUin = detail?.senderUin || target.senderUin || '';
   const senderLabel = senderUin && senderUin === selfUin ? '我' : detail?.senderNickname || '红包';
   const sheetVisible = Boolean(detail && (hasOwnClaim || isMine));
+  // 自己不在领取名单里（hasOwnClaim 为假）时，群聊红包还要先看**领完没有**：
+  // 已领人数已经追平总个数就说明没有余额可领了。此时若还给「开」，点下去服务端必拒，
+  // 而「自己未领 → 给开 → 抢失败 → 还是未领」会一直打转，所以领完直接不给「开」。
+  // 没有详情（查失败 / 预期业务码）或总个数未知时不判定，照常给「开」。
+  const isFullyClaimed =
+    Boolean(detail) &&
+    !hasOwnClaim &&
+    !isMine &&
+    (detail?.totalNum ?? 0) > 0 &&
+    (detail?.claimedCount ?? 0) >= (detail?.totalNum ?? 0);
 
   // 手气王：金额最高的那一条（拼手气才有意义；等额时按服务器顺序取第一个）。
   const kingUin = (() => {
@@ -365,6 +379,11 @@ function RedBagDetailDialog({
                   ) : null}
                 </div>
               </>
+            ) : isFullyClaimed ? (
+              /* 已领完：不再渲染「开」按钮，免得点了必失败、反复空转 */
+              <div className="weq-redbag-detail-plain-done">
+                <span>红包已领完</span>
+              </div>
             ) : (
               <div className="weq-redbag-detail-open">
                 <button

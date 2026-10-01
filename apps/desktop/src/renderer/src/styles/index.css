@@ -24015,6 +24015,21 @@ html[data-theme="dark"] .weq-mf-mall-card {
   color: #fff;
 }
 
+/* 已领完：压在封面正中的一行提示，位置与查询中一致 */
+.weq-redbag-detail-plain-done {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #ffe7c2;
+  font-size: 13px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(80, 10, 4, 0.55);
+}
+
 /* 圆形「开」按钮 + 小字 */
 .weq-redbag-detail-open {
   position: absolute;
