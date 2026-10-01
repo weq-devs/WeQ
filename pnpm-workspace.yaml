@@ -12,3 +12,11 @@ ignoreWorkspaceCycles: true
 allowBuilds:
   electron: true
   esbuild: true
+
+# pnpm 12 起 `pnpm exec` / `pnpm run` 前会先校验 lockfile 与 package.json 是否
+# 一致，CI 下（frozen-lockfile）不一致就直接 ERR_PNPM_OUTDATED_LOCKFILE。
+# 打包链路是有意不一致的：electron-builder 之前会把 apps/desktop/package.json
+# 换成剥掉 workspace 依赖的 release manifest，此时再 `pnpm exec electron-builder`
+# 必然撞上校验。lockfile 的真实性由各处开头的 `pnpm install --frozen-lockfile`
+# 兜底，这里关掉冗余的二次校验。
+verifyDepsBeforeRun: false
