@@ -39,6 +39,39 @@ export const sysEmojiRouter = router({
       });
     }),
 
+  /**
+   * 「可指定结果」的随机/互动动画表情：本地 `lottie/<faceId>_<n>.json` 有结果片段
+   * 的表情，配上 emoji.db 的目录信息（desc / packId / stickerId / stickerType）。
+   *
+   * 前端据此渲染「随机表情」面板，选中结果后按 svc37 + QFaceExtra.resultId 发送。
+   * 列表完全来自本机磁盘（QQ 下什么就有什么），不内置任何 faceId 白名单。
+   */
+  randomFaces: procedure.query(async () => {
+    const services = requireServices();
+    const [innerFaces, catalog] = await Promise.all([
+      services.sysEmoji.listInnerFaces(),
+      services.emoji.listSystemFaces(),
+    ]);
+    const byId = new Map(catalog.map((f) => [String(f.id), f]));
+    const items = innerFaces
+      .map((face) => {
+        const entry = byId.get(String(face.faceId));
+        // 没有贴纸目录信息（packId/stickerId）就发不了 svc37，直接丢掉 ——
+        // 否则服务端会把 faceId 静默换一张脸（SnowLuma issue #168）。
+        if (!entry?.sticker || !entry.packId || !entry.stickerId) return null;
+        return {
+          faceId: face.faceId,
+          desc: entry.desc,
+          packId: entry.packId,
+          stickerId: entry.stickerId,
+          stickerType: entry.stickerType,
+          innerIds: face.innerIds,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    return { items };
+  }),
+
   /** Whether QQ's own face directory exists, and how many faces are on disk. */
   downloadStatus: procedure.query(() => requireServices().sysEmojiDownload.status()),
 

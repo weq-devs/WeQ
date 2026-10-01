@@ -255,6 +255,24 @@ describe('元素打包', () => {
       resultId: '',
       randomType: 1,
     });
+
+    // 指定结果的随机表情（骰子点数 / 包剪锤出拳）：resultId = 收侧 innerId。
+    const withResult = roundTrip({
+      kind: 'face',
+      faceId: 358,
+      superSticker: { packId: '1', stickerId: '33', stickerType: 2, resultId: '5' },
+    });
+    const resultCommon = withResult.commonElem as { serviceType: number; pbElem: Uint8Array };
+    expect(resultCommon.serviceType).toBe(37);
+    expect(decode(QFACE_EXTRA, resultCommon.pbElem)).toEqual({
+      packId: '1',
+      stickerId: '33',
+      qsid: 358,
+      sourceType: 1,
+      stickerType: 2,
+      resultId: '5',
+      randomType: 1,
+    });
   });
 
   it('抓包黄金字节：mface / svc33 / svc37 与真机 QQ 逐字节一致', () => {

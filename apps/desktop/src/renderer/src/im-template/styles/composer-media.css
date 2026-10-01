@@ -2678,6 +2678,11 @@ html[data-theme="dark"] .bounce-search {
   gap: 6px;
 }
 
+/* 随机表情的结果编号（1..n）：同一排按钮，但换成一排数字，个数不定。 */
+.poke-combo.is-random {
+  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+}
+
 .poke-combo-btn {
   display: grid;
   height: 58px;
@@ -2708,6 +2713,19 @@ html[data-theme="dark"] .bounce-search {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
+}
+
+/* 结果编号按钮：文字（不是图），矮一点。 */
+.poke-combo-btn.is-number {
+  height: 44px;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.poke-combo-btn.is-number.is-active {
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
 }
 
 /* ── 表情网格 ────────────────────────────────────────────────────────────── */
@@ -2747,6 +2765,78 @@ html[data-theme="dark"] .bounce-search {
 }
 
 .poke-cell.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+}
+
+/* ── 随机表情（带结果的内置表情，骰子 / 包剪锤 / 活动表情）──────────────────
+ *
+ * 列在 6 个戳脸下方：上面一排是可指定结果的表情，选中后展开结果编号
+ * （innerId 1..n）+ 一枚「发送」。列表与结果都来自本地资源，不硬编码。
+ */
+
+.poke-random {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-random-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.poke-random-tip {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 10.5px;
+}
+
+.poke-random-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 6px;
+}
+
+.poke-random-cell {
+  display: grid;
+  grid-template-rows: 40px auto;
+  gap: 2px;
+  place-items: center;
+  padding: 5px 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.poke-random-cell img {
+  display: block;
+  max-width: 40px;
+  max-height: 40px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-random-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poke-random-cell:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-random-cell.is-active {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
 }

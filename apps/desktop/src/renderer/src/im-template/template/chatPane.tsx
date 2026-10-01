@@ -93,7 +93,13 @@ import { ArkPanel } from './arkPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
-import { PokeEmojiPanel, pokeEmojiToken, type PokeEmojiDraft } from './pokeEmojiPanel';
+import {
+  PokeEmojiPanel,
+  pokeEmojiToken,
+  randomFaceToken,
+  type PokeEmojiDraft,
+  type RandomFaceDraft,
+} from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -472,6 +478,12 @@ export function ChatPane({
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开戳一戳面板时才拉 —— 来源是
+  // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
+  const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
+    enabled: pokeOpen,
+    staleTime: 5 * 60_000,
+  });
   const pushToast = useToast((state) => state.push);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
   // 服务商就没有文字转语音那一栏。
@@ -1853,6 +1865,23 @@ export function ChatPane({
     setPendingQuote(null);
     await submitMessage({
       extraTokens: [pokeEmojiToken(draft)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
+  }
+
+  /**
+   * 随机表情面板「发送」：把「faceId + 目录三件套 + innerId」编成一枚 face 元素
+   * token（superSticker.resultId = innerId），同样走 `extraTokens` 单独成一条消息。
+   * 收端/乐观渲染都会播 `lottie/<faceId>_<innerId>.json` 那个结果片段。
+   */
+  async function sendRandomFace(draft: RandomFaceDraft) {
+    setPokeOpen(false);
+    setBounceOpen(false);
+    setPendingQuote(null);
+    await submitMessage({
+      extraTokens: [randomFaceToken(draft)],
       text: '',
       keepBody: true,
       omitQuote: true,
@@ -3354,6 +3383,8 @@ export function ChatPane({
             disabled={mediaSendDisabled}
             disabledHint={sendTitle}
             onSend={(draft) => void sendPokeEmoji(draft)}
+            randomFaces={randomFacesQuery.data?.items ?? []}
+            onSendRandom={(draft) => void sendRandomFace(draft)}
             onClose={() => setPokeOpen(false)}
           />
         ) : null}
@@ -3568,6 +3599,8 @@ export function ChatPane({
                 disabled={mediaSendDisabled}
                 disabledHint={sendTitle}
                 onSend={(draft) => void sendPokeEmoji(draft)}
+                randomFaces={randomFacesQuery.data?.items ?? []}
+                onSendRandom={(draft) => void sendRandomFace(draft)}
                 onClose={() => setPokeOpen(false)}
               />
             ) : null}

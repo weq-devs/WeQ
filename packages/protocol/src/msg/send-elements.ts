@@ -103,6 +103,15 @@ export interface SendSuperSticker {
   sourceType?: number;
   randomType?: number;
   text?: string;
+  /**
+   * 指定动画结果（QFaceExtra.resultId，tag 6）—— 即收侧 FACE 的 `innerId`
+   * （本机库 tag 47607）。骰子/包剪锤/篮球这类随机表情：留空（缺省）= 服务端随机，
+   * 填 "1".."6" = 指定点数 / 出拳结果，收端渲染 `lottie/<faceId>_<innerId>.json`。
+   *
+   * ⚠️ 只有能解析出目录信息（superSticker）的动态/超级表情才允许带它；收侧的
+   * innerId 与这里的取值一一对应（SnowLuma 93b5c1b `face.resultId`）。
+   */
+  resultId?: string;
 }
 
 /**
@@ -618,8 +627,9 @@ function buildFaceElem(element: SendFaceElement): Record<string, unknown> {
           // stickerType（目录 81215 / SnowLuma 的 aniStickerType）：真机抓包里
           // faceId 324 是 1。**不能缺**：少了收端不认 svc37，退化成内联小表情。
           stickerType: sticker.stickerType ?? 1,
-          // QQ 显式写空的 resultId（`32 00`）；schema 里这个字段是 force 的。
-          resultId: '',
+          // 指定结果（骰子点数等）来自收侧 innerId；缺省留空，QQ 会显式写 `32 00`
+          // （schema 里这个字段是 force 的），服务端据此随机。
+          resultId: sticker.resultId ?? '',
           // QFaceExtra.text：抓包实测 QQ 会带上表情外显文字（324 → "/吃糖"），
           // 缺了收端可能不把它当大贴纸渲染。
           text: sticker.text ?? element.faceText,
