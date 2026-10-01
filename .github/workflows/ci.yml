@@ -157,6 +157,9 @@ jobs:
           mv apps/desktop/package.release.json apps/desktop/package.json
 
       # --dir：只解包到 release/，不产出安装包、不发布。验证打包能跑通即可。
+      # 注：此处的 `pnpm exec` 依赖仓库根的 verifyDepsBeforeRun: false —— release
+      # manifest 剥掉了 workspace 依赖，与 lockfile 天然不一致，pnpm 12 默认会在
+      # 执行前做一次校验并直接 ERR_PNPM_OUTDATED_LOCKFILE。
       - name: Package (dir only, no publish)
         run: pnpm --filter @weq/desktop exec electron-builder --linux --dir
 
