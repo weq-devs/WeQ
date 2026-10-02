@@ -41,6 +41,13 @@ export interface MarketCatalogPage {
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 200;
 
+/**
+ * 「最新上架」最多回看的套数。爬虫（scripts/parcel_crawler.mjs）从当前 CSV 的
+ * max(id) 起向上按 id 递增爬，所以 **id 越大 = 上架越晚**，尾部几行就是最新的。
+ * 这里取尾部这么多条并倒序（最新在最前），作为筛选 chips 里的一个伪来源。
+ */
+const LATEST_LIMIT = 200;
+
 /** 模块级缓存：解析一次，常驻。null = 尚未加载。 */
 let catalog: MarketCatalogEntry[] | null = null;
 
@@ -149,22 +156,30 @@ function loadCatalog(): MarketCatalogEntry[] {
  * 搜索商城表情目录（离线）。
  *   - `keyword`：对 `name + mark` 做小写子串匹配（空 = 不过滤）。
  *   - `feeTypes`：来源标签白名单（空 = 全部）。
+ *   - `latest`：只看「最新上架」——忽略 feeTypes，取 CSV 尾部 {@link LATEST_LIMIT}
+ *     条并倒序（id / 爬取顺序即上架先后，见 parcel_crawler）。可与 keyword 叠加。
  *   - `cursor`：数值下标字符串，稳定可续；`limit` 每页条数（默认 60，上限 200）。
  */
 export function searchCatalog(opts: {
   keyword?: string;
   feeTypes?: MarketPackFeeType[];
+  latest?: boolean;
   limit?: number;
   cursor?: string | null;
 }): MarketCatalogPage {
   const all = loadCatalog();
   const kw = (opts.keyword ?? '').trim().toLowerCase();
-  const feeSet = opts.feeTypes && opts.feeTypes.length > 0 ? new Set(opts.feeTypes) : null;
+  // 最新上架是「时间序」视图，不与来源筛选混用（否则语义含糊）。
+  const feeSet =
+    !opts.latest && opts.feeTypes && opts.feeTypes.length > 0 ? new Set(opts.feeTypes) : null;
+
+  // 最新上架：尾部 LATEST_LIMIT 条，倒序让最新排最前；否则保持 CSV 原始顺序。
+  const base = opts.latest ? all.slice(-LATEST_LIMIT).reverse() : all;
 
   const matched =
     !kw && !feeSet
-      ? all
-      : all.filter((e) => {
+      ? base
+      : base.filter((e) => {
           if (feeSet && !feeSet.has(e.feeType)) return false;
           if (kw && !`${e.name}\n${e.mark}`.toLowerCase().includes(kw)) return false;
           return true;

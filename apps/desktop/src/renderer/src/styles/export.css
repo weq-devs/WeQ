@@ -3532,6 +3532,15 @@ html[data-theme="dark"] .weq-mpd-clear {
   font-size: 11.5px;
 }
 
+/* 「最新上架」与来源筛选并列，用重音描边和它们区分开。 */
+.weq-emb-latest-chip {
+  border-style: dashed;
+}
+
+.weq-emb-latest-chip.is-active {
+  border-style: solid;
+}
+
 .weq-emb-pack-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -3658,6 +3667,33 @@ html[data-theme="dark"] .weq-mpd-clear {
 .weq-emb-detail-head-icon {
   color: var(--weq-accent-effective);
   flex: none;
+}
+
+/* 详情头右侧的一键下载按钮：把当前整套解密 GIF 落盘到用户选的文件夹。 */
+.weq-emb-download {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--weq-accent-effective);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease, opacity 140ms ease;
+}
+
+.weq-emb-download:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+.weq-emb-download:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* 右栏 emoji 滚动区覆盖 weq-mface-lb-scroll 的宽度约束 */
