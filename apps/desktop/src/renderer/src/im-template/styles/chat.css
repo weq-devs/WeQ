@@ -1236,18 +1236,39 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	background: rgba(255, 255, 255, 0.32);
 }
 
-/* Brief highlight when a reply jump lands on its target message. */
-.message-line.weq-reply-target-flash .message-bubble .message-content {
+/* Brief highlight when a reply jump lands on its target message. QQ 本体是**整行底色**
+ * 加重并淡出，而不是只给气泡描一圈边——气泡带装扮 / 换肤时那圈描边很容易被盖掉，
+ * 站位也不明显。所以这里直接在整行（.message-line）上铺一层背景色再渐隐。 */
+.message-line.weq-reply-target-flash {
+	/* 纵向留一点呼吸感：padding 与等量负 margin 抵消，行布局不动。 */
+	margin-block: -4px;
+	padding-block: 4px;
+	border-radius: 10px;
 	animation: weq-reply-flash 1.6s ease;
 }
 
 @keyframes weq-reply-flash {
 	0%,
-	40% {
-		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0.55);
+	45% {
+		background-color: rgba(18, 168, 255, 0.16);
 	}
 	100% {
-		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0);
+		background-color: rgba(18, 168, 255, 0);
+	}
+}
+
+/* 深色主题下底衬更暗，0.16 的蓝几乎看不见——用更亮、更实一点的蓝。 */
+html[data-theme="dark"] .message-line.weq-reply-target-flash {
+	animation: weq-reply-flash-dark 1.6s ease;
+}
+
+@keyframes weq-reply-flash-dark {
+	0%,
+	45% {
+		background-color: rgba(72, 156, 255, 0.28);
+	}
+	100% {
+		background-color: rgba(72, 156, 255, 0);
 	}
 }
 

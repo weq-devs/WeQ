@@ -3802,7 +3802,8 @@ export function ChatPane({
           onClose={() => setGroupInfoDetail(null)}
           onJumpToMessage={(seq) => {
             // 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
-            // jumpToSeq 内部会 String(seq) 归一化并处理快路径/翻页/重建窗口。
+            // jumpToSeq 内部会 String(seq) 归一化，再按已加载窗口的 seq 范围决定
+            // 快路径（滚动）/ 重建居中窗口。
             setGroupInfoDetail(null);
             if (seq == null) {
               console.warn('[essence-jump] missing msgSeq, cannot jump', seq);

@@ -4542,27 +4542,38 @@ export function MainView(): ReactElement {
     [scrollToMsgId, pushToast],
   );
 
-  // Scroll the loaded message list to a reply target, loading older pages first
-  // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
-  // in a different reply field per kind (verified against the live DB):
-  //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
+  // Scroll the loaded message list to a reply target, then briefly flash it. The
+  // 40003 anchor lives in a different reply field per kind (verified against the
+  // live DB): group → origMsgSeq (47402); c2c → origMsgIndex (47419).
+  //
+  // Fast vs. slow is decided from the loaded window's seq range — there is no
+  // paging probe. The window is a contiguous seq range (holes are recalled /
+  // deleted rows, which no fetch can bring back), so:
+  //   · target in the window                → scroll (fast path)
+  //   · inside [minSeq, maxSeq] but absent   → a deleted hole → toast
+  //   · outside the range                    → rebuild a centred window, which
+  //     is constant-cost (2 queries) no matter how far back the target is and
+  //     always finds the message when it still exists.
   const jumpToSeq = useCallback(
     async (jumpTarget: ReplyJumpTarget): Promise<void> => {
       const sel = selectionRef.current;
       if (!sel) {
         return;
       }
+      const notFound = (): void => {
+        pushToast({
+          tone: 'info',
+          title: '未找到该消息',
+          detail: '该消息可能已被撤回或删除。',
+        });
+      };
       const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
       const rawSeq =
         kind === 'group'
           ? (jumpTarget.seq ?? jumpTarget.index)
           : (jumpTarget.index ?? jumpTarget.seq);
       if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
-        pushToast({
-          tone: 'info',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
-        });
+        notFound();
         return;
       }
       const targetSeq = String(rawSeq);
@@ -4573,67 +4584,24 @@ export function MainView(): ReactElement {
         return;
       }
 
-      const targetNum = Number(targetSeq);
-
-      // Slow path A: the target is just above the window — reach it by loading a
-      // few scroll-up pages (cheap, preserves the current context). Capped at 3.
-      let working = loadedRef.current.slice();
-      let reachedTop = false;
-      for (let guard = 0; guard < 3; guard += 1) {
-        const minSeq = working[0]?.msgSeq;
-        if (!minSeq || Number(minSeq) <= targetNum) {
-          break;
-        }
-        if (working.some((m) => m.msgSeq === targetSeq)) {
-          break;
-        }
-        let older: ChatMsgWire[];
+      const current = loadedRef.current;
+      const minSeq = current[0]?.msgSeq;
+      const maxSeq = current[current.length - 1]?.msgSeq;
+      if (minSeq && maxSeq) {
+        let targetNum: bigint;
         try {
-          older = await client.account.listBefore.query({
-            kind,
-            conv: sel.id,
-            beforeSeq: minSeq,
-            limit: PAGE_SIZE,
-          });
-        } catch (err) {
-          console.error('[jumpToSeq] listBefore failed', err);
-          pushToast({
-            tone: 'info',
-            title: '加载消息失败',
-            detail: '请稍后重试，或检查本地数据库状态。',
-          });
-          break;
+          targetNum = BigInt(targetSeq);
+        } catch {
+          notFound();
+          return;
         }
-        if (selectionRef.current?.id !== sel.id) {
-          return; // switched away mid-flight
-        }
-        const known = new Set(working.map((m) => m.msgId));
-        const fresh = older
-          .map(toMessageWire)
-          .reverse()
-          .filter((m) => !known.has(m.msgId));
-        if (fresh.length === 0) {
-          reachedTop = true;
-          break;
-        }
-        working = [...fresh, ...working];
-        if (older.length < PAGE_SIZE) {
-          reachedTop = true;
-          break;
+        if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
+          // Inside the loaded range yet not loaded → a deleted / recalled hole.
+          notFound();
+          return;
         }
       }
 
-      const target = working.find((m) => m.msgSeq === targetSeq);
-      if (target) {
-        setLoaded(working);
-        if (reachedTop) setHasOlder(false);
-        // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
-        window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-        return;
-      }
-
-      // Slow path B: still not found after 3 pages — rebuild a fresh window
-      // centred on the target instead of loading everything up to it.
       await centerWindowOnSeq(sel.id, kind, targetSeq);
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast],
