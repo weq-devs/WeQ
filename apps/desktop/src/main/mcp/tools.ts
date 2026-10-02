@@ -562,6 +562,41 @@ function dressFromArgs(args: {
   return Object.keys(dress).length > 0 ? dress : undefined;
 }
 
+/**
+ * 群报名截止时间解析：接受 10 位 unix 秒、带时区的 ISO 串，或「东八区当地」的
+ * `YYYY-MM-DD HH:mm[:ss]` / `YYYY/MM/DD HH:mm`（无时区时按 +08:00 理解）。
+ * 返回 unix 秒；无法解析时抛可读错误。
+ */
+function parseSignupDeadline(input: string): number {
+  const s = input.trim();
+  if (/^\d{10}$/.test(s)) return Number(s);
+  const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    const [, y, mo, d, h, mi, sec] = m;
+    const utc = Date.UTC(
+      Number(y),
+      Number(mo) - 1,
+      Number(d),
+      Number(h),
+      Number(mi),
+      Number(sec ?? '0'),
+    );
+    return Math.floor(utc / 1000) - 8 * 3600; // 当地日期时间 = 东八区(+08:00)
+  }
+  const ms = Date.parse(s);
+  if (Number.isNaN(ms)) {
+    throw new Error(
+      `deadline 无法解析：${input}（可用 "2026-10-10 00:00"、带时区的 ISO 串，或 10 位 unix 秒）`,
+    );
+  }
+  return Math.floor(ms / 1000);
+}
+
+/** unix 秒 → 东八区可读串（回显用）。 */
+function formatCst(unixSeconds: number): string {
+  return new Date((unixSeconds + 8 * 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'search_messages',
@@ -3932,6 +3967,71 @@ export const AI_TOOLS: AiTool[] = [
         hint: set
           ? '表情回应已发出（要确认是否生效可再看 get_message_details 的 reactions[]）。'
           : '已撤回自己在该消息上贴的这个表情。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_group_signup',
+    description:
+      '【发群报名 / 群收集表】在群里发一张「群报名」卡片（OIDB 0x921b_0）：标题 + 详情，可带报名截止时间 / 报名方式 / 附带图片 / 人数上限。' +
+      '⚠️ 真实发送：会在目标群里出现一条报名卡片，不能通过本工具撤回；需要该账号 QQ 在线。' +
+      '\n【字段】title 标题、detail 详情；deadline 报名截止（不填 = 不截止）；method 报名方式：direct=直接报名（默认）、image=上传图片；maxCount 报名人数上限（默认 200）；imageUrl 附带图片直链（可选）。' +
+      '\n【deadline 怎么写】默认按**东八区**理解：可传 "2026-10-10 00:00"（当地）、带时区的 ISO 串（如 2026-10-10T00:00:00+08:00），或 10 位 unix 秒。' +
+      '\n【imageUrl】只传图片直链；服务会**请求一次**这张图算出 md5 与宽高（QQ 端按 URL+md5 取图），**请求不到就直接报错、不发**。' +
+      '\n【结果怎么看】成功没有回执内容（服务端按空 ack 处理）；失败会抛错误。' +
+      '\n⚠️ 已知缺口：PC/Linux 端服务端会直接拒收并回 `319 [oidb] rule type not match appid`' +
+      '（登录态白名单校验失败）——和图文 Ark 的 901501 同源，属平台规则不匹配，不是参数写错。' +
+      '真机实发必现该错误，报错里会带上原始 status/msg。详见 docs/develop/group-signup.md。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号（纯数字）'),
+      title: z.string().min(1).max(100).describe('标题，如「找搭子」「图片收集」'),
+      detail: z.string().min(1).max(4000).describe('详情正文'),
+      deadline: z
+        .string()
+        .optional()
+        .describe(
+          '报名截止时间（东八区）：如 "2026-10-10 00:00"、带时区 ISO 串或 10 位 unix 秒；不填=不截止',
+        ),
+      method: z
+        .enum(['direct', 'image'])
+        .default('direct')
+        .describe('报名方式：direct=直接报名，image=上传图片'),
+      maxCount: z.number().int().positive().max(200).default(200).describe('报名人数上限'),
+      imageUrl: z.string().url().optional().describe('附带图片直链（可选）'),
+    }),
+    run: async ({ groupCode, title, detail, deadline, method, maxCount, imageUrl }) => {
+      onlinePid(); // 与其它在线工具一致：离线 / 完全离线模式先报可读错误
+      const deadlineTs = deadline ? parseSignupDeadline(deadline) : undefined;
+      const result = await services().interaction.sendGroupSignup({
+        groupCode,
+        title,
+        detail,
+        ...(deadlineTs !== undefined ? { deadline: deadlineTs } : {}),
+        method: method === 'image' ? 2 : 1,
+        maxCount,
+        ...(imageUrl ? { imageUrl } : {}),
+      });
+      return {
+        ok: true,
+        groupCode,
+        title,
+        method,
+        maxCount,
+        ...(deadlineTs !== undefined
+          ? { deadline: deadlineTs, deadlineCst: formatCst(deadlineTs) }
+          : { deadline: null }),
+        ...(result.image
+          ? {
+              image: {
+                url: result.image.url,
+                md5: result.image.md5,
+                width: result.image.width,
+                height: result.image.height,
+              },
+            }
+          : {}),
+        hint: '报名卡片已发出（服务端按空 ack 处理，无法从回执确认是否上屏）。',
       };
     },
   }),

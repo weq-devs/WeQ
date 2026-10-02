@@ -20,6 +20,7 @@
  *   oidb/send-contact-ark.ts     — 推荐好友 / 推荐群 Ark 卡片（0x12b6_0 取卡 + 0x8b7_5 取卡 → PbSendMsg 直接发送）。
  *   oidb/send-location-ark.ts    — SendLocationArk (trpc LocationArk.SsoSendMessage, 位置卡片发送)。
  *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
+ *   oidb/send-group-signup.ts    — SendGroupSignup (0x921b_0, 群报名/收集表卡片)。
  *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
  *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
  *   redbag/              — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
@@ -92,6 +93,17 @@ export type {
   SendAiVoiceResult,
   AiVoiceFileInfo,
 } from './oidb/send-ai-voice';
+export {
+  SendGroupSignup,
+  SIGNUP_METHOD_DIRECT,
+  SIGNUP_METHOD_IMAGE,
+  SIGNUP_MAX_COUNT_DEFAULT,
+  SIGNUP_FIELD10_DEFAULT,
+} from './oidb/send-group-signup';
+export type {
+  SendGroupSignupParams,
+  SendGroupSignupImage,
+} from './oidb/send-group-signup';
 export { SendPoke } from './oidb/send-poke';
 export type { SendPokeParams } from './oidb/send-poke';
 export { SetReaction } from './oidb/set-reaction';

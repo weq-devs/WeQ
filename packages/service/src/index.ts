@@ -549,7 +549,7 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
-export type { SendPokeParams } from './account/interaction';
+export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
 export { FlashTransferService } from './account/flash_transfer';
 export {
   joinRegion,
