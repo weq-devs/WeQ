@@ -1951,6 +1951,27 @@ export const accountRouter = router({
       };
     }),
 
+  /**
+   * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
+   * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
+   * 写的是 QQ 的 nt_msg.db —— 与打开会话的读路径同一把 key。
+   */
+  markConversationRead: procedure
+    .input(
+      z.object({
+        chatType: z.number().int(),
+        uid: z.string().min(1),
+        latestSeq: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
+      // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
+      const ctx = getAppContext();
+      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) return false;
+      return requireServices().unreadInfo.markRead(input.chatType, input.uid, input.latestSeq);
+    }),
+
   /** Newest page of a conversation (open / switch-into), newest-first. */
   listLatest: procedure
     .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))

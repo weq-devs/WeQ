@@ -59,7 +59,9 @@ export interface ReplyJumpTarget {
   /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */
   index?: number | string;
 }
-export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void>(() => {});
+export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(
+  () => {},
+);
 
 /**
  * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a

@@ -125,6 +125,7 @@ import {
   type ConversationHighlight,
   type ConversationPreference,
   type ConversationPreferences,
+  type UnreadDock,
   type GroupJoinRequest,
   type GroupMember,
   type GroupNoticeHandleState,
@@ -149,6 +150,7 @@ import {
   elementsToComposerText,
   toIpcElements,
 } from '../im-template/template';
+import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,
   buildOptimisticRender,
@@ -1618,6 +1620,40 @@ function isRenderableMessage(message: MessageWire): boolean {
     elementTypes: elements.map((el) => (el as RenderElementWire | null)?.type ?? null),
   });
   return false;
+}
+
+/**
+ * 按会话内 seq 找「离 targetSeq 最近的」那一条真实消息。
+ *
+ * 跳转目标可能落在一条 QQ 从未同步过来的「空消息」上（被撤回 / 删除 / 未同步），
+ * 这时窗口里没有对应行。退而定位到最近的邻居：相邻两行之间的 seq 缺口会自动渲染
+ * 出可点击的「此处有 N 条消息缺失 · 点击拉取」占位条，用户据此就能把消息拉下来，
+ * 比直接被丢回最新一页有用得多。
+ */
+function nearestBySeq(messages: MessageWire[], targetSeq: string): MessageWire | null {
+  if (messages.length === 0) return null;
+  let target: bigint;
+  try {
+    target = BigInt(targetSeq);
+  } catch {
+    return messages[messages.length - 1] ?? null;
+  }
+  let best: MessageWire | null = null;
+  let bestDistance: bigint | null = null;
+  for (const message of messages) {
+    let seq: bigint;
+    try {
+      seq = BigInt(message.msgSeq);
+    } catch {
+      continue;
+    }
+    const distance = seq > target ? seq - target : target - seq;
+    if (bestDistance === null || distance < bestDistance) {
+      best = message;
+      bestDistance = distance;
+    }
+  }
+  return best ?? messages[messages.length - 1] ?? null;
 }
 
 /**
@@ -4418,6 +4454,91 @@ export function MainView(): ReactElement {
   const loadingInitialMessages =
     Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
+  // ── 未读跳转坞 ──────────────────────────────────────────────────────────
+  // 打开会话时的一次性引导：把 msg_unread_info_table 里的未读/高亮读进内存，
+  // 随即把该会话标记为已读（清表），右上角再按内存副本逐个引导跳转。
+  // 之所以「先读后清」：清表后 48902 就空了，跳转目标只能靠这份内存副本。
+  const [unreadDock, setUnreadDock] = useState<UnreadDock | null>(null);
+  // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
+  // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
+  // 默认的缺口条（只在跳空 >1 时出现）不会渲染，得由这次跳转手动补上入口。
+  const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
+  // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
+  // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
+  const unreadDockConvRef = useRef<string | null>(null);
+
+  // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
+  useEffect(() => {
+    const conv = selectedConversation;
+    const convId = conv && (conv.type === 'direct' || conv.type === 'group') ? conv.id : null;
+    if (unreadDockConvRef.current !== convId) setUnreadDock(null);
+    setMissingJumpSeq(null);
+    if (convId === null) unreadDockConvRef.current = null;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    const conv = selectedConversation;
+    if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
+      return undefined;
+    }
+    // 等首屏落地：只有知道第一页的 seq 范围，才能判断「读到的 seq 是否已在首屏内」。
+    if (messagesLoading || loaded.length === 0) return undefined;
+    if (unreadDockConvRef.current === conv.id) return undefined;
+
+    const convId = conv.id;
+    unreadDockConvRef.current = convId;
+    const chatType = conv.type === 'group' ? 2 : 1;
+    // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
+    // 因为 loaded / recentContactsData 的后续变化会重跑本 effect（此时早退），
+    // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
+    const stillCurrent = () => unreadDockConvRef.current === convId;
+
+    (async () => {
+      let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
+      try {
+        info = await client.account.getUnreadInfo.query({ chatType, uid: convId });
+      } catch (err) {
+        console.error('[unread-dock] getUnreadInfo failed', err);
+        return;
+      }
+      if (!stillCurrent()) return;
+
+      const readSeq = info?.msgSeq ?? null;
+      // 未读总数用打开时的水位算：recent_contact 40003 − 41002。
+      const contact = recentContactsData.find((c) => c.targetUid === convId);
+      const latest = contact ? BigInt(contact.msgSeq || '0') : 0n;
+      const read = readSeq ? BigInt(readSeq) : 0n;
+      const unread = latest > read ? Number(latest - read) : 0;
+
+      const dock = buildUnreadDock({
+        highlights: info?.highlights ?? null,
+        readSeq,
+        unread,
+        visibleSeqs: loaded.map((m) => m.msgSeq),
+      });
+
+      // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
+      // 这样下次进来不会再重复弹跳转、红点也即时消失。
+      const latestSeq = contact && latest > 0n ? contact.msgSeq : undefined;
+      try {
+        const changed = await client.account.markConversationRead.mutate({
+          chatType,
+          uid: convId,
+          latestSeq,
+        });
+        if (changed) {
+          setUnreadByConv((current) => ({ ...current, [convId]: 0 }));
+          void utils.account.listRecentContacts.invalidate();
+        }
+      } catch (err) {
+        console.error('[unread-dock] markConversationRead failed', err);
+      }
+      if (!stillCurrent()) return;
+      setUnreadDock(dock);
+    })();
+    return undefined;
+  }, [selectedConversation, messagesLoading, loaded, recentContactsData, utils]);
+
   useEffect(() => {
     if (contacts.isLoading) return;
     // Don't auto-open the first conversation: land on the empty placeholder and
@@ -4474,9 +4595,16 @@ export function MainView(): ReactElement {
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
   // discarding whatever is loaded now. Keeps long jumps (reply to an ancient
   // message, or search → jump years back) constant-cost instead of loading
-  // everything between the latest and the target. Returns true if the target
-  // was found and the view repositioned. `conv`/`kind` are passed explicitly so
-  // it works right after a conversation switch (before selectionRef settles).
+  // everything between the latest and the target.
+  //
+  // The target seq does NOT have to exist as a row: when QQ never synced it
+  // (recalled / deleted / unsynced hole) we STILL swap in the window centred on
+  // that seq. Landing there makes the neighbouring rows' seq gap render the
+  // clickable 「此处有 N 条消息缺失 · 点击拉取」 divider, and Toast explains the
+  // miss — i.e. the user can pull the missing messages instead of being dumped
+  // back at the latest page. Returns true only when the exact row was found.
+  // `conv`/`kind` are passed explicitly so it works right after a conversation
+  // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
     async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
       let before: ChatMsgWire[];
@@ -4515,14 +4643,6 @@ export function MainView(): ReactElement {
       }
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
-      if (!target) {
-        pushToast({
-          tone: 'info',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
-        });
-        return false; // not in DB (e.g. recalled) — leave the view as-is
-      }
 
       const atLatest = after.length < PAGE_SIZE;
       // Update the live-subscription's window descriptor synchronously: a
@@ -4536,8 +4656,19 @@ export function MainView(): ReactElement {
       // If the centre sits near the tail, re-anchor so live messages flow in;
       // otherwise stay detached so refreshWindow won't drag us to the latest.
       setAnchoredToLatest(atLatest);
-      window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-      return true;
+      // Exact row present → flash it. Otherwise fall back to the nearest real
+      // message: the clickable gap divider sits right beside it.
+      const anchor = target ?? nearestBySeq(merged, targetSeq);
+      if (!target) {
+        setMissingJumpSeq(targetSeq);
+        pushToast({
+          tone: 'info',
+          title: '未找到该条消息',
+          detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+        });
+      }
+      if (anchor) window.setTimeout(() => scrollToMsgId(anchor.msgId), 160);
+      return Boolean(target);
     },
     [scrollToMsgId, pushToast],
   );
@@ -4549,22 +4680,24 @@ export function MainView(): ReactElement {
   // Fast vs. slow is decided from the loaded window's seq range — there is no
   // paging probe. The window is a contiguous seq range (holes are recalled /
   // deleted rows, which no fetch can bring back), so:
-  //   · target in the window                → scroll (fast path)
-  //   · inside [minSeq, maxSeq] but absent   → a deleted hole → toast
-  //   · outside the range                    → rebuild a centred window, which
-  //     is constant-cost (2 queries) no matter how far back the target is and
-  //     always finds the message when it still exists.
+  //   · target in the window                 → scroll + flash (fast path)
+  //   · inside [minSeq, maxSeq] but absent   → a hole: toast, then scroll to the
+  //     nearest neighbour so the clickable 「消息缺失 · 点击拉取」 divider shows
+  //   · outside the range                    → rebuild a centred window (slow
+  //     path, constant-cost 2 queries). If the target turns out to be a hole
+  //     there too, we still land beside it and toast.
   const jumpToSeq = useCallback(
     async (jumpTarget: ReplyJumpTarget): Promise<void> => {
       const sel = selectionRef.current;
       if (!sel) {
         return;
       }
+      setMissingJumpSeq(null);
       const notFound = (): void => {
         pushToast({
           tone: 'info',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
+          title: '未找到该条消息',
+          detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
       };
       const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
@@ -4587,17 +4720,25 @@ export function MainView(): ReactElement {
       const current = loadedRef.current;
       const minSeq = current[0]?.msgSeq;
       const maxSeq = current[current.length - 1]?.msgSeq;
+      let targetNum: bigint | null = null;
+      try {
+        targetNum = BigInt(targetSeq);
+      } catch {
+        targetNum = null;
+      }
       if (minSeq && maxSeq) {
-        let targetNum: bigint;
-        try {
-          targetNum = BigInt(targetSeq);
-        } catch {
+        if (targetNum === null) {
           notFound();
           return;
         }
         if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
-          // Inside the loaded range yet not loaded → a deleted / recalled hole.
+          // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
+          // 不把用户丢回原地：滚到最近的邻居，并挂一条「点击拉取」的缺口条，
+          // 同时 Toast 说明原因。
           notFound();
+          setMissingJumpSeq(targetSeq);
+          const anchor = nearestBySeq(current, targetSeq);
+          if (anchor) scrollToMsgId(anchor.msgId);
           return;
         }
       }
@@ -6149,6 +6290,8 @@ export function MainView(): ReactElement {
                       onExportConversation={handleExportConversation}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
+                      unreadDock={unreadDock}
+                      missingJumpSeq={missingJumpSeq}
                     />
                   </div>
                   <OverlayScrollbar

@@ -31,6 +31,7 @@ import type {
   MainView,
   Message,
   MessageAction,
+  UnreadDock,
   User,
 } from './types';
 
@@ -114,6 +115,8 @@ export function ChatMainContent({
   onRestoreMessage,
   onOpenTool,
   onSelectTool,
+  unreadDock,
+  missingJumpSeq,
 }: {
   user: User;
   view: MainView;
@@ -218,6 +221,10 @@ export function ChatMainContent({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
+  unreadDock?: UnreadDock | null;
+  /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
+  missingJumpSeq?: string | null;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -305,6 +312,8 @@ export function ChatMainContent({
       onExportConversation={onExportConversation}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}
+      unreadDock={unreadDock}
+      missingJumpSeq={missingJumpSeq}
     />
   );
 }

@@ -138,7 +138,7 @@ import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
-import { MessageGapDivider, messageGapCount } from './messageGap';
+import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
 import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
 import type {
@@ -147,8 +147,10 @@ import type {
   GroupMember,
   Message,
   MessageAction,
+  UnreadDock,
   User,
 } from './types';
+import { dockStopLabel, dockStopTone } from './unreadDock';
 import { displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
@@ -321,6 +323,8 @@ export function ChatPane({
   deletedIds,
   onRestoreMessage,
   onMergeForward,
+  unreadDock,
+  missingJumpSeq,
 }: {
   user: User;
   conversation: Conversation | undefined;
@@ -423,6 +427,17 @@ export function ChatPane({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  /**
+   * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
+   * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
+   */
+  unreadDock?: UnreadDock | null;
+  /**
+   * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
+   * 落在相邻两行之间的「单条缺口」上（seq 差为 1，默认缺口条不渲染），就在那里
+   * 补一条可点击拉取的缺口条。
+   */
+  missingJumpSeq?: string | null;
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
@@ -561,6 +576,8 @@ export function ChatPane({
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
+  // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
+  const [dockIndex, setDockIndex] = useState(0);
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
@@ -630,6 +647,11 @@ export function ChatPane({
   const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
   const unreadConversationRef = useRef<string | null>(null);
   const unreadScrollFrameRef = useRef<number | null>(null);
+
+  // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
+  useEffect(() => {
+    setDockIndex(0);
+  }, [conversation?.id, unreadDock]);
   const visibleMessages = useMemo(
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
@@ -2688,6 +2710,26 @@ export function ChatPane({
     setUnreadJump(null);
   }
 
+  // ── 未读跳转坞 ──────────────────────────────────────────────────────────
+  // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
+  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
+  // 跳完自动消失。
+  const dockStop = unreadDock?.stops[dockIndex] ?? null;
+  const dockVisible = Boolean(dockStop);
+
+  async function jumpDockStop(): Promise<void> {
+    if (!dockStop || !unreadDock) return;
+    const nextIndex = dockIndex + 1;
+    // 先推进游标再跳：跳转要走「快慢路径」（可能要重建窗口、异步），期间用户
+    // 再点应该是下一条，而不是重跳当前这条。
+    setDockIndex(nextIndex);
+    try {
+      await jumpToSeq({ seq: dockStop.seq });
+    } catch (err) {
+      console.error('[unread-dock] jump failed', err);
+    }
+  }
+
   function toggleGroupInfoCollapsed() {
     setGroupInfoCollapsed((current) => {
       const next = !current;
@@ -3067,6 +3109,32 @@ export function ChatPane({
               // that follows the hole.
               const previous = visibleMessages[index - 1];
               const gap = messageGapCount(previous, message);
+              // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
+              // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
+              // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
+              if (
+                gap === 0 &&
+                missingJumpSeq &&
+                previous &&
+                conversation &&
+                onOpenGapMessages &&
+                isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
+              ) {
+                out.push(
+                  <MessageGapDivider
+                    key={`missing-jump-${message.id}`}
+                    count={1}
+                    onOpen={() =>
+                      onOpenGapMessages({
+                        conversation,
+                        previousSeq: String(previous.msgSeq ?? ''),
+                        currentSeq: String(message.msgSeq ?? ''),
+                        count: 1,
+                      })
+                    }
+                  />,
+                );
+              }
               if (gap > 0) {
                 out.push(
                   <MessageGapDivider
@@ -3144,6 +3212,34 @@ export function ChatPane({
         >
           <ChevronsUp size={21} strokeWidth={2.8} />
           <span>{formatUnreadJumpCount(unreadJump.remaining)}条新消息</span>
+        </button>
+      ) : null}
+
+      {/* 未读跳转坞：打开会话时按内存快照逐个引导跳转，跳完自动收起。
+          高亮用告警/内容/红包三色区分，兜底的「新的 N 条未读消息」是中性蓝。 */}
+      {dockVisible && dockStop && unreadDock ? (
+        <button
+          key={`${conversation.id}:${dockStop.kind}:${dockStop.seq}`}
+          className={cn('unread-dock-button', `tone-${dockStopTone(dockStop)}`)}
+          type="button"
+          title={`跳转到${dockStopLabel(dockStop, unreadDock.unread)}`}
+          onClick={() => {
+            void jumpDockStop();
+          }}
+        >
+          {dockStop.kind === 'unread' ? (
+            <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
+          ) : (
+            <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+          )}
+          <span className={cn('unread-dock-label')}>
+            {dockStopLabel(dockStop, unreadDock.unread)}
+          </span>
+          {unreadDock.stops.length > 1 ? (
+            <span className={cn('unread-dock-count')}>
+              {dockIndex + 1}/{unreadDock.stops.length}
+            </span>
+          ) : null}
         </button>
       ) : null}
 
