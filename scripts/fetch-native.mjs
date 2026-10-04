@@ -46,7 +46,7 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -96,6 +96,7 @@ const opt = (flag) => {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
 };
+const quiet = has('--quiet');
 
 if (has('--help') || has('-h')) {
   const self = await readFile(fileURLToPath(import.meta.url), 'utf8');
@@ -168,10 +169,93 @@ function selectedPlatforms() {
 // ─────────────────────────── 小工具 ───────────────────────────
 
 const log = (...args) => {
-  if (!has('--quiet')) console.log(...args);
+  if (!quiet) console.log(...args);
 };
 
 const mb = (bytes) => `${(Number(bytes) / 1024 / 1024).toFixed(1)} MB`;
+
+// ─────────────────────────── 进度条 ───────────────────────────
+
+const IS_TTY = Boolean(process.stdout.isTTY);
+const BAR_WIDTH = 30;
+
+function humanBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fmtTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0 || sec > 86400) return '--';
+  if (sec < 60) return `${sec.toFixed(0)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m${String(s).padStart(2, '0')}s`;
+}
+
+/**
+ * 覆盖式单行进度条。TTY 里用 `\r` 重绘；非 TTY（CI / 重定向）退化成每 5 秒
+ * 打一行纯文本，避免刷屏。宽度不够（总大小未知）时用 spinner + 已下载字节。
+ */
+class Progress {
+  constructor(label) {
+    this.label = label;
+    this.startedAt = Date.now();
+    this.lastAt = 0;
+    this.lastPlainAt = 0;
+    this.lastLen = 0;
+    this.lastText = '';
+    this.spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  }
+
+  render(done, total, force = false) {
+    if (quiet) return;
+    const now = Date.now();
+    const elapsed = Math.max(0.001, (now - this.startedAt) / 1000);
+    const perSec = done / elapsed;
+    const hasTotal = Number.isFinite(total) && total > 0;
+    const finished = hasTotal && done >= total;
+
+    let bar;
+    if (hasTotal) {
+      const ratio = Math.min(1, done / total);
+      const filled = Math.round(ratio * BAR_WIDTH);
+      bar =
+        `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}] ` +
+        `${(ratio * 100).toFixed(1).padStart(5)}%`;
+    } else {
+      bar = `${this.spinner[Math.floor(now / 100) % this.spinner.length]} `;
+    }
+
+    const size = hasTotal ? `${humanBytes(done)}/${humanBytes(total)}` : humanBytes(done);
+    const eta = hasTotal && perSec > 0 ? (total - done) / perSec : Number.NaN;
+    const tail = hasTotal ? `  eta ${fmtTime(eta)}` : '';
+    const rate = `${(perSec / 1024 / 1024).toFixed(1)} MB/s`;
+    const text = `  ${bar}  ${this.label.padEnd(20)} ${size.padStart(18)}  ${rate.padStart(10)}${tail}`;
+
+    if (IS_TTY) {
+      if (!force && !finished && now - this.lastAt < 80) return;
+      this.lastAt = now;
+      process.stdout.write(`\r${text.padEnd(this.lastLen)}`);
+      this.lastLen = Math.max(this.lastLen, text.length);
+    } else {
+      if (!force && !finished && now - this.lastPlainAt < 5000) return;
+      if (text === this.lastText) return; // 别把最后一行打两遍
+      this.lastPlainAt = now;
+      this.lastText = text;
+      console.log(text.trim());
+    }
+  }
+
+  /** 收尾：TTY 里换行收干净，非 TTY 里补一行最终状态。 */
+  end(done, total) {
+    if (quiet) return;
+    this.render(done, total, true);
+    if (IS_TTY) process.stdout.write('\n');
+    this.lastLen = 0;
+  }
+}
 
 async function sha256File(file) {
   const hash = createHash('sha256');
@@ -184,12 +268,29 @@ function ageDays(iso) {
   return Number.isNaN(at) ? Number.NaN : (Date.now() - at) / 86400_000;
 }
 
-async function download(url, dest) {
+async function download(url, dest, { label, size } = {}) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok || !res.body) {
     throw new Error(`下载失败 ${res.status} ${res.statusText}：${url}`);
   }
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+  const contentLength = Number(res.headers.get('content-length')) || 0;
+  const total = size || contentLength;
+  const progress = quiet ? undefined : new Progress(label ?? url);
+  let done = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      done += chunk.length;
+      progress?.render(done, total);
+      cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(res.body), counter, createWriteStream(dest));
+  } catch (err) {
+    if (progress && IS_TTY) process.stdout.write('\n');
+    throw err;
+  }
+  progress?.end(done, total);
 }
 
 // ─────────────────────────── manifest ───────────────────────────
@@ -295,19 +396,26 @@ function planFiles(manifest, platforms) {
 async function install(manifest, files, localDir) {
   const staging = await mkdtemp(join(tmpdir(), 'weq-native-'));
   try {
+    const total = files.length;
+    let index = 0;
     for (const entry of files) {
+      index++;
       if (dryRun) {
         log(`  [dry-run] ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
         continue;
       }
 
       const staged = join(staging, entry.asset);
+      const step = `[${index}/${total}]`;
       if (localDir) {
         const source = join(localDir, entry.asset);
         if (!existsSync(source)) throw new Error(`本地缺资产：${source}`);
         await copyFile(source, staged);
       } else {
-        await download(`${baseUrl}/download/${manifest.tag}/${entry.asset}`, staged);
+        await download(`${baseUrl}/download/${manifest.tag}/${entry.asset}`, staged, {
+          label: `${step} ${entry.label}`,
+          size: entry.size,
+        });
       }
 
       if (entry.sha256) {
@@ -326,7 +434,7 @@ async function install(manifest, files, localDir) {
       await copyFile(staged, incoming);
       await chmod(incoming, 0o644);
       await rename(incoming, dest);
-      log(`  ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
+      log(`  ${step} ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
     }
 
     if (!dryRun) await writeMarker(manifest, files);
