@@ -38,16 +38,20 @@
  *   NT_HELPER_RELEASE_REPO      发布仓，默认 H3CoF6/nt_helper_release
  *   NT_HELPER_RELEASE_BASE_URL  下载前缀（镜像 / 代理），默认 GitHub Releases
  *   NT_HELPER_VERSION           钉死 tag（等价于 --version；CI 里临时试构建用）
+ *   HTTPS_PROXY / HTTP_PROXY    出网代理（含 NO_PROXY）。Node 内置 fetch 不认这几个，
+ *                               这里自己读：Clash 之类只开 HTTP 代理、没开 TUN 时必需。
  */
 
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 // ─────────────────────────── 常量 ───────────────────────────
@@ -184,12 +188,125 @@ function ageDays(iso) {
   return Number.isNaN(at) ? Number.NaN : (Date.now() - at) / 86400_000;
 }
 
-async function download(url, dest) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) {
-    throw new Error(`下载失败 ${res.status} ${res.statusText}：${url}`);
+/**
+ * 取这次请求要用的代理。
+ *
+ * Node 内置的 fetch（undici）**不认** HTTP_PROXY / HTTPS_PROXY，CLI 也没有
+ * `--use-env-proxy`（Node 24 才加），所以本机只挂 HTTP 代理（如 Clash 7897）又没开 TUN
+ * 时，直连 github.com:443 会超时（UND_ERR_CONNECT_TIMEOUT）。这里按惯例自己读一遍。
+ */
+function proxyFor(hostname) {
+  const raw =
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy;
+  if (!raw) return undefined;
+  const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
+  if (noProxy) {
+    const zones = noProxy
+      .split(',')
+      .map((zone) => zone.trim().toLowerCase())
+      .filter(Boolean);
+    const host = hostname.toLowerCase();
+    const skipped = zones.some(
+      (zone) => zone === '*' || host === zone || host.endsWith(`.${zone.replace(/^\./, '')}`),
+    );
+    if (skipped) return undefined;
   }
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+  return new URL(raw);
+}
+
+/** 在代理上对 `host:port` 建一条 CONNECT 隧道，拿到裸 socket。 */
+function openTunnel(proxy, host, port) {
+  return new Promise((resolve, reject) => {
+    const headers = {};
+    if (proxy.username || proxy.password) {
+      const auth = `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`;
+      headers['proxy-authorization'] = `Basic ${Buffer.from(auth).toString('base64')}`;
+    }
+    const req = http.request({
+      host: proxy.hostname,
+      port: proxy.port ? Number(proxy.port) : 80,
+      method: 'CONNECT',
+      path: `${host}:${port}`,
+      headers,
+    });
+    req.once('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(
+          new Error(`代理 CONNECT 失败（${res.statusCode}）：${proxy.host} → ${host}:${port}`),
+        );
+        return;
+      }
+      resolve(socket);
+    });
+    req.once('error', reject);
+    req.end();
+  });
+}
+
+/** 让 http(s).Agent 改走隧道：socket 先连代理，https 再补一层 TLS。 */
+function tunnelAgent(proxy, secure) {
+  const agent = new (secure ? https.Agent : http.Agent)({ keepAlive: false });
+  agent.createConnection = (options, callback) => {
+    openTunnel(proxy, options.host, options.port ?? (secure ? 443 : 80))
+      .then((socket) => {
+        if (!secure) {
+          callback(null, socket);
+          return;
+        }
+        const tls = tlsConnect({ socket, servername: options.servername ?? options.host });
+        tls.once('secureConnect', () => callback(null, tls));
+        tls.once('error', (err) => callback(err));
+      })
+      .catch((err) => callback(err));
+  };
+  return agent;
+}
+
+/** GET 一次并手动跟随重定向（内置 fetch 走不了代理，索性整条链路自己来）。 */
+async function httpGet(url, redirects = 8) {
+  const target = new URL(url);
+  const proxy = proxyFor(target.hostname);
+  const secure = target.protocol === 'https:';
+  const res = await new Promise((resolve, reject) => {
+    const req = (secure ? https.request : http.request)(
+      target,
+      {
+        method: 'GET',
+        headers: { 'user-agent': 'weq-native-fetch', accept: '*/*' },
+        agent: proxy ? tunnelAgent(proxy, secure) : undefined,
+      },
+      resolve,
+    );
+    req.once('error', reject);
+    req.end();
+  });
+  const location = res.headers.location;
+  if ([301, 302, 303, 307, 308].includes(res.statusCode) && location && redirects > 0) {
+    res.resume();
+    return httpGet(new URL(location, target).toString(), redirects - 1);
+  }
+  return res;
+}
+
+/** 把响应体整段读成字符串（manifest / latest.json 都很小）。 */
+async function readBody(res) {
+  let text = '';
+  res.setEncoding('utf8');
+  for await (const chunk of res) text += chunk;
+  return text;
+}
+
+async function download(url, dest) {
+  const res = await httpGet(url);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.resume();
+    throw new Error(`下载失败 ${res.statusCode} ${res.statusMessage ?? ''}：${url}`);
+  }
+  await pipeline(res, createWriteStream(dest));
 }
 
 // ─────────────────────────── manifest ───────────────────────────
@@ -213,16 +330,17 @@ async function loadManifest(version) {
     return { manifest: JSON.parse(await readFile(file, 'utf8')), localDir: fromDir };
   }
   const url = manifestUrl(version);
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) {
+  const res = await httpGet(url);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.resume();
     throw new Error(
-      `拿不到 manifest（${res.status} ${res.statusText}）：${url}\n` +
+      `拿不到 manifest（${res.statusCode} ${res.statusMessage ?? ''}）：${url}\n` +
         (version === 'latest'
           ? '发布仓还没有产物？先去 nt_helper 跑一次 Rust-Release-Build 工作流。'
           : `这个 tag 是${PIN} 里锚定的那个：发布仓里没有它？把锚点改成实际存在的 tag（或用 --latest）。`),
     );
   }
-  return { manifest: await res.json(), localDir: undefined };
+  return { manifest: JSON.parse(await readBody(res)), localDir: undefined };
 }
 
 function manifestUrl(version) {
@@ -234,9 +352,12 @@ function manifestUrl(version) {
 /** 上游 latest 的 tag；拿不到（离线 / 限流）就返回 `undefined`。 */
 async function fetchLatestTag() {
   try {
-    const res = await fetch(manifestUrl('latest'), { redirect: 'follow' });
-    if (!res.ok) return undefined;
-    const manifest = await res.json();
+    const res = await httpGet(manifestUrl('latest'));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      res.resume();
+      return undefined;
+    }
+    const manifest = JSON.parse(await readBody(res));
     return typeof manifest?.tag === 'string' ? manifest.tag : undefined;
   } catch {
     return undefined;
