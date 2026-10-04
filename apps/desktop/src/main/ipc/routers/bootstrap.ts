@@ -1156,6 +1156,18 @@ export const bootstrapRouter = router({
     return requireBootstrap().agentLabConfig.listProviders();
   }),
 
+  /** 按填入的 base_url (+ api_key) 拉取厂商可用模型列表（OpenAI 兼容 GET /models）。 */
+  fetchAgentLabModels: procedure
+    .input(
+      z.object({
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().agentLabConfig.fetchModels(input);
+    }),
+
   saveAgentLabProvider: procedure
     .input(
       z.object({

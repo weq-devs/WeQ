@@ -1,5 +1,6 @@
 import {
   AGENTLAB_PROVIDER_CATALOG,
+  fetchProviderModels,
   normalizeProviderConfig,
   resolveEndpoint,
   testChatEndpoint,
@@ -8,6 +9,7 @@ import {
   type AgentLabModelRef,
   type AgentLabProviderCatalogEntry,
   type AgentLabProviderConfig,
+  type AgentLabProviderModel,
   type TtsProviderConfig,
 } from '@weq/agentlab';
 import type { UserConfigService } from './user_config';
@@ -47,6 +49,16 @@ export class AgentLabConfigService {
 
   listCatalog(): AgentLabProviderCatalogEntry[] {
     return AGENTLAB_PROVIDER_CATALOG;
+  }
+
+  /**
+   * 按填入的 base_url (+ api_key) 拉取厂商可用模型列表（参考 MaiBot 的 /models 代理）。
+   * 不要求先保存 provider：直接拿表单里的值请求，方便「边填边拉」。
+   */
+  async fetchModels(input: { baseUrl: string; apiKey?: string }): Promise<AgentLabProviderModel[]> {
+    const baseUrl = input.baseUrl.trim();
+    if (!baseUrl) throw new Error('请先填写 Base URL。');
+    return fetchProviderModels({ baseUrl, apiKey: input.apiKey });
   }
 
   /**
