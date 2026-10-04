@@ -1947,8 +1947,31 @@ export const accountRouter = router({
           msgSeq: h.msgSeq.toString(),
           senderUid: h.senderUid,
           sendTime: h.sendTime.toString(),
+          // 群提醒词时是命中的关键词；其它类别为 QQ 存的预览文本（常为空）。
+          text: h.text,
         })),
       };
+    }),
+
+  /**
+   * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
+   * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
+   * 写的是 QQ 的 nt_msg.db —— 与打开会话的读路径同一把 key。
+   */
+  markConversationRead: procedure
+    .input(
+      z.object({
+        chatType: z.number().int(),
+        uid: z.string().min(1),
+        latestSeq: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
+      // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
+      const ctx = getAppContext();
+      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) return false;
+      return requireServices().unreadInfo.markRead(input.chatType, input.uid, input.latestSeq);
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
@@ -3405,6 +3428,42 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
       return requireServices().messageSend.sendContactCard(input);
+    }),
+
+  /**
+   * 发一张**群报名 / 群收集表**卡片（OIDB 0x921b_0）。
+   *
+   * 与其它 Ark 卡片不同：它**以群号寻址**（不走当前会话那条发消息通路），所以
+   * `groupCode` 是字段本身。附带图片只收 `imageUrl` 直链，服务层会请求一次算出
+   * md5 / 宽高（见 `InteractionService.sendGroupSignup`）。
+   *
+   * ⚠️ 已知缺口：PC/Linux 端会被服务端在 OIDB 外层以 `319 [oidb] rule type not
+   * match appid` 拒绝（与图文 Ark 的 901501 同源），服务层会把错误翻译成人话再抛。
+   */
+  sendGroupSignup: procedure
+    .input(
+      z.object({
+        groupCode: z.string().regex(/^\d+$/),
+        title: z.string().min(1).max(100),
+        detail: z.string().min(1).max(4000),
+        deadline: z.number().int().positive().optional(),
+        method: z.enum(['direct', 'image']).default('direct'),
+        maxCount: z.number().int().positive().max(200).default(200),
+        imageUrl: z.string().url().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const result = await requireServices().interaction.sendGroupSignup({
+        groupCode: input.groupCode,
+        title: input.title.trim(),
+        detail: input.detail.trim(),
+        ...(input.deadline ? { deadline: input.deadline } : {}),
+        method: input.method === 'image' ? 2 : 1,
+        maxCount: input.maxCount,
+        ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
+      });
+      return { ok: true as const, ...(result.image ? { image: result.image } : {}) };
     }),
 
   /**

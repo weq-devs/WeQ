@@ -137,6 +137,9 @@ import {
   type SsePushConfig,
   WeqAssistantService,
   SsePushService,
+  GroupKeywordService,
+  type GroupKeywordRules,
+  type GroupKeywordHit,
   DbToleranceService,
   createDirectInjectHook,
   type InjectHook,
@@ -231,6 +234,20 @@ const dbWatch = new DbWatchService();
 let dbWatchHandle: DbWatchHandle | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
+/** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
+let groupKeyword: GroupKeywordService | null = null;
+/**
+ * 群关键词命中的「通知」实现（Electron 系统通知 + 写 2006 高亮）。由 app 层注入
+ * —— app_context 保持 Electron-free（web 端共用它），所以这里只留一个可替换钩子。
+ */
+let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null = null;
+
+/** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
+export function setGroupKeywordNotifier(
+  notifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null,
+): void {
+  groupKeywordNotifier = notifier;
+}
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
@@ -274,6 +291,28 @@ function mountDbWatch(session: AccountSession): void {
 function unmountDbWatch(): void {
   dbWatchHandle?.unmount();
   dbWatchHandle = null;
+}
+
+/**
+ * Mount the group-keyword matcher for `session` with the current rules
+ * (idempotent — no-op if already mounted; rules can be updated separately).
+ * Independent of `applyRealtime` / SSE: keywords fire whenever the account is
+ * open, including when SSE push is off.
+ */
+function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
+  if (!groupKeyword) {
+    groupKeyword = new GroupKeywordService(session, {
+      onHit: (hit) => groupKeywordNotifier?.(hit),
+    });
+    groupKeyword.start();
+  }
+  groupKeyword.setRules(rules);
+}
+
+/** Drop the group-keyword matcher. */
+function unmountGroupKeyword(): void {
+  groupKeyword?.stop();
+  groupKeyword = null;
 }
 
 /**
@@ -728,6 +767,13 @@ export interface AppContext {
    */
   applySsePush(config: SsePushConfig): Promise<void>;
   /**
+   * Apply the 群关键词提醒 rules to the open account. The matcher watches the
+   * same `nt_msg.db` as SSE push but is independent of it — it is started
+   * whenever an account is open, so keywords fire even when SSE is off. No-op
+   * when no account is open.
+   */
+  applyGroupKeyword(rules: GroupKeywordRules): Promise<void>;
+  /**
    * Apply the MCP server config to the open account (start / stop / restart the
    * account-bound HTTP server) without re-opening the account. No-op start when
    * no account is open — the server starts lazily on next account open.
@@ -791,6 +837,10 @@ export function initAppContext(): AppContext {
       },
       applySsePush(): Promise<void> {
         /* no account — nothing to push */
+        return Promise.resolve();
+      },
+      applyGroupKeyword(): Promise<void> {
+        /* no account — nothing to match */
         return Promise.resolve();
       },
       applyMcp(): Promise<void> {
@@ -974,6 +1024,7 @@ export function initAppContext(): AppContext {
       dbWatchHandle = null;
       ssePush?.stop();
       ssePush = null;
+      unmountGroupKeyword();
       // A live query failing with a corruption-signature error is what triggers
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
@@ -1434,6 +1485,9 @@ export function initAppContext(): AppContext {
       }
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
       void this.applySsePush(userConfig.getSettings().ssePush);
+      // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
+      // SSE 未开启也要提醒（产品要求）。
+      void this.applyGroupKeyword(userConfig.getSettings().groupKeyword.rules);
 
       // Warm the local search index in the background (never blocks the UI):
       // messages that arrived while WeQ was closed are caught up here, so the
@@ -1526,6 +1580,7 @@ export function initAppContext(): AppContext {
       dbWatchHandle = null;
       ssePush?.stop();
       ssePush = null;
+      unmountGroupKeyword();
       this.scheduler?.stop();
       this.scheduler = null;
 
@@ -1900,6 +1955,9 @@ export function initAppContext(): AppContext {
       }
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
       void this.applySsePush(userConfig.getSettings().ssePush);
+      // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
+      // SSE 未开启也要提醒（产品要求）。
+      void this.applyGroupKeyword(userConfig.getSettings().groupKeyword.rules);
 
       // 静态账号同样在打开时预热年度报告的可用年份（与在线账号同口径、同缓存）。
       const annualReport = this.services?.annualReport;
@@ -1946,6 +2004,7 @@ export function initAppContext(): AppContext {
       unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
+      unmountGroupKeyword();
       this.account?.dispose();
       this.account = null;
       this.services = null;
@@ -1993,6 +2052,17 @@ export function initAppContext(): AppContext {
         event: 'apply-sse-push',
         accountUin: session.context.uin,
         serverId: server.id,
+      });
+    },
+    async applyGroupKeyword(rules: GroupKeywordRules): Promise<void> {
+      const session = this.account;
+      if (!session) return;
+      // 只要账号打开就常驻监听（与 SSE 无关），规则变化时热更新。
+      mountGroupKeyword(session, rules);
+      logger.info('applied group keyword rules', {
+        event: 'apply-group-keyword',
+        accountUin: session.context.uin,
+        groupCount: Object.keys(rules).length,
       });
     },
     async applyMcp(config: McpServerConfig): Promise<void> {

@@ -2,12 +2,13 @@
 /**
  * 输入框工具栏「图文 ark」按钮弹出的**通用 Ark 发送框**。
  *
- * 五个 tab，对应五种卡片：
+ * 六个 tab，对应六类卡片：
  *   1. 推荐好友     → 服务端取卡（0x12b6_0），发一张可点击的好友卡
  *   2. 推荐群       → 服务端取卡（0x8b7_5），发一张可点击的群卡
- *   3. 位置卡片     → 搜索 / 地图点选 + 手写地名，走 trpc LocationArk.SsoSendMessage
- *   4. 图文 ark     → 服务端下发（0xdc2_34，与群反馈的 GitHub issue/PR 卡片同一条路）
- *   5. 自定义 JSON  → 自己写一段 ark JSON，原样下发（lightApp 元素）
+ *   3. 群报名       → 服务端下发（0x921b_0），标题 + 详情 + 截止时间 / 报名方式 / 图片
+ *   4. 位置卡片     → 搜索 / 地图点选 + 手写地名，走 trpc LocationArk.SsoSendMessage
+ *   5. 图文 ark     → 服务端下发（0xdc2_34，与群反馈的 GitHub issue/PR 卡片同一条路）
+ *   6. 自定义 JSON  → 自己写一段 ark JSON，原样下发（lightApp 元素）
  *
  * 只做前端：面板不 import 任何 trpc / 协议，收齐输入后交回 `onSend(payload)`，
  * 由 chatPane 补上「发给哪个会话」再交给应用层（与 aiVoicePanel / bounceEmojiPanel 同）。
@@ -23,6 +24,8 @@ import type { FormEvent, ReactNode, RefObject } from 'react';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import {
   Braces,
+  CalendarClock,
+  ClipboardList,
   Image as ImageIcon,
   Link2,
   Loader2,
@@ -42,29 +45,39 @@ import { QqArk } from '../../components/ark/QqArk';
 import {
   ARK_JSON_TEMPLATE,
   buildContactPlaceholderArk,
+  buildGroupSignupArkJson,
   buildLocationArkJson,
   buildTuwenArkJson,
   checkArkJson,
   emptyLinkCardDraft,
+  emptySignupDraft,
   isDecimalCoordinate,
   isHttpUrl,
   LINK_CARD_MAX_DESC_CHARS,
   LINK_CARD_MAX_TITLE_CHARS,
   LINK_CARD_MAX_URL_CHARS,
+  resolveSignupDeadline,
   resolvedLinkCardIcon,
+  SIGNUP_DETAIL_MAX_CHARS,
+  SIGNUP_MAX_COUNT_DEFAULT,
+  SIGNUP_MAX_COUNT_LIMIT,
+  SIGNUP_TITLE_MAX_CHARS,
   type ArkContactEntry,
   type ArkContactSource,
   type ArkLocationProvider,
   type ArkPayload,
   type LinkCardDraft,
+  type SignupDraft,
+  type SignupMethod,
 } from './arkCards';
 import { ArkLocationTab, emptyLocationDraft, type ArkLocationDraft } from './arkLocationTab';
 
-type ArkTab = 'friend' | 'group' | 'location' | 'tuwen' | 'json';
+type ArkTab = 'friend' | 'group' | 'signup' | 'location' | 'tuwen' | 'json';
 
 const ARK_TABS: Array<{ id: ArkTab; label: string; icon: typeof UserPlus }> = [
   { id: 'friend', label: '好友', icon: UserPlus },
   { id: 'group', label: '群', icon: Users },
+  { id: 'signup', label: '报名', icon: ClipboardList },
   { id: 'location', label: '位置', icon: MapPin },
   { id: 'tuwen', label: '图文', icon: Newspaper },
   { id: 'json', label: 'JSON', icon: Braces },
@@ -364,15 +377,24 @@ function Field({
   label,
   required,
   error,
+  plain,
   children,
 }: {
   label: string;
   required?: boolean;
   error?: string | null;
+  /**
+   * 用 `<div>` 而不是 `<label>` 包裹。
+   *
+   * 字段默认是 label（点标签能聚焦输入框），但**分段控件 / 单选组里是按钮**：
+   * 把按钮塞进 label 会形成非法的嵌套交互元素，点一下就同时「选中该按钮 + 触发 label
+   * 行为」。这几栏改用 div，标签只是视觉标签。
+   */
+  plain?: boolean;
   children: ReactNode;
 }) {
-  return (
-    <label className={cn('link-card-field', error && 'is-invalid')}>
+  const content = (
+    <>
       <span className={cn('link-card-label')}>
         {label}
         {required ? (
@@ -383,8 +405,11 @@ function Field({
       </span>
       {children}
       {error ? <em className={cn('link-card-error')}>{error}</em> : null}
-    </label>
+    </>
   );
+  const className = cn('link-card-field', error && 'is-invalid');
+  if (plain) return <div className={className}>{content}</div>;
+  return <label className={className}>{content}</label>;
 }
 
 export function ArkPanel({
@@ -393,6 +418,7 @@ export function ArkPanel({
   disabledHint,
   location,
   contacts,
+  defaultSignupGroupCode,
   onSend,
   onClose,
 }: {
@@ -404,6 +430,8 @@ export function ArkPanel({
   location?: ArkLocationProvider;
   /** 好友 / 群候选项（应用层注入）；不传则推荐好友 / 群只能手填号码。 */
   contacts?: ArkContactSource;
+  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
+  defaultSignupGroupCode?: string;
   /** 交回应用层发送；**抛出即失败**，面板保留已填内容并显示原因。 */
   onSend: (payload: ArkPayload) => Promise<void>;
   onClose: () => void;
@@ -418,6 +446,8 @@ export function ArkPanel({
   const [friendId, setFriendId] = useState('');
   const [friendPhone, setFriendPhone] = useState('');
   const [groupId, setGroupId] = useState('');
+  // 群报名
+  const [signup, setSignup] = useState<SignupDraft>(() => emptySignupDraft(defaultSignupGroupCode));
   // 位置
   const [locationDraft, setLocationDraft] = useState<ArkLocationDraft>(emptyLocationDraft);
   // 图文 / JSON
@@ -426,6 +456,9 @@ export function ArkPanel({
 
   const friendContactId = parsePositiveInt(friendId);
   const groupContactId = parsePositiveInt(groupId);
+  const signupGroupCode = parsePositiveInt(signup.groupCode);
+  const signupMaxCount = parsePositiveInt(signup.maxCount);
+  const signupDeadline = useMemo(() => resolveSignupDeadline(signup.deadline), [signup.deadline]);
   const latOk = isDecimalCoordinate(locationDraft.latitude, 90);
   const lngOk = isDecimalCoordinate(locationDraft.longitude, 180);
   const jsonCheck = useMemo(() => checkArkJson(rawJson), [rawJson]);
@@ -443,6 +476,11 @@ export function ArkPanel({
     if (tab === 'group') {
       return groupContactId === null ? null : buildContactPlaceholderArk('group', groupContactId);
     }
+    if (tab === 'signup') {
+      // 还差点什么就先不画（跟其它栏一致），标题填了就当卡面已有内容。
+      if (signupGroupCode === null || !signup.title.trim() || !signup.detail.trim()) return null;
+      return buildGroupSignupArkJson(signup);
+    }
     if (tab === 'location') {
       const hasSpot = latOk && lngOk;
       return hasSpot || locationDraft.address.trim() || locationDraft.region.trim()
@@ -453,11 +491,36 @@ export function ArkPanel({
       return tuwen.title.trim() || tuwen.jumpUrl.trim() ? buildTuwenArkJson(tuwen) : null;
     }
     return jsonCheck.ok ? jsonCheck.pretty : null;
-  }, [tab, friendContactId, groupContactId, latOk, lngOk, locationDraft, tuwen, jsonCheck]);
+  }, [
+    tab,
+    friendContactId,
+    groupContactId,
+    signupGroupCode,
+    signup,
+    latOk,
+    lngOk,
+    locationDraft,
+    tuwen,
+    jsonCheck,
+  ]);
 
   const problems = {
     friend: friendContactId === null ? '需要 QQ 号（纯数字）' : null,
     group: groupContactId === null ? '需要群号（纯数字）' : null,
+    signup:
+      signupGroupCode === null
+        ? '需要群号（纯数字）'
+        : !signup.title.trim()
+          ? '需要标题'
+          : !signup.detail.trim()
+            ? '需要详情'
+            : signupMaxCount === null
+              ? '报名上限需要正整数'
+              : signupMaxCount > SIGNUP_MAX_COUNT_LIMIT
+                ? `报名上限不能超过 ${SIGNUP_MAX_COUNT_LIMIT}`
+                : !signupDeadline.ok
+                  ? signupDeadline.error
+                  : null,
     location: !locationDraft.address.trim()
       ? '需要地址'
       : !locationDraft.region.trim()
@@ -489,6 +552,8 @@ export function ArkPanel({
       setFriendPhone('');
     } else if (tab === 'group') {
       setGroupId('');
+    } else if (tab === 'signup') {
+      setSignup(emptySignupDraft(defaultSignupGroupCode));
     } else if (tab === 'location') {
       setLocationDraft(emptyLocationDraft());
     } else if (tab === 'tuwen') {
@@ -513,6 +578,22 @@ export function ArkPanel({
         return groupContactId === null
           ? null
           : { type: 'contact', kind: 'group', contactId: groupContactId };
+      case 'signup':
+        if (signupGroupCode === null || signupMaxCount === null || !signupDeadline.ok) return null;
+        // 群报名由服务端按 0x921b_0 的字段生成卡片（面板只把字段交上去）；
+        // method=image 时把图片直链带上，服务层会请求一次算 md5 / 宽高。
+        return {
+          type: 'signup',
+          groupCode: signupGroupCode,
+          title: signup.title.trim(),
+          detail: signup.detail.trim(),
+          ...(signupDeadline.seconds !== null ? { deadline: signupDeadline.seconds } : {}),
+          method: signup.method === 'image' ? 2 : 1,
+          maxCount: signupMaxCount,
+          ...(signup.method === 'image' && signup.imageUrl.trim()
+            ? { imageUrl: signup.imageUrl.trim() }
+            : {}),
+        };
       case 'location':
         return {
           type: 'location',
@@ -657,6 +738,144 @@ export function ArkPanel({
               onChange={setGroupId}
             />
           </Field>
+        ) : null}
+
+        {tab === 'signup' ? (
+          <>
+            <Field
+              label="群号"
+              required
+              error={touched && signupGroupCode === null ? '需要群号（纯数字）' : null}
+            >
+              <ContactSearch
+                icon={Users}
+                entries={contacts?.groups ?? []}
+                value={signup.groupCode}
+                placeholder="搜索群名，或直接填群号"
+                disabled={sending}
+                onChange={(next) => setSignup((draft) => ({ ...draft, groupCode: next }))}
+              />
+            </Field>
+            <Field
+              label="标题"
+              required
+              error={touched && !signup.title.trim() ? '标题不能为空' : null}
+            >
+              <span className={cn('link-card-input')}>
+                <input
+                  type="text"
+                  value={signup.title}
+                  maxLength={SIGNUP_TITLE_MAX_CHARS}
+                  placeholder="如「周末找搭子」「图片收集」"
+                  onChange={(event) =>
+                    setSignup((draft) => ({ ...draft, title: event.target.value }))
+                  }
+                />
+                <em className={cn('link-card-count')}>
+                  {signup.title.length}/{SIGNUP_TITLE_MAX_CHARS}
+                </em>
+              </span>
+            </Field>
+            <Field
+              label="详情"
+              required
+              error={touched && !signup.detail.trim() ? '详情不能为空' : null}
+            >
+              <textarea
+                value={signup.detail}
+                rows={3}
+                maxLength={SIGNUP_DETAIL_MAX_CHARS}
+                placeholder="说明报名须知、时间地点等"
+                onChange={(event) =>
+                  setSignup((draft) => ({ ...draft, detail: event.target.value }))
+                }
+              />
+            </Field>
+            <Field label="报名方式" plain>
+              <div className={cn('ark-seg')} role="radiogroup" aria-label="报名方式">
+                {(
+                  [
+                    { id: 'direct', label: '直接报名', caption: '点一下即报名' },
+                    { id: 'image', label: '上传图片', caption: '报名时交图' },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={signup.method === item.id}
+                    className={cn('ark-seg-btn', signup.method === item.id && 'is-active')}
+                    onClick={() =>
+                      setSignup((draft) => ({ ...draft, method: item.id as SignupMethod }))
+                    }
+                  >
+                    <span className={cn('ark-seg-label')}>{item.label}</span>
+                    <span className={cn('ark-seg-caption')}>{item.caption}</span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <div className={cn('ark-grid-2')}>
+              <Field
+                label="截止时间"
+                error={touched && !signupDeadline.ok ? signupDeadline.error : null}
+              >
+                <span className={cn('link-card-input')}>
+                  <CalendarClock size={14} strokeWidth={1.9} />
+                  <input
+                    type="text"
+                    value={signup.deadline}
+                    placeholder="留空 = 不截止"
+                    spellCheck={false}
+                    onChange={(event) =>
+                      setSignup((draft) => ({ ...draft, deadline: event.target.value }))
+                    }
+                  />
+                </span>
+              </Field>
+              <Field
+                label="人数上限"
+                required
+                error={touched && signupMaxCount === null ? '需要正整数' : null}
+              >
+                <span className={cn('link-card-input')}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={signup.maxCount}
+                    placeholder={String(SIGNUP_MAX_COUNT_DEFAULT)}
+                    spellCheck={false}
+                    onChange={(event) =>
+                      setSignup((draft) => ({
+                        ...draft,
+                        maxCount: event.target.value.replace(/[^\d]/g, '').slice(0, 3),
+                      }))
+                    }
+                  />
+                  <em className={cn('link-card-count')}>人</em>
+                </span>
+              </Field>
+            </div>
+            {signup.method === 'image' ? (
+              <Field label="图片直链">
+                <span className={cn('link-card-input')}>
+                  <ImageIcon size={14} strokeWidth={1.9} />
+                  <input
+                    type="text"
+                    value={signup.imageUrl}
+                    placeholder="https://…（服务端会取这张图）"
+                    spellCheck={false}
+                    onChange={(event) =>
+                      setSignup((draft) => ({ ...draft, imageUrl: event.target.value }))
+                    }
+                  />
+                </span>
+              </Field>
+            ) : null}
+            {signup.deadline.trim() && signupDeadline.ok ? (
+              <p className={cn('ark-locate-note')}>截止：{signupDeadline.label}（东八区）</p>
+            ) : null}
+          </>
         ) : null}
 
         {tab === 'location' ? (

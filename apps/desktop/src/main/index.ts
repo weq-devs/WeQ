@@ -14,7 +14,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { initAppContext } from './context/app_context';
+import { initAppContext, setGroupKeywordNotifier } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
@@ -27,6 +27,7 @@ import {
   registerMediaProtocol,
 } from './protocol_register';
 import { getAppContext } from './context/app_context';
+import { handleGroupKeywordHit } from './group_keyword_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
@@ -573,6 +574,9 @@ void app.whenReady().then(async () => {
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
+  // 群关键词命中：弹系统通知（群头像）+ 写 unread 2006 高亮。服务层不认识
+  // Electron，所以实现注入在这里（app_context 保持 Electron-free）。
+  setGroupKeywordNotifier(handleGroupKeywordHit);
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();

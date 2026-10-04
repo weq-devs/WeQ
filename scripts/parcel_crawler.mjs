@@ -109,14 +109,18 @@ async function fetchOne(pid, delay) {
 }
 
 // Fetch ids with a bounded worker pool; return Map pid -> [status, row].
-async function fetchWindow(ids, concurrency, delay) {
+// onResult fires as soon as each request settles, so callers can paint a live
+// progress bar instead of waiting for the whole window to drain.
+async function fetchWindow(ids, concurrency, delay, onResult) {
   const out = new Map();
   let next = 0;
   async function worker() {
     while (next < ids.length) {
       const pid = ids[next++];
       await sleep((delay + Math.random() * delay) * 1000);
-      out.set(pid, await fetchOne(pid, delay));
+      const result = await fetchOne(pid, delay);
+      out.set(pid, result);
+      onResult?.(pid, result[0]);
     }
   }
   const workers = [];
@@ -167,13 +171,56 @@ class Writer {
 
 // ---- progress bars ---------------------------------------------------------
 const BAR_WIDTH = 30;
+const IS_TTY = Boolean(process.stdout.isTTY);
 
-function renderBar(done, total, suffix) {
+// A single self-overwriting status line. On a TTY it repaints with \r; when
+// stdout is piped (CI / logs) it degrades to a plain line every few seconds
+// instead of spamming carriage returns.
+class LiveLine {
+  constructor() {
+    this.lastAt = 0;
+    this.lastPlainAt = 0;
+    this.lastLen = 0;
+  }
+
+  update(text, force = false) {
+    const now = Date.now();
+    if (IS_TTY) {
+      if (!force && now - this.lastAt < 80) return;
+      this.lastAt = now;
+      // Pad to the previous width so stale characters get overwritten.
+      process.stdout.write(`\r${text.padEnd(this.lastLen)}`);
+      this.lastLen = Math.max(this.lastLen, text.length);
+    } else {
+      if (!force && now - this.lastPlainAt < 5000) return;
+      this.lastPlainAt = now;
+      console.log(text.trim());
+    }
+  }
+
+  end() {
+    if (IS_TTY) process.stdout.write('\n');
+    this.lastLen = 0;
+  }
+}
+
+function bar(done, total) {
   const ratio = total > 0 ? Math.min(1, done / total) : 0;
   const filled = Math.round(ratio * BAR_WIDTH);
-  const bar = '#'.repeat(filled) + '-'.repeat(BAR_WIDTH - filled);
-  const pct = (ratio * 100).toFixed(1).padStart(5);
-  process.stdout.write(`\r  [${bar}] ${pct}%  ${suffix}`);
+  const body = '█'.repeat(filled) + '░'.repeat(BAR_WIDTH - filled);
+  return `[${body}] ${(ratio * 100).toFixed(1).padStart(5)}%`;
+}
+
+function human(n) {
+  return Number(n).toLocaleString('en-US');
+}
+
+function fmtTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0 || sec > 86400) return '--';
+  if (sec < 60) return `${sec.toFixed(0)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m${String(s).padStart(2, '0')}s`;
 }
 
 // Crawl an inclusive fixed range; no early stop (skip internal holes).
@@ -181,13 +228,25 @@ function renderBar(done, total, suffix) {
 async function crawlRange(a, b, writer, cfg, stats) {
   const total = b - a + 1;
   console.log(`[range] ${a}-${b}  (${total} 个)`);
+  const line = new LiveLine();
+  const startedAt = Date.now();
   let pid = a;
   let done = 0;
+  let liveHits = 0; // hits in the in-flight window, shown before we commit them
   let consecErr = 0;
   while (pid <= b) {
     const ids = [];
     for (let i = pid; i < Math.min(pid + WINDOW, b + 1); i++) ids.push(i);
-    const res = await fetchWindow(ids, cfg.concurrency, cfg.delay);
+    const res = await fetchWindow(ids, cfg.concurrency, cfg.delay, (_id, status) => {
+      done++;
+      if (status === 'hit') liveHits++;
+      const perSec = done / Math.max(0.001, (Date.now() - startedAt) / 1000);
+      const eta = perSec > 0 ? (total - done) / perSec : Number.NaN;
+      line.update(
+        `  ${bar(done, total)}  ${human(done)}/${human(total)}  ` +
+          `hits=${human(stats.hits + liveHits)}  ${perSec.toFixed(0)}/s  eta ${fmtTime(eta)}`,
+      );
+    });
     for (const i of ids) {
       const [status, row] = res.get(i);
       if (status === 'hit') {
@@ -207,29 +266,47 @@ async function crawlRange(a, b, writer, cfg, stats) {
         }
       }
     }
-    done += ids.length;
-    renderBar(done, total, `hits=${stats.hits}`);
+    liveHits = 0;
     pid += WINDOW;
   }
-  process.stdout.write('\n');
+  line.update(
+    `  ${bar(total, total)}  ${human(total)}/${human(total)}  hits=${human(stats.hits)}  done`,
+    true,
+  );
+  line.end();
 }
 
 // Crawl upward from start until EMPTY_THRESHOLD consecutive misses.
-// Total is unknown, so the progress bar cycles every 100 ids (fills, then
-// resets to zero) to show it's alive and advancing.
+// Total is unknown, so instead of a fake cycling bar we show how many ids have
+// been scanned, the current id, and how close we are to the empty-threshold stop.
 async function crawlOpen(start, writer, cfg, stats) {
-  const CYCLE = 100;
   console.log(`[open ] from ${start}, stop after ${cfg.emptyThreshold} consecutive empty`);
+  const line = new LiveLine();
+  const startedAt = Date.now();
+  const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   let pid = start;
+  let scanned = 0;
+  let liveHits = 0; // hits in the in-flight window, shown before we commit them
+  let lastId = start - 1;
   let consecEmpty = 0;
   let consecErr = 0;
-  let cycleDone = 0;
   while (consecEmpty < cfg.emptyThreshold) {
     const ids = [];
     for (let i = pid; i < pid + WINDOW; i++) ids.push(i);
-    const res = await fetchWindow(ids, cfg.concurrency, cfg.delay);
+    const windowEnd = ids[ids.length - 1];
+    const res = await fetchWindow(ids, cfg.concurrency, cfg.delay, (_id, status) => {
+      scanned++;
+      if (status === 'hit') liveHits++;
+      const perSec = scanned / Math.max(0.001, (Date.now() - startedAt) / 1000);
+      line.update(
+        `  ${spinner[scanned % spinner.length]} scanned ${human(scanned)}  @${human(windowEnd)}  ` +
+          `hits=${human(stats.hits + liveHits)}  empty_streak=${consecEmpty}/${cfg.emptyThreshold}  ` +
+          `${perSec.toFixed(0)}/s  ${fmtTime((Date.now() - startedAt) / 1000)}`,
+      );
+    });
     let stop = false;
     for (const i of ids) {
+      lastId = i;
       const [status, row] = res.get(i);
       if (status === 'hit') {
         writer.write(row);
@@ -253,17 +330,17 @@ async function crawlOpen(start, writer, cfg, stats) {
         }
       }
     }
-    cycleDone = (cycleDone + ids.length) % CYCLE; // wraps back to 0 every 100
-    renderBar(
-      cycleDone === 0 ? CYCLE : cycleDone,
-      CYCLE,
-      `hits=${stats.hits}  empty_streak=${consecEmpty}  @${pid + WINDOW}`,
-    );
+    liveHits = 0;
     if (stop) break;
     pid += WINDOW;
   }
-  process.stdout.write('\n');
-  console.log(`[open ] reached end near ${pid} (${cfg.emptyThreshold} empties in a row)`);
+  line.update(
+    `  scanned ${human(scanned)}  hits=${human(stats.hits)}  ` +
+      `empty_streak=${consecEmpty}/${cfg.emptyThreshold}  ${fmtTime((Date.now() - startedAt) / 1000)}`,
+    true,
+  );
+  line.end();
+  console.log(`[open ] reached end near ${lastId} (${cfg.emptyThreshold} empties in a row)`);
 }
 
 // Return list of segments: ['range', a, b] or ['open', start].

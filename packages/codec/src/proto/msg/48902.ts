@@ -11,7 +11,8 @@
  *   50005 {                       // conversation extension
  *     50001 peerUid, 50002 chatType
  *     50060 {                     // notify-highlight aggregate (absent when none)
- *       50000 kind                // 1000 = @我, 1002 = 回复我, 1006 = 特别关心
+ *       50000 kind                // 1000 = @我, 1002 = 回复我, 1006 = 特别关心,
+ *                                 // 2005 = 群公告, 2006 = 群提醒词
  *       50040 {                   // one entry per highlighted message
  *         50020 msgSeq            // seq of the highlighted message
  *         50022 senderUid         // who sent it
@@ -42,7 +43,8 @@ const NotifyHighlightItem = {
 /** 50060 — notify-highlight aggregate; present only when the conversation has
  *  a highlighted unread (e.g. 特别关心). */
 const NotifyHighlight = {
-  /** 50000 — highlight kind. 1000 = @我, 1002 = 回复我, 1006 = 特别关心. */
+  /** 50000 — highlight kind. 1000 = @我, 1002 = 回复我, 1006 = 特别关心,
+   *  2005 = 群公告, 2006 = 群提醒词. */
   kind: ProtoField(50000, ScalarType.UINT32, { optional: true }),
   /** 50040 — highlighted messages (one per message). */
   items: ProtoField(50040, () => NotifyHighlightItem, { optional: true, repeat: true }),

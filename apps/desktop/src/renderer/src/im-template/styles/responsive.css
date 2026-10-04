@@ -904,6 +904,17 @@
 		box-shadow: 0 4px 18px rgba(0, 0, 0, 0.13);
 	}
 
+	/* 移动端把跳转坞挪到顶栏正下方、贴右边缘（与旧的未读按钮同一位置）。 */
+	.unread-dock-button,
+	.chat-pane.with-group-info:not(.group-info-collapsed) .unread-dock-button {
+		top: calc(var(--chat-header-height) + 10px);
+		right: 12px;
+		height: 30px;
+		gap: 6px;
+		padding: 0 13px;
+		font-size: 13px;
+	}
+
 	.message-line {
 		gap: 8px;
 	}

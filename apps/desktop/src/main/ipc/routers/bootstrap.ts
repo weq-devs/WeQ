@@ -44,6 +44,7 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
+import { takePendingGroupJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -182,6 +183,27 @@ export const bootstrapRouter = router({
         accountEventBus.off('forcedClosed', handler);
       };
     });
+  }),
+
+  /**
+   * 群关键词通知被点击：主进程已记下一个「打开该群、跳到该 seq」的请求。渲染层
+   * 收到本信号后调 `consumeGroupKeywordJump` 领走并执行跳转。
+   */
+  onGroupKeywordJump: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (payload: { at: number }): void => {
+        emit.next(payload);
+      };
+      accountEventBus.on('groupKeywordJump', handler);
+      return () => {
+        accountEventBus.off('groupKeywordJump', handler);
+      };
+    });
+  }),
+
+  /** 领走一条待处理的群关键词跳转（无则返回 null）。 */
+  consumeGroupKeywordJump: procedure.query(() => {
+    return takePendingGroupJump();
   }),
 
   /** Platform kind, so the renderer can branch linux-only key behaviour. */
@@ -838,6 +860,40 @@ export const bootstrapRouter = router({
     }),
 
   /**
+   * 群关键词提醒的规则。前端在群聊顶栏设置完就整体写回（按群号 keyed），主进程
+   * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   */
+  getGroupKeywordRules: procedure.query(() => {
+    return requireBootstrap().userConfig.getSettings().groupKeyword.rules;
+  }),
+
+  setGroupKeywordRules: procedure
+    .input(
+      z.object({
+        rules: z.record(
+          z.string(),
+          z.object({
+            keywords: z
+              .array(
+                z.object({
+                  keyword: z.string().max(200),
+                  memberUids: z.array(z.string()).max(2000),
+                }),
+              )
+              .max(64),
+          }),
+        ),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({ groupKeyword: { rules: input.rules } });
+      const next = userConfig.getSettings().groupKeyword.rules;
+      await getAppContext().applyGroupKeyword(next);
+      return next;
+    }),
+
+  /**
    * 取一条链接的预览卡片（标题/描述/站点/封面）。抓取全程带 SSRF 闸门 —— 只放行
    * 公网 http(s) 的 80/443，重定向逐跳复检，正文只收 text/html（对方给二进制时
    * body 根本不读）。结果按 URL 落盘缓存，命中不出网。不可预览返回 null。
@@ -1155,6 +1211,18 @@ export const bootstrapRouter = router({
   listAgentLabProviders: procedure.query(() => {
     return requireBootstrap().agentLabConfig.listProviders();
   }),
+
+  /** 按填入的 base_url (+ api_key) 拉取厂商可用模型列表（OpenAI 兼容 GET /models）。 */
+  fetchAgentLabModels: procedure
+    .input(
+      z.object({
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().agentLabConfig.fetchModels(input);
+    }),
 
   saveAgentLabProvider: procedure
     .input(

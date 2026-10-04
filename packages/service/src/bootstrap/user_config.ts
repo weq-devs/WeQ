@@ -470,6 +470,8 @@ export interface AppSettings {
    */
   externalRkey: ExternalRkeyConfig;
   ssePush: SsePushConfig;
+  /** 群关键词提醒：每个群一组关键词 + 指定成员过滤。 */
+  groupKeyword: GroupKeywordConfig;
   /**
    * Linux 下是否不再弹「关闭 ptrace 保护」的引导弹窗。首次检测到直连注入被内核
    * 拒绝（EPERM/EACCES）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」
@@ -597,6 +599,75 @@ export interface SsePushConfig {
   massThreshold: number;
 }
 
+/** 一个关键词提醒条目：关键词 + 它自己的成员范围。 */
+export interface GroupKeywordEntryConfig {
+  /** 命中即提醒的关键词（大小写不敏感子串）。 */
+  keyword: string;
+  /** 只在这些人发言时提醒（uid）；空数组 = 不指定，即全部成员。 */
+  memberUids: string[];
+}
+
+/** 一个群的关键词提醒规则：该群下所有关键词条目。 */
+export interface GroupKeywordRuleConfig {
+  /** 关键词条目；空数组 = 该群不提醒。 */
+  keywords: GroupKeywordEntryConfig[];
+}
+
+/**
+ * 设置 → 群关键词提醒。`rules` 以群号为 key，只存用户配置过的群（未配置 =
+ * 不提醒）。全局一份，与当前账号无关；主进程的匹配器随账号打开按此生效。
+ */
+export interface GroupKeywordConfig {
+  rules: Record<string, GroupKeywordRuleConfig>;
+}
+
+function normalizeMemberUids(raw: unknown): string[] {
+  return Array.isArray(raw)
+    ? [...new Set(raw.filter((u): u is string => typeof u === 'string' && u.trim() !== ''))]
+    : [];
+}
+
+/**
+ * 归一化一份规则列表：丢弃空关键词 / 非字符串，去重，保留顺序。
+ *
+ * 同时兼容**旧格式**：早期把 `memberUids` 存在群一级（`value.memberUids`），
+ * 关键词只是字符串数组。遇到这种结构时，把那份群级范围套用到该群所有关键词上
+ * 一次性迁移，之后一律按「每个关键词各自带范围」读写。
+ */
+export function normalizeGroupKeywordRules(raw: unknown): Record<string, GroupKeywordRuleConfig> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, GroupKeywordRuleConfig> = {};
+  for (const [groupCode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+$/.test(groupCode)) continue;
+    if (!value || typeof value !== 'object') continue;
+    const v = value as { keywords?: unknown; memberUids?: unknown };
+    if (!Array.isArray(v.keywords)) continue;
+
+    const legacyMemberUids = normalizeMemberUids(v.memberUids);
+    const seen = new Set<string>();
+    const keywords: GroupKeywordEntryConfig[] = [];
+    for (const item of v.keywords) {
+      // 新格式：{ keyword, memberUids }；旧格式：裸字符串（沿用群级 memberUids）。
+      const keyword = typeof item === 'string' ? item : (item as { keyword?: unknown })?.keyword;
+      if (typeof keyword !== 'string') continue;
+      const trimmed = keyword.trim();
+      if (trimmed === '') continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const memberUids =
+        typeof item === 'string'
+          ? legacyMemberUids
+          : normalizeMemberUids((item as { memberUids?: unknown }).memberUids);
+      keywords.push({ keyword: trimmed, memberUids });
+    }
+
+    if (keywords.length === 0) continue;
+    out[groupCode] = { keywords };
+  }
+  return out;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   autoInjectQq: true,
@@ -618,6 +689,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
+  groupKeyword: { rules: {} },
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
@@ -937,6 +1009,9 @@ export class UserConfigService {
             ? s.ssePush.massThreshold
             : d.ssePush.massThreshold,
       },
+      groupKeyword: {
+        rules: normalizeGroupKeywordRules(s?.groupKeyword?.rules),
+      },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
@@ -1026,6 +1101,12 @@ export class UserConfigService {
             ? patch.ssePush.massThreshold
             : current.ssePush.massThreshold,
       },
+      groupKeyword: {
+        rules:
+          patch.groupKeyword?.rules !== undefined
+            ? normalizeGroupKeywordRules(patch.groupKeyword.rules)
+            : current.groupKeyword.rules,
+      },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
@@ -1074,6 +1155,7 @@ export class UserConfigService {
       externalRkeyServerCount: next.externalRkey.servers.length,
       ssePushServerCount: next.ssePush.servers.length,
       ssePushEnabled: next.ssePush.enabledServerId !== null,
+      groupKeywordGroupCount: Object.keys(next.groupKeyword.rules).length,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;

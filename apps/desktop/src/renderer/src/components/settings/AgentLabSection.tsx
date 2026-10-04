@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Boxes,
+  DownloadCloud,
   FlaskConical,
   Loader2,
   Plus,
@@ -67,11 +68,17 @@ export function AgentLabSection(): ReactElement {
   const saveProvider = trpc.bootstrap.saveAgentLabProvider.useMutation();
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
   const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
+  const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
   const [testing, setTesting] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  /** 从 base_url 拉回来的模型清单（待用户勾选导入）；null = 未拉取。 */
+  const [fetchedModels, setFetchedModels] = useState<ModelForm[] | null>(null);
+  /** 拉取清单里已勾选要导入的模型 id。 */
+  const [checkedModelIds, setCheckedModelIds] = useState<string[]>([]);
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
   const templateDefaultsRef = useRef<{ baseUrl: string; name: string }>({ baseUrl: '', name: '' });
@@ -131,6 +138,8 @@ export function AgentLabSection(): ReactElement {
   /** 点「新建」：在新开的灯箱卡片里填一个空表单（并应用默认厂商模板）。 */
   function toggleCreate(): void {
     setSelectedId('');
+    setFetchedModels(null);
+    setCheckedModelIds([]);
     templateDefaultsRef.current = { baseUrl: '', name: '' };
     templateModelIdsRef.current = new Set();
     // 表单默认选中了 DEFAULT_VENDOR 模板，这里实际应用一次模板，
@@ -143,6 +152,8 @@ export function AgentLabSection(): ReactElement {
   function editProvider(id: string): void {
     const current = providers.data?.find((item) => item.id === id);
     if (!current) return;
+    setFetchedModels(null);
+    setCheckedModelIds([]);
     fillFormFrom(current);
     setSelectedId(id);
     setOpen(true);
@@ -205,6 +216,58 @@ export function AgentLabSection(): ReactElement {
       ...current,
       models: applyTemplateModels(current.models, current.vendor),
     }));
+  }
+
+  /**
+   * 按当前表单里的 Base URL (+ API Key) 拉取厂商可用模型列表（参考 MaiBot 的 /models 代理）。
+   * 拉回来后先列出来让用户勾选，再「导入选中」合并进模型列表——不直接覆盖用户已配的内容。
+   */
+  async function onFetchModels(): Promise<void> {
+    const baseUrl = form.baseUrl.trim();
+    if (!baseUrl) {
+      dialog.error('无法拉取', '请先填写 Base URL。');
+      return;
+    }
+    setFetchingModels(true);
+    try {
+      const models = await fetchModels.mutateAsync({ baseUrl, apiKey: form.apiKey.trim() });
+      const list: ModelForm[] = models.map((m) => ({
+        id: m.id,
+        label: m.label ?? '',
+        capabilities: m.capabilities as Capability[],
+      }));
+      setFetchedModels(list);
+      // 默认全选「表单里还没有的」模型，已经加过的不重复拉进来。
+      const existing = new Set(form.models.map((m) => m.id.trim()).filter(Boolean));
+      setCheckedModelIds(list.filter((m) => !existing.has(m.id)).map((m) => m.id));
+      if (list.length === 0) {
+        dialog.error('没有拉取到模型', '接口可达，但返回的模型列表为空。');
+      }
+    } catch (error) {
+      setFetchedModels(null);
+      setCheckedModelIds([]);
+      dialog.error('拉取模型列表失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      setFetchingModels(false);
+    }
+  }
+
+  function toggleCheckedModel(id: string): void {
+    setCheckedModelIds((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+    );
+  }
+
+  /** 把勾选的拉取结果合并进模型列表（已有的同 id 跳过，不覆盖用户手配的能力）。 */
+  function importFetchedModels(): void {
+    if (!fetchedModels) return;
+    setForm((current) => {
+      const seen = new Set(current.models.map((m) => m.id.trim()).filter(Boolean));
+      const added = fetchedModels.filter((m) => checkedModelIds.includes(m.id) && !seen.has(m.id));
+      return { ...current, models: [...current.models, ...added] };
+    });
+    setFetchedModels(null);
+    setCheckedModelIds([]);
   }
 
   /** 模板中有多少个模型尚未添加（用于按钮 badge）。 */
@@ -480,12 +543,106 @@ export function AgentLabSection(): ReactElement {
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                    onClick={() => void onFetchModels()}
+                    disabled={fetchingModels}
+                    title="按上面的 Base URL 请求 /models，拉取该厂商可用模型"
+                  >
+                    {fetchingModels ? (
+                      <Loader2 size={12} className="weq-spin" />
+                    ) : (
+                      <DownloadCloud size={12} />
+                    )}
+                    拉取可用模型
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                     onClick={addModel}
                   >
                     <Plus size={12} /> 手动添加
                   </button>
                 </div>
               </div>
+
+              {fetchedModels ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px dashed rgba(0,153,255,0.45)',
+                    background: 'rgba(0,153,255,0.06)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>拉取到 {fetchedModels.length} 个模型</span>
+                    <span style={{ opacity: 0.7 }}>
+                      勾选要导入的（已添加的会跳过；能力是自动猜的，导入后可改）
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                      onClick={() =>
+                        setCheckedModelIds(
+                          checkedModelIds.length === fetchedModels.length
+                            ? []
+                            : fetchedModels.map((m) => m.id),
+                        )
+                      }
+                    >
+                      {checkedModelIds.length === fetchedModels.length ? '全不选' : '全选'}
+                    </button>
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      onClick={importFetchedModels}
+                      disabled={checkedModelIds.length === 0}
+                    >
+                      <Plus size={12} /> 导入选中 ({checkedModelIds.length})
+                    </button>
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                      onClick={() => {
+                        setFetchedModels(null);
+                        setCheckedModelIds([]);
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {fetchedModels.map((m) => (
+                      <CheckPill
+                        key={m.id}
+                        checked={checkedModelIds.includes(m.id)}
+                        onChange={() => toggleCheckedModel(m.id)}
+                      >
+                        {m.id}
+                      </CheckPill>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {form.models.length === 0 ? (

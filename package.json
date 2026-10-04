@@ -23,7 +23,8 @@
     "build:daemon": "node packages/daemon/scripts/build.mjs",
     "native:fetch": "node scripts/fetch-native.mjs",
     "native:check": "node scripts/fetch-native.mjs --check",
-    "version:set": "node scripts/set-version.mjs"
+    "version:set": "node scripts/set-version.mjs",
+    "mface:fetch": "node scripts/parcel_crawler.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

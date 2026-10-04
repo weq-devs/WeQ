@@ -13,6 +13,16 @@
 const TUWEN_ARK_APP = 'com.tencent.tuwen.lua';
 const TUWEN_ARK_VIEW = 'news';
 
+/**
+ * 群报名卡片用的 ark app（`com.tencent.activity.md` 的 activity 模板）。
+ *
+ * 真卡片由 QQ 服务端按 OIDB 0x921b_0 的字段生成，本机拿不到那份 JSON；下面拼出来的
+ * 这一份**只给预览与乐观卡片用**（见 {@link buildGroupSignupArkJson}）—— 形状照着
+ * 渲染器里那张群活动卡的字段来（见 components/ark/QqArk.tsx 的 `ArkActivity`）。
+ */
+const SIGNUP_ARK_APP = 'com.tencent.activity.md';
+const SIGNUP_ARK_VIEW = 'activity';
+
 /** 摘要固定文案 —— 与 SnowLuma `send_tuwen_ark` 的 summary 默认值一致。 */
 export const LINK_CARD_SUMMARY = '[分享]';
 
@@ -47,6 +57,139 @@ export function emptyLinkCardDraft(): LinkCardDraft {
 /** 留空时回落到默认图标。 */
 export function resolvedLinkCardIcon(draft: LinkCardDraft): string {
   return draft.previewUrl.trim() || LINK_CARD_DEFAULT_ICON;
+}
+
+// ---- 群报名（OIDB 0x921b_0）-----------------------------------------------
+
+export const SIGNUP_TITLE_MAX_CHARS = 100;
+export const SIGNUP_DETAIL_MAX_CHARS = 4000;
+export const SIGNUP_MAX_COUNT_DEFAULT = 200;
+/** 协议侧可调上限（f8）；与 MCP 工具 `send_group_signup` 的校验保持一致。 */
+export const SIGNUP_MAX_COUNT_LIMIT = 200;
+
+/** 报名方式：与协议 `signupMethod` 一一对应（1 = 直接报名，2 = 上传图片）。 */
+export type SignupMethod = 'direct' | 'image';
+
+/**
+ * 群报名草稿（面板「报名」tab 的表单状态）。
+ *
+ * 目标群号写在草稿里（协议 0x921b_0 本身就以群号寻址，不是走常规发消息那条路），
+ * 不跟随当前会话 —— 与「推荐群」那栏一样，可以发到自己不在里的群之外任何群。
+ */
+export type SignupDraft = {
+  /** 目标群号（纯数字）。 */
+  groupCode: string;
+  /** 标题（如「找搭子」「图片收集」）。 */
+  title: string;
+  /** 详情正文。 */
+  detail: string;
+  /** 报名截止时间；空 = 不截止。 */
+  deadline: string;
+  /** 报名方式。 */
+  method: SignupMethod;
+  /** 报名人数上限（纯数字文本，默认 200）。 */
+  maxCount: string;
+  /** 附带图片直链（可选；method=image 时用）。 */
+  imageUrl: string;
+};
+
+/** 一张空白报名草稿；`groupCode` 传入则预填（在群聊里打开面板时用当前群号）。 */
+export function emptySignupDraft(groupCode = ''): SignupDraft {
+  return {
+    groupCode,
+    title: '',
+    detail: '',
+    deadline: '',
+    method: 'direct',
+    maxCount: String(SIGNUP_MAX_COUNT_DEFAULT),
+    imageUrl: '',
+  };
+}
+
+/** 报名截止时间的解析结果：`ok` 之外带上人读的错误与东八区可读串。 */
+export type SignupDeadlineResult =
+  | { ok: true; seconds: null; label: string }
+  | { ok: true; seconds: number; label: string }
+  | { ok: false; error: string };
+
+/**
+ * 报名截止时间解析：空 = 不截止；接受 10 位 unix 秒、带时区的 ISO 串，或「东八区
+ * 当地」的 `YYYY-MM-DD HH:mm[:ss]` / `YYYY/MM/DD HH:mm`（无时区时按 +08:00 理解）。
+ */
+export function resolveSignupDeadline(input: string): SignupDeadlineResult {
+  const text = input.trim();
+  if (!text) return { ok: true, seconds: null, label: '不截止' };
+  let seconds: number;
+  if (/^\d{10}$/.test(text)) {
+    seconds = Number(text);
+  } else {
+    const m = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+      // 当地日期时间 = 东八区(+08:00)：先按 UTC 算再减 8 小时。
+      seconds =
+        Math.floor(
+          Date.UTC(
+            Number(m[1]),
+            Number(m[2]) - 1,
+            Number(m[3]),
+            Number(m[4]),
+            Number(m[5]),
+            Number(m[6] ?? '0'),
+          ) / 1000,
+        ) -
+        8 * 3600;
+    } else {
+      const ms = Date.parse(text);
+      if (Number.isNaN(ms)) {
+        return {
+          ok: false,
+          error: '时间无法识别，可用「2026-10-10 00:00」、带时区 ISO 串或 10 位 unix 秒',
+        };
+      }
+      seconds = Math.floor(ms / 1000);
+    }
+  }
+  return { ok: true, seconds, label: formatSignupDeadline(seconds) };
+}
+
+/** unix 秒 → 东八区可读串（回显 / 预览用）。 */
+export function formatSignupDeadline(seconds: number): string {
+  return new Date((seconds + 8 * 3600) * 1000).toISOString().slice(0, 16).replace('T', ' ');
+}
+
+/**
+ * 群报名草稿 → **预览 / 乐观卡片用**的 ark JSON。
+ *
+ * 真卡片由 QQ 服务端按 0x921b_0 的字段生成，本机拿不到那份 JSON；这里拼出来的这一份
+ * 只给面板预览与本地乐观卡片用 —— 形状照着渲染器里那张群活动卡的字段来
+ * （见 components/ark/QqArk.tsx 的 `ArkActivity`）。
+ */
+export function buildGroupSignupArkJson(draft: SignupDraft): string {
+  const title = draft.title.trim();
+  const detail = draft.detail.trim();
+  const maxCount = Number.parseInt(draft.maxCount, 10);
+  const deadline = resolveSignupDeadline(draft.deadline);
+  const cover = draft.imageUrl.trim();
+  return JSON.stringify({
+    app: SIGNUP_ARK_APP,
+    view: SIGNUP_ARK_VIEW,
+    prompt: `[群报名] ${title}`.trim(),
+    meta: {
+      activity: {
+        title,
+        desc: detail,
+        // 发出去就是报名中；是否已结束由服务端按 deadline 决定。
+        isEnabled: true,
+        ongoingStatusLabel: '报名中',
+        joinLabel: Number.isSafeInteger(maxCount) ? `限 ${maxCount} 人` : '',
+        freeLabel: draft.method === 'image' ? '上传图片报名' : '直接报名',
+        buttonText: '立即报名',
+        tag: '群报名',
+        ...(deadline.ok && deadline.seconds !== null ? { deadline: deadline.label } : {}),
+        ...(cover ? { cover } : {}),
+      },
+    },
+  });
 }
 
 export function isHttpUrl(value: string): boolean {
@@ -223,6 +366,24 @@ export type ArkPayload =
     }
   | {
       /**
+       * 群报名卡片 —— 走**服务端下发**（OIDB 0x921b_0）。载荷给的是卡片字段，不是一段
+       * 拼好的 ark JSON；预览与乐观卡片用的 JSON 由 {@link buildGroupSignupArkJson} 拼。
+       */
+      type: 'signup';
+      /** 目标群号（纯数字）。 */
+      groupCode: number;
+      title: string;
+      detail: string;
+      /** 报名截止（unix 秒，UTC）；不填 = 不截止。 */
+      deadline?: number;
+      /** 报名方式：1 = 直接报名，2 = 上传图片。 */
+      method: 1 | 2;
+      maxCount: number;
+      /** 附带图片直链（可选；method=2 时用）。 */
+      imageUrl?: string;
+    }
+  | {
+      /**
        * 图文卡片 —— 走**服务端下发**（OIDB 0xdc2_34），与群反馈的 GitHub
        * issue/PR 卡片是同一条路。载荷给的是卡片四个字段，不是一段拼好的 ark JSON。
        */
@@ -342,6 +503,10 @@ export function arkCardSignature(arkJson: string): string {
   } catch {
     return raw;
   }
+  // 群报名：真卡片由服务端按 0x921b_0 字段生成，字段顺序 / 附加字段都会变，但**标题是
+  // 我们发出去、也是它下发的那一条** -> 用标题对账（服务端会重写别的内容）。
+  const signupTitle = signupTitleOfArk(parsed);
+  if (signupTitle) return `signup:${signupTitle}`;
   const coords = coordinatesOfArk(parsed);
   if (coords) return `loc:${coords}`;
   const jumpUrl = jumpUrlOfArk(parsed);
@@ -351,6 +516,20 @@ export function arkCardSignature(arkJson: string): string {
   } catch {
     return raw;
   }
+}
+
+/** 群报名卡片（`com.tencent.activity.md`）的判据字段 —— 标题。读不到返回 null。 */
+function signupTitleOfArk(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if ((parsed as { app?: unknown }).app !== SIGNUP_ARK_APP) return null;
+  const meta = (parsed as { meta?: Record<string, unknown> }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  for (const block of Object.values(meta)) {
+    if (!block || typeof block !== 'object') continue;
+    const title = (block as { title?: unknown }).title;
+    if (typeof title === 'string' && title.trim()) return title.trim();
+  }
+  return null;
 }
 
 /** 卡片里表示「点击跳转」的字段名（与 components/ark/arkCards.ts 的 `fill('jump', …)` 同序）。 */

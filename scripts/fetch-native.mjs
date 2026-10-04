@@ -38,16 +38,21 @@
  *   NT_HELPER_RELEASE_REPO      发布仓，默认 H3CoF6/nt_helper_release
  *   NT_HELPER_RELEASE_BASE_URL  下载前缀（镜像 / 代理），默认 GitHub Releases
  *   NT_HELPER_VERSION           钉死 tag（等价于 --version；CI 里临时试构建用）
+ *   HTTPS_PROXY / HTTP_PROXY    出网代理（含 NO_PROXY）。Node 内置 fetch 不认这几个，
+ *                               这里自己读：Clash 之类只开 HTTP 代理、没开 TUN 时必需。
  */
 
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 // ─────────────────────────── 常量 ───────────────────────────
@@ -96,6 +101,7 @@ const opt = (flag) => {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
 };
+const quiet = has('--quiet');
 
 if (has('--help') || has('-h')) {
   const self = await readFile(fileURLToPath(import.meta.url), 'utf8');
@@ -168,10 +174,93 @@ function selectedPlatforms() {
 // ─────────────────────────── 小工具 ───────────────────────────
 
 const log = (...args) => {
-  if (!has('--quiet')) console.log(...args);
+  if (!quiet) console.log(...args);
 };
 
 const mb = (bytes) => `${(Number(bytes) / 1024 / 1024).toFixed(1)} MB`;
+
+// ─────────────────────────── 进度条 ───────────────────────────
+
+const IS_TTY = Boolean(process.stdout.isTTY);
+const BAR_WIDTH = 30;
+
+function humanBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fmtTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0 || sec > 86400) return '--';
+  if (sec < 60) return `${sec.toFixed(0)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m${String(s).padStart(2, '0')}s`;
+}
+
+/**
+ * 覆盖式单行进度条。TTY 里用 `\r` 重绘；非 TTY（CI / 重定向）退化成每 5 秒
+ * 打一行纯文本，避免刷屏。宽度不够（总大小未知）时用 spinner + 已下载字节。
+ */
+class Progress {
+  constructor(label) {
+    this.label = label;
+    this.startedAt = Date.now();
+    this.lastAt = 0;
+    this.lastPlainAt = 0;
+    this.lastLen = 0;
+    this.lastText = '';
+    this.spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  }
+
+  render(done, total, force = false) {
+    if (quiet) return;
+    const now = Date.now();
+    const elapsed = Math.max(0.001, (now - this.startedAt) / 1000);
+    const perSec = done / elapsed;
+    const hasTotal = Number.isFinite(total) && total > 0;
+    const finished = hasTotal && done >= total;
+
+    let bar;
+    if (hasTotal) {
+      const ratio = Math.min(1, done / total);
+      const filled = Math.round(ratio * BAR_WIDTH);
+      bar =
+        `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}] ` +
+        `${(ratio * 100).toFixed(1).padStart(5)}%`;
+    } else {
+      bar = `${this.spinner[Math.floor(now / 100) % this.spinner.length]} `;
+    }
+
+    const size = hasTotal ? `${humanBytes(done)}/${humanBytes(total)}` : humanBytes(done);
+    const eta = hasTotal && perSec > 0 ? (total - done) / perSec : Number.NaN;
+    const tail = hasTotal ? `  eta ${fmtTime(eta)}` : '';
+    const rate = `${(perSec / 1024 / 1024).toFixed(1)} MB/s`;
+    const text = `  ${bar}  ${this.label.padEnd(20)} ${size.padStart(18)}  ${rate.padStart(10)}${tail}`;
+
+    if (IS_TTY) {
+      if (!force && !finished && now - this.lastAt < 80) return;
+      this.lastAt = now;
+      process.stdout.write(`\r${text.padEnd(this.lastLen)}`);
+      this.lastLen = Math.max(this.lastLen, text.length);
+    } else {
+      if (!force && !finished && now - this.lastPlainAt < 5000) return;
+      if (text === this.lastText) return; // 别把最后一行打两遍
+      this.lastPlainAt = now;
+      this.lastText = text;
+      console.log(text.trim());
+    }
+  }
+
+  /** 收尾：TTY 里换行收干净，非 TTY 里补一行最终状态。 */
+  end(done, total) {
+    if (quiet) return;
+    this.render(done, total, true);
+    if (IS_TTY) process.stdout.write('\n');
+    this.lastLen = 0;
+  }
+}
 
 async function sha256File(file) {
   const hash = createHash('sha256');
@@ -184,12 +273,141 @@ function ageDays(iso) {
   return Number.isNaN(at) ? Number.NaN : (Date.now() - at) / 86400_000;
 }
 
-async function download(url, dest) {
+/**
+ * 取这次请求要用的代理。
+ *
+ * Node 内置的 fetch（undici）**不认** HTTP_PROXY / HTTPS_PROXY，CLI 也没有
+ * `--use-env-proxy`（Node 24 才加），所以本机只挂 HTTP 代理（如 Clash 7897）又没开 TUN
+ * 时，直连 github.com:443 会超时（UND_ERR_CONNECT_TIMEOUT）。这里按惯例自己读一遍。
+ */
+function proxyFor(hostname) {
+  const raw =
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy;
+  if (!raw) return undefined;
+  const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
+  if (noProxy) {
+    const zones = noProxy
+      .split(',')
+      .map((zone) => zone.trim().toLowerCase())
+      .filter(Boolean);
+    const host = hostname.toLowerCase();
+    const skipped = zones.some(
+      (zone) => zone === '*' || host === zone || host.endsWith(`.${zone.replace(/^\./, '')}`),
+    );
+    if (skipped) return undefined;
+  }
+  return new URL(raw);
+}
+
+/** 在代理上对 `host:port` 建一条 CONNECT 隧道，拿到裸 socket。 */
+function openTunnel(proxy, host, port) {
+  return new Promise((resolve, reject) => {
+    const headers = {};
+    if (proxy.username || proxy.password) {
+      const auth = `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`;
+      headers['proxy-authorization'] = `Basic ${Buffer.from(auth).toString('base64')}`;
+    }
+    const req = http.request({
+      host: proxy.hostname,
+      port: proxy.port ? Number(proxy.port) : 80,
+      method: 'CONNECT',
+      path: `${host}:${port}`,
+      headers,
+    });
+    req.once('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(
+          new Error(`代理 CONNECT 失败（${res.statusCode}）：${proxy.host} → ${host}:${port}`),
+        );
+        return;
+      }
+      resolve(socket);
+    });
+    req.once('error', reject);
+    req.end();
+  });
+}
+
+/** 让 http(s).Agent 改走隧道：socket 先连代理，https 再补一层 TLS。 */
+function tunnelAgent(proxy, secure) {
+  const agent = new (secure ? https.Agent : http.Agent)({ keepAlive: false });
+  agent.createConnection = (options, callback) => {
+    openTunnel(proxy, options.host, options.port ?? (secure ? 443 : 80))
+      .then((socket) => {
+        if (!secure) {
+          callback(null, socket);
+          return;
+        }
+        const tls = tlsConnect({ socket, servername: options.servername ?? options.host });
+        tls.once('secureConnect', () => callback(null, tls));
+        tls.once('error', (err) => callback(err));
+      })
+      .catch((err) => callback(err));
+  };
+  return agent;
+}
+
+/** GET 一次并手动跟随重定向（内置 fetch 走不了代理，索性整条链路自己来）。 */
+async function httpGet(url, redirects = 8) {
+  const target = new URL(url);
+  const proxy = proxyFor(target.hostname);
+  const secure = target.protocol === 'https:';
+  const res = await new Promise((resolve, reject) => {
+    const req = (secure ? https.request : http.request)(
+      target,
+      {
+        method: 'GET',
+        headers: { 'user-agent': 'weq-native-fetch', accept: '*/*' },
+        agent: proxy ? tunnelAgent(proxy, secure) : undefined,
+      },
+      resolve,
+    );
+    req.once('error', reject);
+    req.end();
+  });
+  const location = res.headers.location;
+  if ([301, 302, 303, 307, 308].includes(res.statusCode) && location && redirects > 0) {
+    res.resume();
+    return httpGet(new URL(location, target).toString(), redirects - 1);
+  }
+  return res;
+}
+
+/** 把响应体整段读成字符串（manifest / latest.json 都很小）。 */
+async function readBody(res) {
+  let text = '';
+  res.setEncoding('utf8');
+  for await (const chunk of res) text += chunk;
+  return text;
+}
+
+async function download(url, dest, { label, size } = {}) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok || !res.body) {
     throw new Error(`下载失败 ${res.status} ${res.statusText}：${url}`);
   }
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+  const contentLength = Number(res.headers.get('content-length')) || 0;
+  const total = size || contentLength;
+  const progress = quiet ? undefined : new Progress(label ?? url);
+  let done = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      done += chunk.length;
+      progress?.render(done, total);
+      cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(res.body), counter, createWriteStream(dest));
+  } catch (err) {
+    if (progress && IS_TTY) process.stdout.write('\n');
+    throw err;
+  }
+  progress?.end(done, total);
 }
 
 // ─────────────────────────── manifest ───────────────────────────
@@ -213,16 +431,17 @@ async function loadManifest(version) {
     return { manifest: JSON.parse(await readFile(file, 'utf8')), localDir: fromDir };
   }
   const url = manifestUrl(version);
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) {
+  const res = await httpGet(url);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    res.resume();
     throw new Error(
-      `拿不到 manifest（${res.status} ${res.statusText}）：${url}\n` +
+      `拿不到 manifest（${res.statusCode} ${res.statusMessage ?? ''}）：${url}\n` +
         (version === 'latest'
           ? '发布仓还没有产物？先去 nt_helper 跑一次 Rust-Release-Build 工作流。'
           : `这个 tag 是${PIN} 里锚定的那个：发布仓里没有它？把锚点改成实际存在的 tag（或用 --latest）。`),
     );
   }
-  return { manifest: await res.json(), localDir: undefined };
+  return { manifest: JSON.parse(await readBody(res)), localDir: undefined };
 }
 
 function manifestUrl(version) {
@@ -234,9 +453,12 @@ function manifestUrl(version) {
 /** 上游 latest 的 tag；拿不到（离线 / 限流）就返回 `undefined`。 */
 async function fetchLatestTag() {
   try {
-    const res = await fetch(manifestUrl('latest'), { redirect: 'follow' });
-    if (!res.ok) return undefined;
-    const manifest = await res.json();
+    const res = await httpGet(manifestUrl('latest'));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      res.resume();
+      return undefined;
+    }
+    const manifest = JSON.parse(await readBody(res));
     return typeof manifest?.tag === 'string' ? manifest.tag : undefined;
   } catch {
     return undefined;
@@ -295,19 +517,26 @@ function planFiles(manifest, platforms) {
 async function install(manifest, files, localDir) {
   const staging = await mkdtemp(join(tmpdir(), 'weq-native-'));
   try {
+    const total = files.length;
+    let index = 0;
     for (const entry of files) {
+      index++;
       if (dryRun) {
         log(`  [dry-run] ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
         continue;
       }
 
       const staged = join(staging, entry.asset);
+      const step = `[${index}/${total}]`;
       if (localDir) {
         const source = join(localDir, entry.asset);
         if (!existsSync(source)) throw new Error(`本地缺资产：${source}`);
         await copyFile(source, staged);
       } else {
-        await download(`${baseUrl}/download/${manifest.tag}/${entry.asset}`, staged);
+        await download(`${baseUrl}/download/${manifest.tag}/${entry.asset}`, staged, {
+          label: `${step} ${entry.label}`,
+          size: entry.size,
+        });
       }
 
       if (entry.sha256) {
@@ -326,7 +555,7 @@ async function install(manifest, files, localDir) {
       await copyFile(staged, incoming);
       await chmod(incoming, 0o644);
       await rename(incoming, dest);
-      log(`  ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
+      log(`  ${step} ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
     }
 
     if (!dryRun) await writeMarker(manifest, files);

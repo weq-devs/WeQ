@@ -109,6 +109,8 @@ export type ConversationHighlightKind =
   | 'specialCare'
   | 'newFile'
   | 'redPacket'
+  | 'groupAnnouncement'
+  | 'groupKeyword'
   | 'unknown';
 
 export type ConversationHighlight = {
@@ -116,6 +118,29 @@ export type ConversationHighlight = {
   rawKind: number;
   senderUid: string;
   msgSeq: string;
+  /** 命中关键词（群提醒词）或预览文本；可能为空。 */
+  text?: string;
+};
+
+/** 未读跳转坞的一个跳转点（一条高亮，或最后的「未读消息」兜底）。 */
+export type UnreadDockStop = {
+  /** 高亮的类别；兜底的未读消息用 'unread'。 */
+  kind: ConversationHighlightKind | 'unread';
+  /** 要跳转到的会话内 seq。 */
+  seq: string;
+  /** 高亮附带的文本（群提醒词为命中的关键词）；兜底未读没有。 */
+  text?: string;
+};
+
+/**
+ * 打开会话时从 msg_unread_info_table 读进内存的未读快照 —— 数据库随即被标记
+ * 为已读、高亮组清空，之后跳转坞完全靠这份内存副本驱动。
+ * `stops` 已经过滤掉「第一页里就能看到」的目标；空数组表示无需跳转。
+ */
+export type UnreadDock = {
+  stops: UnreadDockStop[];
+  /** 该会话打开时的未读总数（用于最后那条「新的 N 条未读消息」）。 */
+  unread: number;
 };
 
 type ConversationBase = {
@@ -130,7 +155,8 @@ type ConversationBase = {
   hidden?: boolean;
   /**
    * 提醒高亮标记（特别关心 / @我 / …）：该会话存在对应类别的未读时置位，
-   * 来自 msg_unread_info_table 的 48902 高亮扩展。msgSeq 保留但不展示。
+   * 来自 msg_unread_info_table 的 48902 高亮扩展。msgSeq / seqs 保留给打开
+   * 会话时的跳转坞消费（会话列表本身只用 kind）。
    */
   highlights?: ConversationHighlight[] | null;
   lastMessage: {

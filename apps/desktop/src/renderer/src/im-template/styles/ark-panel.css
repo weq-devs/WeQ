@@ -161,6 +161,54 @@
   gap: 8px;
 }
 
+/* 报名方式 / 其它二选一：胶囊分段控件（与红包 panel 的 .redpacket-seg 同形），
+ * 选中态用主题色描边 + 浅底，深浅模式与主题色都自动跟随。 */
+.ark-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+.ark-seg-btn {
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.ark-seg-btn:hover {
+  color: var(--weq-fg-primary, #111111);
+}
+
+.ark-seg-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ark-seg-caption {
+  font-size: 10px;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.ark-seg-btn.is-active {
+  background: var(--popover, #ffffff);
+  color: var(--weq-accent-effective, #0099ff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
 /* JSON 是否合法：一个小圆点就够了（绿色合法 / 红色不合法），具体原因挂在 title 上。 */
 .ark-json-state {
   width: 7px;

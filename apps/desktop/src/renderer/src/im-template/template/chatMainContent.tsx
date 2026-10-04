@@ -31,6 +31,7 @@ import type {
   MainView,
   Message,
   MessageAction,
+  UnreadDock,
   User,
 } from './types';
 
@@ -85,6 +86,7 @@ export function ChatMainContent({
   onSendArk,
   arkLocation,
   arkContacts,
+  defaultSignupGroupCode,
   onSendFlash,
   onSendRedPacket,
   onMessageAction,
@@ -97,6 +99,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupKeyword,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -114,6 +117,8 @@ export function ChatMainContent({
   onRestoreMessage,
   onOpenTool,
   onSelectTool,
+  unreadDock,
+  missingJumpSeq,
 }: {
   user: User;
   view: MainView;
@@ -177,6 +182,8 @@ export function ChatMainContent({
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
+  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
+  defaultSignupGroupCode?: string;
   /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
@@ -191,6 +198,7 @@ export function ChatMainContent({
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
+  onOpenGroupKeyword?: (conversation: GroupConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
@@ -218,6 +226,10 @@ export function ChatMainContent({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
+  unreadDock?: UnreadDock | null;
+  /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
+  missingJumpSeq?: string | null;
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -278,6 +290,7 @@ export function ChatMainContent({
       onSendArk={onSendArk}
       arkLocation={arkLocation}
       arkContacts={arkContacts}
+      defaultSignupGroupCode={defaultSignupGroupCode}
       onSendFlash={onSendFlash}
       onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}
@@ -290,6 +303,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       onOpenGroupEssence={onOpenGroupEssence}
+      onOpenGroupKeyword={onOpenGroupKeyword}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}
@@ -305,6 +319,8 @@ export function ChatMainContent({
       onExportConversation={onExportConversation}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}
+      unreadDock={unreadDock}
+      missingJumpSeq={missingJumpSeq}
     />
   );
 }

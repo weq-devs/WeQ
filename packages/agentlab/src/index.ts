@@ -6,6 +6,12 @@ export {
   resolveEndpoint,
 } from './provider';
 export {
+  resolveModelsEndpoint,
+  inferCapabilities,
+  parseModelList,
+  fetchProviderModels,
+} from './models';
+export {
   embedTexts,
   runPersonaChat,
   reportUsage,

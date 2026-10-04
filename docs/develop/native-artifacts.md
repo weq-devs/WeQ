@@ -76,6 +76,7 @@ pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；�
 | `NT_HELPER_RELEASE_REPO` | 覆盖发布仓，默认 `H3CoF6/nt_helper_release` |
 | `NT_HELPER_RELEASE_BASE_URL` | 覆盖下载前缀（镜像 / 代理），默认 GitHub Releases |
 | `NT_HELPER_VERSION` | 钉死 tag，等价于 `--version`（CI 里临时试构建用） |
+| `HTTPS_PROXY` / `HTTP_PROXY` | 出网代理（另支持 `NO_PROXY`）。脚本自己读这几个变量走 CONNECT 隧道 —— Node 内置 `fetch` 不认它们，Clash 之类只开 HTTP 代理又没开 TUN 时直连 GitHub 会超时 |
 
 拉完之后 `native/.installed.json` 记着当前装的是哪个 tag、哪些文件、各自 sha256；
 它是机器相关状态，已被 gitignore（**入库的那个是 `native/pinned.json`**，见上一节）。
