@@ -60,6 +60,7 @@ resources/ninebird-runtime/
 
 # dev
 /tmp
+/docs/develop/redbag.md
 
 # nt_helper 原生产物：5 个平台的 nt_helper.node 与加密后的装扮资源（*.dat）都不入库。
 # 前者由 native 私仓构建、发布到公开仓 H3CoF6/nt_helper_release，主仓用

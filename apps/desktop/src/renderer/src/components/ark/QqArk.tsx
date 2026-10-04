@@ -715,15 +715,25 @@ function ArkActivity({ p }: { p: ArkPayload }): ReactElement {
   const tag = s(p, 'tag');
   const tagIcon = s(p, 'tagIcon') || undefined;
   const jumpUrl = s(p, 'jumpUrl') || undefined;
+  // 群报名带图时（`com.tencent.activity.md` 的 cover）与 deadline 回显 —— 服务端下发的
+  // 真卡片里这两个字段名未必完全一致，取不到就不画（不影响原有的活动卡渲染）。
+  const cover = s(p, 'cover') || s(p, 'image') || undefined;
+  const deadline = s(p, 'deadline') || s(p, 'deadlineLabel') || undefined;
 
   return (
     <ArkShell jump={jumpUrl} footer={<ArkFooter source={tag} icon={tagIcon} />}>
       {title ? <div className="weq-ark-title">{title}</div> : null}
       {desc ? <div className="weq-ark-desc weq-ark-activity-desc">{desc}</div> : null}
+      {cover ? (
+        <img className="weq-ark-activity-cover" src={arkImg(cover)} alt="" loading="lazy" />
+      ) : null}
       <div className="weq-ark-activity-meta">
         {statusLabel ? <span className="weq-ark-activity-badge">{statusLabel}</span> : null}
         {joinLabel ? <span className="weq-ark-activity-badge">{joinLabel}</span> : null}
         {freeLabel ? <span className="weq-ark-activity-badge">{freeLabel}</span> : null}
+        {deadline ? (
+          <span className="weq-ark-activity-badge weq-ark-activity-deadline">截止 {deadline}</span>
+        ) : null}
       </div>
       {buttonText ? <div className="weq-ark-activity-btn">{buttonText}</div> : null}
     </ArkShell>

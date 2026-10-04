@@ -17,6 +17,8 @@ import {
   Images,
   FolderOpen,
   Bug,
+  Gift,
+  Hand,
   Image as ImageIcon,
   Link2,
   ClipboardCopy,
@@ -92,6 +94,14 @@ import { ArkPanel } from './arkPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { BounceEmojiPanel, bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
+import {
+  PokeEmojiPanel,
+  pokeEmojiToken,
+  randomFaceToken,
+  type PokeEmojiDraft,
+  type RandomFaceDraft,
+} from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
@@ -128,7 +138,7 @@ import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
-import { MessageGapDivider, messageGapCount } from './messageGap';
+import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
 import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
 import type {
@@ -137,8 +147,10 @@ import type {
   GroupMember,
   Message,
   MessageAction,
+  UnreadDock,
   User,
 } from './types';
+import { dockStopLabel, dockStopTone } from './unreadDock';
 import { displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
@@ -282,8 +294,10 @@ export function ChatPane({
   onSendWindowShake,
   onSendArk,
   onSendFlash,
+  onSendRedPacket,
   arkLocation,
   arkContacts,
+  defaultSignupGroupCode,
   onMessageAction,
   draft,
   onDraftChange,
@@ -310,6 +324,8 @@ export function ChatPane({
   deletedIds,
   onRestoreMessage,
   onMergeForward,
+  unreadDock,
+  missingJumpSeq,
 }: {
   user: User;
   conversation: Conversation | undefined;
@@ -360,10 +376,18 @@ export function ChatPane({
    * 再走 IPC（与 onSendArk 同）。抛出即失败：面板保留已选文件并显示原因。
    */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
+  /**
+   * 红包面板「发红包」—— 面板只收「类型 / 金额 / 个数 / 祝福语（口令）」，发送目标
+   * （私聊对方 / 群号）由应用层补，所以把**当前会话**一起交回（与 onSendArk 同）。
+   * 抛出即失败：面板会显示原因并保留已填内容。
+   */
+  onSendRedPacket?: (conversation: Conversation, draft: RedPacketDraft) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入；不传就只有地图 + 手填）。 */
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
+  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
+  defaultSignupGroupCode?: string;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
   onDraftChange: (conversationId: string, value: string) => void;
@@ -406,6 +430,17 @@ export function ChatPane({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  /**
+   * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
+   * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
+   */
+  unreadDock?: UnreadDock | null;
+  /**
+   * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
+   * 落在相邻两行之间的「单条缺口」上（seq 差为 1，默认缺口条不渲染），就在那里
+   * 补一条可点击拉取的缺口条。
+   */
+  missingJumpSeq?: string | null;
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
@@ -435,16 +470,30 @@ export function ChatPane({
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   // 「弹射表情」面板：选一枚系统表情 + 填个数，发射后**单独发送**。
   const [bounceOpen, setBounceOpen] = useState(false);
+  // 「戳一戳」面板：选互动表情 + 连击次数，戳出去**单独发送**。
+  const [pokeOpen, setPokeOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
   const [flashOpen, setFlashOpen] = useState(false);
+  // 「红包」面板：群聊三档（普通 / 拼手气 / 口令），私聊两档（普通 / 拼手气）；
+  // 下单出码后由应用层弹二维码灯箱。
+  const [redPacketOpen, setRedPacketOpen] = useState(false);
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || bounceOpen) {
+    if (
+      emojiOpen ||
+      toolsOpen ||
+      voiceOpen ||
+      arkOpen ||
+      aiVoiceOpen ||
+      bounceOpen ||
+      pokeOpen ||
+      redPacketOpen
+    ) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen]);
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, bounceOpen, pokeOpen, redPacketOpen]);
   // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
   // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
   // 两者共用同一个槽位：挂上新的就把旧的卸掉。
@@ -468,6 +517,17 @@ export function ChatPane({
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开戳一戳面板时才拉 —— 来源是
+  // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
+  const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
+    enabled: pokeOpen,
+    staleTime: 5 * 60_000,
+  });
+  // 口令候选池：只在红包面板打开、且 QQ 在线时拉一次。
+  const redbagPasswordsQuery = trpc.account.redbagPasswords.useQuery(undefined, {
+    enabled: redPacketOpen && sendAvailable,
+    staleTime: 5 * 60_000,
+  });
   const pushToast = useToast((state) => state.push);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
   // 服务商就没有文字转语音那一栏。
@@ -519,6 +579,8 @@ export function ChatPane({
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
+  // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
+  const [dockIndex, setDockIndex] = useState(0);
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
@@ -564,6 +626,10 @@ export function ChatPane({
   const aiVoiceButtonRef = useRef<HTMLButtonElement | null>(null);
   const bouncePanelRef = useRef<HTMLDivElement | null>(null);
   const bounceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pokePanelRef = useRef<HTMLDivElement | null>(null);
+  const pokeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
+  const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
   const flashButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -584,6 +650,11 @@ export function ChatPane({
   const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
   const unreadConversationRef = useRef<string | null>(null);
   const unreadScrollFrameRef = useRef<number | null>(null);
+
+  // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
+  useEffect(() => {
+    setDockIndex(0);
+  }, [conversation?.id, unreadDock]);
   const visibleMessages = useMemo(
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
@@ -1098,6 +1169,7 @@ export function ChatPane({
         return;
       }
       setBounceOpen(false);
+      setPokeOpen(false);
     }
 
     function closeBounceOnEscape(event: globalThis.KeyboardEvent) {
@@ -1113,6 +1185,75 @@ export function ChatPane({
       document.removeEventListener('keydown', closeBounceOnEscape);
     };
   }, [bounceOpen]);
+
+  useEffect(() => {
+    if (!pokeOpen) {
+      return;
+    }
+
+    function closePokeFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        pokePanelRef.current?.contains(target) ||
+        pokeButtonRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target) ||
+        toolsButtonRef.current?.contains(target) ||
+        bounceButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setPokeOpen(false);
+    }
+
+    function closePokeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setPokeOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closePokeFromOutside);
+    document.addEventListener('keydown', closePokeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closePokeFromOutside);
+      document.removeEventListener('keydown', closePokeOnEscape);
+    };
+  }, [pokeOpen]);
+
+  useEffect(() => {
+    if (!redPacketOpen) {
+      return;
+    }
+
+    function closeRedPacketFromOutside(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        redPacketPanelRef.current?.contains(target) ||
+        redPacketButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setRedPacketOpen(false);
+    }
+
+    function closeRedPacketOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setRedPacketOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeRedPacketFromOutside);
+    document.addEventListener('keydown', closeRedPacketOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeRedPacketFromOutside);
+      document.removeEventListener('keydown', closeRedPacketOnEscape);
+    };
+  }, [redPacketOpen]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
@@ -1141,6 +1282,7 @@ export function ChatPane({
     // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages]);
@@ -1506,6 +1648,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -1616,6 +1759,7 @@ export function ChatPane({
       setVoiceOpen(false);
       setAiVoiceOpen(false);
       setBounceOpen(false);
+      setPokeOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1627,6 +1771,7 @@ export function ChatPane({
       setVoiceOpen(false);
       setAiVoiceOpen(false);
       setBounceOpen(false);
+      setPokeOpen(false);
       setSending(false);
       window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
       return;
@@ -1639,6 +1784,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     if (conversation) {
       onDraftClear(conversation.id);
     }
@@ -1752,6 +1898,21 @@ export function ChatPane({
   }
 
   /**
+   * 红包面板「发红包」：把当前会话与草稿交给应用层，由它补目标走 IPC 下单出码。
+   *
+   * 成功才关面板 —— 下单失败（服务端拒绝 / 未在线）就保留面板与已填内容，错误由
+   * 应用层 toast 出来（与 ark / 闪传同一套）。
+   */
+  async function sendRedPacket(draft: RedPacketDraft): Promise<void> {
+    if (!conversation || conversation.type === 'merged' || !onSendRedPacket) {
+      throw new Error('这个会话不支持发红包。');
+    }
+    setPendingQuote(null);
+    await onSendRedPacket(conversation, draft);
+    setRedPacketOpen(false);
+  }
+
+  /**
    * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
    * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
    *
@@ -1780,11 +1941,48 @@ export function ChatPane({
    */
   async function sendBounceEmoji(draft: BounceEmojiDraft) {
     setBounceOpen(false);
+    setPokeOpen(false);
     setPendingQuote(null);
     // 跟普通表情一样写回 QQ 的「最近使用」表（失败不影响发送）。
     recordRecentEmoji.mutate({ faceId: draft.faceId, unicode: false, sourceType: 0 });
     await submitMessage({
       extraTokens: [bounceEmojiToken(draft)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
+  }
+
+  /**
+   * 戳一戳面板「戳一下」：一枚 `pokeEmoji` 元素编成 token 走既有的 `extraTokens`
+   * 通路（跟弹射表情 / 语音同一条）。戳一戳是**独立的一条消息** —— 不带输入框里的
+   * 文字、不带挂着的引用，`keepBody` 让用户正在打的字原样留着。群聊 / 私聊都能发。
+   *
+   * 只做前端：这里不碰任何协议，真正下发由上层 `onSend` 决定。
+   */
+  async function sendPokeEmoji(draft: PokeEmojiDraft) {
+    setPokeOpen(false);
+    setBounceOpen(false);
+    setPendingQuote(null);
+    await submitMessage({
+      extraTokens: [pokeEmojiToken(draft)],
+      text: '',
+      keepBody: true,
+      omitQuote: true,
+    });
+  }
+
+  /**
+   * 随机表情面板「发送」：把「faceId + 目录三件套 + innerId」编成一枚 face 元素
+   * token（superSticker.resultId = innerId），同样走 `extraTokens` 单独成一条消息。
+   * 收端/乐观渲染都会播 `lottie/<faceId>_<innerId>.json` 那个结果片段。
+   */
+  async function sendRandomFace(draft: RandomFaceDraft) {
+    setPokeOpen(false);
+    setBounceOpen(false);
+    setPendingQuote(null);
+    await submitMessage({
+      extraTokens: [randomFaceToken(draft)],
       text: '',
       keepBody: true,
       omitQuote: true,
@@ -1913,6 +2111,7 @@ export function ChatPane({
     setPendingQuote(null);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
   }
 
   function removeMediaAttachment() {
@@ -1963,6 +2162,7 @@ export function ChatPane({
       setVoiceOpen(false);
       setArkOpen(false);
       setBounceOpen(false);
+      setPokeOpen(false);
       setAttachmentError(
         media.length > 1
           ? '视频 / 文件只能单独发送，只保留了第一个'
@@ -2269,6 +2469,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setMobileComposerExpanded(true);
   }
 
@@ -2279,6 +2480,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -2289,6 +2491,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
@@ -2299,6 +2502,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setVoiceOpen((open) => !open);
   }
 
@@ -2309,6 +2513,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setFlashOpen(false);
     setArkOpen((open) => !open);
   }
@@ -2324,6 +2529,7 @@ export function ChatPane({
     setArkOpen(false);
     setAiVoiceOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setFlashOpen((open) => !open);
   }
 
@@ -2335,6 +2541,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setBounceOpen(false);
+    setPokeOpen(false);
     setAiVoiceOpen((open) => !open);
   }
 
@@ -2346,7 +2553,33 @@ export function ChatPane({
     setVoiceOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
+    setPokeOpen(false);
     setBounceOpen((open) => !open);
+  }
+
+  /** 戳一戳面板：和其余面板互斥；「只做面板」，戳出去走既有元素通路。 */
+  function togglePokePanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setPokeOpen((open) => !open);
+  }
+
+  /** 红包面板：和其余面板互斥；下单出码在应用层，成功后弹二维码灯箱。 */
+  function toggleRedPacketPanel() {
+    setContextMenu(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setPokeOpen(false);
+    setRedPacketOpen((open) => !open);
   }
 
   const handleVoiceBusyChange = useCallback((busy: boolean) => {
@@ -2478,6 +2711,26 @@ export function ChatPane({
       block: 'start',
     });
     setUnreadJump(null);
+  }
+
+  // ── 未读跳转坞 ──────────────────────────────────────────────────────────
+  // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
+  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
+  // 跳完自动消失。
+  const dockStop = unreadDock?.stops[dockIndex] ?? null;
+  const dockVisible = Boolean(dockStop);
+
+  async function jumpDockStop(): Promise<void> {
+    if (!dockStop || !unreadDock) return;
+    const nextIndex = dockIndex + 1;
+    // 先推进游标再跳：跳转要走「快慢路径」（可能要重建窗口、异步），期间用户
+    // 再点应该是下一条，而不是重跳当前这条。
+    setDockIndex(nextIndex);
+    try {
+      await jumpToSeq({ seq: dockStop.seq });
+    } catch (err) {
+      console.error('[unread-dock] jump failed', err);
+    }
   }
 
   function toggleGroupInfoCollapsed() {
@@ -2623,6 +2876,10 @@ export function ChatPane({
   // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
   // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
   const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
+  // 戳一戳：群聊 / 私聊都能发（协议上 serviceType 2 的互动表情不分场景）。
+  const pokePanelActive = pokeOpen && !mobileComposerExpanded;
+  // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
+  const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
   const composerActionContext: ComposerActionContext = {
     conversation,
@@ -2636,6 +2893,8 @@ export function ChatPane({
       setArkOpen(false);
       setAiVoiceOpen(false);
       setBounceOpen(false);
+      setPokeOpen(false);
+      setRedPacketOpen(false);
     },
   };
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
@@ -2853,6 +3112,32 @@ export function ChatPane({
               // that follows the hole.
               const previous = visibleMessages[index - 1];
               const gap = messageGapCount(previous, message);
+              // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
+              // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
+              // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
+              if (
+                gap === 0 &&
+                missingJumpSeq &&
+                previous &&
+                conversation &&
+                onOpenGapMessages &&
+                isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
+              ) {
+                out.push(
+                  <MessageGapDivider
+                    key={`missing-jump-${message.id}`}
+                    count={1}
+                    onOpen={() =>
+                      onOpenGapMessages({
+                        conversation,
+                        previousSeq: String(previous.msgSeq ?? ''),
+                        currentSeq: String(message.msgSeq ?? ''),
+                        count: 1,
+                      })
+                    }
+                  />,
+                );
+              }
               if (gap > 0) {
                 out.push(
                   <MessageGapDivider
@@ -2930,6 +3215,34 @@ export function ChatPane({
         >
           <ChevronsUp size={21} strokeWidth={2.8} />
           <span>{formatUnreadJumpCount(unreadJump.remaining)}条新消息</span>
+        </button>
+      ) : null}
+
+      {/* 未读跳转坞：打开会话时按内存快照逐个引导跳转，跳完自动收起。
+          高亮用告警/内容/红包三色区分，兜底的「新的 N 条未读消息」是中性蓝。 */}
+      {dockVisible && dockStop && unreadDock ? (
+        <button
+          key={`${conversation.id}:${dockStop.kind}:${dockStop.seq}`}
+          className={cn('unread-dock-button', `tone-${dockStopTone(dockStop)}`)}
+          type="button"
+          title={`跳转到${dockStopLabel(dockStop, unreadDock.unread)}`}
+          onClick={() => {
+            void jumpDockStop();
+          }}
+        >
+          {dockStop.kind === 'unread' ? (
+            <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
+          ) : (
+            <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+          )}
+          <span className={cn('unread-dock-label')}>
+            {dockStopLabel(dockStop, unreadDock.unread)}
+          </span>
+          {unreadDock.stops.length > 1 ? (
+            <span className={cn('unread-dock-count')}>
+              {dockIndex + 1}/{unreadDock.stops.length}
+            </span>
+          ) : null}
         </button>
       ) : null}
 
@@ -3074,6 +3387,28 @@ export function ChatPane({
           >
             <Rocket size={21} strokeWidth={1.5} />
           </button>
+          {/* 戳一戳互动表情：选一枚 + 连击次数，戳成一条独立消息（群聊 / 私聊都可）。 */}
+          <button
+            ref={pokeButtonRef}
+            type="button"
+            className={cn('composer-tool', pokeOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '互动表情'}
+            disabled={currentPreference.blocked || hasSingleSend}
+            onClick={togglePokePanel}
+          >
+            <Hand size={21} strokeWidth={1.5} />
+          </button>
+          {/* 红包：群聊三档类型 / 私聊两档，下单后弹二维码灯箱。 */}
+          <button
+            ref={redPacketButtonRef}
+            type="button"
+            className={cn('composer-tool', redPacketOpen && 'active')}
+            title={hasSingleSend ? singleSendHint : '发红包'}
+            disabled={currentPreference.blocked}
+            onClick={toggleRedPacketPanel}
+          >
+            <Gift size={21} strokeWidth={1.5} />
+          </button>
           {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
           {canUseWindowShake ? (
             <button
@@ -3212,6 +3547,7 @@ export function ChatPane({
             disabledHint={sendTitle}
             location={arkLocation}
             contacts={arkContacts}
+            defaultSignupGroupCode={defaultSignupGroupCode}
             onSend={sendArkCard}
             onClose={() => setArkOpen(false)}
           />
@@ -3242,6 +3578,30 @@ export function ChatPane({
             disabledHint={sendTitle}
             onSend={(draft) => void sendBounceEmoji(draft)}
             onClose={() => setBounceOpen(false)}
+          />
+        ) : null}
+        {pokePanelActive ? (
+          <PokeEmojiPanel
+            panelRef={pokePanelRef}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            onSend={(draft) => void sendPokeEmoji(draft)}
+            randomFaces={randomFacesQuery.data?.items ?? []}
+            onSendRandom={(draft) => void sendRandomFace(draft)}
+            onClose={() => setPokeOpen(false)}
+          />
+        ) : null}
+        {redPacketPanelActive ? (
+          <RedPacketPanel
+            panelRef={redPacketPanelRef}
+            group={conversation.type === 'group'}
+            disabled={mediaSendDisabled}
+            disabledHint={sendTitle}
+            passwords={redbagPasswordsQuery.data ?? []}
+            passwordsLoading={redbagPasswordsQuery.isFetching}
+            onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
+            onSend={(draft) => sendRedPacket(draft)}
+            onClose={() => setRedPacketOpen(false)}
           />
         ) : null}
         <input
@@ -3402,6 +3762,24 @@ export function ChatPane({
               >
                 <Rocket size={22} strokeWidth={1.5} />
               </button>
+              <button
+                type="button"
+                title="互动表情"
+                className={cn(pokeOpen && 'active')}
+                disabled={currentPreference.blocked}
+                onClick={togglePokePanel}
+              >
+                <Hand size={22} strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                title="发红包"
+                className={cn(redPacketOpen && 'active')}
+                disabled={currentPreference.blocked}
+                onClick={toggleRedPacketPanel}
+              >
+                <Gift size={22} strokeWidth={1.5} />
+              </button>
               {canUseWindowShake ? (
                 <button
                   type="button"
@@ -3438,6 +3816,30 @@ export function ChatPane({
                 disabledHint={sendTitle}
                 onSend={(draft) => void sendBounceEmoji(draft)}
                 onClose={() => setBounceOpen(false)}
+              />
+            ) : null}
+            {pokeOpen ? (
+              <PokeEmojiPanel
+                panelRef={pokePanelRef}
+                disabled={mediaSendDisabled}
+                disabledHint={sendTitle}
+                onSend={(draft) => void sendPokeEmoji(draft)}
+                randomFaces={randomFacesQuery.data?.items ?? []}
+                onSendRandom={(draft) => void sendRandomFace(draft)}
+                onClose={() => setPokeOpen(false)}
+              />
+            ) : null}
+            {redPacketOpen ? (
+              <RedPacketPanel
+                panelRef={redPacketPanelRef}
+                group={conversation.type === 'group'}
+                disabled={mediaSendDisabled}
+                disabledHint={sendTitle}
+                passwords={redbagPasswordsQuery.data ?? []}
+                passwordsLoading={redbagPasswordsQuery.isFetching}
+                onReloadPasswords={() => void redbagPasswordsQuery.refetch()}
+                onSend={(draft) => sendRedPacket(draft)}
+                onClose={() => setRedPacketOpen(false)}
               />
             ) : null}
           </section>
@@ -3500,7 +3902,8 @@ export function ChatPane({
           onClose={() => setGroupInfoDetail(null)}
           onJumpToMessage={(seq) => {
             // 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
-            // jumpToSeq 内部会 String(seq) 归一化并处理快路径/翻页/重建窗口。
+            // jumpToSeq 内部会 String(seq) 归一化，再按已加载窗口的 seq 范围决定
+            // 快路径（滚动）/ 重建居中窗口。
             setGroupInfoDetail(null);
             if (seq == null) {
               console.warn('[essence-jump] missing msgSeq, cannot jump', seq);

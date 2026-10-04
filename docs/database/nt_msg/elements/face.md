@@ -59,7 +59,7 @@ QQ 自带表情，包含普通小黄脸、超级表情、互动表情。
 | 47614 | `faceFlag47614` | uint32 | 恒为 0（有三行为 2003） |
 | 47615 | `interactiveFaceName2` | string | 互动表情名称副本 —— 所有观测行都与 47612 相同 |
 | 47616 | `interactiveFaceVersion` | string | **互动表情版本号**，如 `7.2.0`。通常为空 |
-| 47617 | `faceFlag47617` | uint32 | 取值 0/1/2/3 |
+| 47617 | `interactiveFaceCombo` | uint32 | **戳一戳互动表情的连击次数**：0 单戳 / 1 二连 / 2 三连 / 3 四连（QQ 一般最多三连击）。安卓抓包（2026-10-01）与发送 wire 上的 `commonElem(serviceType=2).pbElem` field 7 逐字段对齐 —— `38 00` = 0 连击、`38 01` = 1 连击 |
 | 47618 | `faceFlag47618` | uint32 | 恒为 0 |
 | 47619 | `faceFlag47619` | uint32 | 恒为 0 |
 | 47620 | `faceFlag47620` | uint32 | 恒为 0 |

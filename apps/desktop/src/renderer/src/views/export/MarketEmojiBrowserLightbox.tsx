@@ -11,11 +11,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { Search, Store, X, RefreshCw, Loader2, SmilePlus } from 'lucide-react';
+import { Search, Store, X, RefreshCw, Loader2, SmilePlus, Download } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { useAppDialog } from '../../lib/dialogUtils';
 import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
@@ -47,10 +48,35 @@ function packImageUrl(packId: string, hash: string): string {
 }
 
 /** 右栏：选中包的全部表情网格。 */
-function PackDetailPane({ packId }: { packId: string }): ReactElement {
+function PackDetailPane({ packId, name }: { packId: string; name: string }): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId });
+  const dialog = useAppDialog();
+  const [saving, setSaving] = useState(false);
   const fee = FEE_META[detail.data?.feeType ?? 'unknown'];
   const items = detail.data?.items ?? [];
+
+  async function download(): Promise<void> {
+    setSaving(true);
+    try {
+      const res = await client.account.marketEmoji.downloadPackToLocal.mutate({
+        packId,
+        name: name || detail.data?.name,
+      });
+      if (!res.ok) return; // 用户取消目录选择
+      if (res.failed > 0) {
+        dialog.info(
+          '已下载（部分失败）',
+          `共 ${res.total} 张，成功 ${res.downloaded} 张，失败 ${res.failed} 张。\n保存到：${res.dir}`,
+        );
+      } else {
+        dialog.success('已下载到本地', `${res.downloaded} 张 · ${res.dir}`);
+      }
+    } catch (e) {
+      dialog.error('下载失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="weq-emb-detail">
@@ -59,6 +85,16 @@ function PackDetailPane({ packId }: { packId: string }): ReactElement {
         <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
         <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
         {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
+        <button
+          type="button"
+          className="weq-emb-download"
+          disabled={saving || !detail.data}
+          onClick={() => void download()}
+          title="解密下载这一整套到本地文件夹"
+        >
+          {saving ? <Loader2 size={14} className="weq-emb-spin" /> : <Download size={14} />}
+          一键下载
+        </button>
       </div>
       {detail.isLoading ? (
         <GridSkeleton cells={10} />
@@ -140,6 +176,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
+  const [latest, setLatest] = useState(false);
 
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -183,7 +220,8 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
       try {
         const page = await client.account.marketEmoji.searchCatalog.query({
           keyword: query || undefined,
-          feeTypes: feeSel.size ? [...feeSel] : undefined,
+          feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
+          latest: latest || undefined,
           limit: PAGE,
           cursor: null,
         });
@@ -207,7 +245,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
     return () => {
       cancelled = true;
     };
-  }, [query, feeSel]);
+  }, [query, feeSel, latest]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (loadingRef.current || doneRef.current || cursorRef.current === null) return;
@@ -216,7 +254,8 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
     try {
       const page = await client.account.marketEmoji.searchCatalog.query({
         keyword: query || undefined,
-        feeTypes: feeSel.size ? [...feeSel] : undefined,
+        feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
+        latest: latest || undefined,
         limit: PAGE,
         cursor: cursorRef.current,
       });
@@ -234,7 +273,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [query, feeSel]);
+  }, [query, feeSel, latest]);
 
   // 滚动到底自动加载下一页。
   useEffect(() => {
@@ -251,12 +290,19 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   }, [loadMore, done]);
 
   const toggleFee = (id: MarketPackFeeType): void => {
+    setLatest(false);
     setFeeSel((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
+  /** 「最新上架」：只看目录尾部（id 最大 = 上架最晚），与来源筛选互斥。 */
+  const toggleLatest = (): void => {
+    setLatest((v) => !v);
+    setFeeSel(new Set());
   };
 
   return (
@@ -274,7 +320,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
               <code>
                 {loading && entries.length === 0
                   ? '搜索中…'
-                  : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size ? ' · 已过滤' : ''}`}
+                  : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
               </code>
             ) : null}
           </div>
@@ -305,10 +351,21 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
             <div className="weq-emb-fee-row">
               <button
                 type="button"
-                className={`weq-mpd-fee-chip${feeSel.size === 0 ? ' is-active' : ''}`}
-                onClick={() => setFeeSel(new Set())}
+                className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
+                onClick={() => {
+                  setLatest(false);
+                  setFeeSel(new Set());
+                }}
               >
                 全部
+              </button>
+              <button
+                type="button"
+                className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
+                onClick={toggleLatest}
+                title="只看最新上架的表情包（目录尾部）"
+              >
+                最新上架
               </button>
               {FEE_FILTERS.map((f) => (
                 <button
@@ -355,7 +412,10 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
           {/* 右栏：选中包的表情网格 */}
           <div className="weq-emb-right">
             {selectedId ? (
-              <PackDetailPane packId={selectedId} />
+              <PackDetailPane
+                packId={selectedId}
+                name={entries.find((e) => e.id === selectedId)?.name ?? ''}
+              />
             ) : (
               <div className="weq-emb-empty">
                 <SmilePlus size={36} strokeWidth={1.3} />

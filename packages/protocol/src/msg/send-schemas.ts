@@ -187,8 +187,23 @@ export const QFACE_EXTRA: ProtoMessage = message([
   f('randomType', 9, 'int32'),
 ]);
 
-/** 私聊窗口抖动（commonElem serviceType=2）的 pbElem。 */
-export const POKE_EXTRA: ProtoMessage = message([f('type', 1, 'uint32')]);
+/**
+ * 戳一戳互动表情 / 私聊窗口抖动（commonElem serviceType=2）的 pbElem。
+ *
+ * 安卓真机抓包（2026-10-01）解出 10 个字段，与本机库 FACE 元素的 `47611..47620`
+ * 段**逐字段对应**（类型一致：2/5/6 是 string，其余 uint）—— 见
+ * `docs/database/nt_msg/elements/face.md`。QQ 会把这 10 个字段都显式写出来（大量
+ * 零值 / 空串），本实现只写有意义的那两个：`type`(field 1) 与 `combo`(field 7)，
+ * 其余交给 proto3 缺省省略（服务端照样接受）。
+ */
+export const POKE_EXTRA: ProtoMessage = message([
+  f('type', 1, 'uint32'),
+  /**
+   * 连击次数（= 本机库 FACE 的 `47617`）。抓包：0 连击写 `38 00`、1 连击写 `38 01`，
+   * 一般最多三连击。缺省 0（不写 = 0）。
+   */
+  f('combo', 7, 'uint32'),
+]);
 
 /**
  * 表情弹射（commonElem serviceType=23）的 pbElem —— 按真机抓包实测（2026-09-25）。

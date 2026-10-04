@@ -179,6 +179,26 @@ html[data-theme="dark"] .unread-jump-button:focus-visible {
 	box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
 }
 
+/* 未读跳转坞（深色）：卡片面用略亮的深灰，描边跟着色调走。 */
+html[data-theme="dark"] .unread-dock-button {
+	background: #23262a;
+	box-shadow:
+		0 4px 18px rgba(0, 0, 0, 0.4),
+		0 0 0 1px color-mix(in srgb, var(--dock-tone, #4db3ff) 36%, transparent);
+}
+
+html[data-theme="dark"] .unread-dock-button.tone-info {
+	--dock-tone: #4db3ff;
+}
+
+html[data-theme="dark"] .unread-dock-button:hover,
+html[data-theme="dark"] .unread-dock-button:focus-visible {
+	background: color-mix(in srgb, var(--dock-tone, #4db3ff) 18%, #23262a);
+	box-shadow:
+		0 6px 22px rgba(0, 0, 0, 0.48),
+		0 0 0 1px color-mix(in srgb, var(--dock-tone, #4db3ff) 52%, transparent);
+}
+
 html[data-theme="dark"] .notice-header {
 	background: #101112;
 }

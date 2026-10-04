@@ -715,6 +715,103 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	right: calc(var(--group-info-panel-width) + 24px);
 }
 
+/* 未读跳转坞 —— 打开会话时按内存快照逐个引导跳转，跳完自动收起。
+ *
+ * 贴在会话右上角（顶栏下方），三种色调对应告警 / 内容 / 红包：
+ *   · alert —— 找你类（@我 / @全体 / 回复我 / 特别关心 / 群提醒词），红
+ *   · info  —— 内容类（新文件 / 群公告）与兜底的「新的 N 条未读消息」，蓝
+ *   · gold  —— 红包，金
+ * 全部走主题变量，深浅模式自动适配。
+ */
+.unread-dock-button {
+	position: absolute;
+	z-index: 11;
+	top: calc(var(--chat-header-height) + 12px);
+	right: 24px;
+	display: inline-flex;
+	height: 26px;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	padding: 0 11px;
+	border: 0;
+	border-radius: 999px;
+	background: var(--card, #ffffff);
+	box-shadow:
+		0 2px 10px rgba(0, 0, 0, 0.12),
+		0 0 0 1px color-mix(in srgb, var(--dock-tone, #1598ff) 26%, transparent);
+	color: var(--dock-tone, #1598ff);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1;
+	cursor: pointer;
+	user-select: none;
+	animation: unread-dock-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
+	transition:
+		background 120ms ease-out,
+		box-shadow 120ms ease-out,
+		transform 120ms ease-out;
+}
+
+.unread-dock-button.tone-alert {
+	--dock-tone: #ff4b3a;
+}
+
+.unread-dock-button.tone-info {
+	--dock-tone: var(--weq-accent-effective, #1598ff);
+}
+
+.unread-dock-button.tone-gold {
+	--dock-tone: #e8a33d;
+}
+
+.unread-dock-button:hover,
+.unread-dock-button:focus-visible {
+	background: color-mix(in srgb, var(--dock-tone, #1598ff) 10%, var(--card, #ffffff));
+	box-shadow:
+		0 4px 14px rgba(0, 0, 0, 0.16),
+		0 0 0 1px color-mix(in srgb, var(--dock-tone, #1598ff) 42%, transparent);
+	outline: 0;
+	transform: translateY(-1px);
+}
+
+.unread-dock-button svg {
+	flex: 0 0 auto;
+}
+
+.unread-dock-count {
+	flex: 0 0 auto;
+	margin-left: 1px;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--dock-tone, #1598ff) 16%, transparent);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	font-weight: 500;
+	opacity: 0.85;
+}
+
+.chat-pane.with-group-info:not(.group-info-collapsed) .unread-dock-button {
+	right: calc(var(--group-info-panel-width) + 24px);
+}
+
+@keyframes unread-dock-in {
+	from {
+		opacity: 0;
+		transform: translateY(-6px) scale(0.96);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.unread-dock-button {
+		animation: none;
+	}
+}
+
 /* Floating "N new messages" pill — shown when live messages arrive while the
  * user is reading history. Click (or scrolling to the bottom) dismisses it.
  *
@@ -1236,18 +1333,39 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	background: rgba(255, 255, 255, 0.32);
 }
 
-/* Brief highlight when a reply jump lands on its target message. */
-.message-line.weq-reply-target-flash .message-bubble .message-content {
+/* Brief highlight when a reply jump lands on its target message. QQ 本体是**整行底色**
+ * 加重并淡出，而不是只给气泡描一圈边——气泡带装扮 / 换肤时那圈描边很容易被盖掉，
+ * 站位也不明显。所以这里直接在整行（.message-line）上铺一层背景色再渐隐。 */
+.message-line.weq-reply-target-flash {
+	/* 纵向留一点呼吸感：padding 与等量负 margin 抵消，行布局不动。 */
+	margin-block: -4px;
+	padding-block: 4px;
+	border-radius: 10px;
 	animation: weq-reply-flash 1.6s ease;
 }
 
 @keyframes weq-reply-flash {
 	0%,
-	40% {
-		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0.55);
+	45% {
+		background-color: rgba(18, 168, 255, 0.16);
 	}
 	100% {
-		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0);
+		background-color: rgba(18, 168, 255, 0);
+	}
+}
+
+/* 深色主题下底衬更暗，0.16 的蓝几乎看不见——用更亮、更实一点的蓝。 */
+html[data-theme="dark"] .message-line.weq-reply-target-flash {
+	animation: weq-reply-flash-dark 1.6s ease;
+}
+
+@keyframes weq-reply-flash-dark {
+	0%,
+	45% {
+		background-color: rgba(72, 156, 255, 0.28);
+	}
+	100% {
+		background-color: rgba(72, 156, 255, 0);
 	}
 }
 

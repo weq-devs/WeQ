@@ -22,6 +22,8 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { QqAvatar } from './QqAvatar';
 import { client } from '../trpc/client';
+import { openRedBagDetail } from './RedBagDetailDialog';
+import { useAppDialog } from '../lib/dialogUtils';
 
 // ---- helpers -------------------------------------------------------------
 
@@ -76,6 +78,9 @@ export function QqWallet({
   redbagType,
   designatedUin,
   skinId,
+  msgId,
+  conv,
+  kind,
 }: {
   detail: unknown;
   /** 元素级 walletRedbagType（tag 48412）。 */
@@ -84,6 +89,12 @@ export function QqWallet({
   designatedUin?: unknown;
   /** 红包皮肤 id（tag 5 within 48461），有值时用 moggy CDN 封面替换通用图。 */
   skinId?: unknown;
+  /** 消息 id —— 查领取明细时主进程据此回查消息本体。 */
+  msgId?: string;
+  /** 会话标识：私聊对方 uid / 群号。 */
+  conv?: string;
+  /** 会话类型（转发窗口里也带上）。 */
+  kind?: 'c2c' | 'group';
 }): ReactElement {
   const d = detail && typeof detail === 'object' ? (detail as Record<string, unknown>) : {};
   // 细粒度类型（48412）优先；缺失时回退粗粒度嵌套类型（48442）。
@@ -96,6 +107,16 @@ export function QqWallet({
   const uin = designatedUin != null && String(designatedUin) !== '0' ? String(designatedUin) : null;
   const isDesignated = (fine === 8 || uin != null) && uin != null;
   const nick = useNickByUin(isDesignated ? uin : null);
+  const dialog = useAppDialog();
+
+  // 自定义皮肤是从 moggy CDN 现取的：skinId 有值但图挂掉（404 / 下架）时回退默认封面,
+  // 别让卡片裂成一张破图。换 skinId 时重新给自定义封面一次机会。hook 必须在转账
+  // 卡片提前 return 之前调用。
+  const skinIdStr = typeof skinId === 'number' && skinId > 0 ? String(skinId) : null;
+  const [skinBroken, setSkinBroken] = useState(false);
+  useEffect(() => {
+    setSkinBroken(false);
+  }, [skinIdStr]);
 
   // redbagType 1 → 转账卡片。
   const isTransfer = fine === 1 || (!fineKnown && coarse === 1);
@@ -137,18 +158,66 @@ export function QqWallet({
   const isPassword = fine === 6 || (!fineKnown && coarse === 2);
   const bagImage = isPassword ? 'password_bag.png' : 'normal_bag.png';
   const label = fineKnown ? REDBAG_LABEL[fine] : undefined;
-  const skinIdStr = typeof skinId === 'number' && skinId > 0 ? String(skinId) : null;
+  const coverSrc =
+    skinIdStr && !skinBroken ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage);
+
+  /**
+   * 点红包卡片 → 先看在线注入状态（与发消息按钮同条件），有则开领取明细灯箱。
+   * 条件不满足时给一条提示，不让用户对着一个没反应的卡片发呆。
+   */
+  const handleOpenDetail = (): void => {
+    if (!msgId || !conv) return;
+    void (async () => {
+      try {
+        const access = await client.account.getGroupAlbumAccessState.query();
+        if (!access.qqOnline || !access.injectEnabled) {
+          dialog.info(
+            '无法查看领取记录',
+            '需要在线且已注入的 QQ 客户端 —— 红包明细要走 hook 发包。',
+          );
+          return;
+        }
+      } catch {
+        // 查询本身失败不拦；主进程会给出更具体的错误。
+      }
+      openRedBagDetail({
+        msgId,
+        kind: kind ?? 'c2c',
+        conv,
+        ...(skinIdStr ? { skinId: Number(skinIdStr) } : {}),
+      });
+    })();
+  };
+
+  // 只有真的能查到明细（有 msgId + conv）才把卡片变成可点 —— 否则保持原样。
+  const canOpenDetail = Boolean(msgId && conv);
 
   return (
     <div
-      className={`weq-redbag-card${isDesignated ? ' weq-redbag-card--designated' : ''}`}
-      title={title || undefined}
+      className={`weq-redbag-card${isDesignated ? ' weq-redbag-card--designated' : ''}${canOpenDetail ? ' is-clickable' : ''}`}
+      title={canOpenDetail ? '查看领取记录' : title || undefined}
+      role={canOpenDetail ? 'button' : undefined}
+      tabIndex={canOpenDetail ? 0 : undefined}
+      onClick={canOpenDetail ? handleOpenDetail : undefined}
+      onKeyDown={
+        canOpenDetail
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleOpenDetail();
+              }
+            }
+          : undefined
+      }
     >
       <img
         className="weq-redbag-img"
-        src={skinIdStr ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage)}
+        src={coverSrc}
         alt=""
         draggable={false}
+        onError={() => {
+          if (skinIdStr) setSkinBroken(true);
+        }}
       />
       {isDesignated ? (
         <div className="weq-redbag-tag weq-redbag-tag--designated">

@@ -17,8 +17,10 @@ import {
   decode as rawDecodeGuess,
   newJsonRenderCtx,
   parseInput,
+  bytesToHex,
   rawFieldsToJsonView,
   rvNodesToJsonView,
+  tryDecodeAfterLengthPrefix,
   tryDecodeJce,
   tryDecodeProtobuf,
   type JsonValue,
@@ -43,6 +45,14 @@ export interface BlobDecodeResult {
   truncatedHex?: boolean;
   /** Human note for the schema-free fallback. */
   guessNote?: string;
+  /** 自动识别并剥离的长度前缀（QQ 数据包常见的 `00 00 00 D5 …` 开头）。 */
+  prefix?: {
+    width: number;
+    endian: 'be' | 'le';
+    value: number;
+    declared: 'total' | 'payload';
+    bytes: string;
+  };
   error?: string;
 }
 
@@ -72,6 +82,7 @@ export function decodeBlobBytes(buf: Uint8Array, format: BlobFormat): BlobDecode
   const finish = (
     kind: 'protobuf' | 'jce' | 'guess',
     nodes: Parameters<typeof rvNodesToJsonView>[0],
+    prefix?: BlobDecodeResult['prefix'],
   ): BlobDecodeResult => {
     const ctx = newJsonRenderCtx();
     const fields = rvNodesToJsonView(nodes, ctx);
@@ -83,38 +94,61 @@ export function decodeBlobBytes(buf: Uint8Array, format: BlobFormat): BlobDecode
       fields,
       ...(names ? { names } : {}),
       ...(ctx.truncatedHex ? { truncatedHex: true } : {}),
+      ...(prefix ? { prefix } : {}),
     };
+  };
+
+  /**
+   * 先自动识别 / 剥离 QQ 数据包开头的长度前缀（如 `00 00 00 D5 …`），只有剥完
+   * 能**完整解析**才采用；否则回退到原字节。宽度 / 字节序列由数据自证，不硬编码。
+   */
+  const prefixed = (want: 'protobuf' | 'jce' | 'auto'): BlobDecodeResult | null => {
+    const hit = tryDecodeAfterLengthPrefix(buf);
+    if (!hit) return null;
+    if (want !== 'auto' && hit.kind !== want) return null;
+    return finish(hit.kind, hit.nodes, {
+      width: hit.prefix.width,
+      endian: hit.prefix.endian,
+      value: hit.prefix.value,
+      declared: hit.prefix.declared,
+      bytes: bytesToHex(hit.prefix.bytes),
+    });
   };
 
   if (format === 'protobuf') {
     const nodes = tryDecodeProtobuf(buf);
-    return nodes
-      ? finish('protobuf', nodes)
-      : {
-          ok: false,
-          kind: 'none',
-          bytes: buf.length,
-          fields: {},
-          error: '无法按 protobuf 完整解析（可能需要剥离外层长度头/信封，或改用 auto 看猜测树）。',
-        };
+    if (nodes) return finish('protobuf', nodes);
+    const stripped = prefixed('protobuf');
+    if (stripped) return stripped;
+    return {
+      ok: false,
+      kind: 'none',
+      bytes: buf.length,
+      fields: {},
+      error: '无法按 protobuf 完整解析（可能需要剥离外层长度头/信封，或改用 auto 看猜测树）。',
+    };
   }
   if (format === 'jce') {
     const nodes = tryDecodeJce(buf);
-    return nodes
-      ? finish('jce', nodes)
-      : {
-          ok: false,
-          kind: 'none',
-          bytes: buf.length,
-          fields: {},
-          error: '无法按 JCE 完整解析（可能需要剥离外层长度头/信封，或改用 auto 看猜测树）。',
-        };
+    if (nodes) return finish('jce', nodes);
+    const stripped = prefixed('jce');
+    if (stripped) return stripped;
+    return {
+      ok: false,
+      kind: 'none',
+      bytes: buf.length,
+      fields: {},
+      error: '无法按 JCE 完整解析（可能需要剥离外层长度头/信封，或改用 auto 看猜测树）。',
+    };
   }
 
   const proto = tryDecodeProtobuf(buf);
   if (proto) return finish('protobuf', proto);
   const jce = tryDecodeJce(buf);
   if (jce) return finish('jce', jce);
+
+  const stripped = prefixed('auto');
+  if (stripped) return stripped;
 
   // Schema-free decoder always returns something for non-empty input; mark the
   // result honestly as a guess so models don't treat field numbers as fact.

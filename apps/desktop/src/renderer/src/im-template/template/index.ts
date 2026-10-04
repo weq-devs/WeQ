@@ -29,6 +29,7 @@ export * from './profileActions';
 export * from './profilePanes';
 export * from './primitives';
 export * from './rail';
+export * from './redPacketPanel';
 export * from './sidebar';
 export * from './settingsModal';
 export * from './settingsPanels';

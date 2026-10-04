@@ -94,8 +94,29 @@ export interface MfMfaceSeg {
   previewHeight?: number;
 }
 
-/** 图片：`path` 是本机绝对路径，发送时真实上传 NTV2。 */
-export interface MfImageSeg {
+/**
+ * 媒体「免字节上传」指纹 —— md5 + sha1 + 尺寸。
+ *
+ * 资源**已经在服务端**时（转发一条已有消息里的图片 / 语音 / 视频）带它，发送走 NTV2
+ * fast-upload，不需要本机文件。对应协议的 `MediaFingerprint`。
+ */
+export interface MfMediaFingerprint {
+  md5Hex: string;
+  sha1Hex: string;
+  fileSize: number;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  picFormat?: number;
+}
+
+/** 无本机文件时，预览退回的原始渲染元素（媒体卡片走 CDN / 占位）。 */
+export interface MfMediaPreview {
+  preview?: MfElement;
+}
+
+/** 图片：`path` 是本机绝对路径，发送时真实上传 NTV2；给 `fingerprint` 时可没本机文件。 */
+export interface MfImageSeg extends MfMediaPreview {
   t: 'image';
   id: string;
   path: string;
@@ -105,10 +126,11 @@ export interface MfImageSeg {
   height?: number;
   /** 0 普通图 / 1 动画表情；缺省 0。 */
   subType?: number;
+  fingerprint?: MfMediaFingerprint;
 }
 
-/** 语音：`path` 是本机 SILK / 音频文件路径。 */
-export interface MfRecordSeg {
+/** 语音：`path` 是本机 SILK / 音频文件路径；给 `fingerprint` 时可没有本机文件。 */
+export interface MfRecordSeg extends MfMediaPreview {
   t: 'record';
   id: string;
   path: string;
@@ -116,10 +138,11 @@ export interface MfRecordSeg {
   size?: number;
   /** 时长（秒）。 */
   duration?: number;
+  fingerprint?: MfMediaFingerprint;
 }
 
-/** 视频：`path` 是本机视频路径；`thumbPath` 可选封面。 */
-export interface MfVideoSeg {
+/** 视频：`path` 是本机视频路径；`thumbPath` 可选封面；给 `fingerprint` 时可没有本机文件。 */
+export interface MfVideoSeg extends MfMediaPreview {
   t: 'video';
   id: string;
   path: string;
@@ -129,6 +152,7 @@ export interface MfVideoSeg {
   duration?: number;
   width?: number;
   height?: number;
+  fingerprint?: MfMediaFingerprint;
 }
 
 /** 文件：`path` 是本机绝对路径，发送时走文件管线真实上传（群/私聊各有编码）。 */
@@ -177,6 +201,23 @@ export interface MfCardSeg {
   t: 'card';
   id: string;
   resId: string;
+  /**
+   * 原卡片 JSON 里的 `uniseq` —— Ark 的 `meta.detail.uniseq` / MULTI_MSG 的
+   * `sessionId`(48603，XML 里是 `m_fileName`)。
+   *
+   * 再转发时必须**原样**交给协议层的 `forwardUuid`：收端展开外层长消息时按
+   * `uniseq ↔ actionCommand` 找随包带下来的内层（piggyback），丢了就只能看到一张
+   * 打不开的空卡。
+   */
+  uniseq?: string;
+  /** 原卡片 XML / Ark 里的预览：标题（source）。 */
+  source?: string;
+  /** 原卡片预览的摘要（`查看N条转发消息`）。 */
+  summary?: string;
+  /** 原卡片预览的前几行（`昵称: 内容`）。 */
+  news?: { text: string }[];
+  /** 原卡片的条数（XML 的 `tSum`）。 */
+  tSum?: number;
 }
 
 /**
@@ -245,6 +286,23 @@ export type MfSeg =
  */
 export type MfSegKind = Exclude<MfSeg['t'], 'opaque'>;
 
+/**
+ * 逐条消息装扮（列 40801 解出）。
+ *
+ * `fontId1Raw` / `fontId2Raw` 是字体两个槽位的**原始 wire 值**（可选 —— 旧草稿
+ * 里没有），转发时原样抄进节点，绝不用 `fontId` 反推（那样会丢 bit 16 标志位，
+ * 见 codec 的 `MsgDecoration.fontId2Raw`）。
+ */
+export interface MfDecoration {
+  bubbleId: number;
+  fontId: number;
+  widgetId: number;
+  /** 41525 原值 → elem `font.fontId1`(tag 56)。0 / 缺省 = 未设置。 */
+  fontId1Raw?: number;
+  /** 41531 原值 → elem `font.fontId2`(tag 15)，含标志位。0 / 缺省 = 未设置。 */
+  fontId2Raw?: number;
+}
+
 /** 一条预览消息。 */
 export interface MfNode {
   /** 本地稳定 id（排序 / React key）。 */
@@ -255,7 +313,7 @@ export interface MfNode {
   /** 展示时间（unix 秒）。 */
   time: number;
   /** 逐条消息装扮（列 40801）。0 = 未设置。 */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: MfDecoration;
   /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
 }
@@ -424,6 +482,8 @@ export function segHasContent(seg: MfSeg): boolean {
     case 'image':
     case 'record':
     case 'video':
+      // 有指纹（资源已在服务端）时不需要本机文件也算有内容。
+      return seg.path.trim().length > 0 || Boolean(seg.fingerprint);
     case 'file':
       return seg.path.trim().length > 0;
     case 'ark':
@@ -463,8 +523,14 @@ function truncate(text: string, max: number): string {
 }
 
 /**
- * 由一组预览消息生成卡片标题（QQ 同款：「A和B的聊天记录」）。
- * 取前 4 个不同的昵称，去重；没有昵称时退化为「聊天记录」。
+ * 由一组预览消息生成卡片标题（QQ 同款）。
+ *
+ * 取不同的昵称去重：
+ *   - 0 个 → 「聊天记录」；
+ *   - 1 ~ 2 个 → 「A的聊天记录」/「A和B的聊天记录」；
+ *   - 3 个及以上 → 「群聊的聊天记录」（不再拼一串「A和B和C…」）。
+ *
+ * 与协议层 `deriveInnerSource` 同口径，乐观卡片和收端真卡片才不会看出差异。
  */
 export function draftTitle(nodes: MfNode[]): string {
   const names: string[] = [];
@@ -477,6 +543,7 @@ export function draftTitle(nodes: MfNode[]): string {
     if (names.length >= 4) break;
   }
   if (names.length === 0) return '聊天记录';
+  if (names.length > 2) return '群聊的聊天记录';
   return `${names.join('和')}的聊天记录`;
 }
 
@@ -621,6 +688,8 @@ function opaqueLabel(element: MfElement | undefined): string {
 
 /** 图片渲染元素：带上 `localPath`，预览层据此直接从本机文件取图（见 QqImage）。 */
 function imageRenderElement(seg: MfImageSeg): MfElement {
+  // 没有本机文件（免字节转发）时退回原始渲染元素：图片卡走 CDN / 占位，别画个空框。
+  if (!seg.path && seg.preview) return seg.preview;
   return {
     type: 'pic',
     data: {
@@ -642,6 +711,7 @@ function imageRenderElement(seg: MfImageSeg): MfElement {
  * 成 WAV，见 media_protocol 的 `localfilevoice`），`pttDuration` 决定时长文案与波形宽度。
  */
 function recordRenderElement(seg: MfRecordSeg): MfElement {
+  if (!seg.path && seg.preview) return seg.preview;
   return {
     type: 'ptt',
     data: {
@@ -655,6 +725,7 @@ function recordRenderElement(seg: MfRecordSeg): MfElement {
 
 /** 视频渲染元素：`localPath` 让预览直接播本机文件（封面用 `thumbLocalPath`）。 */
 function videoRenderElement(seg: MfVideoSeg): MfElement {
+  if (!seg.path && seg.preview) return seg.preview;
   return {
     type: 'video',
     data: {
@@ -766,7 +837,10 @@ export function segsToRenderElements(segs: MfSeg[]): MfElement[] {
         });
         break;
       case 'card':
-        out.push({ type: 'multiMsg', data: { resId: seg.resId, xmlContent: '', sessionId: '' } });
+        out.push({
+          type: 'multiMsg',
+          data: { resId: seg.resId, xmlContent: '', sessionId: seg.uniseq ?? '' },
+        });
         break;
       case 'record':
         out.push(recordRenderElement(seg));
@@ -839,6 +913,7 @@ export function segToSendElement(seg: MfSeg): SendElement {
         ...(seg.previewHeight ? { previewHeight: seg.previewHeight } : {}),
       };
     case 'image':
+      // 有 fingerprint 就是「转发已有图片」：source 可以是空的（协议层走免字节上传）。
       return {
         kind: 'image',
         source: seg.path,
@@ -846,6 +921,7 @@ export function segToSendElement(seg: MfSeg): SendElement {
         ...(seg.subType !== undefined ? { subType: seg.subType } : {}),
         ...(seg.width ? { width: seg.width } : {}),
         ...(seg.height ? { height: seg.height } : {}),
+        ...(!seg.path.trim() && seg.fingerprint ? { fingerprint: seg.fingerprint } : {}),
       };
     case 'record':
       return {
@@ -853,6 +929,7 @@ export function segToSendElement(seg: MfSeg): SendElement {
         source: seg.path,
         ...(seg.fileName ? { fileName: seg.fileName } : {}),
         ...(seg.duration !== undefined ? { duration: seg.duration } : {}),
+        ...(!seg.path.trim() && seg.fingerprint ? { fingerprint: seg.fingerprint } : {}),
       };
     case 'video':
       return {
@@ -863,6 +940,7 @@ export function segToSendElement(seg: MfSeg): SendElement {
         ...(seg.duration !== undefined ? { duration: seg.duration } : {}),
         ...(seg.width ? { width: seg.width } : {}),
         ...(seg.height ? { height: seg.height } : {}),
+        ...(!seg.path.trim() && seg.fingerprint ? { fingerprint: seg.fingerprint } : {}),
       };
     case 'file':
       return {
@@ -899,7 +977,17 @@ export function segToSendElement(seg: MfSeg): SendElement {
         ...(seg.origMsgTime !== undefined ? { origMsgTime: seg.origMsgTime } : {}),
       };
     case 'card':
-      return { kind: 'forward', resId: seg.resId };
+      // uniseq + 原卡片预览一并带过去：协议层把它当 `forwardUuid`（收端按它匹配
+      // 随包 piggyback 的内层），预览字段让再转发出去的卡片仍有封面预览行。
+      return {
+        kind: 'forward',
+        resId: seg.resId,
+        ...(seg.uniseq?.trim() ? { forwardUuid: seg.uniseq.trim() } : {}),
+        ...(seg.source ? { forwardSource: seg.source } : {}),
+        ...(seg.summary ? { forwardSummary: seg.summary } : {}),
+        ...(seg.news && seg.news.length > 0 ? { forwardNews: seg.news } : {}),
+        ...(seg.tSum ? { forwardTSum: seg.tSum } : {}),
+      };
     case 'opaque':
       // 协议发不出这个元素本体，退化成它等价的一段文本 —— 与改造前的发送行为一致。
       // 调用方（{@link segsToSendElements}）已保证走到这里的 opaque 都有 sendText。
@@ -937,14 +1025,45 @@ export function segsToSendElements(segs: MfSeg[]): SendElement[] {
   return usable.map(segToSendElement);
 }
 
+/**
+ * 逐条消息装扮（列 40801 的 `{bubbleId,fontId,widgetId}`）→ 协议节点的 `dress`。
+ *
+ * 三项全 0 / 缺省时返回 undefined —— 不传 `dress` 就不会往节点里多写一个字节
+ * （见 @weq/protocol 的 `buildDressElems`）。
+ *
+ * 字体走 **原值透传**（`fontId1Raw` / `fontId2Raw`），不做任何换算：40801 的
+ * `41525` / `41531` 与 elem 的 tag 56 / tag 15 是恒等映射，`fontId` 只是解码出来给
+ * 人看 / 查资源的，用它反推会丢掉 `41531` 的 bit 16 标志位。
+ */
+function decorationToDress(
+  decoration: MfDecoration | undefined,
+): SendForwardNodeInput['dress'] | undefined {
+  if (!decoration) return undefined;
+  const dress: NonNullable<SendForwardNodeInput['dress']> = {};
+  if (decoration.bubbleId > 0) dress.bubbleId = decoration.bubbleId;
+  const fontId1Raw = decoration.fontId1Raw ?? 0;
+  const fontId2Raw = decoration.fontId2Raw ?? 0;
+  // 只在**真的有字体**时透传：`41531 = 65536`（低 16 位为 0）只是标志位、没有字体，
+  // 写出去只会多一个空字体 elem。
+  const hasFont = fontId1Raw > 0 || (fontId2Raw & 0xffff) > 0;
+  if (hasFont) {
+    if (fontId1Raw > 0) dress.fontId1Raw = fontId1Raw;
+    if (fontId2Raw > 0) dress.fontId2Raw = fontId2Raw;
+  }
+  if (decoration.widgetId > 0) dress.widgetId = decoration.widgetId;
+  return Object.keys(dress).length > 0 ? dress : undefined;
+}
+
 /** 一个普通预览消息 → 协议节点（内容为元素）。 */
 export function nodeToSendNode(node: MfNode): SendForwardNodeInput {
   const uin = Number(node.sender?.uin) || 0;
   const inner = isNestedContent(node.segs) ? nestedSegsToSendNodes(node.segs) : undefined;
+  const dress = decorationToDress(node.decoration);
   return {
     ...(uin > 0 ? { userUin: uin } : {}),
     ...(node.sender?.name ? { nickname: node.sender.name } : {}),
     ...(node.time ? { time: node.time } : {}),
+    ...(dress ? { dress } : {}),
     elements: inner ? [] : segsToSendElements(node.segs),
     ...(inner ? { innerForward: inner } : {}),
   };
@@ -1020,6 +1139,45 @@ function boxedBytesToHex(value: unknown): string {
   return '';
 }
 
+/**
+ * 从 wire 元素里取媒体指纹（md5 / sha1 hex）。
+ *
+ * md5：优先 45406 `md5Bytes`，退回 45424 `md5`（大写 hex 字符串）。
+ * sha1：45408 `contentHash`（内容校验 hash，20 字节）。
+ *
+ * 两个都齐了才能走「免字节上传」（转发已有的媒体，不需要本机文件）。
+ */
+function fingerprintOf(element: Record<string, unknown>): Partial<MfMediaFingerprint> {
+  const md5Hex = (boxedBytesToHex(element.md5Bytes) || str(element, 'md5')).trim().toLowerCase();
+  const sha1Hex = boxedBytesToHex(element.contentHash).trim().toLowerCase();
+  return {
+    ...(md5Hex.length === 32 ? { md5Hex } : {}),
+    ...(sha1Hex.length === 40 ? { sha1Hex } : {}),
+  };
+}
+
+/** 指纹齐了就算「可免字节」。 */
+function hasFingerprint(fp: Partial<MfMediaFingerprint>): fp is MfMediaFingerprint {
+  return fp.md5Hex !== undefined && fp.sha1Hex !== undefined;
+}
+
+/** wire 元素 → 可发送的媒体指纹（md5 / sha1 齐了才返回，否则 undefined）。 */
+function mediaFingerprintOf(element: Record<string, unknown>): MfMediaFingerprint | undefined {
+  const fp = fingerprintOf(element);
+  if (!hasFingerprint(fp)) return undefined;
+  const fileName = str(element, 'fileName').trim();
+  const width = num(element, 'imgWidth');
+  const height = num(element, 'imgHeight');
+  return {
+    md5Hex: fp.md5Hex,
+    sha1Hex: fp.sha1Hex,
+    fileSize: num(element, 'fileSize'),
+    ...(fileName ? { fileName } : {}),
+    ...(width ? { width } : {}),
+    ...(height ? { height } : {}),
+  };
+}
+
 function str(data: Record<string, unknown>, key: string): string {
   const value = data[key];
   return typeof value === 'string' ? value : '';
@@ -1034,6 +1192,172 @@ function num(data: Record<string, unknown>, key: string): number {
 function opaqueSeg(element: MfElement, sendText?: string): MfOpaqueSeg {
   const text = sendText ?? opaqueLabel(element);
   return { t: 'opaque', id: mfId('seg'), element, ...(text ? { sendText: text } : {}) };
+}
+
+/** Ark lightApp 的 `data` 是 JSON 文本；解析失败 / 非对象返回 null。 */
+function parseArk(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * 从「聊天记录」元素里抠出服务端 resId —— 再转发时只有拿着它才能把卡片编译成
+ * `{kind:'forward', resId}`。三个来源（与 `ForwardWindow.forwardResIdOf` 同规则）：
+ *   1. `resId`（codec MULTI_MSG / structLongMsg 的 48601）；
+ *   2. `xmlContent` 里的 `m_resid`（部分卡片 48601 为空，只有 XML）；
+ *   3. `com.tencent.multimsg` Ark 包装的 `meta.detail.resid`。
+ *
+ * 取不到时返回 `''` —— 没有 resId 的卡片发不出去，调用方退成只读的 opaque 段。
+ */
+function forwardResIdOf(element: Record<string, unknown>): string {
+  const direct = str(element, 'resId').trim();
+  if (direct) return direct;
+  const xml = str(element, 'xmlContent');
+  if (xml) {
+    const match = /m_resid\s*=\s*["']([^"']+)["']/i.exec(xml);
+    if (match?.[1]) return match[1].trim();
+  }
+  // 只认 multimsg 卡：其它 Ark 的 detail 里也可能有 resid，但那是别的东西。
+  const detail = multiMsgArkDetail(element);
+  const resid = detail?.resid ?? detail?.resId;
+  if (typeof resid === 'string') return resid.trim();
+  return '';
+}
+
+/** `com.tencent.multimsg` Ark 卡的 `meta.detail`；不是这种卡就返回 null。 */
+function multiMsgArkDetail(element: Record<string, unknown>): Record<string, unknown> | null {
+  const ark = parseArk(element.arkData);
+  if (ark?.app !== 'com.tencent.multimsg') return null;
+  const meta = ark.meta as Record<string, unknown> | undefined;
+  const detail = meta?.detail as Record<string, unknown> | undefined;
+  return detail ?? null;
+}
+
+/**
+ * 从「聊天记录」元素里抠出原卡片的 `uniseq`（Ark `meta.detail.uniseq` /
+ * `extra.filename`，或 MULTI_MSG 的 `sessionId`(48603) / XML `m_fileName`）。
+ *
+ * 再转发时它就是协议层的 `forwardUuid`：收端按它匹配随包 piggyback 的内层。
+ */
+function forwardUniseqOf(element: Record<string, unknown>): string {
+  const direct = str(element, 'sessionId').trim();
+  if (direct) return direct;
+  const xml = str(element, 'xmlContent');
+  if (xml) {
+    const match = /m_fileName\s*=\s*["']([^"']+)["']/i.exec(xml);
+    if (match?.[1]) return match[1].trim();
+  }
+  const detail = multiMsgArkDetail(element);
+  if (detail) {
+    const uniseq = detail.uniseq;
+    if (typeof uniseq === 'string' && uniseq.trim()) return uniseq.trim();
+  }
+  // `extra` 是我们 / NapCat 自己写进去的 JSON 文本 `{filename, tsum}`。
+  const ark = parseArk(element.arkData);
+  const extra = parseArk(ark?.extra);
+  const filename = extra?.filename;
+  return typeof filename === 'string' ? filename.trim() : '';
+}
+
+/**
+ * 解析 MULTI_MSG 的 XML 预览（48602）。
+ *
+ * XML 里带着收端卡片要显示的标题 / 摘要 / 前几行，重新上传一张卡片时把它们一并带过去，
+ * 收端才有「预览」而不是一个只有标题的空卡：
+ *   - `<source name="A和B的聊天记录">` → source
+ *   - `<summary>查看N条转发消息</summary>` → summary
+ *   - `<item>` 里第一个 `<title>` 是卡片标题，其余是预览行（`昵称: 内容`）→ news
+ *   - `tSum` 属性 → 条数
+ */
+function parseForwardXmlPreview(
+  xml: string,
+): Pick<MfCardSeg, 'source' | 'summary' | 'news' | 'tSum'> {
+  const out: Pick<MfCardSeg, 'source' | 'summary' | 'news' | 'tSum'> = {};
+  const source = /<source\b[^>]*\bname\s*=\s*["']([^"']*)["']/i.exec(xml);
+  if (source?.[1]?.trim()) out.source = source[1].trim();
+  const summary = /<summary\b[^>]*>([\s\S]*?)<\/summary>/i.exec(xml);
+  if (summary?.[1]?.trim()) out.summary = summary[1].trim();
+  const tSum = /\btSum\s*=\s*["'](\d+)["']/i.exec(xml);
+  if (tSum?.[1]) {
+    const n = Number(tSum[1]);
+    if (Number.isFinite(n) && n > 0) out.tSum = n;
+  }
+  const titles = [...xml.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title>/gi)]
+    .map((m) => (m[1] ?? '').replace(/<[^>]*>/g, '').trim())
+    .filter(Boolean);
+  // 第一个 title 是卡片标题（与 source 重复），从第二个起才是预览行。
+  const news = titles.slice(1).map((text) => ({ text }));
+  if (news.length > 0) out.news = news;
+  return out;
+}
+
+/** Ark 卡的预览元信息（`meta.detail` 里的 source / summary / news + extra 的 tsum）。 */
+function arkPreviewOf(
+  element: Record<string, unknown>,
+): Pick<MfCardSeg, 'source' | 'summary' | 'news' | 'tSum'> {
+  const out: Pick<MfCardSeg, 'source' | 'summary' | 'news' | 'tSum'> = {};
+  const detail = multiMsgArkDetail(element);
+  if (detail) {
+    const source = str(detail, 'source').trim();
+    if (source) out.source = source;
+    const summary = str(detail, 'summary').trim();
+    if (summary) out.summary = summary;
+    const rawNews = detail.news;
+    if (Array.isArray(rawNews)) {
+      const news = rawNews
+        .map((item) =>
+          item && typeof item === 'object' ? str(item as Record<string, unknown>, 'text') : '',
+        )
+        .map((text) => text.trim())
+        .filter(Boolean)
+        .map((text) => ({ text }));
+      if (news.length > 0) out.news = news;
+    }
+  }
+  const ark = parseArk(element.arkData);
+  const extra = parseArk(ark?.extra);
+  const tsum = extra?.tsum;
+  if (typeof tsum === 'number' && Number.isFinite(tsum) && tsum > 0) out.tSum = tsum;
+  return out;
+}
+
+/** 「聊天记录」元素 → 统一的卡片预览元信息（MULTI_MSG 走 XML，Ark 走 detail）。 */
+function forwardPreviewOf(
+  element: Record<string, unknown>,
+): Pick<MfCardSeg, 'source' | 'summary' | 'news' | 'tSum'> {
+  const xml = str(element, 'xmlContent');
+  const fromXml = xml ? parseForwardXmlPreview(xml) : {};
+  const fromArk = arkPreviewOf(element);
+  const source = fromArk.source ?? fromXml.source;
+  const summary = fromArk.summary ?? fromXml.summary;
+  const news = fromArk.news ?? fromXml.news;
+  const tSum = fromArk.tSum ?? fromXml.tSum;
+  return {
+    ...(source ? { source } : {}),
+    ...(summary ? { summary } : {}),
+    ...(news ? { news } : {}),
+    ...(tSum ? { tSum } : {}),
+  };
+}
+
+/** 由 resId + 原卡片元信息组装一个 card 段。 */
+function cardSegOf(element: Record<string, unknown>, resId: string): MfCardSeg {
+  const uniseq = forwardUniseqOf(element);
+  return {
+    t: 'card',
+    id: mfId('seg'),
+    resId,
+    ...(uniseq ? { uniseq } : {}),
+    ...forwardPreviewOf(element),
+  };
 }
 
 /** 一个原始元素退成 opaque 段（画得出就画，画不出才返回 null）。 */
@@ -1129,10 +1453,11 @@ export function codecElementToSeg(
       };
     }
     case 'pic': {
-      const path = str(element, 'localPath') || str(element, 'filePath');
-      // 本机没有原图也能画（QqImage 走 CDN / 代理按 fileToken + 发送时间取），
-      // 只是发不出去 —— 所以退成 opaque 段而不是一段 `[图片]` 文本。
-      if (!path) return opaqueFor(renderElement, '[图片]');
+      const path = cleanNtPath(str(element, 'localPath') || str(element, 'filePath'));
+      const fingerprint = mediaFingerprintOf(element);
+      // 本机没有原图也能画（QqImage 走 CDN / 代理按 fileToken + 发送时间取）：有指纹
+      // 就还能「免字节」转发出去，没指纹就只能退成只读的 opaque 段。
+      if (!path && !fingerprint) return opaqueFor(renderElement, '[图片]');
       return {
         t: 'image',
         id: mfId('seg'),
@@ -1142,12 +1467,16 @@ export function codecElementToSeg(
         width: num(element, 'imgWidth'),
         height: num(element, 'imgHeight'),
         subType: num(element, 'subType'),
+        ...(fingerprint ? { fingerprint } : {}),
+        ...(!path && renderElement ? { preview: renderElement } : {}),
       };
     }
     case 'ptt': {
-      const path = str(element, 'filePath');
-      // 语音没有本机 SILK 时放不出声，但气泡（时长 / 波形 / 转文字）画得出来。
-      if (!path) return opaqueFor(renderElement, '[语音]');
+      const path = cleanNtPath(str(element, 'filePath'));
+      const fingerprint = mediaFingerprintOf(element);
+      // 语音没有本机 SILK 时放不出声，但气泡（时长 / 波形 / 转文字）画得出来；
+      // 有指纹就还能免字节转发。
+      if (!path && !fingerprint) return opaqueFor(renderElement, '[语音]');
       return {
         t: 'record',
         id: mfId('seg'),
@@ -1155,15 +1484,20 @@ export function codecElementToSeg(
         fileName: str(element, 'fileName') || basename(path),
         size: num(element, 'fileSize'),
         duration: num(element, 'pttDuration'),
+        ...(fingerprint ? { fingerprint } : {}),
+        ...(!path && renderElement ? { preview: renderElement } : {}),
       };
     }
     case 'video': {
-      const path =
+      const path = cleanNtPath(
         str(element, 'filePath') ||
-        str(element, 'videoCoverLocalPath') ||
-        str(element, 'fileThumbLocalPath');
-      // 没有本地文件时 QqVideo 用封面 / CDN 出缩略图，照样是一张视频卡。
-      if (!path) return opaqueFor(renderElement, '[视频]');
+          str(element, 'videoCoverLocalPath') ||
+          str(element, 'fileThumbLocalPath'),
+      );
+      const fingerprint = mediaFingerprintOf(element);
+      // 没有本地文件时 QqVideo 用封面 / CDN 出缩略图，照样是一张视频卡；有指纹就还能
+      // 免字节转发。
+      if (!path && !fingerprint) return opaqueFor(renderElement, '[视频]');
       return {
         t: 'video',
         id: mfId('seg'),
@@ -1173,10 +1507,12 @@ export function codecElementToSeg(
         duration: num(element, 'videoDuration'),
         width: num(element, 'videoWidth'),
         height: num(element, 'videoHeight'),
+        ...(fingerprint ? { fingerprint } : {}),
+        ...(!path && renderElement ? { preview: renderElement } : {}),
       };
     }
     case 'file': {
-      const path = str(element, 'filePath');
+      const path = cleanNtPath(str(element, 'filePath'));
       // 本机没有这个文件：**画成真正的文件卡**（图标 + 文件名 + 大小），而不是
       // `[文件: xxx]` 那样一段纯文本。点它还能走 OIDB 下载（QqFile 自带那条链路）。
       if (!path) {
@@ -1191,8 +1527,13 @@ export function codecElementToSeg(
         size: num(element, 'fileSize'),
       };
     }
-    case 'ark':
+    case 'ark': {
+      // `com.tencent.multimsg` 卡片本质就是一段「聊天记录」：再转发时应该继续是
+      // 一张记录卡（发送编译成 forward 元素），把 Ark 原样塞进节点收端只会打不开。
+      const resId = forwardResIdOf(element);
+      if (resId) return cardSegOf(element, resId);
       return { t: 'ark', id: mfId('seg'), arkData: str(element, 'arkData') };
+    }
     case 'markdown':
       return {
         t: 'markdown',
@@ -1203,8 +1544,10 @@ export function codecElementToSeg(
           : {}),
       };
     case 'multiMsg': {
-      const resId = str(element, 'resId');
-      if (resId) return { t: 'card', id: mfId('seg'), resId };
+      // resId 不一定就在 48601：部分卡片只有 XML 的 m_resid（见 forwardResIdOf），
+      // 不给这层兜底的话，从聊天记录里再转一次会整段丢掉（resId 空 ⇒ 分段没内容）。
+      const resId = forwardResIdOf(element);
+      if (resId) return cardSegOf(element, resId);
       // 没有 resId 只能看、不能再转（发送要 resId）—— 预览照样是那张记录卡。
       return opaqueFor(renderElement, '[聊天记录]');
     }
@@ -1286,7 +1629,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         });
         break;
       case 'pic': {
-        const path = str(data, 'localPath') || str(data, 'filePath');
+        const path = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
         if (path) {
           segs.push({
             t: 'image',
@@ -1304,7 +1647,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         break;
       }
       case 'ptt': {
-        const path = str(data, 'localPath') || str(data, 'filePath');
+        const path = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
         if (path) {
           segs.push({
             t: 'record',
@@ -1320,8 +1663,9 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         break;
       }
       case 'video': {
-        const path =
-          str(data, 'localPath') || str(data, 'filePath') || str(data, 'videoCoverLocalPath');
+        const path = cleanNtPath(
+          str(data, 'localPath') || str(data, 'filePath') || str(data, 'videoCoverLocalPath'),
+        );
         if (path) {
           const thumb = str(data, 'thumbLocalPath') || str(data, 'fileThumbLocalPath');
           segs.push({
@@ -1341,7 +1685,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         break;
       }
       case 'file': {
-        const path = str(data, 'localPath') || str(data, 'filePath');
+        const path = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
         if (path) {
           segs.push({
             t: 'file',
@@ -1378,9 +1722,15 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
           segs.push(opaqueSeg(element, '[商城表情]'));
         }
         break;
-      case 'ark':
-        segs.push({ t: 'ark', id: mfId('seg'), arkData: str(data, 'arkData') });
+      case 'ark': {
+        const resId = forwardResIdOf(data);
+        segs.push(
+          resId
+            ? cardSegOf(data, resId)
+            : { t: 'ark', id: mfId('seg'), arkData: str(data, 'arkData') },
+        );
         break;
+      }
       case 'markdown':
         segs.push({
           t: 'markdown',
@@ -1391,9 +1741,12 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
             : {}),
         });
         break;
-      case 'multiMsg':
-        segs.push({ t: 'card', id: mfId('seg'), resId: str(data, 'resId') });
+      case 'multiMsg': {
+        const resId = forwardResIdOf(data);
+        if (resId) segs.push(cardSegOf(data, resId));
+        else segs.push(opaqueSeg(element, '[聊天记录]'));
         break;
+      }
       default:
         // 其余全部原样保留：灰条 / 通话 / 红包 / 在线文件 / 位置共享 / 长消息 /
         // 机器人按钮 / 动态… 由 QqMessageContent 按各自组件画（与主面板一致）。
@@ -1408,6 +1761,18 @@ function basename(path: string): string {
   if (!path) return '';
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] ?? path;
+}
+
+/**
+ * 剥掉 QQ NT 本地路径的 `::NTOSFull::` 虚拟前缀。
+ *
+ * 它只是 NT 的「路径根标记」，不是文件系统的一部分；带前缀的路径拿去 `stat`/
+ * `readFile` 必然 ENOENT（不只是预览，发送时也会炸）。所有从 wire 元素读出来的本机
+ * 路径都要先过这里。
+ */
+export function cleanNtPath(path: string): string {
+  const p = (path ?? '').trim();
+  return p.startsWith('::NTOSFull::') ? p.slice('::NTOSFull::'.length) : p;
 }
 
 // ───────────────────────────── 草稿校验 ─────────────────────────────
@@ -1455,7 +1820,8 @@ function validateSeg(seg: MfSeg): string | null {
     case 'image':
     case 'record':
     case 'video':
-      if (!seg.path.trim()) return `${segLabel(seg)}没有选择本机文件`;
+      // 有指纹（资源已在服务端）时不需要本机文件。
+      if (!seg.path.trim() && !seg.fingerprint) return `${segLabel(seg)}没有选择本机文件`;
       return null;
     case 'file':
       if (!seg.path.trim()) return '文件没有选择本机文件';
@@ -1496,7 +1862,7 @@ export function coerceDraft(raw: {
     segs?: unknown[];
     elements?: unknown[];
     time: number;
-    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+    decoration?: MfDecoration;
     sourceMsgId?: string;
   }>;
 }): MfDraft {

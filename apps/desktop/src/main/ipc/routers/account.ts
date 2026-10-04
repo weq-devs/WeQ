@@ -25,8 +25,13 @@ import {
 } from '../../context/app_context';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, ProtoMsg } from '@weq/codec';
+import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+
+/** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
+const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
+import type { TranscribeResult } from '../../transcribe/engine';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
@@ -542,6 +547,66 @@ function requireOnlineQqForWeb(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
+}
+
+/** detail / grab 共用的定位入参。 */
+const redbagLocateInput = z.object({
+  msgId: z.string().min(1).describe('红包消息的 msgId（查 40001 得到）'),
+  kind: z.enum(['c2c', 'group']).describe('会话类型'),
+  conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+});
+
+/**
+ * 从一条红包消息本体里凑出定位参数 —— detail / grab 共用。
+ *
+ * 字段全在消息里，不依赖数据库外的任何缓存：
+ *   - 48417 = `{2: packetId, 3: orderId}`（嵌套块，按 BYTES 收，这里自己解）；
+ *   - 48418 = 领取 token（grab 才用得到）；
+ *   - 私聊的 peerUin 要拿 conv（对方 uid）查 uid→uin 映射，群聊直接用群号。
+ */
+async function resolveRedBagTarget(
+  services: ReturnType<typeof requireServices>,
+  input: { msgId: string; kind: 'c2c' | 'group'; conv: string },
+): Promise<{ orderId: string; packetId: string; token: string; peerUin: string }> {
+  const id = /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+  if (id === null) throw new Error(`msgId 无效：${input.msgId}`);
+
+  const raw = await services.msgs.getRawElements(id);
+  if (!raw) throw new Error('找不到这条消息（可能已被清理）。');
+  const wallet = raw.elements.find((el) => el.kind === 'wallet') as
+    | { walletFlag48417?: Uint8Array; walletFlag48418?: string }
+    | undefined;
+  if (!wallet?.walletFlag48417) throw new Error('这条消息不是红包（缺少 48417）。');
+
+  let orderId = '';
+  let packetId = '';
+  try {
+    const decoded = walletFlag48417Wire.decode(wallet.walletFlag48417);
+    orderId = decoded.orderId ?? '';
+    packetId = decoded.packetId ? Buffer.from(decoded.packetId).toString('hex') : '';
+  } catch {
+    throw new Error('这个红包的 48417 结构无法解析。');
+  }
+  if (!orderId || !packetId) throw new Error('这个红包缺少订单号或 packetId。');
+
+  // peerUin = 这个红包的**领取方**（recvUin）：群红包是群号；私聊红包是「谁被发了
+  // 这个红包」—— 自己收到的 = 自己 uin，自己发出去的 = 对方 uin。
+  //
+  // ⚠️ 私聊不能直接传会话对端：服务端会把它当成另一个红包定位参数，回
+  // `109020052 红包已失效`（真机复现过）。方向由该消息的发送者判断。
+  let peerUin: string;
+  if (input.kind === 'group') {
+    peerUin = input.conv;
+  } else {
+    const peerUinFromConv = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+    const selfUin = String((await services.profile.getSelfProfile())?.uin ?? '');
+    const msg = await services.msgs.getC2cMessageById(input.conv, id);
+    const sentBySelf = selfUin !== '' && msg !== null && String(msg.senderUin) === selfUin;
+    peerUin = sentBySelf ? peerUinFromConv : selfUin || peerUinFromConv;
+  }
+  if (!peerUin) throw new Error('解析不出红包的领取方 QQ 号。');
+
+  return { orderId, packetId, token: wallet.walletFlag48418 ?? '', peerUin };
 }
 
 async function listGroupBulletinsWithWebFallback(
@@ -1884,6 +1949,27 @@ export const accountRouter = router({
           sendTime: h.sendTime.toString(),
         })),
       };
+    }),
+
+  /**
+   * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
+   * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
+   * 写的是 QQ 的 nt_msg.db —— 与打开会话的读路径同一把 key。
+   */
+  markConversationRead: procedure
+    .input(
+      z.object({
+        chatType: z.number().int(),
+        uid: z.string().min(1),
+        latestSeq: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
+      // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
+      const ctx = getAppContext();
+      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) return false;
+      return requireServices().unreadInfo.markRead(input.chatType, input.uid, input.latestSeq);
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
@@ -3343,6 +3429,42 @@ export const accountRouter = router({
     }),
 
   /**
+   * 发一张**群报名 / 群收集表**卡片（OIDB 0x921b_0）。
+   *
+   * 与其它 Ark 卡片不同：它**以群号寻址**（不走当前会话那条发消息通路），所以
+   * `groupCode` 是字段本身。附带图片只收 `imageUrl` 直链，服务层会请求一次算出
+   * md5 / 宽高（见 `InteractionService.sendGroupSignup`）。
+   *
+   * ⚠️ 已知缺口：PC/Linux 端会被服务端在 OIDB 外层以 `319 [oidb] rule type not
+   * match appid` 拒绝（与图文 Ark 的 901501 同源），服务层会把错误翻译成人话再抛。
+   */
+  sendGroupSignup: procedure
+    .input(
+      z.object({
+        groupCode: z.string().regex(/^\d+$/),
+        title: z.string().min(1).max(100),
+        detail: z.string().min(1).max(4000),
+        deadline: z.number().int().positive().optional(),
+        method: z.enum(['direct', 'image']).default('direct'),
+        maxCount: z.number().int().positive().max(200).default(200),
+        imageUrl: z.string().url().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const result = await requireServices().interaction.sendGroupSignup({
+        groupCode: input.groupCode,
+        title: input.title.trim(),
+        detail: input.detail.trim(),
+        ...(input.deadline ? { deadline: input.deadline } : {}),
+        method: input.method === 'image' ? 2 : 1,
+        maxCount: input.maxCount,
+        ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
+      });
+      return { ok: true as const, ...(result.image ? { image: result.image } : {}) };
+    }),
+
+  /**
    * 发一张**位置卡片**（trpc `LocationArk.SsoSendMessage`）。
    *
    * 经纬度是十进制度**字符串**；`region`（省市区）与 `address`（详细地址）由调用方
@@ -3574,6 +3696,101 @@ export const accountRouter = router({
     });
   }),
   // ---- group album ----
+
+  /**
+   * 查一个红包的领取明细（`hb_pc_detail`）。
+   *
+   * 与「发消息」同条件：需要**在线且已注入**的 QQ —— 红包包走 hook 上的
+   * `sendPacket`（`tenpay.com` 的 p_skey 只是请求体里的一个字段，光有票据发不出去）。
+   * p_skey 按域缓存在 `RedBagService` 里，重复点击不会每次都打 OIDB。
+   */
+  redbagDetail: procedure.input(redbagLocateInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    const target = await resolveRedBagTarget(services, input);
+    return services.redbag.detail({ ...target, peerType: input.kind }, pid);
+  }),
+
+  /**
+   * 抢一个红包（`hb_pc_grab`）—— **真的会扣钱 / 记一笔领取**。
+   *
+   * 只有红包卡片上没有自己的领取记录时前端才会走到这里；成功回包里带的就是
+   * 自己抢到的那一份（金额 + 时间），所以灯箱直接从「查看领取记录」切到
+   * 「你领取到了 ¥x.xx」。
+   *
+   * 前置条件与 {@link redbagDetail} 完全一致：在线 + 已注入（走 hook 发包）。
+   */
+  redbagGrab: procedure.input(redbagLocateInput).mutation(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    const target = await resolveRedBagTarget(services, input);
+    return services.redbag.grab({ ...target, peerType: input.kind }, pid);
+  }),
+
+  /**
+   * 发一个红包（`hb_pc_pre_pack`）—— **只下单出码，不扣钱**。
+   *
+   * 前置条件与 {@link redbagDetail} 完全一致（在线 + 已注入，走 hook 发包）。返回的
+   * 是这一单的**二维码 PNG（base64）**，前端在灯箱里展示；真正付款由手机 QQ 完成
+   * （QQ 会用当前账号直接拉起支付页），扫码只是回退。
+   *
+   * `conv`：群聊传群号，私聊传对方 uid（会话 id）或 QQ 号 —— 私聊这里要的是**对方
+   * QQ 号**（recvUin），uid 会先查 uid→uin 映射。
+   */
+  redbagSend: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']).describe('会话类型'),
+        conv: z.string().min(1).describe('私聊为对方 uid / QQ 号，群聊为群号'),
+        totalNum: z.number().int().min(1).max(100).describe('红包个数'),
+        totalAmount: z.number().int().min(1).describe('总金额，单位分'),
+        lucky: z.boolean().describe('是否拼手气（false = 普通等额）'),
+        password: z.string().max(60).optional().describe('口令红包的口令'),
+        wishing: z.string().max(60).optional().describe('普通红包的祝福语'),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      const pid = services.accountConfig.getRecord()?.qqPid;
+      if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+
+      let recvUin: string;
+      if (input.kind === 'group') {
+        recvUin = input.conv;
+      } else if (/^\d+$/.test(input.conv)) {
+        recvUin = input.conv;
+      } else {
+        recvUin = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+      }
+      if (!recvUin) throw new Error('解析不出红包的领取方 QQ 号。');
+
+      return services.redbag.send(
+        {
+          peerType: input.kind,
+          recvUin,
+          totalNum: input.totalNum,
+          totalAmount: input.totalAmount,
+          lucky: input.lucky,
+          ...(input.password ? { password: input.password } : {}),
+          ...(input.wishing ? { wishing: input.wishing } : {}),
+        },
+        pid,
+      );
+    }),
+
+  /** 口令红包的候选口令池（`SsoGetToken`）。需要在线且已注入的 QQ。 */
+  redbagPasswords: procedure.query(async () => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    const pid = services.accountConfig.getRecord()?.qqPid;
+    if (!pid) throw new Error('需要先登录该账号的 QQ 客户端。');
+    return services.redbag.passwords(pid);
+  }),
 
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
   listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
@@ -4259,7 +4476,7 @@ export const accountRouter = router({
         msgId: z.string().default(''),
       }),
     )
-    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+    .mutation(async ({ input }): Promise<TranscribeResult> => {
       const ctx = getAppContext();
       const boot = ctx.bootstrap;
       const services = ctx.services;
@@ -4303,11 +4520,19 @@ export const accountRouter = router({
       const text = result.text ?? '';
       if (input.msgId) {
         // Best-effort: a failed back-write must not lose the text we just got.
+        // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
+        // field QQ itself reads, so it must stay a plain string. Emotion and
+        // events ride alongside in the response instead.
         await services.msgs
           .setPttTranscript(BigInt(input.msgId), input.name, text)
           .catch(() => false);
       }
-      return { success: true, text };
+      return {
+        success: true,
+        text,
+        emotion: result.emotion ?? null,
+        events: result.events ?? [],
+      };
     }),
 
   /** 数据库损坏反馈：打包日志/settings.db/密钥算法配置/检查报告到缓存目录，并打开文件夹 + GitHub/QQ。 */

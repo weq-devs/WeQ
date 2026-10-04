@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decode, SendPoke, SetReaction } from '@weq/protocol';
+import { decode, SendGroupSignup, SendPoke, SetReaction } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import { InteractionService } from '../src/account/interaction';
 
@@ -124,6 +124,39 @@ describe('InteractionService', () => {
         isSet: true,
       });
       expect(decode(SetReaction.reqSchema, nt.calls[0]!.body).type).toBe(2);
+    });
+  });
+
+  describe('sendGroupSignup (0x921b_0)', () => {
+    it('走 0x921b / sub 0，groupCode 与标题详情进 body', async () => {
+      const nt = fakeNative();
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await svc.sendGroupSignup({ groupCode: '673646675', title: '找搭子', detail: '一起去' });
+      const call = nt.calls[0]!;
+      expect(call.command).toBe(0x921b);
+      expect(call.subCommand).toBe(0);
+      const decoded = decode(SendGroupSignup.reqSchema, call.body) as {
+        request: { groupCode: bigint; title: string; detail: string };
+      };
+      expect(decoded.request.groupCode).toBe(673646675n);
+      expect(decoded.request.title).toBe('找搭子');
+      expect(decoded.request.detail).toBe('一起去');
+    });
+
+    it('PC/Linux 的 319 平台拒绝被翻译成可读错误（不静默成功）', async () => {
+      const nt = fakeNative();
+      nt.sendOidbPacket = async () => {
+        throw new Error(
+          'Reply status error: 319 ([oidb] rule type not match appid,https://iwiki.woa.com/x)',
+        );
+      };
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await expect(
+        svc.sendGroupSignup({ groupCode: '673646675', title: 't', detail: 'd' }),
+      ).rejects.toThrow(/319 .*rule type not match appid/);
+      await expect(
+        svc.sendGroupSignup({ groupCode: '673646675', title: 't', detail: 'd' }),
+      ).rejects.toThrow(/不是参数写错/);
     });
   });
 });

@@ -15,7 +15,7 @@
  * token 形如：`[[chat:elem:<base64url(JSON)>]]`
  */
 
-import { emojiUrl, localMediaUrl } from '../../lib/resourceUrl';
+import { emojiUrl, localMediaUrl, resourceUrl } from '../../lib/resourceUrl';
 
 /** 元素 token 的前缀 / 后缀，配合 composer 的 token 解析使用。 */
 export const ELEMENT_TOKEN_PREFIX = '[[chat:elem:';
@@ -104,6 +104,8 @@ export function elementLabel(element: unknown): string {
     // 不认得这个字段的旧草稿就退回一个通用标签。
     case 'emojiBounce':
       return String(data?.emojiBounceTextSummary ?? data?.emojiBouncePcText ?? '[表情弹射]');
+    case 'pokeEmoji':
+      return '[戳一戳]';
     case 'pic':
       return '[图片]';
     case 'video':
@@ -159,6 +161,10 @@ export function elementPreviewSrc(element: unknown): string | null {
   if (kind === 'face') {
     const id = String(data?.faceId ?? '');
     return /^\d+$/.test(id) ? emojiUrl(id, 'apng', `${id}.png`) : null;
+  }
+  if (kind === 'pokeEmoji') {
+    const id = Number(data?.pokeId);
+    return Number.isInteger(id) && id >= 0 ? resourceUrl('pokeemoji', `${id}.png`) : null;
   }
   return null;
 }

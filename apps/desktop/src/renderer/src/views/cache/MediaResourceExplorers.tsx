@@ -304,6 +304,9 @@ function VoiceCard({
   const transcribe = trpc.account.mediaResource.transcribeVoice.useMutation();
   const [transcript, setTranscript] = useState<string | null>(null);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  // Speaker tone + non-speech sounds, straight off SenseVoice's rich tags.
+  const [emotion, setEmotion] = useState<{ emoji: string; label: string } | null>(null);
+  const [events, setEvents] = useState<string[]>([]);
 
   // Stop + drop the audio if the card is recycled to a different clip.
   useEffect(() => {
@@ -355,8 +358,13 @@ function VoiceCard({
     transcribe
       .mutateAsync({ rel: entry.rel })
       .then((res) => {
-        if (res.success) setTranscript(res.text ?? '');
-        else setTranscribeError(res.error ?? '识别失败');
+        if (res.success) {
+          setTranscript(res.text ?? '');
+          setEmotion(res.emotion ?? null);
+          setEvents((res.events ?? []).map((e) => `${e.emoji ? `${e.emoji} ` : ''}${e.label}`));
+        } else {
+          setTranscribeError(res.error ?? '识别失败');
+        }
       })
       .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
   };
@@ -417,6 +425,21 @@ function VoiceCard({
       </figcaption>
       {hasResult ? (
         <div className={`weq-voice-t9n${transcribeError ? ' is-error' : ''}`}>
+          {!transcribeError && (emotion || events.length > 0) ? (
+            <div className="weq-voice-tone">
+              {emotion ? (
+                <span className="weq-voice-tone-chip is-emotion">
+                  {emotion.emoji ? `${emotion.emoji} ` : ''}
+                  {emotion.label}
+                </span>
+              ) : null}
+              {events.map((ev) => (
+                <span key={ev} className="weq-voice-tone-chip">
+                  {ev}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {transcribeError ?? (transcript || '（未识别到语音内容）')}
         </div>
       ) : null}

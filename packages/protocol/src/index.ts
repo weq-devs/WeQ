@@ -20,8 +20,10 @@
  *   oidb/send-contact-ark.ts     — 推荐好友 / 推荐群 Ark 卡片（0x12b6_0 取卡 + 0x8b7_5 取卡 → PbSendMsg 直接发送）。
  *   oidb/send-location-ark.ts    — SendLocationArk (trpc LocationArk.SsoSendMessage, 位置卡片发送)。
  *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
+ *   oidb/send-group-signup.ts    — SendGroupSignup (0x921b_0, 群报名/收集表卡片)。
  *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
  *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
+ *   redbag/              — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
  *   oidb/flashtransfer/  — 闪传 fileset OIDB 服务 + 上传编排。
@@ -36,7 +38,13 @@ export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transp
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';
 
-export { toInt, ensureRetCodeZero, bytesToHex, bytesToHexUpper } from './oidb/shared';
+export {
+  toInt,
+  ensureRetCodeZero,
+  bytesToHex,
+  bytesToHexUpper,
+  cleanNtLocalPath,
+} from './oidb/shared';
 
 export { normalizeMediaNode } from './oidb/media-schemas';
 export type { MediaIndexNode } from './oidb/media-schemas';
@@ -85,6 +93,17 @@ export type {
   SendAiVoiceResult,
   AiVoiceFileInfo,
 } from './oidb/send-ai-voice';
+export {
+  SendGroupSignup,
+  SIGNUP_METHOD_DIRECT,
+  SIGNUP_METHOD_IMAGE,
+  SIGNUP_MAX_COUNT_DEFAULT,
+  SIGNUP_FIELD10_DEFAULT,
+} from './oidb/send-group-signup';
+export type {
+  SendGroupSignupParams,
+  SendGroupSignupImage,
+} from './oidb/send-group-signup';
 export { SendPoke } from './oidb/send-poke';
 export type { SendPokeParams } from './oidb/send-poke';
 export { SetReaction } from './oidb/set-reaction';
@@ -94,6 +113,65 @@ export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
 export type { DownloadRkey } from './oidb/fetch-download-rkeys';
 export { FetchPskeyOidb } from './oidb/fetch-pskey';
+export {
+  RedBagDetail,
+  RedBagGrab,
+  decodeSsoHandlePacket,
+  encodeSsoHandleRequest,
+  fetchTenpayPsKey,
+  prePackRedBag,
+  RedBagPasswordPool,
+  RedBagPrePack,
+  RED_BAG_PSKEY_DOMAIN,
+  RED_BAG_SALT_BYTES,
+} from './redbag';
+export type {
+  RedBagClaim,
+  RedBagDetailResult,
+  RedBagDetailSummary,
+  RedBagGrabResult,
+  RedBagKind,
+  RedBagLocateParams,
+  RedBagPacketView,
+  RedBagPeerType,
+  RedBagPrePackParams,
+  RedBagPrePackResult,
+  RedBagSplit,
+} from './redbag';
+export { signRedBagRequest, RED_BAG_SIGN_SALT1, RED_BAG_SIGN_SALT2 } from './redbag/sign';
+export {
+  decryptRedBagPayload,
+  deriveRedBagIv,
+  deriveRedBagKey,
+  encryptRedBagPayload,
+  RED_BAG_IV_MATERIAL,
+  RED_BAG_KEY_MATERIAL,
+  RED_BAG_SALT_LENGTH,
+} from './redbag/crypto';
+export {
+  RED_BAG_DETAIL_BODY,
+  RED_BAG_DETAIL_CMD,
+  RED_BAG_DETAIL_QUERY,
+  RED_BAG_DETAIL_REQ,
+  RED_BAG_DETAIL_RESP,
+  RED_BAG_GRAB_BODY,
+  RED_BAG_GRAB_CMD,
+  RED_BAG_GRAB_QUERY,
+  RED_BAG_GRAB_REQ,
+  RED_BAG_GRAB_RESP,
+  RED_BAG_KIND,
+  RED_BAG_PASSWORD_POOL_CMD,
+  RED_BAG_PASSWORD_POOL_REQ,
+  RED_BAG_PASSWORD_POOL_RESP,
+  RED_BAG_PRE_PACK_CMD,
+  RED_BAG_PRE_PACK_REQ,
+  RED_BAG_PRE_PACK_RESP,
+  RED_BAG_REQ_ENVELOPE,
+  RED_BAG_RESP_ENVELOPE,
+  RED_BAG_SCENE,
+  RED_BAG_SPLIT,
+  RED_BAG_SSO_HANDLE_CMD,
+} from './redbag/schemas';
 export { RequestDecryptKey } from './oidb/request-decrypt-key';
 
 export * from './scupdate';

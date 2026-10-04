@@ -213,6 +213,15 @@ export {
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
+export {
+  RedBagService,
+  type RedBagDetailQuery,
+  type RedBagDetailView,
+  type RedBagGrabView,
+  type RedBagNative,
+  type RedBagSendParams,
+  type RedBagSendView,
+} from './account/redbag';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
@@ -540,7 +549,7 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
-export type { SendPokeParams } from './account/interaction';
+export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
 export { FlashTransferService } from './account/flash_transfer';
 export {
   joinRegion,

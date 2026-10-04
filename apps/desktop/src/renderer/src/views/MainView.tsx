@@ -64,6 +64,7 @@ import {
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
+import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
   GroupLeftMembersDialog,
   type GroupLeftMemberRow,
@@ -72,6 +73,7 @@ import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
 import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
 import {
+  cleanNtPath,
   codecElementsToSegs,
   createEmptyDraft,
   createNode,
@@ -123,6 +125,7 @@ import {
   type ConversationHighlight,
   type ConversationPreference,
   type ConversationPreferences,
+  type UnreadDock,
   type GroupJoinRequest,
   type GroupMember,
   type GroupNoticeHandleState,
@@ -131,10 +134,12 @@ import {
   type ArkLocationProvider,
   type ArkPayload,
   type FlashSendPayload,
+  type RedPacketDraft,
   buildFlashOptimisticElement,
   flashDescOf,
   arkCardSignature,
   buildContactPlaceholderArk,
+  buildGroupSignupArkJson,
   buildLocationArkJson,
   buildTuwenArkJson,
   type Message,
@@ -146,6 +151,7 @@ import {
   elementsToComposerText,
   toIpcElements,
 } from '../im-template/template';
+import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,
   buildOptimisticRender,
@@ -283,8 +289,18 @@ type MessageWire = {
   deletedKind?: 'weq' | 'qq';
   /** Recall marker: message whose QQ recall was intercepted (content intact). */
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  /** Per-message decoration from column 40801 (0 = not set). */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  /**
+   * Per-message decoration from column 40801 (0 = not set).
+   * `fontId1Raw` / `fontId2Raw` 是字体两槽位的原始 wire 值（41525 / 41531），
+   * 转发时原样透传；不要用 `fontId` 反推（会丢 bit 16）。
+   */
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 /** The unified chat-message wire from the account router → local MessageWire. */
@@ -299,7 +315,13 @@ type ChatMsgWire = {
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -1443,7 +1465,13 @@ function messageToTemplate(
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;
-    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+    decoration?: {
+      bubbleId: number;
+      fontId: number;
+      widgetId: number;
+      fontId1Raw?: number;
+      fontId2Raw?: number;
+    };
   };
 }
 
@@ -1593,6 +1621,40 @@ function isRenderableMessage(message: MessageWire): boolean {
     elementTypes: elements.map((el) => (el as RenderElementWire | null)?.type ?? null),
   });
   return false;
+}
+
+/**
+ * 按会话内 seq 找「离 targetSeq 最近的」那一条真实消息。
+ *
+ * 跳转目标可能落在一条 QQ 从未同步过来的「空消息」上（被撤回 / 删除 / 未同步），
+ * 这时窗口里没有对应行。退而定位到最近的邻居：相邻两行之间的 seq 缺口会自动渲染
+ * 出可点击的「此处有 N 条消息缺失 · 点击拉取」占位条，用户据此就能把消息拉下来，
+ * 比直接被丢回最新一页有用得多。
+ */
+function nearestBySeq(messages: MessageWire[], targetSeq: string): MessageWire | null {
+  if (messages.length === 0) return null;
+  let target: bigint;
+  try {
+    target = BigInt(targetSeq);
+  } catch {
+    return messages[messages.length - 1] ?? null;
+  }
+  let best: MessageWire | null = null;
+  let bestDistance: bigint | null = null;
+  for (const message of messages) {
+    let seq: bigint;
+    try {
+      seq = BigInt(message.msgSeq);
+    } catch {
+      continue;
+    }
+    const distance = seq > target ? seq - target : target - seq;
+    if (bestDistance === null || distance < bestDistance) {
+      best = message;
+      bestDistance = distance;
+    }
+  }
+  return best ?? messages[messages.length - 1] ?? null;
 }
 
 /**
@@ -3293,6 +3355,62 @@ export function MainView(): ReactElement {
   }, []);
 
   /**
+   * 给「本机 `nt_data` 里有缓存、但 40800 元素里没写路径」的媒体补上 `localPath`。
+   *
+   * 收到的图片 / 语音 / 视频 / 文件通常**不带** `localPath`(45004)（那个 tag 基本只
+   * 在 QQ 自己发出 / 草稿里出现），但缓存文件是有的。不补的话导入后会被降级成
+   * `[图片]` 文本（见 codecElementToSeg），转发出去就真的只剩一行文字。按
+   * (发送时间, 文件名) 走主进程的 FileSearchService 找文件（与 `weq-media://pic`
+   * 同一条链路），找不到就保持原样。
+   */
+  const hydrateMergeForwardMedia = useCallback(
+    async (elements: unknown[], sendTimeMs: number): Promise<void> => {
+      const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+      await Promise.all(
+        elements.map(async (raw) => {
+          if (!raw || typeof raw !== 'object') return;
+          const el = raw as Record<string, unknown>;
+          const kind = text(el.kind);
+          if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video' && kind !== 'file') return;
+          // 元素自带路径 = 发得出去，不用找（口径与 codecElementToSeg 一致）。
+          // 剥掉 `::NTOSFull::` 虚拟前缀再判断 —— 带前缀的「路径」不是真文件，
+          // 当成 existing 会既找不到缓存、又在发送时 ENOENT。
+          const existing = cleanNtPath(
+            kind === 'pic'
+              ? text(el.localPath) || text(el.filePath)
+              : kind === 'ptt'
+                ? text(el.filePath)
+                : kind === 'video'
+                  ? text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath)
+                  : text(el.filePath),
+          );
+          if (existing) return;
+          const name = text(el.fileName).trim();
+          if (!name) return;
+          const type = kind === 'pic' ? (Number(el.subType) === 1 ? 'emoji' : 'pic') : kind;
+          try {
+            const hit = await client.account.mediaResource.findLocalFile.query({
+              t: sendTimeMs,
+              name,
+              kind: type,
+            });
+            // 图片（含自定义表情）读 localPath；语音 / 视频 / 文件读 filePath —— 两个
+            // 都写上，卖导入函数不必再关心哪种媒体读哪个字段。
+            const found = hit.source ?? (type === 'emoji' ? hit.thumb : null);
+            if (found) {
+              el.localPath = found;
+              el.filePath = found;
+            }
+          } catch {
+            /* 找不到就保持原样（仍会退化成文本） */
+          }
+        }),
+      );
+    },
+    [client],
+  );
+
+  /**
    * 多选的消息 → 一份草稿。
    *
    * 关键：**回读每条消息的原始 wire 元素**（`account.getRawElements`）而不是只有
@@ -3311,6 +3429,8 @@ export function MainView(): ReactElement {
           name: sender?.displayName || sender?.identityValue || '未知用户',
         };
         const msgId = (message as { msgId?: string }).msgId ?? message.id;
+        const parsed = Date.parse(message.createdAt);
+        const sendTimeMs = Number.isFinite(parsed) ? parsed : now * 1000;
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
         // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
@@ -3320,7 +3440,11 @@ export function MainView(): ReactElement {
         if (msgId) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
-            if (raw?.elements?.length) segs = codecElementsToSegs(raw.elements, renderElements);
+            if (raw?.elements?.length) {
+              // 先把缓存里有、元素里没写的媒体路径补上，图片 / 语音才能真正转发出去。
+              await hydrateMergeForwardMedia(raw.elements, sendTimeMs);
+              segs = codecElementsToSegs(raw.elements, renderElements);
+            }
           } catch {
             /* 回读失败就退回渲染元素 */
           }
@@ -3329,12 +3453,7 @@ export function MainView(): ReactElement {
           segs = renderElementsToSegs(renderElements);
         }
         if (segs.length === 0) continue;
-        const parsed = Date.parse(message.createdAt);
-        const node = createNode(
-          senderInfo,
-          segs,
-          Number.isFinite(parsed) ? Math.floor(parsed / 1000) : now,
-        );
+        const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000));
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
         if (msgId) node.sourceMsgId = msgId;
@@ -3342,7 +3461,7 @@ export function MainView(): ReactElement {
       }
       return { ...createEmptyDraft(), id: mfId('draft'), nodes };
     },
-    [client],
+    [client, hydrateMergeForwardMedia],
   );
 
   const handleMergeForward = useCallback(
@@ -4336,6 +4455,91 @@ export function MainView(): ReactElement {
   const loadingInitialMessages =
     Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
+  // ── 未读跳转坞 ──────────────────────────────────────────────────────────
+  // 打开会话时的一次性引导：把 msg_unread_info_table 里的未读/高亮读进内存，
+  // 随即把该会话标记为已读（清表），右上角再按内存副本逐个引导跳转。
+  // 之所以「先读后清」：清表后 48902 就空了，跳转目标只能靠这份内存副本。
+  const [unreadDock, setUnreadDock] = useState<UnreadDock | null>(null);
+  // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
+  // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
+  // 默认的缺口条（只在跳空 >1 时出现）不会渲染，得由这次跳转手动补上入口。
+  const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
+  // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
+  // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
+  const unreadDockConvRef = useRef<string | null>(null);
+
+  // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
+  useEffect(() => {
+    const conv = selectedConversation;
+    const convId = conv && (conv.type === 'direct' || conv.type === 'group') ? conv.id : null;
+    if (unreadDockConvRef.current !== convId) setUnreadDock(null);
+    setMissingJumpSeq(null);
+    if (convId === null) unreadDockConvRef.current = null;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    const conv = selectedConversation;
+    if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
+      return undefined;
+    }
+    // 等首屏落地：只有知道第一页的 seq 范围，才能判断「读到的 seq 是否已在首屏内」。
+    if (messagesLoading || loaded.length === 0) return undefined;
+    if (unreadDockConvRef.current === conv.id) return undefined;
+
+    const convId = conv.id;
+    unreadDockConvRef.current = convId;
+    const chatType = conv.type === 'group' ? 2 : 1;
+    // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
+    // 因为 loaded / recentContactsData 的后续变化会重跑本 effect（此时早退），
+    // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
+    const stillCurrent = () => unreadDockConvRef.current === convId;
+
+    (async () => {
+      let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
+      try {
+        info = await client.account.getUnreadInfo.query({ chatType, uid: convId });
+      } catch (err) {
+        console.error('[unread-dock] getUnreadInfo failed', err);
+        return;
+      }
+      if (!stillCurrent()) return;
+
+      const readSeq = info?.msgSeq ?? null;
+      // 未读总数用打开时的水位算：recent_contact 40003 − 41002。
+      const contact = recentContactsData.find((c) => c.targetUid === convId);
+      const latest = contact ? BigInt(contact.msgSeq || '0') : 0n;
+      const read = readSeq ? BigInt(readSeq) : 0n;
+      const unread = latest > read ? Number(latest - read) : 0;
+
+      const dock = buildUnreadDock({
+        highlights: info?.highlights ?? null,
+        readSeq,
+        unread,
+        visibleSeqs: loaded.map((m) => m.msgSeq),
+      });
+
+      // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
+      // 这样下次进来不会再重复弹跳转、红点也即时消失。
+      const latestSeq = contact && latest > 0n ? contact.msgSeq : undefined;
+      try {
+        const changed = await client.account.markConversationRead.mutate({
+          chatType,
+          uid: convId,
+          latestSeq,
+        });
+        if (changed) {
+          setUnreadByConv((current) => ({ ...current, [convId]: 0 }));
+          void utils.account.listRecentContacts.invalidate();
+        }
+      } catch (err) {
+        console.error('[unread-dock] markConversationRead failed', err);
+      }
+      if (!stillCurrent()) return;
+      setUnreadDock(dock);
+    })();
+    return undefined;
+  }, [selectedConversation, messagesLoading, loaded, recentContactsData, utils]);
+
   useEffect(() => {
     if (contacts.isLoading) return;
     // Don't auto-open the first conversation: land on the empty placeholder and
@@ -4392,9 +4596,16 @@ export function MainView(): ReactElement {
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
   // discarding whatever is loaded now. Keeps long jumps (reply to an ancient
   // message, or search → jump years back) constant-cost instead of loading
-  // everything between the latest and the target. Returns true if the target
-  // was found and the view repositioned. `conv`/`kind` are passed explicitly so
-  // it works right after a conversation switch (before selectionRef settles).
+  // everything between the latest and the target.
+  //
+  // The target seq does NOT have to exist as a row: when QQ never synced it
+  // (recalled / deleted / unsynced hole) we STILL swap in the window centred on
+  // that seq. Landing there makes the neighbouring rows' seq gap render the
+  // clickable 「此处有 N 条消息缺失 · 点击拉取」 divider, and Toast explains the
+  // miss — i.e. the user can pull the missing messages instead of being dumped
+  // back at the latest page. Returns true only when the exact row was found.
+  // `conv`/`kind` are passed explicitly so it works right after a conversation
+  // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
     async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
       let before: ChatMsgWire[];
@@ -4433,14 +4644,6 @@ export function MainView(): ReactElement {
       }
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
-      if (!target) {
-        pushToast({
-          tone: 'info',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
-        });
-        return false; // not in DB (e.g. recalled) — leave the view as-is
-      }
 
       const atLatest = after.length < PAGE_SIZE;
       // Update the live-subscription's window descriptor synchronously: a
@@ -4454,33 +4657,57 @@ export function MainView(): ReactElement {
       // If the centre sits near the tail, re-anchor so live messages flow in;
       // otherwise stay detached so refreshWindow won't drag us to the latest.
       setAnchoredToLatest(atLatest);
-      window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-      return true;
+      // Exact row present → flash it. Otherwise fall back to the nearest real
+      // message: the clickable gap divider sits right beside it.
+      const anchor = target ?? nearestBySeq(merged, targetSeq);
+      if (!target) {
+        setMissingJumpSeq(targetSeq);
+        pushToast({
+          tone: 'info',
+          title: '未找到该条消息',
+          detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+        });
+      }
+      if (anchor) window.setTimeout(() => scrollToMsgId(anchor.msgId), 160);
+      return Boolean(target);
     },
     [scrollToMsgId, pushToast],
   );
 
-  // Scroll the loaded message list to a reply target, loading older pages first
-  // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
-  // in a different reply field per kind (verified against the live DB):
-  //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
+  // Scroll the loaded message list to a reply target, then briefly flash it. The
+  // 40003 anchor lives in a different reply field per kind (verified against the
+  // live DB): group → origMsgSeq (47402); c2c → origMsgIndex (47419).
+  //
+  // Fast vs. slow is decided from the loaded window's seq range — there is no
+  // paging probe. The window is a contiguous seq range (holes are recalled /
+  // deleted rows, which no fetch can bring back), so:
+  //   · target in the window                 → scroll + flash (fast path)
+  //   · inside [minSeq, maxSeq] but absent   → a hole: toast, then scroll to the
+  //     nearest neighbour so the clickable 「消息缺失 · 点击拉取」 divider shows
+  //   · outside the range                    → rebuild a centred window (slow
+  //     path, constant-cost 2 queries). If the target turns out to be a hole
+  //     there too, we still land beside it and toast.
   const jumpToSeq = useCallback(
     async (jumpTarget: ReplyJumpTarget): Promise<void> => {
       const sel = selectionRef.current;
       if (!sel) {
         return;
       }
+      setMissingJumpSeq(null);
+      const notFound = (): void => {
+        pushToast({
+          tone: 'info',
+          title: '未找到该条消息',
+          detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+        });
+      };
       const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
       const rawSeq =
         kind === 'group'
           ? (jumpTarget.seq ?? jumpTarget.index)
           : (jumpTarget.index ?? jumpTarget.seq);
       if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
-        pushToast({
-          tone: 'info',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
-        });
+        notFound();
         return;
       }
       const targetSeq = String(rawSeq);
@@ -4491,67 +4718,32 @@ export function MainView(): ReactElement {
         return;
       }
 
-      const targetNum = Number(targetSeq);
-
-      // Slow path A: the target is just above the window — reach it by loading a
-      // few scroll-up pages (cheap, preserves the current context). Capped at 3.
-      let working = loadedRef.current.slice();
-      let reachedTop = false;
-      for (let guard = 0; guard < 3; guard += 1) {
-        const minSeq = working[0]?.msgSeq;
-        if (!minSeq || Number(minSeq) <= targetNum) {
-          break;
+      const current = loadedRef.current;
+      const minSeq = current[0]?.msgSeq;
+      const maxSeq = current[current.length - 1]?.msgSeq;
+      let targetNum: bigint | null = null;
+      try {
+        targetNum = BigInt(targetSeq);
+      } catch {
+        targetNum = null;
+      }
+      if (minSeq && maxSeq) {
+        if (targetNum === null) {
+          notFound();
+          return;
         }
-        if (working.some((m) => m.msgSeq === targetSeq)) {
-          break;
-        }
-        let older: ChatMsgWire[];
-        try {
-          older = await client.account.listBefore.query({
-            kind,
-            conv: sel.id,
-            beforeSeq: minSeq,
-            limit: PAGE_SIZE,
-          });
-        } catch (err) {
-          console.error('[jumpToSeq] listBefore failed', err);
-          pushToast({
-            tone: 'info',
-            title: '加载消息失败',
-            detail: '请稍后重试，或检查本地数据库状态。',
-          });
-          break;
-        }
-        if (selectionRef.current?.id !== sel.id) {
-          return; // switched away mid-flight
-        }
-        const known = new Set(working.map((m) => m.msgId));
-        const fresh = older
-          .map(toMessageWire)
-          .reverse()
-          .filter((m) => !known.has(m.msgId));
-        if (fresh.length === 0) {
-          reachedTop = true;
-          break;
-        }
-        working = [...fresh, ...working];
-        if (older.length < PAGE_SIZE) {
-          reachedTop = true;
-          break;
+        if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
+          // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
+          // 不把用户丢回原地：滚到最近的邻居，并挂一条「点击拉取」的缺口条，
+          // 同时 Toast 说明原因。
+          notFound();
+          setMissingJumpSeq(targetSeq);
+          const anchor = nearestBySeq(current, targetSeq);
+          if (anchor) scrollToMsgId(anchor.msgId);
+          return;
         }
       }
 
-      const target = working.find((m) => m.msgSeq === targetSeq);
-      if (target) {
-        setLoaded(working);
-        if (reachedTop) setHasOlder(false);
-        // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
-        window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-        return;
-      }
-
-      // Slow path B: still not found after 3 pages — rebuild a fresh window
-      // centred on the target instead of loading everything up to it.
       await centerWindowOnSeq(sel.id, kind, targetSeq);
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast],
@@ -5562,6 +5754,67 @@ export function MainView(): ReactElement {
    * `routingHead.grpTmp`（见 `MessageSendService` 的 `GroupTempSource`），否则服务端
    * 会把它当成非好友之间的普通私聊拒收。
    */
+  /**
+   * 红包面板「发红包」—— 面板只收「金额 / 个数 / 是否口令 / 祝福语」，这里补目标会话走
+   * IPC 下单出码（`hb_pc_pre_pack`），成功后弹二维码灯箱。
+   *
+   * **不做乐观渲染**：这一步只是下单出码，不扣钱，真实红包消息要等 QQ 付款后自己同步
+   * 回来。在线校验与消息发送按钮同一套。
+   */
+  async function sendRedPacket(conversation: Conversation, draft: RedPacketDraft): Promise<void> {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '发红包需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+      });
+      throw new Error('qq offline');
+    }
+    const target = sendTargetOf(conversation);
+    if (!target) {
+      pushToast({
+        tone: 'warning',
+        message: '这个会话不支持发红包',
+        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+      });
+      throw new Error('unsupported conversation');
+    }
+
+    // 私聊给 uid（路由器会查 uid→uin），群聊给群号。
+    const conv =
+      target.peerType === 'group'
+        ? target.targetId
+        : conversation.type === 'direct'
+          ? conversation.otherUser.id
+          : target.targetId;
+
+    try {
+      const result = await client.account.redbagSend.mutate({
+        kind: target.peerType,
+        conv,
+        totalNum: draft.totalNum,
+        totalAmount: draft.totalAmount,
+        lucky: draft.lucky,
+        ...(draft.password ? { password: draft.password } : {}),
+        // 普通红包的祝福语（协议侧与口令共用 f5）；口令红包时 draft.wishing 为 null。
+        ...(draft.wishing ? { wishing: draft.wishing } : {}),
+      });
+      if (result.qrcodeBase64) {
+        openRedBagQrcode({
+          qrcodeBase64: result.qrcodeBase64,
+          lucky: result.lucky,
+          password: draft.password !== null,
+          totalNum: draft.totalNum,
+          totalAmount: draft.totalAmount,
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      pushToast({ tone: 'error', title: '红包发送失败', detail: message });
+      throw e;
+    }
+  }
+
   function sendTargetOf(conversation: Conversation): {
     peerType: 'c2c' | 'group';
     targetId: string;
@@ -5679,6 +5932,41 @@ export function MainView(): ReactElement {
         pushToast({
           tone: 'success',
           message: payload.kind === 'qq' ? '推荐好友卡片已发送' : '推荐群卡片已发送',
+        });
+        return;
+      }
+
+      if (payload.type === 'signup') {
+        // 群报名卡片：服务端按 0x921b_0 的字段生成卡片（与图文同理，客户端拼的 JSON
+        // 只是预览 / 乐观卡片）。它**以群号寻址**，与当前会话无关，所以不走 target。
+        startOptimistic(
+          buildGroupSignupArkJson({
+            groupCode: String(payload.groupCode),
+            title: payload.title,
+            detail: payload.detail,
+            deadline: payload.deadline ? String(payload.deadline) : '',
+            method: payload.method === 2 ? 'image' : 'direct',
+            maxCount: String(payload.maxCount),
+            imageUrl: payload.imageUrl ?? '',
+          }),
+        );
+        const outcome = await client.account.sendGroupSignup.mutate({
+          groupCode: String(payload.groupCode),
+          title: payload.title,
+          detail: payload.detail,
+          ...(payload.deadline ? { deadline: payload.deadline } : {}),
+          method: payload.method === 2 ? 'image' : 'direct',
+          maxCount: payload.maxCount,
+          ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
+        });
+        // 回执是空 ack（没有 random / seq），乐观卡片只能靠标题签名对账。
+        patchOptimistic({ state: 'sent' });
+        pushToast({
+          tone: 'success',
+          message: '报名卡片已发出',
+          detail: outcome.image
+            ? `附带图片已解析（${outcome.image.width}×${outcome.image.height}）。`
+            : undefined,
         });
         return;
       }
@@ -6012,7 +6300,13 @@ export function MainView(): ReactElement {
                       onSendArk={sendArkCard}
                       arkLocation={arkLocation}
                       arkContacts={arkContacts}
+                      defaultSignupGroupCode={
+                        selectedConversation?.type === 'group'
+                          ? selectedConversation.group.identityValue
+                          : undefined
+                      }
                       onSendFlash={sendFlashTransfer}
+                      onSendRedPacket={sendRedPacket}
                       onDraftChange={updateDraft}
                       onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                       onBackConversation={shell.backConversation}
@@ -6037,6 +6331,8 @@ export function MainView(): ReactElement {
                       onExportConversation={handleExportConversation}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
+                      unreadDock={unreadDock}
+                      missingJumpSeq={missingJumpSeq}
                     />
                   </div>
                   <OverlayScrollbar

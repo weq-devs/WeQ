@@ -1,11 +1,11 @@
 {
   "name": "weq",
-  "version": "1.2.1",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
   "license": "GPL-3.0-or-later",
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@12.8.1",
   "engines": {
     "node": ">=22"
   },
@@ -23,7 +23,8 @@
     "build:daemon": "node packages/daemon/scripts/build.mjs",
     "native:fetch": "node scripts/fetch-native.mjs",
     "native:check": "node scripts/fetch-native.mjs --check",
-    "version:set": "node scripts/set-version.mjs"
+    "version:set": "node scripts/set-version.mjs",
+    "mface:fetch": "node scripts/parcel_crawler.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

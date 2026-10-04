@@ -76,3 +76,18 @@ function toSeq(value: unknown): bigint | null {
     return null;
   }
 }
+
+/**
+ * 目标 seq 是否严格落在 `previousSeq` 与 `currentSeq` 之间（开区间）。
+ *
+ * 用途：跳转落空的目标是一条「空消息」时，如果它两侧的真实消息 seq 恰好只差 1
+ * （即 target = prev + 1 = curr − 1），默认的缺口条（只在跳空 > 1 时渲染）不会出现，
+ * 得由这次跳转手动补一条「点击拉取」入口。三个 seq 都必须是有效正整数。
+ */
+export function isSeqBetween(target: string, previousSeq: unknown, currentSeq: unknown): boolean {
+  const targetNum = toSeq(target);
+  const prev = toSeq(previousSeq);
+  const curr = toSeq(currentSeq);
+  if (targetNum === null || prev === null || curr === null) return false;
+  return targetNum > prev && targetNum < curr;
+}

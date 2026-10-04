@@ -277,8 +277,19 @@ export interface ChatMsgWire {
    * Per-message decoration from column 40801: bubbleId / fontId / widgetId.
    * All three are itemIds (0 = not set). Omitted entirely when the column is
    * absent or all three are 0.
+   *
+   * `fontId1Raw` / `fontId2Raw` are the raw wire values of tags 41525 / 41531,
+   * carried verbatim for re-forwarding (the element side is an identity map:
+   * 41525→tag 56, 41531→tag 15). Never rebuild font2 from `fontId` — that drops
+   * the bit-16 flag on 41531.
    */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 }
 
 export interface RecentContactWire {
@@ -448,8 +459,17 @@ export interface GuildDirectMsgWire {
   sendTime: string;
   /** 40800 渲染元素（sanitized）。 */
   elements: unknown[];
-  /** 40801 逐条消息装扮（气泡/字体/挂件）。 */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  /**
+   * 40801 逐条消息装扮（气泡/字体/挂件）。
+   * `fontId1Raw` / `fontId2Raw` 是 41525 / 41531 的原始 wire 值，透传用，不换算。
+   */
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
+  };
 }
 
 export function guildDirectSessionToWire(v: GuildDirectSessionView): GuildDirectSessionWire {

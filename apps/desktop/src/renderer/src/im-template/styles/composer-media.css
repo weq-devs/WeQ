@@ -2529,3 +2529,1066 @@ html[data-theme="dark"] .bounce-search {
     max-height: 168px;
   }
 }
+
+/* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
+ *
+ * 形态与弹射表情 / 链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行。
+ * 三块：预览 + 连击（左右并排） / 表情网格；底部是「单独发送」。
+ * 连击只有 0..3，所以控制件是**四枚按档位逐渐变大的按钮**（不是输入框 / 滑块）——
+ * 点一下预览区立刻跟着变大，所见即所发。
+ *
+ * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ */
+
+.poke-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(420px, calc(100% - 28px));
+  max-height: min(496px, calc(100dvh - 190px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: poke-in 150ms ease-out;
+}
+
+@keyframes poke-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.poke-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.poke-head-title svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
+.poke-head-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.poke-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.poke-close:hover {
+  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
+  color: var(--media-danger, #f0483e);
+}
+
+.poke-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 11px 12px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/* ── 预览（左） + 连击（右） ─────────────────────────────────────────────── */
+
+.poke-stage {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.poke-preview {
+  display: grid;
+  min-height: 176px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      circle at 50% 36%,
+      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
+      transparent 68%
+    ),
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+}
+
+.poke-preview-face {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-controls {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.poke-label {
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 连击 0..3：四枚按钮，图按档位逐渐变大。 */
+.poke-combo {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+/* 随机表情的结果编号（1..n）：同一排按钮，但换成一排数字，个数不定。 */
+.poke-combo.is-random {
+  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+}
+
+.poke-combo-btn {
+  display: grid;
+  height: 58px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  cursor: pointer;
+  transition: border-color 130ms ease, background 130ms ease, transform 130ms ease;
+}
+
+.poke-combo-btn img {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-combo-btn:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-combo-btn.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
+}
+
+/* 结果编号按钮：文字（不是图），矮一点。 */
+.poke-combo-btn.is-number {
+  height: 44px;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.poke-combo-btn.is-number.is-active {
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, var(--weq-fg-primary, #111111));
+}
+
+/* ── 表情网格 ────────────────────────────────────────────────────────────── */
+
+.poke-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 48px);
+  gap: 6px;
+}
+
+.poke-cell {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.poke-cell img {
+  display: block;
+  max-width: 40px;
+  max-height: 40px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-cell:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-cell.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+}
+
+/* ── 随机表情（带结果的内置表情，骰子 / 包剪锤 / 活动表情）──────────────────
+ *
+ * 列在 6 个戳脸下方：上面一排是可指定结果的表情，选中后展开结果编号
+ * （innerId 1..n）+ 一枚「发送」。列表与结果都来自本地资源，不硬编码。
+ */
+
+.poke-random {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-random-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.poke-random-tip {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 10.5px;
+}
+
+.poke-random-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 6px;
+}
+
+.poke-random-cell {
+  display: grid;
+  grid-template-rows: 40px auto;
+  gap: 2px;
+  place-items: center;
+  padding: 5px 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.poke-random-cell img {
+  display: block;
+  max-width: 40px;
+  max-height: 40px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.poke-random-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poke-random-cell:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.poke-random-cell.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
+}
+
+/* ── 底部 ────────────────────────────────────────────────────────────────── */
+
+.poke-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.poke-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poke-hint svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
+}
+
+.poke-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+
+.poke-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.poke-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.poke-btn.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+/* ── 深色：阴影加一档，输入底压暗 ────────────────────────────────────────── */
+
+html[data-theme="dark"] .poke-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .poke-preview,
+html[data-theme="dark"] .poke-combo-btn {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+/* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  .poke-panel {
+    left: 8px;
+    width: calc(100% - 16px);
+    max-height: min(452px, calc(100dvh - 150px));
+  }
+
+  .poke-stage {
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .poke-preview {
+    min-height: 128px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   红包发送面板
+
+   左栏是参数（类型 → 金额 / 个数 → 口令候选），右栏是**所见即所发**的封面：
+   祝福语 / 口令这条线**就写在封面正中**，点上去直接改字，所以面板里没有另一个
+   重复的「祝福语」输入框，也不会出现「一行空着 / 一行被撑开」的两种极端。
+
+   类型是第一层选择，用一排两行的分段按钮：私聊两档（等额普通 / 等额口令），
+   群聊三档（等额普通 / 拼手气普通 / 拼手气口令）。左栏在参数之下多一张**明细
+   摘要**，参数少（尤其没有口令候选）时也能把左栏撑起来，不会空一大片。
+   ════════════════════════════════════════════════════════════════════════ */
+
+.redpacket-panel {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  /* 面板宽度跟着聊天窗走，所以响应式判断用**容器宽度**而不是视口宽度。 */
+  container: redpacket / inline-size;
+  width: min(540px, calc(100% - 28px));
+  /* 高度上限 = 输入框上沿到会话头下沿的真实可用高度（与 `.ark-panel` / AI 声聊同一条
+   * 算法）。早先写死 `100dvh - 190px`：190 只当输入框高，没算标题栏与会话头，窗口一矮
+   * 面板就顶进标题栏，上面那截被 `.chat-pane` 的 `overflow: hidden` 截掉点不到。
+   * 多出来的内容走面板内部滚动；减到 236px 以下退化到 236px。 */
+  max-height: min(
+    560px,
+    max(
+      236px,
+      calc(
+        100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) -
+          56px
+      )
+    )
+  );
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  /* 面板从输入框往上长，可能压到标题栏的 `-webkit-app-region: drag` 区域；Electron 的
+   * 拖拽命中测试在合成层之外，z-index 挡不住 —— 打一个 no-drag 洞（同 .ark-panel）。 */
+  -webkit-app-region: no-drag;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  animation: poke-in 150ms ease-out;
+}
+
+.redpacket-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.redpacket-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.redpacket-head-title svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 标题旁的类型小胶囊：一眼知道现在发的是哪一档。 */
+.redpacket-head-kind {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 11%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.redpacket-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.redpacket-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent);
+  color: var(--weq-fg-primary, #111111);
+}
+
+.redpacket-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  /* 左栏（参数）通常比右栏（封面）矮，居中才不会在下半截留一大片空白；`safe`
+     保证窗口很矮、内容溢出时退回顶部对齐，顶端不会被裁掉。 */
+  align-items: safe center;
+  gap: 18px;
+  padding: 14px 16px 14px;
+  overflow-y: auto;
+}
+
+.redpacket-form {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+}
+
+/* 类型：私聊两档 / 群聊三档，列数跟着按钮数量走。 */
+.redpacket-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+}
+
+.redpacket-seg-btn {
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.redpacket-seg-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.redpacket-seg-caption {
+  font-size: 10px;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.redpacket-seg-btn.is-active {
+  background: var(--popover, #ffffff);
+  color: var(--weq-accent-effective, #0099ff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* 金额 + 个数并排；私聊没有个数，金额独占一整行，右边不留空档。 */
+.redpacket-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 124px;
+  gap: 12px;
+}
+
+.redpacket-row--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.redpacket-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.redpacket-field-label {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+}
+
+.redpacket-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 90%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
+  transition: border-color 130ms ease;
+}
+
+.redpacket-input-wrap:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 62%, transparent);
+}
+
+.redpacket-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.redpacket-input::placeholder {
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 70%, transparent);
+}
+
+/* 金额只留一个「¥」前缀（后缀再来一个「元」就啰嗦了）。 */
+.redpacket-input-cny {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.redpacket-input-wrap--amount:focus-within .redpacket-input-cny {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 个数：左右各一枚步进按钮，中间是可直接手写的数字。 */
+.redpacket-stepper {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 90%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
+}
+
+.redpacket-step {
+  display: grid;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: var(--popover, #ffffff);
+  color: var(--weq-fg-primary, #111111);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: color 130ms ease;
+}
+
+.redpacket-step:hover:not(:disabled) {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.redpacket-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.redpacket-count {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-family: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ── 明细摘要（金额 / 个数都摊在这里，参数少时撑住左栏） ─────────────────── */
+
+.redpacket-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 70%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  color: var(--weq-fg-muted, #858585);
+  font-variant-numeric: tabular-nums;
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.redpacket-summary.is-ready {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 28%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
+}
+
+.redpacket-summary.is-invalid {
+  border-color: color-mix(in srgb, #e5484d 42%, transparent);
+  background: color-mix(in srgb, #e5484d 7%, transparent);
+}
+
+.redpacket-summary > svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 82%, transparent);
+}
+
+.redpacket-summary.is-ready > svg {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.redpacket-summary-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 4px 8px;
+  flex-wrap: wrap;
+}
+
+.redpacket-summary-amount {
+  color: var(--weq-fg-primary, #111111);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.redpacket-summary-note {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ── 口令候选池（只在口令这一档出现） ──────────────────────────────────── */
+
+.redpacket-password-box {
+  display: grid;
+  gap: 8px;
+}
+
+.redpacket-password-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.redpacket-reload {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 130ms ease;
+}
+
+.redpacket-reload:hover {
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.redpacket-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.redpacket-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 88%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-muted, #858585);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 130ms ease, color 130ms ease;
+}
+
+.redpacket-chip:hover,
+.redpacket-chip.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 60%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+/* 口令池没取到时给一句明确交代，不留一块空白。 */
+.redpacket-password-empty {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 92%, transparent);
+  border-radius: 9px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.redpacket-password-empty svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 82%, transparent);
+}
+
+/* ── 右栏：封面即输入位 ─────────────────────────────────────────────────── */
+
+.redpacket-preview {
+  display: grid;
+  justify-items: stretch;
+  align-content: start;
+  gap: 8px;
+}
+
+/* 封面色偏暗，任何主题下都用浅色前景；固定深红兜底，免得 token 缺失时糊成一片。 */
+.redpacket-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #a83b2c;
+  box-shadow: 0 10px 26px -12px rgba(120, 26, 18, 0.8);
+}
+
+.redpacket-cover.is-password {
+  background: #8f2f33;
+}
+
+.redpacket-cover-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+}
+
+/* 类型角标：咖啡色半透明底，压在封面顶部，不遮住中间那行字。 */
+.redpacket-cover-kind {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(58, 12, 8, 0.42);
+  color: #fbe4b5;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/*
+ * 祝福语 / 口令就是封面正中那一行字：透明输入框直接压在封面上，
+ * 去掉所有控件外观，只留文字本身。用 textarea 是为了长口令能换行 ——
+ * 高度由组件里的 autoGrow 跟着内容走，所以一行字时不会空出多余的行高。
+ */
+.redpacket-cover-input {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 82%;
+  transform: translate(-50%, -50%);
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  outline: 0;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  color: #fbe4b5;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(120, 20, 10, 0.55);
+  caret-color: #fbe4b5;
+  transition: border-color 130ms ease;
+}
+
+.redpacket-cover-input::placeholder {
+  color: rgba(251, 228, 181, 0.6);
+}
+
+/* 压上去才把虚线露出来 —— 平时看着就是红包封面上印的那行字。 */
+.redpacket-cover:hover .redpacket-cover-input,
+.redpacket-cover-input:focus {
+  border-bottom-color: rgba(251, 228, 181, 0.55);
+}
+
+.redpacket-preview-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.redpacket-preview-amount {
+  color: var(--weq-fg-primary, #111111);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.redpacket-preview-count {
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+}
+
+.redpacket-cover-hint {
+  margin: 0;
+  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 82%, transparent);
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── 底栏 ───────────────────────────────────────────────────────────────── */
+
+.redpacket-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+}
+
+.redpacket-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redpacket-hint.is-error {
+  color: #e5484d;
+}
+
+.redpacket-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: filter 130ms ease, transform 130ms ease;
+}
+
+.redpacket-btn.primary {
+  background: var(--weq-accent-effective, #0099ff);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+}
+
+.redpacket-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.redpacket-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+/* ── 深色：阴影加一档，控件底压暗 ────────────────────────────────────────── */
+
+html[data-theme="dark"] .redpacket-panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .redpacket-seg-btn.is-active,
+html[data-theme="dark"] .redpacket-step {
+  background: color-mix(in srgb, #ffffff 8%, var(--popover, #1c1c1e));
+}
+
+/* ── 小屏：面板收窄 ──────────────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  .redpacket-panel {
+    left: 8px;
+    width: calc(100% - 16px);
+  }
+}
+
+/* 面板窄到放不下左右两栏时折成上下：左栏在上，封面缩成一小块贴右。 */
+@container redpacket (max-width: 520px) {
+  .redpacket-body {
+    grid-template-columns: minmax(0, 1fr) 128px;
+    gap: 12px;
+  }
+
+  .redpacket-cover-kind {
+    top: 6px;
+    font-size: 9px;
+  }
+
+  .redpacket-cover-input {
+    font-size: 11px;
+  }
+
+  .redpacket-cover-hint {
+    font-size: 9.5px;
+  }
+
+  .redpacket-preview-amount {
+    font-size: 13px;
+  }
+}
+
+/* 再窄一档（窄窗 / 分栏）就把封面横过来放到参数下面。 */
+@container redpacket (max-width: 400px) {
+  .redpacket-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .redpacket-preview {
+    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-areas:
+      'cover meta'
+      'cover hint';
+    align-items: center;
+    justify-items: start;
+    column-gap: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
+  }
+
+  .redpacket-cover {
+    grid-area: cover;
+  }
+
+  .redpacket-preview-meta {
+    grid-area: meta;
+    justify-content: flex-start;
+  }
+
+  .redpacket-cover-hint {
+    grid-area: hint;
+    text-align: left;
+  }
+}

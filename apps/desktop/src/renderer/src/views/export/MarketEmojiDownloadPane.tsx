@@ -59,6 +59,7 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
+  const [latest, setLatest] = useState(false);
 
   // 结果 / 分页。cursor / done 也存一份 ref，且随响应同步更新：
   // IntersectionObserver 回调持有旧渲染闭包，而 done 状态要等 React commit 后才
@@ -99,7 +100,8 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
       try {
         const page = await client.account.marketEmoji.searchCatalog.query({
           keyword: query || undefined,
-          feeTypes: feeSel.size ? [...feeSel] : undefined,
+          feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
+          latest: latest || undefined,
           limit: PAGE,
           cursor: null,
         });
@@ -124,7 +126,7 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
     return () => {
       cancelled = true;
     };
-  }, [query, feeSel]);
+  }, [query, feeSel, latest]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (loadingRef.current || doneRef.current || cursorRef.current === null) return;
@@ -133,7 +135,8 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
     try {
       const page = await client.account.marketEmoji.searchCatalog.query({
         keyword: query || undefined,
-        feeTypes: feeSel.size ? [...feeSel] : undefined,
+        feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
+        latest: latest || undefined,
         limit: PAGE,
         cursor: cursorRef.current,
       });
@@ -152,7 +155,7 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [query, feeSel]);
+  }, [query, feeSel, latest]);
 
   // 滚动到底自动加载下一页。
   useEffect(() => {
@@ -169,12 +172,19 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
   }, [loadMore, done]);
 
   const toggleFee = (id: MarketPackFeeType): void => {
+    setLatest(false);
     setFeeSel((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
+  /** 「最新上架」：只看目录尾部（id 最大 = 上架最晚），与来源筛选互斥。 */
+  const toggleLatest = (): void => {
+    setLatest((v) => !v);
+    setFeeSel(new Set());
   };
 
   const toggleSelect = (entry: CatalogEntry): void => {
@@ -226,10 +236,21 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         <div className="weq-mpd-fees">
           <button
             type="button"
-            className={`weq-mpd-fee-chip${feeSel.size === 0 ? ' is-active' : ''}`}
-            onClick={() => setFeeSel(new Set())}
+            className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
+            onClick={() => {
+              setLatest(false);
+              setFeeSel(new Set());
+            }}
           >
             全部
+          </button>
+          <button
+            type="button"
+            className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
+            onClick={toggleLatest}
+            title="只看最新上架的表情包（目录尾部）"
+          >
+            最新上架
           </button>
           {FEE_FILTERS.map((f) => (
             <button
@@ -250,7 +271,7 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         ) : (
           <span>
             {loading && entries.length === 0 ? '搜索中…' : `共 ${total.toLocaleString('en-US')} 套`}
-            {query || feeSel.size ? ' · 已过滤' : ''} · 点击表情包预览，勾选后批量下载
+            {query || feeSel.size || latest ? ' · 已过滤' : ''} · 点击表情包预览，勾选后批量下载
           </span>
         )}
       </div>

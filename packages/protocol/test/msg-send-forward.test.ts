@@ -8,14 +8,16 @@
  *   - 错误路径：目标二选一、空节点、私聊含媒体缺 uid（联网之前就拦下）
  */
 
-import { gunzipSync, inflateSync } from 'node:zlib';
+import { gzipSync, gunzipSync, inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
   decode,
   encode,
   LONG_MSG_RESULT,
+  RECV_LONG_MSG_RESP,
   SEND_LONG_MSG_REQ,
   SEND_LONG_MSG_RESP,
+  SSO_RECV_LONG_MSG_CMD,
   SSO_SEND_LONG_MSG_CMD,
   PUSH_MSG_BODY,
   SendLongMsg,
@@ -252,6 +254,61 @@ describe('节点级装扮（含字体两个 id）', () => {
     ]);
   });
 
+  it('fontId1Raw / fontId2Raw 原样写进 tag 56 / tag 15（透传，不换算）', async () => {
+    // 真机一行：40801 的 41531 = 116182 = 0x1C5D6（低 16 位是交换过的 54981，bit 16 是标志位）。
+    // 元素 tag 15 与它恒等，所以透传就是把 116182 原样抄进去 —— 不能走 swapFontId16(54981)=50646。
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        dress: { bubbleId: 2116371, fontId2Raw: 116182, widgetId: 104228 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems[0]).toEqual({
+      generalFlags: { widgetId: 104228, font: { fontId2: 116182 } },
+    });
+    // 标志位没丢：low16 还原回真实 itemId 54981。
+    const decoded = decodeMessage(
+      encode(PUSH_MSG_BODY, {
+        body: { richText: { elems: [{ generalFlags: { font: { fontId2: 116182 } } }] } },
+      }),
+    );
+    expect(decoded.dress.font).toBe(54981);
+    expect(elems[1]).toEqual({ bubble: { id: 2116371 } });
+  });
+
+  it('raw 通道优先于「真实 itemId」便利字段', async () => {
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        // fontId/fontId2（真实 itemId）与 raw 同时给：raw 说了算。
+        dress: { fontId1Raw: 20671, fontId: 999, fontId2Raw: 116182, fontId2: 54981 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems[0]).toEqual({ generalFlags: { font: { fontId1: 20671, fontId2: 116182 } } });
+  });
+
+  it('只给 raw font2 时不写 fontId1 槽位（与真机一致）', async () => {
+    const body = await buildForwardNodeBody(
+      {
+        userUin: 1,
+        elements: [{ kind: 'text', textContent: 'hi' }],
+        dress: { fontId2Raw: 73767 },
+      },
+      ctx,
+    );
+    const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
+    expect(elems).toEqual([
+      { generalFlags: { font: { fontId2: 73767 } } },
+      { text: { str: 'hi' } },
+    ]);
+  });
+
   it('不传 dress 时元素与以前逐字节一致（零回归）', async () => {
     const body = await buildForwardNodeBody(
       { userUin: 1, elements: [{ kind: 'text', textContent: 'hi' }] },
@@ -327,7 +384,8 @@ describe('sendForward 全链路（离线）', () => {
       ],
     });
     expect(result.card).toEqual({
-      forwardSource: '小明和小红和小刚和小强的聊天记录',
+      // 3 个及以上不同发送者 → 「群聊的聊天记录」（不再拼名字）。
+      forwardSource: '群聊的聊天记录',
       forwardSummary: '查看5条转发消息',
       forwardPrompt: '[聊天记录]',
       forwardNews: [
@@ -428,6 +486,116 @@ describe('sendForward 全链路（离线）', () => {
     const innerText = (innerBody[0]!.body as { richText: { elems: { text?: { str?: string } }[] } })
       .richText.elems[0]!.text;
     expect(innerText?.str).toBe('内层');
+  });
+
+  it('节点里已有的聊天记录卡片：拉取该 resId 的 actions，按原 uniseq piggyback（NapCat 同款）', async () => {
+    // 服务器上那段「已存在的长消息」被 SsoRecvLongMsg 拉回来的原始 actions。
+    const innerBody = {
+      responseHead: {
+        fromUin: 222,
+        fromUid: '',
+        grp: { groupUin: 67890, memberName: '内层' },
+      },
+      contentHead: { msgType: 82, msgId: 11, sequence: 12, timestamp: 1700000000 },
+      body: { richText: { elems: [{ text: { str: '内层内容' } }] } },
+    };
+    const recvPayload = new Uint8Array(
+      gzipSync(
+        Buffer.from(
+          encode(LONG_MSG_RESULT, {
+            action: [
+              { actionCommand: 'MultiMsg', actionData: { msgBody: [innerBody] } },
+              { actionCommand: 'deep-uuid', actionData: { msgBody: [innerBody] } },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const calls: { cmd: string; body: Uint8Array }[] = [];
+    const nt = {
+      sendPacket: async (_pid: number, cmd: string, body: Buffer): Promise<Buffer> => {
+        calls.push({ cmd, body: new Uint8Array(body) });
+        if (cmd === SSO_RECV_LONG_MSG_CMD) {
+          return Buffer.from(
+            encode(RECV_LONG_MSG_RESP, {
+              result: { resId: 'res-ext', payload: recvPayload },
+            }),
+          );
+        }
+        return Buffer.from(encode(SEND_LONG_MSG_RESP, { result: { resId: 'res-outer' } }));
+      },
+      sendOidbPacket: async (): Promise<Buffer> => {
+        throw new Error('这条用例不该走 OIDB');
+      },
+    };
+
+    const result = await sendForward(nt as never, 1, {
+      groupId: 67890,
+      selfUin: '10001',
+      selfUid: 'u_self',
+      nodes: [
+        {
+          userUin: 1,
+          nickname: 'A',
+          elements: [
+            {
+              kind: 'forward',
+              resId: 'res-ext',
+              forwardUuid: 'old-uuid',
+              forwardSource: 'A和B的聊天记录',
+              forwardSummary: '查看2条转发消息',
+              forwardNews: [{ text: 'B: 你好' }],
+              forwardTSum: 2,
+            },
+          ],
+        },
+      ],
+    });
+
+    // 先拉内层（RecvLongMsg），再上传外层（SendLongMsg）。
+    expect(result.resId).toBe('res-outer');
+    expect(calls.map((c) => c.cmd)).toEqual([SSO_RECV_LONG_MSG_CMD, SSO_SEND_LONG_MSG_CMD]);
+
+    // 外层 payload：MultiMsg（本身）+ 原 uniseq + 更深的 piggyback。
+    const actions = actionsOf(calls[1]!.body);
+    expect(actions).toHaveLength(3);
+    expect(actions[0]!.actionCommand).toBe('MultiMsg');
+    const piggyback = actions.slice(1).map((action) => action.actionCommand);
+    expect(piggyback).toContain('old-uuid');
+    expect(piggyback).toContain('deep-uuid');
+
+    // 卡片本身保留原 resId / uniseq / 预览（收端才有封面预览行）。
+    const outerBody = (actions[0]!.actionData as { msgBody: Record<string, unknown>[] }).msgBody;
+    const card = (
+      outerBody[0]!.body as { richText: { elems: { lightApp?: { data: Uint8Array } }[] } }
+    ).richText.elems[0]!.lightApp!;
+    const json = JSON.parse(inflateSync(Buffer.from(card.data).subarray(1)).toString('utf8')) as {
+      meta: { detail: { resid: string; uniseq: string; source: string; news: { text: string }[] } };
+    };
+    expect(json.meta.detail.resid).toBe('res-ext');
+    expect(json.meta.detail.uniseq).toBe('old-uuid');
+    expect(json.meta.detail.source).toBe('A和B的聊天记录');
+    expect(json.meta.detail.news).toEqual([{ text: 'B: 你好' }]);
+  });
+
+  it('节点里已有的聊天记录卡片拿不到 selfUid 时：跳过随包展开，卡片照发', async () => {
+    const nt = fakeNative(['res-plain']);
+    const result = await sendForward(nt as never, 1, {
+      groupId: 67890,
+      selfUin: '10001',
+      selfUid: '',
+      nodes: [
+        {
+          userUin: 1,
+          elements: [{ kind: 'forward', resId: 'res-ext', forwardUuid: 'old-uuid' }],
+        },
+      ],
+    });
+    expect(result.resId).toBe('res-plain');
+    // 只有一次 SendLongMsg；没有去拉内层。
+    expect(nt.calls).toHaveLength(1);
+    expect(actionsOf(nt.calls[0]!.body)).toHaveLength(1);
   });
 });
 
