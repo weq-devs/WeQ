@@ -143,3 +143,87 @@ describe('UnreadInfoDb.markRead', () => {
     expect(await db.markRead(2, GROUP, '0')).toBe(false);
   });
 });
+
+describe('UnreadInfoDb.addHighlight', () => {
+  it('writes a 2006 群提醒词 highlight into an existing row', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const ok = await db.addHighlight(2, GROUP, {
+      kind: 2006,
+      msgSeq: 1740,
+      senderUid: 'u_sender',
+      sendTime: 1791133400,
+      text: '报名接龙',
+    });
+    expect(ok).toBe(true);
+
+    const after = await db.getUnreadInfo(2, GROUP);
+    const keyword = after?.highlights?.find((h) => h.kind === 'groupKeyword');
+    expect(keyword).toMatchObject({
+      rawKind: 2006,
+      msgSeq: 1740,
+      senderUid: 'u_sender',
+      sendTime: 1791133400,
+    });
+    // 原来的 2005 高亮仍在，且 41002 未被这台写操作抬高。
+    expect(after?.msgSeq).toBe(1731);
+    expect(after?.highlights?.some((h) => h.kind === 'groupAnnouncement')).toBe(true);
+  });
+
+  it('is idempotent per (kind, msgSeq)', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const hit = {
+      kind: 2006,
+      msgSeq: 1740,
+      senderUid: 'u_sender',
+      sendTime: 1791133400,
+      text: '报名',
+    };
+    expect(await db.addHighlight(2, GROUP, hit)).toBe(true);
+    expect(await db.addHighlight(2, GROUP, hit)).toBe(false);
+  });
+
+  it('creates a minimal row when the conversation has no unread record', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'weq-unread-'));
+    dbPath = join(dir, 'nt_msg.db');
+    const sql = fixtureDb(dbPath);
+    sql.exec(`CREATE TABLE msg_unread_info_table ("48901" TEXT PRIMARY KEY, "48902" BLOB)`);
+    sql.exec(`CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER)`);
+    db = new UnreadInfoDb(createSqliteStub(), { dbPath });
+
+    expect(
+      await db.addHighlight(2, GROUP, {
+        kind: 2006,
+        msgSeq: 500,
+        senderUid: 'u_sender',
+        sendTime: 1791133400,
+        text: '报名',
+      }),
+    ).toBe(true);
+    const after = await db.getUnreadInfo(2, GROUP);
+    expect(after?.msgSeq).toBe(499);
+    expect(after?.highlights?.[0]).toMatchObject({ kind: 'groupKeyword', msgSeq: 500 });
+  });
+
+  it('groups multiple hits of the same kind under one 50060', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    await db.addHighlight(2, GROUP, {
+      kind: 2006,
+      msgSeq: 1740,
+      senderUid: 'u_a',
+      sendTime: 1,
+      text: 'a',
+    });
+    await db.addHighlight(2, GROUP, {
+      kind: 2006,
+      msgSeq: 1741,
+      senderUid: 'u_b',
+      sendTime: 2,
+      text: 'b',
+    });
+    // 展平后同类只留 seq 最大的一条。
+    const after = await db.getUnreadInfo(2, GROUP);
+    const keywords = (after?.highlights ?? []).filter((h) => h.kind === 'groupKeyword');
+    expect(keywords).toHaveLength(1);
+    expect(keywords[0]?.msgSeq).toBe(1741);
+  });
+});

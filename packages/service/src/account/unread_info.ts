@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import type { UnreadInfoResult } from '@weq/db';
+import type { UnreadHighlightInput, UnreadInfoResult } from '@weq/db';
 
 export class UnreadInfoService {
   constructor(private readonly session: AccountSession) {}
@@ -15,5 +15,13 @@ export class UnreadInfoService {
    */
   markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
     return this.session.unreadInfo.markRead(chatType, uid, latestSeq);
+  }
+
+  /**
+   * Append one notify-highlight hit (e.g. 群提醒词 `2006`) to a conversation so
+   * both WeQ and QQ show the badge. Idempotent per `(kind, msgSeq)`.
+   */
+  addHighlight(chatType: number, uid: string, highlight: UnreadHighlightInput): Promise<boolean> {
+    return this.session.unreadInfo.addHighlight(chatType, uid, highlight);
   }
 }

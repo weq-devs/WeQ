@@ -26,7 +26,13 @@ export { MsgSearchIndexDb } from './search_index';
 export type { MsgSearchIndexOptions, MsgSearchIndexPage } from './search_index';
 
 export { UnreadInfoDb } from './unread_info';
-export type { UnreadInfoDbOptions, UnreadInfoResult } from './unread_info';
+export type {
+  UnreadInfoDbOptions,
+  UnreadInfoResult,
+  UnreadHighlight,
+  UnreadHighlightInput,
+  HighlightKind,
+} from './unread_info';
 
 export { AntiRecallDb } from './anti_recall';
 export { AnnualReportIndexDb } from './annual_report_index';

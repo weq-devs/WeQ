@@ -385,7 +385,6 @@ async function readBody(res) {
   return text;
 }
 
-
 async function download(url, dest, { label, size } = {}) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok || !res.body) {

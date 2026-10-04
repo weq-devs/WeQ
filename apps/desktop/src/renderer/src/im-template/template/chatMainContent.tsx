@@ -99,6 +99,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupKeyword,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -197,6 +198,7 @@ export function ChatMainContent({
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
+  onOpenGroupKeyword?: (conversation: GroupConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
@@ -301,6 +303,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       onOpenGroupEssence={onOpenGroupEssence}
+      onOpenGroupKeyword={onOpenGroupKeyword}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}

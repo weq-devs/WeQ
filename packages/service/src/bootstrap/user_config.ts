@@ -470,6 +470,8 @@ export interface AppSettings {
    */
   externalRkey: ExternalRkeyConfig;
   ssePush: SsePushConfig;
+  /** 群关键词提醒：每个群一组关键词 + 指定成员过滤。 */
+  groupKeyword: GroupKeywordConfig;
   /**
    * Linux 下是否不再弹「关闭 ptrace 保护」的引导弹窗。首次检测到直连注入被内核
    * 拒绝（EPERM/EACCES）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」
@@ -597,6 +599,50 @@ export interface SsePushConfig {
   massThreshold: number;
 }
 
+/** 一个群的关键词提醒规则。 */
+export interface GroupKeywordRuleConfig {
+  /** 命中即提醒的关键词（大小写不敏感子串）。空数组 = 不提醒。 */
+  keywords: string[];
+  /** 只在这些人发言时提醒（uid）；空数组 = 不指定，即全部成员。 */
+  memberUids: string[];
+}
+
+/**
+ * 设置 → 群关键词提醒。`rules` 以群号为 key，只存用户配置过的群（未配置 =
+ * 不提醒）。全局一份，与当前账号无关；主进程的匹配器随账号打开按此生效。
+ */
+export interface GroupKeywordConfig {
+  rules: Record<string, GroupKeywordRuleConfig>;
+}
+
+/** 归一化一份规则列表：丢弃空关键词 / 非字符串，去重，保留顺序。 */
+export function normalizeGroupKeywordRules(raw: unknown): Record<string, GroupKeywordRuleConfig> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, GroupKeywordRuleConfig> = {};
+  for (const [groupCode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+$/.test(groupCode)) continue;
+    if (!value || typeof value !== 'object') continue;
+    const v = value as { keywords?: unknown; memberUids?: unknown };
+    const keywords = Array.isArray(v.keywords)
+      ? // 先 trim 再按 trim 后的值去重，否则「  报名 」与「报名」会双双留下。
+        [
+          ...new Set(
+            v.keywords
+              .filter((k): k is string => typeof k === 'string')
+              .map((k) => k.trim())
+              .filter((k) => k !== ''),
+          ),
+        ]
+      : [];
+    if (keywords.length === 0) continue;
+    const memberUids = Array.isArray(v.memberUids)
+      ? [...new Set(v.memberUids.filter((u): u is string => typeof u === 'string' && u !== ''))]
+      : [];
+    out[groupCode] = { keywords, memberUids };
+  }
+  return out;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   autoInjectQq: true,
@@ -618,6 +664,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
+  groupKeyword: { rules: {} },
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
@@ -937,6 +984,9 @@ export class UserConfigService {
             ? s.ssePush.massThreshold
             : d.ssePush.massThreshold,
       },
+      groupKeyword: {
+        rules: normalizeGroupKeywordRules(s?.groupKeyword?.rules),
+      },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
@@ -1026,6 +1076,12 @@ export class UserConfigService {
             ? patch.ssePush.massThreshold
             : current.ssePush.massThreshold,
       },
+      groupKeyword: {
+        rules:
+          patch.groupKeyword?.rules !== undefined
+            ? normalizeGroupKeywordRules(patch.groupKeyword.rules)
+            : current.groupKeyword.rules,
+      },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
@@ -1074,6 +1130,7 @@ export class UserConfigService {
       externalRkeyServerCount: next.externalRkey.servers.length,
       ssePushServerCount: next.ssePush.servers.length,
       ssePushEnabled: next.ssePush.enabledServerId !== null,
+      groupKeywordGroupCount: Object.keys(next.groupKeyword.rules).length,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;

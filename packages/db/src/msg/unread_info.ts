@@ -17,7 +17,7 @@ import {
   removeNode,
   updateNode,
 } from '@weq/codec/raw';
-import type { PbNode } from '@weq/codec/raw';
+import type { PbNode, PbValue } from '@weq/codec/raw';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 
 export interface UnreadInfoDbOptions {
@@ -81,6 +81,25 @@ export interface UnreadInfoResult {
   msgSeq?: number;
   /** Notify-highlights (特别关心 / @我 / …) present on this conversation. */
   highlights?: UnreadHighlight[];
+}
+
+/**
+ * One hit to write back into the `48902` notify-highlight extension
+ * (`50005 → 50060`). Kept as a raw kind code (not the mapped enum) so callers
+ * can write categories — e.g. `2006` 群提醒词 — that WeQ itself produces and
+ * that QQ renders natively.
+ */
+export interface UnreadHighlightInput {
+  /** Raw `50000` kind code, e.g. 2006 = 群提醒词. */
+  kind: number;
+  /** Seq of the highlighted message. */
+  msgSeq: number;
+  /** Sender uid. */
+  senderUid: string;
+  /** Send time (unix seconds). */
+  sendTime: number;
+  /** Preview text stored on the item (QQ often leaves this empty; we fill it). */
+  text: string;
 }
 
 export class UnreadInfoDb {
@@ -198,6 +217,94 @@ export class UnreadInfoDb {
     return changed > 0;
   }
 
+  /**
+   * Append one notify-highlight hit to a conversation's `48902` blob so the
+   * conversation shows the matching badge in **both** WeQ and QQ itself. Used
+   * by the group-keyword reminder (kind `2006`).
+   *
+   * Like {@link markRead} this rewrite goes through the wire-level edit tree:
+   * every field we have not reverse-engineered survives byte-for-byte. When the
+   * conversation has no unread row yet, a minimal `48902` blob carrying just
+   * `chatType` / `peerUid` / the highlight is inserted instead.
+   *
+   * Idempotent per `(kind, msgSeq)`: re-adding the same hit is a no-op.
+   *
+   * @returns true when the row was actually written.
+   */
+  async addHighlight(
+    chatType: number,
+    uid: string,
+    highlight: UnreadHighlightInput,
+  ): Promise<boolean> {
+    const peer = `${chatType}_${uid}`;
+    const rows = await this.qq.query(
+      `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
+      [peer],
+    );
+    const existing = rows[0]?.[0];
+    const bytes = existing instanceof Uint8Array && existing.length > 0 ? existing : null;
+
+    const itemNode = nestedNode(50040, [
+      varintNode(50020, highlight.msgSeq),
+      utf8Node(50022, highlight.senderUid),
+      varintNode(50023, highlight.sendTime),
+      utf8Node(50024, highlight.text),
+    ]);
+    const groupNode = () => nestedNode(50060, [varintNode(50000, highlight.kind), itemNode]);
+
+    let tree: PbNode[];
+    if (bytes) {
+      tree = buildEditTree(bytes);
+      const info = tree.find((node) => node.tag === 48902);
+      if (!info?.children) return false;
+
+      // Reuse the existing group of the same kind when there is one — QQ's
+      // shape is one 50060 per category with many 50040 items under it.
+      const group = findAll(info, 50060).find(
+        (node) => readVarintChild(node, 50000) === highlight.kind,
+      );
+      if (group) {
+        const dup = findAll(group, 50040).some(
+          (node) => readVarintChild(node, 50020) === highlight.msgSeq,
+        );
+        if (dup) return false;
+        tree = appendNode(tree, group.id, itemNode);
+      } else {
+        const node = groupNode();
+        const ext = info.children.find((child) => child.tag === 50005);
+        tree = ext
+          ? appendNode(tree, ext.id, node)
+          : appendNode(tree, info.id, nestedNode(50005, [...extHeader(uid, chatType), node]));
+      }
+    } else {
+      // No row yet: a minimal 48902 carrying only the highlight. 41002 sits one
+      // below the hit so the conversation still reads as unread.
+      const readSeq = highlight.msgSeq > 1 ? highlight.msgSeq - 1 : 0;
+      tree = [
+        nestedNode(48902, [
+          varintNode(40010, chatType),
+          utf8Node(40021, uid),
+          ...(readSeq > 0 ? [varintNode(41002, readSeq)] : []),
+          nestedNode(50005, [...extHeader(uid, chatType), groupNode()]),
+        ]),
+      ];
+    }
+
+    const encoded = encodeEditTree(tree, bytes ?? new Uint8Array(0));
+    if (bytes) {
+      const changed = await this.qq.write(
+        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ?`,
+        [encoded, peer],
+      );
+      return changed > 0;
+    }
+    await this.qq.write(`INSERT INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`, [
+      peer,
+      encoded,
+    ]);
+    return true;
+  }
+
   /** Conversation watermark (`recent_contact_v3_table.40003`) or null when absent. */
   private async latestSeqOf(uid: string): Promise<bigint | null> {
     const rows = await this.qq.query(
@@ -232,6 +339,41 @@ function findAll(root: PbNode, tag: number): PbNode[] {
     out.push(...findAll(child, tag));
   }
   return out;
+}
+
+/** A freshly-built, dirty `varint` (wire 0) field node. */
+function varintNode(tag: number, value: number | bigint): PbNode {
+  const node = newNode(tag, 0);
+  node.value = { kind: 'varint', text: value.toString() } satisfies PbValue;
+  return node;
+}
+
+/** A freshly-built, dirty UTF-8 (wire 2) field node. */
+function utf8Node(tag: number, text: string): PbNode {
+  const node = newNode(tag, 2);
+  node.value = { kind: 'utf8', text } satisfies PbValue;
+  return node;
+}
+
+/** A freshly-built, dirty nested-message (wire 2) field node. */
+function nestedNode(tag: number, children: PbNode[]): PbNode {
+  const node = newNode(tag, 2);
+  node.value = { kind: 'nested' } satisfies PbValue;
+  node.children = children;
+  return node;
+}
+
+/** The `50001` peerUid + `50002` chatType header shared by every `50005` ext. */
+function extHeader(uid: string, chatType: number): PbNode[] {
+  return [utf8Node(50001, uid), varintNode(50002, chatType)];
+}
+
+/** Read a nested node's scalar child (by tag) back as a number, or null. */
+function readVarintChild(parent: PbNode, tag: number): number | null {
+  const child = parent.children?.find((node) => node.tag === tag);
+  if (!child) return null;
+  const value = readVarintText(child);
+  return Number(value);
 }
 
 type DecodedExt = NonNullable<

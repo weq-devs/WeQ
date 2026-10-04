@@ -2,6 +2,7 @@
 import {
   AudioLines,
   BarChart3,
+  BellRing,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -309,6 +310,7 @@ export function ChatPane({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupKeyword,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -399,6 +401,7 @@ export function ChatPane({
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  onOpenGroupKeyword?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
@@ -3029,6 +3032,18 @@ export function ChatPane({
                 }}
               >
                 <FileText size={18} />
+              </button>
+              <button
+                className={cn('icon-button', 'group-header-info-action')}
+                type="button"
+                title="群关键词提醒"
+                onClick={() => {
+                  if (conversation?.type === 'group') {
+                    onOpenGroupKeyword?.(conversation);
+                  }
+                }}
+              >
+                <BellRing size={18} />
               </button>
               <button
                 className={cn('icon-button', 'group-header-info-action')}

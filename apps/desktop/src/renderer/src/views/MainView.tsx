@@ -57,6 +57,7 @@ import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
+import { GroupKeywordDialog } from '../components/GroupKeywordDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
@@ -2281,6 +2282,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [keywordDialog, setKeywordDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -2447,6 +2452,16 @@ export function MainView(): ReactElement {
   const handleOpenGroupEssence = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setEssenceDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
+
+  const handleOpenGroupKeyword = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setKeywordDialog({
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
@@ -4905,6 +4920,40 @@ export function MainView(): ReactElement {
     [jumpToConvSeq],
   );
 
+  // 群关键词通知被点击：主进程唤起窗口并记下一个「打开该群、跳到该 seq」的请求，
+  // 这里领走并走同一套跳转。每次信号可能积压多条，领到空为止。
+  useEffect(() => {
+    let cancelled = false;
+    const drain = () => {
+      void (async () => {
+        for (;;) {
+          let jump: { groupCode: string; msgSeq: string } | null = null;
+          try {
+            jump = await client.bootstrap.consumeGroupKeywordJump.query();
+          } catch {
+            return;
+          }
+          if (cancelled || !jump) return;
+          jumpToConvSeq('group', jump.groupCode, jump.msgSeq);
+        }
+      })();
+    };
+    const sub = client.bootstrap.onGroupKeywordJump.subscribe(undefined, {
+      onData() {
+        drain();
+      },
+      onError(err) {
+        console.error('[keyword] onGroupKeywordJump subscription error', err);
+      },
+    });
+    // 订阅建立前主进程可能已积压了跳转（例如窗口刚被通知唤起），先领一次。
+    drain();
+    return () => {
+      cancelled = true;
+      sub.unsubscribe();
+    };
+  }, [jumpToConvSeq]);
+
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
   // fresh query — no react-query staleness — so switching back into a chat shows
@@ -6316,6 +6365,7 @@ export function MainView(): ReactElement {
                       onOpenGroupFiles={handleOpenGroupFiles}
                       onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                       onOpenGroupEssence={handleOpenGroupEssence}
+                      onOpenGroupKeyword={handleOpenGroupKeyword}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
                       onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
@@ -6488,6 +6538,20 @@ export function MainView(): ReactElement {
                 },
               )}
               onClose={() => setAnnouncementsDialog(null)}
+            />
+          ) : null}
+          {keywordDialog ? (
+            <GroupKeywordDialog
+              groupId={keywordDialog.groupCode}
+              groupName={keywordDialog.groupName}
+              members={currentGroupMembers.map((m) => ({
+                uid: m.id,
+                displayName: m.displayName,
+                avatarUrl: m.avatarUrl ?? null,
+                uin: m.uin,
+                role: m.role,
+              }))}
+              onClose={() => setKeywordDialog(null)}
             />
           ) : null}
           {groupBugDialog ? (
