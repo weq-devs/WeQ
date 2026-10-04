@@ -8567,6 +8567,14 @@ html[data-theme="dark"] .weq-ark-contact-sub { color: var(--weq-fg-muted); }
 
 /* 群报名/活动卡 (com.tencent.activity.md) */
 .weq-ark-activity-desc { -webkit-line-clamp: 2; margin-bottom: 10px; }
+.weq-ark-activity-cover {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f0f0f0;
+}
 .weq-ark-activity-meta {
   display: flex;
   flex-wrap: wrap;
@@ -8596,6 +8604,13 @@ html[data-theme="dark"] .weq-ark-activity-badge {
   color: var(--weq-fg-muted);
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="dark"] .weq-ark-activity-cover { background: rgba(255, 255, 255, 0.06); }
+/* 截止时间是报名卡的关键信息，单独给一点强调色。 */
+.weq-ark-activity-deadline {
+  color: var(--weq-accent-effective, #0099ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
 }
 html[data-theme="dark"] .weq-ark-activity-btn {
   color: var(--weq-fg-primary);

@@ -139,6 +139,7 @@ import {
   flashDescOf,
   arkCardSignature,
   buildContactPlaceholderArk,
+  buildGroupSignupArkJson,
   buildLocationArkJson,
   buildTuwenArkJson,
   type Message,
@@ -5935,6 +5936,41 @@ export function MainView(): ReactElement {
         return;
       }
 
+      if (payload.type === 'signup') {
+        // 群报名卡片：服务端按 0x921b_0 的字段生成卡片（与图文同理，客户端拼的 JSON
+        // 只是预览 / 乐观卡片）。它**以群号寻址**，与当前会话无关，所以不走 target。
+        startOptimistic(
+          buildGroupSignupArkJson({
+            groupCode: String(payload.groupCode),
+            title: payload.title,
+            detail: payload.detail,
+            deadline: payload.deadline ? String(payload.deadline) : '',
+            method: payload.method === 2 ? 'image' : 'direct',
+            maxCount: String(payload.maxCount),
+            imageUrl: payload.imageUrl ?? '',
+          }),
+        );
+        const outcome = await client.account.sendGroupSignup.mutate({
+          groupCode: String(payload.groupCode),
+          title: payload.title,
+          detail: payload.detail,
+          ...(payload.deadline ? { deadline: payload.deadline } : {}),
+          method: payload.method === 2 ? 'image' : 'direct',
+          maxCount: payload.maxCount,
+          ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
+        });
+        // 回执是空 ack（没有 random / seq），乐观卡片只能靠标题签名对账。
+        patchOptimistic({ state: 'sent' });
+        pushToast({
+          tone: 'success',
+          message: '报名卡片已发出',
+          detail: outcome.image
+            ? `附带图片已解析（${outcome.image.width}×${outcome.image.height}）。`
+            : undefined,
+        });
+        return;
+      }
+
       if (payload.type === 'location') {
         startOptimistic(buildLocationArkJson(payload));
         const outcome = await client.account.sendLocationArkCard.mutate({
@@ -6264,6 +6300,11 @@ export function MainView(): ReactElement {
                       onSendArk={sendArkCard}
                       arkLocation={arkLocation}
                       arkContacts={arkContacts}
+                      defaultSignupGroupCode={
+                        selectedConversation?.type === 'group'
+                          ? selectedConversation.group.identityValue
+                          : undefined
+                      }
                       onSendFlash={sendFlashTransfer}
                       onSendRedPacket={sendRedPacket}
                       onDraftChange={updateDraft}

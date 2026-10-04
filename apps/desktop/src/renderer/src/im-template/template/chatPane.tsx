@@ -297,6 +297,7 @@ export function ChatPane({
   onSendRedPacket,
   arkLocation,
   arkContacts,
+  defaultSignupGroupCode,
   onMessageAction,
   draft,
   onDraftChange,
@@ -385,6 +386,8 @@ export function ChatPane({
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
+  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
+  defaultSignupGroupCode?: string;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
   onDraftChange: (conversationId: string, value: string) => void;
@@ -3544,6 +3547,7 @@ export function ChatPane({
             disabledHint={sendTitle}
             location={arkLocation}
             contacts={arkContacts}
+            defaultSignupGroupCode={defaultSignupGroupCode}
             onSend={sendArkCard}
             onClose={() => setArkOpen(false)}
           />

@@ -3429,6 +3429,42 @@ export const accountRouter = router({
     }),
 
   /**
+   * 发一张**群报名 / 群收集表**卡片（OIDB 0x921b_0）。
+   *
+   * 与其它 Ark 卡片不同：它**以群号寻址**（不走当前会话那条发消息通路），所以
+   * `groupCode` 是字段本身。附带图片只收 `imageUrl` 直链，服务层会请求一次算出
+   * md5 / 宽高（见 `InteractionService.sendGroupSignup`）。
+   *
+   * ⚠️ 已知缺口：PC/Linux 端会被服务端在 OIDB 外层以 `319 [oidb] rule type not
+   * match appid` 拒绝（与图文 Ark 的 901501 同源），服务层会把错误翻译成人话再抛。
+   */
+  sendGroupSignup: procedure
+    .input(
+      z.object({
+        groupCode: z.string().regex(/^\d+$/),
+        title: z.string().min(1).max(100),
+        detail: z.string().min(1).max(4000),
+        deadline: z.number().int().positive().optional(),
+        method: z.enum(['direct', 'image']).default('direct'),
+        maxCount: z.number().int().positive().max(200).default(200),
+        imageUrl: z.string().url().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const result = await requireServices().interaction.sendGroupSignup({
+        groupCode: input.groupCode,
+        title: input.title.trim(),
+        detail: input.detail.trim(),
+        ...(input.deadline ? { deadline: input.deadline } : {}),
+        method: input.method === 'image' ? 2 : 1,
+        maxCount: input.maxCount,
+        ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
+      });
+      return { ok: true as const, ...(result.image ? { image: result.image } : {}) };
+    }),
+
+  /**
    * 发一张**位置卡片**（trpc `LocationArk.SsoSendMessage`）。
    *
    * 经纬度是十进制度**字符串**；`region`（省市区）与 `address`（详细地址）由调用方

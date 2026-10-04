@@ -86,6 +86,7 @@ export function ChatMainContent({
   onSendArk,
   arkLocation,
   arkContacts,
+  defaultSignupGroupCode,
   onSendFlash,
   onSendRedPacket,
   onMessageAction,
@@ -180,6 +181,8 @@ export function ChatMainContent({
   arkLocation?: ArkLocationProvider;
   /** 推荐好友 / 群 的候选列表（应用层注入；不传就只能手填号码）。 */
   arkContacts?: ArkContactSource;
+  /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
+  defaultSignupGroupCode?: string;
   /** 闪传文件框「发送」（应用层补目标会话再走 IPC）。 */
   onSendFlash?: (conversation: Conversation, payload: FlashSendPayload) => Promise<void>;
   /** 红包面板「发红包」（应用层补目标会话再走 IPC，成功后弹二维码灯箱）。 */
@@ -285,6 +288,7 @@ export function ChatMainContent({
       onSendArk={onSendArk}
       arkLocation={arkLocation}
       arkContacts={arkContacts}
+      defaultSignupGroupCode={defaultSignupGroupCode}
       onSendFlash={onSendFlash}
       onSendRedPacket={onSendRedPacket}
       onMessageAction={onMessageAction}

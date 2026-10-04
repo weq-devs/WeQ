@@ -6,6 +6,10 @@
 - 协议实现：`packages/protocol/src/oidb/send-group-signup.ts`（`SendGroupSignup`）
 - 服务封装：`InteractionService.sendGroupSignup`（`packages/service/src/account/interaction.ts`）
 - MCP 工具：`send_group_signup`（`apps/desktop/src/main/mcp/tools.ts`）
+- 输入框 Ark 面板：**「报名」** tab（`arkPanel.tsx`）→ `account.sendGroupSignup`（IPC）→
+  上面的服务封装。面板只收字段，真卡片由服务端按 0x921b_0 生成；本地拼的
+  `com.tencent.activity.md` ark JSON 只用于预览与乐观卡片（见 `arkCards.ts` 的
+  `buildGroupSignupArkJson`）。
 
 ## 信封与请求体
 
