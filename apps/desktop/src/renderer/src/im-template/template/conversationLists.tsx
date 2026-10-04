@@ -184,6 +184,10 @@ export function ConversationList({
         const showNewFile = unreadCount > 0 && highlightKinds.has('newFile');
         // QQ红包：内容类提示，行首挂金色标记。
         const showRedPacket = unreadCount > 0 && highlightKinds.has('redPacket');
+        // 群公告：内容类提示（群内广播），行首挂蓝色标记。
+        const showGroupAnnouncement = unreadCount > 0 && highlightKinds.has('groupAnnouncement');
+        // 群提醒词：命中用户设置的关注词，与「找你」同类，行首挂红色标记。
+        const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
         // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
         // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
         const muted = Boolean(
@@ -248,7 +252,13 @@ export function ConversationList({
                     {showReplyMe ? (
                       <span className={cn('row-mention-alert')}>[有人回复我]</span>
                     ) : null}
+                    {showGroupKeyword ? (
+                      <span className={cn('row-mention-alert')}>[群提醒词]</span>
+                    ) : null}
                     {showNewFile ? <span className={cn('row-newfile-alert')}>[新文件]</span> : null}
+                    {showGroupAnnouncement ? (
+                      <span className={cn('row-newfile-alert')}>[群公告]</span>
+                    ) : null}
                     {showRedPacket ? (
                       <span className={cn('row-redpacket-alert')}>[红包]</span>
                     ) : null}

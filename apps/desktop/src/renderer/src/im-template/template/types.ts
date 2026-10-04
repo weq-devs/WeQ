@@ -109,6 +109,8 @@ export type ConversationHighlightKind =
   | 'specialCare'
   | 'newFile'
   | 'redPacket'
+  | 'groupAnnouncement'
+  | 'groupKeyword'
   | 'unknown';
 
 export type ConversationHighlight = {
