@@ -54,6 +54,7 @@ export type {
   SsePushConfig,
   SsePushServerConfig,
   GroupKeywordConfig,
+  GroupKeywordEntryConfig,
   GroupKeywordRuleConfig,
   ExportPresets,
   ExportPresetVariant,
@@ -496,6 +497,7 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 // 为每个群配置的关键词匹配。命中结果交给上层弹通知 + 写 unread 2006 高亮。
 export { GroupKeywordService, matchesRule } from './account/group_keyword';
 export type {
+  GroupKeywordEntry,
   GroupKeywordRule,
   GroupKeywordRules,
   GroupKeywordHit,

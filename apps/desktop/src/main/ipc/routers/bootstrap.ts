@@ -873,8 +873,14 @@ export const bootstrapRouter = router({
         rules: z.record(
           z.string(),
           z.object({
-            keywords: z.array(z.string()).max(64),
-            memberUids: z.array(z.string()).max(2000),
+            keywords: z
+              .array(
+                z.object({
+                  keyword: z.string().max(200),
+                  memberUids: z.array(z.string()).max(2000),
+                }),
+              )
+              .max(64),
           }),
         ),
       }),

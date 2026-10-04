@@ -28,19 +28,41 @@ function fakePlatform(root: string): Platform {
 }
 
 describe('normalizeGroupKeywordRules', () => {
-  it('丢弃空关键词 / 非字符串，去重并 trim', () => {
+  it('丢弃空关键词 / 非字符串，去重并 trim（新格式：每个词带自己的成员范围）', () => {
     expect(
       normalizeGroupKeywordRules({
-        '123': { keywords: ['  报名  ', '', '报名', 5, '报名'], memberUids: ['u_a', 'u_a', ''] },
+        '123': {
+          keywords: [
+            { keyword: '  报名  ', memberUids: ['u_a', 'u_a', ''] },
+            { keyword: '', memberUids: [] },
+            { keyword: '报名', memberUids: ['u_b'] },
+            5,
+          ],
+        },
       }),
-    ).toEqual({ '123': { keywords: ['报名'], memberUids: ['u_a'] } });
+    ).toEqual({ '123': { keywords: [{ keyword: '报名', memberUids: ['u_a'] }] } });
+  });
+
+  it('旧格式（群级 memberUids + 裸字符串关键词）迁移到每个词', () => {
+    expect(
+      normalizeGroupKeywordRules({
+        '123': { keywords: ['报名', '签到'], memberUids: ['u_a', 'u_a', ''] },
+      }),
+    ).toEqual({
+      '123': {
+        keywords: [
+          { keyword: '报名', memberUids: ['u_a'] },
+          { keyword: '签到', memberUids: ['u_a'] },
+        ],
+      },
+    });
   });
 
   it('非数字群号 / 空关键词的群整条丢弃', () => {
     expect(
       normalizeGroupKeywordRules({
-        u_abc: { keywords: ['x'], memberUids: [] },
-        '456': { keywords: ['   '], memberUids: [] },
+        u_abc: { keywords: [{ keyword: 'x', memberUids: [] }] },
+        '456': { keywords: [{ keyword: '   ', memberUids: [] }] },
       }),
     ).toEqual({});
   });
@@ -56,12 +78,14 @@ describe('UserConfigService 群关键词规则落盘', () => {
     const dir = tmpDir();
     const service = new UserConfigService(fakePlatform(dir));
     service.setSettings({
-      groupKeyword: { rules: { '123': { keywords: ['报名'], memberUids: ['u_a'] } } },
+      groupKeyword: {
+        rules: { '123': { keywords: [{ keyword: '报名', memberUids: ['u_a'] }] } },
+      },
     });
 
     const restarted = new UserConfigService(fakePlatform(dir));
     expect(restarted.getSettings().groupKeyword.rules).toEqual({
-      '123': { keywords: ['报名'], memberUids: ['u_a'] },
+      '123': { keywords: [{ keyword: '报名', memberUids: ['u_a'] }] },
     });
   });
 
@@ -71,8 +95,8 @@ describe('UserConfigService 群关键词规则落盘', () => {
     service.setSettings({
       groupKeyword: {
         rules: {
-          '1': { keywords: ['a'], memberUids: [] },
-          '2': { keywords: ['b'], memberUids: ['u_x'] },
+          '1': { keywords: [{ keyword: 'a', memberUids: [] }] },
+          '2': { keywords: [{ keyword: 'b', memberUids: ['u_x'] }] },
         },
       },
     });
@@ -80,14 +104,24 @@ describe('UserConfigService 群关键词规则落盘', () => {
     service.setSettings({
       groupKeyword: {
         rules: {
-          '1': { keywords: ['a', 'c'], memberUids: [] },
-          '2': { keywords: ['b'], memberUids: ['u_x'] },
+          '1': {
+            keywords: [
+              { keyword: 'a', memberUids: [] },
+              { keyword: 'c', memberUids: [] },
+            ],
+          },
+          '2': { keywords: [{ keyword: 'b', memberUids: ['u_x'] }] },
         },
       },
     });
     expect(new UserConfigService(fakePlatform(dir)).getSettings().groupKeyword.rules).toEqual({
-      '1': { keywords: ['a', 'c'], memberUids: [] },
-      '2': { keywords: ['b'], memberUids: ['u_x'] },
+      '1': {
+        keywords: [
+          { keyword: 'a', memberUids: [] },
+          { keyword: 'c', memberUids: [] },
+        ],
+      },
+      '2': { keywords: [{ keyword: 'b', memberUids: ['u_x'] }] },
     });
   });
 
@@ -95,7 +129,7 @@ describe('UserConfigService 群关键词规则落盘', () => {
     const dir = tmpDir();
     const service = new UserConfigService(fakePlatform(dir));
     service.setSettings({
-      groupKeyword: { rules: { '1': { keywords: ['a'], memberUids: [] } } },
+      groupKeyword: { rules: { '1': { keywords: [{ keyword: 'a', memberUids: [] }] } } },
     });
     service.setSettings({ groupKeyword: { rules: {} } });
     expect(new UserConfigService(fakePlatform(dir)).getSettings().groupKeyword.rules).toEqual({});

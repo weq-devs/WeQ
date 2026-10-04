@@ -72,6 +72,8 @@ export interface UnreadHighlight {
   senderUid: string;
   /** Send time of the highlighted message (unix seconds). */
   sendTime: number;
+  /** Preview text (50024). For 群提醒词 this is the keyword that matched. */
+  text: string;
 }
 
 export interface UnreadInfoResult {
@@ -402,6 +404,7 @@ function extractHighlights(ext: DecodedExt | undefined): UnreadHighlight[] {
           msgSeq: item.msgSeq,
           senderUid: item.senderUid ?? '',
           sendTime: item.sendTime ?? 0,
+          text: item.text ?? '',
         };
       }
     }

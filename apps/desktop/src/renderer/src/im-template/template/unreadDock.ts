@@ -59,7 +59,10 @@ export function highlightTone(kind: ConversationHighlightKind): HighlightTone {
 /** 一个跳转点要显示的文案（兜底的未读用「新的 N 条未读消息」）。 */
 export function dockStopLabel(stop: UnreadDockStop, unread: number): string {
   if (stop.kind === 'unread') return `新的 ${unread > 99 ? '99+' : unread} 条未读消息`;
-  return highlightLabel(stop.kind);
+  const base = highlightLabel(stop.kind);
+  // 群提醒词把命中的关键词一并显示，多个词才能区分开。
+  if (stop.kind === 'groupKeyword' && stop.text) return `${base}「${stop.text}」`;
+  return base;
 }
 
 /** 兜底未读点的色调永远是中性的「未读蓝」。 */
@@ -118,7 +121,11 @@ export function buildUnreadDock(input: {
   for (const highlight of input.highlights ?? []) {
     const seq = highlight.msgSeq;
     if (!seq) continue;
-    if (!bySeq.has(seq)) bySeq.set(seq, { kind: highlight.kind, seq });
+    // 同一 seq 命中多个类别时保留先到的那个（跳一次就够）。若其中有群提醒词，
+    // 把命中的关键词挂上，让跳转坞显示「群提醒词·喵喵喵1」。
+    const existing = bySeq.get(seq);
+    if (!existing) bySeq.set(seq, { kind: highlight.kind, seq, text: highlight.text });
+    else if (highlight.kind === 'groupKeyword' && highlight.text) existing.text = highlight.text;
   }
   const stops: UnreadDockStop[] = Array.from(bySeq.values())
     // 已读水位以内的命中（读过了）、以及已落在首屏里的命中（点了等于没动）都不引导。

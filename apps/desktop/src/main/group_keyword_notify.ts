@@ -67,7 +67,9 @@ async function writeHighlight(services: AccountServices, hit: GroupKeywordHit): 
     msgSeq: Number(hit.msgSeq),
     senderUid: hit.senderUid,
     sendTime: Number(hit.sendTime),
-    text: hit.text,
+    // 50024 存**命中的关键词**（而不是正文摘要）：会话列表 / 未读跳转坞据此
+    // 显示「群提醒词·喵喵喵1」，把多个提醒词区分开。正文本身在系统通知卡片里。
+    text: hit.keyword,
   });
   if (changed) {
     logger.info('wrote group keyword highlight', {

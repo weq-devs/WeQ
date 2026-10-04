@@ -73,6 +73,7 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
         msgSeq: 1732,
         senderUid: 'u_tXMK3pknkkMyg69TBiC6xg',
         sendTime: 1791133301,
+        text: '',
       },
     ]);
   });
@@ -163,6 +164,8 @@ describe('UnreadInfoDb.addHighlight', () => {
       msgSeq: 1740,
       senderUid: 'u_sender',
       sendTime: 1791133400,
+      // 50024 存命中的关键词，UI 据此区分是哪个提醒词命中的。
+      text: '报名接龙',
     });
     // 原来的 2005 高亮仍在，且 41002 未被这台写操作抬高。
     expect(after?.msgSeq).toBe(1731);

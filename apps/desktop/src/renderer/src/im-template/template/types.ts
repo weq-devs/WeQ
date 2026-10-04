@@ -118,6 +118,8 @@ export type ConversationHighlight = {
   rawKind: number;
   senderUid: string;
   msgSeq: string;
+  /** 命中关键词（群提醒词）或预览文本；可能为空。 */
+  text?: string;
 };
 
 /** 未读跳转坞的一个跳转点（一条高亮，或最后的「未读消息」兜底）。 */
@@ -126,6 +128,8 @@ export type UnreadDockStop = {
   kind: ConversationHighlightKind | 'unread';
   /** 要跳转到的会话内 seq。 */
   seq: string;
+  /** 高亮附带的文本（群提醒词为命中的关键词）；兜底未读没有。 */
+  text?: string;
 };
 
 /**

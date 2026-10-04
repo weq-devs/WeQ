@@ -1947,6 +1947,8 @@ export const accountRouter = router({
           msgSeq: h.msgSeq.toString(),
           senderUid: h.senderUid,
           sendTime: h.sendTime.toString(),
+          // 群提醒词时是命中的关键词；其它类别为 QQ 存的预览文本（常为空）。
+          text: h.text,
         })),
       };
     }),

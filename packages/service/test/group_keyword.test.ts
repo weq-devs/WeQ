@@ -10,7 +10,11 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Element } from '@weq/codec';
-import { matchesRule, type GroupKeywordRule } from '../src/account/group_keyword';
+import {
+  matchesRule,
+  type GroupKeywordEntry,
+  type GroupKeywordRule,
+} from '../src/account/group_keyword';
 
 function text(value: string): Element {
   return { kind: 'text', textContent: value } as Element;
@@ -24,9 +28,13 @@ function image(): Element {
   return { kind: 'pic' } as Element;
 }
 
-const rule = (keywords: string[], memberUids: string[] = []): GroupKeywordRule => ({
-  keywords,
+const entry = (keyword: string, memberUids: string[] = []): GroupKeywordEntry => ({
+  keyword,
   memberUids,
+});
+
+const rule = (keywords: Array<string | GroupKeywordEntry>): GroupKeywordRule => ({
+  keywords: keywords.map((k) => (typeof k === 'string' ? entry(k) : k)),
 });
 
 describe('matchesRule', () => {
@@ -55,14 +63,32 @@ describe('matchesRule', () => {
   });
 
   it('memberUids 非空时只认列表内成员', () => {
-    const r = rule(['报名'], ['u_a']);
+    const r = rule([entry('报名', ['u_a'])]);
     expect(matchesRule(r, { senderUid: 'u_a', elements: [text('报名')] })).toBe('报名');
     expect(matchesRule(r, { senderUid: 'u_b', elements: [text('报名')] })).toBeNull();
   });
 
   it('空 memberUids = 全部成员', () => {
-    const r = rule(['报名'], []);
+    const r = rule([entry('报名', [])]);
     expect(matchesRule(r, { senderUid: 'u_anyone', elements: [text('报名')] })).toBe('报名');
+  });
+
+  it('每个关键词各自带成员范围，互不覆盖', () => {
+    // 「喵喵喵1」限定 u_a，「喵喵喵2」限定 u_b —— 曾经成员范围存在群一级，
+    // 设第二个词会把第一个词的范围覆盖掉，正是用户报的 bug。
+    const r = rule([entry('喵喵喵1', ['u_a']), entry('喵喵喵2', ['u_b'])]);
+    expect(matchesRule(r, { senderUid: 'u_a', elements: [text('喵喵喵1')] })).toBe('喵喵喵1');
+    expect(matchesRule(r, { senderUid: 'u_a', elements: [text('喵喵喵2')] })).toBeNull();
+    expect(matchesRule(r, { senderUid: 'u_b', elements: [text('喵喵喵2')] })).toBe('喵喵喵2');
+    // 第一个词的范围没有被第二个词覆盖：u_a 仍能触发「喵喵喵1」。
+    expect(matchesRule(r, { senderUid: 'u_a', elements: [text('喵喵喵1')] })).toBe('喵喵喵1');
+  });
+
+  it('范围外的词跳过，继续匹配后面的词', () => {
+    const r = rule([entry('报名', ['u_a']), entry('签到', [])]);
+    // u_b 不在「报名」范围里，但「签到」不限人 —— 不能被前一个词整条否决。
+    expect(matchesRule(r, { senderUid: 'u_b', elements: [text('报名')] })).toBeNull();
+    expect(matchesRule(r, { senderUid: 'u_b', elements: [text('签到')] })).toBe('签到');
   });
 
   it('只在 text / at 上匹配，图片不参与', () => {

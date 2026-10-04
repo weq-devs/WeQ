@@ -17,12 +17,24 @@ import type { GroupMsg } from '@weq/db';
 import { DbWatchService, type DbWatchHandle } from './db_watch';
 import { createNtMsgDbHook, type NewMessages } from './nt_msg_hook';
 
-/** 一个群的关键词规则（与前端 localStorage 结构一一对应）。 */
-export interface GroupKeywordRule {
-  /** 关键词；空数组 = 这个群不提醒。大小写不敏感的子串匹配。 */
-  keywords: string[];
+/**
+ * 一个关键词，以及它**自己**的成员范围。
+ *
+ * 成员范围挂在关键词上而不是群上：同一个群里「A 词只由管理员提才提醒、B 词任何人
+ * 提都提醒」是常见诉求。早期版本把 `memberUids` 放在群一级，导致给第二个词设范围
+ * 会把第一个词的范围一起覆盖 —— 这里按词存，问题消失。
+ */
+export interface GroupKeywordEntry {
+  /** 关键词；大小写不敏感的子串匹配。 */
+  keyword: string;
   /** 只在这些人发言时提醒（uid 列表）；空数组 = 任何人（不指定即全部）。 */
   memberUids: string[];
+}
+
+/** 一个群的关键词规则（与前端结构一一对应）。 */
+export interface GroupKeywordRule {
+  /** 关键词条目；空数组 = 这个群不提醒。 */
+  keywords: GroupKeywordEntry[];
 }
 
 /** 全部群的关键词规则，key 为群号。 */
@@ -149,7 +161,7 @@ export class GroupKeywordService {
 /**
  * 一条群消息是否命中某群规则。返回命中的关键词（未命中返回 null）。
  * - 规则缺失 / 关键词为空 → 不提醒；
- * - `memberUids` 非空时只认列表内成员发的消息（不指定即全部）；
+ * - 每个关键词各自带 `memberUids`：非空时只认列表内成员发的消息（不指定即全部）；
  * - 关键词大小写不敏感，按子串匹配。
  */
 export function matchesRule(
@@ -157,13 +169,15 @@ export function matchesRule(
   msg: Pick<GroupMsg, 'senderUid' | 'elements'>,
 ): string | null {
   if (!rule || rule.keywords.length === 0) return null;
-  if (rule.memberUids.length > 0 && !rule.memberUids.includes(msg.senderUid)) return null;
 
   const text = plainTextOf(msg).toLowerCase();
   if (!text) return null;
-  for (const keyword of rule.keywords) {
-    const needle = keyword.trim().toLowerCase();
-    if (needle && text.includes(needle)) return keyword.trim();
+  for (const entry of rule.keywords) {
+    // 每个关键词各自带成员范围：非空时只认列表内成员发的消息（不指定即全部）。
+    // 未命中范围的词直接跳过，继续看后面的词 —— 不能整条规则一起否决。
+    if (entry.memberUids.length > 0 && !entry.memberUids.includes(msg.senderUid)) continue;
+    const needle = entry.keyword.trim().toLowerCase();
+    if (needle && text.includes(needle)) return entry.keyword.trim();
   }
   return null;
 }
