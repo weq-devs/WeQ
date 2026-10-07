@@ -15981,6 +15981,55 @@ html[data-theme="dark"] .weq-cap {
   padding: 0 7px;
   font-size: 10.5px;
 }
+.weq-cap-btn.is-open {
+  background: var(--cap-fill);
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-fg-primary);
+}
+
+/* 导出格式下拉菜单（挂在「导出」按钮下方，方角细边框，与面板同一套口径）。 */
+.weq-cap-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 4px;
+  background: var(--cap-bg);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+.weq-cap-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-cap-menu button:hover:not(:disabled) {
+  background: var(--cap-fill);
+  color: var(--weq-accent-effective);
+}
+.weq-cap-menu button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-cap-menu button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.weq-cap-menu button em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--weq-fg-muted);
+}
 .weq-cap-iconbtn {
   display: grid;
   place-items: center;

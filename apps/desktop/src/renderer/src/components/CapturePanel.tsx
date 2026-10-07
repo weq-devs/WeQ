@@ -28,6 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   ArrowDown,
@@ -35,6 +36,9 @@ import {
   ArrowUpDown,
   Check,
   Copy,
+  Download,
+  FileJson,
+  FileText,
   Loader2,
   Pause,
   Play,
@@ -42,9 +46,11 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { client } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { decodeAnyBytes, RvTree } from './ReverseTool';
+import { useToast } from './Toast';
 
 /** 后端传回的帧（hex 形态）。与主进程 `CaptureFrameWire` 保持一致。 */
 interface CaptureFrameWire {
@@ -385,6 +391,102 @@ function GroupDetail({ group }: { group: CaptureGroup }): ReactElement {
   );
 }
 
+/** 导出按钮的下拉菜单：JSON（自包含文档）/ JSONL（每行一帧）。 */
+function ExportMenu({
+  anchor,
+  busy,
+  onPick,
+  onClose,
+}: {
+  anchor: HTMLElement | null;
+  busy: boolean;
+  onPick: (format: 'json' | 'jsonl') => void;
+  onClose: () => void;
+}): ReactElement | null {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const layer = useOverlayLayer(true);
+
+  useEffect(() => {
+    const margin = 6;
+    const gap = 4;
+    const el = menuRef.current;
+    const rect = anchor?.getBoundingClientRect();
+    const width = el?.offsetWidth ?? 190;
+    const height = el?.offsetHeight ?? 110;
+    let top = rect ? rect.bottom + gap : margin;
+    if (top + height > window.innerHeight - margin) {
+      top = rect ? Math.max(margin, rect.top - height - gap) : margin;
+    }
+    let left = rect ? rect.right - width : margin;
+    if (left < margin) left = margin;
+    if (left + width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - width - margin);
+    }
+    setPos({ left, top });
+  }, [anchor]);
+
+  useEffect(() => {
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || anchor?.contains(t)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [anchor, onClose]);
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="weq-cap-menu"
+      role="menu"
+      aria-label="导出格式"
+      style={{
+        left: pos?.left ?? 0,
+        top: pos?.top ?? 0,
+        zIndex: layer,
+        visibility: pos ? 'visible' : 'hidden',
+      }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={() => onPick('json')}
+        title="一份自包含的文档（meta + frames），适合直接看或发给别人"
+      >
+        <FileJson size={14} />
+        <span>
+          JSON
+          <em>自包含文档，含解析树</em>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={() => onPick('jsonl')}
+        title="每行一帧，方便用 jq / grep 流式筛"
+      >
+        <FileText size={14} />
+        <span>
+          JSONL
+          <em>每行一帧，便于流式处理</em>
+        </span>
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 export function CapturePanel({
   accounts,
 }: {
@@ -409,6 +511,10 @@ export function CapturePanel({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [split, setSplit] = useState(DEFAULT_SPLIT);
   const [dragging, setDragging] = useState(false);
+  /** 导出：按钮处于导出中 / 下拉菜单挂在哪个按钮上（null = 收起）。 */
+  const [exporting, setExporting] = useState(false);
+  const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
+  const exportBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const cursorRef = useRef<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -612,6 +718,88 @@ export function CapturePanel({
     [visible, activeKey],
   );
 
+  /**
+   * 导出当前列表里**符合过滤条件**的帧（也就是用户眼前看到的这些）：合并每个组
+   * 的发包 / 收包，按时间顺序拍平后交给主进程落盘。
+   *
+   * 走 `captureExport`：桌面端弹系统保存框；Web 端写进导出目录并回带下载地址。
+   */
+  const runExport = useCallback(
+    async (format: 'json' | 'jsonl'): Promise<void> => {
+      setExportAnchor(null);
+      if (exporting) return;
+      const exportFrames: CaptureFrameWire[] = [];
+      for (const g of visible) {
+        if (g.c2s) exportFrames.push(g.c2s);
+        if (g.s2c) exportFrames.push(g.s2c);
+      }
+      exportFrames.sort((a, b) => a.cursor - b.cursor);
+      if (exportFrames.length === 0) {
+        setError('没有可导出的帧');
+        return;
+      }
+
+      setExporting(true);
+      setError(null);
+      const toast = useToast.getState();
+      const toastId = toast.push({
+        tone: 'info',
+        title: '正在导出抓包结果…',
+        ttl: 4000,
+      });
+      try {
+        const account = accounts.find((a) => a.uin === selectedUin);
+        const nameParts = [
+          'capture',
+          account?.name || selectedUin || 'unknown',
+          session ? `${session.iface}` : null,
+        ].filter(Boolean);
+        const result = await client.wonderfulTools.captureExport.mutate({
+          name: nameParts.join('_'),
+          uin: selectedUin || undefined,
+          iface: session?.iface,
+          port: session?.port,
+          format,
+          frames: exportFrames,
+        });
+        if (result.saved) {
+          const sizeLabel = result.bytes ? fmtBytes(result.bytes) : '';
+          if (result.downloadId) {
+            // Web 端：把文件从服务端拉下来（浏览器直接下载）。
+            const a = document.createElement('a');
+            a.href = `/_download/${result.downloadId}`;
+            a.download = result.path ? result.path.split(/[\\/]/).pop() || '' : '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+          toast.update(toastId, {
+            tone: 'success',
+            title: `已导出 ${result.frames ?? exportFrames.length} 帧${
+              sizeLabel ? `（${sizeLabel}）` : ''
+            }`,
+            detail: result.downloadId ? '已开始下载' : result.path,
+            ttl: 8000,
+          });
+        } else if (result.canceled) {
+          toast.update(toastId, { tone: 'info', title: '已取消导出', ttl: 3000 });
+        } else {
+          toast.update(toastId, {
+            tone: 'error',
+            title: '导出失败',
+            detail: result.error ?? '未知错误',
+            ttl: 8000,
+          });
+        }
+      } catch (e) {
+        toast.update(toastId, { tone: 'error', title: '导出失败', detail: errMsg(e), ttl: 8000 });
+      } finally {
+        setExporting(false);
+      }
+    },
+    [accounts, exporting, selectedUin, session, visible],
+  );
+
   const frameStats = useMemo(() => {
     let ok = 0;
     let bad = 0;
@@ -760,6 +948,18 @@ export function CapturePanel({
         >
           <Square size={12} />
           停止
+        </button>
+
+        <button
+          ref={exportBtnRef}
+          type="button"
+          className={`weq-cap-btn${exportAnchor ? ' is-open' : ''}`}
+          onClick={() => setExportAnchor((prev) => (prev ? null : exportBtnRef.current))}
+          disabled={exporting || visible.length === 0}
+          title="导出当前列表（按过滤条件）为 JSON / JSONL 文件"
+        >
+          {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
+          导出
         </button>
 
         <button
@@ -960,6 +1160,15 @@ export function CapturePanel({
           )}
         </section>
       </div>
+
+      {exportAnchor ? (
+        <ExportMenu
+          anchor={exportAnchor}
+          busy={exporting}
+          onPick={(format) => void runExport(format)}
+          onClose={() => setExportAnchor(null)}
+        />
+      ) : null}
     </div>
   );
 }

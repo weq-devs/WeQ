@@ -222,16 +222,19 @@ function chunkToLines(
 export function LogViewerPanel(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const dialog = useDialog();
+  const utils = trpc.useUtils();
   const debugState = trpc.help.getNativeDebugLog.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
+    // 调试开关是运行时状态，唯一真相源在主进程（nt_helper 的 AtomicBool）。
+    // 每次重新打开帮助弹窗都 refetch 一次对齐，避免吃到上次关闭时的旧缓存
+    // （provider 默认 refetchOnMount:false 会让重挂载直接命中缓存）。
+    refetchOnMount: 'always',
   });
-  const [debugOn, setDebugOn] = useState(false);
   const [debugBusy, setDebugBusy] = useState(false);
-  // 对齐后端的真实状态（本次会话内不持久化 —— nt_helper 重启后自动回到关闭）。
-  useEffect(() => {
-    if (typeof debugState.data?.enabled === 'boolean') setDebugOn(debugState.data.enabled);
-  }, [debugState.data]);
+  // 直接以查询结果为准（每次挂载都会对齐主进程），不再另存一份局部 state，
+  // 否则重新打开弹窗时会与真实状态不同步。
+  const debugOn = debugState.data?.enabled ?? false;
   const list = trpc.help.listLogFiles.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -513,7 +516,11 @@ export function LogViewerPanel(): ReactElement {
         });
         return;
       }
-      setDebugOn(res.enabled);
+      // 把权威结果写回查询缓存（唯一真相源），重开弹窗 / 重挂载都能读到正确状态。
+      utils.help.getNativeDebugLog.setData(undefined, {
+        enabled: res.enabled,
+        available: debugState.data?.available ?? true,
+      });
       pushToast({
         tone: res.enabled ? 'warning' : 'success',
         title: res.enabled ? '底层调试模式已开启' : '底层调试模式已关闭',
@@ -530,7 +537,7 @@ export function LogViewerPanel(): ReactElement {
     } finally {
       setDebugBusy(false);
     }
-  }, [debugBusy, debugOn, dialog, pushToast]);
+  }, [debugBusy, debugOn, debugState.data?.available, dialog, pushToast, utils]);
 
   const openLogDir = (): void => {
     void shellBridge()

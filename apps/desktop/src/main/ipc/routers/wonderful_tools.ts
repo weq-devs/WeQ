@@ -24,8 +24,14 @@
 
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
-import { open as openFile } from 'node:fs/promises';
+import { open as openFile, writeFile } from 'node:fs/promises';
 import { resolveNtHelperPath, type LoginAccount } from '@weq/native';
+import {
+  rvNodesToJson,
+  tryDecodeAfterLengthPrefix,
+  tryDecodeJce,
+  tryDecodeProtobuf,
+} from '@weq/codec/raw';
 import {
   attachAndRegisterSsoSession,
   getHost,
@@ -60,6 +66,41 @@ export interface CaptureSupportWire {
   elevated: boolean;
   hint: string;
   platform: string;
+}
+
+/** 导出抓包结果时落盘的文件格式。 */
+const CAPTURE_EXPORT_FORMATS = ['json', 'jsonl'] as const;
+
+/**
+ * 渲染层提交的一帧导出数据 —— 就是抓包线上协议的 hex 形态（`CaptureFrameWire`）。
+ * 主进程拿到后用 `@weq/codec/raw` 自己把 `bodyHex` 解析成 `{tag: value}` 树，渲染层
+ * 不必再复制一份解析结果过来。
+ */
+const captureExportFrameSchema = z.object({
+  cursor: z.number(),
+  ts: z.number(),
+  direction: z.enum(['c2s', 's2c']),
+  proto: z.number(),
+  encryptType: z.number(),
+  seq: z.number(),
+  cmd: z.string().nullable(),
+  rawHex: z.string(),
+  plainHex: z.string(),
+  bodyHex: z.string(),
+});
+
+/** 导出结果：`saved=false` 且 `canceled=true` 表示用户在保存框里点了取消。 */
+export interface CaptureExportResult {
+  saved: boolean;
+  canceled?: boolean;
+  /** 桌面端 = 落盘路径；Web 端 = `/_download/<id>` 下载地址。 */
+  path?: string;
+  downloadId?: string | null;
+  /** 本次导出的字节数。 */
+  bytes?: number;
+  /** 导出的帧数。 */
+  frames?: number;
+  error?: string;
 }
 
 /** 一个账号在密钥扫描面板里的状态行。 */
@@ -238,6 +279,44 @@ async function acquireElevatedCaptureWorker(pid: number): Promise<ElevatedCaptur
 export function disposeElevatedCaptures(): void {
   for (const [, worker] of elevatedCaptures) worker.dispose();
   elevatedCaptures.clear();
+}
+
+/** 用 `@weq/codec/raw` 把正文按 protobuf → JCE → 去长度前缀的顺序解析成 JSON 树。 */
+function decodeCaptureBody(bytes: Uint8Array): {
+  kind: 'protobuf' | 'jce';
+  json: ReturnType<typeof rvNodesToJson>;
+} | null {
+  if (bytes.length === 0) return null;
+  const proto = tryDecodeProtobuf(bytes);
+  if (proto) return { kind: 'protobuf', json: rvNodesToJson(proto) };
+  const jce = tryDecodeJce(bytes);
+  if (jce) return { kind: 'jce', json: rvNodesToJson(jce) };
+  const stripped = tryDecodeAfterLengthPrefix(bytes);
+  if (stripped) return { kind: stripped.kind, json: rvNodesToJson(stripped.nodes) };
+  return null;
+}
+
+/** 加密类型文案（native：0 = 不加密，1 = d2key，2 = 全零 key）。 */
+function captureEncryptLabel(type: number): string {
+  if (type === 0) return 'plain';
+  if (type === 1) return 'd2key';
+  if (type === 2) return 'zero-key';
+  return `#${type}`;
+}
+
+/** `20261008-153012` 形态的时间戳，用于默认文件名（避免非法字符）。 */
+function captureFileStamp(): string {
+  const d = new Date();
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(
+    d.getMinutes(),
+  )}${p(d.getSeconds())}`;
+}
+
+/** 默认文件名主体：把账号 / 网卡里的路径分隔符与控制字符换成下划线。 */
+function safeCaptureName(raw: string, fallback: string): string {
+  const cleaned = (raw || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+  return cleaned || fallback;
 }
 
 export const wonderfulToolsRouter = router({
@@ -475,6 +554,106 @@ export const wonderfulToolsRouter = router({
         return await platform.native.ntHelper.stopCapture(input.pid);
       } catch {
         return null;
+      }
+    }),
+
+  /**
+   * 把当前抓到的帧导出成文件（桌面端弹保存框落盘；Web 端写进导出目录并回带
+   * 下载地址）。`frames` 由渲染层把当前列表（或过滤后可见的列表）原样递过来，
+   * 主进程按与面板一致的 protobuf / JCE 解析口径补上 `decoded` 树再序列化。
+   *
+   * 格式：
+   *   - `json`  —— 一份自包含的文档（meta + frames），适合直接看 / 发给别人；
+   *   - `jsonl` —— 每行一帧，方便用 jq / grep 流式筛。
+   */
+  captureExport: procedure
+    .input(
+      z.object({
+        /** 建议文件名主体（不含扩展名），如 `capture_14000_20261008-153012`。 */
+        name: z.string().min(1).max(120).optional(),
+        /** 账号 / 环境说明，只写进 meta，不参与解析。 */
+        uin: z.string().max(64).optional(),
+        iface: z.string().max(120).optional(),
+        port: z.string().max(120).optional(),
+        format: z.enum(CAPTURE_EXPORT_FORMATS).default('json'),
+        frames: z.array(captureExportFrameSchema).max(20_000),
+      }),
+    )
+    .mutation(async ({ input }): Promise<CaptureExportResult> => {
+      if (input.frames.length === 0) {
+        return { saved: false, error: '没有可导出的帧' };
+      }
+
+      const frames = input.frames.map((f) => {
+        // 与面板「解密数据」栏一致：优先正文，退回完整明文。
+        const payloadHex = f.bodyHex || f.plainHex;
+        const payload = payloadHex ? Buffer.from(payloadHex, 'hex') : new Uint8Array(0);
+        const decoded = decodeCaptureBody(payload);
+        return {
+          cursor: f.cursor,
+          time: new Date(f.ts).toISOString(),
+          ts: f.ts,
+          direction: f.direction,
+          directionLabel: f.direction === 'c2s' ? '客户端 → 服务端' : '服务端 → 客户端',
+          proto: f.proto,
+          encryptType: f.encryptType,
+          encrypt: captureEncryptLabel(f.encryptType),
+          seq: f.seq,
+          cmd: f.cmd,
+          rawBytes: Math.floor(f.rawHex.length / 2),
+          plainBytes: Math.floor(f.plainHex.length / 2),
+          bodyBytes: Math.floor(f.bodyHex.length / 2),
+          /** 解析结果：`{kind, json}`；解不开 / 无正文时为 null。 */
+          decoded: decoded ? { kind: decoded.kind, json: decoded.json } : null,
+          /** 原始 / 解密 / 正文的十六进制，便于二次分析。 */
+          rawHex: f.rawHex,
+          plainHex: f.plainHex,
+          bodyHex: f.bodyHex,
+        };
+      });
+
+      const meta = {
+        tool: 'weq-wonderful-tools-capture',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        uin: input.uin ?? null,
+        iface: input.iface ?? null,
+        port: input.port ?? null,
+        frameCount: frames.length,
+      };
+
+      let bytes: Buffer;
+      if (input.format === 'jsonl') {
+        const lines = frames.map((f) => JSON.stringify(f));
+        bytes = Buffer.from(`${lines.join('\n')}\n`, 'utf8');
+      } else {
+        bytes = Buffer.from(JSON.stringify({ meta, frames }, null, 2), 'utf8');
+      }
+
+      const defaultName = `${safeCaptureName(
+        input.name ?? '',
+        `capture_${captureFileStamp()}`,
+      )}.${input.format}`;
+
+      try {
+        const target = await getHost().pickSaveTarget({
+          defaultName,
+          extension: input.format,
+        });
+        if (!target) return { saved: false, canceled: true };
+        await writeFile(target.path, bytes);
+        return {
+          saved: true,
+          path: target.path,
+          downloadId: target.downloadId,
+          bytes: bytes.length,
+          frames: frames.length,
+        };
+      } catch (error) {
+        return {
+          saved: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     }),
 
