@@ -50,10 +50,6 @@ function resolveWorkerPath(): string {
   return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
 }
 
-function errText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
 /** 一个已起好的提权抓包子进程。 */
 export interface ElevatedCaptureWorker {
   /** 子进程的 euid（应当恒为 0，否则说明 sudo 没生效）。 */

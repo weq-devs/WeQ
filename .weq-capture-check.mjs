@@ -13,7 +13,7 @@ const cfg = JSON.parse(readFileSync(CFG, 'utf8'));
 const D2KEY_HEX = cfg.session?.d2Key;
 const UIN = cfg.uin;
 const PID = cfg.qqPid ?? 60951;
-console.log(`pid=${PID} uin=${UIN} d2key=${D2KEY_HEX ? D2KEY_HEX.slice(0, 6) + '…' : '(缺失)'}`);
+console.log(`pid=${PID} uin=${UIN} d2key=${D2KEY_HEX ? `${D2KEY_HEX.slice(0, 6)}…` : '(缺失)'}`);
 
 // ---- 手工 TEA（与仓库 .weq-msf-decode.mjs 同款） ----
 const be32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
@@ -53,7 +53,7 @@ function teaDecrypt(data, key) {
   return out;
 }
 /** 手工解一帧：从 uin 之后的密文起解，找自洽的 SSO 头。 */
-function manualDecrypt(raw) {
+function _manualDecrypt(raw) {
   const key = Buffer.from(D2KEY_HEX, 'hex');
   const uinBytes = Buffer.from(UIN, 'ascii');
   const uinOff = Buffer.from(raw).indexOf(uinBytes);
