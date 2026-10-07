@@ -132,6 +132,11 @@ export function decodeAnyBytes(
   return null;
 }
 
+/** 解析树的缩进步长（px），可用 CSS 变量 `--rv-indent` 覆盖；抓包面板会调小。 */
+function rvIndent(depth: number): string {
+  return `calc(${depth} * var(--rv-indent, 7px))`;
+}
+
 /**
  * 复用的解析树：把 `decodeAnyBytes` / `decodeProtobuf` 的结果渲染成
  * 自动展开嵌套的 `{tag: value}` 树。`detail` 打开后每个值旁再给出转换按钮。
@@ -410,7 +415,7 @@ function RvObject({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 7 }}
+        style={{ marginLeft: rvIndent(depth) }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -420,7 +425,7 @@ function RvObject({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {'{'}
       </div>
       <div className="weq-wtools-rv-tree">
@@ -435,7 +440,7 @@ function RvObject({
           />
         ))}
       </div>
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {'}'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -461,7 +466,7 @@ function RvList({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 7 }}
+        style={{ marginLeft: rvIndent(depth) }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -471,13 +476,13 @@ function RvList({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {'['}
       </div>
       {items.map((it, i) => (
         <div
           className="weq-wtools-rv-row"
-          style={{ paddingLeft: (depth + 1) * 7 }}
+          style={{ paddingLeft: rvIndent(depth + 1) }}
           key={`${path}.${rvItemKey(it)}`}
         >
           <span className="weq-wtools-rv-tag">{`t${it.tag}`}</span>
@@ -489,7 +494,7 @@ function RvList({
           />
         </div>
       ))}
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {']'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -515,7 +520,7 @@ function RvMap({
       <button
         type="button"
         className="weq-wtools-rv-fold"
-        style={{ marginLeft: depth * 7 }}
+        style={{ marginLeft: rvIndent(depth) }}
         onClick={() => setCollapsed(false)}
         title="展开"
       >
@@ -525,13 +530,13 @@ function RvMap({
   }
   return (
     <div className="weq-wtools-rv-container">
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {'{'}
       </div>
       {entries.map((e, i) => (
         <div
           className="weq-wtools-rv-row"
-          style={{ paddingLeft: (depth + 1) * 7 }}
+          style={{ paddingLeft: rvIndent(depth + 1) }}
           key={`${path}.${rvItemKey(e)}`}
         >
           <span className="weq-wtools-rv-key">"{rvKeyDisplay(e.key)}":</span>
@@ -543,7 +548,7 @@ function RvMap({
           />
         </div>
       ))}
-      <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
         {'}'}
         {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
       </div>
@@ -584,7 +589,7 @@ function RvRow({
   const keyText = label ? `"${tag} (${label})":` : `"${tag}":`;
   if (values.length === 1) {
     return (
-      <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 7 }}>
+      <div className="weq-wtools-rv-row" style={{ paddingLeft: rvIndent(depth) }}>
         <span className="weq-wtools-rv-key">{keyText}</span>
         <RvValueView v={values[0]!} path={path} depth={depth} comma={comma} />
       </div>
@@ -594,7 +599,7 @@ function RvRow({
     (v) => v.k === 'int' || v.k === 'float' || v.k === 'fixed' || v.k === 'str' || v.k === 'bytes',
   );
   return (
-    <div className="weq-wtools-rv-row" style={{ paddingLeft: depth * 7 }}>
+    <div className="weq-wtools-rv-row" style={{ paddingLeft: rvIndent(depth) }}>
       <span className="weq-wtools-rv-key">{keyText}</span>
       {allInline ? (
         <span className="weq-wtools-rv-inline-arr">
@@ -615,7 +620,7 @@ function RvRow({
             {values.map((v, i) => (
               <div
                 className="weq-wtools-rv-row"
-                style={{ paddingLeft: (depth + 1) * 7 }}
+                style={{ paddingLeft: rvIndent(depth + 1) }}
                 key={rvItemKey(v)}
               >
                 <RvValueView
@@ -627,7 +632,7 @@ function RvRow({
               </div>
             ))}
           </div>
-          <div className="weq-wtools-rv-brace" style={{ paddingLeft: depth * 7 }}>
+          <div className="weq-wtools-rv-brace" style={{ paddingLeft: rvIndent(depth) }}>
             {']'}
             {comma ? <span className="weq-wtools-rv-comma">,</span> : null}
           </div>

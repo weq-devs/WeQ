@@ -8,8 +8,8 @@
  *   │ ● iface:port · 帧数 · 丢包 · d2key 状态 │ 账号 [▾] ▶ 开始 ⏹ 停止 🗑 │
  *   ├ 左：会话表 ──────────────────┬ 右：请求 / 响应详情 ────────────┤
  *   │ [全部│发包│收包] [过滤…]      │ 发包 | 收包   ← 方向（下划线 Tab）│
- *   │  # 方向 命令字 seq 时间 大小  │ 总览 · 解密数据 · 原始数据       │
- *   │ ▸ 36 ↕   pttTrans.… 36 …     │ 键值表 / 解析树 / hexdump        │
+ *   │ 命令字 方向 seq 时间 大小 # │ 总览 · 解密数据 · 原始数据       │
+ *   │ pttTrans.… ↕ 36 … 36 …  # │ 键值表 / 解析树 / hexdump        │
  *   │ 共 30 项（选择 1 项）         │                                  │
  *   └──────────────────────────────┴──────────────────────────────────┘
  *
@@ -101,6 +101,8 @@ const MAX_FRAMES = 4000;
 const HEX_PREVIEW_BYTES = 2048;
 /** 列表栏默认宽度占比（可拖动分隔条调整）。 */
 const DEFAULT_SPLIT = 0.46;
+/** 原包小于该字节数的一律当噪声丢掉（TCP ack / 心跳之流）。 */
+const MIN_RAW_BYTES = 75;
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -146,6 +148,13 @@ function frameState(f: CaptureFrameWire): FrameState {
 /** 该帧要展示给「解密数据」那栏的字节：优先正文，退回完整明文。 */
 function framePayload(f: CaptureFrameWire): Uint8Array {
   return hexToBytes(f.bodyHex || f.plainHex);
+}
+
+/** 一组（发包 + 收包）原始帧的字节数。 */
+function groupRawBytes(g: CaptureGroup): number {
+  const c2s = g.c2s ? hexToBytes(g.c2s.rawHex).length : 0;
+  const s2c = g.s2c ? hexToBytes(g.s2c.rawHex).length : 0;
+  return c2s + s2c;
 }
 
 function dirGlyph(g: CaptureGroup): ReactElement {
@@ -697,7 +706,11 @@ export function CapturePanel({
       if (f.direction === 'c2s') g.c2s = f;
       else g.s2c = f;
     });
-    return [...bySeq.values()].flat().sort((a, b) => a.order - b.order);
+    // 丢掉小于阈值的原包：多半是 TCP ack / 心跳这类噪声，留着只会刷屏。
+    return [...bySeq.values()]
+      .flat()
+      .filter((g) => groupRawBytes(g) >= MIN_RAW_BYTES)
+      .sort((a, b) => a.order - b.order);
   }, [frames]);
 
   const visible = useMemo(() => {
@@ -1065,12 +1078,12 @@ export function CapturePanel({
 
           <div className="weq-cap-scroll" ref={scrollRef} onScroll={onScroll}>
             <div className="weq-cap-row is-head">
-              <span>#</span>
-              <span>方向</span>
               <span>命令字</span>
+              <span>方向</span>
               <span>seq</span>
               <span>时间</span>
               <span>大小</span>
+              <span>#</span>
             </div>
             {visible.length === 0 ? (
               <div className="weq-cap-empty">
@@ -1085,9 +1098,7 @@ export function CapturePanel({
             ) : (
               visible.map((g) => {
                 const cmd = g.c2s?.cmd ?? g.s2c?.cmd ?? null;
-                const totalBytes =
-                  (g.c2s ? hexToBytes(g.c2s.rawHex).length : 0) +
-                  (g.s2c ? hexToBytes(g.s2c.rawHex).length : 0);
+                const totalBytes = groupRawBytes(g);
                 const failed = [g.c2s, g.s2c].some((f) => f && frameState(f) === 'failed');
                 const ts = (g.c2s?.ts ?? g.s2c?.ts ?? 0) || 0;
                 return (
@@ -1097,14 +1108,13 @@ export function CapturePanel({
                     className={`weq-cap-row${activeKey === g.key ? ' is-sel' : ''}`}
                     onClick={() => setSelectedKey(g.key)}
                   >
-                    <span className="is-id">{g.order + 1}</span>
+                    <span className="is-cmd" title={cmd ?? undefined}>
+                      {cmd ?? '（无命令字）'}
+                    </span>
                     <span
                       className={`is-dir is-${g.c2s && g.s2c ? 'both' : g.c2s ? 'c2s' : 's2c'}`}
                     >
                       {dirGlyph(g)}
-                    </span>
-                    <span className="is-cmd" title={cmd ?? undefined}>
-                      {cmd ?? '（无命令字）'}
                     </span>
                     <span className="is-seq">{g.seq}</span>
                     <span className="is-time">{fmtClock(ts)}</span>
@@ -1112,6 +1122,7 @@ export function CapturePanel({
                       {failed ? '密文 ' : ''}
                       {fmtBytes(totalBytes)}
                     </span>
+                    <span className="is-id">{g.order + 1}</span>
                   </button>
                 );
               })
