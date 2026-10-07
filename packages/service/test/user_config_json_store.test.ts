@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   accountConfigId,
+  AccountConfigService,
   clientKeyExpiryMs,
   rkeyExpiryMs,
   type ClientKey,
@@ -184,5 +185,40 @@ describe('readJsonFile / writeJsonFileAtomic', () => {
     writeJsonFileAtomic(path, {});
     const files = readdirSync(dir);
     expect(files).toEqual(['f.json']);
+  });
+});
+
+// ---- AccountConfigService: a1 payload 落盘 ----
+
+describe('AccountConfigService.setA1Payload', () => {
+  function svc(): { s: AccountConfigService; dir: string } {
+    const dir = tmpDir();
+    const session = {
+      context: { uin: '12345', dbKey: 'k', algos: {} },
+    } as unknown as ConstructorParameters<typeof AccountConfigService>[0];
+    const s = new AccountConfigService(session, dir);
+    // save() 先 seed 出记录，后续 patch 才有落点。
+    s.save({ dataDir: '/tmp/data-12345' });
+    return { s, dir };
+  }
+
+  it('setA1Payload 写进账号配置且可读回', () => {
+    const { s } = svc();
+    s.setA1Payload('deadbeef');
+    expect(s.getRecord()?.a1Payload).toBe('deadbeef');
+  });
+
+  it('空串不写（没有可用 A1）', () => {
+    const { s } = svc();
+    s.setA1Payload('');
+    expect(s.getRecord()?.a1Payload).toBeUndefined();
+  });
+
+  it('重复值不重写（保留原记录）', () => {
+    const { s } = svc();
+    s.setA1Payload('aa');
+    const first = s.getRecord();
+    s.setA1Payload('aa');
+    expect(s.getRecord()).toEqual(first);
   });
 });

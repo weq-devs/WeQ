@@ -53,6 +53,16 @@ export interface LoginAccount {
   a1Key: string;
   /** Unix seconds. 0 if never seen. */
   lastLoginAt: number;
+  /**
+   * `[1004]` 里那段 A1 payload 用设备 guid 解密后的内层 TGTGT 结构（hex）。
+   * 缺失 = 该行没有 A1，或 guid 取不到 / 解密失败（失败不阻断其它字段）。
+   */
+  a1Payload?: string;
+  /**
+   * 解密 A1 时顺带算出的设备 guid（32 位小写 hex）。`undefined` = 该数据根下
+   * 没有可用的 guid 来源。
+   */
+  guid?: string;
 }
 
 /**

@@ -1747,6 +1747,27 @@ export const bootstrapRouter = router({
           ...(dataDir ? { dataDir } : {}),
         },
       );
+      // 顺带把该账号在 login.db 里的 A1 payload（native 已用设备 guid 解出）记进
+      // 账号配置。`setAccount` 已经 seed 好记录，这里再 patch。整段 best-effort：
+      // 解不出来 / 没有 A1 就跳过，绝不影响开账号。
+      {
+        const services = ctx.services;
+        if (services) {
+          try {
+            const accounts = await requireBootstrap().detect.listAccounts();
+            const row = accounts.find((a) => a.uin === input.uin);
+            if (row?.a1Payload) services.accountConfig.setA1Payload(row.a1Payload);
+            // 同一个 native 调用顺手带回了设备 guid；已有记录时 setGuid 自身会跳过。
+            if (row?.guid) services.accountConfig.setGuid(row.guid);
+          } catch (e) {
+            logger.warn('failed to resolve a1 payload (non-fatal)', {
+              event: 'a1-payload-resolve-failed',
+              accountUin: input.uin,
+              ...logErrorContext(e),
+            });
+          }
+        }
+      }
       // Must land AFTER setAccount — that's what seeds the config record the
       // patch writes into.
       if (input.pskey && Object.keys(input.pskey).length > 0) {

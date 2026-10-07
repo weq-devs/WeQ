@@ -130,6 +130,12 @@ export interface AccountConfig {
    * 别的来源，也不只服务于登录流程。
    */
   guid?: string;
+  /**
+   * A1 payload（`login.db` 的 `[1004]` 用设备 guid 解密后的内层 TGTGT 结构，
+   * hex）。来自 native `decryptLoginDb` 的 `a1Payload`；缺失表示该账号没有可用
+   * 的 A1（没缓存 / guid 取不到 / 解密失败）。快速登录时用。
+   */
+  a1Payload?: string;
   /** Latest download rkeys harvested from the online instance. */
   rkeys?: DownloadRkey[];
   /** Unix ms the rkeys were last refreshed. */
@@ -344,6 +350,20 @@ export class AccountConfigService {
     if (guid.length === 0 || this.readRecord()?.guid === guid) return;
     this.patch({ guid });
     this.logger.info('stored device guid', { event: 'set-guid', guid });
+  }
+
+  /**
+   * 记下解出来的 A1 payload（`login.db [1004]` 经设备 guid 解密后的内层 TGTGT
+   * 结构，hex）。重复值不重写；空串表示没有可用 A1，直接跳过。
+   */
+  setA1Payload(a1Payload: string): void {
+    if (a1Payload.length === 0 || this.readRecord()?.a1Payload === a1Payload) return;
+    this.patch({ a1Payload });
+    // payload 本身是凭据，只记「有没有」和长度，不进日志原文。
+    this.logger.info('stored a1 payload', {
+      event: 'set-a1-payload',
+      length: a1Payload.length,
+    });
   }
 
   /** Replace the stored download rkeys (and stamp the refresh time). */
