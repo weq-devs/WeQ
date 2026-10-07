@@ -145,6 +145,13 @@ export {
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
 export {
+  attachAndRegisterSsoSession,
+  registerSsoSession,
+  resolveDeviceGuid,
+  PC_SUB_APP_ID,
+} from './account/sso_session';
+export type { SsoIdentity } from './account/sso_session';
+export {
   MediaDownloadService,
   PRIVATE_IMAGE_RKEY_TYPE,
   GROUP_IMAGE_RKEY_TYPE,

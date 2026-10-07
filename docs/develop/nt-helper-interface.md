@@ -223,7 +223,10 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。NineBird 加载器仍在（`packages/ninebird`）—— 它负责拉起 QQ、做本地快速登录，不是发包通道；macOS 上 SIP 开着时读不了内存，就只走它。
 
-读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。
+> ⚠️ **登录取密钥也走这条链路**（三端一致）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
+> 早期版本在 macOS 上另走一条「提权扫内存、直接用 `scanKeyFromDatabase` 拿 dbKey」的路（`macScanKeyFromMemory` / `mac_scan_worker`），现已被统一路径取代并删除 —— macOS 与其他两端走同一套「读内存 → 登记 → 发包」，只有 attach 要不要提权（以及 macOS 的 SIP 门槛）不同。
+
+读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。macOS 上 SIP 开着时读内存无解（`task_for_pid` 连 root 都拒），此时登录流程直接改走 NineBird（扫码 / 快登，不读内存）。
 
 > ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
 >

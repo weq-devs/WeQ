@@ -27,12 +27,11 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectAttachHook, type AttachHook } from '../bootstrap/attach';
+import { registerSsoSession } from './sso_session';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
 
-/** PC 端 `subAppId`（抓包实测值，注册包里它也出现）。 */
-const PC_SUB_APP_ID = 537391664;
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
 /** How often to poll the attached pid for liveness. */
@@ -327,47 +326,13 @@ export class AccountMonitorService {
    */
   private async storeSsoSession(pid: number, material: SessionMaterial): Promise<void> {
     const record = this.accountConfig.getRecord();
-    const uid = record?.uid;
-    const guid = record?.guid;
-    if (!material.a2 || !material.d2 || !material.d2Key || !uid || !guid) {
-      // 只报「有没有」——物料本身就是凭据，不进日志。
-      this.logger.warn('session material incomplete; native transport not configured', {
-        event: 'set-sso-session-skipped',
-        pid,
-        hasA2: material.a2 !== undefined,
-        hasD2: material.d2 !== undefined,
-        hasD2Key: material.d2Key !== undefined,
-        hasUid: uid !== undefined,
-        hasGuid: guid !== undefined,
-      });
-      return;
-    }
-    try {
-      await this.nt.setSsoSession(
-        pid,
-        {
-          uin: this.uin,
-          a2: Buffer.from(material.a2, 'hex'),
-          d2: Buffer.from(material.d2, 'hex'),
-          d2Key: Buffer.from(material.d2Key, 'hex'),
-          guid,
-          uid,
-          subAppId: PC_SUB_APP_ID,
-        },
-        this.platform.qqWrapperNodePath(),
-      );
-      this.logger.info('stored session material for the native sso transport', {
-        event: 'set-sso-session',
-        pid,
-        uin: this.uin,
-      });
-    } catch (error) {
-      this.logger.warn('failed to store session material for the native transport (non-fatal)', {
-        event: 'set-sso-session-failed',
-        pid,
-        ...logErrorContext(error),
-      });
-    }
+    await registerSsoSession(
+      this.nt,
+      this.platform,
+      pid,
+      { uin: this.uin, uid: record?.uid ?? '', guid: record?.guid ?? '' },
+      material,
+    );
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */

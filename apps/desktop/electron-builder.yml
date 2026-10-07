@@ -50,9 +50,6 @@ extraResources:
   - from: out/main/attachWorker.mjs
     to: out/main/attachWorker.mjs
 
-  - from: out/main/macScanWorker.mjs
-    to: out/main/macScanWorker.mjs
-
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the

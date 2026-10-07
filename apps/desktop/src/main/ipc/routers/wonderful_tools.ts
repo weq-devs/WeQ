@@ -26,7 +26,12 @@ import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import type { LoginAccount } from '@weq/native';
-import { getHost, requestDecryptKeyFromInstance } from '@weq/service';
+import {
+  attachAndRegisterSsoSession,
+  getHost,
+  requestDecryptKeyFromInstance,
+  resolveDeviceGuid,
+} from '@weq/service';
 import { requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
@@ -90,21 +95,24 @@ async function resolveAccountRows(
   return rows;
 }
 
-/** 汇总当前在线的 QQ 实例 pid（按账号反查，去重）。 */
-async function resolveOnlinePids(
+/**
+ * 汇总当前在线的 QQ 实例（按账号反查，pid 去重）—— 连同归属账号的 uin / uid
+ * 一起返回，登记 SSO 会话时直接用（不用再探一遍）。
+ */
+async function resolveOnlineInstances(
   boot: ReturnType<typeof requireBootstrap>,
   platform: ReturnType<typeof requirePlatform>,
-): Promise<number[]> {
+): Promise<Array<{ pid: number; uin: string; uid: string }>> {
   const rows = await resolveAccountRows(boot, platform);
   const seen = new Set<number>();
-  const pids: number[] = [];
+  const instances: Array<{ pid: number; uin: string; uid: string }> = [];
   for (const row of rows) {
-    if (row.pid !== null && !seen.has(row.pid)) {
+    if (row.pid !== null && row.uid && !seen.has(row.pid)) {
       seen.add(row.pid);
-      pids.push(row.pid);
+      instances.push({ pid: row.pid, uin: row.uin, uid: row.uid });
     }
   }
-  return pids;
+  return instances;
 }
 
 /** 把实例取密钥的失败原因转成用户可读文案（OIDB 1006 = 无权获取）。 */
@@ -261,16 +269,33 @@ export const wonderfulToolsRouter = router({
             error: '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向在线 QQ 请求密钥。',
           };
         }
-        const pids = await resolveOnlinePids(boot, platform);
-        if (pids.length === 0) {
+        const instances = await resolveOnlineInstances(boot, platform);
+        if (instances.length === 0) {
           return {
             success: false,
             error: '没有可用的在线 QQ 实例：请先登录 QQ 并保持在线（或先用 WeQ 打开一个账号）',
           };
         }
         let lastError: string | null = null;
-        for (const pid of pids) {
+        for (const { pid, uin, uid } of instances) {
           try {
+            // 该 pid 首次发包前必须登记会话物料；同机 QQ 已在维持会话，我们只
+            // 借凭据组帧（不建连、不上线）。身份里的 uin / uid 来自 login.db，
+            // guid 从 QQ 数据根离线算 —— 都独立于用户当前打开的是哪个账号。
+            const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+            const { registered } = await attachAndRegisterSsoSession(
+              platform.native.ntHelper,
+              platform,
+              boot.attachHook,
+              pid,
+              uin,
+              { uid, guid },
+            );
+            if (!registered) {
+              lastError =
+                '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），无法向在线 QQ 请求密钥。';
+              continue;
+            }
             const key = await requestDecryptKeyFromInstance(
               platform.native.ntHelper,
               pid,

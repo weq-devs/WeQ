@@ -33,7 +33,6 @@ import {
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
 import { daemonHttpStatus } from '@weq/service';
-import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
   getAppContext,
@@ -60,6 +59,8 @@ import {
   normalizeNapcatBaseUrl,
   normalizeSsePushUrl,
   testSsePushTarget,
+  attachAndRegisterSsoSession,
+  resolveDeviceGuid,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -150,11 +151,14 @@ function hostOfServerUrl(url: string): string {
 export async function ensureUidForUin(
   boot: ReturnType<typeof requireBootstrap>,
   uin: string,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const accounts = await boot.detect.listAccounts();
     const match = accounts.find((a) => a.uin === uin && a.uid);
-    if (match?.uid) rememberAccountUid(uin, match.uid);
+    if (match?.uid) {
+      rememberAccountUid(uin, match.uid);
+      return match.uid;
+    }
   } catch (e) {
     logger.warn('ensureUidForUin failed to resolve uid', {
       event: 'ensure-uid-failed',
@@ -162,6 +166,7 @@ export async function ensureUidForUin(
       error: e instanceof Error ? e.message : String(e),
     });
   }
+  return null;
 }
 
 export const bootstrapRouter = router({
@@ -281,56 +286,6 @@ export const bootstrapRouter = router({
       throw new Error('仅 macOS / Linux 支持 NineBird 卸载');
     }),
 
-  /**
-   * macOS：提权扫描在线 QQ 进程内存，直接恢复数据库密钥。
-   * 读取其它进程内存受 SIP / task_for_pid 限制，需要解除 SIP 并且以管理员
-   * 权限执行（密码经 sudo -S stdin 传入，与 ninebird 安装同一套提权姿势，
-   * 不在 main 里落盘 / 记日志）。扫描失败（如未解除 SIP）返回
-   * `{ success: false, pid }`，由渲染层引导用户解除 SIP 重试或重启 QQ。
-   * 非 macOS 平台直接拒绝，win/linux 不受影响。
-   */
-  macScanKeyFromMemory: procedure
-    .input(z.object({ uin: z.string().min(1), password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持内存扫描获取密钥');
-      const boot = requireBootstrap();
-      await ensureUidForUin(boot, input.uin);
-
-      const dbPath = platform.ntMsgDbPath(input.uin);
-      if (!dbPath || !existsSync(dbPath)) {
-        return {
-          success: false as const,
-          pid: 0,
-          error: `未找到账号 ${input.uin} 的数据库文件（nt_msg.db）`,
-        };
-      }
-
-      let pid: number | null = null;
-      try {
-        pid = platform.resolveQqPid(input.uin);
-      } catch {
-        pid = null;
-      }
-      if (pid === null) {
-        return {
-          success: false as const,
-          pid: 0,
-          error: `账号 ${input.uin} 当前离线，无法扫描其进程内存`,
-        };
-      }
-
-      try {
-        return await runElevatedKeyScan(pid, dbPath, input.password);
-      } catch (e) {
-        return {
-          success: false as const,
-          pid,
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    }),
-
   // ---- detection (via global config cache) ----
 
   /** Enriched, cached install info (paths + version + user-data + health flags). */
@@ -364,8 +319,8 @@ export const bootstrapRouter = router({
    * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
    * `null` = not macOS / couldn't tell.
    *
-   * 渲染层先用它决定要不要走「提权扫内存」：SIP 开着时 `task_for_pid` 连 root 都
-   * 拒，问密码没有意义，直接改走 NineBird（扫码 / 快登）。
+   * 渲染层先用它决定在线实例这条路要不要试：SIP 开着时 `task_for_pid` 连 root 都
+   * 拒（读不了 QQ 进程内存），问密码没有意义，直接改走 NineBird（扫码 / 快登）。
    */
   sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
 
@@ -1526,18 +1481,42 @@ export const bootstrapRouter = router({
    * it pops the self-drawn password dialog and can take arbitrarily long (the
    * user typing their password) — the renderer awaits this UNTIMED, then runs
    * `fetchKeyFromInstance` (step B). Idempotent inside the hook.
+   *
+   * 读到物料后**顺手登记到原生 SSO 会话表**（见 `@weq/service` 的
+   * `attachAndRegisterSsoSession`）—— 这是整条在线取密钥链路的关键一步：
+   * `fetchKeyFromInstance` 要发的 0xcde_2 走的是 `sendOidbPacket`，而它只认
+   * 已登记的 pid，缺了这一步第一包必然报「还没有登记 SSO 会话」。uid 从
+   * login.db 解析、guid 从 QQ 数据根离线计算（都不需要额外权限）。
    */
   prepareInstanceAttach: procedure
     .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const boot = requireBootstrap();
+      const platform = requirePlatform();
       logger.info('router preparing instance attach (untimed)', {
         event: 'router-prepare-attach',
         pid: input.pid,
         uin: input.uin,
       });
       try {
-        await boot.attachHook.attach(input.pid, input.uin);
+        const uid = await ensureUidForUin(boot, input.uin);
+        const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+        const { registered } = await attachAndRegisterSsoSession(
+          platform.native.ntHelper,
+          platform,
+          boot.attachHook,
+          input.pid,
+          input.uin,
+          { uid, guid },
+        );
+        if (!registered) {
+          return {
+            ok: false as const,
+            error:
+              '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），' +
+              '无法向在线 QQ 请求密钥。请确认 QQ 处于登录状态后重试。',
+          };
+        }
         return { ok: true as const };
       } catch (e) {
         logger.warn('prepareInstanceAttach failed', {
@@ -1563,7 +1542,7 @@ export const bootstrapRouter = router({
       // On linux the account dir is derived from uid, which isn't in the config
       // yet during login. Seed it from the decrypted login.db account list so
       // `platform.ntMsgDbPath(uin)` can resolve the dir this call.
-      await ensureUidForUin(boot, input.uin);
+      const uid = await ensureUidForUin(boot, input.uin);
       // Resolve the db path from the platform so the layout (win `<uin>/nt_qq/…`
       // vs linux `nt_qq_<hash>/…`) and separators are always correct.
       const dbPath = platform.ntMsgDbPath(input.uin);
@@ -1585,11 +1564,28 @@ export const bootstrapRouter = router({
         dbPath,
       });
 
-      // Make the pid attached (idempotent). On win32 this opens the process
-      // handle once; on linux it sudo-elevates the ptrace attach — the native
-      // call resolves once the memory scan is done. The hook's per-pid cache
-      // ensures we only scan a given instance once.
-      await boot.attachHook.ensure(input.pid, input.uin);
+      // Attach (idempotent) AND register the native SSO session: 正常的登录流程
+      // 会先走 `prepareInstanceAttach`（那一步已登记），但 `fetchKeyFromInstance`
+      // 也可以被单独调用（例如重试、其它调用方），不能假定登记一定发生过 ——
+      // 登记是幂等的、只存物料不建连，多走一次无副作用。缺了它 0xcde_2 会报
+      // 「还没有登记 SSO 会话」。
+      const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+      const { registered } = await attachAndRegisterSsoSession(
+        platform.native.ntHelper,
+        platform,
+        boot.attachHook,
+        input.pid,
+        input.uin,
+        { uid, guid },
+      );
+      if (!registered) {
+        return {
+          success: false as const,
+          error:
+            '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），' +
+            '无法向在线 QQ 请求密钥。请确认 QQ 处于登录状态后重试。',
+        };
+      }
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
