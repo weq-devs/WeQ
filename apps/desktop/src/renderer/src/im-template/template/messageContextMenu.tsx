@@ -1,4 +1,14 @@
-﻿import { Copy, Download, Trash2, Edit3, ListChecks, Palette, Quote, SmilePlus } from 'lucide-react';
+﻿import {
+  Copy,
+  Download,
+  RotateCcw,
+  Trash2,
+  Edit3,
+  ListChecks,
+  Palette,
+  Quote,
+  SmilePlus,
+} from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -29,6 +39,8 @@ export function MessageContextMenu({
   onMultiSelect,
   onReact,
   reactBlockedReason,
+  onRecall,
+  recallBlockedReason,
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
@@ -47,6 +59,13 @@ export function MessageContextMenu({
   onReact?: (message: Message) => void;
   /** 非空 = 这条消息不能贴表情（非群聊 / QQ 未在线 / 缺 seq），按钮置灰并显示原因。 */
   reactBlockedReason?: string | null;
+  /**
+   * 撤回（SsoC2CRecallMsg / SsoGroupRecallMsg）。不传 = 这条消息不显示撤回项
+   * （不是自己的消息，且自己在群里也没有管理员权限）。
+   */
+  onRecall?: (message: Message) => void;
+  /** 非空 = 撤回按钮置灰（QQ 未在线 / 超过 2 分钟且无越级权限 / 缺 seq）。 */
+  recallBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const decoration = (
@@ -128,6 +147,17 @@ export function MessageContextMenu({
         >
           <SmilePlus size={17} />
           <span>贴表情</span>
+        </button>
+      ) : null}
+      {onRecall ? (
+        <button
+          type="button"
+          title={recallBlockedReason ?? '撤回这条消息'}
+          disabled={Boolean(recallBlockedReason)}
+          onClick={() => onRecall(state.message)}
+        >
+          <RotateCcw size={17} />
+          <span>撤回</span>
         </button>
       ) : null}
       <button type="button" onClick={() => void onCopy(state.message)}>

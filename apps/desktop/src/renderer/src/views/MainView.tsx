@@ -64,6 +64,10 @@ import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
 } from '../components/GroupEssenceDialog';
+import {
+  GroupMemberKickDialog,
+  GroupMemberRenameDialog,
+} from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
@@ -2053,6 +2057,9 @@ function isMobileShell(): boolean {
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
+  // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
+  const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
+  const kickGroupMember = trpc.account.kickGroupMember.useMutation();
   const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
     {},
     { getNextPageParam: (lastPage) => lastPage.nextCursor },
@@ -2294,6 +2301,12 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  /** 群成员管理弹窗（改群昵称 / 踢人）：应用层持有，与群公告 / 群精华同层。 */
+  const [groupMemberDialog, setGroupMemberDialog] = useState<
+    | { kind: 'rename'; groupId: string; targetUid: string; name: string; initialCard: string }
+    | { kind: 'kick'; groupId: string; targetUid: string; name: string }
+    | null
+  >(null);
   const [keywordDialog, setKeywordDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -2478,6 +2491,73 @@ export function MainView(): ReactElement {
     },
     [],
   );
+
+  // 群管理「修改群昵称」：从聊天页的头像菜单上报过来，弹窗 + 发包都在本层。
+  const handleRenameGroupMember = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, sender: User, targetUid: string) => {
+      setGroupMemberDialog({
+        kind: 'rename',
+        groupId: conversation.group.id,
+        targetUid,
+        name: sender.displayName || sender.identityValue,
+        initialCard: sender.displayName ?? '',
+      });
+    },
+    [],
+  );
+
+  // 群管理「踢出群聊」：先二次确认，确认后再发包。
+  const handleKickGroupMember = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, sender: User, targetUid: string) => {
+      setGroupMemberDialog({
+        kind: 'kick',
+        groupId: conversation.group.id,
+        targetUid,
+        name: sender.displayName || sender.identityValue,
+      });
+    },
+    [],
+  );
+
+  function submitGroupMemberRename(card: string) {
+    const target = groupMemberDialog;
+    if (target?.kind !== 'rename') return;
+    renameGroupMember.mutate(
+      { groupId: target.groupId, targetUid: target.targetUid, card },
+      {
+        onSuccess: () => {
+          pushToast({ tone: 'success', message: '群昵称已修改' });
+          setGroupMemberDialog(null);
+        },
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: '修改群昵称失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    );
+  }
+
+  function submitGroupMemberKick() {
+    const target = groupMemberDialog;
+    if (target?.kind !== 'kick') return;
+    kickGroupMember.mutate(
+      { groupId: target.groupId, targetUid: target.targetUid },
+      {
+        onSuccess: () => {
+          pushToast({ tone: 'success', message: '已将该成员移出群聊' });
+          setGroupMemberDialog(null);
+        },
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: '踢出失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    );
+  }
 
   const handleOpenGroupKeyword = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
@@ -4486,7 +4566,18 @@ export function MainView(): ReactElement {
           level: item.level,
           name: item.levelName,
         })),
-        role: currentGroupMembers.find((m) => m.id === user.id)?.role || 'member',
+        // 自己的群内身份：成员行的 `id` 是 uid、`identityValue`/`uin` 是 uin，
+        // 而 `user.id` 是 `self:<uin>`，两者不同。优先按 uid（`user.uid`）匹配，
+        // 其次按 uin；否则群主/管理员会被永远判成普通成员。
+        role:
+          currentGroupMembers.find(
+            (m) =>
+              (Boolean(user.uid) && m.id === user.uid) ||
+              m.identityValue === user.identityValue ||
+              m.uin === user.identityValue,
+          )?.role ||
+          // 自己的成员行没被加载进当前分页时，至少用群详情里的群主 uid 认出「我」是群主。
+          (user.uid && groupDetail.data?.ownerUid === user.uid ? 'owner' : 'member'),
         luckyChar:
           groupExt.data?.luckyCharId && groupExt.data.luckyCharId !== 0
             ? { id: groupExt.data.luckyCharId, litCount: groupExt.data.luckyCharLitCount }
@@ -6455,6 +6546,8 @@ export function MainView(): ReactElement {
                       onOpenGroupFiles={handleOpenGroupFiles}
                       onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                       onOpenGroupEssence={handleOpenGroupEssence}
+                      onRenameGroupMember={handleRenameGroupMember}
+                      onKickGroupMember={handleKickGroupMember}
                       onOpenGroupKeyword={handleOpenGroupKeyword}
                       onOpenConversationSettings={handleOpenConversationSettings}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
@@ -6680,6 +6773,23 @@ export function MainView(): ReactElement {
               loading={groupLeftMembers.isFetching}
               error={groupLeftMembers.error ? (groupLeftMembers.error.message ?? '查询失败') : null}
               onClose={() => setGroupLeftMembersDialog(null)}
+            />
+          ) : null}
+          {groupMemberDialog?.kind === 'rename' ? (
+            <GroupMemberRenameDialog
+              memberName={groupMemberDialog.name}
+              initialCard={groupMemberDialog.initialCard}
+              busy={renameGroupMember.isLoading}
+              onCancel={() => setGroupMemberDialog(null)}
+              onConfirm={submitGroupMemberRename}
+            />
+          ) : null}
+          {groupMemberDialog?.kind === 'kick' ? (
+            <GroupMemberKickDialog
+              memberName={groupMemberDialog.name}
+              busy={kickGroupMember.isLoading}
+              onCancel={() => setGroupMemberDialog(null)}
+              onConfirm={submitGroupMemberKick}
             />
           ) : null}
           {essenceDialog ? (

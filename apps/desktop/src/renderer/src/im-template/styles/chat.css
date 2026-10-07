@@ -1668,6 +1668,8 @@ html[data-theme="dark"] .message-line.weq-reply-target-flash {
 	margin: 0;
 }
 
+/* 右键菜单（消息 / 头像）：固定用正文体、字重 400、略微减小字号，避免继承
+   聊天区可能挂着的装扮字体（子集化 / 粗体）而显得「格格不入」。 */
 .message-context-menu {
 	position: fixed;
 	z-index: 45;
@@ -1678,6 +1680,8 @@ html[data-theme="dark"] .message-line.weq-reply-target-flash {
 	border-radius: 8px;
 	background: rgba(255, 255, 255, 0.98);
 	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+	font-family: var(--im-font-body, Inter, ui-sans-serif, system-ui, sans-serif);
+	-webkit-font-smoothing: antialiased;
 }
 
 .message-context-menu button {
@@ -1692,10 +1696,16 @@ html[data-theme="dark"] .message-line.weq-reply-target-flash {
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
-	color: #111111;
-	font-size: 15px;
+	color: var(--weq-fg-primary, #111111);
+	font-size: 13.5px;
 	font-weight: 400;
+	letter-spacing: 0.01em;
 	cursor: pointer;
+}
+
+.message-context-menu button svg {
+	stroke-width: 1.8;
+	opacity: 0.82;
 }
 
 .message-context-menu button:hover {
@@ -1711,6 +1721,46 @@ html[data-theme="dark"] .message-context-menu button:disabled:hover {
 	background: transparent;
 	cursor: not-allowed;
 	opacity: 0.4;
+}
+
+/* 头像菜单里的群管理分组：分隔线 + 禁言时长子菜单。 */
+.message-context-menu-separator {
+	height: 1px;
+	margin: 4px 6px;
+	background: rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] .message-context-menu-separator {
+	background: rgba(255, 255, 255, 0.12);
+}
+
+/* 禁言按钮是三列（图标 / 文案 / 展开箭头），覆盖默认的两列网格。 */
+.message-context-menu button.avatar-context-menu-mute {
+	grid-template-columns: 17px max-content 1fr;
+}
+
+.avatar-context-menu-caret {
+	justify-self: end;
+	opacity: 0.55;
+}
+
+/* 禁言时长列表：缩进在菜单内的次级按钮组。 */
+.avatar-context-submenu {
+	display: grid;
+	gap: 1px;
+	margin: 2px 0 2px 10px;
+	padding-left: 8px;
+	border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] .avatar-context-submenu {
+	border-left-color: rgba(255, 255, 255, 0.12);
+}
+
+.avatar-context-submenu button {
+	grid-template-columns: 1fr;
+	min-height: 28px;
+	font-size: 13px;
 }
 
 /* ---- 贴表情选择面板（ReactionPicker）------------------------------------ */

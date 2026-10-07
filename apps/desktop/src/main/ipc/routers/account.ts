@@ -3057,6 +3057,114 @@ export const accountRouter = router({
     }),
 
   /**
+   * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
+   *
+   * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。
+   * **不做任何本地写库** —— 防撤回触发器等 QQ 同步回来自证，前端只看 toast。
+   */
+  recallMessage: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        sequence: z.number().int().positive(),
+        random: z.number().int().nonnegative().optional(),
+        timestamp: z.number().int().nonnegative().optional(),
+        clientSequence: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.recallMessage({
+        kind: input.kind,
+        conv: input.conv,
+        sequence: input.sequence,
+        ...(input.random !== undefined ? { random: input.random } : {}),
+        ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
+        ...(input.clientSequence !== undefined ? { clientSequence: input.clientSequence } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /** 设置群成员群名片（0x8FC_3）。给自己改 = 改自己的群昵称。 */
+  setGroupMemberCard: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        card: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.setMemberCard({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        card: input.card,
+      });
+      return { ok: true };
+    }),
+
+  /** 踢出群成员（0x8A0_1，群主 / 管理员）。 */
+  kickGroupMember: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        reject: z.boolean().optional(),
+        reason: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.kickMember({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        ...(input.reject !== undefined ? { reject: input.reject } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /** 禁言群成员（0x1253_1，群主 / 管理员）。duration 秒，0 = 解除禁言。 */
+  muteGroupMember: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        duration: z.number().int().nonnegative(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.muteMember({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        duration: input.duration,
+      });
+      return { ok: true };
+    }),
+
+  /** 设置 / 取消群管理员（0x1096_1，仅群主）。 */
+  setGroupAdmin: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        enable: z.boolean(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.setAdmin({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        enable: input.enable,
+      });
+      return { ok: true };
+    }),
+
+  /**
    * Insert a brand-new message into a conversation (c2c peer uid or group code).
    * `elements` is the authored array in editable wire form (bytes as
    * `{ type:'Buffer', data }`); it is byte-decoded here and validated in the

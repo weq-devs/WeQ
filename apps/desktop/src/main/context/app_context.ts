@@ -117,6 +117,7 @@ import {
   FlashTransferFilesService,
   PeerStatsService,
   InteractionService,
+  GroupModerationService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -664,6 +665,8 @@ export interface AccountServices {
   messageSend: MessageSendService;
   /** 轻互动：戳一戳（0xED3_1）+ 群消息贴表情（0x9082，需在线 QQ 发包）。 */
   interaction: InteractionService;
+  /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
+  groupModeration: GroupModerationService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
@@ -1456,6 +1459,7 @@ export function initAppContext(): AppContext {
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
+        groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
@@ -1933,6 +1937,7 @@ export function initAppContext(): AppContext {
           emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
+        groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };

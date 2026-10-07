@@ -19362,6 +19362,134 @@ html[data-theme="dark"] .essence-message-placeholder {
   color: var(--weq-fg-tertiary, oklch(0.6 0 0));
 }
 
+/* ==================== 群成员管理弹窗（改昵称 / 踢人） ==================== */
+
+.group-member-scrim {
+  z-index: 76;
+}
+
+.group-member-dialog {
+  display: grid;
+  width: min(400px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+    var(--weq-bg-surface)
+  );
+  box-shadow: var(--weq-shadow-card);
+  backdrop-filter: blur(18px);
+  -webkit-app-region: no-drag;
+}
+
+.group-member-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.group-member-header div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.group-member-header strong {
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.group-member-header span {
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-member-body {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.group-member-text {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.group-member-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-bg-app) 60%, transparent);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.group-member-input:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+}
+
+.group-member-hint {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.group-member-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.group-member-actions button {
+  min-height: 48px;
+  border: 0;
+  border-left: 1px solid var(--weq-border-subtle);
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.group-member-actions button:first-child {
+  border-left: 0;
+}
+
+.group-member-actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.group-member-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.group-member-actions button.is-primary {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.group-member-actions button.is-danger {
+  color: #e5484d;
+  font-weight: 600;
+}
+
 /* ==================== 群公告对话框 ==================== */
 
 .group-announcements-scrim {

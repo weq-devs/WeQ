@@ -577,6 +577,14 @@ export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
 export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
+export { GroupModerationService } from './account/group_moderation';
+export type {
+  RecallMessageParams,
+  SetMemberCardServiceParams,
+  KickMemberServiceParams,
+  MuteMemberServiceParams,
+  SetAdminServiceParams,
+} from './account/group_moderation';
 export { FlashTransferService } from './account/flash_transfer';
 export {
   joinRegion,
