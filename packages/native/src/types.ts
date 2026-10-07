@@ -402,6 +402,99 @@ export interface ConvertFontOptions {
   checkOts?: boolean;
 }
 
+// ---------- 网卡抓包（capture）---------------------------------------
+
+/**
+ * `startCapture` 选项。全部可选；省略即默认行为。
+ *
+ * 抓包会话是**长生命周期**的：要在发包**之前** `startCapture`（它直到网卡已
+ * 打开、BPF 已装、读循环即将开始才 resolve），否则异步回来的首包会漏。
+ */
+export interface CaptureOptions {
+  /** d2key（32 字符 hex）。省略时回退到该 pid 已登记的 `setSsoSession` 物料。 */
+  d2key?: string;
+  /** 抓包接口：默认 `auto`（自动选默认路由出口网卡）。 */
+  iface?: string;
+  /** MSF 端口：默认 `auto`（持续按帧签名识别）；也可 `14000` / `14000,443,80` / `auto,443`。 */
+  port?: string;
+  /** 环形缓冲可留住的帧数上限（默认 512）；超出后最旧的帧被淘汰并累加进 `dropped`。 */
+  ringFrames?: number;
+  /** 可选：同时把原始包旁路写成一个 pcap 文件。 */
+  pcapFile?: string;
+}
+
+/** 一次已 armed 的抓包会话。 */
+export interface CaptureSession {
+  pid: number;
+  /** 实际选中的网卡（含描述）。 */
+  iface: string;
+  /** 实际端口策略标签。 */
+  port: string;
+  linktype: number;
+}
+
+/** 一帧。`cmd` / `body` / `plain` 在 TEA 解密 + SSO 头解析成功后才有；`raw` 永远在。 */
+export interface CapturedFrame {
+  /** 全程单调递增的帧序号，用于 `takeFrames` 的游标续取。 */
+  cursor: number;
+  /** 捕获时间（Unix 毫秒）。 */
+  ts: number;
+  direction: 'c2s' | 's2c';
+  proto: number;
+  encryptType: number;
+  seq: number;
+  /** SSO 头里的命令字（如 `pttTrans.TransC2CPttReq`）。 */
+  cmd?: string;
+  /** 解密后的正文（protobuf 原始字节，展开交给 `@weq/protocol`）。 */
+  body?: Buffer;
+  /** 完整解密明文。 */
+  plain?: Buffer;
+  /** 完整原始帧（含 4 字节长度前缀）。 */
+  raw: Buffer;
+}
+
+/** `takeFrames` 选项。 */
+export interface TakeOptions {
+  /** 从哪个游标开始取；省略 = 从缓冲里最旧的帧开始。 */
+  cursor?: number;
+  /**
+   * 最多等待多久（毫秒）再返回。`>0` 时会一直收集到窗口结束再一次性取回全部 ——
+   * 「发包 → 监听 10 秒 → 自己筛结果」就靠它。
+   */
+  waitMs?: number;
+  /** 攒够这么多帧就提前返回（配合 `waitMs`；设置了 `matchCmd` 时不生效）。 */
+  minFrames?: number;
+  /** 单次批量上限（默认 1024）。 */
+  maxFrames?: number;
+  /** 只回 `cmd` 含该子串的帧（可选糖）。 */
+  matchCmd?: string;
+}
+
+/** 一批取回的帧。 */
+export interface FrameBatch {
+  frames: CapturedFrame[];
+  /** 下一次 `takeFrames` 传回它即可续取。 */
+  nextCursor: number;
+  /** 自会话开始以来因环形缓冲溢出被淘汰的帧数（累计值）。 */
+  dropped: number;
+}
+
+/** `stopCapture` 的统计。 */
+export interface CaptureStats {
+  frames: number;
+  dropped: number;
+  /** 看到的原始网卡包数（含非 MSF 流量）。 */
+  packets: number;
+}
+
+/** 抓包后端可用性（Windows 上用于引导安装 Npcap）。 */
+export interface CaptureSupport {
+  available: boolean;
+  backend: string;
+  elevated: boolean;
+  hint: string;
+}
+
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
@@ -744,6 +837,29 @@ export interface NtHelperBinding {
    *   xydata.js / main / fzfont
    */
   queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
+
+  // --- 网卡抓包（capture） ---
+  /**
+   * 探测抓包后端是否就绪：Windows 检查 Npcap（`wpcap.dll`）；Linux/macOS 后端
+   * 一定在，能否抓到取决于权限（`elevated`）。`hint` 是缺后端/缺权限时的引导。
+   */
+  probeCaptureSupport(): CaptureSupport;
+  /**
+   * 开启（或替换）某 pid 的抓包会话。**请在发包之前调用** —— 它直到网卡已
+   * 打开、BPF 已装、读循环即将开始才 resolve，因此返回之后的包都不会漏。
+   *
+   * `onFrame` 是可选的推送回调 `(err, frame) => void`；它只是同一份数据的便利
+   * 通道，可靠性以 `takeFrames` 的环形缓冲为准。
+   */
+  startCapture(
+    pid: number,
+    options?: CaptureOptions | null,
+    onFrame?: ((error: Error | null, frame: CapturedFrame) => void) | null,
+  ): Promise<CaptureSession>;
+  /** 取帧（拉模型）；配合 `options.waitMs` 可"等到窗口结束再一次性取回全部"。 */
+  takeFrames(pid: number, options?: TakeOptions | null): Promise<FrameBatch>;
+  /** 停止并释放抓包会话，返回统计。 */
+  stopCapture(pid: number): Promise<CaptureStats>;
 }
 
 // ---------- ninebird_addon.node — launch bootstrap -----------------------

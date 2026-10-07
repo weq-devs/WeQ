@@ -259,7 +259,77 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 7. 平台相关 / 其它
+## 7. 网卡抓包（capture）
+
+> 非侵入式、不注入：直接读网卡 → TCP 重组 → MSF 帧切分 → 用**调用方传入的 d2key**
+> 做 TEA 解密（native 不再自己扫密钥）。
+
+### 7.1 为什么是「会话 + 游标」而不是一次抓 N 秒
+
+`pcap_open_live` + 装 BPF 过滤要几十到几百毫秒，而被抓的应答可能个位数毫秒就回来
+（例如 QQ 语音转录：请求 → 立即 ack → 真正的结果稍后由服务端 push 推回）。先发包
+再开抓，**首包必漏**。所以抓包是一条**可提前 armed 的长生命周期会话**：
+
+```text
+startCapture(pid)                       // 直到网卡已打开、BPF 已装、读循环即将开始才 resolve
+  → 调用方发包（setSsoSession / sendOidbPacket / sendPacket …）
+  → takeFrames(pid, { waitMs: 10_000 })  // 等到窗口结束，一次性取回全部帧，自己筛
+  → stopCapture(pid)
+```
+
+取帧是**环形缓冲 + 游标**的拉模型：native 侧保证不漏，环形满了会如实把 `dropped`
+报出来；`onFrame` 回调只是同一份数据的**可选**推送通道，JS 慢顶多丢投递，不影响
+环形缓冲里的真相。会话按 `pid` 索引，与 `setSsoSession` 一致；多个 QQ 进程可各抓各的。
+
+### 7.2 接口
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `probeCaptureSupport()` | — | `CaptureSupport` | 抓包后端是否就绪。Windows 检查 Npcap（`wpcap.dll`）；Linux/macOS 后端一定在，能否抓到取决于 `elevated`（权限）。`hint` 是缺后端/缺权限时的引导。 |
+| `startCapture(pid, options?, onFrame?)` | pid + 可选 `CaptureOptions` + 可选回调 | `Promise<CaptureSession>` | 开启（或替换）抓包会话。**请在发包之前调用** —— 它直到网卡已打开、BPF 已装、读循环即将开始才 resolve。 |
+| `takeFrames(pid, options?)` | pid + 可选 `TakeOptions` | `Promise<FrameBatch>` | 取帧。`waitMs > 0` 时一直收集到窗口结束再返回。 |
+| `stopCapture(pid)` | pid | `Promise<CaptureStats>` | 停止并释放，返回统计。 |
+
+**类型**
+
+- `CaptureOptions = { d2key?; iface?; port?; ringFrames?; pcapFile? }`
+  - `d2key`：32 字符 hex；省略时回退到该 pid 已登记的 `setSsoSession` 物料里的 d2key。
+  - `iface`：默认 `auto`（自动选默认路由出口网卡），也可填 `eth0`/`en0`/Npcap 设备名。
+  - `port`：默认 `auto`（持续按 MSF 帧签名识别，端口中途切换也不漏）；也可 `14000` / `14000,443,80` / `auto,443`。
+  - `ringFrames`：环形缓冲帧数上限（默认 512）。
+- `CaptureSession = { pid; iface; port; linktype }`
+- `TakeOptions = { cursor?; waitMs?; minFrames?; maxFrames?; matchCmd? }`
+- `CapturedFrame = { cursor; ts; direction; proto; encryptType; seq; cmd?; body?: Buffer; plain?: Buffer; raw: Buffer }`
+  - `cmd` / `body` / `plain` 在 TEA 解密 + SSO 头解析成功后才有；`raw` 永远是完整原始帧（含 4 字节长度前缀）。
+  - `body` 是**解密后的 protobuf 原始字节**，展开交给 `@weq/protocol` —— native 不引 protobuf 描述符。
+- `FrameBatch = { frames; nextCursor; dropped }`：`dropped` 是**累计**溢出淘汰帧数；`nextCursor` 下次原样传回来即可续取。
+- `CaptureStats = { frames; dropped; packets }`
+- `CaptureSupport = { available; backend; elevated; hint }`
+
+### 7.3 语音转录（异步结果）的用法
+
+服务端的异步推送落在 `startCapture` 之后，所以「请求 → 监听 10 秒 → 自己筛」是安全的：
+
+```ts
+await nt.startCapture(pid, { d2key });        // 先 armed（早于发包）
+try {
+  await nt.sendPacket(pid, 'pttTrans.TransC2CPttReq', body);
+  const batch = await nt.takeFrames(pid, { waitMs: 10_000 });  // 窗口内全部帧
+  // batch.frames 里自己按 cmd / body 筛出 TransC2CPttRsp 与 OlPushService.MsgPush
+} finally {
+  await nt.stopCapture(pid);
+}
+```
+
+### 7.4 权限与依赖
+
+- **Linux**：需要 root 或 `CAP_NET_RAW`（与 attach 同档）；产物静态链接 libpcap，不依赖用户机的 `libpcap.so.*`。
+- **macOS**：需要 root（BPF 设备默认 root 可读）。
+- **Windows**：需要管理员 **且** 已安装 [Npcap](https://npcap.com/)；缺失时 `probeCaptureSupport()` 返回 `available: false` + 安装引导。
+
+---
+
+## 8. 平台相关 / 其它
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
@@ -268,7 +338,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 8. 常见坑 & 约定
+## 9. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
 2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级，排查时用环境变量 `WEQ_LOG_LEVEL=debug|trace` 抬升（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
@@ -282,7 +352,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 9. 相关链接
+## 10. 相关链接
 
 - 源码：`../nt_helper/src/`（Rust / napi-rs），入口 `lib.rs`
 - 使用示例：`apps/desktop/src/main/attach_worker.ts`（加载 + 初始化 + 调用）
