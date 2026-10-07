@@ -100,6 +100,7 @@ export function ChatMainContent({
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
   onOpenGroupKeyword,
+  onOpenConversationSettings,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -199,6 +200,8 @@ export function ChatMainContent({
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   onOpenGroupKeyword?: (conversation: GroupConversation) => void;
+  /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
+  onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
@@ -304,6 +307,7 @@ export function ChatMainContent({
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupKeyword={onOpenGroupKeyword}
+      onOpenConversationSettings={onOpenConversationSettings}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}

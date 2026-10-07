@@ -757,6 +757,53 @@ export class UserConfigService {
     }
   }
 
+  /**
+   * 把 uid 补写进该 uin 的所有已存账号记录（`config/accounts/*.json`）。
+   *
+   * uid 是账号身份的一部分（linux 的账号目录由它派生），但解析出它的地方
+   * （`login.db`）往往早于账号真正打开 —— 那时还没有会话级的
+   * `AccountConfigService` 可用。以前它只进内存映射，重启就丢；这里顺手落盘，
+   * 让后续开账号 / 抓包不再依赖当场解析 login.db。
+   *
+   * best-effort：读不动 / 写不动的记录跳过，绝不抛给调用方。
+   */
+  setAccountUid(uin: string, uid: string): void {
+    if (!uin || !uid) return;
+    const dir = join(this.root, 'config', 'accounts');
+    let updated = 0;
+    let files: string[];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      return; // 还没有账号记录目录
+    }
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = join(dir, file);
+      try {
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+        if (raw.uin !== uin || raw.uid === uid) continue;
+        const config = normalizeAccountConfig(raw);
+        if (!config.configId) config.configId = basename(file, '.json');
+        writeFileSync(filePath, JSON.stringify({ ...config, uid }, null, 2), 'utf-8');
+        updated++;
+      } catch (error) {
+        this.logger.warn('skipped account config while storing uid', {
+          event: 'set-account-uid-skip',
+          file,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    if (updated > 0) {
+      this.logger.info('stored account uid into saved account records', {
+        event: 'set-account-uid',
+        accountUin: uin,
+        files: updated,
+      });
+    }
+  }
+
   listAccountConfigs(): AccountConfig[] {
     const dir = join(this.root, 'config', 'accounts');
     try {

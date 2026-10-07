@@ -25,22 +25,42 @@
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
-import type { LoginAccount } from '@weq/native';
+import { resolveNtHelperPath, type LoginAccount } from '@weq/native';
 import {
   attachAndRegisterSsoSession,
   getHost,
+  registerSsoSessionFromStored,
   requestDecryptKeyFromInstance,
   resolveDeviceGuid,
 } from '@weq/service';
+import { getLogger } from '@weq/service';
 import { requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
+import {
+  toCaptureFrameWire,
+  type CaptureBatchWire,
+  type CaptureSessionWire,
+  type CaptureStatsWire,
+} from '../../capture_protocol';
+import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from '../../capture_elevation';
+
+const logger = getLogger().child({ scope: 'wonderful-tools' });
 
 /** 展示给用户的数据库头部字节数：≥192 字节，取 16 的倍数整行展示。 */
 const HEADER_READ_BYTES = 192;
 /** nt_helper 发包前从数据库头提取的 db_salt 所在字节区间（含头不含尾）。 */
 const DB_SALT_START = 0x2f;
 const DB_SALT_END = 0xaf;
+
+/** 抓包后端可用性（Windows 缺 Npcap 时用于引导安装）。 */
+export interface CaptureSupportWire {
+  available: boolean;
+  backend: string;
+  elevated: boolean;
+  hint: string;
+  platform: string;
+}
 
 /** 一个账号在密钥扫描面板里的状态行。 */
 export interface WonderfulToolAccountWire {
@@ -121,6 +141,103 @@ function humanizeKeyFetchError(error: string): string {
     return `无权获取该数据库的密钥：${error}`;
   }
   return error;
+}
+
+/**
+ * 为一个在线实例登记 SSO 会话物料（读内存拿 a2/d2/d2key），并回带 d2key。
+ *
+ * 抓包要拿 d2key 才能把 TEA 密文解成明文。d2key 在两条路径上都要**显式传给
+ * `startCapture`**：
+ *   - 提权路径：子进程是**另一个 native 实例**，主进程 `setSsoSession` 注册的物料
+ *     在它那边看不见，不传就永远解不出明文；
+ *   - 本进程路径（Windows / 本来就是 root）：注册过的物料它能自己回退查到，但显式
+ *     传参才不依赖那条回退 —— 少了这一句，Windows 上就是「有密文、没明文」。
+ *
+ * 登记失败（缺 uid / guid）**不再是致命错误**：抓包只需要 d2key，发送能力用不上。
+ * 这时照样开抓包，只是前端会标明「只能看密文」。
+ *
+ * **优先复用本地账号配置里已存的物料**（a2 / d2 / d2key + pid）直接登记 —— 抓包只
+ * 要 d2key，本地这份就是上次从同一个 pid 读到的，没必要为了它再撞一次提权门。
+ * 只有物料缺失 / pid 对不上（QQ 重启过，密钥已失效）才回退到读内存。
+ */
+async function prepareCaptureSession(
+  uin: string,
+): Promise<{ pid: number; d2Key: string | undefined }> {
+  const boot = requireBootstrap();
+  const platform = requirePlatform();
+  const instances = await resolveOnlineInstances(boot, platform);
+  const inst = instances.find((i) => i.uin === uin);
+  if (!inst) {
+    throw new Error(`账号 ${uin} 当前没有在线的 QQ 实例，无法抓包`);
+  }
+  const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+
+  // 先试本地已存物料：不读内存、不提权。`config.qqPid` 只在老记录缺 `session.pid`
+  // 时当兜底判据 —— 它是从磁盘读的、独立于本次调用（不是刚被写成 inst.pid）。
+  const stored = boot.userConfig.listAccountConfigs().find((c) => c.uin === uin);
+  const reused = await registerSsoSessionFromStored(
+    platform.native.ntHelper,
+    platform,
+    inst.pid,
+    inst.uin,
+    {
+      material: stored?.session,
+      pid: stored?.qqPid ?? null,
+      uid: stored?.uid ?? inst.uid,
+      guid: stored?.guid ?? guid,
+    },
+  );
+  if (reused) {
+    logger.info('capture registered the native sso session from stored material', {
+      event: 'capture-reuse-stored',
+      pid: inst.pid,
+      uin: inst.uin,
+    });
+    return { pid: inst.pid, d2Key: stored?.session?.d2Key };
+  }
+
+  // 回退：本地没有可用物料（或 pid 对不上）→ 读内存（可能触发提权）。
+  const { material, registered } = await attachAndRegisterSsoSession(
+    platform.native.ntHelper,
+    platform,
+    boot.attachHook,
+    inst.pid,
+    inst.uin,
+    { uid: inst.uid, guid },
+  );
+  if (!material.d2Key) {
+    logger.warn('capture started without d2key; frames will stay encrypted', {
+      event: 'capture-no-d2key',
+      pid: inst.pid,
+      uin: inst.uin,
+      registered,
+    });
+  }
+  return { pid: inst.pid, d2Key: material.d2Key };
+}
+
+/**
+ * 睁着的提权抓包子进程（一次抓包会话一个）。key = pid —— native 侧会话本身也是按
+ * pid 记的，而 `capturePoll` / `captureStop` 只带 pid，所以只能按 pid 找回子进程。
+ */
+const elevatedCaptures = new Map<number, ElevatedCaptureWorker>();
+
+/** 取（或起）某 pid 的提权抓包子进程；需要密码时由它自己弹框。 */
+async function acquireElevatedCaptureWorker(pid: number): Promise<ElevatedCaptureWorker> {
+  const existing = elevatedCaptures.get(pid);
+  if (existing) return existing;
+  const worker = await startElevatedCaptureWorker(resolveNtHelperPath());
+  elevatedCaptures.set(pid, worker);
+  return worker;
+}
+
+/**
+ * 关掉所有提权抓包子进程（退出 / 卸载会话时调用）。幂等：子进程那边也会在环回连接
+ * 断开时自己收尾，这里只是让它早点走。
+ */
+export function disposeElevatedCaptures(): void {
+  for (const [, worker] of elevatedCaptures) worker.dispose();
+  elevatedCaptures.clear();
 }
 
 export const wonderfulToolsRouter = router({
@@ -244,6 +361,122 @@ export const wonderfulToolsRouter = router({
       }
     },
   ),
+
+  // ── ntqq 抓包 ─────────────────────────────────────────────────────────
+
+  /** 抓包后端可用性（Windows 上缺 Npcap 时前端弹窗引导安装）。 */
+  captureSupport: procedure.query((): CaptureSupportWire => {
+    const platform = requirePlatform();
+    const support = platform.native.ntHelper.probeCaptureSupport();
+    return { ...support, platform: process.platform };
+  }),
+
+  /**
+   * 开始抓包：先给该账号登记 SSO 会话物料（拿 d2key），再 armed 网卡会话。
+   * 失败原因（未提权 / 缺 Npcap / 账号离线）原样抛出，前端展示。
+   */
+  captureStart: procedure
+    .input(
+      z.object({
+        uin: z.string().min(1),
+        iface: z.string().optional(),
+        port: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      const support = platform.native.ntHelper.probeCaptureSupport();
+      if (!support.available) {
+        throw new Error(support.hint || '抓包后端不可用');
+      }
+      const { pid, d2Key } = await prepareCaptureSession(input.uin);
+
+      // 本来就是 root（headless web server）或 Windows（Npcap 自己管权限）：本进程直接抓。
+      if (support.elevated || process.platform === 'win32') {
+        // d2key 显式传：native 的「回退到已登记物料」只在同一实例内有效，显式传参
+        // 才能保证和提权路径完全一致（Windows 上少了它就一直只有密文）。
+        const session = await platform.native.ntHelper.startCapture(pid, {
+          iface: input.iface,
+          port: input.port,
+          // ⚠️ native 的字段名是 `d2Key`（napi 从 Rust `d2key` 转来）；写成小写
+          // `d2key` 会被静默忽略 → 密文全部解不开。
+          d2Key: d2Key,
+        });
+        return { ...session, pid, elevated: false, hasD2Key: Boolean(d2Key) };
+      }
+
+      // Electron 不能以 root 运行，而抓包要 root / CAP_NET_RAW —— 把会话放进一个
+      // 提权子进程（必要时弹密码框），主进程只做代理。
+      const worker = await acquireElevatedCaptureWorker(pid);
+      const session = await worker.request<CaptureSessionWire>({
+        op: 'start',
+        pid,
+        iface: input.iface,
+        port: input.port,
+        d2key: d2Key,
+      });
+      return { ...session, pid, elevated: true, hasD2Key: Boolean(d2Key) };
+    }),
+
+  /**
+   * 拉取新增帧（长轮询）：`waitMs` 内一直收集，到窗口结束一次性取回。
+   * 前端把上一次返回的 `nextCursor` 原样传回即可续取。
+   */
+  capturePoll: procedure
+    .input(
+      z.object({
+        pid: z.number().int().positive(),
+        cursor: z.number().int().nonnegative().optional(),
+        waitMs: z.number().int().min(0).max(10_000).optional(),
+      }),
+    )
+    .query(async ({ input }): Promise<CaptureBatchWire> => {
+      const waitMs = input.waitMs ?? 1200;
+      // 提权抓包的会话在子进程里 —— 帧要问它要。
+      const elevated = elevatedCaptures.get(input.pid);
+      if (elevated) {
+        return await elevated.request<CaptureBatchWire>({
+          op: 'take',
+          pid: input.pid,
+          cursor: input.cursor,
+          waitMs,
+        });
+      }
+      const platform = requirePlatform();
+      const batch = await platform.native.ntHelper.takeFrames(input.pid, {
+        cursor: input.cursor,
+        waitMs,
+      });
+      return {
+        frames: batch.frames.map(toCaptureFrameWire),
+        nextCursor: batch.nextCursor,
+        dropped: batch.dropped,
+      };
+    }),
+
+  /** 停止抓包并释放网卡会话。会话已不存在时返回 null（前端幂等停止）。 */
+  captureStop: procedure
+    .input(z.object({ pid: z.number().int().positive() }))
+    .mutation(async ({ input }): Promise<CaptureStatsWire | null> => {
+      // 提权路径：先问子进程要统计，再把子进程送走（它是这次会话专用的）。
+      const elevated = elevatedCaptures.get(input.pid);
+      if (elevated) {
+        elevatedCaptures.delete(input.pid);
+        try {
+          return await elevated.request<CaptureStatsWire>({ op: 'stop', pid: input.pid });
+        } catch {
+          return null; // 幂等停止：子进程已经没了也无所谓。
+        } finally {
+          elevated.dispose();
+        }
+      }
+      const platform = requirePlatform();
+      try {
+        return await platform.native.ntHelper.stopCapture(input.pid);
+      } catch {
+        return null;
+      }
+    }),
 
   /**
    * 「其它设备密钥」：按 bootstrap 的实例取密钥流程，但跳过注入，

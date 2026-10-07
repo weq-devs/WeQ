@@ -199,6 +199,44 @@ export const helpRouter = router({
       };
     }),
 
+  // ── 日志查看：底层调试模式（nt_helper）─────────────────────────────────
+
+  /**
+   * 打开 / 关闭 nt_helper 的底层调试日志模式。
+   *
+   * 打开后 nt_helper 会把收发包等原始字节整段写进 `nt_helper_<date>.log`，
+   * 供日志面板查看。数据量极大，是排查协议问题的临时手段，用完请立刻关掉。
+   * 状态不持久化 —— 应用重启后自动回到关闭。
+   */
+  setNativeDebugLog: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }): { ok: boolean; enabled: boolean; error?: string } => {
+      const nt = getAppContext().platform?.native.ntHelper;
+      if (!nt) return { ok: false, enabled: false, error: '原生组件未就绪' };
+      try {
+        nt.setDebugLog(input.enabled);
+        const enabled = nt.isDebugLogEnabled();
+        logger.info('native debug log toggled', {
+          event: 'native-debug-log-toggle',
+          enabled,
+        });
+        return { ok: true, enabled };
+      } catch (e) {
+        return { ok: false, enabled: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
+
+  /** 当前底层调试模式是否打开（面板初始化时对齐真实状态）。 */
+  getNativeDebugLog: procedure.query((): { enabled: boolean; available: boolean } => {
+    const nt = getAppContext().platform?.native.ntHelper;
+    if (!nt) return { enabled: false, available: false };
+    try {
+      return { enabled: nt.isDebugLogEnabled(), available: true };
+    } catch {
+      return { enabled: false, available: true };
+    }
+  }),
+
   // ── 常见问题 ─────────────────────────────────────────────────────────────
 
   /** 读取 resources/help/faq.md 供渲染层展示。 */

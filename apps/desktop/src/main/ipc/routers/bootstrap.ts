@@ -43,7 +43,7 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
-import { takePendingGroupJump } from '../../group_keyword_bus';
+import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -157,6 +157,9 @@ export async function ensureUidForUin(
     const match = accounts.find((a) => a.uin === uin && a.uid);
     if (match?.uid) {
       rememberAccountUid(uin, match.uid);
+      // 解析出来的 uid 顺手落盘：它只在这里能拿到（login.db），而账号记录一旦
+      // 有了 uid，重启后 / 下次开账号都不用再解析一遍 login.db。
+      boot.userConfig.setAccountUid(uin, match.uid);
       return match.uid;
     }
   } catch (e) {
@@ -209,6 +212,27 @@ export const bootstrapRouter = router({
   /** 领走一条待处理的群关键词跳转（无则返回 null）。 */
   consumeGroupKeywordJump: procedure.query(() => {
     return takePendingGroupJump();
+  }),
+
+  /**
+   * 防撤回通知被点击：主进程已记下一个「打开该会话、跳到该 seq」的请求。渲染层
+   * 收到本信号后调 `consumeConversationJump` 领走并执行跳转。
+   */
+  onConversationJump: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (payload: { at: number }): void => {
+        emit.next(payload);
+      };
+      accountEventBus.on('conversationJump', handler);
+      return () => {
+        accountEventBus.off('conversationJump', handler);
+      };
+    });
+  }),
+
+  /** 领走一条待处理的通用会话跳转（无则返回 null）。 */
+  consumeConversationJump: procedure.query(() => {
+    return takePendingConversationJump();
   }),
 
   /** Platform kind, so the renderer can branch linux-only key behaviour. */
@@ -1708,8 +1732,10 @@ export const bootstrapRouter = router({
       // whose uid isn't in the saved config yet. Seeding it here lets
       // `platform.ntMsgDbPath(uin)` resolve during this very call. Prefer the
       // uid the caller passed; otherwise recover it from the login.db list.
-      if (input.uid) rememberAccountUid(input.uin, input.uid);
-      else await ensureUidForUin(requireBootstrap(), input.uin);
+      // Either way the uid is carried into the saved record below (setAccount
+      // metadata), so it survives a restart instead of living only in memory.
+      const uid = input.uid || (await ensureUidForUin(requireBootstrap(), input.uin)) || '';
+      if (uid) rememberAccountUid(input.uin, uid);
 
       let algos: Record<string, import('@weq/native').DatabaseAlgorithms> = {};
       if (input.algo) {
@@ -1737,7 +1763,7 @@ export const bootstrapRouter = router({
       await ctx.setAccount(
         { uin: input.uin, dbKey: input.dbKey, algos },
         {
-          ...(input.uid ? { uid: input.uid } : {}),
+          ...(uid ? { uid } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
           ...(dataDir ? { dataDir } : {}),

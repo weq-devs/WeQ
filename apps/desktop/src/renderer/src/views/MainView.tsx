@@ -58,6 +58,8 @@ import {
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
 import { GroupKeywordDialog } from '../components/GroupKeywordDialog';
+import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
+import { AntiRecallDialog } from '../components/AntiRecallDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
@@ -2082,6 +2084,16 @@ export function MainView(): ReactElement {
     staleTime: 4000,
     refetchInterval: 5000,
   });
+  // 发送能力总闸：QQ 在线 + 未开完全离线模式，且本地账号配置里 a2 / d2 / d2key / guid
+  // 都非空（发包要拿它们做 TEA 加密与设备身份）。缺任一项发送键就置灰。
+  const sendAvailable = Boolean(
+    sendAccess.data?.qqOnline &&
+      sendAccess.data.attachEnabled &&
+      sendAccess.data.hasA2 &&
+      sendAccess.data.hasD2 &&
+      sendAccess.data.hasD2Key &&
+      sendAccess.data.hasGuid,
+  );
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 8000,
@@ -2286,6 +2298,14 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
+  const [antiRecallOpen, setAntiRecallOpen] = useState(false);
+  /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
+  const [convSettings, setConvSettings] = useState<{
+    kind: 'c2c' | 'group' | 'dataline';
+    conv: string;
+    title: string;
+  } | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -2467,6 +2487,28 @@ export function MainView(): ReactElement {
       });
     },
     [],
+  );
+
+  const handleOpenConversationSettings = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>) => {
+      const { kind, conv } = convFetchKey(conversation);
+      const title =
+        conversation.type === 'group'
+          ? conversation.group.name
+          : conversation.otherUser.displayName;
+      // 数据线（我的手机/我的电脑）在消息库里是独立的 dataline_msg_table，触发器
+      // 也要按 'dataline' 装，否则它和私聊会用错表。
+      const dataline =
+        conversation.type === 'direct' &&
+        conversation.chatType !== undefined &&
+        isDataline(conversation.chatType);
+      setConvSettings({
+        kind: kind === 'group' ? 'group' : dataline ? 'dataline' : 'c2c',
+        conv,
+        title,
+      });
+    },
+    [convFetchKey],
   );
 
   const handleOpenGroupLeftMembers = useCallback(
@@ -3352,9 +3394,7 @@ export function MainView(): ReactElement {
     [conversations],
   );
 
-  const mergeForwardSendAvailable = Boolean(
-    sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
-  );
+  const mergeForwardSendAvailable = sendAvailable;
 
   /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
   const mergeForwardMembersOf = useCallback((c: Conversation): MfPerson[] => {
@@ -4954,6 +4994,39 @@ export function MainView(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
+  // 撤回通知被点击：主进程唤起窗口并记下「打开该会话、跳到该 seq」，这里领走。
+  // 私聊 / 群聊共用同一条跳转（与群关键词通知同一套机制）。
+  useEffect(() => {
+    let cancelled = false;
+    const drain = () => {
+      void (async () => {
+        for (;;) {
+          let jump: { kind: 'c2c' | 'group'; conv: string; seq?: string } | null = null;
+          try {
+            jump = await client.bootstrap.consumeConversationJump.query();
+          } catch {
+            return;
+          }
+          if (cancelled || !jump) return;
+          jumpToConvSeq(jump.kind, jump.conv, jump.seq || undefined);
+        }
+      })();
+    };
+    const sub = client.bootstrap.onConversationJump.subscribe(undefined, {
+      onData() {
+        drain();
+      },
+      onError(err) {
+        console.error('[recall] onConversationJump subscription error', err);
+      },
+    });
+    drain();
+    return () => {
+      cancelled = true;
+      sub.unsubscribe();
+    };
+  }, [jumpToConvSeq]);
+
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
   // fresh query — no react-query staleness — so switching back into a chat shows
@@ -6140,6 +6213,24 @@ export function MainView(): ReactElement {
     shell.view === 'channel' ||
     shell.view === 'annual';
 
+  /** 防撤回面板「记录」页点一行：打开该会话的撤回列表（复用聊天区气泡与筛选）。 */
+  function handleOpenRecallsAt(kind: 'c2c' | 'group', conv: string): void {
+    // 同 id 理论上不会横跨群/私聊，但类型对得上才更稳（群号纯数字、uid 是 u_ 前缀）。
+    const wantGroup = kind === 'group';
+    const target =
+      conversations.find((c) => c.id === conv && (c.type === 'group') === wantGroup) ??
+      conversations.find((c) => c.id === conv);
+    if (!target) {
+      pushToast({
+        tone: 'info',
+        title: '找不到该会话',
+        detail: '它可能已不在会话列表里，无法打开撤回列表。',
+      });
+      return;
+    }
+    handleViewRecalled(target);
+  }
+
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -6180,6 +6271,7 @@ export function MainView(): ReactElement {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
+            onOpenAntiRecall={() => setAntiRecallOpen(true)}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
@@ -6340,9 +6432,7 @@ export function MainView(): ReactElement {
                       onGroupMemberSearchChange={setMemberSearchKeyword}
                       onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
-                      sendAvailable={Boolean(
-                        sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
-                      )}
+                      sendAvailable={sendAvailable}
                       onOpenNotificationSettings={noopAsync}
                       onSend={sendMessage}
                       onSendWindowShake={sendWindowShake}
@@ -6366,6 +6456,7 @@ export function MainView(): ReactElement {
                       onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                       onOpenGroupEssence={handleOpenGroupEssence}
                       onOpenGroupKeyword={handleOpenGroupKeyword}
+                      onOpenConversationSettings={handleOpenConversationSettings}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
                       onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
@@ -6552,6 +6643,27 @@ export function MainView(): ReactElement {
                 role: m.role,
               }))}
               onClose={() => setKeywordDialog(null)}
+            />
+          ) : null}
+          {antiRecallOpen ? (
+            <AntiRecallDialog
+              onClose={() => setAntiRecallOpen(false)}
+              onOpenRecalls={handleOpenRecallsAt}
+            />
+          ) : null}
+          {convSettings ? (
+            <ConversationSettingsDialog
+              kind={convSettings.kind}
+              conv={convSettings.conv}
+              title={convSettings.title}
+              members={currentGroupMembers.map((m) => ({
+                uid: m.id,
+                displayName: m.displayName,
+                avatarUrl: m.avatarUrl ?? null,
+                uin: m.uin,
+                role: m.role,
+              }))}
+              onClose={() => setConvSettings(null)}
             />
           ) : null}
           {groupBugDialog ? (

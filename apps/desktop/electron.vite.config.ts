@@ -39,10 +39,15 @@ export default defineConfig({
           index: resolve(__dirname, 'src/main/index.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
           attachWorker: resolve(__dirname, 'src/main/attach_worker.ts'),
+          // 抓包会话要以 root 跑（Electron 不能以 root 运行），所以和 attachWorker
+          // 一样单独打一个入口，用 `sudo` + `ELECTRON_RUN_AS_NODE` 拉起。
+          captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
-            chunk.name === 'transcribeWorker' || chunk.name === 'attachWorker'
+            chunk.name === 'transcribeWorker' ||
+            chunk.name === 'attachWorker' ||
+            chunk.name === 'captureWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

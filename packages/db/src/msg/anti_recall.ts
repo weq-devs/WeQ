@@ -130,6 +130,21 @@ export interface RecallLogRow {
   recallTs: number;
 }
 
+/**
+ * One conversation that has recorded recalls — a row of the 「撤回记录」目录
+ * (per-conversation summary), not an individual recall.
+ */
+export interface RecallConvSummary {
+  /** Conversation key: peer uid (c2c/dataline) or group code (group). */
+  conv: string;
+  /** Which table the recalls came from. */
+  kind: AntiRecallKind;
+  /** How many recalls are recorded for this conversation. */
+  count: number;
+  /** Most recent recall timestamp in this conversation (unix seconds, 0 = unknown). */
+  lastTs: number;
+}
+
 interface TableSpec {
   kind: AntiRecallKind;
   table: string;
@@ -183,6 +198,42 @@ const TABLE_SPECS: readonly TableSpec[] = [
 /** Quote a value as a SQL string literal (single quotes, doubled to escape). */
 function sqlStr(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
+}
+
+/**
+ * The triggers that *would* be installed for a given desired state, without
+ * touching the DB. Lets the service answer a settings write immediately (乐观
+ * 返回) while the real reconcile finishes in the background. Names/tables come
+ * from {@link TABLE_SPECS}, so it always matches what {@link AntiRecallDb.reconcile}
+ * actually creates.
+ */
+export function expectedAntiRecallTriggers(
+  allConversations: boolean,
+  targets: readonly AntiRecallTarget[],
+): AntiRecallTriggerInfo[] {
+  const kinds = new Set<AntiRecallKind>();
+  if (allConversations) {
+    for (const spec of TABLE_SPECS) kinds.add(spec.kind);
+  } else {
+    for (const t of targets) if (t.id) kinds.add(t.kind);
+  }
+  return TABLE_SPECS.filter((spec) => kinds.has(spec.kind)).map((spec) => ({
+    name: spec.trigger,
+    table: spec.table,
+  }));
+}
+
+/** Map one positional `weq_recall_log` row to a {@link RecallLogRow}. */
+function mapRecallRow(r: unknown[]): RecallLogRow {
+  return {
+    msgid: String(r[0]),
+    conv: String(r[1]),
+    kind: String(r[2]) as AntiRecallKind,
+    senderUid: String(r[3] ?? ''),
+    revokeUid: String(r[4] ?? ''),
+    origSeq: String(r[5] ?? ''),
+    recallTs: Number(r[6] ?? 0),
+  };
 }
 
 /**
@@ -368,11 +419,7 @@ export class AntiRecallDb {
    * Column order matches the SELECT list; `query` returns positional rows.
    */
   async listRecalls(kind: AntiRecallKind, conv: string): Promise<RecallLogRow[]> {
-    const exists = await this.qq.query(
-      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
-      [RECALL_LOG_TABLE],
-    );
-    if (exists.length === 0) return [];
+    if (!(await this.recallLogExists())) return [];
 
     const rows = await this.qq.query(
       `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
@@ -381,15 +428,73 @@ export class AntiRecallDb {
         ORDER BY recall_ts DESC`,
       [kind, conv],
     );
+    return rows.map(mapRecallRow);
+  }
+
+  /**
+   * Which conversations have recorded recalls, most recently active first —
+   * the directory behind the 「撤回记录」集成页. The table only exists once the
+   * trigger has been installed at least once, so a user who never enabled
+   * anti-recall gets `[]` rather than an error.
+   *
+   * `conv` may be an empty string for a row whose conversation key could not be
+   * read; callers filter those out.
+   */
+  async recallSummaries(): Promise<RecallConvSummary[]> {
+    if (!(await this.recallLogExists())) return [];
+
+    const rows = await this.qq.query(
+      `SELECT table_kind, conv, COUNT(*), IFNULL(MAX(recall_ts), 0)
+        FROM ${RECALL_LOG_TABLE}
+        GROUP BY table_kind, conv
+        ORDER BY MAX(recall_ts) DESC`,
+    );
     return rows.map((r) => ({
-      msgid: String(r[0]),
-      conv: String(r[1]),
-      kind: String(r[2]) as AntiRecallKind,
-      senderUid: String(r[3] ?? ''),
-      revokeUid: String(r[4] ?? ''),
-      origSeq: String(r[5] ?? ''),
-      recallTs: Number(r[6] ?? 0),
+      kind: String(r[0]) as AntiRecallKind,
+      conv: String(r[1] ?? ''),
+      count: Number(r[2] ?? 0),
+      lastTs: Number(r[3] ?? 0),
     }));
+  }
+
+  /** True when the trigger-created {@link RECALL_LOG_TABLE} exists yet. */
+  private async recallLogExists(): Promise<boolean> {
+    const rows = await this.qq.query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
+      [RECALL_LOG_TABLE],
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * Highest recall-log `msgid` currently stored (0 when empty / absent). This is
+   * the monitor's baseline cursor: records at or below it pre-date this run and
+   * must never raise a notification (启动时老记录不通知). `msgid` is the table's
+   * `INTEGER PRIMARY KEY`, i.e. the rowid alias, so it is insert-ordered.
+   */
+  async latestRecallCursor(): Promise<number> {
+    if (!(await this.recallLogExists())) return 0;
+    const rows = await this.qq.query(`SELECT IFNULL(MAX(msgid), 0) FROM ${RECALL_LOG_TABLE}`);
+    return Number(rows[0]?.[0] ?? 0);
+  }
+
+  /**
+   * Recall-log rows with `msgid > cursor`, oldest-first (bounded by `limit`) —
+   * the incremental read the recall-notification monitor drains. Callers feed
+   * back the largest returned `msgid` as the next cursor; an empty array (or a
+   * short page) means fully drained.
+   */
+  async listRecallsAfter(cursor: number, limit = 200): Promise<RecallLogRow[]> {
+    if (!(await this.recallLogExists())) return [];
+    const rows = await this.qq.query(
+      `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
+        FROM ${RECALL_LOG_TABLE}
+        WHERE msgid > ?
+        ORDER BY msgid ASC
+        LIMIT ?`,
+      [cursor, limit],
+    );
+    return rows.map(mapRecallRow);
   }
 
   /**

@@ -27,7 +27,7 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectAttachHook, type AttachHook } from '../bootstrap/attach';
-import { registerSsoSession } from './sso_session';
+import { registerSsoSession, registerSsoSessionFromStored } from './sso_session';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -102,6 +102,8 @@ export class AccountMonitorService {
     // 设备 guid 每次开会话读一次就够：它从 QQ 数据根路径离线算/读（不需权限、
     // 不碰进程），且大概率不变 —— 但网络上偶尔会变，所以每次启动都刷新一次。
     this.refreshDeviceGuid();
+    // 老版本存下的会话物料没有 pid，补一个（见方法说明）。
+    this.backfillStoredSessionPid();
     this.scheduleLoginPoll(0);
   }
 
@@ -253,6 +255,10 @@ export class AccountMonitorService {
       this.attachHook.reset(attached);
       this.forgetSsoSession(attached);
       this.attachedPid = pid;
+      // 同步 config 里的 pid：发包那侧（`resolveOnlinePid`）就是读它拿 pid 的。
+      // 不刷新的话它会一直用旧 pid 发包 → 原生 SSO 表里那个 pid 早被
+      // `forgetSsoSession` 清掉了 → 报「pid X 还没有登记 SSO 会话」。
+      this.markOnline(pid);
       if (this.shouldAutoAttach()) {
         try {
           await this.ensureAttached(pid);
@@ -304,13 +310,54 @@ export class AccountMonitorService {
    * 与登录无关。
    */
   private async ensureAttached(pid: number): Promise<void> {
+    // 本地已存有该 pid 的会话物料时，**直接拿它登记 SSO** —— 不读内存、不弹提权。
+    // 这正是「本地凭据齐全却还提示提权」的修复点：登记 SSO 只要求物料 + 身份，
+    // 不要求「此刻重新读一遍内存」。本地那份就是上一个 WeQ 进程读到的同一份。
+    const record = this.accountConfig.getRecord();
+    const reused = await registerSsoSessionFromStored(this.nt, this.platform, pid, this.uin, {
+      material: record?.session,
+      uid: record?.uid,
+      guid: record?.guid,
+    });
+    if (reused) {
+      this.logger.info('registered the native sso session from stored material', {
+        event: 'sso-session-reused',
+        pid,
+      });
+      return;
+    }
+    // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
     const material = await this.attachHook.ensure(pid, this.uin);
     this.accountConfig.setSessionMaterial({
       a2: material.a2,
       d2: material.d2,
       d2Key: material.d2Key,
+      pid,
     });
     await this.storeSsoSession(pid, material);
+  }
+
+  /**
+   * 老版本存下的会话物料没有 `pid`，无法判断它属于哪个 QQ 进程，于是每次开会话
+   * 都会重新读一遍内存（撞提权门）。这里按「记录里标记为在线的 pid」补一个 ——
+   * 旧代码在登记物料前就写了 `qqPid`，两者本就是同一个进程。只在缺失时补，
+   * 纯迁移用，失败静默（补不上就退回读内存，不是错误）。
+   */
+  private backfillStoredSessionPid(): void {
+    try {
+      const record = this.accountConfig.getRecord();
+      const session = record?.session;
+      if (!session || session.pid !== undefined) return;
+      if (!record?.qqOnline || !record.qqPid) return;
+      this.accountConfig.setSessionMaterial({
+        a2: session.a2,
+        d2: session.d2,
+        d2Key: session.d2Key,
+        pid: record.qqPid,
+      });
+    } catch {
+      /* config write failed — non-fatal, fall back to reading memory */
+    }
   }
 
   /**

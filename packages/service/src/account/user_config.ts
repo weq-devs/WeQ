@@ -340,6 +340,7 @@ export class AccountConfigService {
       hasA2: material.a2 !== undefined,
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,
+      pid: material.pid ?? null,
     });
   }
 
@@ -350,6 +351,16 @@ export class AccountConfigService {
     if (guid.length === 0 || this.readRecord()?.guid === guid) return;
     this.patch({ guid });
     this.logger.info('stored device guid', { event: 'set-guid', guid });
+  }
+
+  /**
+   * 记下账号的字符串 uid（`u_...`）。linux 的账号目录 `nt_qq_<md5(md5(uid)+"nt_kernel")>`
+   * 由它派生，所以它必须落盘 —— 只在内存里映射的话重启就丢。重复值不重写。
+   */
+  setUid(uid: string): void {
+    if (uid.length === 0 || this.readRecord()?.uid === uid) return;
+    this.patch({ uid });
+    this.logger.info('stored account uid', { event: 'set-uid', uid });
   }
 
   /**
@@ -468,6 +479,12 @@ export interface AccountSessionMaterial {
   a2?: string;
   d2?: string;
   d2Key?: string;
+  /**
+   * 读到这份物料时 QQ 的 pid。用来判断「这份缓存是不是仍属于当前那个 QQ 进程」
+   * —— 本地凭据齐全时直接拿它登记 SSO（不读内存、不提权）；pid 对不上说明 QQ
+   * 重启过、旧密钥已随旧进程失效，回退到读内存。
+   */
+  pid?: number;
   /** Unix ms，最后一次读到的时刻。 */
   fetchedAt: number;
 }

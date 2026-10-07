@@ -347,6 +347,15 @@ export interface GroupAlbumAccessState {
   qqPid: number | null;
   /** 「自动读取 QQ 内存（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
   attachEnabled: boolean;
+  /**
+   * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
+   * 缺任一项都发不出去，所以发送按钮按它前置置灰。
+   */
+  hasA2: boolean;
+  hasD2: boolean;
+  hasD2Key: boolean;
+  /** 本地是否已解析出设备 guid（服务端认设备的依据，缺了会被拒绝）。 */
+  hasGuid: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
@@ -501,12 +510,17 @@ async function fetchFrom(
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   const record = services.accountConfig.getRecord();
+  const session = record?.session;
   const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
   const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
   return {
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
     attachEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true,
+    hasA2: Boolean(session?.a2),
+    hasD2: Boolean(session?.d2),
+    hasD2Key: Boolean(session?.d2Key),
+    hasGuid: Boolean(record?.guid),
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,

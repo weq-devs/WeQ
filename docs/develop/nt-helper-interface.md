@@ -330,6 +330,31 @@ try {
 - **macOS**：需要 root（BPF 设备默认 root 可读）。
 - **Windows**：需要管理员 **且** 已安装 [Npcap](https://npcap.com/)；缺失时 `probeCaptureSupport()` 返回 `available: false` + 安装引导。
 
+### 7.5 WeQ 侧怎么拿到这个权限（提权子进程）
+
+Electron **不能以 root 运行**，而抓包要 root —— 所以桌面端把「抓包会话」整段放进一个
+临时 root 子进程，主进程只做代理：
+
+```text
+渲染层点「开始抓包」
+  → 主进程（wonderful_tools.captureStart）先登记 SSO 会话（读内存拿 d2key）
+  → sudo -S 起 captureWorker.mjs（ELECTRON_RUN_AS_NODE，见 src/main/capture_elevation.ts）
+  → 子进程 require nt_helper.node，拿到 {port, token} hello 后走环回套接字协议
+  → 主进程把 start / take / stop 原样转给子进程（协议见 src/main/capture_protocol.ts）
+```
+
+要点：
+
+- 密码来自**渲染层自绘的密码框**（`elev::request-password`，macOS 姿势的 `sudo -S`，不走 polkit）；
+  起子进程前先 `sudo -n true` 探一次缓存，刚刚读过内存的机器不会再弹第二个框。
+- 协议走 **127.0.0.1 环回套接字**而不是 stdin/stdout：`sudo -S` 要从 stdin 读密码，复用同一条
+  管道会被 sudo 的缓冲读写吃掉。hello 里的随机 `token` 是门禁（端口只有本机可达）。
+- 子进程是**另一个 native 实例**，主进程 `setSsoSession` 注册的物料它看不见，所以 `start`
+  必须显式带 `d2key`；`setcap cap_net_raw,cap_net_admin+eip <binary>` 也能免掉提权，
+  但不改系统是默认选择。
+- 生命周期：主进程持着环回连接，断开（退出 / 崩溃）时子进程自己停会话再退出；退出时会
+  主动 `dispose`。**不会**把 root 抓包留在后台。
+
 ---
 
 ## 8. 平台相关 / 其它

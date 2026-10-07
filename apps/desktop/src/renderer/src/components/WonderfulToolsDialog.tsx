@@ -33,6 +33,7 @@ import {
   FolderOpen,
   KeyRound,
   Loader2,
+  Radio,
   RefreshCw,
   ScanSearch,
   X,
@@ -41,6 +42,7 @@ import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
 import { ReverseTool } from './ReverseTool';
+import { CapturePanel } from './CapturePanel';
 import { DbRepairPanel } from './DbRepairPanel';
 
 interface AccountRow {
@@ -67,12 +69,13 @@ interface ScanResultView extends ScanResultWire {
 }
 
 /** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
-export type ToolId = 'key-scan' | 'other-device-key' | 'reverse' | 'db-repair';
+export type ToolId = 'key-scan' | 'other-device-key' | 'db-repair' | 'capture' | 'reverse';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
   { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
+  { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
 ];
 
@@ -80,6 +83,7 @@ const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'key-scan': KeyRound,
   'other-device-key': Database,
   'db-repair': DatabaseZap,
+  capture: Radio,
   reverse: Braces,
 };
 
@@ -482,7 +486,7 @@ export function WonderfulToolsDialog({
   return (
     <div className="weq-wtools-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
       <div
-        className="weq-wtools-dialog"
+        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="weq-wtools-title"
@@ -777,6 +781,28 @@ export function WonderfulToolsDialog({
                       </div>
                     )
                   ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {activeTool === 'capture' ? (
+              <>
+                <header className="weq-wtools-pane-head">
+                  <div className="weq-wtools-pane-title">
+                    <Radio size={17} strokeWidth={1.9} />
+                    <h2 id="weq-wtools-title">ntqq 抓包</h2>
+                  </div>
+                </header>
+                {/* 抓包面板自带分栏与滚动，所以正文区全出血（去掉内边距、不自己滚）。 */}
+                <div className="weq-wtools-pane-body is-flush">
+                  <CapturePanel
+                    accounts={accounts.map((acc) => ({
+                      uin: acc.uin,
+                      name: acc.userName,
+                      avatarUrl: acc.avatarUrl,
+                      pid: acc.pid,
+                    }))}
+                  />
                 </div>
               </>
             ) : null}

@@ -140,6 +140,7 @@ import {
   GroupKeywordService,
   type GroupKeywordRules,
   type GroupKeywordHit,
+  type RecallNotifyEvent,
   DbToleranceService,
   createDirectAttachHook,
   type AttachHook,
@@ -242,11 +243,30 @@ let groupKeyword: GroupKeywordService | null = null;
  */
 let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null = null;
 
+/**
+ * 拦住一次撤回时的「通知」实现（Electron 系统通知 + 点击跳转）。与群关键词一样
+ * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
+ */
+let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+/** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
+let activeAntiRecall: AntiRecallService | null = null;
+
 /** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
 export function setGroupKeywordNotifier(
   notifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null,
 ): void {
   groupKeywordNotifier = notifier;
+}
+
+/** app 层注入撤回通知的处理（弹系统通知 + 点击跳转）。 */
+export function setRecallNotifier(notifier: ((event: RecallNotifyEvent) => void) | null): void {
+  recallNotifier = notifier;
+}
+
+/** Stop the active account's recall monitor (account switch / close). */
+function unmountAntiRecallMonitor(): void {
+  activeAntiRecall?.stopMonitor();
+  activeAntiRecall = null;
 }
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
@@ -1027,6 +1047,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       // A live query failing with a corruption-signature error is what triggers
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
@@ -1146,7 +1167,11 @@ export function initAppContext(): AppContext {
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        { onRecall: (event) => recallNotifier?.(event) },
       );
+      // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
+      activeAntiRecall = antiRecall;
+      antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
       const emojiService = new EmojiService(session, platform);
@@ -1583,6 +1608,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       this.scheduler?.stop();
       this.scheduler = null;
 
@@ -1703,6 +1729,7 @@ export function initAppContext(): AppContext {
         session,
         staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        { onRecall: (event) => recallNotifier?.(event) },
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
@@ -2007,6 +2034,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       this.account?.dispose();
       this.account = null;
       this.services = null;

@@ -126,6 +126,50 @@ export async function registerSsoSession(
   }
 }
 
+/** 本地账号配置里存着、可直接复用的会话物料 + 身份。 */
+export interface StoredSsoMaterial {
+  /** 本地缓存的会话物料（a2 / d2 / d2key + 读它时的 pid）；缺一不可。 */
+  material?: { a2?: string; d2?: string; d2Key?: string; pid?: number } | null;
+  /**
+   * 物料归属的 pid —— 仅当 `material.pid` 缺失（老记录）时用作兜底判据。
+   * 只能取「独立于本次调用」的来源（如账号 config 里记的 `qqPid`），**绝不能**
+   * 是刚刚被本次流程写成当前 pid 的值，否则判据恒真、失去意义。
+   */
+  pid?: number | null;
+  /** 账号 uid（`u_...`）。 */
+  uid?: string | null;
+  /** 设备 guid（32 位小写 hex）。 */
+  guid?: string | null;
+}
+
+/**
+ * 直接用本地账号配置里**已经存下的**会话物料登记原生 SSO 会话 —— **不读内存、
+ * 不提权**。这是「本地凭据齐全时不再弹提权」的落点。
+ *
+ * 只在物料三件套齐全、身份齐全、且这份物料正是从 `pid` 读出来（`material.pid`
+ * 或兜底的 `stored.pid` === `pid`）时才复用：pid 对不上说明 QQ 重启过、旧密钥已随
+ * 旧进程失效，这时返回 `false`，交给调用方回退到读内存那条路。
+ *
+ * 返回 `true` = 已登记，`false` = 没登记（调用方继续 attach）。`setSsoSession`
+ * 自身抛错时也返回 `false`（{@link registerSsoSession} 内部已兜底）。
+ */
+export async function registerSsoSessionFromStored(
+  nt: Pick<NtHelperBinding, 'setSsoSession'>,
+  platform: Pick<Platform, 'qqWrapperNodePath'>,
+  pid: number,
+  uin: string,
+  stored: StoredSsoMaterial,
+): Promise<boolean> {
+  const { material } = stored;
+  if (!material?.a2 || !material.d2 || !material.d2Key) return false;
+  // session.pid 是权威判据；老记录没有它时退到调用方给的 pid（见 StoredSsoMaterial.pid）。
+  if ((material.pid ?? stored.pid ?? null) !== pid) return false;
+  const uid = stored.uid ?? '';
+  const guid = stored.guid ?? '';
+  if (!uid || !guid) return false;
+  return registerSsoSession(nt, platform, pid, { uin, uid, guid }, material);
+}
+
 /**
  * 一次把「读内存拿物料」和「登记 SSO 会话」做完 —— 所有「先 attach 再发包」
  * 的流程（登录取密钥、妙妙工具的其它设备密钥、账号 monitor 采集）都走这一步。

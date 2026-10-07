@@ -411,8 +411,13 @@ export interface ConvertFontOptions {
  * 打开、BPF 已装、读循环即将开始才 resolve），否则异步回来的首包会漏。
  */
 export interface CaptureOptions {
-  /** d2key（32 字符 hex）。省略时回退到该 pid 已登记的 `setSsoSession` 物料。 */
-  d2key?: string;
+  /**
+   * d2key（32 字符 hex）。省略时回退到该 pid 已登记的 `setSsoSession` 物料。
+   *
+   * ⚠️ 字段名是 **`d2Key`**（不是 `d2key`）：napi 把 Rust 的 `d2key` 转成 `d2Key`
+   * （数字与字母之间算词边界）。写成 `d2key` 会被**静默忽略**，于是密文全部解不开。
+   */
+  d2Key?: string;
   /** 抓包接口：默认 `auto`（自动选默认路由出口网卡）。 */
   iface?: string;
   /** MSF 端口：默认 `auto`（持续按帧签名识别）；也可 `14000` / `14000,443,80` / `auto,443`。 */
@@ -499,6 +504,14 @@ export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
   setLogPath(path: string): void;
+  /**
+   * 打开 / 关闭底层调试日志模式（运行时可调，无需重启）。**默认关闭**：不打印、
+   * 不写额外的原始数据。打开后日志级别抬到 `trace`，并把收发包等原始字节整段写进
+   * nt_helper 日志（供日志面板查看）。数据量非常大，仅供临时排查，用完请立刻关掉。
+   */
+  setDebugLog(enabled: boolean): void;
+  /** 当前底层调试日志模式是否打开。 */
+  isDebugLogEnabled(): boolean;
 
   // --- login detection ---
   /**

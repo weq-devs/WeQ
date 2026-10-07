@@ -14,7 +14,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { initAppContext, setGroupKeywordNotifier } from './context/app_context';
+import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
@@ -28,12 +28,14 @@ import {
 } from './protocol_register';
 import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
+import { handleRecallNotification } from './recall_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
 import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
+import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
 import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -577,6 +579,8 @@ void app.whenReady().then(async () => {
   // 群关键词命中：弹系统通知（群头像）+ 写 unread 2006 高亮。服务层不认识
   // Electron，所以实现注入在这里（app_context 保持 Electron-free）。
   setGroupKeywordNotifier(handleGroupKeywordHit);
+  // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
+  setRecallNotifier(handleRecallNotification);
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
@@ -670,4 +674,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   void stopMcpServer();
   void disposeExternalMcp();
+  // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
+  // 自己收尾，这里只是不让它多活一拍）。
+  disposeElevatedCaptures();
 });

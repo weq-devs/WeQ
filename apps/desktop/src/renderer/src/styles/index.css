@@ -15786,6 +15786,749 @@ html[data-theme="dark"] .weq-wtools-rv-empty {
   border-color: rgba(255, 255, 255, 0.12);
   color: #7b8794;
 }
+
+/* ─── 妙妙工具：ntqq 抓包（reqable 版式）────────────────────────────────────
+ * 一屏三横条 + 左右分栏，分隔全靠 hairline：
+ *   工具条 │ 提示条 │ ┌ 会话表（过滤条 / 表头 / 行 / 底栏）┬ 详情（头 / Tab / 正文）┐
+ * 视觉口径（刻意避开「一堆圆角胶囊」）：
+ *   - 卡片、药丸、大圆角一律不用；选中态是「左侧 2px 强调色竖条 + 淡底」；
+ *   - Tab 是下划线，不是填充块；按钮是方角细边框（3px），只有主操作填色；
+ *   - 状态/方向是方角小字标签（2px），等宽数字，行高 25px 的表格式密排。
+ * 颜色：浅色 / 深色只改下面那组局部变量，规则本身不分主题。
+ * ──────────────────────────────────────────────────────────────────────── */
+.weq-cap {
+  --cap-bg: #fff;
+  --cap-head-bg: #fafbfc;
+  --cap-line: var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  --cap-line-strong: color-mix(in srgb, var(--weq-fg-primary) 18%, transparent);
+  --cap-fill: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  --cap-sel: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  --cap-code-bg: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+  --cap-up: #2f7dd1;
+  --cap-down: #17976a;
+  --cap-bad: #c0392b;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--cap-bg);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+}
+
+html[data-theme="dark"] .weq-cap {
+  --cap-bg: #161a20;
+  --cap-head-bg: #1b2027;
+  --cap-line: rgba(255, 255, 255, 0.08);
+  --cap-line-strong: rgba(255, 255, 255, 0.18);
+  --cap-fill: rgba(255, 255, 255, 0.06);
+  --cap-sel: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  --cap-code-bg: rgba(255, 255, 255, 0.045);
+  --cap-up: #6cb6f5;
+  --cap-down: #46cf9a;
+  --cap-bad: #ff8b8b;
+}
+
+/* ── ① 工具条：一行到底，横向不换行 ───────────────────────────────── */
+.weq-cap-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--cap-line);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.weq-cap-led {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--weq-fg-muted);
+}
+.weq-cap-led.is-live {
+  background: #18a058;
+  animation: weq-help-pulse 1.6s ease-in-out infinite;
+}
+
+/* 环境串与计数可以先让步（截断），把宽度留给右侧的按钮 —— 窗口窄时不该把
+ * 「开始 / 停止」挤出可视区。 */
+.weq-cap-env {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-cap-metrics {
+  display: inline-flex;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-metrics b {
+  color: var(--weq-fg-secondary);
+  font-weight: 600;
+}
+.weq-cap-metrics .is-warn,
+.weq-cap-metrics .is-warn b {
+  color: var(--weq-warn-fg);
+}
+
+.weq-cap-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-cap-tag {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--weq-fg-muted);
+}
+.weq-cap-tag.is-ok {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-cap-tag.is-bad {
+  color: var(--cap-bad);
+  border-color: color-mix(in srgb, var(--cap-bad) 45%, transparent);
+  background: color-mix(in srgb, var(--cap-bad) 9%, transparent);
+}
+
+.weq-cap-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+}
+.weq-cap-acct select {
+  height: 24px;
+  max-width: 200px;
+  padding: 0 6px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 11.5px;
+}
+.weq-cap-acct select:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-cap-btn,
+.weq-cap-iconbtn {
+  flex: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.weq-cap-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--cap-line-strong);
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+.weq-cap-btn:hover:not(:disabled) {
+  background: var(--cap-fill);
+  color: var(--weq-fg-primary);
+}
+.weq-cap-btn.is-primary {
+  border-color: transparent;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-weight: 600;
+}
+.weq-cap-btn.is-primary:hover:not(:disabled) {
+  background: var(--weq-accent-effective);
+  color: #fff;
+  filter: brightness(1.07);
+}
+.weq-cap-btn.is-primary.is-pause {
+  border-color: var(--weq-accent-effective);
+  background: transparent;
+  color: var(--weq-accent-effective);
+}
+.weq-cap-btn.is-tiny {
+  height: 19px;
+  padding: 0 7px;
+  font-size: 10.5px;
+}
+.weq-cap-iconbtn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  color: var(--weq-fg-muted);
+}
+.weq-cap-iconbtn:hover:not(:disabled) {
+  background: var(--cap-fill);
+  color: var(--weq-fg-primary);
+}
+.weq-cap-btn:disabled,
+.weq-cap-iconbtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── ② 提示条（Npcap / 提权 / 缺 d2key / 错误）───────────────────── */
+.weq-cap-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  flex: none;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--cap-line);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.weq-cap-banner svg {
+  flex: none;
+  margin-top: 2px;
+}
+.weq-cap-banner.is-warn {
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+}
+.weq-cap-banner.is-error {
+  background: color-mix(in srgb, #d64545 8%, transparent);
+  color: var(--cap-bad);
+}
+.weq-cap-link {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ── ③ 主体：左表 + 可拖分隔条 + 右详情 ──────────────────────────── */
+.weq-cap-split {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-cap-grip {
+  cursor: col-resize;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  background: var(--cap-line);
+  background-clip: content-box;
+}
+.weq-cap-grip:hover,
+.weq-cap-split.is-dragging .weq-cap-grip {
+  background: var(--weq-accent-effective);
+  background-clip: content-box;
+}
+
+/* 左：过滤条 + 表 + 底栏 */
+.weq-cap-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.weq-cap-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--cap-line);
+}
+.weq-cap-seg {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 3px;
+}
+.weq-cap-seg-btn {
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--cap-line-strong);
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.weq-cap-seg-btn:first-child {
+  border-left: 0;
+}
+.weq-cap-seg-btn:hover {
+  background: var(--cap-fill);
+  color: var(--weq-fg-primary);
+}
+.weq-cap-seg-btn.is-on {
+  background: var(--cap-sel);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+.weq-cap-search {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 11.5px;
+}
+.weq-cap-search:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+}
+.weq-cap-search::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-cap-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.weq-cap-row {
+  display: grid;
+  grid-template-columns: 44px 40px minmax(0, 1fr) 46px 88px 76px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 25px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--cap-line);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-cap-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-cap-row.is-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 24px;
+  background: var(--cap-head-bg);
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  cursor: default;
+}
+.weq-cap-row:not(.is-head):hover {
+  background: var(--cap-fill);
+}
+.weq-cap-row.is-sel {
+  background: var(--cap-sel);
+  box-shadow: inset 2px 0 0 var(--weq-accent-effective);
+  color: var(--weq-fg-primary);
+}
+.weq-cap-row .is-id {
+  color: var(--weq-fg-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-row .is-dir {
+  display: inline-flex;
+  align-items: center;
+}
+.weq-cap-row .is-dir.is-c2s {
+  color: var(--cap-up);
+}
+.weq-cap-row .is-dir.is-s2c {
+  color: var(--cap-down);
+}
+.weq-cap-row .is-dir.is-both {
+  color: var(--weq-fg-muted);
+}
+.weq-cap-row .is-cmd {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  color: var(--weq-fg-primary);
+}
+.weq-cap-row .is-seq,
+.weq-cap-row .is-time,
+.weq-cap-row .is-size {
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-row .is-size {
+  text-align: right;
+}
+.weq-cap-row .is-size.is-bad {
+  color: var(--cap-bad);
+}
+.weq-cap-row.is-head .is-size {
+  text-align: left;
+}
+
+.weq-cap-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-top: 1px solid var(--cap-line);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-cap-empty {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  padding: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+.weq-cap-empty.is-detail {
+  height: 100%;
+}
+
+/* 右：详情头 + Tab + 正文 */
+.weq-cap-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-cap-detail-inner {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.weq-cap-dhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--cap-line);
+}
+.weq-cap-dir-tag {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.weq-cap-dir-tag.is-c2s {
+  color: var(--cap-up);
+}
+.weq-cap-dir-tag.is-s2c {
+  color: var(--cap-down);
+}
+.weq-cap-dcmd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-cap-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--cap-line);
+}
+.weq-cap-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.weq-cap-tab em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-tab:hover {
+  color: var(--weq-fg-primary);
+}
+.weq-cap-tab.is-on {
+  border-bottom-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+/* 上面那排是「发包 / 收包」（对应 reqable 的请求 / 响应），用中性下划线；
+ * 强调色只留给下面那排数据视图，免得两条强调线打架。 */
+.weq-cap-tabs.is-primary .weq-cap-tab {
+  font-size: 12px;
+}
+.weq-cap-tabs.is-primary .weq-cap-tab.is-on {
+  border-bottom-color: var(--weq-fg-primary);
+  color: var(--weq-fg-primary);
+}
+.weq-cap-tabs-meta {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+}
+.weq-cap-state {
+  padding: 1px 5px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 2px;
+  color: var(--weq-fg-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.weq-cap-state.is-decrypted {
+  color: var(--cap-down);
+  border-color: color-mix(in srgb, var(--cap-down) 45%, transparent);
+  background: color-mix(in srgb, var(--cap-down) 10%, transparent);
+}
+.weq-cap-state.is-failed {
+  color: var(--cap-bad);
+  border-color: color-mix(in srgb, var(--cap-bad) 45%, transparent);
+  background: color-mix(in srgb, var(--cap-bad) 9%, transparent);
+}
+
+/* 正文区自己是 flex 列：里面若塞的是 hexdump，则「dump 盒子自己滚、页脚（复制
+ * 按钮）常驻可见」；若是键值表 / 提示，则照旧整栏滚。
+ * 注意 chain 上每一层都要 min-height:0 —— flex 子项默认 min-height:auto，会被
+ * 内容顶高，把页脚推出可视区（以前就是这个症状：复制按钮点不到）。 */
+.weq-cap-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow: auto;
+}
+
+/* 详情根：Tab 条固定，正文占满剩余高度（不撑破父级）。 */
+.weq-cap-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-cap-kv {
+  display: grid;
+  grid-template-columns: minmax(64px, 104px) minmax(0, 1fr);
+  border-top: 1px solid var(--cap-line);
+}
+.weq-cap-kv-row {
+  display: contents;
+}
+.weq-cap-kv-k {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--cap-line);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+.weq-cap-kv-v {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--cap-line);
+  color: var(--weq-fg-primary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.weq-cap-decoded {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.weq-cap-decoded-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.weq-cap-kind {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 2px;
+  color: var(--weq-fg-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.weq-cap-kind.is-protobuf {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-cap-kind.is-jce {
+  color: var(--cap-down);
+  border-color: color-mix(in srgb, var(--cap-down) 45%, transparent);
+  background: color-mix(in srgb, var(--cap-down) 10%, transparent);
+}
+.weq-cap-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+/* 11px 是「16 字节 + 偏移 + ASCII」刚好塞进默认分栏宽度的字号；再大就要横向滚。 */
+.weq-cap-hexdump {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+/* dump 本体是**唯一**的滚动区：页脚（大小 / 显示全部 / 复制）常驻在下面。 */
+.weq-cap-hexdump-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--cap-line);
+  border-radius: 3px;
+  background: var(--cap-code-bg);
+}
+.weq-cap-hx-line {
+  display: flex;
+  gap: 12px;
+  white-space: pre;
+}
+.weq-cap-hx-off {
+  flex: none;
+  color: var(--weq-fg-muted);
+}
+.weq-cap-hx-hex {
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+.weq-cap-hx-ascii {
+  color: var(--weq-fg-muted);
+}
+.weq-cap-hexdump-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-cap-more {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--cap-line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  cursor: pointer;
+}
+.weq-cap-more:hover {
+  background: var(--cap-fill);
+}
+
+.weq-cap-note {
+  padding: 12px 2px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+/* 抓包要「表 + 详情」两个宽栏，弹窗放大一档；正文区去掉内边距、全出血、不自己滚。 */
+.weq-wtools-dialog.is-capture {
+  width: min(1240px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 72px));
+}
+.weq-wtools-pane-body.is-flush {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+.weq-wtools-pane-body.is-flush > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* ────────────────────────────────────────────────────────────────────────
  * 数据库修复（妙妙工具 → 数据库修复）
  *
@@ -19339,6 +20082,33 @@ html[data-theme="dark"] .weq-search-skeleton-line {
   align-items: center;
   gap: 8px;
   flex: none;
+}
+
+/* 底层调试模式开启时的警示条：提醒用户日志会暴涨，别一直开着。 */
+.weq-help-log-debug-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #92400e;
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
+}
+
+.weq-help-log-debug-warn svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.weq-help-log-debug-warn strong {
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .weq-help-log-debug-warn {
+  color: #fcd34d;
 }
 
 .weq-help-log-meta {
@@ -24468,7 +25238,16 @@ html[data-theme="dark"] .weq-mf-mall-card {
   color: #e5484d;
 }
 
+/* 关键词编辑器本体（灯箱页 / 会话设置内嵌共用）：只管纵向排布，内边距与滚动交给载体。 */
 .group-keyword-editor {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* 单个关键词展开后的成员范围面板。 */
+.group-keyword-editor-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -24671,4 +25450,280 @@ html[data-theme="dark"] .weq-mf-mall-card {
 
 .group-keyword-done:hover {
   filter: brightness(1.06);
+}
+
+/* ── 防撤回面板（更多 → 防撤回）────────────────────────────────────────── */
+
+/* 比群关键词灯箱宽一号；多一行页签，所以行模板要显式加一格。 */
+.weq-ar-dialog {
+  width: min(600px, calc(100vw - 48px));
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.weq-ar-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-ar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.weq-ar-tab:hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-ar-tab.is-on {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  box-shadow: inset 0 -2px 0 var(--weq-accent-effective);
+}
+
+.weq-ar-body {
+  gap: 14px;
+}
+
+.weq-ar-records {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-ar-record {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.weq-ar-record:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
+}
+
+.weq-ar-record > svg {
+  flex: none;
+  color: var(--weq-fg-muted);
+}
+
+.weq-ar-record-meta {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.weq-ar-record-meta strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-ar-record-meta small {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-ar-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 34px 16px;
+  color: var(--weq-fg-muted);
+  text-align: center;
+}
+
+.weq-ar-empty svg {
+  color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+.weq-ar-empty small {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ── 会话设置（会话头部顶栏的设置按钮）──────────────────────────────────── */
+
+/* 比照设置页的大窗口：左侧分类导航 + 右侧内容，高度固定、内容各自滚动。
+   群关键词直接内嵌在这一页里编辑，不再另开灯箱。 */
+.weq-cvs-dialog {
+  position: relative;
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  width: min(864px, calc(100vw - 48px));
+  height: min(600px, calc(100vh - 80px));
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+    var(--weq-bg-surface)
+  );
+  box-shadow: var(--weq-shadow-card);
+  backdrop-filter: blur(18px);
+  -webkit-app-region: no-drag;
+}
+
+.weq-cvs-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+}
+
+.weq-cvs-close:hover,
+.weq-cvs-close:focus-visible {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  color: var(--weq-fg-primary);
+  outline: none;
+}
+
+.weq-cvs-nav {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 18px 10px;
+  border-right: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, var(--weq-bg-elevated));
+}
+
+.weq-cvs-nav-head {
+  display: grid;
+  gap: 3px;
+  margin: 0 8px 14px;
+}
+
+.weq-cvs-nav-head strong {
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-cvs-nav-head span {
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cvs-nav ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-cvs-nav-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-cvs-nav-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.weq-cvs-nav-item.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-cvs-nav-icon {
+  display: inline-flex;
+}
+
+.weq-cvs-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.weq-cvs-body-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+  /* 右侧留出关闭按钮的位置。 */
+  padding: 18px 48px 12px 22px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-cvs-body-head strong {
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-cvs-body-head span {
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cvs-body-state {
+  margin-left: auto;
+  color: var(--weq-fg-tertiary);
+  font-size: 12px;
+}
+
+.weq-cvs-body-scroll {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px 22px 20px;
 }

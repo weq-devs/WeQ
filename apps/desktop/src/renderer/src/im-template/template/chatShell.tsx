@@ -37,6 +37,7 @@ export function ChatShell({
   onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
   onOpenInvite,
   onOpenWonderfulTools,
+  onOpenAntiRecall,
   onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
@@ -79,6 +80,7 @@ export function ChatShell({
   onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
+  onOpenAntiRecall: () => void;
   onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
@@ -113,6 +115,7 @@ export function ChatShell({
           onOpenHelp={onOpenHelp}
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
+          onOpenAntiRecall={onOpenAntiRecall}
           onOpenDbRepair={onOpenDbRepair}
           onOpenGuildDirect={onOpenGuildDirect}
           onOpenQzoneAlbum={onOpenQzoneAlbum}

@@ -147,10 +147,11 @@ export { AccountMonitorService } from './account/monitor';
 export {
   attachAndRegisterSsoSession,
   registerSsoSession,
+  registerSsoSessionFromStored,
   resolveDeviceGuid,
   PC_SUB_APP_ID,
 } from './account/sso_session';
-export type { SsoIdentity } from './account/sso_session';
+export type { SsoIdentity, StoredSsoMaterial } from './account/sso_session';
 export {
   MediaDownloadService,
   PRIVATE_IMAGE_RKEY_TYPE,
@@ -271,7 +272,13 @@ export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
-export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
+export type {
+  AntiRecallConfig,
+  AntiRecallStatus,
+  AntiRecallOptions,
+  RecallNotifyEvent,
+} from './account/anti_recall';
+export { notifyKey } from './account/anti_recall';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
 export type {
   MergeForwardDraft,

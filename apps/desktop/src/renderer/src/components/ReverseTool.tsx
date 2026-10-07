@@ -112,6 +112,45 @@ function rvItemKey(obj: object): string {
 }
 
 // ---------------------------------------------------------------------------
+// 复用出口（ntqq 抓包等面板）
+// ---------------------------------------------------------------------------
+
+/**
+ * 把一段字节解析成 `{tag: value}` 树：protobuf 优先，JCE 兜底，最后再试
+ * 「自动剥离 QQ 长度前缀」。全部失败返回 null。
+ */
+export function decodeAnyBytes(
+  bytes: Uint8Array,
+): { nodes: RvNode[]; kind: 'protobuf' | 'jce' } | null {
+  if (bytes.length === 0) return null;
+  const proto = tryDecodeProtobuf(bytes);
+  if (proto) return { nodes: proto, kind: 'protobuf' };
+  const jce = tryDecodeJce(bytes);
+  if (jce) return { nodes: jce, kind: 'jce' };
+  const stripped = tryDecodeAfterLengthPrefix(bytes);
+  if (stripped) return { nodes: stripped.nodes, kind: stripped.kind };
+  return null;
+}
+
+/**
+ * 复用的解析树：把 `decodeAnyBytes` / `decodeProtobuf` 的结果渲染成
+ * 自动展开嵌套的 `{tag: value}` 树。`detail` 打开后每个值旁再给出转换按钮。
+ */
+export function RvTree({
+  nodes,
+  detail = false,
+}: {
+  nodes: RvNode[];
+  detail?: boolean;
+}): ReactElement {
+  return (
+    <DetailCtx.Provider value={detail}>
+      <RvObject nodes={nodes} path="root" depth={0} comma={false} />
+    </DetailCtx.Provider>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 主面板
 // ---------------------------------------------------------------------------
 

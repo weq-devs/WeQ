@@ -132,6 +132,9 @@ export {
   LONG_MSG_RESULT,
 } from './get-forward';
 
+export { RecallGroup, RecallPrivate } from './recall';
+export type { RecallGroupParams, RecallPrivateParams } from './recall';
+
 export { dumpProto, walkProto, extractPath, protoToJson } from './dump';
 export type {
   DumpOptions,

@@ -27,6 +27,7 @@ import {
   Mic,
   Rocket,
   SendHorizontal,
+  Settings2,
   Zap,
   Share2,
   Smile,
@@ -35,6 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -311,6 +313,7 @@ export function ChatPane({
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
   onOpenGroupKeyword,
+  onOpenConversationSettings,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -402,6 +405,10 @@ export function ChatPane({
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupKeyword?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
+  onOpenConversationSettings?: (
+    conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
+  ) => void;
   onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
@@ -1419,7 +1426,15 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
   }
 
-  /** 头像菜单「戳一戳」：群聊戳成员 / 私聊戳对方（OIDB 0xED3_1）。 */
+  /**
+   * 头像菜单「戳一戳」：群聊戳成员 / 私聊戳对方或**自己**（OIDB 0xED3_1）。
+   *
+   * 被戳的人在协议里是 `uin`、AIO 是 `friendUin`，两者可以不同（SnowLuma 的
+   * friend poke 就是 `uin = targetUin ?? peerUin`、`friendUin = peerUin`；群聊
+   * 也是同一套形状 —— 群号 + 被戳成员）。所以右键**自己的**头像时，`friendUin`
+   * 仍填对方、被戳人换成自己 = 戳自己。之前私聊分支把被戳人写死成对方，导致
+   * 戳自己也会戳到对方。
+   */
   function pokeAvatar(sender: User) {
     setAvatarMenu(null);
     if (!conversation) {
@@ -1429,10 +1444,19 @@ export function ChatPane({
       conversation.type === 'group'
         ? conversation.group.identityValue
         : conversation.otherUser.identityValue;
+    // 私聊里「被戳的人」可能是对方，也可能是我（右键自己的头像）。sender 是
+    // 已解析好的 User：命中「自己」的身份集合（`self:<uin>` / uin / uid）即戳自己。
+    const pokingSelf =
+      conversation.type === 'direct' &&
+      isSelfIdentity(new Set(selfIdentityValues(user)), sender.id);
     const params =
       conversation.type === 'group'
         ? { peerType: 'group' as const, targetId, targetUin: sender.identityValue }
-        : { peerType: 'c2c' as const, targetId };
+        : {
+            peerType: 'c2c' as const,
+            targetId,
+            ...(pokingSelf ? { targetUin: user.identityValue } : {}),
+          };
     sendPoke.mutate(params, {
       onSuccess: () => {
         pushToast({ tone: 'success', message: '戳一戳已发出' });
@@ -3105,6 +3129,17 @@ export function ChatPane({
               onClick={() => onOpenBuddyAnalytics?.(conversation)}
             >
               <BarChart3 size={18} />
+            </button>
+          ) : null}
+          {onOpenConversationSettings &&
+          (conversation.type === 'group' || conversation.type === 'direct') ? (
+            <button
+              className={cn('icon-button', 'group-header-info-action')}
+              type="button"
+              title="会话设置"
+              onClick={() => onOpenConversationSettings?.(conversation)}
+            >
+              <Settings2 size={18} />
             </button>
           ) : null}
         </div>
