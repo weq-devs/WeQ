@@ -41,31 +41,6 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
-/**
- * A persisted "this pid is already hook-injected" record (linux only).
- *
- * The linux inject is expensive: a sudo password dialog + an exclusive
- * ptrace attach. The in-memory injectHook caches which pids are injected, but a
- * WeQ restart loses that — so without persistence WeQ would re-inject an
- * already-hooked, still-running QQ (popping the password dialog again and racing
- * the hook's control pipe). We persist the record here keyed by pid and prune it
- * when the pid is gone (see {@link UserConfigService.pruneInjectRecords}).
- *
- * `startTime` is the process start time (jiffies from `/proc/<pid>/stat`) taken
- * at inject time. pids are recycled by the kernel, so on reuse we compare the
- * live start time against this one; a mismatch means "different process, same
- * number" and the record is treated as stale.
- */
-export interface InjectRecord {
-  pid: number;
-  /** `/proc/<pid>/stat` field 22 (starttime, in clock ticks) at inject time. */
-  startTime: string;
-  /** The account uin the hook was injected with (diagnostics / reuse checks). */
-  uin: string;
-  /** Epoch ms when the record was written — diagnostics only. */
-  injectedAt: number;
-}
-
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
@@ -409,13 +384,14 @@ export interface LinkPreviewConfig {
 export interface AppSettings {
   realtimeEnabled: boolean;
   /**
-   * 完全离线总闸（设置 → 账号基础 → 自动注入 QQ）。
-   * 默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey / 装扮快照等
-   * 凭证，驱动媒体补全、群相册、Web 凭证（skey/pskey）等在线功能。
-   * 关闭后进入完全离线模式：不再注入、不再采集、不再联网换取凭证，
+   * 完全离线总闸（设置 → 账号基础 → 自动 attach QQ）。
+   * 默认开启：后台自动读登录中的 QQ 进程内存，采集 a2 / d2 / d2key 与
+   * rKey / ClientKey / 装扮快照等凭证，驱动媒体补全、群相册、Web 凭证
+   * （skey/pskey）等在线功能。
+   * 关闭后进入完全离线模式：不再读内存、不再采集、不再联网换取凭证，
    * 仅使用本地数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
-  autoInjectQq: boolean;
+  autoAttachQq: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -479,9 +455,9 @@ export interface AppSettings {
    *
    * 注意语义边界：它**只静音引导弹窗**，不代表"跳过直连、直接要密码"。直连尝试
    * 永远在提权之前发生——用户即使勾过这里，只要 ptrace_scope 已经放开就仍然免密；
-   * 顺序由 `bootstrap/ptrace_flow.ts` 的 `runUnprivilegedInject` 钉住。
+   * 顺序由 `bootstrap/attach_flow.ts` 的 `runUnprivilegedAttach` 钉住。
    */
-  suppressPtraceHint: boolean;
+  suppressAttachHint: boolean;
   /**
    * 数据库损坏弹窗是否不再提醒。用户点「不再提醒」后写入全局配置；之后健康检查
    * 仍照常执行并生成报告，但不再弹出提醒。
@@ -670,7 +646,7 @@ export function normalizeGroupKeywordRules(raw: unknown): Record<string, GroupKe
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
-  autoInjectQq: true,
+  autoAttachQq: true,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
@@ -690,7 +666,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
   groupKeyword: { rules: {} },
-  suppressPtraceHint: false,
+  suppressAttachHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
@@ -712,13 +688,6 @@ export interface UserConfig {
    * 写在这里，之后恒定复用——见 {@link UserConfigService.getWeqAssistantUid}。
    */
   weqAssistantUid?: string;
-  /**
-   * Persisted hook-inject records (linux only), keyed by pid-as-string. Survives
-   * a WeQ restart so an already-injected, still-running QQ isn't re-injected
-   * (which would re-prompt for the password + race the hook pipe). Pruned
-   * against live processes on startup and before each inject decision.
-   */
-  injectRecords?: Record<string, InjectRecord>;
   /**
    * 导出中心最近一次使用的灯箱配置（按模式缓存）。下次打开面板时自动回填，
    * 省去每次重新勾选。纯 UI 缓存，不影响导出流程本身。
@@ -755,14 +724,12 @@ export function planDbDamageReminderPolicyReset(config: UserConfig): Partial<Use
 }
 
 export class UserConfigService {
-  private readonly platform: Platform;
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Platform) {
-    this.platform = platform;
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
     this.runConfigMigrations();
@@ -853,63 +820,6 @@ export class UserConfigService {
     this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
   }
 
-  // ---- persisted hook-inject records (linux) ----
-
-  /** All persisted inject records, keyed by pid-as-string. */
-  getInjectRecords(): Record<string, InjectRecord> {
-    return this.read().injectRecords ?? {};
-  }
-
-  /** The record for `pid`, or null if none is stored. */
-  getInjectRecord(pid: number): InjectRecord | null {
-    return this.getInjectRecords()[String(pid)] ?? null;
-  }
-
-  /** Upsert the inject record for a pid (merges over any existing fields). */
-  setInjectRecord(record: InjectRecord): void {
-    const records = { ...this.getInjectRecords(), [String(record.pid)]: record };
-    this.write({ injectRecords: records });
-    this.logger.info('stored inject record', {
-      event: 'inject-record-set',
-      pid: record.pid,
-      uin: record.uin,
-    });
-  }
-
-  /** Drop the record for a single pid (e.g. its hook pipe died). */
-  deleteInjectRecord(pid: number): void {
-    const records = this.getInjectRecords();
-    if (!(String(pid) in records)) return;
-    delete records[String(pid)];
-    this.write({ injectRecords: records });
-    this.logger.info('deleted inject record', { event: 'inject-record-delete', pid });
-  }
-
-  /**
-   * Drop every record whose pid is no longer alive (or was recycled to a
-   * different process — detected by a start-time mismatch). `liveStartTimes`
-   * maps a currently-running pid to its `/proc/<pid>/stat` starttime; a pid
-   * absent from the map is treated as dead. Returns the pruned records map.
-   */
-  pruneInjectRecords(liveStartTimes: Map<number, string>): Record<string, InjectRecord> {
-    const records = this.getInjectRecords();
-    let changed = false;
-    for (const [key, rec] of Object.entries(records)) {
-      const live = liveStartTimes.get(rec.pid);
-      if (live === undefined || live !== rec.startTime) {
-        delete records[key];
-        changed = true;
-        this.logger.info('pruned stale inject record', {
-          event: 'inject-record-prune',
-          pid: rec.pid,
-          reason: live === undefined ? 'pid-dead' : 'pid-recycled',
-        });
-      }
-    }
-    if (changed) this.write({ injectRecords: records });
-    return records;
-  }
-
   read(): UserConfig {
     if (this.cached) return this.cached;
     let raw: string;
@@ -970,14 +880,24 @@ export class UserConfigService {
   getSettings(): AppSettings {
     const s = this.read().settings;
     const d = DEFAULT_APP_SETTINGS;
-    // macOS 不支持注入（SIP 限制），此开关恒为 false：即使旧配置（从
-    // win/linux 迁移或手动篡改）里存了 true，也在这里归一化掉，保证
-    // 「完全离线」行为在 macOS 上不可绕过。
-    const autoInjectQq =
-      this.platform.kind === 'darwin' ? false : (s?.autoInjectQq ?? d.autoInjectQq);
+    // 三端现在都能读内存：macOS 需要 root **且**目标未开启强化运行时保护
+    // （QQ 已开启，所以要先关 SIP），但门槛只是「能不能读」，不再是平台开关 ——
+    // 由用户在设置里自己决定，这里不再按平台归一化。
+    //
+    // 兼容旧键名：这个开关历史上叫 `autoInjectQq`（注入时代），旧配置里存的
+    // 是那个键，读的时候一并认，免得升级后被静默重置成默认值。
+    const legacyAutoAttachQq = (s as { autoInjectQq?: boolean } | undefined)?.autoInjectQq;
+    const autoAttachQq = s?.autoAttachQq ?? legacyAutoAttachQq ?? d.autoAttachQq;
+    //
+    // 同一个道理：这个开关原名 `suppressPtraceHint`（把「引导提权」笼统叫成 ptrace），
+    // 改名后旧配置里仍是原名，读的时候一并认，勾过「不再提醒」的用户不该被重置。
+    const legacySuppressAttachHint = (s as { suppressPtraceHint?: boolean } | undefined)
+      ?.suppressPtraceHint;
+    const suppressAttachHint =
+      s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
-      autoInjectQq,
+      autoAttachQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1012,7 +932,7 @@ export class UserConfigService {
       groupKeyword: {
         rules: normalizeGroupKeywordRules(s?.groupKeyword?.rules),
       },
-      suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
+      suppressAttachHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
@@ -1052,12 +972,11 @@ export class UserConfigService {
 
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
-    // macOS: 注入不可用，开关写不进 true（写 false 也恒为 false）。
-    const autoInjectQq =
-      this.platform.kind === 'darwin' ? false : (patch.autoInjectQq ?? current.autoInjectQq);
+    // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
+    const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
-      autoInjectQq,
+      autoAttachQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,
@@ -1107,7 +1026,7 @@ export class UserConfigService {
             ? normalizeGroupKeywordRules(patch.groupKeyword.rules)
             : current.groupKeyword.rules,
       },
-      suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
+      suppressAttachHint: patch.suppressAttachHint ?? current.suppressAttachHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
@@ -1145,7 +1064,7 @@ export class UserConfigService {
       event: 'set-settings',
       patchKeys: Object.keys(patch),
       realtimeEnabled: next.realtimeEnabled,
-      autoInjectQq: next.autoInjectQq,
+      autoAttachQq: next.autoAttachQq,
       autoLockMinutes: next.autoLockMinutes,
       voiceModelId: next.voiceTranscribe.modelId,
       ttsProviderCount: next.voiceTranscribe.ttsProviders.length,

@@ -129,18 +129,17 @@ export function LoginPanel({
         // The db path is resolved server-side from uin via the platform, so we
         // never build an OS-specific path here (that leaked `\` onto linux).
 
-        // macOS：在线实例不注入 hook（SIP），改为提权扫内存直接恢复密钥；
-        // 扫不到再引导「解除 SIP 重试 / 杀掉 QQ 重启取密钥」。
+        // macOS：**先看 SIP** —— 开着就直接跳过内存扫描、改走 NineBird（不读内存）；
+        // 关着才提权扫内存，扫不到再回退到 NineBird。见 acquireMac。
         if (isMac) {
           await acquireMac(pid, selected);
           return; // key set, or the dialog flow ended
         }
 
         // Linux: the alive-instance path goes through the sudo-elevated
-        // inject first (self-drawn password dialog, untimed) and then the key
-        // fetch — the
-        // native inject already waits for the hook to bind the MSFService
-        // instance, so there is no packet-wait race on the fetch anymore.
+        // attach first (self-drawn password dialog, untimed) and then the key
+        // fetch — reading the session material needs no packet round-trip,
+        // so there is no packet-wait race on the fetch anymore.
         // Windows keeps the direct path.
         if (isLinux) {
           await acquireFromInstanceLinux(pid, selected);
@@ -181,69 +180,97 @@ export function LoginPanel({
   }
 
   /**
-   * macOS 在线实例取密钥：
-   *   1. 弹管理员密码框（ninebird 安装同款），提权扫 QQ 进程内存恢复 dbkey；
-   *   2. 扫描失败 → 弹窗说明该账号在线 + pid，需要解除 SIP，可选「确认重启」；
-   *   3. 确认重启 → 先查 NineBird 是否已装（已装不重复安装），未装则弹安装
-   *      密码框提权安装，然后走 quick-login 拉起 QQ 取 dbkey + p_skey 等凭据
-   *      （与 win/linux 的登录流程共用同一套 loader）。
+   * macOS 在线实例取密钥。
+   *
+   * 读内存的硬门槛是 **SIP**，不是密码：SIP 开着时 `task_for_pid` 连 root 都拒
+   * （QQ 带强化运行时），所以**先问 SIP 再决定**——
+   *   1. SIP 开着 → 不问密码、不扫内存，直接改走 NineBird（扫码 / 快登那条不读
+   *      内存的路）；
+   *   2. SIP 已关闭 → 弹管理员密码框提权扫内存；扫不到再回退到 NineBird；
+   *   3. 走 NineBird：先查是否已装（已装不重复安装），未装则弹安装密码框提权安装，
+   *      然后 quick-login 拉起 QQ 取 dbkey + p_skey 等凭据（与 win/linux 的登录流程
+   *      共用同一套 loader）。
    */
   async function acquireMac(pid: number, acc: UiAccount): Promise<void> {
-    // Step 1 —— 提权扫内存。
-    setStatus('正在扫描 QQ 进程内存（需要管理员权限）…');
-    const password = await promptPassword(
-      '获取数据库密钥',
-      '需要管理员权限扫描 QQ 进程内存以获取数据库密钥（macOS 需先解除 SIP 才能读取其他进程内存）。' +
-        '请输入电脑开机密码。',
-      { placeholder: '管理员密码' },
-    );
-    if (password === null) {
-      setBusy(false);
-      setStatus('');
-      return;
-    }
-
-    let scan: Awaited<ReturnType<typeof client.bootstrap.macScanKeyFromMemory.mutate>>;
+    // SIP 状态：`null`（不是 macOS / 问不出来）按「不知道」处理 —— 还是走原来的
+    // 提权扫描，扫描失败的引导弹窗兜底。
+    let sipOn = false;
     try {
-      scan = await client.bootstrap.macScanKeyFromMemory.mutate({ uin: acc.uin, password });
-    } catch (e) {
-      setBusy(false);
+      sipOn = (await client.bootstrap.sipEnabled.query()) === true;
+    } catch {
+      sipOn = false;
+    }
+
+    let goNineBird: boolean;
+    if (sipOn) {
+      // SIP 开着：密码打不开这道门，别让人白输一次。
       setStatus('');
-      showError('获取密钥失败', errMsg(e));
-      return;
-    }
+      goNineBird = await confirm(
+        '需要先关闭 SIP',
+        'macOS 的系统完整性保护（SIP）处于开启状态，读取 QQ 进程内存会被系统直接拒绝' +
+          '（QQ 带强化运行时，管理员权限也不够）。\n\n' +
+          '可以改走 NineBird（扫码 / 快登）获取密钥 —— 不需要读内存，但需要重启一次 QQ。\n' +
+          '若要继续用「读内存」这条路，请关机后进恢复模式执行 `csrutil disable` 关闭 SIP，' +
+          '重启后回来重试。',
+        { okLabel: '使用 NineBird', cancelLabel: '取消', tone: 'warning' },
+      );
+    } else {
+      // Step 1 —— 提权扫内存。
+      setStatus('正在扫描 QQ 进程内存（需要管理员权限）…');
+      const password = await promptPassword(
+        '获取数据库密钥',
+        '需要管理员权限读取正在运行的 QQ 进程内存（a2 / d2 / d2key）以获取数据库密钥。' +
+          '请输入电脑开机密码。',
+        { placeholder: '管理员密码' },
+      );
+      if (password === null) {
+        setBusy(false);
+        setStatus('');
+        return;
+      }
 
-    if (scan.success && scan.key) {
-      setKey(scan.key);
-      setStatus('已获取密钥');
-      setBusy(false);
-      return;
-    }
+      let scan: Awaited<ReturnType<typeof client.bootstrap.macScanKeyFromMemory.mutate>>;
+      try {
+        scan = await client.bootstrap.macScanKeyFromMemory.mutate({ uin: acc.uin, password });
+      } catch (e) {
+        setBusy(false);
+        setStatus('');
+        showError('获取密钥失败', errMsg(e));
+        return;
+      }
 
-    const rawError = scan.error ?? '内存扫描未找到可用密钥';
-    // 密码错误这类「不是 SIP 的问题」直接报错，不进重启引导。
-    if (/密码|sudoers|sudo/i.test(rawError)) {
-      setBusy(false);
+      if (scan.success && scan.key) {
+        setKey(scan.key);
+        setStatus('已获取密钥');
+        setBusy(false);
+        return;
+      }
+
+      const rawError = scan.error ?? '内存扫描未找到可用密钥';
+      // 密码错误这类「不是读内存本身的问题」直接报错，不进 NineBird 引导。
+      if (/密码|sudoers|sudo/i.test(rawError)) {
+        setBusy(false);
+        setStatus('');
+        showError('获取密钥失败', rawError);
+        return;
+      }
+
+      // Step 2 —— 读内存失败（版本/权限/SIP 其实开着……）：如实说明，再问要不要改道。
       setStatus('');
-      showError('获取密钥失败', rawError);
-      return;
+      const pidLabel = scan.pid > 0 ? scan.pid : pid;
+      goNineBird = await confirm(
+        '内存扫描失败',
+        `该账号 QQ 在线，pid：${pidLabel}。读内存失败：${rawError}\n\n` +
+          '可以改走 NineBird（扫码 / 快登）获取密钥 —— 不需要读内存，但需要重启一次 QQ。',
+        { okLabel: '使用 NineBird', cancelLabel: '取消', tone: 'warning' },
+      );
     }
-
-    // Step 2 —— SIP 引导弹窗。
-    setStatus('');
-    const pidLabel = scan.pid > 0 ? scan.pid : pid;
-    const restart = await confirm(
-      '内存扫描失败',
-      `该账号 QQ 在线，pid：${pidLabel}。扫描在线进程获取密钥需要解除 SIP，` +
-        '您可以解除后重试，或者本程序将杀掉现在的 QQ，重启以获取密钥。',
-      { okLabel: '确认重启', cancelLabel: '取消', tone: 'warning' },
-    );
-    if (!restart) {
+    if (!goNineBird) {
       setBusy(false);
       return;
     }
 
-    // Step 3 —— 确认重启：NineBird 已装就不重复安装，否则弹安装密码框。
+    // Step 3 —— NineBird 已装就不重复安装，否则弹安装密码框。
     setStatus('正在检查 NineBird 安装状态…');
     let nineBirdReady = false;
     try {
@@ -283,24 +310,23 @@ export function LoginPanel({
   /**
    * Linux alive-instance key fetch.
    *
-   * The inject half (which pops the self-drawn password dialog and can take as
-   * long as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
-   * — the native inject blocks until the hook binds the MSFService instance via
-   * the account uin, so when it resolves the pid can already send OIDB packets
-   * and the key fetch below is a plain request. Errors propagate to the caller,
-   * which shows the error dialog.
+   * The attach half (which pops the self-drawn password dialog and can take as
+   * long as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceAttach`
+   * — the native call reads the instance's session material out of process
+   * memory, so when it resolves the pid is ready and the key fetch below is a
+   * plain request. Errors propagate to the caller, which shows the error dialog.
    */
   async function acquireFromInstanceLinux(pid: number, acc: UiAccount): Promise<void> {
-    // Step A (untimed): elevate + inject. The password dialog lives here.
-    setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
-    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid, uin: acc.uin });
+    // Step A (untimed): elevate + attach. The password dialog lives here.
+    setStatus('正在读取 QQ 进程内存（可能弹出授权窗口，请输入密码）…');
+    const prep = await client.bootstrap.prepareInstanceAttach.mutate({ pid, uin: acc.uin });
     if (!prep.ok) {
-      throw new Error(prep.error ?? '注入 QQ 进程失败，请重试。');
+      throw new Error(prep.error ?? '读取 QQ 进程内存失败，请重试。');
     }
 
     // Step B: fetch the key. The hook is already bound, so this is a plain
     // request — no stall race to guard anymore.
-    setStatus('已注入，正在获取密钥…');
+    setStatus('已读取内存，正在获取密钥…');
     const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
     if (!r.success || !r.dbkey) {
       throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');

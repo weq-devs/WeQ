@@ -44,7 +44,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
-import { createLinuxInjectHook } from '../inject_elevation';
+import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
   AnnualReportService,
@@ -141,8 +141,8 @@ import {
   type GroupKeywordRules,
   type GroupKeywordHit,
   DbToleranceService,
-  createDirectInjectHook,
-  type InjectHook,
+  createDirectAttachHook,
+  type AttachHook,
   type MsgSalvageSource,
 } from '@weq/service';
 import { resolveResource } from '../resource';
@@ -553,7 +553,7 @@ export interface BootstrapServices {
    * in-process direct inject. Shared (single instance) so its per-pid
    * idempotency spans the router and every account monitor.
    */
-  injectHook: InjectHook;
+  attachHook: AttachHook;
   /**
    * 外部 rkey 服务器（NapCat）。全局配置 + 全局 rkey 缓存，不依赖任何账号；
    * 媒体下载在本地 rkey 不可用时回退到这里（见 media_download.ts）。
@@ -632,7 +632,7 @@ export interface AccountServices {
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
   groupAlbumMedia: GroupAlbumMediaService;
-  /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已注入 QQ 进程。 */
+  /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已读取 QQ 内存 进程。 */
   groupFile: GroupFileService;
   /** 拉取聊天时间线缺失的远端消息（需在线 QQ 发包）。 */
   gapHistory: GapHistoryService;
@@ -922,15 +922,17 @@ export function initAppContext(): AppContext {
   // the fs default (undefined).
   const stubHooks = process.platform === 'linux' ? linuxStubHooks : undefined;
 
-  // Injecting the hook into a running QQ needs root (ptrace) on linux, and the
-  // hook must then observe a real post-login packet before it can send; both
-  // halves live in the linux hook. Other platforms inject in-process with no
-  // wait. One shared instance so its per-pid idempotency spans the bootstrap
-  // router and every account monitor.
-  const injectHook: InjectHook =
-    process.platform === 'linux'
-      ? createLinuxInjectHook(platform.native.ntHelper, userConfig)
-      : createDirectInjectHook(platform.native.ntHelper);
+  // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
+  // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
+  // SIP off, since QQ runs hardened), so both go through the elevated hook
+  // (`createLinuxAttachHook` — despite the name it is the unix ptrace hook: try
+  // in-process first, escalate with sudo when the kernel refuses). Windows can
+  // read in-process with no elevation. One shared instance so its per-pid
+  // idempotency spans the bootstrap router and every account monitor.
+  const attachHook: AttachHook =
+    process.platform === 'linux' || process.platform === 'darwin'
+      ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
+      : createDirectAttachHook(platform.native.ntHelper);
 
   const linkPreview = new LinkPreviewService(userConfig);
 
@@ -944,7 +946,7 @@ export function initAppContext(): AppContext {
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),
-    injectHook,
+    attachHook,
     externalRkey: new ExternalRkeyService(userConfig),
   };
 
@@ -1455,14 +1457,14 @@ export function initAppContext(): AppContext {
 
       // Start the background login/pid monitor for this account. Injection +
       // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
-      // 自动注入 QQ master switch (完全离线模式), so toggling that setting takes
+      // 自动读取 QQ 内存 master switch (完全离线模式), so toggling that setting takes
       // effect on the next poll without a re-open.
       accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoInjectQq,
-        bootstrap.injectHook,
+        () => userConfig.getSettings().autoAttachQq,
+        bootstrap.attachHook,
         // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
         // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
         async (dress) => {
@@ -1943,8 +1945,8 @@ export function initAppContext(): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoInjectQq,
-        bootstrap.injectHook,
+        () => userConfig.getSettings().autoAttachQq,
+        bootstrap.attachHook,
       );
       accountMonitor.start();
 
@@ -2219,13 +2221,13 @@ export function getAppContext(): AppContext {
 
 /**
  * 完全离线模式提示。所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
- * {@link requireInjectEnabled}，避免在「自动注入 QQ」关闭时仍悄悄注入。
+ * {@link requireAttachEnabled}，避免在「自动读取 QQ 内存」关闭时仍悄悄注入。
  * 唯一豁免：登录时的数据库密钥提取（bootstrap 登录流程）——那是打开账号的前提。
  */
-export function requireInjectEnabled(): void {
+export function requireAttachEnabled(): void {
   const ctx = getAppContext();
-  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
 }
 

@@ -5,7 +5,7 @@
  * injected into a single <style> element. Messages carry `data-bubble="{id}"`
  * and `data-font="{id}"` attributes; the CSS selects on those.
  *
- * CSS is write-once per itemId (same id → cache hit, never re-injected),
+ * CSS is write-once per itemId (same id → cache hit, never re-attached),
  * matching the server-side MsgDecorationCacheService guarantee.
  */
 

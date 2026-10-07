@@ -23,7 +23,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadNative } from '../packages/native/src';
-import { ensureSendable, testEnv } from '../packages/testkit/src';
+import { ensureAttached, testEnv } from '../packages/testkit/src';
 import {
   ANDROID_QQ_CLIENT,
   getResourceUrls,
@@ -272,20 +272,23 @@ class Progress {
 // ─────────────────────────── 目标进程 ───────────────────────────
 
 async function resolveTarget(nt: ReturnType<typeof loadNative>['ntHelper']): Promise<number> {
-  const pids = nt.getQqProcesses();
-  if (pids.length === 0) throw new Error('没有运行中的 QQ.exe，请先打开并登录目标账号');
-  const hit = pids.find((p) => {
-    try {
-      const info = nt.probeQqLoginInfo(p);
-      return info?.uin === testEnv.uin && info.loggedIn;
-    } catch {
-      return false;
-    }
-  });
-  const pid = hit ?? pids[0]!;
-  const status = await ensureSendable(nt, pid, testEnv.uin, { label: 'fetch-dress' });
-  console.log(`[fetch-dress] pid=${pid} uin=${status.uin} loggedIn=${status.loggedIn}\n`);
-  return pid;
+  // 用目标账号 nt_msg.db 的写锁反查 pid —— 不再枚举进程（见 packages/platform）。
+  const probe = nt.probeDbLock(testEnv.msgDbPath);
+  if (!probe.success) {
+    throw new Error(`读不到 ${testEnv.msgDbPath} 的占用者（${probe.msg}）：请先打开并登录目标账号`);
+  }
+  const holder =
+    probe.holders.find(
+      (h) =>
+        h.name
+          .trim()
+          .toLowerCase()
+          .replace(/\.exe$/, '') === 'qq',
+    ) ?? probe.holders[0];
+  if (!holder) throw new Error('目标账号的 nt_msg.db 没有 QQ 持有：请先打开并登录目标账号');
+  await ensureAttached(nt, holder.pid, testEnv.uin, { label: 'fetch-dress' });
+  console.log(`[fetch-dress] pid=${holder.pid}\n`);
+  return holder.pid;
 }
 
 // ─────────────────────────── 单类型抓取 ───────────────────────────

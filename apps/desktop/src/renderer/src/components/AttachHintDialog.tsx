@@ -1,24 +1,24 @@
 /**
  * Linux ptrace 保护引导弹窗。
  *
- * 主进程在「无 ptrace 权限、无法直接注入 QQ」时发 `ptrace:confirm-hint`，
+ * 主进程在「无 ptrace 权限、无法直接读取 QQ 内存」时发 `attach:confirm-hint`，
  * 渲染层弹出本弹窗，引导用户关闭 yama ptrace 保护：
- *   - 「重新尝试」→ 回传 `retry`，主进程再次尝试无特权注入；若仍被拒，
+ *   - 「重新尝试」→ 回传 `retry`，主进程再次尝试无特权读取；若仍被拒，
  *     用下方输入的密码提权（sudo -S，未输入则再弹标准密码框）；
  *   - 「输入密码并提权」→ 回传 `skip` + 密码，本次直接 sudo 提权、不记忆；
  *   - 「不再提醒」→ 回传 `no-remind` + 密码，写入 global_config 后 sudo 提权；
  *     「不再提醒」只静音本引导弹窗，**不等于**以后直接要密码：主进程每次仍会
- *     先试免密直连，只有在被内核拒绝时才提权（顺序见 service 的 ptrace_flow）；
- *   - 关闭弹窗（✕ / ESC）→ 回传 `cancel`，本次不提权（注入失败）。
+ *     先试免密直连，只有在被内核拒绝时才提权（顺序见 service 的 attach_flow）；
+ *   - 关闭弹窗（✕ / ESC）→ 回传 `cancel`，本次不提权（读取失败）。
  *
  * 密码由本弹窗自绘输入（不再依赖 polkit 系统框），经
- * `ptrace:respond-hint` 回传，主进程用 stdin 喂给 sudo -S。
+ * `attach:respond-hint` 回传，主进程用 stdin 喂给 sudo -S。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { BellOff, RotateCw, ShieldAlert } from 'lucide-react';
 import { Modal } from './Dialog';
-import type { PtraceHintAnswer, PtraceHintChoice } from '@weq/service';
+import type { AttachHintAnswer, AttachHintChoice } from '@weq/service';
 
 function ipc():
   | {
@@ -30,13 +30,13 @@ function ipc():
     ?.ipcRenderer;
 }
 
-export function PtraceHintDialog(): ReactElement | null {
+export function AttachHintDialog(): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const off = ipc()?.on('ptrace:confirm-hint', () => {
+    const off = ipc()?.on('attach:confirm-hint', () => {
       setOpen(true);
       setPassword('');
     });
@@ -45,11 +45,11 @@ export function PtraceHintDialog(): ReactElement | null {
     };
   }, []);
 
-  function respond(choice: PtraceHintChoice): void {
+  function respond(choice: AttachHintChoice): void {
     setOpen(false);
     setPassword('');
-    const answer: PtraceHintAnswer = { choice, password };
-    ipc()?.send('ptrace:respond-hint', answer);
+    const answer: AttachHintAnswer = { choice, password };
+    ipc()?.send('attach:respond-hint', answer);
   }
 
   if (!open) return null;
@@ -62,8 +62,9 @@ export function PtraceHintDialog(): ReactElement | null {
             需要关闭 ptrace 保护
           </h3>
           <p className="weq-ptrace-sub">
-            Linux 默认开启的 yama ptrace 保护会阻止 WeQ 向正在运行的 QQ 注入，导致无法读取密钥。
-            关闭后即可免密码直接注入；也可以直接输入管理员密码临时提权。
+            Linux 默认开启的 yama ptrace 保护会阻止 WeQ 读取正在运行的 QQ 进程内存，
+            导致无法扫描会话物料 / 密钥。关闭后即可免密码直接读取；也可以直接输入管理员
+            密码临时提权。
           </p>
         </header>
 
@@ -140,7 +141,7 @@ export function PtraceHintDialog(): ReactElement | null {
         <p className="weq-ptrace-foot">
           <ShieldAlert size={13} strokeWidth={1.85} aria-hidden />
           关闭弹窗将本次取消提权；输入密码后回车可临时提权。「不再提醒」只隐藏本弹窗，
-          之后仍会优先尝试免密注入，仅在被拒绝时才用密码提权。
+          之后仍会优先尝试免密读取，仅在被拒绝时才用密码提权。
         </p>
       </div>
     </Modal>

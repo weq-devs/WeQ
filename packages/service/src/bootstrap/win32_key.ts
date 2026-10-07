@@ -24,6 +24,7 @@
  * race that a fresh process clears. That one is retried once in-place.
  */
 
+import { execFileSync } from 'node:child_process';
 import type { Platform } from '@weq/platform';
 import {
   NineBirdBootstrap,
@@ -98,8 +99,8 @@ function isNoTrampolineSpace(error: string | undefined): boolean {
  */
 function hookInstallHint(error: string | undefined): string {
   return isNoTrampolineSpace(error)
-    ? '注入 QQ 失败：QQ 进程内存布局导致的偶发错误，已自动重试一次仍未成功。请再试一次，通常重试即可解决。'
-    : '注入 QQ 失败，已自动重试一次仍未成功。这多为偶发错误，请再试一次；若反复失败请反馈。';
+    ? '读取 QQ 内存失败：QQ 进程内存布局导致的偶发错误，已自动重试一次仍未成功。请再试一次，通常重试即可解决。'
+    : '读取 QQ 内存失败，已自动重试一次仍未成功。这多为偶发错误，请再试一次；若反复失败请反馈。';
 }
 
 export class Win32KeyService {
@@ -256,37 +257,24 @@ export class Win32KeyService {
 
   /**
    * macOS 是单实例 QQ：正在运行的实例会让新进程直接退场（窗口交还给旧
-   * 实例），loader 永远不会执行。启动前先把已有 QQ 杀掉再等它释放，
-   * 与 napcat 启动器的 terminateQQ 行为一致。win/linux 走注入路径，
+   * 实例），loader 永远不会执行。启动前先把已有 QQ 杀掉再等它释放，与
+   * napcat 启动器的 terminateQQ 行为一致。win/linux 走 ninebird 启动器，
    * 不受此限制，直接放行。
+   *
+   * 按进程名 `killall QQ` 杀，不再枚举 QQ 进程列表 —— 那个 native 能力
+   * （`getQqProcesses`）已经随注入器一起移除，且这里只需要“杀掉所有 QQ”。
    */
   private async prepareQqLaunch(): Promise<void> {
     if (this.platform.kind !== 'darwin') return;
-    const nt = this.platform.native.ntHelper;
-    let pids: number[] = [];
     try {
-      pids = nt.getQqProcesses();
-    } catch (e) {
-      this.logger.warn('darwin: failed to enumerate QQ processes before launch', {
-        event: 'darwin-pre-launch-enum-failed',
-        ...logErrorContext(e),
-      });
-      return;
-    }
-    for (const pid of pids) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // 进程已经退出，忽略。
-      }
-    }
-    if (pids.length > 0) {
+      execFileSync('killall', ['QQ'], { stdio: 'ignore' });
       this.logger.info('terminated running QQ before darwin launch', {
         event: 'darwin-pre-launch-kill',
-        pids,
       });
       // 等 QQ 释放单实例锁 / 文件锁，再启动新进程。
       await new Promise((resolve) => setTimeout(resolve, 1200));
+    } catch {
+      // killall 没匹配到进程（退出码非 0）或不可用时，本来就没有实例要杀。
     }
   }
 }

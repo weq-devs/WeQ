@@ -99,7 +99,7 @@ export async function probePtLoginPort(nt: WebNative, pid: number): Promise<numb
  * 调用都会白等这 5 秒（即使 skey/pskey 早已缓存）。这里把「hook 不可用」按
  * pid 负缓存：
  * 窗口内不再碰死 socket，直接走 pt_login 兜底；窗口过后重试一次，兼顾中途手动
- * 注入 QQ 后能回到 hook 快路径。QQ 重启（pid 变化）则立即重试。
+ * 读取 QQ 内存 后能回到 hook 快路径。QQ 重启（pid 变化）则立即重试。
  */
 const HOOK_DEAD_COOLDOWN_MS = 60_000;
 
@@ -166,7 +166,7 @@ export async function fetchWebTokens(
 }
 
 /**
- * Resolves {@link WebCredential}s on demand from a hook-injected QQ process.
+ * Resolves {@link WebCredential}s on demand from a attached QQ process.
  *
  * skey is fetched once and cached (it's domain-independent); p_skey is cached
  * per-domain. Both are short-lived server-side, so a cached bundle can go stale
@@ -389,7 +389,7 @@ export class WebCredentialProvider {
   /**
    * ptlogin2 jump 拿 `domain` 的完整 cookie jar(按域缓存)。clientKey 取不到 / 跳转
    * 失败时返回空对象 —— 调用方会回退到 native skey/p_skey,不让风控 cookie 缺失成为
-   * 致命错误(也兼容完全离线模式、自动注入 QQ 关闭的账号)。
+   * 致命错误(也兼容完全离线模式、自动读取 QQ 内存 关闭的账号)。
    */
   private async harvestJar(pid: number, domain: string): Promise<Record<string, string>> {
     const cached = this.cookieByDomain.get(domain);

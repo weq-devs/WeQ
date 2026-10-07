@@ -1,7 +1,7 @@
 /**
  * Public type surface of the `@weq/native` package.
  *
- * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / inject / OIDB)
+ * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / send-recv)
  * and the `launchQQ` entry of `ninebird_addon.node` (login bootstrap).
  *
  * The actual .node files live under `<repo>/native/<platform>/<arch>/` and
@@ -56,27 +56,6 @@ export interface LoginAccount {
 }
 
 /**
- * Port-probe result for one running QQ.exe. Mirrors `QqPortLoginInfo`
- * in `Qrypt-Native/nt_helper/src/detect/port.rs`.
- *
- * NOTE: this struct does NOT contain `pid` — the napi entry takes pid as
- * an input parameter and returns just the per-account info. Pair it
- * with the pid at the call site if you need both.
- */
-export interface QqPortLoginInfo {
-  /** Local port the info was scraped from (4301/4303/4305/4307/4309). */
-  port: number;
-  /** QQ number. Empty string when port responded but no uin attached. */
-  uin: string;
-  /** Long uid; null when the probe path didn't carry it. */
-  uid: string | null;
-  /** Display name; null when the probe path didn't carry it. */
-  nickName: string | null;
-  /** True if the port reports the account is currently logged in. */
-  loggedIn: boolean;
-}
-
-/**
  * One process holding an account's database open / locked. Mirrors
  * `DbLockHolder` in `Qrypt-Native/nt_helper/src/detect/db_lock.rs`.
  */
@@ -97,6 +76,75 @@ export interface DbLockProbeResult {
   /** True when at least one process holds the file (i.e. `holders` is non-empty). */
   locked: boolean;
   holders: DbLockHolder[];
+}
+
+/**
+ * 一次内存扫描的产出：该会话的 a2 / d2 / d2key。全部是十六进制字符串
+ * （a2/d2 为原文 hex，d2key 为 32 位 hex）。任何一项没扫到就是 `undefined`，
+ * 不影响其它项。
+ *
+ * **不含 guid**：guid 与登录无关（它是设备标识），另走 `readDeviceGuid`
+ * 从 QQ 数据根路径离线计算/读取。
+ */
+export interface SessionMaterial {
+  a2?: string;
+  d2?: string;
+  d2Key?: string;
+}
+
+/** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */
+export interface SignOutput {
+  token: string;
+  extra: string;
+  sign: string;
+}
+
+/**
+ * 一场原生 SSO 会话的物料：内存里读到的密钥（{@link SessionMaterial}）加上
+ * 离线读出的 guid、账号 uid 与 PC 端的 `subAppId`。
+ *
+ * 除 `traceParent` 外每一项都会被用到：`traceParent` 只给 `buildSsoPacket` 用
+ * （钉死 tag 15 便于逐字节比对抓包），正常发包时每包的 trace 由原生随机生成。
+ */
+export interface SsoSessionConfig {
+  /** 账号 UIN 十进制串。 */
+  uin: string;
+  /** a2（tgt）原文。 */
+  a2: Buffer;
+  /** d2 原文。 */
+  d2: Buffer;
+  /** d2key，必须 16 字节。 */
+  d2Key: Buffer;
+  /** 设备 guid（32 位小写 hex）。 */
+  guid: string;
+  /** 账号 uid（`u_...`）。 */
+  uid: string;
+  /** PC 端 `subAppId`（实测 `537391664`）。 */
+  subAppId: number;
+  /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
+  clientConnSeq?: string | null;
+  /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */
+  traceParent?: string | null;
+}
+
+/** 一次原生 SSO 组帧请求（{@link NtHelperBinding.buildSsoPacket} 的入参）。 */
+export interface SsoPacketRequest {
+  /** 会话物料。 */
+  session: SsoSessionConfig;
+  /** SSO 命令，如 `MessageSvc.PbSendMsg`。 */
+  command: string;
+  /** 12 = D2Auth（带 a2/guid/保留字段），13 = Simple。 */
+  requestType: number;
+  /** 0 = 不加密，1 = 用 d2key，2 = 用全零 key。 */
+  encryptType: number;
+  /** 明文包体。 */
+  body: Buffer;
+  /** 序号；不传则消费一次全局序号。 */
+  sequence?: number | null;
+  /** 是否需要签名（决定是否写 reserved tag 24）。 */
+  needSign: boolean;
+  /** `wrapper.node` 路径；`needSign` 为 true 时必填。 */
+  wrapperPath?: string | null;
 }
 
 /**
@@ -159,27 +207,6 @@ export interface KeyScanResult {
   keyContextHex?: string;
   /** Failure reason when `success` is `false`, `None` on success. */
   error?: string;
-}
-
-/** Status returned after injecting the hook DLL into a QQ process. */
-export interface QQInstanceStatus {
-  pid: number;
-  loggedIn: boolean;
-  uin: string;
-}
-
-/**
- * A recv packet observed by the hook. Returned by `waitForRealPacket`. On
- * linux this is no longer required for readiness (the hook binds the MSF
- * service via the inject-time uin handshake) — it exists only as a debugging
- * probe now.
- */
-export interface HookRecvPacketInfo {
-  sequence: string;
-  error: number;
-  cmd: string;
-  uin: string;
-  body: Buffer;
 }
 
 export interface WindowsHelloAvailabilityInfo {
@@ -370,8 +397,7 @@ export interface NtHelperBinding {
   getInitStatus(): InitStatus;
   setLogPath(path: string): void;
 
-  // --- QQ process / login detection ---
-  probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
+  // --- login detection ---
   /**
    * 探测 QQ 进程 pt_login 本地快速登录端口（4301-4310，奇数 = HTTPS、偶数 = HTTP，优先 HTTPS）。
    * 无需注入 hook，只要该账号的 QQ 客户端在线即可用。结果在 success / msg / port 字段。
@@ -398,30 +424,13 @@ export interface NtHelperBinding {
   probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   /**
-   * Get all QQ main process IDs.
-   *
-   * macOS picks the enumeration mechanism via `headless` (no auto-fallback):
-   *   - `false` (default): `NSRunningApplication` by bundle id
-   *     `com.tencent.qq` — precise, needs a GUI session;
-   *   - `true`: `libproc` full enumeration filtered by the
-   *     `/QQ.app/Contents/MacOS/QQ` executable path — works headless.
-   * Ignored on win32/linux (the arg exists only because the native signature
-   * is shared).
+   * 某账号是否在线 —— 只认数据库锁：该账号的 `nt_msg.db` 是否被 QQ 持有
+   * （Windows：Restart Manager 看到的打开句柄；Linux/macOS：`F_GETLK` 写锁）。
+   * 进程名可用时只认名字像 QQ 的持有者（Windows 上 WeQ 自己读库也在句柄列表
+   * 里，不筛名字会误判成在线）；名字拿不到时（macOS 没有 `/proc`）退化为
+   * 「有人持有即在线」。调用方负责解析出 `dbPath`。
    */
-  getQqProcesses(headless?: boolean): number[];
-  /**
-   * Is the QQ account currently logged in on this machine? The identifying
-   * inputs differ per platform because the mechanism does:
-   *   - **win32**: inspects QQ NT's per-account named mutex, keyed by numeric
-   *     `uin`. `baseDir` / `uid` are ignored.
-   *   - **linux/macOS**: probes an fcntl lock on the account's `nt_msg.db`,
-   *     located under `baseDir` via the string `uid`. Both are required; if
-   *     either is missing this returns false. `uin` is ignored.
-   *
-   * The native layer never derives `baseDir` itself — the caller passes the
-   * absolute QQ data directory (the folder containing the per-account dirs).
-   */
-  isQqLoggedIn(uin: string, baseDir?: string | null, uid?: string | null): boolean;
+  isQqLoggedIn(dbPath: string): boolean;
   /**
    * Extract appid / QUA from QQ NT's `major.node`. Used to feed launchQQ's
    * `appid` / `qua` so they match the installed QQ build exactly. `appid` is
@@ -464,22 +473,83 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
   ): Promise<DatabaseHealthResult>;
 
-  // --- hook injection ---
+  // --- 内存扫描（attach） ---
   /**
-   * Inject the hook into `pid` and wait until it is ready to send OIDB
-   * packets. `uin` is required — the native hook no longer derives it from
-   * the process — and is handed to the hook over the pipe on linux so it can
-   * bind the right MSFService instance (injection resolves only once bound,
-   * up to ~30s). The returned `QQInstanceStatus.uin` echoes the passed value.
+   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key。
+   *
+   * 运行时 RTTI 自举，零硬编码 RVA。**权限要求与进程注入一致**：
+   * Linux 需要 root（或 CAP_SYS_PTRACE）且 `/proc/sys/kernel/yama/ptrace_scope`
+   * 放行；macOS 需要 root，且目标未启用强化运行时保护（QQ 启用了，所以得关
+   * SIP）；Windows 需要管理员。失败时 reject，错误信息本身就是提权/版本变化的
+   * 诊断提示。
    */
-  injectAndGetStatus(pid: number, dllPath: string, uin: string): Promise<QQInstanceStatus>;
-  injectAndGetStatusEmbedded(pid: number, uin: string): Promise<QQInstanceStatus>;
+  scanSessionMaterial(pid: number): Promise<SessionMaterial>;
   /**
-   * Wait until the hook observes a genuine post-login recv packet (pre-login
-   * snapshots/commands are ignored). No longer part of the readiness flow on
-   * linux — keep only as a manual probe.
+   * 从 QQ 数据根路径离线计算/读取设备 guid（32 位小写 hex），或 `null`。
+   *
+   * 与 `scanSessionMaterial` 不同，它**不需要任何权限、不碰进程**：
+   * Linux 读 `/etc/machine-id` + `<root>/global/nt_data/msf/machine-info`；
+   * macOS TEA 解密 `<root>/global/nt_data/msf/machineid-info`；
+   * Windows 从 `<root>/All Users/QQ/Registry2.0.db` 取 `G3Info_migrate`。
+   * 传 `null`/`undefined` 根路径时 native 抛错（调用方应先解析出根）。
    */
-  waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
+  readDeviceGuid(dataRoot: string): string | null;
+
+  // --- 签名（qq 的 wrapper.node） ---
+  /**
+   * 静态扫描 QQ 的 `wrapper.node`，返回签名函数的 RVA（相对模块基址）。
+   *
+   * 只定位、不加载模块；`wrapperPath` 是 `…/resources/app/wrapper.node`
+   * （Windows 在 `…/resources/app/versions/<ver>/wrapper.node`）。
+   */
+  locateSignFunction(wrapperPath: string): number;
+  /**
+   * 用 `wrapper.node` 的签名函数计算一次 SSO 安全信息。
+   *
+   * 首次调用会 dlopen/LoadLibrary 该模块（Linux 会预载 gnutls 并提供
+   * `qq_magic_napi_register` 桩），之后按路径进程内缓存。`src` 是 SSO 包体
+   * （明文 protobuf 字节），返回值对齐 Lagrange 的
+   * `SsoSecureInfo { SecToken, SecExtra, SecSign }`，三个字段都是大写十六进制。
+   */
+  signPacket(wrapperPath: string, cmd: string, src: Buffer, seq: number): SignOutput;
+  /**
+   * 初始化成功（登录/绑定完成）时重置发包序号起点（`now + 随机`）。
+   *
+   * 与 Lagrange 的固定区间随机起点不同；两个进程仍在推进同一账户的序号带，
+   * 可能与 QQ 本体冲突，暂不做回退。
+   */
+  resetPacketSequence(): number;
+  /** 当前发包序号（诊断用）。 */
+  currentPacketSequence(): number;
+
+  // --- 原生 SSO 会话（借 QQ 凭据发包） ---
+  /**
+   * 登记 `pid` 的**会话物料**：之后 {@link sendOidbPacket} / {@link sendPacket}
+   * 就能用同一个 pid 直接发包。**只存不连** —— TCP 等到真要发包时才建，闲置一分钟
+   * 就丢；不读内存、不发包时连一个 socket 都不存在。
+   *
+   * **刻意不做** Lagrange 那套「`SsoInfoSync` 上线注册 + 心跳」：同一台机器上 QQ 本体
+   * 已经在维持那条会话的在线状态与心跳，我们再注册一次等于让服务端看到「同设备 guid +
+   * 同一份 d2 的第二个客户端」。这里只借凭据组帧、签名、发包。
+   *
+   * `wrapperPath` 是 QQ 的 `wrapper.node`：所有需要签名的命令都靠它算
+   * `SecToken/SecExtra/SecSign`；传 null 时只能发不需要签名的命令。
+   */
+  setSsoSession(pid: number, session: SsoSessionConfig, wrapperPath?: string | null): Promise<void>;
+  /**
+   * 忘掉 pid 的会话物料（账号下线 / QQ 重启），并关掉可能存在的连接。
+   * 返回是否真的有这条登记。
+   */
+  clearSsoSession(pid: number): Promise<boolean>;
+  /** pid 是否已登记会话物料（诊断用；不代表连接已经建好）。 */
+  hasSsoSession(pid: number): Promise<boolean>;
+  /**
+   * 组一个原生 SSO 线上帧（协议 12/13），返回**自带 4 字节大端长度前缀**的整帧。
+   *
+   * 只组帧、不发：正常发包走 {@link setSsoSession} + {@link sendOidbPacket}，
+   * 这个出口是给离线比对（`scripts/sso_smoke.mjs` 那类逐字节复现抓包的脚本）用的。
+   */
+  buildSsoPacket(req: SsoPacketRequest): Buffer;
 
   // --- SQL (cached connection per dbPath) ---
   executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
@@ -600,6 +670,10 @@ export interface NtHelperBinding {
    * Send a custom OIDB packet. The body is wrapped in an OIDB envelope and the
    * command is formatted as `OidbSvcTrpcTcp.0x<command>_<subCommand>`.
    * `isUid` sets the UIN-form variant (reserved=1). Returns the inner reply body.
+   *
+   * 传输走原生 SSO：`pid` 必须先经 {@link setSsoSession} 登记过会话。
+   * `needSign` 由调用方按命令逐个标注（对齐 Lagrange 的需要签名白名单），
+   * 缺省 true。
    */
   sendOidbPacket(
     pid: number,
@@ -607,14 +681,17 @@ export interface NtHelperBinding {
     subCommand: number,
     body: Buffer,
     isUid: boolean,
+    needSign?: boolean,
   ): Promise<Buffer>;
   /**
    * Send a raw SSO packet with an explicit command string (no OIDB envelope) —
    * used for trpc services such as
    * `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`. The body must
    * already be protobuf-encoded; the raw reply body is returned.
+   *
+   * `needSign` 同 {@link sendOidbPacket}，缺省 true。
    */
-  sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
+  sendPacket(pid: number, cmd: string, body: Buffer, needSign?: boolean): Promise<Buffer>;
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.
    *

@@ -7,7 +7,7 @@
  *    作为累计获赞（其它字段如今日/新增/收藏不在本卡片展示范围内）；
  *  - GetQqShowUrl   (0xFE1_3) 按 **uin** 查 QQ 秀形象 URL（没有 QQ 秀时 hasShow=false）。
  *
- * 与 GroupAlbumMediaService 同构：注入发生在账号 bootstrap，这里只负责在已注入的
+ * 与 GroupAlbumMediaService 同构：attach 发生在账号 bootstrap，这里只负责在已 attach 的
  * 在线 pid 上发包，失败（QQ 离线 / 风控）原样上抛，由 router 统一转成用户提示。
  */
 import type { AccountSession } from '@weq/account';

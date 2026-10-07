@@ -1,7 +1,7 @@
 /**
  * 渲染层：响应主进程 `elev:request-password` 的密码框（Linux 自绘提权框）。
  *
- * 主进程在需要管理员密码（sudo -S 提权：后台注入、登录前 stub 迁移等）时
+ * 主进程在需要管理员密码（sudo -S 提权：后台内存扫描、登录前 stub 迁移等）时
  * 发 `elev:request-password`，本组件复用全局 DialogHost 的密码 UI
  * （useDialog.promptPassword），用户输入后经 `elev:respond-password`
  * 回传；取消则回传 null。密码只存在于主进程这次 sudo 调用里。

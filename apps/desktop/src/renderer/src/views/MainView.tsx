@@ -2076,7 +2076,7 @@ export function MainView(): ReactElement {
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
-  // 「完全离线模式」（自动注入 QQ 总闸开启）。状态未读到前按不可发送处理。
+  // 「完全离线模式」（自动读取 QQ 内存 总闸开启）。状态未读到前按不可发送处理。
   const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 4000,
@@ -2681,7 +2681,7 @@ export function MainView(): ReactElement {
       if (cachedCount === 0) {
         try {
           const state = await client.account.getGroupAlbumAccessState.query();
-          if (!state.qqOnline || !state.injectEnabled) {
+          if (!state.qqOnline || !state.attachEnabled) {
             pushToast({
               tone: 'warning',
               message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
@@ -3353,7 +3353,7 @@ export function MainView(): ReactElement {
   );
 
   const mergeForwardSendAvailable = Boolean(
-    sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+    sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
   );
 
   /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
@@ -5387,7 +5387,7 @@ export function MainView(): ReactElement {
       pushToast({ tone: 'warning', message: '没有选中的会话' });
       throw new Error('no conversation');
     }
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5577,7 +5577,7 @@ export function MainView(): ReactElement {
    * ChatPane 里按会话类型藏掉了，这里再兜一层。
    */
   async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5704,7 +5704,7 @@ export function MainView(): ReactElement {
     conversation: Conversation,
     payload: FlashSendPayload,
   ): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5811,7 +5811,7 @@ export function MainView(): ReactElement {
    * 回来。在线校验与消息发送按钮同一套。
    */
   async function sendRedPacket(conversation: Conversation, draft: RedPacketDraft): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5901,7 +5901,7 @@ export function MainView(): ReactElement {
    * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
    */
   async function sendArkCard(conversation: Conversation, payload: ArkPayload): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -6341,7 +6341,7 @@ export function MainView(): ReactElement {
                       onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
                       sendAvailable={Boolean(
-                        sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
+                        sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
                       )}
                       onOpenNotificationSettings={noopAsync}
                       onSend={sendMessage}

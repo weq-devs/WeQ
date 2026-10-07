@@ -255,10 +255,10 @@ export const wonderfulToolsRouter = router({
         if (!existsSync(input.dbPath)) {
           return { success: false, error: `未找到数据库文件：${input.dbPath}` };
         }
-        if (boot.userConfig.getSettings().autoInjectQq === false) {
+        if (boot.userConfig.getSettings().autoAttachQq === false) {
           return {
             success: false,
-            error: '已开启完全离线模式（自动注入 QQ 已关闭），无法向在线 QQ 请求密钥。',
+            error: '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向在线 QQ 请求密钥。',
           };
         }
         const pids = await resolveOnlinePids(boot, platform);

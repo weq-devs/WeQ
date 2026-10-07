@@ -8,7 +8,7 @@
  *   - each account gets its own jar keyed by the same (uin, dataDir) id the rest
  *     of the app uses ("按账号隔离") — switching accounts switches the partition.
  *
- * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 自动读取 QQ 内存（完整功能） is on AND a logged-in QQ.exe for the
  * account is running (already hook-injected by the account monitor), we swap its
  * credential for a `pd.qq.com` p_skey via the TS ticket fetcher and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
@@ -68,8 +68,8 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `p_skey` into the channel jar
- * from the live QQ instance. No-op (returns silently) unless 自动注入 QQ（完整功能）
- * is on and a logged-in QQ.exe is online — the monitor injects the hook on
+ * from the live QQ instance. No-op (returns silently) unless 自动读取 QQ 内存（完整功能）
+ * is on and a logged-in QQ.exe is online — the monitor attaches on
  * account-online, so the p_skey fetch works off the recorded pid. On any failure we
  * leave the jar untouched and let the persistent cookies (if any) carry login.
  */
@@ -80,7 +80,7 @@ async function injectAutoLoginCookies(partition: string): Promise<void> {
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+  // 已 attach 时走 hook；未 attach / 完全离线模式回退 ptlogin2 本地快速登录。
   const { pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, CHANNEL_PSKEY_DOMAIN);
   if (!pskey) return;
 

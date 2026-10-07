@@ -105,6 +105,8 @@ export interface SendTuwenArkResult {
 export namespace SendTuwenArk {
   export const command = 0xdc2;
   export const subCommand = 34;
+  /** 抓包（/tmp/capture.log）：`0xdc2_34` 不带 tag 24，不签名。 */
+  export const needSign = false;
   export const reqSchema = TUWEN_ARK_REQ;
   export const respSchema = TUWEN_ARK_RESP;
 

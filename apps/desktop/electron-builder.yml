@@ -47,8 +47,11 @@ extraResources:
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs
 
-  - from: out/main/injectWorker.mjs
-    to: out/main/injectWorker.mjs
+  - from: out/main/attachWorker.mjs
+    to: out/main/attachWorker.mjs
+
+  - from: out/main/macScanWorker.mjs
+    to: out/main/macScanWorker.mjs
 
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover

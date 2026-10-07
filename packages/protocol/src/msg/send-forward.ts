@@ -698,7 +698,14 @@ async function uploadLevel(
     settings: settings ?? DEFAULT_SEND_SETTINGS,
   };
   const requestBytes = encode(SEND_LONG_MSG_REQ, request);
-  const responseBytes = await sendPacket(ctx.nt, ctx.pid, SSO_SEND_LONG_MSG_CMD, requestBytes);
+  // `SsoSendLongMsg` 在签名清单里。
+  const responseBytes = await sendPacket(
+    ctx.nt,
+    ctx.pid,
+    SSO_SEND_LONG_MSG_CMD,
+    requestBytes,
+    true,
+  );
   if (responseBytes.length === 0) {
     throw new Error('发送合并转发失败：服务端未返回响应体');
   }

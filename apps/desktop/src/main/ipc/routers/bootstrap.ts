@@ -360,6 +360,15 @@ export const bootstrapRouter = router({
     return requirePlatform().resolveQqPid(input.uin);
   }),
 
+  /**
+   * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
+   * `null` = not macOS / couldn't tell.
+   *
+   * 渲染层先用它决定要不要走「提权扫内存」：SIP 开着时 `task_for_pid` 连 root 都
+   * 拒，问密码没有意义，直接改走 NineBird（扫码 / 快登）。
+   */
+  sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
+
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
     .input(z.object({ knownUins: z.array(z.string()).default([]) }).optional())
@@ -483,7 +492,7 @@ export const bootstrapRouter = router({
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
-  /** Full, defaulted global settings (realtime / 自动注入 QQ / …). */
+  /** Full, defaulted global settings (realtime / 自动读取 QQ 内存 / …). */
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
   }),
@@ -542,18 +551,15 @@ export const bootstrapRouter = router({
   }),
 
   /**
-   * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
-   * it live on its next poll so injection / harvesting starts or stops
+   * Toggle 自动读取 QQ 内存（完整功能总闸）. Persists, and the account monitor reads
+   * it live on its next poll so attach / harvesting starts or stops
    * immediately (no re-open needed). 关闭 = 完全离线模式。
-   * macOS 不支持注入（SIP 限制）：开启请求直接拒绝，开关恒为关闭。
+   *
+   * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
+   * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
    */
-  setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    if (input.enabled && process.platform === 'darwin') {
-      throw new Error(
-        'macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。',
-      );
-    }
-    requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
+  setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
     return true;
   }),
 
@@ -1514,29 +1520,28 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
-   * Flow 1, step A — inject the hook into the alive QQ instance and block until
-   * it is ready to send OIDB packets (the native call waits for the hook to
-   * bind the MSFService instance via `uin`). On linux this is the
-   * sudo-elevated ptrace inject, so it pops the self-drawn password dialog and
-   * can take arbitrarily long (the user typing their password) — the renderer
-   * awaits this UNTIMED, then runs `fetchKeyFromInstance` (step B). Idempotent
-   * inside the hook. No-op-ish on win32 (ensure == inject).
+   * Flow 1, step A — attach to the alive QQ instance and read its session
+   * material (a2 / d2 / d2key) straight out of process memory, resolving once
+   * the scan is done. On linux a non-root process sudo-elevates via ptrace, so
+   * it pops the self-drawn password dialog and can take arbitrarily long (the
+   * user typing their password) — the renderer awaits this UNTIMED, then runs
+   * `fetchKeyFromInstance` (step B). Idempotent inside the hook.
    */
-  prepareInstanceInject: procedure
+  prepareInstanceAttach: procedure
     .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const boot = requireBootstrap();
-      logger.info('router preparing instance inject (untimed)', {
-        event: 'router-prepare-inject',
+      logger.info('router preparing instance attach (untimed)', {
+        event: 'router-prepare-attach',
         pid: input.pid,
         uin: input.uin,
       });
       try {
-        await boot.injectHook.inject(input.pid, input.uin);
+        await boot.attachHook.attach(input.pid, input.uin);
         return { ok: true as const };
       } catch (e) {
-        logger.warn('prepareInstanceInject failed', {
-          event: 'router-prepare-inject-failed',
+        logger.warn('prepareInstanceAttach failed', {
+          event: 'router-prepare-attach-failed',
           pid: input.pid,
           error: e instanceof Error ? e.message : String(e),
         });
@@ -1547,7 +1552,7 @@ export const bootstrapRouter = router({
   /**
    * Flow 1 — alive QQ instance. Caller passes pid + uin; we resolve the
    * account's nt_msg.db via the platform (never trust a client-built path —
-   * that leaked Windows separators onto linux), inject the embedded hook
+   * that leaked Windows separators onto linux), make the pid attached
    * (idempotent inside native), then ask for the key.
    */
   fetchKeyFromInstance: procedure
@@ -1580,26 +1585,24 @@ export const bootstrapRouter = router({
         dbPath,
       });
 
-      // Make the pid sendable (idempotent). On win32 this injects the embedded
-      // hook once; on linux it sudo-elevates the inject — the native call
-      // blocks until the hook binds the MSFService instance via `uin`.
-      // Re-injecting a live pid would race the hook's single-listener pipe
-      // (ERROR_PIPE_BUSY), so the hook's per-pid cache ensures we only do it
-      // once.
-      await boot.injectHook.ensure(input.pid, input.uin);
+      // Make the pid attached (idempotent). On win32 this opens the process
+      // handle once; on linux it sudo-elevates the ptrace attach — the native
+      // call resolves once the memory scan is done. The hook's per-pid cache
+      // ensures we only scan a given instance once.
+      await boot.attachHook.ensure(input.pid, input.uin);
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
         // The cached native client may have died (QQ relaunched / hook
         // unloaded). Reset + re-ensure once — a genuinely closed client
         // reconnects cleanly — and retry a single time.
-        logger.warn('key fetch failed; re-injecting and retrying once', {
+        logger.warn('key fetch failed; re-attaching and retrying once', {
           event: 'router-fetch-key-retry',
           pid: input.pid,
           error: result.error,
         });
-        boot.injectHook.reset(input.pid);
-        await boot.injectHook.ensure(input.pid, input.uin);
+        boot.attachHook.reset(input.pid);
+        await boot.attachHook.ensure(input.pid, input.uin);
         result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;

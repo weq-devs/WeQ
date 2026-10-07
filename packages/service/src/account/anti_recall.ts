@@ -226,10 +226,13 @@ export class AntiRecallService {
     }
   }
 
-  /** True when a QQ process is currently running on this machine. */
+  /**
+   * True when this account's QQ is currently online — its `nt_msg.db` is held
+   * by a QQ process (the only login probe left).
+   */
   private isQqRunning(): boolean {
     try {
-      return this.platform.native.ntHelper.getQqProcesses().length > 0;
+      return this.platform.isQqLoggedIn(this.session.context.uin);
     } catch {
       // If we can't tell, assume running — safer to defer a schema write than
       // to fight QQ for the lock.

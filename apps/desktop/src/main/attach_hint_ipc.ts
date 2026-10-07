@@ -1,40 +1,40 @@
 /**
- * Desktop implementation of the linux ptrace-hint bridge.
+ * Desktop implementation of the linux attach-hint bridge.
  *
- * `inject_elevation` hits a permission-denied ptrace inject → calls the
- * registered prompt → we send `ptrace:confirm-hint` to the main window and
- * wait for `ptrace:respond-hint` carrying `{ choice, password }` (`retry` /
+ * `attach_elevation` hits a permission-denied ptrace attach → calls the
+ * registered prompt → we send `attach:confirm-hint` to the main window and
+ * wait for `attach:respond-hint` carrying `{ choice, password }` (`retry` /
  * `no-remind` / `skip` / `cancel`, plus the password typed into the dialog
  * for the sudo escalate paths). Only the desktop registers this; the headless
  * web server never prompts.
  *
- * Concurrency: `injectInflight` coalesces per pid, but two pids could prompt
+ * Concurrency: in-flight prompts coalesce per pid, but two pids could prompt
  * at once — they join the same in-flight dialog and share the one answer.
  */
 
 import { ipcMain } from 'electron';
-import { getLogger, type PtraceHintAnswer, type PtraceHintChoice } from '@weq/service';
-import { setPtraceHintPrompt } from './ptrace_hint';
+import { getLogger, type AttachHintAnswer, type AttachHintChoice } from '@weq/service';
+import { setAttachHintPrompt } from './attach_hint';
 import { getMainWindow } from './main_window';
 
-const logger = getLogger().child({ scope: 'ptrace-hint' });
+const logger = getLogger().child({ scope: 'attach-hint' });
 
-const CONFIRM_CHANNEL = 'ptrace:confirm-hint';
-const RESPOND_CHANNEL = 'ptrace:respond-hint';
+const CONFIRM_CHANNEL = 'attach:confirm-hint';
+const RESPOND_CHANNEL = 'attach:respond-hint';
 
 /** The dialog may sit open while the user reads the instructions — give it room. */
 const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
-let pendingResolve: ((answer: PtraceHintAnswer) => void) | null = null;
-let pending: Promise<PtraceHintAnswer> | null = null;
+let pendingResolve: ((answer: AttachHintAnswer) => void) | null = null;
+let pending: Promise<AttachHintAnswer> | null = null;
 let pendingToken = 0;
 let pendingTimer: NodeJS.Timeout | null = null;
 
-/** Register the IPC listener and wire the prompt into `ptrace_hint`. */
-export function registerPtraceHintIpc(): void {
+/** Register the IPC listener and wire the prompt into `attach_hint`. */
+export function registerAttachHintIpc(): void {
   ipcMain.on(RESPOND_CHANNEL, (_event, raw: unknown) => {
     const payload = (raw ?? {}) as { choice?: unknown; password?: unknown };
-    const choice: PtraceHintChoice =
+    const choice: AttachHintChoice =
       payload.choice === 'retry' ||
       payload.choice === 'no-remind' ||
       payload.choice === 'skip' ||
@@ -42,14 +42,14 @@ export function registerPtraceHintIpc(): void {
         ? payload.choice
         : 'skip';
     const password = typeof payload.password === 'string' ? payload.password : '';
-    logger.info('ptrace hint answered', { event: 'ptrace-hint-answered', choice });
+    logger.info('ptrace hint answered', { event: 'attach-hint-answered', choice });
     pendingResolve?.({ choice, password });
   });
 
-  setPtraceHintPrompt(() => promptImpl());
+  setAttachHintPrompt(() => promptImpl());
 }
 
-function promptImpl(): Promise<PtraceHintAnswer> {
+function promptImpl(): Promise<AttachHintAnswer> {
   const win = getMainWindow();
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
     // Headless / window gone — fall back to the original escalate flow.
@@ -58,8 +58,8 @@ function promptImpl(): Promise<PtraceHintAnswer> {
   if (pending) return pending;
 
   const token = ++pendingToken;
-  pending = new Promise<PtraceHintAnswer>((resolve) => {
-    const finish = (answer: PtraceHintAnswer): void => {
+  pending = new Promise<AttachHintAnswer>((resolve) => {
+    const finish = (answer: AttachHintAnswer): void => {
       if (pendingToken !== token) return; // stale timeout/close from an older prompt
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingTimer = null;
@@ -70,19 +70,19 @@ function promptImpl(): Promise<PtraceHintAnswer> {
     pendingResolve = finish;
     pendingTimer = setTimeout(() => {
       logger.warn('ptrace hint dialog timed out; proceeding to escalate', {
-        event: 'ptrace-hint-timeout',
+        event: 'attach-hint-timeout',
       });
       finish({ choice: 'skip', password: '' });
     }, PROMPT_TIMEOUT_MS);
     win.once('closed', () => {
       logger.info('main window closed while ptrace hint pending; proceeding to escalate', {
-        event: 'ptrace-hint-window-closed',
+        event: 'attach-hint-window-closed',
       });
       finish({ choice: 'skip', password: '' });
     });
     win.webContents.send(CONFIRM_CHANNEL);
     logger.info('asked renderer to show ptrace hint dialog', {
-      event: 'ptrace-hint-requested',
+      event: 'attach-hint-requested',
     });
   });
   return pending;

@@ -107,8 +107,6 @@ export interface DbRepairAccountStatus {
   keyPresent: boolean;
   /** 该账号的 QQ pid（`resolveQqPid`）；离线为 null。 */
   qqPid: number | null;
-  /** 当前跑着的 QQ 进程（"结束 QQ 进程"按钮用）。 */
-  qqPids: number[];
   /** 是否有修复任务在跑（界面据此禁用按钮）。 */
   busy: boolean;
   databases: DbRepairDatabaseRow[];
@@ -152,10 +150,13 @@ export type DbRepairTaskResult =
 
 // ────────────────────────── 依赖装配 ──────────────────────────
 
-/** 该 pid 是否属于 QQ（不给这个接口当"任意进程结束器"的机会）。 */
-function isQqPid(pid: number): boolean {
+/**
+ * 该 pid 是否就是**这个账号当前在跑的 QQ 主进程**（用数据库锁反查，不枚举进程）——
+ * 不给这个接口当"任意进程结束器"的机会。
+ */
+function isQqPidFor(uin: string, pid: number): boolean {
   try {
-    return requirePlatform().native.ntHelper.getQqProcesses().includes(pid);
+    return requirePlatform().resolveQqPid(uin) === pid;
   } catch {
     return false;
   }
@@ -439,14 +440,10 @@ export const dbRepairRouter = router({
       error = e instanceof Error ? e.message : String(e);
     }
 
-    let qqPids: number[] = [];
     let qqPid: number | null = null;
     try {
-      const platform = requirePlatform();
-      qqPids = platform.native.ntHelper.getQqProcesses();
-      qqPid = platform.resolveQqPid(input.uin);
+      qqPid = requirePlatform().resolveQqPid(input.uin);
     } catch {
-      qqPids = [];
       qqPid = null;
     }
 
@@ -456,7 +453,6 @@ export const dbRepairRouter = router({
       dbDir: info?.dbDir ?? '',
       keyPresent: info ? info.dbKey !== '' : false,
       qqPid,
-      qqPids,
       busy: service.isBusy(),
       databases: info ? rowsFor(input.uin, info.dbDir) : [],
       error,
@@ -542,16 +538,16 @@ export const dbRepairRouter = router({
   /**
    * 结束挡住该库的 QQ 进程。
    *
-   * 只接受**当前确实在跑的 QQ 主进程 pid**：渲染层传来的 pid 会在这里对照 native 的
-   * 进程列表校验一遍，避免这个接口变成"任意进程结束器"。杀完等锁释放（最多
-   * {@link KILL_WAIT_MS}），返回是否真的空闲了。
+   * 只接受**这个账号当前确实在跑的 QQ 主进程 pid**：渲染层传来的 pid 会在这里用该账号的
+   * `nt_msg.db` 锁反查一遍（不再枚举进程），避免这个接口变成"任意进程结束器"。杀完等锁
+   * 释放（最多 {@link KILL_WAIT_MS}），返回是否真的空闲了。
    */
   killQq: procedure
     .input(targetRef.extend({ pid: z.number().int().positive() }))
     .mutation(async ({ input }): Promise<{ released: boolean; waitedMs: number }> => {
       const platform = requirePlatform();
-      if (!isQqPid(input.pid)) {
-        throw new Error(`pid ${input.pid} 不是当前运行的 QQ 主进程，已拒绝结束它`);
+      if (!isQqPidFor(input.uin, input.pid)) {
+        throw new Error(`pid ${input.pid} 不是该账号当前在跑的 QQ 主进程，已拒绝结束它`);
       }
 
       let dbPath: string;

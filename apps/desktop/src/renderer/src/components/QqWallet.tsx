@@ -170,7 +170,7 @@ export function QqWallet({
     void (async () => {
       try {
         const access = await client.account.getGroupAlbumAccessState.query();
-        if (!access.qqOnline || !access.injectEnabled) {
+        if (!access.qqOnline || !access.attachEnabled) {
           dialog.info(
             '无法查看领取记录',
             '需要在线且已注入的 QQ 客户端 —— 红包明细要走 hook 发包。',

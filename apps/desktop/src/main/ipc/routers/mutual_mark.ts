@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import {
   getAppContext,
-  requireInjectEnabled,
+  requireAttachEnabled,
   type AccountServices,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
@@ -28,7 +28,7 @@ const MUTUAL_MARK_HINT =
 export const mutualMarkRouter = router({
   /** 查 `uin` 与你之间的互动标识（任务 / 惊喜 / 限定 / 幸运字符）。 */
   get: procedure.input(z.object({ uin: z.string().regex(/^\d{5,}$/) })).query(async ({ input }) => {
-    requireInjectEnabled();
+    requireAttachEnabled();
     const services = requireServices();
     try {
       return await services.webQuery.getFriendMutualMark(input.uin);

@@ -33,7 +33,7 @@ function check(ok: boolean, label: string): void {
 
 for (const entry of [
   'server.mjs',
-  'injectWorker.mjs',
+  'attachWorker.mjs',
   'transcribeWorker.mjs',
   'start.sh',
   'start.bat',

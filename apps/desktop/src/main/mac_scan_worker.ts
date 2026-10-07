@@ -6,7 +6,7 @@
  * 数据库密钥」这一段收敛成一个短命的 root 子进程，密码经 stdin 喂给
  * sudo，WeQ 主进程保持非特权。
  *
- * 与 inject_worker 同一个打包约定：electron-vite 单独打进 `.mjs`，
+ * 与 attach_worker 同一个打包约定：electron-vite 单独打进 `.mjs`，
  * 生产环境用 `ELECTRON_RUN_AS_NODE=1` 的 electron-as-node 跑，不依赖
  * 系统 node。输入全部走 argv（sudo 会清环境变量）：
  *
@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   if (!dbPath) fail('missing nt_msg.db path (argv[3])', 2);
   if (!ntHelperPath) fail('missing nt_helper.node path (argv[4])', 2);
 
-  // 与 inject_worker 相同：addon 的 LICENSE 校验从 cwd 往上找，先 chdir 进
+  // 与 attach_worker 相同：addon 的 LICENSE 校验从 cwd 往上找，先 chdir 进
   // addon 所在目录（其祖先包含 LICENSE），否则加载直接失败。
   try {
     process.chdir(dirname(ntHelperPath));

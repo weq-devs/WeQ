@@ -19,7 +19,7 @@
 
 // ---- bootstrap ----
 export { Win32DetectService } from './bootstrap/win32_detect';
-export type { QqInstallInfo, DetectedQqProcess } from './bootstrap/win32_detect';
+export type { QqInstallInfo } from './bootstrap/win32_detect';
 
 export { Win32KeyService } from './bootstrap/win32_key';
 export type {
@@ -29,16 +29,15 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/win32_key';
 
-export { createDirectInjectHook } from './bootstrap/inject';
-export type { InjectHook, PtraceHintChoice, PtraceHintAnswer } from './bootstrap/inject';
-export { runUnprivilegedInject } from './bootstrap/ptrace_flow';
-export type { DirectInjectFailure, PtraceInjectFlowDeps } from './bootstrap/ptrace_flow';
+export { createDirectAttachHook } from './bootstrap/attach';
+export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
+export { runUnprivilegedAttach } from './bootstrap/attach_flow';
+export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
   UserConfig,
   AutoEnterTarget,
-  InjectRecord,
   AppSettings,
   AppLockConfig,
   AppLockMethod,

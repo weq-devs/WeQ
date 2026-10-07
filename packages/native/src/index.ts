@@ -39,6 +39,7 @@ export type {
   NineBirdPatchStatus,
   ElevatedResult,
 } from './darwin/install';
+export { readSipEnabled, resetSipCache, parseSipStatus } from './darwin/sip';
 export {
   STUB_MARKER,
   linuxAppDir,

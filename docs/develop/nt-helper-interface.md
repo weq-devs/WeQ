@@ -1,6 +1,6 @@
 # nt_helper.node 接口文档
 
-> `nt_helper.node` 是一个用 Rust（napi-rs）编译的原生 N-API 模块，已经把「QQ 进程检测、数据库解密 / 直查 / 导出、ptlogin2 cookie、注入 hook、在线协议发包、商城表情 / 字体 / 装扮资源」这些重活全部封装好了。Node 侧（主进程、`@weq/db`、`@weq/protocol`、各种 worker）**直接加载调用即可**，不要重新实现里面的任何一个能力。
+> `nt_helper.node` 是一个用 Rust（napi-rs）编译的原生 N-API 模块，已经把「QQ 进程检测、数据库解密 / 直查 / 导出、ptlogin2 cookie、只读内存取会话物料、原生 SSO 发包、商城表情 / 字体 / 装扮资源」这些重活全部封装好了。Node 侧（主进程、`@weq/db`、`@weq/protocol`、各种 worker）**直接加载调用即可**，不要重新实现里面的任何一个能力。
 >
 > 下面每个接口往下翻——如果在写代码时发现某件事「看起来很底层」，大概率这里已经提供了现成函数。先搜文档，再决定要不要动手。
 
@@ -33,7 +33,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 2. **再 `getInitStatus()`**：返回初始化状态；
    - `0` = 可用，继续；
    - 非 `0` = 环境校验失败（构建过期 / 损坏 / 源码改动被检测到），此时多数接口会**直接抛错**（`"Environment validation failed"`）或返回一个默认的“失败”值，详见 §2.
-3. `getInitStatus()` 可以且**应该**在每次加载 `require` 之后调用一次，作为对「模块是否可用」的硬性检查（如 `inject_worker.ts` 的做法）。
+3. `getInitStatus()` 可以且**应该**在每次加载 `require` 之后调用一次，作为对「模块是否可用」的硬性检查（如 `attach_worker.ts` 的做法）。
 
 > **dev 构建无时间戳 → 跳过校验**：本地 `cargo/npm build` 出的 `.node` 不带 `BUILD_TIMESTAMP`，`getInitStatus()` 直接返回 `0`，没有任何有效期 / LICENSE 限制；带时间戳的 CI release 构建才会走 30 天有效期检查。
 
@@ -219,33 +219,38 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 6. 注入 hook 与在线协议发包
+## 6. 内存取会话物料与原生 SSO 发包
 
-「要密钥 / 拿在线数据（图片 rkey、cookie、skey 等）」前提是把 hook 注入进在线 QQ 进程。**Windows / Linux 用注入，macOS 因 SIP 走 `ninebird` 加载器**（见 `docs/principles/ninebird-macos.md`）。整套 hook 管道的 IPC 由 native 侧维护（unix socket / named pipe），JS 侧不用关心。
+拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。NineBird 加载器仍在（`packages/ninebird`）—— 它负责拉起 QQ、做本地快速登录，不是发包通道；macOS 上 SIP 开着时读不了内存，就只走它。
 
-### 6.1 注入与就绪
+读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。
+
+> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
+>
+> ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己读 → 写回原值」，见 `apps/desktop/src/main/attach_elevation.ts` 的 `escalateViaPtraceScope`。
+
+### 6.1 取物料
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `injectAndGetStatus(pid, dllPath, uin)` | pid + hook 库绝对路径 + uin（≥8 位数字） | `Promise<QQInstanceStatus>` | 注入 `qq_hook.dll` / `libqqhook.so` 并返回实例状态。注入前**必须知道该 pid 的 uin**（native 不再自推导）。Linux 下注入后等待 hook 绑定 MSFService。 |
-| `injectAndGetStatusEmbedded(pid, uin)` | pid + uin | `Promise<QQInstanceStatus>` | 便捷版：自动解出内置 hook 库到临时目录，无需传 `dllPath`。**日常推荐用它**。 |
-| `waitForRealPacket(pid, timeoutMs)` | pid + 超时毫秒 | `Promise<HookRecvPacketInfo>` | 等 hook 观察到一条真正的登录后收包（忽略登录快照与预登录指令），用于判定注入链路真正就绪。 |
+| `scanSessionMaterial(pid)` | pid | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key（十六进制串；没扫到的项为 `undefined`，不影响其它项）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
+| `readDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 离线算出设备 guid（32 位小写 hex）。**不需要任何权限、不碰进程**；算不出返回 `null`。 |
+| `setSsoSession(pid, session, wrapperPath?)` | 物料 + `wrapper.node` 路径 | `Promise<void>` | 登记这一场会话。**只存不连**：不读内存、不发包时一个 socket 都不存在；TCP 等到第一次发包才建，闲置一分钟丢弃，断了下次发包自动重连。 |
+| `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 
-- `QQInstanceStatus = { pid: number; loggedIn: boolean; uin: string }`
-- `HookRecvPacketInfo = { sequence: string; error: number; cmd: string; uin: string; body: Buffer }`
+- `SessionMaterial = { a2?: string; d2?: string; d2Key?: string }`
+- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）
 
-> ✔️ Windows / Linux 注入需 **root / 特权**（ptrace / 远程线程），实践中抽到独立的 elevated worker 里做（如 `inject_worker.ts`），宿主无特权进程再走 hook socket 收怪。
->
-> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/ptrace_flow.ts`（有单测）。
->
-> ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己注入 → 写回原值」，见 `inject_elevation.ts` 的 `escalateViaPtraceScope`。
+> ℹ️ **刻意不做上线注册与心跳**（对照 `../LagrangeV2`）：那是个纯协议框架，机器上只有它一个客户端，所以它必须自己发 `SsoInfoSync` 上线、自己心跳。我们不是 —— a2/d2/d2key 就是从同机 QQ 进程内存里读的，那条会话的在线状态与心跳由 QQ 本体维持；再注册一次只会让服务端看到「同设备 guid + 同一份 d2 的第二个客户端」。这里只借凭据发包，其余交给 QQ。
 
-### 6.2 在线发包（均需已注入的 `pid`）
+### 6.2 发包（`pid` 需先经 `setSsoSession` 登记）
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `sendOidbPacket(pid, command, subCommand, body, isUid)` | + OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。 |
-| `sendPacket(pid, cmd, body)` | + 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。 |
+| `sendOidbPacket(pid, command, subCommand, body, isUid, needSign?)` | OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。`needSign`（缺省 true）由调用方按命令逐个标注。 |
+| `sendPacket(pid, cmd, body, needSign?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` 同上。 |
+| `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
+| `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecToken / SecExtra / SecSign`。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
 
 > **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
@@ -270,7 +275,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
-6. **在线发包需先注入**：`sendOidbPacket` / `sendPacket` 的前提都是「已注入的在线 QQ pid」。
+6. **在线发包需先登记物料**：`sendOidbPacket` / `sendPacket` 的前提是「该 pid 已 `setSsoSession` 登记过、且物料来自在线 QQ」。
 7. **业务命令去 TS 找**：`clientKey` / rkey / decryptKey / skey / p_skey / bkn 见
    `packages/protocol` 与 `packages/service/src/account/online_ticket.ts`，不要在 native 层重复实现。
 8. **不要重复造轮子**：上面列的每一项 native 能力都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力
@@ -280,8 +285,8 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 ## 9. 相关链接
 
 - 源码：`../nt_helper/src/`（Rust / napi-rs），入口 `lib.rs`
-- 使用示例：`apps/desktop/src/main/inject_worker.ts`（加载 + 初始化 + 调用）
+- 使用示例：`apps/desktop/src/main/attach_worker.ts`（加载 + 初始化 + 调用）
 - 数据库层封装：`packages/db`（基于 `executeSqlWithKey` 等）
-- macOS 注入说明：`[ninebird-macos.md](../principles/ninebird-macos.md)`
+- NineBird 加载器（拉起 QQ / 本地快速登录）：`packages/ninebird`
 
 [← 返回开发者入口](./index.md)

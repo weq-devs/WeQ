@@ -119,11 +119,22 @@ export interface AccountConfig {
   qqOnline?: boolean;
   /** PID of that running QQ instance, or null when none is online. */
   qqPid?: number | null;
+  /**
+   * 在线会话的内存物料（a2 / d2 / d2key），只在「自动 attach」开着、账号在线时
+   * 采集；账号下线会清掉。**不含 guid** —— guid 是设备标识，见 {@link guid}。
+   */
+  session?: AccountSessionMaterial;
+  /**
+   * 设备 guid（32 位小写 hex）。和登录无关（它是设备标识），所以单独一档，放在
+   * 账号身份层（紧挨 dataDir / uid），不和会话密钥混在一起 —— 未来它可能来自
+   * 别的来源，也不只服务于登录流程。
+   */
+  guid?: string;
   /** Latest download rkeys harvested from the online instance. */
   rkeys?: DownloadRkey[];
   /** Unix ms the rkeys were last refreshed. */
   rkeyUpdatedAt?: number;
-  /** Latest clientkey harvested from the online instance (when 自动注入 QQ is on). */
+  /** Latest clientkey harvested from the online instance (when 自动读取 QQ 内存 is on). */
   clientKey?: ClientKey;
   /**
    * True for static / offline accounts opened from a directory of
@@ -303,6 +314,38 @@ export class AccountConfigService {
     });
   }
 
+  /**
+   * 记下刚从在线 QQ 进程内存里读到的会话物料（a2 / d2 / d2key）。传 `null` 表示
+   * 账号下线 / 物料作废（旧的密钥留着只会误导）。
+   */
+  setSessionMaterial(material: Omit<AccountSessionMaterial, 'fetchedAt'> | null): void {
+    if (material === null) {
+      this.patch({ session: undefined });
+      this.logger.info('cleared account session material', {
+        event: 'set-session-material',
+        cleared: true,
+      });
+      return;
+    }
+    this.patch({ session: { ...material, fetchedAt: Date.now() } });
+    // 只记「有没有」——物料本身就是凭据，不进日志。
+    this.logger.info('stored account session material', {
+      event: 'set-session-material',
+      hasA2: material.a2 !== undefined,
+      hasD2: material.d2 !== undefined,
+      hasD2Key: material.d2Key !== undefined,
+    });
+  }
+
+  /**
+   * 记下设备 guid（和登录无关的设备标识，单独一档）。重复值不重写。
+   */
+  setGuid(guid: string): void {
+    if (guid.length === 0 || this.readRecord()?.guid === guid) return;
+    this.patch({ guid });
+    this.logger.info('stored device guid', { event: 'set-guid', guid });
+  }
+
   /** Replace the stored download rkeys (and stamp the refresh time). */
   setRkeys(rkeys: DownloadRkey[]): void {
     this.patch({ rkeys, rkeyUpdatedAt: Date.now() });
@@ -392,6 +435,21 @@ export class AccountConfigService {
       throw error;
     }
   }
+}
+
+/**
+ * 从在线 QQ 进程内存里读到的一次会话物料。三个字段都是 hex 字符串：
+ * a2 / d2 为原文 hex，d2Key 为 32 位 hex。任一项没扫到就是 `undefined`。
+ *
+ * 这里**没有 guid**：guid 与登录无关（它是设备标识），单独存在
+ * {@link AccountConfig.guid}。
+ */
+export interface AccountSessionMaterial {
+  a2?: string;
+  d2?: string;
+  d2Key?: string;
+  /** Unix ms，最后一次读到的时刻。 */
+  fetchedAt: number;
 }
 
 /**

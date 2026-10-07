@@ -102,8 +102,8 @@ function onlinePid(): number {
   if (!record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
   }
-  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），本工具不可用。');
+  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），本工具不可用。');
   }
   return record.qqPid;
 }
@@ -3294,7 +3294,7 @@ export const AI_TOOLS: AiTool[] = [
       if (!ck.clientKey) {
         return {
           ok: false,
-          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
         };
       }
       return { ok: true, clientKey: ck.clientKey, keyIndex: ck.keyIndex };

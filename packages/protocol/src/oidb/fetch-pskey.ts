@@ -36,6 +36,8 @@ function findPskey(body: Record<string, unknown>, domain: string): string {
 export namespace FetchPskeyOidb {
   export const command = 0x102a;
   export const subCommand = 0;
+  /** 抓包（/tmp/capture.log）：`0x102a_0` 带 tag 24，需要签名。 */
+  export const needSign = true;
   /** 真机抓包 `60 01`：UIN-form 信封（`OidbBase.reserved = 1`）。 */
   export const uinForm = true;
   export const reqSchema = GET_PSKEY_REQ;

@@ -126,7 +126,8 @@ export async function fetchGroupHistoryRaw(
   }
 
   const reqBytes = encode(SSO_GET_GROUP_MSG_REQUEST, GetGroupHistory.serialize(params));
-  const rawResponse = await sendPacket(nt, pid, SSO_GET_GROUP_MSG_CMD, reqBytes);
+  // `SsoGetGroupMsg` 不在签名清单里。
+  const rawResponse = await sendPacket(nt, pid, SSO_GET_GROUP_MSG_CMD, reqBytes, false);
   const decoded = decode(SSO_GET_GROUP_MSG_RESPONSE, rawResponse) as {
     body?: {
       groupUin?: number;
@@ -200,7 +201,8 @@ export async function fetchC2cHistoryRaw(
   }
 
   const reqBytes = encode(SSO_GET_C2C_MSG_REQUEST, GetC2cHistory.serialize(params));
-  const rawResponse = await sendPacket(nt, pid, SSO_GET_C2C_MSG_CMD, reqBytes);
+  // `SsoGetC2cMsg` 不在签名清单里。
+  const rawResponse = await sendPacket(nt, pid, SSO_GET_C2C_MSG_CMD, reqBytes, false);
   const decoded = decode(SSO_GET_C2C_MSG_RESPONSE, rawResponse) as {
     friendUid?: string;
     messages?: unknown[];

@@ -1,12 +1,11 @@
 /**
  * Win32 detection service — answers "what QQ accounts / processes / files
- * does this machine have?". Reads-only; performs no writes, injection, or
+ * does this machine have?". Reads-only; performs no writes, attachment, or
  * network calls.
  *
  * Composed from:
  *   - `Platform` (path resolution, native bundle)
  *   - `nt_helper`'s `decryptLoginDb` (login.db parser)
- *   - `nt_helper`'s `getQqProcesses` + `probeQqLoginInfo` (live QQ probe)
  *
  * One service instance is fine for the whole app lifetime — it's stateless
  * past the constructor.
@@ -20,7 +19,6 @@ import {
   NineBirdBootstrap,
   type LoginAccount,
   type NineBirdAccountListItem,
-  type QqPortLoginInfo,
   type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -39,14 +37,8 @@ export interface QqInstallInfo {
   loginDbPath: string | null;
 }
 
-export interface DetectedQqProcess {
-  pid: number;
-  loginInfo: QqPortLoginInfo | null;
-}
-
 const INSTALL_CACHE_TTL_MS = 5 * 60_000;
 const ACCOUNT_CACHE_TTL_MS = 5 * 60_000;
-const PROCESS_DETECT_CACHE_TTL_MS = 5 * 60_000;
 
 /**
  * Placeholder written into the synthetic `LoginAccount.a1Key` of fallback
@@ -61,8 +53,6 @@ const FALLBACK_QUICK_A1 = 'ninebird:quick-login';
 export class Win32DetectService {
   private installCache: { readonly expiresAt: number; readonly value: QqInstallInfo } | null = null;
   private accountCache: { readonly expiresAt: number; readonly value: LoginAccount[] } | null =
-    null;
-  private processCache: { readonly expiresAt: number; readonly value: DetectedQqProcess[] } | null =
     null;
 
   private readonly bootstrap: NineBirdBootstrap;
@@ -244,29 +234,6 @@ export class Win32DetectService {
     }
 
     return [...byUin.values()];
-  }
-
-  /**
-   * Walk every running QQ.exe process and probe its local port for login
-   * state. Useful for "you have N logged-in QQ windows — which account do
-   * you want to pull a key from?".
-   */
-  detectRunningProcesses(): DetectedQqProcess[] {
-    const now = Date.now();
-    if (this.processCache && this.processCache.expiresAt > now) {
-      return this.processCache.value;
-    }
-
-    const pids = this.platform.native.ntHelper.getQqProcesses();
-    const value = pids.map((pid) => ({
-      pid,
-      loginInfo: this.platform.native.ntHelper.probeQqLoginInfo(pid),
-    }));
-    this.processCache = {
-      expiresAt: now + PROCESS_DETECT_CACHE_TTL_MS,
-      value,
-    };
-    return value;
   }
 
   /** Convenience: per-account `nt_msg.db` lookup with a clean error. */

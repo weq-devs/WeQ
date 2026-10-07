@@ -114,7 +114,7 @@ export function QzoneAlbumDialog({
 }): ReactElement | null {
   const [access, setAccess] = useState<{
     qqOnline: boolean;
-    injectEnabled: boolean;
+    attachEnabled: boolean;
   } | null>(null);
   const [albums, setAlbums] = useState<QzoneAlbumWire[] | null>(null);
   const [albumsLoading, setAlbumsLoading] = useState(false);
@@ -179,11 +179,11 @@ export function QzoneAlbumDialog({
       .query()
       .then((state) => {
         if (run !== runRef.current) return;
-        setAccess({ qqOnline: state.qqOnline, injectEnabled: state.injectEnabled });
+        setAccess({ qqOnline: state.qqOnline, attachEnabled: state.attachEnabled });
       })
       .catch(() => {
         if (run !== runRef.current) return;
-        setAccess({ qqOnline: false, injectEnabled: true });
+        setAccess({ qqOnline: false, attachEnabled: true });
       })
       .finally(() => {
         if (run !== runRef.current) return;
@@ -261,7 +261,7 @@ export function QzoneAlbumDialog({
   if (!open) return null;
 
   const offline = access ? !access.qqOnline : false;
-  const offlineMode = access ? !access.injectEnabled : false;
+  const offlineMode = access ? !access.attachEnabled : false;
   const hasMore = selected ? media.length < mediaTotal : false;
 
   return (
@@ -293,7 +293,7 @@ export function QzoneAlbumDialog({
               <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
               <small>
                 {offlineMode
-                  ? '已关闭「自动注入 QQ（完整功能）」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
+                  ? '已关闭「自动读取 QQ 内存（完整功能）」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
                   : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
               </small>
             </div>

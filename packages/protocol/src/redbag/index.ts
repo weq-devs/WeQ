@@ -302,7 +302,8 @@ export namespace RedBagPrePack {
     const nonce = params.nonce ?? signRedBagRequest(nt, redBagSignInput(body));
     const reqBytes = encode(reqSchema, { ...body, nonce });
     const envelope = encodeSsoHandleRequest(cmd, reqBytes);
-    const replyBytes = await sendPacket(nt, pid, command, envelope);
+    // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
+    const replyBytes = await sendPacket(nt, pid, command, envelope, true);
     const packet = decodeSsoHandlePacket(replyBytes);
     if (packet.direction !== 'response') {
       throw new Error('红包 pre_pack 回包不是 sso_handle 下行信封。');
@@ -344,7 +345,8 @@ export namespace RedBagPasswordPool {
    */
   export const invoke = async (nt: TrpcNative, pid: number): Promise<string[]> => {
     const bytes = encode(reqSchema, serialize());
-    const replyBytes = await sendPacket(nt, pid, command, bytes);
+    // `trpc.qqhb.hbpanel.Hongbao.SsoGetToken` 不在签名清单里。
+    const replyBytes = await sendPacket(nt, pid, command, bytes, false);
     return deserialize(decode(respSchema, replyBytes));
   };
 }
@@ -578,7 +580,14 @@ export namespace RedBagDetail {
         ),
       );
     const reqBytes = encode(reqSchema, { ...body, nonce });
-    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
+    // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
+    const replyBytes = await sendPacket(
+      nt,
+      pid,
+      command,
+      encodeSsoHandleRequest(cmd, reqBytes),
+      true,
+    );
     const reply = decodeLocateReply(replyBytes, 'detail');
     return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
   };
@@ -651,7 +660,14 @@ export namespace RedBagGrab {
         ),
       );
     const reqBytes = encode(reqSchema, { ...body, nonce });
-    const replyBytes = await sendPacket(nt, pid, command, encodeSsoHandleRequest(cmd, reqBytes));
+    // `trpc.qqhb.qqhb_proxy.Handler.sso_handle` 在签名清单里。
+    const replyBytes = await sendPacket(
+      nt,
+      pid,
+      command,
+      encodeSsoHandleRequest(cmd, reqBytes),
+      true,
+    );
     const reply = decodeLocateReply(replyBytes, 'grab');
     return { ...deserialize(reply.plain), code: reply.code, message: reply.message };
   };

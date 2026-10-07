@@ -345,8 +345,8 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
 export interface GroupAlbumAccessState {
   qqOnline: boolean;
   qqPid: number | null;
-  /** 「自动注入 QQ（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
-  injectEnabled: boolean;
+  /** 「自动读取 QQ 内存（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
+  attachEnabled: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
@@ -506,7 +506,7 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   return {
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
-    injectEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true,
+    attachEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true,
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,
@@ -518,8 +518,8 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (!state.injectEnabled) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  if (!state.attachEnabled) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
 }
 
@@ -528,12 +528,12 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (!state.injectEnabled) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），群相册等在线功能不可用。');
+  if (!state.attachEnabled) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），群相册等在线功能不可用。');
   }
   if (!state.clientKeyValid) {
     throw new Error(
-      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
     );
   }
 }
@@ -2770,7 +2770,7 @@ export const accountRouter = router({
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState();
-        if (!state.qqOnline || !state.injectEnabled) {
+        if (!state.qqOnline || !state.attachEnabled) {
           throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
         }
         return await service.fetchRemote(input.resId);
@@ -3019,7 +3019,7 @@ export const accountRouter = router({
     }),
 
   /**
-   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已注入 QQ。
+   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已读取 QQ 内存。
    * `code` 1–3 位 = QQ 小黄脸 id，更长 = Unicode 码点（协议层按长度自动分 type）。
    */
   setMessageReaction: procedure
@@ -3580,7 +3580,7 @@ export const accountRouter = router({
 
       // 没有在线 QQ（或处于完全离线模式）就没有 clientKey 可换 —— 退回裸地址，
       // 用户自己在浏览器里登录。
-      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
       if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
         return { url: landing, autoLogin: false };
       }
@@ -3613,19 +3613,19 @@ export const accountRouter = router({
         const uin = ctx.account?.context.uin;
         const nt = ctx.platform?.native.ntHelper;
         const record = services.accountConfig.getRecord();
-        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
         if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
           if (offlineMode) {
             return {
               ok: false,
               reason: 'offline',
-              message: '已开启完全离线模式（自动注入 QQ 已关闭），闪传分享需要在线 QQ。',
+              message: '已开启完全离线模式（自动读取 QQ 内存 已关闭），闪传分享需要在线 QQ。',
             };
           }
           return { ok: false, reason: 'offline' };
         }
         try {
-          await ctx.bootstrap?.injectHook.ensure(record.qqPid, uin);
+          await ctx.bootstrap?.attachHook.ensure(record.qqPid, uin);
           const shareUrl = await services.flashTransfer.getShareLink(input.fileSetId);
           if (!shareUrl) {
             return { ok: false, reason: 'error', message: '没有拿到分享链接（文件可能已过期）' };
@@ -3920,10 +3920,10 @@ export const accountRouter = router({
       const svc = requireServices().collection;
       const limit = input?.limit ?? 50;
       const offset = input?.offset ?? 0;
-      // 完全离线模式（自动注入 QQ 关闭）：网络同步需要 weiyun p_skey（在线实例），
+      // 完全离线模式（自动读取 QQ 内存 关闭）：网络同步需要 weiyun p_skey（在线实例），
       // 一律回退本地 collection.db，避免白打一次网络 + 凭证换取。
       const offlineMode =
-        getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
+        getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
       const source = offlineMode ? 'db' : (input?.source ?? 'auto');
       const page =
         source === 'db'
@@ -4162,7 +4162,7 @@ export const accountRouter = router({
   /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
-   * when fresh rkeys were stored. 完全离线模式（自动注入 QQ 关闭）下直接返回 false。
+   * when fresh rkeys were stored. 完全离线模式（自动读取 QQ 内存 关闭）下直接返回 false。
    */
   refreshRkeys: procedure.mutation(() => {
     return getAppContext().refreshRkeysNow();

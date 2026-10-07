@@ -1,14 +1,12 @@
 /**
- * Linux injection worker — the ROOT half of the elevated inject flow.
+ * Attach worker — the ROOT half of the elevated attach flow.
  *
- * Injection into a running QQ needs ptrace (root); fetching keys afterwards
- * does not (the hook's unix socket is reachable unprivileged). So we isolate
- * ONLY the inject in a short-lived root child: `inject_elevation.ts` spawns this
- * via `sudo -S` (password from a self-drawn renderer dialog), we require
- * `nt_helper.node`, call `injectAndGetStatusEmbedded`
- * (passing the account uin, which the hook needs to bind the MSFService
- * instance), print a one-line JSON result to stdout, and exit. The parent then
- * talks to the hook socket unprivileged.
+ * Reading a running QQ's memory needs a ptrace attach (root: the same
+ * `PTRACE_MODE_ATTACH` gate that used to guard injection). Nothing else here
+ * does. So we isolate ONLY the memory read in a short-lived root child:
+ * `attach_elevation.ts` spawns this via `sudo -S` (password from a self-drawn
+ * renderer dialog), we require `nt_helper.node`, call `scanSessionMaterial(pid)`,
+ * print a one-line JSON result to stdout, and exit.
  *
  * Bundled by electron-vite as a SEPARATE `.mjs` entry so the packaged (asar)
  * build can run it via `ELECTRON_RUN_AS_NODE` electron-as-node — end-user
@@ -27,20 +25,29 @@ import { dirname } from 'node:path';
 
 const requireFn = createRequire(__filename);
 
-interface InjectResult {
+/** 一次扫描的物料 —— 与 `@weq/native` 的 `SessionMaterial` 同形。 */
+interface SessionMaterial {
+  a2?: string;
+  d2?: string;
+  d2Key?: string;
+}
+
+interface AttachResult {
   ok: boolean;
-  status?: { pid: number; loggedIn: boolean; uin: string };
+  material?: SessionMaterial;
   error?: string;
 }
 
 function fail(error: string, code: number): never {
-  const payload: InjectResult = { ok: false, error };
+  const payload: AttachResult = { ok: false, error };
   process.stderr.write(JSON.stringify(payload));
   process.exit(code);
 }
 
 async function main(): Promise<void> {
   const pid = Number(process.argv[2]);
+  // argv[3] 是账号 uin —— 读取本身不需要它（只用于归属/诊断），保留这个位置是
+  // 为了让父进程的参数布局不随实现变化。
   const uin = process.argv[3];
   const ntHelperPath = process.argv[4];
 
@@ -58,10 +65,7 @@ async function main(): Promise<void> {
 
   let nt: {
     getInitStatus(): number;
-    injectAndGetStatusEmbedded(
-      pid: number,
-      uin: string,
-    ): Promise<{ pid: number; loggedIn: boolean; uin: string }>;
+    scanSessionMaterial(pid: number): Promise<SessionMaterial>;
   };
   try {
     nt = requireFn(ntHelperPath);
@@ -73,12 +77,12 @@ async function main(): Promise<void> {
   if (initStatus !== 0) fail(`nt_helper init failed (status ${initStatus})`, 1);
 
   try {
-    const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-    const payload: InjectResult = { ok: true, status };
+    const material = await nt.scanSessionMaterial(pid);
+    const payload: AttachResult = { ok: true, material };
     process.stdout.write(JSON.stringify(payload));
     process.exit(0);
   } catch (e) {
-    fail(`inject failed: ${e instanceof Error ? e.message : String(e)}`, 1);
+    fail(`attach failed: ${e instanceof Error ? e.message : String(e)}`, 1);
   }
 }
 

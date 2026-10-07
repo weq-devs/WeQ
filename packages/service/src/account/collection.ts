@@ -88,7 +88,7 @@ export class CollectionService {
     try {
       cred = await this.creds.forDomain(WEIYUN_DOMAIN);
     } catch (error) {
-      // 拿不到凭据(未注入 / 静态账号 noPid / 关了 ClientKey)→ 回退 db。
+      // 拿不到凭据(未 attach / 静态账号 noPid / 关了 ClientKey)→ 回退 db。
       this.logger.info('no weiyun p_skey — falling back to collection.db', {
         event: 'collection-network-no-cred',
         ...logErrorContext(error),

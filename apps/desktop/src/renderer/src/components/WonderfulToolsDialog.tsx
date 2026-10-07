@@ -8,7 +8,7 @@
  *     QQ 进程 pid（win32 走 Restart Manager、linux 走 fcntl 写锁，由
  *     platform.resolveQqPid 统一封装）。
  *   - 在线账号卡片亮起（绿色在线点 + 高亮），离线账号置灰。
- *   - 点击卡片 → 卡片加载动画 → 对账号进程做零注入内存扫描
+ *   - 点击卡片 → 卡片加载动画 → 对账号进程做只读内存扫描
  *     （nt_helper scanKeyFromDatabase），展示恢复的密钥、密钥所在内存的
  *     上下文 hexdump（高亮密钥字节）或失败原因。
  *
@@ -18,8 +18,8 @@
  *   - 选择其它设备导出的 `nt_msg.db` → 读取头部字节（256B）展示 hexdump，
  *     高亮发包用的 db_salt（文件偏移 0x2f..0xaf，与 nt_helper
  *     request_decrypt_key 一致）。
- *   - hexdump 下方显示加载动画，然后按 bootstrap 的实例取密钥流程（跳过
- *     注入，直接调 nt_helper requestDecryptKey）返回密钥或失败原因。
+ *   - hexdump 下方显示加载动画，然后按 bootstrap 的实例取密钥流程（不读
+ *     内存，直接调 nt_helper requestDecryptKey）返回密钥或失败原因。
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
@@ -70,7 +70,7 @@ interface ScanResultView extends ScanResultWire {
 export type ToolId = 'key-scan' | 'other-device-key' | 'reverse' | 'db-repair';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
-  { id: 'key-scan', label: '密钥扫描', desc: '零注入内存扫描主密钥' },
+  { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
   { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
@@ -288,8 +288,8 @@ export function WonderfulToolsDialog({
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 全局「自动注入 QQ（完整功能）」——关闭即完全离线模式。 */
-  const [autoInjectQq, setAutoInjectQq] = useState(true);
+  /** 全局「自动读取 QQ 内存（完整功能）」——关闭即完全离线模式。 */
+  const [autoAttachQq, setAutoAttachQq] = useState(true);
   const [scanningUin, setScanningUin] = useState<string | null>(null);
   /** 正在扫描 / 已出结果的账号 —— 存在时弹出结果模态窗口。 */
   const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
@@ -316,10 +316,10 @@ export function WonderfulToolsDialog({
   } | null>(null);
   const [otherCopied, setOtherCopied] = useState(false);
 
-  /** 当前在线的 QQ 实例数（密钥扫描用：零注入，离线模式下仍可用）。 */
+  /** 当前在线的 QQ 实例数（密钥扫描用：只读内存，离线模式下仍可用）。 */
   const onlineCount = accounts.filter((a) => a.pid !== null).length;
-  /** 其它设备密钥需要「已注入」的在线实例；完全离线模式下视为 0。 */
-  const otherKeyOnline = autoInjectQq ? onlineCount : 0;
+  /** 其它设备密钥需要「已读取内存」的在线实例；完全离线模式下视为 0。 */
+  const otherKeyOnline = autoAttachQq ? onlineCount : 0;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -327,7 +327,7 @@ export function WonderfulToolsDialog({
     void client.bootstrap.getSettings
       .query()
       .then((s) => {
-        if (alive) setAutoInjectQq(s.autoInjectQq);
+        if (alive) setAutoAttachQq(s.autoAttachQq);
       })
       .catch(() => {
         /* 读不到就按默认开启处理 */
@@ -626,7 +626,7 @@ export function WonderfulToolsDialog({
                     <span
                       className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                     >
-                      {autoInjectQq
+                      {autoAttachQq
                         ? otherKeyOnline > 0
                           ? `${otherKeyOnline} 个在线实例可用`
                           : '无在线实例'
@@ -719,7 +719,7 @@ export function WonderfulToolsDialog({
                         !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
                       }
                       title={
-                        !autoInjectQq
+                        !autoAttachQq
                           ? '已开启完全离线模式，无法向 QQ 请求密钥'
                           : otherKeyOnline === 0
                             ? '没有可用的在线 QQ 实例，无法发包获取密钥'
@@ -735,9 +735,9 @@ export function WonderfulToolsDialog({
                     </button>
                     {otherKeyOnline === 0 && !fetchingKey ? (
                       <span className="weq-wtools-odev-hint">
-                        {autoInjectQq
+                        {autoAttachQq
                           ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
-                          : '已开启完全离线模式（自动注入 QQ 已关闭），无法向 QQ 请求密钥'}
+                          : '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向 QQ 请求密钥'}
                       </span>
                     ) : null}
                   </div>

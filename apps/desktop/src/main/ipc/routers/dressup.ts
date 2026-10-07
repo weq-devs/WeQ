@@ -26,7 +26,7 @@ import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from 
 import {
   accountEventBus,
   getAppContext,
-  requireInjectEnabled,
+  requireAttachEnabled,
   type AccountServices,
 } from '../../context/app_context';
 import { resolveResource } from '../../resource';
@@ -44,7 +44,7 @@ function requireServices(): AccountServices {
 function qqOnline(services = requireServices()): boolean {
   const record = services.accountConfig.getRecord();
   if (!(record?.qqOnline && record.qqPid)) return false;
-  return getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
+  return getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true;
 }
 
 /** 仅要求在线 QQ 实例（不要求注入）—— 走 Web CGI 的接口用（pt_login 可兜底）。 */
@@ -396,7 +396,7 @@ export const dressupRouter = router({
   peerStats: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/), uid: z.string().min(1) }))
     .query(async ({ input }) => {
-      requireInjectEnabled();
+      requireAttachEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getPeerStats(input.uin, input.uid);
@@ -414,7 +414,7 @@ export const dressupRouter = router({
   peerQqShow: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
-      requireInjectEnabled();
+      requireAttachEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getQqShow(input.uin);

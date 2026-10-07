@@ -2,8 +2,8 @@
  * 设置 → 账号基础.
  *
  * Everything tied to the open account: self profile, the database key, the live
- * download rkeys, clientkey, plus the behaviour switch (实时消息 / 自动注入 QQ).
- * Realtime + 自动注入 QQ are stored globally but read most naturally here next
+ * download rkeys, clientkey, plus the behaviour switch (实时消息 / 自动读取 QQ 内存).
+ * Realtime + 自动读取 QQ 内存 are stored globally but read most naturally here next
  * to the account they affect.
  *
  * Freshness: the QueryClient keeps data fresh 5 min and does NOT refetch on
@@ -87,7 +87,7 @@ export function AccountBasicsSection(): ReactElement {
   });
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
-  const setAutoInjectQq = trpc.bootstrap.setAutoInjectQq.useMutation();
+  const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -97,7 +97,7 @@ export function AccountBasicsSection(): ReactElement {
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
-  const [autoInject, setAutoInject] = useState(true);
+  const [autoAttach, setAutoAttach] = useState(true);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -110,7 +110,7 @@ export function AccountBasicsSection(): ReactElement {
     const d = settings.data;
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
-    setAutoInject(d.autoInjectQq);
+    setAutoAttach(d.autoAttachQq);
   }, [settings.data]);
 
   useEffect(() => {
@@ -141,7 +141,7 @@ export function AccountBasicsSection(): ReactElement {
   const settingsLoading = settings.isLoading;
   const isStatic = cfg?.static ?? false;
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
-  // macOS 不支持注入（SIP 限制）：开关置灰 + 专属文案。
+  // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
   const isMac = systemInfo.data?.platformKind === 'darwin';
 
   async function copyText(text: string, onOk?: () => void): Promise<void> {
@@ -302,10 +302,10 @@ export function AccountBasicsSection(): ReactElement {
             {config.isLoading
               ? '读取中…'
               : cfg?.qqOnline
-                ? autoInject
+                ? autoAttach
                   ? '在线实例已连接，正在等待获取 rKey…'
-                  : '完全离线模式已开启（自动注入 QQ 已关闭），不会获取 rKey。'
-                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动注入 QQ（完整功能）」）。'}
+                  : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 rKey。'
+                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
           </div>
         ) : (
           <ul className="weq-set-rkey-list">
@@ -364,10 +364,10 @@ export function AccountBasicsSection(): ReactElement {
             {config.isLoading
               ? '读取中…'
               : cfg?.qqOnline
-                ? autoInject
+                ? autoAttach
                   ? '在线实例已连接，正在等待获取 ClientKey…'
-                  : '完全离线模式已开启（自动注入 QQ 已关闭），不会获取 ClientKey。'
-                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动注入 QQ（完整功能）」）。'}
+                  : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 ClientKey。'
+                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
           </div>
         ) : (
           <div className="weq-set-rkey-item">
@@ -450,31 +450,31 @@ export function AccountBasicsSection(): ReactElement {
         />
       </Card>
 
-      {/* 完全离线总闸：自动注入 QQ（完整功能） */}
+      {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
       <Card>
         <Row
           label={
             <span className="weq-set-row-icon">
               <Plug size={15} strokeWidth={1.8} aria-hidden />
-              自动注入 QQ（完整功能）
+              自动读取 QQ 内存（完整功能）
             </span>
           }
           desc={
             isMac
-              ? 'macOS 版不支持注入 QQ（SIP 限制），此开关不可用。请手动填入数据库密钥使用。'
-              : '默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再注入 QQ、不再联网换取任何凭证，仅使用本地数据与本地文件。'
+              ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后后台会以管理员权限读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证。'
+              : '默认开启：后台自动读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再读取 QQ 内存、不再联网换取任何凭证，仅使用本地数据与本地文件。'
           }
           control={
             <Toggle
-              checked={isMac ? false : autoInject}
-              disabled={settingsLoading || isMac}
+              checked={autoAttach}
+              disabled={settingsLoading}
               onChange={(v) =>
                 void persist(
-                  () => setAutoInject(v),
-                  () => setAutoInjectQq.mutateAsync({ enabled: v }),
+                  () => setAutoAttach(v),
+                  () => setAutoAttachQq.mutateAsync({ enabled: v }),
                 )
               }
-              label="自动注入 QQ（完整功能）"
+              label="自动读取 QQ 内存（完整功能）"
             />
           }
         />

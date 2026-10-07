@@ -1,7 +1,7 @@
 /**
- * Electron-free seam for the linux ptrace-hint dialog.
+ * Electron-free seam for the linux attach-hint dialog.
  *
- * `inject_elevation` (shared with the web app via `app_context`, which must
+ * `attach_elevation` (shared with the web app via `app_context`, which must
  * stay electron-free) asks the renderer to guide the user through disabling
  * yama ptrace protection when the first unprivileged inject is refused. The
  * actual dialog lives in the desktop renderer, so `index.ts` injects the real
@@ -11,18 +11,18 @@
  * surfaces a clear "run as root" error instead.
  */
 
-import type { PtraceHintAnswer } from '@weq/service';
+import type { AttachHintAnswer } from '@weq/service';
 
-export type PtraceHintPrompt = () => Promise<PtraceHintAnswer>;
+export type AttachHintPrompt = () => Promise<AttachHintAnswer>;
 
-let current: PtraceHintPrompt | null = null;
+let current: AttachHintPrompt | null = null;
 
-/** Register the desktop implementation (see `ptrace_hint_ipc.ts`). */
-export function setPtraceHintPrompt(prompt: PtraceHintPrompt | null): void {
+/** Register the desktop implementation (see `attach_hint_ipc.ts`). */
+export function setAttachHintPrompt(prompt: AttachHintPrompt | null): void {
   current = prompt;
 }
 
 /** The registered implementation, or null on headless hosts. */
-export function getPtraceHintPrompt(): PtraceHintPrompt | null {
+export function getAttachHintPrompt(): AttachHintPrompt | null {
   return current;
 }

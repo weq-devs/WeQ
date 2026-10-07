@@ -398,7 +398,8 @@ export async function sendMessage(
 ): Promise<SendMessageReceipt> {
   const uploads: SendMediaUploadReport[] = [];
   const built = await buildSendRequestWithMedia(params, (report) => uploads.push(report));
-  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
+  // `MessageSvc.PbSendMsg` 在签名清单里。
+  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes, true);
   const response = parseSendResponse(responseBytes);
   const ok = responseBytes.length > 0 && response.result === 0;
   const timestamp = response.timestamp1 || Math.floor(Date.now() / 1000);
@@ -520,7 +521,8 @@ export async function sendC2cFileMessage(
   params: SendC2cFileParams,
 ): Promise<SendMessageReceipt> {
   const built = buildSendC2cFileRequest(params);
-  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
+  // `MessageSvc.PbSendMsg` 在签名清单里。
+  const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes, true);
   const response = parseSendResponse(responseBytes);
   const ok = responseBytes.length > 0 && response.result === 0;
 
