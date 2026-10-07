@@ -17,8 +17,10 @@
  *      as they would for a missing directory.
  *
  * macOS native differences (see `nt_helper/src`):
- *   - `isQqLoggedIn` / `resolveQqPid` / `probeDbLock` all resolve through the
- *     account's `nt_msg.db` fcntl write lock — the same mechanism as linux.
+ *   - `isQqLoggedIn` / `resolveQqPid` / `probeDbLock` enumerate the processes
+ *     that have the account's `nt_msg.db` open via `libproc`
+ *     (`proc_pidfdinfo`), the analog of Windows' Restart Manager — not linux's
+ *     single-holder `F_GETLK`. Each holder is name-tagged via `proc_name`.
  *   - Memory scanning (`scanSessionMaterial` / `scanKeyFromDatabase`) only works
  *     with SIP off AND root (QQ runs hardened, so SIP alone blocks
  *     `task_for_pid`). {@link Platform.sipEnabled} answers that first question
@@ -83,11 +85,14 @@ export function createDarwinPlatform(
   const home = undefined; // let the helpers default to os.homedir()
 
   /**
-   * Resolve an account's hosting QQ pid from its `nt_msg.db` fcntl write lock
-   * (`F_GETLK`) — identical to linux. The name is checked case-insensitively,
-   * but macOS has no `/proc`, so the holder name comes back empty: when the
-   * name can't be checked we fall back to "the account's own DB is write-locked
-   * ⇒ whoever holds it is that account's QQ".
+   * Resolve an account's hosting QQ pid by enumerating who has the account's
+   * `nt_msg.db` open (`libproc` via `probeDbLock`) — the macOS analog of
+   * Windows' Restart Manager, same as linux but not via `F_GETLK`.
+   *
+   * The holder list is name-tagged (`proc_name`), so we accept only a holder
+   * whose name is QQ — exactly like linux/win32. A non-QQ holder (WeQ's own
+   * read connection, another reader) must never be returned: the probe can
+   * list more than one process, and its order is not meaningful.
    *
    * Returns null both when the account is not signed in and when the probe
    * couldn't run. There is deliberately no port-probe fallback.
@@ -98,11 +103,8 @@ export function createDarwinPlatform(
     try {
       const probe = native.ntHelper.probeDbLock(dbPath);
       if (!probe.success) return null;
-      const named = probe.holders.find((h) => isQqProcessName(h.name));
-      if (named) return named.pid;
-      // Name unavailable (macOS has no /proc) — the probed DB is this account's
-      // own, so any write-lock holder is its QQ.
-      return probe.holders[0]?.pid ?? null;
+      const holder = probe.holders.find((h) => isQqProcessName(h.name));
+      return holder ? holder.pid : null;
     } catch {
       return null;
     }

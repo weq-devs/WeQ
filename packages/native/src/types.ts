@@ -424,20 +424,23 @@ export interface NtHelperBinding {
    */
   ptFetchPskey(port: number, uin: string, domain: string): Promise<PtFetchPskeyResult>;
   /**
-   * Probe which processes hold an account's `nt_msg.db` open / locked — the
+   * Probe which processes have an account's `nt_msg.db` open / locked — the
    * cross-platform way to attribute a running QQ to an account AND recover its
-   * pid in one step. Windows enumerates Restart Manager open-handle holders
-   * (may include non-QQ processes like WeQ itself — filter by name); Linux
-   * reports the fcntl write-lock holder's pid via `F_GETLK`. The holder list
-   * is not filtered here: callers decide which holder is QQ.
+   * pid in one step. Windows enumerates Restart Manager open-handle holders;
+   * macOS enumerates open files via `libproc` (`proc_pidfdinfo`); both list
+   * every holder with a name (`strAppName` / `proc_name`), so non-QQ holders
+   * like WeQ itself appear too. Linux reports the single `F_GETLK` holder via
+   * `/proc/<pid>/comm`. The holder list is not filtered here: callers decide
+   * which holder is QQ.
    */
   probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   /**
-   * 某账号是否在线 —— 只认数据库锁：该账号的 `nt_msg.db` 是否被 QQ 持有
-   * （Windows：Restart Manager 看到的打开句柄；Linux/macOS：`F_GETLK` 写锁）。
-   * 进程名可用时只认名字像 QQ 的持有者（Windows 上 WeQ 自己读库也在句柄列表
-   * 里，不筛名字会误判成在线）；名字拿不到时（macOS 没有 `/proc`）退化为
+   * 某账号是否在线 —— 只认「该账号的 `nt_msg.db` 正被 QQ 持有」
+   * （Windows：Restart Manager 打开句柄；macOS：libproc 打开文件枚举；
+   * Linux：`F_GETLK` 锁持有者）。三端都按进程名（`strAppName` / `proc_name` /
+   * `/proc/<pid>/comm`）只认名字像 QQ 的持有者 —— WeQ 自己读库也会出现在列表里，
+   * 不筛名字会误判成在线。名字拿不到时按「未知 → 不在线」处理，不再退化成
    * 「有人持有即在线」。调用方负责解析出 `dbPath`。
    */
   isQqLoggedIn(dbPath: string): boolean;
