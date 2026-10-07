@@ -82,7 +82,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *
  * 这里不给「输入密码试试」这种话 —— 密码不是瓶颈，SIP 才是，说了只会让人白输一次。
  */
-const SIP_ENABLED_MESSAGE =
+export const SIP_ENABLED_MESSAGE =
   'macOS 的系统完整性保护（SIP）处于开启状态，读取 QQ 进程内存会被系统直接拒绝' +
   '（QQ 带强化运行时，管理员权限也不够）。\n' +
   '两条出路：\n' +
@@ -138,7 +138,7 @@ function isPermissionError(error: Error): boolean {
  * 提权 worker —— 两种姿势都能在 `pnpm dev`（非 FUSE 宿主）里试出来，不必为了
  * 验证打个 AppImage。
  */
-function installInvisibleToRoot(): boolean {
+export function installInvisibleToRoot(): boolean {
   const override = process.env.WEQ_ATTACH_FORCE_PTRACE_SCOPE;
   if (override === '1') return true;
   if (override === '0') return false;

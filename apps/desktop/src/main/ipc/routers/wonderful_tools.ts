@@ -23,9 +23,17 @@
  */
 
 import { z } from 'zod';
+import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { open as openFile, writeFile } from 'node:fs/promises';
-import { resolveNtHelperPath, type LoginAccount } from '@weq/native';
+import { observable } from '@trpc/server/observable';
+import {
+  readSipEnabled,
+  resolveNtHelperPath,
+  type KeyScanProgress,
+  type KeyScanResult,
+  type LoginAccount,
+} from '@weq/native';
 import {
   rvNodesToJson,
   tryDecodeAfterLengthPrefix,
@@ -50,6 +58,8 @@ import {
   type CaptureStatsWire,
 } from '../../capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from '../../capture_elevation';
+import { SIP_ENABLED_MESSAGE } from '../../attach_elevation';
+import { scanKeyElevated } from '../../key_scan_elevation';
 
 const logger = getLogger().child({ scope: 'wonderful-tools' });
 
@@ -115,6 +125,18 @@ export interface WonderfulToolAccountWire {
   /** 反查到的在线 QQ 进程 pid；离线时为 null。 */
   pid: number | null;
 }
+
+/** 密钥扫描进度事件（订阅用；带上 uin 好让面板过滤出自己那次扫描）。 */
+export interface WonderfulToolScanProgressWire extends KeyScanProgress {
+  uin: string;
+}
+
+/**
+ * 密钥扫描进度总线。扫描在 `scanKey` 里同步跑（长任务），进度通过
+ * `onKeyScanProgress` 订阅推给渲染进程 —— 与 `db_repair` / `update` 同一套
+ * EventEmitter→observable 桥接方式。
+ */
+const scanProgressBus = new EventEmitter();
 
 /** 逐账号容错解析密钥扫描面板的状态行。 */
 async function resolveAccountRows(
@@ -367,9 +389,30 @@ export const wonderfulToolsRouter = router({
       };
     }
 
+    // 下面几个闭包里要用的、已经过非空校验的值（闭包不保留 let 的收窄结果）。
+    const dbFile = dbPath;
+    const qqPid = pid;
+    const nt = platform.native.ntHelper;
+    const emit = (progress: KeyScanProgress): void => {
+      scanProgressBus.emit('progress', {
+        uin: input.uin,
+        ...progress,
+      } satisfies WonderfulToolScanProgressWire);
+    };
+    // 新产物：扫描时持续推两阶段进度（锚点 → 回退全内存）。老产物没有这个方法，
+    // 退回无进度的扫描 —— 面板那边会显示成不确定进度。
+    const scanWithProgress = nt.scanKeyFromDatabaseWithProgress?.bind(nt);
+    const runInProcess = (): Promise<KeyScanResult> =>
+      scanWithProgress
+        ? scanWithProgress(dbFile, qqPid, (error, progress) => {
+            if (error) return; // 单次投递失败不影响扫描本身
+            emit(progress);
+          })
+        : nt.scanKeyFromDatabase(dbFile, qqPid);
+
+    let result: KeyScanResult;
     try {
-      const result = await platform.native.ntHelper.scanKeyFromDatabase(dbPath, pid);
-      return { ...result, pid };
+      result = await runInProcess();
     } catch (error) {
       return {
         success: false,
@@ -377,6 +420,46 @@ export const wonderfulToolsRouter = router({
         error: error instanceof Error ? error.message : String(error),
       };
     }
+    if (result.success) return { ...result, pid };
+
+    // unix 上读别的进程内存（Linux `process_vm_readv` / macOS `task_for_pid`）基本都要
+    // root：普通用户跑的内存扫描多半「读不到 / 没候选」而失败。这时像 attach / 抓包
+    // 一样弹密码框，起一个 root 子进程重扫一遍。已 root 或非 unix 平台直接返回。
+    const isUnix = process.platform === 'linux' || process.platform === 'darwin';
+    if (!isUnix || process.geteuid?.() === 0) return { ...result, pid };
+
+    // macOS 的硬门槛：SIP 开着时读内存连 root 都拒，别让人白输一次密码。
+    if (process.platform === 'darwin' && readSipEnabled() === true) {
+      return { ...result, pid, error: SIP_ENABLED_MESSAGE };
+    }
+
+    try {
+      const elevated = await scanKeyElevated({
+        dbPath: dbFile,
+        pid: qqPid,
+        runInProcess,
+        onProgress: emit,
+      });
+      return { ...elevated, pid };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const base = result.error ?? '内存扫描未成功';
+      return { success: false, key: undefined, pid, error: `${base}；提权重试未完成：${message}` };
+    }
+  }),
+
+  /**
+   * 密钥扫描进度流。`scanKey` 是长任务（强力模式回退扫全内存时更久），面板在
+   * 扫描期间挂上它，按 `uin` 过滤自己那次；事后解绑。
+   */
+  onKeyScanProgress: procedure.subscription(() => {
+    return observable<WonderfulToolScanProgressWire>((emit) => {
+      const handler = (progress: WonderfulToolScanProgressWire): void => emit.next(progress);
+      scanProgressBus.on('progress', handler);
+      return () => {
+        scanProgressBus.off('progress', handler);
+      };
+    });
   }),
 
   /**

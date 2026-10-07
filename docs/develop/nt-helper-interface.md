@@ -86,7 +86,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner，候选并行校验。 |
+| `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner（含强力模式：锚点/簇扫描失败时回退扫整个内存），候选并行校验。 |
+| `scanKeyFromDatabaseWithProgress(dbPath, pid, onProgress?)` | 同上 + 进度回调 | `Promise<KeyScanResult>` | 同上，额外通过 `onProgress(err, progress)` 持续回报两阶段进度。**可选能力**（老产物没有，调用方需回退到 `scanKeyFromDatabase`）。 |
 | `testDatabaseKey(dbPath, key)` | `dbPath`, `key` | `Promise<KeyTestResult>` | 试 `key` 是否能解开库，**穷举 page-HMAC × KDF-HMAC 全部 12 种组合**，返回能解开的那组算法。用于不知道 `algo` 时先探测一次。 |
 | `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `Promise<LoginAccount[]>` | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
 | `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `Promise<string>` | 计算 QQ 频道（gpro）库的密钥：扫描库内 salt + 特定 md5 公式。 |
@@ -95,6 +96,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 - `KeyScanResult = { success: boolean; key?: string; keyContextHex?: string; error?: string }`
   - `key`：恢复出的 16 字节 raw master key；`keyContextHex`：密钥前后各 256 字节内存窗口的 hex（定位佐证）。
+- `KeyScanProgress = { phase: string; percent: number; message: string }`
+  - `phase`：`'anchor'`（锚点/簇扫描）或 `'strong'`（回退全内存扫描）；`percent` 是**当前阶段内**的 0–100（阶段切换会从 0 重新开始），`message` 是给用户看的短句。
 - `KeyTestResult = { success: boolean; pageHmacAlgorithm?: string; kdfHmacAlgorithm?: string }`
   - 成功时 `pageHmacAlgorithm` ∈ `'none' | 'SHA1' | 'SHA256' | 'SHA512'`，`kdfHmacAlgorithm` ∈ `'SHA1' | 'SHA256' | 'SHA512'`。
 - `LoginAccount = { uin: string; uid: string; avatarUrl: string; userName: string; a1Key: string; lastLoginAt: number }`

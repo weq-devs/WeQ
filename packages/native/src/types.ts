@@ -219,6 +219,19 @@ export interface KeyScanResult {
   error?: string;
 }
 
+/**
+ * One progress tick from a `scanKeyFromDatabaseWithProgress` run. Mirrors
+ * `KeyScanProgress` in nt_helper (`key_scan/mod.rs`).
+ */
+export interface KeyScanProgress {
+  /** `"anchor"`（锚点/簇扫描）或 `"strong"`（回退全内存扫描）。 */
+  phase: string;
+  /** 当前阶段内的百分比（0–100）；阶段切换时会从 0 重新开始。 */
+  percent: number;
+  /** 给用户看的短句，例如"扫描内存锚点"。 */
+  message: string;
+}
+
 export interface WindowsHelloAvailabilityInfo {
   code: number;
   available: boolean;
@@ -585,6 +598,18 @@ export interface NtHelperBinding {
    * Mirrors `scan_key_from_database` in nt_helper.
    */
   scanKeyFromDatabase(dbPath: string, pid: number): Promise<KeyScanResult>;
+  /**
+   * 同 `scanKeyFromDatabase`，但当锚点/簇扫描找不到可验证的密钥时，会回退扫描
+   * 整个内存（nt_helper 的强力模式）；并通过 `onProgress` 持续回调两阶段的进度。
+   *
+   * **可选**：产物早于这个能力时可能不存在，调用方必须按"旧产物"处理（退回
+   * 无进度的 `scanKeyFromDatabase`），而不是当成致命错误。
+   */
+  scanKeyFromDatabaseWithProgress?(
+    dbPath: string,
+    pid: number,
+    onProgress?: (error: Error | null, progress: KeyScanProgress) => void,
+  ): Promise<KeyScanResult>;
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
   checkDatabaseHealth(
     dbPath: string,

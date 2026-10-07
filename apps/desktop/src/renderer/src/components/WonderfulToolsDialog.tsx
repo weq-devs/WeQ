@@ -9,8 +9,9 @@
  *     platform.resolveQqPid 统一封装）。
  *   - 在线账号卡片亮起（绿色在线点 + 高亮），离线账号置灰。
  *   - 点击卡片 → 卡片加载动画 → 对账号进程做只读内存扫描
- *     （nt_helper scanKeyFromDatabase），展示恢复的密钥、密钥所在内存的
- *     上下文 hexdump（高亮密钥字节）或失败原因。
+ *     （nt_helper scanKeyFromDatabaseWithProgress），结果弹窗里有两阶段进度条
+ *     （锚点扫描 → 回退全内存扫描），展示恢复的密钥、密钥所在内存的上下文
+ *     hexdump（高亮密钥字节）或失败原因。
  *
  * 「其它设备密钥」：
  *   - 先检查是否有可用的在线 QQ 实例（复用密钥扫描的 pid 判定），没有就
@@ -22,7 +23,7 @@
  *     内存，直接调 nt_helper requestDecryptKey）返回密钥或失败原因。
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Binary,
   Braces,
@@ -66,6 +67,13 @@ interface ScanResultView extends ScanResultWire {
   uin: string;
   name: string;
   pid: number | null;
+}
+
+/** 密钥扫描的两阶段进度（来自 nt_helper `scanKeyFromDatabaseWithProgress`）。 */
+interface ScanProgressView {
+  phase: string;
+  percent: number;
+  message: string;
 }
 
 /** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
@@ -299,6 +307,9 @@ export function WonderfulToolsDialog({
   const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
   const [result, setResult] = useState<ScanResultView | null>(null);
   const [copied, setCopied] = useState(false);
+  /** 扫描的两阶段进度；还没有收到任何进度事件时为 null（显示不确定进度）。 */
+  const [scanProgress, setScanProgress] = useState<ScanProgressView | null>(null);
+  const scanSubRef = useRef<{ unsubscribe: () => void } | null>(null);
 
   // —— 其它设备密钥 ——
   const [otherDbPath, setOtherDbPath] = useState<string | null>(null);
@@ -342,10 +353,13 @@ export function WonderfulToolsDialog({
   }, [open]);
 
   const closeResult = useCallback(() => {
+    scanSubRef.current?.unsubscribe();
+    scanSubRef.current = null;
     setScanTarget(null);
     setScanningUin(null);
     setResult(null);
     setCopied(false);
+    setScanProgress(null);
   }, []);
 
   useEffect(() => {
@@ -385,6 +399,7 @@ export function WonderfulToolsDialog({
       setResult(null);
       setScanningUin(null);
       setScanTarget(null);
+      setScanProgress(null);
       setOtherDbPath(null);
       setHeaderHex(null);
       setSaltInfo(null);
@@ -401,6 +416,19 @@ export function WonderfulToolsDialog({
     setScanTarget(acc);
     setScanningUin(acc.uin);
     setResult(null);
+    setScanProgress(null);
+    // 挂上进度订阅：主进程会把所有扫描的进度推给所有人，按 uin 过滤自己这次。
+    // 老产物没有带进度的接口时不会有任何事件 —— 面板退回不确定进度动画。
+    scanSubRef.current?.unsubscribe();
+    scanSubRef.current = client.wonderfulTools.onKeyScanProgress.subscribe(undefined, {
+      onData: (p) => {
+        if (p.uin !== acc.uin) return;
+        setScanProgress({ phase: p.phase, percent: p.percent, message: p.message });
+      },
+      onError: () => {
+        // 订阅断了不影响扫描本身（进度条停在最后一帧）。
+      },
+    });
     try {
       const r = await client.wonderfulTools.scanKey.query({ uin: acc.uin });
       setResult({ ...r, uin: acc.uin, name: acc.userName || acc.uin, pid: acc.pid });
@@ -414,6 +442,8 @@ export function WonderfulToolsDialog({
       });
     } finally {
       setScanningUin(null);
+      scanSubRef.current?.unsubscribe();
+      scanSubRef.current = null;
     }
   }
 
@@ -877,9 +907,27 @@ export function WonderfulToolsDialog({
 
             <div className="weq-wtools-result-body">
               {scanningUin ? (
-                <div className="weq-wtools-state">
-                  <Loader2 size={20} className="weq-spin" />
-                  <span>正在扫描进程内存并验证密钥…</span>
+                <div className="weq-wtools-scan-progress" aria-live="polite">
+                  <div className="weq-wtools-scan-progress-head">
+                    <Loader2 size={15} strokeWidth={2} className="weq-spin" />
+                    <span className="weq-wtools-scan-msg">
+                      {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
+                    </span>
+                    {scanProgress ? (
+                      <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
+                    ) : null}
+                  </div>
+                  <div className="weq-wtools-scan-track">
+                    <div
+                      className={`weq-wtools-scan-fill${scanProgress ? '' : ' is-indeterminate'}`}
+                      style={scanProgress ? { width: `${scanProgress.percent}%` } : undefined}
+                    />
+                  </div>
+                  {scanProgress?.phase === 'strong' ? (
+                    <span className="weq-wtools-scan-hint">
+                      锚点附近没找到可验证的密钥，正在回退扫描整个内存（较慢）
+                    </span>
+                  ) : null}
                 </div>
               ) : result ? (
                 result.success && result.key ? (
