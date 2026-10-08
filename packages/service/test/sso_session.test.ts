@@ -13,6 +13,7 @@ import {
   PC_SUB_APP_ID,
   registerSsoSession,
   resolveDeviceGuid,
+  resolveSubAppId,
 } from '../src/account/sso_session';
 import type { AttachHook } from '../src/bootstrap/attach';
 
@@ -22,17 +23,54 @@ const MATERIAL: SessionMaterial = {
   d2Key: '3d2c69392a38707d762c7370654b3a4e',
 };
 
-function fakePlatform(): Pick<Platform, 'qqWrapperNodePath' | 'qqDataRoot'> {
+function fakePlatform(
+  majorNodePath: string | null = '/opt/QQ/resources/app/major.node',
+): Pick<Platform, 'qqWrapperNodePath' | 'qqDataRoot' | 'qqMajorNodePath'> {
   return {
     qqWrapperNodePath: () => '/opt/QQ/resources/app/wrapper.node',
     qqDataRoot: () => '/home/u/.config/QQ',
+    qqMajorNodePath: () => majorNodePath,
   };
 }
+
+/** A native stub whose `resolveAppidFromMajor` returns `appid`. */
+function fakeNt(
+  appid: string | null,
+  throws = false,
+): Pick<NtHelperBinding, 'resolveAppidFromMajor'> {
+  return {
+    resolveAppidFromMajor: () => {
+      if (throws) throw new Error('boom');
+      return { appid: appid ?? '' };
+    },
+  } as unknown as Pick<NtHelperBinding, 'resolveAppidFromMajor'>;
+}
+
+describe('resolveSubAppId', () => {
+  it('uses the appid scanned out of major.node', () => {
+    expect(resolveSubAppId(fakeNt('537382819'), fakePlatform())).toBe(537382819);
+  });
+
+  it('falls back to the built-in constant when major.node is missing', () => {
+    expect(resolveSubAppId(fakeNt('537382819'), fakePlatform(null))).toBe(PC_SUB_APP_ID);
+  });
+
+  it('falls back when the appid is unparsable', () => {
+    expect(resolveSubAppId(fakeNt(''), fakePlatform())).toBe(PC_SUB_APP_ID);
+  });
+
+  it('falls back when resolveAppidFromMajor throws', () => {
+    expect(resolveSubAppId(fakeNt(null, true), fakePlatform())).toBe(PC_SUB_APP_ID);
+  });
+});
 
 describe('registerSsoSession', () => {
   it('maps hex material to Buffers and registers with wrapper path', async () => {
     const setSsoSession = vi.fn(async () => {});
-    const nt = { setSsoSession } as unknown as Pick<NtHelperBinding, 'setSsoSession'>;
+    const nt = {
+      setSsoSession,
+      resolveAppidFromMajor: () => ({ appid: '537382819' }),
+    } as unknown as Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>;
     const ok = await registerSsoSession(
       nt,
       fakePlatform(),
@@ -47,7 +85,7 @@ describe('registerSsoSession', () => {
       uin: '1707889225',
       guid: 'ab'.repeat(16),
       uid: 'u_abc',
-      subAppId: PC_SUB_APP_ID,
+      subAppId: 537382819,
     });
     expect(Buffer.isBuffer(session.a2)).toBe(true);
     expect(session.a2.equals(Buffer.from(MATERIAL.a2!, 'hex'))).toBe(true);
@@ -57,7 +95,10 @@ describe('registerSsoSession', () => {
 
   it('skips registration when the uid is missing', async () => {
     const setSsoSession = vi.fn(async () => {});
-    const nt = { setSsoSession } as unknown as Pick<NtHelperBinding, 'setSsoSession'>;
+    const nt = { setSsoSession, resolveAppidFromMajor: () => ({ appid: '1' }) } as unknown as Pick<
+      NtHelperBinding,
+      'setSsoSession' | 'resolveAppidFromMajor'
+    >;
     const ok = await registerSsoSession(
       nt,
       fakePlatform(),
@@ -71,7 +112,10 @@ describe('registerSsoSession', () => {
 
   it('skips registration when the material is incomplete', async () => {
     const setSsoSession = vi.fn(async () => {});
-    const nt = { setSsoSession } as unknown as Pick<NtHelperBinding, 'setSsoSession'>;
+    const nt = { setSsoSession, resolveAppidFromMajor: () => ({ appid: '1' }) } as unknown as Pick<
+      NtHelperBinding,
+      'setSsoSession' | 'resolveAppidFromMajor'
+    >;
     const ok = await registerSsoSession(
       nt,
       fakePlatform(),
