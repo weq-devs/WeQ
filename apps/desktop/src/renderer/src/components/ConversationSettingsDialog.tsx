@@ -17,7 +17,7 @@ import { BellRing, ShieldCheck, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
-import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordDialog';
+import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */

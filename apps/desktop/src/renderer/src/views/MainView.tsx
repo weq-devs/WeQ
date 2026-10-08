@@ -57,7 +57,6 @@ import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
-import { GroupKeywordDialog } from '../components/GroupKeywordDialog';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { AntiRecallDialog } from '../components/AntiRecallDialog';
 import {
@@ -2307,10 +2306,6 @@ export function MainView(): ReactElement {
     | { kind: 'kick'; groupId: string; targetUid: string; name: string }
     | null
   >(null);
-  const [keywordDialog, setKeywordDialog] = useState<{
-    groupCode: string;
-    groupName: string;
-  } | null>(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
   const [antiRecallOpen, setAntiRecallOpen] = useState(false);
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
@@ -2558,16 +2553,6 @@ export function MainView(): ReactElement {
       },
     );
   }
-
-  const handleOpenGroupKeyword = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setKeywordDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-      });
-    },
-    [],
-  );
 
   const handleOpenConversationSettings = useCallback(
     (conversation: Extract<Conversation, { type: 'group' | 'direct' }>) => {
@@ -6548,7 +6533,6 @@ export function MainView(): ReactElement {
                       onOpenGroupEssence={handleOpenGroupEssence}
                       onRenameGroupMember={handleRenameGroupMember}
                       onKickGroupMember={handleKickGroupMember}
-                      onOpenGroupKeyword={handleOpenGroupKeyword}
                       onOpenConversationSettings={handleOpenConversationSettings}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
@@ -6722,20 +6706,6 @@ export function MainView(): ReactElement {
                 },
               )}
               onClose={() => setAnnouncementsDialog(null)}
-            />
-          ) : null}
-          {keywordDialog ? (
-            <GroupKeywordDialog
-              groupId={keywordDialog.groupCode}
-              groupName={keywordDialog.groupName}
-              members={currentGroupMembers.map((m) => ({
-                uid: m.id,
-                displayName: m.displayName,
-                avatarUrl: m.avatarUrl ?? null,
-                uin: m.uin,
-                role: m.role,
-              }))}
-              onClose={() => setKeywordDialog(null)}
             />
           ) : null}
           {antiRecallOpen ? (

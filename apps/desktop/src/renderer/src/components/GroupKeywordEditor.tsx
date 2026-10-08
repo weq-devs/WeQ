@@ -1,12 +1,10 @@
 // @ts-nocheck
 /**
- * 群关键词提醒 —— 共享的关键词编辑逻辑 + 灯箱外壳。
+ * 群关键词提醒 —— 关键词编辑逻辑。
  *
  * 结构：
  *   - {@link GroupKeywordEditor}：关键词列表 + 每个词的成员范围。**不带遮罩 / 标题栏 /
- *     页脚**，好让两种载体共用同一份实现：
- *       · {@link GroupKeywordDialog} —— 群聊顶栏「提醒」按钮打开的灯箱；
- *       · 会话设置大卡片（`ConversationSettingsDialog`）的「群关键词」页内嵌。
+ *     页脚**，直接内嵌在会话设置大卡片（`ConversationSettingsDialog`）的「群关键词」页里。
  *   - 关键词列表：每个关键词一张卡片，**各自带自己的成员范围**（空 = 全部成员）。
  *     早期版本把成员范围存在群一级，给新词设范围会覆盖旧词；现在按词存。
  *   - 成员范围：在关键词卡片上点「指定成员」就地展开搜索 / 快捷选择（群主 / 全部管理员）。
@@ -15,15 +13,13 @@
  * 这份配置，不碰任何消息库。整体视觉沿用群公告灯箱那套（主题色 / 深浅模式自动跟随）。
  *
  * 保存时机：改动后**防抖写回**（免得每敲一个字打一次 IPC），卸载时再 `flush` 一次 ——
- * 编辑器一卸载（灯箱点完成 / 会话设置关窗）就落盘，否则「加完词立刻关闭」会落在防抖
- * 窗口里被丢掉。
+ * 编辑器一卸载（会话设置关窗）就落盘，否则「加完词立刻关闭」会落在防抖窗口里被丢掉。
  */
 
-import { BellRing, Crown, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Crown, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { cn } from '../im-template/template/classNames';
 
 export interface KeywordMember {
@@ -41,8 +37,7 @@ type RuleMap = Record<string, { keywords: KeywordEntry[] }>;
 /**
  * 关键词编辑器本体（无外壳）。`groupId` 变化会重新读配置；卸载时 flush。
  *
- * `onSaveState` 把「保存中… / 已保存」外抛给载体渲染 —— 灯箱放页脚，会话设置放页头，
- * 编辑器自己不管这块 UI。
+ * `onSaveState` 把「保存中… / 已保存」外抛给会话设置渲染，编辑器自己不管这块 UI。
  */
 export function GroupKeywordEditor({
   groupId,
@@ -400,71 +395,6 @@ export function GroupKeywordEditor({
           })}
         </ul>
       )}
-    </div>
-  );
-}
-
-/**
- * 群关键词提醒灯箱 —— 群聊顶栏「提醒」按钮点开后打开。
- *
- * 只负责外壳（遮罩 / 标题栏 / 页脚）；编辑逻辑见 {@link GroupKeywordEditor}，
- * 它会自己防抖写回并在卸载时落盘，所以这里点「完成」直接关就行。
- */
-export function GroupKeywordDialog({
-  groupId,
-  groupName,
-  members,
-  onClose,
-}: {
-  groupId: string;
-  groupName: string;
-  members: KeywordMember[];
-  onClose: () => void;
-}): ReactElement {
-  const [saveState, setSaveState] = useState({ saving: false, savedAt: 0 });
-
-  useEscapeToClose(onClose);
-
-  return (
-    <div
-      className="modal-scrim group-keyword-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
-      <section
-        className="group-keyword-dialog"
-        role="dialog"
-        aria-modal="true"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header>
-          <div className="group-keyword-title">
-            <span className="group-keyword-title-icon">
-              <BellRing size={17} />
-            </span>
-            <div>
-              <strong>群关键词提醒</strong>
-              <span>{groupName}</span>
-            </div>
-          </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="group-keyword-body">
-          <GroupKeywordEditor groupId={groupId} members={members} onSaveState={setSaveState} />
-        </div>
-
-        <footer className="group-keyword-foot">
-          <span className="group-keyword-save-state">
-            {saveState.saving ? '保存中…' : saveState.savedAt ? '已保存' : ''}
-          </span>
-          <button type="button" className="group-keyword-done" onClick={onClose}>
-            完成
-          </button>
-        </footer>
-      </section>
     </div>
   );
 }

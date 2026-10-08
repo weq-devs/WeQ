@@ -101,7 +101,6 @@ export function ChatMainContent({
   onOpenGroupEssence,
   onRenameGroupMember,
   onKickGroupMember,
-  onOpenGroupKeyword,
   onOpenConversationSettings,
   onOpenGroupAnalytics,
   onOpenGroupBug,
@@ -205,7 +204,6 @@ export function ChatMainContent({
   onRenameGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 群管理「踢出群聊」：应用层二次确认。 */
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
-  onOpenGroupKeyword?: (conversation: GroupConversation) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
   onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
   onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
@@ -314,7 +312,6 @@ export function ChatMainContent({
       onOpenGroupEssence={onOpenGroupEssence}
       onRenameGroupMember={onRenameGroupMember}
       onKickGroupMember={onKickGroupMember}
-      onOpenGroupKeyword={onOpenGroupKeyword}
       onOpenConversationSettings={onOpenConversationSettings}
       onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}

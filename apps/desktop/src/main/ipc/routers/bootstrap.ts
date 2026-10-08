@@ -845,7 +845,7 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 群关键词提醒的规则。前端在群聊顶栏设置完就整体写回（按群号 keyed），主进程
+   * 群关键词提醒的规则。前端在会话设置里改完就整体写回（按群号 keyed），主进程
    * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
    */
   getGroupKeywordRules: procedure.query(() => {

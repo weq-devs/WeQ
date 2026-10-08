@@ -2,7 +2,6 @@
 import {
   AudioLines,
   BarChart3,
-  BellRing,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -327,7 +326,6 @@ export function ChatPane({
   onOpenGroupEssence,
   onRenameGroupMember,
   onKickGroupMember,
-  onOpenGroupKeyword,
   onOpenConversationSettings,
   onOpenGroupAnalytics,
   onOpenGroupBug,
@@ -431,7 +429,6 @@ export function ChatPane({
     sender: User,
     targetUid: string,
   ) => void;
-  onOpenGroupKeyword?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
   onOpenConversationSettings?: (
     conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
@@ -3330,18 +3327,6 @@ export function ChatPane({
                 }}
               >
                 <FileText size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="群关键词提醒"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupKeyword?.(conversation);
-                  }
-                }}
-              >
-                <BellRing size={18} />
               </button>
               <button
                 className={cn('icon-button', 'group-header-info-action')}
