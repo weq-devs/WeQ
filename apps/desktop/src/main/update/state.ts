@@ -30,6 +30,14 @@ export interface UpdateProgress {
 }
 
 export type UpdateEvent =
+  /** Speed-test started — `mirrors` mirrors are being screened. */
+  | { kind: 'checking'; mirrors: number }
+  /**
+   * Speed-test done — `base` won, `ranked` is the full fallback order. Also
+   * carries the version verdict so the UI can leave its "checking" state even
+   * when there is no update (nothing else would tell it the check finished).
+   */
+  | { kind: 'chosen'; base: string; ranked: string[]; latest: string; hasUpdate: boolean }
   | { kind: 'available'; latest: string }
   | { kind: 'downloaded'; latest: string }
   | { kind: 'error'; message: string };

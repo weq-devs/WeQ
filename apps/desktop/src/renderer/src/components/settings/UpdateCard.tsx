@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { CheckCircle2, Download, Loader2, RefreshCw, RotateCw } from 'lucide-react';
+import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { Card } from './controls';
@@ -30,6 +30,22 @@ function fmtSpeed(bps: number): string {
   const mb = bps / 1024 / 1024;
   if (mb >= 1) return `${mb.toFixed(1)} MB/s`;
   return `${(bps / 1024).toFixed(0)} KB/s`;
+}
+
+/**
+ * Turn a release base (`https://gh-proxy.com/https://github.com/.../download`)
+ * into a short, human label (`gh-proxy.com`). Mirrors are the thing users
+ * actually care about when downloads are slow, so we surface the host.
+ */
+function mirrorLabel(base: string | null): string {
+  if (!base) return '';
+  const stripped = base.replace('https://github.com/H3CoF6/WeQ/releases/latest/download', '');
+  if (!stripped) return 'github.com（直连）';
+  try {
+    return new URL(stripped).host;
+  } catch {
+    return stripped.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  }
 }
 
 type Phase =
@@ -68,6 +84,8 @@ export function UpdateCard(): ReactElement {
   const [phase, setPhase] = useState<Phase>('idle');
   const [latest, setLatest] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [mirror, setMirror] = useState<string | null>(null);
+  const [mirrorCount, setMirrorCount] = useState<number | null>(null);
 
   const isDev = version.data?.isDev ?? false;
   const current = version.data?.app ?? state.data?.current ?? '';
@@ -76,6 +94,7 @@ export function UpdateCard(): ReactElement {
   // have found something).
   useEffect(() => {
     const s = state.data;
+    if (s?.base) setMirror(s.base);
     if (s?.hasUpdate && s.latest) {
       setLatest(s.latest);
       setPhase((p) => (p === 'idle' ? 'available' : p));
@@ -90,7 +109,17 @@ export function UpdateCard(): ReactElement {
     });
     const es = client.update.onEvent.subscribe(undefined, {
       onData: (e) => {
-        if (e.kind === 'available') {
+        if (e.kind === 'checking') {
+          setMirrorCount(e.mirrors);
+          setPhase((p) => (p === 'idle' ? 'checking' : p));
+        } else if (e.kind === 'chosen') {
+          setMirror(e.base);
+          setLatest(e.latest);
+          setMirrorCount(null);
+          // A non-forced check with no update has no other terminal event, so
+          // resolve the "checking" phase here rather than spinning forever.
+          setPhase((p) => (p === 'checking' ? (e.hasUpdate ? 'available' : 'uptodate') : p));
+        } else if (e.kind === 'available') {
           setLatest(e.latest);
           setPhase((p) => (p === 'downloading' || p === 'downloaded' ? p : 'available'));
         } else if (e.kind === 'downloaded') {
@@ -127,6 +156,7 @@ export function UpdateCard(): ReactElement {
   }
 
   async function onDownload(): Promise<void> {
+    setMirrorCount(null);
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     setPhase('downloading');
     try {
@@ -148,6 +178,7 @@ export function UpdateCard(): ReactElement {
 
   const hasNew = phase === 'available' || phase === 'downloading' || phase === 'downloaded';
   const pct = progress ? Math.round(progress.percent) : 0;
+  const mirrorName = mirrorLabel(mirror);
 
   const label = hasNew
     ? `发现新版本 v${latest}`
@@ -215,7 +246,11 @@ export function UpdateCard(): ReactElement {
               ) : (
                 <RefreshCw size={14} strokeWidth={1.8} aria-hidden />
               )}
-              {phase === 'checking' ? '检查中' : '检查更新'}
+              {phase === 'checking'
+                ? mirrorCount
+                  ? `测速中（${mirrorCount} 个源）`
+                  : '检查中'
+                : '检查更新'}
             </button>
           )}
         </div>
@@ -233,6 +268,22 @@ export function UpdateCard(): ReactElement {
               {progress.bytesPerSecond > 0 ? ` · ${fmtSpeed(progress.bytesPerSecond)}` : ''}
             </span>
           </div>
+        </div>
+      ) : null}
+
+      {/* 自动选择是黑盒 —— 把测速结果和选中的加速站显式展示出来。 */}
+      {mirrorName &&
+      (phase === 'available' || phase === 'downloading' || phase === 'downloaded') ? (
+        <div className="weq-set-mirror">
+          {phase === 'downloading' ? (
+            <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
+          ) : (
+            <Gauge size={12} strokeWidth={1.8} aria-hidden />
+          )}
+          <span>
+            已自动选择加速站 <b>{mirrorName}</b>
+            {phase === 'downloading' ? ' · 正在下载' : '（已测速）'}
+          </span>
         </div>
       ) : null}
 
