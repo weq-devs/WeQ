@@ -106,8 +106,12 @@ export {
   type DecodeSilk,
   type TranscribeVoiceFn,
   type TranscribeOutcome,
+  type OnlineTranscribeFn,
+  type OnlineTranscribeRequest,
+  type OnlineTranscribeOutcome,
   type MediaStageResult,
   type StageProgress,
+  type StageLog,
   type UrlDownloadCtx,
 } from './media_export';
 export {

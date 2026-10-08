@@ -203,8 +203,16 @@ export interface RenderPttElement {
     waveform: number[];
     /** 语音转文字结果（wire tag 45923）— QQ 自己转的，或 WeQ 转完写回的。 */
     pttTranscript?: string;
-    /** Hex md5（语音本体；OIDB ptt 下载的 fileHash）。 */
+    /** Hex md5（语音本体；OIDB ptt 下载的 fileHash，也是在线转写请求的 md5）。 */
     md5Bytes?: string;
+    /** 32 位小写 hex md5 的字符串形态（wire tag 45424）。 */
+    md5?: string;
+    /** 语音编码格式（wire tag 45907；实测恒为 1）—— 在线转写请求的 `format`。 */
+    pttFlag45907?: number;
+    /** 群语音数值 file id（wire tag 45903）—— 在线转写请求的 `fileId`（群语音）。 */
+    pttFlag45903?: number;
+    /** 事件类型（wire tag 45922）—— 在线转写请求的 `eventType`（实测 0）。 */
+    pttFlag45922?: number;
     /** Hex sha1（语音本体 contentHash）。 */
     contentHash?: string;
     /** StoreId（老 wire 解码带出；OIDB ptt 下载按此归桶）。 */
@@ -779,6 +787,10 @@ function mapPtt(el: PttElement): RenderPttElement {
       waveform: Array.from(el.waveform),
       pttTranscript: el.pttTranscript,
       md5Bytes: toHex(el.md5Bytes),
+      md5: el.md5,
+      pttFlag45907: el.pttFlag45907,
+      pttFlag45903: el.pttFlag45903,
+      pttFlag45922: el.pttFlag45922,
       contentHash: toHex(el.contentHash),
       storeId: el.storeId,
       // transferState: el.transferState,

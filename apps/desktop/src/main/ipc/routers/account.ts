@@ -23,6 +23,7 @@ import {
   dbEventBus,
   type AccountServices,
 } from '../../context/app_context';
+import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
@@ -2099,6 +2100,10 @@ export const accountRouter = router({
             downloadFile: z.boolean(),
             downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
+            /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
+            onlineTranscribe: z.boolean().optional(),
+            /** 在线转写并发请求数（默认 5）。 */
+            onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -3246,6 +3251,40 @@ export const accountRouter = router({
   }),
 
   /**
+   * 在线转写（语音转文字，QQ 服务端 ASR）是否已 arm。
+   *
+   * 导出灯箱点「开启在线转录」时 arm：起一个网卡抓包会话（Linux 走提权子进程，
+   * Windows 检查 Npcap），导出转录阶段据此发 `pttTrans` 请求并归集异步 push。
+   */
+  onlineTranscribeStatus: procedure.query(() => ({
+    armed: onlineTranscriber.isArmed(),
+    uin: onlineTranscriber.armedUin(),
+  })),
+
+  /**
+   * arm 在线转写抓包会话。前置：QQ 在线 + 未开启完全离线模式（attach 总控）+ 抓包
+   * 后端可用（Windows 缺 Npcap 会抛引导文案）。失败原样抛出给前端展示。
+   */
+  onlineTranscribeArm: procedure
+    .input(z.object({ uin: z.string().min(1).optional() }).optional())
+    .mutation(async ({ input }) => {
+      const state = albumAccessState();
+      if (!state.qqOnline) throw new Error('需要先登录该账号的 QQ 客户端。');
+      if (!state.attachEnabled) {
+        throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），无法开启在线转写。');
+      }
+      const uin = input?.uin ?? String(getAppContext().account?.context.uin ?? '');
+      if (!uin) throw new Error('尚未打开账号，无法开启在线转写。');
+      return { ok: true, ...(await onlineTranscriber.arm(uin)) };
+    }),
+
+  /** 停掉在线转写的抓包会话（导出结束 / 关闭开关时调用，幂等）。 */
+  onlineTranscribeDisarm: procedure.mutation(async () => {
+    await onlineTranscriber.disarm();
+    return { ok: true };
+  }),
+
+  /**
    * 私聊「窗口抖动」—— 一条独立的消息，不跟正文 / 引用一起发。
    *
    * 走 `MessageSvc.PbSendMsg` 的 `poke` 元素（`commonElem serviceType=2`），
@@ -4150,6 +4189,10 @@ export const accountRouter = router({
             downloadFile: z.boolean(),
             downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
+            /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
+            onlineTranscribe: z.boolean().optional(),
+            /** 在线转写并发请求数（默认 5）。 */
+            onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({

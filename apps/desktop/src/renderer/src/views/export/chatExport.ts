@@ -10,6 +10,7 @@ import {
   preflightMediaCompletion,
   preflightMessageCompletion,
   preflightVoiceTranscribe,
+  preflightOnlineTranscribe,
 } from './preflight';
 import type { ExportFormat, ExportOptions } from './types';
 
@@ -33,6 +34,8 @@ export function buildChatExportMedia(
   downloadFile: boolean;
   downloadPtt: boolean;
   transcribeVoice: boolean;
+  onlineTranscribe: boolean;
+  onlineConcurrency: number;
   mediaKinds: ExportOptions['mediaKinds'] | undefined;
   completeDress: boolean;
 } {
@@ -46,6 +49,9 @@ export function buildChatExportMedia(
     downloadFile: options.exportMedia && options.downloadFile,
     downloadPtt: options.exportMedia && options.downloadPtt,
     transcribeVoice: options.transcribeVoice,
+    // 在线转写依附于「语音转写」；未开语音转写时强制关闭。
+    onlineTranscribe: options.transcribeVoice && options.onlineTranscribe,
+    onlineConcurrency: options.onlineConcurrency,
     mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
     completeDress: options.completeDress,
   };
@@ -80,6 +86,12 @@ export async function preflightChatExport(
 
   if (media.transcribeVoice) {
     const ok = await preflightVoiceTranscribe(dialog);
+    if (!ok) return false;
+  }
+
+  // 在线转录必须已经 arm（灯箱点开关时 arm）；否则硬拦截。
+  if (media.onlineTranscribe) {
+    const ok = await preflightOnlineTranscribe(dialog);
     if (!ok) return false;
   }
   return true;

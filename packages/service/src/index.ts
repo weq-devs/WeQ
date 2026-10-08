@@ -690,6 +690,16 @@ export type {
   TaskProgress,
   MarketPackDeps,
   MarketPackDownloadItem,
+  MediaDeps,
+  MediaExportOptions,
+  DecodeSilk,
+  TranscribeVoiceFn,
+  TranscribeOutcome,
+  OnlineTranscribeFn,
+  OnlineTranscribeRequest,
+  OnlineTranscribeOutcome,
+  StageLog,
+  StageProgress,
 } from './account/export';
 
 // ---- daemon (weq-daemon 伴生守护进程的统一管道客户端) ----

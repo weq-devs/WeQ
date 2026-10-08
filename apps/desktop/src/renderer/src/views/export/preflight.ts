@@ -100,6 +100,28 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
 }
 
 /**
+ * Pre-flight for 在线转录: the抓包会话 must already be armed（灯箱点开开关时 arm）。
+ * 未 arm 时硬拦截 —— 否则导出会静默退化成纯本地转写，与用户预期不符。
+ */
+export async function preflightOnlineTranscribe(dialog: AppDialogApi): Promise<boolean> {
+  let armed = false;
+  try {
+    armed = (await client.account.onlineTranscribeStatus.query()).armed;
+  } catch (e) {
+    dialog.error('检查在线转录状态失败', e instanceof Error ? e.message : String(e));
+    return false;
+  }
+  if (!armed) {
+    await dialog.info(
+      '在线转录未开启',
+      '「在线转录」需要在导出前打开开关（会先就绪抓包会话）。请返回灯箱重新开启，或关闭「在线转录」后用本地模型转写。',
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
  * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
  * (自动读取 QQ 内存 开启) — the roam pull goes through the live SSO channel.
  * 离线时不再硬阻断：仍会从本地漫游缓存读取已缓存的消息（聊天页此前拉过的

@@ -44,6 +44,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
+import { onlineTranscriber } from '../online_transcribe';
 import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
@@ -1308,6 +1309,9 @@ export function initAppContext(): AppContext {
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             // Voice → text transcription (shared closure; see transcribeSilk above).
             transcribe: transcribeSilk,
+            // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
+            // 漏包 / 过期的语音由上面的本地模型补全。
+            onlineTranscribe: onlineTranscriber.transcribe,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             // ChatLab name / role / profile resolvers. The service export package

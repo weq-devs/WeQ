@@ -599,21 +599,27 @@ export function CapturePanel({
     }
     setBusy(true);
     try {
-      // Windows 缺 Npcap 时直接弹窗引导安装，不再尝试开启。
+      // 后端不可用时按平台给引导：只有 Windows 才可能「缺后端 = 缺 Npcap」，
+      // 其它情况（Linux 装了旧产物没带抓包接口等）照 hint 说，别一律甩 Npcap 安装页。
       const sup = support ?? (await client.wonderfulTools.captureSupport.query());
       setSupport(sup);
       if (!sup.available) {
-        const openSite = await dialog.confirm(
-          '需要 Npcap',
-          <>
-            Windows 抓包依赖 <strong>Npcap</strong>，当前未安装。是否前往官网下载？
-          </>,
-          { okLabel: '打开官网', cancelLabel: '取消', tone: 'warning' },
-        );
-        if (openSite) {
-          await client.help.openExternal
-            .mutate({ url: 'https://npcap.com/#download' })
-            .catch(() => undefined);
+        if (sup.platform === 'win32') {
+          const openSite = await dialog.confirm(
+            '需要 Npcap',
+            <>
+              Windows 抓包依赖 <strong>Npcap</strong>
+              （安装时勾选 WinPcap API-compatible Mode），当前未检测到。是否前往官网下载？
+            </>,
+            { okLabel: '打开官网', cancelLabel: '取消', tone: 'warning' },
+          );
+          if (openSite) {
+            await client.help.openExternal
+              .mutate({ url: 'https://npcap.com/#download' })
+              .catch(() => undefined);
+          }
+        } else {
+          dialog.showError('抓包后端不可用', sup.hint || '当前平台的抓包后端不可用。');
         }
         return;
       }
@@ -998,21 +1004,23 @@ export function CapturePanel({
 
       {/* 依赖 / 权限 / d2key 提示 */}
       {supportWarn ? (
-        <div className="weq-cap-banner is-warn" role="alert">
+        <div className="weq-cap-banner is-warn" role="alert" title={support?.hint}>
           <AlertTriangle size={13} aria-hidden />
           <span>
-            未安装 Npcap（Windows 抓包后端缺失）。
-            <button
-              type="button"
-              className="weq-cap-link"
-              onClick={() =>
-                void client.help.openExternal
-                  .mutate({ url: 'https://npcap.com/#download' })
-                  .catch(() => undefined)
-              }
-            >
-              去安装
-            </button>
+            {support?.hint || '当前平台的抓包后端不可用（Windows 需安装 Npcap）。'}
+            {support?.platform === 'win32' ? (
+              <button
+                type="button"
+                className="weq-cap-link"
+                onClick={() =>
+                  void client.help.openExternal
+                    .mutate({ url: 'https://npcap.com/#download' })
+                    .catch(() => undefined)
+                }
+              >
+                去安装
+              </button>
+            ) : null}
           </span>
         </div>
       ) : noKey ? (
@@ -1027,8 +1035,9 @@ export function CapturePanel({
         <div className="weq-cap-banner is-warn" role="alert" title={support?.hint}>
           <AlertTriangle size={13} aria-hidden />
           <span>
-            抓包需要管理员权限（原始套接字）。WeQ
-            不能以管理员身份运行，点「开始抓包」时会弹出授权窗口， 由临时的管理员子进程完成抓包。
+            {support?.platform === 'win32'
+              ? 'Windows 抓包需要管理员权限（Npcap 驱动默认只允许管理员访问）。若「开始抓包」报权限错误，请以管理员身份重新运行 WeQ。'
+              : '抓包需要管理员权限（原始套接字）。WeQ 不能以管理员身份运行，点「开始抓包」时会弹出授权窗口，由临时的管理员子进程完成抓包。'}
           </span>
         </div>
       ) : null}
