@@ -202,3 +202,24 @@ export * from './oidb/flashtransfer';
 
 export * from './msg';
 export * from './file';
+
+export {
+  PttTrans,
+  C2C_PTT_TRANS_CMD,
+  GROUP_PTT_TRANS_CMD,
+  PTT_TRANS_PUSH_MSG_TYPE,
+  PTT_TRANS_PUSH_SUB_TYPE,
+  PTT_TRANS_REQ,
+  PTT_TRANS_RESP,
+  PTT_TRANS_RESULT,
+  PTT_TRANS_PUSH,
+  PTT_TRANS_PUSH_ITEM,
+  C2C_PTT_TRANS_ITEM,
+  GROUP_PTT_TRANS_ITEM,
+  buildPttTransReq,
+  encodePttTransReq,
+  parsePttTransAck,
+  parsePttTransPush,
+  pttTransCmd,
+} from './ptt-trans';
+export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';
