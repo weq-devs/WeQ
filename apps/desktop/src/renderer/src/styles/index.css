@@ -6833,6 +6833,35 @@ html[data-theme="dark"] .weq-set-progress-meta {
   color: #99a7b8;
 }
 
+/* 自动选择的加速站展示（软件更新卡片）。浅色底 + 次要文字，不抢进度条主角。 */
+.weq-set-mirror {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.weq-set-mirror b {
+  font-weight: 600;
+  color: #374151;
+}
+
+.weq-set-mirror svg {
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-set-mirror {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-set-mirror b {
+  color: #dbe4ef;
+}
+
 /* ──────────────────────────────────────────────────────────────────────
  * 好友资料灯箱（ContactProfileDialog）。沿用 weq 设计：#0099ff 主题、细描边、
  * 小圆角、轻量留白。密友关系用主题渐变 pill 重点渲染。
@@ -16252,7 +16281,7 @@ html[data-theme="dark"] .weq-cap {
 }
 .weq-cap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px 46px 88px 76px 44px;
+  grid-template-columns: minmax(0, 2fr) 40px 46px 76px 44px;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -16315,7 +16344,6 @@ html[data-theme="dark"] .weq-cap {
   color: var(--weq-fg-primary);
 }
 .weq-cap-row .is-seq,
-.weq-cap-row .is-time,
 .weq-cap-row .is-size {
   color: var(--weq-fg-muted);
   font-variant-numeric: tabular-nums;

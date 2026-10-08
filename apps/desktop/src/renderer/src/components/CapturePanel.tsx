@@ -8,7 +8,7 @@
  *   │ ● iface:port · 帧数 · 丢包 · d2key 状态 │ 账号 [▾] ▶ 开始 ⏹ 停止 🗑 │
  *   ├ 左：会话表 ──────────────────┬ 右：请求 / 响应详情 ────────────┤
  *   │ [全部│发包│收包] [过滤…]      │ 发包 | 收包   ← 方向（下划线 Tab）│
- *   │ 命令字 方向 seq 时间 大小 # │ 总览 · 解密数据 · 原始数据       │
+ *   │ 命令字 方向 seq 大小 #   │ 总览 · 解密数据 · 原始数据       │
  *   │ pttTrans.… ↕ 36 … 36 …  # │ 键值表 / 解析树 / hexdump        │
  *   │ 共 30 项（选择 1 项）         │                                  │
  *   └──────────────────────────────┴──────────────────────────────────┘
@@ -1090,7 +1090,6 @@ export function CapturePanel({
               <span>命令字</span>
               <span>方向</span>
               <span>seq</span>
-              <span>时间</span>
               <span>大小</span>
               <span>#</span>
             </div>
@@ -1109,7 +1108,6 @@ export function CapturePanel({
                 const cmd = g.c2s?.cmd ?? g.s2c?.cmd ?? null;
                 const totalBytes = groupRawBytes(g);
                 const failed = [g.c2s, g.s2c].some((f) => f && frameState(f) === 'failed');
-                const ts = (g.c2s?.ts ?? g.s2c?.ts ?? 0) || 0;
                 return (
                   <button
                     key={g.key}
@@ -1126,7 +1124,6 @@ export function CapturePanel({
                       {dirGlyph(g)}
                     </span>
                     <span className="is-seq">{g.seq}</span>
-                    <span className="is-time">{fmtClock(ts)}</span>
                     <span className={`is-size${failed ? ' is-bad' : ''}`}>
                       {failed ? '密文 ' : ''}
                       {fmtBytes(totalBytes)}
