@@ -129,7 +129,12 @@ export interface SsoSessionConfig {
   guid: string;
   /** 账号 uid（`u_...`）。 */
   uid: string;
-  /** PC 端 `subAppId`（实测 `537391664`）。 */
+  /**
+   * SSO 的 `subAppId`。**必须等于当前运行 QQ 构建的 appid**
+   * （`major.node` 的 `QQAppId/537xxxxxx`，见 {@link resolveAppidFromMajor}）。
+   * 用错值服务端会直接回 `-10003 身份验证失败`。别硬编码：QQ 每次更新都会换
+   * appid（9.9.35 → 537382819，9.9.36 → 537391628）。
+   */
   subAppId: number;
   /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
   clientConnSeq?: string | null;

@@ -149,6 +149,7 @@ export {
   registerSsoSession,
   registerSsoSessionFromStored,
   resolveDeviceGuid,
+  resolveSubAppId,
   PC_SUB_APP_ID,
 } from './account/sso_session';
 export type { SsoIdentity, StoredSsoMaterial } from './account/sso_session';

@@ -17,8 +17,57 @@ import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getLogger } from '../common/logger';
 
-/** PC 端 `subAppId`（抓包实测值，注册包里它也出现）。 */
+/**
+ * 兜底 `subAppId`：**仅**在 `major.node` 读不出 appid 时用。
+ *
+ * ⚠️ 别把这里当真实值。`subAppId` 必须等于**当前运行那个 QQ 构建的 appid**
+ * （`major.node` 里 `QQAppId/537xxxxxx`），否则服务端直接回
+ * `-10003 身份验证失败`（`Reply status error: -10003`）。QQ 每次自动更新都
+ * 会换 appid：9.9.35 是 `537382819`、9.9.36 是 `537391628`——这个旧常量
+ * （`537391664`）对不上任何一个在用版本，所以每包必被拒。
+ *
+ * 正解见 {@link resolveSubAppId}：从 `major.node` 动态解析。
+ */
 export const PC_SUB_APP_ID = 537391664;
+
+/**
+ * 解析当前 QQ 构建的 appid，用作 SSO 的 `subAppId`。
+ *
+ * 优先从 `major.node` 动态扫描（`resolveAppidFromMajor`，与 ninebird 登录
+ * 流程同源）；读不到时回退到 {@link PC_SUB_APP_ID}。`major.node` 缺失 /
+ * 解析失败都只警告、不抛——发包本身仍会失败并给出 `-10003`，让调用方看到
+ * 明确的服务端错误而不是本地崩溃。
+ */
+export function resolveSubAppId(
+  nt: Pick<NtHelperBinding, 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqMajorNodePath'>,
+): number {
+  const majorPath = platform.qqMajorNodePath();
+  if (!majorPath) {
+    logger.warn('major.node not found; falling back to the kit subAppId', {
+      event: 'subappid-major-missing',
+      fallback: PC_SUB_APP_ID,
+    });
+    return PC_SUB_APP_ID;
+  }
+  try {
+    const appid = Number(nt.resolveAppidFromMajor(majorPath).appid);
+    if (Number.isSafeInteger(appid) && appid > 0) return appid;
+    logger.warn('major.node appid unparsable; falling back to the kit subAppId', {
+      event: 'subappid-unparsable',
+      majorPath,
+      fallback: PC_SUB_APP_ID,
+    });
+  } catch (error) {
+    logger.warn('resolveAppidFromMajor failed; falling back to the kit subAppId', {
+      event: 'subappid-resolve-failed',
+      majorPath,
+      error: error instanceof Error ? error.message : String(error),
+      fallback: PC_SUB_APP_ID,
+    });
+  }
+  return PC_SUB_APP_ID;
+}
 
 /** 发包时服务端认的三件身份：账号 uin、账号 uid、设备 guid。 */
 export interface SsoIdentity {
@@ -28,6 +77,11 @@ export interface SsoIdentity {
   uid: string;
   /** 设备 guid（32 位小写 hex）；服务端认设备的依据。 */
   guid: string;
+  /**
+   * SSO 的 `subAppId`。省略时按 {@link resolveSubAppId} 从 `major.node`
+   * 动态解析（正常情况下调用方都不该传，别再造一个硬编码）。
+   */
+  subAppId?: number;
 }
 
 const logger = getLogger().child({ scope: 'sso-session' });
@@ -76,8 +130,8 @@ function materialToBuffers(
  * 与其发一包必失败的请求，不如让调用方拿到明确的「物料不齐」。
  */
 export async function registerSsoSession(
-  nt: Pick<NtHelperBinding, 'setSsoSession'>,
-  platform: Pick<Platform, 'qqWrapperNodePath'>,
+  nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
   pid: number,
   identity: SsoIdentity,
   material: SessionMaterial,
@@ -96,6 +150,10 @@ export async function registerSsoSession(
     return false;
   }
 
+  // subAppId 必须等于运行中 QQ 构建的 appid，否则服务端一律回 -10003。
+  // 调用方若显式给了就用它（仅测试 / 特殊场景），否则动态解析。
+  const subAppId = identity.subAppId ?? resolveSubAppId(nt, platform);
+
   try {
     await nt.setSsoSession(
       pid,
@@ -106,7 +164,7 @@ export async function registerSsoSession(
         d2Key: buffers.d2Key,
         guid: identity.guid,
         uid: identity.uid,
-        subAppId: PC_SUB_APP_ID,
+        subAppId,
       },
       platform.qqWrapperNodePath(),
     );
@@ -114,6 +172,7 @@ export async function registerSsoSession(
       event: 'set-sso-session',
       pid,
       uin: identity.uin,
+      subAppId,
     });
     return true;
   } catch (error) {
@@ -154,8 +213,8 @@ export interface StoredSsoMaterial {
  * 自身抛错时也返回 `false`（{@link registerSsoSession} 内部已兜底）。
  */
 export async function registerSsoSessionFromStored(
-  nt: Pick<NtHelperBinding, 'setSsoSession'>,
-  platform: Pick<Platform, 'qqWrapperNodePath'>,
+  nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
   pid: number,
   uin: string,
   stored: StoredSsoMaterial,

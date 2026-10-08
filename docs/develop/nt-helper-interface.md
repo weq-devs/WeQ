@@ -245,7 +245,12 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 
 - `SessionMaterial = { a2?: string; d2?: string; d2Key?: string }`
-- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）
+- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）。
+  ⚠️ `subAppId` **必须等于当前运行 QQ 构建的 appid**（`major.node` 里
+  `QQAppId/537xxxxxx`，`resolveAppidFromMajor` 扫出来的那个值）；QQ 每次更新
+  都会换 appid，用错值服务端一律回 `Reply status error: -10003 身份验证失败`。
+  WeQ 侧见 `packages/service/src/account/sso_session.ts` 的 `resolveSubAppId`
+  （不传就动态解析，兜底常量只是应急）。
 
 > ℹ️ **刻意不做上线注册与心跳**（对照 `../LagrangeV2`）：那是个纯协议框架，机器上只有它一个客户端，所以它必须自己发 `SsoInfoSync` 上线、自己心跳。我们不是 —— a2/d2/d2key 就是从同机 QQ 进程内存里读的，那条会话的在线状态与心跳由 QQ 本体维持；再注册一次只会让服务端看到「同设备 guid + 同一份 d2 的第二个客户端」。这里只借凭据发包，其余交给 QQ。
 
