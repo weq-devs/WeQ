@@ -5661,6 +5661,11 @@ html[data-theme="dark"] .weq-set-kv strong {
 }
 
 /* Database key field */
+.weq-set-keylist {
+  display: grid;
+  gap: 6px;
+}
+
 .weq-set-keyfield {
   display: flex;
   align-items: center;
@@ -5674,6 +5679,16 @@ html[data-theme="dark"] .weq-set-kv strong {
 .weq-set-keyfield-icon {
   color: var(--weq-accent-effective);
   flex: none;
+}
+
+.weq-set-key-label {
+  flex: none;
+  min-width: 46px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+  letter-spacing: 0.02em;
 }
 
 .weq-set-keyval {

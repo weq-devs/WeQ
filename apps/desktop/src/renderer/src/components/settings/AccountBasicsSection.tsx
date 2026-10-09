@@ -45,8 +45,84 @@ const RKEY_TYPE_LABEL: Record<number, string> = {
   20: '群聊图片',
 };
 
+/** 打码用的字符（与 dbKey 同款）。 */
+const SECRET_MASK = '*';
+
+/** 密钥值最长打码到 48 位，避免超长 payload 撑爆行宽。 */
+function maskSecret(value: string): string {
+  return SECRET_MASK.repeat(Math.min(value.length, 48));
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * 一行「标签 + 密钥值 + 眼睛/复制」的展示行。`secret` 为真时默认打码，点眼睛
+ * 展开；`guid` 之类非敏感值直接明文显示，只保留复制。交互与底部 dbKey 一致。
+ */
+function KeyValueRow({
+  label,
+  value,
+  secret = false,
+}: {
+  label: string;
+  value: string | null | undefined;
+  secret?: boolean;
+}): ReactElement {
+  const showError = useDialog((s) => s.showError);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return undefined;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  const hasValue = Boolean(value);
+  const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
+
+  async function copy(): Promise<void> {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch (e) {
+      showError('复制失败', errMsg(e));
+    }
+  }
+
+  return (
+    <div className="weq-set-keyfield">
+      <span className="weq-set-key-label">{label}</span>
+      <code className="weq-set-keyval">{shown}</code>
+      <div className="weq-set-keyfield-actions">
+        {secret ? (
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            title={revealed ? '隐藏' : '显示'}
+            aria-label={revealed ? `隐藏 ${label}` : `显示 ${label}`}
+            disabled={!hasValue}
+            onClick={() => setRevealed((v) => !v)}
+          >
+            {revealed ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title={`复制 ${label}`}
+          aria-label={`复制 ${label}`}
+          disabled={!hasValue}
+          onClick={() => void copy()}
+        >
+          {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** "3 小时 / 12 分钟后过期" or "已过期", from create + ttl (both unix seconds). */
@@ -135,7 +211,7 @@ export function AccountBasicsSection(): ReactElement {
   const p = profile.data;
   const cfg = config.data;
   const dbKey = cfg?.dbKey ?? '';
-  const maskedKey = dbKey ? '•'.repeat(Math.min(dbKey.length, 48)) : '';
+  const maskedKey = dbKey ? maskSecret(dbKey) : '';
   const rkeys = cfg?.rkeys ?? [];
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
@@ -280,6 +356,23 @@ export function AccountBasicsSection(): ReactElement {
             {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
           </p>
         ) : null}
+      </Card>
+
+      {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
+          前四个默认打星号，点眼睛展开（和上面的 dbKey 同款交互）；guid 是设备
+          标识、非敏感，直接明文。 */}
+      <Card title="会话密钥">
+        <div className="weq-set-keylist">
+          <KeyValueRow label="a1" value={cfg?.a1} secret />
+          <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
+          <KeyValueRow label="d2" value={cfg?.session?.d2} secret />
+          <KeyValueRow label="d2key" value={cfg?.session?.d2Key} secret />
+          <KeyValueRow label="guid" value={cfg?.guid} />
+        </div>
+        <p className="weq-set-note">
+          a1 来自 login.db，a2 / d2 / d2key 由在线 QQ 进程内存采集（需开启「自动读取 QQ
+          内存」）；guid 是本机设备标识。账号下线后会话物料会被清空。
+        </p>
       </Card>
 
       {/* Download rkeys (show the actual rkey value) */}
