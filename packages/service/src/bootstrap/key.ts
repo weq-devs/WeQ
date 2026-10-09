@@ -247,7 +247,8 @@ export class KeyService {
     const app = APP_INFO[this.platform.kind];
     if (!app) throw new Error(`不支持的平台：${this.platform.kind}`);
 
-    const subAppId = this.resolveSubAppId(nt);
+    const appid = this.resolveAppidInfo(nt);
+    const subAppId = appid.subAppId;
     const wrapperPath = this.platform.qqWrapperNodePath();
     if (!wrapperPath) {
       throw new Error('未找到 QQ 的 wrapper.node，无法为登录请求签名。');
@@ -271,6 +272,10 @@ export class KeyService {
 
     const keyMeta = uin ? this.keyMetaFor(uin) : null;
 
+    // AppInfo.Qua / SSO 头客户端版本都从同一个 major.node 解析结果取。
+    const qua = appid.qua;
+    const clientVersion = appid.clientVersion;
+
     return {
       uin: uin ?? '',
       a1,
@@ -282,30 +287,44 @@ export class KeyService {
       deviceName: hostname(),
       kernelVersion: release(),
       wrapperPath,
+      ...(qua ? { qua } : {}),
+      ...(clientVersion ? { clientVersion } : {}),
       ...(account?.uid ? { uid: account.uid } : {}),
       ...(keyMeta ? { keyMeta } : {}),
     };
   }
 
   /**
-   * Scan the installed QQ build's appid from `major.node`. **When this is even
-   * slightly uncertain we must not fall back to a stale constant**: a
-   * mismatched subAppId gets the account kicked from the login list (140022017
-   * side effect). So a missing/unparsable major.node is a hard error here.
+   * Scan the installed QQ build's appid / QUA / version from `major.node`.
+   * **When this is even slightly uncertain we must not fall back to a stale
+   * constant**: a mismatched subAppId gets the account kicked from the login
+   * list (140022017 side effect). So a missing/unparsable major.node is a hard
+   * error here.
+   *
+   * `clientVersion` is `version` + `build` (e.g. `3.2.31-51102`), matching the
+   * SSO header's `AppInfo.CurrentVersion`; `qua` is passed through to the
+   * EasyLogin `AppInfo.Qua`. Both are omitted when the anchors weren't found.
    */
-  private resolveSubAppId(nt: NtHelperBinding): number {
+  private resolveAppidInfo(nt: NtHelperBinding): {
+    subAppId: number;
+    qua?: string;
+    clientVersion?: string;
+  } {
     const majorPath = this.platform.qqMajorNodePath();
     if (!majorPath) throw new Error('未找到 QQ 的 major.node，无法确定 subAppId。');
-    let appid: number;
+    let info: { appid: string; qua?: string; version?: string; build?: string };
     try {
-      appid = Number(nt.resolveAppidFromMajor(majorPath).appid);
+      info = nt.resolveAppidFromMajor(majorPath);
     } catch (e) {
       throw new Error(`从 major.node 解析 subAppId 失败：${errorMessage(e)}`);
     }
+    const appid = Number(info.appid);
     if (!Number.isSafeInteger(appid) || appid <= 0) {
       throw new Error('从 major.node 解析出的 subAppId 非法。');
     }
-    return appid;
+    const clientVersion =
+      info.version && info.build ? `${info.version}-${info.build}` : undefined;
+    return { subAppId: appid, qua: info.qua, clientVersion };
   }
 
   private async findAccount(uin: string): Promise<LoginAccount | undefined> {

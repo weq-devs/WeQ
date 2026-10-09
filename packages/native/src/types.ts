@@ -954,6 +954,16 @@ export interface QuickLoginOptions {
   kernelVersion: string;
   /** `AppInfo.AppName`，缺省 `com.tencent.qq`。 */
   appName?: string;
+  /**
+   * EasyLogin `AppInfo.Qua`（真机如 `V1_LNX_NQ_3.2.31_51102_GW_B`）。由
+   * {@link resolveAppidFromMajor} 从 `major.node` 扫描得到；缺省不写该字段。
+   */
+  qua?: string;
+  /**
+   * SSO 头里的客户端版本字段（`AppInfo.CurrentVersion`，如 `3.2.31-51102`）。
+   * 缺省写空串（旧行为）。
+   */
+  clientVersion?: string;
   /** `wrapper.node` 路径（需要签名的命令靠它算 sec_info）。 */
   wrapperPath?: string;
   /** 账号 uid（`u_...`）。 */
