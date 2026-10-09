@@ -57,11 +57,24 @@ export type KeyEvent =
 
 export interface QuickLoginStreamOptions {
   uin: string;
+  /**
+   * 该账号 `nt_msg.db` 的绝对路径（读 `0x2f..0xaf` 的 key_meta 用）。给了就
+   * 直接读它；缺省时按 uin 走 `platform.ntMsgDbPath()` 解析（linux/darwin 需
+   * uid 已登记，否则解析不出来）。
+   */
+  dbPath?: string;
   /** Retained for API compatibility; the native flow enforces its own budget. */
   timeoutMs?: number;
 }
 
 export interface QrLoginStreamOptions {
+  /**
+   * 已知账号 uin（可选）。仅用于解析该账号的 `nt_msg.db` 读 key_meta，并给
+   * SSO 带上 uid；登录前不知道 uin 的匿名扫码不传。
+   */
+  uin?: string;
+  /** 该账号 `nt_msg.db` 的绝对路径（读 key_meta 用）。 */
+  dbPath?: string;
   /** Retained for API compatibility; the native flow enforces its own budget. */
   timeoutMs?: number;
 }
@@ -123,7 +136,7 @@ export class KeyService {
    * unusual device — then a terminal `result`.
    */
   quickLoginStream(opts: QuickLoginStreamOptions): AsyncIterable<KeyEvent> {
-    return this.stream('quick', opts.uin);
+    return this.stream('quick', opts.uin, opts.dbPath);
   }
 
   // -------------- 2. QR-login stream (pure protocol) --------------
@@ -132,8 +145,8 @@ export class KeyService {
    * QR login: no usable a1. Yields a `qrcode` with the URL to render, a stream
    * of `qrcode-state` transitions, and finally `result`.
    */
-  qrLoginStream(_opts: QrLoginStreamOptions = {}): AsyncIterable<KeyEvent> {
-    return this.stream('qr', undefined);
+  qrLoginStream(opts: QrLoginStreamOptions = {}): AsyncIterable<KeyEvent> {
+    return this.stream('qr', opts.uin, opts.dbPath);
   }
 
   // ---- helpers ----
@@ -143,7 +156,11 @@ export class KeyService {
    * native call pushes events through `onEvent` while it runs; we re-emit them
    * in order and finish on the terminal result (or a thrown error).
    */
-  private stream(mode: 'quick' | 'qr', uin: string | undefined): AsyncIterable<KeyEvent> {
+  private stream(
+    mode: 'quick' | 'qr',
+    uin: string | undefined,
+    dbPath?: string,
+  ): AsyncIterable<KeyEvent> {
     const queue: KeyEvent[] = [];
     const waiters: Array<(v: IteratorResult<KeyEvent>) => void> = [];
     let done = false;
@@ -166,7 +183,7 @@ export class KeyService {
       const nt = this.platform.native.ntHelper;
       this.setDebugLog(nt, true);
       try {
-        const options = await this.buildOptions(mode, uin);
+        const options = await this.buildOptions(mode, uin, dbPath);
         this.logger.info(`starting ${mode === 'quick' ? 'quick' : 'qr'}-login key flow`, {
           event: mode === 'quick' ? 'quick-login-start' : 'qr-login-start',
           accountUin: uin ?? null,
@@ -242,6 +259,7 @@ export class KeyService {
   private async buildOptions(
     mode: 'quick' | 'qr',
     uin: string | undefined,
+    dbPath?: string,
   ): Promise<QuickLoginOptions> {
     const nt = this.platform.native.ntHelper;
     const app = APP_INFO[this.platform.kind];
@@ -255,7 +273,9 @@ export class KeyService {
     }
 
     const account = uin ? await this.findAccount(uin) : undefined;
-    if (uin && !account) {
+    // 快登必须命中 login.db（拿 a1）；扫码允许账号不在 login.db 里（这正是
+    // 「本地没有可用 a1」时走的路），有就顺带取 uid/guid，没有也能登录。
+    if (mode === 'quick' && uin && !account) {
       throw new Error(`login.db 里没有账号 ${uin}，请先在 QQ 客户端登录一次。`);
     }
     const guid = account?.guid ?? resolveDeviceGuid(nt, this.platform);
@@ -270,7 +290,7 @@ export class KeyService {
       if (a1.length === 0) throw new Error('a1 解析失败，请先在 QQ 客户端登录一次。');
     }
 
-    const keyMeta = uin ? this.keyMetaFor(uin) : null;
+    const keyMeta = this.keyMetaFor(uin, dbPath);
 
     // AppInfo.Qua / SSO 头客户端版本都从同一个 major.node 解析结果取。
     const qua = appid.qua;
@@ -322,8 +342,7 @@ export class KeyService {
     if (!Number.isSafeInteger(appid) || appid <= 0) {
       throw new Error('从 major.node 解析出的 subAppId 非法。');
     }
-    const clientVersion =
-      info.version && info.build ? `${info.version}-${info.build}` : undefined;
+    const clientVersion = info.version && info.build ? `${info.version}-${info.build}` : undefined;
     return { subAppId: appid, qua: info.qua, clientVersion };
   }
 
@@ -332,11 +351,15 @@ export class KeyService {
     return accounts.find((a) => a.uin === uin);
   }
 
-  /** 读该账号 `nt_msg.db` 头的 key_meta；库不存在 / 读不到时返回 null。 */
-  private keyMetaFor(uin: string): string | null {
-    const dbPath = this.platform.ntMsgDbPath(uin);
-    if (!dbPath || !existsSync(dbPath)) return null;
-    return readKeyMeta(dbPath);
+  /**
+   * 读该账号 `nt_msg.db` 头的 key_meta；库不存在 / 读不到时返回 null。
+   * 优先用调用方显式给的 `dbPath`（渲染层已知路径时能绕开 linux uid 未登记
+   * 导致 `ntMsgDbPath` 解析失败的问题），否则按 uin 走平台解析。
+   */
+  private keyMetaFor(uin: string | undefined, dbPath?: string): string | null {
+    const path = dbPath ?? (uin ? this.platform.ntMsgDbPath(uin) : null);
+    if (!path || !existsSync(path)) return null;
+    return readKeyMeta(path);
   }
 
   /**

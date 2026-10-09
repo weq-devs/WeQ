@@ -1556,20 +1556,33 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         uin: z.string(),
+        /** 该账号 nt_msg.db 绝对路径（读 key_meta）；缺省按 uin 由平台解析。 */
+        dbPath: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
       }),
     )
     .subscription(({ input }) => {
       return observable<KeyEvent>((emit) => {
-        const stream = requireBootstrap().keys.quickLoginStream({
-          uin: input.uin,
-          ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-        });
-        const iterator = stream[Symbol.asyncIterator]();
         let cancelled = false;
+        let iterator: AsyncIterator<KeyEvent> | null = null;
 
         void (async (): Promise<void> => {
           try {
+            const boot = requireBootstrap();
+            // 取 key_meta 要先能定位该账号的 nt_msg.db：linux/darwin 的账号目录是
+            // `nt_qq_<md5(uid)>`，所以先把 uin→uid 从 login.db 里 seed 出来，再由
+            // 平台解析出 <dbPath>（渲染层显式给了 dbPath 就优先用它）。
+            let dbPath = input.dbPath;
+            if (!dbPath) {
+              await ensureUidForUin(boot, input.uin);
+              dbPath = requirePlatform().ntMsgDbPath(input.uin) ?? undefined;
+            }
+            const stream = boot.keys.quickLoginStream({
+              uin: input.uin,
+              ...(dbPath !== undefined ? { dbPath } : {}),
+              ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+            });
+            iterator = stream[Symbol.asyncIterator]();
             for (;;) {
               const next = await iterator.next();
               if (next.done || cancelled) break;
@@ -1583,24 +1596,46 @@ export const bootstrapRouter = router({
 
         return () => {
           cancelled = true;
-          void iterator.return?.();
+          void iterator?.return?.();
         };
       });
     }),
 
   /** Flow 3 — QR login. Same shape as quickLogin. */
   qrLogin: procedure
-    .input(z.object({ timeoutMs: z.number().int().positive().optional() }).optional())
+    .input(
+      z
+        .object({
+          /** 已知账号 uin（可选）：用于解析 nt_msg.db 读 key_meta / 带 uid。 */
+          uin: z.string().optional(),
+          /** 该账号 nt_msg.db 绝对路径（读 key_meta）。 */
+          dbPath: z.string().optional(),
+          timeoutMs: z.number().int().positive().optional(),
+        })
+        .optional(),
+    )
     .subscription(({ input }) => {
       return observable<KeyEvent>((emit) => {
-        const stream = requireBootstrap().keys.qrLoginStream({
-          ...(input?.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-        });
-        const iterator = stream[Symbol.asyncIterator]();
         let cancelled = false;
+        let iterator: AsyncIterator<KeyEvent> | null = null;
 
         void (async (): Promise<void> => {
           try {
+            const boot = requireBootstrap();
+            // 已知目标账号时，先 seed uin→uid 再解析它的 nt_msg.db 读 key_meta
+            // （linux/darwin 目录按 uid 哈希）；匿名扫码（登录全新账号）没有
+            // uin、本机也还没有 nt_msg.db，key_meta 自然为空。
+            let dbPath = input?.dbPath;
+            if (dbPath === undefined && input?.uin) {
+              await ensureUidForUin(boot, input.uin);
+              dbPath = requirePlatform().ntMsgDbPath(input.uin) ?? undefined;
+            }
+            const stream = boot.keys.qrLoginStream({
+              ...(input?.uin !== undefined ? { uin: input.uin } : {}),
+              ...(dbPath !== undefined ? { dbPath } : {}),
+              ...(input?.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+            });
+            iterator = stream[Symbol.asyncIterator]();
             for (;;) {
               const next = await iterator.next();
               if (next.done || cancelled) break;
@@ -1614,7 +1649,7 @@ export const bootstrapRouter = router({
 
         return () => {
           cancelled = true;
-          void iterator.return?.();
+          void iterator?.return?.();
         };
       });
     }),

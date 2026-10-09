@@ -150,7 +150,11 @@ export function LoginPanel({
     });
     closeSub();
     let seenUin = acc.uin;
-    subRef.current = client.bootstrap.qrLogin.subscribe(undefined, {
+    // 已知账号的扫码：把 uin 传给主进程，好让它定位该账号的 nt_msg.db 读
+    // key_meta（否则 native 会因缺 key_meta 拿不到 dbkey）。「登录新的账号」是
+    // 匿名扫码——当前选中的账号不是要登的那个，绝不能把它的 key_meta 带进去。
+    const input = anonymous ? undefined : { uin: acc.uin };
+    subRef.current = client.bootstrap.qrLogin.subscribe(input, {
       onData(event) {
         if (event.kind === 'state') {
           setQr((q) => (q ? { ...q, status: event.message || q.status } : q));
