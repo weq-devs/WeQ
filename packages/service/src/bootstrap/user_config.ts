@@ -384,12 +384,15 @@ export interface LinkPreviewConfig {
 export interface AppSettings {
   realtimeEnabled: boolean;
   /**
-   * 完全离线总闸（设置 → 账号基础 → 自动 attach QQ）。
-   * 默认开启：后台自动读登录中的 QQ 进程内存，采集 a2 / d2 / d2key 与
-   * rKey / ClientKey / 装扮快照等凭证，驱动媒体补全、群相册、Web 凭证
+   * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
+   *
+   * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
+   * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
+   * 采集 a2 / d2 / d2key 与 rKey / ClientKey / 装扮快照等凭证，驱动漫游消息、
+   * 媒体补全、发送消息 / 群操作 / 群管理、一键反馈 bug、群相册、Web 凭证
    * （skey/pskey）等在线功能。
-   * 关闭后进入完全离线模式：不再读内存、不再采集、不再联网换取凭证，
-   * 仅使用本地数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
+   * 关闭进入完全离线模式：不再读内存、不再采集、不再联网换取凭证，仅使用本地
+   * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
   /**
@@ -503,6 +506,38 @@ function normalizeLogRetentionDays(value: unknown): number | undefined {
  * 把那个开关清掉，让他们至少能再看到一次新入口；之后再点"不再提醒"就照旧尊重。
  */
 export const DB_DAMAGE_REMINDER_POLICY_VERSION = 2;
+
+/**
+ * 「首次运行欢迎框」这条引导的**策略版本**。
+ *
+ * 版本 1 = 旧版：欢迎框只在全新安装时出现一次，点「开始使用」后
+ * `welcomeAcknowledged` 落盘，之后永远不再出现。
+ *
+ * 版本 2 = 现在（v2.0.0）：欢迎框改版，除了介绍项目，还**一次性征询是否允许扫描
+ * QQ 内存**（这个开关原先默认开启，用户根本不知道可以关）。升级到本版本时把所有人
+ * 的欢迎框重新弹一次，并借此征得同意 —— {@link UserConfigService.isWelcomeAcknowledged}
+ * 会把低版本配置视为「未确认」。
+ */
+export const WELCOME_POLICY_VERSION = 2;
+
+/**
+ * 一次性的偏好迁移：把「扫描 QQ 内存」默认关掉，等改版欢迎框重新征得同意。
+ *
+ * 只在**尚未确认当前策略版本**的配置上触发。这里刻意**不写版本号** —— 版本号是用户
+ * 在欢迎框里点「开始使用」时才落盘的（见 `acknowledgeWelcome`）；若迁移顺手把版本号
+ * 记上，弹框反而会被静默跳过。代价是确认前每次启动都重置一次，用户一旦完成引导就
+ * 不再触发。
+ *
+ * 抽成纯函数便于离线单测。返回 null 表示已经是当前版本 / 无需改动。
+ */
+export function planWelcomePolicyMigration(config: UserConfig): Partial<UserConfig> | null {
+  const seen = config.welcomePolicyVersion ?? 1;
+  if (seen >= WELCOME_POLICY_VERSION) return null;
+  // settings 不存在时，新默认值本身就是关的，无需写入。
+  if (!config.settings || config.settings.autoAttachQq === false) return null;
+  // settings 是浅合并：必须整份带过去，只改 autoAttachQq 一个字段。
+  return { settings: { ...config.settings, autoAttachQq: false } };
+}
 
 /**
  * 外部安卓 chatpic 目录（`…/Tencent/MobileQQ/chatpic` 的完整备份）。
@@ -646,7 +681,9 @@ export function normalizeGroupKeywordRules(raw: unknown): Record<string, GroupKe
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
-  autoAttachQq: true,
+  // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
+  // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
+  autoAttachQq: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
@@ -678,6 +715,12 @@ export interface UserConfig {
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
   welcomeAcknowledged?: boolean;
+  /**
+   * 已经确认过的「首次运行欢迎框」策略版本（缺省 = 1，见
+   * {@link WELCOME_POLICY_VERSION}）。只由 `acknowledgeWelcome` 写；低版本会被视为
+   * 「未确认」，从而重新弹出一次新版引导。
+   */
+  welcomePolicyVersion?: number;
   /**
    * WeQ 验证器（应用锁，RFC 6238 TOTP）的 Base32 密钥。仅主进程读写，
    * 不通过 getSettings 暴露给渲染层，避免解锁凭证泄漏进 UI。
@@ -741,16 +784,34 @@ export class UserConfigService {
   private runConfigMigrations(): void {
     try {
       const patch = planDbDamageReminderPolicyReset(this.read());
-      if (!patch) return;
-      const resetReminder = patch.settings !== undefined;
-      this.write(patch);
-      this.logger.info('applied the db damage reminder policy migration', {
-        event: 'config-migration-db-damage-reminder',
-        version: DB_DAMAGE_REMINDER_POLICY_VERSION,
-        resetReminder,
-      });
+      if (patch) {
+        const resetReminder = patch.settings !== undefined;
+        this.write(patch);
+        this.logger.info('applied the db damage reminder policy migration', {
+          event: 'config-migration-db-damage-reminder',
+          version: DB_DAMAGE_REMINDER_POLICY_VERSION,
+          resetReminder,
+        });
+      }
     } catch (error) {
       this.logger.warn('failed to apply the db damage reminder policy migration', {
+        event: 'config-migration-failed',
+        ...logErrorContext(error),
+      });
+    }
+
+    try {
+      const patch = planWelcomePolicyMigration(this.read());
+      if (patch) {
+        this.write(patch);
+        this.logger.info('applied the welcome policy migration (memory scan now opt-in)', {
+          event: 'config-migration-welcome-policy',
+          version: WELCOME_POLICY_VERSION,
+          resetAutoAttach: patch.settings !== undefined,
+        });
+      }
+    } catch (error) {
+      this.logger.warn('failed to apply the welcome policy migration', {
         event: 'config-migration-failed',
         ...logErrorContext(error),
       });
@@ -1162,13 +1223,37 @@ export class UserConfigService {
     return next;
   }
 
+  /**
+   * 是否已经确认过**当前策略版本**的首次运行欢迎框。
+   *
+   * 旧配置只有 `welcomeAcknowledged=true` 而没有版本号（缺省 = 1），会被视为「未确认」，
+   * 于是升级到 {@link WELCOME_POLICY_VERSION} 后重新弹一次新版引导。
+   */
   isWelcomeAcknowledged(): boolean {
-    return this.read().welcomeAcknowledged === true;
+    const config = this.read();
+    return (
+      config.welcomeAcknowledged === true &&
+      (config.welcomePolicyVersion ?? 1) >= WELCOME_POLICY_VERSION
+    );
   }
 
-  acknowledgeWelcome(): void {
-    this.write({ welcomeAcknowledged: true });
-    this.logger.info('welcome dialog acknowledged', { event: 'welcome-ack' });
+  /**
+   * 确认首次运行欢迎框，并记录用户在框里对「扫描 QQ 内存」的选择。
+   *
+   * `allowMemoryScan` 直接落到 `autoAttachQq`（完整功能总闸）—— 欢迎框就是它的征询入口。
+   * 确认时一并写入当前策略版本，之后不再重复弹出。
+   */
+  acknowledgeWelcome(options: { allowMemoryScan: boolean }): void {
+    this.setSettings({ autoAttachQq: options.allowMemoryScan });
+    this.write({
+      welcomeAcknowledged: true,
+      welcomePolicyVersion: WELCOME_POLICY_VERSION,
+    });
+    this.logger.info('welcome dialog acknowledged', {
+      event: 'welcome-ack',
+      version: WELCOME_POLICY_VERSION,
+      allowMemoryScan: options.allowMemoryScan,
+    });
   }
 
   /**

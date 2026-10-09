@@ -1057,11 +1057,18 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.isWelcomeAcknowledged();
   }),
 
-  /** Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json). */
-  acknowledgeWelcome: procedure.mutation(() => {
-    requireBootstrap().userConfig.acknowledgeWelcome();
-    return true;
-  }),
+  /**
+   * Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json).
+   * `allowMemoryScan` 是用户在框里对「扫描 QQ 内存」的选择，直接落到 autoAttachQq。
+   */
+  acknowledgeWelcome: procedure
+    .input(z.object({ allowMemoryScan: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.acknowledgeWelcome({
+        allowMemoryScan: input.allowMemoryScan,
+      });
+      return true;
+    }),
 
   // ---- voice transcription models (设置 → 语音转录) ----
 

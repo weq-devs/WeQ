@@ -1932,7 +1932,7 @@ html[data-theme='dark'] .weq-splash-track {
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding: 1.9rem 1.5rem 1.35rem;
+    padding: 1rem 1.6rem 0.85rem;
     background:
       radial-gradient(ellipse at 50% -12%, color-mix(in srgb, var(--weq-accent-effective) 20%, transparent), transparent 64%),
       linear-gradient(160deg, color-mix(in srgb, var(--weq-accent-effective) 11%, transparent), transparent 82%);
@@ -1952,7 +1952,7 @@ html[data-theme='dark'] .weq-splash-track {
     display: inline-flex;
     align-items: center;
     gap: 0.32rem;
-    margin-bottom: 0.9rem;
+    margin-bottom: 0.55rem;
     padding: 0.22rem 0.66rem;
     border-radius: 999px;
     font-size: 11px;
@@ -1971,8 +1971,8 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-welcome-title {
     position: relative;
     z-index: 1;
-    margin: 0.72rem 0 0.2rem;
-    font-size: 21px;
+    margin: 0.42rem 0 0.12rem;
+    font-size: 18px;
     font-weight: 700;
     color: var(--weq-fg-primary);
     letter-spacing: 0.01em;
@@ -1987,8 +1987,8 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-welcome-body {
     display: flex;
     flex-direction: column;
-    gap: 0.95rem;
-    padding: 1.25rem 1.4rem 0.4rem;
+    gap: 0.6rem;
+    padding: 0.85rem 1.6rem 0.25rem;
   }
   .weq-welcome-row {
     display: grid;
@@ -2016,7 +2016,7 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-welcome-text p {
     margin: 0;
     font-size: 13px;
-    line-height: 1.62;
+    line-height: 1.55;
     color: var(--weq-fg-secondary);
   }
   .weq-welcome-sub {
@@ -2079,16 +2079,120 @@ html[data-theme='dark'] .weq-splash-track {
     font-weight: 600;
     color: var(--weq-accent-effective);
   }
+  /* 扫描 QQ 内存的知情同意卡片（v2.0.0 欢迎框的核心） */
+  .weq-welcome-scan {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.72rem;
+    border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 36%, transparent);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--weq-accent-effective) 15%, transparent), color-mix(in srgb, var(--weq-accent-effective) 6%, transparent));
+  }
+  .weq-welcome-scan-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.72rem;
+    align-items: center;
+  }
+  .weq-welcome-scan-ico {
+    display: inline-flex;
+    width: 2.1rem;
+    height: 2.1rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    color: var(--weq-accent-effective);
+    background: color-mix(in srgb, var(--weq-bg-elevated) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+    flex: none;
+  }
+  .weq-welcome-scan-head-text strong {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--weq-fg-primary);
+    margin-bottom: 0.16rem;
+  }
+  .weq-welcome-scan-head-text p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-welcome-scan-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.36rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .weq-welcome-scan-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .weq-welcome-scan-item > span {
+    min-width: 0;
+  }
+  .weq-welcome-scan-check {
+    flex: none;
+    margin-top: 0.16rem;
+    color: var(--weq-accent-effective);
+  }
+  /* 标题 + 说明排在同一行，省一行高度（弹窗整体更矮）。 */
+  .weq-welcome-scan-item b {
+    display: inline;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--weq-fg-primary);
+  }
+  .weq-welcome-scan-item em {
+    display: inline;
+    margin-left: 0.38rem;
+    font-style: normal;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--weq-fg-muted);
+  }
+  .weq-welcome-scan-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.9rem;
+    margin-top: 0.1rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  }
+  .weq-welcome-scan-toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+    min-width: 0;
+  }
+  .weq-welcome-scan-toggle-text span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--weq-fg-primary);
+  }
+  .weq-welcome-scan-toggle-text small {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--weq-fg-muted);
+  }
   .weq-welcome-disclaimer-title {
     font-weight: 600;
     color: var(--weq-fg-secondary) !important;
   }
   .weq-welcome-foot {
-    padding: 0.7rem 1.4rem 1.4rem;
+    padding: 0.55rem 1.6rem 1.1rem;
   }
   .weq-welcome-cta {
     width: 100%;
-    min-height: 2.55rem;
+    min-height: 2.3rem;
     font-size: 13.5px;
     font-weight: 600;
     box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
