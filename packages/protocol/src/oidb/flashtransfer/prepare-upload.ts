@@ -5,6 +5,7 @@
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
 import { FLASH_PREPARE_UPLOAD_REQ, FLASH_PREPARE_UPLOAD_RESP } from './schemas';
+import { nextUploadSeq } from './upload-seq';
 
 export interface PrepareUploadParams {
   filesetUuid: string;
@@ -30,15 +31,13 @@ export namespace PrepareUpload {
   export const reqSchema = FLASH_PREPARE_UPLOAD_REQ;
   export const respSchema = FLASH_PREPARE_UPLOAD_RESP;
 
-  let seqCounter = 200;
-
   export const serialize = (p: PrepareUploadParams): Record<string, unknown> => {
     // 缩略图与主文件字段差异:config.f103、FileInfo.f5.f1/f6/f7/f9、filesetWrap.f6/f7。
     const isThumb = p.thumbType !== undefined;
     const isJpg = p.thumbType === 'jpg';
     return {
       head: {
-        sub: { seq: seqCounter++, sub: 100 },
+        sub: { seq: nextUploadSeq(), sub: 100 },
         config: {
           field101: 2,
           field102: 4,
@@ -62,7 +61,9 @@ export namespace PrepareUpload {
           },
           field2: 0,
         },
-        field2: 1,
+        // payload.f2：缩略图(封面) 1、主文件 0（2026-10-10 实机抓包，与旧实现相反）。
+        // 旧实现写反会让封面不被服务端登记为 fileset 封面，卡片回退默认封面。
+        field2: isThumb ? 1 : 0,
         field3: 0,
         field4: 0,
         field5: 0,
@@ -70,6 +71,7 @@ export namespace PrepareUpload {
           field1: { field1: 0, field2: {} },
           field2: { field3: {} },
           field3: { field11: {}, field12: {} },
+          field4: { field1: {} },
           field10: 0,
         },
         field7: 0,
@@ -79,11 +81,11 @@ export namespace PrepareUpload {
           uploadKey: p.filesetUuid,
           fileUuid: p.fileUuid,
           field4: p.fileIndex,
-          field5: 0,
-          field6: isThumb ? 1 : 0,
+          field5: isThumb ? 1 : 0,
+          field6: 0,
           field7: isThumb ? (isJpg ? 2 : 26) : p.formatCode,
           field8: {},
-          field9: 1,
+          field9: isThumb ? 0 : 1,
           field10: 0,
           field11: 0,
           field12: 0,

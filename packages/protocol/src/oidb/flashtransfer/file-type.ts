@@ -1,7 +1,8 @@
 // 文件名/扩展名 → 闪传类型码映射。
 //
-// typeCode 用于 0x93cf.f3（fileset 总类型）；formatCode 用于
-// 0x93d0.commitInfo.f7 与 0x12a9 filesetWrap.f7（单文件类型）。
+// formatCode 用于 0x93d0.commitInfo.f7 与 0x12a9 filesetWrap.f7（单文件类型）。
+// 注：0x93cf.f3 不是文件类型，而是**上传场景码**（实机 AIO 文件选择器 = 10）；
+//     见 apply-fileset.ts。typeCode 返回值仅为内部选择 formatCode 用，保留兼容。
 //
 // formatCode 映射依据 QQ 闪传真实 0x93d0 抓包：
 //   1 音频, 2 视频, 3 Word, 4 压缩包, 5 APK, 6 Excel,
@@ -104,9 +105,8 @@ const FORMAT_CODE_BY_EXTENSION: Record<string, number> = {
  * 返回 fileset 总类型码和单文件 formatCode。
  *
  * 真实抓包确认：
- * - zip 的 typeCode=6，其他压缩格式的 typeCode=2；
- * - 非压缩文件沿用当前实现的 fileset typeCode=7；
  * - 未知扩展名的单文件 formatCode 应为 11，而不是旧实现的 2。
+ * - typeCode 字段仅为历史兼容（不再上 wire 到 0x93cf.f3）。
  */
 export function fileTypeCode(fileName: string): FlashFileTypeCode {
   const normalized = fileName.toLowerCase();

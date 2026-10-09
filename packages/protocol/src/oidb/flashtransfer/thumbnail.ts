@@ -33,6 +33,8 @@ export interface PreparedThumbnail {
   width: number;
   height: number;
   appid: number;
+  /** apply(0x12a9_103) 响应里规范化后的 filesetWrap 原始字节，sliceupload f107.f101 原样回带。 */
+  filesetRef: Uint8Array | null;
 }
 
 /** 阶段1:读取并校验 PNG,prepare 拿 rkey + 构造 fileId。 */
@@ -99,12 +101,13 @@ export async function prepareThumbnail(
     width,
     height,
     appid,
+    filesetRef: null,
   };
 }
 
 /** 阶段2:apply 注册 fileId 绑定进 fileset。 */
 export async function applyThumbnail(thumb: PreparedThumbnail): Promise<void> {
-  await ApplyUpload.invoke(thumb.nt, thumb.pid, {
+  thumb.filesetRef = await ApplyUpload.invoke(thumb.nt, thumb.pid, {
     filesetUuid: thumb.filesetUuid,
     fileUuid: thumb.fileUuid,
     fileId: thumb.fileId,
@@ -134,7 +137,11 @@ export async function sliceuploadThumbnail(thumb: PreparedThumbnail): Promise<vo
       sha1StateV: thumb.sha1StateV,
       chunk: thumb.chunk,
     },
-    { appid: thumb.appid },
+    {
+      appid: thumb.appid,
+      field100: 5,
+      ...(thumb.filesetRef ? { fileRef: thumb.filesetRef } : {}),
+    },
   );
 
   await postSliceupload(bodyBytes, 'thumbnail sliceupload');

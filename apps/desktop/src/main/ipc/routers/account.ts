@@ -3419,8 +3419,9 @@ export const accountRouter = router({
    * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
    *
    * 与语音 / 文件同一条输入框入口，但走的是 fileset 管线（不是普通消息元素）：
-   * 申请 → commit/complete → 0x93d7 发消息 → **立刻返回**。封面与主文件上传在后台
-   * 继续（先发后传），所以这个 mutation 不会被大文件拖住。
+   * 申请 → commit/complete → **封面传完** → 0x93d7 发消息 → **立刻返回**。只有主文件
+   * 字节在后台继续传，所以这个 mutation 不会被大文件拖住；封面必须排在发消息前，
+   * 否则对端卡片只会显示默认封面（实机抓包见 FlashTransferService）。
    * 返回 `{ filesetUuid, shareUrl }`，前端拿 uuid 做乐观条目的对账签名。
    *
    * `coverBase64` 是渲染层用 canvas 拼出来的 **PNG**（封面图要从 `resources/fileicon`

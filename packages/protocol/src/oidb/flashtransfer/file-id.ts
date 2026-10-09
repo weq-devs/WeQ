@@ -9,8 +9,8 @@ import { encode } from '../../protobuf';
 import { FLASH_FILE_ID } from './schemas';
 
 export const FLASH_FILE_ID_TTL_SECONDS = 1209600;
-/** 封面图 fileId TTL(真实抓包 8985599 = 104 天-1s,主文件是 14 天-1s)。 */
-export const FLASH_FILE_ID_TTL_THUMB_SECONDS = 8985599;
+/** 封面图 fileId TTL(真实抓包 8985600 = 104 天,主文件是 14 天)。 */
+export const FLASH_FILE_ID_TTL_THUMB_SECONDS = 8985600;
 export const FLASH_APPID_MAIN = 14901;
 export const FLASH_APPID_PNG_THUMB = 14903;
 export const FLASH_APPID_JPG_THUMB = 14902;

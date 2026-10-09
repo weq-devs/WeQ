@@ -93,11 +93,18 @@ export const FLASH_APPLY_UPLOAD_WRAPPER = message([
 
 export const FLASH_APPLY_FLAG2 = message([{ name: 'field1', tag: 1, type: 'uint32', force: true }]);
 
+/** f12.f4 — 固定 `{f1:0, f2:{}}`（实机抓包）。 */
+export const FLASH_APPLY_PAYLOAD_F4 = message([
+  { name: 'field1', tag: 1, type: 'uint32', force: true },
+  { name: 'field2', tag: 2, type: FLASH_EMPTY },
+]);
+
 /** f12 — apply-upload payload(sub=103)。 */
 export const FLASH_APPLY_UPLOAD_PAYLOAD = message([
   { name: 'wrapper', tag: 1, type: FLASH_APPLY_UPLOAD_WRAPPER },
   { name: 'flag2', tag: 2, type: FLASH_APPLY_FLAG2 },
   { name: 'field3', tag: 3, type: FLASH_APPLY_PAYLOAD_FIELD3 },
+  { name: 'field4', tag: 4, type: FLASH_APPLY_PAYLOAD_F4 },
   { name: 'filesetWrap', tag: 10, type: FLASH_APPLY_FILESET_WRAP },
 ]);
 
@@ -109,9 +116,15 @@ export const FLASH_APPLY_UPLOAD_REQ = message([
 
 export const FLASH_RKEY_WRAP = message([{ name: 'rkey', tag: 1, type: 'string' }]);
 
+/** sub=103 响应 payload(f12)。f1 是服务端**规范化**后的 filesetWrap 原始子消息字节。 */
+export const FLASH_APPLY_UPLOAD_RESP_PAYLOAD = message([
+  { name: 'filesetWrap', tag: 1, type: 'bytes' },
+]);
+
 export const FLASH_APPLY_UPLOAD_RESP = message([
   { name: 'head', tag: 1, type: FLASH_APPLY_HEAD_RESP },
   { name: 'rkeyWrap', tag: 2, type: FLASH_RKEY_WRAP },
+  { name: 'payload', tag: 12, type: FLASH_APPLY_UPLOAD_RESP_PAYLOAD },
 ]);
 
 /** sub=100 payload.f6 — 固定嵌套 message。 */
@@ -127,10 +140,14 @@ export const FLASH_PREPARE_PAYLOAD_F6_F3 = message([
   { name: 'field12', tag: 12, type: FLASH_EMPTY },
 ]);
 
+/** sub=100 payload.f6.f4 — 恒为 `{f1:{}}`。 */
+export const FLASH_PREPARE_PAYLOAD_F6_F4 = message([{ name: 'field1', tag: 1, type: FLASH_EMPTY }]);
+
 export const FLASH_PREPARE_PAYLOAD_F6 = message([
   { name: 'field1', tag: 1, type: FLASH_PREPARE_PAYLOAD_F6_F1 },
   { name: 'field2', tag: 2, type: FLASH_PREPARE_PAYLOAD_F6_F2 },
   { name: 'field3', tag: 3, type: FLASH_PREPARE_PAYLOAD_F6_F3 },
+  { name: 'field4', tag: 4, type: FLASH_PREPARE_PAYLOAD_F6_F4 },
   { name: 'field10', tag: 10, type: 'uint32', force: true },
 ]);
 
@@ -186,6 +203,12 @@ export const FLASH_UPLOADER = message([
   { name: 'field4', tag: 4, type: FLASH_EMPTY },
 ]);
 
+/** FileInfo.f24 — 固定嵌套 message(实机抓包 `{f2:0,f3:""}`)。 */
+export const FLASH_UPLOAD_FILE_INFO24 = message([
+  { name: 'field2', tag: 2, type: 'uint32', force: true },
+  { name: 'field3', tag: 3, type: 'string', force: true },
+]);
+
 export const FLASH_UPLOAD_FILE_INFO = message([
   { name: 'fileName', tag: 2, type: 'string' },
   { name: 'origName', tag: 3, type: 'string' },
@@ -193,15 +216,17 @@ export const FLASH_UPLOAD_FILE_INFO = message([
   { name: 'fileSize', tag: 5, type: 'uint64' },
   { name: 'uploader', tag: 10, type: FLASH_UPLOADER },
   { name: 'field16', tag: 16, type: 'uint32' },
-  { name: 'field20', tag: 20, type: 'uint32' },
-  { name: 'field21', tag: 21, type: 'uint32' },
+  { name: 'field20', tag: 20, type: 'uint32', force: true },
+  { name: 'field21', tag: 21, type: 'uint32', force: true },
+  { name: 'field23', tag: 23, type: 'uint32', force: true },
+  { name: 'field24', tag: 24, type: FLASH_UPLOAD_FILE_INFO24 },
 ]);
 
 export const FLASH_APPLY_FILESET_REQ = message([
   { name: 'field1', tag: 1, type: 'uint32' },
   { name: 'fileInfo', tag: 2, type: FLASH_UPLOAD_FILE_INFO },
   { name: 'typeCode', tag: 3, type: 'uint32' },
-  { name: 'field12', tag: 12, type: 'uint32' },
+  { name: 'validitySeconds', tag: 4, type: 'uint32', force: true },
 ]);
 
 export const FLASH_APPLY_FILESET_RESP = message([
@@ -249,7 +274,7 @@ export const FLASH_COMMIT_FILE_RESP = message([
 
 export const FLASH_COMPLETE_FILESET_REQ = message([
   { name: 'filesetUuid', tag: 1, type: 'string' },
-  { name: 'field2', tag: 2, type: 'string' },
+  { name: 'field2', tag: 2, type: 'string', force: true },
 ]);
 
 export const FLASH_COMPLETE_FILESET_RESP = message([]);

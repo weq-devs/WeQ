@@ -1,7 +1,10 @@
 // OIDB 0x93cf_1 — 申请创建 fileSet(闪传上传起点)。
-// 请求 f1=1, f2=FileInfo{fileName,origName,fileType=1,size,uploader}, f3=类型码, f12=1。
+// 请求 f1=1, f2=FileInfo{fileName,origName,fileType=1,size,uploader,...}, f3=上传场景码, f4=有效期。
 // 响应 f1=filesetUuid, f2=uploadKey(同 f1), f3=上传/分享 URL(qfile.qq.com/q/<code>),
 // f4=expire, f5=ttl。subCommand=1, reserved=0。
+//
+// 实机抓包(2026-10)确认: f3 是**上传场景码**(同 NapCat 的 uploadSceneType,
+// AIO 文件选择器 = 10),不是文件类型;f4 是有效期秒数(新内核要求,缺失会失败)。
 
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
@@ -18,10 +21,18 @@ export interface ApplyFilesetParams {
   fileName: string;
   origName: string;
   fileSize: number;
-  /** 文件类型码:rar=2, png/mp4=7。 */
-  typeCode: number;
+  /** 上传场景码(实机 AIO 文件选择器 = 10)。 */
+  uploadSceneType: number;
+  /** 文件集有效期(秒)。缺省 1209600(14 天);可选 90/180 天。 */
+  validitySeconds?: number;
   uploader: FlashUploaderInfo;
 }
+
+/** 闪传文件集默认有效期(14 天),与 NapCat DEFAULT_FLASH_VALIDITY_SECONDS 一致。 */
+export const FLASH_DEFAULT_VALIDITY_SECONDS = 1209600;
+
+/** NapCat/PCQQ 默认上传场景:AIO 文件选择器。 */
+export const FLASH_UPLOAD_SCENE_AIO_FILE_SELECTOR = 10;
 
 export interface ApplyFilesetResult {
   filesetUuid: string;
@@ -54,9 +65,11 @@ export namespace ApplyFileset {
       field16: 1,
       field20: 0,
       field21: 0,
+      field23: 0,
+      field24: { field2: 0, field3: '' },
     },
-    typeCode: p.typeCode,
-    field12: 1,
+    typeCode: p.uploadSceneType,
+    validitySeconds: p.validitySeconds ?? FLASH_DEFAULT_VALIDITY_SECONDS,
   });
 
   export const deserialize = (body: Record<string, unknown>): ApplyFilesetResult => {
