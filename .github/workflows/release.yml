@@ -80,8 +80,6 @@ jobs:
       # 供 electron-builder 一并发布；「导出好友」功能会把它拷进产物。
       - name: Build clone-bot runtime
         run: pnpm run build:bot
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
@@ -205,8 +203,6 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
@@ -308,8 +304,6 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
@@ -409,8 +403,6 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
@@ -512,8 +504,6 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # Rust 守护进程二进制 → resources/daemon/<platform>-<arch>/，
       # electron-builder 随 extraResources 打进安装包。
@@ -671,9 +661,6 @@ jobs:
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
 
-      # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # 浏览器版用户自备 Node，守护进程补上二进制：本 runner 只构建并打进
       # 当前平台那一份（build-server / pack 会按 process.platform/arch 认定）。

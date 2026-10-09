@@ -192,8 +192,7 @@ export interface Platform {
    * macOS only: is 系统完整性保护（SIP）still on? Reading another process's memory
    * goes through `task_for_pid`, which SIP + QQ's hardened runtime refuse even
    * for root — so a caller can ask first and skip the memory scan (and its
-   * password prompt) entirely, sending the user down the ninebird
-   * (本地快速登录) path instead of failing later.
+   * password prompt) entirely instead of failing later.
    *
    * `true` = on (reading is impossible), `false` = off (root can read),
    * `null` = not macOS / couldn't tell. **Never treat `null` as "off".**

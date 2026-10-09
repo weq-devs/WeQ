@@ -7,10 +7,11 @@
 
 import { mkdirSync } from 'node:fs';
 import { copyFile, readdir, stat } from 'node:fs/promises';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { type AccountSession, algoFor } from '@weq/account';
 import {
+  resolveNtHelperPath,
   selectDatabaseDecryptMethod,
   type DatabaseAlgorithms,
   type DatabaseDecryptMode,
@@ -120,7 +121,7 @@ export class DbDecryptService {
       return { dbPath: db.path, name: item.name || db.name };
     });
 
-    const ntHelperPath = join(dirname(this.platform.native.resources.loaderDir), 'nt_helper.node');
+    const ntHelperPath = resolveNtHelperPath();
     return mapLimit(items, concurrency, async (item) => {
       const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
       try {

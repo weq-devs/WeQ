@@ -1,128 +1,15 @@
 /**
- * Linux NineBird 安装 —— 与 macOS 同一套 `sudo -S` 提权，但只处理一个文件。
+ * Linux 提权小工具（`sudo -S`）—— 被 attach / 抓包 / 内存扫描等需要 root 的
+ * 子进程复用。
  *
- * Linux 的注入介质是 `ninebird_launcher.so`（LD_PRELOAD）：QQ 的 Electron
- * 入口由 launcher 在运行时重定向到 `<QQ>/resources/app/loadNineBird.js`，
- * 并用 raw statx 校验该文件真实存在（LD_PRELOAD 骗不过）。所以只需要在
- * 磁盘上放一个持久 stub —— **不动 package.json**（main 保持原版）。
+ * 渲染层弹密码框，密码经 stdin 喂给 `sudo -S`，root 只做受控的字节级操作
+ * （cp / rm / echo）；密码只在函数内内存活，不落盘、不进日志。
  *
- *   - 安装 = 提权写入 `loadNineBird.js`（QQ 的 resources/app 通常 root 所有）；
- *   - 还原 = 提权删除该文件。
- *
- * stub 不随 QQ 启动自删（学习 macOS：常驻）。普通启动 QQ 时 launcher.so
- * 没有介入，main 还是原版入口，stub 根本不会被执行，留在磁盘上是无害的。
- * WeQ 启动 QQ 时 launcher 把入口重定向到 stub，stub 按 NINEBIRD_* 环境变量
- * 加载 loader（env 只有 WeQ 拉起 QQ 时才有，是比 `--no-sandbox` 更可靠的
- * 模式开关——Linux 用户可能在 qq-flags.conf 里自带 --no-sandbox）。
- *
- * 提权姿势与 macOS 完全一致：渲染层弹密码框 → 密码经 stdin 喂给
- * `sudo -S`，root 只做受控的字节级 cp / rm（TS 先把内容写临时文件，
- * root 不碰内容生成逻辑）。密码只在本函数内存活，不落盘、不进日志。
+ * 本文件只保留与在线实例 attach / 抓包 / 内存扫描共用的提权 + yama ptrace 开关。
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import type { ElevatedResult } from '../darwin/install';
-
-// ---------- 路径 -----------------------------------------------------------
-
-/** `<QQ>/resources/app`（QQ 可执行文件在同一层目录，`../resources/app`）。 */
-export function linuxAppDir(qqExePath: string): string {
-  return join(dirname(qqExePath), 'resources', 'app');
-}
-
-export interface LinuxInstallPaths {
-  qqExe: string;
-  /** `<QQ>/resources/app`。 */
-  appDir: string;
-  /** 入口 stub —— Linux ninebird 唯一需要提权处理的文件。 */
-  loaderJs: string;
-}
-
-export function linuxPaths(qqExePath: string): LinuxInstallPaths {
-  const appDir = linuxAppDir(qqExePath);
-  return {
-    qqExe: qqExePath,
-    appDir,
-    loaderJs: join(appDir, 'loadNineBird.js'),
-  };
-}
-
-// ---------- 状态 -----------------------------------------------------------
-
-/** stub 首行标记：判断磁盘上的文件是不是「我们写的持久版」。
- *  旧版（自删 + 硬编码 loader 路径）没有这行，dropStub 会重写迁移一次。 */
-export const STUB_MARKER = '// weq-ninebird-stub v2';
-
-export interface LinuxStubStatus {
-  /** `loadNineBird.js` 是否存在。 */
-  installed: boolean;
-  /** 是否带 {@link STUB_MARKER}（旧版自删 stub 为 false，需重写迁移）。 */
-  fresh: boolean;
-}
-
-export function linuxStubStatus(paths: LinuxInstallPaths): LinuxStubStatus {
-  try {
-    if (!existsSync(paths.loaderJs)) return { installed: false, fresh: false };
-    const content = readFileSync(paths.loaderJs, 'utf-8');
-    return { installed: true, fresh: content.includes(STUB_MARKER) };
-  } catch {
-    return { installed: false, fresh: false };
-  }
-}
-
-/**
- * 当前 package.json 的 main 绝对化（Electron 的 require 走 asar 补丁，
- * 绝对路径一样能加载）。读不到 / 不是字符串时返回 null —— 生成 shim 时
- * 省略「原版启动器」分支。
- */
-export function linuxOriginalMain(appDir: string): string | null {
-  const pkgPath = join(appDir, 'package.json');
-  if (!existsSync(pkgPath)) return null;
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { main?: unknown };
-    const main = typeof pkg.main === 'string' && pkg.main ? pkg.main : null;
-    return main ? resolve(appDir, main) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 持久 stub 内容（Linux 版）。
- *
- * 与 macOS shim 的区别：
- *   - 不按 `--no-sandbox` 分支（Linux 用户可能在 qq-flags.conf 里自带该
- *     参数），而是按 NINEBIRD_* 环境变量 —— 只有 WeQ 拉起 QQ 时才有；
- *   - 不随加载自删（常驻，还原走设置页显式删除）；
- *   - loader 走 `NINEBIRD_LOAD_PATH`（WeQ 每次启动都会带当前 loader 路径），
- *     兜底用安装时记录的 WeQ loader 路径。
- */
-export function linuxLoaderShimContent(
-  fallbackLoader: string,
-  originalMain: string | null,
-): string {
-  const lines = [
-    STUB_MARKER,
-    `function __nblog(m){ try { if (process.env.NINEBIRD_LOG) require('fs').appendFileSync(process.env.NINEBIRD_LOG, '[stub pid=' + process.pid + '] ' + m + '\\n'); } catch (e) {} }`,
-    `const __weqNinebird = !!(process.env.NINEBIRD_PIPE_NAME || process.env.NINEBIRD_LOAD_PATH || process.env.NINEBIRD_LOADER_DIR);`,
-    `if (__weqNinebird) {`,
-    `    const __weqLoader = process.env.NINEBIRD_LOAD_PATH || ${JSON.stringify(fallbackLoader)};`,
-    `    __nblog('loadNineBird.js executed, requiring loader: ' + __weqLoader);`,
-    `    try { require(__weqLoader); }`,
-    `    catch (e) { __nblog('require(loader) THREW: ' + (e && e.stack || e)); throw e; }`,
-    `} else {`,
-    `    __nblog('loadNineBird.js executed without WeQ env, requiring original launcher');`,
-    `    require(${JSON.stringify(originalMain ?? fallbackLoader)});`,
-    `}`,
-    ``,
-  ];
-  return lines.join('\n');
-}
-
-// ---------- 提权（sudo -S，macOS 同款） -----------------------------------
+import { existsSync, readFileSync } from 'node:fs';
 
 /** shell 单引号转义（路径里没有单引号也统一走这个，防注入）。 */
 function shq(s: string): string {
@@ -139,6 +26,13 @@ export function resolveSudoPath(): string {
     }
   }
   return 'sudo';
+}
+
+/** 提权执行结果。 */
+export interface ElevatedResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 /**
@@ -171,11 +65,6 @@ export function runSudo(script: string, password: string): Promise<ElevatedResul
 }
 
 // ---------- yama ptrace 保护 -----------------------------------------------
-//
-// AppImage / 单用户 FUSE 安装里 root 读不到我们自己的文件（见 fuse_mounts.ts），
-// 「提权跑 worker」这条注入路走不通。但注入的另一个障碍只是 yama 的 ptrace
-// 限制 —— 提权改这一个全局开关，注入就能由非特权的自己完成，而 sudo 子进程
-// 只动系统文件，完全不碰挂载点。
 
 /** yama 的 ptrace_scope：0 = 同用户进程之间可以互相 ptrace。 */
 export const YAMA_PTRACE_SCOPE_PATH = '/proc/sys/kernel/yama/ptrace_scope';
@@ -247,55 +136,4 @@ async function runSudoChecked(script: string, password: string): Promise<void> {
   }
 }
 
-// ---------- 安装 / 还原 ------------------------------------------------------
-
-/**
- * 以 root 写入一个文件：TS 先把内容写到临时文件（非特权），root 只做一次
- * `cp`（内容不进 argv、不落盘）。密码只在本函数内存活。
- */
-export async function writeFileAsRoot(
-  path: string,
-  content: string,
-  password: string,
-): Promise<void> {
-  const tmp = join(tmpdir(), `weq-file-${process.pid}-${Date.now()}`);
-  writeFileSync(tmp, content);
-  try {
-    const script = [
-      `SRC=${shq(tmp)}`,
-      `DST=${shq(path)}`,
-      `cp "$SRC" "$DST"`,
-      `chmod 644 "$DST"`,
-    ].join('\n');
-    await runSudoChecked(script, password);
-  } finally {
-    rmSync(tmp, { force: true });
-  }
-}
-
-/**
- * 安装：把持久 stub 写入 `<QQ>/resources/app/loadNineBird.js`（提权）。
- * TS 先把内容写到临时文件（非特权），root 只做一次 `cp`。
- * fallbackLoader 是 WeQ 当前安装里的 loader（qr-dbkey.js），NINEBIRD_LOAD_PATH
- * 缺失时的兜底；入口已经是持久版 stub 时直接幂等返回。
- */
-export async function installNineBirdLinux(
-  qqExePath: string,
-  fallbackLoader: string,
-  password: string,
-): Promise<void> {
-  const paths = linuxPaths(qqExePath);
-  const status = linuxStubStatus(paths);
-  if (status.installed && status.fresh) return;
-
-  const content = linuxLoaderShimContent(fallbackLoader, linuxOriginalMain(paths.appDir));
-  await writeFileAsRoot(paths.loaderJs, content, password);
-}
-
-/** 还原：删除 `loadNineBird.js`（提权），package.json 本来就没动过。 */
-export async function uninstallNineBirdLinux(qqExePath: string, password: string): Promise<void> {
-  const paths = linuxPaths(qqExePath);
-  if (!existsSync(paths.loaderJs)) return;
-  const script = [`DST=${shq(paths.loaderJs)}`, `rm -f "$DST"`].join('\n');
-  await runSudoChecked(script, password);
-}
+export { shq };

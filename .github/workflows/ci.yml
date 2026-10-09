@@ -142,8 +142,6 @@ jobs:
       - name: Build clone-bot runtime
         run: pnpm run build:bot
 
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -200,9 +198,6 @@ jobs:
       - name: Test auth gate
         run: pnpm --filter @weq/web test
 
-      # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
-      - name: Build ninebird runtime
-        run: pnpm run build:ninebird
 
       # 先打当前平台（linux-x64）的守护进程，build-server 与 smoke 才会把它
       # 视作打包目标的一部分；与 release 的 web 矩阵保持一致。

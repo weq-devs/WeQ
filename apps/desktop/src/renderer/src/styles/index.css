@@ -1537,7 +1537,7 @@ html[data-theme='dark'] .weq-splash-track {
     font-size: 12px;
   }
 
-  /* ---- 密码输入弹窗（NineBird 提权 / sudo -S）----
+  /* ---- 密码输入弹窗（提权 / sudo -S）----
    * 共享 .weq-modal 土台是写死的浅色渐变，这里整体换成 token 驱动的
    * 表面色，深浅模式都能自洽。 */
   .weq-password-modal {

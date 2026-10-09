@@ -266,7 +266,7 @@ export function DialogHost(): ReactElement | null {
 
 /**
  * 密码输入体。按 `key={dialog.id}` 挂载，每个对话框都是全新 state——
- * 连续弹多个密码框（如内存扫描 + NineBird 安装）时，不会把上一个框的旧值
+ * 连续弹多个密码框（如内存扫描 + 抓包提权）时，不会把上一个框的旧值
  * 提交给 sudo（旧值会导致 sudo 收到错误密码：Sorry, try again）。
  */
 function PasswordDialogBody({

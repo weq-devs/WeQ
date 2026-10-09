@@ -201,9 +201,9 @@ export class WebCredentialProvider {
   }
 
   /**
-   * Pre-load p_skey harvested elsewhere (e.g. by the ninebird login loader,
-   * which grabs it while QQ is still up). Saves a hook round-trip, and works
-   * even after the login process is gone.
+   * Pre-load p_skey harvested elsewhere (e.g. from a login flow that grabbed
+   * it while QQ was still up). Saves a hook round-trip, and works even after
+   * that process is gone.
    */
   seedPskey(byDomain: Record<string, string>): void {
     for (const [domain, pskey] of Object.entries(byDomain)) {

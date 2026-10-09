@@ -41,7 +41,6 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
-import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
@@ -51,7 +50,7 @@ import {
   AnnualReportService,
   UserConfigService,
   Win32DetectService,
-  Win32KeyService,
+  KeyService,
   GlobalConfigService,
   MediaCacheService,
   LinkPreviewService,
@@ -558,7 +557,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
 
 export interface BootstrapServices {
   detect: Win32DetectService;
-  keys: Win32KeyService;
+  keys: KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
   avatarCache: MediaCacheService;
@@ -941,11 +940,6 @@ export function initAppContext(): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
-  // it needs an elevated writer unless the host is already root. Windows uses
-  // the fs default (undefined).
-  const stubHooks = process.platform === 'linux' ? linuxStubHooks : undefined;
-
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
   // SIP off, since QQ runs hardened), so both go through the elevated hook
@@ -961,8 +955,8 @@ export function initAppContext(): AppContext {
   const linkPreview = new LinkPreviewService(userConfig);
 
   const bootstrap: BootstrapServices = {
-    detect: new Win32DetectService(platform, stubHooks),
-    keys: new Win32KeyService(platform, stubHooks),
+    detect: new Win32DetectService(platform),
+    keys: new KeyService(platform),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new MediaCacheService(userConfig),

@@ -64,16 +64,6 @@ import {
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
-import {
-  darwinPaths,
-  getPatchStatus,
-  installNineBird,
-  installNineBirdLinux,
-  linuxPaths,
-  linuxStubStatus,
-  uninstallNineBird,
-  uninstallNineBirdLinux,
-} from '@weq/native';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
 export interface PickRootResult {
@@ -240,76 +230,6 @@ export const bootstrapRouter = router({
     return { platformKind: process.platform as NodeJS.Platform };
   }),
 
-  // ---- NineBird 安装（macOS napcat 机制 / Linux 持久 stub，sudo -S 提权） ----
-
-  /**
-   * 入口状态：
-   *   - darwin：package.json main 的补丁状态（原版 / NineBird / 自定义 /
-   *     缺失），外加 bundle shim 是否在位；
-   *   - linux：持久 stub（loadNineBird.js）是否就位（Linux 不动 package.json，
-   *     所以只有 已装/未装 两种）。
-   * 其它平台返回 null。
-   */
-  nineBirdInstallStatus: procedure.query(() => {
-    const platform = requirePlatform();
-    const exe = platform.qqExePath();
-    if (!exe) return { kind: 'missing', loaderOk: false } as const;
-    if (platform.kind === 'darwin') {
-      const paths = darwinPaths(exe);
-      return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
-    }
-    if (platform.kind === 'linux') {
-      const status = linuxStubStatus(linuxPaths(exe));
-      return {
-        kind: status.installed ? 'ninebird' : 'original',
-        loaderOk: status.installed,
-        fresh: status.fresh,
-      } as const;
-    }
-    return null;
-  }),
-
-  /**
-   * 安装 NineBird：darwin = 部署容器文件 + 提权切换 package.json 入口；
-   * linux = 提权写入持久 stub（loadNineBird.js）。密码由渲染层密码框输入，
-   * 经 `sudo -S` stdin 使用，不在 main 里落盘 / 记日志。
-   */
-  nineBirdInstall: procedure
-    .input(z.object({ password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      const exe = platform.qqExePath();
-      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      if (platform.kind === 'darwin') {
-        await installNineBird(exe, platform.native.resources, input.password);
-        return getPatchStatus(darwinPaths(exe));
-      }
-      if (platform.kind === 'linux') {
-        await installNineBirdLinux(exe, platform.native.resources.qrDbkeyJsPath, input.password);
-        return linuxStubStatus(linuxPaths(exe));
-      }
-      throw new Error('仅 macOS / Linux 支持 NineBird 安装');
-    }),
-
-  /** 还原：darwin = 恢复 package.json 入口（提权）+ 删容器部署目录；
-   *  linux = 删除 loadNineBird.js（提权）。 */
-  nineBirdUninstall: procedure
-    .input(z.object({ password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      const exe = platform.qqExePath();
-      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      if (platform.kind === 'darwin') {
-        await uninstallNineBird(exe, input.password);
-        return getPatchStatus(darwinPaths(exe));
-      }
-      if (platform.kind === 'linux') {
-        await uninstallNineBirdLinux(exe, input.password);
-        return linuxStubStatus(linuxPaths(exe));
-      }
-      throw new Error('仅 macOS / Linux 支持 NineBird 卸载');
-    }),
-
   // ---- detection (via global config cache) ----
 
   /** Enriched, cached install info (paths + version + user-data + health flags). */
@@ -343,8 +263,8 @@ export const bootstrapRouter = router({
    * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
    * `null` = not macOS / couldn't tell.
    *
-   * 渲染层先用它决定在线实例这条路要不要试：SIP 开着时 `task_for_pid` 连 root 都
-   * 拒（读不了 QQ 进程内存），问密码没有意义，直接改走 NineBird（扫码 / 快登）。
+   * 在线实例取密钥 / 读内存那条路要先问它：SIP 开着时 `task_for_pid` 连 root 都
+   * 拒（读不了 QQ 进程内存），问密码没有意义。
    */
   sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
 

@@ -1,8 +1,8 @@
 /**
  * Public type surface of the `@weq/native` package.
  *
- * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / send-recv)
- * and the `launchQQ` entry of `ninebird_addon.node` (login bootstrap).
+ * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / send-recv /
+ * wtlogin).
  *
  * The actual .node files live under `<repo>/native/<platform>/<arch>/` and
  * are loaded by `loader.ts`. Nothing in this file does I/O — it's purely
@@ -906,173 +906,100 @@ export interface NtHelperBinding {
   takeFrames(pid: number, options?: TakeOptions | null): Promise<FrameBatch>;
   /** 停止并释放抓包会话，返回统计。 */
   stopCapture(pid: number): Promise<CaptureStats>;
-}
 
-// ---------- ninebird_addon.node — launch bootstrap -----------------------
-
-/**
- * Arguments accepted by `ninebird_addon.launchQQ`. The addon launches QQ
- * with the hook pre-loaded and forwards NDJSON events back over the IPC
- * channel named by `pipeName`.
- *
- * The interface is shared across platforms; a few fields carry different
- * concrete values per OS:
- *   - `hookDllPath`  win32: `NineBirdHook.dll`  ·  linux: `ninebird_launcher.so`
- *   - `pipeName`     win32: `\\.\pipe\…`         ·  linux: a unix socket path
- *   - `qqntJsonPath` win32: real spoof json      ·  linux: any existing file (placeholder)
- *
- * Both login flows (QR scan / quick UIN) take the same shape — the
- * difference is which `loadJsPath` is passed (`qr-dbkey.js` vs
- * `quick-dbkey.js`) and whether `uin` is supplied.
- */
-export interface LaunchQqOptions {
-  qqExePath: string;
-  hookDllPath: string;
-  qqntJsonPath: string;
-  loadJsPath: string;
-  pipeName: string;
-  loaderDir?: string;
-  /** Required only for the quick-login flow. */
-  uin?: string;
-  timeoutMs?: number;
+  // --- 纯协议登录（wtlogin，不注入 QQ） ---
   /**
-   * appid / qua matched to the installed QQ build. Resolved by an upper layer
-   * from QQ's `major.node` (`resolveAppidFromMajor`) and passed through here;
-   * the loader falls back to a per-platform default when absent. A mismatched
-   * value gets the account kicked from QQ's login list (140022017) — never
-   * guess these.
+   * PC 端**快速登录**：用本地 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，
+   * 并在给了 keyMeta 时同连接发 `0xcde_2` 取数据库密钥。进度走 `onEvent`。
    */
-  appid?: string;
-  qua?: string;
-  /** Default true — QQ's stdio is silenced. false inherits the parent's stdio. */
-  headless?: boolean;
+  quickLogin(
+    options: QuickLoginOptions,
+    onEvent?: (err: Error | null, arg: QuickLoginEvent) => unknown,
+  ): Promise<QuickLoginResult>;
+  /**
+   * PC 端**二维码登录**：本地没有可用 a1 时用，展示二维码等待手机确认，
+   * 确认后换出 a2/d2/d2key（并可选取 dbkey）。
+   */
+  qrLogin(
+    options: QuickLoginOptions,
+    onEvent?: (err: Error | null, arg: QuickLoginEvent) => unknown,
+  ): Promise<QuickLoginResult>;
 }
 
-export interface LaunchQqResult {
-  success: boolean;
-  pid: number;
-  error?: string;
-}
-
-export interface NineBirdBootBinding {
-  launchQQ(opts: LaunchQqOptions): Promise<LaunchQqResult>;
-}
-
-// ---------- NDJSON events flowing back on the pipe -----------------------
-
-/** Quick-login: emitted once after QQ has read its local login.db. */
-export interface NineBirdLoginListEvent {
-  kind: 'login-list';
-  list: LoginAccount[];
-}
+// ---------- pure-protocol login (nt_helper wtlogin) ----------------------
 
 /**
- * One entry of the account-list flow. Shape comes straight from QQ's own
- * `getLoginList()` (via `account-list.js`), so it differs from
- * `LoginAccount` (decrypted login.db): there's no `a1Key`, but we DO get
- * the live `isQuickLogin` flag plus nickname/avatar QQ already resolved.
+ * 纯协议登录入参。与 nt_helper 的 `QuickLoginOptions` 一一对应：a1 / guid 由
+ * WeQ 从 login.db 解出后传入，`subAppId` 由 {@link resolveAppidFromMajor} 扫描
+ * `major.node` 得到。本模块不碰磁盘上的 login.db，也不注入 QQ。
  */
-export interface NineBirdAccountListItem {
-  /** QQ number. */
+export interface QuickLoginOptions {
+  /** 账号 UIN（十进制串）。 */
   uin: string;
-  /** Long uid. */
-  uid: string;
-  /** Display name QQ has cached. */
-  nickName: string;
-  /** CDN avatar URL (may 404 if stale). */
-  faceUrl: string;
-  /** Local on-disk avatar path. */
-  facePath: string;
-  /** QQ's internal login-type tag. */
-  loginType: number;
-  /** True when QQ can quick-login this account without a QR scan. */
-  isQuickLogin: boolean;
-  /** True when QQ is configured to auto-login this account. */
-  isAutoLogin: boolean;
+  /** a1（不透明凭据，176 字节）。 */
+  a1: Buffer;
+  /** 设备 guid（32 位小写 hex）。 */
+  guid: string;
+  /** EasyLogin `AppInfo.AppId`（按 OS 的常量；不是 SSO subAppId）。 */
+  appId: number;
+  /** SSO subAppId，必须等于当前 QQ 构建 `major.node/QQAppId/`。 */
+  subAppId: number;
+  /** 设备类型串：`Linux` / `Mac` / `Windows`。 */
+  os: string;
+  /** `NTLoginPlatform`：Linux=7 / Mac=5 / Windows=4。 */
+  platform: number;
+  /** 设备名（真机取系统 hostname）。 */
+  deviceName: string;
+  /** `AppInfo.Version`（真机取内核版本）。 */
+  kernelVersion: string;
+  /** `AppInfo.AppName`，缺省 `com.tencent.qq`。 */
+  appName?: string;
+  /** `wrapper.node` 路径（需要签名的命令靠它算 sec_info）。 */
+  wrapperPath?: string;
+  /** 账号 uid（`u_...`）。 */
+  uid?: string;
+  /** `nt_msg.db` 头 `0x2f..0xaf` 的 128 字节 key_meta（dbSalt）。 */
+  keyMeta?: string;
+}
+
+/** 登录成功后的会话物料。 */
+export interface QuickLoginResult {
+  a2: Buffer;
+  d2: Buffer;
+  d2Key: Buffer;
+  /** `0xcde_2` 返回的数据库密钥；未传 keyMeta 或该步失败时缺省。 */
+  dbKey?: string;
+  /** 登录账号 uin（二维码登录确认后才有）。 */
+  uin?: string;
 }
 
 /**
- * Account-list: emitted once after `account-list.js` reads QQ's login list.
- * Shares the `login-list` wire `kind` with quick-login, but carries the
- * richer `NineBirdAccountListItem` payload.
+ * 登录过程中的进度 / 交互事件。
+ *
+ * `kind`：`"state"`（阶段变化）/ `"qr-code"`（二维码）/ `"qr-state"`
+ * （扫码状态）/ `"unusual-device"`（异常设备确认）/ `"info"`。
  */
-export interface NineBirdAccountListEvent {
-  kind: 'login-list';
-  list: NineBirdAccountListItem[];
+export interface QuickLoginEvent {
+  kind: string;
+  state?: string;
+  message?: string;
+  unusualDeviceCheckSig?: Buffer;
+  unusualDeviceQrSig?: string;
+  uinToken?: string;
+  /** `kind == "qr-code"`：二维码内容（URL）与二维码图片（PNG 字节）。 */
+  qrUrl?: string;
+  qrImage?: Buffer;
+  /** `kind == "qr-state"`：48=待扫描 / 53=待确认 / 0=已确认 / 17=已过期…。 */
+  stateCode?: number;
+  /** 已确认时带回的账号 uin。 */
+  uin?: string;
 }
-
-/** QR-login: emitted with the URL to encode into a QR code. */
-export interface NineBirdQrcodeEvent {
-  kind: 'qrcode';
-  url: string;
-}
-
-/** QR-login: emitted as the QR state transitions (scanned / confirmed / …). */
-export interface NineBirdQrcodeStateEvent {
-  kind: 'qrcode-state';
-  state: string;
-}
-
-/**
- * Emitted by both login loaders just BEFORE `result`, carrying the `p_skey`
- * they collected on the way out (domain → key). Best-effort: the loaders never
- * fail a login over a missing pskey, so `success: false` is routine.
- */
-export interface NineBirdPskeyEvent {
-  kind: 'pskey';
-  success: boolean;
-  /** Domain → p_skey. Present when `success`. */
-  pskey?: Record<string, string>;
-  error?: string;
-}
-
-/** Terminal event for both flows. */
-export interface NineBirdResultEvent {
-  kind: 'result';
-  success: boolean;
-  dbkey?: string;
-  error?: string;
-}
-
-export type NineBirdEvent =
-  | NineBirdLoginListEvent
-  | NineBirdQrcodeEvent
-  | NineBirdQrcodeStateEvent
-  | NineBirdPskeyEvent
-  | NineBirdResultEvent;
 
 // ---------- Loaded bundle -----------------------------------------------
 
-/**
- * What `loadNative()` returns: both .node addons + every resource path the
- * caller needs to hand to `launchQQ`. Resource paths are absolute and
- * already verified to exist.
- */
+/** `loadNative()` 的返回值：目前只有 nt_helper 这一个 addon。 */
 export interface NativeBundle {
   ntHelper: NtHelperBinding;
-  nineBirdBoot: NineBirdBootBinding;
-  /** Paths to companion resource files NineBird needs at launch time. */
-  resources: NineBirdResources;
-}
-
-export interface NineBirdResources {
-  /** Native NineBird dir (contains NineBird.node + the addon; the loader scripts find `NineBird.node` here via NINEBIRD_LOADER_DIR). */
-  loaderDir: string;
-  /** Hook DLL injected into QQ on launch (win32 only for now). */
-  hookDllPath: string;
-  /** Spoofed `qqnt.json` placed alongside the hook. */
-  qqntJsonPath: string;
-  /** The auxiliary `NineBird.node` that quick-dbkey/qr-dbkey require inside QQ. */
-  nineBirdAddonPath: string;
-  /** Script loaded inside QQ for the QR-code login flow. Lives in resources/ninebird-runtime (platform-independent). */
-  qrDbkeyJsPath: string;
-  /** Script loaded inside QQ for the quick (UIN-cached) login flow. Lives in resources/ninebird-runtime. */
-  quickDbkeyJsPath: string;
-  /**
-   * Script loaded inside QQ to enumerate the local login list without
-   * decrypting login.db ourselves. Used as the `decryptLoginDb` fallback.
-   */
-  accountListJsPath: string;
 }
 
 // ---------- DB-subset alias used by @weq/db ------------------------------

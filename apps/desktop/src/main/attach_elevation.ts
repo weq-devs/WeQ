@@ -46,7 +46,7 @@
  * `task_for_pid` is refused while 系统完整性保护（SIP）is on, because QQ runs with
  * the hardened runtime. So on macOS, before any password prompt or sudo child,
  * `doAttach` asks {@link readSipEnabled} and refuses outright when SIP is on —
- * with a message pointing at the ninebird (扫码登录) path. With SIP off the only
+ * with a message pointing at the 扫码登录 path. With SIP off the only
  * remaining blocker is privilege, which is exactly the sudo prompt below; the
  * Linux-specific yama guidance dialog is skipped on macOS because it can't apply
  * (see `askHint`).
@@ -86,7 +86,7 @@ export const SIP_ENABLED_MESSAGE =
   'macOS 的系统完整性保护（SIP）处于开启状态，读取 QQ 进程内存会被系统直接拒绝' +
   '（QQ 带强化运行时，管理员权限也不够）。\n' +
   '两条出路：\n' +
-  '  · 继续用扫码登录 / 本地快速登录（不需要读内存）；\n' +
+  '  · 需要在线数据的功能可以改走扫码登录（登录本身不读内存）；\n' +
   '  · 关机后进恢复模式执行 `csrutil disable` 关闭 SIP，重启再回来启用「自动读取 QQ 内存」。';
 
 /**
@@ -430,8 +430,7 @@ export function createLinuxAttachHook(
       return existing;
     }
     // macOS 的硬门槛：SIP 开着时读内存不可能成功（QQ 带强化运行时，`task_for_pid`
-    // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程，让上层改道
-    // 扫码（ninebird）那条不需要读内存的路。
+    // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程。
     if (process.platform === 'darwin' && readSipEnabled() === true) {
       logger.warn('macOS SIP is on; skipping the memory scan', {
         event: 'attach-skip-sip-on',

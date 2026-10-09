@@ -21,13 +21,13 @@
 export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 
-export { Win32KeyService } from './bootstrap/win32_key';
+export { KeyService } from './bootstrap/key';
 export type {
   KeyResult,
   KeyEvent,
   QuickLoginStreamOptions,
   QrLoginStreamOptions,
-} from './bootstrap/win32_key';
+} from './bootstrap/key';
 
 export { createDirectAttachHook } from './bootstrap/attach';
 export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';

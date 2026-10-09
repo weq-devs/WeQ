@@ -43,7 +43,6 @@ beforeEach(() => {
     {
       ntDbDir: () => dir,
       loginDbPath: () => null,
-      native: { resources: { loaderDir: join(dir, 'ninebird') } },
     } as unknown as Platform,
   );
 });

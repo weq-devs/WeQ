@@ -33,8 +33,8 @@ export const PC_SUB_APP_ID = 537391664;
 /**
  * 解析当前 QQ 构建的 appid，用作 SSO 的 `subAppId`。
  *
- * 优先从 `major.node` 动态扫描（`resolveAppidFromMajor`，与 ninebird 登录
- * 流程同源）；读不到时回退到 {@link PC_SUB_APP_ID}。`major.node` 缺失 /
+ * 优先从 `major.node` 动态扫描（`resolveAppidFromMajor`，与纯协议登录流程
+ * 同源）；读不到时回退到 {@link PC_SUB_APP_ID}。`major.node` 缺失 /
  * 解析失败都只警告、不抛——发包本身仍会失败并给出 `-10003`，让调用方看到
  * 明确的服务端错误而不是本地崩溃。
  */
