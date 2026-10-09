@@ -78,6 +78,31 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 - `DbLockProbeResult = { success: boolean; msg: string; locked: boolean; holders: DbLockHolder[] }`
 - `DbLockHolder = { pid: number; name: string }`
 
+### 3.1 纯协议登录（装号 / 取密钥）
+
+登录已与 QQ 进程解耦：**不读内存、不注入、不提权**，直接把 `login.db` 里缓存的 a1（扫码路径不需要）
+和设备 guid 传给 native，由 native 直连登录服务器（`wtlogin`）换 a2/d2/d2key。有 a1 → 快登
+（服务端判异常设备时转手机点确认）；无 a1 → 扫码。快登失败由调用方回退到扫码。
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `quickLogin(options, onEvent?)` | `QuickLoginOptions` + 进度回调 | `Promise<QuickLoginResult>` | 用缓存 a1 换票据；`keyMeta` 给了就顺带发 `0xcde_2` 取 `dbKey`。 |
+| `qrLogin(options, onEvent?)` | 同上（`a1` 可留空） | `Promise<QuickLoginResult>` | 出二维码等扫码/确认，再走经典 `wtlogin.login` 换票据；同样顺带 dbkey / pskey。 |
+
+**`QuickLoginOptions`**：`uin` / `a1` / `guid` / `appId` / `subAppId` / `os` / `platform` /
+`deviceName` / `kernelVersion`（`appId` 是 EasyLogin 常量、`subAppId` 必须扫描 `major.node`），
+另可选 `appName` / `qua` / `clientVersion` / `wrapperPath`（签名用）/ `uid` /
+`keyMeta`（`nt_msg.db` 头 `0x2f..0xaf` 的 128 字节）/ `pskeyDomains`。
+
+**`QuickLoginResult`**：`a2` / `d2` / `d2Key` / `uin`，外加 `dbKey?`（`0xcde_2` 结果）与
+`pskey?: Record<string, string>`（`0x102a_0` 结果，域 → p_skey；未请求或没拿到时缺省）。
+`pskeyDomains` 走的是**同一条登录连接**、属尽力而为：取不到只记日志，不会让登录失败。
+WeQ 侧默认只要 `vip.qq.com`（首页装扮 `zb.vip.qq.com` 用）。
+
+`onEvent(err, event)` 推送进度：`state`（阶段文案）、`unusual-device`（异常设备需确认，
+带 `unusualDeviceCheckSig` / `unusualDeviceQrSig` / `uinToken`）、`qr-code`
+（`qrUrl` / `qrImage`）、`qr-state`（`state` / `stateCode` / `uin`）。
+
 ---
 
 ## 4. 数据库密钥获取与校验
@@ -224,12 +249,11 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ## 6. 内存取会话物料与原生 SSO 发包
 
-拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。NineBird 加载器仍在（`packages/ninebird`）—— 它负责拉起 QQ、做本地快速登录，不是发包通道；macOS 上 SIP 开着时读不了内存，就只走它。
+拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。
 
-> ⚠️ **登录取密钥也走这条链路**（三端一致）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
-> 早期版本在 macOS 上另走一条「提权扫内存、直接用 `scanKeyFromDatabase` 拿 dbKey」的路（`macScanKeyFromMemory` / `mac_scan_worker`），现已被统一路径取代并删除 —— macOS 与其他两端走同一套「读内存 → 登记 → 发包」，只有 attach 要不要提权（以及 macOS 的 SIP 门槛）不同。
+> ⚠️ **登录取密钥不再走这条链路**（NineBird 已删）：装号 / 取密钥走**纯协议** `quickLogin` / `qrLogin`（`wtlogin` 快登或扫码），从 `login.db` 取缓存的 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，再顺带发 OIDB `0xcde_2` 取 dbKey；不读内存、不注入、不提权。这条 attach 链路仍服务于**在线实例**功能（图片 rkey / 装扮 / 红包 / 抓包等）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
 
-读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。macOS 上 SIP 开着时读内存无解（`task_for_pid` 连 root 都拒），此时登录流程直接改走 NineBird（扫码 / 快登，不读内存）。
+读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。macOS 上 SIP 开着时读内存无解（`task_for_pid` 连 root 都拒），因此在线实例功能在此之前不可用 —— 但登录本身已与内存解耦，纯协议即可完成。
 
 > ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
 >
@@ -267,6 +291,11 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
 > 上面的两个通用接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，
 > **不要为此改 native 引入新接口**。
+>
+> ⚠️ 唯一的例外是**登录流程自己**：`quickLogin` / `qrLogin` 在换到 a2/d2/d2key 的那条连接上
+> 顺带发 `0xcde_2`（dbkey）与 `0x102a_0`（`pskeyDomains` → `p_skey`，默认只要 `vip.qq.com`）。
+> 这两步必须在登录连接里完成（会话物料刚拿到、连接还热），所以留在 native；除此之外的业务命令
+> 一律走上面的通用接口，不要在 login 里继续加。
 
 ---
 
@@ -393,6 +422,6 @@ Electron **不能以 root 运行**，而抓包要 root —— 所以桌面端把
 - 源码：`../nt_helper/src/`（Rust / napi-rs），入口 `lib.rs`
 - 使用示例：`apps/desktop/src/main/attach_worker.ts`（加载 + 初始化 + 调用）
 - 数据库层封装：`packages/db`（基于 `executeSqlWithKey` 等）
-- NineBird 加载器（拉起 QQ / 本地快速登录）：`packages/ninebird`
+- 纯协议登录（装号 / 取密钥）：`packages/service/src/bootstrap/key.ts` + `nt_helper` 的 `quickLogin` / `qrLogin`
 
 [← 返回开发者入口](./index.md)

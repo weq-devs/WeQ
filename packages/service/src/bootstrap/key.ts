@@ -42,11 +42,18 @@ export interface KeyResult {
   error?: string;
   /**
    * Web ticket the login flow harvested alongside the dbkey (domain → p_skey).
-   * The pure-protocol flow does not harvest one, so this stays absent; the
-   * field is kept so `openAccount`'s home-dress best-effort keeps its shape.
+   * Populated by the pure-protocol flow via OIDB `0x102a_0` (see
+   * `KeyService`'s `PSKEY_DOMAINS`); absent when nothing was harvested.
    */
   pskey?: Record<string, string>;
 }
+
+/**
+ * Domains the login flow harvests a `p_skey` for. `vip.qq.com` is what the
+ * home-dress fetch (`zb.vip.qq.com`) needs; it is the one the old ninebird
+ * `collectPskey` grabbed, so keep the default set to exactly that.
+ */
+const PSKEY_DOMAINS = ['vip.qq.com'];
 
 /** Events surfaced during a streaming flow. */
 export type KeyEvent =
@@ -209,7 +216,14 @@ export class KeyService {
             : await nt.qrLogin(options, onEvent);
 
         if (res.dbKey) {
-          emit({ kind: 'result', result: { success: true, dbkey: res.dbKey } });
+          emit({
+            kind: 'result',
+            result: {
+              success: true,
+              dbkey: res.dbKey,
+              ...(res.pskey && Object.keys(res.pskey).length > 0 ? { pskey: res.pskey } : {}),
+            },
+          });
         } else {
           emit({
             kind: 'result',
@@ -311,6 +325,8 @@ export class KeyService {
       ...(clientVersion ? { clientVersion } : {}),
       ...(account?.uid ? { uid: account.uid } : {}),
       ...(keyMeta ? { keyMeta } : {}),
+      // 顺路取 Web 凭据（首页装扮用）；拿不到不影响登录，native 侧静默忽略。
+      ...(PSKEY_DOMAINS.length > 0 ? { pskeyDomains: PSKEY_DOMAINS } : {}),
     };
   }
 

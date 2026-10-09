@@ -970,6 +970,11 @@ export interface QuickLoginOptions {
   uid?: string;
   /** `nt_msg.db` 头 `0x2f..0xaf` 的 128 字节 key_meta（dbSalt）。 */
   keyMeta?: string;
+  /**
+   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。空 / 缺省则
+   * 不发这一轮；取不到不是致命错误。WeQ 侧默认只要 `vip.qq.com`。
+   */
+  pskeyDomains?: string[];
 }
 
 /** 登录成功后的会话物料。 */
@@ -981,6 +986,8 @@ export interface QuickLoginResult {
   dbKey?: string;
   /** 登录账号 uin（二维码登录确认后才有）。 */
   uin?: string;
+  /** 顺路取到的 Web 凭据：域名 → `p_skey`；未请求或没拿到时缺省。 */
+  pskey?: Record<string, string>;
 }
 
 /**
