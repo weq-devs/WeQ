@@ -50,7 +50,7 @@ function createFixture(withLogTable: boolean): void {
 }
 
 function insertRow(
-  msgid: number,
+  msgid: number | bigint,
   kind: string,
   conv: string,
   recallTs: number,
@@ -58,13 +58,16 @@ function insertRow(
   revokeUid = 'u_revoker',
 ): void {
   const sql = fixtureDb(dbPath);
-  sql
-    .prepare(
-      `INSERT INTO weq_recall_log
-         (msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts, orig_body, graytip_done)
-       VALUES (?,?,?,?,?,?,?,?,0)`,
-    )
-    .run(msgid, conv, kind, senderUid, revokeUid, msgid + 1, recallTs, null);
+  const stmt = sql.prepare(
+    `INSERT INTO weq_recall_log
+       (msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts, orig_body, graytip_done)
+     VALUES (?,?,?,?,?,?,?,?,0)`,
+  );
+  // `msgid` can exceed 2^53 (real QQ 40001 is ~7.7e18). node:sqlite refuses to
+  // coerce a bigint insert's `lastInsertRowid` back to a JS number unless we opt
+  // into bigint reads, so enable it here for the large-id fixture rows.
+  stmt.setReadBigInts(true);
+  stmt.run(msgid, conv, kind, senderUid, revokeUid, BigInt(msgid) + 1n, recallTs, null);
 }
 
 describe('AntiRecallDb recall log (offline fixture)', () => {
@@ -73,8 +76,8 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
 
     expect(await db.listRecalls('group', '777')).toEqual([]);
     expect(await db.recallSummaries()).toEqual([]);
-    expect(await db.latestRecallCursor()).toBe(0);
-    expect(await db.listRecallsAfter(0)).toEqual([]);
+    expect(await db.latestRecallCursor()).toBe(0n);
+    expect(await db.listRecallsAfter(0n)).toEqual([]);
   });
 
   it('listRecalls 按会话 + 表过滤，最新撤回在前', async () => {
@@ -114,17 +117,38 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
     insertRow(10, 'group', '777', 1700000010);
     insertRow(20, 'c2c', 'u_peer', 1700000020);
 
-    expect(await db.latestRecallCursor()).toBe(20);
+    expect(await db.latestRecallCursor()).toBe(20n);
     // 基线之后的才是「本次运行新出现的撤回」—— 基线本身不该被重放。
-    expect(await db.listRecallsAfter(20)).toEqual([]);
+    expect(await db.listRecallsAfter(20n)).toEqual([]);
 
     insertRow(30, 'group', '777', 1700000030);
-    const fresh = await db.listRecallsAfter(20);
+    const fresh = await db.listRecallsAfter(20n);
     expect(fresh.map((r) => r.msgid)).toEqual(['30']);
 
     // 分页上限生效，且老的在前（游标只往后走）。
     insertRow(40, 'group', '777', 1700000040);
-    expect((await db.listRecallsAfter(20, 1)).map((r) => r.msgid)).toEqual(['30']);
-    expect((await db.listRecallsAfter(30)).map((r) => r.msgid)).toEqual(['40']);
+    expect((await db.listRecallsAfter(20n, 1)).map((r) => r.msgid)).toEqual(['30']);
+    expect((await db.listRecallsAfter(30n)).map((r) => r.msgid)).toEqual(['40']);
+  });
+
+  it('msgid 超过 2^53 时游标保持精确，同一行不会被反复命中（重复弹通知回归）', async () => {
+    createFixture(true);
+    // 真实 QQ 40001 就在 7.7e18 量级，远超 Number.MAX_SAFE_INTEGER（2^53）。
+    // Number(msgid) 会向下取整，导致候选游标永远小于真实 msgid，`msgid > cursor`
+    // 会把同一行反复读出来 → 同一条撤回过一会儿弹一次。这里锁死 bigint 精度。
+    const big = 7695126900078041334n;
+    expect(big > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
+    insertRow(big, 'c2c', 'u_LKt3AdAIMP-CUfn6ydzDzw', 1700000500);
+
+    expect(await db.latestRecallCursor()).toBe(big);
+    // 基线（= 该行本身）之后没有新记录：绝不能把这一行当成「新撤回」重放。
+    expect(await db.listRecallsAfter(big)).toEqual([]);
+    expect(await db.listRecallsAfter(await db.latestRecallCursor())).toEqual([]);
+
+    // 再插一条更大的，游标推进到它之后，老的仍不会重放。
+    const bigger = big + 1000n;
+    insertRow(bigger, 'c2c', 'u_LKt3AdAIMP-CUfn6ydzDzw', 1700000600);
+    expect((await db.listRecallsAfter(big)).map((r) => r.msgid)).toEqual([bigger.toString()]);
+    expect(await db.listRecallsAfter(bigger)).toEqual([]);
   });
 });

@@ -237,6 +237,25 @@ function mapRecallRow(r: unknown[]): RecallLogRow {
 }
 
 /**
+ * Coerce one `weq_recall_log.msgid` cell to a `bigint`, WITHOUT going through
+ * `Number`. `msgid` is QQ's 40001 — a full 64-bit integer around 7.7e18, far
+ * past `2^53`. `Number(…)` silently rounds such values down, which used to make
+ * the notification cursor in the service layer get stuck *below* the newest
+ * row: `WHERE msgid > cursor` then kept re-matching it, so the same recall
+ * re-notified on every db change. Keep every step of the cursor bigint.
+ *
+ * The native binding already returns SQL INTEGER as `bigint` (i64) — that
+ * branch is the production path; the number/string branches just keep this
+ * tolerant of the offline sqlite stub or any driver handing back a JS number.
+ */
+function toBigIntMsgId(v: unknown): bigint {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(Math.trunc(v));
+  if (typeof v === 'string' && /^-?\d+$/.test(v)) return BigInt(v);
+  return 0n;
+}
+
+/**
  * Render one conversation id as a SQL literal for the IN-list, matching the
  * filter column's storage class (see {@link TableSpec.filterNumeric}).
  *
@@ -471,11 +490,15 @@ export class AntiRecallDb {
    * the monitor's baseline cursor: records at or below it pre-date this run and
    * must never raise a notification (启动时老记录不通知). `msgid` is the table's
    * `INTEGER PRIMARY KEY`, i.e. the rowid alias, so it is insert-ordered.
+   *
+   * Returned as a `bigint` on purpose — `msgid` is a 64-bit value past `2^53`
+   * (see {@link toBigIntMsgId}); going through `Number` here is exactly what
+   * used to strand the cursor below the newest row and cause repeat popups.
    */
-  async latestRecallCursor(): Promise<number> {
-    if (!(await this.recallLogExists())) return 0;
+  async latestRecallCursor(): Promise<bigint> {
+    if (!(await this.recallLogExists())) return 0n;
     const rows = await this.qq.query(`SELECT IFNULL(MAX(msgid), 0) FROM ${RECALL_LOG_TABLE}`);
-    return Number(rows[0]?.[0] ?? 0);
+    return toBigIntMsgId(rows[0]?.[0]);
   }
 
   /**
@@ -483,8 +506,12 @@ export class AntiRecallDb {
    * the incremental read the recall-notification monitor drains. Callers feed
    * back the largest returned `msgid` as the next cursor; an empty array (or a
    * short page) means fully drained.
+   *
+   * `cursor` is a `bigint` (see {@link latestRecallCursor}) so the comparison
+   * stays exact at 64-bit precision; the native binding takes `bigint` params
+   * directly, so there is no lossy round-trip.
    */
-  async listRecallsAfter(cursor: number, limit = 200): Promise<RecallLogRow[]> {
+  async listRecallsAfter(cursor: bigint, limit = 200): Promise<RecallLogRow[]> {
     if (!(await this.recallLogExists())) return [];
     const rows = await this.qq.query(
       `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
@@ -492,7 +519,7 @@ export class AntiRecallDb {
         WHERE msgid > ?
         ORDER BY msgid ASC
         LIMIT ?`,
-      [cursor, limit],
+      [cursor, BigInt(limit)],
     );
     return rows.map(mapRecallRow);
   }

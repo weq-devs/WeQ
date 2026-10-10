@@ -143,8 +143,13 @@ export class AntiRecallService {
    * 撤回记录的读取游标（`weq_recall_log` 的最大 msgid）。null = 尚未建立基线，
    * 下次 drain 只记录当前最大值、不通知 —— 保证启动 / 刚开启保护时不会把历史记录
    * 当新撤回弹出来。
+   *
+   * 必须是 `bigint`：msgid（QQ 40001）是 7.7e18 量级的 64 位整数，超过
+   * `Number.MAX_SAFE_INTEGER`（2^53）。之前用 `number` 存游标时 `Number(msgid)`
+   * 会向下取整，游标永远停在新记录**下面**，`msgid > cursor` 反复命中同一行 ——
+   * 这就是「同一条撤回过一会儿弹一次」的根因。整条链路（含 db 层比较）都不许碰 Number。
    */
-  private recallCursor: number | null = null;
+  private recallCursor: bigint | null = null;
 
   constructor(
     private readonly session: AccountSession,
@@ -432,7 +437,10 @@ export class AntiRecallService {
         const rows = await db.listRecallsAfter(cursor, 200);
         if (rows.length === 0) break;
         for (const row of rows) {
-          cursor = Math.max(cursor, Number(row.msgid) || 0);
+          // msgid 是 64 位整数，必须用 BigInt 比较：Number() 会向下取整，
+          // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
+          const rowMsgId = BigInt(row.msgid);
+          if (rowMsgId > cursor) cursor = rowMsgId;
           if (!this.shouldNotify(row)) continue;
           try {
             this.opts.onRecall?.({
