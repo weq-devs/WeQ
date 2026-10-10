@@ -28,6 +28,7 @@ import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+import { detectThumbType } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
@@ -3424,8 +3425,10 @@ export const accountRouter = router({
    * 否则对端卡片只会显示默认封面（实机抓包见 FlashTransferService）。
    * 返回 `{ filesetUuid, shareUrl }`，前端拿 uuid 做乐观条目的对账签名。
    *
-   * `coverBase64` 是渲染层用 canvas 拼出来的 **PNG**（封面图要从 `resources/fileicon`
-   * 拼，所以合成放在渲染层——主进程没有 canvas）。这里只做大小与落盘。
+   * `coverBase64` 有两种来源：默认封面是渲染层用 canvas 拼的 **PNG**（封面图要从
+   * `resources/fileicon` 拼，合成放在渲染层——主进程没有 canvas）；用户自定义封面是
+   * **原图直通**（渲染层只校验大小与格式，不重绘不压缩），可能是 PNG 或 JPEG。
+   * 这里只做大小与落盘，格式由协议层按 magic 探测。
    */
   sendFlashTransfer: procedure
     .input(
@@ -3454,7 +3457,11 @@ export const accountRouter = router({
         if (bytes.byteLength > FLASH_COVER_MAX_BYTES) {
           throw new Error(`封面图不能超过 ${FLASH_COVER_MAX_BYTES / 1024 / 1024} MB。`);
         }
-        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.png`);
+        // 用户封面直通后可能是 PNG 也可能是 JPEG：按 magic 探测，落盘用对应扩展名
+        // （协议层的 prepareThumbnail 也只认这两种，扩展名不影响上传，但可读性好些）。
+        const type = detectThumbType(new Uint8Array(bytes));
+        if (type === null) throw new Error('封面只支持 PNG / JPEG 图片。');
+        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.${type}`);
         await writeFile(coverPath, bytes);
       }
 

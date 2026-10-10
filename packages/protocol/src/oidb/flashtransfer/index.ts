@@ -36,7 +36,8 @@ export type {
   FlashStagedItem,
 } from './upload';
 export { applyThumbnail, prepareThumbnail, sliceuploadThumbnail } from './thumbnail';
-export type { PreparedThumbnail } from './thumbnail';
+export { detectThumbType } from './thumbnail';
+export type { FlashThumbType, PreparedThumbnail } from './thumbnail';
 export {
   buildFileId,
   FLASH_APPID_MAIN,

@@ -9,7 +9,8 @@
  * 交互：
  *   1. 点工具栏那枚「闪传」→ 整块输入框变成落点：点一下开系统文件管理器，
  *      文件 / 文件夹也可以直接拖进来（文件夹递归展开），可多选；
- *   2. 选好点「确认」→ 弹一张灯箱卡片：封面预览 + 文件清单，封面可以自己换（≤ 1MB）；
+ *   2. 选好点「确认」→ 弹一张灯箱卡片：封面预览 + 文件清单，封面可以自己换（≤ 1MB，
+ *      PNG / JPEG 原图直通，不重绘不压缩）；
  *   3. 点「发送」→ 应用层走 fileset 协议（封面先就绪、主文件后台传）。
  *
  * 面板本身像语音条一样**内联进输入框**（占掉正文编辑区那一行，见
@@ -18,9 +19,11 @@
  * `.composer` 上有 `backdrop-filter`，会把 `position: fixed` 的包含块拽成输入框那一格，
  * 挂在里面的话灯箱就永远贴在底部。
  *
- * 封面是**渲染层用 canvas 拼的 PNG**（主进程没有 canvas）：默认拿 `resources/fileicon`
- * 里的类型图标拼一张 480×270 的封面；`weq-asset://` 的图标先 fetch 成 blob 再画
- * （blob 是同源，canvas 不会被污染），拿不到就退回「色块 + 扩展名」的画法。
+ * 封面有两种来源：**默认封面**由渲染层用 canvas 拼（主进程没有 canvas）—— 拿
+ * `resources/fileicon` 里的类型图标拼一张 480×270 的 PNG，`weq-asset://` 的图标先
+ * fetch 成 blob 再画（blob 是同源，canvas 不会被污染），拿不到就退回「色块 + 扩展名」；
+ * **用户自定义封面**原样直通 —— 只校验大小（≤ 1MB）与格式（PNG / JPEG），不做任何
+ * 绘制 / 压缩 / 转码，字节原封不动交给主进程落盘上传。
  *
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
@@ -48,7 +51,10 @@ export interface FlashSendPayload {
   files: FlashDraftFile[];
   /** fileset 标题（卡片名）；空串 = 让服务层按文件名 / 数量拼。 */
   name: string;
-  /** 封面 PNG（`data:image/png;base64,…`）；空串 = 不带封面。 */
+  /**
+   * 封面（`data:image/png;base64,…` 或 `data:image/jpeg;base64,…`）；空串 = 不带封面。
+   * 默认封面是渲染层 canvas 拼的 PNG；用户自定义封面是原图**直通**（不重绘 / 不压缩）。
+   */
   coverDataUrl: string;
 }
 
@@ -185,6 +191,32 @@ async function loadIconImage(fileName: string): Promise<HTMLImageElement | null>
   }
 }
 
+/**
+ * 用户自定义封面的「直通」格式闸：只认 PNG / JPEG（按字节 magic 探测，不看扩展名 /
+ * MIME —— 有些相机导出的图后缀或 MIME 都不准）。这两个格式对应缩略图的两种 appid，
+ * 其它格式（WebP / GIF / BMP…）没有对应槽位，直通不了，只能拒绝。
+ */
+async function sniffCoverType(file: File): Promise<'png' | 'jpeg' | null> {
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (
+    head.length >= 8 &&
+    head[0] === 0x89 &&
+    head[1] === 0x50 &&
+    head[2] === 0x4e &&
+    head[3] === 0x47 &&
+    head[4] === 0x0d &&
+    head[5] === 0x0a &&
+    head[6] === 0x1a &&
+    head[7] === 0x0a
+  ) {
+    return 'png';
+  }
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) {
+    return 'jpeg';
+  }
+  return null;
+}
+
 /** 扩展名（大写，最多 4 个字符）；没有扩展名给 `FILE`。 */
 function extLabel(fileName: string): string {
   const dot = fileName.lastIndexOf('.');
@@ -232,34 +264,14 @@ function drawExtTile(
   ctx.fillText(extLabel(file.name), x + size / 2, y + size / 2);
 }
 
-/** 把一张图片按 cover 方式铺满画布。 */
-function drawCoverFit(
-  ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement | HTMLCanvasElement,
-  width: number,
-  height: number,
-): void {
-  const sw = image.width;
-  const sh = image.height;
-  if (!sw || !sh) return;
-  const scale = Math.max(width / sw, height / sh);
-  const dw = sw * scale;
-  const dh = sh * scale;
-  ctx.drawImage(image, (width - dw) / 2, (height - dh) / 2, dw, dh);
-}
-
 /**
- * 拼一张闪传封面。
+ * 拼一张**默认**闪传封面（用户自定义封面走直通，不经过这里）。
  *
- * 优先：用户自己选的图（`override`）→ 直接铺满。
- * 其次：最多 4 枚文件类型图标（`resources/fileicon`）2×2 摆开。
- * 最后：色块 + 扩展名（fetch 图标失败 / canvas 被污染时的兜底）。
+ * 最多 4 枚文件类型图标（`resources/fileicon`）2×2 摆开；fetch 图标失败 / canvas 被
+ * 污染时退回「色块 + 扩展名」。
  * 返回 `data:image/png;base64,…`；连兜底都失败就给 null（调用方不带封面）。
  */
-export async function composeFlashCover(
-  files: FlashDraftFile[],
-  override?: string | null,
-): Promise<string | null> {
+export async function composeFlashCover(files: FlashDraftFile[]): Promise<string | null> {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
   canvas.width = COVER_W;
@@ -283,19 +295,6 @@ export async function composeFlashCover(
   glow.addColorStop(1, `${colors.accent}00`);
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, COVER_W, COVER_H);
-
-  // 用户自己换的封面：铺满、不加装饰。
-  if (override) {
-    const image = await loadImage(override);
-    if (image) {
-      drawCoverFit(ctx, image, COVER_W, COVER_H);
-      try {
-        return canvas.toDataURL('image/png');
-      } catch {
-        return null;
-      }
-    }
-  }
 
   const shown = files.slice(0, 4);
   const icons = await Promise.all(shown.map((file) => loadIconImage(file.name)));
@@ -529,10 +528,20 @@ export function FlashComposer({
     [addFiles],
   );
 
-  /** 换封面：用户的图也走 canvas 重绘成 PNG（顺带把大小压下来）。 */
+  /**
+   * 换封面：用户选的图**直通** —— 只校验大小（≤ 1MB）与格式（PNG / JPEG），字节原样
+   * 交给主进程落盘上传，不做任何 canvas 重绘 / 压缩 / 转码。封面必须在 0x93d7 发消息
+   * 之前就绪，重绘既费时又改变画质，直通才是用户贴什么就发什么。
+   */
   async function handlePickCover(file: File): Promise<void> {
     if (file.size > 1024 * 1024) {
       setError('封面图不能超过 1 MB。');
+      return;
+    }
+    // 直通只收 PNG / JPEG：主进程按 magic 探测格式（其余格式没有对应缩略图 appid）。
+    const type = await sniffCoverType(file);
+    if (type === null) {
+      setError('封面只支持 PNG / JPEG 图片。');
       return;
     }
     const dataUrl = await new Promise<string | null>((resolve) => {
@@ -545,14 +554,7 @@ export function FlashComposer({
       setError('读不出这张图片。');
       return;
     }
-    setCoverBusy(true);
-    const composed = await composeFlashCover(files, dataUrl);
-    setCoverBusy(false);
-    if (!composed) {
-      setError('这张图片没法当封面（格式不支持或画布被限制）。');
-      return;
-    }
-    setCover(composed);
+    setCover(dataUrl);
     setCoverTouched(true);
     setError(null);
   }
@@ -731,7 +733,7 @@ export function FlashComposer({
       <input
         ref={coverInputRef}
         type="file"
-        accept="image/*"
+        accept="image/png,image/jpeg,.png,.jpg,.jpeg"
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -816,7 +818,7 @@ export function FlashComposer({
                   <button
                     type="button"
                     className={cn('flash-btn ghost')}
-                    title="上传一张自己的封面（≤ 1 MB）"
+                    title="上传一张自己的封面（PNG / JPEG，≤ 1 MB，原图直通）"
                     onClick={() => coverInputRef.current?.click()}
                   >
                     <ImagePlus size={14} /> 换封面
