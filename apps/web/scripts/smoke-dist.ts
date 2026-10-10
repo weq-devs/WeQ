@@ -33,7 +33,7 @@ function check(ok: boolean, label: string): void {
 
 for (const entry of [
   'server.mjs',
-  'injectWorker.mjs',
+  'attachWorker.mjs',
   'transcribeWorker.mjs',
   'start.sh',
   'start.bat',
@@ -51,15 +51,6 @@ for (const entry of [
 const target = currentTarget();
 const [platform, arch] = target.split('-');
 check(existsSync(join(dist, 'native', platform!, arch!)), `native/${platform}/${arch} shipped`);
-
-// NineBird's loader scripts are platform-independent and ship once (built by
-// pnpm build:ninebird), not per platform/arch.
-for (const js of ['qr-dbkey.js', 'quick-dbkey.js', 'account-list.js']) {
-  check(
-    existsSync(join(dist, 'resources', 'ninebird-runtime', js)),
-    `resources/ninebird-runtime/${js} shipped`,
-  );
-}
 
 // The Rust daemon binary ships alongside (built by pnpm build:daemon before
 // packaging). Win32 needs the .exe suffix.

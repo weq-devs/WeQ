@@ -27,7 +27,6 @@ import {
   Plug,
   Radio,
   Settings2,
-  ShieldCheck,
   Sun,
   User,
   X,
@@ -41,7 +40,6 @@ import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
-import { AntiRecallSection } from './settings/AntiRecallSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
@@ -58,7 +56,6 @@ export type SectionId =
   | 'appearance'
   | 'applock'
   | 'account'
-  | 'antirecall'
   | 'database'
   | 'voice'
   | 'agentlab'
@@ -98,12 +95,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
-  },
-  {
-    id: 'antirecall',
-    label: '防撤回',
-    icon: <ShieldCheck size={16} strokeWidth={1.8} />,
-    render: () => <AntiRecallSection />,
   },
   {
     id: 'database',

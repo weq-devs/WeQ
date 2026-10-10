@@ -147,7 +147,8 @@ export async function fetchForwardRaw(
   if (!params.resId.trim()) throw new Error('resId 不能为空');
 
   const reqBytes = encode(RECV_LONG_MSG_REQ, RecvLongMsg.serialize(params));
-  const rawResponse = await sendPacket(nt, pid, SSO_RECV_LONG_MSG_CMD, reqBytes);
+  // `SsoRecvLongMsg` 在签名清单里。
+  const rawResponse = await sendPacket(nt, pid, SSO_RECV_LONG_MSG_CMD, reqBytes, true);
   const decodedResponse = decode(RECV_LONG_MSG_RESP, rawResponse) as Record<string, unknown>;
 
   const result = decodedResponse.result as { resId?: string; payload?: Uint8Array } | undefined;

@@ -1,11 +1,10 @@
 /**
  * Electron-free seam for the sudo password dialog (Linux 自绘提权框).
  *
- * Linux 提权统一走 `sudo -S`，密码必须由渲染层自绘密码框输入。用户主动发起
- * 的提权（设置页安装/还原 NineBird、登录页自动安装）沿用 macOS 姿势：渲染层
- * 先 `promptPassword` 再带密码调 tRPC mutation，不经过本 seam。但有些提权是
- * 主进程内部发起的（后台 monitor 注入被 yama 拒绝后提权、登录拉起 QQ 前发现
- * 旧版自删 stub 需要迁移），这类场景走本 seam：桌面端由 `elevation_ipc.ts`
+ * Linux 提权统一走 `sudo -S`，密码必须由渲染层自绘密码框输入。用户在渲染层
+ * 主动发起的提权先 `promptPassword` 再带密码调 tRPC mutation，不经过本 seam。
+ * 但有些提权是主进程内部发起的（后台 monitor 注入被 yama 拒绝后提权），
+ * 这类场景走本 seam：桌面端由 `elevation_ipc.ts`
  * 在启动时注入真实实现（渲染层弹密码框）；headless web server 不注入任何
  * 实现，`requestSudoPassword` 退化为 null（取消）——web 预期以 root 运行，
  * root 根本不需要提权。

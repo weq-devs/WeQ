@@ -43,7 +43,7 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
-/** QQ 在线（有已登录进程 + 已注入 hook 前置）检查，返回发包所需句柄。 */
+/** QQ 在线（有已登录进程 + 已完成 attach 前置）检查，返回发包所需句柄。 */
 function requireOnlineQq(): {
   nt: Pick<NtHelperBinding, 'sendOidbPacket'>;
   pid: number;
@@ -57,8 +57,8 @@ function requireOnlineQq(): {
   if (!nt || !uin || !record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），反馈发送需要在线 QQ。');
+  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），反馈发送需要在线 QQ。');
   }
   return { nt, pid: record.qqPid, uin };
 }
@@ -149,7 +149,7 @@ export const groupFeedbackRouter = router({
           online = requireOnlineQq();
         } catch (e) {
           const offlineMode =
-            getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
+            getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
           return {
             ok: false,
             reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),
@@ -158,12 +158,12 @@ export const groupFeedbackRouter = router({
         }
         const services = requireServices();
         try {
-          await getAppContext().bootstrap?.injectHook.ensure(online.pid, online.uin);
+          await getAppContext().bootstrap?.attachHook.ensure(online.pid, online.uin);
         } catch (e) {
           return {
             ok: false,
             reason: 'offline',
-            message: `注入 QQ hook 失败：${e instanceof Error ? e.message : String(e)}`,
+            message: `读取 QQ 内存 hook 失败：${e instanceof Error ? e.message : String(e)}`,
           };
         }
 
@@ -242,7 +242,7 @@ export const groupFeedbackRouter = router({
           online = requireOnlineQq();
         } catch (e) {
           const offlineMode =
-            getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
+            getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
           return {
             ok: false,
             reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),
@@ -250,12 +250,12 @@ export const groupFeedbackRouter = router({
           };
         }
         try {
-          await getAppContext().bootstrap?.injectHook.ensure(online.pid, online.uin);
+          await getAppContext().bootstrap?.attachHook.ensure(online.pid, online.uin);
         } catch (e) {
           return {
             ok: false,
             reason: 'offline',
-            message: `注入 QQ hook 失败：${e instanceof Error ? e.message : String(e)}`,
+            message: `读取 QQ 内存 hook 失败：${e instanceof Error ? e.message : String(e)}`,
           };
         }
         try {

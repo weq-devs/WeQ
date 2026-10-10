@@ -2,16 +2,21 @@
  * `account.antiRecall.*` — the anti-recall settings surface.
  *
  * Thin tRPC skin over {@link AntiRecallService} (see `@weq/service`): the config
- * persistence + SQL-trigger install/drop all live there. The renderer's 设置 →
- * 防撤回 panel drives it:
- *   getStatus    → { enabled, targets, installed, qqRunning }
+ * persistence + SQL-trigger install/drop all live there. The renderer's
+ * 「更多 → 防撤回」面板与「会话设置」弹窗驱动它：
+ *   getStatus    → { enabled, mode, targets, notifyEnabled, notifyTargets, installed, qqRunning }
  *   setEnabled   → flip master switch, (re)install or drop triggers
+ *   setMode      → 'selected' | 'all'，重建触发器
  *   setTargets   → replace the protected-conversation set, reconcile triggers
+ *   setNotify    → 通知总开关 + 按会话通知集
+ *   listRecalls  → 某个会话已记录的撤回（撤回记录面板）
+ *   listRecallConversations → 有撤回记录的会话目录（撤回记录集成页）
  *
- * `setEnabled` / `setTargets` install or drop the triggers right away, whether
- * or not QQ is running. If QQ is open it may keep serving from its cached schema
- * until the next restart, so `getStatus().qqRunning` lets the UI warn that the
- * change may not take effect until QQ is restarted.
+ * Settings writes are optimistic: they persist + return immediately and the
+ * (SQLCipher) trigger reconcile runs in the background, so the UI never blocks.
+ * `setEnabled` / `setTargets` install or drop the triggers whether or not QQ is
+ * running; if QQ is open it may keep serving from its cached schema until the
+ * next restart, so `getStatus().qqRunning` lets the UI warn about that.
  */
 
 import { z } from 'zod';
@@ -74,5 +79,36 @@ export const antiRecallRouter = router({
   setTargets: procedure.input(z.object({ targets: z.array(target) })).mutation(({ input }) => {
     refuseWhenStatic();
     return requireServices().antiRecall.setTargets(input.targets);
+  }),
+
+  /**
+   * 撤回通知：总开关 + 按会话通知集（key `${kind}:${id}`）。不改触发器，纯配置。
+   */
+  setNotify: procedure
+    .input(
+      z.object({
+        enabled: z.boolean().optional(),
+        targets: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireServices().antiRecall.setNotify(input);
+    }),
+
+  /**
+   * 某个会话已记录的撤回（最新在前）—— 撤回记录面板用。只读，不依赖 QQ 在线。
+   */
+  listRecalls: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().antiRecall.listRecalls(input.kind, input.conv);
+    }),
+
+  /**
+   * 有撤回记录的会话目录（计数 + 最近一次撤回时间，最新活动在前）——「更多 →
+   * 防撤回」里那一页按会话浏览撤回记录的入口。只读本地记录表，不依赖 QQ 在线。
+   */
+  listRecallConversations: procedure.query(() => {
+    return requireServices().antiRecall.listRecallConversations();
   }),
 });

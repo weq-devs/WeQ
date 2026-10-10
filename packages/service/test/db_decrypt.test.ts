@@ -8,6 +8,20 @@ import { MAX_FAST_DECRYPT_BYTES, selectDatabaseDecryptMethod } from '@weq/native
 import type { Platform } from '@weq/platform';
 import { DbDecryptService } from '../src/account/db_decrypt';
 
+// `decryptDatabases` resolves the real `nt_helper.node` path up front, and
+// `resolveNtHelperPath()` throws when the addon isn't installed — which is the
+// normal state of a fresh clone, since the binary is fetched, never committed.
+// Pin that one export to the offline fixture so the suite stays hermetic; the
+// Worker mock below still substitutes the binding the worker actually loads.
+vi.mock('@weq/native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weq/native')>();
+  return {
+    ...actual,
+    resolveNtHelperPath: () =>
+      fileURLToPath(new URL('./fixtures/decrypt_binding.cjs', import.meta.url)),
+  };
+});
+
 // Exercise the production worker code, substituting only the native addon.
 vi.mock('node:worker_threads', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:worker_threads')>();
@@ -43,7 +57,6 @@ beforeEach(() => {
     {
       ntDbDir: () => dir,
       loginDbPath: () => null,
-      native: { resources: { loaderDir: join(dir, 'ninebird') } },
     } as unknown as Platform,
   );
 });

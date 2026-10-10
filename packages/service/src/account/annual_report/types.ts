@@ -107,7 +107,7 @@ export type ReportQzonePost = {
 export type ReportQzoneCapability = {
   /**
    * 当前账号能否走 qzone web cgi：有在线 QQ 实例即可（ptlogin2 本地快速登录
-   * 兜底换 p_skey，不需要「自动注入 QQ」已开启）。
+   * 兜底换 p_skey，不需要「自动读取 QQ 内存」已开启）。
    */
   canQuery(): Promise<boolean> | boolean;
   /**

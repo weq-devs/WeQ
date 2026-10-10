@@ -41,16 +41,16 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
-import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
-import { createLinuxInjectHook } from '../inject_elevation';
+import { onlineTranscriber } from '../online_transcribe';
+import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
   AnnualReportService,
   UserConfigService,
   Win32DetectService,
-  Win32KeyService,
+  KeyService,
   GlobalConfigService,
   MediaCacheService,
   LinkPreviewService,
@@ -117,6 +117,7 @@ import {
   FlashTransferFilesService,
   PeerStatsService,
   InteractionService,
+  GroupModerationService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -140,9 +141,10 @@ import {
   GroupKeywordService,
   type GroupKeywordRules,
   type GroupKeywordHit,
+  type RecallNotifyEvent,
   DbToleranceService,
-  createDirectInjectHook,
-  type InjectHook,
+  createDirectAttachHook,
+  type AttachHook,
   type MsgSalvageSource,
 } from '@weq/service';
 import { resolveResource } from '../resource';
@@ -242,11 +244,30 @@ let groupKeyword: GroupKeywordService | null = null;
  */
 let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null = null;
 
+/**
+ * 拦住一次撤回时的「通知」实现（Electron 系统通知 + 点击跳转）。与群关键词一样
+ * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
+ */
+let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+/** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
+let activeAntiRecall: AntiRecallService | null = null;
+
 /** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
 export function setGroupKeywordNotifier(
   notifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null,
 ): void {
   groupKeywordNotifier = notifier;
+}
+
+/** app 层注入撤回通知的处理（弹系统通知 + 点击跳转）。 */
+export function setRecallNotifier(notifier: ((event: RecallNotifyEvent) => void) | null): void {
+  recallNotifier = notifier;
+}
+
+/** Stop the active account's recall monitor (account switch / close). */
+function unmountAntiRecallMonitor(): void {
+  activeAntiRecall?.stopMonitor();
+  activeAntiRecall = null;
 }
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
@@ -536,7 +557,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
 
 export interface BootstrapServices {
   detect: Win32DetectService;
-  keys: Win32KeyService;
+  keys: KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
   avatarCache: MediaCacheService;
@@ -553,7 +574,7 @@ export interface BootstrapServices {
    * in-process direct inject. Shared (single instance) so its per-pid
    * idempotency spans the router and every account monitor.
    */
-  injectHook: InjectHook;
+  attachHook: AttachHook;
   /**
    * 外部 rkey 服务器（NapCat）。全局配置 + 全局 rkey 缓存，不依赖任何账号；
    * 媒体下载在本地 rkey 不可用时回退到这里（见 media_download.ts）。
@@ -632,7 +653,7 @@ export interface AccountServices {
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
   groupAlbumMedia: GroupAlbumMediaService;
-  /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已注入 QQ 进程。 */
+  /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已读取 QQ 内存 进程。 */
   groupFile: GroupFileService;
   /** 拉取聊天时间线缺失的远端消息（需在线 QQ 发包）。 */
   gapHistory: GapHistoryService;
@@ -644,6 +665,8 @@ export interface AccountServices {
   messageSend: MessageSendService;
   /** 轻互动：戳一戳（0xED3_1）+ 群消息贴表情（0x9082，需在线 QQ 发包）。 */
   interaction: InteractionService;
+  /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
+  groupModeration: GroupModerationService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
@@ -917,26 +940,23 @@ export function initAppContext(): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
-  // it needs an elevated writer unless the host is already root. Windows uses
-  // the fs default (undefined).
-  const stubHooks = process.platform === 'linux' ? linuxStubHooks : undefined;
-
-  // Injecting the hook into a running QQ needs root (ptrace) on linux, and the
-  // hook must then observe a real post-login packet before it can send; both
-  // halves live in the linux hook. Other platforms inject in-process with no
-  // wait. One shared instance so its per-pid idempotency spans the bootstrap
-  // router and every account monitor.
-  const injectHook: InjectHook =
-    process.platform === 'linux'
-      ? createLinuxInjectHook(platform.native.ntHelper, userConfig)
-      : createDirectInjectHook(platform.native.ntHelper);
+  // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
+  // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
+  // SIP off, since QQ runs hardened), so both go through the elevated hook
+  // (`createLinuxAttachHook` — despite the name it is the unix ptrace hook: try
+  // in-process first, escalate with sudo when the kernel refuses). Windows can
+  // read in-process with no elevation. One shared instance so its per-pid
+  // idempotency spans the bootstrap router and every account monitor.
+  const attachHook: AttachHook =
+    process.platform === 'linux' || process.platform === 'darwin'
+      ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
+      : createDirectAttachHook(platform.native.ntHelper);
 
   const linkPreview = new LinkPreviewService(userConfig);
 
   const bootstrap: BootstrapServices = {
-    detect: new Win32DetectService(platform, stubHooks),
-    keys: new Win32KeyService(platform, stubHooks),
+    detect: new Win32DetectService(platform),
+    keys: new KeyService(platform),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new MediaCacheService(userConfig),
@@ -944,7 +964,7 @@ export function initAppContext(): AppContext {
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),
-    injectHook,
+    attachHook,
     externalRkey: new ExternalRkeyService(userConfig),
   };
 
@@ -1025,6 +1045,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       // A live query failing with a corruption-signature error is what triggers
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
@@ -1144,7 +1165,11 @@ export function initAppContext(): AppContext {
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        { onRecall: (event) => recallNotifier?.(event) },
       );
+      // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
+      activeAntiRecall = antiRecall;
+      antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
       const emojiService = new EmojiService(session, platform);
@@ -1278,6 +1303,9 @@ export function initAppContext(): AppContext {
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             // Voice → text transcription (shared closure; see transcribeSilk above).
             transcribe: transcribeSilk,
+            // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
+            // 漏包 / 过期的语音由上面的本地模型补全。
+            onlineTranscribe: onlineTranscriber.transcribe,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             // ChatLab name / role / profile resolvers. The service export package
@@ -1429,6 +1457,7 @@ export function initAppContext(): AppContext {
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
+        groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
@@ -1455,14 +1484,14 @@ export function initAppContext(): AppContext {
 
       // Start the background login/pid monitor for this account. Injection +
       // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
-      // 自动注入 QQ master switch (完全离线模式), so toggling that setting takes
+      // 自动读取 QQ 内存 master switch (完全离线模式), so toggling that setting takes
       // effect on the next poll without a re-open.
       accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoInjectQq,
-        bootstrap.injectHook,
+        () => userConfig.getSettings().autoAttachQq,
+        bootstrap.attachHook,
         // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
         // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
         async (dress) => {
@@ -1581,6 +1610,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       this.scheduler?.stop();
       this.scheduler = null;
 
@@ -1701,6 +1731,7 @@ export function initAppContext(): AppContext {
         session,
         staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        { onRecall: (event) => recallNotifier?.(event) },
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
@@ -1904,6 +1935,7 @@ export function initAppContext(): AppContext {
           emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
+        groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
@@ -1943,8 +1975,8 @@ export function initAppContext(): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoInjectQq,
-        bootstrap.injectHook,
+        () => userConfig.getSettings().autoAttachQq,
+        bootstrap.attachHook,
       );
       accountMonitor.start();
 
@@ -2005,6 +2037,7 @@ export function initAppContext(): AppContext {
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();
+      unmountAntiRecallMonitor();
       this.account?.dispose();
       this.account = null;
       this.services = null;
@@ -2219,13 +2252,13 @@ export function getAppContext(): AppContext {
 
 /**
  * 完全离线模式提示。所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
- * {@link requireInjectEnabled}，避免在「自动注入 QQ」关闭时仍悄悄注入。
+ * {@link requireAttachEnabled}，避免在「自动读取 QQ 内存」关闭时仍悄悄注入。
  * 唯一豁免：登录时的数据库密钥提取（bootstrap 登录流程）——那是打开账号的前提。
  */
-export function requireInjectEnabled(): void {
+export function requireAttachEnabled(): void {
   const ctx = getAppContext();
-  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
 }
 

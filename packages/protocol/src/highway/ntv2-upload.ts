@@ -137,12 +137,19 @@ async function requestUpload(
     },
   });
 
-  const respBytes = await sendOidb(nt, pid, {
-    command: params.oidbCmd,
-    subCommand: 100,
-    body,
-    isUid: true,
-  });
+  // 命令来自 `params.oidbCmd`（动态）。抓包（/tmp/capture.log）里上传申请命令
+  // `OidbSvcTrpcTcp.0x11c4_100` 不带 tag 24，故按抓包不签名。
+  const respBytes = await sendOidb(
+    nt,
+    pid,
+    {
+      command: params.oidbCmd,
+      subCommand: 100,
+      body,
+      isUid: true,
+    },
+    false,
+  );
   const resp = decode(NTV2_UPLOAD_RESP_TOP, respBytes) as {
     respHead?: { retCode?: number; message?: string };
     upload?: Ntv2UploadResp;

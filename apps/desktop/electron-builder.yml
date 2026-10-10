@@ -47,8 +47,8 @@ extraResources:
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs
 
-  - from: out/main/injectWorker.mjs
-    to: out/main/injectWorker.mjs
+  - from: out/main/attachWorker.mjs
+    to: out/main/attachWorker.mjs
 
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
@@ -123,11 +123,8 @@ linux:
 # native 模块）。native/ 二进制与 win/linux 一样在打包时
 # 拷到安装根目录的 native/<platform>/<arch>，与加载器按 process.arch 解析的
 # 约定一致（darwin/x64 与 darwin/arm64，见 packages/native/src/loader.ts）。
-# macOS 没有注入型 dll/so（SIP），darwin/ 下只有 nt_helper.node 和
-# ninebird/{NineBird.node, qqnt.json}——darwin boot 启动 QQ 时会把
-# NineBird.node 拷进 QQ 沙箱容器，所以 ninebird/ 也必须随包
-# （win32/linux 专属的 NineBirdHook.dll / ninebird_launcher.so /
-# ninebird_addon.node 不在这边）。
+# macOS 没有注入型 dll/so（SIP），darwin/ 下只有 nt_helper.node——快登 /
+# 扫码走纯协议，不再需要任何注入或沙箱容器文件。
 # 未配置 CSC_LINK / CSC_KEY_PASSWORD secrets 时产物不签名（Gatekeeper 会拦，
 # 首次需右键 → 打开）；配置后 electron-builder 会自动签名，可再开 notarize。
 mac:

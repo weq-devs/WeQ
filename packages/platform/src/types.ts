@@ -36,6 +36,14 @@ export interface Platform {
   loginDbPath(): string | null;
 
   /**
+   * The QQ 数据根路径 — the directory that holds `global/` and the per-account
+   * dirs (linux/macOS), or `All Users/` + `<uin>/` (win32). Used as the input
+   * to `nt_helper.readDeviceGuid`. Returns the first candidate root that exists
+   * on disk, or null when none do.
+   */
+  qqDataRoot(): string | null;
+
+  /**
    * Resolve `nt_msg.db` for a specific QQ account. Returns null if the dir
    * exists nowhere.
    */
@@ -157,35 +165,46 @@ export interface Platform {
   qqVersion(): string | null;
 
   /**
-   * Is the given QQ account currently logged in on this machine? Wraps the
-   * native probe, supplying the per-OS identifying inputs the mechanism needs
-   * (win32 keys off `uin`; linux/macOS need the data-root `baseDir` + string
-   * `uid`, derived here so callers never assemble OS-specific paths). Returns
-   * false if the probe is unavailable or the inputs can't be resolved.
+   * Is the given QQ account currently logged in on this machine? Answered by
+   * the account's `nt_msg.db` lock — the single online-detection mechanism on
+   * every OS (win32: Restart Manager open handles; linux/macOS: fcntl
+   * `F_GETLK` write lock). The account's db path is resolved here, so callers
+   * just pass a uin. Returns false when the account isn't signed in or the
+   * probe can't run.
    */
   isQqLoggedIn(uin: string): boolean;
 
   /**
    * Resolve the pid of the QQ instance currently hosting this account, in one
-   * step, from the account's `nt_msg.db` file lock:
+   * step, from the account's `nt_msg.db` lock:
    *   - **win32**: Restart Manager open-handle enumeration, filtered to the
    *     QQ process by name (case-insensitive).
    *   - **linux/macOS**: fcntl `F_GETLK` write-lock holder pid, name-checked
-   *     against `/proc/<pid>/comm`.
+   *     against `/proc/<pid>/comm` (macOS has no `/proc`, so there the holder
+   *     of the account's own DB is accepted directly).
    * Returns null when no QQ instance holds the DB (account not signed in) or
-   * the probe is unavailable. A successful probe that finds no QQ holder is
-   * treated as "not signed in" — the legacy `getQqProcesses` +
-   * `probeQqLoginInfo` port probe is only used when the DB-lock probe itself
-   * could not run or errored (e.g. permission denied).
+   * the probe is unavailable. This is the ONLY pid-resolution path — there is
+   * no port-probe / process-enumeration fallback any more.
    */
   resolveQqPid(uin: string): number | null;
 
   /**
-   * Number of online QQ instances as QQ itself records it, or null when this
-   * OS has no such authoritative source (callers then fall back to the native
-   * process-count probe). Reads `versions/setting.json`'s `launcherCounts`
-   * from the QQ root — win32: `<QQ install>/versions/setting.json`, linux:
-   * `~/.config/QQ/versions/setting.json` — one logic across platforms.
+   * macOS only: is 系统完整性保护（SIP）still on? Reading another process's memory
+   * goes through `task_for_pid`, which SIP + QQ's hardened runtime refuse even
+   * for root — so a caller can ask first and skip the memory scan (and its
+   * password prompt) entirely instead of failing later.
+   *
+   * `true` = on (reading is impossible), `false` = off (root can read),
+   * `null` = not macOS / couldn't tell. **Never treat `null` as "off".**
+   */
+  sipEnabled(): boolean | null;
+
+  /**
+   * Number of online QQ instances as QQ itself records it, or null when the
+   * file is missing/unreadable. Reads `versions/setting.json`'s
+   * `launcherCounts` from the QQ root — win32: `<QQ install>/versions/setting.json`,
+   * linux: `~/.config/QQ/versions/setting.json` — one logic across platforms.
+   * This is the only instance-count source; nothing enumerates processes.
    */
   launcherCount(): number | null;
 }

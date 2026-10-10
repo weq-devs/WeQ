@@ -11,7 +11,7 @@ import { client } from '../../trpc/client';
 /**
  * Pre-flight for 补全缺失媒体: needs an online QQ (to harvest a fresh rkey).
  * Returns false to abort the export. Offline → hard block; 完全离线模式（自动
- * 注入 QQ 关闭）→ warn but allow; then force one fresh rkey harvest.
+ * 读取 QQ 内存 关闭）→ warn but allow; then force one fresh rkey harvest.
  */
 export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<boolean> {
   let online = false;
@@ -39,16 +39,16 @@ export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<bo
       return false;
     }
   }
-  let injectOn = true;
+  let attachOn = true;
   try {
-    injectOn = (await client.bootstrap.getSettings.query()).autoInjectQq;
+    attachOn = (await client.bootstrap.getSettings.query()).autoAttachQq;
   } catch {
     /* treat as on; the forced harvest below still runs */
   }
-  if (!injectOn) {
+  if (!attachOn) {
     const ok = await dialog.confirm(
       '完全离线模式已开启',
-      '「自动注入 QQ（完整功能）」已关闭（完全离线模式），缺失的图片 / 表情无法从云端补全。是否仍要继续导出？',
+      '「自动读取 QQ 内存（完整功能）」已关闭（完全离线模式），缺失的图片 / 表情无法从云端补全。是否仍要继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;
@@ -100,13 +100,35 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
 }
 
 /**
+ * Pre-flight for 在线转录: the抓包会话 must already be armed（灯箱点开开关时 arm）。
+ * 未 arm 时硬拦截 —— 否则导出会静默退化成纯本地转写，与用户预期不符。
+ */
+export async function preflightOnlineTranscribe(dialog: AppDialogApi): Promise<boolean> {
+  let armed = false;
+  try {
+    armed = (await client.account.onlineTranscribeStatus.query()).armed;
+  } catch (e) {
+    dialog.error('检查在线转录状态失败', e instanceof Error ? e.message : String(e));
+    return false;
+  }
+  if (!armed) {
+    await dialog.info(
+      '在线转录未开启',
+      '「在线转录」需要在导出前打开开关（会先就绪抓包会话）。请返回灯箱重新开启，或关闭「在线转录」后用本地模型转写。',
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
  * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
- * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel.
+ * (自动读取 QQ 内存 开启) — the roam pull goes through the live SSO channel.
  * 离线时不再硬阻断：仍会从本地漫游缓存读取已缓存的消息（聊天页此前拉过的
  * 窗口直接命中），只是无法联网补拉。
  */
 export async function preflightMessageCompletion(dialog: AppDialogApi): Promise<boolean> {
-  let state: { qqOnline: boolean; injectEnabled: boolean };
+  let state: { qqOnline: boolean; attachEnabled: boolean };
   try {
     state = await client.account.getGroupAlbumAccessState.query();
   } catch (e) {
@@ -120,10 +142,10 @@ export async function preflightMessageCompletion(dialog: AppDialogApi): Promise<
     );
     return true;
   }
-  if (!state.injectEnabled) {
+  if (!state.attachEnabled) {
     await dialog.info(
       '完全离线模式已开启',
-      '「自动注入 QQ（完整功能）」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
+      '「自动读取 QQ 内存（完整功能）」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
     );
     return true;
   }

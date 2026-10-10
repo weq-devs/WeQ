@@ -18,7 +18,7 @@
 import { app } from 'electron';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
-import { resolveBestMirror } from './mirrors';
+import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
 import { announceUpdateAvailableSafe } from '../weq_assistant/update_tweet';
 import {
   getUpdateState,
@@ -56,6 +56,9 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
     return cached;
   }
 
+  // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
+  // the slow phase (every dead mirror burns its full screen timeout).
+  updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
   const best = await resolveBestMirror();
   const hasUpdate = isNewer(best.version, current);
   const state: UpdateState = {
@@ -67,6 +70,16 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
   };
   setUpdateState(state);
   lastCheckedAt = Date.now();
+
+  // Surface which mirror won (and the fallback order) so the UI can say
+  // "已选加速站：xxx" — the check is otherwise invisible.
+  updateBus.emit('event', {
+    kind: 'chosen',
+    base: best.base,
+    ranked: best.ranked,
+    latest: best.version,
+    hasUpdate,
+  } satisfies UpdateEvent);
 
   if (hasUpdate) {
     updateBus.emit('event', { kind: 'available', latest: best.version } satisfies UpdateEvent);
@@ -84,6 +97,12 @@ function wireAutoUpdater(): void {
   wired = true;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
+  // Differential download reports progress against "bytes of the *diff*", and
+  // silently skips every block it copies from the local old installer — so the
+  // bar sits at 0% for minutes and then jumps straight to 100%. A full download
+  // is linear and always emits steady `download-progress`, which is what the
+  // settings bar needs; the bytes saved by diffing don't pay for the UX here.
+  autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on('download-progress', (p) => {
     updateBus.emit('progress', {
@@ -147,6 +166,15 @@ export async function startDownload(): Promise<void> {
   let lastErr: Error | null = null;
   for (const base of ranked) {
     try {
+      // Let the UI name the mirror that's actually serving this attempt — the
+      // first choice can fail mid-download and we silently fall back here.
+      updateBus.emit('event', {
+        kind: 'chosen',
+        base,
+        ranked,
+        latest: state?.latest ?? '',
+        hasUpdate: true,
+      } satisfies UpdateEvent);
       await attemptDownload(base);
       return; // success — 'update-downloaded' already notified the renderer
     } catch (e) {

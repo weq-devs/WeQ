@@ -54,7 +54,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
 
   /**
    * 分享按钮只在能真拿到 qzone p_skey 时出现：有在线 QQ 实例即可（ptlogin
-   * 本地快速登录兜底，不要求自动注入已开启）。进入结尾页时现查一次，QQ 中途
+   * 本地快速登录兜底，不要求自动读取已开启）。进入结尾页时现查一次，QQ 中途
    * 上线/下线要等下次回到这页再刷新。
    */
   useEffect(() => {

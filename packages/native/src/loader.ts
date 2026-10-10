@@ -1,42 +1,19 @@
 /**
- * Resolve and load the two closed-source `.node` addons plus their
- * companion resource files.
+ * Resolve and load the `nt_helper.node` addon.
  *
  * Repo layout (win32 + linux + darwin implemented):
  *
  *   native/
  *     win32/x64/  ·  linux/x64/  ·  linux/arm64/  ·  darwin/x64/  ·  darwin/arm64/
  *       nt_helper.node                (renamed from index.<platform>-<arch>-*.node)
- *       ninebird/                     (all platforms; mac ships only the
- *                                      hooker + qqnt.json — the darwin boot
- *                                      copies them into QQ's container at
- *                                      launch, since QQ is sandboxed)
- *         NineBird.node               (hooker; loader JS requires it by this exact name)
- *         ninebird_addon.node         (launchQQ entry)
- *         NineBirdHook.dll            (win32 injection medium)
- *         ninebird_launcher.so        (linux injection medium; LD_PRELOAD)
- *         qqnt.json
- *
- *   resources/ninebird-runtime/       (platform-independent; built ONCE by
- *     qr-dbkey.js                     `pnpm build:ninebird` from packages/ninebird.
- *     quick-dbkey.js                  The loaders run inside QQ, which receives
- *     account-list.js                 their absolute path via NINEBIRD_LOAD_PATH,
- *     package.json                    so they need not live in native/. package.json
- *                                     is a {"type":"commonjs"} marker for QQ.)
  *
  * Resolution order:
  *   1. WEQ_NATIVE_DIR env var          (full override; expects same layout)
- *   2. WEQ_NINEBIRD_RUNTIME_DIR env var (override for the JS runtime dir)
- *   3. <install root>/native           (production, packaged Electron — sibling of resources/)
- *   4. <repo>/native                   (dev — found by walking up from this file)
+ *   2. <install root>/native           (production, packaged Electron — sibling of resources/)
+ *   3. <repo>/native                   (dev — found by walking up from this file)
  *
- * The loader JS bundle lives in `<repo>/resources/ninebird-runtime` in dev and
- * `<install>/resources/resources/ninebird-runtime` packaged — electron-builder
- * copies the whole repo resources/ tree into the app's resources/ dir (see
- * resolveNineBirdRuntimeDir).
- *
- * `loadNative()` is idempotent: first call resolves + requires + verifies
- * every file, subsequent calls return the cached bundle.
+ * `loadNative()` is idempotent: first call resolves + requires + verifies the
+ * addon, subsequent calls return the cached bundle.
  */
 
 import { createRequire } from 'node:module';
@@ -44,14 +21,8 @@ import { existsSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type {
-  NativeBundle,
-  NineBirdBootBinding,
-  NineBirdResources,
-  NtHelperBinding,
-} from './types';
+import type { NativeBundle, NtHelperBinding } from './types';
 import { InitStatus } from './types';
-import { createDarwinNineBirdBoot } from './darwin/boot';
 
 export const INIT_ERROR_MESSAGES: Record<InitStatus, string> = {
   [InitStatus.Success]: 'Initialization successful',
@@ -148,9 +119,6 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   assertExists(ntHelperPath, 'nt_helper.node');
   logVerbose('[loadNative] nt_helper.node exists, attempting to require...');
 
-  const nineBirdDir = join(platformRoot, 'ninebird');
-  const resources = buildResources(nineBirdDir, nativeRoot);
-
   let ntHelper: NtHelperBinding;
   try {
     ntHelper = requireFromHere(ntHelperPath) as NtHelperBinding;
@@ -175,29 +143,8 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
 
   configureNtHelperLogging(ntHelper);
 
-  // macOS has no cross-process injection (SIP), so there is no
-  // `ninebird_addon.node` launcher — instead the same `launchQQ` contract is
-  // implemented in pure TS: deploy the hooker + loader scripts into QQ's
-  // sandbox container, patch `package.json`'s main via an elevated
-  // osascript (Authorization Services), then spawn QQ with `--no-sandbox`
-  // and the NINEBIRD_* env (see darwin/boot.ts). The loader runs inside QQ,
-  // dlopens wrapper.node + NineBird.node and installs the in-process recv
-  // hook — SIP does not apply because nothing is injected cross-process.
-  let nineBirdBoot: NineBirdBootBinding;
-  if (process.platform === 'darwin') {
-    nineBirdBoot = createDarwinNineBirdBoot(resources);
-  } else {
-    const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
-    assertExists(nineBirdBootPath, 'ninebird/ninebird_addon.node');
-    nineBirdBoot = requireFromHere(nineBirdBootPath) as NineBirdBootBinding;
-  }
-
-  cached = {
-    ntHelper,
-    nineBirdBoot,
-    resources,
-  };
-  logToFile('[loadNative] Native modules loaded and cached successfully', {
+  cached = { ntHelper };
+  logToFile('[loadNative] Native module loaded and cached successfully', {
     nativeRoot,
     elapsedMs: Date.now() - startedAt,
   });
@@ -211,9 +158,9 @@ export function resetNativeCache(): void {
 
 /**
  * Absolute path to the `nt_helper.node` that {@link loadNative} would resolve,
- * without loading it. The desktop app needs this to hand an elevated
- * (sudo) child the exact addon to require for linux injection. Resolution
- * mirrors `loadNative` (WEQ_NATIVE_DIR → packaged → dev walk-up).
+ * without loading it. The desktop app needs this to hand an elevated (sudo)
+ * child the exact addon to require. Resolution mirrors `loadNative`
+ * (WEQ_NATIVE_DIR → packaged → dev walk-up).
  */
 export function resolveNtHelperPath(opts: LoadNativeOptions = {}): string {
   const nativeRoot = opts.nativeRoot ?? resolveNativeRoot();
@@ -358,94 +305,12 @@ function resolvePlatformRoot(nativeRoot: string): string {
   return platformRoot;
 }
 
-/**
- * Directory of the platform-independent NineBird loader bundles. These are
- * built once by `pnpm build:ninebird` from `packages/ninebird` into
- * `resources/ninebird-runtime/`; they run inside QQ and never need to sit
- * next to the native binaries.
- *
- * Probes candidate roots rather than hard-coding one, so the same package
- * works in every layout:
- *   - `process.resourcesPath/resources/ninebird-runtime` — packaged desktop
- *     (electron-builder copies the repo resources/ tree into resources/, so
- *     the runtime lands at `<install>/resources/resources/ninebird-runtime`);
- *   - `<nativeRoot>/../resources/ninebird-runtime` — dev (`<repo>/native` →
- *     `<repo>/resources`) and web dist (`dist/native` → `dist/resources`).
- * `WEQ_NINEBIRD_RUNTIME_DIR` always wins. The first existing candidate is
- * returned; when none exists the dev-style candidate is kept so the
- * assertExists diagnostics point at the most likely location.
- */
-function resolveNineBirdRuntimeDir(nativeRoot: string): string {
-  const override = process.env.WEQ_NINEBIRD_RUNTIME_DIR;
-  if (override) return override;
-
-  const electronResources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-  const devCandidate = join(nativeRoot, '..', 'resources', 'ninebird-runtime');
-  const candidates = electronResources
-    ? [join(electronResources, 'resources', 'ninebird-runtime'), devCandidate]
-    : [devCandidate];
-  return candidates.find((candidate) => existsSync(candidate)) ?? devCandidate;
-}
-
-function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResources {
-  // The injection medium is the one file whose name differs per OS: a
-  // `LD_PRELOAD` shared object on linux, an injected DLL on win32. Both are
-  // passed to launchQQ via the same `hookDllPath` field. macOS ships no
-  // injection medium (SIP) — the hooker is loaded in-process by the loader
-  // script inside QQ, so `hookDllPath` stays empty but the NineBird.node
-  // hooker + qqnt.json + loader JS are real, shipped assets (the darwin boot
-  // copies them into QQ's container at launch time).
-  const isMac = process.platform === 'darwin';
-  const injectionMedium = isMac
-    ? ''
-    : process.platform === 'linux'
-      ? 'ninebird_launcher.so'
-      : 'NineBirdHook.dll';
-  const runtimeDir = resolveNineBirdRuntimeDir(nativeRoot);
-  const resources: NineBirdResources = {
-    // Must keep pointing at the native ninebird/ dir: the loader scripts find
-    // `NineBird.node` there via NINEBIRD_LOADER_DIR, and @weq/service derives
-    // the nt_helper.node path from `dirname(loaderDir)`.
-    loaderDir: nineBirdDir,
-    hookDllPath: join(nineBirdDir, injectionMedium),
-    qqntJsonPath: join(nineBirdDir, 'qqnt.json'),
-    nineBirdAddonPath: join(nineBirdDir, 'NineBird.node'),
-    qrDbkeyJsPath: join(runtimeDir, 'qr-dbkey.js'),
-    quickDbkeyJsPath: join(runtimeDir, 'quick-dbkey.js'),
-    accountListJsPath: join(runtimeDir, 'account-list.js'),
-  };
-  // All platforms now need the loader JS bundle (macOS copies it into the
-  // QQ container at launch; win/linux hand the path to launchQQ directly).
-  assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
-  assertExists(
-    resources.quickDbkeyJsPath,
-    'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
-  );
-  assertExists(
-    resources.accountListJsPath,
-    'ninebird-runtime/account-list.js — run pnpm build:ninebird',
-  );
-  if (isMac) {
-    assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
-    assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
-  } else {
-    assertExists(resources.hookDllPath, `ninebird/${injectionMedium}`);
-    assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
-    assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
-  }
-  return resources;
-}
-
 function assertExists(path: string, label: string): void {
   logVerbose(`[assertExists] Checking ${label} at: ${path}`);
   if (!existsSync(path)) {
     logToFile(`[assertExists] MISSING: ${label} not found at ${path}`);
-    // nt_helper.node 不入库（最容易缺的就是它）；ninebird/ 下的二进制仍在仓库里。
-    const hint = label.includes('nt_helper.node')
-      ? 'Run `pnpm native:fetch` in a dev clone (see native/README.md).'
-      : 'This file is committed — the checkout is probably incomplete.';
     throw new Error(
-      `Required native asset missing: ${label}\n  expected at: ${path}\n  hint: ${hint}`,
+      `Required native asset missing: ${label}\n  expected at: ${path}\n  hint: Run \`pnpm native:fetch\` in a dev clone (see native/README.md).`,
     );
   }
   try {
@@ -469,7 +334,7 @@ function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
 }
 
 /**
- * Absolute directory the native addons write their diagnostics into
+ * Absolute directory the native addon writes its diagnostics into
  * (`nt_helper_<date>.log` / `native_loader_<date>.log`).
  */
 export function getNativeLogRoot(): string {

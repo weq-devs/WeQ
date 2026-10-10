@@ -138,6 +138,8 @@ export namespace SendGroupSignup {
   /** SSO 命令 OidbSvcTrpcTcp.0x921b_0。 */
   export const command = 0x921b;
   export const subCommand = 0;
+  /** 抓包（/tmp/capture.log）：`0x921b_0` 不带 tag 24，不签名。 */
+  export const needSign = false;
   export const reqSchema = SIGNUP_BODY;
   export const respSchema = SIGNUP_RESP;
 
@@ -201,7 +203,7 @@ export namespace SendGroupSignup {
    */
   export const deserialize = (_body: Record<string, unknown>): void => {};
 
-  /** 发一条群报名卡片。需要已注入的在线 QQ 进程。 */
+  /** 发一条群报名卡片。需要已 attach 的在线 QQ 进程。 */
   export const invoke = (
     nt: OidbNative,
     pid: number,

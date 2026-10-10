@@ -12,8 +12,8 @@
  *   3. re-probe + persist only if something went stale.
  *
  * It also owns the live-ish facts the home screen shows: the online-instance
- * probe (with the single-process `isQqLoggedIn` refinement), per-account
- * database sizes for the charts, and the user-data directory count.
+ * probe (QQ's own `launcherCounts`, refined per-uin by the `nt_msg.db` lock),
+ * per-account database sizes for the charts, and the user-data directory count.
  *
  * Storage backend is {@link UserConfigService}; this service holds NO state
  * of its own beyond an in-memory copy of the validated install info.
@@ -191,32 +191,20 @@ export class GlobalConfigService {
   // ---- online-instance probe ----
 
   /**
-   * Probe how many QQ instances are online. When exactly one QQ process is
-   * running, port-probing can't always attribute it to an account, so we fall
-   * back to the per-uin mutex-lock probe (`isQqLoggedIn`) over the known uins
-   * — and surface the per-uin map so the caller can dispatch key acquisition.
+   * Probe how many QQ instances are online, and which of the known uins own
+   * them. When exactly one instance is running we ask, per uin, whether that
+   * account's `nt_msg.db` is held (`isQqLoggedIn`) and surface the map so the
+   * caller can dispatch key acquisition.
    *
-   * `isQqLoggedIn` failing (older native without it) degrades gracefully to
-   * `byUin: null`; the caller then uses the legacy port-probe path.
+   * `isQqLoggedIn` throwing degrades gracefully to `byUin: null`.
    */
   probeOnline(knownUins: string[] = []): OnlineProbe {
-    const nt = this.platform.native.ntHelper;
-    let pids: number[];
-    try {
-      pids = nt.getQqProcesses();
-    } catch {
-      pids = [];
-    }
+    // QQ 自己记的在线实例数（`versions/setting.json` 的 `launcherCounts`）。
+    // 读不到就按 0 算 —— 不枚举进程兜底：QQ 是 Electron，一个实例会 fork 出
+    // 好几个同名进程，数进程数量本来就是错的。
+    const baseCount = this.platform.launcherCount() ?? 0;
 
-    // Authoritative instance count when the OS records one (both platforms
-    // read QQ's own `launcherCounts` from versions/setting.json); else the
-    // process-count probe. QQ is Electron — one instance forks several
-    // `qq`-named processes — so the pid count is unreliable and only ever used
-    // as a last-resort fallback.
-    const reported = this.platform.launcherCount();
-    const baseCount = reported ?? pids.length;
-
-    if (pids.length === 1 && knownUins.length > 0) {
+    if (baseCount === 1 && knownUins.length > 0) {
       try {
         const byUin: Record<string, boolean> = {};
         let online = 0;
@@ -225,11 +213,11 @@ export class GlobalConfigService {
           byUin[uin] = ok;
           if (ok) online++;
         }
-        // At least the one running process is online even if the mutex probe
-        // attributed nothing — never under-report below the base count.
+        // At least the one running instance is online even if the db-lock
+        // probe attributed nothing — never under-report below the base count.
         return { count: Math.max(online, baseCount), byUin };
       } catch {
-        // isQqLoggedIn unavailable / threw — fall through to the base count.
+        // isQqLoggedIn threw — fall through to the base count.
       }
     }
 

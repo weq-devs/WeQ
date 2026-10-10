@@ -2,7 +2,6 @@
 import {
   AudioLines,
   BarChart3,
-  BellRing,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -27,6 +26,7 @@ import {
   Mic,
   Rocket,
   SendHorizontal,
+  Settings2,
   Zap,
   Share2,
   Smile,
@@ -35,6 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { resourceUrl } from '../../lib/resourceUrl';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -146,6 +147,7 @@ import type {
   Conversation,
   ConversationPreference,
   GroupMember,
+  GroupMemberRole,
   Message,
   MessageAction,
   UnreadDock,
@@ -274,6 +276,18 @@ function isMobileComposerViewport() {
   return window.matchMedia('(max-width: 760px)').matches;
 }
 
+/** 禁言时长（秒）→ 中文档位名，用于 toast 回显。 */
+const MUTE_DURATION_LABELS: Record<number, string> = {
+  [10 * 60]: '10 分钟',
+  [60 * 60]: '1 小时',
+  [12 * 60 * 60]: '12 小时',
+  [24 * 60 * 60]: '1 天',
+};
+
+function formatMuteDuration(seconds: number): string {
+  return MUTE_DURATION_LABELS[seconds] ?? `${Math.round(seconds / 60)} 分钟`;
+}
+
 export function ChatPane({
   user,
   conversation,
@@ -310,7 +324,9 @@ export function ChatPane({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
-  onOpenGroupKeyword,
+  onRenameGroupMember,
+  onKickGroupMember,
+  onOpenConversationSettings,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -401,7 +417,22 @@ export function ChatPane({
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
-  onOpenGroupKeyword?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  /** 群管理「修改群昵称」：应用层开弹窗（与群公告 / 群精华同层）。 */
+  onRenameGroupMember?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    sender: User,
+    targetUid: string,
+  ) => void;
+  /** 群管理「踢出群聊」：应用层开二次确认。 */
+  onKickGroupMember?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    sender: User,
+    targetUid: string,
+  ) => void;
+  /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
+  onOpenConversationSettings?: (
+    conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
+  ) => void;
   onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
@@ -520,6 +551,11 @@ export function ChatPane({
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  // 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员）。同戳一戳一样需要
+  // 在线且已注入的 QQ；一律不做乐观渲染，成功与否只看 toast。
+  const recallMessage = trpc.account.recallMessage.useMutation();
+  const muteGroupMember = trpc.account.muteGroupMember.useMutation();
+  const setGroupAdmin = trpc.account.setGroupAdmin.useMutation();
   // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开戳一戳面板时才拉 —— 来源是
   // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
   const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
@@ -1419,7 +1455,15 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
   }
 
-  /** 头像菜单「戳一戳」：群聊戳成员 / 私聊戳对方（OIDB 0xED3_1）。 */
+  /**
+   * 头像菜单「戳一戳」：群聊戳成员 / 私聊戳对方或**自己**（OIDB 0xED3_1）。
+   *
+   * 被戳的人在协议里是 `uin`、AIO 是 `friendUin`，两者可以不同（SnowLuma 的
+   * friend poke 就是 `uin = targetUin ?? peerUin`、`friendUin = peerUin`；群聊
+   * 也是同一套形状 —— 群号 + 被戳成员）。所以右键**自己的**头像时，`friendUin`
+   * 仍填对方、被戳人换成自己 = 戳自己。之前私聊分支把被戳人写死成对方，导致
+   * 戳自己也会戳到对方。
+   */
   function pokeAvatar(sender: User) {
     setAvatarMenu(null);
     if (!conversation) {
@@ -1429,10 +1473,19 @@ export function ChatPane({
       conversation.type === 'group'
         ? conversation.group.identityValue
         : conversation.otherUser.identityValue;
+    // 私聊里「被戳的人」可能是对方，也可能是我（右键自己的头像）。sender 是
+    // 已解析好的 User：命中「自己」的身份集合（`self:<uin>` / uin / uid）即戳自己。
+    const pokingSelf =
+      conversation.type === 'direct' &&
+      isSelfIdentity(new Set(selfIdentityValues(user)), sender.id);
     const params =
       conversation.type === 'group'
         ? { peerType: 'group' as const, targetId, targetUin: sender.identityValue }
-        : { peerType: 'c2c' as const, targetId };
+        : {
+            peerType: 'c2c' as const,
+            targetId,
+            ...(pokingSelf ? { targetUin: user.identityValue } : {}),
+          };
     sendPoke.mutate(params, {
       onSuccess: () => {
         pushToast({ tone: 'success', message: '戳一戳已发出' });
@@ -1505,6 +1558,235 @@ export function ChatPane({
             detail: error instanceof Error ? error.message : String(error),
           });
         },
+      },
+    );
+  }
+
+  /** 头像是否是「我」——按身份串集合判定（id / uin / uid 任一命中）。 */
+  function isSelfAvatar(sender: User): boolean {
+    if (sender.id === user.id) {
+      return true;
+    }
+    return isSelfIdentity(new Set(selfIdentityValues(user)), sender.id);
+  }
+
+  /**
+   * 取群管理协议需要的目标 uid。别人 = 发送者 uid（群消息 sender.id 就是 uid）；
+   * 自己 = 当前账号 uid，全局资料里没有时退回成员表按 uin 反查。
+   */
+  function groupTargetUid(sender: User): string | null {
+    if (!isSelfAvatar(sender)) {
+      return sender.uid ?? sender.id ?? null;
+    }
+    if (user.uid) {
+      return user.uid;
+    }
+    if (conversation?.type === 'group') {
+      const me = conversation.members.find(
+        (m) => m.identityValue === user.identityValue || m.uin === user.identityValue,
+      );
+      return me?.id ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * 头像菜单里群管理操作的可见性：我必须是群主 / 管理员，且目标职权低于我；
+   * 「设置管理员」仅群主。自己永远可以改自己的群昵称。非群聊返回 null。
+   */
+  function avatarModerationFlags(sender: User): {
+    showChangeCard: boolean;
+    showKick: boolean;
+    showMute: boolean;
+    showSetAdmin: boolean;
+    showUnsetAdmin: boolean;
+  } | null {
+    if (conversation?.type !== 'group') {
+      return null;
+    }
+    const myRole = conversation.group.role;
+    if (isSelfAvatar(sender)) {
+      return {
+        showChangeCard: true,
+        showKick: false,
+        showMute: false,
+        showSetAdmin: false,
+        showUnsetAdmin: false,
+      };
+    }
+    if (myRole === 'member') {
+      return null;
+    }
+    const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
+    const targetRole = (sender.role ?? 'member') as GroupMemberRole;
+    if (rank[myRole] <= rank[targetRole]) {
+      return null;
+    }
+    return {
+      showChangeCard: true,
+      showKick: true,
+      showMute: true,
+      showSetAdmin: myRole === 'owner' && targetRole === 'member',
+      showUnsetAdmin: myRole === 'owner' && targetRole === 'admin',
+    };
+  }
+
+  /**
+   * 右键消息「撤回」的可用性。
+   *   - 私聊 / 群聊：自己的消息都显示；群聊里群主 / 管理员对**任何**消息都显示（越级）。
+   *   - 2 分钟规则：普通成员只能撤自己 2 分钟内的；群主 / 管理员无视该规则。
+   * 返回 `show=false` 表示这项根本不出现；`reason` 非空表示出现但置灰。
+   */
+  function recallAvailability(message: Message): { show: boolean; reason: string | null } {
+    if (!conversation) {
+      return { show: false, reason: null };
+    }
+    const mine = message.senderId === user.id;
+    const elevated = conversation.type === 'group' && conversation.group.role !== 'member';
+    if (!mine && !elevated) {
+      return { show: false, reason: null };
+    }
+    if (moderationBlockedReason) {
+      return { show: true, reason: moderationBlockedReason };
+    }
+    const seq = Number((message as { msgSeq?: unknown }).msgSeq);
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
+    }
+    if (elevated) {
+      return { show: true, reason: null };
+    }
+    const sentAt = Date.parse(message.createdAt);
+    if (Number.isFinite(sentAt) && Date.now() - sentAt > 120_000) {
+      return { show: true, reason: '超过 2 分钟的消息无法撤回' };
+    }
+    return { show: true, reason: null };
+  }
+
+  /** 撤回一条消息。不做乐观渲染，只把结果 toast 出来，等 QQ 同步翻新会话。 */
+  function recallMessageFor(message: Message) {
+    setContextMenu(null);
+    if (!conversation || moderationBlockedReason) {
+      return;
+    }
+    const seq = Number((message as { msgSeq?: unknown }).msgSeq);
+    if (!Number.isFinite(seq) || seq <= 0) {
+      pushToast({ tone: 'warning', message: '这条消息缺少会话内序号，无法撤回' });
+      return;
+    }
+    const random = Number((message as { msgRandom?: unknown }).msgRandom) || 0;
+    const timestamp = Math.floor(Date.parse(message.createdAt) / 1000) || 0;
+    const params =
+      conversation.type === 'group'
+        ? {
+            kind: 'group' as const,
+            conv: conversation.group.identityValue,
+            sequence: seq,
+            ...(random > 0 ? { random } : {}),
+          }
+        : {
+            kind: 'c2c' as const,
+            conv: conversation.otherUser.id,
+            sequence: seq,
+            ...(random > 0 ? { random } : {}),
+            ...(timestamp > 0 ? { timestamp } : {}),
+          };
+    recallMessage.mutate(params, {
+      onSuccess: () => {
+        pushToast({ tone: 'success', message: '撤回请求已发送' });
+      },
+      onError: (error) => {
+        pushToast({
+          tone: 'error',
+          title: '撤回失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
+  }
+
+  /**
+   * 群管理：改群昵称 / 踢人 —— 弹窗挂在应用层（与群公告 / 群精华同层），
+   * 这里只负责解析目标 uid 并上报意图，不再自己开灯箱。
+   */
+  function startCardEdit(sender: User) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group') {
+      return;
+    }
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法修改群昵称' });
+      return;
+    }
+    onRenameGroupMember?.(conversation, sender, targetUid);
+  }
+
+  function startKick(sender: User) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group') {
+      return;
+    }
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法踢出' });
+      return;
+    }
+    onKickGroupMember?.(conversation, sender, targetUid);
+  }
+
+  /** 群管理：禁言（时长由子菜单给定，秒）。 */
+  function muteAvatar(sender: User, durationSeconds: number) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group') {
+      return;
+    }
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法禁言' });
+      return;
+    }
+    muteGroupMember.mutate(
+      {
+        groupId: conversation.group.identityValue,
+        targetUid,
+        duration: durationSeconds,
+      },
+      {
+        onSuccess: () =>
+          pushToast({ tone: 'success', message: `已禁言 ${formatMuteDuration(durationSeconds)}` }),
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: '禁言失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    );
+  }
+
+  /** 群管理：设置 / 取消管理员（仅群主）。 */
+  function toggleAvatarAdmin(sender: User, enable: boolean) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group') {
+      return;
+    }
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法设置管理员' });
+      return;
+    }
+    setGroupAdmin.mutate(
+      { groupId: conversation.group.identityValue, targetUid, enable },
+      {
+        onSuccess: () =>
+          pushToast({ tone: 'success', message: enable ? '已设为管理员' : '已取消管理员' }),
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: enable ? '设置管理员失败' : '取消管理员失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
       },
     );
   }
@@ -2854,14 +3136,27 @@ export function ChatPane({
     sending ||
     (body.trim().length === 0 && !hasSingleSend && !hasQuote);
   const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
-  // 轻互动（戳一戳 / 贴表情）与发送同条件：需要在线且已注入的 QQ。
-  const pokeBlockedReason = sendAvailable ? null : 'QQ 未在线或处于完全离线模式，暂不可戳一戳';
+  // 所有「发包类」操作（戳一戳 / 贴表情 / 撤回 / 群管理）与发送按钮共用同一套硬限制：
+  // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套
+  // 宽松判断，避免「戳一戳能点、发送键却灰着」这类不一致。
+  const sendGateReason = !sendAvailable
+    ? 'QQ 未在线或处于完全离线模式'
+    : currentPreference.blocked
+      ? '当前会话已被屏蔽'
+      : sending
+        ? '消息发送中，请稍候'
+        : null;
+  const pokeBlockedReason = sendGateReason ? `${sendGateReason}，暂不可戳一戳` : null;
   const reactionBlockedReason =
     conversation.type !== 'group'
       ? '仅群消息支持贴表情'
-      : !sendAvailable
-        ? 'QQ 未在线或处于完全离线模式，暂不可贴表情'
+      : sendGateReason
+        ? `${sendGateReason}，暂不可贴表情`
         : null;
+  const moderationBlockedReason = sendGateReason ? `${sendGateReason}，暂不可执行该操作` : null;
+  // 头像菜单里群管理操作的可见性（按我的身份 vs 目标身份算），以及右键消息的撤回可用性。
+  const avatarMenuFlags = avatarMenu ? avatarModerationFlags(avatarMenu.sender) : null;
+  const contextRecallInfo = contextMenu ? recallAvailability(contextMenu.message) : null;
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
   // 闪传文件框同样是**内联**的：占掉正文编辑区那一行（小屏与「只能单独发」的卡片
@@ -2883,7 +3178,7 @@ export function ChatPane({
   const pokePanelActive = pokeOpen && !mobileComposerExpanded;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
-  const mediaSendDisabled = !sendAvailable || currentPreference.blocked || sending;
+  const mediaSendDisabled = Boolean(sendGateReason);
   const composerActionContext: ComposerActionContext = {
     conversation,
     blocked: currentPreference.blocked,
@@ -3036,18 +3331,6 @@ export function ChatPane({
               <button
                 className={cn('icon-button', 'group-header-info-action')}
                 type="button"
-                title="群关键词提醒"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupKeyword?.(conversation);
-                  }
-                }}
-              >
-                <BellRing size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
                 title="Group highlights"
                 onClick={() => {
                   if (conversation?.type === 'group') {
@@ -3105,6 +3388,17 @@ export function ChatPane({
               onClick={() => onOpenBuddyAnalytics?.(conversation)}
             >
               <BarChart3 size={18} />
+            </button>
+          ) : null}
+          {onOpenConversationSettings &&
+          (conversation.type === 'group' || conversation.type === 'direct') ? (
+            <button
+              className={cn('icon-button', 'group-header-info-action')}
+              type="button"
+              title="会话设置"
+              onClick={() => onOpenConversationSettings?.(conversation)}
+            >
+              <Settings2 size={18} />
             </button>
           ) : null}
         </div>
@@ -3331,8 +3625,8 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
-                title={sendAvailable ? '合并转发' : 'QQ 未在线或处于完全离线模式，暂不可发送'}
-                disabled={!sendAvailable || selectedMessages.length === 0}
+                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '合并转发'}
+                disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
                 onClick={mergeForwardSelected}
               >
                 <Share2 size={17} />
@@ -3887,6 +4181,9 @@ export function ChatPane({
               ? null
               : '这条消息缺少会话内序号，无法贴表情')
           }
+          // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
+          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
+          recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
         />
       ) : null}
       {avatarMenu ? (
@@ -3895,6 +4192,16 @@ export function ChatPane({
           onMention={mentionAvatar}
           onPoke={pokeAvatar}
           pokeBlockedReason={pokeBlockedReason}
+          onChangeCard={startCardEdit}
+          onKick={startKick}
+          onMute={muteAvatar}
+          onToggleAdmin={toggleAvatarAdmin}
+          showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
+          showKick={avatarMenuFlags?.showKick ?? false}
+          showMute={avatarMenuFlags?.showMute ?? false}
+          showSetAdmin={avatarMenuFlags?.showSetAdmin ?? false}
+          showUnsetAdmin={avatarMenuFlags?.showUnsetAdmin ?? false}
+          moderationBlockedReason={moderationBlockedReason}
         />
       ) : null}
       {reactionPicker ? (

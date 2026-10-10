@@ -180,6 +180,13 @@ export interface ExportOptions {
   completeDress: boolean;
   /** Auto-transcribe voice messages to text. */
   transcribeVoice: boolean;
+  /**
+   * 在线转写：语音转录时优先向 QQ 服务端要文本（需 QQ 在线 + 抓包已 arm），
+   * 漏包 / 过期的再用本地模型补全。
+   */
+  onlineTranscribe: boolean;
+  /** 在线转写的并发请求数（默认 5）。 */
+  onlineConcurrency: number;
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
   dress: DressKinds;
   /** 导出完成后自动弹保存路径（不再记忆上次目录）。 */
@@ -201,6 +208,8 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   downloadPtt: false,
   completeDress: true,
   transcribeVoice: false,
+  onlineTranscribe: false,
+  onlineConcurrency: 5,
   dress: { ...DEFAULT_DRESS },
   autoSave: false,
   chatlab: false,

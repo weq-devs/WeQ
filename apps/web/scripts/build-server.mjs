@@ -45,16 +45,16 @@ const NATIVE_DEPS = {
 /**
  * Entries that must stay SEPARATE files on disk, because the server spawns them
  * by path rather than importing them:
- *   - injectWorker    — run as a pkexec child (linux, unprivileged host only)
+ *   - attachWorker    — run as a pkexec child (linux, unprivileged host only)
  *   - transcribeWorker — `fork`ed so a sherpa-onnx SIGSEGV can't take the server
  *                        down with it
  * Both are `.mjs` so Node loads them as ESM regardless of the nearest
- * package.json. `inject_elevation.ts` / `transcribe/engine.ts` look for these
+ * package.json. `attach_elevation.ts` / `transcribe/engine.ts` look for these
  * exact names next to the main bundle.
  */
 const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
-  injectWorker: join(desktopMain, 'inject_worker.ts'),
+  attachWorker: join(desktopMain, 'attach_worker.ts'),
   transcribeWorker: join(desktopMain, 'transcribe/worker.ts'),
 };
 

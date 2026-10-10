@@ -23,10 +23,12 @@ import {
   dbEventBus,
   type AccountServices,
 } from '../../context/app_context';
+import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
+import { detectThumbType } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
@@ -345,8 +347,17 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
 export interface GroupAlbumAccessState {
   qqOnline: boolean;
   qqPid: number | null;
-  /** 「自动注入 QQ（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
-  injectEnabled: boolean;
+  /** 「自动读取 QQ 内存（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
+  attachEnabled: boolean;
+  /**
+   * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
+   * 缺任一项都发不出去，所以发送按钮按它前置置灰。
+   */
+  hasA2: boolean;
+  hasD2: boolean;
+  hasD2Key: boolean;
+  /** 本地是否已解析出设备 guid（服务端认设备的依据，缺了会被拒绝）。 */
+  hasGuid: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
@@ -501,12 +512,17 @@ async function fetchFrom(
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   const record = services.accountConfig.getRecord();
+  const session = record?.session;
   const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
   const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
   return {
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
-    injectEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true,
+    attachEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true,
+    hasA2: Boolean(session?.a2),
+    hasD2: Boolean(session?.d2),
+    hasD2Key: Boolean(session?.d2Key),
+    hasGuid: Boolean(record?.guid),
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,
@@ -518,8 +534,8 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (!state.injectEnabled) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  if (!state.attachEnabled) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
 }
 
@@ -528,12 +544,12 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (!state.injectEnabled) {
-    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），群相册等在线功能不可用。');
+  if (!state.attachEnabled) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），群相册等在线功能不可用。');
   }
   if (!state.clientKeyValid) {
     throw new Error(
-      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
     );
   }
 }
@@ -2085,6 +2101,10 @@ export const accountRouter = router({
             downloadFile: z.boolean(),
             downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
+            /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
+            onlineTranscribe: z.boolean().optional(),
+            /** 在线转写并发请求数（默认 5）。 */
+            onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -2145,6 +2165,12 @@ export const accountRouter = router({
       configId: record.configId,
       uin: record.uin,
       dbKey: record.dbKey,
+      // 会话物料（a2 / d2 / d2key）+ 设备身份，供 设置 → 账号基础 展示。
+      // a1 是 login.db 解出来的 TGTGT payload；guid 与登录无关，单独一档。
+      // 渲染层默认打码，眼睛按需展开 —— 与 dbKey 同款交互。
+      a1: record.a1Payload ?? null,
+      guid: record.guid ?? null,
+      session: record.session ?? null,
       algos: record.algos ?? {},
       dataDir: record.dataDir ?? null,
       qqOnline: record.qqOnline ?? false,
@@ -2770,7 +2796,7 @@ export const accountRouter = router({
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
         const state = albumAccessState();
-        if (!state.qqOnline || !state.injectEnabled) {
+        if (!state.qqOnline || !state.attachEnabled) {
           throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
         }
         return await service.fetchRemote(input.resId);
@@ -3019,7 +3045,7 @@ export const accountRouter = router({
     }),
 
   /**
-   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已注入 QQ。
+   * 给某条**群消息**贴 / 撤表情回应（OIDB 0x9082_1/2）。同样需要在线的已读取 QQ 内存。
    * `code` 1–3 位 = QQ 小黄脸 id，更长 = Unicode 码点（协议层按长度自动分 type）。
    */
   setMessageReaction: procedure
@@ -3038,6 +3064,114 @@ export const accountRouter = router({
         sequence: input.sequence,
         code: input.code,
         isSet: input.isSet,
+      });
+      return { ok: true };
+    }),
+
+  /**
+   * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
+   *
+   * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。
+   * **不做任何本地写库** —— 防撤回触发器等 QQ 同步回来自证，前端只看 toast。
+   */
+  recallMessage: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        sequence: z.number().int().positive(),
+        random: z.number().int().nonnegative().optional(),
+        timestamp: z.number().int().nonnegative().optional(),
+        clientSequence: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.recallMessage({
+        kind: input.kind,
+        conv: input.conv,
+        sequence: input.sequence,
+        ...(input.random !== undefined ? { random: input.random } : {}),
+        ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
+        ...(input.clientSequence !== undefined ? { clientSequence: input.clientSequence } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /** 设置群成员群名片（0x8FC_3）。给自己改 = 改自己的群昵称。 */
+  setGroupMemberCard: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        card: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.setMemberCard({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        card: input.card,
+      });
+      return { ok: true };
+    }),
+
+  /** 踢出群成员（0x8A0_1，群主 / 管理员）。 */
+  kickGroupMember: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        reject: z.boolean().optional(),
+        reason: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.kickMember({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        ...(input.reject !== undefined ? { reject: input.reject } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+      return { ok: true };
+    }),
+
+  /** 禁言群成员（0x1253_1，群主 / 管理员）。duration 秒，0 = 解除禁言。 */
+  muteGroupMember: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        duration: z.number().int().nonnegative(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.muteMember({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        duration: input.duration,
+      });
+      return { ok: true };
+    }),
+
+  /** 设置 / 取消群管理员（0x1096_1，仅群主）。 */
+  setGroupAdmin: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        targetUid: z.string().min(1),
+        enable: z.boolean(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      await requireServices().groupModeration.setAdmin({
+        groupId: input.groupId,
+        targetUid: input.targetUid,
+        enable: input.enable,
       });
       return { ok: true };
     }),
@@ -3121,6 +3255,40 @@ export const accountRouter = router({
   /** Live prerequisites for group album list/media/export. */
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
+  }),
+
+  /**
+   * 在线转写（语音转文字，QQ 服务端 ASR）是否已 arm。
+   *
+   * 导出灯箱点「开启在线转录」时 arm：起一个网卡抓包会话（Linux 走提权子进程，
+   * Windows 检查 Npcap），导出转录阶段据此发 `pttTrans` 请求并归集异步 push。
+   */
+  onlineTranscribeStatus: procedure.query(() => ({
+    armed: onlineTranscriber.isArmed(),
+    uin: onlineTranscriber.armedUin(),
+  })),
+
+  /**
+   * arm 在线转写抓包会话。前置：QQ 在线 + 未开启完全离线模式（attach 总控）+ 抓包
+   * 后端可用（Windows 缺 Npcap 会抛引导文案）。失败原样抛出给前端展示。
+   */
+  onlineTranscribeArm: procedure
+    .input(z.object({ uin: z.string().min(1).optional() }).optional())
+    .mutation(async ({ input }) => {
+      const state = albumAccessState();
+      if (!state.qqOnline) throw new Error('需要先登录该账号的 QQ 客户端。');
+      if (!state.attachEnabled) {
+        throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），无法开启在线转写。');
+      }
+      const uin = input?.uin ?? String(getAppContext().account?.context.uin ?? '');
+      if (!uin) throw new Error('尚未打开账号，无法开启在线转写。');
+      return { ok: true, ...(await onlineTranscriber.arm(uin)) };
+    }),
+
+  /** 停掉在线转写的抓包会话（导出结束 / 关闭开关时调用，幂等）。 */
+  onlineTranscribeDisarm: procedure.mutation(async () => {
+    await onlineTranscriber.disarm();
+    return { ok: true };
   }),
 
   /**
@@ -3252,12 +3420,15 @@ export const accountRouter = router({
    * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
    *
    * 与语音 / 文件同一条输入框入口，但走的是 fileset 管线（不是普通消息元素）：
-   * 申请 → commit/complete → 0x93d7 发消息 → **立刻返回**。封面与主文件上传在后台
-   * 继续（先发后传），所以这个 mutation 不会被大文件拖住。
+   * 申请 → commit/complete → **封面传完** → 0x93d7 发消息 → **立刻返回**。只有主文件
+   * 字节在后台继续传，所以这个 mutation 不会被大文件拖住；封面必须排在发消息前，
+   * 否则对端卡片只会显示默认封面（实机抓包见 FlashTransferService）。
    * 返回 `{ filesetUuid, shareUrl }`，前端拿 uuid 做乐观条目的对账签名。
    *
-   * `coverBase64` 是渲染层用 canvas 拼出来的 **PNG**（封面图要从 `resources/fileicon`
-   * 拼，所以合成放在渲染层——主进程没有 canvas）。这里只做大小与落盘。
+   * `coverBase64` 有两种来源：默认封面是渲染层用 canvas 拼的 **PNG**（封面图要从
+   * `resources/fileicon` 拼，合成放在渲染层——主进程没有 canvas）；用户自定义封面是
+   * **原图直通**（渲染层只校验大小与格式，不重绘不压缩），可能是 PNG 或 JPEG。
+   * 这里只做大小与落盘，格式由协议层按 magic 探测。
    */
   sendFlashTransfer: procedure
     .input(
@@ -3286,7 +3457,11 @@ export const accountRouter = router({
         if (bytes.byteLength > FLASH_COVER_MAX_BYTES) {
           throw new Error(`封面图不能超过 ${FLASH_COVER_MAX_BYTES / 1024 / 1024} MB。`);
         }
-        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.png`);
+        // 用户封面直通后可能是 PNG 也可能是 JPEG：按 magic 探测，落盘用对应扩展名
+        // （协议层的 prepareThumbnail 也只认这两种，扩展名不影响上传，但可读性好些）。
+        const type = detectThumbType(new Uint8Array(bytes));
+        if (type === null) throw new Error('封面只支持 PNG / JPEG 图片。');
+        coverPath = join(tmpdir(), `weq-flash-cover-${randomUUID()}.${type}`);
         await writeFile(coverPath, bytes);
       }
 
@@ -3580,7 +3755,7 @@ export const accountRouter = router({
 
       // 没有在线 QQ（或处于完全离线模式）就没有 clientKey 可换 —— 退回裸地址，
       // 用户自己在浏览器里登录。
-      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
       if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
         return { url: landing, autoLogin: false };
       }
@@ -3613,19 +3788,19 @@ export const accountRouter = router({
         const uin = ctx.account?.context.uin;
         const nt = ctx.platform?.native.ntHelper;
         const record = services.accountConfig.getRecord();
-        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
         if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
           if (offlineMode) {
             return {
               ok: false,
               reason: 'offline',
-              message: '已开启完全离线模式（自动注入 QQ 已关闭），闪传分享需要在线 QQ。',
+              message: '已开启完全离线模式（自动读取 QQ 内存 已关闭），闪传分享需要在线 QQ。',
             };
           }
           return { ok: false, reason: 'offline' };
         }
         try {
-          await ctx.bootstrap?.injectHook.ensure(record.qqPid, uin);
+          await ctx.bootstrap?.attachHook.ensure(record.qqPid, uin);
           const shareUrl = await services.flashTransfer.getShareLink(input.fileSetId);
           if (!shareUrl) {
             return { ok: false, reason: 'error', message: '没有拿到分享链接（文件可能已过期）' };
@@ -3920,10 +4095,10 @@ export const accountRouter = router({
       const svc = requireServices().collection;
       const limit = input?.limit ?? 50;
       const offset = input?.offset ?? 0;
-      // 完全离线模式（自动注入 QQ 关闭）：网络同步需要 weiyun p_skey（在线实例），
+      // 完全离线模式（自动读取 QQ 内存 关闭）：网络同步需要 weiyun p_skey（在线实例），
       // 一律回退本地 collection.db，避免白打一次网络 + 凭证换取。
       const offlineMode =
-        getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
+        getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
       const source = offlineMode ? 'db' : (input?.source ?? 'auto');
       const page =
         source === 'db'
@@ -4028,6 +4203,10 @@ export const accountRouter = router({
             downloadFile: z.boolean(),
             downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
+            /** 在线转写：优先向 QQ 服务端要文本，漏包 / 过期回退本地模型（需 QQ 在线）。 */
+            onlineTranscribe: z.boolean().optional(),
+            /** 在线转写并发请求数（默认 5）。 */
+            onlineConcurrency: z.number().int().min(1).max(32).optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -4162,7 +4341,7 @@ export const accountRouter = router({
   /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
-   * when fresh rkeys were stored. 完全离线模式（自动注入 QQ 关闭）下直接返回 false。
+   * when fresh rkeys were stored. 完全离线模式（自动读取 QQ 内存 关闭）下直接返回 false。
    */
   refreshRkeys: procedure.mutation(() => {
     return getAppContext().refreshRkeysNow();

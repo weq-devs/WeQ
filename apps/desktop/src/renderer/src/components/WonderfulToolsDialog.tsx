@@ -8,9 +8,10 @@
  *     QQ 进程 pid（win32 走 Restart Manager、linux 走 fcntl 写锁，由
  *     platform.resolveQqPid 统一封装）。
  *   - 在线账号卡片亮起（绿色在线点 + 高亮），离线账号置灰。
- *   - 点击卡片 → 卡片加载动画 → 对账号进程做零注入内存扫描
- *     （nt_helper scanKeyFromDatabase），展示恢复的密钥、密钥所在内存的
- *     上下文 hexdump（高亮密钥字节）或失败原因。
+ *   - 点击卡片 → 卡片加载动画 → 对账号进程做只读内存扫描
+ *     （nt_helper scanKeyFromDatabaseWithProgress），结果弹窗里有两阶段进度条
+ *     （锚点扫描 → 回退全内存扫描），展示恢复的密钥、密钥所在内存的上下文
+ *     hexdump（高亮密钥字节）或失败原因。
  *
  * 「其它设备密钥」：
  *   - 先检查是否有可用的在线 QQ 实例（复用密钥扫描的 pid 判定），没有就
@@ -18,11 +19,11 @@
  *   - 选择其它设备导出的 `nt_msg.db` → 读取头部字节（256B）展示 hexdump，
  *     高亮发包用的 db_salt（文件偏移 0x2f..0xaf，与 nt_helper
  *     request_decrypt_key 一致）。
- *   - hexdump 下方显示加载动画，然后按 bootstrap 的实例取密钥流程（跳过
- *     注入，直接调 nt_helper requestDecryptKey）返回密钥或失败原因。
+ *   - hexdump 下方显示加载动画，然后按 bootstrap 的实例取密钥流程（不读
+ *     内存，直接调 nt_helper requestDecryptKey）返回密钥或失败原因。
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Binary,
   Braces,
@@ -33,6 +34,7 @@ import {
   FolderOpen,
   KeyRound,
   Loader2,
+  Radio,
   RefreshCw,
   ScanSearch,
   X,
@@ -41,6 +43,7 @@ import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
 import { ReverseTool } from './ReverseTool';
+import { CapturePanel } from './CapturePanel';
 import { DbRepairPanel } from './DbRepairPanel';
 
 interface AccountRow {
@@ -66,13 +69,21 @@ interface ScanResultView extends ScanResultWire {
   pid: number | null;
 }
 
+/** 密钥扫描的两阶段进度（来自 nt_helper `scanKeyFromDatabaseWithProgress`）。 */
+interface ScanProgressView {
+  phase: string;
+  percent: number;
+  message: string;
+}
+
 /** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
-export type ToolId = 'key-scan' | 'other-device-key' | 'reverse' | 'db-repair';
+export type ToolId = 'key-scan' | 'other-device-key' | 'db-repair' | 'capture' | 'reverse';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
-  { id: 'key-scan', label: '密钥扫描', desc: '零注入内存扫描主密钥' },
+  { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
   { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
+  { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
 ];
 
@@ -80,6 +91,7 @@ const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'key-scan': KeyRound,
   'other-device-key': Database,
   'db-repair': DatabaseZap,
+  capture: Radio,
   reverse: Braces,
 };
 
@@ -288,13 +300,16 @@ export function WonderfulToolsDialog({
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 全局「自动注入 QQ（完整功能）」——关闭即完全离线模式。 */
-  const [autoInjectQq, setAutoInjectQq] = useState(true);
+  /** 全局「自动读取 QQ 内存（完整功能）」——关闭即完全离线模式。 */
+  const [autoAttachQq, setAutoAttachQq] = useState(true);
   const [scanningUin, setScanningUin] = useState<string | null>(null);
   /** 正在扫描 / 已出结果的账号 —— 存在时弹出结果模态窗口。 */
   const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
   const [result, setResult] = useState<ScanResultView | null>(null);
   const [copied, setCopied] = useState(false);
+  /** 扫描的两阶段进度；还没有收到任何进度事件时为 null（显示不确定进度）。 */
+  const [scanProgress, setScanProgress] = useState<ScanProgressView | null>(null);
+  const scanSubRef = useRef<{ unsubscribe: () => void } | null>(null);
 
   // —— 其它设备密钥 ——
   const [otherDbPath, setOtherDbPath] = useState<string | null>(null);
@@ -316,10 +331,10 @@ export function WonderfulToolsDialog({
   } | null>(null);
   const [otherCopied, setOtherCopied] = useState(false);
 
-  /** 当前在线的 QQ 实例数（密钥扫描用：零注入，离线模式下仍可用）。 */
+  /** 当前在线的 QQ 实例数（密钥扫描用：只读内存，离线模式下仍可用）。 */
   const onlineCount = accounts.filter((a) => a.pid !== null).length;
-  /** 其它设备密钥需要「已注入」的在线实例；完全离线模式下视为 0。 */
-  const otherKeyOnline = autoInjectQq ? onlineCount : 0;
+  /** 其它设备密钥需要「已读取内存」的在线实例；完全离线模式下视为 0。 */
+  const otherKeyOnline = autoAttachQq ? onlineCount : 0;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -327,7 +342,7 @@ export function WonderfulToolsDialog({
     void client.bootstrap.getSettings
       .query()
       .then((s) => {
-        if (alive) setAutoInjectQq(s.autoInjectQq);
+        if (alive) setAutoAttachQq(s.autoAttachQq);
       })
       .catch(() => {
         /* 读不到就按默认开启处理 */
@@ -338,10 +353,13 @@ export function WonderfulToolsDialog({
   }, [open]);
 
   const closeResult = useCallback(() => {
+    scanSubRef.current?.unsubscribe();
+    scanSubRef.current = null;
     setScanTarget(null);
     setScanningUin(null);
     setResult(null);
     setCopied(false);
+    setScanProgress(null);
   }, []);
 
   useEffect(() => {
@@ -381,6 +399,7 @@ export function WonderfulToolsDialog({
       setResult(null);
       setScanningUin(null);
       setScanTarget(null);
+      setScanProgress(null);
       setOtherDbPath(null);
       setHeaderHex(null);
       setSaltInfo(null);
@@ -397,6 +416,19 @@ export function WonderfulToolsDialog({
     setScanTarget(acc);
     setScanningUin(acc.uin);
     setResult(null);
+    setScanProgress(null);
+    // 挂上进度订阅：主进程会把所有扫描的进度推给所有人，按 uin 过滤自己这次。
+    // 老产物没有带进度的接口时不会有任何事件 —— 面板退回不确定进度动画。
+    scanSubRef.current?.unsubscribe();
+    scanSubRef.current = client.wonderfulTools.onKeyScanProgress.subscribe(undefined, {
+      onData: (p) => {
+        if (p.uin !== acc.uin) return;
+        setScanProgress({ phase: p.phase, percent: p.percent, message: p.message });
+      },
+      onError: () => {
+        // 订阅断了不影响扫描本身（进度条停在最后一帧）。
+      },
+    });
     try {
       const r = await client.wonderfulTools.scanKey.query({ uin: acc.uin });
       setResult({ ...r, uin: acc.uin, name: acc.userName || acc.uin, pid: acc.pid });
@@ -410,6 +442,8 @@ export function WonderfulToolsDialog({
       });
     } finally {
       setScanningUin(null);
+      scanSubRef.current?.unsubscribe();
+      scanSubRef.current = null;
     }
   }
 
@@ -482,7 +516,7 @@ export function WonderfulToolsDialog({
   return (
     <div className="weq-wtools-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
       <div
-        className="weq-wtools-dialog"
+        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="weq-wtools-title"
@@ -626,7 +660,7 @@ export function WonderfulToolsDialog({
                     <span
                       className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                     >
-                      {autoInjectQq
+                      {autoAttachQq
                         ? otherKeyOnline > 0
                           ? `${otherKeyOnline} 个在线实例可用`
                           : '无在线实例'
@@ -719,7 +753,7 @@ export function WonderfulToolsDialog({
                         !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
                       }
                       title={
-                        !autoInjectQq
+                        !autoAttachQq
                           ? '已开启完全离线模式，无法向 QQ 请求密钥'
                           : otherKeyOnline === 0
                             ? '没有可用的在线 QQ 实例，无法发包获取密钥'
@@ -735,9 +769,9 @@ export function WonderfulToolsDialog({
                     </button>
                     {otherKeyOnline === 0 && !fetchingKey ? (
                       <span className="weq-wtools-odev-hint">
-                        {autoInjectQq
+                        {autoAttachQq
                           ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
-                          : '已开启完全离线模式（自动注入 QQ 已关闭），无法向 QQ 请求密钥'}
+                          : '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向 QQ 请求密钥'}
                       </span>
                     ) : null}
                   </div>
@@ -777,6 +811,28 @@ export function WonderfulToolsDialog({
                       </div>
                     )
                   ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {activeTool === 'capture' ? (
+              <>
+                <header className="weq-wtools-pane-head">
+                  <div className="weq-wtools-pane-title">
+                    <Radio size={17} strokeWidth={1.9} />
+                    <h2 id="weq-wtools-title">ntqq 抓包</h2>
+                  </div>
+                </header>
+                {/* 抓包面板自带分栏与滚动，所以正文区全出血（去掉内边距、不自己滚）。 */}
+                <div className="weq-wtools-pane-body is-flush">
+                  <CapturePanel
+                    accounts={accounts.map((acc) => ({
+                      uin: acc.uin,
+                      name: acc.userName,
+                      avatarUrl: acc.avatarUrl,
+                      pid: acc.pid,
+                    }))}
+                  />
                 </div>
               </>
             ) : null}
@@ -851,9 +907,27 @@ export function WonderfulToolsDialog({
 
             <div className="weq-wtools-result-body">
               {scanningUin ? (
-                <div className="weq-wtools-state">
-                  <Loader2 size={20} className="weq-spin" />
-                  <span>正在扫描进程内存并验证密钥…</span>
+                <div className="weq-wtools-scan-progress" aria-live="polite">
+                  <div className="weq-wtools-scan-progress-head">
+                    <Loader2 size={15} strokeWidth={2} className="weq-spin" />
+                    <span className="weq-wtools-scan-msg">
+                      {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
+                    </span>
+                    {scanProgress ? (
+                      <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
+                    ) : null}
+                  </div>
+                  <div className="weq-wtools-scan-track">
+                    <div
+                      className={`weq-wtools-scan-fill${scanProgress ? '' : ' is-indeterminate'}`}
+                      style={scanProgress ? { width: `${scanProgress.percent}%` } : undefined}
+                    />
+                  </div>
+                  {scanProgress?.phase === 'strong' ? (
+                    <span className="weq-wtools-scan-hint">
+                      锚点附近没找到可验证的密钥，正在回退扫描整个内存（较慢）
+                    </span>
+                  ) : null}
                 </div>
               ) : result ? (
                 result.success && result.key ? (

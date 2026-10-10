@@ -100,6 +100,30 @@ export interface MediaRef {
   path: string | null;
   /** ptt only: transcript already stored on the element (wire tag 45923), if any. */
   transcript?: string;
+  /**
+   * ptt only：在线转写（pttTrans）所需的消息 / 元素字段。QQ 在线且抓包就绪时，
+   * 导出阶段可凭它直接发请求拿 QQ 自己转的文本，再对结果缺失者用本地模型补全。
+   * 关键项（fileToken / md5 / 发送者 / 会话）缺一即退化为纯本地转写。
+   */
+  online?: {
+    /** 发送者 uin（十进制字符串）。 */
+    senderUin: string;
+    /** 私聊 = 对方 uin；群聊 = 群号（十进制字符串）。 */
+    peerUin: string;
+    isGroup: boolean;
+    /** 32 位小写 hex md5（语音本体）。 */
+    md5: string;
+    /** 时长（秒，wire tag 45906）。 */
+    duration: number;
+    /** 字节数（wire tag 45405）。 */
+    size: number;
+    /** 编码格式（wire tag 45907）。 */
+    format: number;
+    /** 事件类型（wire tag 45922）。 */
+    eventType: number;
+    /** 群语音数值 file id（wire tag 45903；私聊恒为 0）。 */
+    fileId: number;
+  };
 }
 
 export interface KindCounts {
@@ -239,6 +263,7 @@ function collectFromElements(
   sendTime: number,
   out: MediaRef[],
   fileTtlSec: number,
+  msgCtx: { senderUin: string; peerUin: string; isGroup: boolean },
 ): void {
   for (const el of els) {
     let kind: MediaKind | null = null;
@@ -250,6 +275,13 @@ function collectFromElements(
     let fileTTL = 0;
     let expireTimestamp = 0;
     let transcript = '';
+    // ptt 在线转写请求所需字段（其它 kind 用不到，保持默认）。
+    let pttMd5 = '';
+    let pttDuration = 0;
+    let pttSize = 0;
+    let pttFormat = 0;
+    let pttEventType = 0;
+    let pttFileId = 0;
     switch (el.type) {
       case 'pic':
         kind = el.data.subType === 1 ? 'emoji' : 'pic';
@@ -277,6 +309,12 @@ function collectFromElements(
         uploadTimestamp = el.data.uploadTimestamp;
         fileTTL = el.data.fileTTL;
         transcript = el.data.pttTranscript ?? '';
+        pttMd5 = el.data.md5Bytes || el.data.md5 || '';
+        pttDuration = el.data.pttDuration ?? 0;
+        pttSize = el.data.fileSize ?? 0;
+        pttFormat = el.data.pttFlag45907 ?? 0;
+        pttEventType = el.data.pttFlag45922 ?? 0;
+        pttFileId = el.data.pttFlag45903 ?? 0;
         break;
       case 'file':
         kind = 'file';
@@ -308,6 +346,21 @@ function collectFromElements(
       expired: false,
       path: null,
       ...(transcript ? { transcript } : {}),
+      ...(kind === 'ptt'
+        ? {
+            online: {
+              senderUin: msgCtx.senderUin,
+              peerUin: msgCtx.peerUin,
+              isGroup: msgCtx.isGroup,
+              md5: pttMd5,
+              duration: pttDuration,
+              size: pttSize,
+              format: pttFormat,
+              eventType: pttEventType,
+              fileId: pttFileId,
+            },
+          }
+        : {}),
     });
   }
 }
@@ -384,6 +437,11 @@ export async function scanConvMedia(
       Number(m.sendTime),
       rawRefs,
       fileTtlSec,
+      {
+        senderUin: m.senderUin.toString(),
+        peerUin: 'targetGroupCode' in m ? m.targetGroupCode : m.targetUin.toString(),
+        isGroup: kind === 'group',
+      },
     );
   }
   const collectMs = Date.now() - t0;

@@ -99,7 +99,8 @@ export async function fetchHighwaySession(nt: TrpcNative, pid: number): Promise<
       ver: '1.0.1',
     },
   });
-  const bytes = await sendPacket(nt, pid, HIGHWAY_SESSION_CMD, request);
+  // 抓包（/tmp/capture.log）里真机发 `HttpConn.0x6ff_501` 时**不带** tag 24，即不签名。
+  const bytes = await sendPacket(nt, pid, HIGHWAY_SESSION_CMD, request, false);
   const resp = decode(HTTP_CONN_RESP, bytes) as {
     httpConn?: {
       sigSession?: Uint8Array;

@@ -57,6 +57,7 @@ import {
   downloadMissingVoices,
   type DecodeSilk,
   type TranscribeVoiceFn,
+  type OnlineTranscribeFn,
   type MediaFailure,
 } from './media_export';
 import {
@@ -192,6 +193,13 @@ export interface MediaExportOptions {
   completeDress?: boolean;
   /** Transcribe locally-found voice clips into a `transcripts.json` (needs a model). */
   transcribeVoice: boolean;
+  /**
+   * 在线转写：语音转录时优先向 QQ 服务端要文本（需 QQ 在线 + 抓包已 arm），
+   * 漏包 / 过期的再用本地模型补全。缺省关闭。
+   */
+  onlineTranscribe?: boolean;
+  /** 在线转写的并发请求数（默认 5）。 */
+  onlineConcurrency?: number;
 }
 
 export interface ExportTask {
@@ -278,6 +286,11 @@ export interface MediaDeps {
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
   transcribe?: TranscribeVoiceFn;
+  /**
+   * 在线转写（QQ 服务端 ASR）—— 由 app 注入：native 发包 + 网卡抓 push。
+   * 抓包会话需在导出前先 arm；不可用时抛错，转写阶段自动回退本地模型。
+   */
+  onlineTranscribe?: OnlineTranscribeFn;
   /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
   chatlab?: ChatlabDeps;
   /** 频道私聊（guild direct）导出源——guild_msg.db / guild1.db，由 app 注入。 */
@@ -805,8 +818,15 @@ export class ExportTaskManager extends EventEmitter {
       // 否则下面可能长时间阻塞的 seq 空窗扫描会让任务卡片迟迟不出现。
       await new Promise<void>((resolve) => setImmediate(resolve));
 
-      const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } =
-        this.deps;
+      const {
+        avatarCache,
+        mediaDownload,
+        accountDir,
+        ntDataDir,
+        decodeSilk,
+        transcribe,
+        onlineTranscribe,
+      } = this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
@@ -1722,6 +1742,14 @@ export class ExportTaskManager extends EventEmitter {
             },
             { persist: true },
           );
+          const useOnline = Boolean(task.media?.onlineTranscribe && onlineTranscribe);
+          if (useOnline) {
+            this.log(
+              id,
+              'transcribe',
+              `在线转写已开启（并发 ${task.media?.onlineConcurrency ?? 5}），漏包 / 过期将回退本地模型`,
+            );
+          }
           const r = await transcribeFoundVoices(
             found,
             outDir,
@@ -1741,6 +1769,8 @@ export class ExportTaskManager extends EventEmitter {
               await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
             },
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
+            useOnline ? onlineTranscribe : undefined,
+            task.media?.onlineConcurrency ?? 5,
           );
           // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
           // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），

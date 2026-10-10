@@ -108,7 +108,6 @@ interface DbRepairStatusView {
   dbDir: string;
   keyPresent: boolean;
   qqPid: number | null;
-  qqPids: number[];
   busy: boolean;
   databases: DbRepairDatabaseRowView[];
   error: string | null;

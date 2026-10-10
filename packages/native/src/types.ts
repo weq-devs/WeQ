@@ -1,8 +1,8 @@
 /**
  * Public type surface of the `@weq/native` package.
  *
- * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / inject / OIDB)
- * and the `launchQQ` entry of `ninebird_addon.node` (login bootstrap).
+ * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / send-recv /
+ * wtlogin).
  *
  * The actual .node files live under `<repo>/native/<platform>/<arch>/` and
  * are loaded by `loader.ts`. Nothing in this file does I/O — it's purely
@@ -53,27 +53,16 @@ export interface LoginAccount {
   a1Key: string;
   /** Unix seconds. 0 if never seen. */
   lastLoginAt: number;
-}
-
-/**
- * Port-probe result for one running QQ.exe. Mirrors `QqPortLoginInfo`
- * in `Qrypt-Native/nt_helper/src/detect/port.rs`.
- *
- * NOTE: this struct does NOT contain `pid` — the napi entry takes pid as
- * an input parameter and returns just the per-account info. Pair it
- * with the pid at the call site if you need both.
- */
-export interface QqPortLoginInfo {
-  /** Local port the info was scraped from (4301/4303/4305/4307/4309). */
-  port: number;
-  /** QQ number. Empty string when port responded but no uin attached. */
-  uin: string;
-  /** Long uid; null when the probe path didn't carry it. */
-  uid: string | null;
-  /** Display name; null when the probe path didn't carry it. */
-  nickName: string | null;
-  /** True if the port reports the account is currently logged in. */
-  loggedIn: boolean;
+  /**
+   * `[1004]` 里那段 A1 payload 用设备 guid 解密后的内层 TGTGT 结构（hex）。
+   * 缺失 = 该行没有 A1，或 guid 取不到 / 解密失败（失败不阻断其它字段）。
+   */
+  a1Payload?: string;
+  /**
+   * 解密 A1 时顺带算出的设备 guid（32 位小写 hex）。`undefined` = 该数据根下
+   * 没有可用的 guid 来源。
+   */
+  guid?: string;
 }
 
 /**
@@ -97,6 +86,80 @@ export interface DbLockProbeResult {
   /** True when at least one process holds the file (i.e. `holders` is non-empty). */
   locked: boolean;
   holders: DbLockHolder[];
+}
+
+/**
+ * 一次内存扫描的产出：该会话的 a2 / d2 / d2key。全部是十六进制字符串
+ * （a2/d2 为原文 hex，d2key 为 32 位 hex）。任何一项没扫到就是 `undefined`，
+ * 不影响其它项。
+ *
+ * **不含 guid**：guid 与登录无关（它是设备标识），另走 `readDeviceGuid`
+ * 从 QQ 数据根路径离线计算/读取。
+ */
+export interface SessionMaterial {
+  a2?: string;
+  d2?: string;
+  d2Key?: string;
+}
+
+/** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */
+export interface SignOutput {
+  token: string;
+  extra: string;
+  sign: string;
+}
+
+/**
+ * 一场原生 SSO 会话的物料：内存里读到的密钥（{@link SessionMaterial}）加上
+ * 离线读出的 guid、账号 uid 与 PC 端的 `subAppId`。
+ *
+ * 除 `traceParent` 外每一项都会被用到：`traceParent` 只给 `buildSsoPacket` 用
+ * （钉死 tag 15 便于逐字节比对抓包），正常发包时每包的 trace 由原生随机生成。
+ */
+export interface SsoSessionConfig {
+  /** 账号 UIN 十进制串。 */
+  uin: string;
+  /** a2（tgt）原文。 */
+  a2: Buffer;
+  /** d2 原文。 */
+  d2: Buffer;
+  /** d2key，必须 16 字节。 */
+  d2Key: Buffer;
+  /** 设备 guid（32 位小写 hex）。 */
+  guid: string;
+  /** 账号 uid（`u_...`）。 */
+  uid: string;
+  /**
+   * SSO 的 `subAppId`。**必须等于当前运行 QQ 构建的 appid**
+   * （`major.node` 的 `QQAppId/537xxxxxx`，见 {@link resolveAppidFromMajor}）。
+   * 用错值服务端会直接回 `-10003 身份验证失败`。别硬编码：QQ 每次更新都会换
+   * appid（9.9.35 → 537382819，9.9.36 → 537391628）。
+   */
+  subAppId: number;
+  /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
+  clientConnSeq?: string | null;
+  /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */
+  traceParent?: string | null;
+}
+
+/** 一次原生 SSO 组帧请求（{@link NtHelperBinding.buildSsoPacket} 的入参）。 */
+export interface SsoPacketRequest {
+  /** 会话物料。 */
+  session: SsoSessionConfig;
+  /** SSO 命令，如 `MessageSvc.PbSendMsg`。 */
+  command: string;
+  /** 12 = D2Auth（带 a2/guid/保留字段），13 = Simple。 */
+  requestType: number;
+  /** 0 = 不加密，1 = 用 d2key，2 = 用全零 key。 */
+  encryptType: number;
+  /** 明文包体。 */
+  body: Buffer;
+  /** 序号；不传则消费一次全局序号。 */
+  sequence?: number | null;
+  /** 是否需要签名（决定是否写 reserved tag 24）。 */
+  needSign: boolean;
+  /** `wrapper.node` 路径；`needSign` 为 true 时必填。 */
+  wrapperPath?: string | null;
 }
 
 /**
@@ -161,25 +224,17 @@ export interface KeyScanResult {
   error?: string;
 }
 
-/** Status returned after injecting the hook DLL into a QQ process. */
-export interface QQInstanceStatus {
-  pid: number;
-  loggedIn: boolean;
-  uin: string;
-}
-
 /**
- * A recv packet observed by the hook. Returned by `waitForRealPacket`. On
- * linux this is no longer required for readiness (the hook binds the MSF
- * service via the inject-time uin handshake) — it exists only as a debugging
- * probe now.
+ * One progress tick from a `scanKeyFromDatabaseWithProgress` run. Mirrors
+ * `KeyScanProgress` in nt_helper (`key_scan/mod.rs`).
  */
-export interface HookRecvPacketInfo {
-  sequence: string;
-  error: number;
-  cmd: string;
-  uin: string;
-  body: Buffer;
+export interface KeyScanProgress {
+  /** `"anchor"`（锚点/簇扫描）或 `"strong"`（回退全内存扫描）。 */
+  phase: string;
+  /** 当前阶段内的百分比（0–100）；阶段切换时会从 0 重新开始。 */
+  percent: number;
+  /** 给用户看的短句，例如"扫描内存锚点"。 */
+  message: string;
 }
 
 export interface WindowsHelloAvailabilityInfo {
@@ -365,13 +420,118 @@ export interface ConvertFontOptions {
   checkOts?: boolean;
 }
 
+// ---------- 网卡抓包（capture）---------------------------------------
+
+/**
+ * `startCapture` 选项。全部可选；省略即默认行为。
+ *
+ * 抓包会话是**长生命周期**的：要在发包**之前** `startCapture`（它直到网卡已
+ * 打开、BPF 已装、读循环即将开始才 resolve），否则异步回来的首包会漏。
+ */
+export interface CaptureOptions {
+  /**
+   * d2key（32 字符 hex）。省略时回退到该 pid 已登记的 `setSsoSession` 物料。
+   *
+   * ⚠️ 字段名是 **`d2Key`**（不是 `d2key`）：napi 把 Rust 的 `d2key` 转成 `d2Key`
+   * （数字与字母之间算词边界）。写成 `d2key` 会被**静默忽略**，于是密文全部解不开。
+   */
+  d2Key?: string;
+  /** 抓包接口：默认 `auto`（自动选默认路由出口网卡）。 */
+  iface?: string;
+  /** MSF 端口：默认 `auto`（持续按帧签名识别）；也可 `14000` / `14000,443,80` / `auto,443`。 */
+  port?: string;
+  /** 环形缓冲可留住的帧数上限（默认 512）；超出后最旧的帧被淘汰并累加进 `dropped`。 */
+  ringFrames?: number;
+  /** 可选：同时把原始包旁路写成一个 pcap 文件。 */
+  pcapFile?: string;
+}
+
+/** 一次已 armed 的抓包会话。 */
+export interface CaptureSession {
+  pid: number;
+  /** 实际选中的网卡（含描述）。 */
+  iface: string;
+  /** 实际端口策略标签。 */
+  port: string;
+  linktype: number;
+}
+
+/** 一帧。`cmd` / `body` / `plain` 在 TEA 解密 + SSO 头解析成功后才有；`raw` 永远在。 */
+export interface CapturedFrame {
+  /** 全程单调递增的帧序号，用于 `takeFrames` 的游标续取。 */
+  cursor: number;
+  /** 捕获时间（Unix 毫秒）。 */
+  ts: number;
+  direction: 'c2s' | 's2c';
+  proto: number;
+  encryptType: number;
+  seq: number;
+  /** SSO 头里的命令字（如 `pttTrans.TransC2CPttReq`）。 */
+  cmd?: string;
+  /** 解密后的正文（protobuf 原始字节，展开交给 `@weq/protocol`）。 */
+  body?: Buffer;
+  /** 完整解密明文。 */
+  plain?: Buffer;
+  /** 完整原始帧（含 4 字节长度前缀）。 */
+  raw: Buffer;
+}
+
+/** `takeFrames` 选项。 */
+export interface TakeOptions {
+  /** 从哪个游标开始取；省略 = 从缓冲里最旧的帧开始。 */
+  cursor?: number;
+  /**
+   * 最多等待多久（毫秒）再返回。`>0` 时会一直收集到窗口结束再一次性取回全部 ——
+   * 「发包 → 监听 10 秒 → 自己筛结果」就靠它。
+   */
+  waitMs?: number;
+  /** 攒够这么多帧就提前返回（配合 `waitMs`；设置了 `matchCmd` 时不生效）。 */
+  minFrames?: number;
+  /** 单次批量上限（默认 1024）。 */
+  maxFrames?: number;
+  /** 只回 `cmd` 含该子串的帧（可选糖）。 */
+  matchCmd?: string;
+}
+
+/** 一批取回的帧。 */
+export interface FrameBatch {
+  frames: CapturedFrame[];
+  /** 下一次 `takeFrames` 传回它即可续取。 */
+  nextCursor: number;
+  /** 自会话开始以来因环形缓冲溢出被淘汰的帧数（累计值）。 */
+  dropped: number;
+}
+
+/** `stopCapture` 的统计。 */
+export interface CaptureStats {
+  frames: number;
+  dropped: number;
+  /** 看到的原始网卡包数（含非 MSF 流量）。 */
+  packets: number;
+}
+
+/** 抓包后端可用性（Windows 上用于引导安装 Npcap）。 */
+export interface CaptureSupport {
+  available: boolean;
+  backend: string;
+  elevated: boolean;
+  hint: string;
+}
+
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
   setLogPath(path: string): void;
+  /**
+   * 打开 / 关闭底层调试日志模式（运行时可调，无需重启）。**默认关闭**：不打印、
+   * 不写额外的原始数据。打开后日志级别抬到 `trace`，并把收发包等原始字节整段写进
+   * nt_helper 日志（供日志面板查看）。数据量非常大，仅供临时排查，用完请立刻关掉。
+   */
+  setDebugLog(enabled: boolean): void;
+  /** 当前底层调试日志模式是否打开。 */
+  isDebugLogEnabled(): boolean;
 
-  // --- QQ process / login detection ---
-  probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
+  // --- login detection ---
   /**
    * 探测 QQ 进程 pt_login 本地快速登录端口（4301-4310，奇数 = HTTPS、偶数 = HTTP，优先 HTTPS）。
    * 无需注入 hook，只要该账号的 QQ 客户端在线即可用。结果在 success / msg / port 字段。
@@ -388,40 +548,26 @@ export interface NtHelperBinding {
    */
   ptFetchPskey(port: number, uin: string, domain: string): Promise<PtFetchPskeyResult>;
   /**
-   * Probe which processes hold an account's `nt_msg.db` open / locked — the
+   * Probe which processes have an account's `nt_msg.db` open / locked — the
    * cross-platform way to attribute a running QQ to an account AND recover its
-   * pid in one step. Windows enumerates Restart Manager open-handle holders
-   * (may include non-QQ processes like WeQ itself — filter by name); Linux
-   * reports the fcntl write-lock holder's pid via `F_GETLK`. The holder list
-   * is not filtered here: callers decide which holder is QQ.
+   * pid in one step. Windows enumerates Restart Manager open-handle holders;
+   * macOS enumerates open files via `libproc` (`proc_pidfdinfo`); both list
+   * every holder with a name (`strAppName` / `proc_name`), so non-QQ holders
+   * like WeQ itself appear too. Linux reports the single `F_GETLK` holder via
+   * `/proc/<pid>/comm`. The holder list is not filtered here: callers decide
+   * which holder is QQ.
    */
   probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   /**
-   * Get all QQ main process IDs.
-   *
-   * macOS picks the enumeration mechanism via `headless` (no auto-fallback):
-   *   - `false` (default): `NSRunningApplication` by bundle id
-   *     `com.tencent.qq` — precise, needs a GUI session;
-   *   - `true`: `libproc` full enumeration filtered by the
-   *     `/QQ.app/Contents/MacOS/QQ` executable path — works headless.
-   * Ignored on win32/linux (the arg exists only because the native signature
-   * is shared).
+   * 某账号是否在线 —— 只认「该账号的 `nt_msg.db` 正被 QQ 持有」
+   * （Windows：Restart Manager 打开句柄；macOS：libproc 打开文件枚举；
+   * Linux：`F_GETLK` 锁持有者）。三端都按进程名（`strAppName` / `proc_name` /
+   * `/proc/<pid>/comm`）只认名字像 QQ 的持有者 —— WeQ 自己读库也会出现在列表里，
+   * 不筛名字会误判成在线。名字拿不到时按「未知 → 不在线」处理，不再退化成
+   * 「有人持有即在线」。调用方负责解析出 `dbPath`。
    */
-  getQqProcesses(headless?: boolean): number[];
-  /**
-   * Is the QQ account currently logged in on this machine? The identifying
-   * inputs differ per platform because the mechanism does:
-   *   - **win32**: inspects QQ NT's per-account named mutex, keyed by numeric
-   *     `uin`. `baseDir` / `uid` are ignored.
-   *   - **linux/macOS**: probes an fcntl lock on the account's `nt_msg.db`,
-   *     located under `baseDir` via the string `uid`. Both are required; if
-   *     either is missing this returns false. `uin` is ignored.
-   *
-   * The native layer never derives `baseDir` itself — the caller passes the
-   * absolute QQ data directory (the folder containing the per-account dirs).
-   */
-  isQqLoggedIn(uin: string, baseDir?: string | null, uid?: string | null): boolean;
+  isQqLoggedIn(dbPath: string): boolean;
   /**
    * Extract appid / QUA from QQ NT's `major.node`. Used to feed launchQQ's
    * `appid` / `qua` so they match the installed QQ build exactly. `appid` is
@@ -457,6 +603,18 @@ export interface NtHelperBinding {
    * Mirrors `scan_key_from_database` in nt_helper.
    */
   scanKeyFromDatabase(dbPath: string, pid: number): Promise<KeyScanResult>;
+  /**
+   * 同 `scanKeyFromDatabase`，但当锚点/簇扫描找不到可验证的密钥时，会回退扫描
+   * 整个内存（nt_helper 的强力模式）；并通过 `onProgress` 持续回调两阶段的进度。
+   *
+   * **可选**：产物早于这个能力时可能不存在，调用方必须按"旧产物"处理（退回
+   * 无进度的 `scanKeyFromDatabase`），而不是当成致命错误。
+   */
+  scanKeyFromDatabaseWithProgress?(
+    dbPath: string,
+    pid: number,
+    onProgress?: (error: Error | null, progress: KeyScanProgress) => void,
+  ): Promise<KeyScanResult>;
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
   checkDatabaseHealth(
     dbPath: string,
@@ -464,22 +622,83 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
   ): Promise<DatabaseHealthResult>;
 
-  // --- hook injection ---
+  // --- 内存扫描（attach） ---
   /**
-   * Inject the hook into `pid` and wait until it is ready to send OIDB
-   * packets. `uin` is required — the native hook no longer derives it from
-   * the process — and is handed to the hook over the pipe on linux so it can
-   * bind the right MSFService instance (injection resolves only once bound,
-   * up to ~30s). The returned `QQInstanceStatus.uin` echoes the passed value.
+   * 扫描某 QQ 进程的内存，取出该会话的 a2 / d2 / d2key。
+   *
+   * 运行时 RTTI 自举，零硬编码 RVA。**权限要求与进程注入一致**：
+   * Linux 需要 root（或 CAP_SYS_PTRACE）且 `/proc/sys/kernel/yama/ptrace_scope`
+   * 放行；macOS 需要 root，且目标未启用强化运行时保护（QQ 启用了，所以得关
+   * SIP）；Windows 需要管理员。失败时 reject，错误信息本身就是提权/版本变化的
+   * 诊断提示。
    */
-  injectAndGetStatus(pid: number, dllPath: string, uin: string): Promise<QQInstanceStatus>;
-  injectAndGetStatusEmbedded(pid: number, uin: string): Promise<QQInstanceStatus>;
+  scanSessionMaterial(pid: number): Promise<SessionMaterial>;
   /**
-   * Wait until the hook observes a genuine post-login recv packet (pre-login
-   * snapshots/commands are ignored). No longer part of the readiness flow on
-   * linux — keep only as a manual probe.
+   * 从 QQ 数据根路径离线计算/读取设备 guid（32 位小写 hex），或 `null`。
+   *
+   * 与 `scanSessionMaterial` 不同，它**不需要任何权限、不碰进程**：
+   * Linux 读 `/etc/machine-id` + `<root>/global/nt_data/msf/machine-info`；
+   * macOS TEA 解密 `<root>/global/nt_data/msf/machineid-info`；
+   * Windows 从 `<root>/All Users/QQ/Registry2.0.db` 取 `G3Info_migrate`。
+   * 传 `null`/`undefined` 根路径时 native 抛错（调用方应先解析出根）。
    */
-  waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
+  readDeviceGuid(dataRoot: string): string | null;
+
+  // --- 签名（qq 的 wrapper.node） ---
+  /**
+   * 静态扫描 QQ 的 `wrapper.node`，返回签名函数的 RVA（相对模块基址）。
+   *
+   * 只定位、不加载模块；`wrapperPath` 是 `…/resources/app/wrapper.node`
+   * （Windows 在 `…/resources/app/versions/<ver>/wrapper.node`）。
+   */
+  locateSignFunction(wrapperPath: string): number;
+  /**
+   * 用 `wrapper.node` 的签名函数计算一次 SSO 安全信息。
+   *
+   * 首次调用会 dlopen/LoadLibrary 该模块（Linux 会预载 gnutls 并提供
+   * `qq_magic_napi_register` 桩），之后按路径进程内缓存。`src` 是 SSO 包体
+   * （明文 protobuf 字节），返回值对齐 Lagrange 的
+   * `SsoSecureInfo { SecToken, SecExtra, SecSign }`，三个字段都是大写十六进制。
+   */
+  signPacket(wrapperPath: string, cmd: string, src: Buffer, seq: number): SignOutput;
+  /**
+   * 初始化成功（登录/绑定完成）时重置发包序号起点（`now + 随机`）。
+   *
+   * 与 Lagrange 的固定区间随机起点不同；两个进程仍在推进同一账户的序号带，
+   * 可能与 QQ 本体冲突，暂不做回退。
+   */
+  resetPacketSequence(): number;
+  /** 当前发包序号（诊断用）。 */
+  currentPacketSequence(): number;
+
+  // --- 原生 SSO 会话（借 QQ 凭据发包） ---
+  /**
+   * 登记 `pid` 的**会话物料**：之后 {@link sendOidbPacket} / {@link sendPacket}
+   * 就能用同一个 pid 直接发包。**只存不连** —— TCP 等到真要发包时才建，闲置一分钟
+   * 就丢；不读内存、不发包时连一个 socket 都不存在。
+   *
+   * **刻意不做** Lagrange 那套「`SsoInfoSync` 上线注册 + 心跳」：同一台机器上 QQ 本体
+   * 已经在维持那条会话的在线状态与心跳，我们再注册一次等于让服务端看到「同设备 guid +
+   * 同一份 d2 的第二个客户端」。这里只借凭据组帧、签名、发包。
+   *
+   * `wrapperPath` 是 QQ 的 `wrapper.node`：所有需要签名的命令都靠它算
+   * `SecToken/SecExtra/SecSign`；传 null 时只能发不需要签名的命令。
+   */
+  setSsoSession(pid: number, session: SsoSessionConfig, wrapperPath?: string | null): Promise<void>;
+  /**
+   * 忘掉 pid 的会话物料（账号下线 / QQ 重启），并关掉可能存在的连接。
+   * 返回是否真的有这条登记。
+   */
+  clearSsoSession(pid: number): Promise<boolean>;
+  /** pid 是否已登记会话物料（诊断用；不代表连接已经建好）。 */
+  hasSsoSession(pid: number): Promise<boolean>;
+  /**
+   * 组一个原生 SSO 线上帧（协议 12/13），返回**自带 4 字节大端长度前缀**的整帧。
+   *
+   * 只组帧、不发：正常发包走 {@link setSsoSession} + {@link sendOidbPacket}，
+   * 这个出口是给离线比对（`scripts/sso_smoke.mjs` 那类逐字节复现抓包的脚本）用的。
+   */
+  buildSsoPacket(req: SsoPacketRequest): Buffer;
 
   // --- SQL (cached connection per dbPath) ---
   executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
@@ -600,6 +819,10 @@ export interface NtHelperBinding {
    * Send a custom OIDB packet. The body is wrapped in an OIDB envelope and the
    * command is formatted as `OidbSvcTrpcTcp.0x<command>_<subCommand>`.
    * `isUid` sets the UIN-form variant (reserved=1). Returns the inner reply body.
+   *
+   * 传输走原生 SSO：`pid` 必须先经 {@link setSsoSession} 登记过会话。
+   * `needSign` 由调用方按命令逐个标注（对齐 Lagrange 的需要签名白名单），
+   * 缺省 true。
    */
   sendOidbPacket(
     pid: number,
@@ -607,14 +830,17 @@ export interface NtHelperBinding {
     subCommand: number,
     body: Buffer,
     isUid: boolean,
+    needSign?: boolean,
   ): Promise<Buffer>;
   /**
    * Send a raw SSO packet with an explicit command string (no OIDB envelope) —
    * used for trpc services such as
    * `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`. The body must
    * already be protobuf-encoded; the raw reply body is returned.
+   *
+   * `needSign` 同 {@link sendOidbPacket}，缺省 true。
    */
-  sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
+  sendPacket(pid: number, cmd: string, body: Buffer, needSign?: boolean): Promise<Buffer>;
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.
    *
@@ -657,173 +883,140 @@ export interface NtHelperBinding {
    *   xydata.js / main / fzfont
    */
   queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
-}
 
-// ---------- ninebird_addon.node — launch bootstrap -----------------------
-
-/**
- * Arguments accepted by `ninebird_addon.launchQQ`. The addon launches QQ
- * with the hook pre-loaded and forwards NDJSON events back over the IPC
- * channel named by `pipeName`.
- *
- * The interface is shared across platforms; a few fields carry different
- * concrete values per OS:
- *   - `hookDllPath`  win32: `NineBirdHook.dll`  ·  linux: `ninebird_launcher.so`
- *   - `pipeName`     win32: `\\.\pipe\…`         ·  linux: a unix socket path
- *   - `qqntJsonPath` win32: real spoof json      ·  linux: any existing file (placeholder)
- *
- * Both login flows (QR scan / quick UIN) take the same shape — the
- * difference is which `loadJsPath` is passed (`qr-dbkey.js` vs
- * `quick-dbkey.js`) and whether `uin` is supplied.
- */
-export interface LaunchQqOptions {
-  qqExePath: string;
-  hookDllPath: string;
-  qqntJsonPath: string;
-  loadJsPath: string;
-  pipeName: string;
-  loaderDir?: string;
-  /** Required only for the quick-login flow. */
-  uin?: string;
-  timeoutMs?: number;
+  // --- 网卡抓包（capture） ---
   /**
-   * appid / qua matched to the installed QQ build. Resolved by an upper layer
-   * from QQ's `major.node` (`resolveAppidFromMajor`) and passed through here;
-   * the loader falls back to a per-platform default when absent. A mismatched
-   * value gets the account kicked from QQ's login list (140022017) — never
-   * guess these.
+   * 探测抓包后端是否就绪：Windows 检查 Npcap（`wpcap.dll`）；Linux/macOS 后端
+   * 一定在，能否抓到取决于权限（`elevated`）。`hint` 是缺后端/缺权限时的引导。
    */
-  appid?: string;
-  qua?: string;
-  /** Default true — QQ's stdio is silenced. false inherits the parent's stdio. */
-  headless?: boolean;
+  probeCaptureSupport(): CaptureSupport;
+  /**
+   * 开启（或替换）某 pid 的抓包会话。**请在发包之前调用** —— 它直到网卡已
+   * 打开、BPF 已装、读循环即将开始才 resolve，因此返回之后的包都不会漏。
+   *
+   * `onFrame` 是可选的推送回调 `(err, frame) => void`；它只是同一份数据的便利
+   * 通道，可靠性以 `takeFrames` 的环形缓冲为准。
+   */
+  startCapture(
+    pid: number,
+    options?: CaptureOptions | null,
+    onFrame?: ((error: Error | null, frame: CapturedFrame) => void) | null,
+  ): Promise<CaptureSession>;
+  /** 取帧（拉模型）；配合 `options.waitMs` 可"等到窗口结束再一次性取回全部"。 */
+  takeFrames(pid: number, options?: TakeOptions | null): Promise<FrameBatch>;
+  /** 停止并释放抓包会话，返回统计。 */
+  stopCapture(pid: number): Promise<CaptureStats>;
+
+  // --- 纯协议登录（wtlogin，不注入 QQ） ---
+  /**
+   * PC 端**快速登录**：用本地 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，
+   * 并在给了 keyMeta 时同连接发 `0xcde_2` 取数据库密钥。进度走 `onEvent`。
+   */
+  quickLogin(
+    options: QuickLoginOptions,
+    onEvent?: (err: Error | null, arg: QuickLoginEvent) => unknown,
+  ): Promise<QuickLoginResult>;
+  /**
+   * PC 端**二维码登录**：本地没有可用 a1 时用，展示二维码等待手机确认，
+   * 确认后换出 a2/d2/d2key（并可选取 dbkey）。
+   */
+  qrLogin(
+    options: QuickLoginOptions,
+    onEvent?: (err: Error | null, arg: QuickLoginEvent) => unknown,
+  ): Promise<QuickLoginResult>;
 }
 
-export interface LaunchQqResult {
-  success: boolean;
-  pid: number;
-  error?: string;
-}
-
-export interface NineBirdBootBinding {
-  launchQQ(opts: LaunchQqOptions): Promise<LaunchQqResult>;
-}
-
-// ---------- NDJSON events flowing back on the pipe -----------------------
-
-/** Quick-login: emitted once after QQ has read its local login.db. */
-export interface NineBirdLoginListEvent {
-  kind: 'login-list';
-  list: LoginAccount[];
-}
+// ---------- pure-protocol login (nt_helper wtlogin) ----------------------
 
 /**
- * One entry of the account-list flow. Shape comes straight from QQ's own
- * `getLoginList()` (via `account-list.js`), so it differs from
- * `LoginAccount` (decrypted login.db): there's no `a1Key`, but we DO get
- * the live `isQuickLogin` flag plus nickname/avatar QQ already resolved.
+ * 纯协议登录入参。与 nt_helper 的 `QuickLoginOptions` 一一对应：a1 / guid 由
+ * WeQ 从 login.db 解出后传入，`subAppId` 由 {@link resolveAppidFromMajor} 扫描
+ * `major.node` 得到。本模块不碰磁盘上的 login.db，也不注入 QQ。
  */
-export interface NineBirdAccountListItem {
-  /** QQ number. */
+export interface QuickLoginOptions {
+  /** 账号 UIN（十进制串）。 */
   uin: string;
-  /** Long uid. */
-  uid: string;
-  /** Display name QQ has cached. */
-  nickName: string;
-  /** CDN avatar URL (may 404 if stale). */
-  faceUrl: string;
-  /** Local on-disk avatar path. */
-  facePath: string;
-  /** QQ's internal login-type tag. */
-  loginType: number;
-  /** True when QQ can quick-login this account without a QR scan. */
-  isQuickLogin: boolean;
-  /** True when QQ is configured to auto-login this account. */
-  isAutoLogin: boolean;
+  /** a1（不透明凭据，176 字节）。 */
+  a1: Buffer;
+  /** 设备 guid（32 位小写 hex）。 */
+  guid: string;
+  /** EasyLogin `AppInfo.AppId`（按 OS 的常量；不是 SSO subAppId）。 */
+  appId: number;
+  /** SSO subAppId，必须等于当前 QQ 构建 `major.node/QQAppId/`。 */
+  subAppId: number;
+  /** 设备类型串：`Linux` / `Mac` / `Windows`。 */
+  os: string;
+  /** `NTLoginPlatform`：Linux=7 / Mac=5 / Windows=4。 */
+  platform: number;
+  /** 设备名（真机取系统 hostname）。 */
+  deviceName: string;
+  /** `AppInfo.Version`（真机取内核版本）。 */
+  kernelVersion: string;
+  /** `AppInfo.AppName`，缺省 `com.tencent.qq`。 */
+  appName?: string;
+  /**
+   * EasyLogin `AppInfo.Qua`（真机如 `V1_LNX_NQ_3.2.31_51102_GW_B`）。由
+   * {@link resolveAppidFromMajor} 从 `major.node` 扫描得到；缺省不写该字段。
+   */
+  qua?: string;
+  /**
+   * SSO 头里的客户端版本字段（`AppInfo.CurrentVersion`，如 `3.2.31-51102`）。
+   * 缺省写空串（旧行为）。
+   */
+  clientVersion?: string;
+  /** `wrapper.node` 路径（需要签名的命令靠它算 sec_info）。 */
+  wrapperPath?: string;
+  /** 账号 uid（`u_...`）。 */
+  uid?: string;
+  /** `nt_msg.db` 头 `0x2f..0xaf` 的 128 字节 key_meta（dbSalt）。 */
+  keyMeta?: string;
+  /**
+   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。空 / 缺省则
+   * 不发这一轮；取不到不是致命错误。WeQ 侧默认只要 `vip.qq.com`。
+   */
+  pskeyDomains?: string[];
 }
 
-/**
- * Account-list: emitted once after `account-list.js` reads QQ's login list.
- * Shares the `login-list` wire `kind` with quick-login, but carries the
- * richer `NineBirdAccountListItem` payload.
- */
-export interface NineBirdAccountListEvent {
-  kind: 'login-list';
-  list: NineBirdAccountListItem[];
-}
-
-/** QR-login: emitted with the URL to encode into a QR code. */
-export interface NineBirdQrcodeEvent {
-  kind: 'qrcode';
-  url: string;
-}
-
-/** QR-login: emitted as the QR state transitions (scanned / confirmed / …). */
-export interface NineBirdQrcodeStateEvent {
-  kind: 'qrcode-state';
-  state: string;
-}
-
-/**
- * Emitted by both login loaders just BEFORE `result`, carrying the `p_skey`
- * they collected on the way out (domain → key). Best-effort: the loaders never
- * fail a login over a missing pskey, so `success: false` is routine.
- */
-export interface NineBirdPskeyEvent {
-  kind: 'pskey';
-  success: boolean;
-  /** Domain → p_skey. Present when `success`. */
+/** 登录成功后的会话物料。 */
+export interface QuickLoginResult {
+  a2: Buffer;
+  d2: Buffer;
+  d2Key: Buffer;
+  /** `0xcde_2` 返回的数据库密钥；未传 keyMeta 或该步失败时缺省。 */
+  dbKey?: string;
+  /** 登录账号 uin（二维码登录确认后才有）。 */
+  uin?: string;
+  /** 顺路取到的 Web 凭据：域名 → `p_skey`；未请求或没拿到时缺省。 */
   pskey?: Record<string, string>;
-  error?: string;
 }
 
-/** Terminal event for both flows. */
-export interface NineBirdResultEvent {
-  kind: 'result';
-  success: boolean;
-  dbkey?: string;
-  error?: string;
+/**
+ * 登录过程中的进度 / 交互事件。
+ *
+ * `kind`：`"state"`（阶段变化）/ `"qr-code"`（二维码）/ `"qr-state"`
+ * （扫码状态）/ `"unusual-device"`（异常设备确认）/ `"info"`。
+ */
+export interface QuickLoginEvent {
+  kind: string;
+  state?: string;
+  message?: string;
+  unusualDeviceCheckSig?: Buffer;
+  unusualDeviceQrSig?: string;
+  uinToken?: string;
+  /** `kind == "qr-code"`：二维码内容（URL）与二维码图片（PNG 字节）。 */
+  qrUrl?: string;
+  qrImage?: Buffer;
+  /** `kind == "qr-state"`：48=待扫描 / 53=待确认 / 0=已确认 / 17=已过期…。 */
+  stateCode?: number;
+  /** 已确认时带回的账号 uin。 */
+  uin?: string;
 }
-
-export type NineBirdEvent =
-  | NineBirdLoginListEvent
-  | NineBirdQrcodeEvent
-  | NineBirdQrcodeStateEvent
-  | NineBirdPskeyEvent
-  | NineBirdResultEvent;
 
 // ---------- Loaded bundle -----------------------------------------------
 
-/**
- * What `loadNative()` returns: both .node addons + every resource path the
- * caller needs to hand to `launchQQ`. Resource paths are absolute and
- * already verified to exist.
- */
+/** `loadNative()` 的返回值：目前只有 nt_helper 这一个 addon。 */
 export interface NativeBundle {
   ntHelper: NtHelperBinding;
-  nineBirdBoot: NineBirdBootBinding;
-  /** Paths to companion resource files NineBird needs at launch time. */
-  resources: NineBirdResources;
-}
-
-export interface NineBirdResources {
-  /** Native NineBird dir (contains NineBird.node + the addon; the loader scripts find `NineBird.node` here via NINEBIRD_LOADER_DIR). */
-  loaderDir: string;
-  /** Hook DLL injected into QQ on launch (win32 only for now). */
-  hookDllPath: string;
-  /** Spoofed `qqnt.json` placed alongside the hook. */
-  qqntJsonPath: string;
-  /** The auxiliary `NineBird.node` that quick-dbkey/qr-dbkey require inside QQ. */
-  nineBirdAddonPath: string;
-  /** Script loaded inside QQ for the QR-code login flow. Lives in resources/ninebird-runtime (platform-independent). */
-  qrDbkeyJsPath: string;
-  /** Script loaded inside QQ for the quick (UIN-cached) login flow. Lives in resources/ninebird-runtime. */
-  quickDbkeyJsPath: string;
-  /**
-   * Script loaded inside QQ to enumerate the local login list without
-   * decrypting login.db ourselves. Used as the `decryptLoginDb` fallback.
-   */
-  accountListJsPath: string;
 }
 
 // ---------- DB-subset alias used by @weq/db ------------------------------

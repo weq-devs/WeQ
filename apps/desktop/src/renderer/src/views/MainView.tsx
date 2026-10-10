@@ -57,11 +57,16 @@ import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
-import { GroupKeywordDialog } from '../components/GroupKeywordDialog';
+import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
+import { AntiRecallDialog } from '../components/AntiRecallDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
 } from '../components/GroupEssenceDialog';
+import {
+  GroupMemberKickDialog,
+  GroupMemberRenameDialog,
+} from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
@@ -2051,6 +2056,9 @@ function isMobileShell(): boolean {
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
+  // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
+  const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
+  const kickGroupMember = trpc.account.kickGroupMember.useMutation();
   const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
     {},
     { getNextPageParam: (lastPage) => lastPage.nextCursor },
@@ -2076,12 +2084,22 @@ export function MainView(): ReactElement {
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
-  // 「完全离线模式」（自动注入 QQ 总闸开启）。状态未读到前按不可发送处理。
+  // 「完全离线模式」（自动读取 QQ 内存 总闸开启）。状态未读到前按不可发送处理。
   const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 4000,
     refetchInterval: 5000,
   });
+  // 发送能力总闸：QQ 在线 + 未开完全离线模式，且本地账号配置里 a2 / d2 / d2key / guid
+  // 都非空（发包要拿它们做 TEA 加密与设备身份）。缺任一项发送键就置灰。
+  const sendAvailable = Boolean(
+    sendAccess.data?.qqOnline &&
+      sendAccess.data.attachEnabled &&
+      sendAccess.data.hasA2 &&
+      sendAccess.data.hasD2 &&
+      sendAccess.data.hasD2Key &&
+      sendAccess.data.hasGuid,
+  );
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 8000,
@@ -2282,9 +2300,19 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
-  const [keywordDialog, setKeywordDialog] = useState<{
-    groupCode: string;
-    groupName: string;
+  /** 群成员管理弹窗（改群昵称 / 踢人）：应用层持有，与群公告 / 群精华同层。 */
+  const [groupMemberDialog, setGroupMemberDialog] = useState<
+    | { kind: 'rename'; groupId: string; targetUid: string; name: string; initialCard: string }
+    | { kind: 'kick'; groupId: string; targetUid: string; name: string }
+    | null
+  >(null);
+  /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
+  const [antiRecallOpen, setAntiRecallOpen] = useState(false);
+  /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
+  const [convSettings, setConvSettings] = useState<{
+    kind: 'c2c' | 'group' | 'dataline';
+    conv: string;
+    title: string;
   } | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
@@ -2459,14 +2487,93 @@ export function MainView(): ReactElement {
     [],
   );
 
-  const handleOpenGroupKeyword = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setKeywordDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
+  // 群管理「修改群昵称」：从聊天页的头像菜单上报过来，弹窗 + 发包都在本层。
+  const handleRenameGroupMember = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, sender: User, targetUid: string) => {
+      setGroupMemberDialog({
+        kind: 'rename',
+        groupId: conversation.group.id,
+        targetUid,
+        name: sender.displayName || sender.identityValue,
+        initialCard: sender.displayName ?? '',
       });
     },
     [],
+  );
+
+  // 群管理「踢出群聊」：先二次确认，确认后再发包。
+  const handleKickGroupMember = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, sender: User, targetUid: string) => {
+      setGroupMemberDialog({
+        kind: 'kick',
+        groupId: conversation.group.id,
+        targetUid,
+        name: sender.displayName || sender.identityValue,
+      });
+    },
+    [],
+  );
+
+  function submitGroupMemberRename(card: string) {
+    const target = groupMemberDialog;
+    if (target?.kind !== 'rename') return;
+    renameGroupMember.mutate(
+      { groupId: target.groupId, targetUid: target.targetUid, card },
+      {
+        onSuccess: () => {
+          pushToast({ tone: 'success', message: '群昵称已修改' });
+          setGroupMemberDialog(null);
+        },
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: '修改群昵称失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    );
+  }
+
+  function submitGroupMemberKick() {
+    const target = groupMemberDialog;
+    if (target?.kind !== 'kick') return;
+    kickGroupMember.mutate(
+      { groupId: target.groupId, targetUid: target.targetUid },
+      {
+        onSuccess: () => {
+          pushToast({ tone: 'success', message: '已将该成员移出群聊' });
+          setGroupMemberDialog(null);
+        },
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: '踢出失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    );
+  }
+
+  const handleOpenConversationSettings = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>) => {
+      const { kind, conv } = convFetchKey(conversation);
+      const title =
+        conversation.type === 'group'
+          ? conversation.group.name
+          : conversation.otherUser.displayName;
+      // 数据线（我的手机/我的电脑）在消息库里是独立的 dataline_msg_table，触发器
+      // 也要按 'dataline' 装，否则它和私聊会用错表。
+      const dataline =
+        conversation.type === 'direct' &&
+        conversation.chatType !== undefined &&
+        isDataline(conversation.chatType);
+      setConvSettings({
+        kind: kind === 'group' ? 'group' : dataline ? 'dataline' : 'c2c',
+        conv,
+        title,
+      });
+    },
+    [convFetchKey],
   );
 
   const handleOpenGroupLeftMembers = useCallback(
@@ -2681,7 +2788,7 @@ export function MainView(): ReactElement {
       if (cachedCount === 0) {
         try {
           const state = await client.account.getGroupAlbumAccessState.query();
-          if (!state.qqOnline || !state.injectEnabled) {
+          if (!state.qqOnline || !state.attachEnabled) {
             pushToast({
               tone: 'warning',
               message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
@@ -3352,9 +3459,7 @@ export function MainView(): ReactElement {
     [conversations],
   );
 
-  const mergeForwardSendAvailable = Boolean(
-    sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
-  );
+  const mergeForwardSendAvailable = sendAvailable;
 
   /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
   const mergeForwardMembersOf = useCallback((c: Conversation): MfPerson[] => {
@@ -4446,7 +4551,18 @@ export function MainView(): ReactElement {
           level: item.level,
           name: item.levelName,
         })),
-        role: currentGroupMembers.find((m) => m.id === user.id)?.role || 'member',
+        // 自己的群内身份：成员行的 `id` 是 uid、`identityValue`/`uin` 是 uin，
+        // 而 `user.id` 是 `self:<uin>`，两者不同。优先按 uid（`user.uid`）匹配，
+        // 其次按 uin；否则群主/管理员会被永远判成普通成员。
+        role:
+          currentGroupMembers.find(
+            (m) =>
+              (Boolean(user.uid) && m.id === user.uid) ||
+              m.identityValue === user.identityValue ||
+              m.uin === user.identityValue,
+          )?.role ||
+          // 自己的成员行没被加载进当前分页时，至少用群详情里的群主 uid 认出「我」是群主。
+          (user.uid && groupDetail.data?.ownerUid === user.uid ? 'owner' : 'member'),
         luckyChar:
           groupExt.data?.luckyCharId && groupExt.data.luckyCharId !== 0
             ? { id: groupExt.data.luckyCharId, litCount: groupExt.data.luckyCharLitCount }
@@ -4954,6 +5070,39 @@ export function MainView(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
+  // 撤回通知被点击：主进程唤起窗口并记下「打开该会话、跳到该 seq」，这里领走。
+  // 私聊 / 群聊共用同一条跳转（与群关键词通知同一套机制）。
+  useEffect(() => {
+    let cancelled = false;
+    const drain = () => {
+      void (async () => {
+        for (;;) {
+          let jump: { kind: 'c2c' | 'group'; conv: string; seq?: string } | null = null;
+          try {
+            jump = await client.bootstrap.consumeConversationJump.query();
+          } catch {
+            return;
+          }
+          if (cancelled || !jump) return;
+          jumpToConvSeq(jump.kind, jump.conv, jump.seq || undefined);
+        }
+      })();
+    };
+    const sub = client.bootstrap.onConversationJump.subscribe(undefined, {
+      onData() {
+        drain();
+      },
+      onError(err) {
+        console.error('[recall] onConversationJump subscription error', err);
+      },
+    });
+    drain();
+    return () => {
+      cancelled = true;
+      sub.unsubscribe();
+    };
+  }, [jumpToConvSeq]);
+
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
   // fresh query — no react-query staleness — so switching back into a chat shows
@@ -5387,7 +5536,7 @@ export function MainView(): ReactElement {
       pushToast({ tone: 'warning', message: '没有选中的会话' });
       throw new Error('no conversation');
     }
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5577,7 +5726,7 @@ export function MainView(): ReactElement {
    * ChatPane 里按会话类型藏掉了，这里再兜一层。
    */
   async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5704,7 +5853,7 @@ export function MainView(): ReactElement {
     conversation: Conversation,
     payload: FlashSendPayload,
   ): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5811,7 +5960,7 @@ export function MainView(): ReactElement {
    * 回来。在线校验与消息发送按钮同一套。
    */
   async function sendRedPacket(conversation: Conversation, draft: RedPacketDraft): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -5901,7 +6050,7 @@ export function MainView(): ReactElement {
    * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
    */
   async function sendArkCard(conversation: Conversation, payload: ArkPayload): Promise<void> {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.injectEnabled) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
@@ -6140,6 +6289,24 @@ export function MainView(): ReactElement {
     shell.view === 'channel' ||
     shell.view === 'annual';
 
+  /** 防撤回面板「记录」页点一行：打开该会话的撤回列表（复用聊天区气泡与筛选）。 */
+  function handleOpenRecallsAt(kind: 'c2c' | 'group', conv: string): void {
+    // 同 id 理论上不会横跨群/私聊，但类型对得上才更稳（群号纯数字、uid 是 u_ 前缀）。
+    const wantGroup = kind === 'group';
+    const target =
+      conversations.find((c) => c.id === conv && (c.type === 'group') === wantGroup) ??
+      conversations.find((c) => c.id === conv);
+    if (!target) {
+      pushToast({
+        tone: 'info',
+        title: '找不到该会话',
+        detail: '它可能已不在会话列表里，无法打开撤回列表。',
+      });
+      return;
+    }
+    handleViewRecalled(target);
+  }
+
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -6180,6 +6347,7 @@ export function MainView(): ReactElement {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
+            onOpenAntiRecall={() => setAntiRecallOpen(true)}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
@@ -6340,9 +6508,7 @@ export function MainView(): ReactElement {
                       onGroupMemberSearchChange={setMemberSearchKeyword}
                       onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                       profileLoading={groupDetail.isLoading}
-                      sendAvailable={Boolean(
-                        sendAccess.data?.qqOnline && sendAccess.data.injectEnabled,
-                      )}
+                      sendAvailable={sendAvailable}
                       onOpenNotificationSettings={noopAsync}
                       onSend={sendMessage}
                       onSendWindowShake={sendWindowShake}
@@ -6365,7 +6531,9 @@ export function MainView(): ReactElement {
                       onOpenGroupFiles={handleOpenGroupFiles}
                       onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                       onOpenGroupEssence={handleOpenGroupEssence}
-                      onOpenGroupKeyword={handleOpenGroupKeyword}
+                      onRenameGroupMember={handleRenameGroupMember}
+                      onKickGroupMember={handleKickGroupMember}
+                      onOpenConversationSettings={handleOpenConversationSettings}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
                       onOpenGroupBug={handleOpenGroupBug}
                       onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
@@ -6540,10 +6708,17 @@ export function MainView(): ReactElement {
               onClose={() => setAnnouncementsDialog(null)}
             />
           ) : null}
-          {keywordDialog ? (
-            <GroupKeywordDialog
-              groupId={keywordDialog.groupCode}
-              groupName={keywordDialog.groupName}
+          {antiRecallOpen ? (
+            <AntiRecallDialog
+              onClose={() => setAntiRecallOpen(false)}
+              onOpenRecalls={handleOpenRecallsAt}
+            />
+          ) : null}
+          {convSettings ? (
+            <ConversationSettingsDialog
+              kind={convSettings.kind}
+              conv={convSettings.conv}
+              title={convSettings.title}
               members={currentGroupMembers.map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,
@@ -6551,7 +6726,7 @@ export function MainView(): ReactElement {
                 uin: m.uin,
                 role: m.role,
               }))}
-              onClose={() => setKeywordDialog(null)}
+              onClose={() => setConvSettings(null)}
             />
           ) : null}
           {groupBugDialog ? (
@@ -6568,6 +6743,23 @@ export function MainView(): ReactElement {
               loading={groupLeftMembers.isFetching}
               error={groupLeftMembers.error ? (groupLeftMembers.error.message ?? '查询失败') : null}
               onClose={() => setGroupLeftMembersDialog(null)}
+            />
+          ) : null}
+          {groupMemberDialog?.kind === 'rename' ? (
+            <GroupMemberRenameDialog
+              memberName={groupMemberDialog.name}
+              initialCard={groupMemberDialog.initialCard}
+              busy={renameGroupMember.isLoading}
+              onCancel={() => setGroupMemberDialog(null)}
+              onConfirm={submitGroupMemberRename}
+            />
+          ) : null}
+          {groupMemberDialog?.kind === 'kick' ? (
+            <GroupMemberKickDialog
+              memberName={groupMemberDialog.name}
+              busy={kickGroupMember.isLoading}
+              onCancel={() => setGroupMemberDialog(null)}
+              onConfirm={submitGroupMemberKick}
             />
           ) : null}
           {essenceDialog ? (

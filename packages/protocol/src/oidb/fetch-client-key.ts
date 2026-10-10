@@ -29,6 +29,8 @@ export interface ClientKeyInfo {
 export namespace FetchClientKey {
   export const command = 0x102a;
   export const subCommand = 1;
+  /** 抓包（/tmp/capture.log）：`0x102a_1` 带 tag 24，需要签名。 */
+  export const needSign = true;
   export const reqSchema = message([]);
   export const respSchema = CLIENT_KEY_RESP;
 

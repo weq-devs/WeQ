@@ -119,11 +119,28 @@ export interface AccountConfig {
   qqOnline?: boolean;
   /** PID of that running QQ instance, or null when none is online. */
   qqPid?: number | null;
+  /**
+   * 在线会话的内存物料（a2 / d2 / d2key），只在「自动 attach」开着、账号在线时
+   * 采集；账号下线会清掉。**不含 guid** —— guid 是设备标识，见 {@link guid}。
+   */
+  session?: AccountSessionMaterial;
+  /**
+   * 设备 guid（32 位小写 hex）。和登录无关（它是设备标识），所以单独一档，放在
+   * 账号身份层（紧挨 dataDir / uid），不和会话密钥混在一起 —— 未来它可能来自
+   * 别的来源，也不只服务于登录流程。
+   */
+  guid?: string;
+  /**
+   * A1 payload（`login.db` 的 `[1004]` 用设备 guid 解密后的内层 TGTGT 结构，
+   * hex）。来自 native `decryptLoginDb` 的 `a1Payload`；缺失表示该账号没有可用
+   * 的 A1（没缓存 / guid 取不到 / 解密失败）。快速登录时用。
+   */
+  a1Payload?: string;
   /** Latest download rkeys harvested from the online instance. */
   rkeys?: DownloadRkey[];
   /** Unix ms the rkeys were last refreshed. */
   rkeyUpdatedAt?: number;
-  /** Latest clientkey harvested from the online instance (when 自动注入 QQ is on). */
+  /** Latest clientkey harvested from the online instance (when 自动读取 QQ 内存 is on). */
   clientKey?: ClientKey;
   /**
    * True for static / offline accounts opened from a directory of
@@ -151,9 +168,9 @@ export interface AccountConfig {
    */
   nativeMediaEnabled?: boolean;
   /**
-   * p_skey per domain, harvested by the ninebird loader during login (while QQ
-   * was still alive). Seeds `WebCredentialProvider` so the first home-dress
-   * fetch works without a hook round-trip.
+   * p_skey per domain, harvested by the login flow while QQ was still alive.
+   * Seeds `WebCredentialProvider` so the first home-dress fetch works without a
+   * hook round-trip.
    */
   loginPskey?: Record<string, string>;
   /** 首页个性装扮快照（挂件/名片/浮屏/个性标签 + 气泡/字体 id），在线注入后写入。 */
@@ -303,6 +320,63 @@ export class AccountConfigService {
     });
   }
 
+  /**
+   * 记下刚从在线 QQ 进程内存里读到的会话物料（a2 / d2 / d2key）。传 `null` 表示
+   * 账号下线 / 物料作废（旧的密钥留着只会误导）。
+   */
+  setSessionMaterial(material: Omit<AccountSessionMaterial, 'fetchedAt'> | null): void {
+    if (material === null) {
+      this.patch({ session: undefined });
+      this.logger.info('cleared account session material', {
+        event: 'set-session-material',
+        cleared: true,
+      });
+      return;
+    }
+    this.patch({ session: { ...material, fetchedAt: Date.now() } });
+    // 只记「有没有」——物料本身就是凭据，不进日志。
+    this.logger.info('stored account session material', {
+      event: 'set-session-material',
+      hasA2: material.a2 !== undefined,
+      hasD2: material.d2 !== undefined,
+      hasD2Key: material.d2Key !== undefined,
+      pid: material.pid ?? null,
+    });
+  }
+
+  /**
+   * 记下设备 guid（和登录无关的设备标识，单独一档）。重复值不重写。
+   */
+  setGuid(guid: string): void {
+    if (guid.length === 0 || this.readRecord()?.guid === guid) return;
+    this.patch({ guid });
+    this.logger.info('stored device guid', { event: 'set-guid', guid });
+  }
+
+  /**
+   * 记下账号的字符串 uid（`u_...`）。linux 的账号目录 `nt_qq_<md5(md5(uid)+"nt_kernel")>`
+   * 由它派生，所以它必须落盘 —— 只在内存里映射的话重启就丢。重复值不重写。
+   */
+  setUid(uid: string): void {
+    if (uid.length === 0 || this.readRecord()?.uid === uid) return;
+    this.patch({ uid });
+    this.logger.info('stored account uid', { event: 'set-uid', uid });
+  }
+
+  /**
+   * 记下解出来的 A1 payload（`login.db [1004]` 经设备 guid 解密后的内层 TGTGT
+   * 结构，hex）。重复值不重写；空串表示没有可用 A1，直接跳过。
+   */
+  setA1Payload(a1Payload: string): void {
+    if (a1Payload.length === 0 || this.readRecord()?.a1Payload === a1Payload) return;
+    this.patch({ a1Payload });
+    // payload 本身是凭据，只记「有没有」和长度，不进日志原文。
+    this.logger.info('stored a1 payload', {
+      event: 'set-a1-payload',
+      length: a1Payload.length,
+    });
+  }
+
   /** Replace the stored download rkeys (and stamp the refresh time). */
   setRkeys(rkeys: DownloadRkey[]): void {
     this.patch({ rkeys, rkeyUpdatedAt: Date.now() });
@@ -352,7 +426,7 @@ export class AccountConfigService {
     });
   }
 
-  /** Persist p_skey harvested during the ninebird login flow. */
+  /** Persist p_skey harvested during the login flow. */
   setLoginPskey(loginPskey: Record<string, string>): void {
     this.patch({ loginPskey });
     this.logger.info('stored login pskey', {
@@ -392,6 +466,27 @@ export class AccountConfigService {
       throw error;
     }
   }
+}
+
+/**
+ * 从在线 QQ 进程内存里读到的一次会话物料。三个字段都是 hex 字符串：
+ * a2 / d2 为原文 hex，d2Key 为 32 位 hex。任一项没扫到就是 `undefined`。
+ *
+ * 这里**没有 guid**：guid 与登录无关（它是设备标识），单独存在
+ * {@link AccountConfig.guid}。
+ */
+export interface AccountSessionMaterial {
+  a2?: string;
+  d2?: string;
+  d2Key?: string;
+  /**
+   * 读到这份物料时 QQ 的 pid。用来判断「这份缓存是不是仍属于当前那个 QQ 进程」
+   * —— 本地凭据齐全时直接拿它登记 SSO（不读内存、不提权）；pid 对不上说明 QQ
+   * 重启过、旧密钥已随旧进程失效，回退到读内存。
+   */
+  pid?: number;
+  /** Unix ms，最后一次读到的时刻。 */
+  fetchedAt: number;
 }
 
 /**

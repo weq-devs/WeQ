@@ -4,7 +4,7 @@
  * 商城那三类(气泡 / 字体 / 头像挂件)在线要求各不相同,这是本路由分工的主线:
  *
  *  - **排行榜**:优先打商城接口(要 pskey);没有在线实例时回退到仓库里存的一份静态
- *    响应 `resources/dress/ranking-*.json`。所以离线 / ninebird 账号照样能浏览一个
+ *    响应 `resources/dress/ranking-*.json`。所以离线账号照样能浏览一个
  *    可用的目录 —— 气泡渲染只要 itemId 就够,字体 / 挂件的安装也走本地离线 bundle。
  *  - **搜索**:必须在线,没有兜底(搜索结果没法预存)。离线时明确报错。
  *  - **安装/启用**:三类都**默认离线可用** —— 资源先走本地离线 bundle
@@ -26,7 +26,7 @@ import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from 
 import {
   accountEventBus,
   getAppContext,
-  requireInjectEnabled,
+  requireAttachEnabled,
   type AccountServices,
 } from '../../context/app_context';
 import { resolveResource } from '../../resource';
@@ -44,7 +44,7 @@ function requireServices(): AccountServices {
 function qqOnline(services = requireServices()): boolean {
   const record = services.accountConfig.getRecord();
   if (!(record?.qqOnline && record.qqPid)) return false;
-  return getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
+  return getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true;
 }
 
 /** 仅要求在线 QQ 实例（不要求注入）—— 走 Web CGI 的接口用（pt_login 可兜底）。 */
@@ -396,7 +396,7 @@ export const dressupRouter = router({
   peerStats: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/), uid: z.string().min(1) }))
     .query(async ({ input }) => {
-      requireInjectEnabled();
+      requireAttachEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getPeerStats(input.uin, input.uid);
@@ -414,7 +414,7 @@ export const dressupRouter = router({
   peerQqShow: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
-      requireInjectEnabled();
+      requireAttachEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getQqShow(input.uin);

@@ -4,21 +4,26 @@
  * 与 PeerStatsService 同构：注入发生在账号 bootstrap，这里只负责在已注入的
  * 在线 pid 上发包。QQ 离线 / 风控失败原样上抛，由 router 统一转成用户提示。
  *
- * 通用路径（sendFlashTransfer）奉行「**先发后传**」：申请 fileset → commit/complete
- * （只登记元数据，不传字节）→ 0x93d7 发消息 → 封面与主文件的字节上传全部丢到后台。
- * 消息发出去那一刻调用方就拿到 `filesetUuid`，不用等任何上传；上传结果只写日志
- * （进度另走 FlashTransferFilesService）。群反馈路径（uploadBundleToGroup）复用同一条。
+ * 通用路径（sendFlashTransfer）的时序是「**封面传完才发、主文件后台传**」：申请 fileset
+ * → commit/complete → 封面（缩略图）prepare/apply/分片 **传完** → 0x93d7 发消息 →
+ * 主文件字节在后台传。
+ *
+ * 封面必须在 0x93d7 **之前**就绪 —— 实机抓包（2026-10-10，含时间线）里 QQ 是「传完才
+ * 发」：0x93cf → 0x93d0 → 0x93db → 0x12a9（封面/主文件 prepare/apply + 分片）→ 0x93d1
+ * →（约 25 秒后）0x93d7。封面晚于 0x93d7 时，对端一收到消息就拉 fileset、此时封面还没
+ * 登记，卡片只会显示默认封面，且不会重拉。主文件字节仍丢后台，避免大文件卡住发送；
+ * 对端靠 commit 的元数据就能看到文件清单。上传结果只写日志（进度另走
+ * FlashTransferFilesService）。群反馈路径（uploadBundleToGroup）复用同一条。
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
-  commitFlashFileset,
   createFlashFileset,
   GetFilesetDetail,
   SendFlashMsg,
   SendTuwenArk,
+  stageFlashFileset,
   uploadFlashMainFiles,
-  uploadFlashThumbnail,
   type FlashUploadItem,
   type FlashUploadOptions,
   type FlashUploaderInfo,
@@ -38,12 +43,13 @@ export class FlashTransferService {
   /**
    * 发一条闪传（fileset）消息给私聊 / 群聊 —— 输入框「闪传」用的通用路径。
    *
-   * 时序（**先发后传**）：申请 fileset（0x93cf）→ commit/complete（0x93d0/0x93db，
-   * 只登记文件清单，不传字节）→ 0x93d7 发消息 → **立刻返回**；封面缩略图
-   * （0x12a9 三段）与主文件分片上传全部在返回后在后台跑。
+   * 时序（**封面传完才发、主文件后台传**）：申请 fileset（0x93cf）→ commit/complete
+   * （0x93d0/0x93db）→ 封面缩略图（0x12a9 三段 + 分片）**传完** → 0x93d7 发消息 →
+   * **立刻返回**；只有主文件分片上传在返回后于后台跑。
    *
-   * 所以调用方拿到 `filesetUuid` 时消息已经在会话里了，不用等任何一个字节上传完。
-   * 上传结果只写日志；调用方要等上传收尾时可 await 返回的 `uploaded`。
+   * 封面必须排在 0x93d7 之前：对端一收到消息就拉 fileset，封面没登记就只会显示默认
+   * 封面（实机抓包见类注释）。主文件仍不阻塞调用方；调用方要等上传收尾时可 await
+   * 返回的 `uploaded`。
    *
    * 与 `uploadBundleToGroup` 的差别只有目标与命名：这条接受任意私聊 / 群聊目标，
    * 且可以由调用方给封面 PNG 路径（`thumbPath`）。
@@ -66,9 +72,10 @@ export class FlashTransferService {
       uploader: params.uploader,
     });
 
-    // 只登记元数据（文件清单），不管字节 —— 这一步必须在 0x93d7 之前，否则对端点开
-    // 会看不到文件列表。commit/complete 是两次快速往返，不涉及上传。
-    await commitFlashFileset(this.nt, pid, pending);
+    // commit/complete 登记文件清单，并把**封面在发消息前传完**（stage = commit +
+    // 封面 prepare/apply/分片）。两步都必须在 0x93d7 之前：前者让对端点开就有文件
+    // 清单，后者让卡片一到就有封面而不是默认图（见类注释的实机时序）。
+    await stageFlashFileset(this.nt, pid, pending);
 
     if (params.peerType === 'group') {
       const groupId = Number(params.targetId.trim());
@@ -83,10 +90,8 @@ export class FlashTransferService {
       });
     }
 
-    // 消息已发出；封面与主文件的字节上传全部丢后台（不阻塞调用方）。两者串行：
-    // 先让封面就绪（对端卡片一到就有缩略图），再传主文件。
+    // 消息已发出；只剩主文件的字节上传丢后台（封面刚才已就绪）。
     const uploaded = (async () => {
-      await uploadFlashThumbnail(this.nt, pid, pending);
       await uploadFlashMainFiles(this.nt, pid, pending);
     })().catch((error: unknown) => {
       logger.error('flash upload failed in background', {
@@ -125,9 +130,9 @@ export class FlashTransferService {
   /**
    * 群反馈：把一组本地文件（正文 + 日志）以闪传形式发到群聊。
    *
-   * 与通用路径同一条时序（先发后传，见 `sendFlashTransfer`）：0x93cf 申请 →
-   * commit/complete 登记清单 → 0x93d7 发消息并返回 → 封面与主文件上传在后台跑。
-   * 上传结果只记日志（失败则对端暂时无法下载该 fileset）。
+   * 与通用路径同一条时序（封面传完才发、主文件后台传，见 `sendFlashTransfer`）：
+   * 0x93cf 申请 → commit/complete → 封面传完 → 0x93d7 发消息并返回 → 主文件上传在
+   * 后台跑。上传结果只记日志（失败则对端暂时无法下载该 fileset）。
    */
   async uploadBundleToGroup(params: {
     files: FlashUploadItem[];

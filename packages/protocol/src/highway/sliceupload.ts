@@ -25,6 +25,10 @@ export const FLASH_SLICE_PAYLOAD = message([
   { name: 'sha1', tag: 5, type: 'bytes' },
   { name: 'sha1StateV', tag: 6, type: FLASH_SHA1_STATE_V },
   { name: 'chunk', tag: 7, type: 'bytes' },
+  { name: 'field100', tag: 100, type: 'uint32' },
+  // f101 = 0x12a9_103 apply 响应里 f12.f1 的 filesetWrap **原始子消息字节**。
+  // 服务端会把它规范化（补 f8 / 去掉 f5f6f9），必须原样回传,不能自己拼。
+  { name: 'fileRef', tag: 101, type: 'bytes' },
 ]);
 
 /** sliceupload HTTP body。 */
@@ -50,14 +54,27 @@ export interface SlicePart {
 export interface SliceUploadOptions {
   /** 主文件 14901 / png 缩略图 14903 / jpg 缩略图 14902。 */
   appid?: number;
+  /** 覆盖顶层 f3（sliceupload 请求序号）。缺省用模块内单调递增值。 */
+  field3?: number;
+  /** f107.f100。实机抓包均为 5。 */
+  field100?: number;
+  /**
+   * f107.f101 —— 0x12a9_103 apply 响应里 `f12.f1`（filesetWrap）的**原始字节**，
+   * 服务端已规范化（缩略图补 f5f7，主文件补 f8f9），直接原样附在每片上。
+   */
+  fileRef?: Uint8Array;
 }
+
+/** sliceupload 请求序号：QQ 内核按进程单调递增（与 apply/其它上传共用一条流）。 */
+let sliceUploadSeq = 1;
 
 /** 构造一片的 sliceupload 请求字节。 */
 export function buildSliceBody(part: SlicePart, opts?: SliceUploadOptions): Uint8Array {
   return encode(FLASH_SLICE_UPLOAD_BODY, {
     field1: 0,
     appid: opts?.appid ?? 14901,
-    field3: 2,
+    // 实机抓包每个 sliceupload 都不同（1,2,3,...），是进程内单调递增的请求序号。
+    field3: opts?.field3 ?? sliceUploadSeq++,
     payload: {
       field1: {},
       rkey: part.rkey,
@@ -66,6 +83,8 @@ export function buildSliceBody(part: SlicePart, opts?: SliceUploadOptions): Uint
       sha1: part.sha1,
       sha1StateV: { state: part.sha1StateV.map((s) => new Uint8Array(s)) },
       chunk: part.chunk,
+      field100: opts?.field100 ?? 5,
+      fileRef: opts?.fileRef,
     },
   });
 }
@@ -115,6 +134,7 @@ export async function sliceuploadFile(
   sha1StateV: Uint8Array[],
   sliceCount: number,
   fileName: string,
+  opts?: SliceUploadOptions,
 ): Promise<void> {
   for (let i = 0; i < sliceCount; i++) {
     const start = i * FLASH_SLICE_SIZE;
@@ -124,14 +144,17 @@ export async function sliceuploadFile(
     console.log(
       `[sliceupload] ${fileName} slice ${i}: start=${start} end=${start + chunkLen - 1} len=${chunkLen} sha1=${Buffer.from(chunkSha1).toString('hex')}`,
     );
-    const bodyBytes = buildSliceBody({
-      rkey,
-      start,
-      end: start + chunkLen - 1,
-      sha1: chunkSha1,
-      sha1StateV,
-      chunk,
-    });
+    const bodyBytes = buildSliceBody(
+      {
+        rkey,
+        start,
+        end: start + chunkLen - 1,
+        sha1: chunkSha1,
+        sha1StateV,
+        chunk,
+      },
+      opts,
+    );
     await postSliceupload(bodyBytes, `${fileName} slice ${i}`);
   }
 }

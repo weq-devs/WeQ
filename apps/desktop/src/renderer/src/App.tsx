@@ -14,7 +14,7 @@ import { ToastHost } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
-import { PtraceHintDialog } from './components/PtraceHintDialog';
+import { AttachHintDialog } from './components/AttachHintDialog';
 import { ElevationPasswordDialog } from './components/ElevationPasswordDialog';
 import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
@@ -180,7 +180,7 @@ export default function App(): ReactElement {
               <CloseConfirmDialog />
             </DesktopOnly>
             <DesktopOnly>
-              <PtraceHintDialog />
+              <AttachHintDialog />
             </DesktopOnly>
             <DesktopOnly>
               <ElevationPasswordDialog />

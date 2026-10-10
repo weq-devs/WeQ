@@ -1,6 +1,6 @@
 # nt_helper.node 接口文档
 
-> `nt_helper.node` 是一个用 Rust（napi-rs）编译的原生 N-API 模块，已经把「QQ 进程检测、数据库解密 / 直查 / 导出、ptlogin2 cookie、注入 hook、在线协议发包、商城表情 / 字体 / 装扮资源」这些重活全部封装好了。Node 侧（主进程、`@weq/db`、`@weq/protocol`、各种 worker）**直接加载调用即可**，不要重新实现里面的任何一个能力。
+> `nt_helper.node` 是一个用 Rust（napi-rs）编译的原生 N-API 模块，已经把「QQ 进程检测、数据库解密 / 直查 / 导出、ptlogin2 cookie、只读内存取会话物料、原生 SSO 发包、商城表情 / 字体 / 装扮资源」这些重活全部封装好了。Node 侧（主进程、`@weq/db`、`@weq/protocol`、各种 worker）**直接加载调用即可**，不要重新实现里面的任何一个能力。
 >
 > 下面每个接口往下翻——如果在写代码时发现某件事「看起来很底层」，大概率这里已经提供了现成函数。先搜文档，再决定要不要动手。
 
@@ -33,7 +33,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 2. **再 `getInitStatus()`**：返回初始化状态；
    - `0` = 可用，继续；
    - 非 `0` = 环境校验失败（构建过期 / 损坏 / 源码改动被检测到），此时多数接口会**直接抛错**（`"Environment validation failed"`）或返回一个默认的“失败”值，详见 §2.
-3. `getInitStatus()` 可以且**应该**在每次加载 `require` 之后调用一次，作为对「模块是否可用」的硬性检查（如 `inject_worker.ts` 的做法）。
+3. `getInitStatus()` 可以且**应该**在每次加载 `require` 之后调用一次，作为对「模块是否可用」的硬性检查（如 `attach_worker.ts` 的做法）。
 
 > **dev 构建无时间戳 → 跳过校验**：本地 `cargo/npm build` 出的 `.node` 不带 `BUILD_TIMESTAMP`，`getInitStatus()` 直接返回 `0`，没有任何有效期 / LICENSE 限制；带时间戳的 CI release 构建才会走 30 天有效期检查。
 
@@ -78,6 +78,31 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 - `DbLockProbeResult = { success: boolean; msg: string; locked: boolean; holders: DbLockHolder[] }`
 - `DbLockHolder = { pid: number; name: string }`
 
+### 3.1 纯协议登录（装号 / 取密钥）
+
+登录已与 QQ 进程解耦：**不读内存、不注入、不提权**，直接把 `login.db` 里缓存的 a1（扫码路径不需要）
+和设备 guid 传给 native，由 native 直连登录服务器（`wtlogin`）换 a2/d2/d2key。有 a1 → 快登
+（服务端判异常设备时转手机点确认）；无 a1 → 扫码。快登失败由调用方回退到扫码。
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `quickLogin(options, onEvent?)` | `QuickLoginOptions` + 进度回调 | `Promise<QuickLoginResult>` | 用缓存 a1 换票据；`keyMeta` 给了就顺带发 `0xcde_2` 取 `dbKey`。 |
+| `qrLogin(options, onEvent?)` | 同上（`a1` 可留空） | `Promise<QuickLoginResult>` | 出二维码等扫码/确认，再走经典 `wtlogin.login` 换票据；同样顺带 dbkey / pskey。 |
+
+**`QuickLoginOptions`**：`uin` / `a1` / `guid` / `appId` / `subAppId` / `os` / `platform` /
+`deviceName` / `kernelVersion`（`appId` 是 EasyLogin 常量、`subAppId` 必须扫描 `major.node`），
+另可选 `appName` / `qua` / `clientVersion` / `wrapperPath`（签名用）/ `uid` /
+`keyMeta`（`nt_msg.db` 头 `0x2f..0xaf` 的 128 字节）/ `pskeyDomains`。
+
+**`QuickLoginResult`**：`a2` / `d2` / `d2Key` / `uin`，外加 `dbKey?`（`0xcde_2` 结果）与
+`pskey?: Record<string, string>`（`0x102a_0` 结果，域 → p_skey；未请求或没拿到时缺省）。
+`pskeyDomains` 走的是**同一条登录连接**、属尽力而为：取不到只记日志，不会让登录失败。
+WeQ 侧默认只要 `vip.qq.com`（首页装扮 `zb.vip.qq.com` 用）。
+
+`onEvent(err, event)` 推送进度：`state`（阶段文案）、`unusual-device`（异常设备需确认，
+带 `unusualDeviceCheckSig` / `unusualDeviceQrSig` / `uinToken`）、`qr-code`
+（`qrUrl` / `qrImage`）、`qr-state`（`state` / `stateCode` / `uin`）。
+
 ---
 
 ## 4. 数据库密钥获取与校验
@@ -86,7 +111,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner，候选并行校验。 |
+| `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner（含强力模式：锚点/簇扫描失败时回退扫整个内存），候选并行校验。 |
+| `scanKeyFromDatabaseWithProgress(dbPath, pid, onProgress?)` | 同上 + 进度回调 | `Promise<KeyScanResult>` | 同上，额外通过 `onProgress(err, progress)` 持续回报两阶段进度。**可选能力**（老产物没有，调用方需回退到 `scanKeyFromDatabase`）。 |
 | `testDatabaseKey(dbPath, key)` | `dbPath`, `key` | `Promise<KeyTestResult>` | 试 `key` 是否能解开库，**穷举 page-HMAC × KDF-HMAC 全部 12 种组合**，返回能解开的那组算法。用于不知道 `algo` 时先探测一次。 |
 | `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `Promise<LoginAccount[]>` | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
 | `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `Promise<string>` | 计算 QQ 频道（gpro）库的密钥：扫描库内 salt + 特定 md5 公式。 |
@@ -95,6 +121,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 - `KeyScanResult = { success: boolean; key?: string; keyContextHex?: string; error?: string }`
   - `key`：恢复出的 16 字节 raw master key；`keyContextHex`：密钥前后各 256 字节内存窗口的 hex（定位佐证）。
+- `KeyScanProgress = { phase: string; percent: number; message: string }`
+  - `phase`：`'anchor'`（锚点/簇扫描）或 `'strong'`（回退全内存扫描）；`percent` 是**当前阶段内**的 0–100（阶段切换会从 0 重新开始），`message` 是给用户看的短句。
 - `KeyTestResult = { success: boolean; pageHmacAlgorithm?: string; kdfHmacAlgorithm?: string }`
   - 成功时 `pageHmacAlgorithm` ∈ `'none' | 'SHA1' | 'SHA256' | 'SHA512'`，`kdfHmacAlgorithm` ∈ `'SHA1' | 'SHA256' | 'SHA512'`。
 - `LoginAccount = { uin: string; uid: string; avatarUrl: string; userName: string; a1Key: string; lastLoginAt: number }`
@@ -219,42 +247,154 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 6. 注入 hook 与在线协议发包
+## 6. 内存取会话物料与原生 SSO 发包
 
-「要密钥 / 拿在线数据（图片 rkey、cookie、skey 等）」前提是把 hook 注入进在线 QQ 进程。**Windows / Linux 用注入，macOS 因 SIP 走 `ninebird` 加载器**（见 `docs/principles/ninebird-macos.md`）。整套 hook 管道的 IPC 由 native 侧维护（unix socket / named pipe），JS 侧不用关心。
+拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。
 
-### 6.1 注入与就绪
+> ⚠️ **登录取密钥不再走这条链路**（NineBird 已删）：装号 / 取密钥走**纯协议** `quickLogin` / `qrLogin`（`wtlogin` 快登或扫码），从 `login.db` 取缓存的 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，再顺带发 OIDB `0xcde_2` 取 dbKey；不读内存、不注入、不提权。这条 attach 链路仍服务于**在线实例**功能（图片 rkey / 装扮 / 红包 / 抓包等）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
+
+读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。macOS 上 SIP 开着时读内存无解（`task_for_pid` 连 root 都拒），因此在线实例功能在此之前不可用 —— 但登录本身已与内存解耦，纯协议即可完成。
+
+> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
+>
+> ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己读 → 写回原值」，见 `apps/desktop/src/main/attach_elevation.ts` 的 `escalateViaPtraceScope`。
+
+### 6.1 取物料
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `injectAndGetStatus(pid, dllPath, uin)` | pid + hook 库绝对路径 + uin（≥8 位数字） | `Promise<QQInstanceStatus>` | 注入 `qq_hook.dll` / `libqqhook.so` 并返回实例状态。注入前**必须知道该 pid 的 uin**（native 不再自推导）。Linux 下注入后等待 hook 绑定 MSFService。 |
-| `injectAndGetStatusEmbedded(pid, uin)` | pid + uin | `Promise<QQInstanceStatus>` | 便捷版：自动解出内置 hook 库到临时目录，无需传 `dllPath`。**日常推荐用它**。 |
-| `waitForRealPacket(pid, timeoutMs)` | pid + 超时毫秒 | `Promise<HookRecvPacketInfo>` | 等 hook 观察到一条真正的登录后收包（忽略登录快照与预登录指令），用于判定注入链路真正就绪。 |
+| `scanSessionMaterial(pid)` | pid | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key（十六进制串；没扫到的项为 `undefined`，不影响其它项）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
+| `readDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 离线算出设备 guid（32 位小写 hex）。**不需要任何权限、不碰进程**；算不出返回 `null`。 |
+| `setSsoSession(pid, session, wrapperPath?)` | 物料 + `wrapper.node` 路径 | `Promise<void>` | 登记这一场会话。**只存不连**：不读内存、不发包时一个 socket 都不存在；TCP 等到第一次发包才建，闲置一分钟丢弃，断了下次发包自动重连。 |
+| `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 
-- `QQInstanceStatus = { pid: number; loggedIn: boolean; uin: string }`
-- `HookRecvPacketInfo = { sequence: string; error: number; cmd: string; uin: string; body: Buffer }`
+- `SessionMaterial = { a2?: string; d2?: string; d2Key?: string }`
+- `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）。
+  ⚠️ `subAppId` **必须等于当前运行 QQ 构建的 appid**（`major.node` 里
+  `QQAppId/537xxxxxx`，`resolveAppidFromMajor` 扫出来的那个值）；QQ 每次更新
+  都会换 appid，用错值服务端一律回 `Reply status error: -10003 身份验证失败`。
+  WeQ 侧见 `packages/service/src/account/sso_session.ts` 的 `resolveSubAppId`
+  （不传就动态解析，兜底常量只是应急）。
 
-> ✔️ Windows / Linux 注入需 **root / 特权**（ptrace / 远程线程），实践中抽到独立的 elevated worker 里做（如 `inject_worker.ts`），宿主无特权进程再走 hook socket 收怪。
->
-> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/ptrace_flow.ts`（有单测）。
->
-> ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己注入 → 写回原值」，见 `inject_elevation.ts` 的 `escalateViaPtraceScope`。
+> ℹ️ **刻意不做上线注册与心跳**（对照 `../LagrangeV2`）：那是个纯协议框架，机器上只有它一个客户端，所以它必须自己发 `SsoInfoSync` 上线、自己心跳。我们不是 —— a2/d2/d2key 就是从同机 QQ 进程内存里读的，那条会话的在线状态与心跳由 QQ 本体维持；再注册一次只会让服务端看到「同设备 guid + 同一份 d2 的第二个客户端」。这里只借凭据发包，其余交给 QQ。
 
-### 6.2 在线发包（均需已注入的 `pid`）
+### 6.2 发包（`pid` 需先经 `setSsoSession` 登记）
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `sendOidbPacket(pid, command, subCommand, body, isUid)` | + OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。 |
-| `sendPacket(pid, cmd, body)` | + 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。 |
+| `sendOidbPacket(pid, command, subCommand, body, isUid, needSign?)` | OIDB 命令/子命令/protobuf body/isUid | `Promise<Buffer>` | **通用 OIDB 发包**：任何 OIDB 请求都行，无需改 native。`isUid=true` 走 UIN-form 变体（reserved=1）。`needSign`（缺省 true）由调用方按命令逐个标注。 |
+| `sendPacket(pid, cmd, body, needSign?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` 同上。 |
+| `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
+| `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecToken / SecExtra / SecSign`。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
 
 > **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
 > 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
 > 上面的两个通用接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，
 > **不要为此改 native 引入新接口**。
+>
+> ⚠️ 唯一的例外是**登录流程自己**：`quickLogin` / `qrLogin` 在换到 a2/d2/d2key 的那条连接上
+> 顺带发 `0xcde_2`（dbkey）与 `0x102a_0`（`pskeyDomains` → `p_skey`，默认只要 `vip.qq.com`）。
+> 这两步必须在登录连接里完成（会话物料刚拿到、连接还热），所以留在 native；除此之外的业务命令
+> 一律走上面的通用接口，不要在 login 里继续加。
 
 ---
 
-## 7. 平台相关 / 其它
+## 7. 网卡抓包（capture）
+
+> 非侵入式、不注入：直接读网卡 → TCP 重组 → MSF 帧切分 → 用**调用方传入的 d2key**
+> 做 TEA 解密（native 不再自己扫密钥）。
+
+### 7.1 为什么是「会话 + 游标」而不是一次抓 N 秒
+
+`pcap_open_live` + 装 BPF 过滤要几十到几百毫秒，而被抓的应答可能个位数毫秒就回来
+（例如 QQ 语音转录：请求 → 立即 ack → 真正的结果稍后由服务端 push 推回）。先发包
+再开抓，**首包必漏**。所以抓包是一条**可提前 armed 的长生命周期会话**：
+
+```text
+startCapture(pid)                       // 直到网卡已打开、BPF 已装、读循环即将开始才 resolve
+  → 调用方发包（setSsoSession / sendOidbPacket / sendPacket …）
+  → takeFrames(pid, { waitMs: 10_000 })  // 等到窗口结束，一次性取回全部帧，自己筛
+  → stopCapture(pid)
+```
+
+取帧是**环形缓冲 + 游标**的拉模型：native 侧保证不漏，环形满了会如实把 `dropped`
+报出来；`onFrame` 回调只是同一份数据的**可选**推送通道，JS 慢顶多丢投递，不影响
+环形缓冲里的真相。会话按 `pid` 索引，与 `setSsoSession` 一致；多个 QQ 进程可各抓各的。
+
+### 7.2 接口
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `probeCaptureSupport()` | — | `CaptureSupport` | 抓包后端是否就绪。Windows 检查 Npcap（`wpcap.dll`）；Linux/macOS 后端一定在，能否抓到取决于 `elevated`（权限）。`hint` 是缺后端/缺权限时的引导。 |
+| `startCapture(pid, options?, onFrame?)` | pid + 可选 `CaptureOptions` + 可选回调 | `Promise<CaptureSession>` | 开启（或替换）抓包会话。**请在发包之前调用** —— 它直到网卡已打开、BPF 已装、读循环即将开始才 resolve。 |
+| `takeFrames(pid, options?)` | pid + 可选 `TakeOptions` | `Promise<FrameBatch>` | 取帧。`waitMs > 0` 时一直收集到窗口结束再返回。 |
+| `stopCapture(pid)` | pid | `Promise<CaptureStats>` | 停止并释放，返回统计。 |
+
+**类型**
+
+- `CaptureOptions = { d2key?; iface?; port?; ringFrames?; pcapFile? }`
+  - `d2key`：32 字符 hex；省略时回退到该 pid 已登记的 `setSsoSession` 物料里的 d2key。
+  - `iface`：默认 `auto`（自动选默认路由出口网卡），也可填 `eth0`/`en0`/Npcap 设备名。
+  - `port`：默认 `auto`（持续按 MSF 帧签名识别，端口中途切换也不漏）；也可 `14000` / `14000,443,80` / `auto,443`。
+  - `ringFrames`：环形缓冲帧数上限（默认 512）。
+- `CaptureSession = { pid; iface; port; linktype }`
+- `TakeOptions = { cursor?; waitMs?; minFrames?; maxFrames?; matchCmd? }`
+- `CapturedFrame = { cursor; ts; direction; proto; encryptType; seq; cmd?; body?: Buffer; plain?: Buffer; raw: Buffer }`
+  - `cmd` / `body` / `plain` 在 TEA 解密 + SSO 头解析成功后才有；`raw` 永远是完整原始帧（含 4 字节长度前缀）。
+  - `body` 是**解密后的 protobuf 原始字节**，展开交给 `@weq/protocol` —— native 不引 protobuf 描述符。
+- `FrameBatch = { frames; nextCursor; dropped }`：`dropped` 是**累计**溢出淘汰帧数；`nextCursor` 下次原样传回来即可续取。
+- `CaptureStats = { frames; dropped; packets }`
+- `CaptureSupport = { available; backend; elevated; hint }`
+
+### 7.3 语音转录（异步结果）的用法
+
+服务端的异步推送落在 `startCapture` 之后，所以「请求 → 监听 10 秒 → 自己筛」是安全的：
+
+```ts
+await nt.startCapture(pid, { d2key });        // 先 armed（早于发包）
+try {
+  await nt.sendPacket(pid, 'pttTrans.TransC2CPttReq', body);
+  const batch = await nt.takeFrames(pid, { waitMs: 10_000 });  // 窗口内全部帧
+  // batch.frames 里自己按 cmd / body 筛出 TransC2CPttRsp 与 OlPushService.MsgPush
+} finally {
+  await nt.stopCapture(pid);
+}
+```
+
+### 7.4 权限与依赖
+
+- **Linux**：需要 root 或 `CAP_NET_RAW`（与 attach 同档）；产物静态链接 libpcap，不依赖用户机的 `libpcap.so.*`。
+- **macOS**：需要 root（BPF 设备默认 root 可读）。
+- **Windows**：需要管理员 **且** 已安装 [Npcap](https://npcap.com/)；缺失时 `probeCaptureSupport()` 返回 `available: false` + 安装引导。
+
+### 7.5 WeQ 侧怎么拿到这个权限（提权子进程）
+
+Electron **不能以 root 运行**，而抓包要 root —— 所以桌面端把「抓包会话」整段放进一个
+临时 root 子进程，主进程只做代理：
+
+```text
+渲染层点「开始抓包」
+  → 主进程（wonderful_tools.captureStart）先登记 SSO 会话（读内存拿 d2key）
+  → sudo -S 起 captureWorker.mjs（ELECTRON_RUN_AS_NODE，见 src/main/capture_elevation.ts）
+  → 子进程 require nt_helper.node，拿到 {port, token} hello 后走环回套接字协议
+  → 主进程把 start / take / stop 原样转给子进程（协议见 src/main/capture_protocol.ts）
+```
+
+要点：
+
+- 密码来自**渲染层自绘的密码框**（`elev::request-password`，macOS 姿势的 `sudo -S`，不走 polkit）；
+  起子进程前先 `sudo -n true` 探一次缓存，刚刚读过内存的机器不会再弹第二个框。
+- 协议走 **127.0.0.1 环回套接字**而不是 stdin/stdout：`sudo -S` 要从 stdin 读密码，复用同一条
+  管道会被 sudo 的缓冲读写吃掉。hello 里的随机 `token` 是门禁（端口只有本机可达）。
+- 子进程是**另一个 native 实例**，主进程 `setSsoSession` 注册的物料它看不见，所以 `start`
+  必须显式带 `d2key`；`setcap cap_net_raw,cap_net_admin+eip <binary>` 也能免掉提权，
+  但不改系统是默认选择。
+- 生命周期：主进程持着环回连接，断开（退出 / 崩溃）时子进程自己停会话再退出；退出时会
+  主动 `dispose`。**不会**把 root 抓包留在后台。
+
+---
+
+## 8. 平台相关 / 其它
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
@@ -263,25 +403,25 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 ---
 
-## 8. 常见坑 & 约定
+## 9. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
 2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级，排查时用环境变量 `WEQ_LOG_LEVEL=debug|trace` 抬升（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
-6. **在线发包需先注入**：`sendOidbPacket` / `sendPacket` 的前提都是「已注入的在线 QQ pid」。
+6. **在线发包需先登记物料**：`sendOidbPacket` / `sendPacket` 的前提是「该 pid 已 `setSsoSession` 登记过、且物料来自在线 QQ」。
 7. **业务命令去 TS 找**：`clientKey` / rkey / decryptKey / skey / p_skey / bkn 见
    `packages/protocol` 与 `packages/service/src/account/online_ticket.ts`，不要在 native 层重复实现。
 8. **不要重复造轮子**：上面列的每一项 native 能力都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力
 
 ---
 
-## 9. 相关链接
+## 10. 相关链接
 
 - 源码：`../nt_helper/src/`（Rust / napi-rs），入口 `lib.rs`
-- 使用示例：`apps/desktop/src/main/inject_worker.ts`（加载 + 初始化 + 调用）
+- 使用示例：`apps/desktop/src/main/attach_worker.ts`（加载 + 初始化 + 调用）
 - 数据库层封装：`packages/db`（基于 `executeSqlWithKey` 等）
-- macOS 注入说明：`[ninebird-macos.md](../principles/ninebird-macos.md)`
+- 纯协议登录（装号 / 取密钥）：`packages/service/src/bootstrap/key.ts` + `nt_helper` 的 `quickLogin` / `qrLogin`
 
 [← 返回开发者入口](./index.md)

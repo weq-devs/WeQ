@@ -33,7 +33,6 @@ import {
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
 import { daemonHttpStatus } from '@weq/service';
-import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
   getAppContext,
@@ -44,7 +43,7 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
-import { takePendingGroupJump } from '../../group_keyword_bus';
+import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -60,19 +59,11 @@ import {
   normalizeNapcatBaseUrl,
   normalizeSsePushUrl,
   testSsePushTarget,
+  attachAndRegisterSsoSession,
+  resolveDeviceGuid,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
-import {
-  darwinPaths,
-  getPatchStatus,
-  installNineBird,
-  installNineBirdLinux,
-  linuxPaths,
-  linuxStubStatus,
-  uninstallNineBird,
-  uninstallNineBirdLinux,
-} from '@weq/native';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
 export interface PickRootResult {
@@ -150,11 +141,17 @@ function hostOfServerUrl(url: string): string {
 export async function ensureUidForUin(
   boot: ReturnType<typeof requireBootstrap>,
   uin: string,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const accounts = await boot.detect.listAccounts();
     const match = accounts.find((a) => a.uin === uin && a.uid);
-    if (match?.uid) rememberAccountUid(uin, match.uid);
+    if (match?.uid) {
+      rememberAccountUid(uin, match.uid);
+      // 解析出来的 uid 顺手落盘：它只在这里能拿到（login.db），而账号记录一旦
+      // 有了 uid，重启后 / 下次开账号都不用再解析一遍 login.db。
+      boot.userConfig.setAccountUid(uin, match.uid);
+      return match.uid;
+    }
   } catch (e) {
     logger.warn('ensureUidForUin failed to resolve uid', {
       event: 'ensure-uid-failed',
@@ -162,6 +159,7 @@ export async function ensureUidForUin(
       error: e instanceof Error ? e.message : String(e),
     });
   }
+  return null;
 }
 
 export const bootstrapRouter = router({
@@ -206,130 +204,31 @@ export const bootstrapRouter = router({
     return takePendingGroupJump();
   }),
 
+  /**
+   * 防撤回通知被点击：主进程已记下一个「打开该会话、跳到该 seq」的请求。渲染层
+   * 收到本信号后调 `consumeConversationJump` 领走并执行跳转。
+   */
+  onConversationJump: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (payload: { at: number }): void => {
+        emit.next(payload);
+      };
+      accountEventBus.on('conversationJump', handler);
+      return () => {
+        accountEventBus.off('conversationJump', handler);
+      };
+    });
+  }),
+
+  /** 领走一条待处理的通用会话跳转（无则返回 null）。 */
+  consumeConversationJump: procedure.query(() => {
+    return takePendingConversationJump();
+  }),
+
   /** Platform kind, so the renderer can branch linux-only key behaviour. */
   systemInfo: procedure.query(() => {
     return { platformKind: process.platform as NodeJS.Platform };
   }),
-
-  // ---- NineBird 安装（macOS napcat 机制 / Linux 持久 stub，sudo -S 提权） ----
-
-  /**
-   * 入口状态：
-   *   - darwin：package.json main 的补丁状态（原版 / NineBird / 自定义 /
-   *     缺失），外加 bundle shim 是否在位；
-   *   - linux：持久 stub（loadNineBird.js）是否就位（Linux 不动 package.json，
-   *     所以只有 已装/未装 两种）。
-   * 其它平台返回 null。
-   */
-  nineBirdInstallStatus: procedure.query(() => {
-    const platform = requirePlatform();
-    const exe = platform.qqExePath();
-    if (!exe) return { kind: 'missing', loaderOk: false } as const;
-    if (platform.kind === 'darwin') {
-      const paths = darwinPaths(exe);
-      return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
-    }
-    if (platform.kind === 'linux') {
-      const status = linuxStubStatus(linuxPaths(exe));
-      return {
-        kind: status.installed ? 'ninebird' : 'original',
-        loaderOk: status.installed,
-        fresh: status.fresh,
-      } as const;
-    }
-    return null;
-  }),
-
-  /**
-   * 安装 NineBird：darwin = 部署容器文件 + 提权切换 package.json 入口；
-   * linux = 提权写入持久 stub（loadNineBird.js）。密码由渲染层密码框输入，
-   * 经 `sudo -S` stdin 使用，不在 main 里落盘 / 记日志。
-   */
-  nineBirdInstall: procedure
-    .input(z.object({ password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      const exe = platform.qqExePath();
-      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      if (platform.kind === 'darwin') {
-        await installNineBird(exe, platform.native.resources, input.password);
-        return getPatchStatus(darwinPaths(exe));
-      }
-      if (platform.kind === 'linux') {
-        await installNineBirdLinux(exe, platform.native.resources.qrDbkeyJsPath, input.password);
-        return linuxStubStatus(linuxPaths(exe));
-      }
-      throw new Error('仅 macOS / Linux 支持 NineBird 安装');
-    }),
-
-  /** 还原：darwin = 恢复 package.json 入口（提权）+ 删容器部署目录；
-   *  linux = 删除 loadNineBird.js（提权）。 */
-  nineBirdUninstall: procedure
-    .input(z.object({ password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      const exe = platform.qqExePath();
-      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      if (platform.kind === 'darwin') {
-        await uninstallNineBird(exe, input.password);
-        return getPatchStatus(darwinPaths(exe));
-      }
-      if (platform.kind === 'linux') {
-        await uninstallNineBirdLinux(exe, input.password);
-        return linuxStubStatus(linuxPaths(exe));
-      }
-      throw new Error('仅 macOS / Linux 支持 NineBird 卸载');
-    }),
-
-  /**
-   * macOS：提权扫描在线 QQ 进程内存，直接恢复数据库密钥。
-   * 读取其它进程内存受 SIP / task_for_pid 限制，需要解除 SIP 并且以管理员
-   * 权限执行（密码经 sudo -S stdin 传入，与 ninebird 安装同一套提权姿势，
-   * 不在 main 里落盘 / 记日志）。扫描失败（如未解除 SIP）返回
-   * `{ success: false, pid }`，由渲染层引导用户解除 SIP 重试或重启 QQ。
-   * 非 macOS 平台直接拒绝，win/linux 不受影响。
-   */
-  macScanKeyFromMemory: procedure
-    .input(z.object({ uin: z.string().min(1), password: z.string() }))
-    .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持内存扫描获取密钥');
-      const boot = requireBootstrap();
-      await ensureUidForUin(boot, input.uin);
-
-      const dbPath = platform.ntMsgDbPath(input.uin);
-      if (!dbPath || !existsSync(dbPath)) {
-        return {
-          success: false as const,
-          pid: 0,
-          error: `未找到账号 ${input.uin} 的数据库文件（nt_msg.db）`,
-        };
-      }
-
-      let pid: number | null = null;
-      try {
-        pid = platform.resolveQqPid(input.uin);
-      } catch {
-        pid = null;
-      }
-      if (pid === null) {
-        return {
-          success: false as const,
-          pid: 0,
-          error: `账号 ${input.uin} 当前离线，无法扫描其进程内存`,
-        };
-      }
-
-      try {
-        return await runElevatedKeyScan(pid, dbPath, input.password);
-      } catch (e) {
-        return {
-          success: false as const,
-          pid,
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    }),
 
   // ---- detection (via global config cache) ----
 
@@ -359,6 +258,15 @@ export const bootstrapRouter = router({
     await ensureUidForUin(boot, input.uin);
     return requirePlatform().resolveQqPid(input.uin);
   }),
+
+  /**
+   * macOS only: is 系统完整性保护（SIP）still on? `true` = on, `false` = off,
+   * `null` = not macOS / couldn't tell.
+   *
+   * 在线实例取密钥 / 读内存那条路要先问它：SIP 开着时 `task_for_pid` 连 root 都
+   * 拒（读不了 QQ 进程内存），问密码没有意义。
+   */
+  sipEnabled: procedure.query(() => requirePlatform().sipEnabled()),
 
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
@@ -483,7 +391,7 @@ export const bootstrapRouter = router({
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
-  /** Full, defaulted global settings (realtime / 自动注入 QQ / …). */
+  /** Full, defaulted global settings (realtime / 自动读取 QQ 内存 / …). */
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
   }),
@@ -542,18 +450,15 @@ export const bootstrapRouter = router({
   }),
 
   /**
-   * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
-   * it live on its next poll so injection / harvesting starts or stops
+   * Toggle 自动读取 QQ 内存（完整功能总闸）. Persists, and the account monitor reads
+   * it live on its next poll so attach / harvesting starts or stops
    * immediately (no re-open needed). 关闭 = 完全离线模式。
-   * macOS 不支持注入（SIP 限制）：开启请求直接拒绝，开关恒为关闭。
+   *
+   * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
+   * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
    */
-  setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    if (input.enabled && process.platform === 'darwin') {
-      throw new Error(
-        'macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。',
-      );
-    }
-    requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
+  setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
     return true;
   }),
 
@@ -860,7 +765,7 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 群关键词提醒的规则。前端在群聊顶栏设置完就整体写回（按群号 keyed），主进程
+   * 群关键词提醒的规则。前端在会话设置里改完就整体写回（按群号 keyed），主进程
    * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
    */
   getGroupKeywordRules: procedure.query(() => {
@@ -1152,11 +1057,18 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.isWelcomeAcknowledged();
   }),
 
-  /** Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json). */
-  acknowledgeWelcome: procedure.mutation(() => {
-    requireBootstrap().userConfig.acknowledgeWelcome();
-    return true;
-  }),
+  /**
+   * Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json).
+   * `allowMemoryScan` 是用户在框里对「扫描 QQ 内存」的选择，直接落到 autoAttachQq。
+   */
+  acknowledgeWelcome: procedure
+    .input(z.object({ allowMemoryScan: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.acknowledgeWelcome({
+        allowMemoryScan: input.allowMemoryScan,
+      });
+      return true;
+    }),
 
   // ---- voice transcription models (设置 → 语音转录) ----
 
@@ -1514,29 +1426,52 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
-   * Flow 1, step A — inject the hook into the alive QQ instance and block until
-   * it is ready to send OIDB packets (the native call waits for the hook to
-   * bind the MSFService instance via `uin`). On linux this is the
-   * sudo-elevated ptrace inject, so it pops the self-drawn password dialog and
-   * can take arbitrarily long (the user typing their password) — the renderer
-   * awaits this UNTIMED, then runs `fetchKeyFromInstance` (step B). Idempotent
-   * inside the hook. No-op-ish on win32 (ensure == inject).
+   * Flow 1, step A — attach to the alive QQ instance and read its session
+   * material (a2 / d2 / d2key) straight out of process memory, resolving once
+   * the scan is done. On linux a non-root process sudo-elevates via ptrace, so
+   * it pops the self-drawn password dialog and can take arbitrarily long (the
+   * user typing their password) — the renderer awaits this UNTIMED, then runs
+   * `fetchKeyFromInstance` (step B). Idempotent inside the hook.
+   *
+   * 读到物料后**顺手登记到原生 SSO 会话表**（见 `@weq/service` 的
+   * `attachAndRegisterSsoSession`）—— 这是整条在线取密钥链路的关键一步：
+   * `fetchKeyFromInstance` 要发的 0xcde_2 走的是 `sendOidbPacket`，而它只认
+   * 已登记的 pid，缺了这一步第一包必然报「还没有登记 SSO 会话」。uid 从
+   * login.db 解析、guid 从 QQ 数据根离线计算（都不需要额外权限）。
    */
-  prepareInstanceInject: procedure
+  prepareInstanceAttach: procedure
     .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const boot = requireBootstrap();
-      logger.info('router preparing instance inject (untimed)', {
-        event: 'router-prepare-inject',
+      const platform = requirePlatform();
+      logger.info('router preparing instance attach (untimed)', {
+        event: 'router-prepare-attach',
         pid: input.pid,
         uin: input.uin,
       });
       try {
-        await boot.injectHook.inject(input.pid, input.uin);
+        const uid = await ensureUidForUin(boot, input.uin);
+        const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+        const { registered } = await attachAndRegisterSsoSession(
+          platform.native.ntHelper,
+          platform,
+          boot.attachHook,
+          input.pid,
+          input.uin,
+          { uid, guid },
+        );
+        if (!registered) {
+          return {
+            ok: false as const,
+            error:
+              '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），' +
+              '无法向在线 QQ 请求密钥。请确认 QQ 处于登录状态后重试。',
+          };
+        }
         return { ok: true as const };
       } catch (e) {
-        logger.warn('prepareInstanceInject failed', {
-          event: 'router-prepare-inject-failed',
+        logger.warn('prepareInstanceAttach failed', {
+          event: 'router-prepare-attach-failed',
           pid: input.pid,
           error: e instanceof Error ? e.message : String(e),
         });
@@ -1547,7 +1482,7 @@ export const bootstrapRouter = router({
   /**
    * Flow 1 — alive QQ instance. Caller passes pid + uin; we resolve the
    * account's nt_msg.db via the platform (never trust a client-built path —
-   * that leaked Windows separators onto linux), inject the embedded hook
+   * that leaked Windows separators onto linux), make the pid attached
    * (idempotent inside native), then ask for the key.
    */
   fetchKeyFromInstance: procedure
@@ -1558,7 +1493,7 @@ export const bootstrapRouter = router({
       // On linux the account dir is derived from uid, which isn't in the config
       // yet during login. Seed it from the decrypted login.db account list so
       // `platform.ntMsgDbPath(uin)` can resolve the dir this call.
-      await ensureUidForUin(boot, input.uin);
+      const uid = await ensureUidForUin(boot, input.uin);
       // Resolve the db path from the platform so the layout (win `<uin>/nt_qq/…`
       // vs linux `nt_qq_<hash>/…`) and separators are always correct.
       const dbPath = platform.ntMsgDbPath(input.uin);
@@ -1580,26 +1515,41 @@ export const bootstrapRouter = router({
         dbPath,
       });
 
-      // Make the pid sendable (idempotent). On win32 this injects the embedded
-      // hook once; on linux it sudo-elevates the inject — the native call
-      // blocks until the hook binds the MSFService instance via `uin`.
-      // Re-injecting a live pid would race the hook's single-listener pipe
-      // (ERROR_PIPE_BUSY), so the hook's per-pid cache ensures we only do it
-      // once.
-      await boot.injectHook.ensure(input.pid, input.uin);
+      // Attach (idempotent) AND register the native SSO session: 正常的登录流程
+      // 会先走 `prepareInstanceAttach`（那一步已登记），但 `fetchKeyFromInstance`
+      // 也可以被单独调用（例如重试、其它调用方），不能假定登记一定发生过 ——
+      // 登记是幂等的、只存物料不建连，多走一次无副作用。缺了它 0xcde_2 会报
+      // 「还没有登记 SSO 会话」。
+      const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
+      const { registered } = await attachAndRegisterSsoSession(
+        platform.native.ntHelper,
+        platform,
+        boot.attachHook,
+        input.pid,
+        input.uin,
+        { uid, guid },
+      );
+      if (!registered) {
+        return {
+          success: false as const,
+          error:
+            '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），' +
+            '无法向在线 QQ 请求密钥。请确认 QQ 处于登录状态后重试。',
+        };
+      }
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
         // The cached native client may have died (QQ relaunched / hook
         // unloaded). Reset + re-ensure once — a genuinely closed client
         // reconnects cleanly — and retry a single time.
-        logger.warn('key fetch failed; re-injecting and retrying once', {
+        logger.warn('key fetch failed; re-attaching and retrying once', {
           event: 'router-fetch-key-retry',
           pid: input.pid,
           error: result.error,
         });
-        boot.injectHook.reset(input.pid);
-        await boot.injectHook.ensure(input.pid, input.uin);
+        boot.attachHook.reset(input.pid);
+        await boot.attachHook.ensure(input.pid, input.uin);
         result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;
@@ -1613,20 +1563,33 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         uin: z.string(),
+        /** 该账号 nt_msg.db 绝对路径（读 key_meta）；缺省按 uin 由平台解析。 */
+        dbPath: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
       }),
     )
     .subscription(({ input }) => {
       return observable<KeyEvent>((emit) => {
-        const stream = requireBootstrap().keys.quickLoginStream({
-          uin: input.uin,
-          ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-        });
-        const iterator = stream[Symbol.asyncIterator]();
         let cancelled = false;
+        let iterator: AsyncIterator<KeyEvent> | null = null;
 
         void (async (): Promise<void> => {
           try {
+            const boot = requireBootstrap();
+            // 取 key_meta 要先能定位该账号的 nt_msg.db：linux/darwin 的账号目录是
+            // `nt_qq_<md5(uid)>`，所以先把 uin→uid 从 login.db 里 seed 出来，再由
+            // 平台解析出 <dbPath>（渲染层显式给了 dbPath 就优先用它）。
+            let dbPath = input.dbPath;
+            if (!dbPath) {
+              await ensureUidForUin(boot, input.uin);
+              dbPath = requirePlatform().ntMsgDbPath(input.uin) ?? undefined;
+            }
+            const stream = boot.keys.quickLoginStream({
+              uin: input.uin,
+              ...(dbPath !== undefined ? { dbPath } : {}),
+              ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+            });
+            iterator = stream[Symbol.asyncIterator]();
             for (;;) {
               const next = await iterator.next();
               if (next.done || cancelled) break;
@@ -1640,24 +1603,46 @@ export const bootstrapRouter = router({
 
         return () => {
           cancelled = true;
-          void iterator.return?.();
+          void iterator?.return?.();
         };
       });
     }),
 
   /** Flow 3 — QR login. Same shape as quickLogin. */
   qrLogin: procedure
-    .input(z.object({ timeoutMs: z.number().int().positive().optional() }).optional())
+    .input(
+      z
+        .object({
+          /** 已知账号 uin（可选）：用于解析 nt_msg.db 读 key_meta / 带 uid。 */
+          uin: z.string().optional(),
+          /** 该账号 nt_msg.db 绝对路径（读 key_meta）。 */
+          dbPath: z.string().optional(),
+          timeoutMs: z.number().int().positive().optional(),
+        })
+        .optional(),
+    )
     .subscription(({ input }) => {
       return observable<KeyEvent>((emit) => {
-        const stream = requireBootstrap().keys.qrLoginStream({
-          ...(input?.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-        });
-        const iterator = stream[Symbol.asyncIterator]();
         let cancelled = false;
+        let iterator: AsyncIterator<KeyEvent> | null = null;
 
         void (async (): Promise<void> => {
           try {
+            const boot = requireBootstrap();
+            // 已知目标账号时，先 seed uin→uid 再解析它的 nt_msg.db 读 key_meta
+            // （linux/darwin 目录按 uid 哈希）；匿名扫码（登录全新账号）没有
+            // uin、本机也还没有 nt_msg.db，key_meta 自然为空。
+            let dbPath = input?.dbPath;
+            if (dbPath === undefined && input?.uin) {
+              await ensureUidForUin(boot, input.uin);
+              dbPath = requirePlatform().ntMsgDbPath(input.uin) ?? undefined;
+            }
+            const stream = boot.keys.qrLoginStream({
+              ...(input?.uin !== undefined ? { uin: input.uin } : {}),
+              ...(dbPath !== undefined ? { dbPath } : {}),
+              ...(input?.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+            });
+            iterator = stream[Symbol.asyncIterator]();
             for (;;) {
               const next = await iterator.next();
               if (next.done || cancelled) break;
@@ -1671,7 +1656,7 @@ export const bootstrapRouter = router({
 
         return () => {
           cancelled = true;
-          void iterator.return?.();
+          void iterator?.return?.();
         };
       });
     }),
@@ -1709,8 +1694,10 @@ export const bootstrapRouter = router({
       // whose uid isn't in the saved config yet. Seeding it here lets
       // `platform.ntMsgDbPath(uin)` resolve during this very call. Prefer the
       // uid the caller passed; otherwise recover it from the login.db list.
-      if (input.uid) rememberAccountUid(input.uin, input.uid);
-      else await ensureUidForUin(requireBootstrap(), input.uin);
+      // Either way the uid is carried into the saved record below (setAccount
+      // metadata), so it survives a restart instead of living only in memory.
+      const uid = input.uid || (await ensureUidForUin(requireBootstrap(), input.uin)) || '';
+      if (uid) rememberAccountUid(input.uin, uid);
 
       let algos: Record<string, import('@weq/native').DatabaseAlgorithms> = {};
       if (input.algo) {
@@ -1738,12 +1725,33 @@ export const bootstrapRouter = router({
       await ctx.setAccount(
         { uin: input.uin, dbKey: input.dbKey, algos },
         {
-          ...(input.uid ? { uid: input.uid } : {}),
+          ...(uid ? { uid } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
           ...(dataDir ? { dataDir } : {}),
         },
       );
+      // 顺带把该账号在 login.db 里的 A1 payload（native 已用设备 guid 解出）记进
+      // 账号配置。`setAccount` 已经 seed 好记录，这里再 patch。整段 best-effort：
+      // 解不出来 / 没有 A1 就跳过，绝不影响开账号。
+      {
+        const services = ctx.services;
+        if (services) {
+          try {
+            const accounts = await requireBootstrap().detect.listAccounts();
+            const row = accounts.find((a) => a.uin === input.uin);
+            if (row?.a1Payload) services.accountConfig.setA1Payload(row.a1Payload);
+            // 同一个 native 调用顺手带回了设备 guid；已有记录时 setGuid 自身会跳过。
+            if (row?.guid) services.accountConfig.setGuid(row.guid);
+          } catch (e) {
+            logger.warn('failed to resolve a1 payload (non-fatal)', {
+              event: 'a1-payload-resolve-failed',
+              accountUin: input.uin,
+              ...logErrorContext(e),
+            });
+          }
+        }
+      }
       // Must land AFTER setAccount — that's what seeds the config record the
       // patch writes into.
       if (input.pskey && Object.keys(input.pskey).length > 0) {

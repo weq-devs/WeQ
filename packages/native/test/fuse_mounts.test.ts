@@ -4,7 +4,7 @@
  *
  * 背景：AppImage 的 payload 挂在 `/tmp/.mount_xxx`（fuse，不带 allow_other），
  * root 对里面所有文件都是 EACCES —— 提权跑 worker 的注入路走不通，得换
- * 「临时放开 yama 保护」那条（见 apps/desktop/src/main/inject_elevation.ts）。
+ * 「临时放开 yama 保护」那条（见 apps/desktop/src/main/attach_elevation.ts）。
  * 判定错了的代价是两个方向都疼：漏判 → 又报那句 `权限不够`；误判 → 本来能
  * 用的提权 worker 被跳过。
  */

@@ -38,14 +38,19 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
-          injectWorker: resolve(__dirname, 'src/main/inject_worker.ts'),
-          macScanWorker: resolve(__dirname, 'src/main/mac_scan_worker.ts'),
+          attachWorker: resolve(__dirname, 'src/main/attach_worker.ts'),
+          // 抓包会话要以 root 跑（Electron 不能以 root 运行），所以和 attachWorker
+          // 一样单独打一个入口，用 `sudo` + `ELECTRON_RUN_AS_NODE` 拉起。
+          captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
+          // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
+          keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
             chunk.name === 'transcribeWorker' ||
-            chunk.name === 'injectWorker' ||
-            chunk.name === 'macScanWorker'
+            chunk.name === 'attachWorker' ||
+            chunk.name === 'captureWorker' ||
+            chunk.name === 'keyScanWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

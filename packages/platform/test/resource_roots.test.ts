@@ -51,6 +51,7 @@ function fakePlatform(): Platform {
     appDataRoot: () => 'local:appDataRoot',
     tencentFilesRoots: () => ['local:root'],
     loginDbPath: () => 'local:loginDb',
+    qqDataRoot: () => 'local:qqDataRoot',
     ntMsgDbPath: local('ntMsgDbPath'),
     accountDir: local('accountDir'),
     ntDbDir: local('ntDbDir'),
@@ -75,6 +76,7 @@ function fakePlatform(): Platform {
     qqVersion: () => '9.9.9-1',
     isQqLoggedIn: () => true,
     resolveQqPid: () => null,
+    sipEnabled: () => null,
     launcherCount: () => 3,
   };
 }
@@ -157,6 +159,8 @@ describe('passthrough', () => {
     expect(p.qqMajorNodePath()).toBe(base.qqMajorNodePath());
     expect(p.qqVersion()).toBe(base.qqVersion());
     expect(p.launcherCount()).toBe(base.launcherCount());
+    // 也属于「必须指向真实机器」的那一类：拦截 import 的账号不该改变 SIP 判定。
+    expect(p.sipEnabled()).toBe(base.sipEnabled());
     // The one that would silently disable online detection for static accounts.
     expect(p.isQqLoggedIn('10001')).toBe(base.isQqLoggedIn('10001'));
     // nt_msg.db is the session's own resolved path, never redirected here.

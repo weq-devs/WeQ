@@ -24,6 +24,8 @@ const DECRYPT_KEY_RESP = message([{ name: 'info', tag: 2, type: DECRYPT_KEY_RESP
 export namespace RequestDecryptKey {
   export const command = 0xcde;
   export const subCommand = 2;
+  /** 抓包（/tmp/cde2.log）里该请求头 reserved 无 tag 24，故无需签名。 */
+  export const needSign = false;
   export const reqSchema = DECRYPT_KEY_REQ;
   export const respSchema = DECRYPT_KEY_RESP;
 

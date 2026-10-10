@@ -34,7 +34,7 @@ export type {
   HighlightKind,
 } from './unread_info';
 
-export { AntiRecallDb } from './anti_recall';
+export { AntiRecallDb, expectedAntiRecallTriggers } from './anti_recall';
 export { AnnualReportIndexDb } from './annual_report_index';
 export type { AnnualReportIndexInfo } from './annual_report_index';
 export type {
@@ -42,6 +42,7 @@ export type {
   AntiRecallTarget,
   AntiRecallTriggerInfo,
   RecallLogRow,
+  RecallConvSummary,
 } from './anti_recall';
 
 export { decodeBody, decodeDress, emptyDressTally, mergeDressTally, tallyDressBlobs } from './util';

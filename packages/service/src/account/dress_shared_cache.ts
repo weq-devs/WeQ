@@ -136,7 +136,7 @@ export class DressSharedCache {
     private readonly ntHelper: NtHelperBinding,
     /** 共享资源根目录（通常是 `userConfig.cacheDir('dress_shared')`）。 */
     sharedDir: string,
-    /** 当前已注入的 QQ pid；0 表示没有在线实例。 */
+    /** 当前已 attach 的 QQ pid；0 表示没有在线实例。 */
     private readonly resolvePid: () => number,
   ) {
     this.logger = getLogger().child({ scope: 'dress-shared' });

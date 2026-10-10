@@ -14,7 +14,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
+  AlertTriangle,
   ArrowDownToLine,
+  Bug,
   FileText,
   FolderOpen,
   Loader2,
@@ -25,6 +27,7 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { shellBridge } from '../../lib/target';
 import { useToast } from '../Toast';
+import { useDialog } from '../Dialog';
 import { IconPicker, type IconPickerOption } from '../ui/iconPicker';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -218,6 +221,20 @@ function chunkToLines(
 
 export function LogViewerPanel(): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const dialog = useDialog();
+  const utils = trpc.useUtils();
+  const debugState = trpc.help.getNativeDebugLog.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    // 调试开关是运行时状态，唯一真相源在主进程（nt_helper 的 AtomicBool）。
+    // 每次重新打开帮助弹窗都 refetch 一次对齐，避免吃到上次关闭时的旧缓存
+    // （provider 默认 refetchOnMount:false 会让重挂载直接命中缓存）。
+    refetchOnMount: 'always',
+  });
+  const [debugBusy, setDebugBusy] = useState(false);
+  // 直接以查询结果为准（每次挂载都会对齐主进程），不再另存一份局部 state，
+  // 否则重新打开弹窗时会与真实状态不同步。
+  const debugOn = debugState.data?.enabled ?? false;
   const list = trpc.help.listLogFiles.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -472,6 +489,56 @@ export function LogViewerPanel(): ReactElement {
 
   const allOff = LEVEL_ORDER.every((lv) => !levels[lv]);
 
+  /**
+   * 切换 nt_helper 底层调试模式。
+   *
+   * 开启前先弹确认：调试模式会把收发包的完整原始字节写进日志，体积会迅速膨胀，
+   * 只能临时用。关闭不需要确认。
+   */
+  const toggleDebug = useCallback(async (): Promise<void> => {
+    if (debugBusy) return;
+    if (!debugOn) {
+      const ok = await dialog.confirm(
+        '开启底层调试模式',
+        '开启后 nt_helper 会把收发包等原始数据（含 hex）完整写进当天的 nt_helper 日志，日志体积会迅速膨胀，长时间开启可能占满磁盘。仅在排查协议问题时临时开启，用完请立刻关闭。确认开启？',
+        { okLabel: '开启调试', tone: 'warning' },
+      );
+      if (!ok) return;
+    }
+    setDebugBusy(true);
+    try {
+      const res = await client.help.setNativeDebugLog.mutate({ enabled: !debugOn });
+      if (!res.ok) {
+        pushToast({
+          tone: 'error',
+          title: '切换调试模式失败',
+          detail: res.error ?? '未知错误',
+        });
+        return;
+      }
+      // 把权威结果写回查询缓存（唯一真相源），重开弹窗 / 重挂载都能读到正确状态。
+      utils.help.getNativeDebugLog.setData(undefined, {
+        enabled: res.enabled,
+        available: debugState.data?.available ?? true,
+      });
+      pushToast({
+        tone: res.enabled ? 'warning' : 'success',
+        title: res.enabled ? '底层调试模式已开启' : '底层调试模式已关闭',
+        detail: res.enabled
+          ? '从现在起收发包数据会写入 nt_helper 日志，请勿长时间开启。'
+          : '已恢复正常日志级别。',
+      });
+    } catch (e) {
+      pushToast({
+        tone: 'error',
+        title: '切换调试模式失败',
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setDebugBusy(false);
+    }
+  }, [debugBusy, debugOn, debugState.data?.available, dialog, pushToast, utils]);
+
   const openLogDir = (): void => {
     void shellBridge()
       ?.openLogDir()
@@ -536,6 +603,24 @@ export function LogViewerPanel(): ReactElement {
           </span>
           <button
             type="button"
+            className={`weq-set-btn weq-set-btn-sm${debugOn ? ' weq-set-btn-danger' : ' weq-set-btn-soft'}`}
+            onClick={() => void toggleDebug()}
+            disabled={debugBusy || debugState.data?.available === false}
+            title={
+              debugOn
+                ? '关闭底层调试模式（收发包原始数据不再写入日志）'
+                : '开启底层调试：把收发包的完整原始数据写进日志，仅用于排查问题'
+            }
+          >
+            {debugBusy ? (
+              <Loader2 size={12} className="weq-help-log-spin" aria-hidden />
+            ) : (
+              <Bug size={12} aria-hidden />
+            )}
+            {debugOn ? '调试模式已开启' : '开启调试模式'}
+          </button>
+          <button
+            type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={openLogDir}
           >
@@ -544,6 +629,17 @@ export function LogViewerPanel(): ReactElement {
           </button>
         </div>
       </div>
+
+      {/* 调试模式警示：开启时显著提醒，避免用户放着不管把磁盘写满 */}
+      {debugOn ? (
+        <div className="weq-help-log-debug-warn" role="alert">
+          <AlertTriangle size={13} aria-hidden />
+          <span>
+            底层调试模式已开启：nt_helper 正在把收发包的完整原始数据写入日志，
+            <strong>日志会快速增长</strong>。排查完成后请点右上角按钮关闭。
+          </span>
+        </div>
+      ) : null}
 
       {/* 等级筛选 + 跟随开关 */}
       <div className="weq-help-log-tools">

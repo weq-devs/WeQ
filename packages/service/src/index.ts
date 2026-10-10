@@ -19,26 +19,25 @@
 
 // ---- bootstrap ----
 export { Win32DetectService } from './bootstrap/win32_detect';
-export type { QqInstallInfo, DetectedQqProcess } from './bootstrap/win32_detect';
+export type { QqInstallInfo } from './bootstrap/win32_detect';
 
-export { Win32KeyService } from './bootstrap/win32_key';
+export { KeyService } from './bootstrap/key';
 export type {
   KeyResult,
   KeyEvent,
   QuickLoginStreamOptions,
   QrLoginStreamOptions,
-} from './bootstrap/win32_key';
+} from './bootstrap/key';
 
-export { createDirectInjectHook } from './bootstrap/inject';
-export type { InjectHook, PtraceHintChoice, PtraceHintAnswer } from './bootstrap/inject';
-export { runUnprivilegedInject } from './bootstrap/ptrace_flow';
-export type { DirectInjectFailure, PtraceInjectFlowDeps } from './bootstrap/ptrace_flow';
+export { createDirectAttachHook } from './bootstrap/attach';
+export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
+export { runUnprivilegedAttach } from './bootstrap/attach_flow';
+export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
   UserConfig,
   AutoEnterTarget,
-  InjectRecord,
   AppSettings,
   AppLockConfig,
   AppLockMethod,
@@ -145,6 +144,15 @@ export {
 } from './account/web/dress_mall';
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
+export {
+  attachAndRegisterSsoSession,
+  registerSsoSession,
+  registerSsoSessionFromStored,
+  resolveDeviceGuid,
+  resolveSubAppId,
+  PC_SUB_APP_ID,
+} from './account/sso_session';
+export type { SsoIdentity, StoredSsoMaterial } from './account/sso_session';
 export {
   MediaDownloadService,
   PRIVATE_IMAGE_RKEY_TYPE,
@@ -265,7 +273,13 @@ export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
-export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
+export type {
+  AntiRecallConfig,
+  AntiRecallStatus,
+  AntiRecallOptions,
+  RecallNotifyEvent,
+} from './account/anti_recall';
+export { notifyKey } from './account/anti_recall';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
 export type {
   MergeForwardDraft,
@@ -564,6 +578,14 @@ export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
 export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
+export { GroupModerationService } from './account/group_moderation';
+export type {
+  RecallMessageParams,
+  SetMemberCardServiceParams,
+  KickMemberServiceParams,
+  MuteMemberServiceParams,
+  SetAdminServiceParams,
+} from './account/group_moderation';
 export { FlashTransferService } from './account/flash_transfer';
 export {
   joinRegion,
@@ -669,6 +691,16 @@ export type {
   TaskProgress,
   MarketPackDeps,
   MarketPackDownloadItem,
+  MediaDeps,
+  MediaExportOptions,
+  DecodeSilk,
+  TranscribeVoiceFn,
+  TranscribeOutcome,
+  OnlineTranscribeFn,
+  OnlineTranscribeRequest,
+  OnlineTranscribeOutcome,
+  StageLog,
+  StageProgress,
 } from './account/export';
 
 // ---- daemon (weq-daemon 伴生守护进程的统一管道客户端) ----

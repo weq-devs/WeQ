@@ -8,7 +8,7 @@
  * `/cover/update`。
  *
  * 全程 best-effort：助手未开启 / bootstrap 未就绪 / 无账号时静默跳过。
- * 推文先写本地库（tweets.ts），同版本只入库一次；账号在线时立即注入 QQ，
+ * 推文先写本地库（tweets.ts），同版本只入库一次；账号在线时立即读取 QQ 内存，
  * 否则等下次账号打开 / 助手开关同步时由 syncTweets 自然补上。
  */
 
@@ -36,7 +36,7 @@ export function announceUpdateAvailableSafe(version: string): void {
   });
 }
 
-/** 发布「更新可用」推文（页面 + 封面 + 本地推文库 + 尽快注入 QQ）。 */
+/** 发布「更新可用」推文（页面 + 封面 + 本地推文库 + 尽快读取 QQ 内存）。 */
 export async function announceUpdateAvailable(version: string): Promise<void> {
   const v = version.replace(/^v/i, '');
   const userConfig = requireBootstrap().userConfig;

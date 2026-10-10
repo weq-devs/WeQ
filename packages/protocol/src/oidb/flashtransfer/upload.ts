@@ -19,10 +19,12 @@
 //   finishFlashUpload     —— stage + uploadFlashMainFiles 连续执行;
 //   uploadFlashFiles      —— create + finish 连续执行(等价于旧行为)。
 //
-// 「先发后传」的推荐时序(见 FlashTransferService.sendFlashTransfer):
-//   create → **commit** → 0x93d7 发消息 → 后台(缩略图 + 主文件)。
-// commit/complete 只是元数据登记(让对端点开就有文件清单),不是上传,必须排在发送前;
-// 真正的字节上传(封面与主文件)全部挪到消息发出之后在后台跑。
+// 「封面传完才发、主文件后台传」的推荐时序(见 FlashTransferService.sendFlashTransfer):
+//   create → **stage(commit + 封面)** → 0x93d7 发消息 → 后台(主文件)。
+// commit/complete 与**封面字节**都必须排在 0x93d7 之前:前者让对端点开就有文件清单,
+// 后者让卡片一到就有封面 —— 实机抓包(2026-10-10)里 QQ 就是传完封面+主文件才发消息,
+// 封面晚于发送会让对端回退默认封面(客户端不会再重拉 fileset)。只有主文件的大字节
+// 挪到消息发出之后在后台跑。
 
 import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
@@ -30,11 +32,15 @@ import { basename } from 'node:path';
 import type { OidbNative } from '../../transport';
 import { hashFlashFileStreaming } from '../../highway/hash-file';
 import { sliceuploadFile } from '../../highway/sliceupload';
-import { ApplyFileset, type ApplyFilesetParams } from './apply-fileset';
+import {
+  ApplyFileset,
+  FLASH_UPLOAD_SCENE_AIO_FILE_SELECTOR,
+  type ApplyFilesetParams,
+} from './apply-fileset';
 import { ApplyUpload } from './apply-upload';
 import { CommitFile, type CommitEntry } from './commit-file';
 import { CompleteFileset } from './complete-fileset';
-import { buildFileId } from './file-id';
+import { buildFileId, FLASH_APPID_MAIN } from './file-id';
 import { fileTypeCode } from './file-type';
 import { PrepareUpload } from './prepare-upload';
 import { SetFilesetStatus } from './set-status';
@@ -54,6 +60,8 @@ export interface FlashUploadOptions {
   name?: string;
   /** 可选的真实 PNG 缩略图路径;不传则不传缩略图(不再上传默认占位图)。 */
   thumbPath?: string;
+  /** 文件集有效期(秒)。缺省 1209600(14 天);可选 90/180 天。 */
+  validitySeconds?: number;
   uploader: ApplyFilesetParams['uploader'];
 }
 
@@ -85,6 +93,8 @@ interface PreparedUpload {
   rkey: string;
   sha1StateV: Uint8Array[];
   sliceCount: number;
+  /** apply 响应里规范化后的 filesetWrap 原始字节（sliceupload f107.f101 原样回带）。 */
+  filesetRef: Uint8Array | null;
 }
 
 function displayName(override: string | undefined, fallback: string): string {
@@ -110,7 +120,7 @@ async function prepareAndApply(
     formatCode: item.formatCode,
   });
   const fileId = buildFileId(hashes.sha1, item.fileSize);
-  await ApplyUpload.invoke(nt, pid, {
+  const filesetRef = await ApplyUpload.invoke(nt, pid, {
     filesetUuid,
     fileUuid: item.fileUuid,
     fileId,
@@ -124,7 +134,7 @@ async function prepareAndApply(
 
   // 秒传只跳过实际 sliceupload；当前 fileset 仍必须完成 ApplyUpload 绑定。
   if (rkey === null) return null;
-  return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount };
+  return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount, filesetRef };
 }
 
 /** 阶段A:校验本地文件并申请 fileset(发起)。返回 pending,后续走 finishFlashUpload。 */
@@ -161,14 +171,14 @@ export async function createFlashFileset(
   const filesetName =
     opts.name?.trim() || (isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName);
   const totalSize = items.reduce((sum, item) => sum + item.fileSize, 0);
-  const { typeCode } = fileTypeCode(first.fileName);
 
   // 申请 fileset(响应带分享链接)。fileName 是卡片标题,各文件真实名走 commit。
   const apply = await ApplyFileset.invoke(nt, pid, {
     fileName: filesetName,
     origName: filesetName,
     fileSize: totalSize,
-    typeCode,
+    uploadSceneType: FLASH_UPLOAD_SCENE_AIO_FILE_SELECTOR,
+    ...(opts.validitySeconds !== undefined ? { validitySeconds: opts.validitySeconds } : {}),
     uploader: opts.uploader,
   });
 
@@ -206,7 +216,8 @@ export async function commitFlashFileset(
 
 /** 阶段B1:缩略图完整上传:prepare → apply → sliceupload(让卡片封面就绪)。
  *
- * 可放在消息发出之后(先发后传),也可以放在发送前(要在卡片里立刻看到封面时)。 */
+ * 必须在 0x93d7 发消息**之前**跑完 —— 对端一收到消息就拉 fileset,封面没登记就只显示
+ * 默认封面且不会重拉(见模块头注释)。由 `stageFlashFileset` 在发送前调用。 */
 export async function uploadFlashThumbnail(
   nt: OidbNative,
   pid: number,
@@ -224,7 +235,7 @@ export async function uploadFlashThumbnail(
   await sliceuploadThumbnail(thumb);
 }
 
-/** 阶段B1':commit → complete → 缩略图上传(封面先就绪,然后才发消息的老时序)。 */
+/** 阶段B1':commit → complete → 缩略图上传(**发消息前的标准时序**:清单先登记、封面先就绪)。 */
 export async function stageFlashFileset(
   nt: OidbNative,
   pid: number,
@@ -261,6 +272,11 @@ export async function uploadFlashMainFiles(
         upload.sha1StateV,
         upload.sliceCount,
         item.fileName,
+        {
+          appid: FLASH_APPID_MAIN,
+          field100: 5,
+          ...(upload.filesetRef ? { fileRef: upload.filesetRef } : {}),
+        },
       ),
     ),
   );

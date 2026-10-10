@@ -14,7 +14,7 @@
  * ## 为什么排行榜还有一份静态兜底
  *
  * 搜索必须联网(要 pskey),但排行榜的内容变化很慢,所以仓库里存了一份
- * `resources/dress/ranking-bubble.json`(就是这个端点的原始响应)。离线 / ninebird 账号
+ * `resources/dress/ranking-bubble.json`(就是这个端点的原始响应)。离线账号
  * 也能浏览一个可用的气泡目录 —— 气泡渲染只要 itemId 就够(见 bubble_skin.ts),
  * 拿静态清单里的 id 一样能装。{@link normalizeMallItems} 对原始响应和静态文件通吃。
  *

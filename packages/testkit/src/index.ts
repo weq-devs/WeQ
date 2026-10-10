@@ -336,10 +336,11 @@ export function requireMutationConsent(whatItDoes: string): void {
 }
 
 export {
-  ensureSendable,
-  type EnsureSendableOptions,
-  type InjectableNative,
-} from './inject';
+  ensureAttached,
+  type EnsureAttachedOptions,
+  type AttachableNative,
+  type AttachedMaterial,
+} from './attach';
 export {
   createSqliteStub,
   fixtureDb,

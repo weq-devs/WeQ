@@ -17,15 +17,18 @@
  *      as they would for a missing directory.
  *
  * macOS native differences (see `nt_helper/src`):
- *   - `isQqLoggedIn` / `probeDbLock` use the same fcntl mechanism as linux
- *     (account data root + string uid), so the probe wiring here is identical.
- *   - Injection (`injectAndGetStatus*`) and memory scanning
- *     (`scanKeyFromDatabase`) are NOT available (SIP / task_for_pid) — those
- *     surface as clear native errors when called; nothing in this factory
- *     depends on them.
+ *   - `isQqLoggedIn` / `resolveQqPid` / `probeDbLock` enumerate the processes
+ *     that have the account's `nt_msg.db` open via `libproc`
+ *     (`proc_pidfdinfo`), the analog of Windows' Restart Manager — not linux's
+ *     single-holder `F_GETLK`. Each holder is name-tagged via `proc_name`.
+ *   - Memory scanning (`scanSessionMaterial` / `scanKeyFromDatabase`) only works
+ *     with SIP off AND root (QQ runs hardened, so SIP alone blocks
+ *     `task_for_pid`). {@link Platform.sipEnabled} answers that first question
+ *     without any privilege, so callers can skip the scan instead of
+ *     discovering it from a failure.
  */
 
-import type { NativeBundle, NtHelperBinding } from '@weq/native';
+import { readSipEnabled, type NativeBundle } from '@weq/native';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -81,6 +84,32 @@ export function createDarwinPlatform(
 
   const home = undefined; // let the helpers default to os.homedir()
 
+  /**
+   * Resolve an account's hosting QQ pid by enumerating who has the account's
+   * `nt_msg.db` open (`libproc` via `probeDbLock`) — the macOS analog of
+   * Windows' Restart Manager, same as linux but not via `F_GETLK`.
+   *
+   * The holder list is name-tagged (`proc_name`), so we accept only a holder
+   * whose name is QQ — exactly like linux/win32. A non-QQ holder (WeQ's own
+   * read connection, another reader) must never be returned: the probe can
+   * list more than one process, and its order is not meaningful.
+   *
+   * Returns null both when the account is not signed in and when the probe
+   * couldn't run. There is deliberately no port-probe fallback.
+   */
+  const resolveQqPid = (uin: string): number | null => {
+    const dbPath = findNtMsgDb(uid(uin), home, override());
+    if (!dbPath) return null;
+    try {
+      const probe = native.ntHelper.probeDbLock(dbPath);
+      if (!probe.success) return null;
+      const holder = probe.holders.find((h) => isQqProcessName(h.name));
+      return holder ? holder.pid : null;
+    } catch {
+      return null;
+    }
+  };
+
   return {
     kind: 'darwin',
     native,
@@ -90,6 +119,7 @@ export function createDarwinPlatform(
     appDataRoot: () => join(homedir(), 'Library', 'Application Support', 'weq'),
     tencentFilesRoots: () => candidateQqRoots(home, override()),
     loginDbPath: () => findLoginDb(home, override()),
+    qqDataRoot: () => pickQqRoot(home, override()),
     accountDir: (u: string) => findAccountDir(uid(u), home, override()),
     ntDbDir: (u: string) => findNtDbDir(uid(u), home, override()),
     ntDataDir: (u: string) => findNtDataDir(uid(u), home, override()),
@@ -121,54 +151,16 @@ export function createDarwinPlatform(
       const exe = findQqExe();
       return readQqVersion(exe ? findQqWrapperNode(exe) : null);
     },
-    // macOS's native probe uses the same fcntl mechanism as linux: pass the
-    // data-root baseDir + string uid, derived here (baseDir via the same
-    // override→container-path candidate chain, no hard-coded path) so callers
-    // just pass a uin.
-    isQqLoggedIn: (u: string) => {
-      try {
-        return native.ntHelper.isQqLoggedIn(u, pickQqRoot(home, override()), getUidForUin(u));
-      } catch {
-        return false;
-      }
-    },
+    // 在线判定只认数据库锁：该账号的 `nt_msg.db` 有没有被 QQ 持有。
+    // 路径由本层解析（override→容器路径候选链，没有硬编码），调用方只给 uin。
+    isQqLoggedIn: (u: string) => resolveQqPid(u) !== null,
     // QQ records its own running-instance count in versions/setting.json —
     // same source as linux, under the container root.
     launcherCount: () => readLauncherCount(pickQqRoot(home, override())),
-    /**
-     * Attribute this account to a running QQ pid via the account's `nt_msg.db`
-     * fcntl write lock (`F_GETLK`) — identical mechanism to linux. The name
-     * is checked against the holder's process name, case-insensitively; a
-     * successful probe that finds no QQ holder means the account is not
-     * signed in. The legacy port probe is only reached when the db-lock probe
-     * itself could not run (no `nt_msg.db`) or errored.
-     *
-     * macOS-specific wrinkle: the native probe reports the holder name from
-     * `/proc/<pid>/comm`, which does not exist on macOS — the name comes back
-     * empty. When the name check can't apply, fall back to verifying the
-     * holder pid against the QQ main-process list (`getQqProcesses`, which
-     * works on macOS via NSRunningApplication / libproc).
-     */
-    resolveQqPid: (u: string) => {
-      const dbPath = findNtMsgDb(uid(u), home, override());
-      if (dbPath) {
-        try {
-          const probe = native.ntHelper.probeDbLock(dbPath);
-          if (probe.success) {
-            const named = probe.holders.find((h) => isQqProcessName(h.name));
-            if (named) return named.pid;
-            // Name unavailable (macOS has no /proc) — verify by pid against
-            // the QQ main-process list instead.
-            const byPid = probe.holders.find((h) => isQqMainPid(native.ntHelper, h.pid));
-            return byPid ? byPid.pid : null;
-          }
-          /* probe reported failure — port probe below */
-        } catch {
-          /* db-lock probe unavailable — fall through to the port probe */
-        }
-      }
-      return probeQqPidByPort(native.ntHelper, u);
-    },
+    resolveQqPid: (u: string) => resolveQqPid(u),
+    // 读内存的硬门槛：SIP 开着时 `task_for_pid` 连 root 都拒（QQ 带强化运行时）。
+    // 所以这一档必须能在**尝试之前**问出来 —— 见 `readSipEnabled`。
+    sipEnabled: () => readSipEnabled(),
   };
 }
 
@@ -185,31 +177,4 @@ function isQqProcessName(name: string): boolean {
       .toLowerCase()
       .replace(/\.exe$/, '') === 'qq'
   );
-}
-
-/** True when `pid` is one of the running QQ main processes (macOS name fallback). */
-function isQqMainPid(ntHelper: NtHelperBinding, pid: number): boolean {
-  try {
-    return ntHelper.getQqProcesses().includes(pid);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Legacy fallback: enumerate running QQ processes and port-probe each for the
- * account's uin. Only reached when the db-lock probe could not be trusted.
- * The port probe is strictly weaker, so every candidate is verified against
- * the account uin before being accepted.
- */
-function probeQqPidByPort(ntHelper: NtHelperBinding, uin: string): number | null {
-  try {
-    for (const pid of ntHelper.getQqProcesses()) {
-      const info = ntHelper.probeQqLoginInfo(pid);
-      if (info && info.uin === uin && info.loggedIn) return pid;
-    }
-  } catch {
-    /* probe unavailable */
-  }
-  return null;
 }

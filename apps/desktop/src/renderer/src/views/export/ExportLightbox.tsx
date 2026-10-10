@@ -15,7 +15,7 @@
  *   5. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   CalendarClock,
   Check,
@@ -55,6 +55,19 @@ import {
 } from './types';
 
 export type LightboxVariant = 'full' | 'guild' | 'qzone' | 'scheduled' | 'album' | 'contacts';
+
+/** 把（可能来自旧预设的）partial 选项补齐成完整 {@link ExportOptions}。 */
+function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptions {
+  return {
+    ...DEFAULT_OPTIONS,
+    ...partial,
+    range: { ...DEFAULT_OPTIONS.range, ...partial?.range },
+    mediaKinds: { ...DEFAULT_OPTIONS.mediaKinds, ...partial?.mediaKinds },
+    dress: { ...DEFAULT_OPTIONS.dress, ...partial?.dress },
+    // 在线转录是会话态：每次都要重新点开关 arm，不从持久化预设回填。
+    onlineTranscribe: false,
+  };
+}
 
 export interface LightboxResult {
   /** 灯箱里多选的导出格式（至少一种）。 */
@@ -183,7 +196,7 @@ export function ExportLightbox({
   headline,
   summary,
   contactScope = 'friends',
-  initialOptions = DEFAULT_OPTIONS,
+  initialOptions,
   initialFormats,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
@@ -197,7 +210,11 @@ export function ExportLightbox({
   summary: string;
   /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
   contactScope?: 'friends' | 'group';
-  initialOptions?: ExportOptions;
+  /**
+   * 回填的上次配置（可能来自持久化预设 —— 旧版本缺 `onlineTranscribe` 等新字段，
+   * 也可能是个 partial）。用 {@link normalizeLightboxOptions} 补全默认值。
+   */
+  initialOptions?: Partial<ExportOptions>;
   /** 上次使用的导出格式；缺失或不在当前变体可选范围内时退回默认格式。 */
   initialFormats?: ExportFormat[];
   initialSchedule?: Schedule;
@@ -214,18 +231,25 @@ export function ExportLightbox({
 }): ReactElement {
   useEscapeToClose(onClose);
   const pushToast = useToast((s) => s.push);
-  const [opts, setOpts] = useState<ExportOptions>(initialOptions);
+  const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [path, setPath] = useState<string | null>(null);
   const [pickingPath, setPickingPath] = useState(false);
 
   // 灯箱打开时探测：QQ 在线实例（4.1 可点击前提）+ 语音转录模型（5.2 前提）。
   const [qqOnline, setQqOnline] = useState<boolean | null>(null);
+  const [attachEnabled, setAttachEnabled] = useState<boolean | null>(null);
   const [voiceModelReady, setVoiceModelReady] = useState<boolean | null>(null);
+  /** 在线转录 arm 中（点开关时 run）。 */
+  const [armingOnline, setArmingOnline] = useState(false);
+  /** 本次灯箱是否已确认导出 —— 未确认就关闭时把在线转录的抓包收掉。 */
+  const submittedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     void client.account.getGroupAlbumAccessState.query().then((s) => {
-      if (!cancelled) setQqOnline(s.qqOnline);
+      if (cancelled) return;
+      setQqOnline(s.qqOnline);
+      setAttachEnabled(s.attachEnabled);
     });
     void (async () => {
       try {
@@ -244,6 +268,14 @@ export function ExportLightbox({
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // 灯箱关闭时若没确认导出、却开着在线转录 —— 把抓包会话收掉，别留个 root 抓包在后台。
+  useEffect(() => {
+    return () => {
+      if (submittedRef.current) return;
+      void client.account.onlineTranscribeDisarm.mutate().catch(() => undefined);
     };
   }, []);
 
@@ -313,6 +345,43 @@ export function ExportLightbox({
     patch({ dress: { ...opts.dress, [kind]: !opts.dress[kind] } });
   }
 
+  /**
+   * 开关在线转录：开启前先 arm 抓包会话（Windows 缺 Npcap / 未提权 / 离线都会
+   * 抛错，这里弹 toast 提示）。只有 arm 成功才置 true —— 保证后续导出可在线转写。
+   */
+  async function toggleOnlineTranscribe(v: boolean): Promise<void> {
+    if (!v) {
+      patch({ onlineTranscribe: false });
+      void client.account.onlineTranscribeDisarm.mutate().catch(() => undefined);
+      return;
+    }
+    setArmingOnline(true);
+    try {
+      const support = await client.wonderfulTools.captureSupport.query();
+      if (!support.available) {
+        pushToast({
+          tone: 'warning',
+          title: '抓包后端不可用',
+          detail: support.hint || '在线转录需要能抓本机网卡（Windows 需安装 Npcap）。',
+          ttl: 6000,
+        });
+        return;
+      }
+      await client.account.onlineTranscribeArm.mutate({});
+      patch({ onlineTranscribe: true });
+      pushToast({ tone: 'success', title: '在线转录已开启', ttl: 2600 });
+    } catch (e) {
+      pushToast({
+        tone: 'error',
+        title: '在线转录开启失败',
+        detail: e instanceof Error ? e.message : String(e),
+        ttl: 6000,
+      });
+    } finally {
+      setArmingOnline(false);
+    }
+  }
+
   async function pickPath(): Promise<void> {
     if (!onPickPath) return;
     setPickingPath(true);
@@ -325,6 +394,7 @@ export function ExportLightbox({
   }
 
   function confirm(): void {
+    submittedRef.current = true;
     onConfirm({
       formats,
       options: opts,
@@ -730,6 +800,47 @@ export function ExportLightbox({
                         />
                       }
                     />
+                    {opts.transcribeVoice && qqOnline && attachEnabled ? (
+                      <Row
+                        label="在线转录"
+                        desc={
+                          opts.onlineTranscribe
+                            ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
+                            : '优先用 QQ 服务端转写（需保持 QQ 在线）'
+                        }
+                        control={
+                          <Toggle
+                            checked={opts.onlineTranscribe}
+                            disabled={armingOnline}
+                            onChange={(v) => void toggleOnlineTranscribe(v)}
+                          />
+                        }
+                      />
+                    ) : null}
+                    {opts.transcribeVoice && opts.onlineTranscribe ? (
+                      <Row
+                        label="转录并发"
+                        desc="同时向 QQ 发起的转写请求数"
+                        control={
+                          <span className="weq-exp-num">
+                            <input
+                              type="number"
+                              min={1}
+                              max={32}
+                              value={opts.onlineConcurrency}
+                              onChange={(e) =>
+                                patch({
+                                  onlineConcurrency: Math.max(
+                                    1,
+                                    Math.min(32, Number(e.target.value) || 1),
+                                  ),
+                                })
+                              }
+                            />
+                          </span>
+                        }
+                      />
+                    ) : null}
                     <Row
                       label="ChatLab 格式"
                       desc={

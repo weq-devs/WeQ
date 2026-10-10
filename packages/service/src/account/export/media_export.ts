@@ -43,6 +43,50 @@ export interface TranscribeOutcome {
  */
 export type TranscribeVoiceFn = (silkPath: string) => Promise<TranscribeOutcome>;
 
+/**
+ * 一条语音的在线转写请求（由导出阶段从 `MediaRef.online` + 消息字段拼出）。
+ * 上层 app 用它发 `pttTrans` 请求并归集 push 结果。
+ */
+export interface OnlineTranscribeRequest {
+  /** 语音文件名 —— 在线结果按它回填。 */
+  fileName: string;
+  /** 消息 id（与 push 里的 msgId 匹配）。 */
+  msgId: string;
+  /** 发送者 uin。 */
+  senderUin: string;
+  /** 私聊 = 对方 uin；群聊 = 群号。 */
+  peerUin: string;
+  isGroup: boolean;
+  /** CDN download token（=fileToken）。 */
+  uuid: string;
+  /** 32 位小写 hex md5。 */
+  md5: string;
+  duration: number;
+  size: number;
+  format: number;
+  eventType: number;
+  fileId: number;
+}
+
+/** 一次在线转写的产出：成功的 `fileName → text` + 需要本地补全的文件名。 */
+export interface OnlineTranscribeOutcome {
+  /** 在线拿到文本的语音（键 = fileName）。 */
+  texts: Record<string, string>;
+  /** 在线失败 / 超时 / 过期，需回退本地模型的文件名。 */
+  missing: string[];
+}
+
+/**
+ * 在线转写（QQ 服务端 ASR）能力 —— 由 app 注入（native 发包 + 网卡抓 push）。
+ * 抓包会话需在导出前先 arm；未就绪时抛错，导出阶段会整体回退本地模型。
+ */
+export type OnlineTranscribeFn = (
+  reqs: OnlineTranscribeRequest[],
+  /** 并发请求数。 */
+  concurrency: number,
+  onLog?: StageLog,
+) => Promise<OnlineTranscribeOutcome>;
+
 /** File name of the per-bundle voice transcript map written by the transcribe stage. */
 export const TRANSCRIPTS_FILE = 'transcripts.json';
 
@@ -253,6 +297,10 @@ export async function transcribeFoundVoices(
   concurrency = 2,
   onTranscribed?: (ref: MediaRef, text: string) => Promise<void>,
   onLog?: StageLog,
+  /** 在线转写（可选）：优先向 QQ 服务端要文本，未拿到的回退本地模型。 */
+  online?: OnlineTranscribeFn,
+  /** 在线转写的并发请求数（默认 5）。 */
+  onlineConcurrency = 5,
 ): Promise<MediaStageResult> {
   const voices = scan.found.filter((ref) => ref.kind === 'ptt');
   const transcripts: Record<string, string> = {};
@@ -279,36 +327,102 @@ export async function transcribeFoundVoices(
 
   let done = cached;
   onProgress?.(done, result.total);
-  await runWithConcurrency(items, concurrency, async (ref) => {
+
+  const succeed = async (ref: MediaRef, text: string, via: 'online' | 'local'): Promise<void> => {
+    transcripts[ref.fileName] = text;
+    result.ok += 1;
+    onLog?.(`已转写 ${ref.fileName}（${via === 'online' ? '在线' : '本地'}）`);
+    // Best-effort back-write; a DB failure must not fail the stage.
+    if (onTranscribed) await onTranscribed(ref, text).catch(() => undefined);
+    done += 1;
+    onProgress?.(done, result.total);
+  };
+  const fail = (ref: MediaRef, error: string): void => {
+    result.failed += 1;
+    result.failures = pushFailure(result.failures, {
+      stage: 'transcribe',
+      fileName: ref.fileName,
+      error,
+    });
+    onLog?.(`转写失败 ${ref.fileName}：${error}`, 'warn');
+    done += 1;
+    onProgress?.(done, result.total);
+  };
+
+  // ---- 1. 在线优先：能拼出完整请求的走 QQ 服务端 ----
+  let remaining = items;
+  if (online) {
+    const reqs: OnlineTranscribeRequest[] = [];
+    const refByFile = new Map<string, MediaRef>();
+    const localOnly: MediaRef[] = [];
+    for (const ref of items) {
+      const o = ref.online;
+      if (o?.md5 && ref.fileToken && o.senderUin && o.peerUin) {
+        refByFile.set(ref.fileName, ref);
+        reqs.push({
+          fileName: ref.fileName,
+          msgId: ref.msgId,
+          senderUin: o.senderUin,
+          peerUin: o.peerUin,
+          isGroup: o.isGroup,
+          uuid: ref.fileToken,
+          md5: o.md5,
+          duration: o.duration,
+          size: o.size,
+          format: o.format,
+          eventType: o.eventType,
+          fileId: o.fileId,
+        });
+      } else {
+        localOnly.push(ref);
+      }
+    }
+    if (reqs.length > 0) {
+      onLog?.(`在线转写：向 QQ 服务端请求 ${reqs.length} 条语音`);
+      let out: OnlineTranscribeOutcome;
+      try {
+        out = await online(reqs, onlineConcurrency, onLog);
+      } catch (e) {
+        onLog?.(
+          `在线转写不可用，全部回退本地模型：${e instanceof Error ? e.message : String(e)}`,
+          'warn',
+        );
+        out = { texts: {}, missing: reqs.map((r) => r.fileName) };
+      }
+      for (const [fileName, text] of Object.entries(out.texts)) {
+        const ref = refByFile.get(fileName);
+        if (ref) await succeed(ref, text, 'online');
+      }
+      const missing = new Set(out.missing);
+      for (const r of reqs) {
+        if (!(r.fileName in out.texts)) missing.add(r.fileName);
+      }
+      const seen = new Set<string>();
+      remaining = [];
+      for (const ref of [
+        ...localOnly,
+        ...[...missing].map((fileName) => refByFile.get(fileName)),
+      ]) {
+        if (!ref || seen.has(ref.fileName)) continue;
+        seen.add(ref.fileName);
+        remaining.push(ref);
+      }
+    } else {
+      remaining = localOnly;
+    }
+  }
+
+  // ---- 2. 本地模型补全（漏包 / 过期 / 缺字段） ----
+  await runWithConcurrency(remaining, concurrency, async (ref) => {
     try {
       const r = await transcribe(ref.path!);
       if (r.ok) {
-        const text = r.text ?? '';
-        transcripts[ref.fileName] = text;
-        result.ok += 1;
-        onLog?.(`已转写 ${ref.fileName}（${done}/${result.total}）`);
-        // Best-effort back-write; a DB failure must not fail the stage.
-        if (onTranscribed) await onTranscribed(ref, text).catch(() => undefined);
+        await succeed(ref, r.text ?? '', 'local');
       } else {
-        result.failed += 1;
-        result.failures = pushFailure(result.failures, {
-          stage: 'transcribe',
-          fileName: ref.fileName,
-          error: r.error ?? '转写失败',
-        });
-        onLog?.(`转写失败 ${ref.fileName}：${r.error ?? '转写失败'}`, 'warn');
+        fail(ref, r.error ?? '转写失败');
       }
     } catch (e) {
-      result.failed += 1;
-      result.failures = pushFailure(result.failures, {
-        stage: 'transcribe',
-        fileName: ref.fileName,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      onLog?.(`转写异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`, 'warn');
-    } finally {
-      done += 1;
-      onProgress?.(done, result.total);
+      fail(ref, e instanceof Error ? e.message : String(e));
     }
   });
 

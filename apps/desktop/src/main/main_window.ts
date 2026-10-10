@@ -1,7 +1,7 @@
 /**
  * Primary-window registry.
  *
- * `index.ts` owns the window lifecycle; service modules (e.g. the ptrace-hint
+ * `index.ts` owns the window lifecycle; service modules (e.g. the attach-hint
  * bridge) need to reach it without importing `index.ts` back (a module cycle).
  * Keeping the reference here breaks that cycle.
  */

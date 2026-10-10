@@ -1,13 +1,17 @@
 /**
  * Left-pane login panel. Owns the per-account key lifecycle:
  *
- *   获取密钥 (new mode) — fresh online probe dispatches to the right flow:
- *       online instance → fetch via OIDB (fail ⇒ "退出登录后重试", no fallback)
- *       quick-login-able → quick login   (fail ⇒ fall back to QR)
- *       otherwise        → QR login       (fail ⇒ error dialog)
+ *   获取密钥 (new mode) — pure protocol, identical on all three platforms:
+ *       has a1  → quick login   (unusual device ⇒ the user taps 确认 on the phone)
+ *       no a1   → QR login      (scanned / confirmed on the phone)
+ *       quick login fails → fall back to QR
  *   进入 — ALWAYS tests the key first (testDatabaseKey); a wrong key shows an
  *       error dialog and refuses entry. On success opens the account and,
  *       when ticked, records the global "auto-enter" target.
+ *
+ * There is no privilege escalation anywhere: login talks to the login server
+ * directly (nt_helper.quickLogin / qrLogin), so no QQ process is launched and
+ * no admin password is ever requested.
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
@@ -52,14 +56,12 @@ export function LoginPanel({
   onDeleteAccount?: (acc: UiAccount) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const confirm = useDialog((s) => s.confirm);
-  const promptPassword = useDialog((s) => s.promptPassword);
 
   const [key, setKey] = useState('');
   /**
    * p_skey the login flow harvested alongside the dbkey. Handed to
-   * `openAccount` so the home-dress fetch has a ticket even though QQ is
-   * already gone. Empty for the alive-instance path (it can hook for one).
+   * `openAccount` so the home-dress fetch has a ticket even though no QQ
+   * process is alive. Cleared whenever the selected account changes.
    */
   const pskeyRef = useRef<Record<string, string> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,23 +69,6 @@ export function LoginPanel({
   const [autoEnter, setAutoEnter] = useState(false);
   /** new mode only: which source to drive the wizard from. */
   const [source, setSource] = useState<'online' | 'backup'>('online');
-  /** linux-only: alive-instance key fetch is slow & may need a manual message. */
-  const [isLinux, setIsLinux] = useState(false);
-  /** darwin-only: 在线实例走提权扫内存（SIP），失败后引导重启 QQ。 */
-  const [isMac, setIsMac] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void client.bootstrap.systemInfo.query().then((info) => {
-      if (alive) {
-        setIsLinux(info.platformKind === 'linux');
-        setIsMac(info.platformKind === 'darwin');
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
@@ -118,246 +103,15 @@ export function LoginPanel({
 
   // ---- key acquisition (new mode) ----
 
-  async function acquire(): Promise<void> {
+  function acquire(): void {
     if (!selected) return;
     setBusy(true);
-    setStatus('正在探测在线实例…');
-    try {
-      const pid = await client.bootstrap.resolveQqPid.query({ uin: selected.uin });
-
-      if (pid) {
-        // The db path is resolved server-side from uin via the platform, so we
-        // never build an OS-specific path here (that leaked `\` onto linux).
-
-        // macOS：在线实例不注入 hook（SIP），改为提权扫内存直接恢复密钥；
-        // 扫不到再引导「解除 SIP 重试 / 杀掉 QQ 重启取密钥」。
-        if (isMac) {
-          await acquireMac(pid, selected);
-          return; // key set, or the dialog flow ended
-        }
-
-        // Linux: the alive-instance path goes through the sudo-elevated
-        // inject first (self-drawn password dialog, untimed) and then the key
-        // fetch — the
-        // native inject already waits for the hook to bind the MSFService
-        // instance, so there is no packet-wait race on the fetch anymore.
-        // Windows keeps the direct path.
-        if (isLinux) {
-          await acquireFromInstanceLinux(pid, selected);
-          return; // key set, or an error was thrown
-        }
-
-        setStatus('正在从在线实例获取密钥…');
-        const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: selected.uin });
-        if (!r.success || !r.dbkey) {
-          throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
-        }
-        setKey(r.dbkey);
-        setStatus('已获取密钥');
-        setBusy(false);
-        return;
-      }
-
-      if (selected.a1Key) {
-        if (!(await ensureNineBirdInstalled())) {
-          setBusy(false);
-          setStatus('');
-          return;
-        }
-        startQuickLogin(selected);
-      } else {
-        if (!(await ensureNineBirdInstalled())) {
-          setBusy(false);
-          setStatus('');
-          return;
-        }
-        startQrLogin(selected);
-      }
-    } catch (e) {
-      setBusy(false);
-      setStatus('');
-      showError('获取密钥失败', errMsg(e));
-    }
-  }
-
-  /**
-   * macOS 在线实例取密钥：
-   *   1. 弹管理员密码框（ninebird 安装同款），提权扫 QQ 进程内存恢复 dbkey；
-   *   2. 扫描失败 → 弹窗说明该账号在线 + pid，需要解除 SIP，可选「确认重启」；
-   *   3. 确认重启 → 先查 NineBird 是否已装（已装不重复安装），未装则弹安装
-   *      密码框提权安装，然后走 quick-login 拉起 QQ 取 dbkey + p_skey 等凭据
-   *      （与 win/linux 的登录流程共用同一套 loader）。
-   */
-  async function acquireMac(pid: number, acc: UiAccount): Promise<void> {
-    // Step 1 —— 提权扫内存。
-    setStatus('正在扫描 QQ 进程内存（需要管理员权限）…');
-    const password = await promptPassword(
-      '获取数据库密钥',
-      '需要管理员权限扫描 QQ 进程内存以获取数据库密钥（macOS 需先解除 SIP 才能读取其他进程内存）。' +
-        '请输入电脑开机密码。',
-      { placeholder: '管理员密码' },
-    );
-    if (password === null) {
-      setBusy(false);
-      setStatus('');
-      return;
-    }
-
-    let scan: Awaited<ReturnType<typeof client.bootstrap.macScanKeyFromMemory.mutate>>;
-    try {
-      scan = await client.bootstrap.macScanKeyFromMemory.mutate({ uin: acc.uin, password });
-    } catch (e) {
-      setBusy(false);
-      setStatus('');
-      showError('获取密钥失败', errMsg(e));
-      return;
-    }
-
-    if (scan.success && scan.key) {
-      setKey(scan.key);
-      setStatus('已获取密钥');
-      setBusy(false);
-      return;
-    }
-
-    const rawError = scan.error ?? '内存扫描未找到可用密钥';
-    // 密码错误这类「不是 SIP 的问题」直接报错，不进重启引导。
-    if (/密码|sudoers|sudo/i.test(rawError)) {
-      setBusy(false);
-      setStatus('');
-      showError('获取密钥失败', rawError);
-      return;
-    }
-
-    // Step 2 —— SIP 引导弹窗。
-    setStatus('');
-    const pidLabel = scan.pid > 0 ? scan.pid : pid;
-    const restart = await confirm(
-      '内存扫描失败',
-      `该账号 QQ 在线，pid：${pidLabel}。扫描在线进程获取密钥需要解除 SIP，` +
-        '您可以解除后重试，或者本程序将杀掉现在的 QQ，重启以获取密钥。',
-      { okLabel: '确认重启', cancelLabel: '取消', tone: 'warning' },
-    );
-    if (!restart) {
-      setBusy(false);
-      return;
-    }
-
-    // Step 3 —— 确认重启：NineBird 已装就不重复安装，否则弹安装密码框。
-    setStatus('正在检查 NineBird 安装状态…');
-    let nineBirdReady = false;
-    try {
-      const status = await client.bootstrap.nineBirdInstallStatus.query();
-      nineBirdReady = status?.kind === 'ninebird';
-    } catch {
-      nineBirdReady = false;
-    }
-
-    if (!nineBirdReady) {
-      const installPassword = await promptPassword(
-        'NineBird 安装',
-        '需要管理员权限修改 QQ 程序入口（/Applications/QQ.app/Contents/Resources/app/package.json），' +
-          '重启 QQ 以获取密钥。请输入电脑开机密码。',
-        { placeholder: '管理员密码' },
-      );
-      if (installPassword === null) {
-        setBusy(false);
-        setStatus('');
-        return;
-      }
-      try {
-        await client.bootstrap.nineBirdInstall.mutate({ password: installPassword });
-      } catch (e) {
-        setBusy(false);
-        setStatus('');
-        showError('NineBird 安装失败', errMsg(e));
-        return;
-      }
-    }
-
-    // Step 4 —— 拉起 QQ 取 dbkey + p_skey（quick-login loader 顺带收集凭据）。
-    setStatus('正在重启 QQ 并获取密钥…');
-    startQuickLogin(acc);
-  }
-
-  /**
-   * Linux alive-instance key fetch.
-   *
-   * The inject half (which pops the self-drawn password dialog and can take as
-   * long as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
-   * — the native inject blocks until the hook binds the MSFService instance via
-   * the account uin, so when it resolves the pid can already send OIDB packets
-   * and the key fetch below is a plain request. Errors propagate to the caller,
-   * which shows the error dialog.
-   */
-  async function acquireFromInstanceLinux(pid: number, acc: UiAccount): Promise<void> {
-    // Step A (untimed): elevate + inject. The password dialog lives here.
-    setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
-    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid, uin: acc.uin });
-    if (!prep.ok) {
-      throw new Error(prep.error ?? '注入 QQ 进程失败，请重试。');
-    }
-
-    // Step B: fetch the key. The hook is already bound, so this is a plain
-    // request — no stall race to guard anymore.
-    setStatus('已注入，正在获取密钥…');
-    const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
-    if (!r.success || !r.dbkey) {
-      throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
-    }
-    setKey(r.dbkey);
-    setStatus('已获取密钥');
-    setBusy(false);
-  }
-
-  /**
-   * darwin / linux：登录前确保 NineBird 已装好。darwin 未装（或入口已补丁
-   * 但 bundle shim 缺失）时弹管理员密码框提权安装；linux 未装（loadNineBird.js
-   * 不存在）时同样弹密码框提权写入。取消 / 失败返回 false 并已提示用户。
-   * 其它平台直接放行（win32 的注入不依赖这一步）。
-   */
-  async function ensureNineBirdInstalled(): Promise<boolean> {
-    if (!isMac && !isLinux) return true;
-    try {
-      const status = await client.bootstrap.nineBirdInstallStatus.query();
-      if (status == null) return true;
-
-      const needsInstall =
-        status.kind === 'original' ||
-        (status.kind === 'ninebird' && status.loaderOk === false) ||
-        (status.kind === 'ninebird' && status.fresh === false);
-      if (!needsInstall) {
-        if (status.kind !== 'ninebird') {
-          showError(
-            '无法自动安装 NineBird',
-            status.kind === 'custom'
-              ? `QQ 程序入口被其他程序占用（${status.main}）。请在「设置 → 全局设置」中先还原为原版 QQ，再重试。`
-              : status.kind === 'missing'
-                ? '未找到 QQ 入口配置，请确认 QQ 已安装。'
-                : 'error' in status && status.error
-                  ? `读取 QQ 入口配置失败：${status.error}`
-                  : 'NineBird 状态异常，请重试。',
-          );
-          return false;
-        }
-        return true;
-      }
-
-      const password = await promptPassword(
-        'NineBird 安装',
-        isMac
-          ? '登录流程需要重启 QQ 以获取密钥，需要管理员权限修改 QQ 程序入口。请输入电脑开机密码。'
-          : '登录流程需要管理员权限向 QQ 的启动目录写入 loadNineBird.js 以获取密钥。请输入管理员密码。',
-        { placeholder: '管理员密码' },
-      );
-      if (password === null) return false;
-      setStatus('正在安装 NineBird…');
-      await client.bootstrap.nineBirdInstall.mutate({ password });
-      setStatus('');
-      return true;
-    } catch (e) {
-      showError('NineBird 安装失败', errMsg(e));
-      return false;
+    // Pick the flow off the one thing that matters: does the account have a
+    // cached a1? (No online check, no platform branch.)
+    if (selected.a1Key) {
+      startQuickLogin(selected);
+    } else {
+      startQrLogin(selected);
     }
   }
 
@@ -368,8 +122,9 @@ export function LoginPanel({
       { uin: acc.uin },
       {
         onData(event) {
-          if (event.kind === 'login-list') {
-            setStatus(`读取到 ${event.list.length} 个账号…`);
+          if (event.kind === 'state') {
+            // Progress, including the "confirm on your phone" prompt.
+            setStatus(event.message || event.state);
           } else if (event.kind === 'result') {
             closeSub();
             if (event.result.success && event.result.dbkey) {
@@ -377,14 +132,8 @@ export function LoginPanel({
               setKey(event.result.dbkey);
               setStatus('已获取密钥');
               setBusy(false);
-            } else if (event.result.hookInstallFailed) {
-              // 注入失败服务层已自动重试过一次。二维码走的是同一条注入路径,
-              // fallback 只会再失败一次 —— 直接请用户重试。
-              setBusy(false);
-              setStatus('');
-              showError('快速登录失败', event.result.error ?? '请重试。');
             } else {
-              // Quick login failed → fall back to QR (per spec).
+              // Quick login failed → fall back to QR.
               setStatus('快速登录失败，转二维码…');
               startQrLogin(acc);
             }
@@ -411,21 +160,25 @@ export function LoginPanel({
     });
     closeSub();
     let seenUin = acc.uin;
-    subRef.current = client.bootstrap.qrLogin.subscribe(undefined, {
+    // 已知账号的扫码：把 uin 传给主进程，好让它定位该账号的 nt_msg.db 读
+    // key_meta（否则 native 会因缺 key_meta 拿不到 dbkey）。「登录新的账号」是
+    // 匿名扫码——当前选中的账号不是要登的那个，绝不能把它的 key_meta 带进去。
+    const input = anonymous ? undefined : { uin: acc.uin };
+    subRef.current = client.bootstrap.qrLogin.subscribe(input, {
       onData(event) {
-        if (event.kind === 'login-list') {
-          const first = event.list[0];
-          if (first?.uin) seenUin = first.uin;
+        if (event.kind === 'state') {
+          setQr((q) => (q ? { ...q, status: event.message || q.status } : q));
         } else if (event.kind === 'qrcode') {
           setQr((q) => (q ? { ...q, url: event.url, status: '请使用手机 QQ 扫码' } : q));
         } else if (event.kind === 'qrcode-state') {
+          if (event.uin) seenUin = event.uin;
           setQr((q) => (q ? { ...q, status: formatQrState(event.state) } : q));
         } else if (event.kind === 'result') {
           closeSub();
           setQr(null);
           if (event.result.success && event.result.dbkey) {
-            if (event.result.pskey) pskeyRef.current = event.result.pskey;
             if (seenUin && seenUin !== selected?.uin) onSelectByUin(seenUin);
+            if (event.result.pskey) pskeyRef.current = event.result.pskey;
             setKey(event.result.dbkey);
             setStatus('已获取密钥');
             setBusy(false);
@@ -451,10 +204,9 @@ export function LoginPanel({
     if (match) onSelect(match);
   }
 
-  /** 「登录新的账号」：先确保 NineBird 已装，再走匿名扫码。 */
-  async function startNewAccountQr(): Promise<void> {
+  /** 「登录新的账号」：直接走匿名扫码（登录本身不再需要任何安装步骤）。 */
+  function startNewAccountQr(): void {
     if (!selected) return;
-    if (!(await ensureNineBirdInstalled())) return;
     startQrLogin(selected, true);
   }
 
@@ -555,7 +307,7 @@ export function LoginPanel({
     if (mode === 'existing' || isCompleteKey(k)) {
       void enter();
     } else {
-      void acquire();
+      acquire();
     }
   }
 
@@ -595,11 +347,7 @@ export function LoginPanel({
             onDeleteAccount={onDeleteAccount}
             footer={
               mode === 'new' ? (
-                <button
-                  type="button"
-                  className="weq-acct-new"
-                  onClick={() => void startNewAccountQr()}
-                >
+                <button type="button" className="weq-acct-new" onClick={() => startNewAccountQr()}>
                   <UserPlus size={15} strokeWidth={1.8} aria-hidden />
                   登录新的账号
                 </button>
@@ -661,8 +409,22 @@ export function LoginPanel({
 }
 
 function formatQrState(state: string): string {
-  if (state === 'waiting') return '等待扫描';
-  if (state === 'scanned') return '已扫描';
-  if (state === 'confirmed') return '已确认';
-  return state;
+  switch (state) {
+    case 'waiting-scan':
+    case 'waiting':
+      return '等待扫描';
+    case 'waiting-confirm':
+    case 'scanned':
+      return '已扫码，请在手机上确认';
+    case 'confirmed':
+      return '已确认';
+    case 'expired':
+      return '二维码已过期';
+    case 'canceled':
+      return '已取消';
+    case 'invalid':
+      return '二维码失效';
+    default:
+      return state;
+  }
 }

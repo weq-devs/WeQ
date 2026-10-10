@@ -1,7 +1,11 @@
 // 闪传(FlashTransfer / fileset)协议与上传编排。
 // 单个 OIDB 服务一个文件(0x93cf/0x93d0/0x93d1/0x93d3/0x93d7/0x12a9),传输层见 highway/。
 
-export { ApplyFileset } from './apply-fileset';
+export {
+  ApplyFileset,
+  FLASH_DEFAULT_VALIDITY_SECONDS,
+  FLASH_UPLOAD_SCENE_AIO_FILE_SELECTOR,
+} from './apply-fileset';
 export type { ApplyFilesetParams, ApplyFilesetResult, FlashUploaderInfo } from './apply-fileset';
 export { PrepareUpload } from './prepare-upload';
 export type { PrepareUploadParams } from './prepare-upload';
@@ -32,7 +36,8 @@ export type {
   FlashStagedItem,
 } from './upload';
 export { applyThumbnail, prepareThumbnail, sliceuploadThumbnail } from './thumbnail';
-export type { PreparedThumbnail } from './thumbnail';
+export { detectThumbType } from './thumbnail';
+export type { FlashThumbType, PreparedThumbnail } from './thumbnail';
 export {
   buildFileId,
   FLASH_APPID_MAIN,

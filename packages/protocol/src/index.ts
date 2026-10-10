@@ -108,6 +108,28 @@ export { SendPoke } from './oidb/send-poke';
 export type { SendPokeParams } from './oidb/send-poke';
 export { SetReaction } from './oidb/set-reaction';
 export type { SetReactionParams } from './oidb/set-reaction';
+export { SetGroupName } from './oidb/set-group-name';
+export type { SetGroupNameParams } from './oidb/set-group-name';
+export { MuteGroupAll, MUTE_ALL_PERMANENT } from './oidb/mute-group-all';
+export type { MuteGroupAllParams } from './oidb/mute-group-all';
+export { MuteGroupMember } from './oidb/mute-group-member';
+export type { MuteGroupMemberParams } from './oidb/mute-group-member';
+export { KickGroupMember } from './oidb/kick-group-member';
+export type { KickGroupMemberParams } from './oidb/kick-group-member';
+export { SetGroupAdmin } from './oidb/set-group-admin';
+export type { SetGroupAdminParams } from './oidb/set-group-admin';
+export { SetGroupMemberCard } from './oidb/set-group-member-card';
+export type { SetGroupMemberCardParams } from './oidb/set-group-member-card';
+export { SetGroupSpecialTitle, SPECIAL_TITLE_PERMANENT } from './oidb/set-group-special-title';
+export type { SetGroupSpecialTitleParams } from './oidb/set-group-special-title';
+export { SetGroupEssence } from './oidb/set-group-essence';
+export type { SetGroupEssenceParams } from './oidb/set-group-essence';
+export {
+  GROUP_AVATAR_HIGHWAY_CMD,
+  encodeGroupAvatarExtra,
+  setGroupAvatar,
+} from './oidb/set-group-avatar';
+export type { SetGroupAvatarParams } from './oidb/set-group-avatar';
 export { FetchClientKey } from './oidb/fetch-client-key';
 export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
@@ -180,3 +202,24 @@ export * from './oidb/flashtransfer';
 
 export * from './msg';
 export * from './file';
+
+export {
+  PttTrans,
+  C2C_PTT_TRANS_CMD,
+  GROUP_PTT_TRANS_CMD,
+  PTT_TRANS_PUSH_MSG_TYPE,
+  PTT_TRANS_PUSH_SUB_TYPE,
+  PTT_TRANS_REQ,
+  PTT_TRANS_RESP,
+  PTT_TRANS_RESULT,
+  PTT_TRANS_PUSH,
+  PTT_TRANS_PUSH_ITEM,
+  C2C_PTT_TRANS_ITEM,
+  GROUP_PTT_TRANS_ITEM,
+  buildPttTransReq,
+  encodePttTransReq,
+  parsePttTransAck,
+  parsePttTransPush,
+  pttTransCmd,
+} from './ptt-trans';
+export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';

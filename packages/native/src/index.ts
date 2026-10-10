@@ -21,48 +21,15 @@ export {
 export type { LoadNativeOptions, NativeLoadResult } from './loader';
 export { MAX_FAST_DECRYPT_BYTES, selectDatabaseDecryptMethod } from './decrypt';
 export type { DatabaseDecryptMode, DatabaseDecryptMethod } from './decrypt';
-export { NineBirdBootstrap } from './ninebird';
+export { readSipEnabled, resetSipCache, parseSipStatus } from './darwin/sip';
 export {
-  darwinPaths,
-  getPatchStatus,
-  installEntry,
-  restoreEntry,
-  ensureInstalled,
-  installNineBird,
-  deployNineBirdFiles,
-  uninstallNineBird,
-  loaderMain,
-  runSudo,
-} from './darwin/install';
-export type {
-  DarwinInstallPaths,
-  NineBirdPatchStatus,
-  ElevatedResult,
-} from './darwin/install';
-export {
-  STUB_MARKER,
-  linuxAppDir,
-  linuxPaths,
-  linuxStubStatus,
-  linuxLoaderShimContent,
-  installNineBirdLinux,
-  uninstallNineBirdLinux,
-  writeFileAsRoot,
   resolveSudoPath,
+  runSudo,
   linuxSudoErrorHint,
   YAMA_PTRACE_SCOPE_PATH,
   readYamaPtraceScope,
   writeYamaPtraceScope,
 } from './linux/install';
-export type { LinuxInstallPaths, LinuxStubStatus } from './linux/install';
+export type { ElevatedResult } from './linux/install';
 export { isOnPrivateFuseMount } from './linux/fuse_mounts';
-export type {
-  QrLoginOptions,
-  QuickLoginOptions,
-  AccountListOptions,
-  LoginSession,
-  AccountListSession,
-  AppidQua,
-  StubHooks,
-} from './ninebird';
 export * from './types';
