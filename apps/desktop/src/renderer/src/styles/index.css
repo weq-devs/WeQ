@@ -5663,13 +5663,16 @@ html[data-theme="dark"] .weq-set-kv strong {
 /* Database key field */
 .weq-set-keylist {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+  min-width: 0;
 }
 
 .weq-set-keyfield {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;

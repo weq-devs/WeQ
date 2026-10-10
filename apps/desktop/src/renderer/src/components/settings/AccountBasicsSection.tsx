@@ -96,7 +96,9 @@ function KeyValueRow({
   return (
     <div className="weq-set-keyfield">
       <span className="weq-set-key-label">{label}</span>
-      <code className="weq-set-keyval">{shown}</code>
+      <code className="weq-set-keyval" title={shown}>
+        {shown}
+      </code>
       <div className="weq-set-keyfield-actions">
         {secret ? (
           <button
