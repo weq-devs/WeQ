@@ -12,7 +12,7 @@
 
 ## 核心功能
 
-- <details> <summary>数据库密钥获取</summary> 支持通过在线QQ实例，本地保存凭据，离线计算（Android）等方式获取数据库密钥<br> 期间无需重启QQ，也无需预先登录，本项目会根据QQ在线情况，<strong>动态选择方案获取密钥，用户无需任何操作</strong> </details>
+- <details> <summary>数据库密钥获取</summary> 本地保存凭据解密发包获取，离线计算（Android）等方式获取数据库密钥<br> 期间无需重启QQ，也无需预先登录，本项目会根据凭据有效期，<strong>动态选择方案获取密钥，用户无需任何操作</strong> </details>
 - <details> <summary>离线查看和修改聊天记录</summary> 本项目基于Electron，实现了高仿QQ聊天的界面，<strong>体验原汁原味的聊天记录查看</strong> <br> 本项目支持<strong>私聊，群聊，官方账号，频道私聊等</strong>几乎所有聊天记录的解析 </details>
 - <details> <summary>QQ装扮查看</summary> 仅使用电脑端的数据，即可解析出<strong>完整的消息装扮</strong> 包括气泡，字体，挂件<br> 本项目支持下载和解析装扮资源，<strong>在PC端查看和手机端同样的渲染效果</strong><br><br>本项目同时支持导出装扮资源在外部使用  </details>
 - <details> <summary>聊天记录导出</summary> 支持导出聊天记录为<strong>各种格式</strong>，json txt xlsx等等等<br> 同时支持导出联系人，我的收藏，QQ空间等等等附带资源 </details>
