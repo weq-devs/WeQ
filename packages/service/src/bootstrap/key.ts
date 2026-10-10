@@ -21,6 +21,7 @@
  * (monitor / packet sending), but it is deliberately **not part of login**.
  */
 
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { hostname, release } from 'node:os';
 import type { Platform } from '@weq/platform';
@@ -292,8 +293,32 @@ export class KeyService {
     if (mode === 'quick' && uin && !account) {
       throw new Error(`login.db 里没有账号 ${uin}，请先在 QQ 客户端登录一次。`);
     }
-    const guid = account?.guid ?? resolveDeviceGuid(nt, this.platform);
-    if (!guid) throw new Error('无法解析设备 guid，请先在 QQ 客户端登录一次。');
+    // guid 是设备标识，不是登录密钥。快登拿它当本机身份（A1 解不出来时的回退
+    // 也依赖它），读不到就报错；扫码则**不允许**被它阻塞——顺手取一个本地缓存的
+    // 就行，实在没有随机一个 16 字节 hex 也完全合乎协议（native 只校验格式与
+    // 长度，服务端把它当「一台新设备」），所以「没有 guid 就不让弹二维码」是
+    // 设计疏漏。日志里区分来源，方便排查到底是读到的还是随机的。
+    const resolvedGuid = account?.guid ?? resolveDeviceGuid(nt, this.platform);
+    let guidSource: 'account' | 'device' | 'random';
+    if (resolvedGuid) {
+      guidSource = account?.guid ? 'account' : 'device';
+    } else if (mode === 'quick') {
+      this.logger.warn('device guid unavailable; quick login cannot proceed', {
+        event: 'quick-login-guid-missing',
+        accountUin: uin ?? null,
+      });
+      throw new Error('无法解析设备 guid，请先在 QQ 客户端登录一次。');
+    } else {
+      guidSource = 'random';
+    }
+    const guid = resolvedGuid ?? randomBytes(16).toString('hex');
+    this.logger.info('login guid resolved', {
+      event: 'login-guid-resolved',
+      mode,
+      guidSource,
+      accountUin: uin ?? null,
+      guid,
+    });
 
     let a1 = Buffer.alloc(0);
     if (mode === 'quick') {
