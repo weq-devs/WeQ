@@ -79,7 +79,6 @@ cd WeQ
 pnpm i                     # 安装依赖（electron可能需要单独处理）
 pnpm native:fetch          # 取 nt_helper 原生产物（nt_helper.node + 装扮资源，不入库）
 pnpm run build:bot         # 构建bot代码
-pnpm run build:ninebird    # 构建ninebird代码
 pnpm run build:daemon      # 构建守护进程代码
 
 pnpm dev                   # 启动开发服务器

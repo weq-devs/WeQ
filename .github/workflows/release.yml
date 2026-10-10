@@ -752,7 +752,7 @@ jobs:
             --jq '.body')
 
           NOTES=$(cat <<EOF
-          ## weQ ${TAG}
+          ## weQ ${TAG} beta
 
           ### 更新内容
           ${SECTION}
@@ -859,7 +859,7 @@ jobs:
           secret: ${{ secrets.QQ_SECRET }}
           group_openid: ${{ secrets.QQ_GROUP_OPENID }}
           message: |
-            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
+            ## WeQ 新版本 ${{ steps.prep.outputs.version }} beta 发布
 
             详细更改如下：
             ${{ steps.prep.outputs.body }}
@@ -887,7 +887,7 @@ jobs:
           secret: ${{ secrets.QQ_SECRET }}
           group_openid: ${{ secrets.QQ_GROUP_OPENID }}
           message: |
-            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
+            ## WeQ 新版本 ${{ steps.prep.outputs.version }} beta 发布
 
             详细更改如下：
             ${{ steps.prep.outputs.body }}
