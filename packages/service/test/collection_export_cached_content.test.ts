@@ -1,6 +1,8 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { CollectionMediaStore, collectionMediaReferences } from '../src/account/collection_media';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   exportCollections,
@@ -112,5 +114,43 @@ describe('collection export official-client cache', () => {
     );
     expect(filtered.coverage.rows).toBe(1);
     expect(filtered.coverage.items.map((entry) => entry.cid)).toEqual(['link-only']);
+
+    const bytes = Buffer.from('synthetic-collection-original');
+    const [reference] = collectionMediaReferences(row.cid, {
+      recordTime: 0,
+      richMediaContent: {
+        picList: [
+          {
+            uri: 'https://shp.qpic.cn/synthetic/0',
+            name: 'original.png',
+            size: bytes.length,
+            md5: createHash('md5').update(bytes).digest(),
+          },
+        ],
+      },
+    });
+    const media = new CollectionMediaStore(join(dir, 'cache'));
+    await media.download(reference!, {
+      fetch: async () => new Response(bytes),
+      inspectImage: async () => ({ width: 1, height: 1 }),
+    });
+    const withMedia = await exportCollections(
+      { format: 'json', outputPath },
+      {
+        listCollections: async () => [{ ...row }],
+        exportCachedMedia: async (_cid, directory, signal) => [
+          await media.exportCached(reference!, directory, signal),
+        ],
+      },
+    );
+    expect(withMedia.coverage).toMatchObject({
+      originalsComplete: false,
+      mediaReferencesComplete: false,
+      mediaDownloadState: 'cached-only',
+      attachments: [{ state: 'downloaded', role: 'original', md5Matches: true, sizeMatches: true }],
+    });
+    const attachment = withMedia.coverage.attachments[0]!;
+    expect(await readFile(join(dir, attachment.file!))).toEqual(bytes);
+    expect(JSON.parse(await readFile(outputPath, 'utf8'))[0].mediaCoverage).toContain('原件 1');
   });
 });

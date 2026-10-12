@@ -24,6 +24,13 @@ import type { CollectionNetworkDetail, NetworkCollectionPage } from './web/colle
 import { captureCollectionPages, type CollectionCaptureOptions } from './collection_capture';
 import { CollectionHistoryStore, type CollectionHistorySummary } from './collection_history';
 import { CollectionDetailStore } from './collection_detail_store';
+import {
+  CollectionMediaStore,
+  collectionMediaReferences,
+  type CollectionMediaOptions,
+  type CollectionMediaReceipt,
+  type CollectionMediaExportEntry,
+} from './collection_media';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -50,6 +57,8 @@ export class CollectionService {
   private readonly logger;
   private readonly history?: CollectionHistoryStore;
   private readonly details?: CollectionDetailStore;
+  private readonly media?: CollectionMediaStore;
+  private readonly listedItems = new Map<string, CollectionItem>();
 
   constructor(
     nt: WebNative,
@@ -62,6 +71,7 @@ export class CollectionService {
     if (historyRoot) {
       this.history = new CollectionHistoryStore(historyRoot, session.context.uin);
       this.details = new CollectionDetailStore(join(historyRoot, 'details'), session.context.uin);
+      this.media = new CollectionMediaStore(join(historyRoot, 'media', session.context.uin));
     }
   }
 
@@ -164,6 +174,57 @@ export class CollectionService {
     return local.get(cid) ?? null;
   }
 
+  mediaCacheDirectory(): string {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    return this.media.root;
+  }
+
+  async cachedMediaName(id: string): Promise<string> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    return (await this.media.savedFile(id)).name;
+  }
+
+  async saveMediaAs(id: string, path: string): Promise<void> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    await this.media.saveAs(id, path);
+  }
+
+  async exportCachedMedia(
+    cid: string,
+    directory: string,
+    signal?: AbortSignal,
+  ): Promise<CollectionMediaExportEntry[]> {
+    if (!this.media) return [];
+    signal?.throwIfAborted();
+    const content = await this.readCachedContent(cid);
+    const item = this.listedItems.get(cid) ?? (await this.session.collection.getByCid(cid));
+    const refs = collectionMediaReferences(cid, content, item);
+    const entries: CollectionMediaExportEntry[] = [];
+    for (const reference of refs)
+      entries.push(await this.media.exportCached(reference, directory, signal));
+    return entries;
+  }
+
+  /** URLs and identities come from the account's own metadata, never IPC input. */
+  async downloadMedia(
+    cid: string,
+    options: CollectionMediaOptions = {},
+  ): Promise<CollectionMediaReceipt[]> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    options.signal?.throwIfAborted();
+    const content = await this.readCachedContent(cid);
+    const item = this.listedItems.get(cid) ?? (await this.session.collection.getByCid(cid));
+    if (!content && !item) throw new Error('未找到这条收藏。');
+    const refs = collectionMediaReferences(cid, content, item);
+    if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');
+    const receipts: CollectionMediaReceipt[] = [];
+    for (const ref of refs) {
+      options.signal?.throwIfAborted();
+      receipts.push(await this.media.download(ref, options));
+    }
+    return receipts;
+  }
+
   /**
    * Fetch up to 20 full favorite bodies from operation 20001. Existing official
    * QQ or WeQ cache entries are reused unless `force` is requested.
@@ -245,6 +306,7 @@ export class CollectionService {
       return null;
     }
     const window = page.items.slice(offset, offset + limit);
+    for (const item of window) this.listedItems.set(item.cid, item);
     // Cloud summaries do not carry full content. Preserve independently loaded
     // local details when the network stage replaces the initial database page.
     try {

@@ -40,6 +40,7 @@ import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
+import { IS_WEB } from '../lib/target';
 
 interface PicWire {
   uri: string;
@@ -102,6 +103,19 @@ interface CollectionDetailPatch {
   contentStatus: 'cached';
   fullContent: string;
   fullContentFormat: 'text' | 'html' | 'binary' | null;
+}
+
+interface CollectionMediaResult {
+  id: string;
+  name: string;
+  kind: string;
+  state: 'downloaded' | 'failed' | 'unavailable';
+  role: 'original' | 'preview' | 'unverified';
+  bytes: number;
+  md5Matches: boolean | null;
+  sizeMatches: boolean | null;
+  imageDecoded: boolean | null;
+  error: string | null;
 }
 
 interface DetailSyncProgress {
@@ -527,6 +541,10 @@ export function CollectionDialog({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
   const [detailSync, setDetailSync] = useState<DetailSyncProgress | null>(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaResults, setMediaResults] = useState<CollectionMediaResult[] | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const mediaRun = useRef<{ requestId: string; cid: string } | null>(null);
   const detailGeneration = useRef(0);
   const forceDetailRefresh = useRef(false);
   const detailSyncRun = useRef<{ requestId: string; cancelled: boolean } | null>(null);
@@ -588,6 +606,55 @@ export function CollectionDialog({
   }, [open, reload]);
 
   const selectedCid = selected?.cid;
+  useEffect(() => {
+    setMediaResults(null);
+    setMediaError(null);
+    setMediaLoading(false);
+    return () => {
+      const run = mediaRun.current;
+      if (run) {
+        mediaRun.current = null;
+        void client.account.cancelCollectionDetailSync
+          .mutate({ requestId: run.requestId })
+          .catch(() => {});
+      }
+    };
+  }, [selectedCid, open]);
+
+  const downloadAttachments = async (): Promise<void> => {
+    if (!selectedCid || mediaRun.current) return;
+    const run = { requestId: collectionRequestId('collection-media'), cid: selectedCid };
+    mediaRun.current = run;
+    setMediaLoading(true);
+    setMediaError(null);
+    try {
+      const results = await client.account.downloadCollectionMedia.mutate(run);
+      if (mediaRun.current === run) setMediaResults(results);
+    } catch (error) {
+      if (mediaRun.current === run) setMediaError(detailErrorText(error));
+    } finally {
+      if (mediaRun.current === run) {
+        mediaRun.current = null;
+        setMediaLoading(false);
+      }
+    }
+  };
+
+  const saveAttachment = async (id: string): Promise<void> => {
+    try {
+      const result = await client.account.saveCollectionMedia.mutate({ id });
+      if (result?.downloadId) {
+        const link = document.createElement('a');
+        link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
+        link.download = result.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch (error) {
+      setMediaError(detailErrorText(error));
+    }
+  };
   useEffect(() => {
     if (!open || !selectedCid) return;
     let cancelled = false;
@@ -794,7 +861,6 @@ export function CollectionDialog({
         <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
         </button>
-
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
             {selected ? (
@@ -813,18 +879,47 @@ export function CollectionDialog({
               <span className="weq-collection-total">{items.length}</span>
             ) : null}
             {selected ? (
-              <button
-                type="button"
-                className="weq-col-detail-back"
-                title="刷新详情"
-                disabled={detailLoading}
-                onClick={() => {
-                  forceDetailRefresh.current = true;
-                  setDetailReload((n) => n + 1);
-                }}
-              >
-                <RefreshCw size={14} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="weq-col-detail-back"
+                  title="刷新详情"
+                  disabled={detailLoading || mediaLoading}
+                  onClick={() => {
+                    setMediaResults(null);
+                    setMediaError(null);
+                    forceDetailRefresh.current = true;
+                    setDetailReload((n) => n + 1);
+                  }}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="weq-collection-sync-button"
+                  disabled={detailLoading || mediaLoading}
+                  onClick={() => void downloadAttachments()}
+                >
+                  <Download size={13} />
+                  {mediaLoading ? '下载中' : '下载附件'}
+                </button>
+                {mediaLoading ? (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={() => {
+                      const run = mediaRun.current;
+                      if (run)
+                        void client.account.cancelCollectionDetailSync
+                          .mutate({ requestId: run.requestId })
+                          .catch(() => {});
+                    }}
+                  >
+                    <Square size={10} />
+                    停止
+                  </button>
+                ) : null}
+              </>
             ) : (
               <>
                 <button
@@ -908,25 +1003,23 @@ export function CollectionDialog({
             </div>
           ) : null}
         </header>
-
-        {!selected ? (
-          <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
-            {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
-              <button
-                key={k.id}
-                type="button"
-                role="tab"
-                aria-selected={kind === k.id}
-                className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-                onClick={() => setKind(k.id)}
-              >
-                {k.label}
-                <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
+        !selected ? (
+        <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
+          {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              role="tab"
+              aria-selected={kind === k.id}
+              className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
+              onClick={() => setKind(k.id)}
+            >
+              {k.label}
+              <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+        ) : null;
         <div className="weq-collection-body">
           {selected ? (
             <section className="weq-col-detail">
@@ -948,6 +1041,56 @@ export function CollectionDialog({
                 <p className="weq-col-detail-unavailable" role="status">
                   {detailError}
                 </p>
+              ) : null}
+              {mediaError ? (
+                <p className="weq-col-detail-unavailable" role="status">
+                  {mediaError}
+                </p>
+              ) : null}
+              {mediaResults ? (
+                <div className="weq-col-media-results">
+                  <div className="weq-col-media-results-head">
+                    <span>
+                      {mediaResults.length ? `附件 ${mediaResults.length}` : '暂无可下载附件'}
+                    </span>
+                    {!IS_WEB && mediaResults.some((result) => result.state === 'downloaded') ? (
+                      <button
+                        type="button"
+                        className="weq-col-detail-open"
+                        onClick={() => void client.account.revealCollectionMedia.mutate()}
+                      >
+                        打开文件夹
+                      </button>
+                    ) : null}
+                  </div>
+                  {mediaResults.map((result, index) => (
+                    <div className="weq-col-media-result" key={result.id}>
+                      <span>{result.name || `附件 ${index + 1}`}</span>
+                      {result.state === 'downloaded' ? (
+                        <button
+                          type="button"
+                          className="weq-col-detail-open"
+                          onClick={() => void saveAttachment(result.id)}
+                        >
+                          另存为
+                        </button>
+                      ) : null}
+                      <span title={result.error ?? undefined}>
+                        {result.state !== 'downloaded'
+                          ? result.error || '暂时无法下载'
+                          : result.role === 'original'
+                            ? '原件已校验'
+                            : result.role === 'preview'
+                              ? '预览图已下载'
+                              : result.md5Matches === false
+                                ? '已下载，原件校验不符'
+                                : result.sizeMatches === false
+                                  ? '已下载，大小与记录不符'
+                                  : '已下载，原件未核验'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               ) : null}
               {selected.fullContentFormat === 'text' || selected.fullContentFormat === 'html' ? (
                 <CollectionContent
@@ -992,7 +1135,6 @@ export function CollectionDialog({
             </div>
           )}
         </div>
-
         {!selected && !loading && !error && filtered.length > 0 ? (
           <footer className="weq-collection-pager">
             <button

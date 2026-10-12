@@ -4,7 +4,7 @@
  * before any router runs.
  */
 
-import { app, dialog, shell } from 'electron';
+import { app, dialog, shell, nativeImage } from 'electron';
 import { spawn } from 'node:child_process';
 import type { HostBridge, SaveTarget } from '@weq/service';
 
@@ -50,6 +50,10 @@ function revealInFileManager(path: string): Promise<void> {
 }
 
 export const electronHost: HostBridge = {
+  async inspectCollectionImage(path) {
+    const image = nativeImage.createFromPath(path);
+    return image.isEmpty() ? null : image.getSize();
+  },
   canReveal: true,
 
   async pickDirectory(opts) {

@@ -1412,6 +1412,8 @@ export function initAppContext(): AppContext {
               syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              exportCachedMedia: (cid, directory, signal) =>
+                collectionSvc.exportCachedMedia(cid, directory, signal),
             },
             // 商城表情批量下载：桥接 EmojiService 的解密链（详情 / 密钥 / 解密图片路径）。
             marketpack: {
@@ -1919,6 +1921,8 @@ export function initAppContext(): AppContext {
               syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              exportCachedMedia: (cid, directory, signal) =>
+                collectionSvc.exportCachedMedia(cid, directory, signal),
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,

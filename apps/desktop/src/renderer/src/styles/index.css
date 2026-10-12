@@ -14239,6 +14239,24 @@ html[data-theme="dark"] .weq-provider-modal {
   max-width: 720px;
   margin: 0 auto;
 }
+.weq-col-media-results {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  font-size: 12px;
+}
+.weq-col-media-results-head,
+.weq-col-media-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.weq-col-media-result {
+  margin-top: 8px;
+  color: var(--weq-fg-muted, #7c8a99);
+  overflow-wrap: anywhere;
+}
 .weq-col-detail-meta {
   display: flex;
   align-items: center;

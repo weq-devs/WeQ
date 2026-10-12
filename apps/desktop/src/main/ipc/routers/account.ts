@@ -4169,6 +4169,58 @@ export const accountRouter = router({
       return { cancelled: Boolean(controller) };
     }),
 
+  downloadCollectionMedia: procedure
+    .input(z.object({ cid: z.string().min(1).max(256), requestId: z.string().min(1).max(128) }))
+    .mutation(async ({ input }) => {
+      if (activeCollectionDetailSyncs.has(input.requestId))
+        throw new Error('收藏附件下载已在运行。');
+      const controller = new AbortController();
+      activeCollectionDetailSyncs.set(input.requestId, controller);
+      const collection = requireServices().collection;
+      const host = getHost();
+      try {
+        const receipts = await collection.downloadMedia(input.cid, {
+          signal: controller.signal,
+          inspectImage: host.inspectCollectionImage?.bind(host),
+        });
+        return receipts.map((receipt) => ({
+          id: receipt.reference.id,
+          name: receipt.reference.name,
+          kind: receipt.reference.kind,
+          state: receipt.state,
+          role: receipt.role,
+          bytes: receipt.bytes,
+          md5Matches: receipt.md5Matches,
+          sizeMatches: receipt.sizeMatches,
+          imageDecoded: receipt.imageDecoded,
+          error: receipt.error,
+        }));
+      } finally {
+        activeCollectionDetailSyncs.delete(input.requestId);
+      }
+    }),
+
+  revealCollectionMedia: procedure.mutation(async () => {
+    const dir = requireServices().collection.mediaCacheDirectory();
+    await mkdir(dir, { recursive: true });
+    await getHost().revealInFolder(dir);
+    return { ok: true };
+  }),
+
+  saveCollectionMedia: procedure
+    .input(z.object({ id: z.string().regex(/^[a-f0-9]{64}$/) }))
+    .mutation(async ({ input }) => {
+      const service = requireServices().collection;
+      const name = await service.cachedMediaName(input.id);
+      const target = await getHost().pickSaveTarget({
+        defaultName: name,
+        extension: extname(name).slice(1),
+      });
+      if (!target) return null;
+      await service.saveMediaAs(input.id, target.path);
+      return { downloadId: target.downloadId, name };
+    }),
+
   // ---- export ----
 
   /** List conversations with message counts (batch query). */

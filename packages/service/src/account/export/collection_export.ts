@@ -12,6 +12,8 @@
  */
 
 import { writeTable, type Col, type TableFormat } from './table_writer';
+import { dirname, join } from 'node:path';
+import type { CollectionMediaExportEntry } from '../collection_media';
 import type { CollectionHistorySummary } from '../collection_history';
 
 /** 收藏图片：collector-CDN uri 加固有尺寸。 */
@@ -26,6 +28,7 @@ export interface CollectionExportPic {
  * 结构等价于 app 侧的 `CollectionItemWire`，最多一个内容字段非空。
  */
 export interface CollectionExportRow {
+  mediaCoverage?: string;
   contentStatus?: 'summary' | 'truncated' | 'cached' | 'complete';
   fullContent?: string;
   fullContentFormat?: 'text' | 'html' | 'binary' | null;
@@ -77,6 +80,11 @@ export interface CollectionExportDeps {
   syncHistory?: (signal?: AbortSignal) => Promise<CollectionHistorySummary>;
   historySummary?: () => CollectionHistorySummary | null;
   writeHistorySnapshot?: (path: string) => void;
+  exportCachedMedia?: (
+    cid: string,
+    directory: string,
+    signal?: AbortSignal,
+  ) => Promise<CollectionMediaExportEntry[]>;
 }
 
 /** 收藏导出格式（表格四种）。 */
@@ -106,13 +114,28 @@ export interface CollectionExportCoverage {
   detailsUncovered: number;
   bodies: Record<CollectionBodyCoverage, number>;
   originalsComplete: false;
-  mediaDownloadState: 'not-requested';
+  mediaDownloadState: 'not-requested' | 'cached-only';
+  /** Opaque detail variants may contain additional, as-yet unparsed media. */
+  mediaReferencesComplete: false;
+  attachments: Array<{
+    cid: string;
+    referenceId: string;
+    kind: string;
+    name: string;
+    state: 'downloaded' | 'failed' | 'unavailable' | 'uncovered';
+    role: 'original' | 'preview' | 'unverified';
+    file: string | null;
+    md5Matches: boolean | null;
+    sizeMatches: boolean | null;
+    imageDecoded: boolean | null;
+    error: string | null;
+  }>;
   items: Array<{
     cid: string;
     detail: 'received' | 'uncovered';
     body: CollectionBodyCoverage;
     /** URLs alone cannot establish whether a file is original or a thumbnail. */
-    media: 'not-requested';
+    media: 'not-requested' | 'cached-only';
     originalQuality: 'unverified';
   }>;
 }
@@ -159,6 +182,8 @@ function summarizeCoverage(rows: readonly CollectionExportRow[]): CollectionExpo
     bodies,
     originalsComplete: false,
     mediaDownloadState: 'not-requested',
+    mediaReferencesComplete: false,
+    attachments: [],
     items,
   };
 }
@@ -292,7 +317,7 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
   {
     key: 'mediaCoverage',
     header: '附件原件',
-    get: () => '未下载，原件质量未核验',
+    get: (r) => r.mediaCoverage ?? '未下载，原件质量未核验',
   },
   {
     key: 'contentStatus',
@@ -382,7 +407,40 @@ export async function exportCollections(
   }
 
   opts.onProgress?.(rows.length, rows.length, `${rows.length} 条收藏`);
+  const coverage = summarizeCoverage(rows);
+  if (deps.exportCachedMedia) {
+    coverage.mediaDownloadState = 'cached-only';
+    for (const [index, row] of rows.entries()) {
+      opts.signal?.throwIfAborted();
+      const entries = await deps.exportCachedMedia(
+        row.cid,
+        join(dirname(opts.outputPath), 'media'),
+        opts.signal,
+      );
+      coverage.items[index]!.media = 'cached-only';
+      const saved = entries.filter((entry) => entry.file);
+      const originals = saved.filter((entry) => entry.receipt?.role === 'original').length;
+      const previews = saved.filter((entry) => entry.receipt?.role === 'preview').length;
+      row.mediaCoverage = entries.length
+        ? `原件 ${originals}，预览 ${previews}，未核验 ${saved.length - originals - previews}，未取得 ${entries.length - saved.length}；附件覆盖未核验`
+        : '未发现可解析附件，附件覆盖未核验';
+      for (const entry of entries)
+        coverage.attachments.push({
+          cid: row.cid,
+          referenceId: entry.reference.id,
+          kind: entry.reference.kind,
+          name: entry.reference.name,
+          state: entry.receipt?.state ?? 'uncovered',
+          role: entry.file ? (entry.receipt?.role ?? 'unverified') : 'unverified',
+          file: entry.file ? `media/${entry.file}` : null,
+          md5Matches: entry.receipt?.md5Matches ?? null,
+          sizeMatches: entry.receipt?.sizeMatches ?? null,
+          imageDecoded: entry.receipt?.imageDecoded ?? null,
+          error: entry.receipt?.error ?? null,
+        });
+    }
+  }
   await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
   opts.signal?.throwIfAborted();
-  return { filePath: opts.outputPath, count: rows.length, coverage: summarizeCoverage(rows) };
+  return { filePath: opts.outputPath, count: rows.length, coverage };
 }
