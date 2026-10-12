@@ -159,8 +159,8 @@ export interface CollectionContent {
 
 /**
  * Full-detail payloads cached by the official QQ client after a user opens a
- * collection item. QQ stores the active content variant directly in one of
- * eight BLOB columns rather than wrapping it in the list-summary protobuf.
+ * collection item. Each of the eight BLOB columns contains its own protobuf
+ * envelope, distinct from the list-summary protobuf.
  *
  * The bytes stay lossless here. Higher layers may decode UTF-8 text/HTML for
  * display, while unknown/binary variants remain available without guessing a
@@ -250,7 +250,7 @@ function rowToItem(row: SqlRow): CollectionItem {
   };
 }
 
-const CONTENT_SLOTS: Array<keyof Omit<CollectionCachedContent, 'recordTime'>> = [
+const CONTENT_SLOTS = [
   'text',
   'link',
   'gallery',
@@ -259,7 +259,7 @@ const CONTENT_SLOTS: Array<keyof Omit<CollectionCachedContent, 'recordTime'>> = 
   'file',
   'location',
   'richMedia',
-];
+] as const;
 
 function contentBytes(value: SqlRow[number] | undefined): Uint8Array | undefined {
   if (value instanceof Uint8Array && value.byteLength > 0) return value;
@@ -356,6 +356,20 @@ export class CollectionDb {
   /** Read one cached detail row, or null when QQ has not opened the item. */
   async cachedContent(cid: string): Promise<CollectionCachedContent | null> {
     return (await this.cachedContentByCids([cid])).get(cid) ?? null;
+  }
+
+  /** Re-read one collection and its detail cache when the user opens it. */
+  async getByCid(cid: string): Promise<CollectionItem | null> {
+    if (!(await this.tableExists())) return null;
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${TABLE} WHERE "180001" = ? LIMIT 1`,
+      [cid],
+    );
+    if (!rows[0]) return null;
+    const item = rowToItem(rows[0]);
+    const content = await this.cachedContent(cid);
+    if (content) item.cachedContent = content;
+    return item;
   }
 
   /** Total number of collected items (0 when the database/table is absent). */

@@ -1018,13 +1018,13 @@ function cachedCollectionContent(it: CollectionItem): {
 } | null {
   const cached = it.cachedContent;
   if (!cached) return null;
-  if (cached.textContent?.data !== undefined) {
+  if (it.kind === 'text' && cached.textContent?.data !== undefined) {
     return { text: cached.textContent.data, format: 'text' };
   }
-  if (cached.audioContent?.data !== undefined) {
+  if (it.kind === 'audio' && cached.audioContent?.data !== undefined) {
     return { text: cached.audioContent.data, format: 'text' };
   }
-  if (cached.richMediaContent?.rawData !== undefined) {
+  if (it.kind === 'richMedia' && cached.richMediaContent?.rawData !== undefined) {
     return { text: cached.richMediaContent.rawData, format: 'html' };
   }
   const preferred = COLLECTION_CACHE_SLOTS.includes(
@@ -1032,8 +1032,7 @@ function cachedCollectionContent(it: CollectionItem): {
   )
     ? (it.kind as (typeof COLLECTION_CACHE_SLOTS)[number])
     : null;
-  const slot =
-    preferred && cached[preferred] ? preferred : COLLECTION_CACHE_SLOTS.find((key) => cached[key]);
+  const slot = preferred && cached[preferred] ? preferred : null;
   if (!slot) return null;
   return { text: '', format: 'binary' };
 }

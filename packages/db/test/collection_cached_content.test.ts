@@ -98,4 +98,23 @@ describe('CollectionDb official-client detail cache', () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.cachedContent).toBeUndefined();
   });
+
+  it('re-reads details added by QQ after the list was loaded', async () => {
+    const { sql } = setup();
+    sql
+      .prepare('INSERT INTO collection_list_info_table VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('cid-later', 8, 1000, 3000, 2000, null, null);
+    expect((await db!.listAll())[0]?.cachedContent).toBeUndefined();
+    const encoded = new ProtoMsg(CollectionRichMediaContentColumn).encode({
+      content: { rawData: '<div>后来加载的正文</div>' },
+    });
+    sql
+      .prepare('INSERT INTO content_list_info_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('cid-later', 3000, null, null, null, null, null, null, null, encoded);
+    expect((await db!.getByCid('cid-later'))?.cachedContent?.richMediaContent?.rawData).toBe(
+      '<div>后来加载的正文</div>',
+    );
+    expect(await db!.getByCid('missing')).toBeNull();
+    expect(await db!.getByCid("' OR 1=1 --")).toBeNull();
+  });
 });

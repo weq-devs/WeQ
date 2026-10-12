@@ -4121,6 +4121,13 @@ export const accountRouter = router({
     return requireServices().collection.countCollections();
   }),
 
+  collectionDetail: procedure
+    .input(z.object({ cid: z.string().min(1).max(512) }))
+    .query(async ({ input }) => {
+      const item = await requireServices().collection.readCachedDetail(input.cid);
+      return item ? collectionItemToWire(item) : null;
+    }),
+
   // ---- export ----
 
   /** List conversations with message counts (batch query). */

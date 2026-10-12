@@ -214,7 +214,7 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
       r.contentStatus === 'complete'
         ? '全文已核验'
         : r.contentStatus === 'cached'
-          ? '官方客户端已缓存详情；附件原件另行核验'
+          ? '详情已读取'
           : r.textTruncated || r.contentStatus === 'truncated'
             ? '摘要已截断'
             : '摘要，全文未核验',

@@ -57,6 +57,6 @@ describe('collection export official-client cache', () => {
     const result = JSON.parse(await readFile(outputPath, 'utf8')) as Array<Record<string, string>>;
     expect(result[0]?.body).toBe(full);
     expect(result[0]?.fullContentFormat).toBe('html');
-    expect(result[0]?.contentStatus).toBe('官方客户端已缓存详情；附件原件另行核验');
+    expect(result[0]?.contentStatus).toBe('详情已读取');
   });
 });

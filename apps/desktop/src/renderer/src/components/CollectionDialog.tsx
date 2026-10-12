@@ -28,6 +28,7 @@ import {
   MapPin,
   Music,
   Play,
+  RefreshCw,
   Search,
   X,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ import { QqAvatar } from './QqAvatar';
 import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { CollectionContent, collectionContentText } from './CollectionContent';
 
 interface PicWire {
   uri: string;
@@ -183,8 +185,7 @@ function cachedContentText(it: CollectionItemWire): string {
   if (!it.fullContent) return '';
   if (it.fullContentFormat !== 'html') return it.fullContent;
   try {
-    const doc = new DOMParser().parseFromString(it.fullContent, 'text/html');
-    return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
+    return collectionContentText(it.fullContent);
   } catch {
     return '';
   }
@@ -273,7 +274,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
       return <p className="weq-col-text">{cachedText || it.text || '(空文本)'}</p>;
 
     case 'link': {
-      const l = it.link!;
+      const l = it.link;
+      if (!l) return <p className="weq-col-text is-muted">暂无链接内容</p>;
       const cover = l.pics[0];
       return (
         <button
@@ -307,10 +309,11 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'gallery':
-      return <PicGrid pics={it.gallery!.pics} alt="收藏图片" />;
+      return <PicGrid pics={it.gallery?.pics ?? []} alt="收藏图片" />;
 
     case 'audio': {
-      const a = it.audio!;
+      const a = it.audio;
+      if (!a) return <p className="weq-col-text is-muted">暂无语音内容</p>;
       return (
         <div className="weq-col-media-row">
           <span className="weq-col-media-icon">
@@ -327,7 +330,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'video': {
-      const v = it.video!;
+      const v = it.video;
+      if (!v) return <p className="weq-col-text is-muted">暂无视频内容</p>;
       const src = v.cover ? collectionImageUrl(v.cover.uri) : null;
       return (
         <div className="weq-col-video">
@@ -354,7 +358,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'file': {
-      const f = it.file!;
+      const f = it.file;
+      if (!f) return <p className="weq-col-text is-muted">暂无文件内容</p>;
       return (
         <div className="weq-col-media-row">
           <span className="weq-col-media-icon">
@@ -375,7 +380,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'location': {
-      const loc = it.location!;
+      const loc = it.location;
+      if (!loc) return <p className="weq-col-text is-muted">暂无位置信息</p>;
       const hasCoord = Boolean(loc.latitude || loc.longitude);
       const mapUrl = hasCoord
         ? `https://uri.amap.com/marker?position=${loc.longitude},${loc.latitude}&name=${encodeURIComponent(loc.name || '收藏位置')}`
@@ -409,7 +415,7 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'richMedia': {
-      const r = it.richMedia!;
+      const r = it.richMedia ?? { title: '', subTitle: '', brief: '', originalUri: '', pics: [] };
       const heading = r.title || r.subTitle;
       const body = cachedText || r.brief;
       const hasAny = heading || body || r.pics.length;
@@ -428,7 +434,13 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
   }
 }
 
-function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
+function CollectionCard({
+  it,
+  onOpen,
+}: {
+  it: CollectionItemWire;
+  onOpen: (item: CollectionItemWire) => void;
+}): ReactElement {
   return (
     <article className="weq-col-card">
       <header className="weq-col-card-head">
@@ -444,13 +456,14 @@ function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
       </header>
       <div className="weq-col-card-body">
         <CardBody it={it} />
-        {it.contentStatus === 'cached' ? (
-          <p className="weq-col-text is-muted">已读取官方 QQ 缓存的详情；附件原件仍需单独核验。</p>
-        ) : it.textTruncated ? (
-          <p className="weq-col-text is-muted">这条内容已截断，当前显示的是摘要。</p>
-        ) : null}
       </div>
-      <footer className="weq-col-card-foot">{humanTime(it.collectTime)}</footer>
+      <footer className="weq-col-card-foot">
+        <span>{humanTime(it.collectTime)}</span>
+        <button type="button" className="weq-col-detail-open" onClick={() => onOpen(it)}>
+          查看详情
+          <ChevronRight size={12} />
+        </button>
+      </footer>
     </article>
   );
 }
@@ -462,7 +475,6 @@ export function CollectionDialog({
   open: boolean;
   onClose: () => void;
 }): ReactElement | null {
-  useEscapeToClose(onClose);
   const [items, setItems] = useState<CollectionItemWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -471,27 +483,33 @@ export function CollectionDialog({
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [page, setPage] = useState(0);
-  const startedRef = useRef(false);
+  const [reload, setReload] = useState(0);
+  const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailReload, setDetailReload] = useState(0);
+  const detailGeneration = useRef(0);
+  useEscapeToClose(() => {
+    if (selected) setSelected(null);
+    else onClose();
+  });
 
   // Two-stage load, the first time the dialog opens: paint the local
   // collection.db immediately (fast, works offline), then quietly swap in the
   // weiyun collector result once it lands (slow, but authoritative). A network
   // failure / missing p_skey keeps the db rows — 收藏 is never an error state.
   //
-  // The "already started" gate MUST be a ref, not state: this body sets state
-  // between its two stages, and any state the effect depends on would re-run it
-  // mid-flight, whose cleanup flips `cancelled` — the network stage would then
-  // resolve with every setState skipped, leaving 「同步中」 spinning forever.
-  //
-  // For the same reason `cancelled` only guards the *data* writes. The two
-  // in-flight flags are cleared unconditionally: closing the dialog mid-sync
-  // must not leave `refreshing` stuck on, since the gate stops this effect from
-  // ever running (and clearing it) again.
+  // Reopening or explicitly refreshing reads the latest QQ detail cache. Every
+  // state write belongs to this load so a closed/reopened dialog cannot receive
+  // the previous network result or clear the new load's progress indicators.
   useEffect(() => {
-    if (!open || startedRef.current) return;
-    startedRef.current = true;
+    if (!open) {
+      setSelected(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
+    setRefreshing(false);
     setError(null);
     (async () => {
       try {
@@ -503,7 +521,7 @@ export function CollectionDialog({
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
         return;
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
 
       setRefreshing(true);
@@ -513,13 +531,42 @@ export function CollectionDialog({
       } catch {
         /* 网络补充失败:保留本地结果,不打扰用户 */
       } finally {
-        setRefreshing(false);
+        if (!cancelled) setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, reload]);
+
+  const selectedCid = selected?.cid;
+  useEffect(() => {
+    if (!open || !selectedCid) return;
+    let cancelled = false;
+    const generation = ++detailGeneration.current;
+    const cid = selectedCid;
+    setDetailLoading(true);
+    setDetailError(null);
+    void client.account.collectionDetail
+      .query({ cid })
+      .then((fresh) => {
+        if (cancelled || generation !== detailGeneration.current) return;
+        if (fresh) {
+          setSelected((current) => (current?.cid === cid ? fresh : current));
+          setItems((current) => current.map((item) => (item.cid === cid ? fresh : item)));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled && generation === detailGeneration.current)
+          setDetailError(error instanceof Error ? error.message : '加载详情失败');
+      })
+      .finally(() => {
+        if (!cancelled && generation === detailGeneration.current) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedCid, detailReload]);
 
   // Search-filtered set (kind ignored) — drives the per-kind chip counts.
   const bySearch = useMemo(() => {
@@ -564,57 +611,130 @@ export function CollectionDialog({
 
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
+            {selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                onClick={() => setSelected(null)}
+                title="返回收藏"
+              >
+                <ChevronLeft size={18} />
+              </button>
+            ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
-            <h2 id="weq-collection-title">我的收藏</h2>
-            {loaded ? <span className="weq-collection-total">{items.length}</span> : null}
-            {refreshing ? (
+            <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
+            {loaded && !selected ? (
+              <span className="weq-collection-total">{items.length}</span>
+            ) : null}
+            {selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title="刷新详情"
+                disabled={detailLoading}
+                onClick={() => setDetailReload((n) => n + 1)}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title="刷新收藏"
+                disabled={loading || refreshing}
+                onClick={() => setReload((n) => n + 1)}
+              >
+                <RefreshCw size={14} />
+              </button>
+            )}
+            {refreshing && !selected ? (
               <span className="weq-collection-syncing" title="正在同步最新收藏">
                 <Loader2 size={13} className="weq-spin" />
                 同步中
               </span>
             ) : null}
           </div>
-          <div className="weq-collection-search">
-            <Search size={15} strokeWidth={1.8} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索标题 / 内容 / 来源…"
-              spellCheck={false}
-            />
-            {query ? (
-              <button
-                type="button"
-                className="weq-collection-search-clear"
-                onClick={() => setQuery('')}
-              >
-                <X size={13} strokeWidth={2} />
-              </button>
-            ) : null}
-          </div>
+          {!selected ? (
+            <div className="weq-collection-search">
+              <Search size={15} strokeWidth={1.8} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索标题 / 内容 / 来源…"
+                spellCheck={false}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="weq-collection-search-clear"
+                  onClick={() => setQuery('')}
+                >
+                  <X size={13} strokeWidth={2} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
-        <p className="weq-col-text is-muted">
-          官方 QQ 已打开过的条目会显示本地缓存详情；其余显示摘要。附件原件需单独核验。
-        </p>
-        <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
-          {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              role="tab"
-              aria-selected={kind === k.id}
-              className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-              onClick={() => setKind(k.id)}
-            >
-              {k.label}
-              <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
+        {!selected ? (
+          <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
+            {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                role="tab"
+                aria-selected={kind === k.id}
+                className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
+                onClick={() => setKind(k.id)}
+              >
+                {k.label}
+                <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div className="weq-collection-body">
-          {loading ? (
+          {selected ? (
+            <section className="weq-col-detail">
+              <div className="weq-col-detail-meta">
+                <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                <span>
+                  {selected.authorName || '未知'}
+                  {selected.groupName ? ` · ${selected.groupName}` : ''}
+                </span>
+                <time>{humanTime(selected.collectTime)}</time>
+              </div>
+              {detailLoading ? (
+                <div className="weq-collection-state">
+                  <Loader2 size={20} className="weq-spin" />
+                  正在加载…
+                </div>
+              ) : null}
+              {detailError ? (
+                <p className="weq-col-detail-unavailable" role="status">
+                  {detailError}
+                </p>
+              ) : null}
+              {selected.fullContentFormat === 'text' || selected.fullContentFormat === 'html' ? (
+                <CollectionContent
+                  content={selected.fullContent}
+                  format={selected.fullContentFormat}
+                />
+              ) : (
+                <>
+                  <CardBody it={selected} />
+                  {!detailLoading ? (
+                    <p className="weq-col-detail-unavailable">
+                      {selected.fullContentFormat === 'binary'
+                        ? '暂不支持查看这类详情。'
+                        : '暂无完整内容，可先在 QQ 中打开这条收藏后刷新。'}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </section>
+          ) : loading ? (
             <div className="weq-collection-state">
               <Loader2 size={22} className="weq-spin" />
               <span>正在加载收藏…</span>
@@ -632,13 +752,13 @@ export function CollectionDialog({
           ) : (
             <div className="weq-collection-grid">
               {pageItems.map((it) => (
-                <CollectionCard key={it.cid} it={it} />
+                <CollectionCard key={it.cid} it={it} onOpen={setSelected} />
               ))}
             </div>
           )}
         </div>
 
-        {!loading && !error && filtered.length > 0 ? (
+        {!selected && !loading && !error && filtered.length > 0 ? (
           <footer className="weq-collection-pager">
             <button
               type="button"

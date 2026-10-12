@@ -135,6 +135,11 @@ export class CollectionService {
     return this.session.collection.count();
   }
 
+  /** Fresh local detail lookup; never sends a request to QQ. */
+  async readCachedDetail(cid: string): Promise<CollectionItem | null> {
+    return this.session.collection.getByCid(cid);
+  }
+
   /**
    * 网络路径:拿 weiyun.com p_skey → collector.fcg 拉取。拿不到 p_skey 或网络请求
    * 失败均返回 null,让调用方回退 collection.db。
@@ -171,6 +176,22 @@ export class CollectionService {
       return null;
     }
     const window = page.items.slice(offset, offset + limit);
+    // Cloud summaries do not carry full content. Preserve independently loaded
+    // local details when the network stage replaces the initial database page.
+    try {
+      const cached = await this.session.collection.cachedContentByCids(
+        window.map((item) => item.cid),
+      );
+      for (const item of window) {
+        const content = cached.get(item.cid);
+        if (content) item.cachedContent = content;
+      }
+    } catch (error) {
+      this.logger.warn('collection detail cache unavailable', {
+        event: 'collection-detail-cache-failed',
+        ...logErrorContext(error),
+      });
+    }
     const hasMore = page.hasMore || page.items.length > offset + limit;
     return { items: window, offset, limit, hasMore, source: 'network' };
   }
