@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  mkdirSync,
+  lstatSync,
+  openSync,
+  readSync,
+  closeSync,
+  linkSync,
+  copyFileSync,
+} from 'node:fs';
+import { join, dirname } from 'node:path';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import { readJsonFile } from '../../common/json_store';
 import { sourceVersionHash } from '../collection_capture';
@@ -22,6 +30,13 @@ interface QzoneHistoryLedger {
     anchorTids: string[];
     anchors?: Array<{ tid: string; time: number }>;
   } | null;
+  interactionRawPages: Array<{
+    kind: 'feeds' | 'likes';
+    tid: string | null;
+    sha256: string;
+    file: string;
+    capturedAt: number;
+  }>;
   activeTids: string[];
   completeTids: string[];
   items: Record<string, { latest: string; revisions: QzoneHistoryRevision[] }>;
@@ -32,6 +47,7 @@ export interface QzoneHistorySummary {
   items: number;
   revisions: number;
   rawPages: number;
+  interactionRawPages: number;
   nextPos: number;
   termination: QzonePageCapture['termination'] | null;
 }
@@ -42,6 +58,7 @@ function empty(targetUin: string): QzoneHistoryLedger {
     targetUin,
     updatedAt: 0,
     checkpoint: null,
+    interactionRawPages: [],
     activeTids: [],
     completeTids: [],
     items: {},
@@ -58,6 +75,7 @@ function normalize(raw: unknown, targetUin: string): QzoneHistoryLedger {
     targetUin,
     updatedAt: Number(value.updatedAt ?? 0),
     checkpoint: value.checkpoint ?? null,
+    interactionRawPages: Array.isArray(value.interactionRawPages) ? value.interactionRawPages : [],
     activeTids: Array.isArray(value.activeTids) ? value.activeTids : [],
     completeTids: Array.isArray(value.completeTids) ? value.completeTids : [],
     items: value.items,
@@ -155,6 +173,25 @@ export class QzoneHistoryStore {
     this.ledger = next;
   }
 
+  saveInteractionRaw(capture: { kind: 'feeds' | 'likes'; tid?: string; response: string }): void {
+    const sha256 = createHash('sha256').update(capture.response).digest('hex');
+    const file = `interaction-raw/${capture.kind}-${sha256}.txt`;
+    writeFileAtomicSync(join(this.root, file), capture.response);
+    const next = structuredClone(this.ledger);
+    const tid = capture.tid ?? null;
+    if (
+      !next.interactionRawPages.some(
+        (entry) => entry.kind === capture.kind && entry.tid === tid && entry.sha256 === sha256,
+      )
+    ) {
+      const capturedAt = Date.now();
+      next.interactionRawPages.push({ kind: capture.kind, tid, sha256, file, capturedAt });
+      next.updatedAt = capturedAt;
+    }
+    writeFileAtomicSync(this.ledgerPath, JSON.stringify(next, null, 2));
+    this.ledger = next;
+  }
+
   summary(): QzoneHistorySummary {
     return {
       items: Object.keys(this.ledger.items).length,
@@ -163,12 +200,57 @@ export class QzoneHistoryStore {
         0,
       ),
       rawPages: this.ledger.rawPages.length,
+      interactionRawPages: this.ledger.interactionRawPages.length,
       nextPos: this.ledger.checkpoint?.nextPos ?? 0,
       termination: this.ledger.checkpoint?.termination ?? null,
     };
   }
 
   writeSnapshot(path: string): void {
+    const files = new Map(
+      [...this.ledger.rawPages, ...this.ledger.interactionRawPages].map((entry) => [
+        entry.file,
+        entry.sha256,
+      ]),
+    );
+    for (const [file, expected] of files) {
+      if (
+        !/^(raw\/page-\d+-\d+-[a-f0-9]{64}\.txt|interaction-raw\/(feeds|likes)-[a-f0-9]{64}\.txt)$/.test(
+          file,
+        )
+      )
+        throw new Error('空间历史响应路径无效。');
+      const source = join(this.root, file);
+      const target = join(dirname(path), file);
+      if (!lstatSync(source).isFile()) throw new Error('空间历史响应不是普通文件。');
+      const hashFile = (filePath: string): string => {
+        const fd = openSync(filePath, 'r');
+        const hash = createHash('sha256');
+        const buffer = Buffer.alloc(64 * 1024);
+        try {
+          for (;;) {
+            const count = readSync(fd, buffer, 0, buffer.length, null);
+            if (count === 0) break;
+            hash.update(buffer.subarray(0, count));
+          }
+        } finally {
+          closeSync(fd);
+        }
+        return hash.digest('hex');
+      };
+      if (hashFile(source) !== expected) throw new Error('空间历史响应校验失败。');
+      mkdirSync(dirname(target), { recursive: true });
+      try {
+        linkSync(source, target);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST' && lstatSync(target).isFile() && hashFile(target) === expected)
+          continue;
+        if (code !== 'EXDEV') throw error;
+        copyFileSync(source, target);
+        if (hashFile(target) !== expected) throw new Error('空间历史响应复制校验失败。');
+      }
+    }
     writeFileAtomicSync(path, JSON.stringify(this.ledger, null, 2));
   }
 }

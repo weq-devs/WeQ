@@ -40,6 +40,7 @@ import {
 import {
   collectQzoneInteractions,
   fetchQzoneLikes,
+  fetchQzoneLikesResult,
   type QzoneInteraction,
   type QzoneInteractionTarget,
   type QzoneLike,
@@ -149,9 +150,10 @@ export class WebQueryService {
     targetUin: string,
     targets: QzoneInteractionTarget[],
     signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
   ): Promise<Map<string, QzoneInteraction>> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      collectQzoneInteractions(c, targetUin, targets, undefined, signal),
+      collectQzoneInteractions(c, targetUin, targets, captureRaw, signal),
     );
   }
 
@@ -159,6 +161,17 @@ export class WebQueryService {
    * 读某条说说的点赞名单（r.qzone qz_opcnt2，结构化 uin+昵称）。
    * 比动态页 HTML 里的 user-list 稳定（HTML 偶发不渲染名单）。
    */
+  async getQzoneLikesResult(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
+    );
+  }
+
   async getQzoneLikes(targetUin: string, tid: string, signal?: AbortSignal): Promise<QzoneLike[]> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => fetchQzoneLikes(c, targetUin, tid, signal));
   }
@@ -271,6 +284,7 @@ export type { QzoneAlbum, QzoneAlbumPhoto, QzoneAlbumMediaResult } from './qzone
 export {
   collectQzoneInteractions,
   fetchQzoneLikes,
+  fetchQzoneLikesResult,
   parseFeeds3Comments,
   parseFeeds3Likes,
 } from './qzone_interaction';

@@ -67,6 +67,11 @@ export interface QzoneLike {
 export interface QzoneInteraction {
   /** HTML can only demonstrate observed content, never all comments. */
   coverage?: 'observed' | 'unobserved';
+  fieldCoverage?: {
+    comments: 'observed' | 'unobserved' | 'failed';
+    replies: 'observed' | 'unobserved' | 'failed';
+    likes: 'observed' | 'unobserved' | 'failed';
+  };
   comments: QzoneComment[];
   likes: QzoneLike[];
 }
@@ -959,16 +964,69 @@ interface RawOpCntData {
   }> | null;
 }
 
+export interface QzoneLikesResult {
+  likes: QzoneLike[];
+  reportedTotal: number | null;
+  coverage: 'complete' | 'observed' | 'unobserved';
+  reason:
+    | 'matched-count'
+    | 'count-mismatch'
+    | 'missing-count'
+    | 'missing-data'
+    | 'unverified-response';
+}
+
+/** Server-reported count is evidence; a successful HTTP response alone is not. */
+export function parseQzoneLikesResult(text: string): QzoneLikesResult {
+  const data = parseQzoneCallback<RawOpCntData>(text);
+  if (typeof data.code === 'number' && data.code !== 0)
+    throw qzoneCodeError('qzone qz_opcnt2 likes', data.code, data.message);
+  const value = data.data?.[0]?.current?.likedata;
+  const count = value?.cnt;
+  const reportedTotal =
+    typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
+  const list = value?.list;
+  if (!Array.isArray(list) && reportedTotal !== 0)
+    return { likes: [], reportedTotal, coverage: 'unobserved', reason: 'missing-data' };
+  const unique = new Map<string, QzoneLike>();
+  for (const entry of list ?? []) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const uin = String(entry?.[0] ?? '');
+    if (!/^[1-9]\d*$/.test(uin)) continue;
+    unique.set(uin, {
+      uin,
+      nickname: typeof entry?.[1] === 'string' ? entry[1] : '',
+      time: 0,
+      customItemId: '',
+    });
+  }
+  const likes = [...unique.values()];
+  const complete = data.code === 0 && reportedTotal !== null && reportedTotal === likes.length;
+  return {
+    likes,
+    reportedTotal,
+    coverage: complete ? 'complete' : 'observed',
+    reason: complete
+      ? 'matched-count'
+      : data.code !== 0
+        ? 'unverified-response'
+        : reportedTotal === null
+          ? 'missing-count'
+          : 'count-mismatch',
+  };
+}
+
 /**
  * 经 qz_opcnt2 读取某条说说的点赞名单（uin + 昵称）。
- * 失败/无赞返回空数组；票据类错误抛 {@link WebAuthError}（供 withRetry 换票）。
+ * 返回名单及服务端计数核验结果；票据类错误抛 {@link WebAuthError}（供 withRetry 换票）。
  */
-export async function fetchQzoneLikes(
+export async function fetchQzoneLikesResult(
   cred: WebCredential,
   authorUin: string,
   tid: string,
   signal?: AbortSignal,
-): Promise<QzoneLike[]> {
+  captureRaw?: (text: string) => Promise<void>,
+): Promise<QzoneLikesResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
   // unikey = 「说说页 URL<.>同样 URL」，形如 …/mood/{tid}.1。原样交给
   // URLSearchParams 编码一次即可 —— 千万别先 encodeURIComponent 再塞进去
@@ -989,21 +1047,19 @@ export async function fetchQzoneLikes(
     signal,
     retry: WEB_READ_RETRY,
   });
-  const data = parseQzoneCallback<RawOpCntData>(text);
-  if (typeof data.code === 'number' && data.code !== 0) {
-    throw qzoneCodeError('qzone qz_opcnt2 likes', data.code, data.message);
-  }
-  const likedata = data.data?.[0]?.current?.likedata;
-  const list = likedata?.list;
-  if (!Array.isArray(list)) return [];
-  const likes: QzoneLike[] = [];
-  for (const entry of list) {
-    const uinStr = String(entry?.[0] ?? '');
-    const nickname = entry?.[1] ?? '';
-    if (!uinStr || uinStr === '0') continue;
-    likes.push({ uin: uinStr, nickname, time: 0, customItemId: '' });
-  }
-  return likes;
+  signal?.throwIfAborted();
+  await captureRaw?.(text);
+  return parseQzoneLikesResult(text);
+}
+
+/** Compatibility projection for consumers that only display the names. */
+export async function fetchQzoneLikes(
+  cred: WebCredential,
+  authorUin: string,
+  tid: string,
+  signal?: AbortSignal,
+): Promise<QzoneLike[]> {
+  return (await fetchQzoneLikesResult(cred, authorUin, tid, signal)).likes;
 }
 
 // ───────────────────────── 批量收集 + tid 解析 ─────────────────────────
@@ -1077,8 +1133,14 @@ function lookupBucket(
     comments = buckets.comments.get(aliasKey);
     likes = buckets.likes.get(aliasKey);
   }
+  const converted = (comments ?? []).map(toQzoneComment);
   return {
-    comments: (comments ?? []).map(toQzoneComment),
+    fieldCoverage: {
+      comments: converted.some((comment) => !comment.isReply) ? 'observed' : 'unobserved',
+      replies: converted.some((comment) => comment.isReply) ? 'observed' : 'unobserved',
+      likes: likes?.length ? 'observed' : 'unobserved',
+    },
+    comments: converted,
     likes: (likes ?? []).map(toQzoneLike),
   };
 }
@@ -1107,6 +1169,7 @@ export async function collectQzoneInteractions(
   // 已翻到的动态 key 与最旧发表时间：用来把 0 互动帖/已翻过的帖提前收官为空。
   const seenKeys = new Set<string>();
   let oldestSeen = 0;
+  let laterFailure = false;
 
   for (let page = 0; page < ACT_ALL_MAX_PAGES && pending.length > 0; page += 1) {
     const start = page * ACT_ALL_PAGE_COUNT;
@@ -1116,7 +1179,8 @@ export async function collectQzoneInteractions(
       res = await fetchActAllPage(cred, authorUin, start, ACT_ALL_PAGE_COUNT, captureRaw, signal);
     } catch (e) {
       // 首页就失败 = 真错误（票据 / 风控 / 无权限），上抛给 withRetry 换票。
-      if (page === 0) throw e;
+      if (signal?.aborted || page === 0) throw e;
+      laterFailure = true;
       break; // 后续页失败：互动是 best-effort，不阻断正文导出
     }
     if (res.items.length === 0) break; // 空页 = 翻到头
@@ -1142,6 +1206,7 @@ export async function collectQzoneInteractions(
           comments: [],
           likes: [],
           coverage: seenKeys.has(t.tid) ? 'observed' : 'unobserved',
+          fieldCoverage: { comments: 'unobserved', replies: 'unobserved', likes: 'unobserved' },
         });
         continue;
       }
@@ -1155,6 +1220,11 @@ export async function collectQzoneInteractions(
       comments: [],
       likes: [],
       coverage: seenKeys.has(t.tid) ? 'observed' : 'unobserved',
+      fieldCoverage: {
+        comments: laterFailure ? 'failed' : 'unobserved',
+        replies: laterFailure ? 'failed' : 'unobserved',
+        likes: laterFailure ? 'failed' : 'unobserved',
+      },
     });
   return out;
 }

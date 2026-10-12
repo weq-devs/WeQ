@@ -30,6 +30,7 @@ import type {
   QzoneInteraction,
   QzoneInteractionTarget,
   QzoneLike,
+  QzoneLikesResult,
 } from '../web/qzone_interaction';
 import type { ExportTimeRange } from './types';
 
@@ -50,6 +51,7 @@ export interface QzoneExportDeps {
     targetUin: string,
     targets: QzoneInteractionTarget[],
     signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
   ) => Promise<Map<string, QzoneInteraction>>;
   /**
    * Best-effort 读单条说说的点赞名单（r.qzone qz_opcnt2）。可选 —— 注入后，
@@ -57,6 +59,12 @@ export interface QzoneExportDeps {
    * {@link attachInteractions}）；失败时保留 HTML 结果，不抛错。
    */
   fetchLikes?: (targetUin: string, tid: string, signal?: AbortSignal) => Promise<QzoneLike[]>;
+  fetchLikesResult?: (
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) => Promise<QzoneLikesResult>;
 }
 
 /** 说说导出可选产物格式。 */
@@ -147,6 +155,11 @@ export interface QzoneExportData {
 
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
+  onRawInteraction?: (capture: {
+    kind: 'feeds' | 'likes';
+    tid?: string;
+    response: string;
+  }) => Promise<void>;
   /** 目标空间 uin（好友或自己）。 */
   targetUin: string;
   /** 发表时间窗（unix 秒），null 端开放。 */
@@ -488,6 +501,7 @@ export interface EmotionWithInteraction extends QzoneEmotion {
   comments?: QzoneComment[];
   likes?: QzoneLike[];
   interactionCoverage?: QzoneInteractionCoverage;
+  likeCoverageEvidence?: { reportedTotal: number | null; receivedUnique: number; reason: string };
 }
 
 function coverageFor(state: QzoneCoverageState): QzoneInteractionCoverage {
@@ -768,8 +782,8 @@ function commentsToHtml(comments: QzoneComment[]): string {
   const rest = rendered.slice(COMMENTS_PREVIEW).join('');
   const toggle =
     `<button type="button" class="toggle comments-toggle" data-target=".comments-more" ` +
-    `data-more="查看全部 ${comments.length} 条评论" data-less="收起评论" ` +
-    `aria-expanded="false">查看全部 ${comments.length} 条评论</button>`;
+    `data-more="查看已取得的 ${comments.length} 条评论" data-less="收起评论" ` +
+    `aria-expanded="false">查看已取得的 ${comments.length} 条评论</button>`;
   return `${shown}<div class="comments-more" hidden>${rest}</div>${toggle}`;
 }
 
@@ -808,6 +822,23 @@ function statsToHtml(e: EmotionWithInteraction): string {
   if (cmtTotal > 0) parts.push(`<span class="cmt-count">💬 ${cmtTotal} 条评论</span>`);
   if (parts.length === 0) return '';
   return `<div class="stats">${parts.join('<span class="sep">·</span>')}</div>`;
+}
+
+function interactionCoverageText(e: EmotionWithInteraction): string {
+  if (!e.interactionCoverage) return '';
+  const label = (name: string, state: QzoneCoverageState): string =>
+    state === 'complete'
+      ? `${name}已核验`
+      : state === 'observed'
+        ? `${name}已取得，完整性未核验`
+        : state === 'failed'
+          ? `${name}读取失败`
+          : `${name}未读取`;
+  return [
+    label('评论', e.interactionCoverage.comments),
+    label('回复', e.interactionCoverage.replies),
+    label('点赞名单', e.interactionCoverage.likes),
+  ].join(' · ');
 }
 
 /** 视频卡片：下载了走本地 `media/`（poster 封面 + 本体 mp4），否则引用远端本体。 */
@@ -884,11 +915,13 @@ function emotionToHtml(
   const content = e.content ? `<div class="content">${qzoneTextToHtml(e.content)}</div>` : '';
   const pictures = picturesToHtml(e, localMedia, mediaFiles);
   const stats = statsToHtml(e);
+  const coverageText = interactionCoverageText(e);
+  const coverage = coverageText ? `<div class="stats">${escapeHtml(coverageText)}</div>` : '';
   const comments =
     e.comments && e.comments.length > 0
       ? `<section class="comments">${commentsToHtml(e.comments)}</section>`
       : '';
-  return `<article class="card">${head}${content}${pictures}${stats}${comments}</article>`;
+  return `<article class="card">${head}${content}${pictures}${stats}${coverage}${comments}</article>`;
 }
 
 /** 整页 HTML 文档：资料头（头像 / 昵称 / 统计）+ 各说说 article。 */
@@ -927,6 +960,8 @@ function commentToTxt(c: QzoneComment, indent: string): string {
 function emotionToTxt(e: EmotionWithInteraction): string {
   const head = `[${fmtTime(e.time)}]${e.isPrivate ? ' (私密)' : ''}${e.commentNum ? ` (评论 ${e.commentNum})` : ''}`;
   const lines = [head];
+  const coverageText = interactionCoverageText(e);
+  if (coverageText) lines.push(coverageText);
   if (e.content) lines.push(e.content);
   if (e.images.length) lines.push(`图片: ${e.images.join(', ')}`);
   for (const v of e.videos) {
@@ -1089,89 +1124,135 @@ async function attachInteractions(
   likesFailed?: number;
 }> {
   const onInteraction = opts.onInteraction;
-  try {
-    if (!deps.fetchInteractions) {
-      for (const row of filtered) row.interactionCoverage = coverageFor('unavailable');
-      onInteraction?.(0, filtered.length, '互动能力不可用，跳过');
-      return { failed: true, interactionPosts: 0 };
-    }
-    const targets: QzoneInteractionTarget[] = filtered.map((e) => ({ tid: e.tid, time: e.time }));
-    onInteraction?.(0, filtered.length, '拉取评论 / 点赞…');
-    const map = await deps.fetchInteractions(opts.targetUin, targets, opts.signal);
-    let missingPosts = 0;
-    for (const e of filtered) {
-      const it = map.get(e.tid);
-      if (!it || it.coverage === 'unobserved') missingPosts += 1;
-      if (it) {
-        e.comments = it.comments;
-        e.likes = it.likes;
-        e.interactionCoverage = coverageFor(
-          it.coverage === 'unobserved' ? 'unobserved' : 'observed',
-        );
-      } else {
-        e.comments = [];
-        e.likes = [];
-        e.interactionCoverage = coverageFor('unobserved');
-      }
-    }
-    // 点赞补全（顺便）：动态页 HTML 偶发不渲染 user-list 名单 → 对「HTML 没拿到
-    // 赞」的帖子用 r.qzone qz_opcnt2 补一轮权威名单。只补空赞的帖子，少打扰；
-    // 单条失败保留 HTML 结果继续（赞是增强项，不因它中断导出）。
-    let likesTopUp = 0;
-    let likesFailed = 0;
-    if (deps.fetchLikes && !opts.signal?.aborted) {
-      const needTopUp = filtered.filter((e) => (e.likes?.length ?? 0) === 0);
-      if (needTopUp.length > 0) {
-        let done = 0;
-        let next = 0;
-        const worker = async (): Promise<void> => {
-          for (;;) {
-            if (opts.signal?.aborted) return;
-            const idx = next++;
-            if (idx >= needTopUp.length) return;
-            const e = needTopUp[idx]!;
-            try {
-              const ls = await deps.fetchLikes!(opts.targetUin, e.tid, opts.signal);
-              if (ls.length > 0) {
-                e.likes = ls;
-                likesTopUp += 1;
-              }
-              if (e.interactionCoverage) e.interactionCoverage.likes = 'complete';
-            } catch {
-              likesFailed += 1;
-              if (e.interactionCoverage) e.interactionCoverage.likes = 'failed';
-            }
-            done += 1;
-            onInteraction?.(done, needTopUp.length, `补拉点赞 ${done}/${needTopUp.length}…`);
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(4, needTopUp.length) }, worker));
-      }
-    }
-    let posts = 0;
-    for (const e of filtered) {
-      if ((e.comments?.length ?? 0) > 0 || (e.likes?.length ?? 0) > 0) posts += 1;
-    }
-    const note = likesTopUp
-      ? `互动完成：${posts} 条有评论/赞（qz_opcnt2 补拉 ${likesTopUp} 条赞）`
-      : `互动完成：${posts} 条有评论/赞`;
-    onInteraction?.(filtered.length, filtered.length, note);
-    return {
-      failed: missingPosts > 0 || likesFailed > 0,
-      interactionPosts: posts,
-      missingPosts,
-      likesFailed,
-    };
-  } catch (e) {
-    // 互动拉取失败（票据 / 风控 / 网络）不阻断正文导出：置空并标记 failed。
-    for (const em of filtered) {
-      em.comments = [];
-      em.likes = [];
-      em.interactionCoverage = coverageFor('failed');
-    }
-    onInteraction?.(0, filtered.length, `互动拉取失败: ${(e as Error).message}`);
-    return { failed: true, interactionPosts: 0 };
+  let commentsFailed = false;
+  let commentsBlocked = false;
+  let missingPosts = 0;
+  let likesFailed = 0;
+  for (const row of filtered) {
+    row.comments ??= [];
+    row.likes ??= [];
+    row.interactionCoverage ??= coverageFor('unobserved');
   }
+  if (!deps.fetchInteractions) {
+    for (const row of filtered) {
+      row.interactionCoverage!.comments = 'unavailable';
+      row.interactionCoverage!.replies = 'unavailable';
+    }
+    commentsFailed = true;
+  } else {
+    try {
+      onInteraction?.(0, filtered.length, '拉取评论 / 点赞…');
+      const targets = filtered.map((row) => ({ tid: row.tid, time: row.time }));
+      const map = await deps.fetchInteractions(
+        opts.targetUin,
+        targets,
+        opts.signal,
+        opts.onRawInteraction
+          ? (response) => opts.onRawInteraction!({ kind: 'feeds', response })
+          : undefined,
+      );
+      opts.signal?.throwIfAborted();
+      for (const row of filtered) {
+        const result = map.get(row.tid);
+        if (!result || result.coverage === 'unobserved') missingPosts++;
+        if (!result) continue;
+        row.comments = result.comments;
+        row.likes = result.likes;
+        row.interactionCoverage = result.fieldCoverage
+          ? { ...result.fieldCoverage }
+          : coverageFor(result.coverage === 'unobserved' ? 'unobserved' : 'observed');
+      }
+    } catch (error) {
+      opts.signal?.throwIfAborted();
+      commentsFailed = true;
+      const classified = error as { kind?: string; name?: string };
+      commentsBlocked = classified.kind === 'rate-limit' || classified.name === 'WebAuthError';
+      for (const row of filtered) {
+        row.interactionCoverage!.comments = row.comments!.length ? 'observed' : 'failed';
+        row.interactionCoverage!.replies = row.comments!.some((comment) => comment.isReply)
+          ? 'observed'
+          : 'failed';
+      }
+      onInteraction?.(0, filtered.length, '评论读取未完成，保留正文并继续处理点赞');
+    }
+  }
+  // The structured source can attest its reported count. Legacy array-only
+  // providers and HTML observations cannot establish complete membership.
+  const needLikes = commentsBlocked
+    ? []
+    : deps.fetchLikesResult
+      ? filtered
+      : deps.fetchLikes
+        ? filtered.filter((row) => row.likes!.length === 0)
+        : [];
+  let next = 0;
+  let done = 0;
+  let stopRequests = false;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (opts.signal?.aborted || stopRequests) return;
+      const row = needLikes[next++];
+      if (!row) return;
+      try {
+        const result = deps.fetchLikesResult
+          ? await deps.fetchLikesResult(
+              opts.targetUin,
+              row.tid,
+              opts.signal,
+              opts.onRawInteraction
+                ? (response) => opts.onRawInteraction!({ kind: 'likes', tid: row.tid, response })
+                : undefined,
+            )
+          : {
+              likes: await deps.fetchLikes!(opts.targetUin, row.tid, opts.signal),
+              reportedTotal: null,
+              coverage: 'observed' as const,
+              reason: 'missing-count' as const,
+            };
+        opts.signal?.throwIfAborted();
+        const merged = new Map(row.likes!.map((like) => [like.uin, like]));
+        for (const like of result.likes) merged.set(like.uin, like);
+        row.likes = [...merged.values()];
+        const conflicting =
+          result.reportedTotal !== null && row.likes.length !== result.reportedTotal;
+        row.interactionCoverage!.likes = conflicting
+          ? 'observed'
+          : result.coverage === 'observed' && row.likes.length === 0
+            ? 'unobserved'
+            : result.coverage;
+        row.likeCoverageEvidence = {
+          reportedTotal: result.reportedTotal,
+          receivedUnique: row.likes.length,
+          reason: conflicting ? 'observations-conflict' : result.reason,
+        };
+      } catch (error) {
+        opts.signal?.throwIfAborted();
+        likesFailed++;
+        row.interactionCoverage!.likes = row.likes!.length ? 'observed' : 'failed';
+        row.likeCoverageEvidence = {
+          reportedTotal: null,
+          receivedUnique: row.likes!.length,
+          reason: 'request-failed',
+        };
+        const classified = error as { kind?: string; name?: string };
+        if (classified.kind === 'rate-limit' || classified.name === 'WebAuthError')
+          stopRequests = true;
+      }
+      done++;
+      if (!stopRequests && next < needLikes.length) await sleep(PAGE_DELAY_MS);
+      onInteraction?.(done, needLikes.length, `读取点赞 ${done}/${needLikes.length}…`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, needLikes.length) }, worker));
+  opts.signal?.throwIfAborted();
+  const posts = filtered.filter((row) => row.comments!.length || row.likes!.length).length;
+  onInteraction?.(filtered.length, filtered.length, `已取得 ${posts} 条说说的互动内容`);
+  return {
+    failed: commentsFailed || missingPosts > 0 || likesFailed > 0,
+    interactionPosts: posts,
+    missingPosts,
+    likesFailed,
+  };
 }
 
 /**

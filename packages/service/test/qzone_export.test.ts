@@ -110,6 +110,8 @@ describe('collectQzone / writeQzone', () => {
     expect(html).toContain('<section class=\x22comments\x22>');
     expect(html).toContain('第 1 条评论');
     expect(html).toContain('回复内容');
+    expect(html).toContain('点赞名单已取得，完整性未核验');
+    expect(html).toContain('查看已取得的 5 条评论');
     expect(html).toContain('comments-toggle'); // 4 条一级评论 → 「查看全部 4 条评论」
     expect(html).toContain('<span class=\x22likes\x22>');
     expect(html).toContain('like-toggle'); // 12 人赞 → 「等 12 人赞了」
@@ -137,7 +139,7 @@ describe('collectQzone / writeQzone', () => {
     expect(data.interaction?.coverage?.likes.failed).toBe(1);
   });
 
-  it('records authoritative empty likes separately from unobserved comments and replies', async () => {
+  it('does not treat an array-only empty result as verified completeness', async () => {
     const deps = {
       fetchMsgList: async (): Promise<QzoneMsgListResult> => ({ total: 1, list: [emotion()] }),
       fetchInteractions: async () =>
@@ -151,7 +153,152 @@ describe('collectQzone / writeQzone', () => {
     expect(data.rows[0]?.interactionCoverage).toEqual({
       comments: 'unobserved',
       replies: 'unobserved',
+      likes: 'unobserved',
+    });
+  });
+  it('can retrieve verified zero likes independently when comments are unavailable', async () => {
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      {
+        fetchMsgList: async () => ({ total: 1, list: [emotion()] }),
+        fetchLikesResult: async () => ({
+          likes: [],
+          reportedTotal: 0,
+          coverage: 'complete',
+          reason: 'matched-count',
+        }),
+      },
+    );
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'unavailable',
+      replies: 'unavailable',
       likes: 'complete',
     });
+    expect(data.rows[0]?.likeCoverageEvidence).toEqual({
+      reportedTotal: 0,
+      receivedUnique: 0,
+      reason: 'matched-count',
+    });
+  });
+
+  it('retains HTML observations when a structured partial list disagrees', async () => {
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      {
+        fetchMsgList: async () => ({ total: 1, list: [emotion()] }),
+        fetchInteractions: async () =>
+          new Map([
+            [
+              'tid-1',
+              {
+                comments: roots,
+                likes: [like('20001'), like('20002')],
+                fieldCoverage: {
+                  comments: 'observed' as const,
+                  replies: 'unobserved' as const,
+                  likes: 'observed' as const,
+                },
+              },
+            ],
+          ]),
+        fetchLikesResult: async () => ({
+          likes: [like('20001')],
+          reportedTotal: 1,
+          coverage: 'complete',
+          reason: 'matched-count',
+        }),
+      },
+    );
+    expect(data.rows[0]?.likes).toHaveLength(2);
+    expect(data.rows[0]?.comments).toHaveLength(4);
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'observed',
+      replies: 'unobserved',
+      likes: 'observed',
+    });
+    expect(data.rows[0]?.likeCoverageEvidence?.reason).toBe('observations-conflict');
+  });
+
+  it('continues independent likes after a comments transport failure without erasing body', async () => {
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      {
+        fetchMsgList: async () => ({ total: 1, list: [emotion()] }),
+        fetchInteractions: async () => {
+          throw new Error('comments source unavailable');
+        },
+        fetchLikesResult: async () => ({
+          likes: [like('20001')],
+          reportedTotal: 1,
+          coverage: 'complete',
+          reason: 'matched-count',
+        }),
+      },
+    );
+    expect(data.rows[0]?.content).toBe('随便说点什么');
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'failed',
+      replies: 'failed',
+      likes: 'complete',
+    });
+    expect(data.rows[0]?.likes).toHaveLength(1);
+    expect(data.interaction?.failed).toBe(true);
+  });
+
+  it('does not report empty replies as observed just because comments were present', async () => {
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      {
+        fetchMsgList: async () => ({ total: 1, list: [emotion()] }),
+        fetchInteractions: async () =>
+          new Map([
+            [
+              'tid-1',
+              {
+                comments: roots,
+                likes: [],
+                fieldCoverage: {
+                  comments: 'observed' as const,
+                  replies: 'unobserved' as const,
+                  likes: 'unobserved' as const,
+                },
+              },
+            ],
+          ]),
+      },
+    );
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'observed',
+      replies: 'unobserved',
+      likes: 'unobserved',
+    });
+  });
+  it('forwards raw interaction captures separately before projecting coverage', async () => {
+    const captures: Array<{ kind: string; tid?: string; response: string }> = [];
+    await collectQzone(
+      {
+        targetUin: '10000',
+        includeInteraction: true,
+        onProgress: () => {},
+        onRawInteraction: async (capture) => {
+          captures.push(capture);
+        },
+      },
+      {
+        fetchMsgList: async () => ({ total: 1, list: [emotion()] }),
+        fetchInteractions: async (_uin, _targets, _signal, captureRaw) => {
+          await captureRaw?.('synthetic-feed-response');
+          return new Map();
+        },
+        fetchLikesResult: async (_uin, _tid, _signal, captureRaw) => {
+          await captureRaw?.('synthetic-like-response');
+          return { likes: [], reportedTotal: 0, coverage: 'complete', reason: 'matched-count' };
+        },
+      },
+    );
+    expect(captures).toEqual([
+      { kind: 'feeds', response: 'synthetic-feed-response' },
+      { kind: 'likes', tid: 'tid-1', response: 'synthetic-like-response' },
+    ]);
   });
 });

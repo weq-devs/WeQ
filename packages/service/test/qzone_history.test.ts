@@ -142,4 +142,30 @@ describe('qzone history store', () => {
     renameSync(ledger + '.old', ledger);
     expect(new QzoneHistoryStore(root, '10001').resumeState()?.rows[0]?.content).toBe('before');
   });
+  it('keeps raw interaction fields and bindings without advancing the body checkpoint', () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-qzone-history-'));
+    roots.push(root);
+    const store = new QzoneHistoryStore(root, '10001');
+    store.savePage({
+      targetUin: '10001',
+      pos: 0,
+      nextPos: 15,
+      total: 40,
+      rows: [row('before')],
+      termination: 'more',
+    });
+    const response = '_Callback({"code":0,"unknown":{"retained":true}});';
+    store.saveInteractionRaw({ kind: 'likes', tid: 'tid-1', response });
+    store.saveInteractionRaw({ kind: 'likes', tid: 'tid-1', response });
+    store.saveInteractionRaw({ kind: 'likes', tid: 'tid-2', response });
+    expect(store.summary()).toMatchObject({ nextPos: 15, interactionRawPages: 2, revisions: 1 });
+    const snapshot = join(root, 'snapshot.json');
+    store.writeSnapshot(snapshot);
+    const saved = JSON.parse(readFileSync(snapshot, 'utf8'));
+    const folder = join(root, 'qzone-history', readdirSync(join(root, 'qzone-history'))[0]!);
+    expect(readFileSync(join(folder, saved.interactionRawPages[0].file), 'utf8')).toBe(response);
+    expect(readFileSync(join(root, saved.interactionRawPages[0].file), 'utf8')).toBe(response);
+    expect(() => store.writeSnapshot(snapshot)).not.toThrow();
+    expect(new QzoneHistoryStore(root, '10001').resumeState()?.rows[0]?.content).toBe('before');
+  });
 });

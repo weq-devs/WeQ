@@ -1906,7 +1906,8 @@ export class ExportTaskManager extends EventEmitter {
       const wantMedia = Boolean(task.media?.exportMedia) || formats.includes('html');
       // HTML 需要完整渲染：含 html 格式时同样强制拉取评论 / 点赞（能力不可用时跳过）。
       const wantInteraction = Boolean(
-        (task.qzoneInteractions || formats.includes('html')) && qzone.fetchInteractions,
+        (task.qzoneInteractions || formats.includes('html')) &&
+          (qzone.fetchInteractions || qzone.fetchLikes || qzone.fetchLikesResult),
       );
       // 每次空间导出都包含正文与 coverage，必须在私有 staging 中全部完成后整体发布。
       bundle = createAtomicExportBundle(this.cacheDir, id);
@@ -1972,6 +1973,7 @@ export class ExportTaskManager extends EventEmitter {
             : {}),
           relocateCursor: true,
           onPage: async (page) => history.savePage(page),
+          onRawInteraction: async (capture) => history.saveInteractionRaw(capture),
           signal: abort.signal,
         },
         qzone,
