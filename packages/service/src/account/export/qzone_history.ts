@@ -20,6 +20,7 @@ interface QzoneHistoryLedger {
     nextPos: number;
     termination: QzonePageCapture['termination'];
     anchorTids: string[];
+    anchors?: Array<{ tid: string; time: number }>;
   } | null;
   activeTids: string[];
   completeTids: string[];
@@ -80,7 +81,12 @@ export class QzoneHistoryStore {
     this.ledger = normalize(readJsonFile(this.ledgerPath), targetUin);
   }
 
-  resumeState(): { startPos: number; anchorTids: string[]; rows: QzonePageCapture['rows'] } | null {
+  resumeState(): {
+    startPos: number;
+    anchorTids: string[];
+    anchors: Array<{ tid: string; time: number }>;
+    rows: QzonePageCapture['rows'];
+  } | null {
     const checkpoint = this.ledger.checkpoint;
     if (
       !checkpoint ||
@@ -91,48 +97,62 @@ export class QzoneHistoryStore {
     return {
       startPos: checkpoint.nextPos,
       anchorTids: checkpoint.anchorTids ?? [],
+      anchors: checkpoint.anchors ?? [],
       rows: this.ledger.activeTids
-        .map((tid) => this.ledger.items[tid]?.revisions.at(-1)?.row)
+        .map((tid) => {
+          const item = this.ledger.items[tid];
+          return item?.revisions.find((revision) => revision.sha256 === item.latest)?.row;
+        })
         .filter((row): row is QzonePageCapture['rows'][number] => Boolean(row)),
     };
   }
 
   savePage(page: QzonePageCapture): void {
     if (page.targetUin !== this.targetUin) throw new Error('空间历史目标账号不匹配。');
+    if (page.rows.some((row) => !row.tid)) throw new Error('空间条目缺少 ID。');
+    const next = structuredClone(this.ledger);
+    next.items = Object.assign(Object.create(null), next.items);
     const capturedAt = Date.now();
     mkdirSync(join(this.root, 'raw'), { recursive: true });
     for (const [index, raw] of (page.rawResponses ?? []).entries()) {
       const sha256 = createHash('sha256').update(raw).digest('hex');
       const file = `raw/page-${page.pos}-${index}-${sha256}.txt`;
       writeFileAtomicSync(join(this.root, file), raw);
-      if (!this.ledger.rawPages.some((entry) => entry.sha256 === sha256))
-        this.ledger.rawPages.push({ pos: page.pos, sha256, file, capturedAt });
+      if (!next.rawPages.some((entry) => entry.sha256 === sha256))
+        next.rawPages.push({
+          pos: page.requestPositions?.[index] ?? page.pos,
+          sha256,
+          file,
+          capturedAt,
+        });
     }
-    if (page.pos === 0) this.ledger.activeTids = [];
-    const active = new Set(this.ledger.activeTids);
+    if (page.pos === 0 && !page.continuation) next.activeTids = [];
+    const active = new Set(next.activeTids);
     for (const row of page.rows) {
       const sha256 = sourceVersionHash(row);
-      const current = this.ledger.items[row.tid] ?? { latest: '', revisions: [] };
+      const current = next.items[row.tid] ?? { latest: '', revisions: [] };
       if (!current.revisions.some((revision) => revision.sha256 === sha256))
         current.revisions.push({ sha256, capturedAt, row });
       current.latest = sha256;
-      this.ledger.items[row.tid] = current;
+      next.items[row.tid] = current;
       if (!active.has(row.tid)) {
         active.add(row.tid);
-        this.ledger.activeTids.push(row.tid);
+        next.activeTids.push(row.tid);
       }
     }
-    this.ledger.updatedAt = capturedAt;
-    this.ledger.checkpoint = {
+    next.updatedAt = capturedAt;
+    next.checkpoint = {
       nextPos: page.nextPos,
       termination: page.termination,
-      anchorTids: page.rows.slice(-5).map((row) => row.tid),
+      anchorTids: (page.anchors ?? page.rows.slice(-5)).map((row) => row.tid),
+      anchors: page.anchors ?? page.rows.slice(-5).map((row) => ({ tid: row.tid, time: row.time })),
     };
     if (['empty-page', 'stable-tail', 'time-range'].includes(page.termination)) {
-      this.ledger.completeTids = [...this.ledger.activeTids];
-      this.ledger.activeTids = [];
+      next.completeTids = [...next.activeTids];
+      next.activeTids = [];
     }
-    writeFileAtomicSync(this.ledgerPath, JSON.stringify(this.ledger, null, 2));
+    writeFileAtomicSync(this.ledgerPath, JSON.stringify(next, null, 2));
+    this.ledger = next;
   }
 
   summary(): QzoneHistorySummary {

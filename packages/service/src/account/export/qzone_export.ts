@@ -191,6 +191,10 @@ export interface QzonePageCapture {
   total: number;
   rows: QzoneEmotion[];
   rawResponses?: string[];
+  requestPositions?: number[];
+  anchors?: Array<{ tid: string; time: number }>;
+  /** True when revisiting position zero within an existing capture. */
+  continuation?: boolean;
   termination: 'more' | 'empty-page' | 'stable-tail' | 'time-range' | 'repeated-page';
 }
 
@@ -200,6 +204,9 @@ export interface QzonePaginationOptions {
   initialRows?: QzoneEmotion[];
   /** Tail IDs from the last saved page. The first resumed page must overlap them. */
   expectedAnchorTids?: string[];
+  expectedAnchors?: Array<{ tid: string; time: number }>;
+  /** Re-find the last saved overlap using bounded existing CGI reads. */
+  relocateCursor?: boolean;
   /** Save rows and the next cursor together; failure leaves this page retryable. */
   onPage?: (page: QzonePageCapture) => Promise<void>;
 }
@@ -251,12 +258,19 @@ export async function fetchQzoneEmotionRange(
   const seen = new Set(all.map((row) => row.tid));
   let total = 0;
   let pos = pagination.startPos ?? 0;
-  let expectedAnchor: Set<string> | null = pagination.expectedAnchorTids?.length
-    ? new Set(pagination.expectedAnchorTids)
-    : null;
+  let anchors = pagination.expectedAnchors ?? [];
+  let expectedAnchor: Set<string> | null = anchors.length
+    ? new Set(anchors.map((anchor) => anchor.tid))
+    : pagination.expectedAnchorTids?.length
+      ? new Set(pagination.expectedAnchorTids)
+      : null;
+  let continuation = Boolean(pagination.initialRows?.length) || pos > 0;
+  let relocationReads = 0;
   if (!Number.isSafeInteger(pos) || pos < 0) throw new Error('空间分页位置无效。');
 
   const capturePage = async (capture: QzonePageCapture): Promise<void> => {
+    if (signal?.aborted)
+      throw new QzonePaginationError('空间导出已取消，尚未完成。', all, pos, 'cancelled');
     try {
       await pagination.onPage?.(capture);
     } catch (cause) {
@@ -274,47 +288,122 @@ export async function fetchQzoneEmotionRange(
     if (signal?.aborted)
       throw new QzonePaginationError('空间导出已取消，尚未完成。', all, pos, 'cancelled');
     let res: QzoneMsgListResult;
+    let pagePos = pos;
     const rawResponses: string[] = [];
-    try {
-      res = await deps.fetchMsgList(targetUin, pos, PAGE_SIZE, signal, async (text) => {
-        rawResponses.push(text);
-      });
-    } catch (e) {
-      throw new QzonePaginationError(
-        '空间分页请求失败，已取得的内容可继续保存。',
-        all,
-        pos,
-        'request-failed',
-        e,
-      );
+    const requestPositions: number[] = [];
+    const readPositions = new Set<number>();
+    const observedRows: QzoneEmotion[] = [];
+    const read = async (position: number): Promise<QzoneMsgListResult> => {
+      if (signal?.aborted)
+        throw new QzonePaginationError('空间导出已取消，尚未完成。', all, pos, 'cancelled');
+      try {
+        readPositions.add(position);
+        const result = await deps.fetchMsgList(
+          targetUin,
+          position,
+          PAGE_SIZE,
+          signal,
+          async (text) => {
+            rawResponses.push(text);
+            requestPositions.push(position);
+          },
+        );
+        if (signal?.aborted)
+          throw new QzonePaginationError('空间导出已取消，尚未完成。', all, pos, 'cancelled');
+        if (result.list.some((row) => !row.tid))
+          throw new QzonePaginationError('空间响应缺少条目 ID。', all, pos, 'invalid-page');
+        observedRows.push(...result.list);
+        return result;
+      } catch (error) {
+        if (error instanceof QzonePaginationError) throw error;
+        throw new QzonePaginationError(
+          signal?.aborted
+            ? '空间导出已取消，尚未完成。'
+            : '空间分页请求失败，已取得的内容可继续保存。',
+          all,
+          pos,
+          signal?.aborted ? 'cancelled' : 'request-failed',
+          error,
+        );
+      }
+    };
+    res = await read(pagePos);
+    const overlaps = (list: QzoneEmotion[]): boolean =>
+      !expectedAnchor || list.some((row) => expectedAnchor?.has(row.tid));
+    if (!overlaps(res.list) && pagination.relocateCursor) {
+      const anchorTimes = anchors.map((anchor) => anchor.time).filter(Number.isFinite);
+      const oldestAnchor = anchorTimes.length ? Math.min(...anchorTimes) : null;
+      const newerPage =
+        oldestAnchor !== null &&
+        res.list.length > 0 &&
+        res.list.every((row) => row.time > oldestAnchor);
+      const tried = new Set([pos]);
+      // Insertions usually move the overlap forward; deletions move it back.
+      // Search both directions because pinned posts need not be time-ordered.
+      for (
+        let distance = 1;
+        distance <= 4 && relocationReads < 8 && !overlaps(res.list);
+        distance++
+      ) {
+        const delta = distance * (PAGE_SIZE - PAGE_OVERLAP);
+        const positions = newerPage
+          ? [pos + delta, Math.max(0, pos - delta)]
+          : [Math.max(0, pos - delta), pos + delta];
+        for (const candidate of positions) {
+          if (tried.has(candidate) || relocationReads >= 8) continue;
+          relocationReads++;
+          tried.add(candidate);
+          await sleep(PAGE_DELAY_MS);
+          const probe = await read(candidate);
+          if (overlaps(probe.list)) {
+            res = probe;
+            pagePos = candidate;
+            break;
+          }
+        }
+      }
     }
-    total = res.total || total;
-    if (res.list.length === 0) {
-      await capturePage({
-        targetUin,
-        pos,
-        nextPos: pos,
-        total,
-        rows: [],
-        rawResponses,
-        termination: 'empty-page',
-      });
-      return all;
-    }
-    if (res.list.some((row) => !row.tid))
-      throw new QzonePaginationError('空间响应缺少条目 ID。', all, pos, 'invalid-page');
-    if (expectedAnchor && !res.list.some((row) => expectedAnchor?.has(row.tid))) {
+    if (!overlaps(res.list))
       throw new QzonePaginationError(
-        '空间列表在翻页期间发生较大变化，已停止以避免漏项。',
+        '空间列表位置已变化，未找到保存的重叠锚点；已保留断点。',
         all,
         pos,
         'cursor-drift',
       );
+    // A shifted page can expose newly added head rows. Revisit the head once
+    // after relocation so those already-visible additions are not discarded.
+    if (
+      (pagePos !== pos || (pagination.relocateCursor && page > 0 && res.list.length < PAGE_SIZE)) &&
+      relocationReads < 8 &&
+      !readPositions.has(0)
+    ) {
+      relocationReads++;
+      await sleep(PAGE_DELAY_MS);
+      await read(0);
+    }
+    const pageAnchors = res.list
+      .slice(-PAGE_OVERLAP)
+      .map((row) => ({ tid: row.tid, time: row.time }));
+    total = res.total || total;
+    if (res.list.length === 0) {
+      await capturePage({
+        targetUin,
+        pos: pagePos,
+        nextPos: pagePos,
+        total,
+        rows: [],
+        rawResponses,
+        requestPositions,
+        anchors: pageAnchors,
+        continuation,
+        termination: 'empty-page',
+      });
+      return all;
     }
 
     let fresh = 0;
     const freshRows: QzoneEmotion[] = [];
-    for (const e of res.list) {
+    for (const e of observedRows) {
       if (e.tid && !seen.has(e.tid)) {
         seen.add(e.tid);
         fresh += 1;
@@ -325,11 +414,14 @@ export async function fetchQzoneEmotionRange(
     if (fresh === 0 && !shortPage) {
       await capturePage({
         targetUin,
-        pos,
-        nextPos: pos,
+        pos: pagePos,
+        nextPos: pagePos,
         total,
-        rows: res.list,
+        rows: observedRows,
         rawResponses,
+        requestPositions,
+        anchors: pageAnchors,
+        continuation,
         termination: 'repeated-page',
       });
       throw new QzonePaginationError(
@@ -340,8 +432,8 @@ export async function fetchQzoneEmotionRange(
       );
     }
     const nextPos = shortPage
-      ? pos + res.list.length
-      : Math.max(pos + 1, pos + res.list.length - PAGE_OVERLAP);
+      ? pagePos + res.list.length
+      : Math.max(pagePos + 1, pagePos + res.list.length - PAGE_OVERLAP);
     const termination =
       range?.start != null && res.list.every((e) => e.time < range.start!)
         ? 'time-range'
@@ -351,15 +443,25 @@ export async function fetchQzoneEmotionRange(
     // The sink sees every returned version, including overlapping IDs.
     await capturePage({
       targetUin,
-      pos,
+      pos: pagePos,
       nextPos,
       total,
-      rows: res.list,
+      rows: observedRows,
       rawResponses,
+      requestPositions,
+      anchors: pageAnchors,
+      continuation,
       termination,
     });
+    // Apply current overlapping versions only after the page is durable.
     all.push(...freshRows);
+    for (const row of observedRows) {
+      const index = all.findIndex((saved) => saved.tid === row.tid);
+      if (index >= 0) all[index] = row;
+    }
+    continuation = true;
     pos = nextPos;
+    anchors = res.list.slice(-PAGE_OVERLAP).map((row) => ({ tid: row.tid, time: row.time }));
     expectedAnchor = new Set(res.list.slice(-PAGE_OVERLAP).map((row) => row.tid));
     onProgress(
       all.length,
@@ -367,7 +469,7 @@ export async function fetchQzoneEmotionRange(
       `已获取 ${all.length}${total ? `/${total}` : ''} 条`,
     );
 
-    if (termination !== 'more') return all;
+    if (termination !== 'more') return [...all].sort((a, b) => b.time - a.time);
     await sleep(PAGE_DELAY_MS);
   }
   throw new QzonePaginationError('空间分页达到安全上限，尚未完成。', all, pos, 'page-limit');

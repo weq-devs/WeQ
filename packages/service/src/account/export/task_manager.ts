@@ -1967,8 +1967,10 @@ export class ExportTaskManager extends EventEmitter {
                 startPos: resume.startPos,
                 initialRows: resume.rows,
                 expectedAnchorTids: resume.anchorTids,
+                expectedAnchors: resume.anchors,
               }
             : {}),
+          relocateCursor: true,
           onPage: async (page) => history.savePage(page),
           signal: abort.signal,
         },

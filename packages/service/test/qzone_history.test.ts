@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, renameSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -72,5 +72,74 @@ describe('qzone history store', () => {
         termination: 'empty-page',
       }),
     ).toThrow('目标账号不匹配');
+  });
+  it('uses the latest observation even when content reverts to an existing revision', () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-qzone-history-'));
+    roots.push(root);
+    const store = new QzoneHistoryStore(root, '10001');
+    const page = {
+      targetUin: '10001',
+      pos: 0,
+      nextPos: 15,
+      total: 40,
+      rows: [row('before')],
+      termination: 'more' as const,
+    };
+    store.savePage(page);
+    store.savePage({ ...page, rows: [row('after')] });
+    store.savePage(page);
+    expect(store.resumeState()?.rows[0]?.content).toBe('before');
+    expect(store.summary().revisions).toBe(2);
+    expect(store.resumeState()?.anchors).toEqual([{ tid: 'tid-1', time: 1 }]);
+  });
+
+  it('preserves active IDs when a relocated page returns to the head', () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-qzone-history-'));
+    roots.push(root);
+    const store = new QzoneHistoryStore(root, '10001');
+    const page = {
+      targetUin: '10001',
+      pos: 0,
+      nextPos: 15,
+      total: 40,
+      rows: [row('before')],
+      termination: 'more' as const,
+    };
+    store.savePage(page);
+    store.savePage({ ...page, continuation: true, rows: [{ ...row('new'), tid: 'tid-2' }] });
+    expect(store.resumeState()?.rows.map((entry) => entry.tid)).toEqual(['tid-1', 'tid-2']);
+  });
+
+  it('does not advance in-memory versions or checkpoint after a failed atomic write', () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-qzone-history-'));
+    roots.push(root);
+    const store = new QzoneHistoryStore(root, '10001');
+    const page = {
+      targetUin: '10001',
+      pos: 0,
+      nextPos: 15,
+      total: 40,
+      rows: [row('before')],
+      termination: 'more' as const,
+    };
+    store.savePage(page);
+    const folder = join(root, 'qzone-history', readdirSync(join(root, 'qzone-history'))[0]!);
+    const ledger = join(folder, 'ledger.json');
+    renameSync(ledger, ledger + '.old');
+    mkdirSync(ledger);
+    expect(() =>
+      store.savePage({
+        ...page,
+        pos: 15,
+        nextPos: 30,
+        rows: [row('after')],
+        rawResponses: ['synthetic raw'],
+      }),
+    ).toThrow();
+    expect(store.resumeState()).toMatchObject({ startPos: 15, rows: [{ content: 'before' }] });
+    expect(store.summary().revisions).toBe(1);
+    rmSync(ledger, { recursive: true });
+    renameSync(ledger + '.old', ledger);
+    expect(new QzoneHistoryStore(root, '10001').resumeState()?.rows[0]?.content).toBe('before');
   });
 });

@@ -110,4 +110,135 @@ describe('Qzone pagination reports incomplete captures', () => {
     ).rejects.toMatchObject({ reason: 'cancelled', nextPos: 0 });
     expect(fetchMsgList).not.toHaveBeenCalled();
   });
+  it('re-finds saved TID/time anchors after a large insertion without skipping older rows', async () => {
+    const original = rows('old', 25).map((entry, index) => ({ ...entry, time: 1000 - index }));
+    const inserted = rows('new', 20).map((entry, index) => ({ ...entry, time: 2000 - index }));
+    let calls = 0;
+    const fetchMsgList = vi.fn(async (_uin, pos, count, _signal, onRaw) => {
+      const list = ++calls === 1 ? original : [...inserted, ...original];
+      await onRaw?.(JSON.stringify({ position: pos }));
+      return { total: list.length, list: list.slice(pos, pos + count) };
+    });
+    const onPage = vi.fn(async () => {});
+    const pending = fetchQzoneEmotionRange(
+      { fetchMsgList },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      {
+        relocateCursor: true,
+        onPage,
+      },
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.map((entry) => entry.tid)).toEqual(
+      [...inserted, ...original].map((entry) => entry.tid),
+    );
+    expect(fetchMsgList.mock.calls.map((call) => call[1])).toEqual([0, 15, 30, 0]);
+    expect(onPage.mock.calls[1]?.[0]).toMatchObject({
+      pos: 30,
+      nextPos: 45,
+      continuation: true,
+      requestPositions: [15, 30, 0],
+    });
+  });
+
+  it('re-finds an overlap after deletion shifts the cursor backwards', async () => {
+    const original = rows('old', 30).map((entry, index) => ({ ...entry, time: 1000 - index }));
+    let calls = 0;
+    const fetchMsgList = vi.fn(async (_uin, pos, count) => {
+      const list = ++calls === 1 ? original : original.slice(10);
+      return { total: list.length, list: list.slice(pos, pos + count) };
+    });
+    const onPage = vi.fn(async () => {});
+    const pending = fetchQzoneEmotionRange(
+      { fetchMsgList },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      {
+        relocateCursor: true,
+        onPage,
+      },
+    );
+    await vi.runAllTimersAsync();
+    expect((await pending).map((entry) => entry.tid)).toEqual(original.map((entry) => entry.tid));
+    expect(onPage.mock.calls[1]?.[0]).toMatchObject({ pos: 0, continuation: true });
+  });
+
+  it('does not accept an empty resumed page without the saved overlap', async () => {
+    const fetchMsgList = vi.fn(async () => ({ total: 0, list: [] }));
+    const onPage = vi.fn(async () => {});
+    const pending = fetchQzoneEmotionRange(
+      { fetchMsgList },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      {
+        startPos: 15,
+        initialRows: rows('saved', 20),
+        expectedAnchors: [{ tid: 'saved-19', time: 1 }],
+        relocateCursor: true,
+        onPage,
+      },
+    ).catch((error) => error);
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ reason: 'cursor-drift', nextPos: 15 });
+    expect(fetchMsgList.mock.calls.length).toBeLessThanOrEqual(9);
+    expect(onPage).not.toHaveBeenCalled();
+  });
+
+  it('exports the latest observed overlapping version rather than the stale saved row', async () => {
+    const saved = row('id');
+    const current = { ...saved, content: 'edited after checkpoint' };
+    const result = await fetchQzoneEmotionRange(
+      { fetchMsgList: async () => ({ total: 1, list: [current] }) },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      { startPos: 10, initialRows: [saved], expectedAnchorTids: ['id'] },
+    );
+    expect(result).toEqual([current]);
+  });
+  it('rechecks the head at the tail so small additions within the overlap are included', async () => {
+    const original = rows('old', 25).map((entry, index) => ({ ...entry, time: 1000 - index }));
+    const inserted = rows('new', 3).map((entry, index) => ({ ...entry, time: 2000 - index }));
+    let calls = 0;
+    const fetchMsgList = vi.fn(async (_uin, pos, count) => {
+      const list = ++calls === 1 ? original : [...inserted, ...original];
+      return { total: list.length, list: list.slice(pos, pos + count) };
+    });
+    const pending = fetchQzoneEmotionRange(
+      { fetchMsgList },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      { relocateCursor: true },
+    );
+    await vi.runAllTimersAsync();
+    expect((await pending).map((entry) => entry.tid)).toEqual(
+      [...inserted, ...original].map((entry) => entry.tid),
+    );
+    expect(fetchMsgList.mock.calls.map((call) => call[1])).toEqual([0, 15, 0]);
+  });
+  it('does not persist a late response after cancellation', async () => {
+    const controller = new AbortController();
+    const onPage = vi.fn(async () => {});
+    const fetchMsgList = vi.fn(async () => {
+      controller.abort();
+      return { total: 1, list: [row('late')] };
+    });
+    await expect(
+      fetchQzoneEmotionRange({ fetchMsgList }, '10001', undefined, () => {}, controller.signal, {
+        onPage,
+      }),
+    ).rejects.toMatchObject({ reason: 'cancelled', nextPos: 0, partialRows: [] });
+    expect(onPage).not.toHaveBeenCalled();
+  });
 });
