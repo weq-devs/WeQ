@@ -174,6 +174,18 @@ export class CollectionService {
     return local.get(cid) ?? null;
   }
 
+  private async cachedListItem(cid: string): Promise<CollectionItem | null> {
+    const item = this.listedItems.get(cid);
+    if (item) return item;
+    const historical = this.history?.getByCid(cid);
+    if (historical) return historical;
+    try {
+      return await this.session.collection.getByCid(cid);
+    } catch {
+      return null;
+    }
+  }
+
   mediaCacheDirectory(): string {
     if (!this.media) throw new Error('收藏附件缓存未配置。');
     return this.media.root;
@@ -197,7 +209,7 @@ export class CollectionService {
     if (!this.media) return [];
     signal?.throwIfAborted();
     const content = await this.readCachedContent(cid);
-    const item = this.listedItems.get(cid) ?? (await this.session.collection.getByCid(cid));
+    const item = await this.cachedListItem(cid);
     const refs = collectionMediaReferences(cid, content, item);
     const entries: CollectionMediaExportEntry[] = [];
     for (const reference of refs)
@@ -213,7 +225,7 @@ export class CollectionService {
     if (!this.media) throw new Error('收藏附件缓存未配置。');
     options.signal?.throwIfAborted();
     const content = await this.readCachedContent(cid);
-    const item = this.listedItems.get(cid) ?? (await this.session.collection.getByCid(cid));
+    const item = await this.cachedListItem(cid);
     if (!content && !item) throw new Error('未找到这条收藏。');
     const refs = collectionMediaReferences(cid, content, item);
     if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readJsonFile } from '../common/json_store';
+import { encodeStructured, decodeStructured } from '../common/structured_json';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import type { CollectionCaptureCheckpoint, CollectionPageCapture } from './collection_capture';
 
@@ -68,7 +69,7 @@ export class CollectionHistoryStore {
     readonly uin: string,
   ) {
     this.ledgerPath = join(root, 'ledger.json');
-    this.ledger = normalize(readJsonFile(this.ledgerPath), uin);
+    this.ledger = normalize(decodeStructured(readJsonFile(this.ledgerPath)), uin);
   }
 
   checkpointForResume(): CollectionCaptureCheckpoint | undefined {
@@ -77,32 +78,42 @@ export class CollectionHistoryStore {
 
   savePage(page: CollectionPageCapture): void {
     if (page.checkpoint.uin !== this.uin) throw new Error('收藏历史账号不匹配。');
+    const next = structuredClone(this.ledger);
+    next.latest = Object.assign(Object.create(null), next.latest);
+    next.versions = Object.assign(Object.create(null), next.versions);
     const capturedAt = Date.now();
     const sha256 = createHash('sha256').update(page.rawResponse).digest('hex');
     const cursor = page.checkpoint.cursor?.timeStamp ?? 'terminal';
     const file = `raw/page-${page.checkpoint.pages}-${cursor}-${sha256}.bin`;
     writeFileAtomicSync(join(this.root, file), page.rawResponse);
-    if (!this.ledger.rawPages.some((entry) => entry.sha256 === sha256))
-      this.ledger.rawPages.push({ sha256, cursor, capturedAt, file });
+    if (!next.rawPages.some((entry) => entry.sha256 === sha256))
+      next.rawPages.push({ sha256, cursor, capturedAt, file });
     for (const [index, item] of page.items.entries()) {
       const version = page.versions[index];
       if (!version || version.cid !== item.cid) throw new Error('收藏版本与条目不匹配。');
-      const revisions = this.ledger.versions[item.cid] ?? [];
+      const revisions = next.versions[item.cid] ?? [];
       if (!revisions.some((entry) => entry.sha256 === version.sha256))
         revisions.push({ sha256: version.sha256, capturedAt, item });
-      this.ledger.versions[item.cid] = revisions;
-      this.ledger.latest[item.cid] = version.sha256;
+      next.versions[item.cid] = revisions;
+      next.latest[item.cid] = version.sha256;
     }
-    this.ledger.updatedAt = capturedAt;
-    this.ledger.activeCheckpoint = page.checkpoint.complete ? null : page.checkpoint;
+    next.updatedAt = capturedAt;
+    next.activeCheckpoint = page.checkpoint.complete ? null : page.checkpoint;
     if (page.checkpoint.complete) {
-      this.ledger.lastComplete = {
+      next.lastComplete = {
         uniqueItems: page.checkpoint.uniqueItems,
         reportedTotal: page.checkpoint.reportedTotal,
         completedAt: capturedAt,
       };
     }
-    writeFileAtomicSync(this.ledgerPath, JSON.stringify(this.ledger, null, 2));
+    writeFileAtomicSync(this.ledgerPath, JSON.stringify(encodeStructured(next), null, 2));
+    this.ledger = next;
+  }
+
+  getByCid(cid: string): CollectionPageCapture['items'][number] | null {
+    const sha = this.ledger.latest[cid];
+    const item = this.ledger.versions[cid]?.find((entry) => entry.sha256 === sha)?.item;
+    return item ? structuredClone(item) : null;
   }
 
   summary(): CollectionHistorySummary {
@@ -120,6 +131,6 @@ export class CollectionHistoryStore {
   }
 
   writeSnapshot(path: string): void {
-    writeFileAtomicSync(path, JSON.stringify(this.ledger, null, 2));
+    writeFileAtomicSync(path, JSON.stringify(encodeStructured(this.ledger), null, 2));
   }
 }

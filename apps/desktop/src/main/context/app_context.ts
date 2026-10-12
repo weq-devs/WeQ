@@ -156,7 +156,7 @@ import {
   type AccountContext,
   type AccountSession,
 } from '@weq/account';
-import { collectionItemToWire } from '../ipc/serde';
+import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
@@ -1408,10 +1408,25 @@ export function initAppContext(): AppContext {
             // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
             collection: {
               listCollections: async (limit, offset) => {
-                const page = await collectionSvc.listCollections(limit, offset);
+                const page =
+                  userConfig.getSettings().autoAttachQq === false
+                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                    : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
-              syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
+              syncHistory: (signal) =>
+                userConfig.getSettings().autoAttachQq === false
+                  ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
+                  : collectionSvc.syncNetworkHistory(signal),
+              canFetchDetails: () =>
+                userConfig.getSettings().autoAttachQq !== false &&
+                accountConfig.getRecord()?.qqOnline === true,
+              fetchDetails: async (cids, signal) => {
+                if (userConfig.getSettings().autoAttachQq === false)
+                  throw new Error('完全离线模式，不请求云端收藏详情。');
+                const details = await collectionSvc.fetchDetails(cids, { signal });
+                return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+              },
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               exportCachedMedia: (cid, directory, signal) =>
@@ -1919,10 +1934,25 @@ export function initAppContext(): AppContext {
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {
-                const page = await collectionSvc.listCollections(limit, offset);
+                const page =
+                  userConfig.getSettings().autoAttachQq === false
+                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                    : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
-              syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
+              syncHistory: (signal) =>
+                userConfig.getSettings().autoAttachQq === false
+                  ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
+                  : collectionSvc.syncNetworkHistory(signal),
+              canFetchDetails: () =>
+                userConfig.getSettings().autoAttachQq !== false &&
+                accountConfig.getRecord()?.qqOnline === true,
+              fetchDetails: async (cids, signal) => {
+                if (userConfig.getSettings().autoAttachQq === false)
+                  throw new Error('完全离线模式，不请求云端收藏详情。');
+                const details = await collectionSvc.fetchDetails(cids, { signal });
+                return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+              },
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               exportCachedMedia: (cid, directory, signal) =>

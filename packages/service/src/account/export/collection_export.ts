@@ -29,6 +29,7 @@ export interface CollectionExportPic {
  */
 export interface CollectionExportRow {
   mediaCoverage?: string;
+  detailFetchError?: string;
   contentStatus?: 'summary' | 'truncated' | 'cached' | 'complete';
   fullContent?: string;
   fullContentFormat?: 'text' | 'html' | 'binary' | null;
@@ -80,6 +81,17 @@ export interface CollectionExportDeps {
   syncHistory?: (signal?: AbortSignal) => Promise<CollectionHistorySummary>;
   historySummary?: () => CollectionHistorySummary | null;
   writeHistorySnapshot?: (path: string) => void;
+  canFetchDetails?: () => boolean;
+  fetchDetails?: (
+    cids: string[],
+    signal?: AbortSignal,
+  ) => Promise<
+    Array<
+      Pick<CollectionExportRow, 'cid' | 'fullContent' | 'fullContentFormat'> & {
+        contentStatus: 'cached';
+      }
+    >
+  >;
   exportCachedMedia?: (
     cid: string,
     directory: string,
@@ -112,6 +124,7 @@ export interface CollectionExportCoverage {
   rows: number;
   detailsReceived: number;
   detailsUncovered: number;
+  detailsFailed: number;
   bodies: Record<CollectionBodyCoverage, number>;
   originalsComplete: false;
   mediaDownloadState: 'not-requested' | 'cached-only';
@@ -132,7 +145,8 @@ export interface CollectionExportCoverage {
   }>;
   items: Array<{
     cid: string;
-    detail: 'received' | 'uncovered';
+    detail: 'received' | 'uncovered' | 'failed';
+    detailError?: string;
     body: CollectionBodyCoverage;
     /** URLs alone cannot establish whether a file is original or a thumbnail. */
     media: 'not-requested' | 'cached-only';
@@ -167,7 +181,8 @@ function summarizeCoverage(rows: readonly CollectionExportRow[]): CollectionExpo
     if (received) detailsReceived += 1;
     return {
       cid: row.cid,
-      detail: received ? 'received' : 'uncovered',
+      detail: received ? 'received' : row.detailFetchError ? 'failed' : 'uncovered',
+      ...(row.detailFetchError ? { detailError: row.detailFetchError } : {}),
       body,
       media: 'not-requested',
       originalQuality: 'unverified',
@@ -179,6 +194,7 @@ function summarizeCoverage(rows: readonly CollectionExportRow[]): CollectionExpo
     rows: rows.length,
     detailsReceived,
     detailsUncovered: rows.length - detailsReceived,
+    detailsFailed: rows.filter((row) => row.detailFetchError).length,
     bodies,
     originalsComplete: false,
     mediaDownloadState: 'not-requested',
@@ -323,13 +339,15 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
     key: 'contentStatus',
     header: '内容完整性',
     get: (r) =>
-      r.contentStatus === 'complete'
-        ? '全文已核验'
-        : r.contentStatus === 'cached'
-          ? '详情已读取'
-          : r.textTruncated || r.contentStatus === 'truncated'
-            ? '摘要已截断'
-            : '摘要，全文未核验',
+      r.detailFetchError
+        ? '详情读取失败，保留摘要'
+        : r.contentStatus === 'complete'
+          ? '全文已核验'
+          : r.contentStatus === 'cached'
+            ? '详情已读取'
+            : r.textTruncated || r.contentStatus === 'truncated'
+              ? '摘要已截断'
+              : '摘要，全文未核验',
   },
   {
     key: 'fullContentFormat',
@@ -404,6 +422,48 @@ export async function exportCollections(
   if (opts.kinds && opts.kinds.length > 0) {
     const wanted = new Set(opts.kinds);
     rows = rows.filter((r) => wanted.has(r.kind));
+  }
+
+  if (deps.fetchDetails && (deps.canFetchDetails?.() ?? true)) {
+    const targets = rows.filter(
+      (row) => row.contentStatus !== 'cached' && row.contentStatus !== 'complete',
+    );
+    let failures = 0;
+    for (let offset = 0; offset < targets.length; offset += 20) {
+      opts.signal?.throwIfAborted();
+      const batch = targets.slice(offset, offset + 20);
+      try {
+        const details = await deps.fetchDetails(
+          batch.map((row) => row.cid),
+          opts.signal,
+        );
+        opts.signal?.throwIfAborted();
+        const byCid = new Map(details.map((detail) => [detail.cid, detail]));
+        if (
+          byCid.size !== batch.length ||
+          details.length !== batch.length ||
+          batch.some((row) => !byCid.has(row.cid))
+        )
+          throw new Error('收藏详情返回数量或 ID 不一致。');
+        for (const row of batch) Object.assign(row, byCid.get(row.cid));
+        failures = 0;
+      } catch (error) {
+        opts.signal?.throwIfAborted();
+        const message = error instanceof Error ? error.message : '收藏详情读取失败。';
+        for (const row of batch) row.detailFetchError = message;
+        failures++;
+        if (
+          failures >= 3 ||
+          /离线|在线|认证|p_skey|credential|not online|rate.limit/i.test(message)
+        )
+          break;
+      }
+      opts.onProgress?.(
+        Math.min(offset + batch.length, targets.length),
+        targets.length,
+        '补取收藏详情…',
+      );
+    }
   }
 
   opts.onProgress?.(rows.length, rows.length, `${rows.length} 条收藏`);
