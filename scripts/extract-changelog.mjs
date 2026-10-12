@@ -18,13 +18,15 @@ function extract(raw, version) {
   const section = [];
   let inSection = false;
   for (const line of lines) {
-    const heading = /^##\s+v?(\d[^\s]*)/.exec(line.trim());
-    if (heading) {
-      if (inSection) break; // 下一个版本 = 本章节结束
-      if ((heading[1] ?? '') === version) inSection = true;
+    const trimmed = line.trim();
+    // 任意 `##` 标题都结束当前章节（含 `## Unreleased` 这类非版本标题）。
+    if (/^##\s+/.test(trimmed)) {
+      if (inSection) break; // 下一个 `##` 标题 = 本章节结束
+      const heading = /^##\s+v?(\d[^\s]*)/.exec(trimmed);
+      if (heading && (heading[1] ?? '') === version) inSection = true;
       continue;
     }
-    if (inSection && line.trim()) section.push(line.trim());
+    if (inSection && trimmed) section.push(trimmed);
   }
   return section.filter((l) => !/^#/.test(l)).join('\n');
 }

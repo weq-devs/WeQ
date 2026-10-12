@@ -79,19 +79,25 @@ export function parseChangelog(raw: string): ChangelogEntry[] {
   const entries: ChangelogEntry[] = [];
   let current: ChangelogEntry | null = null;
   for (const line of raw.split(/\r?\n/)) {
-    const heading = /^##\s+v?(\d[^\s]*)(?:\s+-\s+(\S+))?/.exec(line.trim());
-    if (heading) {
+    const trimmed = line.trim();
+    // 任意 `##` 标题都结束上一段（含 `## Unreleased` 这类非版本标题），
+    // 避免进行中的条目被并进最近一个已发布的版本章节。
+    if (/^##\s+/.test(trimmed)) {
       if (current) entries.push(current);
-      current = {
-        version: heading[1] ?? '',
-        date: heading[2] ?? null,
-        bullets: [],
-        summary: '',
-      };
+      current = null;
+      const heading = /^##\s+v?(\d[^\s]*)(?:\s+-\s+(\S+))?/.exec(trimmed);
+      if (heading) {
+        current = {
+          version: heading[1] ?? '',
+          date: heading[2] ?? null,
+          bullets: [],
+          summary: '',
+        };
+      }
       continue;
     }
     if (!current) continue;
-    const bullet = /^[-*]\s+(.+)$/.exec(line.trim());
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
     if (bullet?.[1]) current.bullets.push(bullet[1].trim());
   }
   if (current) entries.push(current);
