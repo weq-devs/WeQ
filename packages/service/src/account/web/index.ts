@@ -117,14 +117,27 @@ export class WebQueryService {
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */
-  async getQzoneMsgList(targetUin: string, pos = 0, num = 20): Promise<QzoneMsgListResult> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => getQzoneMsgList(c, targetUin, pos, num));
+  async getQzoneMsgList(
+    targetUin: string,
+    pos = 0,
+    num = 20,
+    captureRaw?: (text: string) => Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<QzoneMsgListResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      getQzoneMsgList(c, targetUin, pos, num, captureRaw, signal),
+    );
   }
 
   /** 好友动态(首页可靠;深翻页待游标分页)。`selfUin` 省略默认为本账号。 */
-  async getQzoneFeeds(selfUin?: string, pageNum = 1, count = 10): Promise<QzoneFeedsResult> {
+  async getQzoneFeeds(
+    selfUin?: string,
+    pageNum = 1,
+    count = 10,
+    signal?: AbortSignal,
+  ): Promise<QzoneFeedsResult> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count),
+      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal),
     );
   }
 
@@ -135,9 +148,10 @@ export class WebQueryService {
   async getQzoneInteractions(
     targetUin: string,
     targets: QzoneInteractionTarget[],
+    signal?: AbortSignal,
   ): Promise<Map<string, QzoneInteraction>> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      collectQzoneInteractions(c, targetUin, targets),
+      collectQzoneInteractions(c, targetUin, targets, undefined, signal),
     );
   }
 
@@ -145,8 +159,8 @@ export class WebQueryService {
    * 读某条说说的点赞名单（r.qzone qz_opcnt2，结构化 uin+昵称）。
    * 比动态页 HTML 里的 user-list 稳定（HTML 偶发不渲染名单）。
    */
-  async getQzoneLikes(targetUin: string, tid: string): Promise<QzoneLike[]> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => fetchQzoneLikes(c, targetUin, tid));
+  async getQzoneLikes(targetUin: string, tid: string, signal?: AbortSignal): Promise<QzoneLike[]> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => fetchQzoneLikes(c, targetUin, tid, signal));
   }
 
   /**

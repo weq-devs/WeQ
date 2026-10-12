@@ -11,8 +11,15 @@ import type { CollectionItem } from '@weq/db';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
 import type { WebCredential, WebNative } from './web/credential';
-import { getCollectionListNetwork } from './web/collection';
+import {
+  getCollectionListNetwork,
+  getCollectionPageNetwork,
+  type CollectionNetworkCursor,
+  type CollectionNetworkOptions,
+  type NetworkCollectionCursorPage,
+} from './web/collection';
 import type { NetworkCollectionPage } from './web/collection';
+import { captureCollectionPages, type CollectionCaptureOptions } from './collection_capture';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -72,6 +79,30 @@ export class CollectionService {
    */
   async listCollectionsFromNetwork(limit = 50, offset = 0): Promise<CollectionPage | null> {
     return this.tryNetwork(Math.max(1, Math.min(limit, 200)), Math.max(0, offset));
+  }
+
+  /** A single resumable cloud page; errors remain visible and never fall back to a local summary. */
+  async readNetworkPage(
+    cursor: CollectionNetworkCursor | null = null,
+    options: CollectionNetworkOptions = {},
+  ): Promise<NetworkCollectionCursorPage> {
+    const credential = await this.creds.forDomain(WEIYUN_DOMAIN);
+    return getCollectionPageNetwork(credential, cursor, options);
+  }
+
+  captureNetworkPages(
+    options: CollectionCaptureOptions,
+    networkOptions: CollectionNetworkOptions = {},
+  ) {
+    return captureCollectionPages(
+      this.session.context.uin,
+      (cursor) =>
+        this.readNetworkPage(cursor, {
+          ...networkOptions,
+          signal: options.signal ?? networkOptions.signal,
+        }),
+      options,
+    );
   }
 
   /** Total number of collected items (db-backed count, 0 when db/table absent). */

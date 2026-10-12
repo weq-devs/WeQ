@@ -86,6 +86,8 @@ export interface CollectionFileInfo {
 
 export interface TextSummary {
   text?: string;
+  /** Collector summary may explicitly report truncation; absence does not prove full content. */
+  truncated?: boolean;
 }
 export interface LinkSummary {
   url?: string;
@@ -162,6 +164,10 @@ export interface CollectionItem {
   collectTime: number;
   /** Last modification time (ms). */
   modifyTime: number;
+  /** Exact native sequence, when the source provides it; never round through Number. */
+  sequence?: string;
+  /** Exact native modification time for detail requests, separate from the ms projection. */
+  nativeModifyTime?: string;
   /** Author/owner, or null if the column was empty. */
   author: CollectionAuthor | null;
   /** Decoded content summary (one field set). */

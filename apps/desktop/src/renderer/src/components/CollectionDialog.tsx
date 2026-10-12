@@ -44,6 +44,8 @@ interface PicWire {
 }
 
 interface CollectionItemWire {
+  textTruncated?: boolean;
+  contentStatus?: 'summary' | 'truncated';
   cid: string;
   kind: string;
   type: number;
@@ -87,7 +89,8 @@ interface CollectionPageWire {
 async function fetchAllCollections(source: CollectionSource): Promise<CollectionItemWire[] | null> {
   const all: CollectionItemWire[] = [];
   let offset = 0;
-  for (;;) {
+  const seen = new Set<string>();
+  for (let page = 0; page < 1000; page++) {
     const res = (await client.account.listCollections.query({
       limit: 100,
       offset,
@@ -95,11 +98,21 @@ async function fetchAllCollections(source: CollectionSource): Promise<Collection
     })) as CollectionPageWire | null;
     // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
     if (!res) return null;
-    all.push(...res.items);
-    if (!res.hasMore || res.items.length === 0) break;
+    const inPage = new Set(seen);
+    const fresh = res.items.filter((item) => {
+      if (inPage.has(item.cid)) return false;
+      inPage.add(item.cid);
+      return true;
+    });
+    if (res.hasMore && !fresh.length) throw new Error('收藏分页没有进展，未标记加载完成。');
+    for (const item of fresh) {
+      seen.add(item.cid);
+      all.push(item);
+    }
+    if (!res.hasMore) return all;
     offset += res.items.length;
   }
-  return all;
+  throw new Error('收藏分页达到安全上限，未标记加载完成。');
 }
 
 /** Ordered kind filter chips. `all` first, then by rough frequency. */
@@ -417,6 +430,9 @@ function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
       </header>
       <div className="weq-col-card-body">
         <CardBody it={it} />
+        {it.textTruncated ? (
+          <p className="weq-col-text is-muted">这条内容已截断，当前显示的是摘要。</p>
+        ) : null}
       </div>
       <footer className="weq-col-card-foot">{humanTime(it.collectTime)}</footer>
     </article>
@@ -562,6 +578,9 @@ export function CollectionDialog({
           </div>
         </header>
 
+        <p className="weq-col-text is-muted">
+          当前显示收藏摘要；列表加载完成不代表全文和附件已完整保存。
+        </p>
         <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
           {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
             <button

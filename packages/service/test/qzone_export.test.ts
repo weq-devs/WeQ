@@ -109,4 +109,20 @@ describe('collectQzone / writeQzone', () => {
     expect(html).toContain('<span class=\x22likes\x22>');
     expect(html).toContain('like-toggle'); // 12 人赞 → 「等 12 人赞了」
   });
+
+  it('records a failed likes top-up as incomplete interaction coverage', async () => {
+    const deps = {
+      fetchMsgList: async (): Promise<QzoneMsgListResult> => ({ total: 1, list: [emotion()] }),
+      fetchInteractions: async () =>
+        new Map([['tid-1', { comments: [], likes: [], coverage: 'observed' as const }]]),
+      fetchLikes: async () => {
+        throw new Error('likes unavailable');
+      },
+    };
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      deps,
+    );
+    expect(data.interaction).toMatchObject({ failed: true, likesFailed: 1 });
+  });
 });

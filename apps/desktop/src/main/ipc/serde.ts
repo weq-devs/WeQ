@@ -939,6 +939,12 @@ export interface CollectionPicWire {
 
 /** One 收藏 item, flattened for the renderer. At most one content field is set. */
 export interface CollectionItemWire {
+  /** List summaries must never be presented as verified full content. */
+  contentStatus: 'summary' | 'truncated';
+  textTruncated?: boolean;
+  modifyTime: number;
+  sequence?: string;
+  nativeModifyTime?: string;
   cid: string;
   /** 'text' | 'link' | 'gallery' | 'audio' | 'video' | 'file' | 'location' | 'richMedia' | 'unknown' */
   kind: string;
@@ -1060,6 +1066,11 @@ export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
     : null;
 
   return {
+    contentStatus: s.textSummary?.truncated ? 'truncated' : 'summary',
+    textTruncated: s.textSummary?.truncated,
+    modifyTime: it.modifyTime,
+    sequence: it.sequence,
+    nativeModifyTime: it.nativeModifyTime,
     cid: it.cid,
     kind: it.kind,
     type: it.type,

@@ -65,6 +65,8 @@ export interface QzoneLike {
 
 /** 一条说说的互动。 */
 export interface QzoneInteraction {
+  /** HTML can only demonstrate observed content, never all comments. */
+  coverage?: 'observed' | 'unobserved';
   comments: QzoneComment[];
   likes: QzoneLike[];
 }
@@ -883,6 +885,8 @@ async function fetchActAllPage(
   hostUin: string,
   start: number,
   count: number,
+  captureRaw?: (text: string) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<ActAllPage> {
   const gtk = computeBkn(cred.pskey || cred.skey);
   const params = new URLSearchParams({
@@ -909,7 +913,9 @@ async function fetchActAllPage(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}` },
+    signal,
   });
+  await captureRaw?.(text);
   const data = parseQzoneCallback<RawActAllData>(text);
   if (typeof data.code === 'number' && data.code !== 0) {
     throw qzoneCodeError('qzone feeds_html_act_all', data.code, data.message);
@@ -960,6 +966,7 @@ export async function fetchQzoneLikes(
   cred: WebCredential,
   authorUin: string,
   tid: string,
+  signal?: AbortSignal,
 ): Promise<QzoneLike[]> {
   const gtk = computeBkn(cred.pskey || cred.skey);
   // unikey = 「说说页 URL<.>同样 URL」，形如 …/mood/{tid}.1。原样交给
@@ -978,6 +985,7 @@ export async function fetchQzoneLikes(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${authorUin}` },
+    signal,
   });
   const data = parseQzoneCallback<RawOpCntData>(text);
   if (typeof data.code === 'number' && data.code !== 0) {
@@ -1087,6 +1095,8 @@ export async function collectQzoneInteractions(
   cred: WebCredential,
   authorUin: string,
   targets: QzoneInteractionTarget[],
+  captureRaw?: (text: string) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<Map<string, QzoneInteraction>> {
   if (targets.length === 0) return new Map();
   const buckets: InteractionBuckets = { comments: new Map(), likes: new Map() };
@@ -1099,8 +1109,9 @@ export async function collectQzoneInteractions(
   for (let page = 0; page < ACT_ALL_MAX_PAGES && pending.length > 0; page += 1) {
     const start = page * ACT_ALL_PAGE_COUNT;
     let res: ActAllPage;
+    signal?.throwIfAborted();
     try {
-      res = await fetchActAllPage(cred, authorUin, start, ACT_ALL_PAGE_COUNT);
+      res = await fetchActAllPage(cred, authorUin, start, ACT_ALL_PAGE_COUNT, captureRaw, signal);
     } catch (e) {
       // 首页就失败 = 真错误（票据 / 风控 / 无权限），上抛给 withRetry 换票。
       if (page === 0) throw e;
@@ -1119,13 +1130,17 @@ export async function collectQzoneInteractions(
     for (const t of pending) {
       const hit = lookupBucket(buckets, authorUin, t);
       if (hit) {
-        out.set(t.tid, hit);
+        out.set(t.tid, { ...hit, coverage: 'observed' });
         continue;
       }
       // 该帖出现在已翻页面里（0 互动）或已翻过它的发表时间 → 空桶收官。
       const timePassed = oldestSeen > 0 && t.time > 0 && t.time < oldestSeen;
       if (seenKeys.has(t.tid) || timePassed) {
-        out.set(t.tid, { comments: [], likes: [] });
+        out.set(t.tid, {
+          comments: [],
+          likes: [],
+          coverage: seenKeys.has(t.tid) ? 'observed' : 'unobserved',
+        });
         continue;
       }
       still.push(t);
@@ -1133,6 +1148,11 @@ export async function collectQzoneInteractions(
     pending = still;
   }
   // 翻到头 / 超页上限仍未覆盖 → best-effort 空桶，不阻断正文导出。
-  for (const t of pending) out.set(t.tid, { comments: [], likes: [] });
+  for (const t of pending)
+    out.set(t.tid, {
+      comments: [],
+      likes: [],
+      coverage: seenKeys.has(t.tid) ? 'observed' : 'unobserved',
+    });
   return out;
 }

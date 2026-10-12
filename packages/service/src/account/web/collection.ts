@@ -6,7 +6,7 @@
  * 字节信封里(magic + version + 长度 + head/body 两段 protobuf)。
  *
  * 分页游标是 timeStamp:初值 u64 max,每页取本页最小 modifyTime 作为下一页游标
- * (严格递减),直到 reachedBottom=1。逻辑照 SnowLuma 复刻。
+ * (严格递减),直到已验证的 reachedBottom=1 或 215000。
  *
  * 输出统一映射成 `@weq/db` 的 `CollectionItem` 形状,让前端 / tRPC serde 零改动。
  */
@@ -32,6 +32,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const OPERATION_TIMEOUT_MS = 60_000;
 const CLIENT_VERSION = 0x6105f5e164fn;
 const INITIAL_TIMESTAMP = 0xffff_ffff_ffff_ffffn;
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAGIC = Uint8Array.from([0x20, 0x13, 0x03, 0x29]);
 const VERSION = Uint8Array.from([0x00, 0x01]);
 
@@ -57,6 +58,40 @@ const KIND_BY_TYPE: Record<number, CollectionKind> = {
 export interface NetworkCollectionPage {
   items: CollectionItem[];
   hasMore: boolean;
+}
+
+/** Serializable continuation for a single collector request, safe to checkpoint. */
+export interface CollectionNetworkCursor {
+  timeStamp: string;
+  sequence: number;
+}
+
+export interface CollectionHttpRequest {
+  url: string;
+  headers: Readonly<Record<string, string>>;
+  body: Uint8Array;
+  signal: AbortSignal;
+}
+
+export type CollectionTransport = (request: CollectionHttpRequest) => Promise<Uint8Array>;
+
+export interface CollectionNetworkOptions {
+  transport?: CollectionTransport;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /** Awaited before decoding, so unknown fields and failed responses can be archived. */
+  onRawResponse?: (capture: {
+    sequence: number;
+    requestTimeStamp: string;
+    response: Uint8Array;
+  }) => void | Promise<void>;
+}
+
+export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
+  /** Null for the observed terminal markers 1 and 215000. */
+  nextCursor: CollectionNetworkCursor | null;
+  /** Server-reported list count, when present; not proof of complete content. */
+  totalCount: number | null;
 }
 
 function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
@@ -145,7 +180,9 @@ function mapItem(item: WireItem): CollectionItem {
 
   const s = item.summary ?? {};
   const summary = {
-    textSummary: s.textSummary ? { text: s.textSummary.text } : undefined,
+    textSummary: s.textSummary
+      ? { text: s.textSummary.text, truncated: s.textSummary.truncated }
+      : undefined,
     linkSummary: s.linkSummary
       ? {
           url: s.linkSummary.url,
@@ -214,6 +251,8 @@ function mapItem(item: WireItem): CollectionItem {
     createTime: Number(item.createTime ?? 0n),
     collectTime: Number(item.collectTime ?? 0n),
     modifyTime: Number(item.modifyTime ?? 0n),
+    sequence: item.sequence?.toString(),
+    nativeModifyTime: item.modifyTime?.toString(),
     author,
     summary,
   };
@@ -249,36 +288,156 @@ function mapFile(f: WireFile) {
   };
 }
 
+async function defaultTransport(request: CollectionHttpRequest): Promise<Uint8Array> {
+  const res = await fetch(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body: Buffer.from(request.body),
+    signal: request.signal,
+  });
+  if (!res.ok) throw new Error(`collection cgi ${res.status} ${res.statusText}`);
+  const declaredLength = Number(res.headers.get('content-length') ?? 0);
+  if (declaredLength > MAX_RESPONSE_BYTES) {
+    await res.body?.cancel();
+    throw new Error('collection response exceeds size limit');
+  }
+  if (!res.body) throw new Error('collection response body is empty');
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error('collection response exceeds size limit');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return new Uint8Array(Buffer.concat(chunks, size));
+}
+
 async function postCollector(
   body: Uint8Array,
-  uin: string,
-  pskey: string,
-  timeoutMs: number,
+  cred: WebCredential,
+  opts: CollectionNetworkOptions,
 ): Promise<Uint8Array> {
+  const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('collection timeout must be a positive integer');
+  }
+  opts.signal?.throwIfAborted();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromCaller = () => controller.abort(opts.signal?.reason);
+  opts.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new Error(`collection request timed out after ${timeoutMs}ms`)),
+    timeoutMs,
+  );
+  let rejectOnAbort: (() => void) | undefined;
   try {
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
+    const request: CollectionHttpRequest = {
+      url: ENDPOINT,
       headers: {
         'Content-Type': 'application/octet-stream',
-        Cookie: `uin=${uin};vt=${TICKET_TYPE};vi=${pskey};appid=${APP_ID}`,
+        Cookie: `uin=${cred.uin};vt=${TICKET_TYPE};vi=${cred.pskey};appid=${APP_ID}`,
         Host: HOST,
         Range: 'bytes=0-',
       },
-      body: Buffer.from(body),
+      body,
       signal: controller.signal,
+    };
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectOnAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', rejectOnAbort, { once: true });
     });
-    if (!res.ok) throw new Error(`collection cgi ${res.status} ${res.statusText}`);
-    return new Uint8Array(await res.arrayBuffer());
+    const response = await Promise.race([(opts.transport ?? defaultTransport)(request), aborted]);
+    controller.signal.throwIfAborted();
+    if (response.length > MAX_RESPONSE_BYTES)
+      throw new Error('collection response exceeds size limit');
+    return response;
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`collection request timed out after ${timeoutMs}ms`, { cause: error });
-    }
+    if (controller.signal.aborted) throw controller.signal.reason;
     throw error;
   } finally {
     clearTimeout(timer);
+    if (rejectOnAbort) controller.signal.removeEventListener('abort', rejectOnAbort);
+    opts.signal?.removeEventListener('abort', abortFromCaller);
   }
+}
+
+/**
+ * One authenticated POST, with a resumable cursor and no local-db fallback.
+ * This endpoint returns list summaries; raw protobuf preserves additional fields,
+ * but it does not establish that favorite bodies or attachment originals are complete.
+ */
+export async function getCollectionPageNetwork(
+  cred: WebCredential,
+  cursor: CollectionNetworkCursor | null = null,
+  opts: CollectionNetworkOptions = {},
+): Promise<NetworkCollectionCursorPage> {
+  if (!/^[1-9]\d*$/.test(cred.uin)) throw new Error('collection uin must be a positive integer');
+  const uin = BigInt(cred.uin);
+  if (uin > INITIAL_TIMESTAMP) throw new Error('collection uin exceeds uint64');
+  if (!cred.pskey || /[\r\n;]/.test(cred.pskey))
+    throw new Error('collection p_skey is empty or invalid (weiyun.com)');
+  const timeStampText = cursor?.timeStamp ?? INITIAL_TIMESTAMP.toString();
+  if (!/^\d+$/.test(timeStampText)) throw new Error('collection cursor timestamp is invalid');
+  const timeStamp = BigInt(timeStampText);
+  if (timeStamp <= 0n || timeStamp > INITIAL_TIMESTAMP)
+    throw new Error('collection cursor timestamp exceeds uint64');
+  const sequence = cursor?.sequence ?? 1;
+  if (!Number.isSafeInteger(sequence) || sequence <= 0 || sequence >= 0xffff_ffff) {
+    throw new Error('collection cursor sequence is invalid');
+  }
+  const response = await postCollector(
+    requestBytes(uin, cred.pskey, sequence, timeStamp),
+    cred,
+    opts,
+  );
+  await opts.onRawResponse?.({ sequence, requestTimeStamp: timeStamp.toString(), response });
+  const { head, body } = decodeEnvelope(response);
+  const retCode = head.retCode ?? 0;
+  if (retCode !== 0) {
+    throw new Error(
+      `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
+    );
+  }
+  const page = body.operation?.getCollectionList;
+  if (!page) throw new Error('collection response is missing operation 20000');
+  if (page.reachedBottom !== undefined && ![0, 1, 215000].includes(page.reachedBottom)) {
+    throw new Error('collection response has an invalid reachedBottom flag');
+  }
+  // The real final page returns 215000 (20 remaining items), whereas synthetic
+  // and older responses use one. Unknown nonzero markers remain reviewable.
+  const hasMore = page.reachedBottom !== 1 && page.reachedBottom !== 215000;
+  const wireItems = page.items ?? [];
+  const seen = new Set<string>();
+  const items: CollectionItem[] = [];
+  let nextTimeStamp: bigint | null = null;
+  for (const item of wireItems) {
+    const modifyTime = item.modifyTime ?? 0n;
+    if (nextTimeStamp === null || modifyTime < nextTimeStamp) nextTimeStamp = modifyTime;
+    if (!item.cid) throw new Error('collection response contains an item with no cid');
+    if (!seen.has(item.cid)) {
+      seen.add(item.cid);
+      items.push(mapItem(item));
+    }
+  }
+  if (hasMore && (nextTimeStamp === null || nextTimeStamp <= 0n || nextTimeStamp >= timeStamp)) {
+    throw new Error('collection pagination made no progress while more data was reported');
+  }
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore ? { timeStamp: nextTimeStamp!.toString(), sequence: sequence + 1 } : null,
+    totalCount: page.totalCount === undefined ? null : Number(page.totalCount),
+  };
 }
 
 /**
@@ -293,15 +452,14 @@ async function postCollector(
 export async function getCollectionListNetwork(
   cred: WebCredential,
   wanted: number,
+  opts: CollectionNetworkOptions = {},
 ): Promise<NetworkCollectionPage> {
-  if (!cred.pskey) throw new Error('collection p_skey is empty (weiyun.com)');
-  const uin = BigInt(cred.uin);
+  if (!Number.isSafeInteger(wanted)) throw new Error('collection wanted count must be an integer');
   const target = Math.max(1, wanted);
 
   const items: CollectionItem[] = [];
   const seen = new Set<string>();
-  let sequence = 1;
-  let timeStamp = INITIAL_TIMESTAMP;
+  let cursor: CollectionNetworkCursor | null = null;
   let serverHasMore = true;
   let pages = 0;
   const deadline = Date.now() + OPERATION_TIMEOUT_MS;
@@ -312,44 +470,20 @@ export async function getCollectionListNetwork(
     if (remaining <= 0) throw new Error(`collection pagination exceeded ${OPERATION_TIMEOUT_MS}ms`);
     pages += 1;
 
-    const responseBytes = await postCollector(
-      requestBytes(uin, cred.pskey, sequence, timeStamp),
-      cred.uin,
-      cred.pskey,
-      Math.min(REQUEST_TIMEOUT_MS, remaining),
-    );
-    const { head, body } = decodeEnvelope(responseBytes);
-    const retCode = head.retCode ?? 0;
-    if (retCode !== 0) {
-      throw new Error(
-        `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
-      );
-    }
+    const page = await getCollectionPageNetwork(cred, cursor, {
+      ...opts,
+      timeoutMs: Math.min(opts.timeoutMs ?? REQUEST_TIMEOUT_MS, remaining),
+    });
+    serverHasMore = page.hasMore;
+    cursor = page.nextCursor;
 
-    const page = body.operation?.getCollectionList;
-    if (!page) throw new Error('collection response is missing operation 20000');
-    const wireItems = page.items ?? [];
-    serverHasMore = (page.reachedBottom ?? 0) === 0;
-
-    let nextCursor: bigint | null = null;
-    for (const wireItem of wireItems) {
-      const modifyTime = wireItem.modifyTime ?? 0n;
-      if (nextCursor === null || modifyTime < nextCursor) nextCursor = modifyTime;
-      const cid = wireItem.cid ?? '';
+    for (const item of page.items) {
+      const cid = item.cid;
       if (!cid || seen.has(cid)) continue;
       seen.add(cid);
-      items.push(mapItem(wireItem));
+      items.push(item);
     }
-
     if (items.length >= target || !serverHasMore) break;
-    if (wireItems.length === 0 || nextCursor === null || nextCursor === 0n) {
-      throw new Error('collection pagination made no progress while more data was reported');
-    }
-    if (nextCursor >= timeStamp) {
-      throw new Error(`collection pagination cursor did not decrease: ${nextCursor}`);
-    }
-    timeStamp = nextCursor;
-    sequence += 1;
   }
 
   return { items, hasMore: serverHasMore || items.length > target };

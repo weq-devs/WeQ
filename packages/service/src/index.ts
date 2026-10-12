@@ -782,3 +782,19 @@ export type {
   BotExportResult,
   BotExportLlmProvider,
 } from './account/agentlab_export';
+
+export {
+  getCollectionPageNetwork,
+  type CollectionNetworkCursor,
+  type CollectionNetworkOptions,
+  type NetworkCollectionCursorPage,
+} from './account/web/collection';
+
+export {
+  captureCollectionPages,
+  sourceVersionHash,
+  CollectionCaptureError,
+  type CollectionCaptureCheckpoint,
+  type CollectionCaptureOptions,
+  type CollectionPageCapture,
+} from './account/collection_capture';

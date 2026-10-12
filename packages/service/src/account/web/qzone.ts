@@ -261,6 +261,10 @@ interface RawEmotion {
   secret?: number;
   pic?: RawPic[];
   video?: RawTopVideo[];
+  voice?: Record<string, unknown>[];
+  audio?: Record<string, unknown>[];
+  custom_voices?: Record<string, unknown>[];
+  custom_audios?: Record<string, unknown>[];
 }
 
 interface RawMsgListRet {
@@ -269,6 +273,8 @@ interface RawMsgListRet {
   message?: string;
   total?: number;
   msglist?: RawEmotion[] | null;
+  logininfo?: { uin?: string | number };
+  usrinfo?: { uin?: string | number };
 }
 
 /** 说说里的一个视频(归一化形态)。 */
@@ -298,6 +304,15 @@ export interface QzoneEmotion {
   images: string[];
   /** 视频(封面 + 本体 mp4;图文混排与纯视频帖两种形态都归一化到这里)。 */
   videos: QzoneEmotionVideo[];
+  /** 原生媒体字段用于增量版本检测；含无本体 URL 的视频与语音未知字段。 */
+  nativeMedia?: {
+    pic: RawPic[];
+    video: RawTopVideo[];
+    voice: Record<string, unknown>[];
+    audio: Record<string, unknown>[];
+    custom_voices: Record<string, unknown>[];
+    custom_audios: Record<string, unknown>[];
+  };
 }
 
 export interface QzoneMsgListResult {
@@ -367,6 +382,14 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
         isPrivate: Number(e.secret ?? 0) !== 0,
         images,
         videos: mapVideos(pics, e.video),
+        nativeMedia: {
+          pic: pics,
+          video: e.video ?? [],
+          voice: e.voice ?? [],
+          audio: e.audio ?? [],
+          custom_voices: e.custom_voices ?? [],
+          custom_audios: e.custom_audios ?? [],
+        },
       };
     }),
   };
@@ -379,12 +402,16 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
  * 错误传播:非零 `code`(qzone 自己的鉴权/权限错误信封)或缺失 `msglist`
  * (过期 cookie 的 body)都抛错。真正的空空间返回 `msglist: []`,映射为空列表
  * 且 `total` 正确。
+ * 可选 captureRaw 先保存完整响应原文，成功后才解析/映射；写入失败直接传播。
+ * 回调只接收响应文本，不接收请求 URL、Cookie 或凭据。
  */
 export async function getQzoneMsgList(
   cred: WebCredential,
   targetUin: string,
   pos = 0,
   num = 20,
+  captureRaw?: (text: string) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<QzoneMsgListResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
 
@@ -412,13 +439,24 @@ export async function getQzoneMsgList(
     cookie: cookieHeader(cred),
     // Referer 指向目标空间;QZone 会校验 referer 是 qzone 来源。
     headers: { Referer: `https://user.qzone.qq.com/${targetUin}` },
+    signal,
   });
+  if (captureRaw) await captureRaw(text);
   const data = parseQzoneJson<RawMsgListRet>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
     throw qzoneCodeError('qzone msglist', data.code, data.message);
   }
   if (!Array.isArray(data.msglist)) {
+    if (
+      data.msglist === null &&
+      data.code === 0 &&
+      data.total === 0 &&
+      String(data.logininfo?.uin) === cred.uin &&
+      String(data.usrinfo?.uin) === targetUin
+    ) {
+      return { total: 0, list: [] };
+    }
     throw new Error(`无法获取空间说说列表(响应结构异常): ${text.slice(0, 200)}`);
   }
 
@@ -507,6 +545,7 @@ export async function getQzoneFeeds(
   selfUin: string,
   pageNum = 1,
   count = 10,
+  signal?: AbortSignal,
 ): Promise<QzoneFeedsResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
 
@@ -536,6 +575,7 @@ export async function getQzoneFeeds(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${selfUin}` },
+    signal,
   });
   // feeds3_html_more 的 body 是 JS 对象字面量而非 JSON —— 走非执行解析器
   // (见 parseQzoneCallback;永不执行),不能用 parseQzoneJson 的 JSON.parse。

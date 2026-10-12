@@ -25,6 +25,11 @@ export interface CollectionExportPic {
  * 结构等价于 app 侧的 `CollectionItemWire`，最多一个内容字段非空。
  */
 export interface CollectionExportRow {
+  contentStatus?: 'summary' | 'truncated' | 'complete';
+  textTruncated?: boolean;
+  modifyTime?: number;
+  sequence?: string;
+  nativeModifyTime?: string;
   cid: string;
   /** 'text'|'link'|'gallery'|'audio'|'video'|'file'|'location'|'richMedia'|'unknown' */
   kind: string;
@@ -195,6 +200,18 @@ function rowLocation(r: CollectionExportRow): string {
 }
 
 const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
+  {
+    key: 'contentStatus',
+    header: '内容完整性',
+    get: (r) =>
+      r.contentStatus === 'complete'
+        ? '全文已核验'
+        : r.textTruncated || r.contentStatus === 'truncated'
+          ? '摘要已截断'
+          : '摘要，全文未核验',
+  },
+  { key: 'nativeModifyTime', header: '原始修改时间', get: (r) => r.nativeModifyTime ?? '' },
+  { key: 'sequence', header: '原始序列', get: (r) => r.sequence ?? '' },
   { key: 'type', header: '类型', get: (r) => KIND_LABEL[r.kind] ?? r.kind },
   { key: 'collectTime', header: '收藏时间', get: (r) => timeText(r.collectTime) },
   { key: 'createTime', header: '创建时间', get: (r) => timeText(r.createTime) },
@@ -226,14 +243,26 @@ async function fetchAllCollections(
   onProgress?: (n: number) => void,
 ): Promise<CollectionExportRow[]> {
   const all: CollectionExportRow[] = [];
+  const seen = new Set<string>();
   for (let page = 0; page < MAX_PAGES; page++) {
-    if (signal?.aborted) break;
+    signal?.throwIfAborted();
     const batch = await deps.listCollections(PAGE, page * PAGE);
-    all.push(...batch);
+    const inPage = new Set(seen);
+    const fresh = batch.filter((row) => {
+      if (inPage.has(row.cid)) return false;
+      inPage.add(row.cid);
+      return true;
+    });
+    if (batch.some((row) => !row.cid)) throw new Error('收藏条目缺少 ID。');
+    if (batch.length && !fresh.length) throw new Error('收藏分页重复返回旧内容，导出尚未完成。');
+    for (const row of fresh) {
+      seen.add(row.cid);
+      all.push(row);
+    }
     onProgress?.(all.length);
-    if (batch.length < PAGE) break;
+    if (batch.length < PAGE) return all;
   }
-  return all;
+  throw new Error('收藏分页达到安全上限，导出尚未完成。');
 }
 
 /** 导出收藏。 */
