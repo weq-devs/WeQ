@@ -7,6 +7,7 @@ import {
 } from '@weq/codec/proto/collection/index';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getCollectionDetailsNetwork,
   getCollectionListNetwork,
   getCollectionPageNetwork,
   type CollectionHttpRequest,
@@ -55,7 +56,34 @@ function readRequest(request: CollectionHttpRequest) {
   return {
     head: requestHead.decode(bytes.subarray(16, bodyOffset)),
     list: requestBody.decode(bytes.subarray(bodyOffset)).operation?.getCollectionList,
+    detail: requestBody.decode(bytes.subarray(bodyOffset)).operation?.getCollectionContent,
   };
+}
+
+function detailFixture(
+  contents: Array<{
+    textContent?: { data: string; hasEmoji?: boolean };
+    richMediaContent?: {
+      rawData?: Uint8Array;
+      bizDataList?: Uint8Array[];
+      picList?: Array<{ url: string; md5?: Uint8Array }>;
+      fileList?: Array<{ name: string; size?: bigint; md5?: Uint8Array }>;
+    };
+  }>,
+  errorCode = 0,
+): Uint8Array {
+  const head = responseHead.encode({
+    retCode: errorCode,
+    retMsg: errorCode ? 'synthetic detail failure' : '',
+  });
+  const body = responseBody.encode({ operation: { getCollectionContent: { contents } } });
+  const out = Buffer.alloc(16 + head.length + body.length);
+  out.set([0x20, 0x13, 0x03, 0x29, 0x00, 0x01]);
+  out.writeUInt32BE(out.length, 6);
+  out.writeUInt32BE(body.length, 10);
+  out.set(head, 16);
+  out.set(body, 16 + head.length);
+  return out;
 }
 
 beforeEach(() => {
@@ -291,5 +319,82 @@ describe('collector cursor requests', () => {
       }),
     ).rejects.toThrow('too short');
     expect(capture.mock.calls[0]![0].response).toEqual(malformed);
+  });
+});
+
+describe('collector detail requests', () => {
+  it('encodes operation 20001 and maps text/rich-media details in request order', async () => {
+    const transport = vi.fn(async () =>
+      detailFixture([
+        { textContent: { data: '完整文字', hasEmoji: true } },
+        {
+          richMediaContent: {
+            rawData: new TextEncoder().encode('<div>完整图文</div>'),
+            bizDataList: [new TextEncoder().encode('{"kind":"test"}')],
+            picList: [{ url: 'https://shp.qpic.cn/collector/test/0' }],
+            fileList: [{ name: 'test.txt', size: 10n, md5: new Uint8Array(16) }],
+          },
+        },
+      ]),
+    );
+    const raw = vi.fn();
+    const details = await getCollectionDetailsNetwork(cred, ['cid-text', 'cid-rich'], {
+      transport,
+      onRawResponse: raw,
+    });
+    expect(details.map((detail) => detail.cid)).toEqual(['cid-text', 'cid-rich']);
+    expect(details[0]?.content.textContent).toEqual({ data: '完整文字', hasEmoji: true });
+    expect(details[1]?.content.richMediaContent).toMatchObject({
+      rawData: '<div>完整图文</div>',
+      bizDataList: ['{"kind":"test"}'],
+      picList: [{ uri: 'https://shp.qpic.cn/collector/test/0' }],
+      fileList: [{ name: 'test.txt', size: 10n }],
+    });
+    const request = transport.mock.calls[0]![0];
+    expect(readRequest(request)).toMatchObject({
+      head: { operationId: 20001, sequence: 1 },
+      detail: { cidList: ['cid-text', 'cid-rich'] },
+    });
+    expect(raw).toHaveBeenCalledWith({
+      cids: ['cid-text', 'cid-rich'],
+      response: expect.any(Uint8Array),
+    });
+  });
+
+  it('rejects malformed, duplicate, oversized and count-mismatched detail batches', async () => {
+    const transport = vi.fn(async () => detailFixture([]));
+    await expect(getCollectionDetailsNetwork(cred, [], { transport })).rejects.toThrow('1-20');
+    await expect(
+      getCollectionDetailsNetwork(cred, ['same', 'same'], { transport }),
+    ).rejects.toThrow('duplicate');
+    await expect(getCollectionDetailsNetwork(cred, ['bad\nvalue'], { transport })).rejects.toThrow(
+      'invalid',
+    );
+    await expect(
+      getCollectionDetailsNetwork(
+        cred,
+        Array.from({ length: 21 }, (_, i) => `cid-${i}`),
+        {
+          transport,
+        },
+      ),
+    ).rejects.toThrow('1-20');
+    await expect(
+      getCollectionDetailsNetwork(cred, ['one', 'two'], {
+        transport: async () => detailFixture([{ textContent: { data: 'one' } }]),
+      }),
+    ).rejects.toThrow('count mismatch');
+  });
+
+  it('archives a failed detail response before surfacing its service error', async () => {
+    const bytes = detailFixture([], 190013);
+    const raw = vi.fn();
+    await expect(
+      getCollectionDetailsNetwork(cred, ['cid'], {
+        transport: async () => bytes,
+        onRawResponse: raw,
+      }),
+    ).rejects.toThrow('190013');
+    expect(raw).toHaveBeenCalledWith({ cids: ['cid'], response: bytes });
   });
 });

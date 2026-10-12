@@ -18,6 +18,7 @@ import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
+  Download,
   ExternalLink,
   FileText,
   Film,
@@ -30,6 +31,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Square,
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -81,12 +83,34 @@ interface CollectionItemWire {
 }
 
 const PAGE_SIZE = 8;
+let requestSequence = 0;
+
+function collectionRequestId(prefix: string): string {
+  requestSequence += 1;
+  return `${prefix}-${Date.now()}-${requestSequence}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 type CollectionSource = 'db' | 'network';
 
 interface CollectionPageWire {
   items: CollectionItemWire[];
   hasMore: boolean;
+}
+
+interface CollectionDetailPatch {
+  cid: string;
+  contentStatus: 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
+}
+
+interface DetailSyncProgress {
+  done: number;
+  total: number;
+  failed: number;
+  cancelling: boolean;
+  cancelled: boolean;
+  message: string | null;
 }
 
 /** Page through `account.listCollections` until exhausted. 收藏集通常不大。 */
@@ -189,6 +213,20 @@ function cachedContentText(it: CollectionItemWire): string {
   } catch {
     return '';
   }
+}
+
+function applyDetailPatch(
+  item: CollectionItemWire,
+  patch: CollectionDetailPatch,
+): CollectionItemWire {
+  return item.cid === patch.cid ? { ...item, ...patch } : item;
+}
+
+function detailErrorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  if (/cancel|abort|取消/i.test(text)) return '同步已取消';
+  if (/p_skey|online|pid|在线|登录|account/i.test(text)) return '需要登录中的 QQ 才能同步详情';
+  return text || '同步详情失败';
 }
 
 /** All searchable text for one item, lower-cased. */
@@ -488,7 +526,12 @@ export function CollectionDialog({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
+  const [detailSync, setDetailSync] = useState<DetailSyncProgress | null>(null);
   const detailGeneration = useRef(0);
+  const forceDetailRefresh = useRef(false);
+  const detailSyncRun = useRef<{ requestId: string; cancelled: boolean } | null>(null);
+  const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
+  selectedContentStatus.current = selected?.contentStatus;
   useEscapeToClose(() => {
     if (selected) setSelected(null);
     else onClose();
@@ -504,6 +547,11 @@ export function CollectionDialog({
   // the previous network result or clear the new load's progress indicators.
   useEffect(() => {
     if (!open) {
+      const run = detailSyncRun.current;
+      if (run) {
+        run.cancelled = true;
+        void client.account.cancelCollectionDetailSync.mutate({ requestId: run.requestId });
+      }
       setSelected(null);
       return;
     }
@@ -545,28 +593,155 @@ export function CollectionDialog({
     let cancelled = false;
     const generation = ++detailGeneration.current;
     const cid = selectedCid;
+    const force = forceDetailRefresh.current;
+    forceDetailRefresh.current = false;
     setDetailLoading(true);
     setDetailError(null);
-    void client.account.collectionDetail
-      .query({ cid })
-      .then((fresh) => {
+    void (async () => {
+      try {
+        const local = (await client.account.collectionDetail.query({
+          cid,
+        })) as CollectionItemWire | null;
         if (cancelled || generation !== detailGeneration.current) return;
-        if (fresh) {
-          setSelected((current) => (current?.cid === cid ? fresh : current));
-          setItems((current) => current.map((item) => (item.cid === cid ? fresh : item)));
+        if (local) {
+          setSelected((current) => (current?.cid === cid ? local : current));
+          setItems((current) => current.map((item) => (item.cid === cid ? local : item)));
         }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled && generation === detailGeneration.current)
-          setDetailError(error instanceof Error ? error.message : '加载详情失败');
-      })
-      .finally(() => {
+        const alreadyCached =
+          local?.contentStatus === 'cached' || selectedContentStatus.current === 'cached';
+        if (alreadyCached && !force) return;
+        const patches = (await client.account.syncCollectionDetails.mutate({
+          requestId: collectionRequestId('collection-detail'),
+          cids: [cid],
+          force,
+        })) as CollectionDetailPatch[];
+        if (cancelled || generation !== detailGeneration.current) return;
+        const patch = patches[0];
+        if (!patch) throw new Error('收藏详情响应为空');
+        setSelected((current) => (current ? applyDetailPatch(current, patch) : current));
+        setItems((current) => current.map((item) => applyDetailPatch(item, patch)));
+      } catch (error) {
+        if (!cancelled && generation === detailGeneration.current) {
+          setDetailError(detailErrorText(error));
+        }
+      } finally {
         if (!cancelled && generation === detailGeneration.current) setDetailLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [open, selectedCid, detailReload]);
+
+  const syncAllDetails = async (): Promise<void> => {
+    if (detailSyncRun.current) return;
+    const targets = items.filter((item) => item.contentStatus !== 'cached').map((item) => item.cid);
+    if (!targets.length) {
+      setDetailSync({
+        done: items.length,
+        total: items.length,
+        failed: 0,
+        cancelling: false,
+        cancelled: false,
+        message: null,
+      });
+      return;
+    }
+    const run = { requestId: collectionRequestId('collection-sync'), cancelled: false };
+    detailSyncRun.current = run;
+    setDetailSync({
+      done: 0,
+      total: targets.length,
+      failed: 0,
+      cancelling: false,
+      cancelled: false,
+      message: null,
+    });
+    let done = 0;
+    let failed = 0;
+    let failureMessage: string | null = null;
+    try {
+      for (let offset = 0; offset < targets.length; offset += 20) {
+        if (run.cancelled) break;
+        const cids = targets.slice(offset, offset + 20);
+        try {
+          const patches = (await client.account.syncCollectionDetails.mutate({
+            requestId: run.requestId,
+            cids,
+          })) as CollectionDetailPatch[];
+          if (run.cancelled) break;
+          const byCid = new Map(patches.map((patch) => [patch.cid, patch]));
+          setItems((current) =>
+            current.map((item) => {
+              const patch = byCid.get(item.cid);
+              return patch ? applyDetailPatch(item, patch) : item;
+            }),
+          );
+          setSelected((current) => {
+            if (!current) return current;
+            const patch = byCid.get(current.cid);
+            return patch ? applyDetailPatch(current, patch) : current;
+          });
+        } catch (error) {
+          const message = detailErrorText(error);
+          failureMessage = message;
+          if (run.cancelled || /取消/.test(message)) break;
+          if (message === '需要登录中的 QQ 才能同步详情') {
+            failed += targets.length - done;
+            done = targets.length;
+            setDetailSync({
+              done,
+              total: targets.length,
+              failed,
+              cancelling: false,
+              cancelled: false,
+              message: failureMessage,
+            });
+            break;
+          }
+          failed += cids.length;
+        }
+        done += cids.length;
+        setDetailSync({
+          done,
+          total: targets.length,
+          failed,
+          cancelling: false,
+          cancelled: false,
+          message: failureMessage,
+        });
+        // Let the progress paint and give the stop button a chance to cancel
+        // before the next bounded request starts.
+        if (!run.cancelled && done < targets.length) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
+      }
+    } finally {
+      if (detailSyncRun.current === run) detailSyncRun.current = null;
+      setDetailSync((current) =>
+        current
+          ? {
+              ...current,
+              done: Math.max(current.done, done),
+              failed,
+              cancelling: false,
+              cancelled: run.cancelled,
+              message: failureMessage,
+            }
+          : null,
+      );
+    }
+  };
+
+  const cancelDetailSync = (): void => {
+    const run = detailSyncRun.current;
+    if (!run) return;
+    run.cancelled = true;
+    setDetailSync((current) =>
+      current ? { ...current, cancelling: true, cancelled: true, message: null } : current,
+    );
+    void client.account.cancelCollectionDetailSync.mutate({ requestId: run.requestId });
+  };
 
   // Search-filtered set (kind ignored) — drives the per-kind chip counts.
   const bySearch = useMemo(() => {
@@ -632,25 +807,72 @@ export function CollectionDialog({
                 className="weq-col-detail-back"
                 title="刷新详情"
                 disabled={detailLoading}
-                onClick={() => setDetailReload((n) => n + 1)}
+                onClick={() => {
+                  forceDetailRefresh.current = true;
+                  setDetailReload((n) => n + 1);
+                }}
               >
                 <RefreshCw size={14} />
               </button>
             ) : (
-              <button
-                type="button"
-                className="weq-col-detail-back"
-                title="刷新收藏"
-                disabled={loading || refreshing}
-                onClick={() => setReload((n) => n + 1)}
-              >
-                <RefreshCw size={14} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="weq-col-detail-back"
+                  title="刷新收藏"
+                  disabled={loading || refreshing || Boolean(detailSyncRun.current)}
+                  onClick={() => {
+                    setDetailSync(null);
+                    setReload((n) => n + 1);
+                  }}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                {detailSyncRun.current ? (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={cancelDetailSync}
+                    disabled={detailSync?.cancelling}
+                  >
+                    <Square size={10} fill="currentColor" />
+                    {detailSync?.cancelling ? '正在取消' : '停止'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={() => void syncAllDetails()}
+                    disabled={loading || refreshing || items.length === 0}
+                  >
+                    <Download size={13} />
+                    同步详情
+                  </button>
+                )}
+              </>
             )}
             {refreshing && !selected ? (
               <span className="weq-collection-syncing" title="正在同步最新收藏">
                 <Loader2 size={13} className="weq-spin" />
                 同步中
+              </span>
+            ) : null}
+            {detailSync && !selected ? (
+              <span className="weq-collection-syncing" role="status">
+                {detailSyncRun.current ? (
+                  <Loader2 size={13} className="weq-spin" />
+                ) : (
+                  <Download size={13} />
+                )}
+                {detailSyncRun.current
+                  ? `${detailSync.done}/${detailSync.total}`
+                  : detailSync.cancelled
+                    ? '已停止'
+                    : detailSync.message === '需要登录中的 QQ 才能同步详情'
+                      ? '需要登录 QQ'
+                      : detailSync.failed
+                        ? `完成 ${detailSync.done - detailSync.failed}/${detailSync.total}`
+                        : '详情已同步'}
               </span>
             ) : null}
           </div>
@@ -727,8 +949,10 @@ export function CollectionDialog({
                   {!detailLoading ? (
                     <p className="weq-col-detail-unavailable">
                       {selected.fullContentFormat === 'binary'
-                        ? '暂不支持查看这类详情。'
-                        : '暂无完整内容，可先在 QQ 中打开这条收藏后刷新。'}
+                        ? '详情已同步，当前类型暂不支持直接预览。'
+                        : selected.contentStatus === 'cached'
+                          ? '详情已同步，当前没有额外正文。'
+                          : '未能获取完整内容。'}
                     </p>
                   ) : null}
                 </>

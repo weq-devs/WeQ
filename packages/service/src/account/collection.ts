@@ -7,20 +7,23 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { CollectionItem } from '@weq/db';
+import type { CollectionCachedContent, CollectionItem } from '@weq/db';
+import { join } from 'node:path';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
 import type { WebCredential, WebNative } from './web/credential';
 import {
+  getCollectionDetailsNetwork,
   getCollectionListNetwork,
   getCollectionPageNetwork,
   type CollectionNetworkCursor,
   type CollectionNetworkOptions,
   type NetworkCollectionCursorPage,
 } from './web/collection';
-import type { NetworkCollectionPage } from './web/collection';
+import type { CollectionNetworkDetail, NetworkCollectionPage } from './web/collection';
 import { captureCollectionPages, type CollectionCaptureOptions } from './collection_capture';
 import { CollectionHistoryStore, type CollectionHistorySummary } from './collection_history';
+import { CollectionDetailStore } from './collection_detail_store';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -37,10 +40,16 @@ export interface CollectionPage {
   source: 'network' | 'db';
 }
 
+export interface CollectionDetailFetchOptions {
+  force?: boolean;
+  signal?: AbortSignal;
+}
+
 export class CollectionService {
   private readonly creds: WebCredentialProvider;
   private readonly logger;
   private readonly history?: CollectionHistoryStore;
+  private readonly details?: CollectionDetailStore;
 
   constructor(
     nt: WebNative,
@@ -50,7 +59,10 @@ export class CollectionService {
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
     this.logger = getLogger().child({ scope: 'collection', accountUin: session.context.uin });
-    if (historyRoot) this.history = new CollectionHistoryStore(historyRoot, session.context.uin);
+    if (historyRoot) {
+      this.history = new CollectionHistoryStore(historyRoot, session.context.uin);
+      this.details = new CollectionDetailStore(join(historyRoot, 'details'), session.context.uin);
+    }
   }
 
   /**
@@ -137,7 +149,50 @@ export class CollectionService {
 
   /** Fresh local detail lookup; never sends a request to QQ. */
   async readCachedDetail(cid: string): Promise<CollectionItem | null> {
-    return this.session.collection.getByCid(cid);
+    const item = await this.session.collection.getByCid(cid);
+    if (!item) return null;
+    const stored = this.details?.get(cid);
+    if (stored) item.cachedContent = stored;
+    return item;
+  }
+
+  /**
+   * Fetch up to 20 full favorite bodies from operation 20001. Existing official
+   * QQ or WeQ cache entries are reused unless `force` is requested.
+   */
+  async fetchDetails(
+    cids: readonly string[],
+    options: CollectionDetailFetchOptions = {},
+  ): Promise<CollectionNetworkDetail[]> {
+    const cached = options.force
+      ? new Map<string, CollectionCachedContent>()
+      : await this.cached(cids);
+    const missing = cids.filter((cid) => !cached.has(cid));
+    if (missing.length > 0) {
+      const credential = await this.creds.forDomain(WEIYUN_DOMAIN);
+      let capture: ReturnType<CollectionDetailStore['saveRawBatch']> | undefined;
+      const fetched = await getCollectionDetailsNetwork(credential, missing, {
+        signal: options.signal,
+        onRawResponse: this.details
+          ? ({ cids: responseCids, response }) => {
+              capture = this.details?.saveRawBatch(responseCids, response);
+            }
+          : undefined,
+      });
+      if (this.details) {
+        if (!capture) throw new Error('收藏详情原始响应未保存。');
+        this.details.commitBatch(fetched, capture);
+      }
+      for (const detail of fetched) {
+        detail.content.fetched = true;
+        cached.set(detail.cid, detail.content);
+      }
+    }
+    return cids.map((cid) => {
+      const content = cached.get(cid);
+      if (!content) throw new Error(`收藏详情未返回：${cid}`);
+      return { cid, content };
+    });
   }
 
   /**
@@ -179,9 +234,7 @@ export class CollectionService {
     // Cloud summaries do not carry full content. Preserve independently loaded
     // local details when the network stage replaces the initial database page.
     try {
-      const cached = await this.session.collection.cachedContentByCids(
-        window.map((item) => item.cid),
-      );
+      const cached = await this.cached(window.map((item) => item.cid));
       for (const item of window) {
         const content = cached.get(item.cid);
         if (content) item.cachedContent = content;
@@ -200,12 +253,30 @@ export class CollectionService {
   private async fromDb(limit: number, offset: number): Promise<CollectionPage> {
     const rows = await this.session.collection.listAll(limit + 1, offset);
     const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const stored = this.details?.getMany(items.map((item) => item.cid));
+    if (stored) {
+      for (const item of items) {
+        const content = stored.get(item.cid);
+        if (content) item.cachedContent = content;
+      }
+    }
     return {
-      items: hasMore ? rows.slice(0, limit) : rows,
+      items,
       offset,
       limit,
       hasMore,
       source: 'db',
     };
+  }
+
+  /** Merge official QQ detail rows with WeQ's durable network detail cache. */
+  private async cached(cids: readonly string[]): Promise<Map<string, CollectionCachedContent>> {
+    const cached = await this.session.collection.cachedContentByCids(cids);
+    const stored = this.details?.getMany(cids);
+    if (stored) {
+      for (const [cid, content] of stored) cached.set(cid, content);
+    }
+    return cached;
   }
 }

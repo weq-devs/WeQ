@@ -988,6 +988,13 @@ export interface CollectionItemWire {
   } | null;
 }
 
+export interface CollectionDetailWire {
+  cid: string;
+  contentStatus: 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
+}
+
 function collectionPicsToWire(
   pics: readonly { uri?: string; width?: number; height?: number }[] | undefined,
 ): CollectionPicWire[] {
@@ -1012,29 +1019,50 @@ const COLLECTION_CACHE_SLOTS = [
   'richMedia',
 ] as const;
 
-function cachedCollectionContent(it: CollectionItem): {
+function cachedContentProjection(
+  cached: CollectionItem['cachedContent'],
+  kind?: string,
+): {
   text: string;
-  format: 'text' | 'html' | 'binary';
+  format: 'text' | 'html' | 'binary' | null;
 } | null {
-  const cached = it.cachedContent;
   if (!cached) return null;
-  if (it.kind === 'text' && cached.textContent?.data !== undefined) {
+  if ((!kind || kind === 'text') && cached.textContent?.data !== undefined) {
     return { text: cached.textContent.data, format: 'text' };
   }
-  if (it.kind === 'audio' && cached.audioContent?.data !== undefined) {
+  if ((!kind || kind === 'audio') && cached.audioContent?.data !== undefined) {
     return { text: cached.audioContent.data, format: 'text' };
   }
-  if (it.kind === 'richMedia' && cached.richMediaContent?.rawData !== undefined) {
+  if ((!kind || kind === 'richMedia') && cached.richMediaContent?.rawData !== undefined) {
     return { text: cached.richMediaContent.rawData, format: 'html' };
   }
-  const preferred = COLLECTION_CACHE_SLOTS.includes(
-    it.kind as (typeof COLLECTION_CACHE_SLOTS)[number],
-  )
-    ? (it.kind as (typeof COLLECTION_CACHE_SLOTS)[number])
+  const preferred = COLLECTION_CACHE_SLOTS.includes(kind as (typeof COLLECTION_CACHE_SLOTS)[number])
+    ? (kind as (typeof COLLECTION_CACHE_SLOTS)[number])
     : null;
-  const slot = preferred && cached[preferred] ? preferred : null;
-  if (!slot) return null;
+  const slot = preferred
+    ? cached[preferred]
+      ? preferred
+      : null
+    : (COLLECTION_CACHE_SLOTS.find((name) => cached[name] !== undefined) ?? null);
+  if (!slot) return cached.fetched ? { text: '', format: null } : null;
   return { text: '', format: 'binary' };
+}
+
+function cachedCollectionContent(it: CollectionItem) {
+  return cachedContentProjection(it.cachedContent, it.kind);
+}
+
+export function collectionDetailToWire(
+  cid: string,
+  content: NonNullable<CollectionItem['cachedContent']>,
+): CollectionDetailWire {
+  const cached = cachedContentProjection(content);
+  return {
+    cid,
+    contentStatus: 'cached',
+    fullContent: cached?.text ?? '',
+    fullContentFormat: cached?.format ?? null,
+  };
 }
 
 export function collectionItemToWire(it: CollectionItem): CollectionItemWire {

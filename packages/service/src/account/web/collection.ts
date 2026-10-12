@@ -11,7 +11,14 @@
  * 输出统一映射成 `@weq/db` 的 `CollectionItem` 形状,让前端 / tRPC serde 零改动。
  */
 
-import { type CollectionItem, type CollectionKind, decodeMessage } from '@weq/db';
+import {
+  type CollectionCachedContent,
+  type CollectionFileInfo,
+  type CollectionItem,
+  type CollectionKind,
+  type CollectionPicInfo,
+  decodeMessage,
+} from '@weq/db';
 import { ProtoMsg, type ProtoDecodeStructType } from '@weq/codec';
 import {
   CollectorReqHead,
@@ -24,6 +31,7 @@ import type { WebCredential } from './credential';
 const ENDPOINT = 'https://collector.weiyun.com/collector.fcg';
 const HOST = 'collector.weiyun.com';
 const OPERATION_ID = 20_000;
+const CONTENT_OPERATION_ID = 20_001;
 const TICKET_TYPE = 27;
 const APP_ID = 5_004;
 const PAGE_SIZE = 50;
@@ -33,6 +41,7 @@ const OPERATION_TIMEOUT_MS = 60_000;
 const CLIENT_VERSION = 0x6105f5e164fn;
 const INITIAL_TIMESTAMP = 0xffff_ffff_ffff_ffffn;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_DETAIL_CIDS = 20;
 const MAGIC = Uint8Array.from([0x20, 0x13, 0x03, 0x29]);
 const VERSION = Uint8Array.from([0x00, 0x01]);
 
@@ -87,6 +96,19 @@ export interface CollectionNetworkOptions {
   }) => void | Promise<void>;
 }
 
+export interface CollectionDetailNetworkOptions
+  extends Omit<CollectionNetworkOptions, 'onRawResponse'> {
+  onRawResponse?: (capture: {
+    cids: readonly string[];
+    response: Uint8Array;
+  }) => void | Promise<void>;
+}
+
+export interface CollectionNetworkDetail {
+  cid: string;
+  content: CollectionCachedContent;
+}
+
 export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
   /** Null for the observed terminal markers 1 and 215000. */
   nextCursor: CollectionNetworkCursor | null;
@@ -130,12 +152,17 @@ function decodeEnvelope(bytes: Uint8Array): { head: RespHead; body: RespBody } {
   };
 }
 
-function requestBytes(uin: bigint, pskey: string, sequence: number, timeStamp: bigint): Uint8Array {
-  const head = reqHead.encode({
+function requestHeadBytes(
+  uin: bigint,
+  pskey: string,
+  sequence: number,
+  operationId: number,
+): Uint8Array {
+  return reqHead.encode({
     uin,
     sequence,
     commandType: 1,
-    operationId: OPERATION_ID,
+    operationId,
     clientVersion: CLIENT_VERSION,
     platform: 4,
     ticketType: TICKET_TYPE,
@@ -143,6 +170,10 @@ function requestBytes(uin: bigint, pskey: string, sequence: number, timeStamp: b
     field14: 8,
     field15: 9,
   });
+}
+
+function requestBytes(uin: bigint, pskey: string, sequence: number, timeStamp: bigint): Uint8Array {
+  const head = requestHeadBytes(uin, pskey, sequence, OPERATION_ID);
   // collector 网关严格:多发零值字段会被判「缺少请求参数」(190013)。只发非零字段,
   // 与 SnowLuma(proto3 省略零值)的字节保持一致。
   const body = reqBody.encode({
@@ -154,6 +185,14 @@ function requestBytes(uin: bigint, pskey: string, sequence: number, timeStamp: b
         searchDown: 1,
       },
     },
+  });
+  return encodeEnvelope(head, body);
+}
+
+function detailRequestBytes(uin: bigint, pskey: string, cids: readonly string[]): Uint8Array {
+  const head = requestHeadBytes(uin, pskey, 1, CONTENT_OPERATION_ID);
+  const body = reqBody.encode({
+    operation: { getCollectionContent: { cidList: [...cids] } },
   });
   return encodeEnvelope(head, body);
 }
@@ -290,6 +329,52 @@ function mapFile(f: WireFile) {
   };
 }
 
+type WireDetail = NonNullable<
+  NonNullable<NonNullable<RespBody['operation']>['getCollectionContent']>['contents']
+>[number];
+
+function decodeUtf8(bytes: Uint8Array | undefined): string | undefined {
+  if (!bytes) return undefined;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+function mapDetail(content: WireDetail): CollectionCachedContent {
+  const detail: CollectionCachedContent = { recordTime: Date.now() };
+  if (content.textContent) {
+    detail.textContent = {
+      data: content.textContent.data,
+      hasEmoji: content.textContent.hasEmoji,
+    };
+  }
+  if (content.linkContent) detail.link = content.linkContent;
+  if (content.galleryContent) detail.gallery = content.galleryContent;
+  if (content.audioContent?.data) {
+    detail.audio = content.audioContent.data;
+    const data = decodeUtf8(content.audioContent.data);
+    if (data !== undefined) detail.audioContent = { data };
+  }
+  if (content.videoContent) detail.video = content.videoContent;
+  if (content.fileContent) detail.file = content.fileContent;
+  if (content.locationContent) detail.location = content.locationContent;
+  if (content.richMediaContent) {
+    const rich = content.richMediaContent;
+    if (rich.rawData) detail.richMedia = rich.rawData;
+    detail.richMediaContent = {
+      rawData: decodeUtf8(rich.rawData),
+      bizDataList: (rich.bizDataList ?? [])
+        .map(decodeUtf8)
+        .filter((value): value is string => value !== undefined),
+      picList: (rich.picList ?? []).map(mapPic) as CollectionPicInfo[],
+      fileList: (rich.fileList ?? []).map(mapFile) as CollectionFileInfo[],
+    };
+  }
+  return detail;
+}
+
 async function defaultTransport(request: CollectionHttpRequest): Promise<Uint8Array> {
   const res = await fetch(request.url, {
     method: 'POST',
@@ -327,7 +412,7 @@ async function defaultTransport(request: CollectionHttpRequest): Promise<Uint8Ar
 async function postCollector(
   body: Uint8Array,
   cred: WebCredential,
-  opts: CollectionNetworkOptions,
+  opts: Pick<CollectionNetworkOptions, 'transport' | 'signal' | 'timeoutMs'>,
 ): Promise<Uint8Array> {
   const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -371,6 +456,48 @@ async function postCollector(
     if (rejectOnAbort) controller.signal.removeEventListener('abort', rejectOnAbort);
     opts.signal?.removeEventListener('abort', abortFromCaller);
   }
+}
+
+/** Fetch one bounded batch of full collection bodies (operation 20001). */
+export async function getCollectionDetailsNetwork(
+  cred: WebCredential,
+  cids: readonly string[],
+  opts: CollectionDetailNetworkOptions = {},
+): Promise<CollectionNetworkDetail[]> {
+  if (!/^[1-9]\d*$/.test(cred.uin)) throw new Error('collection uin must be a positive integer');
+  const uin = BigInt(cred.uin);
+  if (uin > INITIAL_TIMESTAMP) throw new Error('collection uin exceeds uint64');
+  if (!cred.pskey || /[\r\n;]/.test(cred.pskey))
+    throw new Error('collection p_skey is empty or invalid (weiyun.com)');
+  if (cids.length < 1 || cids.length > MAX_DETAIL_CIDS) {
+    throw new Error(`collection detail batch must contain 1-${MAX_DETAIL_CIDS} ids`);
+  }
+  const unique = new Set<string>();
+  for (const cid of cids) {
+    const hasControl = [...cid].some((char) => {
+      const code = char.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    });
+    if (!cid || cid.length > 256 || hasControl) throw new Error('collection detail cid is invalid');
+    if (unique.has(cid)) throw new Error('collection detail batch contains duplicate ids');
+    unique.add(cid);
+  }
+
+  const response = await postCollector(detailRequestBytes(uin, cred.pskey, cids), cred, opts);
+  await opts.onRawResponse?.({ cids, response });
+  const { head, body } = decodeEnvelope(response);
+  const retCode = head.retCode ?? 0;
+  if (retCode !== 0) {
+    throw new Error(
+      `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
+    );
+  }
+  const contents = body.operation?.getCollectionContent?.contents;
+  if (!contents) throw new Error('collection response is missing operation 20001');
+  if (contents.length !== cids.length) {
+    throw new Error(`collection detail count mismatch: ${contents.length} != ${cids.length}`);
+  }
+  return contents.map((content, index) => ({ cid: cids[index]!, content: mapDetail(content) }));
 }
 
 /**

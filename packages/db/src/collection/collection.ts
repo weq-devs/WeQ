@@ -168,6 +168,8 @@ export interface CollectionContent {
  * that every referenced media original was downloaded.
  */
 export interface CollectionCachedContent {
+  /** Detail request/cache completed even when this kind has no extra body. */
+  fetched?: boolean;
   /** QQ's content-row timestamp (`180720`); observed to match collectTime. */
   recordTime: number;
   text?: Uint8Array;
@@ -270,7 +272,7 @@ function contentBytes(value: SqlRow[number] | undefined): Uint8Array | undefined
 function rowToCachedContent(row: SqlRow): [string, CollectionCachedContent] | null {
   const cid = String(row[0] ?? '');
   if (!cid) return null;
-  const content: CollectionCachedContent = { recordTime: Number(row[1] ?? 0) };
+  const content: CollectionCachedContent = { fetched: true, recordTime: Number(row[1] ?? 0) };
   let present = false;
   for (let index = 0; index < CONTENT_SLOTS.length; index++) {
     const bytes = contentBytes(row[index + 2]);

@@ -43,8 +43,14 @@ export const GetCollectionListReq = {
   field9: ProtoField(9, ScalarType.UINT32, { optional: true }),
 };
 
+/** Body of operation 20001: one or more collection ids, response order preserved. */
+export const GetCollectionContentReq = {
+  cidList: ProtoField(1, ScalarType.STRING, { optional: true, repeat: true }),
+};
+
 export const CollectorReqOperation = {
   getCollectionList: ProtoField(20000, () => GetCollectionListReq, { optional: true }),
+  getCollectionContent: ProtoField(20001, () => GetCollectionContentReq, { optional: true }),
 };
 
 export const CollectorReqBody = {
@@ -186,6 +192,40 @@ export const CollectorSummary = {
   richMediaSummary: ProtoField(8, () => CollectorRichMediaSummary, { optional: true }),
 };
 
+/** Full-detail payloads returned by operation 20001 (low-tag network schema). */
+export const CollectorTextContent = {
+  data: ProtoField(1, ScalarType.STRING, { optional: true }),
+  hasEmoji: ProtoField(2, ScalarType.BOOL, { optional: true }),
+};
+
+export const CollectorAudioContent = {
+  data: ProtoField(1, ScalarType.BYTES, { optional: true }),
+};
+
+export const CollectorRichMediaContent = {
+  /** Structured RichMedia message; retained raw until its nested item schema is needed. */
+  richMedia: ProtoField(1, ScalarType.BYTES, { optional: true }),
+  rawData: ProtoField(2, ScalarType.BYTES, { optional: true }),
+  bizDataList: ProtoField(3, ScalarType.BYTES, { optional: true, repeat: true }),
+  picList: ProtoField(4, () => CollectorPicInfo, { optional: true, repeat: true }),
+  fileList: ProtoField(5, () => CollectorFileInfo, { optional: true, repeat: true }),
+};
+
+export const CollectorCollectionContent = {
+  textContent: ProtoField(1, () => CollectorTextContent, { optional: true }),
+  linkContent: ProtoField(2, ScalarType.BYTES, { optional: true }),
+  galleryContent: ProtoField(3, ScalarType.BYTES, { optional: true }),
+  audioContent: ProtoField(4, () => CollectorAudioContent, { optional: true }),
+  videoContent: ProtoField(5, ScalarType.BYTES, { optional: true }),
+  fileContent: ProtoField(6, ScalarType.BYTES, { optional: true }),
+  locationContent: ProtoField(7, ScalarType.BYTES, { optional: true }),
+  richMediaContent: ProtoField(8, () => CollectorRichMediaContent, { optional: true }),
+};
+
+export const GetCollectionContentResp = {
+  contents: ProtoField(1, () => CollectorCollectionContent, { optional: true, repeat: true }),
+};
+
 /** One collection item as returned by collector.fcg. */
 export const CollectorItem = {
   cid: ProtoField(1, ScalarType.STRING, { optional: true }),
@@ -213,6 +253,7 @@ export const GetCollectionListResp = {
 
 export const CollectorRespOperation = {
   getCollectionList: ProtoField(20000, () => GetCollectionListResp, { optional: true }),
+  getCollectionContent: ProtoField(20001, () => GetCollectionContentResp, { optional: true }),
 };
 
 /** Response operation lives under field 2 (request uses field 1). */

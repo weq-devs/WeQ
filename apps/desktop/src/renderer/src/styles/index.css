@@ -14010,6 +14010,28 @@ html[data-theme="dark"] .weq-provider-modal {
   color: var(--weq-fg-muted, #7c8a99);
 }
 
+.weq-collection-sync-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.weq-collection-sync-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+.weq-collection-sync-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .weq-collection-search {
   display: flex;
   align-items: center;

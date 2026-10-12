@@ -83,6 +83,7 @@ import {
   buddyToWire,
   categoryToWire,
   c2cMsgToWire,
+  collectionDetailToWire,
   collectionItemToWire,
   forwardRecordToWire,
   groupBulletinToWire,
@@ -243,6 +244,7 @@ const agentLabModels = z.object({
  * abortAssistantRun 据此掐断（用户点「停止」）。模块级单例，与 assistantBus 同层。
  */
 const activeAssistantRuns = new Map<string, AbortController>();
+const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
@@ -4126,6 +4128,42 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const item = await requireServices().collection.readCachedDetail(input.cid);
       return item ? collectionItemToWire(item) : null;
+    }),
+
+  /** Pull one bounded operation-20001 batch and persist it in the account cache. */
+  syncCollectionDetails: procedure
+    .input(
+      z.object({
+        requestId: z.string().min(1).max(128),
+        cids: z.array(z.string().min(1).max(256)).min(1).max(20),
+        force: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      if (activeCollectionDetailSyncs.has(input.requestId)) {
+        throw new Error('收藏详情同步任务已在运行。');
+      }
+      const controller = new AbortController();
+      activeCollectionDetailSyncs.set(input.requestId, controller);
+      try {
+        const details = await requireServices().collection.fetchDetails(input.cids, {
+          force: input.force,
+          signal: controller.signal,
+        });
+        return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+      } finally {
+        if (activeCollectionDetailSyncs.get(input.requestId) === controller) {
+          activeCollectionDetailSyncs.delete(input.requestId);
+        }
+      }
+    }),
+
+  cancelCollectionDetailSync: procedure
+    .input(z.object({ requestId: z.string().min(1).max(128) }))
+    .mutation(({ input }) => {
+      const controller = activeCollectionDetailSyncs.get(input.requestId);
+      controller?.abort(new Error('收藏详情同步已取消。'));
+      return { cancelled: Boolean(controller) };
     }),
 
   // ---- export ----
