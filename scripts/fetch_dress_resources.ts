@@ -25,6 +25,16 @@ import path from 'node:path';
 import { loadNative } from '../packages/native/src';
 import { ensureAttached, testEnv } from '../packages/testkit/src';
 import {
+  createDarwinPlatform,
+  createLinuxPlatform,
+  createWin32Platform,
+  type Platform,
+} from '../packages/platform/src';
+import {
+  registerSsoSession,
+  resolveDeviceGuid,
+} from '../packages/service/src/account/sso_session';
+import {
   ANDROID_QQ_CLIENT,
   getResourceUrls,
   bubbleScid,
@@ -68,8 +78,13 @@ if (TO < FROM) {
 }
 
 const CONCURRENCY = Number(opt('--concurrency') ?? 5);
-const BATCH = Number(opt('--batch') ?? 50); // 服务端单次 GetUrl 最多回 ~50 条
+// 服务端单次 GetUrl 有条数上限：实测一次带 18 个 scid 就会被**静默丢弃**
+// （服务端不回包，本地 30s 超时；17 个稳定成功）。而且个别区间即使 ≤17 个也会
+// 丢，所以这里默认 16，并在整批失败时自动二分拆小重试（见 sendBatch）。
+const BATCH = Number(opt('--batch') ?? 16);
 const RETRY = Number(opt('--retry') ?? 3);
+/** 每发一个请求后停 `THROTTLE` 毫秒（默认 0）—— 服务端有风控，慢跑时调大。 */
+const THROTTLE = Number(opt('--throttle') ?? 0);
 const OUT_DIR = path.resolve(opt('--out') ?? path.join('resources', 'dress'));
 const NO_PROGRESS = has('--no-progress');
 
@@ -249,6 +264,18 @@ class Progress {
   private readonly start = Date.now();
   private last = 0;
   retries = 0;
+  /** 重试若干次后仍失败的批次数（只统计，不再逐条刷屏）。 */
+  failures = 0;
+  private lastError = '';
+
+  /**
+   * 记录一次批次失败 —— 不打印、不换行，只把原因并进下一步的进度行。
+   * 这样几百个失败批次也只占屏幕上一行，不会把进度条冲走。
+   */
+  fail(reason: string): void {
+    this.failures++;
+    this.lastError = reason.replace(/\s+/g, ' ').trim();
+  }
 
   tick(done: number, total: number, hit: number, written: number, bytes: number): void {
     if (NO_PROGRESS || !process.stdout.isTTY) return;
@@ -261,7 +288,8 @@ class Progress {
     const bar = '█'.repeat(filled) + '░'.repeat(w - filled);
     const secs = ((now - this.start) / 1000).toFixed(1);
     const kb = (bytes / 1024).toFixed(1);
-    const line = `\r[${bar}] ${(pct * 100).toFixed(1).padStart(5)}%  ${String(done).padStart(6)}/${total}  hit ${String(hit).padStart(6)}  new ${String(written).padStart(6)}  ${String(kb).padStart(8)}K  ${secs}s  retry ${this.retries}`;
+    const tail = this.failures > 0 ? `  ⚠ fail ${this.failures}: ${truncate(this.lastError, 48)}` : '';
+    const line = `\r\x1b[K[${bar}] ${(pct * 100).toFixed(1).padStart(5)}%  ${String(done).padStart(6)}/${total}  hit ${String(hit).padStart(6)}  new ${String(written).padStart(6)}  ${String(kb).padStart(8)}K  ${secs}s  retry ${this.retries}${tail}`;
     process.stdout.write(line);
   }
 
@@ -269,9 +297,38 @@ class Progress {
     if (!NO_PROGRESS && process.stdout.isTTY) process.stdout.write('\n');
   }
 }
+
+/** 截断到 `max` 列，超出补省略号 —— 保持进度行宽度稳定。 */
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
 // ─────────────────────────── 目标进程 ───────────────────────────
 
-async function resolveTarget(nt: ReturnType<typeof loadNative>['ntHelper']): Promise<number> {
+type Nt = ReturnType<typeof loadNative>['ntHelper'];
+
+/**
+ * 建一个只用于路径解析的 Platform：`~/.config/QQ` 数据根 + uid→目录哈希。
+ * `qqDataRoot()` 供 `readDeviceGuid` 离线读 guid，`qqWrapperNodePath` /
+ * `qqMajorNodePath` 供登记 SSO 时定位 `wrapper.node` 与 `major.node`。
+ */
+function createPlatform(native: ReturnType<typeof loadNative>): Platform {
+  const uidFor = (): string => testEnv.uid;
+  if (process.platform === 'linux') return createLinuxPlatform(native, () => null, uidFor);
+  if (process.platform === 'darwin') return createDarwinPlatform(native, () => null, uidFor);
+  return createWin32Platform(native, () => null, () => null);
+}
+
+/**
+ * 反查目标账号的 QQ pid，并**登记原生 SSO 会话**。
+ *
+ * 关键：`ensureAttached` 只把 a2/d2/d2key 读出来，**不会**把它们交给原生侧；
+ * 而 `@weq/protocol` 的 `sendPacket` 是按 pid 去原生侧的会话表里取凭据的，取不到
+ * 就报「pid X 还没有登记 SSO 会话」。所以在读到物料之后必须走 `registerSsoSession`
+ * 登记一次（与桌面端 `AccountMonitorService` 在线采集后走的是同一条路），否则
+ * 换地址的第一包必然失败 —— 这正是本脚本抓不到任何资源的根因。
+ */
+async function resolveTarget(native: ReturnType<typeof loadNative>): Promise<number> {
+  const nt = native.ntHelper;
   // 用目标账号 nt_msg.db 的写锁反查 pid —— 不再枚举进程（见 packages/platform）。
   const probe = nt.probeDbLock(testEnv.msgDbPath);
   if (!probe.success) {
@@ -286,15 +343,35 @@ async function resolveTarget(nt: ReturnType<typeof loadNative>['ntHelper']): Pro
           .replace(/\.exe$/, '') === 'qq',
     ) ?? probe.holders[0];
   if (!holder) throw new Error('目标账号的 nt_msg.db 没有 QQ 持有：请先打开并登录目标账号');
-  await ensureAttached(nt, holder.pid, testEnv.uin, { label: 'fetch-dress' });
-  console.log(`[fetch-dress] pid=${holder.pid}\n`);
+
+  const platform = createPlatform(native);
+  const guid = resolveDeviceGuid(nt, platform);
+  if (!guid) {
+    throw new Error('读不到设备 guid（QQ 数据根不可用）：无法登记 SSO 会话，请检查 QQ 安装/数据目录');
+  }
+
+  const material = await ensureAttached(nt, holder.pid, testEnv.uin, { label: 'fetch-dress' });
+  const registered = await registerSsoSession(
+    nt,
+    platform,
+    holder.pid,
+    { uin: testEnv.uin, uid: testEnv.uid, guid },
+    material,
+  );
+  if (!registered) {
+    throw new Error(
+      '会话物料不齐（缺 a2 / d2 / d2key），无法登记 SSO 会话：请确认目标账号已完全登录',
+    );
+  }
+
+  console.log(`[fetch-dress] pid=${holder.pid}  SSO 会话已登记\n`);
   return holder.pid;
 }
 
 // ─────────────────────────── 单类型抓取 ───────────────────────────
 
 async function fetchType(
-  nt: ReturnType<typeof loadNative>['ntHelper'],
+  nt: Nt,
   pid: number,
   type: Type,
 ): Promise<void> {
@@ -336,28 +413,49 @@ async function fetchType(
   let writtenBytes = 0;
   let reqCount = 0;
 
-  await poolMap(batches, CONCURRENCY, async (batch) => {
-    const refs = batch.map((t) => scidFor(type, t.id, t.part));
+  /**
+   * 发一个 `batch` 并把命中的记录落盘。失败时（超时 / 抛错）：
+   *   - `batch.length > 1` → 二分拆小再各发一次（服务端对条数有硬上限，且
+   *     个别区间会静默丢弃，拆小正好绕开这两类）；
+   *   - 单条仍失败 → 记一次 `progress.fail`（只统计，不刷屏）。
+   */
+  const sendBatch = async (
+    batch: { id: number; part: string }[],
+  ): Promise<void> => {
     const byScid = new Map<string, { id: number; part: string }>();
-    for (let i = 0; i < batch.length; i++) byScid.set(refs[i].scid, batch[i]);
+    for (const t of batch) byScid.set(scidFor(type, t.id, t.part).scid, t);
 
     let results: ResourceUrl[] | null = null;
     let lastErr: unknown = null;
-    for (let attempt = 1; attempt <= RETRY && results === null; attempt++) {
+    // 整批只试一次就拆（超时是 30s，整批重试代价太大）；单条才走 RETRY 次重试。
+    const attempts = batch.length > 1 ? 1 : RETRY;
+    for (let attempt = 1; attempt <= attempts && results === null; attempt++) {
       try {
-        results = await getResourceUrls(nt, pid, refs, CLIENT);
+        results = await getResourceUrls(
+          nt,
+          pid,
+          batch.map((t) => scidFor(type, t.id, t.part)),
+          CLIENT,
+        );
       } catch (err) {
         lastErr = err;
         progress.retries++;
-        if (attempt < RETRY) await sleep(250 * attempt);
+        if (attempt < attempts) await sleep(250 * attempt);
       }
+      // 服务端有风控：可选的每请求间隔，慢跑时把 `--throttle` 调大。
+      if (THROTTLE > 0) await sleep(THROTTLE);
     }
     reqCount++;
+
     if (results === null) {
-      console.error(
-        `\n  ⚠ 批次失败（重试 ${RETRY} 次后放弃）: ${lastErr instanceof Error ? lastErr.message : lastErr}`,
-      );
-      doneCount += batch.length;
+      if (batch.length > 1) {
+        const mid = Math.ceil(batch.length / 2);
+        await sendBatch(batch.slice(0, mid));
+        await sendBatch(batch.slice(mid));
+        return;
+      }
+      progress.fail(lastErr instanceof Error ? lastErr.message : String(lastErr));
+      doneCount += 1;
       progress.tick(doneCount, total, hitCount, writtenCount, writtenBytes);
       return;
     }
@@ -376,23 +474,26 @@ async function fetchType(
     }
     doneCount += batch.length;
     progress.tick(doneCount, total, hitCount, writtenCount, writtenBytes);
-  });
+  };
+
+  await poolMap(batches, CONCURRENCY, (batch) => sendBatch(batch));
   progress.done();
 
   const fileSize = existsSync(file) ? readFileSync(file).length : 0;
   console.log(
     `  完成: 请求 ${reqCount} 次  命中 ${hitCount}/${total}  新写入 ${writtenCount} 条  ` +
-      `文件 ${file}（${(fileSize / 1024).toFixed(1)} KB，含历史）  重试 ${progress.retries} 次\n`,
+      `文件 ${file}（${(fileSize / 1024).toFixed(1)} KB，含历史）  ` +
+      `重试 ${progress.retries} 次  失败批次 ${progress.failures}\n`,
   );
 }
 
 // ─────────────────────────── main ───────────────────────────
 
 async function main(): Promise<void> {
-  const nt = loadNative().ntHelper;
-  const pid = await resolveTarget(nt);
+  const native = loadNative();
+  const pid = await resolveTarget(native);
   for (const type of TYPES) {
-    await fetchType(nt, pid, type);
+    await fetchType(native.ntHelper, pid, type);
   }
   console.log('全部完成 ✔');
 }
@@ -403,5 +504,9 @@ main().catch((e) => {
 });
 
 /*
- * 2026/09/30  font 1-60000-62000  bubble 1-60000 // 2000000-2180000 // 1000000-1000050  widget 100000-200000
+ * 已跑过的范围 —— 记到「当前最大 id」，下次从这里往后接着跑（尾部之后才有新增；
+ * 范围里的空洞多半是服务端本来就没有（not-found），不会随更新补齐）。
+ *   2026/09/30  bubble 1-60000 // 1000000-1000050 // 2000000-2180000   font 1-62000   widget 1-200000
+ *   2026/10/13  bubble →2180200   font →61257   widget →200386
+ *               （补齐上次尾部：bubble 2179440+、widget 199742+、font 61210+）
  * */
