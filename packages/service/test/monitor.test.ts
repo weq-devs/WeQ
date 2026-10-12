@@ -188,6 +188,24 @@ describe('account monitor authorization and SSO readiness', () => {
     expect(tickets.rkeys).not.toHaveBeenCalled();
   });
 
+  it('stops background retries when the device guid is missing (non-recoverable)', async () => {
+    const f = fixture();
+    // 缺 guid（例如全新装机上三条路都读不到）不会靠重试自愈：起一轮后台 poll
+    // 之后应当停手，而不是每 5s 刷一次 harvest。
+    f.record.guid = '';
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    // 之后的轮询也不该再尝试（不读内存、不发包）。
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).not.toHaveBeenCalled();
+    // 显式重试（用户手动「立即重新获取」）仍要放行一次。
+    expect(await f.monitor.harvestRkeysNow()).toBe(false);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
   it('propagates stored-material registration failure without rescanning', async () => {
     const f = fixture(true);
     f.nt.setSsoSession.mockRejectedValue(new Error('registration failed'));

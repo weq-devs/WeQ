@@ -43,6 +43,12 @@ const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const CLIENTKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const HARVEST_RETRY_MS = 30_000;
 const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
+/**
+ * 「身份不完整」（缺 uid / 设备 guid）是**不会靠重试自愈**的终态：再读几次进程
+ * 内存也变不出 guid，逐轮重试只会刷屏。命中这条就停掉自动重试，等显式触发
+ * （用户重开会话 / 手动「立即重新获取」）或下次 `start()`。
+ */
+const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
 
 export class AccountMonitorService {
   private running = false;
@@ -563,19 +569,31 @@ export class AccountMonitorService {
     } catch (error) {
       if (!this.isCurrent(generation, pid)) return;
       this.deferHarvest(pid, error);
-      this.logger.warn('background harvest failed', {
-        event: 'harvest-failed',
-        pid,
-        ...logErrorContext(error),
-      });
-      /* Preserve existing credentials; retry after the bounded backoff. */
+      if (error instanceof Error && error.message.startsWith(IDENTITY_INCOMPLETE_SENTINEL)) {
+        // 身份不完整（缺 uid / guid）不是可重试错误：material 齐了也没用，
+        // 停下来等显式重试，避免每 5s 刷一轮 harvest-failed。
+        this.logger.warn('background harvest skipped: session identity incomplete', {
+          event: 'harvest-identity-incomplete',
+          pid,
+          ...logErrorContext(error),
+        });
+      } else {
+        this.logger.warn('background harvest failed', {
+          event: 'harvest-failed',
+          pid,
+          ...logErrorContext(error),
+        });
+        /* Preserve existing credentials; retry after the bounded backoff. */
+      }
     }
   }
 
   private deferHarvest(pid: number, error: unknown): void {
     const failures = (this.harvestRetry?.pid === pid ? this.harvestRetry.failures : 0) + 1;
     const cancelled =
-      error instanceof Error && error.message === '已取消授权，未读取 QQ 进程内存。';
+      error instanceof Error &&
+      (error.message === '已取消授权，未读取 QQ 进程内存。' ||
+        error.message.startsWith(IDENTITY_INCOMPLETE_SENTINEL));
     const delayMs = Math.min(
       HARVEST_RETRY_MS * 2 ** Math.min(failures - 1, 4),
       HARVEST_MAX_RETRY_MS,
