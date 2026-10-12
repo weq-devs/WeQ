@@ -26,7 +26,9 @@ export interface CollectionExportPic {
  * 结构等价于 app 侧的 `CollectionItemWire`，最多一个内容字段非空。
  */
 export interface CollectionExportRow {
-  contentStatus?: 'summary' | 'truncated' | 'complete';
+  contentStatus?: 'summary' | 'truncated' | 'cached' | 'complete';
+  fullContent?: string;
+  fullContentFormat?: 'text' | 'html' | 'binary' | null;
   textTruncated?: boolean;
   modifyTime?: number;
   sequence?: string;
@@ -158,6 +160,7 @@ function rowTitle(r: CollectionExportRow): string {
 
 /** 正文：文本 / 链接摘要 / 图文摘要 / 语音转写。 */
 function rowBody(r: CollectionExportRow): string {
+  if (r.fullContent) return r.fullContent;
   if (r.text) return r.text;
   if (r.richMedia?.brief) return r.richMedia.brief;
   if (r.link?.brief) return r.link.brief;
@@ -210,9 +213,16 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
     get: (r) =>
       r.contentStatus === 'complete'
         ? '全文已核验'
-        : r.textTruncated || r.contentStatus === 'truncated'
-          ? '摘要已截断'
-          : '摘要，全文未核验',
+        : r.contentStatus === 'cached'
+          ? '官方客户端已缓存详情；附件原件另行核验'
+          : r.textTruncated || r.contentStatus === 'truncated'
+            ? '摘要已截断'
+            : '摘要，全文未核验',
+  },
+  {
+    key: 'fullContentFormat',
+    header: '正文格式',
+    get: (r) => r.fullContentFormat ?? '',
   },
   { key: 'nativeModifyTime', header: '原始修改时间', get: (r) => r.nativeModifyTime ?? '' },
   { key: 'sequence', header: '原始序列', get: (r) => r.sequence ?? '' },

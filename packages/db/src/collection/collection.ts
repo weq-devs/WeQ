@@ -10,11 +10,18 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
-import { CollectionAuthorColumn, CollectionContentColumn } from '@weq/codec/proto/collection/index';
+import {
+  CollectionAudioContentColumn,
+  CollectionAuthorColumn,
+  CollectionContentColumn,
+  CollectionRichMediaContentColumn,
+  CollectionTextContentColumn,
+} from '@weq/codec/proto/collection/index';
 import { QqDb } from '../qq_db';
 import { decodeMessage } from './assemble';
 
 const TABLE = 'collection_list_info_table';
+const CONTENT_TABLE = 'content_list_info_table';
 
 // cid, type, createTime, collectTime, modifyTime, author-blob, content-blob
 const SELECT_COLUMNS = `"180001","180002","180009","180010","180012","180004","180015"`;
@@ -150,6 +157,37 @@ export interface CollectionContent {
   richMediaSummary?: RichMediaSummary;
 }
 
+/**
+ * Full-detail payloads cached by the official QQ client after a user opens a
+ * collection item. QQ stores the active content variant directly in one of
+ * eight BLOB columns rather than wrapping it in the list-summary protobuf.
+ *
+ * The bytes stay lossless here. Higher layers may decode UTF-8 text/HTML for
+ * display, while unknown/binary variants remain available without guessing a
+ * schema. Presence proves that QQ cached a detail response; it does not prove
+ * that every referenced media original was downloaded.
+ */
+export interface CollectionCachedContent {
+  /** QQ's content-row timestamp (`180720`); observed to match collectTime. */
+  recordTime: number;
+  text?: Uint8Array;
+  link?: Uint8Array;
+  gallery?: Uint8Array;
+  audio?: Uint8Array;
+  video?: Uint8Array;
+  file?: Uint8Array;
+  location?: Uint8Array;
+  richMedia?: Uint8Array;
+  textContent?: { data?: string; hasEmoji?: boolean };
+  audioContent?: { data?: string };
+  richMediaContent?: {
+    rawData?: string;
+    bizDataList?: string[];
+    picList?: CollectionPicInfo[];
+    fileList?: CollectionFileInfo[];
+  };
+}
+
 /** One decoded collection item. */
 export interface CollectionItem {
   /** Collection id, e.g. `1-1-<uuid>`. */
@@ -172,6 +210,8 @@ export interface CollectionItem {
   author: CollectionAuthor | null;
   /** Decoded content summary (one field set). */
   summary: CollectionContent;
+  /** Official-client detail cache, present only after QQ loaded this item. */
+  cachedContent?: CollectionCachedContent;
 }
 
 export interface CollectionDbOptions {
@@ -210,6 +250,51 @@ function rowToItem(row: SqlRow): CollectionItem {
   };
 }
 
+const CONTENT_SLOTS: Array<keyof Omit<CollectionCachedContent, 'recordTime'>> = [
+  'text',
+  'link',
+  'gallery',
+  'audio',
+  'video',
+  'file',
+  'location',
+  'richMedia',
+];
+
+function contentBytes(value: SqlRow[number] | undefined): Uint8Array | undefined {
+  if (value instanceof Uint8Array && value.byteLength > 0) return value;
+  if (typeof value === 'string' && value.length > 0) return new TextEncoder().encode(value);
+  return undefined;
+}
+
+function rowToCachedContent(row: SqlRow): [string, CollectionCachedContent] | null {
+  const cid = String(row[0] ?? '');
+  if (!cid) return null;
+  const content: CollectionCachedContent = { recordTime: Number(row[1] ?? 0) };
+  let present = false;
+  for (let index = 0; index < CONTENT_SLOTS.length; index++) {
+    const bytes = contentBytes(row[index + 2]);
+    if (!bytes) continue;
+    const slot = CONTENT_SLOTS[index]!;
+    content[slot] = bytes;
+    if (slot === 'text') {
+      content.textContent = decodeMessage(bytes, CollectionTextContentColumn).content as
+        | CollectionCachedContent['textContent']
+        | undefined;
+    } else if (slot === 'audio') {
+      content.audioContent = decodeMessage(bytes, CollectionAudioContentColumn).content as
+        | CollectionCachedContent['audioContent']
+        | undefined;
+    } else if (slot === 'richMedia') {
+      content.richMediaContent = decodeMessage(bytes, CollectionRichMediaContentColumn).content as
+        | CollectionCachedContent['richMediaContent']
+        | undefined;
+    }
+    present = true;
+  }
+  return present ? [cid, content] : null;
+}
+
 export class CollectionDb {
   private readonly qq: QqDb;
 
@@ -237,6 +322,42 @@ export class CollectionDb {
     }
   }
 
+  private async contentTableExists(): Promise<boolean> {
+    try {
+      const rows = await this.qq.query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
+        [CONTENT_TABLE],
+      );
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Read lossless official-client detail-cache rows for the requested CIDs. */
+  async cachedContentByCids(
+    cids: readonly string[],
+  ): Promise<Map<string, CollectionCachedContent>> {
+    const unique = [...new Set(cids.filter(Boolean))];
+    const result = new Map<string, CollectionCachedContent>();
+    if (unique.length === 0 || !(await this.contentTableExists())) return result;
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "180700","180720","180701","180702","180703","180704","180705","180706","180707","180708" FROM ${CONTENT_TABLE} WHERE "180700" IN (${placeholders})`,
+      unique,
+    );
+    for (const row of rows) {
+      const entry = rowToCachedContent(row);
+      if (entry) result.set(...entry);
+    }
+    return result;
+  }
+
+  /** Read one cached detail row, or null when QQ has not opened the item. */
+  async cachedContent(cid: string): Promise<CollectionCachedContent | null> {
+    return (await this.cachedContentByCids([cid])).get(cid) ?? null;
+  }
+
   /** Total number of collected items (0 when the database/table is absent). */
   async count(): Promise<number> {
     if (!(await this.tableExists())) return 0;
@@ -257,7 +378,13 @@ export class CollectionDb {
       `SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "180010" DESC LIMIT ? OFFSET ?`,
       [limit, offset],
     );
-    return rows.map(rowToItem);
+    const items = rows.map(rowToItem);
+    const cached = await this.cachedContentByCids(items.map((item) => item.cid));
+    for (const item of items) {
+      const content = cached.get(item.cid);
+      if (content) item.cachedContent = content;
+    }
+    return items;
   }
 
   close(): void {

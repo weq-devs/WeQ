@@ -940,7 +940,10 @@ export interface CollectionPicWire {
 /** One 收藏 item, flattened for the renderer. At most one content field is set. */
 export interface CollectionItemWire {
   /** List summaries must never be presented as verified full content. */
-  contentStatus: 'summary' | 'truncated';
+  contentStatus: 'summary' | 'truncated' | 'cached';
+  /** UTF-8 detail bytes cached by official QQ; empty for binary/unknown content. */
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
   textTruncated?: boolean;
   modifyTime: number;
   sequence?: string;
@@ -998,10 +1001,48 @@ function fileExt(name: string): string {
   return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
+const COLLECTION_CACHE_SLOTS = [
+  'text',
+  'link',
+  'gallery',
+  'audio',
+  'video',
+  'file',
+  'location',
+  'richMedia',
+] as const;
+
+function cachedCollectionContent(it: CollectionItem): {
+  text: string;
+  format: 'text' | 'html' | 'binary';
+} | null {
+  const cached = it.cachedContent;
+  if (!cached) return null;
+  if (cached.textContent?.data !== undefined) {
+    return { text: cached.textContent.data, format: 'text' };
+  }
+  if (cached.audioContent?.data !== undefined) {
+    return { text: cached.audioContent.data, format: 'text' };
+  }
+  if (cached.richMediaContent?.rawData !== undefined) {
+    return { text: cached.richMediaContent.rawData, format: 'html' };
+  }
+  const preferred = COLLECTION_CACHE_SLOTS.includes(
+    it.kind as (typeof COLLECTION_CACHE_SLOTS)[number],
+  )
+    ? (it.kind as (typeof COLLECTION_CACHE_SLOTS)[number])
+    : null;
+  const slot =
+    preferred && cached[preferred] ? preferred : COLLECTION_CACHE_SLOTS.find((key) => cached[key]);
+  if (!slot) return null;
+  return { text: '', format: 'binary' };
+}
+
 export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
   const s = it.summary;
   const author = it.author;
   const numId = author?.numId ?? 0n;
+  const cached = cachedCollectionContent(it);
 
   const link = s.linkSummary
     ? {
@@ -1066,7 +1107,9 @@ export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
     : null;
 
   return {
-    contentStatus: s.textSummary?.truncated ? 'truncated' : 'summary',
+    contentStatus: cached ? 'cached' : s.textSummary?.truncated ? 'truncated' : 'summary',
+    fullContent: cached?.text ?? '',
+    fullContentFormat: cached?.format ?? null,
     textTruncated: s.textSummary?.truncated,
     modifyTime: it.modifyTime,
     sequence: it.sequence,

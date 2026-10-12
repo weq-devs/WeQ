@@ -45,7 +45,9 @@ interface PicWire {
 
 interface CollectionItemWire {
   textTruncated?: boolean;
-  contentStatus?: 'summary' | 'truncated';
+  contentStatus?: 'summary' | 'truncated' | 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
   cid: string;
   kind: string;
   type: number;
@@ -177,9 +179,20 @@ function hostOf(url: string): string {
   }
 }
 
+function cachedContentText(it: CollectionItemWire): string {
+  if (!it.fullContent) return '';
+  if (it.fullContentFormat !== 'html') return it.fullContent;
+  try {
+    const doc = new DOMParser().parseFromString(it.fullContent, 'text/html');
+    return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return '';
+  }
+}
+
 /** All searchable text for one item, lower-cased. */
 function searchCorpus(it: CollectionItemWire): string {
-  const parts = [it.authorName, it.groupName, it.text];
+  const parts = [it.authorName, it.groupName, it.text, cachedContentText(it)];
   if (it.link) parts.push(it.link.title, it.link.publisher, it.link.brief, it.link.url);
   if (it.richMedia)
     parts.push(
@@ -254,9 +267,10 @@ function PicGrid({ pics, alt }: { pics: PicWire[]; alt: string }): ReactElement 
 }
 
 function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
+  const cachedText = cachedContentText(it);
   switch (it.kind) {
     case 'text':
-      return <p className="weq-col-text">{it.text || '(空文本)'}</p>;
+      return <p className="weq-col-text">{cachedText || it.text || '(空文本)'}</p>;
 
     case 'link': {
       const l = it.link!;
@@ -397,7 +411,7 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     case 'richMedia': {
       const r = it.richMedia!;
       const heading = r.title || r.subTitle;
-      const body = r.brief;
+      const body = cachedText || r.brief;
       const hasAny = heading || body || r.pics.length;
       return (
         <div className="weq-col-rich">
@@ -430,7 +444,9 @@ function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
       </header>
       <div className="weq-col-card-body">
         <CardBody it={it} />
-        {it.textTruncated ? (
+        {it.contentStatus === 'cached' ? (
+          <p className="weq-col-text is-muted">已读取官方 QQ 缓存的详情；附件原件仍需单独核验。</p>
+        ) : it.textTruncated ? (
           <p className="weq-col-text is-muted">这条内容已截断，当前显示的是摘要。</p>
         ) : null}
       </div>
@@ -579,7 +595,7 @@ export function CollectionDialog({
         </header>
 
         <p className="weq-col-text is-muted">
-          当前显示收藏摘要；列表加载完成不代表全文和附件已完整保存。
+          官方 QQ 已打开过的条目会显示本地缓存详情；其余显示摘要。附件原件需单独核验。
         </p>
         <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
           {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
