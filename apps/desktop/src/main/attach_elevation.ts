@@ -56,9 +56,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding, type SessionMaterial } from '@weq/native';
 import {
   isOnPrivateFuseMount,
@@ -72,6 +71,7 @@ import { runUnprivilegedAttach, type AttachHook, type UserConfigService } from '
 import { getLogger } from '@weq/service';
 import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
 import { getAttachHintPrompt } from './attach_hint';
+import { resolveChildWorkerPath } from './worker_path';
 
 const logger = getLogger().child({ scope: 'attach-elevation' });
 
@@ -95,11 +95,7 @@ export const SIP_ENABLED_MESSAGE =
  * `out/main/chunks/`, so try the sibling path first, then one level up.
  */
 function resolveWorkerPath(): string {
-  const candidates = [
-    join(__dirname, 'attachWorker.mjs'),
-    join(__dirname, '..', 'attachWorker.mjs'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
+  return resolveChildWorkerPath('attachWorker.mjs', __dirname);
 }
 
 /**
@@ -117,7 +113,7 @@ function isPermissionError(error: Error): boolean {
     /不允许的操作|权限不足|没有权限|操作不允许/i.test(msg) ||
     /EPERM|EACCES/i.test(msg) ||
     /os error (1|13)\b/i.test(msg) ||
-    /PTRACE_ATTACH|ptrace attach/i.test(msg) ||
+    /PTRACE_ATTACH|ptrace attach|task_for_pid 失败/i.test(msg) ||
     // 原生侧打开 /proc/<pid>/mem 失败时的提示。
     /\/proc\/\d+\/mem|ptrace_scope/i.test(msg)
   );
@@ -214,7 +210,7 @@ function sudoAttach(pid: number, uin: string, password: string): Promise<Session
       }
       const detail =
         parsed?.error || stderr.trim() || stdout.trim() || `attach worker 退出码 ${code}`;
-      reject(new Error(`读取 QQ 进程内存需要管理员授权：${linuxSudoErrorHint(detail)}`));
+      reject(new Error(`提权读取 QQ 内存失败：${linuxSudoErrorHint(detail)}`));
     });
 
     child.stdin.on('error', () => {
@@ -400,6 +396,8 @@ export function createLinuxAttachHook(
   ): Promise<SessionMaterial> {
     let password: string | null = provided ?? null;
     if (!password) {
+      // Check the packaged helper before asking the user for a password.
+      if (!installInvisibleToRoot()) resolveWorkerPath();
       const prompt = getSudoPasswordPrompt();
       if (!prompt) {
         throw new Error(

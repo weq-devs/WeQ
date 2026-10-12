@@ -28,7 +28,8 @@ let pendingTimer: NodeJS.Timeout | null = null;
 
 /** 注册 IPC 监听（main/index.ts 启动时调用一次）。 */
 export function registerElevationIpc(): void {
-  ipcMain.on(RESPOND_CHANNEL, (_event, raw: unknown) => {
+  ipcMain.on(RESPOND_CHANNEL, (event, raw: unknown) => {
+    if (event.sender !== getMainWindow()?.webContents || !pendingResolve) return;
     const payload = (raw ?? {}) as { token?: unknown; password?: unknown };
     if (typeof payload.token !== 'number' || payload.token !== pendingToken) return;
     const password =
@@ -57,8 +58,15 @@ function requestSudoPasswordImpl(title: string, message: string): Promise<string
   }
 
   pending = new Promise<string | null>((resolve) => {
+    const onClosed = (): void => {
+      logger.info('main window closed while elevation password pending', {
+        event: 'elevation-password-window-closed',
+      });
+      finish(null);
+    };
     const finish = (password: string | null): void => {
       if (pendingToken !== token) return; // 旧请求的超时/关闭，忽略
+      win.removeListener('closed', onClosed);
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingTimer = null;
       pendingResolve = null;
@@ -72,12 +80,7 @@ function requestSudoPasswordImpl(title: string, message: string): Promise<string
       });
       finish(null);
     }, PROMPT_TIMEOUT_MS);
-    win.once('closed', () => {
-      logger.info('main window closed while elevation password pending', {
-        event: 'elevation-password-window-closed',
-      });
-      finish(null);
-    });
+    win.once('closed', onClosed);
     win.webContents.send(REQUEST_CHANNEL, { token, title, message });
     logger.info('asked renderer for elevation password', {
       event: 'elevation-password-requested',

@@ -21,13 +21,14 @@
  * `setTimeout` (guarded by `running`) so only one timer is ever live.
  */
 
+import { createHash } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import type { SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectAttachHook, type AttachHook } from '../bootstrap/attach';
-import { registerSsoSession, registerSsoSessionFromStored } from './sso_session';
+import { registerSsoSession, resolveSubAppId } from './sso_session';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -40,9 +41,33 @@ const PID_POLL_MS = 5000;
 const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 /** Refresh clientkey this long before it expires. */
 const CLIENTKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
+const HARVEST_RETRY_MS = 30_000;
+const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
 
 export class AccountMonitorService {
   private running = false;
+  private generation = 0;
+  private stopped = false;
+  // Native registration and cleanup must preserve their order across stop/start.
+  private ssoQueue: Promise<void> = Promise.resolve();
+
+  private isCurrent(generation: number, pid?: number): boolean {
+    return (
+      !this.stopped &&
+      generation === this.generation &&
+      (pid === undefined || this.attachedPid === null || this.attachedPid === pid)
+    );
+  }
+
+  private assertCurrent(generation: number, pid: number): void {
+    if (!this.isCurrent(generation, pid)) throw new Error('账号会话已结束或已切换。');
+  }
+
+  private queueSso(task: () => Promise<void>): Promise<void> {
+    const next = this.ssoQueue.then(task);
+    this.ssoQueue = next.catch(() => {});
+    return next;
+  }
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The pid we currently believe hosts this account, or null. */
   private attachedPid: number | null = null;
@@ -51,6 +76,14 @@ export class AccountMonitorService {
   private lastPid: number | null | undefined = undefined;
   /** onHomeDress 已经调过了 —— 每个会话只同步一次装扮,见构造参数说明。 */
   private homeDressSynced = false;
+  private harvestRetry: {
+    pid: number;
+    failures: number;
+    nextAt: number;
+    cancelled: boolean;
+  } | null = null;
+  private readonly ssoRegistrations = new Map<number, string>();
+  private readonly ssoInflight = new Map<number, Promise<void>>();
   private readonly logger;
 
   /**
@@ -84,6 +117,8 @@ export class AccountMonitorService {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.stopped = false;
+    this.generation += 1;
     this.logger.info('started account monitor', { event: 'monitor-start' });
     // 发包序号（sequence）的起点：一次账号会话重置一次。QQ 本体也在推进同一账户的
     // 序号带，所以不能沿用上次会话残留的值，得重新取「now + 扰动」。
@@ -134,14 +169,20 @@ export class AccountMonitorService {
    * were stored. Best-effort: any failure resolves false rather than throwing.
    */
   async harvestRkeysNow(): Promise<boolean> {
-    if (!this.shouldAutoAttach()) return false;
+    const generation = this.generation;
+    if (!this.isCurrent(generation) || !this.shouldAutoAttach()) return false;
     const pid = this.attachedPid ?? this.resolvePid();
     if (pid === null) return false;
+    // An explicit refresh is the user's request to retry, including after cancellation.
+    this.harvestRetry = null;
     try {
-      await this.ensureAttached(pid);
+      await this.ensureAttached(pid, generation);
+      this.assertCurrent(generation, pid);
       const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
+      this.assertCurrent(generation, pid);
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
+      this.harvestRetry = null;
       this.logger.info('harvested rkeys on demand', {
         event: 'harvest-rkeys-now',
         pid,
@@ -149,6 +190,8 @@ export class AccountMonitorService {
       });
       return true;
     } catch (error) {
+      if (!this.isCurrent(generation, pid)) return false;
+      this.deferHarvest(pid, error);
       this.logger.warn('failed to harvest rkeys on demand', {
         event: 'harvest-rkeys-now-failed',
         pid,
@@ -160,16 +203,23 @@ export class AccountMonitorService {
 
   stop(): void {
     this.running = false;
+    this.stopped = true;
+    this.generation += 1;
+    const pids = new Set([...this.ssoInflight.keys(), ...this.ssoRegistrations.keys()]);
+    if (this.attachedPid !== null) pids.add(this.attachedPid);
+    this.ssoInflight.clear();
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
     // 会话结束：物料与可能存在的原生连接都不该留着。
-    if (this.attachedPid !== null) this.forgetSsoSession(this.attachedPid);
+    for (const pid of pids) this.forgetSsoSession(pid);
     this.attachedPid = null;
     this.lastOnline = null;
     this.lastPid = undefined;
     this.homeDressSynced = false;
+    this.harvestRetry = null;
+    this.ssoRegistrations.clear();
     this.logger.info('stopped account monitor', { event: 'monitor-stop' });
   }
 
@@ -183,8 +233,9 @@ export class AccountMonitorService {
 
   private schedule(fn: () => void | Promise<void>, ms: number): void {
     if (!this.running) return;
+    const generation = this.generation;
     this.timer = setTimeout(() => {
-      if (this.running) void fn();
+      if (this.running && this.isCurrent(generation)) void fn();
     }, ms);
   }
 
@@ -199,6 +250,7 @@ export class AccountMonitorService {
   // ---- login phase: wait for the account to come online -------------------
 
   private async loginPoll(): Promise<void> {
+    const generation = this.generation;
     const pid = this.resolvePid();
     if (pid === null) {
       this.markOffline();
@@ -206,10 +258,11 @@ export class AccountMonitorService {
     }
 
     this.attachedPid = pid;
+    this.harvestRetry = null;
     this.markOnline(pid);
     this.logger.info('account detected online', { event: 'account-online', pid });
-    await this.harvest(pid);
-    this.schedulePidPoll(PID_POLL_MS);
+    await this.harvest(pid, generation);
+    if (this.isCurrent(generation)) this.schedulePidPoll(PID_POLL_MS);
   }
 
   /**
@@ -230,6 +283,7 @@ export class AccountMonitorService {
   // ---- attached phase: watch the pid, keep rkeys fresh --------------------
 
   private async pidPoll(): Promise<void> {
+    let generation = this.generation;
     const attached = this.attachedPid;
     if (attached === null) {
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
@@ -237,6 +291,8 @@ export class AccountMonitorService {
 
     const pid = this.resolvePid();
     if (pid === null) {
+      this.generation += 1;
+      this.ssoInflight.clear();
       this.attachHook.reset(attached);
       this.forgetSsoSession(attached);
       this.logger.info('attached qq process exited; marking account offline', {
@@ -244,25 +300,31 @@ export class AccountMonitorService {
         pid: attached,
       });
       this.attachedPid = null;
+      this.harvestRetry = null;
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
     if (pid !== attached) {
+      generation = ++this.generation;
+      this.ssoInflight.clear();
       // The account's QQ instance restarted under a new pid — re-attach, and
       // move the session material onto the new pid (the old pid's credentials
       // died with the old QQ process).
       this.attachHook.reset(attached);
       this.forgetSsoSession(attached);
       this.attachedPid = pid;
+      this.harvestRetry = null;
       // 同步 config 里的 pid：发包那侧（`resolveOnlinePid`）就是读它拿 pid 的。
       // 不刷新的话它会一直用旧 pid 发包 → 原生 SSO 表里那个 pid 早被
       // `forgetSsoSession` 清掉了 → 报「pid X 还没有登记 SSO 会话」。
       this.markOnline(pid);
       if (this.shouldAutoAttach()) {
         try {
-          await this.ensureAttached(pid);
+          await this.ensureAttached(pid, generation);
         } catch (error) {
+          if (!this.isCurrent(generation, pid)) return;
+          this.deferHarvest(pid, error);
           this.logger.warn('re-attach after pid change failed (non-fatal)', {
             event: 'reattach-failed',
             pid,
@@ -272,8 +334,9 @@ export class AccountMonitorService {
       }
     }
 
-    await this.harvestIfStale(pid);
-    this.schedulePidPoll(PID_POLL_MS);
+    if (!this.isCurrent(generation, pid)) return;
+    await this.harvestIfStale(pid, generation);
+    if (this.isCurrent(generation)) this.schedulePidPoll(PID_POLL_MS);
   }
 
   // ---- config writes ------------------------------------------------------
@@ -309,17 +372,28 @@ export class AccountMonitorService {
    * 设备 guid 不在这里 —— 它从数据根路径离线读（见 {@link refreshDeviceGuid}），
    * 与登录无关。
    */
-  private async ensureAttached(pid: number): Promise<void> {
-    // 本地已存有该 pid 的会话物料时，**直接拿它登记 SSO** —— 不读内存、不弹提权。
-    // 这正是「本地凭据齐全却还提示提权」的修复点：登记 SSO 只要求物料 + 身份，
-    // 不要求「此刻重新读一遍内存」。本地那份就是上一个 WeQ 进程读到的同一份。
+  private async ensureAttached(pid: number, generation = this.generation): Promise<void> {
+    this.assertCurrent(generation, pid);
+    const existing = this.ssoInflight.get(pid);
+    if (existing) return existing;
+    const task = this.ensureSsoSession(pid, generation);
+    this.ssoInflight.set(pid, task);
+    try {
+      await task;
+    } finally {
+      if (this.ssoInflight.get(pid) === task) this.ssoInflight.delete(pid);
+    }
+  }
+
+  private async ensureSsoSession(pid: number, generation: number): Promise<void> {
     const record = this.accountConfig.getRecord();
-    const reused = await registerSsoSessionFromStored(this.nt, this.platform, pid, this.uin, {
-      material: record?.session,
-      uid: record?.uid,
-      guid: record?.guid,
-    });
-    if (reused) {
+    // Missing identity cannot be fixed by asking for a password again.
+    if (!record?.uid || !record.guid) {
+      throw new Error('SSO 会话身份不完整（缺少账号 uid 或设备 guid）。');
+    }
+    const stored = record.session;
+    if (stored?.pid === pid && stored.a2 && stored.d2 && stored.d2Key) {
+      await this.storeSsoSession(pid, stored, generation);
       this.logger.info('registered the native sso session from stored material', {
         event: 'sso-session-reused',
         pid,
@@ -328,13 +402,14 @@ export class AccountMonitorService {
     }
     // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
     const material = await this.attachHook.ensure(pid, this.uin);
+    this.assertCurrent(generation, pid);
     this.accountConfig.setSessionMaterial({
       a2: material.a2,
       d2: material.d2,
       d2Key: material.d2Key,
       pid,
     });
-    await this.storeSsoSession(pid, material);
+    await this.storeSsoSession(pid, material, generation);
   }
 
   /**
@@ -371,20 +446,63 @@ export class AccountMonitorService {
    * （缺 guid 时服务端不认这台设备）；QQ 数据根还没解析出来时下一轮 poll 会再试。
    * 失败按「本轮不存」处理（缓存物料还在，重试会再走一次）。
    */
-  private async storeSsoSession(pid: number, material: SessionMaterial): Promise<void> {
+  private storeSsoSession(
+    pid: number,
+    material: SessionMaterial,
+    generation: number,
+  ): Promise<void> {
+    return this.queueSso(() => this.registerCurrentSession(pid, material, generation));
+  }
+
+  private async registerCurrentSession(
+    pid: number,
+    material: SessionMaterial,
+    generation: number,
+  ): Promise<void> {
+    this.assertCurrent(generation, pid);
     const record = this.accountConfig.getRecord();
-    await registerSsoSession(
+    const identity = {
+      uin: this.uin,
+      uid: record?.uid ?? '',
+      guid: record?.guid ?? '',
+      subAppId: resolveSubAppId(this.nt, this.platform, pid),
+    };
+    // Only a registration confirmed by this monitor can establish the fingerprint.
+    // hasSsoSession alone says nothing about whether new material has been installed.
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify([
+          identity,
+          material.a2,
+          material.d2,
+          material.d2Key,
+          this.platform.qqWrapperNodePath(pid),
+          this.platform.qqMajorNodePath(pid),
+        ]),
+      )
+      .digest('hex');
+    if (this.ssoRegistrations.get(pid) === fingerprint && (await this.nt.hasSsoSession(pid)))
+      return;
+    this.assertCurrent(generation, pid);
+    const registered = await registerSsoSession(
       this.nt,
       this.platform,
       pid,
-      { uin: this.uin, uid: record?.uid ?? '', guid: record?.guid ?? '' },
+      identity,
       material,
+      () => this.isCurrent(generation, pid),
     );
+    this.assertCurrent(generation, pid);
+    if (!registered) throw new Error('SSO 会话登记失败；未建立可用的原生发包会话。');
+    this.ssoRegistrations.set(pid, fingerprint);
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */
   private forgetSsoSession(pid: number): void {
-    void this.nt.clearSsoSession(pid).catch((error) => {
+    this.ssoRegistrations.delete(pid);
+    void this.queueSso(async () => {
+      await this.nt.clearSsoSession(pid);
+    }).catch((error) => {
       this.logger.warn('failed to clear the native sso session (non-fatal)', {
         event: 'clear-sso-session-failed',
         pid,
@@ -397,11 +515,15 @@ export class AccountMonitorService {
    * Attach + harvest rkey / clientkey / 首页装扮快照. 完全离线模式（自动
    * attach QQ 关闭）下整体跳过 —— 不读内存、不采集任何凭证。
    */
-  private async harvest(pid: number): Promise<void> {
-    if (!this.shouldAutoAttach()) return;
+  private async harvest(pid: number, generation = this.generation): Promise<void> {
+    if (!this.isCurrent(generation, pid) || !this.shouldAutoAttach()) return;
+    const retry = this.harvestRetry;
+    if (retry?.pid === pid && (retry.cancelled || Date.now() < retry.nextAt)) return;
     try {
-      await this.ensureAttached(pid);
+      await this.ensureAttached(pid, generation);
+      this.assertCurrent(generation, pid);
       const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
+      this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
       if (rkeys.length > 0) {
         this.logger.info('harvested download rkeys', {
@@ -411,7 +533,9 @@ export class AccountMonitorService {
         });
       }
       const key = await fetchClientKey(this.nt, pid);
+      this.assertCurrent(generation, pid);
       this.accountConfig.setClientKey({ ...key, fetchedAt: Date.now() });
+      this.harvestRetry = null;
       this.logger.info('harvested client key', {
         event: 'harvest-client-key',
         pid,
@@ -420,6 +544,7 @@ export class AccountMonitorService {
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
       void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
         .then(async (dress) => {
+          if (!this.isCurrent(generation, pid)) return;
           this.accountConfig.setHomeDress(dress);
           // 只在本次会话第一次成功抓到时回调 —— 装扮同步会写清单，轮询触发的话
           // 会反复覆盖用户在装扮页里的选择。
@@ -436,18 +561,37 @@ export class AccountMonitorService {
           });
         });
     } catch (error) {
+      if (!this.isCurrent(generation, pid)) return;
+      this.deferHarvest(pid, error);
       this.logger.warn('background harvest failed', {
         event: 'harvest-failed',
         pid,
         ...logErrorContext(error),
       });
-      /* leave stale credentials in place; retry on the next stale check */
+      /* Preserve existing credentials; retry after the bounded backoff. */
     }
   }
 
+  private deferHarvest(pid: number, error: unknown): void {
+    const failures = (this.harvestRetry?.pid === pid ? this.harvestRetry.failures : 0) + 1;
+    const cancelled =
+      error instanceof Error && error.message === '已取消授权，未读取 QQ 进程内存。';
+    const delayMs = Math.min(
+      HARVEST_RETRY_MS * 2 ** Math.min(failures - 1, 4),
+      HARVEST_MAX_RETRY_MS,
+    );
+    this.harvestRetry = { pid, failures, nextAt: Date.now() + delayMs, cancelled };
+    this.logger.warn('background harvest deferred', {
+      event: cancelled ? 'harvest-cancelled-until-explicit-retry' : 'harvest-retry-deferred',
+      pid,
+      failures,
+      retryAt: cancelled ? null : this.harvestRetry.nextAt,
+    });
+  }
+
   /** Refresh rkey/clientkey when they're stale. 完全离线模式下不采集。 */
-  private async harvestIfStale(pid: number): Promise<void> {
-    if (!this.shouldAutoAttach()) return;
+  private async harvestIfStale(pid: number, generation = this.generation): Promise<void> {
+    if (!this.isCurrent(generation, pid) || !this.shouldAutoAttach()) return;
     const rec = this.accountConfig.getRecord();
     const now = Date.now();
     const rkeys = rec?.rkeys ?? [];
@@ -455,7 +599,7 @@ export class AccountMonitorService {
       rkeys.length === 0 || rkeys.some((r) => rkeyExpiryMs(r) - now < RKEY_REFRESH_SKEW_MS);
     const ck = rec?.clientKey;
     const ckStale = !ck || clientKeyExpiryMs(ck) - now < CLIENTKEY_REFRESH_SKEW_MS;
-    if (rkeyStale || ckStale) await this.harvest(pid);
+    if (rkeyStale || ckStale) await this.harvest(pid, generation);
   }
 }
 

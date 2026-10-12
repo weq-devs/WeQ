@@ -136,10 +136,18 @@ export interface SsoSessionConfig {
    * appid（9.9.35 → 537382819，9.9.36 → 537391628）。
    */
   subAppId: number;
+  /** Current QQ client version, e.g. `7.0.1-52892`. */
+  clientVersion?: string;
   /** 覆盖会话常量 `clientConnSeq`；不传 = 取建连时的 unix 秒。 */
   clientConnSeq?: string | null;
   /** 覆盖 tag 15 `traceParent`（仅离线比对用）。 */
   traceParent?: string | null;
+}
+
+/** Native images actually mapped by a QQ process, including macOS hot updates. */
+export interface QqRuntimeModules {
+  wrapperPath: string;
+  majorPath: string;
 }
 
 /** 一次原生 SSO 组帧请求（{@link NtHelperBinding.buildSsoPacket} 的入参）。 */
@@ -692,6 +700,8 @@ export interface NtHelperBinding {
   clearSsoSession(pid: number): Promise<boolean>;
   /** pid 是否已登记会话物料（诊断用；不代表连接已经建好）。 */
   hasSsoSession(pid: number): Promise<boolean>;
+  /** macOS libproc metadata; no administrator permission or memory attachment. */
+  resolveQqRuntimeModules(pid: number): QqRuntimeModules | null;
   /**
    * 组一个原生 SSO 线上帧（协议 12/13），返回**自带 4 字节大端长度前缀**的整帧。
    *

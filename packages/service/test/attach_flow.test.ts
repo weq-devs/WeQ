@@ -148,13 +148,9 @@ describe('runUnprivilegedAttach 顺序', () => {
     expect(h.passwords).toHaveLength(0);
   });
 
-  it('非权限类失败：不弹引导，直接提权', async () => {
+  it('非权限类失败：保留错误，不弹引导或密码框', async () => {
     const h = harness([OTHER]);
-    await runUnprivilegedAttach(h.deps);
-    expect(h.calls).toEqual([
-      'tryDirect',
-      'log:warn:attach-direct-non-permission-failed',
-      'escalate',
-    ]);
+    await expect(runUnprivilegedAttach(h.deps)).rejects.toThrow(OTHER.message);
+    expect(h.calls).toEqual(['tryDirect', 'log:warn:attach-direct-non-permission-failed']);
   });
 });

@@ -34,16 +34,17 @@ export const PC_SUB_APP_ID = 537391664;
  * 解析当前 QQ 构建的 appid，用作 SSO 的 `subAppId`。
  *
  * 优先从 `major.node` 动态扫描（`resolveAppidFromMajor`，与纯协议登录流程
- * 同源）；读不到时回退到 {@link PC_SUB_APP_ID}。`major.node` 缺失 /
- * 解析失败都只警告、不抛——发包本身仍会失败并给出 `-10003`，让调用方看到
- * 明确的服务端错误而不是本地崩溃。
+ * 同源）。在线调用传入 PID 时，缺失或解析失败直接报错，禁止猜测身份；
+ * 不带 PID 的旧离线调用保留兼容回退。
  */
 export function resolveSubAppId(
   nt: Pick<NtHelperBinding, 'resolveAppidFromMajor'>,
   platform: Pick<Platform, 'qqMajorNodePath'>,
+  pid?: number,
 ): number {
-  const majorPath = platform.qqMajorNodePath();
+  const majorPath = platform.qqMajorNodePath(pid);
   if (!majorPath) {
+    if (pid !== undefined) throw new Error('运行中 QQ 的 major.node 不可用，无法确认 App ID。');
     logger.warn('major.node not found; falling back to the kit subAppId', {
       event: 'subappid-major-missing',
       fallback: PC_SUB_APP_ID,
@@ -53,12 +54,14 @@ export function resolveSubAppId(
   try {
     const appid = Number(nt.resolveAppidFromMajor(majorPath).appid);
     if (Number.isSafeInteger(appid) && appid > 0) return appid;
+    if (pid !== undefined) throw new Error('运行中 QQ 的 App ID 无效，未登记 SSO 会话。');
     logger.warn('major.node appid unparsable; falling back to the kit subAppId', {
       event: 'subappid-unparsable',
       majorPath,
       fallback: PC_SUB_APP_ID,
     });
   } catch (error) {
+    if (pid !== undefined) throw error;
     logger.warn('resolveAppidFromMajor failed; falling back to the kit subAppId', {
       event: 'subappid-resolve-failed',
       majorPath,
@@ -82,6 +85,8 @@ export interface SsoIdentity {
    * 动态解析（正常情况下调用方都不该传，别再造一个硬编码）。
    */
   subAppId?: number;
+  /** Explicit version override for tests or known client metadata. */
+  clientVersion?: string;
 }
 
 const logger = getLogger().child({ scope: 'sso-session' });
@@ -114,7 +119,10 @@ export function resolveDeviceGuid(
 function materialToBuffers(
   material: SessionMaterial,
 ): { a2: Buffer; d2: Buffer; d2Key: Buffer } | null {
-  if (!material.a2 || !material.d2 || !material.d2Key) return null;
+  const validHex = (value: string | undefined): value is string =>
+    typeof value === 'string' && /^(?:[0-9a-fA-F]{2})+$/.test(value);
+  if (!validHex(material.a2) || !validHex(material.d2) || !validHex(material.d2Key)) return null;
+  if (material.d2Key.length !== 32) return null;
   return {
     a2: Buffer.from(material.a2, 'hex'),
     d2: Buffer.from(material.d2, 'hex'),
@@ -135,6 +143,7 @@ export async function registerSsoSession(
   pid: number,
   identity: SsoIdentity,
   material: SessionMaterial,
+  isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   const buffers = materialToBuffers(material);
   if (!buffers || !identity.uid || !identity.guid) {
@@ -150,11 +159,27 @@ export async function registerSsoSession(
     return false;
   }
 
-  // subAppId 必须等于运行中 QQ 构建的 appid，否则服务端一律回 -10003。
-  // 调用方若显式给了就用它（仅测试 / 特殊场景），否则动态解析。
-  const subAppId = identity.subAppId ?? resolveSubAppId(nt, platform);
-
   try {
+    if (!isCurrent()) return false;
+    // subAppId 必须等于运行中 QQ 构建的 appid，否则服务端一律回 -10003。
+    // 调用方若显式给了就用它（仅测试 / 特殊场景），否则动态解析。
+    const subAppId = identity.subAppId ?? resolveSubAppId(nt, platform, pid);
+    if (!Number.isSafeInteger(subAppId) || subAppId <= 0 || subAppId > 0xffff_ffff)
+      throw new Error('SSO App ID 无效。');
+    let clientVersion = identity.clientVersion;
+    if (!clientVersion) {
+      const majorPath = platform.qqMajorNodePath(pid);
+      if (majorPath) {
+        try {
+          const info = nt.resolveAppidFromMajor(majorPath);
+          if (info.version && info.build) clientVersion = `${info.version}-${info.build}`;
+        } catch {
+          // Preserve compatibility when version metadata is unavailable.
+        }
+      }
+    }
+
+    if (!isCurrent()) return false;
     await nt.setSsoSession(
       pid,
       {
@@ -165,8 +190,9 @@ export async function registerSsoSession(
         guid: identity.guid,
         uid: identity.uid,
         subAppId,
+        ...(clientVersion ? { clientVersion } : {}),
       },
-      platform.qqWrapperNodePath(),
+      platform.qqWrapperNodePath(pid),
     );
     logger.info('stored session material for the native sso transport', {
       event: 'set-sso-session',

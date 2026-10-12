@@ -40,7 +40,9 @@ import { registerAnalyticsExportIpc } from './analytics_export';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
-import { setMainWindow } from './main_window';
+import { getMainWindow, setMainWindow } from './main_window';
+import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { macApplicationMenu } from './application_menu';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import {
@@ -82,21 +84,24 @@ const WINDOW_LAYOUTS = {
 
 const logger = getLogger().child({ scope: 'desktop-main' });
 
-/** The primary app window. Tracked so the tray / single-instance / close flows
- *  can reach it without threading it through every call. */
-let mainWindow: BrowserWindow | null = null;
+/** Created once; reopening attaches a window without registering IPC again. */
+let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
 
-/** Bring the main window back to the foreground (from tray / second instance). */
-function revealWindow(win: BrowserWindow): void {
-  if (win.isDestroyed()) return;
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
+const mainWindowLifecycle = createMainWindowLifecycle({
+  canOpen: () => mainIpcHandler !== null && !isQuitting,
+  getWindow: getMainWindow,
+  setWindow: setMainWindow,
+  createWindow,
+  attachWindow: (win) => mainIpcHandler?.attachWindow(win),
+});
+
+function openMainWindow(): void {
+  mainWindowLifecycle.open();
 }
 
 /**
@@ -120,7 +125,7 @@ function resolveCloseBehavior(): WindowCloseBehavior {
  * tracks the menu-bar's light/dark). Menu: 显示主窗口 / 退出 WeQ. Left-click and
  * double-click both re-reveal the window.
  */
-function buildTray(win: BrowserWindow): void {
+function buildTray(): void {
   if (tray) return;
   const iconPath = resolveResource('brand', 'logo.png');
   let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
@@ -135,7 +140,7 @@ function buildTray(win: BrowserWindow): void {
     tray.setToolTip('WeQ');
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: '显示主窗口', click: () => revealWindow(win) },
+        { label: '显示主窗口', click: openMainWindow },
         { type: 'separator' },
         {
           label: '退出 WeQ',
@@ -146,8 +151,8 @@ function buildTray(win: BrowserWindow): void {
         },
       ]),
     );
-    tray.on('click', () => revealWindow(win));
-    tray.on('double-click', () => revealWindow(win));
+    tray.on('click', openMainWindow);
+    tray.on('double-click', openMainWindow);
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
     logger.warn('failed to create system tray', {
@@ -190,7 +195,7 @@ function registerWindowLayoutIpc(): void {
   //   'tray' → hide to tray; 'quit' → real quit; 'cancel' → do nothing.
   ipcMain.on('window:respond-close', (_event, action: 'tray' | 'quit' | 'cancel') => {
     if (action === 'tray') {
-      mainWindow?.hide();
+      getMainWindow()?.hide();
     } else if (action === 'quit') {
       isQuitting = true;
       app.quit();
@@ -508,16 +513,16 @@ function createWindow(): BrowserWindow {
   // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
   win.webContents.on('did-finish-load', reveal);
 
-  // Intercept the close button so it doesn't hard-quit. Behavior is
-  // user-configurable (设置 → 全局设置 → 关闭按钮):
-  //   'quit' → let it close (window-all-closed then quits);
+  // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
+  //   'quit' → quit the app on every platform;
   //   'tray' → hide to the system tray, keep the process alive;
   //   'ask'  → ask the renderer to show the 关闭确认框 (default, first time).
   win.on('close', (e) => {
-    if (isQuitting || win !== mainWindow) return;
+    if (isQuitting || win !== getMainWindow()) return;
     const behavior = resolveCloseBehavior();
     if (behavior === 'quit') {
       isQuitting = true;
+      app.quit();
       return;
     }
     e.preventDefault();
@@ -539,9 +544,6 @@ function createWindow(): BrowserWindow {
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }
-  mainWindow = win;
-  setMainWindow(win);
-  win.on('closed', () => setMainWindow(null));
   return win;
 }
 
@@ -552,9 +554,7 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) revealWindow(mainWindow);
-  });
+  app.on('second-instance', openMainWindow);
 }
 
 void app.whenReady().then(async () => {
@@ -606,10 +606,13 @@ void app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(win);
   });
 
-  const win = createWindow();
+  mainIpcHandler = createIPCHandler({ router: appRouter, windows: [] });
+  openMainWindow();
   logger.info('main window created', { event: 'create-window' });
-  createIPCHandler({ router: appRouter, windows: [win] });
-  buildTray(win);
+  buildTray();
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(macApplicationMenu(openMainWindow)));
+  }
 
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
@@ -637,18 +640,13 @@ void app.whenReady().then(async () => {
       });
     });
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const w = createWindow();
-      createIPCHandler({ router: appRouter, windows: [w] });
-    }
-  });
+  app.on('activate', openMainWindow);
 });
 
 app.on('window-all-closed', () => {
   // With the tray keeping the process alive, closing the window normally hides
-  // it (never reaching here). We only get here on a real quit path — which
-  // already sets `isQuitting` — so honour it. macOS keeps the app resident.
+  // it (never reaching here). Explicit quit actions call app.quit themselves;
+  // macOS can keep running after a window is destroyed and reopen on activation.
   if (process.platform !== 'darwin' && isQuitting) app.quit();
 });
 

@@ -23,7 +23,7 @@
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 
-const requireFn = createRequire(__filename);
+const requireFn = createRequire(import.meta.url);
 
 /** 一次扫描的物料 —— 与 `@weq/native` 的 `SessionMaterial` 同形。 */
 interface SessionMaterial {
