@@ -23,6 +23,7 @@
  *   oidb/send-group-signup.ts    — SendGroupSignup (0x921b_0, 群报名/收集表卡片)。
  *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
  *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
+ *   oidb/get-emoji-likes.ts      — GetEmojiLikes (0x9083_1, 某表情的回应人列表, 可分页)。
  *   redbag/              — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
@@ -108,6 +109,12 @@ export { SendPoke } from './oidb/send-poke';
 export type { SendPokeParams } from './oidb/send-poke';
 export { SetReaction } from './oidb/set-reaction';
 export type { SetReactionParams } from './oidb/set-reaction';
+export { GetEmojiLikes } from './oidb/get-emoji-likes';
+export type {
+  GetEmojiLikesParams,
+  GetEmojiLikesResult,
+  EmojiLikeUser,
+} from './oidb/get-emoji-likes';
 export { SetGroupName } from './oidb/set-group-name';
 export type { SetGroupNameParams } from './oidb/set-group-name';
 export { MuteGroupAll, MUTE_ALL_PERMANENT } from './oidb/mute-group-all';

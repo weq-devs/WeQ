@@ -388,11 +388,18 @@ MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file
 | 戳一戳 | 0xED3_1 | `OidbSvcTrpcTcp.0xed3_1` | 群聊戳成员 / 私聊戳对方，收端是「戳一戳」灰条 |
 | 窗口抖动 | 0xED3 之外的 PbSendMsg | `MessageSvc.PbSendMsg` | 私聊消息里的 `commonElem svc 2` 元素，只能私聊且独占一条 |
 | 贴 / 撤表情回应 | 0x9082_1 / 0x9082_2 | `OidbSvcTrpcTcp.0x9082_N` | 群消息上的表情回应；`code` ≤3 位 = 小黄脸 id，>3 位 = Unicode 码点 |
+| 查某表情的回应人 | 0x9083_1 | `OidbSvcTrpcTcp.0x9083_1` | 单个表情的回应人列表，带续传 cookie 可分页；协议层 `oidb/get-emoji-likes.ts` |
 
-查询侧（0x9083_1 某表情的回应人列表、0x9084_1 常用表情目录）**没有对接**；要知道一条
-消息当前有哪些回应，读 `get_message_details` 的 `reactions[]`（来自本地库 40062 列）。
+0x9083_1 已接到渲染层：鼠标悬停消息气泡下的某枚贴表情，就在鼠标旁弹出回应人面板
+（`components/ReactionLikersPanel.tsx`，头像 + 昵称 + QQ 号、自己那行高亮、滚到底续传）。
+链路是 `GetEmojiLikes` → `InteractionService.getMessageReactionUsers`（用本地 profile 补服务端
+没给的昵称 / 头像）→ IPC `account.messageReactionUsers`（cursor = 服务端续传 cookie）→ 面板。
+MCP **没有**开这条工具，要知道一条消息当前有哪些回应、各多少个，仍读
+`get_message_details` 的 `reactions[]`（来自本地库 40062 列）。常用表情目录（0x9084_1）
+**没有对接**，它也不是消息的回应详情。
 
-这两条都**尚未真机验证**（字段与 SnowLuma / Lagrange / NapCat 三边一致，但没有实发过）。
+这几条都**尚未真机验证**（字段与 SnowLuma / Lagrange / NapCat 三边一致，但没有实发过）；
+0x9083_1 的回包字段（users / cookie / isLast）也只按 SnowLuma 的 RE 结果对齐，等一次抓包。
 
 上传链路会把会话节点与每块 highway 回帧（`errorCode` / `segRetCode` / head hex）写进
 账号日志（`logger.info(..., { event: 'media-upload' })`，日志目录见 `getLogDir()`）——

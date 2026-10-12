@@ -426,7 +426,13 @@ export function MessageBubble({
           },
           renderers,
         )}
-        <SetEmojiReactions list={message.setEmojiList} />
+        {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
+            只有群聊 + 有会话内序号时才可查。 */}
+        <SetEmojiReactions
+          list={message.setEmojiList}
+          groupId={conversation.type === 'group' ? conversation.group.identityValue : null}
+          sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
+        />
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
             <Sparkle size={10} strokeWidth={2.6} />

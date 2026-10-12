@@ -7,6 +7,7 @@
 
 import { avatarFetchUrl, mediaUrl } from './resourceUrl';
 import { preferCdnEnabled } from './cdn';
+import { fixProfileAvatarUrl } from './avatarResolver';
 
 /**
  * Build the local-first avatar URL: the main process resolves the peer's cached
@@ -31,21 +32,27 @@ function localFirst(params: Record<string, string>, fb: string): string {
  */
 export function cachedAvatarUrl(src: string | null | undefined): string | null {
   if (!src) return null;
+  // 先修 QQ profile 风格头像那个空 `s=`（`qh.qlogo.cn/g?b=qq&ek=…&s=`，数据库
+  // 20004 列与 OIDB headUrl 都是这个形状）。空 s= 上游会 400，经代理就变成 502、
+  // 头像全裂；补成 `s=0` 才好。放在这个 choke point 上，下面三条分支（本地优先的
+  // `fb` 回退、集群头像、`weq-avatar://` 代理）以及「优先使用 CDN」直连都跟着受益。
+  const fixed = fixProfileAvatarUrl(src) ?? src;
   // Only remote http(s) avatars go through a cache; leave data:, blob:,
   // weq-asset:, and anything already wrapped alone.
-  if (!/^https?:\/\//i.test(src)) return src;
+  if (!/^https?:\/\//i.test(fixed)) return fixed;
 
   // User avatar endpoint: …qlogo.cn/g?…&nk=<uin>… (thirdqq / q / q1 / q2).
-  const userNk = src.match(/^https?:\/\/[^/]*qlogo\.cn\/[^?]*\?[^#]*\bnk=(\d+)/i);
-  if (userNk) return preferCdnEnabled() ? src : localFirst({ scope: 'user', uin: userNk[1]! }, src);
+  const userNk = fixed.match(/^https?:\/\/[^/]*qlogo\.cn\/[^?]*\?[^#]*\bnk=(\d+)/i);
+  if (userNk)
+    return preferCdnEnabled() ? fixed : localFirst({ scope: 'user', uin: userNk[1]! }, fixed);
   // Group avatar endpoint: …p.qlogo.cn/gh/<code>/<code>/<size> (code == uid).
-  const groupGh = src.match(/^https?:\/\/[^/]*qlogo\.cn\/gh\/(\d+)\//i);
+  const groupGh = fixed.match(/^https?:\/\/[^/]*qlogo\.cn\/gh\/(\d+)\//i);
   if (groupGh)
-    return preferCdnEnabled() ? src : localFirst({ scope: 'group', uid: groupGh[1]! }, src);
+    return preferCdnEnabled() ? fixed : localFirst({ scope: 'group', uid: groupGh[1]! }, fixed);
 
   // Non-QQ remote avatar (e.g. GitHub in demo/agentlab): plain URL disk cache.
   // 「优先使用 CDN」刻意不放行这一支 —— 走到这里的是 ARK 卡片预览图、静态地图、闪传
   // 封面、收藏图那些站外资源，它们本来就靠主进程代取（带 Referer、绕开 CORS）才拿得到，
   // 直连只会 403 / 被浏览器拦。该开关只管上面两个 QQ 头像端点。
-  return avatarFetchUrl(src);
+  return avatarFetchUrl(fixed);
 }

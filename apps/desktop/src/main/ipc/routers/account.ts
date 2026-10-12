@@ -3071,6 +3071,42 @@ export const accountRouter = router({
     }),
 
   /**
+   * 查某条**群消息**上某个表情的回应人名单（OIDB 0x9083_1，可分页）。
+   *
+   * 本地 40062 列只有计数（`reactions[]` 的 `setNum`），名单只能实时问服务端，所以
+   * 这条需要在线已注入的 QQ；离线 / 风控失败会把错误原样上抛，**不吞成空列表** ——
+   * 渲染侧要把它显示成「需要 QQ 在线」而不是「没人贴」。
+   *
+   * 分页沿用仓库的 cursor 约定：`nextCursor` 是服务端的续传 cookie，为空 / 末页给 null。
+   */
+  messageReactionUsers: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        sequence: z.number().int().nonnegative(),
+        emojiId: z.string().min(1),
+        emojiType: z.number().int().positive().optional(),
+        count: z.number().int().positive().max(200).default(30),
+        cursor: z.string().default(''),
+      }),
+    )
+    .query(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const page = await requireServices().interaction.getMessageReactionUsers({
+        groupId: input.groupId,
+        sequence: input.sequence,
+        emojiId: input.emojiId,
+        ...(input.emojiType !== undefined ? { emojiType: input.emojiType } : {}),
+        count: input.count,
+        ...(input.cursor ? { cookie: input.cursor } : {}),
+      });
+      return {
+        items: page.users,
+        nextCursor: page.isLast || !page.cookie ? null : page.cookie,
+      };
+    }),
+
+  /**
    * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
    *
    * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。

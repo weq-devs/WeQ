@@ -29,10 +29,17 @@ export function avatarFromGroupCode(
 }
 
 /**
- * 修复 profile_info.db 里的头像 URL（20004 列）。
- * 数据库里存的是 `http://qh.qlogo.cn/g?b=qq&ek=...&s=`，
- * 需要补全为 `&s=0` 才能访问（空 s= 会 400 bad request）。
- * 渲染层 CSP 已放行 qh.qlogo.cn，修复后可直接作为 <img> 源。
+ * 修复 QQ「profile 风格」头像 URL 末尾那个空的 `s=`。
+ *
+ * 这个形状到处都有 —— `profile_info.db` 的 20004 列，以及 OIDB 回包里的 headUrl
+ * （如 0x9083 回应人名单的 `headUrl`），都是
+ * `http://qh.qlogo.cn/g?b=qq&ek=...&s=`：**`s=` 是空的**，直接请求上游会 400（
+ * 经 `weq-avatar://` 代理时表现为 502 Bad Gateway）→ 头像全裂。补成 `&s=0`（原图）
+ * 就能正常取到。渲染层 CSP 已放行 qh.qlogo.cn，修复后可直接作为 `<img>` 源。
+ *
+ * 只动「s 为空」这一种情况：已经有 `s=<数字>` 的一律原样返回；非 qh.qlogo.cn 的
+ * URL 也不碰。已由 {@link cachedAvatarUrl}（`lib/avatarCache.ts`）在渲染侧统一施加，
+ * 所以调用方一般不需要自己再调。
  */
 export function fixProfileAvatarUrl(url: string | undefined | null): string | null {
   if (!url) return null;
@@ -43,8 +50,8 @@ export function fixProfileAvatarUrl(url: string | undefined | null): string | nu
   // 如果已经有 s=数字，直接返回
   if (/[?&]s=\d/.test(url)) return url;
 
-  // 补全 &s=0（数据库里通常是 &s= 结尾）
-  return url.replace(/([?&]s=)$/, '$10');
+  // 补全 s=0。`(?=$|&)` 让 `&s=` 不在末尾（后面还跟着别的参数）时也能补。
+  return url.replace(/([?&]s=)(?=$|&)/, (match) => `${match}0`);
 }
 
 /**

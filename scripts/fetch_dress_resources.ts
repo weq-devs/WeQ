@@ -30,10 +30,7 @@ import {
   createWin32Platform,
   type Platform,
 } from '../packages/platform/src';
-import {
-  registerSsoSession,
-  resolveDeviceGuid,
-} from '../packages/service/src/account/sso_session';
+import { registerSsoSession, resolveDeviceGuid } from '../packages/service/src/account/sso_session';
 import {
   ANDROID_QQ_CLIENT,
   getResourceUrls,
@@ -288,7 +285,8 @@ class Progress {
     const bar = '█'.repeat(filled) + '░'.repeat(w - filled);
     const secs = ((now - this.start) / 1000).toFixed(1);
     const kb = (bytes / 1024).toFixed(1);
-    const tail = this.failures > 0 ? `  ⚠ fail ${this.failures}: ${truncate(this.lastError, 48)}` : '';
+    const tail =
+      this.failures > 0 ? `  ⚠ fail ${this.failures}: ${truncate(this.lastError, 48)}` : '';
     const line = `\r\x1b[K[${bar}] ${(pct * 100).toFixed(1).padStart(5)}%  ${String(done).padStart(6)}/${total}  hit ${String(hit).padStart(6)}  new ${String(written).padStart(6)}  ${String(kb).padStart(8)}K  ${secs}s  retry ${this.retries}${tail}`;
     process.stdout.write(line);
   }
@@ -315,7 +313,11 @@ function createPlatform(native: ReturnType<typeof loadNative>): Platform {
   const uidFor = (): string => testEnv.uid;
   if (process.platform === 'linux') return createLinuxPlatform(native, () => null, uidFor);
   if (process.platform === 'darwin') return createDarwinPlatform(native, () => null, uidFor);
-  return createWin32Platform(native, () => null, () => null);
+  return createWin32Platform(
+    native,
+    () => null,
+    () => null,
+  );
 }
 
 /**
@@ -347,7 +349,9 @@ async function resolveTarget(native: ReturnType<typeof loadNative>): Promise<num
   const platform = createPlatform(native);
   const guid = resolveDeviceGuid(nt, platform);
   if (!guid) {
-    throw new Error('读不到设备 guid（QQ 数据根不可用）：无法登记 SSO 会话，请检查 QQ 安装/数据目录');
+    throw new Error(
+      '读不到设备 guid（QQ 数据根不可用）：无法登记 SSO 会话，请检查 QQ 安装/数据目录',
+    );
   }
 
   const material = await ensureAttached(nt, holder.pid, testEnv.uin, { label: 'fetch-dress' });
@@ -370,11 +374,7 @@ async function resolveTarget(native: ReturnType<typeof loadNative>): Promise<num
 
 // ─────────────────────────── 单类型抓取 ───────────────────────────
 
-async function fetchType(
-  nt: Nt,
-  pid: number,
-  type: Type,
-): Promise<void> {
+async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
   const parts = PARTS[type];
   const file = path.join(OUT_DIR, `${type}_resources`);
   mkdirSync(OUT_DIR, { recursive: true });
@@ -419,9 +419,7 @@ async function fetchType(
    *     个别区间会静默丢弃，拆小正好绕开这两类）；
    *   - 单条仍失败 → 记一次 `progress.fail`（只统计，不刷屏）。
    */
-  const sendBatch = async (
-    batch: { id: number; part: string }[],
-  ): Promise<void> => {
+  const sendBatch = async (batch: { id: number; part: string }[]): Promise<void> => {
     const byScid = new Map<string, { id: number; part: string }>();
     for (const t of batch) byScid.set(scidFor(type, t.id, t.part).scid, t);
 
