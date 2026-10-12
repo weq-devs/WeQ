@@ -9,7 +9,7 @@
  */
 
 import { ipcMain } from 'electron';
-import { getLogger } from '@weq/service';
+import { getLogger, SharedPrompt } from '@weq/service';
 import { getMainWindow } from './main_window';
 import { setSudoPasswordPrompt } from './sudo_prompt';
 
@@ -22,9 +22,8 @@ const RESPOND_CHANNEL = 'elev:respond-password';
 const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 let pendingResolve: ((password: string | null) => void) | null = null;
-let pending: Promise<string | null> | null = null;
+const prompt = new SharedPrompt<string | null>(null);
 let pendingToken = 0;
-let pendingTimer: NodeJS.Timeout | null = null;
 
 /** 注册 IPC 监听（main/index.ts 启动时调用一次）。 */
 export function registerElevationIpc(): void {
@@ -40,51 +39,37 @@ export function registerElevationIpc(): void {
     });
     pendingResolve?.(password);
   });
-  setSudoPasswordPrompt((title, message) => requestSudoPasswordImpl(title, message));
+  setSudoPasswordPrompt((title, message, signal) =>
+    requestSudoPasswordImpl(title, message, signal),
+  );
 }
 
 /**
  * 请求渲染层弹密码框并等待输入。返回密码；取消 / 超时 / 无主窗口返回
  * null。并发请求合并：多个调用方共享同一个对话框和答案。
  */
-function requestSudoPasswordImpl(title: string, message: string): Promise<string | null> {
-  if (pending) return pending;
-
-  const token = ++pendingToken;
-  const win = getMainWindow();
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
-    // 无头（web server / 窗口已关）——没有密码框可弹，调用方按取消处理。
-    return Promise.resolve(null);
-  }
-
-  pending = new Promise<string | null>((resolve) => {
-    const onClosed = (): void => {
-      logger.info('main window closed while elevation password pending', {
-        event: 'elevation-password-window-closed',
-      });
+function requestSudoPasswordImpl(
+  title: string,
+  message: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  return prompt.request((finish) => {
+    const token = ++pendingToken;
+    const win = getMainWindow();
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       finish(null);
-    };
-    const finish = (password: string | null): void => {
-      if (pendingToken !== token) return; // 旧请求的超时/关闭，忽略
-      win.removeListener('closed', onClosed);
-      if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = null;
-      pendingResolve = null;
-      pending = null;
-      resolve(password);
-    };
+      return () => {};
+    }
+    const onClosed = (): void => finish(null);
     pendingResolve = finish;
-    pendingTimer = setTimeout(() => {
-      logger.warn('elevation password request timed out', {
-        event: 'elevation-password-timeout',
-      });
-      finish(null);
-    }, PROMPT_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(null), PROMPT_TIMEOUT_MS);
     win.once('closed', onClosed);
     win.webContents.send(REQUEST_CHANNEL, { token, title, message });
-    logger.info('asked renderer for elevation password', {
-      event: 'elevation-password-requested',
-    });
-  });
-  return pending;
+    return () => {
+      clearTimeout(timer);
+      win.removeListener('closed', onClosed);
+      if (pendingToken === token) pendingResolve = null;
+      if (!win.webContents.isDestroyed()) win.webContents.send('elev:cancel-password', { token });
+    };
+  }, signal);
 }

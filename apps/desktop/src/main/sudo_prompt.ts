@@ -10,7 +10,11 @@
  * root 根本不需要提权。
  */
 
-export type SudoPasswordPrompt = (title: string, message: string) => Promise<string | null>;
+export type SudoPasswordPrompt = (
+  title: string,
+  message: string,
+  signal?: AbortSignal,
+) => Promise<string | null>;
 
 let current: SudoPasswordPrompt | null = null;
 
@@ -28,7 +32,11 @@ export function getSudoPasswordPrompt(): SudoPasswordPrompt | null {
  * 请求渲染层弹密码框并等待输入。返回密码；取消 / 无已注册实现（headless）
  * 返回 null。并发调用会合并到同一个对话框、共享同一个答案。
  */
-export function requestSudoPassword(title: string, message: string): Promise<string | null> {
+export function requestSudoPassword(
+  title: string,
+  message: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
   const prompt = current;
-  return prompt ? prompt(title, message) : Promise.resolve(null);
+  return prompt ? prompt(title, message, signal) : Promise.resolve(null);
 }

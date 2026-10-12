@@ -57,7 +57,7 @@
 
 import { createCachedAttachHook } from '@weq/service';
 
-import { spawn } from 'node:child_process';
+import { runOwnedChild } from '@weq/service';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding, type SessionMaterial } from '@weq/native';
@@ -162,65 +162,47 @@ interface WorkerOutput {
  * inputs travel as argv (sudo 不重置环境，`env` 只是把 electron-as-node 需要
  * 的变量显式补回去).
  */
-function sudoAttach(pid: number, uin: string, password: string): Promise<SessionMaterial> {
+async function sudoAttach(
+  pid: number,
+  uin: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<SessionMaterial> {
   const workerPath = resolveWorkerPath();
   const ntHelperPath = resolveNtHelperPath();
 
-  return new Promise((resolve, reject) => {
-    // `sudo -S /usr/bin/env ELECTRON_RUN_AS_NODE=1 <electron> <worker> <pid> <uin> <addon>`
-    const child = spawn(
-      resolveSudoPath(),
-      [
-        '-S',
-        '/usr/bin/env',
-        'ELECTRON_RUN_AS_NODE=1',
-        process.execPath,
-        workerPath,
-        String(pid),
-        uin,
-        ntHelperPath,
-      ],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (c: Buffer) => (stdout += c.toString('utf8')));
-    child.stderr.on('data', (c: Buffer) => (stderr += c.toString('utf8')));
-    child.on('error', (e) => {
-      reject(new Error(`sudo 无法启动（是否已安装 sudo？）：${e.message}`));
-    });
-    child.on('close', (code) => {
-      // The worker reports both success and failure as one JSON blob (stderr on
-      // failure), so parse it before falling back to the exit code.
-      let parsed: WorkerOutput | null = null;
-      for (const raw of [stderr.trim(), stdout.trim()]) {
-        try {
-          const candidate = JSON.parse(raw) as WorkerOutput;
-          if (candidate && typeof candidate.ok === 'boolean') {
-            parsed = candidate;
-            break;
-          }
-        } catch {
-          /* not JSON — try the other stream / the code hint below */
-        }
+  const result = await runOwnedChild(
+    resolveSudoPath(),
+    [
+      '-S',
+      '-p',
+      '',
+      '/usr/bin/env',
+      'ELECTRON_RUN_AS_NODE=1',
+      process.execPath,
+      workerPath,
+      String(pid),
+      uin,
+      ntHelperPath,
+    ],
+    { input: `${password}\n`, signal },
+  );
+  let parsed: WorkerOutput | null = null;
+  for (const raw of [result.stderr.trim(), result.stdout.trim()]) {
+    try {
+      const value = JSON.parse(raw) as WorkerOutput;
+      if (value && typeof value.ok === 'boolean') {
+        parsed = value;
+        break;
       }
-
-      if (code === 0 && parsed?.ok && parsed.material) {
-        resolve(parsed.material);
-        return;
-      }
-      const detail =
-        parsed?.error || stderr.trim() || stdout.trim() || `attach worker 退出码 ${code}`;
-      reject(new Error(`提权读取 QQ 内存失败：${linuxSudoErrorHint(detail)}`));
-    });
-
-    child.stdin.on('error', () => {
-      // sudo 提前退出（密码错误后立即结束）——忽略 EPIPE。
-    });
-    child.stdin.write(`${password}\n`);
-    child.stdin.end();
-  });
+    } catch {
+      /* Not the worker JSON envelope. */
+    }
+  }
+  if (result.code === 0 && parsed?.ok && parsed.material) return parsed.material;
+  // stdout may contain partial credentials; never use it as a diagnostic.
+  const detail = parsed?.error || `读取 worker 退出码 ${result.code}`;
+  throw new Error(`提权读取 QQ 内存失败：${linuxSudoErrorHint(detail)}`);
 }
 
 /**
@@ -275,12 +257,18 @@ export function createLinuxAttachHook(
    * passwordless path, or a user who once ticked it would be stuck on the sudo
    * prompt forever even after turning ptrace_scope off.
    */
-  async function attachUnprivileged(pid: number, uin: string): Promise<SessionMaterial> {
+  async function attachUnprivileged(
+    pid: number,
+    uin: string,
+    signal: AbortSignal,
+  ): Promise<SessionMaterial> {
     const box: { material: SessionMaterial | null } = { material: null };
     await runUnprivilegedAttach({
       log: (level, message, context) => logger[level](message, { ...context, pid }),
       tryDirect: async () => {
+        signal.throwIfAborted();
         const outcome = await tryDirectAttach(pid);
+        signal.throwIfAborted();
         if ('material' in outcome) {
           box.material = outcome.material;
           return null;
@@ -298,10 +286,10 @@ export function createLinuxAttachHook(
           return { choice: 'skip' as const, password: '' };
         }
         const prompt = getAttachHintPrompt();
-        return prompt ? await prompt() : { choice: 'skip' as const, password: '' };
+        return prompt ? await prompt(signal) : { choice: 'skip' as const, password: '' };
       },
       escalate: async (password) => {
-        box.material = await escalateWithPassword(pid, uin, password);
+        box.material = await escalateWithPassword(pid, uin, password, signal);
       },
       suppressHint: () => {
         userConfig.setSettings({ suppressAttachHint: true });
@@ -330,7 +318,9 @@ export function createLinuxAttachHook(
     pid: number,
     uin: string,
     password: string,
+    signal?: AbortSignal,
   ): Promise<SessionMaterial> {
+    signal?.throwIfAborted();
     const before = readYamaPtraceScope();
     if (before === null || before === '0') {
       logger.warn('yama ptrace_scope unusable; falling back to the elevated worker', {
@@ -338,7 +328,7 @@ export function createLinuxAttachHook(
         pid,
         scope: before ?? 'unavailable',
       });
-      return sudoAttach(pid, uin, password);
+      return sudoAttach(pid, uin, password, signal);
     }
 
     logger.info('lifting yama ptrace protection for this attach (fuse-hosted install)', {
@@ -348,7 +338,10 @@ export function createLinuxAttachHook(
     });
     await writeYamaPtraceScope('0', password);
     try {
-      return await nt.scanSessionMaterial(pid);
+      signal?.throwIfAborted();
+      const material = await nt.scanSessionMaterial(pid);
+      signal?.throwIfAborted();
+      return material;
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       throw new Error(`已临时放开 ptrace 保护，但读取内存仍然失败：${err.message}`);
@@ -383,7 +376,9 @@ export function createLinuxAttachHook(
     pid: number,
     uin: string,
     provided?: string,
+    signal?: AbortSignal,
   ): Promise<SessionMaterial> {
+    signal?.throwIfAborted();
     let password: string | null = provided ?? null;
     if (!password) {
       // Check the packaged helper before asking the user for a password.
@@ -397,19 +392,21 @@ export function createLinuxAttachHook(
       password = await requestSudoPassword(
         '提权读取 QQ 内存',
         '需要管理员权限读取正在运行的 QQ 进程内存（a2 / d2 / d2key）。请输入管理员密码。',
+        signal,
       );
     }
+    signal?.throwIfAborted();
     if (!password) {
       throw new Error('已取消授权，未读取 QQ 进程内存。');
     }
     if (installInvisibleToRoot()) {
-      return escalateViaPtraceScope(pid, uin, password);
+      return escalateViaPtraceScope(pid, uin, password, signal);
     }
-    return sudoAttach(pid, uin, password);
+    return sudoAttach(pid, uin, password, signal);
   }
 
   /** The read half — pops the password dialog unless we're already root. */
-  async function doAttach(pid: number, uin: string): Promise<SessionMaterial> {
+  async function doAttach(pid: number, uin: string, signal: AbortSignal): Promise<SessionMaterial> {
     // macOS 的硬门槛：SIP 开着时读内存不可能成功（QQ 带强化运行时，`task_for_pid`
     // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程。
     if (process.platform === 'darwin' && readSipEnabled() === true) {
@@ -427,7 +424,7 @@ export function createLinuxAttachHook(
           });
           return nt.scanSessionMaterial(pid);
         })()
-      : await attachUnprivileged(pid, uin);
+      : await attachUnprivileged(pid, uin, signal);
     return material;
   }
 

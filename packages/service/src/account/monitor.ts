@@ -60,6 +60,7 @@ export class AccountMonitorService {
   private running = false;
   private generation = 0;
   private stopped = false;
+  private readAbort = new AbortController();
   // Native registration and cleanup must preserve their order across stop/start.
   private readonly ssoOwners = new Map<number, object>();
 
@@ -146,6 +147,7 @@ export class AccountMonitorService {
     if (this.running) return;
     this.running = true;
     this.stopped = false;
+    if (this.readAbort.signal.aborted) this.readAbort = new AbortController();
     this.generation += 1;
     this.logger.info('started account monitor', { event: 'monitor-start' });
     // 发包序号（sequence）的起点：一次账号会话重置一次。QQ 本体也在推进同一账户的
@@ -232,6 +234,7 @@ export class AccountMonitorService {
   stop(): void {
     this.running = false;
     this.stopped = true;
+    this.readAbort.abort(new Error('账号会话已结束，读取已取消。'));
     this.generation += 1;
     const pids = new Set([...this.ssoInflight.keys(), ...this.ssoRegistrations.keys()]);
     if (this.attachedPid !== null) pids.add(this.attachedPid);
@@ -321,6 +324,8 @@ export class AccountMonitorService {
     if (pid === null) {
       this.generation += 1;
       this.ssoInflight.clear();
+      this.readAbort.abort();
+      this.readAbort = new AbortController();
       this.attachHook.reset(attached);
       this.forgetSsoSession(attached);
       this.logger.info('attached qq process exited; marking account offline', {
@@ -335,6 +340,8 @@ export class AccountMonitorService {
 
     if (pid !== attached) {
       generation = ++this.generation;
+      this.readAbort.abort();
+      this.readAbort = new AbortController();
       this.ssoInflight.clear();
       // The account's QQ instance restarted under a new pid — re-attach, and
       // move the session material onto the new pid (the old pid's credentials
@@ -429,7 +436,7 @@ export class AccountMonitorService {
       return;
     }
     // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
-    const material = await this.attachHook.ensure(pid, this.uin);
+    const material = await this.attachHook.ensure(pid, this.uin, this.readAbort.signal);
     this.assertCurrent(generation, pid);
     this.accountConfig.setSessionMaterial({
       a2: material.a2,

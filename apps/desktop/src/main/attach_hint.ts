@@ -13,7 +13,7 @@
 
 import type { AttachHintAnswer } from '@weq/service';
 
-export type AttachHintPrompt = () => Promise<AttachHintAnswer>;
+export type AttachHintPrompt = (signal?: AbortSignal) => Promise<AttachHintAnswer>;
 
 let current: AttachHintPrompt | null = null;
 

@@ -148,7 +148,7 @@ describe('account monitor authorization and SSO readiness', () => {
     f.setPid(43);
     await vi.advanceTimersByTimeAsync(5000);
     expect(f.hook.ensure).toHaveBeenCalledTimes(2);
-    expect(f.hook.ensure).toHaveBeenLastCalledWith(43, '12345');
+    expect(f.hook.ensure).toHaveBeenLastCalledWith(43, '12345', expect.any(AbortSignal));
     f.monitor.stop();
   });
 

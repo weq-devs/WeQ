@@ -63,4 +63,36 @@ describe('account and generation scoped attach cache', () => {
     expect((await second).a2).toBe('dd');
     expect(read).toHaveBeenCalledTimes(2);
   });
+  it('cancels the physical read only after all shared callers release it', async () => {
+    const finished = deferred<typeof material>();
+    let physical!: AbortSignal;
+    const hook = createCachedAttachHook(async (_pid, _uin, signal) => {
+      physical = signal;
+      return finished.promise;
+    });
+    const controller = new AbortController();
+    const first = hook.ensure(42, '10001', controller.signal).catch((error) => error);
+    const second = hook.ensure(42, '10001');
+    await Promise.resolve();
+    controller.abort(new Error('caller cancelled'));
+    expect(await first).toBeInstanceOf(Error);
+    expect(physical.aborted).toBe(false);
+    finished.resolve(material);
+    expect(await second).toEqual(material);
+  });
+  it('aborts a read when its final caller closes', async () => {
+    const finished = deferred<typeof material>();
+    let physical!: AbortSignal;
+    const hook = createCachedAttachHook(async (_pid, _uin, signal) => {
+      physical = signal;
+      return finished.promise;
+    });
+    const controller = new AbortController();
+    const request = hook.ensure(42, '10001', controller.signal).catch((error) => error);
+    await Promise.resolve();
+    controller.abort();
+    expect(await request).toBeInstanceOf(Error);
+    expect(physical.aborted).toBe(true);
+    finished.resolve(material);
+  });
 });

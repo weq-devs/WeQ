@@ -802,3 +802,7 @@ export {
   type CollectionCaptureOptions,
   type CollectionPageCapture,
 } from './account/collection_capture';
+
+export { runOwnedChild, type OwnedChildOptions, type OwnedChildResult } from './common/owned_child';
+
+export { SharedPrompt } from './common/shared_prompt';
