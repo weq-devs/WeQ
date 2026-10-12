@@ -601,11 +601,22 @@ export function CollectionDialog({
       try {
         const local = (await client.account.collectionDetail.query({
           cid,
-        })) as CollectionItemWire | null;
+        })) as CollectionItemWire | CollectionDetailPatch | null;
         if (cancelled || generation !== detailGeneration.current) return;
         if (local) {
-          setSelected((current) => (current?.cid === cid ? local : current));
-          setItems((current) => current.map((item) => (item.cid === cid ? local : item)));
+          // Keep the current cloud summary; QQ's local list row may be stale
+          // or absent even though a durable detail response is available.
+          const detailFields = {
+            contentStatus: local.contentStatus,
+            fullContent: local.fullContent,
+            fullContentFormat: local.fullContentFormat,
+          };
+          setSelected((current) =>
+            current?.cid === cid ? { ...current, ...detailFields } : current,
+          );
+          setItems((current) =>
+            current.map((item) => (item.cid === cid ? { ...item, ...detailFields } : item)),
+          );
         }
         const alreadyCached =
           local?.contentStatus === 'cached' || selectedContentStatus.current === 'cached';

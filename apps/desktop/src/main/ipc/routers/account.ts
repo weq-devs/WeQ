@@ -4126,7 +4126,10 @@ export const accountRouter = router({
   collectionDetail: procedure
     .input(z.object({ cid: z.string().min(1).max(512) }))
     .query(async ({ input }) => {
-      const item = await requireServices().collection.readCachedDetail(input.cid);
+      const service = requireServices().collection;
+      const content = await service.readCachedContent(input.cid);
+      if (content) return collectionDetailToWire(input.cid, content);
+      const item = await service.readCachedDetail(input.cid);
       return item ? collectionItemToWire(item) : null;
     }),
 

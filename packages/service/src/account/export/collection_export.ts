@@ -86,6 +86,81 @@ export interface CollectionExportResult {
   filePath: string;
   /** 写入的收藏条数。 */
   count: number;
+  coverage: CollectionExportCoverage;
+}
+
+export type CollectionBodyCoverage =
+  | 'full-text'
+  | 'full-html'
+  | 'binary-unrendered'
+  | 'no-extra-body'
+  | 'summary'
+  | 'truncated-summary';
+
+export interface CollectionExportCoverage {
+  /** Exhausting the list does not establish full detail/media coverage. */
+  listEndReached: true;
+  serverCountVerified: false;
+  rows: number;
+  detailsReceived: number;
+  detailsUncovered: number;
+  bodies: Record<CollectionBodyCoverage, number>;
+  originalsComplete: false;
+  mediaDownloadState: 'not-requested';
+  items: Array<{
+    cid: string;
+    detail: 'received' | 'uncovered';
+    body: CollectionBodyCoverage;
+    /** URLs alone cannot establish whether a file is original or a thumbnail. */
+    media: 'not-requested';
+    originalQuality: 'unverified';
+  }>;
+}
+
+function bodyCoverage(row: CollectionExportRow): CollectionBodyCoverage {
+  if (row.contentStatus === 'cached' || row.contentStatus === 'complete') {
+    if (row.fullContentFormat === 'text') return 'full-text';
+    if (row.fullContentFormat === 'html') return 'full-html';
+    if (row.fullContentFormat === 'binary') return 'binary-unrendered';
+    return 'no-extra-body';
+  }
+  return row.textTruncated || row.contentStatus === 'truncated' ? 'truncated-summary' : 'summary';
+}
+
+function summarizeCoverage(rows: readonly CollectionExportRow[]): CollectionExportCoverage {
+  const bodies: Record<CollectionBodyCoverage, number> = {
+    'full-text': 0,
+    'full-html': 0,
+    'binary-unrendered': 0,
+    'no-extra-body': 0,
+    summary: 0,
+    'truncated-summary': 0,
+  };
+  let detailsReceived = 0;
+  const items = rows.map((row): CollectionExportCoverage['items'][number] => {
+    const body = bodyCoverage(row);
+    bodies[body] += 1;
+    const received = row.contentStatus === 'cached' || row.contentStatus === 'complete';
+    if (received) detailsReceived += 1;
+    return {
+      cid: row.cid,
+      detail: received ? 'received' : 'uncovered',
+      body,
+      media: 'not-requested',
+      originalQuality: 'unverified',
+    };
+  });
+  return {
+    listEndReached: true,
+    serverCountVerified: false,
+    rows: rows.length,
+    detailsReceived,
+    detailsUncovered: rows.length - detailsReceived,
+    bodies,
+    originalsComplete: false,
+    mediaDownloadState: 'not-requested',
+    items,
+  };
 }
 
 const PAGE = 200;
@@ -160,7 +235,9 @@ function rowTitle(r: CollectionExportRow): string {
 
 /** 正文：文本 / 链接摘要 / 图文摘要 / 语音转写。 */
 function rowBody(r: CollectionExportRow): string {
-  if (r.fullContent) return r.fullContent;
+  if (r.fullContentFormat === 'text' || r.fullContentFormat === 'html') {
+    return r.fullContent ?? '';
+  }
   if (r.text) return r.text;
   if (r.richMedia?.brief) return r.richMedia.brief;
   if (r.link?.brief) return r.link.brief;
@@ -207,6 +284,16 @@ function rowLocation(r: CollectionExportRow): string {
 }
 
 const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
+  {
+    key: 'bodyCoverage',
+    header: '正文覆盖',
+    get: (r) => bodyCoverage(r),
+  },
+  {
+    key: 'mediaCoverage',
+    header: '附件原件',
+    get: () => '未下载，原件质量未核验',
+  },
   {
     key: 'contentStatus',
     header: '内容完整性',
@@ -296,5 +383,6 @@ export async function exportCollections(
 
   opts.onProgress?.(rows.length, rows.length, `${rows.length} 条收藏`);
   await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
-  return { filePath: opts.outputPath, count: rows.length };
+  opts.signal?.throwIfAborted();
+  return { filePath: opts.outputPath, count: rows.length, coverage: summarizeCoverage(rows) };
 }

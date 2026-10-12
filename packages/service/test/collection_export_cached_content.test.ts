@@ -49,7 +49,7 @@ describe('collection export official-client cache', () => {
       },
     };
     const outputPath = join(dir, 'collections.json');
-    await exportCollections(
+    const exported = await exportCollections(
       { format: 'json', outputPath },
       { listCollections: async (_limit, offset) => (offset === 0 ? [row] : []) },
     );
@@ -58,5 +58,59 @@ describe('collection export official-client cache', () => {
     expect(result[0]?.body).toBe(full);
     expect(result[0]?.fullContentFormat).toBe('html');
     expect(result[0]?.contentStatus).toBe('详情已读取');
+    expect(exported.coverage).toMatchObject({
+      detailsReceived: 1,
+      detailsUncovered: 0,
+      bodies: { 'full-html': 1 },
+      originalsComplete: false,
+      serverCountVerified: false,
+      items: [{ cid: 'cid-rich', body: 'full-html', originalQuality: 'unverified' }],
+    });
+
+    const mixed = await exportCollections(
+      { format: 'json', outputPath },
+      {
+        listCollections: async () => [
+          row,
+          {
+            ...row,
+            cid: 'truncated',
+            contentStatus: 'truncated',
+            fullContent: '',
+            fullContentFormat: null,
+          },
+          { ...row, cid: 'binary', fullContent: '', fullContentFormat: 'binary' },
+          { ...row, cid: 'empty-text', fullContent: '', fullContentFormat: 'text' },
+          { ...row, cid: 'no-extra', kind: 'link', fullContent: '', fullContentFormat: null },
+        ],
+      },
+    );
+    expect(mixed.coverage).toMatchObject({
+      rows: 5,
+      detailsReceived: 4,
+      detailsUncovered: 1,
+      bodies: {
+        'full-text': 1,
+        'full-html': 1,
+        'binary-unrendered': 1,
+        'no-extra-body': 1,
+        'truncated-summary': 1,
+      },
+      mediaDownloadState: 'not-requested',
+    });
+    const mixedRows = JSON.parse(await readFile(outputPath, 'utf8'));
+    expect(mixedRows[3].body).toBe('');
+    expect(mixedRows[1].body).toBe('截断摘要');
+    expect(mixedRows[2].bodyCoverage).toBe('binary-unrendered');
+    expect(mixedRows[4].mediaCoverage).toBe('未下载，原件质量未核验');
+
+    const filtered = await exportCollections(
+      { format: 'json', outputPath, kinds: ['link'] },
+      {
+        listCollections: async () => [row, { ...row, cid: 'link-only', kind: 'link' }],
+      },
+    );
+    expect(filtered.coverage.rows).toBe(1);
+    expect(filtered.coverage.items.map((entry) => entry.cid)).toEqual(['link-only']);
   });
 });

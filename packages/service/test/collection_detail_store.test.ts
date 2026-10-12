@@ -104,4 +104,65 @@ describe('CollectionDetailStore', () => {
     ).toThrow('顺序');
     expect(store.count()).toBe(0);
   });
+
+  it('does not partially commit earlier rows when a later row is invalid', () => {
+    const root = makeRoot();
+    const store = new CollectionDetailStore(root, '10001');
+    const capture = store.saveRawBatch(['first', 'second'], Uint8Array.of(1));
+    expect(() =>
+      store.commitBatch(
+        [
+          { cid: 'first', content: { recordTime: 0 } },
+          { cid: 'wrong', content: { recordTime: 0 } },
+        ],
+        capture,
+      ),
+    ).toThrow('顺序');
+    expect(store.get('first')).toBeNull();
+    expect(store.count()).toBe(0);
+    expect(new CollectionDetailStore(root, '10001').count()).toBe(0);
+  });
+
+  it('keeps the old in-memory cache when the ledger cannot be published', () => {
+    const root = makeRoot();
+    const store = new CollectionDetailStore(root, '10001');
+    const capture = store.saveRawBatch(['new'], Uint8Array.of(1));
+    mkdirSync(join(root, 'accounts/10001/detail-ledger.json'));
+    expect(() =>
+      store.commitBatch([{ cid: 'new', content: { recordTime: 0 } }], capture),
+    ).toThrow();
+    expect(store.get('new')).toBeNull();
+    expect(store.count()).toBe(0);
+  });
+
+  it('rejects missing, altered and foreign-account raw responses', () => {
+    const root = makeRoot();
+    const store = new CollectionDetailStore(root, '10001');
+    const capture = store.saveRawBatch(['cid'], Uint8Array.of(1));
+    const details = [{ cid: 'cid', content: { recordTime: 0 } }];
+    const other = new CollectionDetailStore(root, '10002');
+    expect(() => other.commitBatch(details, capture)).toThrow('路径');
+    writeFileSync(join(root, capture.responseFile), Uint8Array.of(2));
+    expect(() => store.commitBatch(details, capture)).toThrow('校验');
+    rmSync(join(root, capture.responseFile));
+    expect(() => store.commitBatch(details, capture)).toThrow();
+    expect(store.count()).toBe(0);
+  });
+
+  it('does not treat inherited names or malformed ledger entries as cached details', () => {
+    const root = makeRoot();
+    const store = new CollectionDetailStore(root, '10001');
+    expect(store.get('constructor')).toBeNull();
+    store.saveBatch([{ cid: '__proto__', content: { recordTime: 0 } }], Uint8Array.of(1));
+    expect(new CollectionDetailStore(root, '10001').get('__proto__')?.fetched).toBe(true);
+    writeFileSync(
+      join(root, 'accounts/10001/detail-ledger.json'),
+      JSON.stringify({
+        version: 1,
+        uin: '10001',
+        latest: { broken: { content: { fetched: true } } },
+      }),
+    );
+    expect(new CollectionDetailStore(root, '10001').get('broken')).toBeNull();
+  });
 });

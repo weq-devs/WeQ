@@ -2318,11 +2318,8 @@ export class ExportTaskManager extends EventEmitter {
         join(bundle.stageDir, 'coverage.json'),
         JSON.stringify(
           {
-            version: 1,
-            rows: result.count,
-            contentCoverage: 'list-summaries',
-            detailsComplete: false,
-            originalsComplete: false,
+            version: 2,
+            ...result.coverage,
             history,
             historyError,
           },

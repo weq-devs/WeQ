@@ -156,6 +156,14 @@ export class CollectionService {
     return item;
   }
 
+  /** Cached content is independent of whether QQ has a local list row for it. */
+  async readCachedContent(cid: string): Promise<CollectionCachedContent | null> {
+    const stored = this.details?.get(cid);
+    if (stored) return stored;
+    const local = await this.session.collection.cachedContentByCids([cid]);
+    return local.get(cid) ?? null;
+  }
+
   /**
    * Fetch up to 20 full favorite bodies from operation 20001. Existing official
    * QQ or WeQ cache entries are reused unless `force` is requested.
@@ -164,12 +172,17 @@ export class CollectionService {
     cids: readonly string[],
     options: CollectionDetailFetchOptions = {},
   ): Promise<CollectionNetworkDetail[]> {
+    if (cids.length < 1 || cids.length > 20 || new Set(cids).size !== cids.length) {
+      throw new Error('收藏详情每批需要 1–20 个不同的 ID。');
+    }
+    options.signal?.throwIfAborted();
     const cached = options.force
       ? new Map<string, CollectionCachedContent>()
       : await this.cached(cids);
     const missing = cids.filter((cid) => !cached.has(cid));
     if (missing.length > 0) {
       const credential = await this.creds.forDomain(WEIYUN_DOMAIN);
+      options.signal?.throwIfAborted();
       let capture: ReturnType<CollectionDetailStore['saveRawBatch']> | undefined;
       const fetched = await getCollectionDetailsNetwork(credential, missing, {
         signal: options.signal,
@@ -179,6 +192,7 @@ export class CollectionService {
             }
           : undefined,
       });
+      options.signal?.throwIfAborted();
       if (this.details) {
         if (!capture) throw new Error('收藏详情原始响应未保存。');
         this.details.commitBatch(fetched, capture);
@@ -272,7 +286,15 @@ export class CollectionService {
 
   /** Merge official QQ detail rows with WeQ's durable network detail cache. */
   private async cached(cids: readonly string[]): Promise<Map<string, CollectionCachedContent>> {
-    const cached = await this.session.collection.cachedContentByCids(cids);
+    let cached = new Map<string, CollectionCachedContent>();
+    try {
+      cached = await this.session.collection.cachedContentByCids(cids);
+    } catch (error) {
+      this.logger.warn('official collection detail cache unavailable', {
+        event: 'collection-detail-db-failed',
+        ...logErrorContext(error),
+      });
+    }
     const stored = this.details?.getMany(cids);
     if (stored) {
       for (const [cid, content] of stored) cached.set(cid, content);

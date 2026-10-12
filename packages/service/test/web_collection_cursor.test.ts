@@ -64,6 +64,7 @@ function detailFixture(
   contents: Array<{
     textContent?: { data: string; hasEmoji?: boolean };
     richMediaContent?: {
+      richMedia?: Uint8Array;
       rawData?: Uint8Array;
       bizDataList?: Uint8Array[];
       picList?: Array<{ url: string; md5?: Uint8Array }>;
@@ -323,6 +324,14 @@ describe('collector cursor requests', () => {
 });
 
 describe('collector detail requests', () => {
+  it('preserves a structured rich-media body without HTML rather than marking it empty', async () => {
+    const bytes = Uint8Array.of(8, 1, 18, 0);
+    const [detail] = await getCollectionDetailsNetwork(cred, ['structured'], {
+      transport: async () => detailFixture([{ richMediaContent: { richMedia: bytes } }]),
+    });
+    expect(Array.from(detail?.content.richMedia ?? [])).toEqual(Array.from(bytes));
+    expect(detail?.content.richMediaContent?.rawData).toBeUndefined();
+  });
   it('encodes operation 20001 and maps text/rich-media details in request order', async () => {
     const transport = vi.fn(async () =>
       detailFixture([

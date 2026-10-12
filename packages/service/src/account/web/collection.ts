@@ -346,7 +346,7 @@ function mapDetail(content: WireDetail): CollectionCachedContent {
   const detail: CollectionCachedContent = { recordTime: Date.now() };
   if (content.textContent) {
     detail.textContent = {
-      data: content.textContent.data,
+      data: content.textContent.data ?? '',
       hasEmoji: content.textContent.hasEmoji,
     };
   }
@@ -362,7 +362,9 @@ function mapDetail(content: WireDetail): CollectionCachedContent {
   if (content.locationContent) detail.location = content.locationContent;
   if (content.richMediaContent) {
     const rich = content.richMediaContent;
-    if (rich.rawData) detail.richMedia = rich.rawData;
+    // Retain structured content even when the service supplies no HTML body.
+    // A successful structured response must not look like an empty detail.
+    if (rich.rawData ?? rich.richMedia) detail.richMedia = rich.rawData ?? rich.richMedia;
     detail.richMediaContent = {
       rawData: decodeUtf8(rich.rawData),
       bizDataList: (rich.bizDataList ?? [])

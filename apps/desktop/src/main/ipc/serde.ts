@@ -1036,6 +1036,9 @@ function cachedContentProjection(
   if ((!kind || kind === 'richMedia') && cached.richMediaContent?.rawData !== undefined) {
     return { text: cached.richMediaContent.rawData, format: 'html' };
   }
+  if ((!kind || kind === 'richMedia') && cached.richMediaContent) {
+    return { text: '', format: 'binary' };
+  }
   const preferred = COLLECTION_CACHE_SLOTS.includes(kind as (typeof COLLECTION_CACHE_SLOTS)[number])
     ? (kind as (typeof COLLECTION_CACHE_SLOTS)[number])
     : null;

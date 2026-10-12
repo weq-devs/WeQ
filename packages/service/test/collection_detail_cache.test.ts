@@ -87,7 +87,7 @@ describe('cloud summaries with local collection details', () => {
       });
       const session = {
         context: { uin: '10001' },
-        collection: { cachedContentByCids },
+        collection: { cachedContentByCids, getByCid: vi.fn(async () => null) },
       } as unknown as AccountSession;
       vi.mocked(getCollectionDetailsNetwork).mockImplementation(async (_cred, cids, options) => {
         await options?.onRawResponse?.({ cids, response: Uint8Array.of(4, 5, 6) });
@@ -112,6 +112,15 @@ describe('cloud summaries with local collection details', () => {
 
       vi.mocked(getCollectionDetailsNetwork).mockClear();
       const reopened = new CollectionService({} as WebNative, session, () => 123, root);
+      expect(await reopened.readCachedDetail('cid-network')).toBeNull();
+      expect((await reopened.readCachedContent('cid-network'))?.textContent?.data).toBe(
+        '网络 cid-network',
+      );
+      expect((await reopened.fetchDetails(['cid-network']))[0]?.content.textContent?.data).toBe(
+        '网络 cid-network',
+      );
+      expect(getCollectionDetailsNetwork).not.toHaveBeenCalled();
+      cachedContentByCids.mockRejectedValueOnce(new Error('local db closed'));
       expect((await reopened.fetchDetails(['cid-network']))[0]?.content.textContent?.data).toBe(
         '网络 cid-network',
       );

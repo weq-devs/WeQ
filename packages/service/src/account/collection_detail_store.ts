@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CollectionCachedContent } from '@weq/db';
 import { writeFileAtomicSync } from '../common/atomic_write';
@@ -36,18 +37,39 @@ export interface CollectionDetailRawCapture {
 }
 
 function empty(uin: string): DetailLedger {
-  return { version: 1, uin, updatedAt: 0, latest: {} };
+  return { version: 1, uin, updatedAt: 0, latest: Object.create(null) };
+}
+
+function validEntry(value: unknown, uin: string): value is DetailLedgerEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Partial<DetailLedgerEntry>;
+  return (
+    typeof entry.capturedAt === 'number' &&
+    Number.isFinite(entry.capturedAt) &&
+    typeof entry.responseSha256 === 'string' &&
+    /^[a-f0-9]{64}$/.test(entry.responseSha256) &&
+    entry.responseFile === `accounts/${uin}/detail-raw/${entry.responseSha256}.bin` &&
+    Number.isSafeInteger(entry.responseIndex) &&
+    Number(entry.responseIndex) >= 0 &&
+    Boolean(entry.content && typeof entry.content === 'object' && !Array.isArray(entry.content))
+  );
 }
 
 function normalize(value: unknown, uin: string): DetailLedger {
   if (!value || typeof value !== 'object') return empty(uin);
   const ledger = value as Partial<DetailLedger>;
   if (ledger.version !== 1 || ledger.uin !== uin) return empty(uin);
+  const latest: Record<string, DetailLedgerEntry> = Object.create(null);
+  if (ledger.latest && typeof ledger.latest === 'object' && !Array.isArray(ledger.latest)) {
+    for (const [cid, entry] of Object.entries(ledger.latest)) {
+      if (validEntry(entry, uin)) latest[cid] = entry;
+    }
+  }
   return {
     version: 1,
     uin,
     updatedAt: Number.isFinite(ledger.updatedAt) ? Number(ledger.updatedAt) : 0,
-    latest: ledger.latest && typeof ledger.latest === 'object' ? ledger.latest : {},
+    latest,
   };
 }
 
@@ -102,7 +124,9 @@ export class CollectionDetailStore {
     if (!entry) return null;
     try {
       const content = decodeValue(entry.content);
-      return content && typeof content === 'object' ? (content as CollectionCachedContent) : null;
+      if (!content || typeof content !== 'object' || Array.isArray(content)) return null;
+      const decoded = content as CollectionCachedContent;
+      return decoded.fetched === true && Number.isFinite(decoded.recordTime) ? decoded : null;
     } catch {
       return null;
     }
@@ -140,10 +164,27 @@ export class CollectionDetailStore {
   ): void {
     if (details.length === 0) throw new Error('收藏详情批次为空。');
     if (details.length !== capture.cids.length) throw new Error('收藏详情批次数量不一致。');
+    if (
+      !/^[a-f0-9]{64}$/.test(capture.responseSha256) ||
+      capture.responseFile !== `accounts/${this.uin}/detail-raw/${capture.responseSha256}.bin`
+    ) {
+      throw new Error('收藏详情原始响应路径无效。');
+    }
+    const raw = readFileSync(join(this.root, capture.responseFile));
+    if (createHash('sha256').update(raw).digest('hex') !== capture.responseSha256) {
+      throw new Error('收藏详情原始响应校验失败。');
+    }
+    const latest: Record<string, DetailLedgerEntry> = Object.assign(
+      Object.create(null),
+      this.ledger.latest,
+    );
+    const seen = new Set<string>();
     for (const [index, detail] of details.entries()) {
       if (!detail.cid) throw new Error('收藏详情缺少 CID。');
       if (detail.cid !== capture.cids[index]) throw new Error('收藏详情批次顺序不一致。');
-      this.ledger.latest[detail.cid] = {
+      if (seen.has(detail.cid)) throw new Error('收藏详情批次 ID 重复。');
+      seen.add(detail.cid);
+      latest[detail.cid] = {
         capturedAt: capture.capturedAt,
         responseSha256: capture.responseSha256,
         responseFile: capture.responseFile,
@@ -155,8 +196,9 @@ export class CollectionDetailStore {
         }),
       };
     }
-    this.ledger.updatedAt = capture.capturedAt;
-    writeFileAtomicSync(this.ledgerPath, JSON.stringify(this.ledger, null, 2));
+    const next: DetailLedger = { ...this.ledger, latest, updatedAt: capture.capturedAt };
+    writeFileAtomicSync(this.ledgerPath, JSON.stringify(next, null, 2));
+    this.ledger = next;
   }
 
   saveBatch(details: readonly CollectionNetworkDetail[], rawResponse: Uint8Array): void {
