@@ -92,6 +92,8 @@ export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
   nextCursor: CollectionNetworkCursor | null;
   /** Server-reported list count, when present; not proof of complete content. */
   totalCount: number | null;
+  /** Exact collector envelope used to build this page. */
+  rawResponse: Uint8Array;
 }
 
 function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
@@ -437,6 +439,7 @@ export async function getCollectionPageNetwork(
     hasMore,
     nextCursor: hasMore ? { timeStamp: nextTimeStamp!.toString(), sequence: sequence + 1 } : null,
     totalCount: page.totalCount === undefined ? null : Number(page.totalCount),
+    rawResponse: response,
   };
 }
 

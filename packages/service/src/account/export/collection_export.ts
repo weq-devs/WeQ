@@ -12,6 +12,7 @@
  */
 
 import { writeTable, type Col, type TableFormat } from './table_writer';
+import type { CollectionHistorySummary } from '../collection_history';
 
 /** 收藏图片：collector-CDN uri 加固有尺寸。 */
 export interface CollectionExportPic {
@@ -71,6 +72,9 @@ export interface CollectionExportRow {
 export interface CollectionExportDeps {
   /** 分页拉收藏（新到旧）。 */
   listCollections: (limit: number, offset: number) => Promise<CollectionExportRow[]>;
+  syncHistory?: (signal?: AbortSignal) => Promise<CollectionHistorySummary>;
+  historySummary?: () => CollectionHistorySummary | null;
+  writeHistorySnapshot?: (path: string) => void;
 }
 
 /** 收藏导出格式（表格四种）。 */

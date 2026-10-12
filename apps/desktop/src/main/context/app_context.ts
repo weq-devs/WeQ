@@ -1122,6 +1122,7 @@ export function initAppContext(): AppContext {
         platform.native.ntHelper,
         session,
         resolveOnlinePid,
+        userConfig.cacheDir(join('collection-history', exportConfigId)),
       );
       // 红包领取明细：查详情要在线注入（hook 发包），p_skey 按域缓存在服务里。
       const redbagSvc = new RedBagService(platform.native.ntHelper, session, resolveOnlinePid);
@@ -1340,8 +1341,8 @@ export function initAppContext(): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
-              fetchMsgList: (uin, pos, num, signal) =>
-                webQuery.getQzoneMsgList(uin, pos, num, undefined, signal),
+              fetchMsgList: (uin, pos, num, signal, captureRaw) =>
+                webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal) =>
                 webQuery.getQzoneInteractions(uin, targets, signal),
               // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
@@ -1408,6 +1409,9 @@ export function initAppContext(): AppContext {
                 const page = await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
+              syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
+              historySummary: () => collectionSvc.collectionHistorySummary(),
+              writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
             },
             // 商城表情批量下载：桥接 EmojiService 的解密链（详情 / 密钥 / 解密图片路径）。
             marketpack: {
@@ -1696,7 +1700,12 @@ export function initAppContext(): AppContext {
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
-      const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
+      const collectionSvc = new CollectionService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        userConfig.cacheDir(join('collection-history', exportConfigId)),
+      );
       // 红包领取明细：静态账号下 onlinePid 会抛错，前端会先拦（需要在线注入）。
       const redbagSvc = new RedBagService(platform.native.ntHelper, session, livePid);
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
@@ -1893,8 +1902,8 @@ export function initAppContext(): AppContext {
               },
             },
             qzone: {
-              fetchMsgList: (uin, pos, num, signal) =>
-                webQuery.getQzoneMsgList(uin, pos, num, undefined, signal),
+              fetchMsgList: (uin, pos, num, signal, captureRaw) =>
+                webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal) =>
                 webQuery.getQzoneInteractions(uin, targets, signal),
               // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
@@ -1907,6 +1916,9 @@ export function initAppContext(): AppContext {
                 const page = await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
+              syncHistory: (signal) => collectionSvc.syncNetworkHistory(signal),
+              historySummary: () => collectionSvc.collectionHistorySummary(),
+              writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,

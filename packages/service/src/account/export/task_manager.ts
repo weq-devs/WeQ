@@ -33,6 +33,8 @@ import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
 import { rewriteVoiceTranscripts } from './voice_rewrite';
 import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
+import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bundle';
+import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
@@ -1894,6 +1896,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    let bundle: AtomicExportBundle | null = null;
 
     try {
       const qzone = this.deps.qzone;
@@ -1905,11 +1908,12 @@ export class ExportTaskManager extends EventEmitter {
       const wantInteraction = Boolean(
         (task.qzoneInteractions || formats.includes('html')) && qzone.fetchInteractions,
       );
-      // 多格式或下载配图 → 产物为 bundle 目录（多个文件 + media/），否则单文件。
-      const isBundle = wantMedia || formats.length > 1;
-      const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
-      if (isBundle) mkdirSync(outDir, { recursive: true });
+      // 每次空间导出都包含正文与 coverage，必须在私有 staging 中全部完成后整体发布。
+      bundle = createAtomicExportBundle(this.cacheDir, id);
+      const outDir = bundle.stageDir;
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
+      const history = new QzoneHistoryStore(this.cacheDir, task.conv);
+      const resume = history.resumeState();
 
       this.touchStage(
         task,
@@ -1958,6 +1962,14 @@ export class ExportTaskManager extends EventEmitter {
             });
             this.log(id, 'message', note);
           },
+          ...(resume
+            ? {
+                startPos: resume.startPos,
+                initialRows: resume.rows,
+                expectedAnchorTids: resume.anchorTids,
+              }
+            : {}),
+          onPage: async (page) => history.savePage(page),
           signal: abort.signal,
         },
         qzone,
@@ -1969,6 +1981,7 @@ export class ExportTaskManager extends EventEmitter {
       const count = data.rows.length;
       const totalCount = count * formats.length;
       const { mediaOk, mediaFailed } = data;
+      data.history = history.summary();
       const interactionSummary = data.interaction
         ? data.interaction.failed
           ? '互动拉取失败（正文已导出）'
@@ -1998,9 +2011,14 @@ export class ExportTaskManager extends EventEmitter {
         }
       }
 
+      history.writeSnapshot(join(outDir, 'qzone-history.json'));
+      bundle.publish();
+      const publishedDir = bundle.finalDir;
+      firstFilePath = join(publishedDir, firstFilePath.slice(outDir.length + 1));
+
       task.filePath = firstFilePath;
       task.current = totalCount;
-      if (isBundle) task.bundleDir = outDir;
+      task.bundleDir = publishedDir;
       this.touchStage(
         task,
         'message',
@@ -2043,6 +2061,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      if (task.status !== 'completed') bundle?.discard();
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
       this.saveTasks();
@@ -2252,17 +2271,28 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    let bundle: AtomicExportBundle | null = null;
 
     try {
       const deps = this.deps.collection;
       if (!deps) throw new Error('收藏数据拉取能力不可用。');
 
-      const outPath = join(
-        this.cacheDir,
-        `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`,
-      );
+      bundle = createAtomicExportBundle(this.cacheDir, id);
+      const fileName = `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`;
+      const outPath = join(bundle.stageDir, fileName);
 
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
+      let historyError: string | null = null;
+      let history = deps.historySummary?.() ?? null;
+      if (deps.syncHistory) {
+        try {
+          history = await deps.syncHistory(abort.signal);
+        } catch (error) {
+          if (aborted()) throw error;
+          historyError = error instanceof Error ? error.message : String(error);
+          this.log(id, 'message', `云收藏历史同步未完成：${historyError}`, 'warn');
+        }
+      }
       const result = await exportCollections(
         {
           format: task.format as CollectionFormat,
@@ -2282,7 +2312,28 @@ export class ExportTaskManager extends EventEmitter {
         return;
       }
 
-      task.filePath = result.filePath;
+      if (history && deps.writeHistorySnapshot)
+        deps.writeHistorySnapshot(join(bundle.stageDir, 'collection-history.json'));
+      writeFileAtomicSync(
+        join(bundle.stageDir, 'coverage.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            rows: result.count,
+            contentCoverage: 'list-summaries',
+            detailsComplete: false,
+            originalsComplete: false,
+            history,
+            historyError,
+          },
+          null,
+          2,
+        ),
+      );
+      bundle.publish();
+
+      task.filePath = join(bundle.finalDir, fileName);
+      task.bundleDir = bundle.finalDir;
       task.current = result.count;
       this.touchStage(
         task,
@@ -2308,6 +2359,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      if (task.status !== 'completed') bundle?.discard();
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
       this.saveTasks();

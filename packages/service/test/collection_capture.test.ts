@@ -13,6 +13,7 @@ const page = (cid: string, stamp: string | null) => ({
   hasMore: stamp !== null,
   nextCursor: stamp === null ? null : { timeStamp: stamp, sequence: 2 },
   totalCount: 2,
+  rawResponse: Uint8Array.of(1, 2, 3),
 });
 
 describe('resumable collection capture', () => {

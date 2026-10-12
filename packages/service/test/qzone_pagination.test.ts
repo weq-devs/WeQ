@@ -54,11 +54,30 @@ describe('Qzone pagination reports incomplete captures', () => {
       undefined,
       { startPos: 10, onPage },
     );
-    expect(fetchMsgList).toHaveBeenCalledWith('10001', 10, 20, undefined);
+    expect(fetchMsgList).toHaveBeenCalledWith('10001', 10, 20, undefined, expect.any(Function));
     expect(onPage).toHaveBeenCalledWith(
       expect.objectContaining({ pos: 10, nextPos: 11, termination: 'stable-tail' }),
     );
     expect(rows).toEqual([row('b')]);
+  });
+  it('restores saved rows and validates the first resumed overlap anchor', async () => {
+    const saved = rows('a', 20);
+    const resumed = [...saved.slice(-5), row('b-1')];
+    const fetchMsgList = vi.fn(async () => ({ total: 21, list: resumed }));
+    const result = await fetchQzoneEmotionRange(
+      { fetchMsgList },
+      '10001',
+      undefined,
+      () => {},
+      undefined,
+      {
+        startPos: 15,
+        initialRows: saved,
+        expectedAnchorTids: saved.slice(-5).map((item) => item.tid),
+      },
+    );
+    expect(result).toHaveLength(21);
+    expect(result.at(-1)?.tid).toBe('b-1');
   });
   it('stops when an overlap anchor disappears after the list changes', async () => {
     const fetchMsgList = vi

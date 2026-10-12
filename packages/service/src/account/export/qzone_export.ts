@@ -40,6 +40,7 @@ export interface QzoneExportDeps {
     pos: number,
     num: number,
     signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
   ) => Promise<QzoneMsgListResult>;
   /**
    * Best-effort 批量读取若干说说的评论 + 点赞（空间动态页 HTML 解析，需在线 QQ）。
@@ -108,6 +109,21 @@ export interface QzoneInteractionSummary {
   failed: boolean;
   missingPosts?: number;
   likesFailed?: number;
+  coverage?: {
+    comments: QzoneCoverageCounts;
+    replies: QzoneCoverageCounts;
+    likes: QzoneCoverageCounts;
+  };
+}
+
+export type QzoneCoverageState = 'complete' | 'observed' | 'unobserved' | 'failed' | 'unavailable';
+
+export type QzoneCoverageCounts = Record<QzoneCoverageState, number>;
+
+export interface QzoneInteractionCoverage {
+  comments: QzoneCoverageState;
+  replies: QzoneCoverageState;
+  likes: QzoneCoverageState;
 }
 
 /** 一次拉取的说说数据（含互动 / 配图统计）—— 多格式产物共用，避免重复翻页 / 重复拉互动。 */
@@ -120,6 +136,13 @@ export interface QzoneExportData {
   mediaFailed: number;
   mediaFiles?: string[];
   mediaOutcomes?: QzoneMediaOutcome[];
+  history?: {
+    items: number;
+    revisions: number;
+    rawPages: number;
+    nextPos: number;
+    termination: QzonePageCapture['termination'] | null;
+  };
 }
 
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
@@ -167,11 +190,16 @@ export interface QzonePageCapture {
   nextPos: number;
   total: number;
   rows: QzoneEmotion[];
+  rawResponses?: string[];
   termination: 'more' | 'empty-page' | 'stable-tail' | 'time-range' | 'repeated-page';
 }
 
 export interface QzonePaginationOptions {
   startPos?: number;
+  /** Rows saved before a resumed cursor; returned again so the final export stays complete. */
+  initialRows?: QzoneEmotion[];
+  /** Tail IDs from the last saved page. The first resumed page must overlap them. */
+  expectedAnchorTids?: string[];
   /** Save rows and the next cursor together; failure leaves this page retryable. */
   onPage?: (page: QzonePageCapture) => Promise<void>;
 }
@@ -219,11 +247,13 @@ export async function fetchQzoneEmotionRange(
   signal?: AbortSignal,
   pagination: QzonePaginationOptions = {},
 ): Promise<QzoneEmotion[]> {
-  const seen = new Set<string>();
-  const all: QzoneEmotion[] = [];
+  const all: QzoneEmotion[] = [...(pagination.initialRows ?? [])];
+  const seen = new Set(all.map((row) => row.tid));
   let total = 0;
   let pos = pagination.startPos ?? 0;
-  let expectedAnchor: Set<string> | null = null;
+  let expectedAnchor: Set<string> | null = pagination.expectedAnchorTids?.length
+    ? new Set(pagination.expectedAnchorTids)
+    : null;
   if (!Number.isSafeInteger(pos) || pos < 0) throw new Error('空间分页位置无效。');
 
   const capturePage = async (capture: QzonePageCapture): Promise<void> => {
@@ -244,8 +274,11 @@ export async function fetchQzoneEmotionRange(
     if (signal?.aborted)
       throw new QzonePaginationError('空间导出已取消，尚未完成。', all, pos, 'cancelled');
     let res: QzoneMsgListResult;
+    const rawResponses: string[] = [];
     try {
-      res = await deps.fetchMsgList(targetUin, pos, PAGE_SIZE, signal);
+      res = await deps.fetchMsgList(targetUin, pos, PAGE_SIZE, signal, async (text) => {
+        rawResponses.push(text);
+      });
     } catch (e) {
       throw new QzonePaginationError(
         '空间分页请求失败，已取得的内容可继续保存。',
@@ -263,6 +296,7 @@ export async function fetchQzoneEmotionRange(
         nextPos: pos,
         total,
         rows: [],
+        rawResponses,
         termination: 'empty-page',
       });
       return all;
@@ -295,6 +329,7 @@ export async function fetchQzoneEmotionRange(
         nextPos: pos,
         total,
         rows: res.list,
+        rawResponses,
         termination: 'repeated-page',
       });
       throw new QzonePaginationError(
@@ -314,7 +349,15 @@ export async function fetchQzoneEmotionRange(
           ? 'stable-tail'
           : 'more';
     // The sink sees every returned version, including overlapping IDs.
-    await capturePage({ targetUin, pos, nextPos, total, rows: res.list, termination });
+    await capturePage({
+      targetUin,
+      pos,
+      nextPos,
+      total,
+      rows: res.list,
+      rawResponses,
+      termination,
+    });
     all.push(...freshRows);
     pos = nextPos;
     expectedAnchor = new Set(res.list.slice(-PAGE_OVERLAP).map((row) => row.tid));
@@ -342,6 +385,33 @@ function fmtTime(sec: number): string {
 export interface EmotionWithInteraction extends QzoneEmotion {
   comments?: QzoneComment[];
   likes?: QzoneLike[];
+  interactionCoverage?: QzoneInteractionCoverage;
+}
+
+function coverageFor(state: QzoneCoverageState): QzoneInteractionCoverage {
+  return { comments: state, replies: state, likes: state };
+}
+
+function summarizeInteractionCoverage(rows: EmotionWithInteraction[]): {
+  comments: QzoneCoverageCounts;
+  replies: QzoneCoverageCounts;
+  likes: QzoneCoverageCounts;
+} {
+  const empty = (): QzoneCoverageCounts => ({
+    complete: 0,
+    observed: 0,
+    unobserved: 0,
+    failed: 0,
+    unavailable: 0,
+  });
+  const result = { comments: empty(), replies: empty(), likes: empty() };
+  for (const row of rows) {
+    const coverage = row.interactionCoverage ?? coverageFor('unavailable');
+    result.comments[coverage.comments] += 1;
+    result.replies[coverage.replies] += 1;
+    result.likes[coverage.likes] += 1;
+  }
+  return result;
 }
 
 /** HTML 转义（文本与属性值通用，防注入）。 */
@@ -919,6 +989,7 @@ async function attachInteractions(
   const onInteraction = opts.onInteraction;
   try {
     if (!deps.fetchInteractions) {
+      for (const row of filtered) row.interactionCoverage = coverageFor('unavailable');
       onInteraction?.(0, filtered.length, '互动能力不可用，跳过');
       return { failed: true, interactionPosts: 0 };
     }
@@ -932,9 +1003,13 @@ async function attachInteractions(
       if (it) {
         e.comments = it.comments;
         e.likes = it.likes;
+        e.interactionCoverage = coverageFor(
+          it.coverage === 'unobserved' ? 'unobserved' : 'observed',
+        );
       } else {
         e.comments = [];
         e.likes = [];
+        e.interactionCoverage = coverageFor('unobserved');
       }
     }
     // 点赞补全（顺便）：动态页 HTML 偶发不渲染 user-list 名单 → 对「HTML 没拿到
@@ -959,8 +1034,10 @@ async function attachInteractions(
                 e.likes = ls;
                 likesTopUp += 1;
               }
+              if (e.interactionCoverage) e.interactionCoverage.likes = 'complete';
             } catch {
               likesFailed += 1;
+              if (e.interactionCoverage) e.interactionCoverage.likes = 'failed';
             }
             done += 1;
             onInteraction?.(done, needTopUp.length, `补拉点赞 ${done}/${needTopUp.length}…`);
@@ -988,6 +1065,7 @@ async function attachInteractions(
     for (const em of filtered) {
       em.comments = [];
       em.likes = [];
+      em.interactionCoverage = coverageFor('failed');
     }
     onInteraction?.(0, filtered.length, `互动拉取失败: ${(e as Error).message}`);
     return { failed: true, interactionPosts: 0 };
@@ -1032,6 +1110,7 @@ export async function collectQzone(
       failed,
       missingPosts,
       likesFailed,
+      coverage: summarizeInteractionCoverage(rows),
     };
   }
 
@@ -1103,6 +1182,7 @@ export async function writeQzone(
         originalQualityVerified: false,
         interaction: data.interaction ?? null,
         fullInteractionCoverageVerified: false,
+        history: data.history ?? null,
       },
       null,
       2,

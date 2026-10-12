@@ -41,6 +41,7 @@ export interface CollectionPageCapture {
   checkpoint: CollectionCaptureCheckpoint;
   reportedTotal: number | null;
   contentCoverage: 'list-summaries';
+  rawResponse: Uint8Array;
 }
 
 export interface CollectionCaptureOptions {
@@ -138,6 +139,7 @@ export async function captureCollectionPages(
         checkpoint: next,
         reportedTotal: page.totalCount,
         contentCoverage: 'list-summaries',
+        rawResponse: page.rawResponse,
       });
       checkpoint = next;
       if (countMismatch)

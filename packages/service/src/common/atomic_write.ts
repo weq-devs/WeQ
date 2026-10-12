@@ -23,14 +23,15 @@ import { randomUUID } from 'node:crypto';
  * 原子地把 `data` 写到 `path`（UTF-8）。父目录不存在会先递归创建。
  * 失败时抛原始错误（调用方现有的 try/catch 兜底策略不变）。
  */
-export function writeFileAtomicSync(path: string, data: string): void {
+export function writeFileAtomicSync(path: string, data: string | Uint8Array): void {
   const parent = dirname(path);
   mkdirSync(parent, { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let fd: number | null = null;
   try {
     fd = openSync(tmp, 'wx', 0o600);
-    writeFileSync(fd, data, 'utf-8');
+    if (typeof data === 'string') writeFileSync(fd, data, 'utf-8');
+    else writeFileSync(fd, data);
     fsyncSync(fd);
     closeSync(fd);
     fd = null;

@@ -225,6 +225,10 @@ export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
 export {
+  CollectionHistoryStore,
+  type CollectionHistorySummary,
+} from './account/collection_history';
+export {
   RedBagService,
   type RedBagDetailQuery,
   type RedBagDetailView,

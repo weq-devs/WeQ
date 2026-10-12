@@ -20,6 +20,7 @@ import {
 } from './web/collection';
 import type { NetworkCollectionPage } from './web/collection';
 import { captureCollectionPages, type CollectionCaptureOptions } from './collection_capture';
+import { CollectionHistoryStore, type CollectionHistorySummary } from './collection_history';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -39,14 +40,17 @@ export interface CollectionPage {
 export class CollectionService {
   private readonly creds: WebCredentialProvider;
   private readonly logger;
+  private readonly history?: CollectionHistoryStore;
 
   constructor(
     nt: WebNative,
     private readonly session: AccountSession,
     resolvePid: () => number,
+    historyRoot?: string,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
     this.logger = getLogger().child({ scope: 'collection', accountUin: session.context.uin });
+    if (historyRoot) this.history = new CollectionHistoryStore(historyRoot, session.context.uin);
   }
 
   /**
@@ -103,6 +107,27 @@ export class CollectionService {
         }),
       options,
     );
+  }
+
+  async syncNetworkHistory(signal?: AbortSignal): Promise<CollectionHistorySummary> {
+    if (!this.history) throw new Error('收藏历史存储未配置。');
+    const checkpoint = this.history.checkpointForResume();
+    await this.captureNetworkPages({
+      ...(checkpoint ? { checkpoint } : {}),
+      signal,
+      maxPages: 1000,
+      onPage: async (page) => this.history?.savePage(page),
+    });
+    return this.history.summary();
+  }
+
+  collectionHistorySummary(): CollectionHistorySummary | null {
+    return this.history?.summary() ?? null;
+  }
+
+  writeCollectionHistorySnapshot(path: string): void {
+    if (!this.history) throw new Error('收藏历史存储未配置。');
+    this.history.writeSnapshot(path);
   }
 
   /** Total number of collected items (db-backed count, 0 when db/table absent). */

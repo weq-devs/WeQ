@@ -87,6 +87,11 @@ describe('collectQzone / writeQzone', () => {
     expect(data.rows[0]?.comments).toHaveLength(5);
     expect(data.rows[0]?.likes).toHaveLength(12);
     expect(data.interaction).toMatchObject({ posts: 1, comments: 5, likes: 12, failed: false });
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'observed',
+      replies: 'observed',
+      likes: 'observed',
+    });
 
     const jsonPath = join(dir, 'qzone.json');
     const htmlPath = join(dir, 'qzone.html');
@@ -124,5 +129,29 @@ describe('collectQzone / writeQzone', () => {
       deps,
     );
     expect(data.interaction).toMatchObject({ failed: true, likesFailed: 1 });
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'observed',
+      replies: 'observed',
+      likes: 'failed',
+    });
+    expect(data.interaction?.coverage?.likes.failed).toBe(1);
+  });
+
+  it('records authoritative empty likes separately from unobserved comments and replies', async () => {
+    const deps = {
+      fetchMsgList: async (): Promise<QzoneMsgListResult> => ({ total: 1, list: [emotion()] }),
+      fetchInteractions: async () =>
+        new Map([['tid-1', { comments: [], likes: [], coverage: 'unobserved' as const }]]),
+      fetchLikes: async () => [],
+    };
+    const data = await collectQzone(
+      { targetUin: '10000', includeInteraction: true, onProgress: () => {} },
+      deps,
+    );
+    expect(data.rows[0]?.interactionCoverage).toEqual({
+      comments: 'unobserved',
+      replies: 'unobserved',
+      likes: 'complete',
+    });
   });
 });
