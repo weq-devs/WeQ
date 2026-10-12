@@ -18,11 +18,12 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExportTaskManager, TaskProgress } from './task_manager';
 import type { DressExportKinds } from './dress_export';
 import type { ExportFormat, ExportTimeRange } from './types';
+import { writeFileAtomicSync } from '../../common/atomic_write';
 
 /** Cadence for a scheduled export. Mirrors the renderer's `Schedule`. */
 export interface ScheduleConfig {
@@ -202,7 +203,7 @@ export class ExportScheduler extends EventEmitter {
 
   private save(): void {
     try {
-      writeFileSync(this.path, JSON.stringify([...this.tasks.values()], null, 2), 'utf-8');
+      writeFileAtomicSync(this.path, JSON.stringify([...this.tasks.values()], null, 2));
     } catch (e) {
       console.error('[ExportScheduler] failed to save schedules:', e);
     }

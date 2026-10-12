@@ -15,7 +15,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
@@ -34,6 +34,7 @@ import { exportToHtml } from './html_exporter';
 import { rewriteVoiceTranscripts } from './voice_rewrite';
 import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
 import { createExportWriter } from './stream_utils';
+import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
   exportFriends,
   exportGroupMembers,
@@ -365,7 +366,7 @@ export class ExportTaskManager extends EventEmitter {
   private saveTasks(): void {
     try {
       mkdirSync(this.cacheDir, { recursive: true });
-      writeFileSync(this.persistPath, JSON.stringify([...this.tasks.values()], null, 2), 'utf-8');
+      writeFileAtomicSync(this.persistPath, JSON.stringify([...this.tasks.values()], null, 2));
     } catch (e) {
       console.error('[ExportTaskManager] failed to save tasks:', e);
     }

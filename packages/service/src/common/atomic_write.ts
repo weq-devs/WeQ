@@ -7,16 +7,52 @@
  * 完整内容、要么是新的完整内容，永远不会是半截。
  */
 
-import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 /**
  * 原子地把 `data` 写到 `path`（UTF-8）。父目录不存在会先递归创建。
  * 失败时抛原始错误（调用方现有的 try/catch 兜底策略不变）。
  */
 export function writeFileAtomicSync(path: string, data: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, data, 'utf-8');
-  renameSync(tmp, path);
+  const parent = dirname(path);
+  mkdirSync(parent, { recursive: true });
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let fd: number | null = null;
+  try {
+    fd = openSync(tmp, 'wx', 0o600);
+    writeFileSync(fd, data, 'utf-8');
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = null;
+    renameSync(tmp, path);
+    // Best effort: persist the directory entry on filesystems that support it.
+    try {
+      const dirFd = openSync(parent, 'r');
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    } catch {
+      // Windows and some virtual filesystems do not permit fsync on directories.
+    }
+  } catch (error) {
+    if (fd !== null) closeSync(fd);
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // The temporary file may not have been created or may already be renamed.
+    }
+    throw error;
+  }
 }

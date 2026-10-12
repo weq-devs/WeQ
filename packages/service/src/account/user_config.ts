@@ -14,12 +14,13 @@
  * Path: <appDataRoot>/config/accounts/<configId>.json
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { AnnualReportPreferences } from './annual_report/types';
 import type { DatabaseAlgorithms } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
+import { writeFileAtomicSync } from '../common/atomic_write';
 
 /**
  * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
@@ -452,10 +453,9 @@ export class AccountConfigService {
   }
 
   private writeRecord(config: AccountConfig): void {
-    mkdirSync(this.accountsDir, { recursive: true });
     const filePath = join(this.accountsDir, `${config.configId}.json`);
     try {
-      writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
+      writeFileAtomicSync(filePath, JSON.stringify(config, null, 2));
     } catch (error) {
       this.logger.error('failed to write account config', {
         event: 'write-account-config-failed',
