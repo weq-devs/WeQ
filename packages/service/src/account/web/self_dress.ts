@@ -6,11 +6,12 @@
  * 这个端点不带 targetUin —— 按 cookie 认人,只能查自己,但**气泡和字体是真值**。
  *
  * Auth: `uin/p_uin/p_skey` cookie(vip.qq.com 域)+ `g_tk = bkn(p_skey)`。
- * 请求/响应都是 JSON(不是 urlencoded),故手写 fetch 而非复用 webRequestJson。
+ * 请求/响应都是 JSON，复用公共有界 HTTP 层并显式覆盖 content-type。
  */
 
 import { computeBkn, cookieHeader, type WebCredential } from './credential';
 import { dressKind } from './dress_kind';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 /** 一个「自己正在用」的装扮项。 */
 export interface SelfDressItem {
@@ -92,10 +93,10 @@ function chatBgHdUrl(img: string): string | undefined {
  *  - 挂件(4)的 newPreview1.png 本身就是 APNG(实测 34 帧),浏览器直接会动,无需另取。
  */
 export async function getSelfDress(cred: WebCredential): Promise<SelfDress> {
-  const res = await fetch(`${ENDPOINT}?g_tk=${computeBkn(cred.pskey)}`, {
+  const data = await webRequestJson<RawResponse>(`${ENDPOINT}?g_tk=${computeBkn(cred.pskey)}`, {
     method: 'POST',
+    cookie: cookieHeader(cred),
     headers: {
-      Cookie: cookieHeader(cred),
       'Content-Type': 'application/json',
       'User-Agent': DRESS_UA,
       Referer: 'https://zb.vip.qq.com/kuikly/category/3760',
@@ -107,12 +108,8 @@ export async function getSelfDress(cred: WebCredential): Promise<SelfDress> {
         naming: { namespace: 'Production', env: 'formal' },
       },
     }),
+    retry: WEB_READ_RETRY,
   });
-  if (!res.ok) {
-    throw new Error(`self dress cgi ${res.status} ${res.statusText}`);
-  }
-
-  const data = (await res.json()) as RawResponse;
   if (data.retCode !== 0) {
     throw new Error(`self dress retCode=${data.retCode} ${data.error?.message ?? ''}`.trim());
   }

@@ -25,6 +25,7 @@
  */
 
 import { computeBkn, cookieHeader, type WebCredential } from './credential';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 const HOST = 'https://zb.vip.qq.com/trpc-proxy/qqva';
 const RANK_ENDPOINT = `${HOST}/qc_submall_server/qc_submall_server/GetItemLikeRank`;
@@ -132,19 +133,17 @@ async function postTrpc(
   cred: WebCredential,
   req: Record<string, unknown>,
 ): Promise<RawResponse> {
-  const res = await fetch(`${endpoint}?g_tk=${computeBkn(cred.pskey)}`, {
+  const data = await webRequestJson<RawResponse>(`${endpoint}?g_tk=${computeBkn(cred.pskey)}`, {
     method: 'POST',
+    cookie: cookieHeader(cred),
     headers: {
-      Cookie: cookieHeader(cred),
       'Content-Type': 'application/json',
       'User-Agent': DRESS_UA,
       Referer: 'https://zb.vip.qq.com/kuikly/category/3760',
     },
     body: JSON.stringify({ req, options: TRPC_OPTIONS }),
+    retry: WEB_READ_RETRY,
   });
-  if (!res.ok) throw new Error(`dress mall cgi ${res.status} ${res.statusText}`);
-
-  const data = (await res.json()) as RawResponse;
   if (data.retCode !== 0) {
     throw new Error(`dress mall retCode=${data.retCode} ${data.error?.message ?? ''}`.trim());
   }

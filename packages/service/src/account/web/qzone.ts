@@ -18,7 +18,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestText } from './http';
 
 /**
  * 判定「票据不对」的错误码 —— 与群相册同一套判据(见 group_album 的 AUTH_CODES)。
@@ -440,6 +440,7 @@ export async function getQzoneMsgList(
     // Referer 指向目标空间;QZone 会校验 referer 是 qzone 来源。
     headers: { Referer: `https://user.qzone.qq.com/${targetUin}` },
     signal,
+    retry: WEB_READ_RETRY,
   });
   if (captureRaw) await captureRaw(text);
   const data = parseQzoneJson<RawMsgListRet>(text);
@@ -576,6 +577,7 @@ export async function getQzoneFeeds(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${selfUin}` },
     signal,
+    retry: WEB_READ_RETRY,
   });
   // feeds3_html_more 的 body 是 JS 对象字面量而非 JSON —— 走非执行解析器
   // (见 parseQzoneCallback;永不执行),不能用 parseQzoneJson 的 JSON.parse。

@@ -10,7 +10,7 @@
  */
 
 import { cookieHeader, type WebCredential } from './credential';
-import { webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestText } from './http';
 
 /** Honor categories exposed by the cgi (value = its `type` query param). */
 export enum HonorType {
@@ -58,7 +58,11 @@ export async function getHonorList(
     type: String(type),
   }).toString()}`;
 
-  const html = await webRequestText(url, { method: 'GET', cookie: cookieHeader(cred) });
+  const html = await webRequestText(url, {
+    method: 'GET',
+    cookie: cookieHeader(cred),
+    retry: WEB_READ_RETRY,
+  });
 
   const match = /window\.__INITIAL_STATE__=(.*?);/.exec(html);
   if (!match?.[1]) return [];

@@ -3,7 +3,10 @@ import type { WebCredential } from '../src/account/web/credential';
 import { webRequestText } from '../src/account/web/http';
 import { getQzoneMsgList, mapMsgList } from '../src/account/web/qzone';
 
-vi.mock('../src/account/web/http', () => ({ webRequestText: vi.fn() }));
+vi.mock('../src/account/web/http', () => ({
+  WEB_READ_RETRY: { maxAttempts: 2 },
+  webRequestText: vi.fn(),
+}));
 
 const CREDENTIAL: WebCredential = {
   uin: '10001',

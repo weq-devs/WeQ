@@ -15,7 +15,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { webRequestJson } from './http';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 /** 某个等级的达成条件(服务端 `info.graded[]`)。 */
 export interface FriendMarkLevel {
@@ -283,6 +283,7 @@ export async function getFriendMutualMark(
       'X-Requested-With': 'com.tencent.mobileqq',
       Referer: `https://ti.qq.com/interactive_new/index/?source=0&_wv=67108867&_nav_txtclr=000000&_wvSb=0&target_uin=${targetUin}&has_show_guid=0`,
     },
+    retry: WEB_READ_RETRY,
   });
 
   if (data.retcode !== 0) {

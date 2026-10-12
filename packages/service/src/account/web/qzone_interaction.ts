@@ -24,7 +24,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestText } from './http';
 import { parseQzoneCallback } from './qzone';
 
 // ───────────────────────── 归一化形态 ─────────────────────────
@@ -914,6 +914,7 @@ async function fetchActAllPage(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}` },
     signal,
+    retry: WEB_READ_RETRY,
   });
   await captureRaw?.(text);
   const data = parseQzoneCallback<RawActAllData>(text);
@@ -986,6 +987,7 @@ export async function fetchQzoneLikes(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${authorUin}` },
     signal,
+    retry: WEB_READ_RETRY,
   });
   const data = parseQzoneCallback<RawOpCntData>(text);
   if (typeof data.code === 'number' && data.code !== 0) {
