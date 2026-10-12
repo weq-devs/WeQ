@@ -29,7 +29,7 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/key';
 
-export { createDirectAttachHook } from './bootstrap/attach';
+export { createDirectAttachHook, createCachedAttachHook } from './bootstrap/attach';
 export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';

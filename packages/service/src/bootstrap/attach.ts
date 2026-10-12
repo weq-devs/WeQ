@@ -63,15 +63,56 @@ export interface AttachHintAnswer {
  * win32 (and used as the fallback whenever no platform-specific hook is
  * supplied). Not for linux/macOS — see {@link AttachHook}.
  */
+/** Account-scoped caching with exclusive reads per process and reset fencing. */
+export function createCachedAttachHook(
+  read: (pid: number, uin: string) => Promise<SessionMaterial>,
+): AttachHook {
+  const cached = new Map<number, { uin: string; generation: number; material: SessionMaterial }>();
+  const generations = new Map<number, number>();
+  const inflight = new Map<string, { generation: number; task: Promise<SessionMaterial> }>();
+  const queues = new Map<number, Promise<void>>();
+  const reset = (pid: number): void => {
+    cached.delete(pid);
+    generations.set(pid, (generations.get(pid) ?? 0) + 1);
+  };
+  const ensure = async (pid: number, uin: string): Promise<SessionMaterial> => {
+    const hit = cached.get(pid);
+    const generation = generations.get(pid) ?? 0;
+    if (hit?.uin === uin && hit.generation === generation) return hit.material;
+    if (hit && hit.uin !== uin) cached.delete(pid);
+    const key = `${pid}:${uin}`;
+    const pending = inflight.get(key);
+    if (pending?.generation === generation) return pending.task;
+    const task = (queues.get(pid) ?? Promise.resolve()).then(async () => {
+      if ((generations.get(pid) ?? 0) !== generation)
+        throw new Error('QQ 会话读取已失效，请重新读取。');
+      const material = await read(pid, uin);
+      if ((generations.get(pid) ?? 0) !== generation)
+        throw new Error('QQ 会话读取已失效，请重新读取。');
+      cached.set(pid, { uin, generation, material });
+      return material;
+    });
+    const tail = task.then(
+      () => {},
+      () => {},
+    );
+    queues.set(pid, tail);
+    const entry = { generation, task };
+    inflight.set(key, entry);
+    try {
+      return await task;
+    } finally {
+      if (inflight.get(key) === entry) inflight.delete(key);
+      if (queues.get(pid) === tail) queues.delete(pid);
+    }
+  };
+  return { attach: ensure, ensure, reset };
+}
+
 export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  const cached = new Map<number, SessionMaterial>();
-
-  const doAttach = async (pid: number, uin: string): Promise<SessionMaterial> => {
-    const hit = cached.get(pid);
-    if (hit) return hit;
+  return createCachedAttachHook(async (pid, uin) => {
     const material = await nt.scanSessionMaterial(pid);
-    // 只记「有没有」——物料本身就是凭据，不进日志。
     logger.info('attached to qq process', {
       event: 'attach',
       pid,
@@ -80,16 +121,6 @@ export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,
     });
-    cached.set(pid, material);
     return material;
-  };
-
-  return {
-    attach: doAttach,
-    // 进程内读取没有独立的「等就绪」，所以 ensure == attach。
-    ensure: doAttach,
-    reset(pid: number): void {
-      cached.delete(pid);
-    },
-  };
+  });
 }

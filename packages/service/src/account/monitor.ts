@@ -50,12 +50,18 @@ const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
  */
 const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
 
+interface SsoWorkState {
+  queue: Promise<void>;
+  owner?: object;
+}
+const ssoWork = new WeakMap<object, Map<number, SsoWorkState>>();
+
 export class AccountMonitorService {
   private running = false;
   private generation = 0;
   private stopped = false;
   // Native registration and cleanup must preserve their order across stop/start.
-  private ssoQueue: Promise<void> = Promise.resolve();
+  private readonly ssoOwners = new Map<number, object>();
 
   private isCurrent(generation: number, pid?: number): boolean {
     return (
@@ -67,11 +73,27 @@ export class AccountMonitorService {
 
   private assertCurrent(generation: number, pid: number): void {
     if (!this.isCurrent(generation, pid)) throw new Error('账号会话已结束或已切换。');
+    if (!this.shouldAutoAttach()) throw new Error('自动读取已关闭，未发布会话物料。');
   }
 
-  private queueSso(task: () => Promise<void>): Promise<void> {
-    const next = this.ssoQueue.then(task);
-    this.ssoQueue = next.catch(() => {});
+  private ssoState(pid: number): SsoWorkState {
+    let entries = ssoWork.get(this.nt);
+    if (!entries) {
+      entries = new Map();
+      ssoWork.set(this.nt, entries);
+    }
+    let state = entries.get(pid);
+    if (!state) {
+      state = { queue: Promise.resolve() };
+      entries.set(pid, state);
+    }
+    return state;
+  }
+
+  private queueSso(pid: number, task: () => Promise<void>): Promise<void> {
+    const state = this.ssoState(pid);
+    const next = state.queue.then(task);
+    state.queue = next.catch(() => {});
     return next;
   }
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -457,7 +479,7 @@ export class AccountMonitorService {
     material: SessionMaterial,
     generation: number,
   ): Promise<void> {
-    return this.queueSso(() => this.registerCurrentSession(pid, material, generation));
+    return this.queueSso(pid, () => this.registerCurrentSession(pid, material, generation));
   }
 
   private async registerCurrentSession(
@@ -487,7 +509,11 @@ export class AccountMonitorService {
         ]),
       )
       .digest('hex');
-    if (this.ssoRegistrations.get(pid) === fingerprint && (await this.nt.hasSsoSession(pid)))
+    if (
+      this.ssoRegistrations.get(pid) === fingerprint &&
+      this.ssoState(pid).owner === this.ssoOwners.get(pid) &&
+      (await this.nt.hasSsoSession(pid))
+    )
       return;
     this.assertCurrent(generation, pid);
     const registered = await registerSsoSession(
@@ -500,14 +526,23 @@ export class AccountMonitorService {
     );
     this.assertCurrent(generation, pid);
     if (!registered) throw new Error('SSO 会话登记失败；未建立可用的原生发包会话。');
+    const owner = {};
+    this.ssoOwners.set(pid, owner);
+    this.ssoState(pid).owner = owner;
     this.ssoRegistrations.set(pid, fingerprint);
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */
   private forgetSsoSession(pid: number): void {
     this.ssoRegistrations.delete(pid);
-    void this.queueSso(async () => {
+    const owner = this.ssoOwners.get(pid);
+    this.ssoOwners.delete(pid);
+    void this.queueSso(pid, async () => {
+      const state = this.ssoState(pid);
+      // A closing monitor must not clear a replacement monitor's registration.
+      if (state.owner !== undefined && state.owner !== owner) return;
       await this.nt.clearSsoSession(pid);
+      if (state.owner === owner) state.owner = undefined;
     }).catch((error) => {
       this.logger.warn('failed to clear the native sso session (non-fatal)', {
         event: 'clear-sso-session-failed',

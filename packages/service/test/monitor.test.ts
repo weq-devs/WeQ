@@ -85,6 +85,7 @@ function fixture(stored = false) {
   );
   return {
     monitor,
+    platform: platform as unknown as Platform,
     hook,
     nt,
     record,
@@ -327,5 +328,65 @@ describe('account monitor closed-session isolation', () => {
       f.nt.setSsoSession.mock.invocationCallOrder[1]!,
     );
     f.monitor.stop();
+  });
+  it('orders old cleanup before another monitor registers on the same native PID', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    const cleared = deferred<void>();
+    f.nt.clearSsoSession.mockImplementationOnce(async () => {
+      await cleared.promise;
+      return true;
+    });
+    f.monitor.stop();
+    await flushPromises();
+    const replacement = new AccountMonitorService(
+      { context: { uin: '12345' } } as unknown as AccountSession,
+      f.platform,
+      f.config as unknown as AccountConfigService,
+      () => true,
+      f.hook,
+    );
+    const request = replacement.harvestRkeysNow();
+    await flushPromises();
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(1);
+    cleared.resolve();
+    expect(await request).toBe(true);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    replacement.stop();
+    await flushPromises();
+  });
+
+  it('does not let a stale monitor clear a newer monitor registration', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    const replacement = new AccountMonitorService(
+      { context: { uin: '12345' } } as unknown as AccountSession,
+      f.platform,
+      f.config as unknown as AccountConfigService,
+      () => true,
+      f.hook,
+    );
+    expect(await replacement.harvestRkeysNow()).toBe(true);
+    f.nt.clearSsoSession.mockClear();
+    f.monitor.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
+    replacement.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).toHaveBeenCalledOnce();
+  });
+  it('does not publish a read that finishes after automatic reading is disabled', async () => {
+    const f = fixture();
+    const scan = deferred<typeof material>();
+    f.hook.ensure.mockReturnValueOnce(scan.promise);
+    const request = f.monitor.harvestRkeysNow();
+    f.setEnabled(false);
+    scan.resolve(material);
+    expect(await request).toBe(false);
+    expect(f.record.session).toBeNull();
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
+    expect(tickets.rkeys).not.toHaveBeenCalled();
+    f.monitor.stop();
+    await flushPromises();
   });
 });

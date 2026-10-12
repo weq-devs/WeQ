@@ -55,6 +55,8 @@
  * reads in-process and needs no elevation.
  */
 
+import { createCachedAttachHook } from '@weq/service';
+
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -242,18 +244,6 @@ export function createLinuxAttachHook(
 ): AttachHook {
   const isRoot = process.geteuid?.() === 0;
 
-  /** Material read per pid — reading is idempotent, so one read per process. */
-  const materials = new Map<number, SessionMaterial>();
-
-  // In-flight per pid. ptrace is exclusive, so two sudo children attaching the
-  // SAME pid concurrently race (one attaches, the other fails to read
-  // `/proc/<pid>/maps`). Concurrency is real here: the router retries
-  // (reset+ensure) while a slow first attempt (blocked on the password dialog)
-  // is still running, and a second key request can arrive meanwhile. Coalescing
-  // every concurrent call for a pid onto one promise guarantees a single sudo is
-  // ever live.
-  const inflight = new Map<number, Promise<SessionMaterial>>();
-
   /**
    * Try the unprivileged in-process read. Returns either the material or the
    * error; the caller decides whether to prompt or escalate.
@@ -420,13 +410,6 @@ export function createLinuxAttachHook(
 
   /** The read half — pops the password dialog unless we're already root. */
   async function doAttach(pid: number, uin: string): Promise<SessionMaterial> {
-    const cached = materials.get(pid);
-    if (cached) return cached;
-    const existing = inflight.get(pid);
-    if (existing) {
-      logger.info('joining in-flight attach for pid', { event: 'attach-join', pid });
-      return existing;
-    }
     // macOS 的硬门槛：SIP 开着时读内存不可能成功（QQ 带强化运行时，`task_for_pid`
     // 连 root 都拒），所以在这里就停住 —— 不问密码、不起 sudo 子进程。
     if (process.platform === 'darwin' && readSipEnabled() === true) {
@@ -436,40 +419,17 @@ export function createLinuxAttachHook(
       });
       throw new Error(SIP_ENABLED_MESSAGE);
     }
-    const task = (async (): Promise<SessionMaterial> => {
-      const material = isRoot
-        ? await (() => {
-            logger.info('reading qq memory in-process (already root)', {
-              event: 'attach-direct-root',
-              pid,
-            });
-            return nt.scanSessionMaterial(pid);
-          })()
-        : await attachUnprivileged(pid, uin);
-      materials.set(pid, material);
-      return material;
-    })();
-    inflight.set(pid, task);
-    try {
-      return await task;
-    } finally {
-      inflight.delete(pid);
-    }
+    const material = isRoot
+      ? await (() => {
+          logger.info('reading qq memory in-process (already root)', {
+            event: 'attach-direct-root',
+            pid,
+          });
+          return nt.scanSessionMaterial(pid);
+        })()
+      : await attachUnprivileged(pid, uin);
+    return material;
   }
 
-  return {
-    attach(pid: number, uin: string): Promise<SessionMaterial> {
-      return doAttach(pid, uin);
-    },
-    ensure(pid: number, uin: string): Promise<SessionMaterial> {
-      return doAttach(pid, uin);
-    },
-    reset(pid: number): void {
-      // Forget the cached material — the caller decided it is stale (QQ
-      // relaunched / account switched). In-flight promises (if any) keep running
-      // so a concurrent call still coalesces onto them rather than starting a
-      // second sudo; the next call after they settle reads cleanly again.
-      materials.delete(pid);
-    },
-  };
+  return createCachedAttachHook(doAttach);
 }
