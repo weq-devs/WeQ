@@ -24,24 +24,40 @@ export function ElevationPasswordDialog(): null {
   const promptPassword = useDialog((s) => s.promptPassword);
 
   useEffect(() => {
+    const ids = new Map<number, { id: number; cancel: () => void }>();
     // `ipcRenderer.on` 的回调签名是 `(event, ...args)`——payload 是第二个
     // 参数（第一个是 IpcRendererEvent）。与 CloseConfirmDialog 一致。
     const off = ipc()?.on('elev:request-password', (_event, raw: unknown) => {
       const payload = (raw ?? {}) as { token?: number; title?: string; message?: string };
       if (typeof payload.token !== 'number') return;
       void (async () => {
-        const password = await promptPassword(
+        const request = promptPassword(
           payload.title ?? '需要管理员授权',
           payload.message ?? '请输入管理员密码以继续。',
           { placeholder: '管理员密码' },
         );
+        const dialog = useDialog.getState().current;
+        if (dialog?.password)
+          ids.set(payload.token!, { id: dialog.id, cancel: () => dialog.password?.resolve(null) });
+        const password = await request;
+        ids.delete(payload.token!);
         ipc()?.send('elev:respond-password', {
           token: payload.token,
           password,
         });
       })();
     });
+    const cancelOff = ipc()?.on('elev:cancel-password', (_event, raw: unknown) => {
+      const token = (raw as { token?: number })?.token;
+      if (typeof token !== 'number') return;
+      const state = useDialog.getState();
+      const pending = ids.get(token);
+      pending?.cancel();
+      if (pending && state.current?.id === pending.id && state.current?.password) state.close();
+      ids.delete(token);
+    });
     return () => {
+      if (typeof cancelOff === 'function') cancelOff();
       if (typeof off === 'function') off();
     };
   }, [promptPassword]);

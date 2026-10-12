@@ -10,6 +10,12 @@
  * letting it through; macOS: root AND SIP off, since QQ runs hardened). The
  * desktop app spawns a sudo child for this; a probe script is simply run under
  * sudo.
+ *
+ * This helper does NOT demand root unconditionally: like the desktop's
+ * `runUnprivilegedAttach`, it tries the direct (in-process) read first. With
+ * yama already permissive (`ptrace_scope=0`) or when the caller already has
+ * CAP_SYS_PTRACE, no escalation is needed; only a real EPERM/EACCES refusal
+ * produces the actionable "run under sudo" error.
  */
 
 /** The slice of `NtHelperBinding` this module needs. Structural to avoid a
@@ -44,19 +50,37 @@ export async function ensureAttached(
     if (opts.label) console.log(`[${opts.label}] ${msg}`);
   };
 
-  if ((process.platform === 'linux' || process.platform === 'darwin') && process.getuid?.() !== 0) {
-    throw new Error(
-      '读别的进程内存需要 root（ptrace attach）。请用 sudo 运行本脚本，例如：\n' +
-        '  sudo -E node --import tsx <script>',
-    );
-  }
-
   say(`读取 pid=${pid} 的会话物料 (uin=${uin}) ...`);
-  const material = await nt.scanSessionMaterial(pid);
+  let material: Awaited<ReturnType<AttachableNative['scanSessionMaterial']>>;
+  try {
+    // Try the direct (in-process) read first — ptrace_scope=0 / CAP_SYS_PTRACE
+    // make it succeed without any elevation. Mirrors the desktop flow.
+    material = await nt.scanSessionMaterial(pid);
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      throw new Error(
+        '读别的进程内存被内核拒绝（ptrace attach）。二选一：\n' +
+          '  a) 临时放行：sudo sysctl kernel.yama.ptrace_scope=0（或对该 pid 授权）\n' +
+          '  b) 提权运行本脚本：sudo -E node --import tsx <script>',
+      );
+    }
+    throw error;
+  }
   // 只报「有没有」——物料本身就是凭据。
   say(
     `读取结果: a2=${material.a2 ? 'yes' : 'no'} d2=${material.d2 ? 'yes' : 'no'} ` +
       `d2key=${material.d2Key ? 'yes' : 'no'}`,
   );
   return material;
+}
+
+/** Classify a ptrace failure as "needs privilege" from its message/code. */
+function isPermissionDenied(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = (error as { code?: string } | undefined)?.code;
+  return (
+    code === 'EPERM' ||
+    code === 'EACCES' ||
+    /\bEPERM\b|\bEACCES\b|Operation not permitted|Permission denied|ptrace/i.test(message)
+  );
 }

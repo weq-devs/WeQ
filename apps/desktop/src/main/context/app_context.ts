@@ -146,6 +146,9 @@ import {
   createDirectAttachHook,
   type AttachHook,
   type MsgSalvageSource,
+  collectOwnItems,
+  collectReceivedItems,
+  downloadUrlToFile,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -156,7 +159,7 @@ import {
   type AccountContext,
   type AccountSession,
 } from '@weq/account';
-import { collectionItemToWire } from '../ipc/serde';
+import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
@@ -1122,6 +1125,7 @@ export function initAppContext(): AppContext {
         platform.native.ntHelper,
         session,
         resolveOnlinePid,
+        userConfig.cacheDir(join('collection-history', exportConfigId)),
       );
       // 红包领取明细：查详情要在线注入（hook 发包），p_skey 按域缓存在服务里。
       const redbagSvc = new RedBagService(platform.native.ntHelper, session, resolveOnlinePid);
@@ -1340,11 +1344,15 @@ export function initAppContext(): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
-              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
-              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              fetchMsgList: (uin, pos, num, signal, captureRaw) =>
+                webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
+              fetchInteractions: (uin, targets, signal, captureRaw) =>
+                webQuery.getQzoneInteractions(uin, targets, signal, captureRaw),
               // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
               // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
-              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
+              fetchLikes: (uin, tid, signal) => webQuery.getQzoneLikes(uin, tid, signal),
+              fetchLikesResult: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzoneLikesResult(uin, tid, signal, captureRaw),
             },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
@@ -1403,15 +1411,53 @@ export function initAppContext(): AppContext {
             // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
             collection: {
               listCollections: async (limit, offset) => {
-                const page = await collectionSvc.listCollections(limit, offset);
+                const page =
+                  userConfig.getSettings().autoAttachQq === false
+                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                    : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
+              syncHistory: (signal) =>
+                userConfig.getSettings().autoAttachQq === false
+                  ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
+                  : collectionSvc.syncNetworkHistory(signal),
+              canFetchDetails: () =>
+                userConfig.getSettings().autoAttachQq !== false &&
+                accountConfig.getRecord()?.qqOnline === true,
+              fetchDetails: async (cids, signal) => {
+                if (userConfig.getSettings().autoAttachQq === false)
+                  throw new Error('完全离线模式，不请求云端收藏详情。');
+                const details = await collectionSvc.fetchDetails(cids, { signal });
+                return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+              },
+              historySummary: () => collectionSvc.collectionHistorySummary(),
+              writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              exportCachedMedia: (cid, directory, signal) =>
+                collectionSvc.exportCachedMedia(cid, directory, signal),
             },
             // 商城表情批量下载：桥接 EmojiService 的解密链（详情 / 密钥 / 解密图片路径）。
             marketpack: {
               getPackDetail: (id) => emojiService.getMarketPackDetail(id),
               getPackKey: (id) => emojiService.getMarketPackKey(id),
               getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
+            },
+            // 导出表情包：桥接 EmojiService（收藏表）+ 平台表情目录（本地扫描）+
+            // 通用流式下载（CDN 补全缺失的原图）。两条来源策略在 service 层区分。
+            emojipack: {
+              listOwnItems: async () => {
+                const rows = await emojiService.listFavEmojiRows();
+                return collectOwnItems(rows, platform.personalEmojiDir(session.context.uin));
+              },
+              listReceivedItems: () =>
+                collectReceivedItems(platform.emojiRecvDir(session.context.uin)),
+              downloadImage: async (url, dest, signal) => {
+                const r = await downloadUrlToFile(url, dest, {
+                  signal,
+                  expectedKind: 'image',
+                });
+                return r.ok;
+              },
             },
             // 商城表情单张贴图解析：HTML 导出把会话用到的商城表情归类进「QQ系统表情」
             // 资源、复制进 bundle 时用它取本地解密路径（weq 缓存 → QQ 本地 → CDN）。
@@ -1694,7 +1740,12 @@ export function initAppContext(): AppContext {
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
-      const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
+      const collectionSvc = new CollectionService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        userConfig.cacheDir(join('collection-history', exportConfigId)),
+      );
       // 红包领取明细：静态账号下 onlinePid 会抛错，前端会先拦（需要在线注入）。
       const redbagSvc = new RedBagService(platform.native.ntHelper, session, livePid);
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
@@ -1891,17 +1942,57 @@ export function initAppContext(): AppContext {
               },
             },
             qzone: {
-              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
-              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              fetchMsgList: (uin, pos, num, signal, captureRaw) =>
+                webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
+              fetchInteractions: (uin, targets, signal, captureRaw) =>
+                webQuery.getQzoneInteractions(uin, targets, signal, captureRaw),
               // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
               // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
-              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
+              fetchLikes: (uin, tid, signal) => webQuery.getQzoneLikes(uin, tid, signal),
+              fetchLikesResult: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzoneLikesResult(uin, tid, signal, captureRaw),
             },
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {
-                const page = await collectionSvc.listCollections(limit, offset);
+                const page =
+                  userConfig.getSettings().autoAttachQq === false
+                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                    : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
+              },
+              syncHistory: (signal) =>
+                userConfig.getSettings().autoAttachQq === false
+                  ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
+                  : collectionSvc.syncNetworkHistory(signal),
+              canFetchDetails: () =>
+                userConfig.getSettings().autoAttachQq !== false &&
+                accountConfig.getRecord()?.qqOnline === true,
+              fetchDetails: async (cids, signal) => {
+                if (userConfig.getSettings().autoAttachQq === false)
+                  throw new Error('完全离线模式，不请求云端收藏详情。');
+                const details = await collectionSvc.fetchDetails(cids, { signal });
+                return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+              },
+              historySummary: () => collectionSvc.collectionHistorySummary(),
+              writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              exportCachedMedia: (cid, directory, signal) =>
+                collectionSvc.exportCachedMedia(cid, directory, signal),
+            },
+            // 导出表情包：桥接 EmojiService（收藏表）+ 平台表情目录（本地扫描）+
+            // 通用流式下载（CDN 补全缺失的原图）。两条来源策略在 service 层区分。
+            emojipack: {
+              listOwnItems: async () =>
+                collectOwnItems(
+                  await emojiService.listFavEmojiRows(),
+                  staticPlatform.personalEmojiDir(session.context.uin),
+                ),
+              listReceivedItems: () =>
+                collectReceivedItems(staticPlatform.emojiRecvDir(session.context.uin)),
+              downloadImage: async (url, dest, signal) => {
+                const r = await downloadUrlToFile(url, dest, { signal, expectedKind: 'image' });
+                return r.ok;
               },
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。

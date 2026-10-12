@@ -7,17 +7,36 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decode, SendGroupSignup, SendPoke, SetReaction } from '@weq/protocol';
+import {
+  decode,
+  encode,
+  GetEmojiLikes,
+  SendGroupSignup,
+  SendPoke,
+  SetReaction,
+} from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import { InteractionService } from '../src/account/interaction';
 
-/** 最小会话替身：只提供 uidMap。 */
-function fakeSession(): AccountSession {
+/**
+ * 最小会话替身：`uidMap` 给戳一戳解析用，`profileInfo.getProfileByUin` 给「本地资料
+ * 补昵称头像」用（传 null 表示本地库没这个人）。
+ */
+function fakeSession(
+  profiles: Record<string, { nick?: string; remark?: string; avatarUrl?: string }> = {},
+): AccountSession {
   return {
     context: { uin: 10001 },
     uidMap: {
       uidByUin: (uin: bigint) => (uin === 20002n ? 'u_friend' : undefined),
       uinByUid: (uid: string) => (uid === 'u_friend' ? 20002n : undefined),
+    },
+    profileInfo: {
+      getProfileByUin: async (uin: bigint) => {
+        const hit = profiles[String(uin)];
+        if (!hit) return null;
+        return { nick: hit.nick ?? '', remark: hit.remark ?? '', avatarUrl: hit.avatarUrl ?? '' };
+      },
     },
   } as unknown as AccountSession;
 }
@@ -30,7 +49,8 @@ interface OidbCall {
   isUid: boolean;
 }
 
-function fakeNative() {
+/** `response` 缺省就是空 ack；需要回包内容时传一个已编码的 body。 */
+function fakeNative(response?: Uint8Array) {
   const calls: OidbCall[] = [];
   return {
     calls,
@@ -42,7 +62,7 @@ function fakeNative() {
       isUid: boolean,
     ): Promise<Buffer> => {
       calls.push({ pid, command, subCommand, body: new Uint8Array(body), isUid });
-      return Buffer.alloc(0); // 空 ack
+      return Buffer.from(response ?? new Uint8Array(0));
     },
   };
 }
@@ -124,6 +144,97 @@ describe('InteractionService', () => {
         isSet: true,
       });
       expect(decode(SetReaction.reqSchema, nt.calls[0]!.body).type).toBe(2);
+    });
+  });
+
+  describe('getMessageReactionUsers (0x9083_1)', () => {
+    it('走 0x9083 / sub 1，body 字段号 2/3/4/5/8', async () => {
+      const nt = fakeNative();
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await svc.getMessageReactionUsers({ groupId: '12345', sequence: 99, emojiId: '76' });
+      const call = nt.calls[0]!;
+      expect(call.pid).toBe(PID);
+      expect(call.command).toBe(0x9083);
+      expect(call.subCommand).toBe(1);
+      expect(call.isUid).toBe(false);
+      // 首页不传 cookie，count 缺省 10 由协议层填。
+      expect(decode(GetEmojiLikes.reqSchema, call.body)).toEqual({
+        groupId: 12345n,
+        sequence: 99n,
+        emojiType: 1,
+        emojiId: '76',
+        count: 10,
+      });
+    });
+
+    it('长 emojiId 自动判成 Unicode（type=2），显式 emojiType 优先', async () => {
+      const nt = fakeNative();
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await svc.getMessageReactionUsers({ groupId: '12345', sequence: 1, emojiId: '128516' });
+      await svc.getMessageReactionUsers({
+        groupId: '12345',
+        sequence: 1,
+        emojiId: '76',
+        emojiType: 2,
+        cookie: 'next',
+      });
+      expect(decode(GetEmojiLikes.reqSchema, nt.calls[0]!.body).emojiType).toBe(2);
+      expect(decode(GetEmojiLikes.reqSchema, nt.calls[1]!.body).emojiType).toBe(2);
+      // 续传 cookie 走 f6。
+      expect(decode(GetEmojiLikes.reqSchema, nt.calls[1]!.body).cookie).toBe('next');
+    });
+
+    it('服务端给了昵称/头像就直接用，不再碰本地资料库', async () => {
+      const resp = encode(GetEmojiLikes.respSchema, {
+        users: [{ uin: 10001, nick: '服务端昵称', headUrl: 'https://cdn/1' }],
+        cookie: 'next',
+        isLast: false,
+      });
+      const svc = new InteractionService(
+        fakeNative(resp),
+        fakeSession({ '10001': { nick: '本地昵称', avatarUrl: 'https://local/1' } }),
+        () => PID,
+      );
+      const page = await svc.getMessageReactionUsers({
+        groupId: '12345',
+        sequence: 1,
+        emojiId: '76',
+      });
+      expect(page).toEqual({
+        users: [{ uin: '10001', nick: '服务端昵称', avatarUrl: 'https://cdn/1' }],
+        cookie: 'next',
+        isLast: false,
+      });
+    });
+
+    it('服务端字段为空时用本地备注/头像补，本地也没有则留空串', async () => {
+      const resp = encode(GetEmojiLikes.respSchema, {
+        users: [{ uin: 10001 }, { uin: 20002, nick: '半个昵称' }, { uin: 30003 }],
+      });
+      const svc = new InteractionService(
+        fakeNative(resp),
+        fakeSession({
+          '10001': { nick: '本地昵称', remark: '备注', avatarUrl: 'https://local/1' },
+          '20002': { nick: '本地2', avatarUrl: 'https://local/2' },
+        }),
+        () => PID,
+      );
+      const page = await svc.getMessageReactionUsers({
+        groupId: '12345',
+        sequence: 1,
+        emojiId: '76',
+      });
+      expect(page.users).toEqual([
+        // 有备注先显示备注。
+        { uin: '10001', nick: '备注', avatarUrl: 'https://local/1' },
+        // 服务端给了昵称但没给头像：只补头像。
+        { uin: '20002', nick: '半个昵称', avatarUrl: 'https://local/2' },
+        // 本地查无此人：留给渲染层退化成 QQ 号 + qlogo。
+        { uin: '30003', nick: '', avatarUrl: '' },
+      ]);
+      // 空 ack：名单为空、cookie 为空、isLast=true。
+      expect(page.cookie).toBe('');
+      expect(page.isLast).toBe(true);
     });
   });
 

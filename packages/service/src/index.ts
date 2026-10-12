@@ -29,7 +29,7 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/key';
 
-export { createDirectAttachHook } from './bootstrap/attach';
+export { createDirectAttachHook, createCachedAttachHook } from './bootstrap/attach';
 export type { AttachHook, AttachHintChoice, AttachHintAnswer } from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
@@ -224,6 +224,10 @@ export {
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
+export {
+  CollectionHistoryStore,
+  type CollectionHistorySummary,
+} from './account/collection_history';
 export {
   RedBagService,
   type RedBagDetailQuery,
@@ -653,6 +657,27 @@ export {
   messageToText,
   formatTime,
 } from './account/export';
+export {
+  collectOwnItems,
+  collectReceivedItems,
+  resolveOwnOriginals,
+  writeEmojiBundle,
+  scopeDirName,
+  scopeLabel,
+  canonicalHash,
+  sniffImageExt,
+} from './account/export';
+export type {
+  EmojiExportScope,
+  EmojiExportItem,
+  EmojiExportDeps,
+  EmojiExportHooks,
+  EmojiPreviewAddress,
+  EmojiScopeSummary,
+  EmojiResolveResult,
+  EmojiWriteResult,
+  FavEmojiRow,
+} from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
 export type {
@@ -691,6 +716,8 @@ export type {
   TaskProgress,
   MarketPackDeps,
   MarketPackDownloadItem,
+  EmojiPackDeps,
+  EmojiPackScope,
   MediaDeps,
   MediaExportOptions,
   DecodeSilk,
@@ -782,3 +809,23 @@ export type {
   BotExportResult,
   BotExportLlmProvider,
 } from './account/agentlab_export';
+
+export {
+  getCollectionPageNetwork,
+  type CollectionNetworkCursor,
+  type CollectionNetworkOptions,
+  type NetworkCollectionCursorPage,
+} from './account/web/collection';
+
+export {
+  captureCollectionPages,
+  sourceVersionHash,
+  CollectionCaptureError,
+  type CollectionCaptureCheckpoint,
+  type CollectionCaptureOptions,
+  type CollectionPageCapture,
+} from './account/collection_capture';
+
+export { runOwnedChild, type OwnedChildOptions, type OwnedChildResult } from './common/owned_child';
+
+export { SharedPrompt } from './common/shared_prompt';

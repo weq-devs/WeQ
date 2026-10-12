@@ -2000,6 +2000,7 @@ button.weq-exp-detail-complete.is-clickable:hover {
 
 .weq-exp-detail-stage-bar {
   height: 5px;
+  flex: 1 1 auto;
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   overflow: hidden;
@@ -2044,6 +2045,30 @@ button.weq-exp-detail-complete.is-clickable:hover {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* 阶段失败明细入口：进度条左侧的小胶囊，点击打开失败灯箱。 */
+.weq-exp-detail-stage-failures {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid rgba(224, 85, 79, 0.32);
+  border-radius: 999px;
+  background: rgba(224, 85, 79, 0.08);
+  color: #c0453f;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-exp-detail-stage-failures:hover {
+  border-color: rgba(224, 85, 79, 0.5);
+  background: rgba(224, 85, 79, 0.16);
+}
+
+html[data-theme="dark"] .weq-exp-detail-stage-failures {
+  border-color: rgba(255, 120, 112, 0.34);
+  background: rgba(255, 120, 112, 0.12);
+  color: #ff9a92;
 }
 
 /* 进度条右侧的下拉按钮：点击展开该子任务最近日志。 */
@@ -3928,4 +3953,332 @@ html[data-theme="dark"] .weq-exp-skel-sched-card {
   width: 120px;
   height: 12px;
   border-radius: 999px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 导出表情包（emojipack 模式）—— 自包含面板，前缀 weq-epk-。
+ * 两张来源卡并排：标题 + 统计条 + 预览格；底部一条操作栏。
+ * ══════════════════════════════════════════════════════════════════════════ */
+.weq-epk {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.weq-epk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 12px 16px 6px;
+  font-size: 12px;
+  color: #6a7280;
+}
+
+.weq-epk-head svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-epk-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+}
+
+.weq-epk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+/* ---- 来源卡 ---- */
+.weq-epk-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.weq-epk-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+.weq-epk-card.is-checked {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, rgba(255, 255, 255, 0.62));
+  box-shadow: 0 14px 34px -26px color-mix(in srgb, var(--weq-accent-effective) 90%, transparent);
+}
+
+.weq-epk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-epk-card-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #ffffff;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-epk-card.is-checked .weq-epk-card-check {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+.weq-epk-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-epk-card.is-recv .weq-epk-card-icon {
+  background: color-mix(in srgb, #7c6cf0 14%, transparent);
+  color: #7c6cf0;
+}
+
+.weq-epk-card-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-epk-card-titles strong {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #1f2430;
+}
+
+.weq-epk-card-titles small {
+  font-size: 11px;
+  color: #8a94a4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-epk-card-count {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55606f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 统计条 ---- */
+.weq-epk-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 10px;
+}
+
+.weq-epk-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.035);
+  font-size: 11px;
+  color: #6a7280;
+}
+
+.weq-epk-stat em {
+  font-style: normal;
+}
+
+.weq-epk-stat b {
+  font-weight: 650;
+  color: #1f2430;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-epk-stat.is-warn {
+  background: rgba(224, 85, 79, 0.1);
+  color: #c0453f;
+}
+
+.weq-epk-stat.is-warn b {
+  color: #c0453f;
+}
+
+/* ---- 预览格 ---- */
+.weq-epk-stage {
+  flex: 1 1 auto;
+  min-height: 132px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.015);
+  padding: 10px 12px;
+}
+
+.weq-epk-stage-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 110px;
+  font-size: 12px;
+  color: #9aa2b0;
+}
+
+.weq-epk-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 8px;
+}
+
+.weq-epk-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+}
+
+.weq-epk-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-epk-cell-fallback {
+  color: #b3bccb;
+}
+
+/* ---- 底部操作条 ---- */
+.weq-epk-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 11px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: color-mix(in srgb, #ffffff 30%, transparent);
+}
+
+.weq-epk-actions-count {
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: #6a7280;
+}
+
+.weq-epk-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--weq-accent-effective);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 140ms ease, opacity 140ms ease;
+  box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
+}
+
+.weq-epk-start:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.weq-epk-start:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weq-epk-start .is-spin {
+  animation: weq-mpd-spin 0.9s linear infinite;
+}
+
+/* ---- 暗色 ---- */
+html[data-theme="dark"] .weq-epk-head {
+  color: #9aa2b0;
+}
+
+html[data-theme="dark"] .weq-epk-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-epk-card.is-checked {
+  border-color: rgba(86, 168, 247, 0.5);
+  background: rgba(86, 168, 247, 0.08);
+}
+
+html[data-theme="dark"] .weq-epk-card-check {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-epk-card-icon {
+  color: #8cc4ff;
+  background: rgba(86, 168, 247, 0.14);
+}
+
+html[data-theme="dark"] .weq-epk-card.is-recv .weq-epk-card-icon {
+  color: #a99bff;
+  background: rgba(124, 108, 240, 0.18);
+}
+
+html[data-theme="dark"] .weq-epk-card-titles strong,
+html[data-theme="dark"] .weq-epk-stat b {
+  color: #e6ebf2;
+}
+
+html[data-theme="dark"] .weq-epk-card-titles small,
+html[data-theme="dark"] .weq-epk-stat {
+  color: #8b97a8;
+}
+
+html[data-theme="dark"] .weq-epk-stat {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-epk-stage {
+  border-top-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+html[data-theme="dark"] .weq-epk-cell {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .weq-epk-actions {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }

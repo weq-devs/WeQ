@@ -1,6 +1,7 @@
 /**
- * InteractionService — 会话内的「轻互动」：戳一戳（0xED3_1）与群消息贴表情
- * （0x9082_1/2）。两条都是 OIDB 发包，需要已注入的在线 QQ 进程。
+ * InteractionService — 会话内的「轻互动」：戳一戳（0xED3_1）、群消息贴表情
+ * （0x9082_1/2 贴 / 撤）与贴表情的**查询侧**（0x9083_1 某表情的回应人名单）。
+ * 三条都是 OIDB 发包，需要已注入的在线 QQ 进程。
  *
  * 与 PeerStatsService 同构：注入发生在账号 bootstrap，这里只负责在在线 pid 上
  * 发包 + 目标解析，离线 / 风控失败原样上抛。
@@ -14,6 +15,7 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
   detectImageFormat,
+  GetEmojiLikes,
   SendGroupSignup,
   SendPoke,
   SetReaction,
@@ -41,6 +43,38 @@ export interface SendPokeParams {
   targetId: string;
   /** 群聊里要被戳的成员 uin；缺省戳群本身。 */
   targetUin?: string;
+}
+
+export interface MessageReactionUsersParams {
+  /** 群号。 */
+  groupId: string | number;
+  /** 被回应消息的 msgSeq。 */
+  sequence: number;
+  /** 表情 id（贴表情用的那个 code）。 */
+  emojiId: string;
+  /** 1 = QQ 小黄脸短 id，2 = Unicode 码点；缺省按 emojiId 长度推断。 */
+  emojiType?: number;
+  /** 每页条数（缺省 30，IPC 侧会夹到 1..200）。 */
+  count?: number;
+  /** 上一页返回的续传 cookie；首页不传。 */
+  cookie?: string;
+}
+
+/** 面板里的一行回应者。 */
+export interface MessageReactionUser {
+  /** QQ 号（十进制字符串，直接当头像 URL 的 nk 用）。 */
+  uin: string;
+  /** 显示名：服务端昵称 → 本地备注 / 昵称 → 空串（由前端退化成 uin）。 */
+  nick: string;
+  /** 头像直链：服务端 headUrl → 本地 profile.avatarUrl → 空串（由前端退回 qlogo）。 */
+  avatarUrl: string;
+}
+
+export interface MessageReactionUsersPage {
+  users: MessageReactionUser[];
+  /** 下一页 cookie（空串 = 已到末页）。 */
+  cookie: string;
+  isLast: boolean;
 }
 
 export interface SendGroupSignupServiceParams {
@@ -155,6 +189,68 @@ export class InteractionService {
       peerUin,
       ...(targetUin !== undefined ? { targetUin } : {}),
     });
+  }
+
+  /**
+   * 查某条群消息上**某个表情**的回应人名单（OIDB 0x9083_1，可分页）。
+   *
+   * 这是 0x9082 的查询侧：本地 40062 列只有「每个表情被贴了几次」，没有**是谁**贴的，
+   * 所以名单只能实时问服务端（需要在线已注入的 QQ）—— 离线时调用方要自己把错误
+   * 呈现成「需要 QQ 在线」而不是空列表。
+   *
+   * 服务端回包里 `nick` / `headUrl` 常常是空的，这里用本地 `profile_info` 按 uin 补一次；
+   * 都拿不到就把两个字段留成空串，渲染侧再退化成「QQ 号 + qlogo 头像」。
+   */
+  async getMessageReactionUsers(
+    params: MessageReactionUsersParams,
+  ): Promise<MessageReactionUsersPage> {
+    const emojiId = params.emojiId;
+    const page = await GetEmojiLikes.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(params.groupId),
+      sequence: params.sequence,
+      emojiId,
+      // 与 SetReaction 同一套启发式：短 id 是 QQ 小黄脸，长的是 Unicode 码点。
+      emojiType: params.emojiType ?? (emojiId.length > 3 ? 2 : 1),
+      ...(params.count !== undefined ? { count: params.count } : {}),
+      ...(params.cookie ? { cookie: params.cookie } : {}),
+    });
+
+    const users: MessageReactionUser[] = [];
+    for (const user of page.users) {
+      // 服务端两样都给全了就不用碰本地库。
+      if (user.nick && user.headUrl) {
+        users.push({ uin: String(user.uin), nick: user.nick, avatarUrl: user.headUrl });
+        continue;
+      }
+      const local = await this.localProfile(user.uin);
+      users.push({
+        uin: String(user.uin),
+        // 有备注先显示备注（和会话列表 / 成员列表的习惯一致）。
+        nick: user.nick || local?.remark || local?.nick || '',
+        avatarUrl: user.headUrl || local?.avatarUrl || '',
+      });
+    }
+
+    return { users, cookie: page.cookie, isLast: page.isLast };
+  }
+
+  /** 本地 profile_info 里按 uin 找一个人；查不到 / 库不可用都返回 null。 */
+  private async localProfile(
+    uin: number,
+  ): Promise<{ nick: string; remark: string; avatarUrl: string } | null> {
+    if (!Number.isSafeInteger(uin) || uin <= 0) return null;
+    try {
+      const profile = await this.session.profileInfo.getProfileByUin(BigInt(uin));
+      if (!profile) return null;
+      return {
+        nick: profile.nick ?? '',
+        remark: profile.remark ?? '',
+        avatarUrl: profile.avatarUrl ?? '',
+      };
+    } catch {
+      // 资料库没读完 / 该 uin 没行：都当作「本地没有」，不影响名单本身。
+      return null;
+    }
   }
 
   /**

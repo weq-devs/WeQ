@@ -34,13 +34,24 @@ export function AttachHintDialog(): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const tokenRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const off = ipc()?.on('attach:confirm-hint', () => {
+    const off = ipc()?.on('attach:confirm-hint', (_event, raw: unknown) => {
+      const payload = raw as { token?: number };
+      if (typeof payload?.token !== 'number') return;
+      tokenRef.current = payload.token;
       setOpen(true);
       setPassword('');
     });
+    const cancelOff = ipc()?.on('attach:cancel-hint', (_event, raw: unknown) => {
+      if ((raw as { token?: number })?.token !== tokenRef.current) return;
+      tokenRef.current = null;
+      setOpen(false);
+      setPassword('');
+    });
     return () => {
+      if (typeof cancelOff === 'function') cancelOff();
       if (typeof off === 'function') off();
     };
   }, []);
@@ -49,7 +60,8 @@ export function AttachHintDialog(): ReactElement | null {
     setOpen(false);
     setPassword('');
     const answer: AttachHintAnswer = { choice, password };
-    ipc()?.send('attach:respond-hint', answer);
+    ipc()?.send('attach:respond-hint', { ...answer, token: tokenRef.current });
+    tokenRef.current = null;
   }
 
   if (!open) return null;

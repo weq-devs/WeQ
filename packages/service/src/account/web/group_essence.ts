@@ -5,7 +5,7 @@
  */
 
 import { computeBkn, cookieHeader, type WebCredential } from './credential';
-import { webRequestJson } from './http';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 export interface GroupEssenceContent {
   msg_type: number;
@@ -69,6 +69,7 @@ export async function getGroupEssence(
   const ret = await webRequestJson<RawGroupEssenceRet>(url, {
     method: 'GET',
     cookie: cookieHeader(cred),
+    retry: WEB_READ_RETRY,
   });
 
   if (ret.retcode !== 0 || !ret.data) return [];

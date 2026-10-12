@@ -32,8 +32,8 @@ import type { AttachHintAnswer } from './attach';
  *
  * `permissionDenied` marks the failures an elevated retry can actually fix —
  * the kernel refused the ptrace attach (EPERM/EACCES). Anything else (no such
- * process, wrapper.node not mapped, …) is escalated straight away without the
- * hint, matching the previous behaviour.
+ * process, wrapper.node not mapped, …) is returned without prompting for a
+ * password, because elevation cannot fix it.
  */
 export interface DirectAttachFailure {
   permissionDenied: boolean;
@@ -90,15 +90,11 @@ export async function runUnprivilegedAttach(deps: AttachFlowDeps): Promise<void>
   }
 
   if (!first.permissionDenied) {
-    // Not a kernel refusal (no such process, wrapper.node not mapped, …) —
-    // an elevated retry can't fix it, but keep the existing behaviour: let the
-    // escalation path surface the error.
-    deps.log('warn', 'direct attach failed for a non-permission reason; escalating', {
+    deps.log('warn', 'direct attach failed for a non-permission reason; not escalating', {
       event: 'attach-direct-non-permission-failed',
       reason: first.message,
     });
-    await deps.escalate();
-    return;
+    throw new Error(first.message);
   }
 
   if (deps.isHintSuppressed()) {

@@ -14,7 +14,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestText } from './http';
 import { parseQzoneCallback } from './qzone';
 
 /**
@@ -120,6 +120,7 @@ export async function getQzoneAlbumList(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
+    retry: WEB_READ_RETRY,
   });
   const ret = parseQzoneCallback<RawAlbumListRet>(text);
   if (typeof ret.code === 'number' && ret.code !== 0) {
@@ -244,6 +245,7 @@ export async function getQzoneAlbumMedia(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
+    retry: WEB_READ_RETRY,
   });
   const ret = parseQzoneCallback<RawPhotoListRet>(text);
   if (typeof ret.code === 'number' && ret.code !== 0) {
@@ -329,6 +331,7 @@ export async function getQzoneAlbumVideoUrl(
     method: 'GET',
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
+    retry: WEB_READ_RETRY,
   });
   const ret = parseQzoneCallback<RawFloatviewRet>(text);
   if (typeof ret.code === 'number' && ret.code !== 0) {

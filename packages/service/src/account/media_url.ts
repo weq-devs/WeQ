@@ -10,9 +10,10 @@
 
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import { Readable } from 'node:stream';
+import { createWriteStream, createReadStream, constants } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, link, unlink, lstat, copyFile } from 'node:fs/promises';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { dirname } from 'node:path';
@@ -413,69 +414,165 @@ async function firstResolved(attempts: Array<() => Promise<string>>): Promise<st
 
 // ─── streamed download (shared by export pipeline + chat-view completion) ───
 
-/** Result of a streamed download: ok, or a human-readable failure reason. */
-export type DownloadOutcome = { ok: true } | { ok: false; reason: string };
+/** Successful download evidence; it does not prove that a server supplied the original variant. */
+export type DownloadOutcome =
+  | { ok: true; bytes: number; sha256: string; contentType: string }
+  | { ok: false; reason: string };
 
-/** Retries / base backoff for streamed video & file downloads. */
-const DL_RETRIES = 3;
-const DL_BACKOFF_BASE_MS = 300;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-function backoffMs(n: number): number {
-  const base = DL_BACKOFF_BASE_MS * 2 ** n;
-  return base + Math.floor(Math.random() * base * 0.4);
-}
-
-/** Read a (small) error response body for surfacing — trimmed + capped. */
-async function readErrBody(res: Awaited<ReturnType<typeof fetch>>): Promise<string> {
-  try {
-    const text = (await res.text()).trim();
-    return text ? ` body=${text.slice(0, 300)}` : '';
-  } catch {
-    return '';
-  }
+export interface DownloadOptions {
+  signal?: AbortSignal;
+  expectedKind?: 'image' | 'video';
+  expectedSize?: number;
+  expectedSha256?: string;
+  maxBytes?: number;
+  timeoutMs?: number;
 }
 
-/**
- * Stream one URL to `dest`, with exponential-backoff retry on transient errors
- * (network / 5xx / 429). Streams the body to disk so large videos / files don't
- * balloon memory. The QQ CDN signals failures with a JSON/text body (sometimes
- * even under HTTP 200) — those are NOT media, so any non-binary content-type is
- * treated as a failure and its body is surfaced as the reason.
- */
-export async function downloadUrlToFile(url: string, dest: string): Promise<DownloadOutcome> {
-  for (let attempt = 0; ; attempt += 1) {
+function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
+  const png = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  const gif = /^(GIF87a|GIF89a)/.test(bytes.toString('ascii', 0, 6));
+  const webp =
+    bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+  const bmp = bytes.toString('ascii', 0, 2) === 'BM';
+  const ftyp = bytes.toString('ascii', 4, 8) === 'ftyp';
+  const brand = bytes.toString('ascii', 8, 12);
+  const avif = ftyp && /^(avif|avis|heic|heix|mif1)$/.test(brand);
+  const webm = bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  return kind === 'image' ? png || jpeg || gif || webp || bmp || avif : (ftyp && !avif) || webm;
+}
+
+async function waitRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+/** Stream to a private temporary file, verify, then publish without replacing existing media. */
+export async function downloadUrlToFile(
+  url: string,
+  dest: string,
+  options: DownloadOptions = {},
+): Promise<DownloadOutcome> {
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    const temporary = `${dest}.${randomUUID()}.part`;
+    const controller = new AbortController();
+    const cancel = () => controller.abort(options.signal?.reason);
+    const timer = setTimeout(
+      () => controller.abort(new Error('媒体下载超时。')),
+      options.timeoutMs ?? 60_000,
+    );
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    let retry = true;
     try {
-      const res = await fetch(url);
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < DL_RETRIES) {
-          await sleep(backoffMs(attempt));
-          continue;
+      options.signal?.throwIfAborted();
+      const res = await fetch(url, { signal: controller.signal });
+      const ct = (res.headers.get('content-type') ?? '').toLowerCase();
+      if (
+        !res.ok ||
+        !res.body ||
+        ct.startsWith('text/') ||
+        ct.includes('json') ||
+        ct.includes('xml')
+      ) {
+        await res.body?.cancel();
+        retry = res.status === 429 || res.status >= 500;
+        if (!retry || attempt === 3)
+          return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}` };
+      } else {
+        const maxBytes = options.maxBytes ?? Number.MAX_SAFE_INTEGER;
+        const length = Number(res.headers.get('content-length') ?? 0);
+        if (length > maxBytes) {
+          await res.body.cancel();
+          throw new Error('媒体超过大小上限。');
         }
-        return { ok: false, reason: `HTTP ${res.status}${await readErrBody(res)}` };
+        await mkdir(dirname(dest), { recursive: true });
+        const hash = createHash('sha256');
+        let bytes = 0;
+        let prefix = Buffer.alloc(0);
+        const inspect = new Transform({
+          transform(chunk: Buffer, _encoding, done) {
+            bytes += chunk.length;
+            if (bytes > maxBytes) {
+              done(new Error('媒体超过大小上限。'));
+              return;
+            }
+            hash.update(chunk);
+            if (prefix.length < 512)
+              prefix = Buffer.concat([prefix, chunk.subarray(0, 512 - prefix.length)]);
+            done(null, chunk);
+          },
+        });
+        await pipeline(
+          Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
+          inspect,
+          createWriteStream(temporary, { flags: 'wx' }),
+          { signal: controller.signal },
+        );
+        retry = false;
+        const sha256 = hash.digest('hex');
+        if (!bytes || /^\s*(?:<!doctype|<html|<\?xml)/i.test(prefix.toString('utf8')))
+          throw new Error('媒体为空或返回了错误页面。');
+        if (options.expectedKind && !mediaSignature(prefix, options.expectedKind))
+          throw new Error('媒体格式与期望不符，可能返回了错误页面。');
+        if (options.expectedSize !== undefined && bytes !== options.expectedSize)
+          throw new Error('媒体大小与来源记录不符。');
+        if (options.expectedSha256 && sha256 !== options.expectedSha256.toLowerCase())
+          throw new Error('媒体哈希与来源记录不符。');
+        try {
+          try {
+            await link(temporary, dest);
+          } catch (error) {
+            if (
+              !['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EXDEV'].includes(
+                (error as NodeJS.ErrnoException).code ?? '',
+              )
+            )
+              throw error;
+            // Filesystems without hard links still get verified, exclusive publication.
+            await copyFile(temporary, dest, constants.COPYFILE_EXCL);
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          const info = await lstat(dest);
+          if (!info.isFile() || info.isSymbolicLink() || info.size !== bytes)
+            throw new Error('目标已有不同内容，已保留原文件。');
+          const existing = createHash('sha256');
+          for await (const chunk of createReadStream(dest)) {
+            controller.signal.throwIfAborted();
+            existing.update(chunk);
+          }
+          if (existing.digest('hex') !== sha256)
+            throw new Error('目标已有不同内容，已保留原文件。');
+        }
+        return { ok: true, bytes, sha256, contentType: ct };
       }
-      const ct = res.headers.get('content-type') ?? '';
-      // Non-2xx, empty, or a JSON/text body → CDN error envelope, not media.
-      if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
-        return {
-          ok: false,
-          reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}`,
-        };
-      }
-      await mkdir(dirname(dest), { recursive: true });
-      await pipeline(
-        Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
-        createWriteStream(dest),
-      );
-      return { ok: true };
-    } catch (e) {
-      if (attempt < DL_RETRIES) {
-        await sleep(backoffMs(attempt));
-        continue;
-      }
-      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    } catch (error) {
+      if (options.signal?.aborted || attempt === 3 || !retry)
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', cancel);
+      await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
+    try {
+      await waitRetry(300 * 2 ** attempt, options.signal);
+    } catch {
+      return { ok: false, reason: '媒体下载已取消。' };
     }
   }
+  return { ok: false, reason: '媒体下载失败。' };
 }

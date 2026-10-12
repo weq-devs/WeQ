@@ -20,8 +20,11 @@
 // 否则视为 QQ 表情短 id（type=1）。比如 76/124 是小黄脸 id，128516 是 😄 的
 // 码点。回包是空 ack（外层 errorCode=0，无 body）。
 //
-// 只做设置/撤回：查询某个表情的回应人列表（0x9083_1）与常用表情目录
-// （0x9084_1）没有搬，按需再说。
+// 只做设置/撤回：查询某个表情的回应人列表见 `get-emoji-likes.ts`（0x9083_1）；
+// 常用表情目录（0x9084_1）没有搬，按需再说。
+//
+// 签名：**不签**（`needSign = false`）。Lagrange 的需要签名白名单里 0x908x 一族一个都没有，
+// 同族的 0x9083_1（回应人列表）也是 false。
 
 import { message } from '../protobuf';
 import { invokeOidb, type OidbSpec } from './invoke';
@@ -53,6 +56,8 @@ export interface SetReactionParams {
 
 export namespace SetReaction {
   export const command = 0x9082;
+  /** 不签名：Lagrange 签名白名单里没有 0x908x（见文件头注释）。 */
+  export const needSign = false;
   export const reqSchema = REACTION_REQ;
   export const respSchema = REACTION_RESP;
 

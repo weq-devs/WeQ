@@ -28,7 +28,7 @@
  *     discovering it from a failure.
  */
 
-import { readSipEnabled, type NativeBundle } from '@weq/native';
+import { readSipEnabled, type NativeBundle, type QqRuntimeModules } from '@weq/native';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -83,6 +83,24 @@ export function createDarwinPlatform(
   const uid = (uin: string): string => getUidForUin(uin) ?? '';
 
   const home = undefined; // let the helpers default to os.homedir()
+
+  // A running QQ can load a hot update from its data directory while the app
+  // bundle still contains an older version. Keep both native images tied to
+  // the same process instead of mixing its tickets with installed metadata.
+  const runtimeModules = new Map<number, { expires: number; paths: QqRuntimeModules }>();
+  const modulesForPid = (pid: number): QqRuntimeModules => {
+    const cached = runtimeModules.get(pid);
+    if (cached && cached.expires > performance.now()) return cached.paths;
+    const resolve = native.ntHelper.resolveQqRuntimeModules;
+    const paths = typeof resolve === 'function' ? resolve(pid) : null;
+    if (!paths) {
+      runtimeModules.delete(pid);
+      throw new Error('无法确认运行中 QQ 的原生模块版本，请稍后重试。');
+    }
+    if (runtimeModules.size >= 64) runtimeModules.clear();
+    runtimeModules.set(pid, { expires: performance.now() + 5000, paths });
+    return paths;
+  };
 
   /**
    * Resolve an account's hosting QQ pid by enumerating who has the account's
@@ -139,11 +157,13 @@ export function createDarwinPlatform(
     videoDir: (u: string) => findVideoDir(uid(u), home, override()),
     fileDir: (u: string) => findFileDir(uid(u), home, override()),
     qqExePath: () => findQqExe(),
-    qqWrapperNodePath: () => {
+    qqWrapperNodePath: (pid) => {
+      if (pid !== undefined) return modulesForPid(pid).wrapperPath;
       const exe = findQqExe();
       return exe ? findQqWrapperNode(exe) : null;
     },
-    qqMajorNodePath: () => {
+    qqMajorNodePath: (pid) => {
+      if (pid !== undefined) return modulesForPid(pid).majorPath;
       const exe = findQqExe();
       return exe ? findQqMajorNode(exe) : null;
     },

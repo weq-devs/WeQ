@@ -18,6 +18,7 @@ import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
+  Download,
   ExternalLink,
   FileText,
   Film,
@@ -28,7 +29,9 @@ import {
   MapPin,
   Music,
   Play,
+  RefreshCw,
   Search,
+  Square,
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -36,6 +39,8 @@ import { QqAvatar } from './QqAvatar';
 import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { CollectionContent, collectionContentText } from './CollectionContent';
+import { IS_WEB } from '../lib/target';
 
 interface PicWire {
   uri: string;
@@ -44,6 +49,10 @@ interface PicWire {
 }
 
 interface CollectionItemWire {
+  textTruncated?: boolean;
+  contentStatus?: 'summary' | 'truncated' | 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
   cid: string;
   kind: string;
   type: number;
@@ -75,6 +84,12 @@ interface CollectionItemWire {
 }
 
 const PAGE_SIZE = 8;
+let requestSequence = 0;
+
+function collectionRequestId(prefix: string): string {
+  requestSequence += 1;
+  return `${prefix}-${Date.now()}-${requestSequence}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 type CollectionSource = 'db' | 'network';
 
@@ -83,11 +98,41 @@ interface CollectionPageWire {
   hasMore: boolean;
 }
 
+interface CollectionDetailPatch {
+  cid: string;
+  contentStatus: 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
+}
+
+interface CollectionMediaResult {
+  id: string;
+  name: string;
+  kind: string;
+  state: 'downloaded' | 'failed' | 'unavailable';
+  role: 'original' | 'preview' | 'unverified';
+  bytes: number;
+  md5Matches: boolean | null;
+  sizeMatches: boolean | null;
+  imageDecoded: boolean | null;
+  error: string | null;
+}
+
+interface DetailSyncProgress {
+  done: number;
+  total: number;
+  failed: number;
+  cancelling: boolean;
+  cancelled: boolean;
+  message: string | null;
+}
+
 /** Page through `account.listCollections` until exhausted. 收藏集通常不大。 */
 async function fetchAllCollections(source: CollectionSource): Promise<CollectionItemWire[] | null> {
   const all: CollectionItemWire[] = [];
   let offset = 0;
-  for (;;) {
+  const seen = new Set<string>();
+  for (let page = 0; page < 1000; page++) {
     const res = (await client.account.listCollections.query({
       limit: 100,
       offset,
@@ -95,11 +140,21 @@ async function fetchAllCollections(source: CollectionSource): Promise<Collection
     })) as CollectionPageWire | null;
     // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
     if (!res) return null;
-    all.push(...res.items);
-    if (!res.hasMore || res.items.length === 0) break;
+    const inPage = new Set(seen);
+    const fresh = res.items.filter((item) => {
+      if (inPage.has(item.cid)) return false;
+      inPage.add(item.cid);
+      return true;
+    });
+    if (res.hasMore && !fresh.length) throw new Error('收藏分页没有进展，未标记加载完成。');
+    for (const item of fresh) {
+      seen.add(item.cid);
+      all.push(item);
+    }
+    if (!res.hasMore) return all;
     offset += res.items.length;
   }
-  return all;
+  throw new Error('收藏分页达到安全上限，未标记加载完成。');
 }
 
 /** Ordered kind filter chips. `all` first, then by rough frequency. */
@@ -164,9 +219,33 @@ function hostOf(url: string): string {
   }
 }
 
+function cachedContentText(it: CollectionItemWire): string {
+  if (!it.fullContent) return '';
+  if (it.fullContentFormat !== 'html') return it.fullContent;
+  try {
+    return collectionContentText(it.fullContent);
+  } catch {
+    return '';
+  }
+}
+
+function applyDetailPatch(
+  item: CollectionItemWire,
+  patch: CollectionDetailPatch,
+): CollectionItemWire {
+  return item.cid === patch.cid ? { ...item, ...patch } : item;
+}
+
+function detailErrorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  if (/cancel|abort|取消/i.test(text)) return '同步已取消';
+  if (/p_skey|online|pid|在线|登录|account/i.test(text)) return '需要登录中的 QQ 才能同步详情';
+  return text || '同步详情失败';
+}
+
 /** All searchable text for one item, lower-cased. */
 function searchCorpus(it: CollectionItemWire): string {
-  const parts = [it.authorName, it.groupName, it.text];
+  const parts = [it.authorName, it.groupName, it.text, cachedContentText(it)];
   if (it.link) parts.push(it.link.title, it.link.publisher, it.link.brief, it.link.url);
   if (it.richMedia)
     parts.push(
@@ -241,12 +320,14 @@ function PicGrid({ pics, alt }: { pics: PicWire[]; alt: string }): ReactElement 
 }
 
 function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
+  const cachedText = cachedContentText(it);
   switch (it.kind) {
     case 'text':
-      return <p className="weq-col-text">{it.text || '(空文本)'}</p>;
+      return <p className="weq-col-text">{cachedText || it.text || '(空文本)'}</p>;
 
     case 'link': {
-      const l = it.link!;
+      const l = it.link;
+      if (!l) return <p className="weq-col-text is-muted">暂无链接内容</p>;
       const cover = l.pics[0];
       return (
         <button
@@ -280,10 +361,11 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'gallery':
-      return <PicGrid pics={it.gallery!.pics} alt="收藏图片" />;
+      return <PicGrid pics={it.gallery?.pics ?? []} alt="收藏图片" />;
 
     case 'audio': {
-      const a = it.audio!;
+      const a = it.audio;
+      if (!a) return <p className="weq-col-text is-muted">暂无语音内容</p>;
       return (
         <div className="weq-col-media-row">
           <span className="weq-col-media-icon">
@@ -300,7 +382,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'video': {
-      const v = it.video!;
+      const v = it.video;
+      if (!v) return <p className="weq-col-text is-muted">暂无视频内容</p>;
       const src = v.cover ? collectionImageUrl(v.cover.uri) : null;
       return (
         <div className="weq-col-video">
@@ -327,7 +410,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'file': {
-      const f = it.file!;
+      const f = it.file;
+      if (!f) return <p className="weq-col-text is-muted">暂无文件内容</p>;
       return (
         <div className="weq-col-media-row">
           <span className="weq-col-media-icon">
@@ -348,7 +432,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'location': {
-      const loc = it.location!;
+      const loc = it.location;
+      if (!loc) return <p className="weq-col-text is-muted">暂无位置信息</p>;
       const hasCoord = Boolean(loc.latitude || loc.longitude);
       const mapUrl = hasCoord
         ? `https://uri.amap.com/marker?position=${loc.longitude},${loc.latitude}&name=${encodeURIComponent(loc.name || '收藏位置')}`
@@ -382,9 +467,9 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     case 'richMedia': {
-      const r = it.richMedia!;
+      const r = it.richMedia ?? { title: '', subTitle: '', brief: '', originalUri: '', pics: [] };
       const heading = r.title || r.subTitle;
-      const body = r.brief;
+      const body = cachedText || r.brief;
       const hasAny = heading || body || r.pics.length;
       return (
         <div className="weq-col-rich">
@@ -401,7 +486,13 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
   }
 }
 
-function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
+function CollectionCard({
+  it,
+  onOpen,
+}: {
+  it: CollectionItemWire;
+  onOpen: (item: CollectionItemWire) => void;
+}): ReactElement {
   return (
     <article className="weq-col-card">
       <header className="weq-col-card-head">
@@ -418,7 +509,13 @@ function CollectionCard({ it }: { it: CollectionItemWire }): ReactElement {
       <div className="weq-col-card-body">
         <CardBody it={it} />
       </div>
-      <footer className="weq-col-card-foot">{humanTime(it.collectTime)}</footer>
+      <footer className="weq-col-card-foot">
+        <span>{humanTime(it.collectTime)}</span>
+        <button type="button" className="weq-col-detail-open" onClick={() => onOpen(it)}>
+          查看详情
+          <ChevronRight size={12} />
+        </button>
+      </footer>
     </article>
   );
 }
@@ -430,7 +527,6 @@ export function CollectionDialog({
   open: boolean;
   onClose: () => void;
 }): ReactElement | null {
-  useEscapeToClose(onClose);
   const [items, setItems] = useState<CollectionItemWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -439,27 +535,47 @@ export function CollectionDialog({
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [page, setPage] = useState(0);
-  const startedRef = useRef(false);
+  const [reload, setReload] = useState(0);
+  const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailReload, setDetailReload] = useState(0);
+  const [detailSync, setDetailSync] = useState<DetailSyncProgress | null>(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaResults, setMediaResults] = useState<CollectionMediaResult[] | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const mediaRun = useRef<{ requestId: string; cid: string } | null>(null);
+  const detailGeneration = useRef(0);
+  const forceDetailRefresh = useRef(false);
+  const detailSyncRun = useRef<{ requestId: string; cancelled: boolean } | null>(null);
+  const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
+  selectedContentStatus.current = selected?.contentStatus;
+  useEscapeToClose(() => {
+    if (selected) setSelected(null);
+    else onClose();
+  });
 
   // Two-stage load, the first time the dialog opens: paint the local
   // collection.db immediately (fast, works offline), then quietly swap in the
   // weiyun collector result once it lands (slow, but authoritative). A network
   // failure / missing p_skey keeps the db rows — 收藏 is never an error state.
   //
-  // The "already started" gate MUST be a ref, not state: this body sets state
-  // between its two stages, and any state the effect depends on would re-run it
-  // mid-flight, whose cleanup flips `cancelled` — the network stage would then
-  // resolve with every setState skipped, leaving 「同步中」 spinning forever.
-  //
-  // For the same reason `cancelled` only guards the *data* writes. The two
-  // in-flight flags are cleared unconditionally: closing the dialog mid-sync
-  // must not leave `refreshing` stuck on, since the gate stops this effect from
-  // ever running (and clearing it) again.
+  // Reopening or explicitly refreshing reads the latest QQ detail cache. Every
+  // state write belongs to this load so a closed/reopened dialog cannot receive
+  // the previous network result or clear the new load's progress indicators.
   useEffect(() => {
-    if (!open || startedRef.current) return;
-    startedRef.current = true;
+    if (!open) {
+      const run = detailSyncRun.current;
+      if (run) {
+        run.cancelled = true;
+        void client.account.cancelCollectionDetailSync.mutate({ requestId: run.requestId });
+      }
+      setSelected(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
+    setRefreshing(false);
     setError(null);
     (async () => {
       try {
@@ -471,7 +587,7 @@ export function CollectionDialog({
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
         return;
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
 
       setRefreshing(true);
@@ -481,13 +597,229 @@ export function CollectionDialog({
       } catch {
         /* 网络补充失败:保留本地结果,不打扰用户 */
       } finally {
-        setRefreshing(false);
+        if (!cancelled) setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, reload]);
+
+  const selectedCid = selected?.cid;
+  useEffect(() => {
+    setMediaResults(null);
+    setMediaError(null);
+    setMediaLoading(false);
+    return () => {
+      const run = mediaRun.current;
+      if (run) {
+        mediaRun.current = null;
+        void client.account.cancelCollectionDetailSync
+          .mutate({ requestId: run.requestId })
+          .catch(() => {});
+      }
+    };
+  }, [selectedCid, open]);
+
+  const downloadAttachments = async (): Promise<void> => {
+    if (!selectedCid || mediaRun.current) return;
+    const run = { requestId: collectionRequestId('collection-media'), cid: selectedCid };
+    mediaRun.current = run;
+    setMediaLoading(true);
+    setMediaError(null);
+    try {
+      const results = await client.account.downloadCollectionMedia.mutate(run);
+      if (mediaRun.current === run) setMediaResults(results);
+    } catch (error) {
+      if (mediaRun.current === run) setMediaError(detailErrorText(error));
+    } finally {
+      if (mediaRun.current === run) {
+        mediaRun.current = null;
+        setMediaLoading(false);
+      }
+    }
+  };
+
+  const saveAttachment = async (id: string): Promise<void> => {
+    try {
+      const result = await client.account.saveCollectionMedia.mutate({ id });
+      if (result?.downloadId) {
+        const link = document.createElement('a');
+        link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
+        link.download = result.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch (error) {
+      setMediaError(detailErrorText(error));
+    }
+  };
+  useEffect(() => {
+    if (!open || !selectedCid) return;
+    let cancelled = false;
+    const generation = ++detailGeneration.current;
+    const cid = selectedCid;
+    const force = forceDetailRefresh.current;
+    forceDetailRefresh.current = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    void (async () => {
+      try {
+        const local = (await client.account.collectionDetail.query({
+          cid,
+        })) as CollectionItemWire | CollectionDetailPatch | null;
+        if (cancelled || generation !== detailGeneration.current) return;
+        if (local) {
+          // Keep the current cloud summary; QQ's local list row may be stale
+          // or absent even though a durable detail response is available.
+          const detailFields = {
+            contentStatus: local.contentStatus,
+            fullContent: local.fullContent,
+            fullContentFormat: local.fullContentFormat,
+          };
+          setSelected((current) =>
+            current?.cid === cid ? { ...current, ...detailFields } : current,
+          );
+          setItems((current) =>
+            current.map((item) => (item.cid === cid ? { ...item, ...detailFields } : item)),
+          );
+        }
+        const alreadyCached =
+          local?.contentStatus === 'cached' || selectedContentStatus.current === 'cached';
+        if (alreadyCached && !force) return;
+        const patches = (await client.account.syncCollectionDetails.mutate({
+          requestId: collectionRequestId('collection-detail'),
+          cids: [cid],
+          force,
+        })) as CollectionDetailPatch[];
+        if (cancelled || generation !== detailGeneration.current) return;
+        const patch = patches[0];
+        if (!patch) throw new Error('收藏详情响应为空');
+        setSelected((current) => (current ? applyDetailPatch(current, patch) : current));
+        setItems((current) => current.map((item) => applyDetailPatch(item, patch)));
+      } catch (error) {
+        if (!cancelled && generation === detailGeneration.current) {
+          setDetailError(detailErrorText(error));
+        }
+      } finally {
+        if (!cancelled && generation === detailGeneration.current) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedCid, detailReload]);
+
+  const syncAllDetails = async (): Promise<void> => {
+    if (detailSyncRun.current) return;
+    const targets = items.filter((item) => item.contentStatus !== 'cached').map((item) => item.cid);
+    if (!targets.length) {
+      setDetailSync({
+        done: items.length,
+        total: items.length,
+        failed: 0,
+        cancelling: false,
+        cancelled: false,
+        message: null,
+      });
+      return;
+    }
+    const run = { requestId: collectionRequestId('collection-sync'), cancelled: false };
+    detailSyncRun.current = run;
+    setDetailSync({
+      done: 0,
+      total: targets.length,
+      failed: 0,
+      cancelling: false,
+      cancelled: false,
+      message: null,
+    });
+    let done = 0;
+    let failed = 0;
+    let failureMessage: string | null = null;
+    try {
+      for (let offset = 0; offset < targets.length; offset += 20) {
+        if (run.cancelled) break;
+        const cids = targets.slice(offset, offset + 20);
+        try {
+          const patches = (await client.account.syncCollectionDetails.mutate({
+            requestId: run.requestId,
+            cids,
+          })) as CollectionDetailPatch[];
+          if (run.cancelled) break;
+          const byCid = new Map(patches.map((patch) => [patch.cid, patch]));
+          setItems((current) =>
+            current.map((item) => {
+              const patch = byCid.get(item.cid);
+              return patch ? applyDetailPatch(item, patch) : item;
+            }),
+          );
+          setSelected((current) => {
+            if (!current) return current;
+            const patch = byCid.get(current.cid);
+            return patch ? applyDetailPatch(current, patch) : current;
+          });
+        } catch (error) {
+          const message = detailErrorText(error);
+          failureMessage = message;
+          if (run.cancelled || /取消/.test(message)) break;
+          if (message === '需要登录中的 QQ 才能同步详情') {
+            failed += targets.length - done;
+            done = targets.length;
+            setDetailSync({
+              done,
+              total: targets.length,
+              failed,
+              cancelling: false,
+              cancelled: false,
+              message: failureMessage,
+            });
+            break;
+          }
+          failed += cids.length;
+        }
+        done += cids.length;
+        setDetailSync({
+          done,
+          total: targets.length,
+          failed,
+          cancelling: false,
+          cancelled: false,
+          message: failureMessage,
+        });
+        // Let the progress paint and give the stop button a chance to cancel
+        // before the next bounded request starts.
+        if (!run.cancelled && done < targets.length) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
+      }
+    } finally {
+      if (detailSyncRun.current === run) detailSyncRun.current = null;
+      setDetailSync((current) =>
+        current
+          ? {
+              ...current,
+              done: Math.max(current.done, done),
+              failed,
+              cancelling: false,
+              cancelled: run.cancelled,
+              message: failureMessage,
+            }
+          : null,
+      );
+    }
+  };
+
+  const cancelDetailSync = (): void => {
+    const run = detailSyncRun.current;
+    if (!run) return;
+    run.cancelled = true;
+    setDetailSync((current) =>
+      current ? { ...current, cancelling: true, cancelled: true, message: null } : current,
+    );
+    void client.account.cancelCollectionDetailSync.mutate({ requestId: run.requestId });
+  };
 
   // Search-filtered set (kind ignored) — drives the per-kind chip counts.
   const bySearch = useMemo(() => {
@@ -529,57 +861,258 @@ export function CollectionDialog({
         <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
         </button>
-
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
+            {selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                onClick={() => setSelected(null)}
+                title="返回收藏"
+              >
+                <ChevronLeft size={18} />
+              </button>
+            ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
-            <h2 id="weq-collection-title">我的收藏</h2>
-            {loaded ? <span className="weq-collection-total">{items.length}</span> : null}
-            {refreshing ? (
+            <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
+            {loaded && !selected ? (
+              <span className="weq-collection-total">{items.length}</span>
+            ) : null}
+            {selected ? (
+              <>
+                <button
+                  type="button"
+                  className="weq-col-detail-back"
+                  title="刷新详情"
+                  disabled={detailLoading || mediaLoading}
+                  onClick={() => {
+                    setMediaResults(null);
+                    setMediaError(null);
+                    forceDetailRefresh.current = true;
+                    setDetailReload((n) => n + 1);
+                  }}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="weq-collection-sync-button"
+                  disabled={detailLoading || mediaLoading}
+                  onClick={() => void downloadAttachments()}
+                >
+                  <Download size={13} />
+                  {mediaLoading ? '下载中' : '下载附件'}
+                </button>
+                {mediaLoading ? (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={() => {
+                      const run = mediaRun.current;
+                      if (run)
+                        void client.account.cancelCollectionDetailSync
+                          .mutate({ requestId: run.requestId })
+                          .catch(() => {});
+                    }}
+                  >
+                    <Square size={10} />
+                    停止
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="weq-col-detail-back"
+                  title="刷新收藏"
+                  disabled={loading || refreshing || Boolean(detailSyncRun.current)}
+                  onClick={() => {
+                    setDetailSync(null);
+                    setReload((n) => n + 1);
+                  }}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                {detailSyncRun.current ? (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={cancelDetailSync}
+                    disabled={detailSync?.cancelling}
+                  >
+                    <Square size={10} fill="currentColor" />
+                    {detailSync?.cancelling ? '正在取消' : '停止'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="weq-collection-sync-button"
+                    onClick={() => void syncAllDetails()}
+                    disabled={loading || refreshing || items.length === 0}
+                  >
+                    <Download size={13} />
+                    同步详情
+                  </button>
+                )}
+              </>
+            )}
+            {refreshing && !selected ? (
               <span className="weq-collection-syncing" title="正在同步最新收藏">
                 <Loader2 size={13} className="weq-spin" />
                 同步中
               </span>
             ) : null}
-          </div>
-          <div className="weq-collection-search">
-            <Search size={15} strokeWidth={1.8} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索标题 / 内容 / 来源…"
-              spellCheck={false}
-            />
-            {query ? (
-              <button
-                type="button"
-                className="weq-collection-search-clear"
-                onClick={() => setQuery('')}
-              >
-                <X size={13} strokeWidth={2} />
-              </button>
+            {detailSync && !selected ? (
+              <span className="weq-collection-syncing" role="status">
+                {detailSyncRun.current ? (
+                  <Loader2 size={13} className="weq-spin" />
+                ) : (
+                  <Download size={13} />
+                )}
+                {detailSyncRun.current
+                  ? `${detailSync.done}/${detailSync.total}`
+                  : detailSync.cancelled
+                    ? '已停止'
+                    : detailSync.message === '需要登录中的 QQ 才能同步详情'
+                      ? '需要登录 QQ'
+                      : detailSync.failed
+                        ? `完成 ${detailSync.done - detailSync.failed}/${detailSync.total}`
+                        : '详情已同步'}
+              </span>
             ) : null}
           </div>
+          {!selected ? (
+            <div className="weq-collection-search">
+              <Search size={15} strokeWidth={1.8} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索标题 / 内容 / 来源…"
+                spellCheck={false}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="weq-collection-search-clear"
+                  onClick={() => setQuery('')}
+                >
+                  <X size={13} strokeWidth={2} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </header>
-
-        <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
-          {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              role="tab"
-              aria-selected={kind === k.id}
-              className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-              onClick={() => setKind(k.id)}
-            >
-              {k.label}
-              <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-
+        {!selected ? (
+          <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
+            {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                role="tab"
+                aria-selected={kind === k.id}
+                className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
+                onClick={() => setKind(k.id)}
+              >
+                {k.label}
+                <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="weq-collection-body">
-          {loading ? (
+          {selected ? (
+            <section className="weq-col-detail">
+              <div className="weq-col-detail-meta">
+                <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                <span>
+                  {selected.authorName || '未知'}
+                  {selected.groupName ? ` · ${selected.groupName}` : ''}
+                </span>
+                <time>{humanTime(selected.collectTime)}</time>
+              </div>
+              {detailLoading ? (
+                <div className="weq-collection-state">
+                  <Loader2 size={20} className="weq-spin" />
+                  正在加载…
+                </div>
+              ) : null}
+              {detailError ? (
+                <p className="weq-col-detail-unavailable" role="status">
+                  {detailError}
+                </p>
+              ) : null}
+              {mediaError ? (
+                <p className="weq-col-detail-unavailable" role="status">
+                  {mediaError}
+                </p>
+              ) : null}
+              {mediaResults ? (
+                <div className="weq-col-media-results">
+                  <div className="weq-col-media-results-head">
+                    <span>
+                      {mediaResults.length ? `附件 ${mediaResults.length}` : '暂无可下载附件'}
+                    </span>
+                    {!IS_WEB && mediaResults.some((result) => result.state === 'downloaded') ? (
+                      <button
+                        type="button"
+                        className="weq-col-detail-open"
+                        onClick={() => void client.account.revealCollectionMedia.mutate()}
+                      >
+                        打开文件夹
+                      </button>
+                    ) : null}
+                  </div>
+                  {mediaResults.map((result, index) => (
+                    <div className="weq-col-media-result" key={result.id}>
+                      <span>{result.name || `附件 ${index + 1}`}</span>
+                      {result.state === 'downloaded' ? (
+                        <button
+                          type="button"
+                          className="weq-col-detail-open"
+                          onClick={() => void saveAttachment(result.id)}
+                        >
+                          另存为
+                        </button>
+                      ) : null}
+                      <span title={result.error ?? undefined}>
+                        {result.state !== 'downloaded'
+                          ? result.error || '暂时无法下载'
+                          : result.role === 'original'
+                            ? '原件已校验'
+                            : result.role === 'preview'
+                              ? '预览图已下载'
+                              : result.md5Matches === false
+                                ? '已下载，原件校验不符'
+                                : result.sizeMatches === false
+                                  ? '已下载，大小与记录不符'
+                                  : '已下载，原件未核验'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {selected.fullContentFormat === 'text' || selected.fullContentFormat === 'html' ? (
+                <CollectionContent
+                  content={selected.fullContent}
+                  format={selected.fullContentFormat}
+                />
+              ) : (
+                <>
+                  <CardBody it={selected} />
+                  {!detailLoading ? (
+                    <p className="weq-col-detail-unavailable">
+                      {selected.fullContentFormat === 'binary'
+                        ? '详情已同步，当前类型暂不支持直接预览。'
+                        : selected.contentStatus === 'cached'
+                          ? '详情已同步，当前没有额外正文。'
+                          : '未能获取完整内容。'}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </section>
+          ) : loading ? (
             <div className="weq-collection-state">
               <Loader2 size={22} className="weq-spin" />
               <span>正在加载收藏…</span>
@@ -597,13 +1130,12 @@ export function CollectionDialog({
           ) : (
             <div className="weq-collection-grid">
               {pageItems.map((it) => (
-                <CollectionCard key={it.cid} it={it} />
+                <CollectionCard key={it.cid} it={it} onOpen={setSelected} />
               ))}
             </div>
           )}
         </div>
-
-        {!loading && !error && filtered.length > 0 ? (
+        {!selected && !loading && !error && filtered.length > 0 ? (
           <footer className="weq-collection-pager">
             <button
               type="button"

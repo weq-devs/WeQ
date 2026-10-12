@@ -1518,7 +1518,7 @@ export const bootstrapRouter = router({
       // Attach (idempotent) AND register the native SSO session: 正常的登录流程
       // 会先走 `prepareInstanceAttach`（那一步已登记），但 `fetchKeyFromInstance`
       // 也可以被单独调用（例如重试、其它调用方），不能假定登记一定发生过 ——
-      // 登记是幂等的、只存物料不建连，多走一次无副作用。缺了它 0xcde_2 会报
+      // 缺了登记 0xcde_2 会报
       // 「还没有登记 SSO 会话」。
       const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
       const { registered } = await attachAndRegisterSsoSession(
@@ -1540,16 +1540,13 @@ export const bootstrapRouter = router({
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
-        // The cached native client may have died (QQ relaunched / hook
-        // unloaded). Reset + re-ensure once — a genuinely closed client
-        // reconnects cleanly — and retry a single time.
-        logger.warn('key fetch failed; re-attaching and retrying once', {
+        // Reconnect using the already-authorized material. A failed business
+        // request must not trigger another password prompt automatically.
+        logger.warn('key fetch failed; retrying once with the registered session', {
           event: 'router-fetch-key-retry',
           pid: input.pid,
           error: result.error,
         });
-        boot.attachHook.reset(input.pid);
-        await boot.attachHook.ensure(input.pid, input.uin);
         result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;

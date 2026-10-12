@@ -32,11 +32,11 @@ export interface AttachHook {
    * `uin` 只用于日志与归属，读取本身不需要它。
    * 幂等 —— 同一个 pid 已经读过就直接返回缓存。
    */
-  attach(pid: number, uin: string): Promise<SessionMaterial>;
+  attach(pid: number, uin: string, signal?: AbortSignal): Promise<SessionMaterial>;
   /**
    * 同 {@link attach}（读内存没有独立的「等待就绪」半步）。
    */
-  ensure(pid: number, uin: string): Promise<SessionMaterial>;
+  ensure(pid: number, uin: string, signal?: AbortSignal): Promise<SessionMaterial>;
   /** 忘掉 `pid` 的缓存物料，下一次调用重新读。 */
   reset(pid: number): void;
 }
@@ -63,15 +63,107 @@ export interface AttachHintAnswer {
  * win32 (and used as the fallback whenever no platform-specific hook is
  * supplied). Not for linux/macOS — see {@link AttachHook}.
  */
+/** Account-scoped caching with exclusive reads per process and reset fencing. */
+export function createCachedAttachHook(
+  read: (pid: number, uin: string, signal: AbortSignal) => Promise<SessionMaterial>,
+): AttachHook {
+  const cached = new Map<number, { uin: string; generation: number; material: SessionMaterial }>();
+  const generations = new Map<number, number>();
+  type ReadEntry = {
+    generation: number;
+    task: Promise<SessionMaterial>;
+    controller: AbortController;
+    users: number;
+  };
+  const inflight = new Map<string, ReadEntry>();
+  const controllers = new Map<number, Set<AbortController>>();
+  const queues = new Map<number, Promise<void>>();
+  const reset = (pid: number): void => {
+    cached.delete(pid);
+    generations.set(pid, (generations.get(pid) ?? 0) + 1);
+    for (const controller of controllers.get(pid) ?? [])
+      controller.abort(new Error('QQ 会话读取已失效，请重新读取。'));
+  };
+  const subscribe = (entry: ReadEntry, signal?: AbortSignal): Promise<SessionMaterial> => {
+    entry.users++;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = (success: boolean, value: unknown): void => {
+        if (finished) return;
+        finished = true;
+        entry.users--;
+        signal?.removeEventListener('abort', cancel);
+        entry.controller.signal.removeEventListener('abort', invalidated);
+        if (success) resolve(value as SessionMaterial);
+        else reject(value);
+      };
+      const cancel = (): void => {
+        finish(false, signal?.reason ?? new Error('读取已取消。'));
+        if (entry.users === 0) entry.controller.abort(signal?.reason);
+      };
+      const invalidated = (): void =>
+        finish(false, entry.controller.signal.reason ?? new Error('读取已取消。'));
+      signal?.addEventListener('abort', cancel, { once: true });
+      entry.controller.signal.addEventListener('abort', invalidated, { once: true });
+      void entry.task.then(
+        (value) => finish(true, value),
+        (error) => finish(false, error),
+      );
+      if (signal?.aborted) cancel();
+      else if (entry.controller.signal.aborted) invalidated();
+    });
+  };
+  const ensure = async (
+    pid: number,
+    uin: string,
+    signal?: AbortSignal,
+  ): Promise<SessionMaterial> => {
+    signal?.throwIfAborted();
+    const hit = cached.get(pid);
+    const generation = generations.get(pid) ?? 0;
+    if (hit?.uin === uin && hit.generation === generation) return hit.material;
+    if (hit && hit.uin !== uin) cached.delete(pid);
+    const key = `${pid}:${uin}`;
+    const pending = inflight.get(key);
+    if (pending?.generation === generation && !pending.controller.signal.aborted)
+      return subscribe(pending, signal);
+    const controller = new AbortController();
+    const active = controllers.get(pid) ?? new Set<AbortController>();
+    active.add(controller);
+    controllers.set(pid, active);
+    const task = (queues.get(pid) ?? Promise.resolve()).then(async () => {
+      controller.signal.throwIfAborted();
+      if ((generations.get(pid) ?? 0) !== generation)
+        throw new Error('QQ 会话读取已失效，请重新读取。');
+      const material = await read(pid, uin, controller.signal);
+      controller.signal.throwIfAborted();
+      if ((generations.get(pid) ?? 0) !== generation)
+        throw new Error('QQ 会话读取已失效，请重新读取。');
+      cached.set(pid, { uin, generation, material });
+      return material;
+    });
+    const entry: ReadEntry = { generation, task, controller, users: 0 };
+    const tail = task.then(
+      () => {},
+      () => {},
+    );
+    queues.set(pid, tail);
+    inflight.set(key, entry);
+    void tail.then(() => {
+      if (inflight.get(key) === entry) inflight.delete(key);
+      if (queues.get(pid) === tail) queues.delete(pid);
+      active.delete(controller);
+      if (active.size === 0 && controllers.get(pid) === active) controllers.delete(pid);
+    });
+    return subscribe(entry, signal);
+  };
+  return { attach: ensure, ensure, reset };
+}
+
 export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  const cached = new Map<number, SessionMaterial>();
-
-  const doAttach = async (pid: number, uin: string): Promise<SessionMaterial> => {
-    const hit = cached.get(pid);
-    if (hit) return hit;
+  return createCachedAttachHook(async (pid, uin) => {
     const material = await nt.scanSessionMaterial(pid);
-    // 只记「有没有」——物料本身就是凭据，不进日志。
     logger.info('attached to qq process', {
       event: 'attach',
       pid,
@@ -80,16 +172,6 @@ export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
       hasD2: material.d2 !== undefined,
       hasD2Key: material.d2Key !== undefined,
     });
-    cached.set(pid, material);
     return material;
-  };
-
-  return {
-    attach: doAttach,
-    // 进程内读取没有独立的「等就绪」，所以 ensure == attach。
-    ensure: doAttach,
-    reset(pid: number): void {
-      cached.delete(pid);
-    },
-  };
+  });
 }

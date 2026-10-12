@@ -106,6 +106,8 @@ export interface UiTask {
   logs?: UiLogLine[];
   /** 商城表情批量下载任务：隐藏格式标签、计数单位用「张」而非「条」。 */
   isMarketPack?: boolean;
+  /** 导出表情包任务：隐藏格式标签、计数单位用「张」。 */
+  isEmojiPack?: boolean;
   /** QQ 空间导出（图标 / 类型标签用）。 */
   isQzone?: boolean;
   /** 联系人导出。 */
@@ -142,6 +144,7 @@ function taskPct(t: UiTask): number {
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 function taskTypeLabel(t: UiTask): string {
   if (t.isMarketPack) return '商城表情下载';
+  if (t.isEmojiPack) return '导出表情包';
   if (t.isQzone) return 'QQ 空间导出';
   if (t.isContacts) return '联系人导出';
   if (t.isCollection) return '收藏导出';
@@ -152,6 +155,7 @@ function taskTypeLabel(t: UiTask): string {
 /** 任务类型图标（消息 / 联系人 / QQ 空间 / 收藏 / 商城表情）。 */
 function taskIcon(t: UiTask): ReactElement {
   if (t.isMarketPack) return <Sticker size={15} />;
+  if (t.isEmojiPack) return <Sticker size={15} />;
   if (t.isQzone) return <Globe size={15} />;
   if (t.isContacts) return <Contact size={15} />;
   if (t.isCollection) return <Bookmark size={15} />;
@@ -248,18 +252,37 @@ function LogConsole({
 }
 
 /** 一个子任务阶段：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
-function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): ReactElement {
+function StageRow({
+  stage,
+  logs,
+  onShowFailures,
+}: {
+  stage: UiStage;
+  logs: UiLogLine[];
+  onShowFailures: (failures: UiFailure[]) => void;
+}): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
   // 运行中 / 失败时可展开日志；完成 / 跳过自动收起（按钮禁用）。
   const canOpen = stage.status === 'running' || stage.status === 'failed';
   const showLog = canOpen && open;
+  const failures = stage.failures ?? [];
   return (
     <div className={`weq-exp-detail-stage is-${stage.status}`}>
       <div className="weq-exp-detail-stage-head">
         <span className="weq-exp-detail-stage-label" title={stage.note}>
           {stage.label}
         </span>
+        {failures.length > 0 ? (
+          <button
+            type="button"
+            className="weq-exp-detail-stage-failures"
+            title="点击查看失败详情"
+            onClick={() => onShowFailures(failures)}
+          >
+            失败 {fmtCount(failures.length)}
+          </button>
+        ) : null}
         <span className="weq-exp-detail-stage-bar">
           <span
             className={`weq-exp-detail-stage-fill${stage.status === 'running' ? ' is-active' : ''}`}
@@ -369,10 +392,11 @@ function TaskDetail({
           <strong>{t.name}</strong>
           <span className="weq-exp-detail-meta">
             {taskTypeLabel(t)}
-            {t.isMarketPack ? null : ` · ${fmtFormats(t)}`}
+            {t.isMarketPack || t.isEmojiPack ? null : ` · ${fmtFormats(t)}`}
             {' · '}
             {fmtCount(t.current)}
-            {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} {t.isMarketPack ? '张' : '条'}
+            {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
+            {t.isMarketPack || t.isEmojiPack ? '张' : '条'}
             {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
           </span>
         </div>
@@ -440,7 +464,12 @@ function TaskDetail({
 
       <div className="weq-exp-detail-stages">
         {mounted.map((s) => (
-          <StageRow key={s.key} stage={s} logs={stageLogs(s.key)} />
+          <StageRow
+            key={s.key}
+            stage={s}
+            logs={stageLogs(s.key)}
+            onShowFailures={(failures) => onShowFailures(t, failures)}
+          />
         ))}
       </div>
 

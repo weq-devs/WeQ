@@ -16,7 +16,7 @@
 
 import { cookieHeader, type WebCredential } from './credential';
 import { dressKind } from './dress_kind';
-import { webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestText } from './http';
 
 /** 一个「好友装扮」项 —— 只留核心内容,不含页面按钮/场景等 UI 态。 */
 export interface FriendDressItem {
@@ -168,6 +168,7 @@ export async function getFriendDress(
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'zh-CN,zh;q=0.9',
     },
+    retry: WEB_READ_RETRY,
   });
   //
   // console.log(html);

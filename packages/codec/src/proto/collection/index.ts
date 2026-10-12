@@ -29,4 +29,5 @@ export const CollectionContentColumn = {
 
 export * from './common';
 export * from './summary';
+export * from './content';
 export * from './collector';

@@ -13,7 +13,12 @@
  */
 
 import { ipcMain } from 'electron';
-import { getLogger, type AttachHintAnswer, type AttachHintChoice } from '@weq/service';
+import {
+  getLogger,
+  SharedPrompt,
+  type AttachHintAnswer,
+  type AttachHintChoice,
+} from '@weq/service';
 import { setAttachHintPrompt } from './attach_hint';
 import { getMainWindow } from './main_window';
 
@@ -26,64 +31,48 @@ const RESPOND_CHANNEL = 'attach:respond-hint';
 const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 let pendingResolve: ((answer: AttachHintAnswer) => void) | null = null;
-let pending: Promise<AttachHintAnswer> | null = null;
+const prompt = new SharedPrompt<AttachHintAnswer>({ choice: 'cancel', password: '' });
 let pendingToken = 0;
-let pendingTimer: NodeJS.Timeout | null = null;
 
 /** Register the IPC listener and wire the prompt into `attach_hint`. */
 export function registerAttachHintIpc(): void {
-  ipcMain.on(RESPOND_CHANNEL, (_event, raw: unknown) => {
-    const payload = (raw ?? {}) as { choice?: unknown; password?: unknown };
+  ipcMain.on(RESPOND_CHANNEL, (event, raw: unknown) => {
+    if (event.sender !== getMainWindow()?.webContents || !pendingResolve) return;
+    const payload = (raw ?? {}) as { token?: unknown; choice?: unknown; password?: unknown };
+    if (payload.token !== pendingToken) return;
     const choice: AttachHintChoice =
       payload.choice === 'retry' ||
       payload.choice === 'no-remind' ||
       payload.choice === 'skip' ||
       payload.choice === 'cancel'
         ? payload.choice
-        : 'skip';
+        : 'cancel';
     const password = typeof payload.password === 'string' ? payload.password : '';
     logger.info('ptrace hint answered', { event: 'attach-hint-answered', choice });
     pendingResolve?.({ choice, password });
   });
 
-  setAttachHintPrompt(() => promptImpl());
+  setAttachHintPrompt((signal) => promptImpl(signal));
 }
 
-function promptImpl(): Promise<AttachHintAnswer> {
-  const win = getMainWindow();
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
-    // Headless / window gone — fall back to the original escalate flow.
-    return Promise.resolve({ choice: 'skip', password: '' });
-  }
-  if (pending) return pending;
-
-  const token = ++pendingToken;
-  pending = new Promise<AttachHintAnswer>((resolve) => {
-    const finish = (answer: AttachHintAnswer): void => {
-      if (pendingToken !== token) return; // stale timeout/close from an older prompt
-      if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = null;
-      pendingResolve = null;
-      pending = null;
-      resolve(answer);
-    };
+function promptImpl(signal?: AbortSignal): Promise<AttachHintAnswer> {
+  return prompt.request((finish) => {
+    const token = ++pendingToken;
+    const win = getMainWindow();
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+      finish({ choice: 'cancel', password: '' });
+      return () => {};
+    }
     pendingResolve = finish;
-    pendingTimer = setTimeout(() => {
-      logger.warn('ptrace hint dialog timed out; proceeding to escalate', {
-        event: 'attach-hint-timeout',
-      });
-      finish({ choice: 'skip', password: '' });
-    }, PROMPT_TIMEOUT_MS);
-    win.once('closed', () => {
-      logger.info('main window closed while ptrace hint pending; proceeding to escalate', {
-        event: 'attach-hint-window-closed',
-      });
-      finish({ choice: 'skip', password: '' });
-    });
-    win.webContents.send(CONFIRM_CHANNEL);
-    logger.info('asked renderer to show ptrace hint dialog', {
-      event: 'attach-hint-requested',
-    });
-  });
-  return pending;
+    const cancel = (): void => finish({ choice: 'cancel', password: '' });
+    const timer = setTimeout(cancel, PROMPT_TIMEOUT_MS);
+    win.once('closed', cancel);
+    win.webContents.send(CONFIRM_CHANNEL, { token });
+    return () => {
+      clearTimeout(timer);
+      win.removeListener('closed', cancel);
+      if (pendingToken === token) pendingResolve = null;
+      if (!win.webContents.isDestroyed()) win.webContents.send('attach:cancel-hint', { token });
+    };
+  }, signal);
 }

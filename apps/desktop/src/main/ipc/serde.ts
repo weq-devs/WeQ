@@ -939,6 +939,15 @@ export interface CollectionPicWire {
 
 /** One 收藏 item, flattened for the renderer. At most one content field is set. */
 export interface CollectionItemWire {
+  /** List summaries must never be presented as verified full content. */
+  contentStatus: 'summary' | 'truncated' | 'cached';
+  /** UTF-8 detail bytes cached by official QQ; empty for binary/unknown content. */
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
+  textTruncated?: boolean;
+  modifyTime: number;
+  sequence?: string;
+  nativeModifyTime?: string;
   cid: string;
   /** 'text' | 'link' | 'gallery' | 'audio' | 'video' | 'file' | 'location' | 'richMedia' | 'unknown' */
   kind: string;
@@ -979,6 +988,13 @@ export interface CollectionItemWire {
   } | null;
 }
 
+export interface CollectionDetailWire {
+  cid: string;
+  contentStatus: 'cached';
+  fullContent: string;
+  fullContentFormat: 'text' | 'html' | 'binary' | null;
+}
+
 function collectionPicsToWire(
   pics: readonly { uri?: string; width?: number; height?: number }[] | undefined,
 ): CollectionPicWire[] {
@@ -992,10 +1008,71 @@ function fileExt(name: string): string {
   return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
+const COLLECTION_CACHE_SLOTS = [
+  'text',
+  'link',
+  'gallery',
+  'audio',
+  'video',
+  'file',
+  'location',
+  'richMedia',
+] as const;
+
+function cachedContentProjection(
+  cached: CollectionItem['cachedContent'],
+  kind?: string,
+): {
+  text: string;
+  format: 'text' | 'html' | 'binary' | null;
+} | null {
+  if (!cached) return null;
+  if ((!kind || kind === 'text') && cached.textContent?.data !== undefined) {
+    return { text: cached.textContent.data, format: 'text' };
+  }
+  if ((!kind || kind === 'audio') && cached.audioContent?.data !== undefined) {
+    return { text: cached.audioContent.data, format: 'text' };
+  }
+  if ((!kind || kind === 'richMedia') && cached.richMediaContent?.rawData !== undefined) {
+    return { text: cached.richMediaContent.rawData, format: 'html' };
+  }
+  if ((!kind || kind === 'richMedia') && cached.richMediaContent) {
+    return { text: '', format: 'binary' };
+  }
+  const preferred = COLLECTION_CACHE_SLOTS.includes(kind as (typeof COLLECTION_CACHE_SLOTS)[number])
+    ? (kind as (typeof COLLECTION_CACHE_SLOTS)[number])
+    : null;
+  const slot = preferred
+    ? cached[preferred]
+      ? preferred
+      : null
+    : (COLLECTION_CACHE_SLOTS.find((name) => cached[name] !== undefined) ?? null);
+  if (!slot) return cached.fetched ? { text: '', format: null } : null;
+  return { text: '', format: 'binary' };
+}
+
+function cachedCollectionContent(it: CollectionItem) {
+  return cachedContentProjection(it.cachedContent, it.kind);
+}
+
+export function collectionDetailToWire(
+  cid: string,
+  content: NonNullable<CollectionItem['cachedContent']>,
+): CollectionDetailWire {
+  const cached = cachedContentProjection(content);
+  return {
+    cid,
+    contentStatus: 'cached',
+    fullContent: cached?.text ?? '',
+    fullContentFormat: cached?.format ?? null,
+  };
+}
+
 export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
   const s = it.summary;
   const author = it.author;
   const numId = author?.numId ?? 0n;
+  const cached = cachedCollectionContent(it);
 
   const link = s.linkSummary
     ? {
@@ -1060,6 +1137,13 @@ export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
     : null;
 
   return {
+    contentStatus: cached ? 'cached' : s.textSummary?.truncated ? 'truncated' : 'summary',
+    fullContent: cached?.text ?? '',
+    fullContentFormat: cached?.format ?? null,
+    textTruncated: s.textSummary?.truncated,
+    modifyTime: it.modifyTime,
+    sequence: it.sequence,
+    nativeModifyTime: it.nativeModifyTime,
     cid: it.cid,
     kind: it.kind,
     type: it.type,

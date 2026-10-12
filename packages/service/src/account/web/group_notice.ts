@@ -7,7 +7,7 @@
  */
 
 import { computeBkn, cookieHeader, type WebCredential } from './credential';
-import { webRequestJson } from './http';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 export interface GroupNoticeImage {
   id: string;
@@ -72,6 +72,7 @@ export async function getGroupNotice(
     cookie: cookieHeader(cred),
     body,
     headers: { Referer: 'https://web.qun.qq.com/mannounce/index.html?_wv=1031&_bid=148' },
+    retry: WEB_READ_RETRY,
   });
 
   if (ret.ec !== 0 || !ret.feeds) return [];

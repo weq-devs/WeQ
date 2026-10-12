@@ -143,18 +143,18 @@ export interface Platform {
   qqExePath(): string | null;
 
   /**
-   * Path to `wrapper.node` inside QQ's resources/app. The `protocol` layer
-   * inside `nt_helper` needs this to read protobuf descriptors at runtime.
+   * Path to the QQ `wrapper.node` used for signatures/descriptors. On macOS,
+   * passing a running pid selects its mapped image, including hot updates;
+   * omitting pid resolves the installed image for offline/bootstrap use.
    */
-  qqWrapperNodePath(): string | null;
+  qqWrapperNodePath(pid?: number): string | null;
 
   /**
-   * Path to `major.node` inside QQ's resources/app — the anchor
-   * `resolveAppidFromMajor` scans for the build's appid/qua. Co-located with
-   * `wrapper.node`. Null if QQ isn't found. The appid/qua MUST match the
-   * installed build or the login server rejects with 140022017.
+   * QQ `major.node`, used for appid/QUA/version. A running macOS pid selects
+   * its mapped image, paired with the signer from that same process.
+   * The metadata must match the session's running build.
    */
-  qqMajorNodePath(): string | null;
+  qqMajorNodePath(pid?: number): string | null;
 
   /**
    * The installed QQ client version (e.g. `3.2.31-51102`), read from the

@@ -12,7 +12,7 @@
  */
 
 import ExcelJS from 'exceljs';
-import { createExportWriter } from './stream_utils';
+import { writeFileAtomicSync } from '../../common/atomic_write';
 
 /** 单元格取值只可能是字符串或数字。 */
 export type Cell = string | number;
@@ -34,9 +34,7 @@ export function escapeCsv(value: string): string {
 
 /** 一次性把内容写到文件（联系人 / 收藏量级不大）。 */
 export async function writeFileStream(outputPath: string, body: string): Promise<void> {
-  const writer = createExportWriter(outputPath);
-  await writer.write(body);
-  await writer.end();
+  writeFileAtomicSync(outputPath, body);
 }
 
 /** json：对象数组（英文键，便于程序消费）。 */

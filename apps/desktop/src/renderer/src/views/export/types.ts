@@ -20,7 +20,8 @@ export type ExportMode =
   | 'scheduled'
   | 'album'
   | 'groupfile'
-  | 'marketpack';
+  | 'marketpack'
+  | 'emojipack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */

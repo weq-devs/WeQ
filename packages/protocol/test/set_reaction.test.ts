@@ -25,6 +25,7 @@ interface OidbCall {
   subCommand: number;
   body: Uint8Array;
   isUid: boolean;
+  needSign?: boolean;
 }
 
 function makeNative() {
@@ -37,8 +38,9 @@ function makeNative() {
       subCommand: number,
       body: Buffer,
       isUid: boolean,
+      needSign?: boolean,
     ): Promise<Buffer> => {
-      calls.push({ pid, command, subCommand, body: new Uint8Array(body), isUid });
+      calls.push({ pid, command, subCommand, body: new Uint8Array(body), isUid, needSign });
       return Buffer.alloc(0); // 空 ack
     },
   };
@@ -52,8 +54,9 @@ const SET_QQ_FACE: SetReactionParams = {
 };
 
 describe('SetReaction (0x9082)', () => {
-  it('declares command 0x9082（sub 由 isSet 决定）', () => {
+  it('declares command 0x9082（sub 由 isSet 决定），并显式关掉签名', () => {
     expect(SetReaction.command).toBe(0x9082);
+    expect(SetReaction.needSign).toBe(false);
     expect(SetReaction.resolveSubCommand(SET_QQ_FACE)).toBe(1);
     expect(SetReaction.resolveSubCommand({ ...SET_QQ_FACE, isSet: false })).toBe(2);
   });
@@ -78,13 +81,15 @@ describe('SetReaction (0x9082)', () => {
     });
   });
 
-  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1', async () => {
+  it('isSet=false 走 0x9082_2、isSet=true 走 0x9082_1，两条都不签名', async () => {
     const nt = makeNative();
     await SetReaction.invoke(nt, 7, SET_QQ_FACE);
     await SetReaction.invoke(nt, 7, { ...SET_QQ_FACE, isSet: false });
     expect(nt.calls.map((c) => c.subCommand)).toEqual([1, 2]);
     expect(nt.calls.every((c) => c.command === 0x9082)).toBe(true);
     expect(nt.calls.every((c) => c.pid === 7 && c.isUid === false)).toBe(true);
+    // 白名单里没有 0x908x → 不带 SecToken/SecExtra/SecSign。
+    expect(nt.calls.every((c) => c.needSign === false)).toBe(true);
   });
 
   it('参数非法时在编码前报错', () => {

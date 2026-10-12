@@ -7,12 +7,30 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { CollectionItem } from '@weq/db';
+import type { CollectionCachedContent, CollectionItem } from '@weq/db';
+import { join } from 'node:path';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
 import type { WebCredential, WebNative } from './web/credential';
-import { getCollectionListNetwork } from './web/collection';
-import type { NetworkCollectionPage } from './web/collection';
+import {
+  getCollectionDetailsNetwork,
+  getCollectionListNetwork,
+  getCollectionPageNetwork,
+  type CollectionNetworkCursor,
+  type CollectionNetworkOptions,
+  type NetworkCollectionCursorPage,
+} from './web/collection';
+import type { CollectionNetworkDetail, NetworkCollectionPage } from './web/collection';
+import { captureCollectionPages, type CollectionCaptureOptions } from './collection_capture';
+import { CollectionHistoryStore, type CollectionHistorySummary } from './collection_history';
+import { CollectionDetailStore } from './collection_detail_store';
+import {
+  CollectionMediaStore,
+  collectionMediaReferences,
+  type CollectionMediaOptions,
+  type CollectionMediaReceipt,
+  type CollectionMediaExportEntry,
+} from './collection_media';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -29,17 +47,32 @@ export interface CollectionPage {
   source: 'network' | 'db';
 }
 
+export interface CollectionDetailFetchOptions {
+  force?: boolean;
+  signal?: AbortSignal;
+}
+
 export class CollectionService {
   private readonly creds: WebCredentialProvider;
   private readonly logger;
+  private readonly history?: CollectionHistoryStore;
+  private readonly details?: CollectionDetailStore;
+  private readonly media?: CollectionMediaStore;
+  private readonly listedItems = new Map<string, CollectionItem>();
 
   constructor(
     nt: WebNative,
     private readonly session: AccountSession,
     resolvePid: () => number,
+    historyRoot?: string,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
     this.logger = getLogger().child({ scope: 'collection', accountUin: session.context.uin });
+    if (historyRoot) {
+      this.history = new CollectionHistoryStore(historyRoot, session.context.uin);
+      this.details = new CollectionDetailStore(join(historyRoot, 'details'), session.context.uin);
+      this.media = new CollectionMediaStore(join(historyRoot, 'media', session.context.uin));
+    }
   }
 
   /**
@@ -74,9 +107,184 @@ export class CollectionService {
     return this.tryNetwork(Math.max(1, Math.min(limit, 200)), Math.max(0, offset));
   }
 
+  /** A single resumable cloud page; errors remain visible and never fall back to a local summary. */
+  async readNetworkPage(
+    cursor: CollectionNetworkCursor | null = null,
+    options: CollectionNetworkOptions = {},
+  ): Promise<NetworkCollectionCursorPage> {
+    const credential = await this.creds.forDomain(WEIYUN_DOMAIN);
+    return getCollectionPageNetwork(credential, cursor, options);
+  }
+
+  captureNetworkPages(
+    options: CollectionCaptureOptions,
+    networkOptions: CollectionNetworkOptions = {},
+  ) {
+    return captureCollectionPages(
+      this.session.context.uin,
+      (cursor) =>
+        this.readNetworkPage(cursor, {
+          ...networkOptions,
+          signal: options.signal ?? networkOptions.signal,
+        }),
+      options,
+    );
+  }
+
+  async syncNetworkHistory(signal?: AbortSignal): Promise<CollectionHistorySummary> {
+    if (!this.history) throw new Error('收藏历史存储未配置。');
+    const checkpoint = this.history.checkpointForResume();
+    await this.captureNetworkPages({
+      ...(checkpoint ? { checkpoint } : {}),
+      signal,
+      maxPages: 1000,
+      onPage: async (page) => this.history?.savePage(page),
+    });
+    return this.history.summary();
+  }
+
+  collectionHistorySummary(): CollectionHistorySummary | null {
+    return this.history?.summary() ?? null;
+  }
+
+  writeCollectionHistorySnapshot(path: string): void {
+    if (!this.history) throw new Error('收藏历史存储未配置。');
+    this.history.writeSnapshot(path);
+  }
+
+  writeCollectionDetailSnapshot(path: string): void {
+    if (!this.details) throw new Error('收藏详情存储未配置。');
+    this.details.writeSnapshot(path);
+  }
+
   /** Total number of collected items (db-backed count, 0 when db/table absent). */
   async countCollections(): Promise<number> {
     return this.session.collection.count();
+  }
+
+  /** Fresh local detail lookup; never sends a request to QQ. */
+  async readCachedDetail(cid: string): Promise<CollectionItem | null> {
+    const item = await this.session.collection.getByCid(cid);
+    if (!item) return null;
+    const stored = this.details?.get(cid);
+    if (stored) item.cachedContent = stored;
+    return item;
+  }
+
+  /** Cached content is independent of whether QQ has a local list row for it. */
+  async readCachedContent(cid: string): Promise<CollectionCachedContent | null> {
+    const stored = this.details?.get(cid);
+    if (stored) return stored;
+    const local = await this.session.collection.cachedContentByCids([cid]);
+    return local.get(cid) ?? null;
+  }
+
+  private async cachedListItem(cid: string): Promise<CollectionItem | null> {
+    const item = this.listedItems.get(cid);
+    if (item) return item;
+    const historical = this.history?.getByCid(cid);
+    if (historical) return historical;
+    try {
+      return await this.session.collection.getByCid(cid);
+    } catch {
+      return null;
+    }
+  }
+
+  mediaCacheDirectory(): string {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    return this.media.root;
+  }
+
+  async cachedMediaName(id: string): Promise<string> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    return (await this.media.savedFile(id)).name;
+  }
+
+  async saveMediaAs(id: string, path: string): Promise<void> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    await this.media.saveAs(id, path);
+  }
+
+  async exportCachedMedia(
+    cid: string,
+    directory: string,
+    signal?: AbortSignal,
+  ): Promise<CollectionMediaExportEntry[]> {
+    if (!this.media) return [];
+    signal?.throwIfAborted();
+    const content = await this.readCachedContent(cid);
+    const item = await this.cachedListItem(cid);
+    const refs = collectionMediaReferences(cid, content, item);
+    const entries: CollectionMediaExportEntry[] = [];
+    for (const reference of refs)
+      entries.push(await this.media.exportCached(reference, directory, signal));
+    return entries;
+  }
+
+  /** URLs and identities come from the account's own metadata, never IPC input. */
+  async downloadMedia(
+    cid: string,
+    options: CollectionMediaOptions = {},
+  ): Promise<CollectionMediaReceipt[]> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    options.signal?.throwIfAborted();
+    const content = await this.readCachedContent(cid);
+    const item = await this.cachedListItem(cid);
+    if (!content && !item) throw new Error('未找到这条收藏。');
+    const refs = collectionMediaReferences(cid, content, item);
+    if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');
+    const receipts: CollectionMediaReceipt[] = [];
+    for (const ref of refs) {
+      options.signal?.throwIfAborted();
+      receipts.push(await this.media.download(ref, options));
+    }
+    return receipts;
+  }
+
+  /**
+   * Fetch up to 20 full favorite bodies from operation 20001. Existing official
+   * QQ or WeQ cache entries are reused unless `force` is requested.
+   */
+  async fetchDetails(
+    cids: readonly string[],
+    options: CollectionDetailFetchOptions = {},
+  ): Promise<CollectionNetworkDetail[]> {
+    if (cids.length < 1 || cids.length > 20 || new Set(cids).size !== cids.length) {
+      throw new Error('收藏详情每批需要 1–20 个不同的 ID。');
+    }
+    options.signal?.throwIfAborted();
+    const cached = options.force
+      ? new Map<string, CollectionCachedContent>()
+      : await this.cached(cids);
+    const missing = cids.filter((cid) => !cached.has(cid));
+    if (missing.length > 0) {
+      const credential = await this.creds.forDomain(WEIYUN_DOMAIN);
+      options.signal?.throwIfAborted();
+      let capture: ReturnType<CollectionDetailStore['saveRawBatch']> | undefined;
+      const fetched = await getCollectionDetailsNetwork(credential, missing, {
+        signal: options.signal,
+        onRawResponse: this.details
+          ? ({ cids: responseCids, response }) => {
+              capture = this.details?.saveRawBatch(responseCids, response);
+            }
+          : undefined,
+      });
+      options.signal?.throwIfAborted();
+      if (this.details) {
+        if (!capture) throw new Error('收藏详情原始响应未保存。');
+        this.details.commitBatch(fetched, capture);
+      }
+      for (const detail of fetched) {
+        detail.content.fetched = true;
+        cached.set(detail.cid, detail.content);
+      }
+    }
+    return cids.map((cid) => {
+      const content = cached.get(cid);
+      if (!content) throw new Error(`收藏详情未返回：${cid}`);
+      return { cid, content };
+    });
   }
 
   /**
@@ -115,6 +323,21 @@ export class CollectionService {
       return null;
     }
     const window = page.items.slice(offset, offset + limit);
+    for (const item of window) this.listedItems.set(item.cid, item);
+    // Cloud summaries do not carry full content. Preserve independently loaded
+    // local details when the network stage replaces the initial database page.
+    try {
+      const cached = await this.cached(window.map((item) => item.cid));
+      for (const item of window) {
+        const content = cached.get(item.cid);
+        if (content) item.cachedContent = content;
+      }
+    } catch (error) {
+      this.logger.warn('collection detail cache unavailable', {
+        event: 'collection-detail-cache-failed',
+        ...logErrorContext(error),
+      });
+    }
     const hasMore = page.hasMore || page.items.length > offset + limit;
     return { items: window, offset, limit, hasMore, source: 'network' };
   }
@@ -123,12 +346,38 @@ export class CollectionService {
   private async fromDb(limit: number, offset: number): Promise<CollectionPage> {
     const rows = await this.session.collection.listAll(limit + 1, offset);
     const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const stored = this.details?.getMany(items.map((item) => item.cid));
+    if (stored) {
+      for (const item of items) {
+        const content = stored.get(item.cid);
+        if (content) item.cachedContent = content;
+      }
+    }
     return {
-      items: hasMore ? rows.slice(0, limit) : rows,
+      items,
       offset,
       limit,
       hasMore,
       source: 'db',
     };
+  }
+
+  /** Merge official QQ detail rows with WeQ's durable network detail cache. */
+  private async cached(cids: readonly string[]): Promise<Map<string, CollectionCachedContent>> {
+    let cached = new Map<string, CollectionCachedContent>();
+    try {
+      cached = await this.session.collection.cachedContentByCids(cids);
+    } catch (error) {
+      this.logger.warn('official collection detail cache unavailable', {
+        event: 'collection-detail-db-failed',
+        ...logErrorContext(error),
+      });
+    }
+    const stored = this.details?.getMany(cids);
+    if (stored) {
+      for (const [cid, content] of stored) cached.set(cid, content);
+    }
+    return cached;
   }
 }

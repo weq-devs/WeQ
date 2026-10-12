@@ -9,6 +9,8 @@
  * （sd-fadeIn / blurIn / slideUp 等），正文与控件（表格复制/下载/全屏、代码块头）全靠 Tailwind
  * 工具类排版，必须靠下面的 @source 把它的编译产物纳入扫描，否则那些类一个都不会生成。 */
 @import "streamdown/styles.css";
+/* Electron 拖拽命中区 ↔ 浮层点击：集中打 no-drag 洞（见文件头注释）。 */
+@import "./drag-region.css";
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
@@ -14010,6 +14012,28 @@ html[data-theme="dark"] .weq-provider-modal {
   color: var(--weq-fg-muted, #7c8a99);
 }
 
+.weq-collection-sync-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.weq-collection-sync-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+.weq-collection-sync-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .weq-collection-search {
   display: flex;
   align-items: center;
@@ -14176,10 +14200,115 @@ html[data-theme="dark"] .weq-provider-modal {
   flex: 1;
 }
 .weq-col-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 7px 11px;
   font-size: 11px;
   color: #aaa;
   border-top: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.05));
+}
+
+.weq-col-detail-open,
+.weq-col-detail-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+}
+.weq-col-detail-open {
+  padding: 2px 0;
+  font-size: 11px;
+}
+.weq-col-detail-back {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.weq-col-detail-back:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-col-detail-back:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.weq-col-detail {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.weq-col-media-results {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  font-size: 12px;
+}
+.weq-col-media-results-head,
+.weq-col-media-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.weq-col-media-result {
+  margin-top: 8px;
+  color: var(--weq-fg-muted, #7c8a99);
+  overflow-wrap: anywhere;
+}
+.weq-col-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+  color: var(--weq-fg-muted, #888);
+  font-size: 12px;
+}
+.weq-col-detail-meta time {
+  margin-left: auto;
+}
+.weq-col-detail-content {
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.weq-col-detail-content.is-text {
+  white-space: pre-wrap;
+}
+.weq-col-detail-content p {
+  margin: 0 0 0.8em;
+}
+.weq-col-detail-content a {
+  color: var(--weq-accent-effective);
+}
+.weq-col-detail-content pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.weq-col-detail-image {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.weq-col-detail-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.weq-col-detail-unavailable {
+  margin: 16px 0;
+  font-size: 12px;
+  color: var(--weq-fg-muted, #888);
 }
 
 /* ---- text / rich ---- */

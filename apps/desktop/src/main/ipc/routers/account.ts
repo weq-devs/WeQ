@@ -45,6 +45,7 @@ import { marketEmojiRouter } from './market_emoji';
 import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
 import { emojiPanelRouter } from './emoji_panel';
+import { emojiPackRouter } from './emoji_export';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
@@ -83,6 +84,7 @@ import {
   buddyToWire,
   categoryToWire,
   c2cMsgToWire,
+  collectionDetailToWire,
   collectionItemToWire,
   forwardRecordToWire,
   groupBulletinToWire,
@@ -243,6 +245,7 @@ const agentLabModels = z.object({
  * abortAssistantRun 据此掐断（用户点「停止」）。模块级单例，与 assistantBus 同层。
  */
 const activeAssistantRuns = new Map<string, AbortController>();
+const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
@@ -1091,6 +1094,8 @@ export const accountRouter = router({
   relatedEmoji: relatedEmojiRouter,
   // ---- 消息输入框表情面板（系统/字符/最近/收藏/商城/GIF）----
   emojiPanel: emojiPanelRouter,
+  // ---- 导出中心 · 导出表情包（自己的 / 收到的）----
+  emojiPack: emojiPackRouter,
   // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
@@ -3069,6 +3074,42 @@ export const accountRouter = router({
     }),
 
   /**
+   * 查某条**群消息**上某个表情的回应人名单（OIDB 0x9083_1，可分页）。
+   *
+   * 本地 40062 列只有计数（`reactions[]` 的 `setNum`），名单只能实时问服务端，所以
+   * 这条需要在线已注入的 QQ；离线 / 风控失败会把错误原样上抛，**不吞成空列表** ——
+   * 渲染侧要把它显示成「需要 QQ 在线」而不是「没人贴」。
+   *
+   * 分页沿用仓库的 cursor 约定：`nextCursor` 是服务端的续传 cookie，为空 / 末页给 null。
+   */
+  messageReactionUsers: procedure
+    .input(
+      z.object({
+        groupId: z.union([z.string().min(1), z.number().int().positive()]),
+        sequence: z.number().int().nonnegative(),
+        emojiId: z.string().min(1),
+        emojiType: z.number().int().positive().optional(),
+        count: z.number().int().positive().max(200).default(30),
+        cursor: z.string().default(''),
+      }),
+    )
+    .query(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      const page = await requireServices().interaction.getMessageReactionUsers({
+        groupId: input.groupId,
+        sequence: input.sequence,
+        emojiId: input.emojiId,
+        ...(input.emojiType !== undefined ? { emojiType: input.emojiType } : {}),
+        count: input.count,
+        ...(input.cursor ? { cookie: input.cursor } : {}),
+      });
+      return {
+        items: page.users,
+        nextCursor: page.isLast || !page.cookie ? null : page.cookie,
+      };
+    }),
+
+  /**
    * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
    *
    * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。
@@ -4120,6 +4161,104 @@ export const accountRouter = router({
   countCollections: procedure.query(async () => {
     return requireServices().collection.countCollections();
   }),
+
+  collectionDetail: procedure
+    .input(z.object({ cid: z.string().min(1).max(512) }))
+    .query(async ({ input }) => {
+      const service = requireServices().collection;
+      const content = await service.readCachedContent(input.cid);
+      if (content) return collectionDetailToWire(input.cid, content);
+      const item = await service.readCachedDetail(input.cid);
+      return item ? collectionItemToWire(item) : null;
+    }),
+
+  /** Pull one bounded operation-20001 batch and persist it in the account cache. */
+  syncCollectionDetails: procedure
+    .input(
+      z.object({
+        requestId: z.string().min(1).max(128),
+        cids: z.array(z.string().min(1).max(256)).min(1).max(20),
+        force: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      if (activeCollectionDetailSyncs.has(input.requestId)) {
+        throw new Error('收藏详情同步任务已在运行。');
+      }
+      const controller = new AbortController();
+      activeCollectionDetailSyncs.set(input.requestId, controller);
+      try {
+        const details = await requireServices().collection.fetchDetails(input.cids, {
+          force: input.force,
+          signal: controller.signal,
+        });
+        return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
+      } finally {
+        if (activeCollectionDetailSyncs.get(input.requestId) === controller) {
+          activeCollectionDetailSyncs.delete(input.requestId);
+        }
+      }
+    }),
+
+  cancelCollectionDetailSync: procedure
+    .input(z.object({ requestId: z.string().min(1).max(128) }))
+    .mutation(({ input }) => {
+      const controller = activeCollectionDetailSyncs.get(input.requestId);
+      controller?.abort(new Error('收藏详情同步已取消。'));
+      return { cancelled: Boolean(controller) };
+    }),
+
+  downloadCollectionMedia: procedure
+    .input(z.object({ cid: z.string().min(1).max(256), requestId: z.string().min(1).max(128) }))
+    .mutation(async ({ input }) => {
+      if (activeCollectionDetailSyncs.has(input.requestId))
+        throw new Error('收藏附件下载已在运行。');
+      const controller = new AbortController();
+      activeCollectionDetailSyncs.set(input.requestId, controller);
+      const collection = requireServices().collection;
+      const host = getHost();
+      try {
+        const receipts = await collection.downloadMedia(input.cid, {
+          signal: controller.signal,
+          inspectImage: host.inspectCollectionImage?.bind(host),
+        });
+        return receipts.map((receipt) => ({
+          id: receipt.reference.id,
+          name: receipt.reference.name,
+          kind: receipt.reference.kind,
+          state: receipt.state,
+          role: receipt.role,
+          bytes: receipt.bytes,
+          md5Matches: receipt.md5Matches,
+          sizeMatches: receipt.sizeMatches,
+          imageDecoded: receipt.imageDecoded,
+          error: receipt.error,
+        }));
+      } finally {
+        activeCollectionDetailSyncs.delete(input.requestId);
+      }
+    }),
+
+  revealCollectionMedia: procedure.mutation(async () => {
+    const dir = requireServices().collection.mediaCacheDirectory();
+    await mkdir(dir, { recursive: true });
+    await getHost().revealInFolder(dir);
+    return { ok: true };
+  }),
+
+  saveCollectionMedia: procedure
+    .input(z.object({ id: z.string().regex(/^[a-f0-9]{64}$/) }))
+    .mutation(async ({ input }) => {
+      const service = requireServices().collection;
+      const name = await service.cachedMediaName(input.id);
+      const target = await getHost().pickSaveTarget({
+        defaultName: name,
+        extension: extname(name).slice(1),
+      });
+      if (!target) return null;
+      await service.saveMediaAs(input.id, target.path);
+      return { downloadId: target.downloadId, name };
+    }),
 
   // ---- export ----
 

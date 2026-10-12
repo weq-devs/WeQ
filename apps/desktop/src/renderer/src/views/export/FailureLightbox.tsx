@@ -1,6 +1,6 @@
 /**
- * 媒体补全失败详情灯箱。列出每个补全失败的文件（图片 / 视频 / 文件）及失败原因，
- * 供用户排查为何某些缺失媒体没能从云端补全。只读，无确认动作。
+ * 导出失败详情灯箱。列出每个失败项（媒体补全 / 表情包导出等）的文件与原因，
+ * 供用户排查为何某些项没能导出。只读，无确认动作。
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
@@ -16,6 +16,8 @@ const STAGE_LABEL: Record<string, string> = {
   ptt: '语音',
   media: '搬运',
   record: '语音',
+  sticker: '表情',
+  emoji: '表情',
 };
 
 function stageLabel(stage: string): string {
@@ -57,7 +59,7 @@ export function FailureLightbox({
       >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
-            <strong>媒体补全失败详情</strong>
+            <strong>导出失败详情</strong>
             <span title={taskName}>
               {taskName} · 共 {failures.length} 个失败
             </span>

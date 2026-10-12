@@ -23,6 +23,8 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** Decode a cached collection image; absent when the host cannot verify images. */
+  inspectCollectionImage?(path: string): Promise<{ width: number; height: number } | null>;
   /**
    * Pick a directory. Electron opens a folder dialog; web returns a
    * server-side directory (no dialog). `null` means the user cancelled —

@@ -10,7 +10,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { webRequestJson } from './http';
+import { WEB_READ_RETRY, webRequestJson } from './http';
 
 export interface GroupAlbum {
   /** Album id — pass to the (OIDB) media-list path to enumerate contents. */
@@ -89,6 +89,7 @@ export async function getGroupAlbumList(
   const ret = await webRequestJson<RawAlbumListRet>(url, {
     method: 'GET',
     cookie: cookieHeader(cred),
+    retry: WEB_READ_RETRY,
   });
 
   // 票据过期时这支 cgi 回的是 **HTTP 200** 加一个错误码,不检查的话空相册和

@@ -1,0 +1,76 @@
+/*
+ * Electron 拖拽命中区 ↔ 浮层点击：集中打 `no-drag` 洞。
+ *
+ * 无边框窗口的顶部区块靠 `-webkit-app-region: drag` 拖动窗口：
+ *   .app-title-bar / .app-rail / .sidebar-header / .chat-header …
+ *
+ * 关键点：Electron 的拖拽命中测试跑在**合成器栈之外**，`z-index` 挡不住它。
+ * 也就是说，只要某个弹窗 / 浮层压在 drag 区上（最常见的是居中灯箱左上角盖到
+ * `.sidebar-header`，或菜单弹出到标题栏附近），那一片区域的鼠标事件会在到达
+ * 渲染层之前被 drag 区吞掉——按钮明明在最上层却点不到。
+ *
+ * 只有显式声明 `-webkit-app-region: no-drag` 才能在这一层挖洞；`none` 不行。
+ * 之前 `.group-album-dialog` / `.weq-forward-window` / `.group-*-dialog` /
+ * 红包灯箱等已各自打过洞，这里把其余同类浮层集中补齐，避免逐个遗漏。
+ *
+ * 维护约定：以后新增弹窗 / 灯箱 / 弹出菜单，把它「交互面」的根类名加进下面的
+ * 列表即可；不需要给每个子按钮单独声明。
+ */
+
+/* ---- 全屏遮罩 + 居中弹窗 / 灯箱 ---- */
+.weq-dialog-layer,
+.weq-lightbox-layer,
+.weq-settings-layer,
+.weq-settings-dialog,
+.weq-profile-layer,
+.weq-profile-dialog,
+.weq-collection-layer,
+.weq-collection-dialog,
+.weq-wtools-layer,
+.weq-wtools-dialog,
+.weq-wtools-result-layer,
+.weq-wtools-result-modal,
+.weq-help-layer,
+.weq-help-dialog,
+.weq-dress-layer,
+.weq-dress-dialog,
+.weq-rp-lb-layer,
+.weq-rp-lb,
+.weq-rp-return,
+.weq-mf-dress-layer,
+.weq-mf-dress-card,
+.weq-blob-overlay,
+.weq-blob-dialog,
+.weq-ra-layer,
+.weq-ra-dialog,
+.weq-editor-overlay,
+.weq-editor-dialog,
+.weq-exp-modal-scrim,
+.weq-exp-dialog,
+.modal-scrim,
+.app-modal,
+.confirm-dialog-scrim,
+.confirm-dialog,
+.weq-qzshare-scrim,
+.weq-qzshare-card,
+.composer-media-lb-layer,
+.composer-media-lb {
+  -webkit-app-region: no-drag;
+}
+
+/* ---- 锚定浮层：右键菜单 / 弹出面板（可能贴近标题栏或会话头）---- */
+.weq-rail-account-ctx-menu,
+.weq-acct-ctx-menu,
+.weq-rail-account-popover,
+.weq-ark-context-menu,
+.weq-cache-dbpick-menu,
+.weq-cap-menu,
+.weq-asst-select-pop,
+.weq-merged-overlay,
+.weq-merged-popover,
+.weq-mf-menu,
+.weq-mf-add-menu,
+.rail-more-popover,
+.ark-contact-list {
+  -webkit-app-region: no-drag;
+}
