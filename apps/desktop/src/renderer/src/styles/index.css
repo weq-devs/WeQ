@@ -9,6 +9,8 @@
  * （sd-fadeIn / blurIn / slideUp 等），正文与控件（表格复制/下载/全屏、代码块头）全靠 Tailwind
  * 工具类排版，必须靠下面的 @source 把它的编译产物纳入扫描，否则那些类一个都不会生成。 */
 @import "streamdown/styles.css";
+/* Electron 拖拽命中区 ↔ 浮层点击：集中打 no-drag 洞（见文件头注释）。 */
+@import "./drag-region.css";
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个

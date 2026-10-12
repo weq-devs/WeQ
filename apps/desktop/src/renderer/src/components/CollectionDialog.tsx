@@ -1003,23 +1003,23 @@ export function CollectionDialog({
             </div>
           ) : null}
         </header>
-        !selected ? (
-        <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
-          {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              role="tab"
-              aria-selected={kind === k.id}
-              className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-              onClick={() => setKind(k.id)}
-            >
-              {k.label}
-              <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-        ) : null;
+        {!selected ? (
+          <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
+            {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                role="tab"
+                aria-selected={kind === k.id}
+                className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
+                onClick={() => setKind(k.id)}
+              >
+                {k.label}
+                <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="weq-collection-body">
           {selected ? (
             <section className="weq-col-detail">
