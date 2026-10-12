@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CollectionCachedContent } from '@weq/db';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { publishRawHistory } from '../common/publish_raw_history';
 import { readJsonFile } from '../common/json_store';
 import type { CollectionNetworkDetail } from './web/collection';
 
@@ -207,6 +208,20 @@ export class CollectionDetailStore {
       rawResponse,
     );
     this.commitBatch(details, capture);
+  }
+
+  writeSnapshot(path: string): void {
+    const entries = Object.values(this.ledger.latest).map((entry) => ({
+      file: entry.responseFile,
+      sha256: entry.responseSha256,
+    }));
+    publishRawHistory(
+      this.root,
+      path,
+      entries,
+      /^accounts\/[1-9]\d*\/detail-raw\/[a-f0-9]{64}\.bin$/,
+    );
+    writeFileAtomicSync(path, JSON.stringify(this.ledger, null, 2));
   }
 
   count(): number {

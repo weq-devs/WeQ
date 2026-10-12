@@ -1429,6 +1429,7 @@ export function initAppContext(): AppContext {
               },
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },
@@ -1955,6 +1956,7 @@ export function initAppContext(): AppContext {
               },
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
+              writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },

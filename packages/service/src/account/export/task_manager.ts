@@ -2316,14 +2316,25 @@ export class ExportTaskManager extends EventEmitter {
         return;
       }
 
-      if (history && deps.writeHistorySnapshot)
-        deps.writeHistorySnapshot(join(bundle.stageDir, 'collection-history.json'));
+      // Original responses may include other CIDs from the same batch. Do not
+      // add whole-account raw history to a deliberately kind-filtered export.
+      const includeRawHistory = !task.collection?.kinds?.length;
+      if (includeRawHistory) {
+        if (history && deps.writeHistorySnapshot)
+          deps.writeHistorySnapshot(join(bundle.stageDir, 'collection-history.json'));
+        deps.writeDetailSnapshot?.(join(bundle.stageDir, 'collection-details.json'));
+      }
       writeFileAtomicSync(
         join(bundle.stageDir, 'coverage.json'),
         JSON.stringify(
           {
             version: 2,
             ...result.coverage,
+            rawHistoryState: !includeRawHistory
+              ? 'omitted-for-filtered-export'
+              : deps.writeHistorySnapshot || deps.writeDetailSnapshot
+                ? 'included'
+                : 'unavailable',
             history,
             historyError,
           },

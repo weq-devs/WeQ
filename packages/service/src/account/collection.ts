@@ -152,6 +152,11 @@ export class CollectionService {
     this.history.writeSnapshot(path);
   }
 
+  writeCollectionDetailSnapshot(path: string): void {
+    if (!this.details) throw new Error('收藏详情存储未配置。');
+    this.details.writeSnapshot(path);
+  }
+
   /** Total number of collected items (db-backed count, 0 when db/table absent). */
   async countCollections(): Promise<number> {
     return this.session.collection.count();

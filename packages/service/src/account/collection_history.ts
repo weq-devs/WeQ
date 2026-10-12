@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readJsonFile } from '../common/json_store';
+import { publishRawHistory } from '../common/publish_raw_history';
 import { encodeStructured, decodeStructured } from '../common/structured_json';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import type { CollectionCaptureCheckpoint, CollectionPageCapture } from './collection_capture';
@@ -131,6 +132,12 @@ export class CollectionHistoryStore {
   }
 
   writeSnapshot(path: string): void {
+    publishRawHistory(
+      this.root,
+      path,
+      this.ledger.rawPages,
+      /^raw\/page-\d+-(?:\d+|terminal)-[a-f0-9]{64}\.bin$/,
+    );
     writeFileAtomicSync(path, JSON.stringify(encodeStructured(this.ledger), null, 2));
   }
 }

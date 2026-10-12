@@ -81,6 +81,7 @@ export interface CollectionExportDeps {
   syncHistory?: (signal?: AbortSignal) => Promise<CollectionHistorySummary>;
   historySummary?: () => CollectionHistorySummary | null;
   writeHistorySnapshot?: (path: string) => void;
+  writeDetailSnapshot?: (path: string) => void;
   canFetchDetails?: () => boolean;
   fetchDetails?: (
     cids: string[],

@@ -1,14 +1,7 @@
 import { createHash } from 'node:crypto';
-import {
-  mkdirSync,
-  lstatSync,
-  openSync,
-  readSync,
-  closeSync,
-  linkSync,
-  copyFileSync,
-} from 'node:fs';
-import { join, dirname } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { publishRawHistory } from '../../common/publish_raw_history';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import { readJsonFile } from '../../common/json_store';
 import { sourceVersionHash } from '../collection_capture';
@@ -207,50 +200,12 @@ export class QzoneHistoryStore {
   }
 
   writeSnapshot(path: string): void {
-    const files = new Map(
-      [...this.ledger.rawPages, ...this.ledger.interactionRawPages].map((entry) => [
-        entry.file,
-        entry.sha256,
-      ]),
+    publishRawHistory(
+      this.root,
+      path,
+      [...this.ledger.rawPages, ...this.ledger.interactionRawPages],
+      /^(raw\/page-\d+-\d+-[a-f0-9]{64}\.txt|interaction-raw\/(feeds|likes)-[a-f0-9]{64}\.txt)$/,
     );
-    for (const [file, expected] of files) {
-      if (
-        !/^(raw\/page-\d+-\d+-[a-f0-9]{64}\.txt|interaction-raw\/(feeds|likes)-[a-f0-9]{64}\.txt)$/.test(
-          file,
-        )
-      )
-        throw new Error('空间历史响应路径无效。');
-      const source = join(this.root, file);
-      const target = join(dirname(path), file);
-      if (!lstatSync(source).isFile()) throw new Error('空间历史响应不是普通文件。');
-      const hashFile = (filePath: string): string => {
-        const fd = openSync(filePath, 'r');
-        const hash = createHash('sha256');
-        const buffer = Buffer.alloc(64 * 1024);
-        try {
-          for (;;) {
-            const count = readSync(fd, buffer, 0, buffer.length, null);
-            if (count === 0) break;
-            hash.update(buffer.subarray(0, count));
-          }
-        } finally {
-          closeSync(fd);
-        }
-        return hash.digest('hex');
-      };
-      if (hashFile(source) !== expected) throw new Error('空间历史响应校验失败。');
-      mkdirSync(dirname(target), { recursive: true });
-      try {
-        linkSync(source, target);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'EEXIST' && lstatSync(target).isFile() && hashFile(target) === expected)
-          continue;
-        if (code !== 'EXDEV') throw error;
-        copyFileSync(source, target);
-        if (hashFile(target) !== expected) throw new Error('空间历史响应复制校验失败。');
-      }
-    }
     writeFileAtomicSync(path, JSON.stringify(this.ledger, null, 2));
   }
 }
