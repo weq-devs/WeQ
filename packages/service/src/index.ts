@@ -657,6 +657,27 @@ export {
   messageToText,
   formatTime,
 } from './account/export';
+export {
+  collectOwnItems,
+  collectReceivedItems,
+  resolveOwnOriginals,
+  writeEmojiBundle,
+  scopeDirName,
+  scopeLabel,
+  canonicalHash,
+  sniffImageExt,
+} from './account/export';
+export type {
+  EmojiExportScope,
+  EmojiExportItem,
+  EmojiExportDeps,
+  EmojiExportHooks,
+  EmojiPreviewAddress,
+  EmojiScopeSummary,
+  EmojiResolveResult,
+  EmojiWriteResult,
+  FavEmojiRow,
+} from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
 export type {
@@ -695,6 +716,8 @@ export type {
   TaskProgress,
   MarketPackDeps,
   MarketPackDownloadItem,
+  EmojiPackDeps,
+  EmojiPackScope,
   MediaDeps,
   MediaExportOptions,
   DecodeSilk,

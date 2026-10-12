@@ -146,6 +146,9 @@ import {
   createDirectAttachHook,
   type AttachHook,
   type MsgSalvageSource,
+  collectOwnItems,
+  collectReceivedItems,
+  downloadUrlToFile,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -1439,6 +1442,23 @@ export function initAppContext(): AppContext {
               getPackKey: (id) => emojiService.getMarketPackKey(id),
               getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
+            // 导出表情包：桥接 EmojiService（收藏表）+ 平台表情目录（本地扫描）+
+            // 通用流式下载（CDN 补全缺失的原图）。两条来源策略在 service 层区分。
+            emojipack: {
+              listOwnItems: async () => {
+                const rows = await emojiService.listFavEmojiRows();
+                return collectOwnItems(rows, platform.personalEmojiDir(session.context.uin));
+              },
+              listReceivedItems: () =>
+                collectReceivedItems(platform.emojiRecvDir(session.context.uin)),
+              downloadImage: async (url, dest, signal) => {
+                const r = await downloadUrlToFile(url, dest, {
+                  signal,
+                  expectedKind: 'image',
+                });
+                return r.ok;
+              },
+            },
             // 商城表情单张贴图解析：HTML 导出把会话用到的商城表情归类进「QQ系统表情」
             // 资源、复制进 bundle 时用它取本地解密路径（weq 缓存 → QQ 本地 → CDN）。
             marketFace: (pack, hash) => emojiService.getMarketFace(pack, hash),
@@ -1959,6 +1979,21 @@ export function initAppContext(): AppContext {
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
+            },
+            // 导出表情包：桥接 EmojiService（收藏表）+ 平台表情目录（本地扫描）+
+            // 通用流式下载（CDN 补全缺失的原图）。两条来源策略在 service 层区分。
+            emojipack: {
+              listOwnItems: async () =>
+                collectOwnItems(
+                  await emojiService.listFavEmojiRows(),
+                  staticPlatform.personalEmojiDir(session.context.uin),
+                ),
+              listReceivedItems: () =>
+                collectReceivedItems(staticPlatform.emojiRecvDir(session.context.uin)),
+              downloadImage: async (url, dest, signal) => {
+                const r = await downloadUrlToFile(url, dest, { signal, expectedKind: 'image' });
+                return r.ok;
+              },
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,

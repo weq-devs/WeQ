@@ -71,6 +71,13 @@ import {
   type MediaScanResult,
 } from './media_scan';
 import { exportSysFaces, exportMarketFaces } from './sysface_export';
+import {
+  resolveOwnOriginals,
+  scopeLabel,
+  writeEmojiBundle,
+  type EmojiExportItem,
+  type EmojiExportScope,
+} from './emoji_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
@@ -118,7 +125,13 @@ export type StageKey =
   | 'ptt'
   | 'transcribe'
   | 'sysface'
-  | 'sticker';
+  | 'sticker'
+  /** 导出表情包：扫描本地表情资源。 */
+  | 'emojiscan'
+  /** 导出表情包：下载补全缺失的原图。 */
+  | 'emojidownload'
+  /** 导出表情包：写盘 / 缩略图补全。 */
+  | 'emojiwrite';
 
 /** 任务日志级别。 */
 export type TaskLogLevel = 'info' | 'warn' | 'error';
@@ -155,6 +168,19 @@ export interface MarketPackDownloadItem {
   id: string;
   /** 表情包名称（用作输出子文件夹名）。 */
   name: string;
+}
+
+/** 导出的表情包来源（与 service 层 EmojiExportScope 对齐）。 */
+export type EmojiPackScope = 'own' | 'received';
+
+/** 「导出表情包」的导出能力（由 app 注入，桥接 EmojiService / 平台目录）。 */
+export interface EmojiPackDeps {
+  /** 我自己的表情：emoji.db 收藏表 + 本地 personal_emoji 目录。 */
+  listOwnItems(): Promise<import('./emoji_export').EmojiExportItem[]>;
+  /** 收到的表情：扫描本地 emoji-recv 目录。 */
+  listReceivedItems(): Promise<import('./emoji_export').EmojiExportItem[]>;
+  /** 下载一张在线原图到 destPath（返回是否成功）。 */
+  downloadImage(url: string, destPath: string, signal?: AbortSignal): Promise<boolean>;
 }
 
 /**
@@ -237,6 +263,9 @@ export interface ExportTask {
   /** 商城表情批量下载（`conv` 占位为 'marketpack'；走独立的解密下载流水线）。
    *  每套包一个以包名命名的子文件夹，内含解密后的 GIF。 */
   marketpack?: { packs: MarketPackDownloadItem[] };
+  /** 导出表情包（`conv` 占位为 'emojipack'；走独立的表情导出流水线）。
+   *  产物 = bundle 下的「我的表情 / 收到的表情」子目录。 */
+  emojipack?: { scopes: EmojiPackScope[] };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -308,6 +337,8 @@ export interface MediaDeps {
   dressInstall?: DressService;
   /** 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。 */
   marketpack?: MarketPackDeps;
+  /** 导出表情包能力（由 app 注入，桥接 EmojiService + 平台表情目录）。 */
+  emojipack?: EmojiPackDeps;
   /**
    * 商城表情「单张贴图」解析（桥接 EmojiService.getMarketFace）：返回该贴图的
    * 本地解密路径（weq 缓存 → QQ 本地缓存 → CDN 明文 GIF/PNG）。HTML 导出把
@@ -638,6 +669,51 @@ export class ExportTaskManager extends EventEmitter {
     this.log(id, 'task', `任务已创建：商城表情下载 ${packs.length} 套`);
     this.saveTasks();
     this.enqueue(() => this.runMarketPackTask(id));
+    return id;
+  }
+
+  /**
+   * 导出表情包：把选中的来源（自己的 / 收到的）导出到 bundle 目录下的两个子
+   * 目录。自己的表情 = emoji.db 收藏 + 本地 ori + CDN 补全 + 缩略图兜底；收到的
+   * 表情 = 扫描本地 emoji-recv + 缩略图补全。走独立的 `emojiscan` /
+   * `emojidownload` / `emojiwrite` 三段流水线，返回 taskId。
+   */
+  async startEmojiPackExport(scopes: EmojiPackScope[]): Promise<string> {
+    const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
+    const id = `emojipack-${Date.now()}`;
+    const name = wanted.map((s) => scopeLabel(s)).join(' + ');
+    const stages: TaskStage[] = [
+      { key: 'emojiscan', label: '扫描表情', status: 'pending', current: 0, total: 0 },
+    ];
+    if (wanted.includes('own')) {
+      stages.push({
+        key: 'emojidownload',
+        label: '补全原图',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
+    }
+    stages.push({ key: 'emojiwrite', label: '导出图片', status: 'pending', current: 0, total: 0 });
+    const task: ExportTask = {
+      id,
+      kind: 'c2c',
+      conv: 'emojipack',
+      name,
+      format: 'json', // 占位（产物是图片文件夹，非消息文件）；TaskList 只读 bundleDir。
+      status: 'pending',
+      progress: 0,
+      current: 0,
+      total: 0,
+      emojipack: { scopes: wanted },
+      stages,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.tasks.set(id, task);
+    this.log(id, 'task', `任务已创建：导出表情包（${name}）`);
+    this.saveTasks();
+    this.enqueue(() => this.runEmojiPackTask(id));
     return id;
   }
 
@@ -2552,6 +2628,227 @@ export class ExportTaskManager extends EventEmitter {
         progress: task.progress,
         current: task.current,
         message: task.status === 'completed' ? '下载完成' : (task.error ?? '已取消'),
+      });
+    }
+  }
+
+  /**
+   * 导出表情包：按来源分别跑三段流水线（扫描 → 补全原图 → 写盘）。
+   *   - own      = 读 emoji.db 收藏 + 本地 personal_emoji；缺原图用 CDN 下载，
+   *                下载失败退到缩略图；
+   *   - received = 扫描本地 emoji-recv；只有缩略图的用缩略图补一份。
+   * 所有来源共用一个 bundle 目录，各自一个子文件夹。
+   */
+  private async runEmojiPackTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const deps = this.deps.emojipack;
+      if (!deps) throw new Error('导出表情包能力不可用。');
+      const scopes = task.emojipack?.scopes ?? (['own', 'received'] as EmojiPackScope[]);
+
+      const { mkdir } = await import('node:fs/promises');
+      const outDir = join(this.cacheDir, `bundle-${id}`);
+      await mkdir(outDir, { recursive: true });
+      task.bundleDir = outDir;
+
+      // ── 阶段 1：扫描本地表情资源 ────────────────────────────────
+      this.touchStage(
+        task,
+        'emojiscan',
+        { status: 'running', note: '扫描本地表情…' },
+        { persist: true },
+      );
+      const perScope = new Map<EmojiExportScope, EmojiExportItem[]>();
+      let total = 0;
+      for (const scope of scopes) {
+        if (aborted()) {
+          task.status = 'cancelled';
+          return;
+        }
+        const items = scope === 'own' ? await deps.listOwnItems() : await deps.listReceivedItems();
+        perScope.set(scope, items);
+        total += items.length;
+        this.log(id, 'emojiscan', `${scopeLabel(scope)}：本地命中 ${items.length} 张`);
+      }
+      task.total = total;
+      this.touchStage(
+        task,
+        'emojiscan',
+        { status: 'completed', current: total, total, note: `共 ${total} 张` },
+        { persist: true },
+      );
+      if (total === 0) {
+        this.log(id, 'task', '没有找到任何表情，任务结束', 'warn');
+        task.status = 'completed';
+        task.progress = 100;
+        return;
+      }
+
+      // ── 阶段 2：补全我自己的表情缺的原图（CDN 下载）────────────
+      const downloadDir = join(outDir, '.cache');
+      let downloadOk = 0;
+      let downloadFailed = 0;
+      const ownItems = perScope.get('own');
+      if (ownItems && ownItems.length > 0) {
+        const s = this.stage(task, 'emojidownload');
+        if (s) {
+          const candidates = ownItems.filter((it) => !it.oriPath && it.remoteUrl).length;
+          if (candidates === 0) {
+            s.status = 'completed';
+            s.current = 0;
+            s.total = 0;
+            s.note = '无需补全';
+            this.log(id, 'emojidownload', '我自己的表情原图都在本地，无需下载');
+            this.saveTasks();
+          } else {
+            this.touchStage(
+              task,
+              'emojidownload',
+              { status: 'running', current: 0, total: candidates, note: `下载 0/${candidates}` },
+              { persist: true },
+            );
+            this.log(id, 'emojidownload', `开始补全原图：${candidates} 张`);
+            const r = await resolveOwnOriginals(
+              ownItems,
+              downloadDir,
+              (url, dest, signal) => deps.downloadImage(url, dest, signal),
+              {
+                onDownload: (done, t) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'emojidownload', {
+                    current: done,
+                    total: t,
+                    note: `下载 ${done}/${t}`,
+                  });
+                },
+                onLog: (text, level) => this.log(id, 'emojidownload', text, level),
+              },
+              abort.signal,
+            );
+            perScope.set('own', r.items);
+            downloadOk = r.downloaded;
+            downloadFailed = r.failed;
+            this.touchStage(
+              task,
+              'emojidownload',
+              {
+                status: 'completed',
+                current: candidates,
+                total: candidates,
+                failed: downloadFailed,
+                note: `成功 ${downloadOk}${downloadFailed ? ` · 失败 ${downloadFailed}` : ''}`,
+              },
+              { persist: true },
+            );
+          }
+        }
+      }
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
+
+      // ── 阶段 3：写盘（原图优先 / 缩略图补全）────────────────────
+      this.touchStage(
+        task,
+        'emojiwrite',
+        { status: 'running', current: 0, total, note: `导出 0/${total}` },
+        { persist: true },
+      );
+      let written = 0;
+      let skipped = 0;
+      const failures: MediaFailure[] = [];
+      let writeDone = 0;
+      for (const scope of scopes) {
+        if (aborted()) {
+          task.status = 'cancelled';
+          return;
+        }
+        const items = perScope.get(scope) ?? [];
+        if (items.length === 0) continue;
+        const base = writeDone;
+        const r = await writeEmojiBundle(
+          scope,
+          items,
+          outDir,
+          {
+            onWrite: (done) => {
+              if (aborted()) return;
+              this.touchStage(task, 'emojiwrite', {
+                current: base + done,
+                total,
+                note: `导出 ${base + done}/${total}`,
+              });
+            },
+            onLog: (text, level) => this.log(id, 'emojiwrite', text, level),
+          },
+          abort.signal,
+        );
+        writeDone += items.length;
+        written += r.written;
+        skipped += r.skipped;
+        failures.push(...r.failures);
+        this.log(
+          id,
+          'emojiwrite',
+          `${scopeLabel(scope)}：导出 ${r.written} 张（原图 ${r.copiedOri} · 缩略图补全 ${r.fromThumb}）` +
+            (r.skipped ? ` · 放弃 ${r.skipped}` : ''),
+          r.skipped > 0 ? 'warn' : 'info',
+        );
+      }
+      try {
+        const { rm } = await import('node:fs/promises');
+        await rm(downloadDir, { recursive: true, force: true });
+      } catch {
+        /* 缓存目录清理失败不影响导出结果 */
+      }
+
+      this.touchStage(
+        task,
+        'emojiwrite',
+        {
+          status: 'completed',
+          current: total,
+          total,
+          failed: skipped,
+          note: `已导出 ${written} 张${skipped ? ` · 放弃 ${skipped}` : ''}`,
+          ...(failures.length ? { failures: failures.slice(0, 200) } : {}),
+        },
+        { persist: true },
+      );
+
+      task.current = written;
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e) {
+      task.status = 'failed';
+      task.error = String((e as Error)?.message ?? e);
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出表情包失败：${task.error}`, 'error');
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
       });
     }
   }

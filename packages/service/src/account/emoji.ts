@@ -391,6 +391,35 @@ export class EmojiService {
     }
   }
 
+  /**
+   * 「导出表情包 · 我自己的表情」用：读 fav_emoji_info_storage_table 的原始行
+   * （hash / 本地 ori + thumb 绝对路径 / 在线 CDN 地址）。与面板收藏不同，这里
+   * **不过滤**本地文件是否还在 —— 本地缺失的条目仍带出在线地址，交给导出流水线
+   * 下载补全。失败/缺库返回空表。
+   */
+  async listFavEmojiRows(): Promise<
+    Array<{ hash: string; oriPath: string; thumbPath: string; remoteUrl: string }>
+  > {
+    const dbPath = this.emojiDbPath();
+    if (!dbPath) return [];
+    try {
+      const rows = await new FavEmojiDb(
+        this.platform.native.ntHelper,
+        this.emojiDbOptions(dbPath),
+      ).listAll();
+      return rows
+        .map((row) => ({
+          hash: row.hash,
+          oriPath: row.oriPath,
+          thumbPath: row.thumbPath,
+          remoteUrl: row.remoteUrl,
+        }))
+        .filter((row) => row.hash || row.oriPath || row.thumbPath);
+    } catch {
+      return [];
+    }
+  }
+
   /** 收藏的一个变体：仅当文件确实在磁盘上时才返回（否则 null，条目会被过滤掉）。 */
   private usableFavVariant(
     info: { scope: 'personal' | 'recv'; bucket: string; file: string } | null,

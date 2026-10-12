@@ -33,6 +33,7 @@ import {
   Play,
   Radio,
   Search,
+  Smile,
   Sticker,
   Trash2,
   Users,
@@ -52,6 +53,7 @@ import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './expor
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
+import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
@@ -138,6 +140,12 @@ const MODES: ModeDef[] = [
     label: '商城表情下载',
     desc: '搜索并批量下载商城表情包',
     icon: <Sticker size={18} />,
+  },
+  {
+    id: 'emojipack',
+    label: '导出表情包',
+    desc: '自己的 / 收到的自定义表情',
+    icon: <Smile size={18} />,
   },
 ];
 
@@ -642,6 +650,8 @@ export function ExportView(): ReactElement {
       isGuild: Boolean((t as { guild?: unknown }).guild),
       // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
+      // conv === 'emojipack' 是导出表情包任务的 sentinel（task_manager 内设定）。
+      isEmojiPack: (t as unknown as { conv?: string }).conv === 'emojipack',
     }));
   }, [tasks.data]);
 
@@ -1321,6 +1331,8 @@ export function ExportView(): ReactElement {
           <div className="weq-exp-pane-body">
             {mode === 'marketpack' ? (
               <MarketEmojiDownloadPane onStarted={refetchTasks} />
+            ) : mode === 'emojipack' ? (
+              <EmojiPackExportPane onStarted={refetchTasks} />
             ) : mode === 'scheduled' ? (
               <div className="weq-exp-sched">
                 <div className="weq-exp-sched-head">
@@ -1448,8 +1460,8 @@ export function ExportView(): ReactElement {
             )}
           </div>
 
-          {/* 商城表情下载自带底部操作条，隐藏导出中心的通用 footer。 */}
-          {mode !== 'marketpack' ? (
+          {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
+          {mode !== 'marketpack' && mode !== 'emojipack' ? (
             <footer className="weq-exp-pane-foot">
               {mode === 'scheduled' ? (
                 <span className="weq-exp-foot-hint">

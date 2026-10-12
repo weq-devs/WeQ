@@ -46,6 +46,25 @@ export {
   MFACE_SUBDIR,
 } from './sysface_export';
 export {
+  collectOwnItems,
+  collectReceivedItems,
+  resolveOwnOriginals,
+  writeEmojiBundle,
+  scopeDirName,
+  scopeLabel,
+  canonicalHash,
+  sniffImageExt,
+  type EmojiExportScope,
+  type EmojiExportItem,
+  type EmojiExportDeps,
+  type EmojiExportHooks,
+  type EmojiPreviewAddress,
+  type EmojiScopeSummary,
+  type EmojiResolveResult,
+  type EmojiWriteResult,
+  type FavEmojiRow,
+} from './emoji_export';
+export {
   exportQzone,
   fetchQzoneEmotionRange,
   type QzoneExportDeps,
@@ -144,6 +163,8 @@ export {
   type MediaDeps,
   type MarketPackDeps,
   type MarketPackDownloadItem,
+  type EmojiPackDeps,
+  type EmojiPackScope,
 } from './task_manager';
 export {
   backfillConversationMessages,

@@ -45,6 +45,7 @@ import { marketEmojiRouter } from './market_emoji';
 import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
 import { emojiPanelRouter } from './emoji_panel';
+import { emojiPackRouter } from './emoji_export';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
@@ -1093,6 +1094,8 @@ export const accountRouter = router({
   relatedEmoji: relatedEmojiRouter,
   // ---- 消息输入框表情面板（系统/字符/最近/收藏/商城/GIF）----
   emojiPanel: emojiPanelRouter,
+  // ---- 导出中心 · 导出表情包（自己的 / 收到的）----
+  emojiPack: emojiPackRouter,
   // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
