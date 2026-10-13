@@ -28,7 +28,7 @@ import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
-import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
+import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -3010,26 +3010,6 @@ export function MainView(): ReactElement {
     }
     return map;
   }, [topContacts.data]);
-  /**
-   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`）。会话列表排序
-   * 用它和最后消息时间取最大值：打了字（或有草稿）的会话要按草稿时间冒头，
-   * 而不是只看最新消息时间。见 `@weq/service/conversation-order`。
-   *
-   * 单独一条轻量 query（几行的 SELECT），这样 `onDbChanged` 时能跟手刷新排序；
-   * 真正的正文由 `drafts` state 承载，不在这里重读。
-   */
-  const draftTimesQuery = trpc.account.listConversationDraftTimes.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 5_000,
-  });
-  /**
-   * 会话 id → 排序用草稿时间（毫秒），**只取库里的 `41108`**。输入框里还没落库的
-   * 草稿刻意不参与 —— 排序只认数据库的数据，边打字不该让会话跳位置。
-   */
-  const draftTimeByConv = useMemo(
-    () => draftSortTimes(draftTimesQuery.data ?? []),
-    [draftTimesQuery.data],
-  );
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
   const groupNameByCode = useMemo(() => {
@@ -3326,19 +3306,17 @@ export function MainView(): ReactElement {
             highlights,
           };
         })
-        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按
-        // max(最后消息时间, 草稿时间) 倒序 —— 有草稿的会话不吃亏于「新消息」。
+        // 保留置顶优先；两组都按最近消息时间倒序，草稿与置顶时间不参与组内排序。
         .sort((a, b) => {
           const aTop = topTimeByConv[a.id];
           const bTop = topTimeByConv[b.id];
           if (aTop !== undefined || bTop !== undefined) {
             if (aTop === undefined) return 1;
             if (bTop === undefined) return -1;
-            return bTop - aTop;
           }
           return (
-            conversationSortTime(b.updatedAt, draftTimeByConv[b.id]) -
-            conversationSortTime(a.updatedAt, draftTimeByConv[a.id])
+            conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined) -
+            conversationSortTime(a.lastMessage?.createdAt ?? a.updatedAt, undefined)
           );
         })
     );
@@ -3356,7 +3334,6 @@ export function MainView(): ReactElement {
     unreadByConv,
     highlightsByConv,
     topTimeByConv,
-    draftTimeByConv,
     botUids,
   ]);
   const groupsById = useMemo(
