@@ -258,6 +258,7 @@ interface RawEmotion {
   content?: string;
   created_time?: number;
   cmtnum?: number;
+  fwdnum?: number | string;
   rt_tid?: string;
   rt_uin?: string | number;
   rt_uinname?: string;
@@ -304,6 +305,8 @@ export interface QzoneEmotion {
   time: number;
   /** 评论数。 */
   commentNum: number;
+  /** 转发数；接口未提供时不推断为零。 */
+  forwardNum?: number;
   /** 是否仅自己可见(private)。 */
   isPrivate: boolean;
   /** 图片 URL(每张图取可得的最大变体)。 */
@@ -416,6 +419,13 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
         content: e.content ?? '',
         time: Number(e.created_time ?? 0),
         commentNum: Number(e.cmtnum ?? 0),
+        ...(e.fwdnum !== undefined &&
+        e.fwdnum !== null &&
+        String(e.fwdnum).trim() !== '' &&
+        Number.isSafeInteger(Number(e.fwdnum)) &&
+        Number(e.fwdnum) >= 0
+          ? { forwardNum: Number(e.fwdnum) }
+          : {}),
         isPrivate: Number(e.secret ?? 0) !== 0,
         images,
         videos: mapVideos(pics, e.video),

@@ -10,7 +10,16 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import { ImagePlus, Loader2, MessageCircle, RefreshCw, Send, ThumbsUp, X } from 'lucide-react';
+import {
+  ImagePlus,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  Repeat2,
+  Send,
+  ThumbsUp,
+  X,
+} from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
@@ -693,7 +702,9 @@ function Repost({
   );
 }
 
-type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & { commentNum: number | null };
+type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time' | 'forwardNum'> & {
+  commentNum: number | null;
+};
 function PostActions({
   selfUin,
   hostUin,
@@ -762,6 +773,7 @@ function PostActions({
           <MessageCircle size={16} />
           评论 {commentCount ?? 0}
         </button>
+        <ForwardCount count={post.forwardNum} />
       </div>
       {expanded ? (
         <Interaction
@@ -777,6 +789,15 @@ function PostActions({
       ) : null}
     </div>
   );
+}
+
+function ForwardCount({ count }: { count?: number | null }) {
+  return count != null ? (
+    <span className="weq-qzn-forward-count" title={`被转发 ${count} 次`}>
+      <Repeat2 size={16} />
+      转发 {count}
+    </span>
+  ) : null;
 }
 
 function Pictures({ images }: { images: string[] }) {
@@ -1261,7 +1282,7 @@ function FeedCard({
         selfUin={selfUin}
         hostUin={String(feed.uin)}
         nickname={feed.nickname || String(feed.uin)}
-        post={post}
+        post={{ ...post, forwardNum: post.forwardNum ?? body.forwardCount ?? undefined }}
         onSpace={onSpace}
         articleRef={ref}
       />
@@ -1310,7 +1331,12 @@ function FeedCard({
         <PostActions
           selfUin={selfUin}
           hostUin={String(feed.uin)}
-          post={{ tid, time: feed.time, commentNum: body.commentCount }}
+          post={{
+            tid,
+            time: feed.time,
+            commentNum: body.commentCount,
+            forwardNum: body.forwardCount ?? undefined,
+          }}
           initialLikeCount={body.likeCount}
           onSpace={onSpace}
         />
@@ -1318,6 +1344,11 @@ function FeedCard({
         <div className="weq-qzn-actions">
           <span>赞 {body.likeCount ?? '—'}</span>
           <span>评论 {body.commentCount ?? 0}</span>
+          <ForwardCount count={body.forwardCount} />
+        </div>
+      ) : body.forwardCount !== null ? (
+        <div className="weq-qzn-actions">
+          <ForwardCount count={body.forwardCount} />
         </div>
       ) : null}
     </article>

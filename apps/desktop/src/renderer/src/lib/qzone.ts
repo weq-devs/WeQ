@@ -26,6 +26,7 @@ export function projectQzoneFeed(
   tid: string | null;
   likeCount: number | null;
   commentCount: number | null;
+  forwardCount: number | null;
   advertisement: boolean;
   unsupported: boolean;
   repost: { uin: string; nickname: string; content: string; images: string[]; videos: [] } | null;
@@ -88,6 +89,13 @@ export function projectQzoneFeed(
   };
   const likeCount = countText('.user-list', /(\d+)\s*人(?:觉得很赞|赞过|赞)/);
   const commentCount = countText('.f-op, .f-reply', /评论\s*[（(]?\s*(\d+)/);
+  const forwardCount =
+    [...doc.querySelectorAll('.f-op a, .f-op button, .f-op span')]
+      .map((node) => node.textContent?.trim() ?? '')
+      .map((text) => text.match(/^(?:转发|被转发)\s*[（(]?\s*(\d+)\s*[）)]?$/)?.[1])
+      .filter((value): value is string => value !== undefined)
+      .map(Number)
+      .find((value) => Number.isSafeInteger(value) && value >= 0) ?? null;
   // Preserve official mention targets before flattening HTML into safe text.
   for (const anchor of doc.querySelectorAll('a')) {
     const label = anchor.textContent?.trim() ?? '';
@@ -174,6 +182,7 @@ export function projectQzoneFeed(
     tid,
     likeCount,
     commentCount,
+    forwardCount,
     advertisement,
     unsupported,
     repost,
