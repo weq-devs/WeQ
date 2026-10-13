@@ -10,7 +10,6 @@ export function qzoneMediaSource(value: string): string | null {
       )
     )
       return null;
-    url.protocol = 'https:';
     return url.href;
   } catch {
     return null;
@@ -27,7 +26,14 @@ export function projectQzoneFeed(html: string): {
     'script, style, iframe, object, embed, svg, math, template, form, input, button, textarea, link, meta, base, .f-logs, .f-reply, .f-reply-wrap, .f-op, .f-detail, .comments-list, .user-list, .f-user-info',
   ))
     element.remove();
-  const body = doc.querySelector('.f-content') ?? doc.body;
+  for (const element of doc.querySelectorAll(
+    '.f-single-head, .f-single-foot, .mod-comments, .user-info, .user-pto, .user-avatar, .f-single-top',
+  ))
+    element.remove();
+  const body =
+    doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
+  const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
+  const unsupported = /功能内测中|内容暂不支持查看/.test(textBody.textContent ?? '');
   const images = new Set<string>();
   for (const image of body.querySelectorAll('img')) {
     const source = qzoneMediaSource(
@@ -36,7 +42,13 @@ export function projectQzoneFeed(html: string): {
         image.getAttribute('src') ||
         '',
     );
-    if (source && !/qlogo\.cn|\/qzone\/em\/|\/qzone\/space\//.test(source)) images.add(source);
+    if (
+      source &&
+      !unsupported &&
+      !/qlogo|\/qzone\/em\/|\/qzone\/space\//.test(source) &&
+      !source.startsWith('https://user.qzone.qq.com/')
+    )
+      images.add(source);
     if (image.getAttribute('alt')) image.replaceWith(image.getAttribute('alt')!);
   }
   const links = new Map<string, { href: string; text: string }>();
@@ -56,10 +68,17 @@ export function projectQzoneFeed(html: string): {
       /* Invalid remote link is omitted. */
     }
   }
-  for (const br of body.querySelectorAll('br')) br.replaceWith('\n');
-  for (const block of body.querySelectorAll('p, div, li')) block.append('\n');
+  for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
+  for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');
   return {
-    text: (body.textContent ?? '').replace(/\n[\t ]*\n+/g, '\n\n').trim(),
+    text: unsupported
+      ? '这条动态暂未提供完整正文，可进入好友空间查看。'
+      : (textBody.textContent ?? '')
+          .split('\n')
+          .map((line) => line.replace(/[\t ]+/g, ' ').trim())
+          .join('\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim(),
     images: [...images],
     links: [...links.values()],
   };

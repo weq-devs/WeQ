@@ -122,7 +122,7 @@ describe('Qzone media and paging', () => {
       'https://qpic.cn:8080/a',
     ])
       expect(qzoneMediaSource(value)).toBeNull();
-    expect(qzoneMediaSource('http://a.qpic.cn/fixture.png')).toBe('https://a.qpic.cn/fixture.png');
+    expect(qzoneMediaSource('http://a.qpic.cn/fixture.png')).toBe('http://a.qpic.cn/fixture.png');
   });
   it('merges overlapping pages by stable tid, preserving updated rows', () => {
     expect(

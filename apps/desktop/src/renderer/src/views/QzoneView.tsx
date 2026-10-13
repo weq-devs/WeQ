@@ -394,16 +394,26 @@ function Pictures({ images }: { images: string[] }) {
   return urls.length ? (
     <div className="weq-qzn-pictures">
       {urls.map((url, index) => (
-        <button
-          type="button"
-          key={url}
-          onClick={() => openLightbox(albumMediaUrl(url), '空间图片')}
-        >
-          <img src={albumMediaUrl(url)} alt={`空间图片 ${index + 1}`} loading="lazy" />
-        </button>
+        <Picture key={url} url={url} index={index} />
       ))}
     </div>
   ) : null;
+}
+
+function Picture({ url, index }: { url: string; index: number }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <span className="weq-qzn-image-unavailable">图片暂时无法加载</span>
+  ) : (
+    <button type="button" onClick={() => openLightbox(albumMediaUrl(url), '空间图片')}>
+      <img
+        src={albumMediaUrl(url)}
+        alt={`空间图片 ${index + 1}`}
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    </button>
+  );
 }
 
 function Interaction({
@@ -578,6 +588,11 @@ function Feeds({ selfUin, onSpace }: { selfUin: string; onSpace: (uin: string) =
             </div>
             <p className="weq-qzn-content">{body.text || '此动态暂时没有可显示的正文'}</p>
             <Pictures images={body.images} />
+            {feed.appid === 311 ? (
+              <button type="button" onClick={() => onSpace(String(feed.uin))}>
+                查看说说
+              </button>
+            ) : null}
             {body.links.map((link) => (
               <a
                 className="weq-qzn-feed-link"
