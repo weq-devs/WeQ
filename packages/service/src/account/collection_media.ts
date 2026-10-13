@@ -48,6 +48,8 @@ export interface CollectionMediaReceipt {
   imageSize: { width: number; height: number } | null;
   error: string | null;
   checkedAt: number;
+  /** Verified collector copy reused for this record's original-source descriptor. */
+  acquiredFromReferenceId?: string;
 }
 
 export interface CollectionMediaOptions {
@@ -427,9 +429,6 @@ export class CollectionMediaStore {
     options: CollectionMediaOptions = {},
   ): Promise<CollectionMediaReceipt> {
     options.signal?.throwIfAborted();
-    const cached = await this.cached(reference, options.signal);
-    options.signal?.throwIfAborted();
-    if (cached) return cached;
     const resourceKey = JSON.stringify([
       reference.kind,
       reference.uri,
@@ -439,6 +438,40 @@ export class CollectionMediaStore {
       reference.embeddedSha256 ?? null,
       reference.storedFile ?? null,
     ]);
+    const cached = await this.cached(reference, options.signal);
+    options.signal?.throwIfAborted();
+    if (cached) {
+      this.resources.set(resourceKey, cached);
+      return cached;
+    }
+    // A file's original-source descriptor is provenance, not another collector
+    // upload. Reuse only this CID's verified stored copy with matching byte identity.
+    if (
+      reference.kind === 'file' &&
+      reference.pointer === 'summary/sourceFile' &&
+      reference.expectedMd5 &&
+      reference.expectedSize !== null
+    ) {
+      for (const candidate of this.resources.values()) {
+        const peer = candidate.reference;
+        if (
+          candidate.role !== 'original' ||
+          peer.cid !== reference.cid ||
+          peer.pointer !== 'summary/file' ||
+          peer.kind !== 'file' ||
+          peer.expectedMd5 !== reference.expectedMd5 ||
+          peer.expectedSize !== reference.expectedSize ||
+          (reference.storedFile?.sha1 && reference.storedFile.sha1 !== peer.storedFile?.sha1)
+        )
+          continue;
+        if (!(await this.cached(peer, options.signal))) continue;
+        options.signal?.throwIfAborted();
+        const shared = { ...candidate, reference, acquiredFromReferenceId: peer.id };
+        writeFileAtomicSync(this.receiptPath(reference.id), JSON.stringify(shared));
+        this.resources.set(resourceKey, shared);
+        return shared;
+      }
+    }
     const previous = this.resources.get(resourceKey);
     if (previous && (await this.cached(previous.reference, options.signal))) {
       options.signal?.throwIfAborted();

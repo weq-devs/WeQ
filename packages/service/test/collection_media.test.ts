@@ -398,3 +398,97 @@ describe('collector stored file/video originals', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe('collector copy and original-source file identity', () => {
+  it('reuses a verified collector copy for the same record without issuing a source-group request', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-source-alias-'));
+    roots.push(root);
+    const store = new CollectionMediaStore(root);
+    const file = { name: 'sample.txt', size: BigInt(bytes.length), md5: Buffer.from(md5, 'hex') };
+    const [stored, source] = collectionMediaReferences('cid', null, {
+      summary: {
+        fileSummary: {
+          fileInfo: { ...file, fid: 'collector-fid', src: 2, bid: 236 },
+          srcFileInfo: { ...file, fid: 'group-fid', src: 1, bid: 102 },
+        },
+      },
+    } as never);
+    const resolver = vi.fn(async () => ({
+      url: 'https://download.weiyun.com/synthetic',
+      cookie: '',
+    }));
+    const fetch = vi.fn(async () => response()) as unknown as typeof globalThis.fetch;
+    const original = await store.download(stored!, { resolveDownload: resolver, fetch });
+    const alias = await store.download(source!, { resolveDownload: resolver, fetch });
+    expect(alias).toMatchObject({
+      role: 'original',
+      sha256: original.sha256,
+      acquiredFromReferenceId: stored!.id,
+    });
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const reopened = new CollectionMediaStore(root);
+    await reopened.download(stored!);
+    expect(await reopened.download(source!)).toMatchObject({
+      role: 'original',
+      acquiredFromReferenceId: stored!.id,
+    });
+  });
+  it('does not reuse different records or mismatching SHA1 declarations', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-source-boundary-'));
+    roots.push(root);
+    const store = new CollectionMediaStore(root);
+    const file = {
+      name: 'sample.txt',
+      size: BigInt(bytes.length),
+      md5: Buffer.from(md5, 'hex'),
+      fid: 'collector-fid',
+    };
+    const [stored] = collectionMediaReferences('cid', null, {
+      summary: { fileSummary: { fileInfo: file } },
+    } as never);
+    await store.download(stored!, {
+      resolveDownload: async () => ({ url: 'https://download.weiyun.com/synthetic', cookie: '' }),
+      fetch: async () => response(),
+    });
+    for (const [cid, metadata] of [
+      ['other-cid', file],
+      ['cid', { ...file, sha1: new Uint8Array(20) }],
+    ] as const) {
+      const [source] = collectionMediaReferences(cid, null, {
+        summary: {
+          fileSummary: {
+            srcFileInfo: { ...metadata, fid: 'original-source-fid', src: 1, bid: 102 },
+          },
+        },
+      } as never);
+      expect(await store.download(source!)).toMatchObject({
+        state: 'unavailable',
+        role: 'unverified',
+      });
+    }
+  });
+});
+
+it('does not reuse a collector copy whose bytes failed original identity checks', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unverified-source-'));
+  roots.push(root);
+  const store = new CollectionMediaStore(root);
+  const metadata = {
+    fid: 'synthetic-fid',
+    name: 'sample.txt',
+    size: BigInt(bytes.length),
+    md5: Buffer.alloc(16),
+  };
+  const [stored, source] = collectionMediaReferences('cid', null, {
+    summary: {
+      fileSummary: { fileInfo: metadata, srcFileInfo: { ...metadata, fid: 'source-fid' } },
+    },
+  } as never);
+  const receipt = await store.download(stored!, {
+    resolveDownload: async () => ({ url: 'https://download.weiyun.com/synthetic', cookie: '' }),
+    fetch: async () => response(),
+  });
+  expect(receipt.role).toBe('unverified');
+  expect(await store.download(source!)).toMatchObject({ state: 'unavailable', role: 'unverified' });
+});

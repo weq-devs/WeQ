@@ -1,6 +1,7 @@
 import { ProtoMsg, ProtoField, ScalarType, type ProtoDecodeStructType } from '@weq/codec';
+import { decode as decodeRaw } from '@weq/codec/raw';
 import { decodeMessage, type CollectionFileInfo } from '@weq/db';
-import { CollectorFileInfo, CollectorRespHead } from '@weq/codec/proto/collection/index';
+import { CollectorFileInfo } from '@weq/codec/proto/collection/index';
 import type { WebCredential } from './credential';
 import { encodeEnvelope, postCollector, type CollectionNetworkOptions } from './collection';
 import { collectionMediaUrl } from '../collection_media';
@@ -27,6 +28,15 @@ const DownloadHead = {
   ticket: P(11, S.STRING, { optional: true }),
   field14: P(14, S.UINT32, { optional: true }),
   field15: P(15, S.UINT32, { optional: true }),
+};
+const DownloadResponseHead = {
+  uin: P(1, S.UINT64, { optional: true }),
+  sequence: P(2, S.UINT32, { optional: true }),
+  command: P(3, S.UINT32, { optional: true }),
+  operation: P(4, S.UINT32, { optional: true }),
+  retCode: P(101, S.INT32, { optional: true }),
+  retMsg: P(102, S.STRING, { optional: true }),
+  promptMsg: P(103, S.STRING, { optional: true }),
 };
 const ApplyRequest = {
   cid: P(1, S.STRING, { optional: true }),
@@ -146,9 +156,29 @@ export async function applyCollectionFileDownload(
   if (bodySize === 0 || bodySize >= bytes.length - 16)
     throw new Error('收藏附件下载申请返回无效响应。');
   const split = bytes.length - bodySize;
-  const responseHead = new ProtoMsg(CollectorRespHead).decode(bytes.subarray(16, split));
+  const headBytes = bytes.subarray(16, split);
+  // Remove only padding after the last complete wire field. Trimming zero bytes
+  // blindly would truncate valid empty strings and zero-valued integers.
+  const fields = decodeRaw(headBytes);
+  const last = fields.at(-1);
+  const headEnd = last ? last.start + last.size : 0;
+  if (!headEnd || headBytes.subarray(headEnd).some((byte) => byte !== 0))
+    throw new Error('收藏附件下载申请返回无效响应。');
+  let responseHead: ProtoDecodeStructType<typeof DownloadResponseHead>;
+  try {
+    responseHead = new ProtoMsg(DownloadResponseHead).decode(headBytes.subarray(0, headEnd));
+  } catch (cause) {
+    throw new Error('收藏附件下载申请返回无效响应。', { cause });
+  }
   if ((responseHead.retCode ?? 0) !== 0)
     throw new Error(`收藏附件下载申请失败（代码 ${responseHead.retCode}）。`);
+  if (
+    responseHead.uin !== BigInt(cred.uin) ||
+    responseHead.sequence !== 1 ||
+    responseHead.command !== 2 ||
+    responseHead.operation !== 20014
+  )
+    throw new Error('收藏附件下载响应与当前请求不匹配。');
   const decoded = decodeMessage(bytes.subarray(split), ResponseBody) as ProtoDecodeStructType<
     typeof ResponseBody
   >;

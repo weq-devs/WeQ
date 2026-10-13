@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProtoMsg, ProtoField as P, ScalarType as S } from '@weq/codec';
 import { decodeMessage } from '@weq/db';
-import { CollectorFileInfo, CollectorRespHead } from '@weq/codec/proto/collection/index';
+import { CollectorFileInfo } from '@weq/codec/proto/collection/index';
 import { applyCollectionFileDownload } from '../src/account/web/collection_download';
 import { encodeEnvelope, type CollectionHttpRequest } from '../src/account/web/collection';
+const ResponseHead = {
+  uin: P(1, S.UINT64, { optional: true }),
+  sequence: P(2, S.UINT32, { optional: true }),
+  command: P(3, S.UINT32, { optional: true }),
+  operation: P(4, S.UINT32, { optional: true }),
+  retCode: P(101, S.INT32, { optional: true }),
+  retMsg: P(102, S.STRING, { optional: true }),
+  promptMsg: P(103, S.STRING, { optional: true }),
+};
+const correlatedHead = { uin: 10001n, sequence: 1, command: 2, operation: 20014 };
 const cred = { uin: '10001', skey: '', pskey: 'synthetic-account-ticket' };
 const file = {
   src: 3,
@@ -64,9 +74,17 @@ const rsp = {
     { optional: true },
   ),
 };
-function response(overrides: Record<string, unknown> = {}, status: number | undefined = 0) {
+function response(
+  overrides: Record<string, unknown> = {},
+  status: number | undefined = 0,
+  headerOverrides: Record<string, unknown> = {},
+) {
   return encodeEnvelope(
-    new ProtoMsg(CollectorRespHead).encode(status === undefined ? {} : { retCode: status }),
+    new ProtoMsg(ResponseHead).encode({
+      ...correlatedHead,
+      ...(status === undefined ? {} : { retCode: status }),
+      ...headerOverrides,
+    } as never),
     new ProtoMsg(rsp).encode({
       operation: {
         apply: {
@@ -164,7 +182,7 @@ describe('collector original file/video download application', () => {
   });
   it('does not accept an empty response operation', async () => {
     const bytes = encodeEnvelope(
-      new ProtoMsg(CollectorRespHead).encode({ trace: 'synthetic' }),
+      new ProtoMsg(ResponseHead).encode(correlatedHead),
       new ProtoMsg(rsp).encode({}),
     );
     await expect(
@@ -185,4 +203,50 @@ describe('collector original file/video download application', () => {
       }),
     ).rejects.toThrow();
   });
+});
+
+describe('collector download header padding', () => {
+  function padded(padding: Uint8Array, trace = '') {
+    const bytes = Buffer.from(response());
+    const split = bytes.length - bytes.readUInt32BE(10);
+    const header = new ProtoMsg(ResponseHead).encode({
+      ...correlatedHead,
+      promptMsg: trace,
+      retCode: 0,
+    });
+    return encodeEnvelope(Buffer.concat([header, padding]), bytes.subarray(split));
+  }
+  it('accepts zero padding after complete fields while preserving empty trailing strings', async () => {
+    const value = await applyCollectionFileDownload(cred, 'cid', file, '7.0.2-53644', {
+      transport: async () => padded(new Uint8Array(16)),
+    });
+    expect(value.url).toContain('/ftn_handler/00ff8041/');
+  });
+  it('rejects a truncated trailing field instead of treating it as padding', async () => {
+    await expect(
+      applyCollectionFileDownload(cred, 'cid', file, '7.0.2-53644', {
+        transport: async () => padded(Uint8Array.from([0x12, 0x05, 0x61])),
+      }),
+    ).rejects.toThrow('无效响应');
+  });
+  it('does not accept nonzero garbage after padding', async () => {
+    await expect(
+      applyCollectionFileDownload(cred, 'cid', file, '7.0.2-53644', {
+        transport: async () => padded(Uint8Array.from([0, 0, 1])),
+      }),
+    ).rejects.toThrow('无效响应');
+  });
+});
+
+describe('collector response correlation', () => {
+  it.each([{ uin: 10002n }, { sequence: 2 }, { command: 1 }, { operation: 20001 }])(
+    'rejects a valid body belonging to a different request',
+    async (mismatch) => {
+      await expect(
+        applyCollectionFileDownload(cred, 'cid', file, '7.0.2-53644', {
+          transport: async () => response({}, 0, mismatch),
+        }),
+      ).rejects.toThrow('不匹配');
+    },
+  );
 });

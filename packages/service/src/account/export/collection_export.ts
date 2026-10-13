@@ -139,6 +139,7 @@ export interface CollectionExportCoverage {
   attachments: Array<{
     cid: string;
     referenceId: string;
+    acquiredFromReferenceId?: string;
     kind: string;
     name: string;
     state: 'downloaded' | 'failed' | 'unavailable' | 'uncovered';
@@ -518,6 +519,9 @@ export async function exportCollections(
         coverage.attachments.push({
           cid: row.cid,
           referenceId: entry.reference.id,
+          ...(entry.receipt?.acquiredFromReferenceId
+            ? { acquiredFromReferenceId: entry.receipt.acquiredFromReferenceId }
+            : {}),
           kind: entry.reference.kind,
           name: entry.reference.name,
           state: entry.receipt?.state ?? 'uncovered',
