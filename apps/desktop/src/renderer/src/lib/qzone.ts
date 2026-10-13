@@ -16,13 +16,35 @@ export function qzoneMediaSource(value: string): string | null {
   }
 }
 
+/** Remote links remain data; only explicit web destinations are opened. */
+export function qzoneLinkTarget(value: string): string | null {
+  if (!/^(?:https?:)?\/\//i.test(value.trim())) return null;
+  try {
+    const url = new URL(value, 'https://user.qzone.qq.com/');
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port)
+      return null;
+    if (
+      url.hostname === 'localhost' ||
+      url.hostname.endsWith('.localhost') ||
+      url.hostname.endsWith('.local') ||
+      !url.hostname.includes('.') ||
+      /^[\d.]+$/.test(url.hostname) ||
+      url.hostname.includes(':')
+    )
+      return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 export function projectQzoneFeed(
   html: string,
   allowRepost = true,
 ): {
   text: string;
   images: string[];
-  links: { href: string; text: string }[];
+  links: { href: string; text: string; cover?: string }[];
   tid: string | null;
   likeCount: number | null;
   commentCount: number | null;
@@ -87,7 +109,9 @@ export function projectQzoneFeed(
     const match = text.match(pattern);
     return match ? Number(match[1]) : null;
   };
-  const likeCount = countText('.user-list', /(\d+)\s*人(?:觉得很赞|赞过|赞)/);
+  const likeCount =
+    countText('.user-list', /(\d+)\s*人(?:觉得很赞|赞过|赞)/) ??
+    countText('.f-op', /(?:点赞|赞)\s*[（(]?\s*(\d+)/);
   const commentCount = countText('.f-op, .f-reply', /评论\s*[（(]?\s*(\d+)/);
   const forwardCount =
     [...doc.querySelectorAll('.f-op a, .f-op button, .f-op span')]
@@ -126,6 +150,34 @@ export function projectQzoneFeed(
   const body =
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
   const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
+  const cards = new Map<string, { href: string; text: string; cover?: string }>();
+  const cardImages = new Set<string>();
+  for (const anchor of body.querySelectorAll('a[href]')) {
+    const image = anchor.querySelector('img');
+    if (!image) continue;
+    const href = qzoneLinkTarget(anchor.getAttribute('href')!);
+    const cover = qzoneMediaSource(
+      image.getAttribute('data-src') ||
+        image.getAttribute('lz-src') ||
+        image.getAttribute('src') ||
+        '',
+    );
+    // A picture link remains a picture; don't turn original-image URLs into share cards.
+    if (
+      !href ||
+      !cover ||
+      (qzoneMediaSource(href) && /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(href))
+    )
+      continue;
+    const text =
+      anchor.getAttribute('title')?.trim() ||
+      anchor.textContent?.trim() ||
+      image.getAttribute('alt')?.trim() ||
+      new URL(href).hostname;
+    cards.set(href, { href, text, cover });
+    cardImages.add(cover);
+    anchor.remove();
+  }
   const images = new Set<string>();
   for (const image of body.querySelectorAll('img')) {
     const source = qzoneMediaSource(
@@ -136,24 +188,18 @@ export function projectQzoneFeed(
     );
     if (
       source &&
+      !cardImages.has(source) &&
       !/qlogo|\/qzone\/em\/|\/qzone\/space\//.test(source) &&
       !source.startsWith('https://user.qzone.qq.com/')
     )
       images.add(source);
     if (image.getAttribute('alt')) image.replaceWith(image.getAttribute('alt')!);
   }
-  const links = new Map<string, { href: string; text: string }>();
+  const links = cards;
   for (const link of body.querySelectorAll('a[href]')) {
     try {
-      const url = new URL(link.getAttribute('href')!, 'https://user.qzone.qq.com/');
-      if (
-        url.protocol !== 'https:' ||
-        url.username ||
-        url.password ||
-        url.port ||
-        (url.hostname !== 'user.qzone.qq.com' && !url.hostname.endsWith('.qzone.qq.com'))
-      )
-        continue;
+      const href = qzoneLinkTarget(link.getAttribute('href')!);
+      if (!href) continue;
       const text = link.textContent?.trim() ?? '';
       if (
         !text ||
@@ -163,7 +209,7 @@ export function projectQzoneFeed(
         link.remove();
         continue;
       }
-      links.set(url.href, { href: url.href, text });
+      links.set(href, { href, text });
     } catch {
       /* Invalid remote link is omitted. */
     }

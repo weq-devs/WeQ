@@ -77,3 +77,6 @@
 .weq-qzn-comment-like-users { margin-top: 8px; }
 
 .weq-qzn-forward-count { display: inline-flex; align-items: center; gap: 6px; }
+
+.weq-qzn-feed-link { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; color: var(--primary); text-align: left; }
+.weq-qzn-feed-link img { display: block; max-width: min(100%, 520px); max-height: 420px; border-radius: 6px; object-fit: contain; }

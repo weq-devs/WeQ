@@ -589,6 +589,7 @@ function Post({
   post,
   onSpace,
   articleRef,
+  links = [],
 }: {
   selfUin: string;
   hostUin: string;
@@ -596,6 +597,7 @@ function Post({
   post: QzoneEmotion;
   onSpace: (uin: string, nickname?: string) => void;
   articleRef?: RefObject<HTMLElement | null>;
+  links?: ReturnType<typeof projectQzoneFeed>['links'];
 }) {
   const images = post.repost
     ? post.images.filter((url) => !post.repost!.images.includes(url))
@@ -629,7 +631,8 @@ function Post({
           <QzoneText content={post.content} onSpace={onSpace} />
         </p>
       ) : null}
-      <Pictures images={images} />
+      <Pictures images={images.filter((url) => !links.some((link) => link.cover === url))} />
+      <FeedLinks links={links} />
       <QzoneVideos videos={videos} />
       {post.repost ? <Repost original={post.repost} onSpace={onSpace} /> : null}
       <PostActions selfUin={selfUin} hostUin={hostUin} post={post} onSpace={onSpace} />
@@ -800,6 +803,35 @@ function ForwardCount({ count }: { count?: number | null }) {
   ) : null;
 }
 
+function FeedLinks({ links }: { links: ReturnType<typeof projectQzoneFeed>['links'] }) {
+  const [error, setError] = useState('');
+  return (
+    <>
+      {links.map((link) => (
+        <button
+          className="weq-qzn-feed-link"
+          key={link.href}
+          type="button"
+          title={link.href}
+          onClick={() => {
+            setError('');
+            void client.help.openExternal
+              .mutate({ url: link.href })
+              .then((result) => {
+                if (!result.ok) setError(result.error || '链接打开失败');
+              })
+              .catch((error: unknown) => setError(errorText(error)));
+          }}
+        >
+          {link.cover ? <img src={albumMediaUrl(link.cover)} alt="" loading="lazy" /> : null}
+          <span>{link.text}</span>
+        </button>
+      ))}
+      {error ? <p className="weq-qzn-error">{error}</p> : null}
+    </>
+  );
+}
+
 function Pictures({ images }: { images: string[] }) {
   const urls = [
     ...new Set(images.map(qzoneMediaSource).filter((url): url is string => Boolean(url))),
@@ -935,13 +967,24 @@ function Interaction({
             for (const person of extra.likes) {
               const existing = people.get(person.uin);
               if (
-                !existing ||
-                ((!existing.nickname.trim() || existing.nickname === existing.uin) &&
+                (!existing && page.coverage !== 'complete') ||
+                (existing &&
+                  (!existing.nickname.trim() || existing.nickname === existing.uin) &&
                   person.nickname.trim())
               )
                 people.set(person.uin, { ...existing, ...person });
             }
-            if (live) setLikes({ ...page, likes: [...people.values()] });
+            const merged = [...people.values()];
+            if (live)
+              setLikes({
+                ...page,
+                likes: merged,
+                coverage: page.coverage === 'complete' ? 'complete' : 'observed',
+                reason:
+                  page.reportedTotal !== null && merged.length !== page.reportedTotal
+                    ? 'count-mismatch'
+                    : page.reason,
+              });
           } catch {
             // Keep the successful primary roster when supplementation fails.
           }
@@ -982,7 +1025,9 @@ function Interaction({
             ? likes.likes.length
               ? `${likes.likes.length} 人赞过`
               : '还没有人赞过'
-            : `已显示 ${likes.likes.length} 人${likes.reportedTotal === null ? '' : `，共 ${likes.reportedTotal} 人`}`}
+            : likes.reportedTotal !== null && likes.likes.length > likes.reportedTotal
+              ? `已读取 ${likes.likes.length} 人，点赞数为 ${likes.reportedTotal}，数据暂不一致`
+              : `已显示 ${likes.likes.length} 人${likes.reportedTotal === null ? '' : `，共 ${likes.reportedTotal} 人`}`}
         </p>
       </div>
     );
@@ -1285,6 +1330,7 @@ function FeedCard({
         post={{ ...post, forwardNum: post.forwardNum ?? body.forwardCount ?? undefined }}
         onSpace={onSpace}
         articleRef={ref}
+        links={body.links}
       />
     );
   return (
@@ -1316,17 +1362,7 @@ function FeedCard({
       ) : null}
       <Pictures images={body.images} />
       {body.repost ? <Repost original={{ ...body.repost, tid: '' }} onSpace={onSpace} /> : null}
-      {body.links.map((link) => (
-        <a
-          className="weq-qzn-feed-link"
-          key={link.href}
-          href={link.href}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {link.text}
-        </a>
-      ))}
+      <FeedLinks links={body.links} />
       {feed.appid === 311 && tid && /^[a-zA-Z0-9_-]{1,128}$/.test(tid) ? (
         <PostActions
           selfUin={selfUin}
@@ -1340,17 +1376,13 @@ function FeedCard({
           initialLikeCount={body.likeCount}
           onSpace={onSpace}
         />
-      ) : feed.appid === 311 ? (
+      ) : (
         <div className="weq-qzn-actions">
           <span>赞 {body.likeCount ?? '—'}</span>
           <span>评论 {body.commentCount ?? 0}</span>
           <ForwardCount count={body.forwardCount} />
         </div>
-      ) : body.forwardCount !== null ? (
-        <div className="weq-qzn-actions">
-          <ForwardCount count={body.forwardCount} />
-        </div>
-      ) : null}
+      )}
     </article>
   );
 }

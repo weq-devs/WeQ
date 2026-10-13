@@ -1158,7 +1158,7 @@ function lookupBucket(
       }
       if (t.time <= 0) continue;
       const embedded = `_${t.time}_`;
-      const sameAuthor = key.startsWith(`d${authorUin}_`) || t.tid.includes(String(authorUin));
+      const sameAuthor = key.startsWith(`d${authorUin}_`);
       if (key.includes(embedded) && sameAuthor) {
         aliasKey = key;
         break;
@@ -1169,14 +1169,15 @@ function lookupBucket(
     likes = buckets.likes.get(aliasKey);
   }
   const converted = (comments ?? []).map(toQzoneComment);
+  const ownLikes = (likes ?? []).filter((like) => like.ownerUin === authorUin);
   return {
     fieldCoverage: {
       comments: converted.some((comment) => !comment.isReply) ? 'observed' : 'unobserved',
       replies: converted.some((comment) => comment.isReply) ? 'observed' : 'unobserved',
-      likes: likes?.length ? 'observed' : 'unobserved',
+      likes: ownLikes.length ? 'observed' : 'unobserved',
     },
     comments: converted,
-    likes: (likes ?? []).map(toQzoneLike),
+    likes: ownLikes.map(toQzoneLike),
   };
 }
 
@@ -1219,7 +1220,11 @@ export async function collectQzoneInteractions(
       break; // 后续页失败：互动是 best-effort，不阻断正文导出
     }
     if (res.items.length === 0) break; // 空页 = 翻到头
-    parseIntoBuckets(res.html, buckets);
+    // Each item is an independent post. Joining them before parsing allowed a
+    // t1_tid near one item's end to claim the next item's user-list.
+    for (const item of res.items) {
+      parseIntoBuckets(decodeFeedHtml(item.html ?? ''), buckets);
+    }
 
     for (const it of res.items) {
       if (it.key) seenKeys.add(it.key);
