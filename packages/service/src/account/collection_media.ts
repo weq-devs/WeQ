@@ -3,11 +3,20 @@ import { createReadStream } from 'node:fs';
 import { mkdir, open, rename, unlink, lstat, copyFile } from 'node:fs/promises';
 import { join, basename, dirname, extname } from 'node:path';
 import { sanitizeSegment } from '../common/path_sanitize';
-import type { CollectionCachedContent, CollectionItem } from '@weq/db';
+import type { CollectionCachedContent, CollectionItem, CollectionFileInfo } from '@weq/db';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { readJsonFile } from '../common/json_store';
 
 export type CollectionMediaKind = 'image' | 'audio' | 'video' | 'file';
+export interface CollectionStoredFile {
+  fid: string;
+  src?: number;
+  uid?: string;
+  bid?: number;
+  sha1?: string;
+  category?: number;
+  ntUid?: string;
+}
 export interface CollectionMediaReference {
   id: string;
   cid: string;
@@ -20,6 +29,8 @@ export interface CollectionMediaReference {
   sourceRole: 'original-candidate' | 'preview' | 'unknown';
   /** Content identity of audio bytes embedded in the account's own detail response. */
   embeddedSha256?: string;
+  /** Stable source descriptor, without download URLs or tickets. */
+  storedFile?: CollectionStoredFile;
 }
 
 export interface CollectionMediaReceipt {
@@ -47,6 +58,11 @@ export interface CollectionMediaOptions {
   fetch?: typeof globalThis.fetch;
   /** Service-only source bytes; never accepted from renderer input. */
   embeddedBytes?: Uint8Array;
+  /** Service-only resolver for account-owned file/video descriptors. */
+  resolveDownload?: (
+    reference: CollectionMediaReference,
+    signal: AbortSignal,
+  ) => Promise<{ url: string; cookie: string }>;
   inspectImage?: (path: string) => Promise<{ width: number; height: number } | null>;
 }
 
@@ -120,7 +136,10 @@ export function collectionMediaReferences(
   const add = (
     pointer: string,
     kind: CollectionMediaKind,
-    metadata: { uri?: string; name?: string; md5?: Uint8Array; size?: number | bigint },
+    metadata: { uri?: string; name?: string; md5?: Uint8Array; size?: number | bigint } & Omit<
+      CollectionFileInfo,
+      'name' | 'md5' | 'size'
+    >,
     sourceRole: CollectionMediaReference['sourceRole'],
   ): void => {
     const value = {
@@ -132,6 +151,21 @@ export function collectionMediaReferences(
       expectedMd5: digest(metadata.md5),
       expectedSize: size(metadata.size),
       sourceRole,
+      ...((kind === 'file' || kind === 'video') && metadata.fid
+        ? {
+            storedFile: {
+              fid: metadata.fid,
+              ...(metadata.src === undefined ? {} : { src: metadata.src }),
+              ...(metadata.uid === undefined ? {} : { uid: metadata.uid.toString() }),
+              ...(metadata.bid === undefined ? {} : { bid: metadata.bid }),
+              ...(metadata.sha1?.length === 20
+                ? { sha1: Buffer.from(metadata.sha1).toString('hex') }
+                : {}),
+              ...(metadata.category === undefined ? {} : { category: metadata.category }),
+              ...(metadata.ntUid === undefined ? {} : { ntUid: metadata.ntUid }),
+            },
+          }
+        : {}),
     };
     result.push({ ...value, id: createHash('sha256').update(JSON.stringify(value)).digest('hex') });
   };
@@ -373,7 +407,12 @@ export class CollectionMediaStore {
       }
       return { reference, receipt: null, file: null };
     }
-    const file = `${receipt.sha256}.bin`;
+    const suffix =
+      (reference.kind === 'file' || reference.kind === 'video') &&
+      /^\.[a-z0-9]{1,15}$/i.test(extname(reference.name))
+        ? extname(reference.name)
+        : '.bin';
+    const file = `${receipt.sha256}${suffix}`;
     await mkdir(directory, { recursive: true });
     await copyFile(join(this.root, receipt.file), join(directory, file));
     signal?.throwIfAborted();
@@ -398,6 +437,7 @@ export class CollectionMediaStore {
       reference.expectedSize,
       reference.sourceRole,
       reference.embeddedSha256 ?? null,
+      reference.storedFile ?? null,
     ]);
     const previous = this.resources.get(resourceKey);
     if (previous && (await this.cached(previous.reference, options.signal))) {
@@ -427,7 +467,11 @@ export class CollectionMediaStore {
       if (receipt.state === 'downloaded') this.resources.set(resourceKey, receipt);
       return receipt;
     };
-    if (!reference.uri && !reference.embeddedSha256) {
+    if (
+      !reference.uri &&
+      !reference.embeddedSha256 &&
+      !(reference.storedFile && options.resolveDownload)
+    ) {
       receipt.error = '此附件尚无可用的下载地址。';
       return save();
     }
@@ -462,11 +506,32 @@ export class CollectionMediaStore {
           headers: { 'content-length': String(bytes.length) },
         });
       } else {
-        const url = collectionMediaUrl(reference.uri!);
+        if (reference.expectedSize && BigInt(reference.expectedSize) > BigInt(maxBytes))
+          throw new Error('收藏附件超过下载上限。');
+        const resource = reference.uri
+          ? { url: reference.uri, cookie: '' }
+          : await abortable(
+              options.resolveDownload!(reference, controller.signal),
+              controller.signal,
+            );
+        controller.signal.throwIfAborted();
+        const url = collectionMediaUrl(resource.url);
+        if (
+          resource.cookie &&
+          (!['qq.com', 'weiyun.com'].some(
+            (domain) =>
+              new URL(url).hostname === domain || new URL(url).hostname.endsWith(`.${domain}`),
+          ) ||
+            /[\r\n]/.test(resource.cookie))
+        )
+          throw new Error('收藏附件下载凭据无效。');
         const fetched = (options.fetch ?? globalThis.fetch)(url, {
           signal: controller.signal,
           redirect: 'manual',
-          headers: { 'Accept-Encoding': 'identity' },
+          headers: {
+            'Accept-Encoding': 'identity',
+            ...(resource.cookie ? { Cookie: resource.cookie } : {}),
+          },
         });
         void fetched.then(
           (late) => {
@@ -512,7 +577,10 @@ export class CollectionMediaStore {
         void reader.cancel().catch(() => {});
         reader.releaseLock();
       }
-      if (receipt.bytes === 0 || (length !== null && receipt.bytes !== length))
+      if (
+        (receipt.bytes === 0 && !(reference.kind === 'file' && reference.expectedSize === '0')) ||
+        (length !== null && receipt.bytes !== length)
+      )
         throw new Error('收藏附件响应不完整。');
       receipt.md5 = md5.digest('hex');
       receipt.sha256 = sha.digest('hex');

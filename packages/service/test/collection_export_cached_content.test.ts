@@ -152,5 +152,6 @@ describe('collection export official-client cache', () => {
     const attachment = withMedia.coverage.attachments[0]!;
     expect(await readFile(join(dir, attachment.file!))).toEqual(bytes);
     expect(JSON.parse(await readFile(outputPath, 'utf8'))[0].mediaCoverage).toContain('原件 1');
+    expect(JSON.parse(await readFile(outputPath, 'utf8'))[0].mediaFiles).toBe(attachment.file);
   });
 });

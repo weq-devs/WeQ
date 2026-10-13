@@ -1434,6 +1434,14 @@ export function initAppContext(): AppContext {
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              downloadOriginalFiles: (cid, signal) => {
+                if (
+                  userConfig.getSettings().autoAttachQq === false ||
+                  accountConfig.getRecord()?.qqOnline !== true
+                )
+                  throw new Error('离线时不请求收藏附件。');
+                return collectionSvc.downloadOriginalFiles(cid, signal);
+              },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },
@@ -1978,6 +1986,14 @@ export function initAppContext(): AppContext {
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              downloadOriginalFiles: (cid, signal) => {
+                if (
+                  userConfig.getSettings().autoAttachQq === false ||
+                  accountConfig.getRecord()?.qqOnline !== true
+                )
+                  throw new Error('离线时不请求收藏附件。');
+                return collectionSvc.downloadOriginalFiles(cid, signal);
+              },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },

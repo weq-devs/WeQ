@@ -119,7 +119,7 @@ export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
   rawResponse: Uint8Array;
 }
 
-function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
+export function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
   const total = 16 + head.length + body.length;
   const out = Buffer.allocUnsafe(total);
   out.set(MAGIC, 0);
@@ -395,7 +395,7 @@ async function defaultTransport(
   });
 }
 
-async function postCollector(
+export async function postCollector(
   body: Uint8Array,
   cred: WebCredential,
   opts: Pick<CollectionNetworkOptions, 'transport' | 'signal' | 'timeoutMs'>,

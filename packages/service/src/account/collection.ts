@@ -9,6 +9,9 @@
 import type { AccountSession } from '@weq/account';
 import type { CollectionCachedContent, CollectionItem } from '@weq/db';
 import { join } from 'node:path';
+import { statSync } from 'node:fs';
+import type { NtHelperBinding } from '@weq/native';
+import { applyCollectionFileDownload, COLLECTION_DOWNLOAD_BUILDS } from './web/collection_download';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
 import type { WebCredential, WebNative } from './web/credential';
@@ -62,9 +65,10 @@ export class CollectionService {
   private readonly listedItems = new Map<string, CollectionItem>();
 
   constructor(
-    nt: WebNative,
+    private readonly nt: WebNative &
+      Partial<Pick<NtHelperBinding, 'resolveQqRuntimeModules' | 'resolveAppidFromMajor'>>,
     private readonly session: AccountSession,
-    resolvePid: () => number,
+    private readonly resolvePid: () => number,
     historyRoot?: string,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
@@ -248,6 +252,7 @@ export class CollectionService {
       receipts.push(
         await this.media.download(ref, {
           ...options,
+          resolveDownload: (reference, signal) => this.resolveFileDownload(reference, signal),
           embeddedBytes: ref.embeddedSha256
             ? (collectionEmbeddedAudio(content) ?? undefined)
             : undefined,
@@ -255,6 +260,97 @@ export class CollectionService {
       );
     }
     return receipts;
+  }
+
+  private async resolveFileDownload(
+    reference: import('./collection_media').CollectionMediaReference,
+    signal: AbortSignal,
+  ): Promise<{ url: string; cookie: string }> {
+    signal.throwIfAborted();
+    const descriptor = reference.storedFile;
+    if (
+      !descriptor ||
+      !reference.expectedMd5 ||
+      !reference.expectedSize ||
+      !/^[0-9a-f]{32}$/.test(reference.expectedMd5) ||
+      !/^\d+$/.test(reference.expectedSize)
+    )
+      throw new Error('收藏附件的来源信息不完整。');
+    // Only use request layouts verified for the currently running official build.
+    if (
+      process.platform !== 'darwin' ||
+      process.arch !== 'arm64' ||
+      !this.nt.resolveQqRuntimeModules ||
+      !this.nt.resolveAppidFromMajor
+    )
+      throw new Error('当前 QQ 版本的收藏附件下载尚未验证。');
+    const pid = this.resolvePid();
+    const modules = this.nt.resolveQqRuntimeModules(pid);
+    if (!modules) throw new Error('请先连接在线 QQ。');
+    const stamp = (path: string): string => {
+      const value = statSync(path, { bigint: true });
+      if (!value.isFile()) throw new Error('运行中 QQ 的模块不可用。');
+      return [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':');
+    };
+    const generation = [stamp(modules.majorPath), stamp(modules.wrapperPath)].join('/');
+    const check = (): void => {
+      signal.throwIfAborted();
+      const current = this.nt.resolveQqRuntimeModules!(pid);
+      if (
+        this.resolvePid() !== pid ||
+        current?.majorPath !== modules.majorPath ||
+        current?.wrapperPath !== modules.wrapperPath ||
+        [stamp(modules.majorPath), stamp(modules.wrapperPath)].join('/') !== generation
+      )
+        throw new Error('QQ 会话或版本已变化，请重新连接后重试。');
+    };
+    const info = this.nt.resolveAppidFromMajor(modules.majorPath);
+    const build = `${info.version}-${info.build}`;
+    check();
+    if (!COLLECTION_DOWNLOAD_BUILDS.has(build))
+      throw new Error('当前 QQ 版本的收藏附件下载尚未验证。');
+    const cred = await this.creds.forDomain(WEIYUN_DOMAIN);
+    check();
+    const resource = await applyCollectionFileDownload(
+      cred,
+      reference.cid,
+      {
+        ...descriptor,
+        name: reference.name,
+        uid: descriptor.uid === undefined ? undefined : BigInt(descriptor.uid),
+        size: BigInt(reference.expectedSize),
+        md5: Buffer.from(reference.expectedMd5, 'hex'),
+        sha1: descriptor.sha1 === undefined ? undefined : Buffer.from(descriptor.sha1, 'hex'),
+      },
+      build,
+      { signal },
+    );
+    check();
+    return resource;
+  }
+
+  /** Fetch declared file/video originals before export; offline export only copies the cache. */
+  async downloadOriginalFiles(cid: string, signal?: AbortSignal): Promise<{ failed: number }> {
+    if (!this.media) throw new Error('收藏附件缓存未配置。');
+    const content = await this.readCachedContent(cid);
+    const item = await this.cachedListItem(cid);
+    const refs = collectionMediaReferences(cid, content, item).filter((ref) => ref.storedFile);
+    if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');
+    let failed = 0;
+    let consecutiveFailures = 0;
+    for (const ref of refs) {
+      signal?.throwIfAborted();
+      const receipt = await this.media.download(ref, {
+        signal,
+        resolveDownload: (reference, requestSignal) =>
+          this.resolveFileDownload(reference, requestSignal),
+      });
+      if (receipt.state !== 'downloaded') {
+        failed++;
+        if (++consecutiveFailures >= 3) break;
+      } else consecutiveFailures = 0;
+    }
+    return { failed };
   }
 
   /**

@@ -150,3 +150,61 @@ describe('collection export detail hydration', () => {
     });
   });
 });
+
+describe('collection export file/video acquisition', () => {
+  it('acquires before copying and reports attempts without claiming full coverage', async () => {
+    const calls: string[] = [];
+    const source = rows(2);
+    for (const row of source) row.contentStatus = 'cached';
+    const result = await exportCollections(
+      { format: 'json', outputPath: output() },
+      {
+        listCollections: async () => source,
+        canFetchDetails: () => true,
+        downloadOriginalFiles: async (cid) => {
+          calls.push(`fetch:${cid}`);
+          return { failed: 0 };
+        },
+        exportCachedMedia: async (cid) => {
+          calls.push(`copy:${cid}`);
+          return [];
+        },
+      },
+    );
+    expect(calls).toEqual(['fetch:cid-0', 'copy:cid-0', 'fetch:cid-1', 'copy:cid-1']);
+    expect(result.coverage.mediaDownloadState).toBe('requested');
+    expect(result.coverage.originalsComplete).toBe(false);
+  });
+  it('exports cached attachments offline without any application requests', async () => {
+    const downloadOriginalFiles = vi.fn();
+    const source = rows(1);
+    const result = await exportCollections(
+      { format: 'json', outputPath: output() },
+      {
+        listCollections: async () => source,
+        canFetchDetails: () => false,
+        downloadOriginalFiles,
+        exportCachedMedia: async () => [],
+      },
+    );
+    expect(downloadOriginalFiles).not.toHaveBeenCalled();
+    expect(result.coverage.mediaDownloadState).toBe('cached-only');
+  });
+  it('stops new applications after three failed rows while retaining cached exports', async () => {
+    const downloadOriginalFiles = vi.fn(async () => ({ failed: 1 }));
+    const exportCachedMedia = vi.fn(async () => []);
+    const result = await exportCollections(
+      { format: 'json', outputPath: output() },
+      { listCollections: async () => rows(5), downloadOriginalFiles, exportCachedMedia },
+    );
+    expect(downloadOriginalFiles).toHaveBeenCalledTimes(3);
+    expect(exportCachedMedia).toHaveBeenCalledTimes(5);
+    expect(result.coverage.items.map((item) => item.media)).toEqual([
+      'requested',
+      'requested',
+      'requested',
+      'cached-only',
+      'cached-only',
+    ]);
+  });
+});

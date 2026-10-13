@@ -29,6 +29,7 @@ export interface CollectionExportPic {
  */
 export interface CollectionExportRow {
   mediaCoverage?: string;
+  mediaFiles?: string[];
   detailFetchError?: string;
   contentStatus?: 'summary' | 'truncated' | 'cached' | 'complete';
   fullContent?: string;
@@ -93,6 +94,7 @@ export interface CollectionExportDeps {
       }
     >
   >;
+  downloadOriginalFiles?: (cid: string, signal?: AbortSignal) => Promise<{ failed: number }>;
   exportCachedMedia?: (
     cid: string,
     directory: string,
@@ -128,7 +130,7 @@ export interface CollectionExportCoverage {
   detailsFailed: number;
   bodies: Record<CollectionBodyCoverage, number>;
   originalsComplete: false;
-  mediaDownloadState: 'not-requested' | 'cached-only';
+  mediaDownloadState: 'not-requested' | 'cached-only' | 'requested';
   /** Opaque detail variants may contain additional, as-yet unparsed media. */
   mediaReferencesComplete: false;
   attachments: Array<{
@@ -150,7 +152,7 @@ export interface CollectionExportCoverage {
     detailError?: string;
     body: CollectionBodyCoverage;
     /** URLs alone cannot establish whether a file is original or a thumbnail. */
-    media: 'not-requested' | 'cached-only';
+    media: 'not-requested' | 'cached-only' | 'requested';
     originalQuality: 'unverified';
   }>;
 }
@@ -337,6 +339,11 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
     get: (r) => r.mediaCoverage ?? '未下载，原件质量未核验',
   },
   {
+    key: 'mediaFiles',
+    header: '本地附件',
+    get: (r) => r.mediaFiles?.join('\n') ?? '',
+  },
+  {
     key: 'contentStatus',
     header: '内容完整性',
     get: (r) =>
@@ -471,15 +478,32 @@ export async function exportCollections(
   const coverage = summarizeCoverage(rows);
   if (deps.exportCachedMedia) {
     coverage.mediaDownloadState = 'cached-only';
+    let mediaFailures = 0;
+    let canDownload = Boolean(deps.downloadOriginalFiles && (deps.canFetchDetails?.() ?? true));
     for (const [index, row] of rows.entries()) {
       opts.signal?.throwIfAborted();
+      let requested = false;
+      if (canDownload && deps.downloadOriginalFiles) {
+        requested = true;
+        coverage.mediaDownloadState = 'requested';
+        try {
+          const result = await deps.downloadOriginalFiles(row.cid, opts.signal);
+          if (result.failed) mediaFailures++;
+          else mediaFailures = 0;
+        } catch {
+          opts.signal?.throwIfAborted();
+          mediaFailures++;
+        }
+        if (mediaFailures >= 3) canDownload = false;
+      }
       const entries = await deps.exportCachedMedia(
         row.cid,
         join(dirname(opts.outputPath), 'media'),
         opts.signal,
       );
-      coverage.items[index]!.media = 'cached-only';
+      coverage.items[index]!.media = requested ? 'requested' : 'cached-only';
       const saved = entries.filter((entry) => entry.file);
+      row.mediaFiles = [...new Set(saved.map((entry) => `media/${entry.file}`))];
       const originals = saved.filter((entry) => entry.receipt?.role === 'original').length;
       const previews = saved.filter((entry) => entry.receipt?.role === 'preview').length;
       row.mediaCoverage = entries.length
