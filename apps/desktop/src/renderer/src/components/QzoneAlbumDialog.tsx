@@ -106,11 +106,13 @@ export function QzoneAlbumDialog({
   open,
   onClose,
   hostUin,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
   /** 当前账号的 QQ 号（自己空间的相册）。 */
   hostUin: string;
+  embedded?: boolean;
 }): ReactElement | null {
   const [access, setAccess] = useState<{
     qqOnline: boolean;
@@ -264,72 +266,79 @@ export function QzoneAlbumDialog({
   const offlineMode = access ? !access.attachEnabled : false;
   const hasMore = selected ? media.length < mediaTotal : false;
 
-  return (
-    <Modal onClose={onClose} width={1080} labelledBy="weq-qzone-album-title">
-      <div className="weq-qzone-album">
-        <header className="weq-qzone-album-head">
-          <span className="weq-qzone-album-title">
-            <span className="weq-qzone-album-title-icon" aria-hidden="true">
-              <Images size={16} strokeWidth={2} />
-            </span>
-            <strong id="weq-qzone-album-title">
-              {selected ? selected.name || '相册' : '空间相册'}
-            </strong>
+  const body = (
+    <div className="weq-qzone-album">
+      <header className="weq-qzone-album-head">
+        <span className="weq-qzone-album-title">
+          <span className="weq-qzone-album-title-icon" aria-hidden="true">
+            <Images size={16} strokeWidth={2} />
           </span>
+          <strong id="weq-qzone-album-title">
+            {selected ? selected.name || '相册' : '空间相册'}
+          </strong>
+        </span>
+        {!embedded ? (
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
             <X size={17} />
           </button>
-        </header>
+        ) : null}
+      </header>
 
-        <div className="weq-qzone-album-body">
-          {access === null ? (
-            <div className="weq-qzone-album-empty">
-              <Inbox size={26} />
-              <span>检查在线状态…</span>
-            </div>
-          ) : offline ? (
-            <div className="weq-qzone-album-empty weq-qzone-album-offline">
-              <Inbox size={26} />
-              <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
-              <small>
-                {offlineMode
-                  ? '已关闭「自动读取 QQ 内存（完整功能）」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
-                  : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
-              </small>
-            </div>
-          ) : albumsLoading ? (
-            <AlbumListSkeleton />
-          ) : albumsError ? (
-            <div className="weq-qzone-album-empty is-error">
-              <Inbox size={26} />
-              <span>相册列表加载失败</span>
-              <small>{albumsError}</small>
-            </div>
-          ) : selected ? (
-            <MediaView
-              photos={media}
-              total={mediaTotal}
-              loading={mediaLoading}
-              loadingMore={mediaLoadingMore}
-              error={mediaError}
-              hasMore={hasMore}
-              albumName={selected.name}
-              hostUin={hostUin}
-              topicId={selected.id}
-              onBack={backToList}
-              onLoadMore={() => loadMore()}
-            />
-          ) : !albums || albums.length === 0 ? (
-            <div className="weq-qzone-album-empty">
-              <Inbox size={26} />
-              <span>这个空间还没有相册</span>
-              <small>QQ 空间里创建相册后，这里会自动出现。</small>
-            </div>
-          ) : (
-            <AlbumGridView albums={albums} onOpen={(album) => void openAlbum(album)} />
-          )}
-        </div>
+      <div className="weq-qzone-album-body">
+        {access === null ? (
+          <div className="weq-qzone-album-empty">
+            <Inbox size={26} />
+            <span>检查在线状态…</span>
+          </div>
+        ) : offline ? (
+          <div className="weq-qzone-album-empty weq-qzone-album-offline">
+            <Inbox size={26} />
+            <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
+            <small>
+              {offlineMode
+                ? '已关闭「自动读取 QQ 内存（完整功能）」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
+                : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
+            </small>
+          </div>
+        ) : albumsLoading ? (
+          <AlbumListSkeleton />
+        ) : albumsError ? (
+          <div className="weq-qzone-album-empty is-error">
+            <Inbox size={26} />
+            <span>相册列表加载失败</span>
+            <small>{albumsError}</small>
+          </div>
+        ) : selected ? (
+          <MediaView
+            photos={media}
+            total={mediaTotal}
+            loading={mediaLoading}
+            loadingMore={mediaLoadingMore}
+            error={mediaError}
+            hasMore={hasMore}
+            albumName={selected.name}
+            hostUin={hostUin}
+            topicId={selected.id}
+            onBack={backToList}
+            onLoadMore={() => loadMore()}
+          />
+        ) : !albums || albums.length === 0 ? (
+          <div className="weq-qzone-album-empty">
+            <Inbox size={26} />
+            <span>这个空间还没有相册</span>
+            <small>QQ 空间里创建相册后，这里会自动出现。</small>
+          </div>
+        ) : (
+          <AlbumGridView albums={albums} onOpen={(album) => void openAlbum(album)} />
+        )}
       </div>
+    </div>
+  );
+  return embedded ? (
+    body
+  ) : (
+    <Modal onClose={onClose} width={1080} labelledBy="weq-qzone-album-title">
+      {body}
     </Modal>
   );
 }
@@ -493,17 +502,6 @@ function MediaView({
         hostUin,
         topicId,
         picKey: photo.picKey,
-      });
-      // TEMP-DEBUG：排查个别视频播不了，复现后把这段日志贴回来即可删除。
-      console.warn('[qzal-video-debug] 解析 mp4', {
-        row,
-        name: photo.name,
-        rawId: photo.id,
-        isVideo: photo.isVideo,
-        picKey: photo.picKey,
-        thumbUrl: photo.thumbUrl,
-        mp4: mp4 || '(空)',
-        lightboxSrc: mp4 ? albumMediaUrl(mp4) : '(回退封面)',
       });
       if (mp4) {
         openVideoLightbox(albumMediaUrl(mp4), albumMediaUrl(photo.thumbUrl || photo.url));

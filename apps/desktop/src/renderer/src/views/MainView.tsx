@@ -6446,7 +6446,7 @@ export function MainView(): ReactElement {
               ) : shell.view === 'cache' ? (
                 <CacheView />
               ) : shell.view === 'qzone' ? (
-                <QzoneView />
+                <QzoneView key={user.identityValue} selfUin={user.identityValue} nickname={user.displayName} />
               ) : shell.view === 'channel' ? (
                 <ChannelView />
               ) : shell.view === 'annual' ? (

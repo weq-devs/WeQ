@@ -50,6 +50,7 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
+import { qzoneRouter } from './qzone';
 import { mutualMarkRouter } from './mutual_mark';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { validateMcpConfig } from '../../mcp/external';
@@ -1104,6 +1105,7 @@ export const accountRouter = router({
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
   dressup: dressupRouter,
+  qzone: qzoneRouter,
   // ---- 好友/群友互动标识（任务 / 惊喜 / 限定 / 幸运字符）----
   mutualMark: mutualMarkRouter,
 

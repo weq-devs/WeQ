@@ -45,6 +45,7 @@ import {
   type QzoneInteractionTarget,
   type QzoneLike,
 } from './qzone_interaction';
+import { supplementQzoneComments } from './qzone_comments';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -150,11 +151,39 @@ export class WebQueryService {
     targetUin: string,
     targets: QzoneInteractionTarget[],
     signal?: AbortSignal,
-    captureRaw?: (text: string) => Promise<void>,
+    captureRaw?: (text: string, kind?: 'feeds' | 'comments', tid?: string) => Promise<void>,
   ): Promise<Map<string, QzoneInteraction>> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      collectQzoneInteractions(c, targetUin, targets, captureRaw, signal),
-    );
+    return withRetry(this.creds, QZONE_DOMAIN, async (c) => {
+      let legacy: Map<string, QzoneInteraction>;
+      try {
+        legacy = await collectQzoneInteractions(c, targetUin, targets, captureRaw, signal);
+      } catch (error) {
+        signal?.throwIfAborted();
+        const classified = error as { kind?: string; name?: string };
+        if (
+          classified.kind === 'rate-limit' ||
+          classified.kind === 'authentication' ||
+          classified.name === 'WebAuthError'
+        )
+          throw error;
+        legacy = new Map(
+          targets.map((target) => [
+            target.tid,
+            {
+              comments: [],
+              likes: [],
+              coverage: 'unobserved' as const,
+              fieldCoverage: {
+                comments: 'failed' as const,
+                replies: 'failed' as const,
+                likes: 'failed' as const,
+              },
+            },
+          ]),
+        );
+      }
+      return supplementQzoneComments(c, targetUin, targets, legacy, captureRaw, signal);
+    });
   }
 
   /**

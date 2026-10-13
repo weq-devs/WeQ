@@ -1,11 +1,8 @@
 /**
  * QQ 空间说说「互动」读取 —— 评论列表 + 点赞列表。
  *
- * QQ 空间没有公开的纯 JSON 互动读取接口（PC/mobile 评论详情接口在多数环境下
- * 实测不可用），社区逆向方案（onebot-qzone）一致的做法是解析 **预渲染 HTML**：
- * 每条动态的 HTML 里内嵌了评论区（`comments-item`）和点赞区
- * （`user-list` / `f-item-passive` 点赞事件）。本模块解析器移植自 onebot-qzone
- * 的 `feeds3/` 解析器。
+ * 本模块保留 HTML 互动观察。结构化根评论分页见 qzone_comments.ts，
+ * facade 合并两条来源；HTML 只证明已观察内容，不能单独证明数量覆盖。
  *
  * 数据源是浏览器「空间主页 / 全部动态」链路的 `feeds_html_act_all`（hostuin =
  * 目标空间，自己或好友皆可）。注意该 cgi 的动态列表**不在** `data.data`，而在
@@ -68,8 +65,8 @@ export interface QzoneInteraction {
   /** HTML can only demonstrate observed content, never all comments. */
   coverage?: 'observed' | 'unobserved';
   fieldCoverage?: {
-    comments: 'observed' | 'unobserved' | 'failed';
-    replies: 'observed' | 'unobserved' | 'failed';
+    comments: 'complete' | 'observed' | 'unobserved' | 'failed';
+    replies: 'complete' | 'observed' | 'unobserved' | 'failed';
     likes: 'observed' | 'unobserved' | 'failed';
   };
   comments: QzoneComment[];
