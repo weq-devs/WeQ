@@ -2060,9 +2060,26 @@ export function MainView(): ReactElement {
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
   const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
-    {},
-    { getNextPageParam: (lastPage) => lastPage.nextCursor },
+    { limit: 500 },
+    { getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined) },
   );
+  // Folder membership must cover older rows too; never classify unobserved groups as folded.
+  useEffect(() => {
+    if (
+      contacts.hasNextPage &&
+      !contacts.isFetching &&
+      !contacts.error &&
+      (contacts.data?.pages.length ?? 0) < 100
+    ) {
+      void contacts.fetchNextPage();
+    }
+  }, [
+    contacts.hasNextPage,
+    contacts.isFetching,
+    contacts.error,
+    contacts.data?.pages.length,
+    contacts.fetchNextPage,
+  ]);
   const topContacts = trpc.account.listTopContacts.useQuery();
 
   // Flatten the paginated recent-contact pages into one list for the memos
@@ -2070,6 +2087,25 @@ export function MainView(): ReactElement {
   const recentContactsData = useMemo<RecentContactWire[]>(
     () => (contacts.data?.pages ?? []).flatMap((page) => page.items),
     [contacts.data],
+  );
+  // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
+  const groupAssistantIds = useMemo(
+    () =>
+      new Set(
+        recentContactsData
+          .filter(
+            (contact) => chatTypeKind(contact.chatType) === 'group' && contact.notifyLevel === 2,
+          )
+          .map((contact) => contact.targetUid),
+      ),
+    [recentContactsData],
+  );
+  const groupAssistantEntry = useMemo(
+    () =>
+      recentContactsData.find(
+        (contact) => contact.chatType === 'KCHATTYPEGROUPHELPER' || Number(contact.chatType) === 7,
+      ),
+    [recentContactsData],
   );
   const contactsHasMore = Boolean(contacts.hasNextPage);
   const contactsLoadingMore = contacts.isFetchingNextPage;
@@ -3288,6 +3324,51 @@ export function MainView(): ReactElement {
       byId.set('merged:deleted', merged);
     }
 
+    const assistantGroups = Array.from(byId.values()).filter(
+      (conversation) => conversation.type === 'group' && groupAssistantIds.has(conversation.id),
+    );
+    if (groupAssistantEntry || assistantGroups.length) {
+      const latest = assistantGroups.reduce<Conversation | null>(
+        (latest, current) =>
+          !latest ||
+          conversationSortTime(current.updatedAt, undefined) >
+            conversationSortTime(latest.updatedAt, undefined)
+            ? current
+            : latest,
+        null,
+      );
+      const updatedAt = latest?.updatedAt ?? toIsoTime(groupAssistantEntry?.sendTime ?? '0');
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:group-assistant',
+        type: 'merged',
+        mergedKind: 'groupAssistant',
+        title: '群助手',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: { ...fallbackPreference, muted: true },
+        unreadCount: assistantGroups.reduce(
+          (count, conversation) => count + (unreadByConv[conversation.id] ?? 0),
+          0,
+        ),
+        lastMessage: latest?.lastMessage
+          ? {
+              ...latest.lastMessage,
+              body: `${latest.type === 'group' ? latest.group.name : ''}：${latest.lastMessage.body ?? ''}`,
+              previewNodes: null,
+            }
+          : {
+              id: 'group-assistant-empty',
+              senderId: null,
+              body: '暂无群消息',
+              createdAt: updatedAt,
+            },
+      };
+      byId.set(merged.id, merged);
+    }
+
     return (
       Array.from(byId.values())
         .map((conversation) => {
@@ -3334,8 +3415,18 @@ export function MainView(): ReactElement {
     unreadByConv,
     highlightsByConv,
     topTimeByConv,
+    groupAssistantIds,
+    groupAssistantEntry,
     botUids,
   ]);
+  const sidebarConversations = useMemo(
+    () =>
+      conversations.filter(
+        (conversation) => conversation.type !== 'group' || !groupAssistantIds.has(conversation.id),
+      ),
+    [conversations, groupAssistantIds],
+  );
+
   const groupsById = useMemo(
     () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
     [conversations],
@@ -6370,7 +6461,11 @@ export function MainView(): ReactElement {
                     user={user}
                     view={shell.view}
                     contactTab={shell.contactTab}
-                    conversations={conversations}
+                    conversations={
+                      shell.view === 'messages' && !shell.query.trim()
+                        ? sidebarConversations
+                        : conversations
+                    }
                     activeConversationId={shell.activeConversationId}
                     selectedGroupConversationId={shell.selectedGroupConversationId}
                     selectedContactId={shell.selectedContactId}
@@ -6423,7 +6518,11 @@ export function MainView(): ReactElement {
               ) : shell.view === 'cache' ? (
                 <CacheView />
               ) : shell.view === 'qzone' ? (
-                <QzoneView key={user.identityValue} selfUin={user.identityValue} nickname={user.displayName} />
+                <QzoneView
+                  key={user.identityValue}
+                  selfUin={user.identityValue}
+                  nickname={user.displayName}
+                />
               ) : shell.view === 'channel' ? (
                 <ChannelView />
               ) : shell.view === 'annual' ? (
@@ -6548,6 +6647,9 @@ export function MainView(): ReactElement {
               <MergedSessionPanel
                 kind={mergedPanel.kind}
                 conversations={conversations}
+                groupAssistantIds={groupAssistantIds}
+                groupAssistantLoading={contacts.isFetching || Boolean(contacts.hasNextPage)}
+                groupAssistantError={contacts.error?.message}
                 profileByUid={profileByUid}
                 groupNameByCode={groupNameByCode}
                 anchorX={mergedPanel.anchorX}

@@ -265,7 +265,7 @@ export type GroupConversation = ConversationBase & {
 
 export type Conversation = DirectConversation | GroupConversation | MergedConversation;
 
-export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted';
+export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted' | 'groupAssistant';
 
 export type MergedConversation = ConversationBase & {
   type: 'merged';

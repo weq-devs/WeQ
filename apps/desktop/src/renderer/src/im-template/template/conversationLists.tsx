@@ -221,7 +221,8 @@ export function ConversationList({
                   <EyeOff size={20} strokeWidth={2} />
                 ) : conversation.mergedKind === 'deleted' ? (
                   <Trash2 size={20} strokeWidth={2} />
-                ) : conversation.mergedKind === 'service' ? (
+                ) : conversation.mergedKind === 'service' ||
+                  conversation.mergedKind === 'groupAssistant' ? (
                   <Users size={20} strokeWidth={2} />
                 ) : (
                   <UserRound size={20} strokeWidth={2} />
