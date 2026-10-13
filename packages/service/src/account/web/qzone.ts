@@ -258,6 +258,12 @@ interface RawEmotion {
   content?: string;
   created_time?: number;
   cmtnum?: number;
+  rt_tid?: string;
+  rt_uin?: string | number;
+  rt_uinname?: string;
+  rt_con?: string | { content?: string };
+  rt_pic?: RawPic[];
+  rt_video?: RawTopVideo[];
   secret?: number;
   pic?: RawPic[];
   video?: RawTopVideo[];
@@ -304,6 +310,15 @@ export interface QzoneEmotion {
   images: string[];
   /** 视频(封面 + 本体 mp4;图文混排与纯视频帖两种形态都归一化到这里)。 */
   videos: QzoneEmotionVideo[];
+  /** Original post carried by a repost; separate from the forwarder's text. */
+  repost?: {
+    tid: string;
+    uin: string;
+    nickname: string;
+    content: string;
+    images: string[];
+    videos: QzoneEmotionVideo[];
+  };
   /** 原生媒体字段用于增量版本检测；含无本体 URL 的视频与语音未知字段。 */
   nativeMedia?: {
     pic: RawPic[];
@@ -375,6 +390,21 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
     total: Number(data.total ?? list.length),
     list: list.map((e) => {
       const pics = e.pic ?? [];
+      const originalContent =
+        typeof e.rt_con === 'string'
+          ? e.rt_con
+          : typeof e.rt_con?.content === 'string'
+            ? e.rt_con.content
+            : '';
+      const isRepost = Boolean(
+        (e.rt_tid && String(e.rt_tid) !== '0') ||
+          /^[1-9]\d{4,19}$/.test(String(e.rt_uin ?? '')) ||
+          originalContent,
+      );
+      const hasOriginalPics = Array.isArray(e.rt_pic);
+      const hasOriginalVideos = Array.isArray(e.rt_video);
+      const originalPics = hasOriginalPics ? e.rt_pic! : pics;
+      const originalVideos = hasOriginalVideos ? e.rt_video : e.video;
       // 视频条目(形态 A)从 images 里剔除 —— 封面由 videos[].coverUrl 承载,
       // 避免 HTML / 灯箱把同一张封面渲染两遍。
       const images = pics
@@ -389,6 +419,21 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
         isPrivate: Number(e.secret ?? 0) !== 0,
         images,
         videos: mapVideos(pics, e.video),
+        ...(isRepost
+          ? {
+              repost: {
+                tid: String(e.rt_tid ?? ''),
+                uin: String(e.rt_uin ?? ''),
+                nickname: typeof e.rt_uinname === 'string' ? e.rt_uinname : '',
+                content: originalContent,
+                images: originalPics
+                  .filter((p) => !(p.is_video && p.video_info?.url3))
+                  .map(pickPicUrl)
+                  .filter((url): url is string => Boolean(url)),
+                videos: mapVideos(originalPics, originalVideos),
+              },
+            }
+          : {}),
         nativeMedia: {
           pic: pics,
           video: e.video ?? [],
@@ -475,12 +520,12 @@ export async function getQzoneMsgList(
 // 好友动态 cgi 每条 feed 返回一段预渲染 HTML 加少量结构化字段。我们透出稳定的
 // 结构化字段,HTML 原样带出(深度 HTML→段 解析超出范围,需要的调用方自己解)。
 //
-// 分页注意:该 cgi 可靠的深翻页靠时间游标(begintime/externparam/usertime,从
-// 上一页带过来),这里暂未串接 —— 所以 `pageNum` 仅对首页可靠,`hasMore` 只表示
-// 是否还有更多,不能稳定地翻到第二页。游标分页待真机抓包后补。
+// Pagination continues with data.main.externparam from the previous page;
+// basetime and pagenum must also be mirrored in the top-level request.
 
 interface RawFeedItem {
   uin?: number | string;
+  opuin?: number | string;
   nickname?: string;
   abstime?: number | string;
   appid?: number | string;
@@ -497,6 +542,7 @@ interface RawFeedsRet {
   data?: {
     data?: RawFeedItem[] | null;
     hasmore?: number | string;
+    main?: { externparam?: string; hasMoreFeeds?: boolean | number | string };
   };
 }
 
@@ -519,15 +565,23 @@ export interface QzoneFeedsResult {
   feeds: QzoneFeed[];
   /** 服务端是否报告本页之后还有更多。 */
   hasMore: boolean;
+  /** Server-issued continuation, carried in memory only. */
+  nextCursor?: string;
 }
 
 /** 纯转换:原始 feeds 响应 → 归一化好友动态列表。 */
 export function mapFeeds(data: RawFeedsRet): QzoneFeedsResult {
   // 该 cgi 会在数组尾部塞 `undefined`/null 空洞 —— 过滤掉。
   const list = (data.data?.data ?? []).filter((f): f is RawFeedItem => !!f);
+  const more = data.data?.main?.hasMoreFeeds;
+  const hasMore =
+    more === undefined
+      ? Number(data.data?.hasmore ?? 0) !== 0
+      : more === true || more === 1 || more === '1' || more === 'true';
+  const nextCursor = data.data?.main?.externparam;
   return {
     feeds: list.map((f) => ({
-      uin: Number(f.uin ?? 0),
+      uin: Number(f.uin ?? f.opuin ?? 0),
       nickname: f.nickname ?? '',
       time: Number(f.abstime ?? 0),
       appid: Number(f.appid ?? 0),
@@ -536,7 +590,10 @@ export function mapFeeds(data: RawFeedsRet): QzoneFeedsResult {
       key: String(f.key ?? f.feedskey ?? ''),
       html: f.html ?? '',
     })),
-    hasMore: Number(data.data?.hasmore ?? 0) !== 0,
+    hasMore,
+    ...(hasMore && typeof nextCursor === 'string' && nextCursor && nextCursor.length <= 16384
+      ? { nextCursor }
+      : {}),
   };
 }
 
@@ -554,8 +611,14 @@ export async function getQzoneFeeds(
   pageNum = 1,
   count = 10,
   signal?: AbortSignal,
+  cursor?: string,
 ): Promise<QzoneFeedsResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
+  const continuation = new URLSearchParams(cursor ?? '');
+  const beginTime = cursor ? continuation.get('basetime') : '0';
+  const page = cursor ? continuation.get('pagenum') : String(pageNum);
+  if (cursor && (!beginTime || !/^\d+$/.test(beginTime) || !page || !/^\d+$/.test(page)))
+    throw new Error('好友动态分页信息无效，请刷新后重试。');
 
   const url = `https://h5.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${new URLSearchParams(
     {
@@ -565,12 +628,16 @@ export async function getQzoneFeeds(
       filter: 'all',
       flag: '1',
       applist: 'all',
-      pagenum: String(pageNum),
+      pagenum: page!,
       count: String(count),
+      refresh: cursor ? '0' : '1',
+      dayspac: '5',
+      sidomain: 'qzonestyle.gtimg.cn',
+      ...(cursor ? { externparam: cursor } : {}),
       aisortEndTime: '0',
       aisortOffset: '0',
       aisortBeginTime: '0',
-      begintime: '0',
+      begintime: beginTime!,
       g_tk: String(gtk),
       callback: '_preloadCallback',
       format: 'jsonp',

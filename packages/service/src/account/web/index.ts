@@ -131,15 +131,16 @@ export class WebQueryService {
     );
   }
 
-  /** 好友动态(首页可靠;深翻页待游标分页)。`selfUin` 省略默认为本账号。 */
+  /** Friend-feed pages use the previous response's continuation. */
   async getQzoneFeeds(
     selfUin?: string,
     pageNum = 1,
     count = 10,
     signal?: AbortSignal,
+    cursor?: string,
   ): Promise<QzoneFeedsResult> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal),
+      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor),
     );
   }
 

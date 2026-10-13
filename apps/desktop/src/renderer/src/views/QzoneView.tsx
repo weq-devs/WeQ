@@ -238,14 +238,17 @@ export function QzoneView({
               setTab('posts');
             }}
           >
-            我的说说
+            我的动态
           </button>
           <button
             type="button"
             aria-current={tab === 'albums' ? 'page' : undefined}
-            onClick={() => setTab('albums')}
+            onClick={() => {
+              setHostUin(selfUin);
+              setTab('albums');
+            }}
           >
-            相册
+            我的相册
           </button>
           {spaces.map((uin) => (
             <span className="weq-qzn-space-tab" key={uin}>
@@ -491,6 +494,19 @@ function Post({
   post: QzoneEmotion;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
+  const images = post.repost
+    ? post.images.filter((url) => !post.repost!.images.includes(url))
+    : post.images;
+  const videos = post.repost
+    ? post.videos.filter(
+        (video) =>
+          !post.repost!.videos.some(
+            (original) =>
+              (video.videoId && original.videoId === video.videoId) ||
+              (video.videoUrl && original.videoUrl === video.videoUrl),
+          ),
+      )
+    : post.videos;
   return (
     <article className="weq-qzn-post">
       <div className="weq-qzn-post-head">
@@ -508,8 +524,18 @@ function Post({
       <p className="weq-qzn-content">
         <QzoneText content={post.content} onSpace={onSpace} />
       </p>
-      <Pictures images={post.images} />
-      {post.videos.map((video, index) => {
+      <Pictures images={images} />
+      <QzoneVideos videos={videos} />
+      {post.repost ? <Repost original={post.repost} onSpace={onSpace} /> : null}
+      <PostActions selfUin={selfUin} hostUin={hostUin} post={post} onSpace={onSpace} />
+    </article>
+  );
+}
+
+function QzoneVideos({ videos }: { videos: QzoneEmotion['videos'] }) {
+  return (
+    <>
+      {videos.map((video, index) => {
         const src = qzoneMediaSource(video.videoUrl);
         const cover = qzoneMediaSource(video.coverUrl);
         return src ? (
@@ -530,8 +556,42 @@ function Post({
           </p>
         );
       })}
-      <PostActions selfUin={selfUin} hostUin={hostUin} post={post} onSpace={onSpace} />
-    </article>
+    </>
+  );
+}
+
+function Repost({
+  original,
+  onSpace,
+}: {
+  original: NonNullable<QzoneEmotion['repost']>;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const validUin = /^[1-9]\d{4,19}$/.test(original.uin);
+  return (
+    <section className="weq-qzn-repost" aria-label="原帖">
+      <div className="weq-qzn-repost-author">
+        {validUin ? <QqAvatar uin={original.uin} size={26} /> : null}
+        {validUin ? (
+          <button
+            type="button"
+            className="weq-qzn-person"
+            onClick={() => onSpace(original.uin, original.nickname)}
+          >
+            <QzoneName content={original.nickname || original.uin} />
+          </button>
+        ) : (
+          <strong>
+            <QzoneName content={original.nickname || '原作者'} />
+          </strong>
+        )}
+      </div>
+      <p className="weq-qzn-content">
+        <QzoneText content={original.content || '原帖内容暂不可查看'} onSpace={onSpace} />
+      </p>
+      <Pictures images={original.images} />
+      <QzoneVideos videos={original.videos} />
+    </section>
   );
 }
 
@@ -602,7 +662,7 @@ function PostActions({
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
-          评论 {commentCount ?? '—'}
+          评论 {commentCount ?? 0}
         </button>
       </div>
       {expanded ? (
@@ -815,28 +875,71 @@ function Feeds({
   const [error, setError] = useState('');
   const [filter, setFilter] = useState(0);
   const [retry, setRetry] = useState(0);
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const accumulated = useRef<QzoneFeed[]>([]);
+  const nextCursor = useRef<string | undefined>(undefined);
+  const seenCursors = useRef(new Set<string>());
+  const stalledPages = useRef(0);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const nearEnd = useNearViewport(moreRef);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
     let live = true;
-    setFeeds(null);
     setError('');
-    void run((requestId) => client.account.qzone.feeds.query({ selfUin, requestId }))
+    setLoading(true);
+    void run((requestId) => client.account.qzone.feeds.query({ selfUin, requestId, cursor }))
       .then((page) => {
-        if (live) setFeeds(page.feeds);
+        if (!live) return;
+        const key = (feed: QzoneFeed): string =>
+          `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
+        const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
+        const previousSize = merged.size;
+        for (const feed of page.feeds) merged.set(key(feed), feed);
+        stalledPages.current = merged.size === previousSize ? stalledPages.current + 1 : 0;
+        if (cursor) seenCursors.current.add(cursor);
+        const continuation = page.nextCursor;
+        nextCursor.current =
+          page.hasMore &&
+          continuation &&
+          continuation !== cursor &&
+          !seenCursors.current.has(continuation) &&
+          stalledPages.current < 3
+            ? continuation
+            : undefined;
+        accumulated.current = [...merged.values()];
+        setFeeds(accumulated.current);
+        setDone(!nextCursor.current);
       })
       .catch((error: unknown) => {
         if (live) setError(errorText(error));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
       });
     return () => {
       live = false;
       cancel();
     };
-  }, [selfUin, retry, run, cancel]);
+  }, [selfUin, cursor, retry, run, cancel]);
+  useEffect(() => {
+    if (nearEnd && !loading && !error && !done && nextCursor.current) setCursor(nextCursor.current);
+  }, [nearEnd, loading, error, done, feeds]);
+  const projections = useRef(
+    new Map<string, { html: string; body: ReturnType<typeof projectQzoneFeed> }>(),
+  );
   const shown = useMemo(
     () =>
       feeds
         ?.filter((feed) => feed.uin > 0)
-        .map((feed) => ({ feed, body: projectQzoneFeed(feed.html) }))
+        .map((feed) => {
+          const key = `${feed.uin}:${feed.appid}:${feed.key || feed.time}`;
+          const cached = projections.current.get(key);
+          const body = cached?.html === feed.html ? cached.body : projectQzoneFeed(feed.html);
+          if (cached?.html !== feed.html) projections.current.set(key, { html: feed.html, body });
+          return { feed, body };
+        })
         .filter(
           ({ feed, body }) =>
             !body.advertisement &&
@@ -861,9 +964,9 @@ function Feeds({
           <option value={-1}>其他动态</option>
         </select>
       </div>
-      {!feeds || error ? (
+      {!feeds ? (
         <State
-          loading={!error}
+          loading={loading && !error}
           error={error}
           empty=""
           retry={() => setRetry((value) => value + 1)}
@@ -897,6 +1000,9 @@ function Feeds({
               <QzoneText content={body.text || '此动态暂时没有可显示的正文'} onSpace={onSpace} />
             </p>
             <Pictures images={body.images} />
+            {body.repost ? (
+              <Repost original={{ ...body.repost, tid: '' }} onSpace={onSpace} />
+            ) : null}
             {body.links.map((link) => (
               <a
                 className="weq-qzn-feed-link"
@@ -919,21 +1025,45 @@ function Feeds({
             ) : feed.appid === 311 ? (
               <div className="weq-qzn-actions">
                 <span>赞 {body.likeCount ?? '—'}</span>
-                <span>评论 {body.commentCount ?? '—'}</span>
+                <span>评论 {body.commentCount ?? 0}</span>
               </div>
             ) : null}
           </article>
         );
       })}
-      {feeds && !error ? (
-        <p className="weq-qzn-status">
-          {shown?.length
-            ? '当前为最近一页动态'
-            : filter
-              ? '最近动态中暂无此类型内容'
-              : '暂时没有可查看的动态'}
-        </p>
-      ) : null}
+      <div ref={moreRef} className="weq-qzn-page-sentinel">
+        {feeds && error ? (
+          <State
+            loading={false}
+            error={error}
+            empty=""
+            retry={() => setRetry((value) => value + 1)}
+          />
+        ) : null}
+        {feeds && !error ? (
+          loading ? (
+            <p className="weq-qzn-status">正在加载更多动态…</p>
+          ) : !done ? (
+            <button
+              type="button"
+              className="weq-qzn-more"
+              onClick={() => {
+                if (nextCursor.current) setCursor(nextCursor.current);
+              }}
+            >
+              加载更多动态
+            </button>
+          ) : (
+            <p className="weq-qzn-status">
+              {shown?.length
+                ? '已加载当前可查看的动态'
+                : filter
+                  ? '暂无此类型动态'
+                  : '暂时没有可查看的动态'}
+            </p>
+          )
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1027,7 +1157,7 @@ function Composer({
         setUncertain(submitted);
         setError(
           submitted
-            ? `${errorText(error)} 请先刷新我的说说确认结果，再决定是否重新发表。`
+            ? `${errorText(error)} 请先刷新我的动态确认结果，再决定是否重新发表。`
             : errorText(error),
         );
       }

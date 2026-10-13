@@ -5,8 +5,8 @@
  * pt_login 本地快速登录兜底，无需注入）。未登录 / 完全离线时给出回退说明文案。
  *
  * 展示逻辑：
- *   - 只有一个相册 → 直接平铺该相册内的全部媒体（照片 + 视频封面，带名称/时间）；
- *   - 多个相册 → 相册卡片（封面 + 名称 + 媒体数），点击进入内部媒体列表。
+ *   - 相册卡片（封面 + 名称 + 媒体数），点击进入内部媒体列表；
+ *   - 列表页支持勾选相册并逐页批量导出，按相册分文件夹保存。
  *
  * 媒体列表走分页（pageStart/pageNum），滚动到底部自动加载下一页（哨兵 + 防抖），
  * 不再有「加载更多」按钮。图片一律经自定义资源协议 `weq-media://album?src=…`
@@ -220,12 +220,6 @@ export function QzoneAlbumDialog({
     };
   }, [open, hostUin, access?.qqOnline]);
 
-  // 只有一个相册 → 自动平铺它的媒体（打开 + 相册落定后触发一次）。
-  useEffect(() => {
-    if (!open || !albums || albums.length !== 1 || selected) return;
-    void openAlbum(albums[0]!);
-  }, [open, albums, selected, openAlbum]);
-
   /** 翻页：pageStart = 已加载条数。返回是否成功（哨兵据此决定是否自动重试）。 */
   const loadMore = useCallback(async (): Promise<boolean> => {
     if (!selected || mediaLoading || mediaLoadingMore) return true;
@@ -329,7 +323,11 @@ export function QzoneAlbumDialog({
             <small>QQ 空间里创建相册后，这里会自动出现。</small>
           </div>
         ) : (
-          <AlbumGridView albums={albums} onOpen={(album) => void openAlbum(album)} />
+          <AlbumGridView
+            albums={albums}
+            hostUin={hostUin}
+            onOpen={(album) => void openAlbum(album)}
+          />
         )}
       </div>
     </div>
@@ -345,44 +343,255 @@ export function QzoneAlbumDialog({
 
 function AlbumGridView({
   albums,
+  hostUin,
   onOpen,
 }: {
   albums: QzoneAlbumWire[];
+  hostUin: string;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [stopping, setStopping] = useState(false);
+  const locked = useRef(false);
+  const cancelled = useRef(false);
+  const active = useRef(true);
+  const showInfo = useDialog((s) => s.showInfo);
+  const showError = useDialog((s) => s.showError);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      cancelled.current = true;
+    };
+  }, []);
+  const allChecked = albums.length > 0 && albums.every((album) => checked.has(album.id));
+  const toggle = (id: string): void =>
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  async function exportAlbums(): Promise<void> {
+    if (locked.current || checked.size === 0) return;
+    locked.current = true;
+    cancelled.current = false;
+    setExporting(true);
+    setStopping(false);
+    setProgress('选择保存位置…');
+    let saved = 0;
+    const failures: string[] = [];
+    const completed = new Set<string>();
+    try {
+      const outputDir = await client.account.pickQzoneAlbumExportDir.mutate();
+      if (!outputDir || cancelled.current) {
+        if (active.current) setProgress('');
+        return;
+      }
+      const batchRoot = `${outputDir.replace(/[\\/]+$/, '')}/空间相册_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomUUID().slice(0, 8)}`;
+      const targets = albums.filter((album) => checked.has(album.id));
+      for (const [index, album] of targets.entries()) {
+        if (cancelled.current) break;
+        const safe = (value: string): string =>
+          value
+            .replace(/[<>:"/\\|?*]/g, '_')
+            .split('')
+            .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? '_' : char))
+            .join('')
+            .trim()
+            .slice(0, 80) || '相册';
+        const folder = `${batchRoot}/${safe(album.name)}_${safe(album.id)}`;
+        let start = 0,
+          pageIndex = 0,
+          sequence = 0;
+        const seen = new Set<string>();
+        let albumFailed = false;
+        try {
+          while (!cancelled.current) {
+            if (++pageIndex > 10000) throw new Error('相册分页未结束，请分批重试。');
+            if (active.current)
+              setProgress(
+                `${index + 1}/${targets.length} · ${album.name || '未命名相册'} · 已保存 ${saved} 个文件`,
+              );
+            const page = await client.account.qzoneAlbumMedia.query({
+              hostUin,
+              topicId: album.id,
+              pageStart: start,
+              pageNum: PAGE_NUM,
+            });
+            if (cancelled.current) break;
+            const photos = (page?.photos ?? []) as QzoneAlbumPhotoWire[];
+            if (!photos.length) {
+              if (start < Number(page?.totalInAlbum ?? 0))
+                throw new Error('相册分页提前返回空页，未导出全部媒体。');
+              break;
+            }
+            const fresh = photos.filter((photo) => {
+              const key = `${photo.isVideo}:${photo.picKey || photo.url || photo.thumbUrl}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            if (!fresh.length) throw new Error('相册分页重复，已停止，避免重复下载。');
+            const items = fresh
+              .filter((photo) => {
+                if (photo.url || photo.thumbUrl) return true;
+                albumFailed = true;
+                failures.push(`${album.name}：有媒体缺少下载地址。`);
+                return false;
+              })
+              .map((photo) => {
+                sequence++;
+                return {
+                  id: photo.id || String(sequence),
+                  name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
+                  url: photo.url || photo.thumbUrl,
+                  isVideo: photo.isVideo,
+                  picKey: photo.picKey,
+                };
+              });
+            if (items.length) {
+              const result = await client.account.exportQzoneAlbumMedia.mutate({
+                hostUin,
+                topicId: album.id,
+                outputDir: folder,
+                concurrency: 4,
+                items,
+              });
+              saved += result.ok;
+              if (result.failed.length) {
+                albumFailed = true;
+                failures.push(
+                  `${album.name}：${result.failed.length} 个媒体失败${result.failed[0]?.error ? `（${result.failed[0].error}）` : ''}`,
+                );
+              }
+            }
+            start += photos.length;
+            const total = Number(page?.totalInAlbum ?? 0);
+            if (total > 0 ? start >= total : photos.length < PAGE_NUM) break;
+          }
+          if (!cancelled.current && !albumFailed) completed.add(album.id);
+        } catch (error) {
+          failures.push(`${album.name}：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (!active.current) return;
+      setChecked((current) => new Set([...current].filter((id) => !completed.has(id))));
+      setProgress(`已保存 ${saved} 个文件${cancelled.current ? ' · 已停止' : ''}`);
+      if (failures.length)
+        showError('部分相册导出失败', `已保存 ${saved} 个文件。${failures.slice(0, 5).join('；')}`);
+      else
+        showInfo(
+          cancelled.current ? '导出已停止' : '导出完成',
+          `已保存 ${saved} 个文件到：${batchRoot}`,
+        );
+    } catch (error) {
+      if (active.current)
+        showError('相册导出失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      locked.current = false;
+      if (active.current) {
+        setExporting(false);
+        setStopping(false);
+      }
+    }
+  }
+
   return (
-    <div className="weq-qzal-album-grid">
-      {albums.map((album) => (
+    <div className="weq-qzal-album-list">
+      <div className="weq-qzal-selectbar">
         <button
-          key={album.id}
           type="button"
-          className="weq-qzal-album-card"
-          onClick={() => onOpen(album)}
-          title={album.name || '未命名相册'}
+          className={`weq-qzal-select-all${allChecked ? ' is-on' : ''}`}
+          disabled={exporting}
+          onClick={() =>
+            setChecked(allChecked ? new Set() : new Set(albums.map((album) => album.id)))
+          }
         >
-          <span className="weq-qzal-album-cover">
-            {album.coverUrl ? (
-              <img
-                src={albumMediaUrl(album.coverUrl)}
-                alt=""
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <span className="weq-qzal-album-cover-empty">
-                <Images size={22} />
-              </span>
-            )}
+          <span className="weq-qzal-check" aria-hidden>
+            {allChecked ? <Check size={12} /> : null}
           </span>
-          <span className="weq-qzal-album-meta">
-            <strong>{album.name || '未命名相册'}</strong>
-            <small>
-              {album.mediaCount ?? 0} 个媒体
-              {album.desc ? ` · ${album.desc}` : ''}
-            </small>
-          </span>
+          {allChecked ? '取消全选' : '全选'}
         </button>
-      ))}
+        <span className="weq-qzal-select-count">已选 {checked.size} 个相册</span>
+        <button
+          type="button"
+          className="weq-qzal-download"
+          disabled={exporting || !checked.size}
+          onClick={() => void exportAlbums()}
+        >
+          {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
+          {exporting ? '导出中…' : '导出选中相册'}
+        </button>
+        {exporting ? (
+          <button
+            type="button"
+            disabled={stopping}
+            onClick={() => {
+              cancelled.current = true;
+              setStopping(true);
+              setProgress('正在停止，等待当前批次完成…');
+            }}
+          >
+            {stopping ? '正在停止…' : '停止'}
+          </button>
+        ) : null}
+      </div>
+      {progress ? (
+        <p className="weq-qzal-export-progress" role="status">
+          {progress}
+        </p>
+      ) : null}
+      <div className="weq-qzal-album-grid">
+        {albums.map((album) => (
+          <div
+            key={album.id}
+            className={`weq-qzal-album-card${checked.has(album.id) ? ' is-checked' : ''}`}
+          >
+            <button
+              type="button"
+              className={`weq-qzal-media-check${checked.has(album.id) ? ' is-on' : ''}`}
+              aria-label={`选择相册 ${album.name || '未命名相册'}`}
+              aria-pressed={checked.has(album.id)}
+              disabled={exporting}
+              onClick={() => toggle(album.id)}
+            >
+              {checked.has(album.id) ? <Check size={12} /> : null}
+            </button>
+            <button
+              type="button"
+              className="weq-qzal-album-open"
+              disabled={exporting}
+              onClick={() => onOpen(album)}
+              title={album.name || '未命名相册'}
+            >
+              <span className="weq-qzal-album-cover">
+                {album.coverUrl ? (
+                  <img
+                    src={albumMediaUrl(album.coverUrl)}
+                    alt=""
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="weq-qzal-album-cover-empty">
+                    <Images size={22} />
+                  </span>
+                )}
+              </span>
+              <span className="weq-qzal-album-meta">
+                <strong>{album.name || '未命名相册'}</strong>
+                <small>
+                  {album.mediaCount ?? 0} 个媒体{album.desc ? ` · ${album.desc}` : ''}
+                </small>
+              </span>
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

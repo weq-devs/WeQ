@@ -16,7 +16,10 @@ export function qzoneMediaSource(value: string): string | null {
   }
 }
 
-export function projectQzoneFeed(html: string): {
+export function projectQzoneFeed(
+  html: string,
+  allowRepost = true,
+): {
   text: string;
   images: string[];
   links: { href: string; text: string }[];
@@ -24,8 +27,49 @@ export function projectQzoneFeed(html: string): {
   likeCount: number | null;
   commentCount: number | null;
   advertisement: boolean;
+  repost: { uin: string; nickname: string; content: string; images: string[]; videos: [] } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const image of doc.querySelectorAll('img')) {
+    const source =
+      image.getAttribute('src') ||
+      image.getAttribute('data-src') ||
+      image.getAttribute('lz-src') ||
+      '';
+    const code = source.match(/\/qzone\/em\/(e\d+)\.(?:gif|png)/i)?.[1];
+    if (code) image.replaceWith(`[em]${code}[/em]`);
+  }
+  let repost: ReturnType<typeof projectQzoneFeed>['repost'] = null;
+  if (allowRepost) {
+    const hint = doc.querySelector('[data-origtid], [data-origuin], [data-typeid="5"]');
+    const quote =
+      doc.querySelector('.f-quote, .f-quote-wrap, .f-original, .f-forward-content') ||
+      (hint
+        ? [...doc.querySelectorAll('.txt-box')].find((node) => node.querySelector('a.nickname'))
+        : null);
+    if (quote) {
+      const author = quote.querySelector('a.nickname, [data-uin]');
+      const nickname = author?.textContent?.trim() ?? '';
+      const uin =
+        hint?.getAttribute('data-origuin') ||
+        author?.getAttribute('data-uin') ||
+        author
+          ?.getAttribute('href')
+          ?.match(/(?:https?:)?\/\/user\.qzone\.qq\.com\/([1-9]\d{4,19})(?:\b|\/)/)?.[1] ||
+        '';
+      const copy = quote.cloneNode(true) as Element;
+      copy.querySelector('a.nickname')?.remove();
+      const body = projectQzoneFeed(copy.outerHTML, false);
+      repost = {
+        uin,
+        nickname,
+        content: body.text.replace(/^[：:\s]+/, ''),
+        images: body.images,
+        videos: [],
+      };
+      quote.remove();
+    }
+  }
   const advertisement = Boolean(doc.querySelector('[data-tid="advertisement_app"]'));
   const feedAttrs = doc.querySelector('[data-fkey], [data-tid]');
   const rawTid = feedAttrs?.getAttribute('data-tid');
@@ -126,6 +170,7 @@ export function projectQzoneFeed(html: string): {
     likeCount,
     commentCount,
     advertisement,
+    repost,
   };
 }
 

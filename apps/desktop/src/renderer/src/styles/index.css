@@ -26274,3 +26274,9 @@ html[data-theme="dark"] .weq-mf-mall-card {
 .weq-group-helper-search input:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
 .weq-group-helper-unread { flex-shrink: 0; min-width: 20px; padding: 1px 5px; border-radius: 10px; background: var(--weq-bg-elevated); color: var(--weq-fg-secondary); font-size: 11px; text-align: center; }
 .weq-group-helper-more { display: block; width: 100%; padding: 10px; color: var(--weq-accent-effective); cursor: pointer; font-size: 13px; }
+
+.weq-qzal-album-card { position: relative; }
+.weq-qzal-album-card.is-checked { border-color: var(--weq-accent-effective); }
+.weq-qzal-album-card .weq-qzal-album-open { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+.weq-qzal-export-progress { margin: 10px 0; font-size: 12px; color: var(--weq-fg-secondary); }
+.weq-qzal-album-list .weq-qzal-selectbar { flex-wrap: wrap; margin-bottom: 14px; }

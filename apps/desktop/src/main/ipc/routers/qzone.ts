@@ -74,10 +74,10 @@ export const qzoneRouter = router({
       }),
     ),
   feeds: procedure
-    .input(read)
+    .input(read.extend({ cursor: z.string().min(1).max(16384).optional() }))
     .query(({ input }) =>
       request(input, (services, signal) =>
-        services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal),
+        services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal, input.cursor),
       ),
     ),
   interactions: procedure.input(post.extend({ time: z.number().int().min(0) })).query(({ input }) =>
