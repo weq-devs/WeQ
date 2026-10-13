@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WebRequestError, webRequestJson, webRequestText } from '../src/account/web/http';
+import {
+  WebRequestError,
+  webRequestBytes,
+  webRequestJson,
+  webRequestText,
+} from '../src/account/web/http';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -133,5 +138,116 @@ describe('web request bounds', () => {
     );
     expect(error).toMatchObject({ kind: 'decode' });
     expect(error.message).not.toContain('private response body');
+  });
+});
+
+describe('uncooperative transports and total retry budgets', () => {
+  it('returns on timeout and cancels a response which arrives after the caller has left', async () => {
+    let finish!: (response: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    );
+    await expect(
+      webRequestBytes('https://fixture.invalid/read', { cookie: '', timeoutMs: 5 }),
+    ).rejects.toMatchObject({ kind: 'timeout' });
+    const cancel = vi.fn();
+    finish(new Response(new ReadableStream({ cancel })));
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  });
+
+  it('times out a stalled response stream without waiting for its uncooperative cancel handler', async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new ReadableStream({ cancel }))),
+    );
+    await expect(
+      webRequestText('https://fixture.invalid/read', { cookie: '', timeoutMs: 5 }),
+    ).rejects.toMatchObject({ kind: 'timeout' });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a fetch which ignores AbortSignal without beginning another attempt', async () => {
+    const fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const pending = webRequestBytes('https://fixture.invalid/read', {
+      cookie: '',
+      signal: controller.signal,
+      retry: { maxAttempts: 2 },
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ kind: 'cancelled' });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('does not start a retry when its wait would exceed the total elapsed budget', async () => {
+    const fetch = vi.fn(async () => new Response('busy', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      webRequestText('https://fixture.invalid/read', {
+        cookie: '',
+        timeoutMs: 1000,
+        totalTimeoutMs: 10,
+        retry: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 100 },
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('allows a timed-out attempt to retry only within the explicit total budget', async () => {
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(new Response(Uint8Array.of(0, 255, 42)));
+    vi.stubGlobal('fetch', fetch);
+    expect(
+      await webRequestBytes('https://fixture.invalid/read', {
+        cookie: '',
+        timeoutMs: 5,
+        totalTimeoutMs: 1000,
+        retry: { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+    ).toEqual(Uint8Array.of(0, 255, 42));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([401, 403])(
+    'classifies HTTP %s as authentication and never retries it',
+    async (status) => {
+      const fetch = vi.fn(async () => new Response('denied', { status }));
+      vi.stubGlobal('fetch', fetch);
+      await expect(
+        webRequestBytes('https://fixture.invalid/read?token=private', {
+          cookie: '',
+          retry: { maxAttempts: 3 },
+        }),
+      ).rejects.toMatchObject({ kind: 'authentication', status, retryable: false });
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('sends binary bodies intact without changing caller headers or adding a retry to writes', async () => {
+    const fetch = vi.fn(async () => new Response('busy', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      webRequestBytes('https://fixture.invalid/write', {
+        method: 'POST',
+        cookie: 'synthetic',
+        body: Uint8Array.of(0, 255, 42),
+        headers: { 'Content-Type': 'application/octet-stream' },
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({
+      headers: { Cookie: 'synthetic', 'Content-Type': 'application/octet-stream' },
+      body: Buffer.from([0, 255, 42]),
+    });
   });
 });
