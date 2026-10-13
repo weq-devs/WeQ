@@ -57,7 +57,20 @@ export const qzoneRouter = router({
           signal,
         );
         // Keep raw wire metadata and signed source fields out of the UI DTO.
-        return { total: page.total, list: page.list.map(({ nativeMedia: _raw, ...item }) => item) };
+        let nickname = page.owner?.uin === input.hostUin ? page.owner.nickname : null;
+        if (!nickname) {
+          try {
+            nickname =
+              (await services.profile.getProfileByUin(BigInt(input.hostUin)))?.nick || null;
+          } catch {
+            // A missing cached profile does not prevent reading the space.
+          }
+        }
+        return {
+          nickname,
+          total: page.total,
+          list: page.list.map(({ nativeMedia: _raw, ...item }) => item),
+        };
       }),
     ),
   feeds: procedure

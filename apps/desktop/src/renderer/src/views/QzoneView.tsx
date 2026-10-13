@@ -67,7 +67,13 @@ function useNearViewport(ref: RefObject<HTMLElement | null>, once = false): bool
   return near;
 }
 
-function QzoneText({ content, onSpace }: { content: string; onSpace: (uin: string) => void }) {
+function QzoneText({
+  content,
+  onSpace,
+}: {
+  content: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
   return (
     <>
       {qzoneTextParts(content).map((part) =>
@@ -77,7 +83,7 @@ function QzoneText({ content, onSpace }: { content: string; onSpace: (uin: strin
             type="button"
             className="weq-qzn-mention"
             title={`QQ ${part.uin}`}
-            onClick={() => onSpace(part.uin)}
+            onClick={() => onSpace(part.uin, part.text.slice(1))}
           >
             {part.text}
           </button>
@@ -134,17 +140,24 @@ export function QzoneView({
   const [tab, setTab] = useState<Tab>('feeds');
   const [hostUin, setHostUin] = useState(selfUin);
   const [spaces, setSpaces] = useState<string[]>([]);
+  const [spaceNames, setSpaceNames] = useState<Record<string, string>>({});
+  const rememberSpaceName = useCallback((uin: string, name: string) => {
+    const value = name.trim();
+    if (!value || value === uin) return;
+    setSpaceNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
+  }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [compose, setCompose] = useState(false);
-  const openSpace = (uin: string): void => {
+  const openSpace = (uin: string, name?: string): void => {
     const value = uin.trim();
     if (!/^[1-9]\d{4,19}$/.test(value)) {
       setTargetError('请输入有效的 QQ 号');
       return;
     }
     setTargetError('');
+    if (name) rememberSpaceName(value, name);
     setHostUin(value);
     if (value === selfUin) setTab('posts');
     else {
@@ -261,8 +274,9 @@ export function QzoneView({
             key={`${hostUin}:${refresh}`}
             selfUin={selfUin}
             hostUin={hostUin}
-            nickname={hostUin === selfUin ? nickname : hostUin}
+            nickname={hostUin === selfUin ? nickname : spaceNames[hostUin] || hostUin}
             onSpace={openSpace}
+            onOwnerNickname={rememberSpaceName}
           />
         ) : null}
         {tab === 'albums' ? (
@@ -330,11 +344,13 @@ function Posts({
   hostUin,
   nickname,
   onSpace,
+  onOwnerNickname,
 }: {
   selfUin: string;
   hostUin: string;
   nickname: string;
-  onSpace: (uin: string) => void;
+  onSpace: (uin: string, nickname?: string) => void;
+  onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
   const [total, setTotal] = useState(0);
@@ -358,6 +374,7 @@ function Posts({
       .then((page) => {
         if (!live) return;
         setTotal(page.total);
+        if (page.nickname) onOwnerNickname(hostUin, page.nickname);
         const merged = mergeQzonePosts(currentPosts.current, page.list);
         setDone(
           !page.list.length ||
@@ -378,14 +395,14 @@ function Posts({
       live = false;
       cancel();
     };
-  }, [selfUin, hostUin, offset, retry, run, cancel]);
+  }, [selfUin, hostUin, offset, retry, run, cancel, onOwnerNickname]);
   useEffect(() => {
     if (nearEnd && posts.length > 0 && !loading && !done && !error) setOffset(nextOffset.current);
   }, [nearEnd, posts.length, loading, done, error]);
   return (
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
-        <h2>{hostUin === selfUin ? '我的说说' : `${hostUin} 的说说`}</h2>
+        <h2>{hostUin === selfUin ? '我的说说' : `${nickname} 的说说`}</h2>
         {total > 0 ? (
           <span>
             {posts.length} / {total}
@@ -438,7 +455,7 @@ function Post({
   hostUin: string;
   nickname: string;
   post: QzoneEmotion;
-  onSpace: (uin: string) => void;
+  onSpace: (uin: string, nickname?: string) => void;
 }) {
   return (
     <article className="weq-qzn-post">
@@ -493,7 +510,7 @@ function PostActions({
   selfUin: string;
   hostUin: string;
   post: InteractionPost;
-  onSpace: (uin: string) => void;
+  onSpace: (uin: string, nickname?: string) => void;
   initialLikeCount?: number | null;
 }) {
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(null);
@@ -610,7 +627,7 @@ function Interaction({
   selfUin: string;
   hostUin: string;
   post: InteractionPost;
-  onSpace: (uin: string) => void;
+  onSpace: (uin: string, nickname?: string) => void;
   initialLikes: QzoneLikesResult | null;
   onCommentCount: (count: number) => void;
 }) {
@@ -672,7 +689,7 @@ function Interaction({
       <div className="weq-qzn-interaction">
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
-            <button type="button" key={like.uin} onClick={() => onSpace(like.uin)}>
+            <button type="button" key={like.uin} onClick={() => onSpace(like.uin, like.nickname)}>
               <QqAvatar uin={like.uin} size={24} />
               {like.nickname || like.uin}
             </button>
@@ -696,7 +713,11 @@ function Interaction({
     <div className={`weq-qzn-comment${comment.isReply ? ' is-reply' : ''}`} key={comment.id}>
       <QqAvatar uin={comment.uin} size={26} />
       <div>
-        <button type="button" className="weq-qzn-person" onClick={() => onSpace(comment.uin)}>
+        <button
+          type="button"
+          className="weq-qzn-person"
+          onClick={() => onSpace(comment.uin, comment.nickname)}
+        >
           {comment.nickname || comment.uin}
         </button>
         {comment.replyToNickname ? (
@@ -707,7 +728,7 @@ function Interaction({
               <button
                 type="button"
                 className="weq-qzn-person"
-                onClick={() => onSpace(comment.replyToUin!)}
+                onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
               >
                 {comment.replyToNickname}
               </button>
@@ -747,7 +768,13 @@ function Interaction({
   );
 }
 
-function Feeds({ selfUin, onSpace }: { selfUin: string; onSpace: (uin: string) => void }) {
+function Feeds({
+  selfUin,
+  onSpace,
+}: {
+  selfUin: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState(0);
@@ -814,12 +841,12 @@ function Feeds({ selfUin, onSpace }: { selfUin: string; onSpace: (uin: string) =
               <button
                 type="button"
                 aria-label={`进入 ${feed.nickname || feed.uin} 的空间`}
-                onClick={() => onSpace(String(feed.uin))}
+                onClick={() => onSpace(String(feed.uin), feed.nickname)}
               >
                 <QqAvatar uin={String(feed.uin)} size={34} />
               </button>
               <div>
-                <button type="button" onClick={() => onSpace(String(feed.uin))}>
+                <button type="button" onClick={() => onSpace(String(feed.uin), feed.nickname)}>
                   {feed.nickname || feed.uin}
                 </button>
                 <time>{timeText(feed.time)}</time>

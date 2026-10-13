@@ -274,7 +274,7 @@ interface RawMsgListRet {
   total?: number;
   msglist?: RawEmotion[] | null;
   logininfo?: { uin?: string | number };
-  usrinfo?: { uin?: string | number };
+  usrinfo?: { uin?: string | number; name?: string; nickname?: string; nick?: string };
 }
 
 /** 说说里的一个视频(归一化形态)。 */
@@ -316,6 +316,8 @@ export interface QzoneEmotion {
 }
 
 export interface QzoneMsgListResult {
+  /** Space owner metadata supplied alongside the post list. */
+  owner?: { uin: string; nickname: string };
   /** 账号说说总数(不是本页条数)。 */
   total: number;
   list: QzoneEmotion[];
@@ -364,7 +366,12 @@ function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmo
 /** 纯转换:原始 cgi 响应 → 归一化说说列表。 */
 export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
   const list = data.msglist ?? [];
+  const ownerUin = String(data.usrinfo?.uin ?? '');
+  const ownerName = data.usrinfo?.name ?? data.usrinfo?.nickname ?? data.usrinfo?.nick;
   return {
+    ...(/^[1-9]\d{4,19}$/.test(ownerUin) && typeof ownerName === 'string' && ownerName.trim()
+      ? { owner: { uin: ownerUin, nickname: ownerName.trim() } }
+      : {}),
     total: Number(data.total ?? list.length),
     list: list.map((e) => {
       const pics = e.pic ?? [];
@@ -456,7 +463,7 @@ export async function getQzoneMsgList(
       String(data.logininfo?.uin) === cred.uin &&
       String(data.usrinfo?.uin) === targetUin
     ) {
-      return { total: 0, list: [] };
+      return mapMsgList({ ...data, msglist: [] });
     }
     throw new Error(`无法获取空间说说列表(响应结构异常): ${text.slice(0, 200)}`);
   }
