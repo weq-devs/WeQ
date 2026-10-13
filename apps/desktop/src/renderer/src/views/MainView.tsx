@@ -2205,12 +2205,16 @@ export function MainView(): ReactElement {
     }
   }, []);
 
+  const [unreadRevision, setUnreadRevision] = useState(0);
+
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
   // signal reserved for future popups; the open view no longer needs it.)
   useEffect(() => {
     const sub = client.account.onDbChanged.subscribe(undefined, {
       onData() {
+        // Read watermarks can change while recent contacts remain identical.
+        setUnreadRevision((revision) => revision + 1);
         void utils.account.listRecentContacts.invalidate();
         void utils.account.listTopContacts.invalidate();
         void utils.account.listHiddenSessions.invalidate();
@@ -3389,10 +3393,10 @@ export function MainView(): ReactElement {
           const unread = unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
           const topTime = topTimeByConv[conversation.id];
-          if (!unread && !highlights && topTime === undefined) return conversation;
+          if (unread === undefined && !highlights && topTime === undefined) return conversation;
           return {
             ...conversation,
-            ...(unread ? { unreadCount: unread } : {}),
+            ...(unread === undefined ? {} : { unreadCount: unread }),
             ...(topTime === undefined
               ? {}
               : {
@@ -3927,17 +3931,19 @@ export function MainView(): ReactElement {
   }, [buddies.data]);
 
   // Compute unread counts: for each recent conversation, query the last-read
-  // seq and subtract from the latest msgSeq. Re-runs whenever the contact list
-  // updates (every db change invalidates listRecentContacts). chatType: 1=c2c,
+  // seq and subtract from the latest msgSeq. Read-state changes must trigger
+  // this independently of React Query's structurally shared contact list. chatType: 1=c2c,
   // 2=group — matching the "chatType_uid" key in msg_unread_info_table.
   useEffect(() => {
     const list = recentContactsData;
-    if (list.length === 0) return undefined;
+    if (list.length === 0) {
+      setUnreadByConv({});
+      setHighlightsByConv({});
+      return undefined;
+    }
     let cancelled = false;
 
     async function loadUnread(): Promise<void> {
-      const next: Record<string, number> = {};
-      const highlights: Record<string, ConversationHighlight[]> = {};
       const batchSize = 12;
       for (let index = 0; index < list.length && !cancelled; index += batchSize) {
         const batch = list.slice(index, index + batchSize);
@@ -3964,15 +3970,26 @@ export function MainView(): ReactElement {
             }
           }),
         );
-        for (const entry of counts) {
-          if (!entry) continue;
-          next[entry.uid] = entry.unread;
-          if (entry.highlights?.length) highlights[entry.uid] = entry.highlights;
-        }
-      }
-      if (!cancelled) {
-        setUnreadByConv(next);
-        setHighlightsByConv(highlights);
+        if (cancelled) return;
+        // Publish each batch so frequent DB changes cannot postpone all badges
+        // until the entire recent-contact list has finished loading. Failed
+        // reads preserve their last known value; successful zeroes clear it.
+        setUnreadByConv((current) => {
+          const next = { ...current };
+          for (const entry of counts) {
+            if (entry) next[entry.uid] = entry.unread;
+          }
+          return next;
+        });
+        setHighlightsByConv((current) => {
+          const next = { ...current };
+          for (const entry of counts) {
+            if (!entry) continue;
+            if (entry.highlights?.length) next[entry.uid] = entry.highlights;
+            else delete next[entry.uid];
+          }
+          return next;
+        });
       }
     }
 
@@ -3980,7 +3997,7 @@ export function MainView(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [recentContactsData]);
+  }, [recentContactsData, unreadRevision]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render
@@ -4741,7 +4758,13 @@ export function MainView(): ReactElement {
           latestSeq,
         });
         if (changed) {
+          setUnreadRevision((revision) => revision + 1);
           setUnreadByConv((current) => ({ ...current, [convId]: 0 }));
+          setHighlightsByConv((current) => {
+            const next = { ...current };
+            delete next[convId];
+            return next;
+          });
           void utils.account.listRecentContacts.invalidate();
         }
       } catch (err) {
