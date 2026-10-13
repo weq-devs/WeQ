@@ -2195,17 +2195,23 @@ export function MainView(): ReactElement {
   const refreshWindow = useCallback(async (): Promise<void> => {
     const sel = selectionRef.current;
     const win = windowRef.current;
-    if (!sel || !win.anchored || win.minSeq === null) return;
+    if (!sel || !win.anchored) return;
     const kind = sel.kind === 'group' ? 'group' : 'c2c';
     const conv = sel.id;
     try {
-      const page = await client.account.listFrom.query({
-        kind,
-        conv,
-        sinceSeq: win.minSeq,
-        limit: REFRESH_CAP,
-      });
-      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
+      const page =
+        win.minSeq === null
+          ? await client.account.listLatest.query({ kind, conv, limit: PAGE_SIZE })
+          : await client.account.listFrom.query({
+              kind,
+              conv,
+              sinceSeq: win.minSeq,
+              limit: REFRESH_CAP,
+            });
+      // Reject results after a conversation switch or a history-window change,
+      // including switching away and back to the same conversation.
+      if (selectionRef.current !== sel || windowRef.current !== win || !windowRef.current.anchored)
+        return;
       setLoaded(page.map(toMessageWire).reverse());
     } catch (err) {
       console.error('[live] refreshWindow failed', err);
@@ -4571,6 +4577,25 @@ export function MainView(): ReactElement {
       return next.length === current.length ? current : next;
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation]);
+
+  // Server acknowledgement can precede the QQ database write, or its watcher
+  // may be disabled. Re-read a small number of times without resending anything.
+  const pendingSyncKey = [...optimisticMessages, ...optimisticArks, ...optimisticForwards]
+    .filter((item) => item.convId === selectedUid && item.state === 'sent' && !item.seqRejected)
+    .map((item) => item.id)
+    .sort()
+    .join('|');
+  useEffect(() => {
+    if (!pendingSyncKey) return undefined;
+    const timers = [0, 1000, 3000, 7000].map((delay) =>
+      setTimeout(() => {
+        void refreshWindow();
+      }, delay),
+    );
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [pendingSyncKey, refreshWindow]);
 
   /**
    * 发送失败的乐观条目不要一直挂在会话末尾。
