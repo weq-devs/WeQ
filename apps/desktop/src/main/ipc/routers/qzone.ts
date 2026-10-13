@@ -1,6 +1,6 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
 import { z } from 'zod';
-import { nativeImage } from 'electron';
+import { getHost } from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
@@ -104,8 +104,11 @@ export const qzoneRouter = router({
       const services = online(input.selfUin);
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64)) throw new Error('图片格式无效。');
       const bytes = Buffer.from(input.base64, 'base64');
-      if (bytes.length > 10 * 1024 * 1024 || nativeImage.createFromBuffer(bytes).isEmpty())
-        throw new Error('请选择不超过 10 MB 的图片。');
+      if (bytes.length > 10 * 1024 * 1024) throw new Error('请选择不超过 10 MB 的图片。');
+      const host = getHost();
+      if (!host.validateImageBuffer)
+        throw new Error('当前运行环境不支持图片校验，请使用桌面版上传图片。');
+      if (!(await host.validateImageBuffer(bytes))) throw new Error('图片格式无效。');
       const result = await services.webQuery.uploadQzoneImage(input.base64);
       if (getAppContext().services !== services) throw new Error('账号已切换，请重新打开空间。');
       return { richval: result.richval };

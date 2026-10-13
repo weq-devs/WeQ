@@ -50,6 +50,9 @@ function revealInFileManager(path: string): Promise<void> {
 }
 
 export const electronHost: HostBridge = {
+  async validateImageBuffer(bytes) {
+    return !nativeImage.createFromBuffer(Buffer.from(bytes)).isEmpty();
+  },
   async inspectCollectionImage(path) {
     const image = nativeImage.createFromPath(path);
     return image.isEmpty() ? null : image.getSize();

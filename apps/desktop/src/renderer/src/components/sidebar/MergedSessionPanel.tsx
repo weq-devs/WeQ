@@ -493,6 +493,7 @@ export function MergedSessionPanel({
           ) : null}
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
+            const unreadCount = conv.unreadCount ?? 0;
             const time = conv.updatedAt
               ? new Date(conv.updatedAt).toLocaleTimeString('zh-CN', {
                   hour: '2-digit',
@@ -522,12 +523,12 @@ export function MergedSessionPanel({
                   </div>
                   {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                 </div>
-                {kind === 'groupAssistant' && conv.unreadCount > 0 ? (
+                {kind === 'groupAssistant' && unreadCount > 0 ? (
                   <span
                     className="weq-group-helper-unread"
-                    aria-label={`${conv.unreadCount} 条未读消息`}
+                    aria-label={`${unreadCount} 条未读消息`}
                   >
-                    {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 ) : null}
                 {kind === 'hidden' && (
