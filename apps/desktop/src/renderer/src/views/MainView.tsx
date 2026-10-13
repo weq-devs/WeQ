@@ -3930,73 +3930,97 @@ export function MainView(): ReactElement {
     };
   }, [buddies.data]);
 
-  // Compute unread counts: for each recent conversation, query the last-read
-  // seq and subtract from the latest msgSeq. Read-state changes must trigger
-  // this independently of React Query's structurally shared contact list. chatType: 1=c2c,
-  // 2=group — matching the "chatType_uid" key in msg_unread_info_table.
+  // Keep one unread reader alive: DB pings request a refresh, rather than
+  // cancelling and restarting an all-conversation scan on every change.
+  const unreadContactsRef = useRef(recentContactsData);
+  unreadContactsRef.current = recentContactsData;
+  const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const list = recentContactsData;
-    if (list.length === 0) {
-      setUnreadByConv({});
-      setHighlightsByConv({});
-      return undefined;
-    }
-    let cancelled = false;
+    let disposed = false;
+    let running = false;
+    let pending = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = (): void => {
+      pending = true;
+      if (disposed || running || timer !== undefined) return;
+      // Fixed window: a busy group cannot continuously postpone the refresh.
+      timer = setTimeout(() => {
+        timer = undefined;
+        void loadUnread();
+      }, 1000);
+    };
 
     async function loadUnread(): Promise<void> {
-      const batchSize = 12;
-      for (let index = 0; index < list.length && !cancelled; index += batchSize) {
-        const batch = list.slice(index, index + batchSize);
-        const counts = await Promise.all(
-          batch.map(async (contact) => {
-            const kind = chatTypeKind(contact.chatType);
-            if (kind === null) return null;
-            const chatType = kind === 'group' ? 2 : 1;
-            try {
-              const info = await client.account.getUnreadInfo.query({
-                chatType,
-                uid: contact.targetUid,
-              });
-              const latest = BigInt(contact.msgSeq || '0');
-              const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-              const unread = latest > read ? Number(latest - read) : 0;
-              return {
-                uid: contact.targetUid,
-                unread,
-                highlights: (info?.highlights ?? null) as ConversationHighlight[] | null,
-              };
-            } catch {
-              return null;
-            }
-          }),
-        );
-        if (cancelled) return;
-        // Publish each batch so frequent DB changes cannot postpone all badges
-        // until the entire recent-contact list has finished loading. Failed
-        // reads preserve their last known value; successful zeroes clear it.
+      if (disposed) return;
+      running = true;
+      pending = false;
+      const list = unreadContactsRef.current;
+      const counts: Record<string, number> = {};
+      const highlights: Record<string, ConversationHighlight[]> = {};
+      const succeeded = new Set<string>();
+      try {
+        const batchSize = 12;
+        for (let index = 0; index < list.length && !disposed; index += batchSize) {
+          await Promise.all(
+            list.slice(index, index + batchSize).map(async (contact) => {
+              const kind = chatTypeKind(contact.chatType);
+              if (kind === null) return;
+              try {
+                const info = await client.account.getUnreadInfo.query({
+                  chatType: kind === 'group' ? 2 : 1,
+                  uid: contact.targetUid,
+                });
+                const latest = BigInt(contact.msgSeq || '0');
+                const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
+                counts[contact.targetUid] = latest > read ? Number(latest - read) : 0;
+                succeeded.add(contact.targetUid);
+                if (info?.highlights?.length) {
+                  highlights[contact.targetUid] = info.highlights as ConversationHighlight[];
+                }
+              } catch {
+                // Preserve the last known value when an individual read fails.
+              }
+            }),
+          );
+        }
+        if (disposed) return;
+        const ids = new Set(list.map((contact) => contact.targetUid));
         setUnreadByConv((current) => {
-          const next = { ...current };
-          for (const entry of counts) {
-            if (entry) next[entry.uid] = entry.unread;
+          const next: Record<string, number> = {};
+          for (const id of ids) {
+            const value = succeeded.has(id) ? counts[id] : current[id];
+            if (value !== undefined) next[id] = value;
           }
-          return next;
+          return Object.keys(next).length === Object.keys(current).length &&
+            Object.keys(next).every((id) => next[id] === current[id])
+            ? current
+            : next;
         });
         setHighlightsByConv((current) => {
-          const next = { ...current };
-          for (const entry of counts) {
-            if (!entry) continue;
-            if (entry.highlights?.length) next[entry.uid] = entry.highlights;
-            else delete next[entry.uid];
+          const next: Record<string, ConversationHighlight[]> = {};
+          for (const id of ids) {
+            const value = succeeded.has(id) ? highlights[id] : current[id];
+            if (value?.length) next[id] = value;
           }
-          return next;
+          return JSON.stringify(next) === JSON.stringify(current) ? current : next;
         });
+      } finally {
+        running = false;
+        if (pending && !disposed) schedule();
       }
     }
 
-    void loadUnread();
+    requestUnreadRefreshRef.current = schedule;
+    schedule();
     return () => {
-      cancelled = true;
+      disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      requestUnreadRefreshRef.current = null;
     };
+  }, []);
+  useEffect(() => {
+    requestUnreadRefreshRef.current?.();
   }, [recentContactsData, unreadRevision]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
