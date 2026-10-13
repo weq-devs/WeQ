@@ -48,6 +48,10 @@ export interface QzoneComment {
   replyToCommentId?: string;
   /** 评论内图片 URL。 */
   images: string[];
+  /** Present only when the comment source reports a like count. */
+  likeCount?: number;
+  /** Embedded liker list, when the source provides it. */
+  likeUsers?: QzoneLike[];
 }
 
 /** 一个点赞用户。 */
@@ -176,6 +180,23 @@ interface CommentRecord {
   replyToNickname?: string;
   replyToCommentId?: string;
   pic: string[];
+  likeCount?: number;
+}
+
+function commentLikeMetadata(html: string): { likeCount?: number } {
+  const own = html.split(/<div[^>]*class=["'][^"']*mod-comments-sub/i)[0]!;
+  const attribute = own.match(
+    /<[^>]*\bdata-(?:likecount|likenum|like-num|likecnt)=["'](\d+)["']/i,
+  )?.[1];
+  const controls = own.match(
+    /<div[^>]*class=["'][^"']*comments-op[^"']*["'][^>]*>([\s\S]*?)(?:<\/div>|$)/i,
+  )?.[1];
+  const label = controls
+    ? htmlUnescape(stripHtmlTags(controls)).match(/(?:赞|点赞)\s*[（(]\s*(\d+)\s*[）)]/)?.[1]
+    : undefined;
+  const value = attribute ?? label;
+  const count = value === undefined ? null : Number(value);
+  return count !== null && Number.isSafeInteger(count) && count >= 0 ? { likeCount: count } : {};
 }
 
 /** 评论块内所有 t1_tid= 取值（校验评论归属，防相邻动态评论区滑入）。 */
@@ -510,6 +531,7 @@ function parseFeeds3CommentsInRegion(
       createtime: rootTime,
       isReply: false,
       pic: rootPic,
+      ...commentLikeMetadata(fullBlock),
     };
     bucket.push(rootComment);
 
@@ -557,6 +579,7 @@ function parseFeeds3CommentsInRegion(
           isReply: true,
           parentCommentId: rootTid,
           pic: replyPic,
+          ...commentLikeMetadata(`${replyOpenTag}${replyBody}`),
         };
         if (t2Uin) replyRecord.replyToUin = t2Uin;
         if (replyToNickname) replyRecord.replyToNickname = replyToNickname;
@@ -598,6 +621,7 @@ function parseFeeds3CommentsInRegion(
       createtime: createdTime,
       isReply,
       pic,
+      ...commentLikeMetadata(`${attrs}${body}`),
     };
     const t2Uin = body.match(/t2_uin=(\d+)/i)?.[1] ?? '';
     const t2Tid = body.match(/t2_tid=([^&"\s]+)/i)?.[1] ?? '';
@@ -840,6 +864,7 @@ function toQzoneComment(c: CommentRecord): QzoneComment {
     isReply: c.isReply,
     images: c.pic,
   };
+  if (c.likeCount !== undefined) out.likeCount = c.likeCount;
   if (c.parentCommentId !== undefined) out.parentCommentId = c.parentCommentId;
   if (c.replyToUin) out.replyToUin = c.replyToUin;
   if (c.replyToNickname) out.replyToNickname = c.replyToNickname;

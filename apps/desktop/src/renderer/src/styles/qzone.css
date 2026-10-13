@@ -71,3 +71,7 @@
 .weq-qzn-repost { margin: 14px 0; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--muted); }
 .weq-qzn-repost-author { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .weq-qzn-repost .weq-qzn-content { margin: 8px 0; }
+
+.weq-qzn-comment-meta { display: flex; align-items: center; gap: 12px; color: var(--muted-foreground); }
+.weq-qzn-comment-meta .weq-qzn-comment-likes { display: inline-flex; align-items: center; gap: 4px; padding: 0; font-size: 11px; }
+.weq-qzn-comment-like-users { margin-top: 8px; }

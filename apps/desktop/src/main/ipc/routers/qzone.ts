@@ -118,6 +118,26 @@ export const qzoneRouter = router({
       return { likes, commentCount };
     }),
   ),
+  people: procedure.input(read.extend({ uins: z.array(uin).min(1).max(200) })).query(({ input }) =>
+    request(input, async (services, signal) => {
+      let names: Record<string, string> = {};
+      try {
+        names = await services.webQuery.getQzoneNicknames(input.uins, signal);
+      } catch {
+        signal.throwIfAborted();
+      }
+      for (const id of new Set(input.uins)) {
+        if (names[id]) continue;
+        try {
+          const profile = await services.profile.getProfileByUin(BigInt(id));
+          if (profile?.nick?.trim()) names[id] = profile.nick.trim();
+        } catch {
+          /* Unknown profile stays unknown; never use a remark as the nickname. */
+        }
+      }
+      return names;
+    }),
+  ),
   cancel: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const entry = pending.get(input.requestId);
     entry?.controller.abort(new Error('空间加载已取消。'));

@@ -27,9 +27,11 @@ export function projectQzoneFeed(
   likeCount: number | null;
   commentCount: number | null;
   advertisement: boolean;
+  unsupported: boolean;
   repost: { uin: string; nickname: string; content: string; images: string[]; videos: [] } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  const unsupported = /功能内测中|内容暂不支持查看/.test(doc.body.textContent ?? '');
   for (const image of doc.querySelectorAll('img')) {
     const source =
       image.getAttribute('src') ||
@@ -89,7 +91,10 @@ export function projectQzoneFeed(
   // Preserve official mention targets before flattening HTML into safe text.
   for (const anchor of doc.querySelectorAll('a')) {
     const label = anchor.textContent?.trim() ?? '';
-    if (/^(?:查看详情|详情|全文|展开全文)$/.test(label)) {
+    if (
+      /^(?:查看详情|详情|全文|展开全文)$/.test(label) ||
+      /功能内测中|内容暂不支持查看/.test(label)
+    ) {
       anchor.remove();
       continue;
     }
@@ -113,7 +118,6 @@ export function projectQzoneFeed(
   const body =
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
   const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
-  const unsupported = /功能内测中|内容暂不支持查看/.test(textBody.textContent ?? '');
   const images = new Set<string>();
   for (const image of body.querySelectorAll('img')) {
     const source = qzoneMediaSource(
@@ -124,7 +128,6 @@ export function projectQzoneFeed(
     );
     if (
       source &&
-      !unsupported &&
       !/qlogo|\/qzone\/em\/|\/qzone\/space\//.test(source) &&
       !source.startsWith('https://user.qzone.qq.com/')
     )
@@ -144,7 +147,11 @@ export function projectQzoneFeed(
       )
         continue;
       const text = link.textContent?.trim() ?? '';
-      if (!text || /^(?:查看详情|详情|全文|展开全文)$/.test(text)) {
+      if (
+        !text ||
+        /^(?:查看详情|详情|全文|展开全文)$/.test(text) ||
+        /功能内测中|内容暂不支持查看/.test(text)
+      ) {
         link.remove();
         continue;
       }
@@ -156,20 +163,19 @@ export function projectQzoneFeed(
   for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
   for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');
   return {
-    text: unsupported
-      ? '这条动态暂未提供完整正文，可进入好友空间查看。'
-      : (textBody.textContent ?? '')
-          .split('\n')
-          .map((line) => line.replace(/[\t ]+/g, ' ').trim())
-          .join('\n')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim(),
+    text: (textBody.textContent ?? '')
+      .split('\n')
+      .map((line) => line.replace(/[\t ]+/g, ' ').trim())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
     images: [...images],
     links: [...links.values()],
     tid,
     likeCount,
     commentCount,
     advertisement,
+    unsupported,
     repost,
   };
 }

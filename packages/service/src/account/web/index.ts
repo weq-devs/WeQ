@@ -46,6 +46,7 @@ import {
   type QzoneLike,
 } from './qzone_interaction';
 import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
+import { fetchQzoneNicknames } from './qzone_people';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -57,6 +58,7 @@ const TI_DOMAIN = 'ti.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
+  private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
   constructor(nt: WebNative, session: AccountSession, resolvePid: () => number) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
@@ -200,6 +202,41 @@ export class WebQueryService {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
     );
+  }
+
+  /** Batch public nicknames; these are not friend remarks. */
+  async getQzoneNicknames(
+    uins: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<Record<string, string>> {
+    const names: Record<string, string> = {};
+    const missing: string[] = [];
+    const now = Date.now();
+    for (const uin of new Set(uins)) {
+      const cached = this.qzoneNameCache.get(uin);
+      if (cached && now - cached.at < 5 * 60 * 1000) names[uin] = cached.name;
+      else missing.push(uin);
+    }
+    for (let offset = 0; offset < missing.length; offset += 40) {
+      signal?.throwIfAborted();
+      let loaded: Record<string, string>;
+      try {
+        loaded = await withRetry(this.creds, QZONE_DOMAIN, (c) =>
+          fetchQzoneNicknames(c, missing.slice(offset, offset + 40), signal),
+        );
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!Object.keys(names).length) throw error;
+        break; // Preserve names already read if a later batch fails.
+      }
+      for (const [uin, name] of Object.entries(loaded)) {
+        this.qzoneNameCache.set(uin, { name, at: now });
+        names[uin] = name;
+      }
+    }
+    while (this.qzoneNameCache.size > 2000)
+      this.qzoneNameCache.delete(this.qzoneNameCache.keys().next().value!);
+    return names;
   }
 
   /** Only one existing root-comment page is needed to read the reported total. */
