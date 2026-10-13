@@ -28,3 +28,29 @@
 @media (max-width: 650px) { .weq-qzn-header { padding: 18px 16px 12px; }.weq-qzn-navigation { padding: 0 16px 12px; }.weq-qzn-timeline { padding: 18px 16px; }.weq-qzn-navigation form { width: 100%; }.weq-qzn-navigation input { flex: 1; }.weq-qzn-pictures { gap: 4px; } }
 
 .weq-qzn-image-unavailable { display: flex; align-items: center; justify-content: center; min-height: 100px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; border-radius: 5px; }
+
+/* The generic modal paints a fixed light gradient; this surface follows the app theme. */
+.weq-modal.weq-qzn-compose-modal {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-strong);
+}
+.weq-qzn-composer { color: var(--weq-fg-primary); }
+.weq-qzn-composer textarea {
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-primary);
+  caret-color: var(--weq-accent-effective);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 14px 0;
+}
+.weq-qzn-composer textarea::placeholder { color: var(--muted-foreground); }
+.weq-qzn-composer select {
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-primary);
+  border: 1px solid var(--weq-border-strong);
+}
+.weq-qzn-composer select option { background: var(--weq-bg-surface); color: var(--weq-fg-primary); }
+.weq-qzn-composer button:not(.weq-qzn-primary) { color: var(--weq-fg-primary); }
+.weq-qzn-draft-images button { background: var(--weq-bg-surface); border: 1px solid var(--weq-border-strong); }

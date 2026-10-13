@@ -723,7 +723,12 @@ function Composer({
     }
   }
   return (
-    <Modal width={600} onClose={busy ? undefined : onClose} labelledBy="weq-qzn-compose-title">
+    <Modal
+      width={600}
+      onClose={busy ? undefined : onClose}
+      labelledBy="weq-qzn-compose-title"
+      className="weq-qzn-compose-modal"
+    >
       <section className="weq-qzn-composer">
         <header>
           <h2 id="weq-qzn-compose-title">写说说</h2>
