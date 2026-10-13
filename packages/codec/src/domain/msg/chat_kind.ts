@@ -45,3 +45,15 @@ export function classifyChatType(chatType: string | number): ChatKind | null {
   if (OFFICIAL.has(n)) return 'official';
   return null;
 }
+
+/**
+ * 是否是「群里发起的临时会话」—— 即 SQL 列 60001 `tempSourceGroupCode` 唯一的
+ * 合法语义。**必须**同时是 chatType 100（`KCHATTYPETEMPC2CFROMGROUP`），不能只看
+ * 60001 非零：那一列是 recent_contact 的冗余快照，会残留 —— 从群临时会话转成正式
+ * 好友后，会话行（40010）已经翻成 `KCHATTYPEC2C`，60001 却仍留着来源群号不清。
+ * 只看 60001 会把「和好友的普通私聊」误判成临时会话（发文件因此被拦、标题被冠上
+ * 「来自 xxx 群」）。判据收紧到严格 chatType 后两者都不会再发生。
+ */
+export function isGroupTempChatType(chatType: string | number): boolean {
+  return toChatTypeNumber(chatType) === ChatType.KCHATTYPETEMPC2CFROMGROUP;
+}

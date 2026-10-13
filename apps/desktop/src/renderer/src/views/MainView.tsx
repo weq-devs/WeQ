@@ -27,7 +27,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
+import { classifyChatType, datalineName, isDatalineSelfUid, isGroupTempChatType } from '@weq/codec';
 import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -1024,8 +1024,14 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
  *
  * 发消息要用它：临时会话回复对方必须走 `routingHead.grpTmp`（来源群号 + 对方 uid），
  * 退化成普通 c2c 会被服务端当成非好友消息拒收。
+ *
+ * **不能只看 60001 非零**：它是会话行的冗余快照，会残留 —— 从群临时会话转成正式
+ * 好友后（chatType 100 → 1），来源群号仍留在那一列不清。真正的判据是 chatType 本身
+ * 仍是「群里发起的临时会话」（100）；否则和好友的普通私聊会被误判成临时会话，
+ * 发文件被拦、标题被冠上「来自 xxx 群」。
  */
 function tempSourceGroupCode(c: RecentContactWire): string | null {
+  if (!isGroupTempChatType(c.chatType)) return null;
   const code = c.tempSourceGroupCode;
   return code && code !== '0' ? code : null;
 }
