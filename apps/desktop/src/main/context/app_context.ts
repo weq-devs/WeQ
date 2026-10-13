@@ -150,7 +150,7 @@ import {
   collectReceivedItems,
   downloadUrlToFile,
 } from '@weq/service';
-import { resolveResource } from '../resource';
+import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
 import {
   openAccount,
@@ -832,6 +832,7 @@ export interface AppContext {
 let cached: AppContext | undefined;
 
 export function initAppContext(): AppContext {
+  configureNativeDressResources();
   if (cached) return cached;
 
   const result = loadNativeSafe();
