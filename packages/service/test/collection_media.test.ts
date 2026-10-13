@@ -221,6 +221,49 @@ describe('collection attachment downloads', () => {
     ).toMatchObject({ state: 'failed', file: null, error: '收藏附件下载超时。' });
   });
 
+  it('closes a response arriving after timeout without publishing its bytes', async () => {
+    const { root, store, ref } = setup();
+    let resolve!: (response: Response) => void;
+    const result = await store.download(ref, {
+      timeoutMs: 5,
+      fetch: () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    });
+    expect(result).toMatchObject({ state: 'failed', file: null });
+    const cancel = vi.fn();
+    resolve(new Response(new ReadableStream({ cancel })));
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(readdirSync(root)).not.toContain('files');
+  });
+
+  it('settles a stalled download even when stream cancellation never settles', async () => {
+    const { root, store, ref } = setup();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const result = await store.download(ref, {
+      timeoutMs: 20,
+      fetch: async () => new Response(new ReadableStream({ cancel })),
+    });
+    expect(result).toMatchObject({ state: 'failed', file: null, error: '收藏附件下载超时。' });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(readdirSync(join(root, 'files'))).toEqual([]);
+  });
+
+  it('returns HTTP failure without waiting indefinitely for an unused body to cancel', async () => {
+    const { store, ref } = setup();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const result = await store.download(ref, {
+      fetch: async () => new Response(new ReadableStream({ cancel }), { status: 403 }),
+    });
+    expect(result).toMatchObject({
+      state: 'failed',
+      file: null,
+      error: '附件下载失败（HTTP 403）。',
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('copies only hash-checked cached bytes into an export and reports damaged originals as failed', async () => {
     const { root, store, ref } = setup();
     const result = await store.download(ref, {

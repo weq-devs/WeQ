@@ -463,17 +463,21 @@ export class CollectionMediaStore {
         });
       } else {
         const url = collectionMediaUrl(reference.uri!);
-        response = await abortable(
-          (options.fetch ?? globalThis.fetch)(url, {
-            signal: controller.signal,
-            redirect: 'manual',
-            headers: { 'Accept-Encoding': 'identity' },
-          }),
-          controller.signal,
+        const fetched = (options.fetch ?? globalThis.fetch)(url, {
+          signal: controller.signal,
+          redirect: 'manual',
+          headers: { 'Accept-Encoding': 'identity' },
+        });
+        void fetched.then(
+          (late) => {
+            if (controller.signal.aborted) void late.body?.cancel().catch(() => {});
+          },
+          () => {},
         );
+        response = await abortable(fetched, controller.signal);
       }
       if (response.status !== 200) {
-        await response.body?.cancel();
+        void response.body?.cancel().catch(() => {});
         throw new Error(
           response.status === 429
             ? '附件下载过于频繁，请稍后重试。'
@@ -484,7 +488,7 @@ export class CollectionMediaStore {
       const length =
         lengthText === null ? null : /^\d+$/.test(lengthText) ? Number(lengthText) : NaN;
       if (length !== null && (!Number.isSafeInteger(length) || length > maxBytes)) {
-        await response.body?.cancel();
+        void response.body?.cancel().catch(() => {});
         throw new Error('收藏附件超过下载上限。');
       }
       if (!response.body) throw new Error('收藏附件响应为空。');
@@ -505,7 +509,7 @@ export class CollectionMediaStore {
           await handle.writeFile(value);
         }
       } finally {
-        await reader.cancel().catch(() => {});
+        void reader.cancel().catch(() => {});
         reader.releaseLock();
       }
       if (receipt.bytes === 0 || (length !== null && receipt.bytes !== length))
