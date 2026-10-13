@@ -573,7 +573,13 @@ function Feeds({ selfUin, onSpace }: { selfUin: string; onSpace: (uin: string) =
         return (
           <article className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
             <div className="weq-qzn-post-head">
-              <QqAvatar uin={String(feed.uin)} size={34} />
+              <button
+                type="button"
+                aria-label={`进入 ${feed.nickname || feed.uin} 的空间`}
+                onClick={() => onSpace(String(feed.uin))}
+              >
+                <QqAvatar uin={String(feed.uin)} size={34} />
+              </button>
               <div>
                 <button type="button" onClick={() => onSpace(String(feed.uin))}>
                   {feed.nickname || feed.uin}
@@ -588,11 +594,6 @@ function Feeds({ selfUin, onSpace }: { selfUin: string; onSpace: (uin: string) =
             </div>
             <p className="weq-qzn-content">{body.text || '此动态暂时没有可显示的正文'}</p>
             <Pictures images={body.images} />
-            {feed.appid === 311 ? (
-              <button type="button" onClick={() => onSpace(String(feed.uin))}>
-                查看说说
-              </button>
-            ) : null}
             {body.links.map((link) => (
               <a
                 className="weq-qzn-feed-link"
