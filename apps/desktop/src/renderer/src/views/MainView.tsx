@@ -3043,6 +3043,9 @@ export function MainView(): ReactElement {
     const map: Record<string, number> = {};
     for (const top of (topContacts.data ?? []) as RecentContactTopWire[]) {
       if (top.targetId) map[top.targetId] = Number(top.topTime);
+      if (top.chatType === 'KCHATTYPEGROUPHELPER' || Number(top.chatType) === 7) {
+        map['merged:group-assistant'] = Number(top.topTime);
+      }
     }
     return map;
   }, [topContacts.data]);
@@ -6648,7 +6651,9 @@ export function MainView(): ReactElement {
                 kind={mergedPanel.kind}
                 conversations={conversations}
                 groupAssistantIds={groupAssistantIds}
-                groupAssistantLoading={contacts.isFetching || Boolean(contacts.hasNextPage)}
+                groupAssistantLoading={contacts.isFetching}
+                groupAssistantHasMore={Boolean(contacts.hasNextPage)}
+                onLoadMoreGroupAssistant={loadMoreContacts}
                 groupAssistantError={contacts.error?.message}
                 profileByUid={profileByUid}
                 groupNameByCode={groupNameByCode}
@@ -6668,6 +6673,8 @@ export function MainView(): ReactElement {
                     });
                     // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
                     shell.backConversation();
+                  } else if (mergedPanel.kind === 'groupAssistant') {
+                    handleSelectConversation(conv.id);
                   } else {
                     // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
                     setArkFeedState(null);
