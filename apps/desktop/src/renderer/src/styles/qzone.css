@@ -63,3 +63,5 @@
 .weq-qzn-page-sentinel { min-height: 1px; }
 
 .weq-qzn button.weq-qzn-person { padding: 0; font-size: inherit; font-weight: 600; color: var(--primary); vertical-align: baseline; }
+
+.weq-qzn-name .weq-qzn-emoji { width: 1.25em; height: 1.25em; vertical-align: text-bottom; }

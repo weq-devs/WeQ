@@ -67,6 +67,21 @@ function useNearViewport(ref: RefObject<HTMLElement | null>, once = false): bool
   return near;
 }
 
+/** Nicknames share the emoji renderer, but never introduce nested buttons. */
+function QzoneName({ content }: { content: string }) {
+  return (
+    <span className="weq-qzn-name">
+      {qzoneTextParts(content).map((part) =>
+        part.kind === 'emoji' ? (
+          <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
+        ) : (
+          <span key={`${part.offset}:text`}>{part.text}</span>
+        ),
+      )}
+    </span>
+  );
+}
+
 function QzoneText({
   content,
   onSpace,
@@ -85,7 +100,7 @@ function QzoneText({
             title={`QQ ${part.uin}`}
             onClick={() => onSpace(part.uin, part.text.slice(1))}
           >
-            {part.text}
+            <QzoneName content={part.text} />
           </button>
         ) : part.kind === 'emoji' ? (
           <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
@@ -188,7 +203,7 @@ export function QzoneView({
           <QqAvatar uin={selfUin} size={36} />
           <div>
             <strong>QQ 空间</strong>
-            <span>{nickname}</span>
+            <QzoneName content={nickname} />
           </div>
         </div>
         <div className="weq-qzn-tools">
@@ -242,11 +257,11 @@ export function QzoneView({
                   setTab('space');
                 }}
               >
-                {uin} 的说说
+                <QzoneName content={spaceNames[uin] || uin} />
               </button>
               <button
                 type="button"
-                aria-label={`关闭 ${uin} 的说说`}
+                aria-label={`关闭 ${spaceNames[uin] || uin} 的空间`}
                 onClick={() => {
                   setSpaces((current) => current.filter((value) => value !== uin));
                   if (tab === 'space' && hostUin === uin) {
@@ -418,7 +433,9 @@ function Posts({
   return (
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
-        <h2>{hostUin === selfUin ? '我的说说' : `${nickname} 的说说`}</h2>
+        <h2>
+          <QzoneName content={nickname} /> ({hostUin}) 的空间
+        </h2>
         {total > 0 ? (
           <span>
             {posts.length} / {total}
@@ -478,7 +495,9 @@ function Post({
       <div className="weq-qzn-post-head">
         <QqAvatar uin={hostUin} size={34} />
         <div>
-          <strong>{nickname}</strong>
+          <strong>
+            <QzoneName content={nickname} />
+          </strong>
           <time dateTime={new Date(post.time * 1000).toISOString()}>
             {timeText(post.time)}
             {post.isPrivate ? ' · 仅自己可见' : ''}
@@ -707,7 +726,7 @@ function Interaction({
           {likes.likes.map((like) => (
             <button type="button" key={like.uin} onClick={() => onSpace(like.uin, like.nickname)}>
               <QqAvatar uin={like.uin} size={24} />
-              {like.nickname || like.uin}
+              <QzoneName content={like.nickname || like.uin} />
             </button>
           ))}
         </div>
@@ -734,7 +753,7 @@ function Interaction({
           className="weq-qzn-person"
           onClick={() => onSpace(comment.uin, comment.nickname)}
         >
-          {comment.nickname || comment.uin}
+          <QzoneName content={comment.nickname || comment.uin} />
         </button>
         {comment.replyToNickname ? (
           <span>
@@ -746,10 +765,10 @@ function Interaction({
                 className="weq-qzn-person"
                 onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
               >
-                {comment.replyToNickname}
+                <QzoneName content={comment.replyToNickname} />
               </button>
             ) : (
-              comment.replyToNickname
+              <QzoneName content={comment.replyToNickname} />
             )}
           </span>
         ) : null}
@@ -863,7 +882,7 @@ function Feeds({
               </button>
               <div>
                 <button type="button" onClick={() => onSpace(String(feed.uin), feed.nickname)}>
-                  {feed.nickname || feed.uin}
+                  <QzoneName content={feed.nickname || String(feed.uin)} />
                 </button>
                 <time>{timeText(feed.time)}</time>
               </div>
