@@ -46,6 +46,7 @@ import {
   type QzoneLike,
 } from './qzone_interaction';
 import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
+import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -201,6 +202,12 @@ export class WebQueryService {
   ) {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzoneForwardPage(cred, targetUin, tid, offset, signal),
     );
   }
 

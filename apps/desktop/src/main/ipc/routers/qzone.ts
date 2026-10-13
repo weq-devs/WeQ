@@ -99,6 +99,13 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal),
       ),
     ),
+  forwards: procedure
+    .input(post.extend({ offset: z.number().int().min(0).max(100_000) }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.offset, signal),
+      ),
+    ),
   summary: procedure.input(post.extend({ needCommentCount: z.boolean() })).query(({ input }) =>
     request(input, async (services, signal) => {
       const likes = await services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal);

@@ -28,7 +28,13 @@ import { openVideoLightbox } from '../components/VideoLightbox';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import { projectQzoneFeed, qzoneMediaSource, mergeQzonePosts, qzoneTextParts } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
-import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
+import type {
+  QzoneEmotion,
+  QzoneFeed,
+  QzoneInteraction,
+  QzoneLikesResult,
+  QzoneForwardPage,
+} from './qzone_types';
 import '../styles/qzone.css';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 
@@ -721,7 +727,7 @@ function PostActions({
   onSpace: (uin: string, nickname?: string) => void;
   initialLikeCount?: number | null;
 }) {
-  const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(null);
+  const [expanded, setExpanded] = useState<'comments' | 'likes' | 'forwards' | null>(null);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [likeError, setLikeError] = useState('');
   const [commentCount, setCommentCount] = useState(post.commentNum);
@@ -776,9 +782,24 @@ function PostActions({
           <MessageCircle size={16} />
           评论 {commentCount ?? 0}
         </button>
-        <ForwardCount count={post.forwardNum} />
+        <button
+          type="button"
+          aria-expanded={expanded === 'forwards'}
+          onClick={() => setExpanded(expanded === 'forwards' ? null : 'forwards')}
+        >
+          <Repeat2 size={16} />
+          转发 {post.forwardNum ?? '—'}
+        </button>
       </div>
-      {expanded ? (
+      {expanded === 'forwards' ? (
+        <ForwardList
+          key={`${selfUin}:${hostUin}:${post.tid}`}
+          selfUin={selfUin}
+          hostUin={hostUin}
+          tid={post.tid}
+          onSpace={onSpace}
+        />
+      ) : expanded ? (
         <Interaction
           key={expanded}
           mode={expanded}
@@ -789,6 +810,112 @@ function PostActions({
           initialLikes={likes}
           onCommentCount={setCommentCount}
         />
+      ) : null}
+    </div>
+  );
+}
+
+function ForwardList({
+  selfUin,
+  hostUin,
+  tid,
+  onSpace,
+}: {
+  selfUin: string;
+  hostUin: string;
+  tid: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const [people, setPeople] = useState<QzoneForwardPage['forwards']>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [next, setNext] = useState<number | null>(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const live = useRef(false);
+  const busy = useRef(false);
+  const generation = useRef(0);
+  const known = useRef(new Set<string>());
+  const { run, cancel } = useQzoneRequests();
+  const load = useCallback(
+    (offset: number) => {
+      if (busy.current) return;
+      busy.current = true;
+      const requestGeneration = ++generation.current;
+      setLoading(true);
+      setError('');
+      void run((requestId) =>
+        client.account.qzone.forwards.query({ selfUin, hostUin, tid, offset, requestId }),
+      )
+        .then((page) => {
+          if (!live.current || generation.current !== requestGeneration) return;
+          const fresh = page.forwards.filter((person) => {
+            const id = `${person.uin}:${person.tid}`;
+            if (known.current.has(id)) return false;
+            known.current.add(id);
+            return true;
+          });
+          setPeople((current) => [...current, ...fresh]);
+          setTotal(page.visibleTotal ?? page.reportedTotal);
+          setNext(
+            fresh.length &&
+              page.nextOffset !== null &&
+              page.nextOffset > offset &&
+              page.nextOffset <= 100_000
+              ? page.nextOffset
+              : null,
+          );
+        })
+        .catch((error: unknown) => {
+          if (live.current && generation.current === requestGeneration) setError(errorText(error));
+        })
+        .finally(() => {
+          if (generation.current !== requestGeneration) return;
+          busy.current = false;
+          if (live.current) setLoading(false);
+        });
+    },
+    [selfUin, hostUin, tid, run],
+  );
+  useEffect(() => {
+    live.current = true;
+    load(0);
+    return () => {
+      live.current = false;
+      generation.current++;
+      busy.current = false;
+      cancel();
+    };
+  }, [load, cancel]);
+  return (
+    <div className="weq-qzn-interaction">
+      {people.map((person) => (
+        <div className="weq-qzn-comment" key={`${person.uin}:${person.tid}`}>
+          <button type="button" onClick={() => onSpace(person.uin, person.nickname)}>
+            <QqAvatar uin={person.uin} size={24} />
+            <QzoneName content={person.nickname || person.uin} uin={person.uin} preferNickname />
+          </button>
+          {person.time ? <time>{timeText(person.time)}</time> : null}
+          {person.content.trim() ? (
+            <p className="weq-qzn-content">
+              <QzoneText content={person.content} onSpace={onSpace} />
+            </p>
+          ) : null}
+        </div>
+      ))}
+      {error ? <p className="weq-qzn-error">{error}</p> : null}
+      {next !== null ? (
+        <button type="button" disabled={loading} onClick={() => load(next)}>
+          {loading ? '加载中…' : error ? '重试' : '加载更多'}
+        </button>
+      ) : null}
+      {!loading && !error ? (
+        <p className="weq-qzn-status">
+          {people.length
+            ? `已显示 ${people.length} 条转发${total === null ? '' : `，共 ${total} 条`}`
+            : total === 0
+              ? '还没有人转发'
+              : '暂无可查看的转发记录'}
+        </p>
       ) : null}
     </div>
   );
