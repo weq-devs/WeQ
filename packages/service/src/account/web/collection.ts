@@ -248,6 +248,11 @@ function mapItem(item: WireItem): CollectionItem {
     videoSummary: s.videoSummary
       ? {
           title: s.videoSummary.field1,
+          duration: s.videoSummary.field2,
+          format: s.videoSummary.field3,
+          category: s.videoSummary.field10,
+          previewType: s.videoSummary.field20,
+          storeType: s.videoSummary.field30,
           previewPicInfo: s.videoSummary.picture ? mapPic(s.videoSummary.picture) : undefined,
           storeFileInfo: s.videoSummary.file ? mapFile(s.videoSummary.file) : undefined,
         }
