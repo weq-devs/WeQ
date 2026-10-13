@@ -437,6 +437,70 @@ describe('account monitor closed-session isolation', () => {
     expect(f.nt.clearSsoSession).toHaveBeenCalledOnce();
   });
 
+  it('follows version changes on the same PID while web tickets remain fresh', async () => {
+    const f = fixture(true);
+    f.nt.resolveAppidFromMajor.mockReturnValue({
+      appid: '123',
+      version: '7.0.1',
+      build: '100',
+    } as never);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(1);
+    f.nt.resolveAppidFromMajor.mockReturnValue({
+      appid: '123',
+      version: '7.0.2',
+      build: '200',
+    } as never);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(f.nt.setSsoSession.mock.calls[1]?.[1]).toMatchObject({
+      subAppId: 123,
+      clientVersion: '7.0.2-200',
+    });
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).toHaveBeenCalledOnce();
+    expect(tickets.clientKey).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    f.monitor.stop();
+  });
+
+  it('repairs a lost native registration from saved material without refreshing web tickets or memory', async () => {
+    const f = fixture(true);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await f.nt.clearSsoSession();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).toHaveBeenCalledOnce();
+    expect(tickets.clientKey).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('does not steal an external registration during a fresh-ticket readiness poll', async () => {
+    const f = fixture(true);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      await registerSsoSession(
+        f.platform.native.ntHelper,
+        f.platform,
+        42,
+        { uin: '12345', uid: f.record.uid, guid: f.record.guid },
+        material,
+      ),
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
+  });
+
   it('does not let a stale monitor clear a newer monitor registration', async () => {
     const f = fixture(true);
     expect(await f.monitor.harvestRkeysNow()).toBe(true);
