@@ -330,7 +330,10 @@ export class CollectionService {
   }
 
   /** Fetch declared file/video originals before export; offline export only copies the cache. */
-  async downloadOriginalFiles(cid: string, signal?: AbortSignal): Promise<{ failed: number }> {
+  async downloadOriginalFiles(
+    cid: string,
+    signal?: AbortSignal,
+  ): Promise<{ failed: number; attempted: number; stopRequests: boolean }> {
     if (!this.media) throw new Error('收藏附件缓存未配置。');
     const content = await this.readCachedContent(cid);
     const item = await this.cachedListItem(cid);
@@ -338,19 +341,27 @@ export class CollectionService {
     if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');
     let failed = 0;
     let consecutiveFailures = 0;
+    let attempted = 0;
+    let stopRequests = false;
     for (const ref of refs) {
       signal?.throwIfAborted();
       const receipt = await this.media.download(ref, {
         signal,
-        resolveDownload: (reference, requestSignal) =>
-          this.resolveFileDownload(reference, requestSignal),
+        resolveDownload: (reference, requestSignal) => {
+          attempted++;
+          return this.resolveFileDownload(reference, requestSignal);
+        },
       });
-      if (receipt.state !== 'downloaded') {
+      if (receipt.state !== 'downloaded' || receipt.role !== 'original') {
         failed++;
-        if (++consecutiveFailures >= 3) break;
+        stopRequests =
+          /尚未验证|在线|认证|登录|p_skey|credential|过于频繁|代码 -10003|版本已变化/i.test(
+            receipt.error ?? '',
+          );
+        if (stopRequests || ++consecutiveFailures >= 3) break;
       } else consecutiveFailures = 0;
     }
-    return { failed };
+    return { failed, attempted, stopRequests };
   }
 
   /**

@@ -8,7 +8,7 @@
  *
  * 收藏是异构内容（文本 / 链接 / 图片 / 语音 / 视频 / 文件 / 位置 / 图文），这里把
  * 每种 kind 收敛到一套统一列：类型 / 时间 / 来源 / 标题 / 正文 / 链接 / 图片 / 文件
- * / 时长 / 位置 / cid。图片只写 collector-CDN 的 URL（不下载）。
+ * / 时长 / 位置 / cid。缓存附件随导出复制，在线时补已声明的文件/视频原件。
  */
 
 import { writeTable, type Col, type TableFormat } from './table_writer';
@@ -94,7 +94,10 @@ export interface CollectionExportDeps {
       }
     >
   >;
-  downloadOriginalFiles?: (cid: string, signal?: AbortSignal) => Promise<{ failed: number }>;
+  downloadOriginalFiles?: (
+    cid: string,
+    signal?: AbortSignal,
+  ) => Promise<{ failed: number; attempted?: number; stopRequests?: boolean }>;
   exportCachedMedia?: (
     cid: string,
     directory: string,
@@ -484,16 +487,18 @@ export async function exportCollections(
       opts.signal?.throwIfAborted();
       let requested = false;
       if (canDownload && deps.downloadOriginalFiles) {
-        requested = true;
-        coverage.mediaDownloadState = 'requested';
         try {
           const result = await deps.downloadOriginalFiles(row.cid, opts.signal);
+          requested = result.attempted !== 0 || result.failed > 0;
           if (result.failed) mediaFailures++;
-          else mediaFailures = 0;
+          else if (result.attempted !== 0) mediaFailures = 0;
+          if (result.stopRequests) canDownload = false;
         } catch {
           opts.signal?.throwIfAborted();
+          requested = true;
           mediaFailures++;
         }
+        if (requested) coverage.mediaDownloadState = 'requested';
         if (mediaFailures >= 3) canDownload = false;
       }
       const entries = await deps.exportCachedMedia(

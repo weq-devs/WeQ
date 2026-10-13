@@ -208,3 +208,52 @@ describe('collection export file/video acquisition', () => {
     ]);
   });
 });
+
+describe('collection original download request budget', () => {
+  it('does not reset failures on text rows or already cached attachments', async () => {
+    const downloadOriginalFiles = vi.fn(async (cid: string) =>
+      ['cid-0', 'cid-2', 'cid-4'].includes(cid)
+        ? { failed: 1, attempted: 1 }
+        : { failed: 0, attempted: 0 },
+    );
+    const result = await exportCollections(
+      { format: 'json', outputPath: output() },
+      {
+        listCollections: async () => rows(7),
+        downloadOriginalFiles,
+        exportCachedMedia: async () => [],
+      },
+    );
+    expect(downloadOriginalFiles.mock.calls.map((call) => call[0])).toEqual([
+      'cid-0',
+      'cid-1',
+      'cid-2',
+      'cid-3',
+      'cid-4',
+    ]);
+    expect(result.coverage.items.map((item) => item.media)).toEqual([
+      'requested',
+      'cached-only',
+      'requested',
+      'cached-only',
+      'requested',
+      'cached-only',
+      'cached-only',
+    ]);
+  });
+  it('stops after a rejected credential, rate limit or unsupported client while copying caches', async () => {
+    const downloadOriginalFiles = vi.fn(async () => ({
+      failed: 1,
+      attempted: 1,
+      stopRequests: true,
+    }));
+    const exportCachedMedia = vi.fn(async () => []);
+    const result = await exportCollections(
+      { format: 'json', outputPath: output() },
+      { listCollections: async () => rows(4), downloadOriginalFiles, exportCachedMedia },
+    );
+    expect(downloadOriginalFiles).toHaveBeenCalledTimes(1);
+    expect(exportCachedMedia).toHaveBeenCalledTimes(4);
+    expect(result.coverage.items.slice(1).every((item) => item.media === 'cached-only')).toBe(true);
+  });
+});
