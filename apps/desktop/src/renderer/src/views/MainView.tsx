@@ -187,6 +187,7 @@ const messageRenderers: MessageRenderer[] = composeMessageRenderers({
 });
 
 const PAGE_SIZE = 50;
+const GROUP_INITIAL_PAGE_SIZE = 25;
 const GROUP_MEMBER_PAGE_SIZE = 120;
 /**
  * Cap for the live "re-read my loaded window" query. If a user scrolled up past
@@ -3840,8 +3841,9 @@ export function MainView(): ReactElement {
   // quickly-switched-away conversation are ignored.
   useEffect(() => {
     setDeletedIds(new Set());
-    if (!selectedConversation) return;
-    const { kind, conv } = convFetchKey(selectedConversation);
+    if (!selectedUid || !(isDirect || isGroup)) return;
+    const kind = isGroup ? 'group' : 'c2c';
+    const conv = selectedUid;
     let alive = true;
     client.account.deletedMsgIds
       .query({ kind, conv })
@@ -3854,7 +3856,7 @@ export function MainView(): ReactElement {
     return () => {
       alive = false;
     };
-  }, [selectedConversation, convFetchKey]);
+  }, [selectedUid, isDirect, isGroup]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -3934,6 +3936,9 @@ export function MainView(): ReactElement {
   // cancelling and restarting an all-conversation scan on every change.
   const unreadContactsRef = useRef(recentContactsData);
   unreadContactsRef.current = recentContactsData;
+  const initialMessagesPendingRef = useRef(false);
+  initialMessagesPendingRef.current =
+    messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -3962,6 +3967,11 @@ export function MainView(): ReactElement {
       try {
         const batchSize = 12;
         for (let index = 0; index < list.length && !disposed; index += batchSize) {
+          // Give opening a conversation priority over background badge reads.
+          while (!disposed && initialMessagesPendingRef.current) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+          }
+          if (disposed) return;
           await Promise.all(
             list.slice(index, index + batchSize).map(async (contact) => {
               const kind = chatTypeKind(contact.chatType);
@@ -3983,6 +3993,8 @@ export function MainView(): ReactElement {
               }
             }),
           );
+          // Yield between batches so IPC and user input can be handled.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
         if (disposed) return;
         const ids = new Set(list.map((contact) => contact.targetUid));
@@ -4040,36 +4052,46 @@ export function MainView(): ReactElement {
     pendingScrollRestoreRef.current = null;
   }
 
+  const [groupExtrasId, setGroupExtrasId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isGroup || !selectedUid || messagesLoading) return undefined;
+    const timer = setTimeout(() => setGroupExtrasId(selectedUid), 250);
+    return () => clearTimeout(timer);
+  }, [selectedUid, isGroup, messagesLoading]);
+  const groupExtrasReady = Boolean(
+    isGroup && selectedUid && !messagesLoading && groupExtrasId === selectedUid,
+  );
+
   const groupDetail = trpc.account.getGroupDetail.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   // 打开群聊时把该群全部精华 msgSeq 拉下来（只查本地 group_essence 表，不联网），
   // 供聊天窗口给对应消息打「精华」角标。
   const groupEssenceSeqs = trpc.account.listGroupEssenceSeqs.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup), staleTime: 5 * 60 * 1000 },
+    { enabled: groupExtrasReady, staleTime: 5 * 60 * 1000 },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
   const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
     { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
-    { enabled: Boolean(selectedUid && isGroup), retry: false, staleTime: 5 * 60 * 1000 },
+    { enabled: groupExtrasReady, retry: false, staleTime: 5 * 60 * 1000 },
   );
   const groupLevelInfo = trpc.account.getGroupMemberLevelInfo.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupExt = trpc.account.getGroupExt.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   // 「已退群成员」：与群公告 / 群精华同一层 —— 灯箱打开时才查本地 group_member3
   // （64016=1），一次拉一页就够，不碰协议。
@@ -4182,7 +4204,7 @@ export function MainView(): ReactElement {
   ]);
 
   useEffect(() => {
-    if (!selectedUid || !isGroup) return;
+    if (!groupExtrasReady || !selectedUid || !isGroup) return;
     if (
       selectedGroupMemberWires.length > 0 ||
       selectedGroupMembersLoading ||
@@ -4191,6 +4213,7 @@ export function MainView(): ReactElement {
       return;
     requestMoreGroupMembers();
   }, [
+    groupExtrasReady,
     isGroup,
     requestMoreGroupMembers,
     selectedGroupMemberWires.length,
@@ -5244,13 +5267,14 @@ export function MainView(): ReactElement {
     const kind = isGroup ? 'group' : 'c2c';
     const conv = selectedUid;
     let cancelled = false;
+    const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     setMessagesLoading(true);
     client.account.listLatest
-      .query({ kind, conv, limit: PAGE_SIZE })
+      .query({ kind, conv, limit })
       .then((page) => {
         if (cancelled) return;
         setLoaded(page.map(toMessageWire).reverse()); // newest-first → ASC
-        setHasOlder(page.length >= PAGE_SIZE);
+        setHasOlder(page.length >= limit);
         setAnchoredToLatest(true);
         setMessagesLoading(false);
 
