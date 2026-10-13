@@ -434,7 +434,8 @@ function Posts({
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
         <h2>
-          <QzoneName content={nickname} /> ({hostUin}) 的空间
+          <QzoneName content={nickname} /> <span className="weq-qzn-space-uin">({hostUin})</span>{' '}
+          的空间
         </h2>
         {total > 0 ? (
           <span>

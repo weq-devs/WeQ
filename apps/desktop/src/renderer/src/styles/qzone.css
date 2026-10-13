@@ -13,7 +13,7 @@
 .weq-qzn-target { justify-content: space-between; padding: 5px 26px; font-size: 12px; color: var(--muted-foreground); }
 .weq-qzn-scroll { flex: 1; min-height: 0; overflow: auto; }
 .weq-qzn-timeline { max-width: 820px; margin: 0 auto; padding: 22px 26px; }
-.weq-qzn-section-title { justify-content: space-between; margin-bottom: 18px; }.weq-qzn-section-title h2 { font-size: 15px; font-weight: 600; }.weq-qzn-section-title span { font-size: 12px; color: var(--muted-foreground); }
+.weq-qzn-section-title { justify-content: space-between; margin-bottom: 18px; }.weq-qzn-section-title h2 { font-size: 15px; font-weight: 600; }.weq-qzn-section-title > span { font-size: 12px; color: var(--muted-foreground); }
 .weq-qzn select, .weq-qzn-composer select { padding: 6px 8px; background: var(--muted); border-radius: 5px; font-size: 12px; }
 .weq-qzn-post { padding: 22px 0; border-bottom: 1px solid var(--border); }.weq-qzn-post:first-of-type { padding-top: 4px; }
 .weq-qzn-post-head { display: flex; align-items: center; gap: 10px; }.weq-qzn-post-head > div { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }.weq-qzn-post-head strong { font-size: 14px; font-weight: 600; }.weq-qzn-post-head button { padding: 0; font-weight: 600; }.weq-qzn-post-head time, .weq-qzn-comment time { color: var(--muted-foreground); font-size: 11px; }.weq-qzn-feed-kind { margin-left: auto; color: var(--muted-foreground); font-size: 12px; }
@@ -65,3 +65,5 @@
 .weq-qzn button.weq-qzn-person { padding: 0; font-size: inherit; font-weight: 600; color: var(--primary); vertical-align: baseline; }
 
 .weq-qzn-name .weq-qzn-emoji { width: 1.25em; height: 1.25em; vertical-align: text-bottom; }
+
+.weq-qzn-section-title h2 .weq-qzn-space-uin { font-size: 12px; font-weight: 400; color: var(--muted-foreground); }
