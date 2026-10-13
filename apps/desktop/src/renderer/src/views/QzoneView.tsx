@@ -14,7 +14,7 @@ import { QqAvatar } from '../components/QqAvatar';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { openLightbox } from '../components/ImageLightbox';
 import { openVideoLightbox } from '../components/VideoLightbox';
-import { albumMediaUrl } from '../lib/resourceUrl';
+import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import { projectQzoneFeed, qzoneMediaSource, mergeQzonePosts, qzoneTextParts } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
@@ -88,18 +88,34 @@ function QzoneText({
             {part.text}
           </button>
         ) : part.kind === 'emoji' ? (
-          <img
-            key={`${part.offset}:${part.code}`}
-            className="weq-qzn-emoji"
-            src={`https://qzonestyle.gtimg.cn/qzone/em/${part.code}.png`}
-            alt={`[${part.code}]`}
-            loading="lazy"
-          />
+          <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
         ) : (
           <span key={`${part.offset}:text`}>{part.text}</span>
         ),
       )}
     </>
+  );
+}
+
+/** Use the existing cached image bridge; direct CDN URLs are blocked by CSP. */
+function QzoneEmoji({ code }: { code: string }) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  if (sourceIndex >= 2)
+    return (
+      <span className="weq-qzn-emoji-unavailable" title={`QQ 表情 ${code}`}>
+        [QQ表情]
+      </span>
+    );
+  const extension = sourceIndex === 0 ? 'gif' : 'png';
+  return (
+    <img
+      className="weq-qzn-emoji"
+      src={avatarFetchUrl(`https://qzonestyle.gtimg.cn/qzone/em/${code}.${extension}`)}
+      alt="[QQ表情]"
+      title={`QQ 表情 ${code}`}
+      loading="lazy"
+      onError={() => setSourceIndex((current) => (current === sourceIndex ? current + 1 : current))}
+    />
   );
 }
 
