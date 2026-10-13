@@ -34,6 +34,10 @@ export interface RecentContact {
   targetDisplayName: string;
   /** 40095 — sender's remark name. */
   senderRemark: string;
+  /** 41103 — pin timestamp; may remain after unpin. */
+  topTime: bigint;
+  /** 41104 — explicit official pin flag. */
+  pinned: boolean;
   /** 41110 — conversation avatar. */
   targetAvatar: string;
   /** 41135 — conversation remark name. */

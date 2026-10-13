@@ -491,11 +491,6 @@ export function MergedSessionPanel({
               群助手读取失败：{groupAssistantError}
             </div>
           ) : null}
-          {kind === 'groupAssistant' && groupAssistantLoading ? (
-            <div className="weq-merged-popover-empty" role="status">
-              正在读取官方群助手…
-            </div>
-          ) : null}
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
             const time = conv.updatedAt

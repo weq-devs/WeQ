@@ -202,6 +202,8 @@ type RecentContactWire = {
   targetUid: string;
   targetUin: string;
   sendTime: string;
+  topTime: string;
+  pinned: boolean;
   preview: unknown | null;
   senderDisplayName: string;
   senderNick: string;
@@ -3047,8 +3049,17 @@ export function MainView(): ReactElement {
         map['merged:group-assistant'] = Number(top.topTime);
       }
     }
+    // The virtual helper entry carries its own authoritative pin flag. Its
+    // timestamp can survive unpinning, so the flag must override the registry.
+    if (groupAssistantEntry && typeof groupAssistantEntry.pinned === 'boolean') {
+      if (groupAssistantEntry.pinned) {
+        map['merged:group-assistant'] = Number(groupAssistantEntry.topTime);
+      } else {
+        delete map['merged:group-assistant'];
+      }
+    }
     return map;
-  }, [topContacts.data]);
+  }, [topContacts.data, groupAssistantEntry]);
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
   const groupNameByCode = useMemo(() => {
