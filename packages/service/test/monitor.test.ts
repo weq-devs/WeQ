@@ -4,6 +4,7 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import type { AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
+import { registerSsoSession } from '../src/account/sso_session';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
 vi.mock('../src/account/online_ticket', () => ({
@@ -354,6 +355,86 @@ describe('account monitor closed-session isolation', () => {
     expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
     replacement.stop();
     await flushPromises();
+  });
+
+  it('does not clear a newer registration from the login or key-fetch path', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    expect(
+      await registerSsoSession(
+        f.platform.native.ntHelper,
+        f.platform,
+        42,
+        { uin: '12345', uid: f.record.uid, guid: f.record.guid },
+        material,
+      ),
+    ).toBe(true);
+    f.nt.clearSsoSession.mockClear();
+    f.monitor.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
+    expect(await f.nt.hasSsoSession()).toBe(true);
+  });
+
+  it('orders non-monitor registration after an in-flight cleanup', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    const cleanup = deferred<void>();
+    f.nt.clearSsoSession.mockImplementationOnce(async () => {
+      await cleanup.promise;
+      return true;
+    });
+    f.monitor.stop();
+    await flushPromises();
+    const request = registerSsoSession(
+      f.platform.native.ntHelper,
+      f.platform,
+      42,
+      { uin: '12345', uid: f.record.uid, guid: f.record.guid },
+      material,
+    );
+    await flushPromises();
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(1);
+    cleanup.resolve();
+    expect(await request).toBe(true);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves monitor cleanup when a competing registration fails', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('synthetic registration failure'));
+    expect(
+      await registerSsoSession(
+        f.platform.native.ntHelper,
+        f.platform,
+        42,
+        { uin: '12345', uid: f.record.uid, guid: f.record.guid },
+        material,
+      ),
+    ).toBe(false);
+    f.monitor.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).toHaveBeenCalledOnce();
+  });
+
+  it('refreshes its fingerprint after a non-monitor registration replaces the session', async () => {
+    const f = fixture(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    expect(
+      await registerSsoSession(
+        f.platform.native.ntHelper,
+        f.platform,
+        42,
+        { uin: '12345', uid: f.record.uid, guid: f.record.guid },
+        material,
+      ),
+    ).toBe(true);
+    expect(await f.monitor.harvestRkeysNow()).toBe(true);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(3);
+    f.monitor.stop();
+    await flushPromises();
+    expect(f.nt.clearSsoSession).toHaveBeenCalledOnce();
   });
 
   it('does not let a stale monitor clear a newer monitor registration', async () => {

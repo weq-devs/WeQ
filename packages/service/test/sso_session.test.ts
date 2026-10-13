@@ -299,3 +299,72 @@ describe('SSO rejects invalid tickets and unknown online appids', () => {
     expect(() => resolveSubAppId(fakeNt(null, true), fakePlatform(), 42)).toThrow();
   });
 });
+
+describe('SSO registration ordering', () => {
+  it('serializes the same binding and PID while unrelated PIDs continue', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const events: string[] = [];
+    const nt = {
+      ...fakeNt('123'),
+      setSsoSession: vi.fn(async (pid: number, identity: { uin: string }) => {
+        events.push(`start:${pid}:${identity.uin}`);
+        if (identity.uin === '1') await gate;
+        events.push(`end:${pid}:${identity.uin}`);
+      }),
+    };
+    const run = (pid: number, uin: string) =>
+      registerSsoSession(
+        nt as unknown as NtHelperBinding,
+        fakePlatform(),
+        pid,
+        { uin, uid: 'u_fixture', guid: 'ab'.repeat(16) },
+        MATERIAL,
+      );
+    const first = run(42, '1');
+    const next = run(42, '2');
+    expect(await run(43, '3')).toBe(true);
+    expect(events).not.toContain('start:42:2');
+    release();
+    expect(await first).toBe(true);
+    expect(await next).toBe(true);
+    expect(events.indexOf('end:42:1')).toBeLessThan(events.indexOf('start:42:2'));
+  });
+
+  it('checks a queued request against its current lifecycle before touching native', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nt = {
+      ...fakeNt('123'),
+      setSsoSession: vi.fn(async () => {
+        await gate;
+      }),
+    };
+    const identity = { uin: '12345', uid: 'u_fixture', guid: 'ab'.repeat(16) };
+    const first = registerSsoSession(
+      nt as unknown as NtHelperBinding,
+      fakePlatform(),
+      42,
+      identity,
+      MATERIAL,
+    );
+    let current = true;
+    const stale = registerSsoSession(
+      nt as unknown as NtHelperBinding,
+      fakePlatform(),
+      42,
+      identity,
+      MATERIAL,
+      () => current,
+    );
+    current = false;
+    release();
+    expect(await first).toBe(true);
+    expect(await stale).toBe(false);
+    expect(nt.setSsoSession).toHaveBeenCalledOnce();
+  });
+});

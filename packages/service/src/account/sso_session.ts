@@ -16,6 +16,7 @@ import type { NtHelperBinding, SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getLogger } from '../common/logger';
+import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 
 /**
  * 兜底 `subAppId`：**仅**在 `major.node` 读不出 appid 时用。
@@ -137,7 +138,32 @@ function materialToBuffers(
  * 返回 `false` —— 缺 uid 服务端会以 `-10003` 拒绝，缺 guid 更是不认这台设备，
  * 与其发一包必失败的请求，不如让调用方拿到明确的「物料不齐」。
  */
-export async function registerSsoSession(
+export function registerSsoSession(
+  nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  pid: number,
+  identity: SsoIdentity,
+  material: SessionMaterial,
+  isCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  return queueSsoWork(nt, pid, async () => {
+    const registered = await registerSsoSessionInTurn(
+      nt,
+      platform,
+      pid,
+      identity,
+      material,
+      isCurrent,
+    );
+    // A successful non-monitor registration replaces the previous lease too.
+    // Old monitors must neither reuse its fingerprint nor clear its session.
+    if (registered) ssoWorkState(nt, pid).owner = {};
+    return registered;
+  });
+}
+
+/** Internal: caller must already hold queueSsoWork through registration and ownership publication. */
+export async function registerSsoSessionInTurn(
   nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
   platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
   pid: number,

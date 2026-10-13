@@ -28,7 +28,8 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectAttachHook, type AttachHook } from '../bootstrap/attach';
-import { registerSsoSession, resolveSubAppId } from './sso_session';
+import { registerSsoSessionInTurn, resolveSubAppId } from './sso_session';
+import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -49,12 +50,6 @@ const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
  * （用户重开会话 / 手动「立即重新获取」）或下次 `start()`。
  */
 const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
-
-interface SsoWorkState {
-  queue: Promise<void>;
-  owner?: object;
-}
-const ssoWork = new WeakMap<object, Map<number, SsoWorkState>>();
 
 export class AccountMonitorService {
   private running = false;
@@ -78,24 +73,11 @@ export class AccountMonitorService {
   }
 
   private ssoState(pid: number): SsoWorkState {
-    let entries = ssoWork.get(this.nt);
-    if (!entries) {
-      entries = new Map();
-      ssoWork.set(this.nt, entries);
-    }
-    let state = entries.get(pid);
-    if (!state) {
-      state = { queue: Promise.resolve() };
-      entries.set(pid, state);
-    }
-    return state;
+    return ssoWorkState(this.nt, pid);
   }
 
   private queueSso(pid: number, task: () => Promise<void>): Promise<void> {
-    const state = this.ssoState(pid);
-    const next = state.queue.then(task);
-    state.queue = next.catch(() => {});
-    return next;
+    return queueSsoWork(this.nt, pid, task);
   }
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The pid we currently believe hosts this account, or null. */
@@ -523,7 +505,7 @@ export class AccountMonitorService {
     )
       return;
     this.assertCurrent(generation, pid);
-    const registered = await registerSsoSession(
+    const registered = await registerSsoSessionInTurn(
       this.nt,
       this.platform,
       pid,
