@@ -18,6 +18,8 @@ export interface CollectionMediaReference {
   expectedMd5: string | null;
   expectedSize: string | null;
   sourceRole: 'original-candidate' | 'preview' | 'unknown';
+  /** Content identity of audio bytes embedded in the account's own detail response. */
+  embeddedSha256?: string;
 }
 
 export interface CollectionMediaReceipt {
@@ -43,6 +45,8 @@ export interface CollectionMediaOptions {
   timeoutMs?: number;
   /** Test transport or host networking, never supplied by the renderer. */
   fetch?: typeof globalThis.fetch;
+  /** Service-only source bytes; never accepted from renderer input. */
+  embeddedBytes?: Uint8Array;
   inspectImage?: (path: string) => Promise<{ width: number; height: number } | null>;
 }
 
@@ -83,6 +87,29 @@ function size(value: number | bigint | undefined): string | null {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? String(value) : null;
 }
 
+/** Observed collector audio is a complete SILK stream, not a nested protobuf or URL. */
+export function collectionEmbeddedAudio(
+  content: CollectionCachedContent | null,
+): Uint8Array | null {
+  const bytes = content?.audio;
+  if (!bytes || bytes.length < 12) return null;
+  const data = Buffer.from(bytes);
+  const start = data[0] === 2 ? 1 : 0;
+  let offset = start + 9;
+  if (data.subarray(start, offset).toString('ascii') !== '#!SILK_V3') return null;
+  let frames = 0;
+  while (offset < data.length) {
+    if (offset + 2 > data.length) return null;
+    const length = data.readInt16LE(offset);
+    offset += 2;
+    if (length === -1) return offset === data.length && frames > 0 ? bytes : null;
+    if (length <= 0 || offset + length > data.length) return null;
+    offset += length;
+    frames++;
+  }
+  return frames > 0 ? bytes : null;
+}
+
 /** Preserve every source pointer, including covers and unresolved native files. */
 export function collectionMediaReferences(
   cid: string,
@@ -121,6 +148,24 @@ export function collectionMediaReferences(
   content?.richMediaContent?.fileList?.forEach((file, index) => {
     add(`detail/files/${index}`, 'file', file, 'original-candidate');
   });
+  const embedded = collectionEmbeddedAudio(content);
+  if (embedded) {
+    const embeddedSha256 = createHash('sha256').update(embedded).digest('hex');
+    const value = {
+      cid,
+      pointer: 'detail/audio/embedded',
+      kind: 'audio' as const,
+      name: '语音.silk',
+      uri: null,
+      expectedMd5: null,
+      expectedSize: null,
+      sourceRole: 'unknown' as const,
+      embeddedSha256,
+    };
+    result.push({ ...value, id: createHash('sha256').update(JSON.stringify(value)).digest('hex') });
+  } else if (content?.audio?.length && !content.audioContent?.data) {
+    add('detail/audio/unresolved', 'audio', {}, 'unknown');
+  }
   const summary = item?.summary;
   pics('summary/gallery', summary?.gallerySummary?.picList, 'original-candidate');
   pics('summary/richMedia', summary?.richMediaSummary?.picList, 'unknown');
@@ -352,6 +397,7 @@ export class CollectionMediaStore {
       reference.expectedMd5,
       reference.expectedSize,
       reference.sourceRole,
+      reference.embeddedSha256 ?? null,
     ]);
     const previous = this.resources.get(resourceKey);
     if (previous && (await this.cached(previous.reference, options.signal))) {
@@ -381,7 +427,7 @@ export class CollectionMediaStore {
       if (receipt.state === 'downloaded') this.resources.set(resourceKey, receipt);
       return receipt;
     };
-    if (!reference.uri) {
+    if (!reference.uri && !reference.embeddedSha256) {
       receipt.error = '此附件尚无可用的下载地址。';
       return save();
     }
@@ -401,15 +447,31 @@ export class CollectionMediaStore {
     const temp = join(this.root, 'files', `.${randomUUID()}.partial`);
     let handle: Awaited<ReturnType<typeof open>> | null = null;
     try {
-      const url = collectionMediaUrl(reference.uri);
-      const response = await abortable(
-        (options.fetch ?? globalThis.fetch)(url, {
-          signal: controller.signal,
-          redirect: 'manual',
-          headers: { 'Accept-Encoding': 'identity' },
-        }),
-        controller.signal,
-      );
+      let response: Response;
+      if (reference.embeddedSha256) {
+        const bytes = options.embeddedBytes;
+        if (
+          !bytes ||
+          bytes.length > maxBytes ||
+          createHash('sha256').update(bytes).digest('hex') !== reference.embeddedSha256 ||
+          !collectionEmbeddedAudio({ recordTime: 0, audio: bytes })
+        )
+          throw new Error('收藏语音数据不完整或校验不符。');
+        // Reuse streaming/hash/atomic-publish logic without making a network request.
+        response = new Response(Buffer.from(bytes), {
+          headers: { 'content-length': String(bytes.length) },
+        });
+      } else {
+        const url = collectionMediaUrl(reference.uri!);
+        response = await abortable(
+          (options.fetch ?? globalThis.fetch)(url, {
+            signal: controller.signal,
+            redirect: 'manual',
+            headers: { 'Accept-Encoding': 'identity' },
+          }),
+          controller.signal,
+        );
+      }
       if (response.status !== 200) {
         await response.body?.cancel();
         throw new Error(

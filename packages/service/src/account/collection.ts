@@ -27,6 +27,7 @@ import { CollectionDetailStore } from './collection_detail_store';
 import {
   CollectionMediaStore,
   collectionMediaReferences,
+  collectionEmbeddedAudio,
   type CollectionMediaOptions,
   type CollectionMediaReceipt,
   type CollectionMediaExportEntry,
@@ -217,8 +218,15 @@ export class CollectionService {
     const item = await this.cachedListItem(cid);
     const refs = collectionMediaReferences(cid, content, item);
     const entries: CollectionMediaExportEntry[] = [];
-    for (const reference of refs)
+    for (const reference of refs) {
+      // Detail-embedded audio is already cached; extract it without network I/O.
+      if (reference.embeddedSha256)
+        await this.media.download(reference, {
+          signal,
+          embeddedBytes: collectionEmbeddedAudio(content) ?? undefined,
+        });
       entries.push(await this.media.exportCached(reference, directory, signal));
+    }
     return entries;
   }
 
@@ -237,7 +245,14 @@ export class CollectionService {
     const receipts: CollectionMediaReceipt[] = [];
     for (const ref of refs) {
       options.signal?.throwIfAborted();
-      receipts.push(await this.media.download(ref, options));
+      receipts.push(
+        await this.media.download(ref, {
+          ...options,
+          embeddedBytes: ref.embeddedSha256
+            ? (collectionEmbeddedAudio(content) ?? undefined)
+            : undefined,
+        }),
+      );
     }
     return receipts;
   }
