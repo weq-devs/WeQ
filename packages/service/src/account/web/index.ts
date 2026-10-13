@@ -45,7 +45,7 @@ import {
   type QzoneInteractionTarget,
   type QzoneLike,
 } from './qzone_interaction';
-import { supplementQzoneComments } from './qzone_comments';
+import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -198,6 +198,20 @@ export class WebQueryService {
   ) {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  /** Only one existing root-comment page is needed to read the reported total. */
+  async getQzoneCommentCount(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+  ): Promise<number | null> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      async (c) =>
+        (await readQzoneComments(c, targetUin, tid, { maxPages: 1, signal })).reportedTotal,
     );
   }
 

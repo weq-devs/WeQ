@@ -20,8 +20,44 @@ export function projectQzoneFeed(html: string): {
   text: string;
   images: string[];
   links: { href: string; text: string }[];
+  tid: string | null;
+  likeCount: number | null;
+  commentCount: number | null;
+  advertisement: boolean;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  const advertisement = Boolean(doc.querySelector('[data-tid="advertisement_app"]'));
+  const feedAttrs = doc.querySelector('[data-fkey], [data-tid]');
+  const rawTid = feedAttrs?.getAttribute('data-tid');
+  const tid =
+    feedAttrs?.getAttribute('data-fkey') ||
+    (rawTid && /^\d+$/.test(rawTid)
+      ? doc.querySelector('[data-key]')?.getAttribute('data-key') || rawTid
+      : rawTid) ||
+    null;
+  const countText = (selector: string, pattern: RegExp): number | null => {
+    const text = doc.querySelector(selector)?.textContent ?? '';
+    const match = text.match(pattern);
+    return match ? Number(match[1]) : null;
+  };
+  const likeCount = countText('.user-list', /(\d+)\s*人(?:觉得很赞|赞过|赞)/);
+  const commentCount = countText('.f-op, .f-reply', /评论\s*[（(]?\s*(\d+)/);
+  // Preserve official mention targets before flattening HTML into safe text.
+  for (const anchor of doc.querySelectorAll('a')) {
+    const label = anchor.textContent?.trim() ?? '';
+    if (/^(?:查看详情|详情|全文|展开全文)$/.test(label)) {
+      anchor.remove();
+      continue;
+    }
+    if (!label.startsWith('@')) continue;
+    const uin =
+      anchor.getAttribute('data-uin') ||
+      anchor
+        .getAttribute('href')
+        ?.match(/(?:https?:)?\/\/user\.qzone\.qq\.com\/(\d+)(?:\b|\/)/)?.[1];
+    if (uin && /^[1-9]\d{4,19}$/.test(uin))
+      anchor.replaceWith(`@{uin:${uin},nick:${label.slice(1)}}`);
+  }
   for (const element of doc.querySelectorAll(
     'script, style, iframe, object, embed, svg, math, template, form, input, button, textarea, link, meta, base, .f-logs, .f-reply, .f-reply-wrap, .f-op, .f-detail, .comments-list, .user-list, .f-user-info',
   ))
@@ -63,7 +99,12 @@ export function projectQzoneFeed(html: string): {
         (url.hostname !== 'user.qzone.qq.com' && !url.hostname.endsWith('.qzone.qq.com'))
       )
         continue;
-      links.set(url.href, { href: url.href, text: link.textContent?.trim() || '查看详情' });
+      const text = link.textContent?.trim() ?? '';
+      if (!text || /^(?:查看详情|详情|全文|展开全文)$/.test(text)) {
+        link.remove();
+        continue;
+      }
+      links.set(url.href, { href: url.href, text });
     } catch {
       /* Invalid remote link is omitted. */
     }
@@ -81,6 +122,10 @@ export function projectQzoneFeed(html: string): {
           .trim(),
     images: [...images],
     links: [...links.values()],
+    tid,
+    likeCount,
+    commentCount,
+    advertisement,
   };
 }
 
@@ -88,4 +133,36 @@ export function mergeQzonePosts<T extends { tid: string }>(old: T[], next: T[]):
   const values = new Map(old.map((post) => [post.tid, post]));
   for (const post of next) if (post.tid) values.set(post.tid, post);
   return [...values.values()];
+}
+
+export type QzoneTextPart = { offset: number } & (
+  | { kind: 'text'; text: string }
+  | { kind: 'mention'; uin: string; text: string }
+  | { kind: 'emoji'; code: string }
+);
+
+/** Decode known Qzone tokens as data; no remote HTML is rendered. */
+export function qzoneTextParts(content: string): QzoneTextPart[] {
+  const parts: QzoneTextPart[] = [];
+  const pattern = /@\{uin:([1-9]\d{4,19}),nick:([^}]*?)\}|\[em\](e\d+)\[\/em\]/g;
+  let cursor = 0;
+  for (const match of content.matchAll(pattern)) {
+    const index = match.index!;
+    if (index > cursor)
+      parts.push({ kind: 'text', text: content.slice(cursor, index), offset: cursor });
+    if (match[3]) parts.push({ kind: 'emoji', code: match[3], offset: index });
+    else {
+      const nickname = match[2]!.replace(/,(?:who|type|uin):.*$/, '');
+      parts.push({
+        kind: 'mention',
+        uin: match[1]!,
+        text: `@${nickname || match[1]}`,
+        offset: index,
+      });
+    }
+    cursor = index + match[0].length;
+  }
+  if (cursor < content.length)
+    parts.push({ kind: 'text', text: content.slice(cursor), offset: cursor });
+  return parts;
 }

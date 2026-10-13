@@ -86,6 +86,25 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal),
       ),
     ),
+  summary: procedure.input(post.extend({ needCommentCount: z.boolean() })).query(({ input }) =>
+    request(input, async (services, signal) => {
+      const likes = await services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal);
+      let commentCount: number | null = null;
+      if (input.needCommentCount) {
+        try {
+          commentCount = await services.webQuery.getQzoneCommentCount(
+            input.hostUin,
+            input.tid,
+            signal,
+          );
+        } catch {
+          signal.throwIfAborted();
+          // A failed comment count must not discard the independently read likes.
+        }
+      }
+      return { likes, commentCount };
+    }),
+  ),
   cancel: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const entry = pending.get(input.requestId);
     entry?.controller.abort(new Error('空间加载已取消。'));

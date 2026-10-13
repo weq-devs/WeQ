@@ -120,7 +120,20 @@ function stripHtmlTags(html: string): string {
     /<img[^>]+src=["'][^"']*\/qzone\/em\/(e\d+)\.[^"']*["'][^>]*>/gi,
     (_m, code: string) => `[em]${code}[/em]`,
   );
-  return withEmoji.replace(/<[^>]+>/g, '');
+  const withMentions = withEmoji.replace(
+    /<a\b([^>]*)>([\s\S]*?)<\/a>/gi,
+    (original, attrs: string, body: string) => {
+      const label = htmlUnescape(body.replace(/<[^>]+>/g, '')).trim();
+      if (!label.startsWith('@')) return original;
+      const uin =
+        attrs.match(/data-uin=["']([1-9]\d{4,19})["']/i)?.[1] ||
+        attrs.match(
+          /href=["'](?:https?:)?\/\/user\.qzone\.qq\.com\/([1-9]\d{4,19})(?:["'/#?])/i,
+        )?.[1];
+      return uin ? `@{uin:${uin},nick:${label.slice(1)}}` : original;
+    },
+  );
+  return withMentions.replace(/<[^>]+>/g, '');
 }
 
 // ───────────────────────── feed_data 分段 / canonical tid ─────────────────────────
