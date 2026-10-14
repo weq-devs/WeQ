@@ -117,6 +117,7 @@ import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneWorkspace } from './QzoneView';
+import { QzoneNavigationContext, type QzoneSpaceRequest } from '../lib/qzoneNavigation';
 import { ChannelView } from './ChannelView';
 import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
@@ -2325,6 +2326,7 @@ export function MainView(): ReactElement {
   const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
+  const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -6522,7 +6524,7 @@ export function MainView(): ReactElement {
     handleViewRecalled(target);
   }
 
-  return (
+  const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
         <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
@@ -6644,6 +6646,7 @@ export function MainView(): ReactElement {
                   active={shell.view === 'qzone' && !arkFeedState}
                   selfUin={user.identityValue}
                   nickname={user.displayName}
+                  spaceRequest={qzoneSpaceRequest}
                 />
                 {arkFeedState ? (
                   <ArkFeedView
@@ -7188,5 +7191,23 @@ export function MainView(): ReactElement {
         </ConvContext.Provider>
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
+  );
+  return (
+    <QzoneNavigationContext.Provider
+      value={(uin, nickname) => {
+        if (!/^[1-9]\d{4,19}$/.test(uin)) return;
+        if (shell.view === 'messages') flushAllDirtyDrafts();
+        setArkFeedState(null);
+        setQzoneSpaceRequest({
+          accountUin: user.identityValue,
+          uin,
+          nickname,
+          revision: crypto.randomUUID(),
+        });
+        shell.switchView('qzone');
+      }}
+    >
+      {chatContent}
+    </QzoneNavigationContext.Provider>
   );
 }

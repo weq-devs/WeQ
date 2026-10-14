@@ -23,6 +23,7 @@ import { projectQzoneFeed, qzoneMediaSource, mergeQzonePosts, qzoneTextParts } f
 import { Modal } from '../components/Dialog';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import '../styles/qzone.css';
+import type { QzoneSpaceRequest } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 
 type Tab = 'feeds' | 'posts' | 'space';
@@ -100,10 +101,12 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   active,
   selfUin,
   nickname,
+  spaceRequest,
 }: {
   active: boolean;
   selfUin: string;
   nickname: string;
+  spaceRequest?: QzoneSpaceRequest | null;
 }) {
   const [visited, setVisited] = useState(active);
   useEffect(() => {
@@ -111,7 +114,12 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   }, [active]);
   return visited || active ? (
     <div hidden={!active} style={{ height: '100%', minHeight: 0 }}>
-      <QzoneView active={active} selfUin={selfUin} nickname={nickname} />
+      <QzoneView
+        active={active}
+        selfUin={selfUin}
+        nickname={nickname}
+        spaceRequest={spaceRequest}
+      />
     </div>
   ) : null;
 });
@@ -324,16 +332,24 @@ export function QzoneView({
   selfUin,
   nickname,
   active = true,
+  spaceRequest,
 }: {
   selfUin: string;
   nickname: string;
   active?: boolean;
+  spaceRequest?: QzoneSpaceRequest | null;
 }): ReactElement {
   const people = useQzonePeople(selfUin);
-  const [tab, setTab] = useState<Tab>('feeds');
+  const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
+  const [tab, setTab] = useState<Tab>(
+    initialSpace ? (initialSpace.uin === selfUin ? 'posts' : 'space') : 'feeds',
+  );
+  const handledRequest = useRef<string | null>(null);
   const tabBar = useRef<HTMLElement>(null);
-  const [hostUin, setHostUin] = useState(selfUin);
-  const [spaces, setSpaces] = useState<string[]>([]);
+  const [hostUin, setHostUin] = useState(initialSpace?.uin ?? selfUin);
+  const [spaces, setSpaces] = useState<string[]>(
+    initialSpace && initialSpace.uin !== selfUin ? [initialSpace.uin] : [],
+  );
   const [spaceNames, setSpaceNames] = useState<Record<string, string>>({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
@@ -343,7 +359,7 @@ export function QzoneView({
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
-  const [visited, setVisited] = useState<Tab[]>(['feeds']);
+  const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => {
     setVisited((current) => (current.includes(tab) ? current : [...current, tab]));
   }, [tab]);
@@ -361,22 +377,36 @@ export function QzoneView({
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
-  const openSpace = (uin: string, name?: string): void => {
-    const value = uin.trim();
-    if (!/^[1-9]\d{4,19}$/.test(value)) {
-      setTargetError('请输入有效的 QQ 号');
+  const openSpace = useCallback(
+    (uin: string, name?: string): void => {
+      const value = uin.trim();
+      if (!/^[1-9]\d{4,19}$/.test(value)) {
+        setTargetError('请输入有效的 QQ 号');
+        return;
+      }
+      setTargetError('');
+      const publicName = people.names[value] || name;
+      if (publicName) rememberSpaceName(value, publicName);
+      setHostUin(value);
+      if (value === selfUin) setTab('posts');
+      else {
+        setSpaces((current) => (current.includes(value) ? current : [...current, value]));
+        setTab('space');
+      }
+    },
+    [selfUin, people.names, rememberSpaceName],
+  );
+  useEffect(() => {
+    if (
+      !active ||
+      !spaceRequest ||
+      spaceRequest.accountUin !== selfUin ||
+      handledRequest.current === spaceRequest.revision
+    )
       return;
-    }
-    setTargetError('');
-    const publicName = people.names[value] || name;
-    if (publicName) rememberSpaceName(value, publicName);
-    setHostUin(value);
-    if (value === selfUin) setTab('posts');
-    else {
-      setSpaces((current) => (current.includes(value) ? current : [...current, value]));
-      setTab('space');
-    }
-  };
+    handledRequest.current = spaceRequest.revision;
+    openSpace(spaceRequest.uin, spaceRequest.nickname);
+  }, [active, selfUin, spaceRequest, openSpace]);
   return (
     <QzonePeopleContext.Provider value={people}>
       <section className="weq-qzn" aria-label="QQ 空间">

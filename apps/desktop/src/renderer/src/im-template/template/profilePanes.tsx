@@ -23,6 +23,7 @@ import {
   MapPin,
   Megaphone,
   Sparkles,
+  Star,
   Tags,
   User,
   Users,
@@ -30,7 +31,8 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
+import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { PersonalityHomeDialog } from '../../components/PersonalityHomeDialog';
 import { MutualMarkDialog } from '../../components/MutualMarkDialog';
@@ -229,6 +231,7 @@ export function ContactProfileDialog({
   contact: Contact | undefined;
   onClose: () => void;
 }) {
+  const openSpace = useContext(QzoneNavigationContext);
   const [copied, setCopied] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
@@ -466,6 +469,19 @@ export function ContactProfileDialog({
         {/* 个性主页 / 互动标识都要拿 QQ 号去查——只有 uin 的联系人才给入口。 */}
         {profile.identityLabel === 'QQ' ? (
           <div className="weq-profile-actions">
+            {openSpace ? (
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  openSpace(profile.identityValue, profile.nick || displayUserName(profile));
+                }}
+              >
+                <Star size={13} />
+                查看空间
+              </button>
+            ) : null}
             <button className="weq-profile-perhome" type="button" onClick={() => setHomeOpen(true)}>
               <Wand2 size={13} />
               查看个性主页
@@ -481,6 +497,8 @@ export function ContactProfileDialog({
       {homeOpen ? (
         <PersonalityHomeDialog
           uin={profile.identityValue}
+          spaceNickname={profile.nick || displayUserName(profile)}
+          onNavigateAway={onClose}
           uid={profile.id}
           isBot={profile.kind === 'bot'}
           profile={toPersonalityProfile(

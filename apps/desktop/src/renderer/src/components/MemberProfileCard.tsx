@@ -32,12 +32,14 @@ import {
   Terminal,
   Shield,
   Sparkles,
+  Star,
   User as UserIcon,
   Wand2,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
@@ -73,6 +75,7 @@ const ROLE_META = {
 };
 
 export function MemberProfileCard({ member, anchor, onClose, groupCode, groupName }) {
+  const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -367,6 +370,19 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
           <div className="weq-profile-actions">
             {uin ? (
               <>
+                {openSpace ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      openSpace(uin, profile?.nick || name);
+                    }}
+                  >
+                    <Star size={13} />
+                    查看空间
+                  </button>
+                ) : null}
                 <button
                   className="weq-profile-perhome"
                   type="button"
@@ -418,6 +434,7 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
       {homeOpen ? (
         <PersonalityHomeDialog
           uin={uin}
+          spaceNickname={profile?.nick || name}
           uid={member.id}
           isBot={member.kind === 'bot'}
           profile={toPersonalityProfile(
