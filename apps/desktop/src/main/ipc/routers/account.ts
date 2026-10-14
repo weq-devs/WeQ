@@ -473,6 +473,7 @@ export interface GroupFileExportResult {
 
 /** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
 async function withConfirmedC2cHistory(
+  services: AccountServices,
   kind: ChatKind,
   conv: string,
   rows: ChatMsgWire[],
@@ -484,7 +485,7 @@ async function withConfirmedC2cHistory(
     .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
   if (!sequences.length) return rows;
   try {
-    const cached = await requireServices().gapHistory.cachedVerified(
+    const cached = await services.gapHistory.cachedVerified(
       'c2c',
       conv,
       Math.min(...sequences),
@@ -503,10 +504,12 @@ async function withConfirmedC2cHistory(
 }
 
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
+  const services = requireServices();
+  const msgs = services.msgs;
   return kind === 'group'
     ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
     : withConfirmedC2cHistory(
+        services,
         kind,
         conv,
         (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
@@ -544,10 +547,12 @@ async function fetchFrom(
   sinceSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
+  const services = requireServices();
+  const msgs = services.msgs;
   return kind === 'group'
     ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
     : withConfirmedC2cHistory(
+        services,
         kind,
         conv,
         (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
