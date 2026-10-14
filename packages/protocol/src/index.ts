@@ -13,6 +13,7 @@
  *   oidb/get-file-url.ts  — GetGroupFileUrl / GetPrivateFileUrl namespaces.
  *   oidb/list-group-files.ts     — ListGroupFiles (0x6D8_1, 群文件/文件夹分页列表)。
  *   oidb/get-album-media-list.ts — GetAlbumMediaList trpc namespace.
+ *   oidb/get-red-pack-skin.ts    — GetRedPackSkin (trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo) trpc namespace.
  *   oidb/get-user-qq-level.ts    — GetUserQqLevel (0xFE1_2, 只查 QQ 等级)。
  *   oidb/get-qq-show-url.ts      — GetQqShowUrl (0xFE1_3, QQ 秀 URL)。
  *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
@@ -61,6 +62,14 @@ export type { GroupFileDownload } from './oidb/get-file-url';
 export { ListGroupFiles } from './oidb/list-group-files';
 export type { GroupFileItem, GroupFolderItem, GroupFilePage } from './oidb/list-group-files';
 export { GetAlbumMediaList } from './oidb/get-album-media-list';
+export { GetRedPackSkin, RED_PACK_SKIN_TRACE_ID } from './oidb/get-red-pack-skin';
+export type {
+  RedPackSkinInfo,
+  RedPackSkinCover,
+  RedPackSkinJump,
+  RedPackSkinImage,
+  RedPackSkinResponse,
+} from './oidb/get-red-pack-skin';
 export { GetUserQqLevel } from './oidb/get-user-qq-level';
 export type { QqLevelInfo } from './oidb/get-user-qq-level';
 export { GetQqShowUrl } from './oidb/get-qq-show-url';
