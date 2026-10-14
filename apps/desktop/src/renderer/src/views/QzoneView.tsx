@@ -715,7 +715,7 @@ function PostActions({
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(null);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [likeError, setLikeError] = useState('');
-  const [commentCount, setCommentCount] = useState<number | null>(null);
+  const [commentCount, setCommentCount] = useState(post.commentNum);
   const ref = useRef<HTMLDivElement>(null);
   const visible = useNearViewport(ref, true);
   const { run, cancel } = useQzoneRequests();
@@ -729,7 +729,7 @@ function PostActions({
           hostUin,
           tid: post.tid,
           requestId,
-          needCommentCount: true,
+          needCommentCount: post.commentNum === null,
         }),
       true,
     )
@@ -746,7 +746,7 @@ function PostActions({
       live = false;
       cancel();
     };
-  }, [visible, selfUin, hostUin, post.tid, run, cancel]);
+  }, [visible, selfUin, hostUin, post.tid, post.commentNum, run, cancel]);
   const likeCount = likes?.reportedTotal ?? initialLikeCount;
   return (
     <div ref={ref}>
@@ -762,7 +762,7 @@ function PostActions({
         <button
           type="button"
           aria-expanded={expanded === 'comments'}
-          title="评论和回复合计"
+          title="评论"
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
@@ -925,7 +925,8 @@ function Interaction({
         const page = await client.account.qzone.interactions.query({ ...input, time: post.time });
         if (live) {
           setResult(page);
-          if (page.commentCountInclusive != null) onCommentCount(page.commentCountInclusive);
+          if (page.fieldCoverage?.comments === 'complete')
+            onCommentCount(page.comments.filter((comment) => !comment.isReply).length);
         }
       }
     }).catch((error: unknown) => {
@@ -1007,6 +1008,7 @@ function Interaction({
   );
   return (
     <div className="weq-qzn-interaction">
+      <p className="weq-qzn-status">评论及回复共 {result!.commentCountInclusive ?? '?'} 条</p>
       {roots.map((root) => (
         <div key={root.id}>
           {renderComment(root)}
@@ -1016,7 +1018,7 @@ function Interaction({
       {orphans.map(renderComment)}
       <p className="weq-qzn-status">
         {result!.comments.length
-          ? `已显示 ${roots.length} 条评论、${replies.length} 条回复${result!.commentCountInclusive == null ? '' : `，共 ${result!.commentCountInclusive} 条`}`
+          ? `已显示 ${roots.length} 条评论、${replies.length} 条回复`
           : result!.fieldCoverage?.comments === 'complete' &&
               result!.fieldCoverage?.replies === 'complete'
             ? '暂无评论'

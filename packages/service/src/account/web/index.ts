@@ -1,4 +1,3 @@
-import { inclusiveQzoneCommentCount } from './qzone_comments';
 /**
  * Web cgi facade — query-only access to qq.com web endpoints for one account
  * session (group notice / album list / honor).
@@ -247,16 +246,17 @@ export class WebQueryService {
     return names;
   }
 
-  /** One summary page counts roots plus replies when it covers every root; otherwise unknown. */
+  /** One summary page supplies the original root-comment total, without fetching every page. */
   async getQzoneCommentCount(
     targetUin: string,
     tid: string,
     signal?: AbortSignal,
   ): Promise<number | null> {
-    return withRetry(this.creds, QZONE_DOMAIN, async (c) =>
-      inclusiveQzoneCommentCount(
-        await readQzoneComments(c, targetUin, tid, { maxPages: 1, signal }),
-      ),
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      async (c) =>
+        (await readQzoneComments(c, targetUin, tid, { maxPages: 1, signal })).reportedTotal,
     );
   }
 
