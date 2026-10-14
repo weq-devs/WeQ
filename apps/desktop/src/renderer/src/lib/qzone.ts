@@ -53,6 +53,7 @@ export function projectQzoneFeed(
   allowRepost = true,
 ): {
   text: string;
+  sourceName: string | null;
   images: string[];
   links: { href: string; text: string; cover?: string }[];
   tid: string | null;
@@ -127,6 +128,22 @@ export function projectQzoneFeed(
       };
       quote.remove();
     }
+  }
+  // Official device attribution is metadata, not body text or a shared link.
+  let sourceName: string | null = null;
+  for (const source of doc.querySelectorAll('.phone-style')) {
+    const name = (source.textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^来自\s*/, '');
+    if (name && !sourceName) sourceName = name;
+    const container = source.closest('span.state');
+    const containerLabel = container?.textContent
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^来自\s*/, '');
+    if (container && containerLabel === name) container.remove();
+    else source.remove();
   }
   const advertisement = Boolean(doc.querySelector('[data-tid="advertisement_app"]'));
   const feedAttrs = doc.querySelector('[data-fkey], [data-tid]');
@@ -273,6 +290,7 @@ export function projectQzoneFeed(
   for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
   for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');
   return {
+    sourceName,
     text: (textBody.textContent ?? '')
       .split('\n')
       .map((line) => line.replace(/[\t ]+/g, ' ').trim())

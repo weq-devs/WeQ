@@ -857,6 +857,7 @@ function Post({
   onSpace,
   articleRef,
   ownerSpace = false,
+  sourceName = null,
   links = [],
 }: {
   selfUin: string;
@@ -866,6 +867,7 @@ function Post({
   onSpace: (uin: string, nickname?: string) => void;
   articleRef?: RefObject<HTMLElement | null>;
   ownerSpace?: boolean;
+  sourceName?: string | null;
   links?: ReturnType<typeof projectQzoneFeed>['links'];
 }) {
   const openProfile = useContext(QzoneProfileContext);
@@ -918,6 +920,7 @@ function Post({
       <FeedLinks links={links} />
       <QzoneVideos videos={videos} />
       {post.repost ? <Repost selfUin={selfUin} original={post.repost} onSpace={onSpace} /> : null}
+      {sourceName ? <p className="weq-qzn-source">来自 {sourceName}</p> : null}
       <PostActions selfUin={selfUin} hostUin={hostUin} post={post} onSpace={onSpace} />
     </article>
   );
@@ -1762,7 +1765,8 @@ function FeedCard({
   const [post, setPost] = useState<QzoneEmotion | null>(null);
   const { refresh } = useContext(QzonePageContext);
   const [loading, setLoading] = useState(false);
-  const needsLookup = feed.appid === 311 && (body.unsupported || !body.text.trim());
+  const needsLookup =
+    feed.appid === 311 && (body.unsupported || (!body.text.trim() && !body.repost));
   useEffect(() => {
     if (!visible || !needsLookup) return undefined;
     let live = true;
@@ -1788,6 +1792,7 @@ function FeedCard({
         post={post}
         onSpace={onSpace}
         articleRef={ref}
+        sourceName={body.sourceName}
         links={body.links}
       />
     );
@@ -1822,6 +1827,7 @@ function FeedCard({
       <Pictures images={body.images} />
       {body.repost ? <Repost selfUin={selfUin} original={body.repost} onSpace={onSpace} /> : null}
       <FeedLinks links={body.links} />
+      {body.sourceName ? <p className="weq-qzn-source">来自 {body.sourceName}</p> : null}
       {feed.appid === 311 && tid && /^[a-zA-Z0-9_-]{1,128}$/.test(tid) ? (
         <PostActions
           selfUin={selfUin}
