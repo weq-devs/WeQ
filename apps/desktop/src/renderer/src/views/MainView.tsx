@@ -4587,12 +4587,43 @@ export function MainView(): ReactElement {
     .join('|');
   useEffect(() => {
     if (!pendingSyncKey) return undefined;
+    let cancelled = false;
+    const selection = selectionRef.current;
     const timers = [0, 1000, 3000, 7000].map((delay) =>
       setTimeout(() => {
-        void refreshWindow();
+        void (async () => {
+          await refreshWindow();
+          // One bounded history read after local refreshes have had time to settle.
+          // It only calls the existing read API; it never resends or writes QQ's DB.
+          if (
+            delay !== 7000 ||
+            cancelled ||
+            !selection ||
+            selection.kind !== 'direct' ||
+            selectionRef.current !== selection ||
+            !windowRef.current.anchored
+          )
+            return;
+          const current = loadedRef.current;
+          const sequences = current
+            .map((row) => Number(row.msgSeq))
+            .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
+          if (!sequences.length) return;
+          const last = Math.max(...sequences);
+          const endSeq = Math.min(0xffffffff, last + 10);
+          const result = await client.account.fetchGapMessages.query({
+            kind: 'c2c',
+            conv: selection.id,
+            startSeq: Math.max(1, endSeq - 29),
+            endSeq,
+          });
+          if (cancelled || selectionRef.current !== selection || !result.ok) return;
+          await refreshWindow();
+        })().catch((error: unknown) => console.error('[live] server confirmation failed', error));
       }, delay),
     );
     return () => {
+      cancelled = true;
       for (const timer of timers) clearTimeout(timer);
     };
   }, [pendingSyncKey, refreshWindow]);

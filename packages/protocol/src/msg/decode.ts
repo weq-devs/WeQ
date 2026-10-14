@@ -517,6 +517,8 @@ export interface DecodedMessage {
     c2cCmd: number;
     msgId: number;
     sequence: number;
+    /** NT conversation sequence, distinct from the sender client sequence. */
+    ntMsgSeq?: number;
     timestamp: number;
   };
   sender: { uin: number; uid: string };
@@ -541,6 +543,7 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
       c2cCmd?: number;
       msgId?: number;
       sequence?: number;
+      ntMsgSeq?: number;
       timestamp?: number;
     };
     body?: {
@@ -584,7 +587,8 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
       subType: head.subType ?? 0,
       c2cCmd: head.c2cCmd ?? 0,
       msgId: head.msgId ?? 0,
-      sequence: head.sequence ?? 0,
+      sequence: !grp.groupUin && (head.ntMsgSeq ?? 0) > 0 ? head.ntMsgSeq! : (head.sequence ?? 0),
+      ...(head.ntMsgSeq ? { ntMsgSeq: head.ntMsgSeq } : {}),
       timestamp: head.timestamp ?? 0,
     },
     sender: { uin: sender.fromUin ?? 0, uid: sender.fromUid ?? '' },

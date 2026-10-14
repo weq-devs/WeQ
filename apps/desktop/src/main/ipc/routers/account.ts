@@ -471,11 +471,47 @@ export interface GroupFileExportResult {
   failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
+/** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
+async function withConfirmedC2cHistory(
+  kind: ChatKind,
+  conv: string,
+  rows: ChatMsgWire[],
+  limit: number,
+): Promise<ChatMsgWire[]> {
+  if (kind !== 'c2c' || rows.length === 0) return rows;
+  const sequences = rows
+    .map((row) => Number(row.msgSeq))
+    .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
+  if (!sequences.length) return rows;
+  try {
+    const cached = await requireServices().gapHistory.cachedVerified(
+      'c2c',
+      conv,
+      Math.min(...sequences),
+      Math.min(0xffffffff, Math.max(...sequences) + 30),
+      limit,
+    );
+    const known = new Set(rows.map((row) => `${row.msgSeq}:${row.msgRandom}`));
+    const extra: ChatMsgWire[] = cached
+      .filter((row) => !known.has(`${row.msgSeq}:${row.msgRandom}`))
+      .map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' }));
+    return [...rows, ...extra].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq)).slice(0, limit);
+  } catch {
+    // Cache failure must never prevent reading the original QQ history.
+    return rows;
+  }
+}
+
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const msgs = requireServices().msgs;
   return kind === 'group'
     ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+    : withConfirmedC2cHistory(
+        kind,
+        conv,
+        (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
+        limit,
+      );
 }
 
 async function fetchBefore(
@@ -511,7 +547,12 @@ async function fetchFrom(
   const msgs = requireServices().msgs;
   return kind === 'group'
     ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+    : withConfirmedC2cHistory(
+        kind,
+        conv,
+        (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
+        limit,
+      );
 }
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
