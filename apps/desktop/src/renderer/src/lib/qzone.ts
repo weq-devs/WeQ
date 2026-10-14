@@ -38,6 +38,16 @@ export function qzoneLinkTarget(value: string): string | null {
   }
 }
 
+/** Feed identity/permalink anchors navigate within Qzone; they are not shared cards. */
+function isQzoneFeedNavigation(anchor: Element, href: string): boolean {
+  if (anchor.matches('.nickname, .q_namecard, [profileuin]')) return true;
+  const url = new URL(href);
+  return (
+    url.hostname === 'user.qzone.qq.com' &&
+    /^\/[1-9]\d{4,19}(?:\/mood(?:\/[^/]+)?)?\/?$/.test(url.pathname)
+  );
+}
+
 export function projectQzoneFeed(
   html: string,
   allowRepost = true,
@@ -165,6 +175,7 @@ export function projectQzoneFeed(
     // A picture link remains a picture; don't turn original-image URLs into share cards.
     if (
       !href ||
+      isQzoneFeedNavigation(anchor, href) ||
       !cover ||
       (qzoneMediaSource(href) && /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(href))
     )
@@ -199,7 +210,7 @@ export function projectQzoneFeed(
   for (const link of body.querySelectorAll('a[href]')) {
     try {
       const href = qzoneLinkTarget(link.getAttribute('href')!);
-      if (!href) continue;
+      if (!href || isQzoneFeedNavigation(link, href)) continue;
       const text = link.textContent?.trim() ?? '';
       if (
         !text ||
@@ -223,7 +234,7 @@ export function projectQzoneFeed(
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim(),
-    images: [...images],
+    images: [...images].filter((source) => !repost?.images.includes(source)),
     links: [...links.values()],
     tid,
     likeCount,
