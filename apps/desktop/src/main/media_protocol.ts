@@ -29,7 +29,7 @@
  *   weq-media://dresspendant?id=<itemId>&frame=<n>             → 走 protocol 换的头像挂件动画帧(本地 PNG,n 从 1 开始)
  *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图片 / 视频)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
- *   weq-media://redbag?id=<skinId>                            → 红包皮肤封面(moggy CDN，落盘缓存)
+ *   weq-media://redbag?id=<skinId>                            → 红包皮肤封面(离线目录 → 在线现查 → aio 兜底，均落盘缓存)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -51,6 +51,7 @@ import {
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { resolveResource } from './resource';
+import { resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -166,6 +167,27 @@ function fileResponse(path: string): Promise<Response> {
  */
 function revalidatingFileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore(), { revalidate: true });
+}
+
+/**
+ * 在线现查红包皮肤封面（`SsoGetSkinInfo`）—— `weq-media://redbag` 回退链的第 2 档。
+ *
+ * 只在该皮肤不在离线目录、且**有已打开的账号会话、QQ 在线、且未开完全离线模式**时才
+ * 尝试。任何一步不满足、或服务端没给封面，都静默返回 null 让调用方走下一档 ——
+ * 这条链是「尽力而为」，取不到封面不该让整张卡片挂掉。
+ */
+async function onlineRedbagCover(skinId: string): Promise<string | null> {
+  const ctx = getAppContext();
+  const services = ctx.services;
+  if (!services) return null;
+  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) return null;
+  const record = services.accountConfig.getRecord();
+  if (!record?.qqOnline || !record.qqPid) return null;
+  try {
+    return await services.redbag.skinCoverUrl(Number(skinId), record.qqPid);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -364,22 +386,43 @@ export function handleMediaRequest(request: Request): Promise<Response> {
       });
     }
 
-    // 红包皮肤封面：moggy CDN 公开图片，按 skinId 构造 URL 后走 avatarCache 落盘缓存。
+    // 红包皮肤封面：按「更可靠的来源优先」逐档回退，第一个拿到字节的胜出；全部失败才 404
+    // （渲染层据此回退默认封面图）。每一档都走 avatarCache 落盘缓存（都是公开 CDN 图）：
+    //   1. 离线目录（resources/redpack/skins.json 记的 preview）—— 多数皮肤封面并不在
+    //      固定路径下，硬拼 aio.png 会 404；这一步不联网、不依赖在线实例。
+    //   2. 在线现查（SsoGetSkinInfo）—— **只在离线目录没记 / 取字节失败时**才发；
+    //      要求有账号会话、QQ 在线、且未开完全离线模式。
+    //   3. aio 硬拼（redpackSkin/<id>/aio.png）—— 老客户端路径，现查也没结果时的兜底。
+    //
+    // 惰性很关键：在线那档是按需 `await`，不被命中前面的档时调用 —— 否则每渲染一张
+    // 红包卡片都会白发一次服务端请求（离线目录本来就覆盖了绝大多数皮肤）。
     if (kind === 'redbag') {
       const skinId = q.get('id') ?? '';
       if (!/^\d+$/.test(skinId)) return notFound('invalid skin id');
-      const src = `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`;
       const cache = getAppContext().bootstrap?.avatarCache;
       if (!cache) return notFound('redbag skin cache unavailable');
-      try {
-        const blob = await cache.get(src);
-        return new Response(new Uint8Array(blob.data), {
-          status: 200,
-          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
-        });
-      } catch {
-        return notFound('redbag skin fetch failed');
+
+      const attempts: Array<() => Promise<string | null>> = [
+        async () => resourceSkinCover(skinId),
+        () => onlineRedbagCover(skinId),
+        async () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
+      ];
+      for (const resolve of attempts) {
+        const src = await resolve();
+        if (!src) continue;
+        try {
+          const blob = await cache.get(src);
+          // 防御：空字节的缓存条目绝不能当 200 空响应返回（会变成一张破图）。
+          if (blob.data.length === 0) continue;
+          return new Response(new Uint8Array(blob.data), {
+            status: 200,
+            headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+          });
+        } catch {
+          /* 这一档没有 → 试下一档 */
+        }
       }
+      return notFound('redbag skin fetch failed');
     }
 
     const services = getAppContext().services;

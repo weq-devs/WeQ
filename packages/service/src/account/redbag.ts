@@ -26,6 +26,7 @@ import type {
 } from '@weq/protocol';
 import {
   prePackRedBag,
+  GetRedPackSkin,
   RedBagDetail,
   RedBagGrab,
   RedBagPasswordPool,
@@ -277,6 +278,23 @@ export class RedBagService {
   /** 拉一批口令红包的候选口令（`SsoGetToken`）。 */
   async passwords(pid: number): Promise<string[]> {
     return RedBagPasswordPool.invoke(this.nt, pid);
+  }
+
+  /**
+   * 现查某皮肤的卡片封面 URL（`SsoGetSkinInfo`，需要在线且已注入的 QQ）。
+   *
+   * 给 `weq-media://redbag` 的在线回退用：离线目录里没有该 id 时，用当前账号的
+   * SSO 会话现问一次服务端。**不缓存** —— 皮肤元数据很少变、且失败会回退到硬拼
+   * 的 `aio.png`，多问一次比维护一份会在内存里过期的缓存更简单。
+   *
+   * 返回 `preview`（wire f4.9，就是卡片封面）；皮肤不存在 / 无封面时返回 null。
+   */
+  async skinCoverUrl(skinId: number, pid: number): Promise<string | null> {
+    if (!Number.isInteger(skinId) || skinId <= 0) return null;
+    const resp = await GetRedPackSkin.invoke(this.nt, pid, { skinId });
+    // 用 `||` 而不是 `??`：`preview` 可能是空串（该皮肤没封面），空串对调用方
+    // 等于「没有」，归一成 null 让回退链继续往下走。
+    return resp.skin?.preview || null;
   }
 
   /**
