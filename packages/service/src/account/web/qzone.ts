@@ -304,8 +304,8 @@ export interface QzoneEmotion {
   content: string;
   /** 发表时间,unix 秒。 */
   time: number;
-  /** 评论数。 */
-  commentNum: number;
+  /** 评论数；接口未提供时为 null。 */
+  commentNum: number | null;
   /** 转发数；接口未提供时不推断为零。 */
   forwardNum?: number;
   /** 是否仅自己可见(private)。 */
@@ -421,7 +421,14 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
         tid: String(e.tid ?? ''),
         content: e.content ?? '',
         time: Number(e.created_time ?? 0),
-        commentNum: Number(e.cmtnum ?? 0),
+        commentNum:
+          e.cmtnum !== undefined &&
+          e.cmtnum !== null &&
+          String(e.cmtnum).trim() !== '' &&
+          Number.isSafeInteger(Number(e.cmtnum)) &&
+          Number(e.cmtnum) >= 0
+            ? Number(e.cmtnum)
+            : null,
         ...(rawForwardCount !== undefined &&
         rawForwardCount !== null &&
         String(rawForwardCount).trim() !== '' &&
