@@ -27,6 +27,7 @@ import {
 } from 'react';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
+import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { openLightbox } from './ImageLightbox';
@@ -174,6 +175,7 @@ export function QzoneAlbumDialog({
   embedded = false,
   active = true,
   refreshKey = 0,
+  albumTarget,
 }: {
   open: boolean;
   onClose: () => void;
@@ -182,6 +184,7 @@ export function QzoneAlbumDialog({
   embedded?: boolean;
   active?: boolean;
   refreshKey?: number;
+  albumTarget?: QzoneAlbumRequest;
 }): ReactElement | null {
   const [access, setAccess] = useState<{
     qqOnline: boolean;
@@ -208,6 +211,8 @@ export function QzoneAlbumDialog({
     (album: QzoneAlbumWire) => {
       const run = ++runRef.current;
       setSelected(album);
+      mediaLenRef.current = 0;
+      setMediaLoadingMore(false);
       setMedia([]);
       setMediaTotal(0);
       setMediaError(null);
@@ -290,6 +295,47 @@ export function QzoneAlbumDialog({
       runRef.current += 1;
     };
   }, [open, hostUin, access?.qqOnline]);
+
+  const openedTarget = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !open ||
+      !active ||
+      !access?.qqOnline ||
+      !albumTarget ||
+      albumTarget.hostUin !== hostUin ||
+      openedTarget.current === albumTarget.revision ||
+      albumsLoading ||
+      refreshing ||
+      (!albums && !albumsError)
+    )
+      return;
+    openedTarget.current = albumTarget.revision;
+    // The explicit album request replaces this entry's background refresh.
+    lastRefresh.current = refreshKey;
+    const album = albums?.find((item) => item.id === albumTarget.topicId) ?? {
+      id: albumTarget.topicId,
+      name: albumTarget.name,
+      mediaCount: 0,
+      coverUrl: '',
+      desc: '',
+      createTime: 0,
+      priv: 0,
+    };
+    openAlbum(album);
+  }, [
+    open,
+    active,
+    access?.qqOnline,
+    albumTarget,
+    hostUin,
+    albumsLoading,
+    refreshing,
+    refreshKey,
+    albums,
+    albumsError,
+    openAlbum,
+  ]);
 
   // Re-entering at the latest edge refreshes in place, without resetting selection or media.
   useEffect(() => {
@@ -439,7 +485,7 @@ export function QzoneAlbumDialog({
           </div>
         ) : albumsLoading && !albums ? (
           <AlbumListSkeleton />
-        ) : albumsError && !albums ? (
+        ) : albumsError && !albums && !selected ? (
           <div className="weq-qzone-album-empty is-error">
             <Inbox size={26} />
             <span>相册列表加载失败</span>
@@ -447,6 +493,7 @@ export function QzoneAlbumDialog({
           </div>
         ) : selected ? (
           <MediaView
+            key={`${hostUin}:${selected.id}`}
             active={active}
             photos={media}
             total={mediaTotal}

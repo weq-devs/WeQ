@@ -38,6 +38,16 @@ export function qzoneLinkTarget(value: string): string | null {
   }
 }
 
+/** A known Qzone album permalink, distinct from photo viewer/media URLs. */
+export function qzoneAlbumTarget(value: string): { hostUin: string; topicId: string } | null {
+  const href = qzoneLinkTarget(value);
+  if (!href) return null;
+  const url = new URL(href);
+  if (url.hostname !== 'user.qzone.qq.com') return null;
+  const match = url.pathname.match(/^\/([1-9]\d{4,19})\/photo\/([a-zA-Z0-9_-]{1,256})\/?$/);
+  return match ? { hostUin: match[1]!, topicId: match[2]! } : null;
+}
+
 /** Feed identity/permalink anchors navigate within Qzone; they are not shared cards. */
 function isQzoneFeedNavigation(anchor: Element, href: string): boolean {
   if (anchor.matches('.nickname, .q_namecard, [profileuin]')) return true;

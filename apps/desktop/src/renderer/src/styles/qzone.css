@@ -103,3 +103,5 @@
 .weq-qzn-owner-profile .weq-qzn-name { overflow-x: auto; white-space: nowrap; scrollbar-width: thin; }
 
 .weq-qzn-source { margin: 8px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+
+.weq-qzn .weq-qzn-feed-link { display: flex; width: fit-content; max-width: 100%; }
