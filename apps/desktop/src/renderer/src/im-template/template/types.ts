@@ -203,6 +203,8 @@ export type DirectConversation = ConversationBase & {
 
 export type GroupConversation = ConversationBase & {
   type: 'group';
+  /** Official recent-contact 41220; absent if no settings row has been read. */
+  notifyLevel?: number;
   otherUser: null;
   group: {
     id: string;

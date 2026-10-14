@@ -772,6 +772,7 @@ function groupDetailToConversation(
   return {
     id: detail.groupCode,
     type: 'group',
+    notifyLevel: fallback?.type === 'group' ? fallback.notifyLevel : undefined,
     updatedAt,
     otherUser: null,
     group: {
@@ -1128,6 +1129,7 @@ function contactToConversation(
     return {
       id: c.targetUid,
       type: 'group',
+      notifyLevel: c.notifyLevel,
       updatedAt,
       otherUser: null,
       group: {

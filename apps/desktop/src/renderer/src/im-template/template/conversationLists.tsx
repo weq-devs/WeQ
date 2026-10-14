@@ -34,6 +34,7 @@ import type {
   OnlineStatusInfo,
   User,
 } from './types';
+import { GROUP_NOTIFICATION_SECTIONS, groupNotificationMode } from '../../lib/groupNotifications';
 import { displayUserName } from './user';
 
 /**
@@ -322,41 +323,82 @@ export function GroupList({
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
   loading?: boolean;
 }) {
-  const groups = useMemo(() => {
-    return conversations.filter((conversation) => conversation.type === 'group');
-  }, [conversations]);
+  const categories = useMemo(
+    () =>
+      GROUP_NOTIFICATION_SECTIONS.map((section) => ({
+        ...section,
+        items: conversations.filter(
+          (conversation) =>
+            conversation.type === 'group' &&
+            groupNotificationMode(conversation.notifyLevel) === section.mode,
+        ),
+      })).filter((section) => section.items.length > 0),
+    [conversations],
+  );
 
-  const visibleCount = useProgressiveRowCount(groups.length);
-
-  if (loading) {
-    return <ListSkeleton rows={9} />;
-  }
-
-  if (groups.length === 0) {
+  if (loading) return <ListSkeleton rows={9} />;
+  if (!categories.length)
     return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
-  }
-
   return (
-    <div className={cn('list-stack')}>
-      {groups.slice(0, visibleCount).map((conversation) => (
-        <button
-          key={conversation.id}
-          className={cn(listRowClass(conversation.id === activeConversationId, 'contact-row'))}
-          onClick={(e) => onSelect(conversation.id, e)}
-        >
-          <Avatar
-            name={conversation.group.name}
-            avatarUrl={conversation.group.avatarUrl}
-            seed={conversation.id}
-          />
-          <span className={cn('row-main')}>
-            <strong>
-              <span className={cn('row-title-text')}>{conversation.group.name}</span>
-            </strong>
-            <span>{conversation.group.memberCount} 位成员</span>
-          </span>
-        </button>
+    <div className={cn('list-stack', 'contact-cat-list')}>
+      {categories.map((category) => (
+        <GroupNotificationSection
+          key={category.mode}
+          category={category}
+          activeConversationId={activeConversationId}
+          onSelect={onSelect}
+        />
       ))}
+    </div>
+  );
+}
+
+function GroupNotificationSection({ category, activeConversationId, onSelect }) {
+  const containsActive = category.items.some(
+    (conversation) => conversation.id === activeConversationId,
+  );
+  const [open, setOpen] = useState(containsActive);
+  useEffect(() => {
+    if (containsActive) setOpen(true);
+  }, [containsActive]);
+  const visibleCount = useProgressiveRowCount(open ? category.items.length : 0);
+  return (
+    <div className="contact-cat">
+      <button
+        type="button"
+        className="contact-cat-header"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
+        <span className="contact-cat-name">{category.label}</span>
+        <span className="contact-cat-count">{category.items.length}</span>
+      </button>
+      {open
+        ? category.items.slice(0, visibleCount).map((conversation) => (
+            <button
+              type="button"
+              key={conversation.id}
+              className={cn(
+                listRowClass(conversation.id === activeConversationId, 'contact-row'),
+                'contact-cat-row',
+              )}
+              onClick={(event) => onSelect(conversation.id, event)}
+            >
+              <Avatar
+                name={conversation.group.name}
+                avatarUrl={conversation.group.avatarUrl}
+                seed={conversation.id}
+              />
+              <span className="row-main">
+                <strong>
+                  <span className="row-title-text">{conversation.group.name}</span>
+                </strong>
+                <span>{conversation.group.memberCount} 位成员</span>
+              </span>
+            </button>
+          ))
+        : null}
     </div>
   );
 }
