@@ -117,7 +117,11 @@ import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneWorkspace } from './QzoneView';
-import { QzoneNavigationContext, type QzoneSpaceRequest } from '../lib/qzoneNavigation';
+import {
+  QzoneNavigationContext,
+  QzoneProfileContext,
+  type QzoneSpaceRequest,
+} from '../lib/qzoneNavigation';
 import { ChannelView } from './ChannelView';
 import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
@@ -2384,6 +2388,7 @@ export function MainView(): ReactElement {
   const [memberCard, setMemberCard] = useState<{
     member: User;
     anchor: { x: number; y: number };
+    fromSpace?: boolean;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -7056,12 +7061,46 @@ export function MainView(): ReactElement {
               member={memberCard.member}
               anchor={memberCard.anchor}
               groupCode={
-                selectedConversation?.type === 'group' ? selectedConversation.id : undefined
+                !memberCard.fromSpace && selectedConversation?.type === 'group'
+                  ? selectedConversation.id
+                  : undefined
               }
               groupName={
-                selectedConversation?.type === 'group' ? selectedConversation.group.name : undefined
+                !memberCard.fromSpace && selectedConversation?.type === 'group'
+                  ? selectedConversation.group.name
+                  : undefined
               }
               onClose={() => setMemberCard(null)}
+              onOpenChat={
+                memberCard.fromSpace
+                  ? () => {
+                      const accountUin = user.identityValue;
+                      const knownUid = memberCard.member.id;
+                      const uin = memberCard.member.identityValue;
+                      void (async () => {
+                        const uid =
+                          knownUid || (await client.account.getProfileByUin.query({ uin }))?.uid;
+                        if (useViewState.getState().openedUin !== accountUin) return;
+                        if (
+                          !uid ||
+                          (!conversations.some(
+                            (conv) => conv.type === 'direct' && conv.id === uid,
+                          ) &&
+                            !hiddenConversationsById.has(uid) &&
+                            !deletedConversationsById.has(uid))
+                        ) {
+                          pushToast({ tone: 'info', title: '暂未找到此人的私聊记录' });
+                          return;
+                        }
+                        setArkFeedState(null);
+                        shell.switchView('messages');
+                        shell.selectConversation(uid);
+                      })().catch(() =>
+                        pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
+                      );
+                    }
+                  : undefined
+              }
             />
           ) : null}
           {addMessageConv ? (
@@ -7207,7 +7246,33 @@ export function MainView(): ReactElement {
         shell.switchView('qzone');
       }}
     >
-      {chatContent}
+      <QzoneProfileContext.Provider
+        value={(uin, nickname, anchor) => {
+          const contact = buddyContacts.find((person) => person.identityValue === uin);
+          const profile = [...profileByUid.values()].find((person) => person.uin === uin);
+          const conversation = [
+            ...conversations,
+            ...hiddenConversationsById.values(),
+            ...deletedConversationsById.values(),
+          ].find((conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin);
+          const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
+          setMemberCard({
+            member: contact ??
+              peer ?? {
+                id: profile?.uid || '',
+                identityLabel: 'QQ',
+                identityValue: uin,
+                username: profile?.uid || uin,
+                displayName: profile?.nick || nickname || uin,
+                avatarUrl: senderAvatarSrc(uin) || null,
+              },
+            anchor,
+            fromSpace: true,
+          });
+        }}
+      >
+        {chatContent}
+      </QzoneProfileContext.Provider>
     </QzoneNavigationContext.Provider>
   );
 }

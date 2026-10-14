@@ -11,3 +11,8 @@ export interface QzoneSpaceRequest {
 export const QzoneNavigationContext = createContext<
   ((uin: string, nickname?: string) => void) | null
 >(null);
+
+/** Owner profile entry inside an individual space; other people still open their spaces. */
+export const QzoneProfileContext = createContext<
+  ((uin: string, nickname: string, anchor: { x: number; y: number }) => void) | null
+>(null);

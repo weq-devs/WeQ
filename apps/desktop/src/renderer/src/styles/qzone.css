@@ -98,3 +98,6 @@
 .weq-qzn-picture { position: relative; background: var(--muted); }
 .weq-qzn-picture-loader { position: absolute; left: calc(50% - 11px); top: calc(50% - 11px); }
 .weq-qzn-repost .weq-qzn-interaction { background: var(--background); }
+
+.weq-qzn-owner-navigation .weq-qzn-owner-profile { margin-left: auto; min-width: 0; max-width: 50%; }
+.weq-qzn-owner-profile .weq-qzn-name { overflow-x: auto; white-space: nowrap; scrollbar-width: thin; }

@@ -23,7 +23,7 @@ import { projectQzoneFeed, qzoneMediaSource, mergeQzonePosts, qzoneTextParts } f
 import { Modal } from '../components/Dialog';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import '../styles/qzone.css';
-import type { QzoneSpaceRequest } from '../lib/qzoneNavigation';
+import { QzoneProfileContext, type QzoneSpaceRequest } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 
 type Tab = 'feeds' | 'posts' | 'space';
@@ -567,6 +567,7 @@ function SpaceContent({
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
+  const openProfile = useContext(QzoneProfileContext);
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
@@ -596,6 +597,19 @@ function SpaceContent({
         >
           相册
         </button>
+        {openProfile ? (
+          <button
+            type="button"
+            className="weq-qzn-owner-profile"
+            aria-label={`查看 ${nickname || hostUin} 的资料`}
+            onClick={(event) =>
+              openProfile(hostUin, nickname, { x: event.clientX, y: event.clientY })
+            }
+          >
+            <QqAvatar uin={hostUin} size={24} />
+            <QzoneName content={nickname || hostUin} uin={hostUin} />
+          </button>
+        ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
         <Posts
@@ -799,6 +813,7 @@ function Posts({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          ownerSpace
           onSpace={onSpace}
         />
       ))}
@@ -841,6 +856,7 @@ function Post({
   post,
   onSpace,
   articleRef,
+  ownerSpace = false,
   links = [],
 }: {
   selfUin: string;
@@ -849,8 +865,15 @@ function Post({
   post: QzoneEmotion;
   onSpace: (uin: string, nickname?: string) => void;
   articleRef?: RefObject<HTMLElement | null>;
+  ownerSpace?: boolean;
   links?: ReturnType<typeof projectQzoneFeed>['links'];
 }) {
+  const openProfile = useContext(QzoneProfileContext);
+  const openOwner = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (ownerSpace && openProfile)
+      openProfile(hostUin, nickname, { x: event.clientX, y: event.clientY });
+    else onSpace(hostUin, nickname);
+  };
   const images = post.repost
     ? post.images.filter((url) => !post.repost!.images.includes(url))
     : post.images;
@@ -869,13 +892,15 @@ function Post({
       <div className="weq-qzn-post-head">
         <button
           type="button"
-          aria-label={`进入 ${nickname || hostUin} 的空间`}
-          onClick={() => onSpace(hostUin, nickname)}
+          aria-label={
+            ownerSpace ? `查看 ${nickname || hostUin} 的资料` : `进入 ${nickname || hostUin} 的空间`
+          }
+          onClick={openOwner}
         >
           <QqAvatar uin={hostUin} size={34} />
         </button>
         <div>
-          <button type="button" onClick={() => onSpace(hostUin, nickname)}>
+          <button type="button" onClick={openOwner}>
             <QzoneName content={nickname} uin={hostUin} />
           </button>
           <time dateTime={new Date(post.time * 1000).toISOString()}>

@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { User } from '../im-template/template/types';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
@@ -74,7 +75,21 @@ const ROLE_META = {
   admin: { label: '管理员', Icon: Shield, cls: 'is-admin' },
 };
 
-export function MemberProfileCard({ member, anchor, onClose, groupCode, groupName }) {
+export function MemberProfileCard({
+  member,
+  anchor,
+  onClose,
+  groupCode,
+  groupName,
+  onOpenChat,
+}: {
+  member: User;
+  anchor: { x: number; y: number };
+  onClose: () => void;
+  groupCode?: string;
+  groupName?: string;
+  onOpenChat?: () => void;
+}) {
   const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -104,8 +119,10 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
     let alive = true;
     setLoading(true);
     setProfile(null);
-    client.account.getProfile
-      .query({ uid })
+    const pending = uid
+      ? client.account.getProfile.query({ uid })
+      : client.account.getProfileByUin.query({ uin: member.identityValue });
+    pending
       .then((p) => {
         if (alive) {
           setProfile(p);
@@ -118,7 +135,7 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
     return () => {
       alive = false;
     };
-  }, [uid]);
+  }, [uid, member.identityValue]);
 
   // 机器人才去查 adelie 表；member.kind 来自 MainView 里的 botUids 集合。
   useEffect(() => {
@@ -158,7 +175,12 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
 
   const name = displayUserName(member);
   const role = ROLE_META[member.role];
-  const uin = profile?.uin && profile.uin !== '0' ? profile.uin : null;
+  const uin =
+    profile?.uin && profile.uin !== '0'
+      ? profile.uin
+      : member.identityLabel === 'QQ'
+        ? member.identityValue
+        : null;
   const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
@@ -376,11 +398,12 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
                     type="button"
                     onClick={() => {
                       onClose();
-                      openSpace(uin, profile?.nick || name);
+                      if (onOpenChat) onOpenChat();
+                      else openSpace(uin, profile?.nick || name);
                     }}
                   >
                     <Star size={13} />
-                    查看空间
+                    {onOpenChat ? '查看私聊' : '查看空间'}
                   </button>
                 ) : null}
                 <button
@@ -435,6 +458,7 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
         <PersonalityHomeDialog
           uin={uin}
           spaceNickname={profile?.nick || name}
+          onOpenChat={onOpenChat}
           uid={member.id}
           isBot={member.kind === 'bot'}
           profile={toPersonalityProfile(

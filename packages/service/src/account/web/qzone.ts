@@ -472,8 +472,8 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
  * 空间皆可)。`pos` 偏移 + `num` 页大小可稳定深翻历史。
  *
  * 错误传播:非零 `code`(qzone 自己的鉴权/权限错误信封)或缺失 `msglist`
- * (过期 cookie 的 body)都抛错。真正的空空间返回 `msglist: []`,映射为空列表
- * 且 `total` 正确。
+ * (过期 cookie 的 body)都抛错。成功响应也可能携带 null 列表；只有登录身份与
+ * 目标空间均匹配时才按当前无可见内容处理，保留服务端 total（可能大于零）。
  * 可选 captureRaw 先保存完整响应原文，成功后才解析/映射；写入失败直接传播。
  * 回调只接收响应文本，不接收请求 URL、Cookie 或凭据。
  */
@@ -524,13 +524,12 @@ export async function getQzoneMsgList(
     if (
       data.msglist === null &&
       data.code === 0 &&
-      data.total === 0 &&
       String(data.logininfo?.uin) === cred.uin &&
       String(data.usrinfo?.uin) === targetUin
     ) {
       return mapMsgList({ ...data, msglist: [] });
     }
-    throw new Error(`无法获取空间说说列表(响应结构异常): ${text.slice(0, 200)}`);
+    throw new Error('暂时无法读取空间动态，请稍后重试。');
   }
 
   return mapMsgList(data);
@@ -681,8 +680,7 @@ export async function getQzoneFeeds(
     throw qzoneCodeError('qzone feeds', data.code, data.message);
   }
   if (!Array.isArray(data.data?.data)) {
-    // 带上响应头片段:cookie 失效 / 无权限 / 风控 各有不同 body,方便对症。
-    throw new Error(`无法获取空间好友动态(响应结构异常): ${text.slice(0, 200)}`);
+    throw new Error('暂时无法读取好友动态，请稍后重试。');
   }
 
   return mapFeeds(data);

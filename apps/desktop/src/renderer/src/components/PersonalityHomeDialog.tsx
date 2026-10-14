@@ -87,6 +87,7 @@ export function PersonalityHomeDialog({
   isBot = false,
   spaceNickname,
   onNavigateAway,
+  onOpenChat,
   onClose,
 }: {
   /** 目标 QQ 号。装扮页只认 uin，拿不到 uin 的联系人不该开这个入口。 */
@@ -98,6 +99,7 @@ export function PersonalityHomeDialog({
   isBot?: boolean;
   spaceNickname?: string;
   onNavigateAway?: () => void;
+  onOpenChat?: () => void;
   onClose: () => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
@@ -235,11 +237,12 @@ export function PersonalityHomeDialog({
                 onClick={() => {
                   onClose();
                   onNavigateAway?.();
-                  openSpace(uin, spaceNickname || profile.name);
+                  if (onOpenChat) onOpenChat();
+                  else openSpace(uin, spaceNickname || profile.name);
                 }}
               >
                 <Star size={13} />
-                查看空间
+                {onOpenChat ? '查看私聊' : '查看空间'}
               </button>
             </div>
           ) : null}
