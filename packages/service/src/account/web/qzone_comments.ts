@@ -2,10 +2,11 @@
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { parseQzoneCallback } from './qzone';
 import { webRequestText, WebRequestError } from './http';
-import type { QzoneComment, QzoneLike } from './qzone_interaction';
+import type { QzoneComment } from './qzone_interaction';
 
 export interface QzoneCommentSnapshot {
   comments: QzoneComment[];
+  replies: QzoneComment[];
   reportedTotal: number | null;
   replyCounts: Record<string, number | null>;
   countMatched: boolean;
@@ -29,36 +30,6 @@ function decimal(value: unknown): string | null {
 function count(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
-function commentLikes(row: Record<string, unknown>): {
-  likeCount?: number;
-  likeUsers?: QzoneLike[];
-} {
-  const extra = object(row.extendData);
-  const info = object(row.likeData) ?? object(row.like);
-  const rawCount =
-    row.likeNum ?? row.likeCount ?? extra?.likeNum ?? extra?.likeCount ?? info?.cnt ?? info?.count;
-  const value =
-    typeof rawCount === 'string' && /^\d+$/.test(rawCount) ? Number(rawCount) : rawCount;
-  const likeCount = count(value);
-  const rawUsers = row.likeList ?? info?.list;
-  const users = new Map<string, QzoneLike>();
-  for (const raw of Array.isArray(rawUsers) ? rawUsers : []) {
-    const person = object(raw);
-    const id = decimal(Array.isArray(raw) ? raw[0] : (person?.uin ?? person?.id));
-    const name = Array.isArray(raw) ? raw[1] : (person?.nickname ?? person?.name);
-    if (id && /^[1-9]\d{4,19}$/.test(id))
-      users.set(id, {
-        uin: id,
-        nickname: typeof name === 'string' ? name : '',
-        time: 0,
-        customItemId: '',
-      });
-  }
-  return {
-    ...(likeCount === null ? {} : { likeCount }),
-    ...(users.size ? { likeUsers: [...users.values()] } : {}),
-  };
-}
 
 function decodeError(): never {
   throw new WebRequestError('decode', '空间评论响应格式无效。');
@@ -70,6 +41,7 @@ export function parseQzoneCommentPage(
   tid: string,
 ): {
   comments: QzoneComment[];
+  replies: QzoneComment[];
   reportedTotal: number | null;
   replyCounts: Record<string, number | null>;
 } {
@@ -88,6 +60,7 @@ export function parseQzoneCommentPage(
   const reportedTotal = count(data.total);
   if (data.total !== undefined && reportedTotal === null) return decodeError();
   const comments: QzoneComment[] = [];
+  const replies: QzoneComment[] = [];
   const replyCounts: Record<string, number | null> = Object.create(null);
   for (const raw of data.comments) {
     const row = object(raw),
@@ -116,10 +89,60 @@ export function parseQzoneCommentPage(
       time,
       isReply: false,
       images: [],
-      ...commentLikes(row),
     });
+    // Official Common/CommentListViewModel reads commentInfo.replies.
+    if (row.replies != null && !Array.isArray(row.replies)) return decodeError();
+    const seenReplies = new Set<string>();
+    for (const rawReply of (row.replies ?? []) as unknown[]) {
+      const reply = object(rawReply),
+        replyPoster = object(reply?.poster);
+      const replyId = decimal(reply?.id),
+        replyUin = decimal(replyPoster?.id),
+        replyTime = count(reply?.postTime);
+      if (
+        !reply ||
+        !replyPoster ||
+        replyId === null ||
+        !replyUin ||
+        replyUin === '0' ||
+        typeof reply.content !== 'string' ||
+        typeof replyPoster.name !== 'string' ||
+        replyTime === null ||
+        replyTime > 100_000_000_000 ||
+        seenReplies.has(replyId)
+      )
+        return decodeError();
+      seenReplies.add(replyId);
+      replies.push({
+        id: `${id}_r_${replyId}_${replyUin}`,
+        parentCommentId: id,
+        uin: replyUin,
+        nickname: replyPoster.name,
+        content: reply.content,
+        time: replyTime,
+        isReply: true,
+        images: [],
+      });
+    }
   }
-  return { comments, reportedTotal, replyCounts };
+  return { comments, replies, reportedTotal, replyCounts };
+}
+
+/** The structured endpoint counts roots separately from each root's replyNum. */
+export function inclusiveQzoneCommentCount(snapshot: QzoneCommentSnapshot): number | null {
+  if (!snapshot.countMatched) return null;
+  let total = snapshot.comments.length;
+  for (const comment of snapshot.comments) {
+    const replies = snapshot.replyCounts[comment.id];
+    if (
+      replies == null ||
+      snapshot.replies.filter((row) => row.parentCommentId === comment.id).length > replies
+    )
+      return null;
+    total += replies;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+  return total;
 }
 
 async function pace(signal?: AbortSignal): Promise<void> {
@@ -155,6 +178,7 @@ export async function readQzoneComments(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('空间评论时限无效。');
   const deadline = Date.now() + 45_000;
   const comments: QzoneComment[] = [],
+    replies: QzoneComment[] = [],
     seen = new Set<string>();
   const replyCounts: Record<string, number | null> = Object.create(null);
   let reportedTotal: number | null = null,
@@ -207,10 +231,11 @@ export async function readQzoneComments(
       added++;
       comments.push(comment);
       replyCounts[comment.id] = result.replyCounts[comment.id]!;
+      replies.push(...result.replies.filter((reply) => reply.parentCommentId === comment.id));
     }
     start += result.comments.length;
     if (!stableTotal)
-      return { comments, reportedTotal, replyCounts, countMatched: false, requests };
+      return { comments, replies, reportedTotal, replyCounts, countMatched: false, requests };
     const countMatched = stableTotal && reportedTotal !== null && comments.length === reportedTotal;
     if (
       countMatched ||
@@ -218,9 +243,9 @@ export async function readQzoneComments(
       added === 0 ||
       (reportedTotal === null && result.comments.length < 50)
     )
-      return { comments, reportedTotal, replyCounts, countMatched, requests };
+      return { comments, replies, reportedTotal, replyCounts, countMatched, requests };
   }
-  return { comments, reportedTotal, replyCounts, countMatched: false, requests };
+  return { comments, replies, reportedTotal, replyCounts, countMatched: false, requests };
 }
 
 /** Keep HTML observations as fallback while preferring a matched structured root snapshot. */
@@ -251,14 +276,10 @@ export async function supplementQzoneComments(
         const observed = oldRoots.get(comment.id);
         if (observed?.uin === comment.uin && observed.content === comment.content) {
           comment.images = [...observed.images];
-          if (comment.likeCount === undefined && observed.likeCount !== undefined)
-            comment.likeCount = observed.likeCount;
-          if (!comment.likeUsers?.length && observed.likeUsers?.length)
-            comment.likeUsers = [...observed.likeUsers];
         }
       }
       const roots = new Map(snapshot.comments.map((comment) => [comment.id, comment]));
-      const replies = oldComments.filter(
+      const oldReplies = oldComments.filter(
         (comment) =>
           comment.isReply &&
           comment.parentCommentId &&
@@ -267,9 +288,35 @@ export async function supplementQzoneComments(
           roots.has(comment.parentCommentId) &&
           snapshot.replyCounts[comment.parentCommentId] !== 0,
       );
-      const zeroReplies =
+      const replies = [...snapshot.replies];
+      for (const reply of oldReplies) {
+        const rootId = reply.parentCommentId!;
+        const structured = snapshot.replies.filter((row) => row.parentCommentId === rootId);
+        if (
+          snapshot.replyCounts[rootId] != null &&
+          structured.length === snapshot.replyCounts[rootId]
+        )
+          continue;
+        if (
+          !replies.some(
+            (row) =>
+              row.parentCommentId === rootId &&
+              row.uin === reply.uin &&
+              row.content === reply.content &&
+              (!row.time || !reply.time || row.time === reply.time),
+          )
+        )
+          replies.push(reply);
+      }
+      const repliesComplete =
         snapshot.countMatched &&
-        snapshot.comments.every((comment) => snapshot.replyCounts[comment.id] === 0);
+        snapshot.comments.every(
+          (comment) =>
+            snapshot.replyCounts[comment.id] != null &&
+            replies.filter((reply) => reply.parentCommentId === comment.id).length ===
+              snapshot.replyCounts[comment.id],
+        );
+      const commentCountInclusive = inclusiveQzoneCommentCount(snapshot);
       // Never replace a larger observed set with an incomplete structured scan.
       const comments = snapshot.countMatched
         ? [...snapshot.comments, ...replies]
@@ -278,16 +325,18 @@ export async function supplementQzoneComments(
         const existing = new Set(
           comments.map((comment) => `${comment.isReply}:${comment.id}:${comment.uin}`),
         );
-        for (const comment of snapshot.comments)
-          if (!existing.has(`false:${comment.id}:${comment.uin}`)) comments.push(comment);
+        for (const comment of [...snapshot.comments, ...snapshot.replies])
+          if (!existing.has(`${comment.isReply}:${comment.id}:${comment.uin}`))
+            comments.push(comment);
       }
       results.set(target.tid, {
         comments,
+        commentCountInclusive,
         likes: previous?.likes ?? [],
         coverage: 'observed',
         fieldCoverage: {
           comments: snapshot.countMatched ? 'complete' : 'observed',
-          replies: zeroReplies
+          replies: repliesComplete
             ? 'complete'
             : comments.some((comment) => comment.isReply)
               ? 'observed'

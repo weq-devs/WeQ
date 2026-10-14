@@ -74,6 +74,8 @@ export interface QzoneInteraction {
     likes: 'observed' | 'unobserved' | 'failed';
   };
   comments: QzoneComment[];
+  /** Root comments plus replies, only when every root supplies a known reply count. */
+  commentCountInclusive?: number | null;
   likes: QzoneLike[];
 }
 

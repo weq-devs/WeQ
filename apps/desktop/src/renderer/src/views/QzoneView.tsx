@@ -715,7 +715,7 @@ function PostActions({
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(null);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [likeError, setLikeError] = useState('');
-  const [commentCount, setCommentCount] = useState(post.commentNum);
+  const [commentCount, setCommentCount] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const visible = useNearViewport(ref, true);
   const { run, cancel } = useQzoneRequests();
@@ -729,7 +729,7 @@ function PostActions({
           hostUin,
           tid: post.tid,
           requestId,
-          needCommentCount: post.commentNum === null,
+          needCommentCount: true,
         }),
       true,
     )
@@ -746,7 +746,7 @@ function PostActions({
       live = false;
       cancel();
     };
-  }, [visible, selfUin, hostUin, post.tid, post.commentNum, run, cancel]);
+  }, [visible, selfUin, hostUin, post.tid, run, cancel]);
   const likeCount = likes?.reportedTotal ?? initialLikeCount;
   return (
     <div ref={ref}>
@@ -762,6 +762,7 @@ function PostActions({
         <button
           type="button"
           aria-expanded={expanded === 'comments'}
+          title="评论和回复合计"
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
@@ -839,56 +840,6 @@ function Picture({ url, index }: { url: string; index: number }) {
         onError={() => setFailed(true)}
       />
     </button>
-  );
-}
-
-function CommentLikes({
-  comment,
-  onSpace,
-}: {
-  comment: QzoneInteraction['comments'][number];
-  onSpace: (uin: string, nickname?: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const users = comment.likeUsers ?? [];
-  const label = comment.likeCount ?? (users.length ? `≥${users.length}` : '?');
-  return (
-    <>
-      <div className="weq-qzn-comment-meta">
-        <time>{timeText(comment.time)}</time>
-        {users.length ? (
-          <button
-            type="button"
-            className="weq-qzn-comment-likes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            <ThumbsUp size={13} /> {label}
-          </button>
-        ) : (
-          <span
-            className="weq-qzn-comment-likes"
-            title={comment.likeCount === undefined ? '暂时无法读取点赞数' : '暂无可查看的点赞名单'}
-          >
-            <ThumbsUp size={13} /> {label}
-          </span>
-        )}
-      </div>
-      {expanded ? (
-        <div className="weq-qzn-like-users weq-qzn-comment-like-users">
-          {users.map((person) => (
-            <button
-              type="button"
-              key={person.uin}
-              onClick={() => onSpace(person.uin, person.nickname)}
-            >
-              <QqAvatar uin={person.uin} size={22} />
-              <QzoneName content={person.nickname || person.uin} uin={person.uin} preferNickname />
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -974,8 +925,7 @@ function Interaction({
         const page = await client.account.qzone.interactions.query({ ...input, time: post.time });
         if (live) {
           setResult(page);
-          if (page.fieldCoverage?.comments === 'complete')
-            onCommentCount(page.comments.filter((comment) => !comment.isReply).length);
+          if (page.commentCountInclusive != null) onCommentCount(page.commentCountInclusive);
         }
       }
     }).catch((error: unknown) => {
@@ -1049,7 +999,9 @@ function Interaction({
           <QzoneText content={comment.content} onSpace={onSpace} />
         </p>
         <Pictures images={comment.images} />
-        <CommentLikes comment={comment} onSpace={onSpace} />
+        <div className="weq-qzn-comment-meta">
+          <time>{timeText(comment.time)}</time>
+        </div>
       </div>
     </div>
   );
@@ -1063,14 +1015,13 @@ function Interaction({
       ))}
       {orphans.map(renderComment)}
       <p className="weq-qzn-status">
-        {result!.fieldCoverage?.comments === 'complete'
-          ? roots.length
-            ? '评论已加载'
-            : '暂无评论'
-          : roots.length
-            ? `已显示 ${roots.length} 条评论${post.commentNum === null ? '' : `，共 ${post.commentNum} 条`}`
+        {result!.comments.length
+          ? `已显示 ${roots.length} 条评论、${replies.length} 条回复${result!.commentCountInclusive == null ? '' : `，共 ${result!.commentCountInclusive} 条`}`
+          : result!.fieldCoverage?.comments === 'complete' &&
+              result!.fieldCoverage?.replies === 'complete'
+            ? '暂无评论'
             : '暂未读取到评论'}
-        {result!.fieldCoverage?.replies !== 'complete' ? ' · 回复可能未全部展开' : ''}
+        {result!.fieldCoverage?.replies !== 'complete' ? ' · 部分回复尚未读取' : ''}
       </p>
     </div>
   );
