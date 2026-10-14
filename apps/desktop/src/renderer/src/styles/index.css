@@ -9475,6 +9475,18 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   transform: translate(-50%, calc(-50% + 14px));
 }
 
+/* 用了自定义皮肤封面时：祝福语不再压在封面正中，改落在封面底部的红包红带上
+   （「開」金盘下沿之下）。皮肤封面中部的花样与配色千差万别，米黄字压上去常被
+   浅色背景吞掉看不清；通用封面（normal_bag / password_bag）仍保持原居中位。 */
+.weq-redbag-card--skin .weq-redbag-title {
+  top: auto;
+  bottom: 6%;
+  transform: translateX(-50%);
+  /* 底部红带只剩金盘下沿到卡片底这一条窄带，只放得下一行，多了会糊在金盘上。 */
+  -webkit-line-clamp: 1;
+  font-size: 13px;
+}
+
 /* --- floating forward window stack ----------------------------- */
 
 .weq-forward-layer {
