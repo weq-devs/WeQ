@@ -88,6 +88,9 @@ export type Contact = User & {
 export type GroupMemberRole = 'owner' | 'admin' | 'member';
 
 export type GroupMember = User & {
+  card?: string;
+  remark?: string;
+  nick?: string;
   role: GroupMemberRole;
   joinedAt: string;
   lastSpeakAt?: string | null;

@@ -116,6 +116,7 @@ import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
+import { displayGroupMemberName } from '../im-template/template/user';
 import { QzoneWorkspace } from './QzoneView';
 import {
   QzoneNavigationContext,
@@ -984,6 +985,7 @@ function groupMemberWireToMember(
     ownerUid?: string;
     levelConfigs: Array<{ level: number; levelName: string }>;
     botUids: ReadonlySet<string>;
+    profileByUid: Map<string, UserProfileWire>;
   },
 ): GroupMember {
   return {
@@ -992,7 +994,15 @@ function groupMemberWireToMember(
     identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
     username: m.uid,
     uin: m.uin,
-    displayName: m.card || m.nick || m.uin || 'Member',
+    card: m.card,
+    remark: ctx.profileByUid.get(m.uid)?.remark,
+    nick: m.nick || ctx.profileByUid.get(m.uid)?.nick,
+    displayName: displayGroupMemberName(
+      m.card,
+      ctx.profileByUid.get(m.uid)?.remark,
+      m.nick || ctx.profileByUid.get(m.uid)?.nick,
+      m.uin || m.uid || 'Member',
+    ),
     avatarUrl: senderAvatarSrc(m.uin),
     kind: ctx.botUids.has(m.uid) ? 'bot' : 'human',
     role: m.uid === ctx.ownerUid ? 'owner' : m.adminFlag > 0 ? 'admin' : 'member',
@@ -1202,10 +1212,16 @@ function messageSender(
           ? message.senderUin
           : message.senderUid,
       username: isMine ? user.username : message.senderUid || message.senderUin,
-      displayName: isMine
-        ? user.displayName
-        : member?.displayName ||
-          (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
+      card: member?.card,
+      remark: member?.remark,
+      nick: member?.nick,
+      displayName:
+        member?.displayName ||
+        (isMine
+          ? user.displayName
+          : message.senderUin && message.senderUin !== '0'
+            ? message.senderUin
+            : 'Member'),
       avatarUrl: isMine ? user.avatarUrl : member?.avatarUrl || senderAvatarSrc(message.senderUin),
       kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
       role: !isUinOnly ? member?.role : undefined,
@@ -3891,14 +3907,22 @@ export function MainView(): ReactElement {
       identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
       identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
       username: m.uid,
-      displayName: m.card || m.nick || m.uin || 'Member',
+      card: m.card,
+      remark: profileByUid.get(m.uid)?.remark,
+      nick: m.nick || profileByUid.get(m.uid)?.nick,
+      displayName: displayGroupMemberName(
+        m.card,
+        profileByUid.get(m.uid)?.remark,
+        m.nick || profileByUid.get(m.uid)?.nick,
+        m.uin || m.uid || 'Member',
+      ),
       avatarUrl: senderAvatarSrc(m.uin),
       kind: botUids.has(m.uid) ? ('bot' as const) : ('human' as const),
       role: 'member' as const,
       joinedAt: new Date(0).toISOString(),
     }));
     return { ...conv, members };
-  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids]);
+  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids, profileByUid]);
 
   // 切换到独占全屏的视图（home/export/agentlab/cache/qzone/channel）时，
   // 自动关闭可能还开着的公众号/服务号 ARK Feed 页面，否则会覆盖在新视图上。
@@ -4129,11 +4153,16 @@ export function MainView(): ReactElement {
         }>
       ).map((member) => ({
         id: member.uid,
-        displayName: member.card || member.nick || member.uin || 'Member',
+        displayName: displayGroupMemberName(
+          member.card,
+          profileByUid.get(member.uid)?.remark,
+          member.nick || profileByUid.get(member.uid)?.nick,
+          member.uin || member.uid || 'Member',
+        ),
         identity: member.uin && member.uin !== '0' ? member.uin : member.uid,
         avatarUrl: avatarFromUin(member.uin),
       })),
-    [groupLeftMembers.data],
+    [groupLeftMembers.data, profileByUid],
   );
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
@@ -4249,8 +4278,9 @@ export function MainView(): ReactElement {
         ownerUid: groupDetail.data?.ownerUid,
         levelConfigs: groupLevelInfo.data?.levelConfigs ?? [],
         botUids,
+        profileByUid,
       }),
-    [groupDetail.data, groupLevelInfo.data, botUids],
+    [groupDetail.data, groupLevelInfo.data, botUids, profileByUid],
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.

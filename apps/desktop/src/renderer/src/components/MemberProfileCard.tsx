@@ -48,7 +48,7 @@ import { MutualMarkDialog } from './MutualMarkDialog';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { displayUserName } from '../im-template/template/user';
+import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
 import { useEscapeToClose } from '../im-template/template/modalUtils';
 import {
   ProfileRow,
@@ -173,7 +173,15 @@ export function MemberProfileCard({
     setPos({ left, top, ready: true });
   }, [anchor.x, anchor.y, loading, profile, botProfile]);
 
-  const name = displayUserName(member);
+  const name =
+    'card' in member
+      ? displayGroupMemberName(
+          member.card,
+          profile?.remark || member.remark,
+          member.nick || profile?.nick,
+          displayUserName(member),
+        )
+      : displayUserName(member);
   const role = ROLE_META[member.role];
   const uin =
     profile?.uin && profile.uin !== '0'
