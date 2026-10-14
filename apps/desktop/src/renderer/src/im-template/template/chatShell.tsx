@@ -48,6 +48,8 @@ export function ChatShell({
   onOpenFriendNotices,
   onOpenGroupNotices,
   onContactTabChange,
+  onRefreshContacts,
+  refreshingContacts,
   onSidebarWidthChange,
   onGoHome,
 }: {
@@ -91,6 +93,8 @@ export function ChatShell({
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
   onContactTabChange: (tab: ContactTab) => void;
+  onRefreshContacts?: () => void;
+  refreshingContacts?: boolean;
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
 }) {
@@ -148,6 +152,8 @@ export function ChatShell({
             onOpenGroupNotices={onOpenGroupNotices}
             contactTab={contactTab}
             onContactTabChange={onContactTabChange}
+            onRefreshContacts={onRefreshContacts}
+            refreshingContacts={refreshingContacts}
             activeNotice={activeNotice}
             searchPanel={searchPanel}
             onSearchFocus={onSearchFocus}

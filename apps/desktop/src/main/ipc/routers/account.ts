@@ -2263,6 +2263,19 @@ export const accountRouter = router({
     return categories.map(categoryToWire);
   }),
 
+  specialCare: procedure
+    .input(z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) }))
+    .query(async ({ input }) => {
+      const services = requireServices();
+      if (String(getAppContext().account?.context.uin) !== input.selfUin)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      requireOnlineQqForWeb(services);
+      const result = await services.webQuery.getSpecialCare();
+      if (getAppContext().services !== services)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      return result;
+    }),
+
   /** List QQ buddy request notifications. */
   listBuddyRequests: procedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
@@ -2287,9 +2300,11 @@ export const accountRouter = router({
    * The uids of every bot with a cached profile. The renderer fetches this
    * once and uses it to badge bots in member / contact / conversation lists.
    */
-  botUids: procedure.query(async () => {
-    return [...(await requireServices().profile.botUids())];
-  }),
+  botUids: procedure
+    .input(z.object({ refresh: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      return [...(await requireServices().profile.botUids(input?.refresh))];
+    }),
 
   /**
    * A bot's own profile (简介 / 指令列表 / 欢迎语). Null when QQ has never
@@ -2382,8 +2397,16 @@ export const accountRouter = router({
   /** List all groups from group_info.db. */
   listAllGroups: procedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
-    const groups = await requireServices().groupInfo.listAllGroups(page.limit, page.offset);
-    return groups.map(groupDetailToWire);
+    const service = requireServices().groupInfo;
+    const [groups, directory] = await Promise.all([
+      service.listAllGroups(page.limit, page.offset),
+      service.listGroupDirectory(),
+    ]);
+    const byCode = new Map(directory.map((entry) => [entry.groupCode, entry]));
+    return groups.map((group) => ({
+      ...groupDetailToWire(group),
+      directory: byCode.get(String(group.groupCode)) ?? null,
+    }));
   }),
 
   /** List group announcements. */

@@ -15,6 +15,7 @@ export interface Category {
   id: number;
   name: string;
   buddyCount: number;
+  sortOrder?: number;
 }
 
 export interface CategoryDbOptions {
@@ -43,10 +44,11 @@ export class CategoryDb {
 
     try {
       const decoded = categoryCodec.decode(blob);
-      return (decoded.items ?? []).map((item) => ({
+      return (decoded.items ?? []).map((item, index) => ({
         id: item.id ?? 0,
         name: item.name ?? '',
         buddyCount: item.buddyCount ?? 0,
+        sortOrder: item.id2 ?? index,
       }));
     } catch {
       return [];

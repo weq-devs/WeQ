@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Trash2,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from './classNames';
@@ -28,6 +29,7 @@ import { FaceEmoji } from '../../components/FaceEmoji';
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type {
   Contact,
+  ContactSection,
   Conversation,
   ConversationDrafts,
   ConversationPreferences,
@@ -323,24 +325,132 @@ export function GroupList({
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
   loading?: boolean;
 }) {
-  const categories = useMemo(
-    () =>
-      GROUP_NOTIFICATION_SECTIONS.map((section) => ({
-        ...section,
-        items: conversations.filter(
-          (conversation) =>
-            conversation.type === 'group' &&
-            groupNotificationMode(conversation.notifyLevel) === section.mode,
-        ),
-      })).filter((section) => section.items.length > 0),
+  const [basis, setBasis] = useState(() => {
+    try {
+      const saved = localStorage.getItem('weq.groups.grouping');
+      return ['notify', 'identity', 'size'].includes(saved ?? '') ? saved : 'notify';
+    } catch {
+      return 'notify';
+    }
+  });
+  const categories = useMemo(() => {
+    const groups = conversations.filter(
+      (conversation) => conversation.type === 'group' && conversation.group.listed === true,
+    );
+    if (basis === 'identity')
+      return [
+        {
+          mode: 'pinned',
+          label: '置顶群聊',
+          items: groups.filter((group) => group.preference?.pinned),
+        },
+        {
+          mode: 'unnamed',
+          label: '未命名的群聊',
+          items: groups.filter((group) => group.group.unnamed),
+        },
+        {
+          mode: 'owner',
+          label: '我创建的群聊',
+          items: groups.filter((group) => group.group.roleKnown && group.group.role === 'owner'),
+        },
+        {
+          mode: 'admin',
+          label: '我管理的群聊',
+          items: groups.filter((group) => group.group.roleKnown && group.group.role === 'admin'),
+        },
+        {
+          mode: 'member',
+          label: '我加入的群聊',
+          items: groups.filter((group) => group.group.roleKnown && group.group.role === 'member'),
+        },
+        ...(groups.some((group) => !group.group.roleKnown)
+          ? [
+              {
+                mode: 'role-unknown',
+                label: '身份未读取',
+                items: groups.filter((group) => !group.group.roleKnown),
+              },
+            ]
+          : []),
+      ];
+    if (basis === 'size') {
+      const limits = [10, 40, 70, 100, 200, 500, 1000, Infinity];
+      const labels = [
+        '10 人以内',
+        '11–40 人',
+        '41–70 人',
+        '71–100 人',
+        '101–200 人',
+        '201–500 人',
+        '501–1000 人',
+        '1000 人以上',
+      ];
+      return [
+        ...limits.map((max, index) => ({
+          mode: `size:${index}`,
+          label: labels[index],
+          items: groups.filter(
+            (group) =>
+              group.group.memberCount > (limits[index - 1] ?? 0) && group.group.memberCount <= max,
+          ),
+        })),
+        ...(groups.some((group) => !(group.group.memberCount > 0))
+          ? [
+              {
+                mode: 'size-unknown',
+                label: '人数未读取',
+                items: groups.filter((group) => !(group.group.memberCount > 0)),
+              },
+            ]
+          : []),
+      ];
+    }
+    return GROUP_NOTIFICATION_SECTIONS.map((section) => ({
+      ...section,
+      items: groups.filter(
+        (conversation) => groupNotificationMode(conversation.notifyLevel) === section.mode,
+      ),
+    }));
+  }, [conversations, basis]);
+  const historicalCategory = useMemo(
+    () => ({
+      mode: 'historical',
+      label: '已解散或已退出的群聊',
+      historical: true,
+      items: conversations.filter(
+        (conversation) =>
+          conversation.type === 'group' &&
+          conversation.group.membershipKnown &&
+          conversation.group.listed === false,
+      ),
+    }),
     [conversations],
   );
 
   if (loading) return <ListSkeleton rows={9} />;
-  if (!categories.length)
+  if (!categories.some((category) => category.items.length) && !historicalCategory.items.length)
     return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
   return (
     <div className={cn('list-stack', 'contact-cat-list')}>
+      <label className="weq-group-list-basis">
+        分组依据
+        <select
+          value={basis ?? 'notify'}
+          onChange={(event) => {
+            setBasis(event.target.value);
+            try {
+              localStorage.setItem('weq.groups.grouping', event.target.value);
+            } catch {
+              /* UI choice is optional. */
+            }
+          }}
+        >
+          <option value="notify">按消息提醒方式</option>
+          <option value="identity">按我的身份</option>
+          <option value="size">按群人数</option>
+        </select>
+      </label>
       {categories.map((category) => (
         <GroupNotificationSection
           key={category.mode}
@@ -349,6 +459,11 @@ export function GroupList({
           onSelect={onSelect}
         />
       ))}
+      <GroupNotificationSection
+        category={historicalCategory}
+        activeConversationId={activeConversationId}
+        onSelect={onSelect}
+      />
     </div>
   );
 }
@@ -362,6 +477,7 @@ function GroupNotificationSection({ category, activeConversationId, onSelect }) 
     if (containsActive) setOpen(true);
   }, [containsActive]);
   const visibleCount = useProgressiveRowCount(open ? category.items.length : 0);
+  if (category.items.length === 0) return null;
   return (
     <div className="contact-cat">
       <button
@@ -394,7 +510,13 @@ function GroupNotificationSection({ category, activeConversationId, onSelect }) 
                 <strong>
                   <span className="row-title-text">{conversation.group.name}</span>
                 </strong>
-                <span>{conversation.group.memberCount} 位成员</span>
+                <span>
+                  {category.historical
+                    ? '已不在当前群列表'
+                    : conversation.group.memberCount > 0
+                      ? `${conversation.group.memberCount} 位成员`
+                      : '人数未读取'}
+                </span>
               </span>
             </button>
           ))
@@ -405,11 +527,17 @@ function GroupNotificationSection({ category, activeConversationId, onSelect }) 
 
 export function ContactList({
   contacts,
+  categoryDefinitions = [],
+  specialSections = [],
+  trailingSections = [],
   activeContactId,
   onSelect,
   loading,
 }: {
   contacts: Contact[];
+  categoryDefinitions?: { id: number; name: string; buddyCount: number; sortOrder?: number }[];
+  specialSections?: ContactSection[];
+  trailingSections?: ContactSection[];
   activeContactId: string | null;
   onSelect: (contact: Contact) => void;
   loading?: boolean;
@@ -418,29 +546,41 @@ export function ContactList({
 
   // 按好友分组归类，分组内保持原顺序；分组按 categoryId 升序（0「我的好友」在前）。
   const categories = useMemo(() => {
-    const map = new Map<number, { id: number; name: string; items: Contact[] }>();
+    const map = new Map<number, { id: number; name: string; items: Contact[]; order: number }>();
+    categoryDefinitions.forEach((category, index) => {
+      map.set(category.id, {
+        id: category.id,
+        name: category.name || (category.id === 0 ? '我的好友' : '未命名分组'),
+        items: [],
+        order: category.sortOrder ?? index,
+      });
+    });
     for (const contact of filtered) {
       const id = contact.categoryId ?? 0;
-      if (!map.has(id)) {
+      if (!map.has(id))
         map.set(id, {
           id,
-          name: contact.categoryName || (id === 0 ? '我的好友' : '未命名分组'),
+          name: contact.categoryName || (id === 0 ? '我的好友' : '未归属联系人'),
           items: [],
+          order: Infinity,
         });
-      }
-      map.get(id).items.push(contact);
+      map.get(id)!.items.push(contact);
     }
-    return [...map.values()].sort((first, second) => first.id - second.id);
-  }, [filtered]);
+    return [
+      ...specialSections,
+      ...[...map.values()].sort((first, second) => first.order - second.order),
+      ...trailingSections,
+    ];
+  }, [filtered, categoryDefinitions, specialSections, trailingSections]);
 
   // 默认全部折叠。
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
 
   if (loading) {
     return <ListSkeleton rows={9} />;
   }
 
-  if (filtered.length === 0) {
+  if (categories.length === 0) {
     return (
       <EmptyState
         title="暂无联系人"
@@ -469,8 +609,25 @@ export function ContactList({
             >
               <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
               <span className={cn('contact-cat-name')}>{category.name}</span>
-              <span className={cn('contact-cat-count')}>{category.items.length}</span>
+              <span className={cn('contact-cat-count')}>
+                {category.count === null ? '-' : (category.count ?? category.items.length)}
+              </span>
             </button>
+            {open && category.description ? (
+              <div className={cn('contact-cat-description')} role="status">
+                <small>{category.description}</small>
+                {category.onRetry ? (
+                  <button
+                    type="button"
+                    onClick={category.onRetry}
+                    title="重新读取特别关心"
+                    aria-label="重新读取特别关心"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {open
               ? category.items.map((contact) => (
                   <button
@@ -502,9 +659,14 @@ export function ContactList({
                             <span>[{contact.onlineStatusObj.displayStatus}]</span>
                           </span>
                         ) : null}
-                        <span className={cn('contact-card-signature')}>
-                          {contact.signature || '这个人很懒，什么都没留下'}
-                        </span>
+                        {contact.kind !== 'bot' &&
+                        contact.identityLabel !== '设备' &&
+                        category.id !== 'special:devices' &&
+                        category.id !== 'special:bots' ? (
+                          <span className={cn('contact-card-signature')}>
+                            {contact.signature || '这个人很懒，什么都没留下'}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                   </button>

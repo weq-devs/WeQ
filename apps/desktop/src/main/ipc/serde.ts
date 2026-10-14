@@ -148,6 +148,7 @@ export interface CategoryWire {
   id: number;
   name: string;
   buddyCount: number;
+  sortOrder?: number;
 }
 
 export interface BuddyRequestWire {
@@ -719,6 +720,7 @@ export function categoryToWire(c: Category): CategoryWire {
     id: c.id,
     name: c.name,
     buddyCount: c.buddyCount,
+    sortOrder: c.sortOrder,
   };
 }
 

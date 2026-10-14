@@ -26295,3 +26295,6 @@ html[data-theme="dark"] .weq-mf-mall-card {
 .weq-qzal-album-meta strong::-webkit-scrollbar,
 .weq-qzal-album-meta small::-webkit-scrollbar,
 .weq-qzal-media-name::-webkit-scrollbar { height: 4px; }
+
+.weq-group-list-basis { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-group-list-basis select { min-width: 0; padding: 5px 8px; border: 1px solid var(--weq-border-subtle); border-radius: 5px; background: var(--weq-bg-elevated); color: var(--weq-fg-primary); }

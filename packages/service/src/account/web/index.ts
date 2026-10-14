@@ -49,6 +49,7 @@ import {
 import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
+import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -68,6 +69,10 @@ export class WebQueryService {
 
   async getGroupNotice(groupCode: string): Promise<GroupNotice[]> {
     return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupNotice(c, groupCode));
+  }
+
+  async getSpecialCare() {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getSpecialCare(cred));
   }
 
   async getGroupEssence(

@@ -11,7 +11,7 @@ export const CategoryItemWire = {
   id: ProtoField(25007, ScalarType.INT32, { optional: true }),
   /** Tag 25008: Category display name. */
   name: ProtoField(25008, ScalarType.STRING, { optional: true }),
-  /** Tag 25009: Usually same as id. */
+  /** Tag 25009: Display order, independent of the category ID after reordering. */
   id2: ProtoField(25009, ScalarType.INT32, { optional: true }),
   /** Tag 25010: Number of buddies in this category. */
   buddyCount: ProtoField(25010, ScalarType.INT32, { optional: true }),

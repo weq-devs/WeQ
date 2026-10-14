@@ -87,6 +87,15 @@ export type Contact = User & {
 
 export type GroupMemberRole = 'owner' | 'admin' | 'member';
 
+export type ContactSection = {
+  id: string;
+  name: string;
+  items: Contact[];
+  count?: number | null;
+  description?: string;
+  onRetry?: () => void;
+};
+
 export type GroupMember = User & {
   card?: string;
   remark?: string;
@@ -216,6 +225,10 @@ export type GroupConversation = ConversationBase & {
     description?: string | null;
     remark?: string | null;
     memberCount: number;
+    listed?: boolean;
+    membershipKnown?: boolean;
+    roleKnown?: boolean;
+    unnamed?: boolean;
     maxMemberCount?: number;
     role: GroupMemberRole;
     createTime?: string | null;

@@ -27,7 +27,13 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, datalineName, isDatalineSelfUid, isGroupTempChatType } from '@weq/codec';
+import {
+  classifyChatType,
+  datalineName,
+  isDatalineSelfUid,
+  isGroupTempChatType,
+  toChatTypeNumber,
+} from '@weq/codec';
 import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -117,6 +123,7 @@ import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { displayGroupMemberName } from '../im-template/template/user';
+import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
 import { QzoneWorkspace } from './QzoneView';
 import {
   QzoneNavigationContext,
@@ -407,6 +414,7 @@ type CategoryWire = {
   id: number;
   name: string;
   buddyCount: number;
+  sortOrder?: number;
 };
 
 type BuddyRequestWire = {
@@ -440,6 +448,13 @@ type GroupNotifyWire = {
 };
 
 type GroupDetailWire = {
+  directory?: {
+    role: 'owner' | 'admin' | 'member' | null;
+    pinned: boolean;
+    notifyLevel: number;
+    unnamed: boolean;
+    memberCount: number;
+  } | null;
   groupCode: string;
   groupName: string;
   pinnedAnnounce: string;
@@ -772,7 +787,9 @@ function groupDetailToConversation(
   return {
     id: detail.groupCode,
     type: 'group',
-    notifyLevel: fallback?.type === 'group' ? fallback.notifyLevel : undefined,
+    notifyLevel:
+      detail.directory?.notifyLevel ??
+      (fallback?.type === 'group' ? fallback.notifyLevel : undefined),
     updatedAt,
     otherUser: null,
     group: {
@@ -784,9 +801,15 @@ function groupDetailToConversation(
       announcement: detail.pinnedAnnounce || group?.announcement || null,
       description: detail.description || null,
       remark: detail.remark || null,
-      memberCount: detail.memberCount || group?.memberCount || 0,
+      memberCount: detail.directory?.memberCount ?? detail.memberCount ?? group?.memberCount ?? 0,
       maxMemberCount: detail.maxMemberCount || undefined,
-      role: group?.role || 'member',
+      role:
+        detail.directory?.role ??
+        (detail.ownerUid === user?.uid ? 'owner' : group?.role || 'member'),
+      listed: Boolean(detail.directory),
+      membershipKnown: Object.hasOwn(detail, 'directory'),
+      roleKnown: Boolean(detail.directory?.role) || detail.ownerUid === user?.uid,
+      unnamed: detail.directory?.unnamed ?? false,
       createTime: secondsToIsoTime(detail.createTime),
       labels: detail.labels || null,
       entranceQ: detail.entranceQ || null,
@@ -801,7 +824,11 @@ function groupDetailToConversation(
         : user
           ? [{ ...user, role: 'member', joinedAt: updatedAt }]
           : [],
-    preference: fallback?.preference ?? fallbackPreference,
+    preference: {
+      ...fallbackPreference,
+      ...fallback?.preference,
+      pinned: detail.directory?.pinned ?? fallback?.preference?.pinned ?? false,
+    },
     unreadCount: fallback?.unreadCount ?? 0,
     lastMessage: fallback?.lastMessage ?? null,
   };
@@ -1139,8 +1166,11 @@ function contactToConversation(
         identityValue: c.targetUid,
         avatarUrl: avatarSrc(c),
         announcement: null,
-        memberCount: 1,
+        memberCount: 0,
         role: 'member',
+        listed: false,
+        membershipKnown: false,
+        roleKnown: false,
       },
       members: [{ ...user, role: 'member', joinedAt: updatedAt }],
       preference,
@@ -2120,18 +2150,21 @@ export function MainView(): ReactElement {
     () => (contacts.data?.pages ?? []).flatMap((page) => page.items),
     [contacts.data],
   );
+  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
-  const groupAssistantIds = useMemo(
-    () =>
-      new Set(
-        recentContactsData
-          .filter(
-            (contact) => chatTypeKind(contact.chatType) === 'group' && contact.notifyLevel === 2,
-          )
-          .map((contact) => contact.targetUid),
-      ),
-    [recentContactsData],
-  );
+  const groupAssistantIds = useMemo(() => {
+    const ids = new Set(
+      recentContactsData
+        .filter(
+          (contact) => chatTypeKind(contact.chatType) === 'group' && contact.notifyLevel === 2,
+        )
+        .map((contact) => contact.targetUid),
+    );
+    for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
+      if (group.directory?.notifyLevel === 2) ids.add(group.groupCode);
+    }
+    return ids;
+  }, [recentContactsData, allGroups.data]);
   const groupAssistantEntry = useMemo(
     () =>
       recentContactsData.find(
@@ -2178,8 +2211,60 @@ export function MainView(): ReactElement {
   const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
   const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
+  const specialCare = trpc.account.specialCare.useQuery(
+    { selfUin: openedUin ?? '' },
+    {
+      enabled: Boolean(openedUin && sendAccess.data?.qqOnline),
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: true,
+      retry: false,
+    },
+  );
+  const [refreshingContacts, setRefreshingContacts] = useState(false);
+  const refreshingContactsRef = useRef(false);
+  const refreshContacts = async (): Promise<void> => {
+    if (refreshingContactsRef.current) return;
+    const accountUin = openedUin;
+    refreshingContactsRef.current = true;
+    setRefreshingContacts(true);
+    try {
+      const results = await Promise.all([
+        buddies.refetch(),
+        categories.refetch(),
+        profiles.refetch(),
+        refreshProfileCache()
+          .then(() => ({ isError: false }))
+          .catch(() => ({ isError: true })),
+        client.account.botUids
+          .query({ refresh: true })
+          .then((data) => {
+            if (useViewState.getState().openedUin === accountUin)
+              utils.account.botUids.setData(undefined, data);
+            return { isError: false };
+          })
+          .catch(() => ({ isError: true })),
+        allGroups.refetch(),
+        contacts.refetch(),
+        hiddenSessions.refetch(),
+        deletedSessions.refetch(),
+        buddyRequests.refetch(),
+        groupNotifies.refetch(),
+        ...(sendAccess.data?.qqOnline ? [specialCare.refetch()] : []),
+      ]);
+      if (
+        useViewState.getState().openedUin === accountUin &&
+        results.some((result) => result.isError)
+      )
+        pushToast({ tone: 'info', title: '部分联系人数据刷新失败，已保留上次结果' });
+    } catch {
+      if (useViewState.getState().openedUin === accountUin)
+        pushToast({ tone: 'info', title: '联系人刷新失败，请稍后重试' });
+    } finally {
+      refreshingContactsRef.current = false;
+      setRefreshingContacts(false);
+    }
+  };
   const [damagedEvent, setDamagedEvent] = useState<DatabaseDamagedEvent | null>(null);
 
   // 合并会话面板状态：包含类型和点击位置
@@ -2348,6 +2433,9 @@ export function MainView(): ReactElement {
   const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
+  const [temporaryConversations, setTemporaryConversations] = useState<
+    Record<string, { conversation: Conversation; appearedAt: number }>
+  >({});
   const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
@@ -3059,9 +3147,11 @@ export function MainView(): ReactElement {
   );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
-  const { profileByUid, resolveProfiles } = useProfileResolver<UserProfileWire>(
-    profiles.data as UserProfileWire[] | undefined,
-  );
+  const {
+    profileByUid,
+    resolveProfiles,
+    refreshProfiles: refreshProfileCache,
+  } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -3235,6 +3325,10 @@ export function MainView(): ReactElement {
 
     // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
     // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
+    const directoryKnown = groups.some((detail) => Object.hasOwn(detail, 'directory'));
+    const listedCodes = new Set(
+      groups.filter((detail) => detail.directory).map((detail) => detail.groupCode),
+    );
     const recentConversations = recentContactsData
       .filter((c) => {
         const kind = classifyChatType(c.chatType);
@@ -3243,7 +3337,19 @@ export function MainView(): ReactElement {
         return !hiddenUidSet.has(c.targetUid);
       })
       .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
-      .filter((conversation): conversation is Conversation => conversation !== null);
+      .filter((conversation): conversation is Conversation => conversation !== null)
+      .map((conversation) =>
+        conversation.type === 'group' && directoryKnown
+          ? {
+              ...conversation,
+              group: {
+                ...conversation.group,
+                listed: listedCodes.has(conversation.id),
+                membershipKnown: true,
+              },
+            }
+          : conversation,
+      );
     const byId = new Map(
       recentConversations.map((conversation) => [conversation.id, conversation]),
     );
@@ -3425,6 +3531,17 @@ export function MainView(): ReactElement {
       byId.set(merged.id, merged);
     }
 
+    for (const [id, entry] of Object.entries(temporaryConversations)) {
+      const current = byId.get(id) ?? entry.conversation;
+      byId.set(id, {
+        ...current,
+        hidden: false,
+        updatedAt: new Date(
+          Math.max(Date.parse(current.updatedAt) || 0, entry.appearedAt),
+        ).toISOString(),
+      });
+    }
+
     return (
       Array.from(byId.values())
         .map((conversation) => {
@@ -3452,14 +3569,21 @@ export function MainView(): ReactElement {
             if (bTop === undefined) return -1;
           }
           return (
-            conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined) -
-            conversationSortTime(a.lastMessage?.createdAt ?? a.updatedAt, undefined)
+            Math.max(
+              conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined),
+              temporaryConversations[b.id]?.appearedAt ?? 0,
+            ) -
+            Math.max(
+              conversationSortTime(a.lastMessage?.createdAt ?? a.updatedAt, undefined),
+              temporaryConversations[a.id]?.appearedAt ?? 0,
+            )
           );
         })
     );
   }, [
     allGroups.data,
     recentContactsData,
+    temporaryConversations,
     officialAccounts.data,
     serviceAccounts.data,
     hiddenSessions.data,
@@ -3478,10 +3602,179 @@ export function MainView(): ReactElement {
   const sidebarConversations = useMemo(
     () =>
       conversations.filter(
-        (conversation) => conversation.type !== 'group' || !groupAssistantIds.has(conversation.id),
+        (conversation) =>
+          conversation.type !== 'group' ||
+          !groupAssistantIds.has(conversation.id) ||
+          Boolean(temporaryConversations[conversation.id]),
       ),
-    [conversations, groupAssistantIds],
+    [conversations, groupAssistantIds, temporaryConversations],
   );
+
+  const specialContactSections = useMemo(() => {
+    const robots = buddyContacts.filter((contact) => botUids.has(contact.id));
+    const devices = conversations
+      .filter(
+        (conversation): conversation is Extract<Conversation, { type: 'direct' }> =>
+          conversation.type === 'direct' &&
+          conversation.chatType !== undefined &&
+          isDataline(conversation.chatType),
+      )
+      .map((conversation) => ({
+        ...conversation.otherUser,
+        identityLabel: '设备',
+        createdAt: new Date(0).toISOString(),
+      }));
+    const byUin = new Map(buddyContacts.map((contact) => [contact.identityValue, contact]));
+    const specialItems: Contact[] = (specialCare.data?.items ?? []).map((item) => {
+      const existing = byUin.get(item.uin);
+      if (existing) return existing;
+      const profile = [...profileByUid.values()].find((entry) => entry.uin === item.uin);
+      if (profile)
+        return buddyToContact(
+          { uid: profile.uid, uin: item.uin, qid: profile.qid, categoryId: 0 },
+          profileByUid,
+          categoryById,
+          botUids,
+        );
+      return {
+        id: item.uin,
+        identityLabel: 'QQ',
+        identityValue: item.uin,
+        username: item.uin,
+        displayName: item.name || item.uin,
+        nick: item.name,
+        avatarUrl: senderAvatarSrc(item.uin),
+        createdAt: new Date(0).toISOString(),
+      };
+    });
+    const online = Boolean(sendAccess.data?.qqOnline);
+    const description = !online
+      ? 'QQ 未在线，特别关心未更新'
+      : specialCare.isError
+        ? '特别关心读取失败'
+        : specialCare.data
+          ? specialCare.data.fansCount === null
+            ? '特关我的人数暂不可用'
+            : `特关我的人数：${specialCare.data.fansCount} 人`
+          : '正在读取特别关心…';
+    return [
+      { id: 'special:devices', name: '我的设备', items: devices },
+      { id: 'special:bots', name: '机器人', items: robots },
+      {
+        id: 'special:care',
+        name: '特别关心',
+        items: specialItems,
+        count: specialCare.data ? specialItems.length : null,
+        description,
+        onRetry:
+          online && specialCare.isError
+            ? () => {
+                void specialCare.refetch();
+              }
+            : undefined,
+      },
+    ];
+  }, [
+    buddyContacts,
+    botUids,
+    conversations,
+    specialCare.data,
+    specialCare.isError,
+    specialCare.refetch,
+    sendAccess.data?.qqOnline,
+    profileByUid,
+    categoryById,
+  ]);
+
+  const historicalContactSections = useMemo(() => {
+    const current = new Set(buddyContacts.map((contact) => contact.id));
+    const former = new Map<string, Contact>();
+    const temporary = new Map<string, Contact>();
+    const seen = new Set<string>();
+    const sources = [
+      ...recentContactsData,
+      ...((hiddenSessions.data ?? []) as HiddenSessionWire[]).filter((row) => row.resolvable),
+      ...((deletedSessions.data ?? []) as DeletedSessionWire[]).filter((row) => row.resolvable),
+    ];
+    for (const row of sources) {
+      const uid = row.targetUid;
+      if (seen.has(uid)) continue;
+      if (
+        !uid ||
+        uid === user.uid ||
+        current.has(uid) ||
+        botUids.has(uid) ||
+        classifyChatType(row.chatType) !== 'direct'
+      )
+        continue;
+      const type = toChatTypeNumber(row.chatType);
+      seen.add(uid);
+      const profile = profileByUid.get(uid);
+      const uin = profile?.uin || ('targetUin' in row ? row.targetUin : '') || '';
+      if (uin === user.identityValue) continue;
+      const contact = buddyToContact(
+        { uid, uin, qid: profile?.qid || '', categoryId: 0 },
+        profileByUid,
+        categoryById,
+        botUids,
+      );
+      if (!profile && 'targetDisplayName' in row) contact.displayName = contactTitle(row);
+      const target = type === 1 ? former : temporary;
+      if (!target.has(uid)) target.set(uid, contact);
+    }
+    return [
+      {
+        id: 'history:former',
+        name: '已删除好友 / 非好友',
+        items: [...former.values()],
+        description: '保留私聊记录，但不在当前好友列表',
+      },
+      { id: 'history:temporary', name: '临时会话', items: [...temporary.values()] },
+    ];
+  }, [
+    buddyContacts,
+    recentContactsData,
+    hiddenSessions.data,
+    deletedSessions.data,
+    user,
+    botUids,
+    profileByUid,
+    categoryById,
+  ]);
+
+  const contactDirectoryConversations = useMemo(() => {
+    const map = new Map([
+      ...hiddenConversationsById,
+      ...deletedConversationsById,
+      ...conversations.map((conversation) => [conversation.id, conversation] as const),
+    ]);
+    const details = (allGroups.data ?? []) as GroupDetailWire[];
+    for (const detail of details)
+      map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
+    if (details.some((detail) => Object.hasOwn(detail, 'directory'))) {
+      const currentCodes = new Set(
+        details.filter((detail) => detail.directory).map((detail) => detail.groupCode),
+      );
+      for (const [id, conversation] of map)
+        if (conversation.type === 'group')
+          map.set(id, {
+            ...conversation,
+            group: { ...conversation.group, listed: currentCodes.has(id), membershipKnown: true },
+          });
+    }
+    return [...map.values()];
+  }, [conversations, hiddenConversationsById, deletedConversationsById, allGroups.data, user]);
+
+  const profileContacts = useMemo(() => {
+    const byId = new Map<string, Contact>(buddyContacts.map((contact) => [contact.id, contact]));
+    for (const section of specialContactSections)
+      for (const contact of section.items) {
+        if (!byId.has(contact.id)) byId.set(contact.id, contact);
+      }
+    for (const section of historicalContactSections)
+      for (const contact of section.items) if (!byId.has(contact.id)) byId.set(contact.id, contact);
+    return [...byId.values()];
+  }, [buddyContacts, specialContactSections, historicalContactSections]);
 
   const groupsById = useMemo(
     () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
@@ -3515,8 +3808,8 @@ export function MainView(): ReactElement {
     [],
   );
   const shell = useChatShellController({
-    conversations,
-    contacts: buddyContacts,
+    conversations: contactDirectoryConversations,
+    contacts: profileContacts,
     conversationPrefs,
     initialActiveConversationId: null,
     // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
@@ -6561,6 +6854,56 @@ export function MainView(): ReactElement {
     handleViewRecalled(target);
   }
 
+  const openProfileChat = async (target: ProfileChatTarget): Promise<void> => {
+    const accountUin = user.identityValue;
+    let candidate: Conversation;
+    if (target.kind === 'group') candidate = target.conversation;
+    else {
+      let peer = target.user;
+      if (!peer.id && peer.identityLabel === 'QQ') {
+        const profile = await client.account.getProfileByUin.query({ uin: peer.identityValue });
+        if (profile?.uid) peer = { ...peer, id: profile.uid };
+      }
+      if (!peer.id) {
+        pushToast({ tone: 'info', title: '暂时无法确定此人的会话身份' });
+        return;
+      }
+      candidate = {
+        id: peer.id,
+        type: 'direct',
+        otherUser: peer,
+        group: null,
+        members: [],
+        updatedAt: new Date(0).toISOString(),
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: null,
+      };
+    }
+    if (useViewState.getState().openedUin !== accountUin) return;
+    const id = candidate.id;
+    const known =
+      conversations.find((conversation) => conversation.id === id) ??
+      hiddenConversationsById.get(id) ??
+      deletedConversationsById.get(id) ??
+      candidate;
+    const needsAppearance =
+      !recentContactsData.some((contact) => contact.targetUid === id) ||
+      hiddenUidSet.has(id) ||
+      groupAssistantIds.has(id);
+    if (needsAppearance)
+      setTemporaryConversations((current) =>
+        current[id]
+          ? current
+          : {
+              ...current,
+              [id]: { conversation: known, appearedAt: Date.now() },
+            },
+      );
+    setArkFeedState(null);
+    shell.openConversation(id);
+  };
+
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -6639,6 +6982,10 @@ export function MainView(): ReactElement {
             onOpenFriendNotices={() => shell.openContactNotice('friend')}
             onOpenGroupNotices={() => shell.openContactNotice('group')}
             onContactTabChange={shell.changeContactTab}
+            onRefreshContacts={() => {
+              void refreshContacts();
+            }}
+            refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
               fullBleedView ? null : (
@@ -6648,9 +6995,11 @@ export function MainView(): ReactElement {
                     view={shell.view}
                     contactTab={shell.contactTab}
                     conversations={
-                      shell.view === 'messages' && !shell.query.trim()
-                        ? sidebarConversations
-                        : conversations
+                      shell.view === 'contacts'
+                        ? contactDirectoryConversations
+                        : shell.view === 'messages' && !shell.query.trim()
+                          ? sidebarConversations
+                          : conversations
                     }
                     activeConversationId={shell.activeConversationId}
                     selectedGroupConversationId={shell.selectedGroupConversationId}
@@ -6658,6 +7007,9 @@ export function MainView(): ReactElement {
                     conversationPrefs={conversationPrefs}
                     drafts={drafts}
                     contacts={buddyContacts}
+                    categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
+                    specialContactSections={specialContactSections}
+                    historicalContactSections={historicalContactSections}
                     loading={sidebarLoading}
                     onLoadMoreConversations={loadMoreContacts}
                     conversationsHasMore={contactsHasMore}
@@ -7106,28 +7458,7 @@ export function MainView(): ReactElement {
               onOpenChat={
                 memberCard.fromSpace
                   ? () => {
-                      const accountUin = user.identityValue;
-                      const knownUid = memberCard.member.id;
-                      const uin = memberCard.member.identityValue;
-                      void (async () => {
-                        const uid =
-                          knownUid || (await client.account.getProfileByUin.query({ uin }))?.uid;
-                        if (useViewState.getState().openedUin !== accountUin) return;
-                        if (
-                          !uid ||
-                          (!conversations.some(
-                            (conv) => conv.type === 'direct' && conv.id === uid,
-                          ) &&
-                            !hiddenConversationsById.has(uid) &&
-                            !deletedConversationsById.has(uid))
-                        ) {
-                          pushToast({ tone: 'info', title: '暂未找到此人的私聊记录' });
-                          return;
-                        }
-                        setArkFeedState(null);
-                        shell.switchView('messages');
-                        shell.selectConversation(uid);
-                      })().catch(() =>
+                      void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
                         pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
                       );
                     }
@@ -7303,7 +7634,15 @@ export function MainView(): ReactElement {
           });
         }}
       >
-        {chatContent}
+        <ChatNavigationContext.Provider
+          value={(target) => {
+            void openProfileChat(target).catch(() =>
+              pushToast({ tone: 'info', title: '暂时无法打开会话，请稍后重试' }),
+            );
+          }}
+        >
+          {chatContent}
+        </ChatNavigationContext.Provider>
       </QzoneProfileContext.Provider>
     </QzoneNavigationContext.Provider>
   );

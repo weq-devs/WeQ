@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { ChevronRight, Plus, Search, UserPlus, UsersRound } from 'lucide-react';
+import { ChevronRight, Plus, Search, UserPlus, UsersRound, RefreshCw } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -18,6 +18,8 @@ export function SidebarHeader({
   onOpenGroupNotices,
   contactTab,
   onContactTabChange,
+  onRefreshContacts,
+  refreshingContacts = false,
   activeNotice,
   searchPanel,
   onSearchFocus,
@@ -35,6 +37,8 @@ export function SidebarHeader({
   onOpenGroupNotices: () => void;
   contactTab: ContactTab;
   onContactTabChange: (tab: ContactTab) => void;
+  onRefreshContacts?: () => void;
+  refreshingContacts?: boolean;
   activeNotice: 'friend' | 'group' | null;
   /**
    * 挂在搜索框正下方的浮层（统一搜索下拉 / 最近搜索）。
@@ -179,21 +183,36 @@ export function SidebarHeader({
             <span className={cn('notice-entry-label')}>群通知</span>
             <ChevronRight size={20} />
           </button>
-          <div className={cn('contact-tab-switch')} role="tablist" aria-label="联系人类型">
-            <button
-              type="button"
-              className={cn(contactTabButtonClass(contactTab === 'friends'))}
-              onClick={() => onContactTabChange('friends')}
-            >
-              好友
-            </button>
-            <button
-              type="button"
-              className={cn(contactTabButtonClass(contactTab === 'groups'))}
-              onClick={() => onContactTabChange('groups')}
-            >
-              群聊
-            </button>
+          <div className="contact-list-controls">
+            <div className={cn('contact-tab-switch')} role="tablist" aria-label="联系人类型">
+              <button
+                type="button"
+                className={cn(contactTabButtonClass(contactTab === 'friends'))}
+                onClick={() => onContactTabChange('friends')}
+              >
+                好友
+              </button>
+              <button
+                type="button"
+                className={cn(contactTabButtonClass(contactTab === 'groups'))}
+                onClick={() => onContactTabChange('groups')}
+              >
+                群聊
+              </button>
+            </div>
+            {onRefreshContacts ? (
+              <button
+                type="button"
+                className="contact-list-refresh"
+                onClick={onRefreshContacts}
+                disabled={refreshingContacts}
+                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                aria-busy={refreshingContacts}
+              >
+                <RefreshCw size={15} />
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

@@ -21,6 +21,7 @@ import {
   Images,
   Info,
   MapPin,
+  MessageSquare,
   Megaphone,
   Sparkles,
   Star,
@@ -32,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
+import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { PersonalityHomeDialog } from '../../components/PersonalityHomeDialog';
@@ -232,6 +234,7 @@ export function ContactProfileDialog({
   onClose: () => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
+  const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
@@ -466,6 +469,21 @@ export function ContactProfileDialog({
           ) : null}
         </div>
 
+        {openChat ? (
+          <div className="weq-profile-actions">
+            <button
+              className="weq-profile-perhome"
+              type="button"
+              onClick={() => {
+                onClose();
+                openChat({ kind: 'direct', user: profile });
+              }}
+            >
+              <MessageSquare size={13} />
+              查看私聊
+            </button>
+          </div>
+        ) : null}
         {/* 个性主页 / 互动标识都要拿 QQ 号去查——只有 uin 的联系人才给入口。 */}
         {profile.identityLabel === 'QQ' ? (
           <div className="weq-profile-actions">
@@ -534,6 +552,7 @@ export function GroupProfileDialog({
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
 }) {
+  const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -598,6 +617,21 @@ export function GroupProfileDialog({
           </button>
         </div>
 
+        {openChat ? (
+          <div className="weq-profile-actions">
+            <button
+              className="weq-profile-perhome"
+              type="button"
+              onClick={() => {
+                onClose();
+                openChat({ kind: 'group', conversation });
+              }}
+            >
+              <MessageSquare size={13} />
+              查看群聊消息
+            </button>
+          </div>
+        ) : null}
         <div className="weq-profile-members">
           <div className="weq-profile-members-head">
             <Users size={13} />
