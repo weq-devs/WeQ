@@ -259,6 +259,7 @@ interface RawEmotion {
   created_time?: number;
   cmtnum?: number;
   fwdnum?: number | string;
+  rt_sum?: number | string;
   rt_tid?: string;
   rt_uin?: string | number;
   rt_uinname?: string;
@@ -393,6 +394,8 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
     total: Number(data.total ?? list.length),
     list: list.map((e) => {
       const pics = e.pic ?? [];
+      // Official mood UI renders getRTCount() from rt_sum; fwdnum is a different counter.
+      const rawForwardCount = e.rt_sum ?? e.fwdnum;
       const originalContent =
         typeof e.rt_con === 'string'
           ? e.rt_con
@@ -419,12 +422,12 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
         content: e.content ?? '',
         time: Number(e.created_time ?? 0),
         commentNum: Number(e.cmtnum ?? 0),
-        ...(e.fwdnum !== undefined &&
-        e.fwdnum !== null &&
-        String(e.fwdnum).trim() !== '' &&
-        Number.isSafeInteger(Number(e.fwdnum)) &&
-        Number(e.fwdnum) >= 0
-          ? { forwardNum: Number(e.fwdnum) }
+        ...(rawForwardCount !== undefined &&
+        rawForwardCount !== null &&
+        String(rawForwardCount).trim() !== '' &&
+        Number.isSafeInteger(Number(rawForwardCount)) &&
+        Number(rawForwardCount) >= 0
+          ? { forwardNum: Number(rawForwardCount) }
           : {}),
         isPrivate: Number(e.secret ?? 0) !== 0,
         images,

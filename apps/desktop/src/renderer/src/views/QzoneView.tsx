@@ -788,7 +788,7 @@ function PostActions({
           onClick={() => setExpanded(expanded === 'forwards' ? null : 'forwards')}
         >
           <Repeat2 size={16} />
-          转发 {post.forwardNum ?? '—'}
+          转发 {post.forwardNum ?? 0}
         </button>
       </div>
       {expanded === 'forwards' ? (
