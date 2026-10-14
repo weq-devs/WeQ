@@ -50,6 +50,26 @@ extraResources:
   - from: out/main/attachWorker.mjs
     to: out/main/attachWorker.mjs
 
+  - from: out/main/intentSenseWorker.mjs
+    to: out/main/intentSenseWorker.mjs
+
+  # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。onnxruntime-node
+  # 1.22+ 的平台 .node 在包内 bin/ 下（无平台子包），连它的运行依赖（onnxruntime-common
+  # / adm-zip / global-agent）与 @huggingface/tokenizers（napi 预编译在包内）一起复制，
+  # 保证 worker 从 resources/node_modules/** 解析得到 —— 与 sherpa 同一套处理。
+  - from: node_modules/@receptron/laya
+    to: node_modules/@receptron/laya
+  - from: node_modules/onnxruntime-node
+    to: node_modules/onnxruntime-node
+  - from: node_modules/onnxruntime-common
+    to: node_modules/onnxruntime-common
+  - from: node_modules/adm-zip
+    to: node_modules/adm-zip
+  - from: node_modules/global-agent
+    to: node_modules/global-agent
+  - from: node_modules/@huggingface/tokenizers
+    to: node_modules/@huggingface/tokenizers
+
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the

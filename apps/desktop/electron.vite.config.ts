@@ -44,13 +44,17 @@ export default defineConfig({
           captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
           // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
+          // 意图感知本地引擎：Laya ONNX 推理跑在 fork 的子进程（同 transcribeWorker
+          // 的打包/寻址约定，主进程经 intent_sense/bridge.ts 持有）。
+          intentSenseWorker: resolve(__dirname, 'src/main/intent_sense/worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
             chunk.name === 'transcribeWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
-            chunk.name === 'keyScanWorker'
+            chunk.name === 'keyScanWorker' ||
+            chunk.name === 'intentSenseWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

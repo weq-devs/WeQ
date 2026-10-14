@@ -14,7 +14,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
+import {
+  initAppContext,
+  setGroupKeywordNotifier,
+  setIntentSenseLocalEngine,
+  setRecallNotifier,
+} from './context/app_context';
+import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
@@ -582,6 +588,9 @@ void app.whenReady().then(async () => {
   setGroupKeywordNotifier(handleGroupKeywordHit);
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
+  // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
+  // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
+  setIntentSenseLocalEngine(getIntentSenseLocalEngine());
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();

@@ -44,6 +44,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
+import type { IntentLocalEnginePort } from '@weq/service';
 import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
@@ -95,6 +96,7 @@ import {
   ConversationStore,
   DeletedMsgStore,
   AntiRecallService,
+  IntentSenseService,
   DbDecryptService,
   DbExplorerService,
   AvatarResourceService,
@@ -254,6 +256,44 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
 /** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
 let activeAntiRecall: AntiRecallService | null = null;
+
+/** 意图感知本地模型下载进度（bridge 的 BundleProgress，结构化复述保持 electron-free）。 */
+export interface IntentSenseModelProgress {
+  filesDone: number;
+  filesTotal: number;
+  received: number;
+  total: number;
+  currentFile: string | null;
+  done: boolean;
+}
+
+/**
+ * 意图感知本地引擎（Laya ONNX worker）的控制面。实现在 `intent_sense/bridge.ts`
+ * —— 那个文件 import 了 electron，只能由桌面版入口注入；web 端恒为 null
+ *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
+ */
+export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
+  modelDir(): string;
+  isModelDownloaded(): boolean;
+  download(options: {
+    mirror: boolean;
+    onProgress?: (p: IntentSenseModelProgress) => void;
+  }): Promise<void>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
+
+/** app 层注入意图感知本地引擎控制面（桌面版启动时调用一次）。 */
+export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
+  intentSenseLocalEngine = engine;
+}
+
+/** 当前注入的本地引擎控制面（未注入 = web / 未初始化）。 */
+export function getActiveIntentSenseLocalEngine(): IntentSenseLocalEngineControl | null {
+  return intentSenseLocalEngine;
+}
 
 /** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
 export function setGroupKeywordNotifier(
@@ -632,6 +672,8 @@ export interface AccountServices {
   dbExplorer: DbExplorerService;
   /** 防撤回：安装/卸载拦截 QQ 撤回的 SQL 触发器 + 按会话选择配置。 */
   antiRecall: AntiRecallService;
+  /** 意图感知：消息意图/情绪分析 + 对方画像 + 回复建议。 */
+  intentSense: IntentSenseService;
   /** Browse the account's local avatar cache (nt_data/avatar/*). */
   avatarResource: AvatarResourceService;
   /** Browse the account's built-in system emoji resource dir. */
@@ -1480,6 +1522,13 @@ export function initAppContext(): AppContext {
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
+        // 意图感知：api 引擎复用 agentlab provider 端点解析；本地 Laya 引擎的
+        // 端口由 intent_sense/bridge.ts 提供（worker 启动后 ready 才为 true）。
+        intentSense: new IntentSenseService(
+          session,
+          userConfig.cacheDir(join('intent_sense', exportConfigId)),
+          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+        ),
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
         sysEmojiDownload,
@@ -2021,6 +2070,12 @@ export function initAppContext(): AppContext {
         dbDecrypt: new DbDecryptService(session, staticPlatform),
         dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
+        // 静态账号同样给意图感知（只读分析，不发消息）。
+        intentSense: new IntentSenseService(
+          session,
+          userConfig.cacheDir(join('intent_sense', exportConfigId)),
+          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+        ),
         avatarResource: new AvatarResourceService(session, staticPlatform),
         sysEmoji: new SysEmojiResourceService(session, staticPlatform, () =>
           sysEmojiDownload.root(),

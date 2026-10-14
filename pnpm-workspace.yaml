@@ -12,6 +12,9 @@ ignoreWorkspaceCycles: true
 allowBuilds:
   electron: true
   esbuild: true
+  # 意图感知本地引擎（@receptron/laya）运行时加载 onnxruntime-node；其预编译
+  # .node 在包内 bin/ 下，构建脚本只是校验兜底。
+  onnxruntime-node: true
 
 # pnpm 12 起 `pnpm exec` / `pnpm run` 前会先校验 lockfile 与 package.json 是否
 # 一致，CI 下（frozen-lockfile）不一致就直接 ERR_PNPM_OUTDATED_LOCKFILE。
