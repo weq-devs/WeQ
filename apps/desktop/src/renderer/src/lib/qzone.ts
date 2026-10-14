@@ -58,6 +58,7 @@ export function projectQzoneFeed(
   tid: string | null;
   likeCount: number | null;
   commentCount: number | null;
+  counterKey: string | null;
   forwardCount: number | null;
   advertisement: boolean;
   unsupported: boolean;
@@ -76,12 +77,22 @@ export function projectQzoneFeed(
   }
   let repost: ReturnType<typeof projectQzoneFeed>['repost'] = null;
   if (allowRepost) {
-    const hint = doc.querySelector('[data-origtid], [data-origuin], [data-typeid="5"]');
+    const hint = [
+      ...doc.querySelectorAll('[data-origtid], [data-origuin], [data-typeid="5"]'),
+    ].find(
+      (node) =>
+        [node.getAttribute('data-origtid'), node.getAttribute('data-origuin')].some(
+          (value) => value && value !== '0',
+        ) || node.getAttribute('data-typeid') === '5',
+    );
+    const quoteText = hint
+      ? [...doc.querySelectorAll('.txt-box')].find((node) => node.querySelector('a.nickname'))
+      : null;
+    // feeds3 puts the original author's text and pictures in sibling nodes of this block.
     const quote =
       doc.querySelector('.f-quote, .f-quote-wrap, .f-original, .f-forward-content') ||
-      (hint
-        ? [...doc.querySelectorAll('.txt-box')].find((node) => node.querySelector('a.nickname'))
-        : null);
+      quoteText?.closest('.f-ct-txtimg, .fui-txtimg-bg') ||
+      quoteText;
     if (quote) {
       const author = quote.querySelector('a.nickname, [data-uin]');
       const nickname = author?.textContent?.trim() ?? '';
@@ -115,14 +126,28 @@ export function projectQzoneFeed(
       : rawTid) ||
     null;
   const countText = (selector: string, pattern: RegExp): number | null => {
-    const text = doc.querySelector(selector)?.textContent ?? '';
-    const match = text.match(pattern);
-    return match ? Number(match[1]) : null;
+    for (const node of doc.querySelectorAll(selector)) {
+      const match = (node.textContent ?? '').match(pattern);
+      if (match && Number.isSafeInteger(Number(match[1]))) return Number(match[1]);
+    }
+    return null;
   };
+  const counterSource = doc.querySelector(
+    '.qz_like_btn_v3[data-curkey], .qz_like_prase[data-curkey]',
+  );
+  const rawCounterKey = counterSource?.getAttribute('data-curkey')?.trim() ?? '';
+  const counterKey = qzoneLinkTarget(rawCounterKey) ? rawCounterKey : null;
+  const rawLikes = counterSource?.getAttribute('data-likecnt');
   const likeCount =
+    (rawLikes && /^\d+$/.test(rawLikes) && Number.isSafeInteger(Number(rawLikes))
+      ? Number(rawLikes)
+      : null) ??
     countText('.user-list', /(\d+)\s*人(?:觉得很赞|赞过|赞)/) ??
     countText('.f-op', /(?:点赞|赞)\s*[（(]?\s*(\d+)/);
-  const commentCount = countText('.f-op, .f-reply', /评论\s*[（(]?\s*(\d+)/);
+  const commentCount = countText(
+    '.qz_btn_reply, .f-op, .f-op-detail, .f-reply',
+    /评论\s*[（(]?\s*(\d+)/,
+  );
   const forwardCount =
     [...doc.querySelectorAll('.f-op a, .f-op button, .f-op span')]
       .map((node) => node.textContent?.trim() ?? '')
@@ -179,6 +204,9 @@ export function projectQzoneFeed(
     const mediaDestination =
       destination &&
       (destination.hostname === 'user.qzone.qq.com' ||
+        (destination.hostname === 'h5.qzone.qq.com' &&
+          /\/photo\/?$/.test(destination.pathname) &&
+          (destination.searchParams.has('picKey') || destination.searchParams.has('topicId'))) ||
         /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(href!));
     if (href && (isQzoneFeedNavigation(anchor, href) || mediaDestination)) {
       pictureLinks.add(anchor);
@@ -244,6 +272,7 @@ export function projectQzoneFeed(
     tid,
     likeCount,
     commentCount,
+    counterKey,
     forwardCount,
     advertisement,
     unsupported,

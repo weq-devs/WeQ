@@ -80,3 +80,5 @@
 
 .weq-qzn-feed-link { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; color: var(--primary); text-align: left; }
 .weq-qzn-feed-link img { display: block; max-width: min(100%, 520px); max-height: 420px; border-radius: 6px; object-fit: contain; }
+
+.weq-qzn-actions > span { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border-radius: 6px; font-size: 13px; }

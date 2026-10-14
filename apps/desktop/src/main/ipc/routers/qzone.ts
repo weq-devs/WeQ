@@ -106,11 +106,29 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.offset, signal),
       ),
     ),
+  feedCounts: procedure
+    .input(
+      read.extend({
+        key: z.string().min(1).max(4096),
+        appid: z.union([z.literal(4), z.literal(311)]),
+      }),
+    )
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneFeedCounts(input.key, input.appid, signal),
+      ),
+    ),
   summary: procedure.input(post.extend({ needCommentCount: z.boolean() })).query(({ input }) =>
     request(input, async (services, signal) => {
-      const likes = await services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal);
-      let commentCount: number | null = null;
-      if (input.needCommentCount) {
+      let likes: Awaited<ReturnType<AccountServices['webQuery']['getQzoneLikesResult']>> | null =
+        null;
+      try {
+        likes = await services.webQuery.getQzoneLikesResult(input.hostUin, input.tid, signal);
+      } catch {
+        signal.throwIfAborted();
+      }
+      let commentCount = input.needCommentCount ? (likes?.reportedCommentCount ?? null) : null;
+      if (input.needCommentCount && commentCount === null) {
         try {
           commentCount = await services.webQuery.getQzoneCommentCount(
             input.hostUin,
@@ -119,9 +137,9 @@ export const qzoneRouter = router({
           );
         } catch {
           signal.throwIfAborted();
-          // A failed comment count must not discard the independently read likes.
         }
       }
+      if (!likes && commentCount === null) throw new Error('暂时无法读取互动数量，请稍后重试。');
       return { likes, commentCount };
     }),
   ),

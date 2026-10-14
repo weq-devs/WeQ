@@ -895,7 +895,7 @@ function PostActions({
       .then((result) => {
         if (live) {
           summaryRefresh.current = refresh;
-          setLikes(result.likes);
+          if (result.likes) setLikes(result.likes);
           if (result.commentCount !== null) setCommentCount(result.commentCount);
         }
       })
@@ -941,6 +941,62 @@ function PostActions({
           onCommentCount={setCommentCount}
         />
       ) : null}
+    </div>
+  );
+}
+
+function FeedCounts({
+  selfUin,
+  appid,
+  body,
+}: {
+  selfUin: string;
+  appid: number;
+  body: ReturnType<typeof projectQzoneFeed>;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const visible = useNearViewport(ref, true);
+  const { refresh } = useContext(QzonePageContext);
+  const completed = useRef<number | null>(null);
+  const [counts, setCounts] = useState<{
+    likeCount: number | null;
+    commentCount: number | null;
+  } | null>(null);
+  const [error, setError] = useState('');
+  const { run, cancel } = useQzoneRequests();
+  useEffect(() => {
+    if (!visible || !body.counterKey || appid !== 4 || completed.current === refresh)
+      return undefined;
+    let live = true;
+    void run(
+      (requestId) =>
+        client.account.qzone.feedCounts.query({ selfUin, requestId, key: body.counterKey!, appid }),
+      true,
+    )
+      .then((value) => {
+        if (live) {
+          setCounts(value);
+          completed.current = refresh;
+          setError('');
+        }
+      })
+      .catch((reason: unknown) => {
+        if (live) setError(errorText(reason));
+      });
+    return () => {
+      live = false;
+      cancel();
+    };
+  }, [visible, selfUin, appid, body.counterKey, refresh, run, cancel]);
+  return (
+    <div ref={ref} className="weq-qzn-actions" title={error || undefined}>
+      <span>
+        <ThumbsUp size={16} />赞 {counts?.likeCount ?? body.likeCount ?? '?'}
+      </span>
+      <span>
+        <MessageCircle size={16} />
+        评论 {counts?.commentCount ?? body.commentCount ?? '?'}
+      </span>
     </div>
   );
 }
@@ -1556,10 +1612,7 @@ function FeedCard({
           onSpace={onSpace}
         />
       ) : (
-        <div className="weq-qzn-actions">
-          <span>赞 {body.likeCount ?? '?'}</span>
-          <span>评论 {body.commentCount ?? '?'}</span>
-        </div>
+        <FeedCounts selfUin={selfUin} appid={feed.appid} body={body} />
       )}
     </article>
   );

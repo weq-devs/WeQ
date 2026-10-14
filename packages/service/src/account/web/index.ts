@@ -41,6 +41,7 @@ import {
   collectQzoneInteractions,
   fetchQzoneLikes,
   fetchQzoneLikesResult,
+  fetchQzoneFeedCounts,
   type QzoneInteraction,
   type QzoneInteractionTarget,
   type QzoneLike,
@@ -202,6 +203,12 @@ export class WebQueryService {
   ) {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  async getQzoneFeedCounts(key: string, appid: 4 | 311, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzoneFeedCounts(cred, key, appid, signal),
     );
   }
 
