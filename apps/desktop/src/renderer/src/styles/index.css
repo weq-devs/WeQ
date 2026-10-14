@@ -1326,8 +1326,9 @@ html[data-theme='dark'] .weq-splash-track {
     border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
     background:
       radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 8%, transparent), transparent 44%),
-      linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(250, 255, 253, 0.9));
-    box-shadow: 0 24px 60px -28px rgba(7, 31, 61, 0.45);
+      var(--weq-bg-surface);
+    color: var(--weq-fg-primary);
+    box-shadow: var(--weq-shadow-card);
   }
 
   .weq-dialog {
@@ -1354,7 +1355,7 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-dialog-title {
     font-size: 16px;
     font-weight: 600;
-    color: #0f2d4c;
+    color: var(--weq-fg-primary);
   }
   .weq-dialog-x {
     display: inline-flex;
@@ -1366,9 +1367,9 @@ html[data-theme='dark'] .weq-splash-track {
     color: #51677c;
     transition: background-color 140ms ease, color 140ms ease;
   }
-  .weq-dialog-x:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: #0f2d4c; }
+  .weq-dialog-x:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-fg-primary); }
   .weq-dialog-body {
-    color: #36495d;
+    color: var(--weq-fg-secondary);
     font-size: 13.5px;
     line-height: 1.62;
     word-break: break-word;
@@ -3113,6 +3114,34 @@ html[data-theme='dark'] .weq-splash-track {
 .weq-action-primary:focus-visible {
   color: #ffffff;
 }
+
+/* Shared dialogs and bootstrap surfaces must not rely on child-specific fixes. */
+html[data-theme="dark"] :is(.weq-dialog-x, .weq-db-report-path, .weq-acct-uin,
+  .weq-acct-row-uin, .weq-bignum-l, .weq-chart-empty, .weq-legend-size,
+  .weq-col-size, .weq-stats-path-txt, .help-list span) {
+  color: var(--weq-fg-secondary);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-section h4, .weq-db-feedback-menu button,
+  .weq-acct-name, .weq-acct-row-name, .weq-keyfield-text, .weq-bignum-v,
+  .weq-chart-title, .weq-legend-name, .weq-col-name, .help-list strong) {
+  color: var(--weq-fg-primary);
+}
+html[data-theme="dark"] :is(.weq-db-feedback-menu, .weq-acct-pop, .weq-acct-ctx-menu,
+  .weq-bignum, .weq-chart, .weq-keyfield-input) {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-details, .help-modal .help-list li) {
+  border-color: var(--weq-border-subtle);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-section a, .weq-db-expand-toggle,
+  .weq-db-feedback-menu button:hover) {
+  color: var(--weq-accent-effective);
+}
+html[data-theme="dark"] .weq-dialog-error .weq-dialog-icon { color: #ff929b; }
+html[data-theme="dark"] .weq-dialog-warning .weq-dialog-icon { color: #f5c269; }
+html[data-theme="dark"] .weq-keyfield-text::placeholder { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-bignum-v.is-accent { color: var(--weq-accent-effective); }
 
 .weq-dialog-foot .weq-action-primary,
 .weq-dialog-foot .weq-action-soft {

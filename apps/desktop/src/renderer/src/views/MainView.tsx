@@ -24,7 +24,7 @@ import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
@@ -1103,11 +1103,18 @@ function contactToConversation(
   user: User,
   groupNameByCode: Map<string, string>,
   botUids: Set<string>,
+  displayNames: ReadonlyMap<string, string> = new Map(),
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   // 「自己」的身份集合：戳一戳灰条的预览里我这半只带 uid，需要它才能渲染成「你」。
-  const nodes = previewNodes(c.preview, new Set(selfIdentityValues(user)));
+  const names = new Map(displayNames);
+  if (c.senderUid && (c.senderDisplayName || c.senderNick)) names.set(c.senderUid, c.senderDisplayName || c.senderNick);
+  if (kind === 'direct' && title !== c.targetUid && title !== c.targetUin) {
+    names.set(c.targetUid, title);
+    if (c.targetUin && c.targetUin !== '0') names.set(c.targetUin, title);
+  }
+  const nodes = previewNodes(c.preview, new Set(selfIdentityValues(user)), names);
   const preview = previewNodesToText(nodes) || null;
   const updatedAt = toIsoTime(c.sendTime);
   const preference: ConversationPreference = {
@@ -3152,6 +3159,16 @@ export function MainView(): ReactElement {
     resolveProfiles,
     refreshProfiles: refreshProfileCache,
   } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
+  const previewDisplayNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const profile of profileByUid.values()) {
+      const name = profile.remark || profile.nick;
+      if (!name) continue;
+      names.set(profile.uid, name);
+      if (profile.uin && profile.uin !== '0') names.set(profile.uin, name);
+    }
+    return names;
+  }, [profileByUid]);
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -3228,7 +3245,7 @@ export function MainView(): ReactElement {
     if (hiddenUidSet.size === 0) return map;
     for (const contact of recentContactsData) {
       if (!hiddenUidSet.has(contact.targetUid)) continue;
-      const conv = contactToConversation(contact, user, groupNameByCode, botUids);
+      const conv = contactToConversation(contact, user, groupNameByCode, botUids, previewDisplayNames);
       if (conv) map.set(conv.id, conv);
     }
     for (const detail of (allGroups.data ?? []) as GroupDetailWire[]) {
@@ -3236,7 +3253,7 @@ export function MainView(): ReactElement {
       map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
     }
     return map;
-  }, [hiddenUidSet, recentContactsData, allGroups.data, groupNameByCode, user, botUids]);
+  }, [hiddenUidSet, recentContactsData, allGroups.data, groupNameByCode, user, botUids, previewDisplayNames]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
   // 和隐藏会话不同，删除会话已经不在 recent_contact 里，所以只能用 deletedSessions 数据。
@@ -3336,7 +3353,7 @@ export function MainView(): ReactElement {
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
       })
-      .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
+      .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids, previewDisplayNames))
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown
@@ -3593,6 +3610,7 @@ export function MainView(): ReactElement {
     profileByUid,
     user,
     unreadByConv,
+    previewDisplayNames,
     highlightsByConv,
     topTimeByConv,
     groupAssistantIds,
@@ -4675,6 +4693,9 @@ export function MainView(): ReactElement {
   // batch every render issues at most one query per never-seen uid.
   useEffect(() => {
     const uids: string[] = [];
+    for (const contact of recentContactsData) {
+      uids.push(...previewIdentityIds(contact.preview).filter((id) => id.startsWith('u_')));
+    }
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
       uids.push(request.peerUid);
@@ -4700,6 +4721,7 @@ export function MainView(): ReactElement {
     groupNotifies.data,
     hiddenSessions.data,
     deletedSessions.data,
+    recentContactsData,
     resolveProfiles,
   ]);
 
