@@ -284,6 +284,23 @@ export type {
   RecallNotifyEvent,
 } from './account/anti_recall';
 export { notifyKey } from './account/anti_recall';
+export { IntentSenseService, INTENT_LABELS, EMOTION_LABELS } from './account/intent_sense';
+export type {
+  IntentKind,
+  EmotionKind,
+  IntentConversationKind,
+  IntentSenseResult,
+  IntentSenseConfig,
+  IntentSenseStatus,
+  IntentSenseOptions,
+  IntentLocalEnginePort,
+  IntentAnalyzedEvent,
+  IntentProfile,
+  MbtiDim,
+  ProfileHints,
+  ReplySuggestion,
+  EnsureStats,
+} from './account/intent_sense';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
 export type {
   MergeForwardDraft,
