@@ -10,6 +10,7 @@ import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
 import { WelcomeDialog } from './components/WelcomeDialog';
@@ -173,6 +174,7 @@ export default function App(): ReactElement {
             {view === 'main' ? <WelcomeDialog /> : null}
             <DialogHost />
             <ToastHost />
+            <HoverTooltip />
             {/* 「修复完成 → 回首页」的倒计时。挂在这一层（而不是妙妙工具弹窗里），
                 关掉弹窗或切视图都不会把它弄丢。 */}
             <DbRepairReturnOverlay />

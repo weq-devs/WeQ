@@ -226,13 +226,11 @@ function QzoneName({
   uin,
   preferNickname = false,
   freezeLabel = false,
-  publicNickname,
 }: {
   content: string;
   uin?: string;
   preferNickname?: boolean;
   freezeLabel?: boolean;
-  publicNickname?: string;
 }) {
   const people = useContext(QzonePeopleContext);
   useEffect(() => {
@@ -243,7 +241,7 @@ function QzoneName({
     !freezeLabel && nickname && (preferNickname || !content || content === uin)
       ? nickname
       : content;
-  const tooltipNickname = nickname || publicNickname;
+  const tooltipNickname = nickname;
   const plainNickname = tooltipNickname
     ? qzoneTextParts(tooltipNickname)
         .map((part) => (part.kind === 'emoji' ? '[QQ表情]' : part.text))
@@ -1078,11 +1076,7 @@ function Repost({
             className="weq-qzn-person"
             onClick={() => onSpace(original.uin, original.nickname)}
           >
-            <QzoneName
-              content={original.nickname || original.uin}
-              uin={original.uin}
-              publicNickname={original.nickname}
-            />
+            <QzoneName content={original.nickname || original.uin} uin={original.uin} />
           </button>
         ) : (
           <strong>
@@ -1510,12 +1504,7 @@ function Interaction({
           {likes.likes.map((like) => (
             <button type="button" key={like.uin} onClick={() => onSpace(like.uin, like.nickname)}>
               <QqAvatar uin={like.uin} size={24} />
-              <QzoneName
-                content={like.nickname || like.uin}
-                uin={like.uin}
-                publicNickname={like.nickname}
-                preferNickname
-              />
+              <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
             </button>
           ))}
         </div>
@@ -1551,11 +1540,7 @@ function Interaction({
           className="weq-qzn-person"
           onClick={() => onSpace(comment.uin, comment.nickname)}
         >
-          <QzoneName
-            content={comment.nickname || comment.uin}
-            uin={comment.uin}
-            publicNickname={comment.nickname}
-          />
+          <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
         </button>
         {comment.replyToNickname ? (
           <span>
@@ -1567,18 +1552,10 @@ function Interaction({
                 className="weq-qzn-person"
                 onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
               >
-                <QzoneName
-                  content={comment.replyToNickname}
-                  uin={comment.replyToUin}
-                  publicNickname={comment.replyToNickname}
-                />
+                <QzoneName content={comment.replyToNickname} uin={comment.replyToUin} />
               </button>
             ) : (
-              <QzoneName
-                content={comment.replyToNickname}
-                uin={comment.replyToUin}
-                publicNickname={comment.replyToNickname}
-              />
+              <QzoneName content={comment.replyToNickname} uin={comment.replyToUin} />
             )}
           </span>
         ) : null}
@@ -1940,11 +1917,7 @@ function FeedCard({
         </button>
         <div>
           <button type="button" onClick={() => onSpace(String(feed.uin), feed.nickname)}>
-            <QzoneName
-              content={feed.nickname || String(feed.uin)}
-              uin={String(feed.uin)}
-              publicNickname={feed.nickname}
-            />
+            <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
           </button>
           <time>{timeText(feed.time)}</time>
         </div>
