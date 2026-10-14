@@ -413,22 +413,9 @@ html[data-theme='dark'] .weq-intent-popover {
   animation: weq-spin 900ms linear infinite;
 }
 
-/* ── 画像 Dialog 的补充结构 ─────────────────────────────────────────── */
+/* ── 画像 Dialog 的内容排版（容器骨架由 group-keyword-dialog 提供）──── */
 
-.weq-int-profile-dialog .weq-int-profile-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px 10px;
-}
-
-.weq-int-profile-dialog h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.weq-int-profile-dialog h4 {
+.weq-int-profile h4 {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -454,10 +441,10 @@ html[data-theme='dark'] .weq-intent-popover {
   cursor: default;
 }
 
-/* ── 设置面板（更多 → 意图感知）─────────────────────────────────────── */
+/* ── 弹窗容器（设置面板 / 画像共用 group-keyword-dialog 骨架）───────── */
 
-.weq-int-settings-dialog .weq-cvs-body {
-  grid-template-columns: none;
+.weq-int-dialog {
+  width: min(600px, calc(100vw - 48px));
 }
 
 .weq-int-select {

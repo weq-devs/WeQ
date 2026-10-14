@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { AnalyticsSkeleton } from '../AnalyticsSkeleton';
@@ -138,44 +138,46 @@ export function IntentProfileDialog({
       onMouseDown={closeFromScrim(onClose)}
     >
       <section
-        className="weq-cvs-dialog weq-int-profile-dialog"
+        className="group-keyword-dialog weq-int-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={`意图画像：${peerName}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <button
-          className="weq-cvs-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-        <header className="weq-int-profile-head">
-          <div>
-            <h3>意图画像</h3>
-            <p className="weq-int-note">{peerName}</p>
+        <header>
+          <div className="group-keyword-title">
+            <span className="group-keyword-title-icon">
+              <BrainCircuit size={17} />
+            </span>
+            <div>
+              <strong>意图画像</strong>
+              <span>{peerName}</span>
+            </div>
           </div>
-          <button
-            type="button"
-            className="weq-int-suggest-refresh"
-            title="重新计算"
-            aria-label="重新计算"
-            onClick={async () => {
-              setRefreshing(true);
-              try {
-                await profile.refetch();
-              } finally {
-                setRefreshing(false);
-              }
-            }}
-          >
-            <RefreshCw size={15} className={refreshing ? 'weq-spin' : undefined} />
-          </button>
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            <button
+              type="button"
+              className="icon-button"
+              title="重新计算"
+              aria-label="重新计算"
+              disabled={refreshing}
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  await profile.refetch();
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+            >
+              <RefreshCw size={16} className={refreshing ? 'weq-spin' : undefined} />
+            </button>
+            <button className="icon-button" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </span>
         </header>
-        <div className="weq-cvs-body-scroll">
+        <div className="group-keyword-body">
           {profile.isLoading || !data ? (
             <AnalyticsSkeleton />
           ) : (

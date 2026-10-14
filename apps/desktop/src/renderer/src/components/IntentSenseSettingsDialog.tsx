@@ -15,7 +15,7 @@ import { useState, type ReactElement } from 'react';
 import { BrainCircuit, Download, Play, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
-import { Card, Row, SectionHeader, Toggle } from './settings/controls';
+import { Card, Row, Toggle } from './settings/controls';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 
 interface ProviderModelWire {
@@ -141,33 +141,28 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
       onMouseDown={closeFromScrim(onClose)}
     >
       <section
-        className="weq-cvs-dialog weq-int-settings-dialog"
+        className="group-keyword-dialog weq-int-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="意图感知设置"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <button
-          className="weq-cvs-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-        <div className="weq-cvs-body" style={{ gridTemplateColumns: 'none' }}>
-          <div className="weq-cvs-body-head">
-            <strong>意图感知</strong>
-            <span>本地分析消息意图与情绪，推断对方互动画像（仅供娱乐）</span>
+        <header>
+          <div className="group-keyword-title">
+            <span className="group-keyword-title-icon">
+              <BrainCircuit size={17} />
+            </span>
+            <div>
+              <strong>意图感知</strong>
+              <span>本地分析消息意图与情绪，推断对方互动画像（仅供娱乐）</span>
+            </div>
           </div>
-          <div className="weq-cvs-body-scroll">
-            <SectionHeader
-              title="意图感知"
-              icon={<BrainCircuit size={16} strokeWidth={1.8} />}
-              desc="开启后，私聊最新对方消息与悬停的任意消息会显示意图/情绪胶囊；右上角出现好感度胶囊。"
-            />
-            <Card title="基础">
+          <button className="icon-button" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+        <div className="group-keyword-body">
+          <Card title="基础">
               <Row
                 label="启用意图感知"
                 desc="分析在本机完成（本地模型）或发送给你配置的 API（云端引擎）。"
@@ -334,7 +329,6 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
               意图与画像均为模型推断， 好感度/MBTI 仅供娱乐参考；API
               引擎会把消息文本发送给你配置的服务商。
             </p>
-          </div>
         </div>
       </section>
     </div>
