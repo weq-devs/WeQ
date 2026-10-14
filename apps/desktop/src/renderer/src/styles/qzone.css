@@ -55,7 +55,12 @@
 .weq-qzn-composer button:not(.weq-qzn-primary) { color: var(--weq-fg-primary); }
 .weq-qzn-draft-images button { background: var(--weq-bg-surface); border: 1px solid var(--weq-border-strong); }
 
-.weq-qzn-navigation nav { flex-wrap: wrap; }
+.weq-qzn-navigation nav { flex: 1 1 260px; min-width: 0; max-width: 100%; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
+.weq-qzn-navigation nav > button, .weq-qzn-space-tab { flex-shrink: 0; }
+.weq-qzn-navigation form { flex-shrink: 0; }
+.weq-qzn-space-title { min-width: 0; max-width: 216px; }
+.weq-qzn-space-label { display: block; min-width: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap; text-align: left; scrollbar-width: thin; }
+.weq-qzn-navigation nav::-webkit-scrollbar, .weq-qzn-space-label::-webkit-scrollbar { height: 4px; }
 .weq-qzn-space-tab { display: inline-flex; align-items: center; gap: 0; }
 .weq-qzn-space-tab > button:last-child { padding: 6px 4px; color: var(--muted-foreground); }
 .weq-qzn button.weq-qzn-mention { display: inline; padding: 0; color: var(--primary); font-size: inherit; line-height: inherit; border-radius: 0; vertical-align: baseline; }

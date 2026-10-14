@@ -331,6 +331,7 @@ export function QzoneView({
 }): ReactElement {
   const people = useQzonePeople(selfUin);
   const [tab, setTab] = useState<Tab>('feeds');
+  const tabBar = useRef<HTMLElement>(null);
   const [hostUin, setHostUin] = useState(selfUin);
   const [spaces, setSpaces] = useState<string[]>([]);
   const [spaceNames, setSpaceNames] = useState<Record<string, string>>({});
@@ -346,6 +347,16 @@ export function QzoneView({
   useEffect(() => {
     setVisited((current) => (current.includes(tab) ? current : [...current, tab]));
   }, [tab]);
+  useLayoutEffect(() => {
+    const bar = tabBar.current;
+    const selected = bar?.querySelector<HTMLElement>('[aria-current="page"]');
+    const item = selected?.closest<HTMLElement>('.weq-qzn-space-tab') ?? selected;
+    if (!bar || !item) return;
+    const bounds = bar.getBoundingClientRect();
+    const target = item.getBoundingClientRect();
+    if (target.left < bounds.left) bar.scrollLeft += target.left - bounds.left;
+    else if (target.right > bounds.right) bar.scrollLeft += target.right - bounds.right;
+  }, [tab, hostUin]);
   const selectedPage = tab === 'space' ? `space:${hostUin}` : tab;
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
@@ -393,7 +404,7 @@ export function QzoneView({
           </div>
         </header>
         <div className="weq-qzn-navigation">
-          <nav aria-label="空间栏目">
+          <nav ref={tabBar} aria-label="空间栏目">
             <button
               type="button"
               aria-current={tab === 'feeds' ? 'page' : undefined}
@@ -415,13 +426,16 @@ export function QzoneView({
               <span className="weq-qzn-space-tab" key={uin}>
                 <button
                   type="button"
+                  className="weq-qzn-space-title"
                   aria-current={tab === 'space' && hostUin === uin ? 'page' : undefined}
                   onClick={() => {
                     setHostUin(uin);
                     setTab('space');
                   }}
                 >
-                  <QzoneName content={spaceNames[uin] || uin} uin={uin} />
+                  <span className="weq-qzn-space-label">
+                    <QzoneName content={spaceNames[uin] || uin} uin={uin} /> 的空间
+                  </span>
                 </button>
                 <button
                   type="button"
