@@ -42,7 +42,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
-import { macApplicationMenu } from './application_menu';
+import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import {
@@ -127,6 +127,7 @@ function resolveCloseBehavior(): WindowCloseBehavior {
  */
 function buildTray(): void {
   if (tray) return;
+  const labels = nativeMenuLabels(app.getPreferredSystemLanguages()[0] ?? app.getLocale());
   const iconPath = resolveResource('brand', 'logo.png');
   let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
   if (!image.isEmpty()) {
@@ -140,10 +141,10 @@ function buildTray(): void {
     tray.setToolTip('WeQ');
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: '显示主窗口', click: openMainWindow },
+        { label: labels.showWindow, click: openMainWindow },
         { type: 'separator' },
         {
-          label: '退出 WeQ',
+          label: labels.quit,
           click: () => {
             isQuitting = true;
             app.quit();
@@ -611,7 +612,11 @@ void app.whenReady().then(async () => {
   logger.info('main window created', { event: 'create-window' });
   buildTray();
   if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(Menu.buildFromTemplate(macApplicationMenu(openMainWindow)));
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        macApplicationMenu(openMainWindow, app.getPreferredSystemLanguages()[0] ?? app.getLocale()),
+      ),
+    );
   }
 
   // Silent background update check (packaged builds only). Result is cached and
