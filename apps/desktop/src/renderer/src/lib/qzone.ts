@@ -162,6 +162,7 @@ export function projectQzoneFeed(
   const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
   const cards = new Map<string, { href: string; text: string; cover?: string }>();
   const cardImages = new Set<string>();
+  const pictureLinks = new WeakSet<Element>();
   for (const anchor of body.querySelectorAll('a[href]')) {
     const image = anchor.querySelector('img');
     if (!image) continue;
@@ -172,14 +173,18 @@ export function projectQzoneFeed(
         image.getAttribute('src') ||
         '',
     );
-    // A picture link remains a picture; don't turn original-image URLs into share cards.
-    if (
-      !href ||
-      isQzoneFeedNavigation(anchor, href) ||
-      !cover ||
-      (qzoneMediaSource(href) && /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(href))
-    )
+    // Qzone wraps ordinary photos in links to its own photo viewer, not just mood permalinks.
+    // Keep those anchors as pictures even when the destination has no file extension.
+    const destination = href ? new URL(href) : null;
+    const mediaDestination =
+      destination &&
+      (destination.hostname === 'user.qzone.qq.com' ||
+        /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(href!));
+    if (href && (isQzoneFeedNavigation(anchor, href) || mediaDestination)) {
+      pictureLinks.add(anchor);
       continue;
+    }
+    if (!href || !cover) continue;
     const text =
       anchor.getAttribute('title')?.trim() ||
       anchor.textContent?.trim() ||
@@ -210,7 +215,7 @@ export function projectQzoneFeed(
   for (const link of body.querySelectorAll('a[href]')) {
     try {
       const href = qzoneLinkTarget(link.getAttribute('href')!);
-      if (!href || isQzoneFeedNavigation(link, href)) continue;
+      if (!href || pictureLinks.has(link) || isQzoneFeedNavigation(link, href)) continue;
       const text = link.textContent?.trim() ?? '';
       if (
         !text ||

@@ -1320,7 +1320,14 @@ function Feeds({
       loadCursor(nextCursor.current);
   }, [nearEnd, loading, error, done, feeds, loadCursor]);
   const projections = useRef(
-    new Map<string, { html: string; body: ReturnType<typeof projectQzoneFeed> }>(),
+    new Map<
+      string,
+      {
+        html: string;
+        projector: typeof projectQzoneFeed;
+        body: ReturnType<typeof projectQzoneFeed>;
+      }
+    >(),
   );
   const { run: runLookup } = useQzoneRequests();
   const lookupPages = useRef(new Map<string, Promise<{ list: QzoneEmotion[]; total: number }>>());
@@ -1368,6 +1375,7 @@ function Feeds({
     },
     [selfUin, runLookup],
   );
+  const currentProjector = projectQzoneFeed;
   const shown = useMemo(
     () =>
       feeds
@@ -1375,8 +1383,10 @@ function Feeds({
         .map((feed) => {
           const key = `${feed.uin}:${feed.appid}:${feed.key || feed.time}`;
           const cached = projections.current.get(key);
-          const body = cached?.html === feed.html ? cached.body : projectQzoneFeed(feed.html);
-          if (cached?.html !== feed.html) projections.current.set(key, { html: feed.html, body });
+          const reusable = cached?.html === feed.html && cached.projector === currentProjector;
+          const body = reusable ? cached.body : currentProjector(feed.html);
+          if (!reusable)
+            projections.current.set(key, { html: feed.html, projector: currentProjector, body });
           return { feed, body };
         })
         .filter(
@@ -1385,7 +1395,7 @@ function Feeds({
             (!filter ||
               (filter === -1 ? ![311, 2, 4].includes(feed.appid) : feed.appid === filter)),
         ),
-    [feeds, filter],
+    [feeds, filter, currentProjector],
   );
   return (
     <div className="weq-qzn-timeline">
