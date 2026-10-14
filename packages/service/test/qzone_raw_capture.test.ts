@@ -79,11 +79,25 @@ describe('qzone msglist raw response capture', () => {
     expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({ total: 0, list: [] });
   });
 
+  it('keeps the server total when hidden or private posts leave the tail empty', async () => {
+    // Real spaces can report total > 0 while returning msglist: null because posts
+    // are hidden from this account; the count must survive for paging UI.
+    vi.mocked(webRequestText).mockResolvedValue(
+      JSON.stringify({
+        code: 0,
+        total: 3,
+        msglist: null,
+        logininfo: { uin: 10001 },
+        usrinfo: { uin: 10001 },
+      }),
+    );
+    expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({ total: 3, list: [] });
+  });
+
   it.each([
     { code: 0, total: 0, msglist: null },
     { code: -3000, total: 0, msglist: null, logininfo: { uin: 10001 }, usrinfo: { uin: 10001 } },
     { code: 0, total: 0, msglist: null, logininfo: { uin: 20002 }, usrinfo: { uin: 10001 } },
-    { code: 0, total: 1, msglist: null, logininfo: { uin: 10001 }, usrinfo: { uin: 10001 } },
   ])('rejects null tails without complete successful identity evidence: %j', async (body) => {
     vi.mocked(webRequestText).mockResolvedValue(JSON.stringify(body));
     await expect(getQzoneMsgList(CREDENTIAL, '10001', 42)).rejects.toThrow();
