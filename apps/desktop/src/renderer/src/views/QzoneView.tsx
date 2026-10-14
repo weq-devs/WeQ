@@ -823,11 +823,17 @@ function Post({
   return (
     <article ref={articleRef} className="weq-qzn-post">
       <div className="weq-qzn-post-head">
-        <QqAvatar uin={hostUin} size={34} />
+        <button
+          type="button"
+          aria-label={`进入 ${nickname || hostUin} 的空间`}
+          onClick={() => onSpace(hostUin, nickname)}
+        >
+          <QqAvatar uin={hostUin} size={34} />
+        </button>
         <div>
-          <strong>
+          <button type="button" onClick={() => onSpace(hostUin, nickname)}>
             <QzoneName content={nickname} uin={hostUin} />
-          </strong>
+          </button>
           <time dateTime={new Date(post.time * 1000).toISOString()}>
             {timeText(post.time)}
             {post.isPrivate ? ' · 仅自己可见' : ''}
@@ -893,7 +899,16 @@ function Repost({
   return (
     <section className="weq-qzn-repost" aria-label="原帖">
       <div className="weq-qzn-repost-author">
-        {validUin ? <QqAvatar uin={original.uin} size={26} /> : null}
+        {validUin ? (
+          <button
+            type="button"
+            className="weq-qzn-person"
+            aria-label={`进入 ${original.nickname || original.uin} 的空间`}
+            onClick={() => onSpace(original.uin, original.nickname)}
+          >
+            <QqAvatar uin={original.uin} size={26} />
+          </button>
+        ) : null}
         {validUin ? (
           <button
             type="button"
@@ -1330,7 +1345,14 @@ function Interaction({
   );
   const renderComment = (comment: QzoneInteraction['comments'][number]) => (
     <div className={`weq-qzn-comment${comment.isReply ? ' is-reply' : ''}`} key={comment.id}>
-      <QqAvatar uin={comment.uin} size={26} />
+      <button
+        type="button"
+        className="weq-qzn-person"
+        aria-label={`进入 ${comment.nickname || comment.uin} 的空间`}
+        onClick={() => onSpace(comment.uin, comment.nickname)}
+      >
+        <QqAvatar uin={comment.uin} size={26} />
+      </button>
       <div>
         <button
           type="button"

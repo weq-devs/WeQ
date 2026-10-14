@@ -16,7 +16,15 @@
  * 下载工具函数）。加载态用 skeleton + shimmer 占位。
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type MouseEvent,
+  type PointerEvent,
+} from 'react';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
 import { client } from '../trpc/client';
@@ -56,6 +64,56 @@ function photoKey(photo: QzoneAlbumPhotoWire): string {
   return (
     photo.picKey || photo.url || photo.thumbUrl || `${photo.id}:${photo.uploadTime}:${photo.name}`
   );
+}
+
+/** Use stable keys as the range anchor so prepended/removed media cannot shift it. */
+function useAlbumSelection(keys: string[]) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const anchor = useRef<string | null>(null);
+  const pointerSelection = useRef<string | null>(null);
+  const toggle = (key: string, range = false): void => {
+    const start = anchor.current ? keys.indexOf(anchor.current) : -1;
+    const end = keys.indexOf(key);
+    setSelected((previous) => {
+      const next = new Set(previous);
+      const selecting = !next.has(key);
+      const targets =
+        range && start >= 0 && end >= 0
+          ? keys.slice(Math.min(start, end), Math.max(start, end) + 1)
+          : [key];
+      for (const target of targets) {
+        if (selecting) next.add(target);
+        else next.delete(target);
+      }
+      return next;
+    });
+    if (!range || start < 0) anchor.current = key;
+  };
+  const modified = (event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): boolean =>
+    event.ctrlKey || event.metaKey || event.shiftKey;
+  const handlers = (key: string, disabled: boolean) => ({
+    onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
+      pointerSelection.current = null;
+      if (event.button !== 0 || !modified(event)) return;
+      pointerSelection.current = key;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!disabled) toggle(key, event.shiftKey);
+    },
+    onClickCapture: (event: MouseEvent<HTMLDivElement>) => {
+      const handledPointer = pointerSelection.current === key;
+      pointerSelection.current = null;
+      if (!handledPointer && !modified(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Also swallow the click if the modifier was released after pointerdown.
+      if (!handledPointer && !disabled) toggle(key, event.shiftKey);
+    },
+    onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
+      if (event.ctrlKey) event.preventDefault();
+    },
+  });
+  return { selected, setSelected, toggle, handlers };
 }
 
 const PAGE_NUM = 30;
@@ -436,7 +494,12 @@ function AlbumGridView({
   hostUin: string;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const {
+    selected: checked,
+    setSelected: setChecked,
+    toggle,
+    handlers,
+  } = useAlbumSelection(albums.map((album) => album.id));
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState('');
   const [stopping, setStopping] = useState(false);
@@ -453,13 +516,6 @@ function AlbumGridView({
     };
   }, []);
   const allChecked = albums.length > 0 && albums.every((album) => checked.has(album.id));
-  const toggle = (id: string): void =>
-    setChecked((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   async function exportAlbums(): Promise<void> {
     if (locked.current || checked.size === 0) return;
@@ -636,6 +692,7 @@ function AlbumGridView({
           <div
             key={album.id}
             className={`weq-qzal-album-card${checked.has(album.id) ? ' is-checked' : ''}`}
+            {...handlers(album.id, exporting)}
           >
             <button
               type="button"
@@ -717,7 +774,12 @@ function MediaView({
    * 注意不能用裸 `photo.id` 当键：cgi 返回的 id 全是占位 4294967295（真正的定位键
    * 是 lloc/sloc），同一相册所有行共享同一个 id，拿它做选择键会「点一个=全选」。
    * 这里与 React key 一致，使用媒体定位信息，刷新插入新照片后也不会错选。 */
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const {
+    selected,
+    setSelected,
+    toggle: toggleSelect,
+    handlers,
+  } = useAlbumSelection(photos.map(photoKey));
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -767,15 +829,6 @@ function MediaView({
 
   /** 行内唯一选择键（与渲染 React key 一致）。 */
   const rowKey = (index: number): string => photoKey(photos[index]!);
-
-  const toggleSelect = (row: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(row)) next.delete(row);
-      else next.add(row);
-      return next;
-    });
-  };
 
   const allSelected = photos.length > 0 && photos.every((_, i) => selected.has(rowKey(i)));
   const toggleSelectAll = (): void => {
@@ -915,6 +968,7 @@ function MediaView({
                 <div
                   key={row}
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
+                  {...handlers(row, downloading)}
                 >
                   <button
                     type="button"

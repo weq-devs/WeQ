@@ -63,7 +63,8 @@ interface RawAlbum {
 
 interface RawAlbumListData {
   albumListModeSort?: RawAlbum[] | null;
-  albumsInUser?: RawAlbum[] | null;
+  /** Current CGI may return the album count here, rather than a legacy list. */
+  albumsInUser?: RawAlbum[] | number | null;
 }
 
 interface RawAlbumListRet {
@@ -99,7 +100,8 @@ export async function getQzoneAlbumList(
     g_tk: String(gtk),
     t: String(Date.now()),
     hostUin,
-    uin: hostUin,
+    // uin authenticates the viewer; hostUin identifies the space being read.
+    uin: cred.uin,
     appid: '4',
     inCharset: 'utf-8',
     outCharset: 'utf-8',
@@ -128,9 +130,11 @@ export async function getQzoneAlbumList(
   }
   const data = ret.data;
   const list =
-    data?.albumListModeSort && data.albumListModeSort.length > 0
+    Array.isArray(data?.albumListModeSort) && data.albumListModeSort.length > 0
       ? data.albumListModeSort
-      : (data?.albumsInUser ?? []);
+      : Array.isArray(data?.albumsInUser)
+        ? data.albumsInUser
+        : [];
   return list.map(mapAlbum);
 }
 
@@ -221,7 +225,8 @@ export async function getQzoneAlbumMedia(
     hostUin,
     topicId,
     noTopic: '0',
-    uin: hostUin,
+    // uin authenticates the viewer; hostUin identifies the space being read.
+    uin: cred.uin,
     pageStart: String(pageStart),
     pageNum: String(pageNum),
     skipCmtCount: '0',
@@ -316,7 +321,8 @@ export async function getQzoneAlbumVideoUrl(
     callbackFun: 'viewer',
     offset: '0',
     number: '15',
-    uin: hostUin,
+    // uin authenticates the viewer; hostUin identifies the space being read.
+    uin: cred.uin,
     hostUin,
     appid: '4',
     isFirst: '1',
