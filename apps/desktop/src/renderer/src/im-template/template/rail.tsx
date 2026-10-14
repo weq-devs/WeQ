@@ -20,6 +20,7 @@ import {
   DatabaseZap,
   FileStack,
   ShieldCheck,
+  BrainCircuit,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
@@ -44,6 +45,7 @@ export function AppRail({
   onOpenWonderfulTools,
   /** 防撤回面板（不是视图：弹窗，只有 onSelect）。 */
   onOpenAntiRecall,
+  onOpenIntentSense,
   onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
@@ -67,6 +69,8 @@ export function AppRail({
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
+  /** 「更多 → 意图感知」设置面板。 */
+  onOpenIntentSense: () => void;
   /** 妙妙工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
   onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
@@ -96,6 +100,7 @@ export function AppRail({
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
     { id: 'antiRecall', label: '防撤回', icon: ShieldCheck, onSelect: onOpenAntiRecall },
+    { id: 'intentSense', label: '意图感知', icon: BrainCircuit, onSelect: onOpenIntentSense },
     { id: 'dbRepair', label: '数据库修复', icon: DatabaseZap, onSelect: onOpenDbRepair },
     { id: 'mergeForward', label: '合成聊天记录', icon: FileStack, onSelect: onOpenMergeForward },
     { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },

@@ -132,7 +132,10 @@ import {
 import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow } from './messageRow';
+import { MessageRow, grayTipOf } from './messageRow';
+import { IntentSenseProvider } from '../../components/intentSense/context';
+import { AffinityPill } from '../../components/intentSense/AffinityPill';
+import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
@@ -327,6 +330,7 @@ export function ChatPane({
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
+  onOpenIntentProfile,
   onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
@@ -433,6 +437,8 @@ export function ChatPane({
   onOpenConversationSettings?: (
     conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
   ) => void;
+  /** 好感度胶囊点击：打开对方的意图画像 Dialog（应用层挂载）。 */
+  onOpenIntentProfile?: (conversation: Extract<Conversation, { type: 'direct' }>) => void;
   onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
@@ -698,6 +704,18 @@ export function ChatPane({
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
   );
+  // 意图感知：会话定位（c2c = uid，group = 群号）+ 最新一条对方消息（跳过灰条，
+  // 常驻意图/情绪胶囊只挂在它下面）。
+  const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
+  const intentConv = conversation?.id ?? '';
+  const latestPeerMsgId = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      const m = visibleMessages[i];
+      if (grayTipOf(m)) continue;
+      if (m.senderId !== user?.id) return m.id;
+    }
+    return null;
+  }, [visibleMessages, user?.id]);
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectedMessages = useMemo(
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
@@ -3262,6 +3280,12 @@ export function ChatPane({
           {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
         </div>
         <div className={cn('chat-actions')}>
+          {conversation.type === 'direct' && conversation.otherUser ? (
+            <AffinityPill
+              peerUid={conversation.otherUser.id}
+              onOpenProfile={() => onOpenIntentProfile?.(conversation)}
+            />
+          ) : null}
           {onSearchChatRecords &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
             <button
@@ -3404,109 +3428,111 @@ export function ChatPane({
         </div>
       </header>
 
-      <div className={cn('message-scroll')} ref={messageScrollRef} onScroll={handleMessageScroll}>
-        {loading ? (
-          <ChatMessagesSkeleton />
-        ) : visibleMessages.length === 0 ? (
-          <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
-        ) : (
-          (() => {
-            // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
-            // 预览用的是同一份实现，所以三处的画法不会再各写一套。
-            const out = [];
-            visibleMessages.forEach((message, index) => {
-              // A hole in the seq run means QQ has messages here that were
-              // never synced locally. Checked for every row (gray tips
-              // included — they occupy a seq too) and emitted before the row
-              // that follows the hole.
-              const previous = visibleMessages[index - 1];
-              const gap = messageGapCount(previous, message);
-              // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
-              // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
-              // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
-              if (
-                gap === 0 &&
-                missingJumpSeq &&
-                previous &&
-                conversation &&
-                onOpenGapMessages &&
-                isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
-              ) {
+      <IntentSenseProvider kind={intentKind} conv={intentConv} latestPeerMsgId={latestPeerMsgId}>
+        <div className={cn('message-scroll')} ref={messageScrollRef} onScroll={handleMessageScroll}>
+          {loading ? (
+            <ChatMessagesSkeleton />
+          ) : visibleMessages.length === 0 ? (
+            <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
+          ) : (
+            (() => {
+              // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
+              // 预览用的是同一份实现，所以三处的画法不会再各写一套。
+              const out = [];
+              visibleMessages.forEach((message, index) => {
+                // A hole in the seq run means QQ has messages here that were
+                // never synced locally. Checked for every row (gray tips
+                // included — they occupy a seq too) and emitted before the row
+                // that follows the hole.
+                const previous = visibleMessages[index - 1];
+                const gap = messageGapCount(previous, message);
+                // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
+                // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
+                // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
+                if (
+                  gap === 0 &&
+                  missingJumpSeq &&
+                  previous &&
+                  conversation &&
+                  onOpenGapMessages &&
+                  isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
+                ) {
+                  out.push(
+                    <MessageGapDivider
+                      key={`missing-jump-${message.id}`}
+                      count={1}
+                      onOpen={() =>
+                        onOpenGapMessages({
+                          conversation,
+                          previousSeq: String(previous.msgSeq ?? ''),
+                          currentSeq: String(message.msgSeq ?? ''),
+                          count: 1,
+                        })
+                      }
+                    />,
+                  );
+                }
+                if (gap > 0) {
+                  out.push(
+                    <MessageGapDivider
+                      key={`gap-${message.id}`}
+                      count={gap}
+                      onOpen={
+                        conversation && onOpenGapMessages && previous
+                          ? () =>
+                              onOpenGapMessages({
+                                conversation,
+                                previousSeq: String(previous.msgSeq ?? ''),
+                                currentSeq: String(message.msgSeq ?? ''),
+                                count: gap,
+                              })
+                          : undefined
+                      }
+                    />,
+                  );
+                }
+                const sender = resolveMessageSender(message, conversation, user);
                 out.push(
-                  <MessageGapDivider
-                    key={`missing-jump-${message.id}`}
-                    count={1}
-                    onOpen={() =>
-                      onOpenGapMessages({
-                        conversation,
-                        previousSeq: String(previous.msgSeq ?? ''),
-                        currentSeq: String(message.msgSeq ?? ''),
-                        count: 1,
-                      })
-                    }
-                  />,
+                  <Fragment key={message.id}>
+                    {shouldShowMessageTime(previous, message) ? (
+                      <MessageTimeDivider value={message.createdAt} />
+                    ) : null}
+                    <MessageRow
+                      message={message}
+                      conversation={conversation}
+                      user={user}
+                      sender={sender}
+                      renderers={messageRenderers}
+                      showSenderName={showSenderNames}
+                      active={contextMenu?.message.id === message.id}
+                      deleted={deletedIds?.has(message.id) ?? false}
+                      deletedKind={message.deletedKind}
+                      recallRevokerName={message.recallRevokerName}
+                      onRestore={onRestoreMessage}
+                      onContextMenu={openMessageMenu}
+                      onLongPress={openMobileMessageMenu}
+                      onAction={onMessageAction}
+                      selectionMode={selectionMode}
+                      selected={selectionMode && selectedIds.has(message.id)}
+                      onToggleSelect={toggleSelectMessage}
+                      onAvatarClick={
+                        !selectionMode &&
+                        (conversation.type === 'group' || conversation.type === 'direct') &&
+                        onOpenGroupMember
+                          ? onOpenGroupMember
+                          : undefined
+                      }
+                      onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
+                    />
+                  </Fragment>,
                 );
-              }
-              if (gap > 0) {
-                out.push(
-                  <MessageGapDivider
-                    key={`gap-${message.id}`}
-                    count={gap}
-                    onOpen={
-                      conversation && onOpenGapMessages && previous
-                        ? () =>
-                            onOpenGapMessages({
-                              conversation,
-                              previousSeq: String(previous.msgSeq ?? ''),
-                              currentSeq: String(message.msgSeq ?? ''),
-                              count: gap,
-                            })
-                        : undefined
-                    }
-                  />,
-                );
-              }
-              const sender = resolveMessageSender(message, conversation, user);
-              out.push(
-                <Fragment key={message.id}>
-                  {shouldShowMessageTime(previous, message) ? (
-                    <MessageTimeDivider value={message.createdAt} />
-                  ) : null}
-                  <MessageRow
-                    message={message}
-                    conversation={conversation}
-                    user={user}
-                    sender={sender}
-                    renderers={messageRenderers}
-                    showSenderName={showSenderNames}
-                    active={contextMenu?.message.id === message.id}
-                    deleted={deletedIds?.has(message.id) ?? false}
-                    deletedKind={message.deletedKind}
-                    recallRevokerName={message.recallRevokerName}
-                    onRestore={onRestoreMessage}
-                    onContextMenu={openMessageMenu}
-                    onLongPress={openMobileMessageMenu}
-                    onAction={onMessageAction}
-                    selectionMode={selectionMode}
-                    selected={selectionMode && selectedIds.has(message.id)}
-                    onToggleSelect={toggleSelectMessage}
-                    onAvatarClick={
-                      !selectionMode &&
-                      (conversation.type === 'group' || conversation.type === 'direct') &&
-                      onOpenGroupMember
-                        ? onOpenGroupMember
-                        : undefined
-                    }
-                    onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
-                  />
-                </Fragment>,
-              );
-            });
-            return out;
-          })()
-        )}
-        <div ref={endRef} />
-      </div>
+              });
+              return out;
+            })()
+          )}
+          <div ref={endRef} />
+        </div>
+      </IntentSenseProvider>
 
       {newMessagePill > 0 ? (
         <button className={cn('new-message-pill')} type="button" onClick={scrollMessagesToBottom}>
@@ -3600,6 +3626,18 @@ export function ChatPane({
       >
         {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
       </button>
+
+      {/* 意图感知的回复建议：开启 + api 引擎时出现在输入框上方，点击填入草稿。 */}
+      {!composerCollapsed && conversation?.type !== undefined ? (
+        <IntentSuggestionBar
+          kind={intentKind}
+          conv={intentConv}
+          onInsert={(text) => {
+            const current = draftRef.current ?? '';
+            onDraftChange?.(conversation.id, current ? `${current} ${text}` : text);
+          }}
+        />
+      ) : null}
 
       <div
         className={cn(

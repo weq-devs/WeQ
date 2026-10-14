@@ -107,6 +107,7 @@ export function ChatMainContent({
   onOpenGroupLeftMembers,
   groupBugOnline,
   onOpenBuddyAnalytics,
+  onOpenIntentProfile,
   onOpenGroupMember,
   onAddMessage,
   onMergeForward,
@@ -213,6 +214,8 @@ export function ChatMainContent({
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
   onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
+  /** 好感度胶囊点击 → 打开意图画像 Dialog（透传给 chatPane）。 */
+  onOpenIntentProfile?: (conversation: DirectConversation) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
@@ -318,6 +321,7 @@ export function ChatMainContent({
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
       onOpenBuddyAnalytics={onOpenBuddyAnalytics}
+      onOpenIntentProfile={onOpenIntentProfile}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
       onMergeForward={onMergeForward}

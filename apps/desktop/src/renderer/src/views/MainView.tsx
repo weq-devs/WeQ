@@ -65,6 +65,8 @@ import {
 } from '../components/GroupAnnouncementsDialog';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { AntiRecallDialog } from '../components/AntiRecallDialog';
+import { IntentSenseSettingsDialog } from '../components/IntentSenseSettingsDialog';
+import { IntentProfileDialog } from '../components/intentSense/IntentProfileDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
@@ -2475,6 +2477,13 @@ export function MainView(): ReactElement {
   >(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
   const [antiRecallOpen, setAntiRecallOpen] = useState(false);
+  /** 意图感知设置面板（「更多 → 意图感知」）：弹窗，不是视图。 */
+  const [intentSenseOpen, setIntentSenseOpen] = useState(false);
+  /** 意图画像 Dialog（好感度胶囊点击）：私聊对方。 */
+  const [intentProfileDialog, setIntentProfileDialog] = useState<{
+    peerUid: string;
+    peerName: string;
+  } | null>(null);
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
   const [convSettings, setConvSettings] = useState<{
     kind: 'c2c' | 'group' | 'dataline';
@@ -3010,6 +3019,21 @@ export function MainView(): ReactElement {
   const handleOpenBuddyAnalytics = useCallback(
     (conversation: Extract<Conversation, { type: 'direct' }>) => {
       setBuddyAnalyticsDialog({
+        peerUid: conversation.otherUser.id,
+        peerName:
+          conversation.otherUser.displayName ||
+          conversation.otherUser.username ||
+          conversation.otherUser.identityValue ||
+          'TA',
+      });
+    },
+    [],
+  );
+
+  // 好感度胶囊点击 → 意图画像 Dialog（与单聊分析同层、同款取名字逻辑）。
+  const handleOpenIntentProfile = useCallback(
+    (conversation: Extract<Conversation, { type: 'direct' }>) => {
+      setIntentProfileDialog({
         peerUid: conversation.otherUser.id,
         peerName:
           conversation.otherUser.displayName ||
@@ -6945,6 +6969,7 @@ export function MainView(): ReactElement {
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
             onOpenAntiRecall={() => setAntiRecallOpen(true)}
+            onOpenIntentSense={() => setIntentSenseOpen(true)}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
@@ -7155,6 +7180,7 @@ export function MainView(): ReactElement {
                         onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
                         groupBugOnline={groupBugStatus.data?.online ?? false}
                         onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                        onOpenIntentProfile={handleOpenIntentProfile}
                         onOpenGroupMember={handleOpenGroupMember}
                         onAddMessage={handleAddMessage}
                         onMergeForward={handleMergeForward}
@@ -7336,6 +7362,16 @@ export function MainView(): ReactElement {
             <AntiRecallDialog
               onClose={() => setAntiRecallOpen(false)}
               onOpenRecalls={handleOpenRecallsAt}
+            />
+          ) : null}
+          {intentSenseOpen ? (
+            <IntentSenseSettingsDialog onClose={() => setIntentSenseOpen(false)} />
+          ) : null}
+          {intentProfileDialog ? (
+            <IntentProfileDialog
+              peerUid={intentProfileDialog.peerUid}
+              peerName={intentProfileDialog.peerName}
+              onClose={() => setIntentProfileDialog(null)}
             />
           ) : null}
           {convSettings ? (

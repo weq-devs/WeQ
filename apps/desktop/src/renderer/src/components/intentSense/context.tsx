@@ -1,0 +1,182 @@
+/**
+ * 意图感知的会话级数据层（React Context）。
+ *
+ * chatPane 挂在 `.message-scroll` 外层：打开会话时一次性拉齐缓存
+ * （listMessageAnalyses）+ 触发增量补分析（ensureAnalysis，后台跑），之后靠
+ * onAnalyzed 订阅把新结果合并进内存 map。气泡组件经 useIntentSenseContext 读
+ * 单条结果 / 触发悬停补分析 —— 深层组件不用逐层传 props。
+ *
+ * 版本号（version）驱动消费者重渲染：map 存在 ref 里保持稳定引用，每次合并
+ * 后 bump 一次。
+ */
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { trpc, client } from '../../trpc/client';
+
+/** 与后端 IntentSenseResult 对齐（superjson 直传的形状）。 */
+export interface IntentAnalysis {
+  msgId: string;
+  mine: boolean;
+  sendTime: number;
+  intent: string;
+  emotion: string;
+  intensity: number;
+  sentiment: number;
+  confidence: number;
+  engine: 'local' | 'api';
+  analyzedAt: number;
+}
+
+export interface IntentSenseContextValue {
+  /** 功能在当前会话是否生效（总开关 + 引擎可用 + 会话未关）。 */
+  active: boolean;
+  /** 数据版本（每次合并 bump；消费者以此触发重渲染）。 */
+  version: number;
+  /** 读单条结果（未分析过返回 undefined）。 */
+  getAnalysis: (msgId: string) => IntentAnalysis | undefined;
+  /** 悬停未命中时单条触发（带去重：同一消息本会话只发一次）。 */
+  requestAnalysis: (msgId: string) => void;
+  /** 最新一条对方消息 id（常驻胶囊只挂在它下面）。 */
+  latestPeerMsgId: string | null;
+  /** 会话类型与 id（消费组件回传后端用）。 */
+  kind: 'c2c' | 'group';
+  conv: string;
+}
+
+const IntentSenseContext = createContext<IntentSenseContextValue | null>(null);
+
+export function useIntentSenseContext(): IntentSenseContextValue | null {
+  return useContext(IntentSenseContext);
+}
+
+/**
+ * 全局状态查询（React Query 同 key 共享缓存，多处使用只发一次 IPC）。
+ * header 好感度胶囊 / 回复建议条在 Provider 外，靠它判断功能是否开启。
+ */
+export function useIntentSenseStatus() {
+  return trpc.account.intentSense.getStatus.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+  });
+}
+
+export function IntentSenseProvider({
+  kind,
+  conv,
+  latestPeerMsgId,
+  children,
+}: {
+  kind: 'c2c' | 'group';
+  conv: string;
+  latestPeerMsgId: string | null;
+  children: ReactNode;
+}) {
+  const analysesRef = useRef(new Map<string, IntentAnalysis>());
+  const requestedRef = useRef(new Set<string>());
+  const [version, setVersion] = useState(0);
+
+  const status = useIntentSenseStatus();
+  const statusData = status.data;
+  const overridden = statusData?.conversationOverrides?.[`${kind}:${conv}`];
+  const engineOk =
+    statusData?.engine === 'local' ? !!statusData.localAvailable : !!statusData?.apiConfigured;
+  const effective = !!statusData?.enabled && overridden !== false && engineOk;
+
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
+
+  const merge = useCallback(
+    (results: IntentAnalysis[]): void => {
+      if (results.length === 0) return;
+      for (const r of results) analysesRef.current.set(r.msgId, r);
+      bump();
+    },
+    [bump],
+  );
+
+  // 会话打开：拉齐缓存 + 后台增量补分析。
+  useEffect(() => {
+    if (!effective || !conv) return;
+    let disposed = false;
+    void client.account.intentSense.listMessageAnalyses
+      .query({ kind, conv })
+      .then((results) => {
+        if (!disposed) merge(results as IntentAnalysis[]);
+      })
+      .catch(() => {
+        /* 无账号会话等场景静默 */
+      });
+    void client.account.intentSense.ensureAnalysis.mutate({ kind, conv }).catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [kind, conv, effective, merge]);
+
+  // 新消息进来后由 chatPane 重触发（依赖 latestPeerMsgId 变化即最后一条消息变了）。
+  useEffect(() => {
+    if (!effective || !conv || !latestPeerMsgId) return;
+    void client.account.intentSense.ensureAnalysis.mutate({ kind, conv }).catch(() => undefined);
+  }, [kind, conv, effective, latestPeerMsgId]);
+
+  // 增量结果订阅。
+  useEffect(() => {
+    if (!effective || !conv) return;
+    const sub = client.account.intentSense.onAnalyzed.subscribe(undefined, {
+      onData: (event) => {
+        if (event.kind === kind && event.conv === conv) merge(event.results as IntentAnalysis[]);
+      },
+      onError: () => undefined,
+    });
+    return () => {
+      void sub.unsubscribe();
+    };
+  }, [kind, conv, effective, merge]);
+
+  const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
+
+  const requestAnalysis = useCallback(
+    (msgId: string) => {
+      if (analysesRef.current.has(msgId) || requestedRef.current.has(msgId)) return;
+      requestedRef.current.add(msgId);
+      void client.account.intentSense.analyzeMessage
+        .mutate({ kind, conv, msgId })
+        .then((result) => {
+          if (result) merge([result as IntentAnalysis]);
+        })
+        .catch(() => {
+          requestedRef.current.delete(msgId);
+        });
+    },
+    [kind, conv, merge],
+  );
+
+  // 会话切换时清空内存态。
+  useEffect(() => {
+    analysesRef.current.clear();
+    requestedRef.current.clear();
+    bump();
+  }, [conv, bump]);
+
+  const value = useMemo<IntentSenseContextValue>(
+    () => ({
+      active: effective,
+      version,
+      getAnalysis,
+      requestAnalysis,
+      latestPeerMsgId,
+      kind,
+      conv,
+    }),
+    [effective, version, getAnalysis, requestAnalysis, latestPeerMsgId, kind, conv],
+  );
+
+  return <IntentSenseContext.Provider value={value}>{children}</IntentSenseContext.Provider>;
+}

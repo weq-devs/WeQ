@@ -38,6 +38,7 @@ export function ChatShell({
   onOpenInvite,
   onOpenWonderfulTools,
   onOpenAntiRecall,
+  onOpenIntentSense,
   onOpenDbRepair,
   onOpenGuildDirect,
   onOpenQzoneAlbum,
@@ -83,6 +84,7 @@ export function ChatShell({
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
+  onOpenIntentSense: () => void;
   onOpenDbRepair: () => void;
   onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
@@ -120,6 +122,7 @@ export function ChatShell({
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
           onOpenAntiRecall={onOpenAntiRecall}
+          onOpenIntentSense={onOpenIntentSense}
           onOpenDbRepair={onOpenDbRepair}
           onOpenGuildDirect={onOpenGuildDirect}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
