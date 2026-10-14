@@ -356,11 +356,17 @@ export function QzoneAlbumDialog({
       </header>
 
       <div className="weq-qzone-album-body">
-        {refreshing && albums ? <p className="weq-qzn-status">正在刷新…</p> : null}
+        {refreshing && albums ? (
+          <p className="weq-qzn-loading" role="status">
+            <Loader2 size={16} className="weq-spin" />
+            正在刷新…
+          </p>
+        ) : null}
         {albumsError && albums ? <p className="weq-qzn-status">{albumsError}</p> : null}
         {access === null ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
+            <Loader2 size={18} className="weq-spin" />
             <span>检查在线状态…</span>
           </div>
         ) : offline ? (

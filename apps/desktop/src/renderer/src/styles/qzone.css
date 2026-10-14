@@ -82,3 +82,14 @@
 .weq-qzn-feed-link img { display: block; max-width: min(100%, 520px); max-height: 420px; border-radius: 6px; object-fit: contain; }
 
 .weq-qzn-actions > span { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border-radius: 6px; font-size: 13px; }
+
+.weq-qzn-owner-space { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.weq-qzn-owner-space[hidden] { display: none; }
+.weq-qzn-owner-navigation { display: flex; gap: 4px; padding: 12px 26px 0; }
+.weq-qzn-owner-navigation button[aria-current="page"] { color: var(--primary); background: var(--muted); }
+.weq-qzn-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; font-size: 12px; color: var(--muted-foreground); }
+.weq-qzn-page-sentinel > .weq-qzn-status { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.weq-qzn-actions { align-items: center; }
+.weq-qzn-picture { position: relative; background: var(--muted); }
+.weq-qzn-picture-loader { position: absolute; left: calc(50% - 11px); top: calc(50% - 11px); }
+.weq-qzn-repost .weq-qzn-interaction { background: var(--background); }

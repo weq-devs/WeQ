@@ -62,7 +62,14 @@ export function projectQzoneFeed(
   forwardCount: number | null;
   advertisement: boolean;
   unsupported: boolean;
-  repost: { uin: string; nickname: string; content: string; images: string[]; videos: [] } | null;
+  repost: {
+    tid: string;
+    uin: string;
+    nickname: string;
+    content: string;
+    images: string[];
+    videos: [];
+  } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const unsupported = /功能内测中|内容暂不支持查看/.test(doc.body.textContent ?? '');
@@ -106,7 +113,12 @@ export function projectQzoneFeed(
       const copy = quote.cloneNode(true) as Element;
       copy.querySelector('a.nickname')?.remove();
       const body = projectQzoneFeed(copy.outerHTML, false);
+      const originalTid =
+        [...doc.querySelectorAll('[data-origtid]')]
+          .map((node) => node.getAttribute('data-origtid')?.trim() ?? '')
+          .find((value) => value && value !== '0') ?? '';
       repost = {
+        tid: originalTid !== '0' && /^[a-zA-Z0-9_-]{1,128}$/.test(originalTid) ? originalTid : '',
         uin,
         nickname,
         content: body.text.replace(/^[：:\s]+/, ''),
