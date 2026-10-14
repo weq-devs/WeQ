@@ -116,7 +116,7 @@ import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
-import { QzoneView } from './QzoneView';
+import { QzoneWorkspace } from './QzoneView';
 import { ChannelView } from './ChannelView';
 import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
@@ -6638,156 +6638,158 @@ export function MainView(): ReactElement {
               )
             }
             mainContent={
-              arkFeedState ? (
-                <ArkFeedView
-                  conversationId={arkFeedState.conversationId}
-                  title={arkFeedState.title}
-                  onBack={() => {
-                    setArkFeedState(null);
-                  }}
-                  onEditMessage={async (msgId: string) => {
-                    try {
-                      const result = await client.account.getRawElements.query({ msgId });
-                      if (result) {
-                        setEditorState({ msgId, elements: result.elements });
-                      }
-                    } catch (e) {
-                      console.error('[MainView] Failed to fetch raw elements:', e);
-                    }
-                  }}
-                />
-              ) : shell.view === 'home' ? (
-                <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-              ) : shell.view === 'export' ? (
-                <ExportView />
-              ) : shell.view === 'agentlab' ? (
-                <AgentLabView />
-              ) : shell.view === 'cache' ? (
-                <CacheView />
-              ) : shell.view === 'qzone' ? (
-                <QzoneView
+              <>
+                <QzoneWorkspace
                   key={user.identityValue}
+                  active={shell.view === 'qzone' && !arkFeedState}
                   selfUin={user.identityValue}
                   nickname={user.displayName}
                 />
-              ) : shell.view === 'channel' ? (
-                <ChannelView />
-              ) : shell.view === 'annual' ? (
-                <AnnualReportView />
-              ) : activeConversation?.type === 'merged' ? (
-                <ArkFeedView
-                  conversationId={activeConversation.id}
-                  title={activeConversation.title}
-                  onBack={shell.backConversation}
-                  onEditMessage={async (msgId: string) => {
-                    try {
-                      const result = await client.account.getRawElements.query({ msgId });
-                      if (result) {
-                        setEditorState({ msgId, elements: result.elements });
+                {arkFeedState ? (
+                  <ArkFeedView
+                    conversationId={arkFeedState.conversationId}
+                    title={arkFeedState.title}
+                    onBack={() => {
+                      setArkFeedState(null);
+                    }}
+                    onEditMessage={async (msgId: string) => {
+                      try {
+                        const result = await client.account.getRawElements.query({ msgId });
+                        if (result) {
+                          setEditorState({ msgId, elements: result.elements });
+                        }
+                      } catch (e) {
+                        console.error('[MainView] Failed to fetch raw elements:', e);
                       }
-                    } catch (e) {
-                      console.error('[MainView] Failed to fetch raw elements:', e);
-                    }
-                  }}
-                />
-              ) : (
-                <div className="weq-template-main-wrap">
-                  <div className="weq-readonly-chat">
-                    <ChatMainContent
-                      user={user}
-                      view={shell.view}
-                      contactTab={shell.contactTab}
-                      relationGraphSlot={<RelationGraphView />}
-                      contactNotice={shell.contactNotice}
-                      contactRequests={contactRequests}
-                      groupRequests={groupRequests}
-                      selectedContact={shell.selectedContact}
-                      selectedGroupConversation={selectedGroupConversationForDetail}
-                      activeConversation={activeConversation}
-                      messages={templateMessages}
-                      messageRenderers={messageRenderers}
-                      loadingMessages={loadingInitialMessages}
-                      atLatest={anchoredToLatest}
-                      conversationPrefs={conversationPrefs}
-                      drafts={drafts}
-                      query={shell.query}
-                      onAcceptContactRequest={noopAsync}
-                      onRejectContactRequest={noopAsync}
-                      onAcceptGroupRequest={noopAsync}
-                      onRejectGroupRequest={noopAsync}
-                      onMessageContact={noopAsync}
-                      onMessageGroup={noopAsync}
-                      onBackContact={shell.backContact}
-                      onBackGroup={shell.backGroup}
-                      onBackContactNotice={shell.backContactNotice}
-                      onUpdateConversationPreference={updateConversationPreference}
-                      onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
-                        undefined
+                    }}
+                  />
+                ) : shell.view === 'home' ? (
+                  <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+                ) : shell.view === 'export' ? (
+                  <ExportView />
+                ) : shell.view === 'agentlab' ? (
+                  <AgentLabView />
+                ) : shell.view === 'cache' ? (
+                  <CacheView />
+                ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
+                  <ChannelView />
+                ) : shell.view === 'annual' ? (
+                  <AnnualReportView />
+                ) : activeConversation?.type === 'merged' ? (
+                  <ArkFeedView
+                    conversationId={activeConversation.id}
+                    title={activeConversation.title}
+                    onBack={shell.backConversation}
+                    onEditMessage={async (msgId: string) => {
+                      try {
+                        const result = await client.account.getRawElements.query({ msgId });
+                        if (result) {
+                          setEditorState({ msgId, elements: result.elements });
+                        }
+                      } catch (e) {
+                        console.error('[MainView] Failed to fetch raw elements:', e);
                       }
-                      onLoadMoreGroupMembers={requestMoreGroupMembers}
-                      groupMembersLoading={selectedGroupMembersLoading}
-                      groupMembersError={selectedGroupMembersError}
-                      groupMemberSearch={memberSearch}
-                      onGroupMemberSearchChange={setMemberSearchKeyword}
-                      onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
-                      profileLoading={groupDetail.isLoading}
-                      sendAvailable={sendAvailable}
-                      onOpenNotificationSettings={noopAsync}
-                      onSend={sendMessage}
-                      onSendWindowShake={sendWindowShake}
-                      onSendArk={sendArkCard}
-                      arkLocation={arkLocation}
-                      arkContacts={arkContacts}
-                      defaultSignupGroupCode={
-                        selectedConversation?.type === 'group'
-                          ? selectedConversation.group.identityValue
-                          : undefined
-                      }
-                      onSendFlash={sendFlashTransfer}
-                      onSendRedPacket={sendRedPacket}
-                      onDraftChange={updateDraft}
-                      onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
-                      onBackConversation={shell.backConversation}
-                      onEditRaw={handleEditRaw}
-                      onDeleteMessage={handleDeleteMessage}
-                      onOpenGroupAlbums={handleOpenGroupAlbums}
-                      onOpenGroupFiles={handleOpenGroupFiles}
-                      onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
-                      onOpenGroupEssence={handleOpenGroupEssence}
-                      onRenameGroupMember={handleRenameGroupMember}
-                      onKickGroupMember={handleKickGroupMember}
-                      onOpenConversationSettings={handleOpenConversationSettings}
-                      onOpenGroupAnalytics={handleOpenGroupAnalytics}
-                      onOpenGroupBug={handleOpenGroupBug}
-                      onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
-                      groupBugOnline={groupBugStatus.data?.online ?? false}
-                      onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
-                      onOpenGroupMember={handleOpenGroupMember}
-                      onAddMessage={handleAddMessage}
-                      onMergeForward={handleMergeForward}
-                      onViewDeleted={handleViewDeleted}
-                      onViewRecalled={handleViewRecalled}
-                      onOpenGapMessages={handleOpenGapMessages}
-                      onSearchChatRecords={handleSearchChatRecords}
-                      onExportConversation={handleExportConversation}
-                      deletedIds={deletedIds}
-                      onRestoreMessage={handleRestoreMessage}
-                      unreadDock={unreadDock}
-                      missingJumpSeq={missingJumpSeq}
+                    }}
+                  />
+                ) : (
+                  <div className="weq-template-main-wrap">
+                    <div className="weq-readonly-chat">
+                      <ChatMainContent
+                        user={user}
+                        view={shell.view}
+                        contactTab={shell.contactTab}
+                        relationGraphSlot={<RelationGraphView />}
+                        contactNotice={shell.contactNotice}
+                        contactRequests={contactRequests}
+                        groupRequests={groupRequests}
+                        selectedContact={shell.selectedContact}
+                        selectedGroupConversation={selectedGroupConversationForDetail}
+                        activeConversation={activeConversation}
+                        messages={templateMessages}
+                        messageRenderers={messageRenderers}
+                        loadingMessages={loadingInitialMessages}
+                        atLatest={anchoredToLatest}
+                        conversationPrefs={conversationPrefs}
+                        drafts={drafts}
+                        query={shell.query}
+                        onAcceptContactRequest={noopAsync}
+                        onRejectContactRequest={noopAsync}
+                        onAcceptGroupRequest={noopAsync}
+                        onRejectGroupRequest={noopAsync}
+                        onMessageContact={noopAsync}
+                        onMessageGroup={noopAsync}
+                        onBackContact={shell.backContact}
+                        onBackGroup={shell.backGroup}
+                        onBackContactNotice={shell.backContactNotice}
+                        onUpdateConversationPreference={updateConversationPreference}
+                        onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
+                          undefined
+                        }
+                        onLoadMoreGroupMembers={requestMoreGroupMembers}
+                        groupMembersLoading={selectedGroupMembersLoading}
+                        groupMembersError={selectedGroupMembersError}
+                        groupMemberSearch={memberSearch}
+                        onGroupMemberSearchChange={setMemberSearchKeyword}
+                        onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
+                        profileLoading={groupDetail.isLoading}
+                        sendAvailable={sendAvailable}
+                        onOpenNotificationSettings={noopAsync}
+                        onSend={sendMessage}
+                        onSendWindowShake={sendWindowShake}
+                        onSendArk={sendArkCard}
+                        arkLocation={arkLocation}
+                        arkContacts={arkContacts}
+                        defaultSignupGroupCode={
+                          selectedConversation?.type === 'group'
+                            ? selectedConversation.group.identityValue
+                            : undefined
+                        }
+                        onSendFlash={sendFlashTransfer}
+                        onSendRedPacket={sendRedPacket}
+                        onDraftChange={updateDraft}
+                        onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
+                        onBackConversation={shell.backConversation}
+                        onEditRaw={handleEditRaw}
+                        onDeleteMessage={handleDeleteMessage}
+                        onOpenGroupAlbums={handleOpenGroupAlbums}
+                        onOpenGroupFiles={handleOpenGroupFiles}
+                        onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                        onOpenGroupEssence={handleOpenGroupEssence}
+                        onRenameGroupMember={handleRenameGroupMember}
+                        onKickGroupMember={handleKickGroupMember}
+                        onOpenConversationSettings={handleOpenConversationSettings}
+                        onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                        onOpenGroupBug={handleOpenGroupBug}
+                        onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
+                        groupBugOnline={groupBugStatus.data?.online ?? false}
+                        onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                        onOpenGroupMember={handleOpenGroupMember}
+                        onAddMessage={handleAddMessage}
+                        onMergeForward={handleMergeForward}
+                        onViewDeleted={handleViewDeleted}
+                        onViewRecalled={handleViewRecalled}
+                        onOpenGapMessages={handleOpenGapMessages}
+                        onSearchChatRecords={handleSearchChatRecords}
+                        onExportConversation={handleExportConversation}
+                        deletedIds={deletedIds}
+                        onRestoreMessage={handleRestoreMessage}
+                        unreadDock={unreadDock}
+                        missingJumpSeq={missingJumpSeq}
+                      />
+                    </div>
+                    <OverlayScrollbar
+                      targetSelector=".weq-readonly-chat .message-scroll"
+                      className="weq-message-scrollbar"
+                      refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
+                    />
+                    <OverlayScrollbar
+                      targetSelector=".weq-readonly-chat .group-info-member-list"
+                      className="weq-group-members-scrollbar"
+                      refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
                     />
                   </div>
-                  <OverlayScrollbar
-                    targetSelector=".weq-readonly-chat .message-scroll"
-                    className="weq-message-scrollbar"
-                    refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
-                  />
-                  <OverlayScrollbar
-                    targetSelector=".weq-readonly-chat .group-info-member-list"
-                    className="weq-group-members-scrollbar"
-                    refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
-                  />
-                </div>
-              )
+                )}
+              </>
             }
           >
             {mergedPanel && (

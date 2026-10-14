@@ -1,6 +1,8 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
 import {
   useCallback,
+  useLayoutEffect,
+  memo,
   createContext,
   useContext,
   useEffect,
@@ -50,9 +52,78 @@ function queueQzoneRead<T>(work: () => Promise<T>, background: boolean): Promise
   });
 }
 
+const QzonePageContext = createContext({ active: true, refresh: 0 });
+
+/** Keep a tab's DOM, scroll position and reading state while it is hidden. */
+function QzonePage({
+  active,
+  refreshKey,
+  children,
+}: {
+  active: boolean;
+  refreshKey: number;
+  children: ReactElement;
+}) {
+  const scroll = useRef<HTMLDivElement>(null);
+  const position = useRef(0);
+  const entered = useRef(false);
+  const previousActive = useRef(false);
+  const [entryRefresh, setEntryRefresh] = useState(0);
+  useLayoutEffect(() => {
+    if (active && !previousActive.current) {
+      if (scroll.current) scroll.current.scrollTop = position.current;
+      if (entered.current && position.current <= 48) setEntryRefresh((value) => value + 1);
+      entered.current = true;
+    }
+    previousActive.current = active;
+  }, [active]);
+  const context = useMemo(
+    () => ({ active, refresh: refreshKey + entryRefresh }),
+    [active, refreshKey, entryRefresh],
+  );
+  return (
+    <div
+      className="weq-qzn-scroll"
+      hidden={!active}
+      ref={scroll}
+      onScroll={(event) => {
+        if (active) position.current = event.currentTarget.scrollTop;
+      }}
+    >
+      <QzonePageContext.Provider value={context}>{children}</QzonePageContext.Provider>
+    </div>
+  );
+}
+
+/** Mount on the first visit and retain only the current account's workspace. */
+export const QzoneWorkspace = memo(function QzoneWorkspace({
+  active,
+  selfUin,
+  nickname,
+}: {
+  active: boolean;
+  selfUin: string;
+  nickname: string;
+}) {
+  const [visited, setVisited] = useState(active);
+  useEffect(() => {
+    if (active) setVisited(true);
+  }, [active]);
+  return visited || active ? (
+    <div hidden={!active} style={{ height: '100%', minHeight: 0 }}>
+      <QzoneView active={active} selfUin={selfUin} nickname={nickname} />
+    </div>
+  ) : null;
+});
+
 function useNearViewport(ref: RefObject<HTMLElement | null>, once = false): boolean {
   const [near, setNear] = useState(false);
+  const { active } = useContext(QzonePageContext);
   useEffect(() => {
+    if (!active) {
+      setNear(false);
+      return undefined;
+    }
     const element = ref.current;
     if (!element) return undefined;
     const observer = new IntersectionObserver(
@@ -65,8 +136,8 @@ function useNearViewport(ref: RefObject<HTMLElement | null>, once = false): bool
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref, once]);
-  return near;
+  }, [ref, once, active]);
+  return active && near;
 }
 
 type QzonePeople = {
@@ -252,9 +323,11 @@ function useQzoneRequests() {
 export function QzoneView({
   selfUin,
   nickname,
+  active = true,
 }: {
   selfUin: string;
   nickname: string;
+  active?: boolean;
 }): ReactElement {
   const people = useQzonePeople(selfUin);
   const [tab, setTab] = useState<Tab>('feeds');
@@ -268,7 +341,14 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
-  const [refresh, setRefresh] = useState(0);
+  const [refreshes, setRefreshes] = useState<Record<string, number>>({});
+  const [visited, setVisited] = useState<Tab[]>(['feeds']);
+  useEffect(() => {
+    setVisited((current) => (current.includes(tab) ? current : [...current, tab]));
+  }, [tab]);
+  const selectedPage = tab === 'space' ? `space:${hostUin}` : tab;
+  const refreshPage = (key: string) =>
+    setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
   const openSpace = (uin: string, name?: string): void => {
     const value = uin.trim();
@@ -302,7 +382,7 @@ export function QzoneView({
               type="button"
               title="刷新空间"
               aria-label="刷新空间"
-              onClick={() => setRefresh((value) => value + 1)}
+              onClick={() => refreshPage(selectedPage)}
             >
               <RefreshCw size={17} />
             </button>
@@ -390,31 +470,43 @@ export function QzoneView({
             {targetError}
           </p>
         ) : null}
-        <div key={`${tab}:${hostUin}:${refresh}`} className="weq-qzn-scroll">
-          {tab === 'feeds' ? (
-            <Feeds key={`feeds:${refresh}`} selfUin={selfUin} onSpace={openSpace} />
-          ) : null}
-          {tab === 'posts' || tab === 'space' ? (
+        {visited.includes('feeds') || tab === 'feeds' ? (
+          <QzonePage active={active && tab === 'feeds'} refreshKey={refreshes.feeds ?? 0}>
+            <Feeds selfUin={selfUin} onSpace={openSpace} />
+          </QzonePage>
+        ) : null}
+        {visited.includes('posts') || tab === 'posts' ? (
+          <QzonePage active={active && tab === 'posts'} refreshKey={refreshes.posts ?? 0}>
             <Posts
-              key={`${hostUin}:${refresh}`}
               selfUin={selfUin}
-              hostUin={hostUin}
-              nickname={hostUin === selfUin ? nickname : spaceNames[hostUin] || hostUin}
+              hostUin={selfUin}
+              nickname={nickname}
               onSpace={openSpace}
               onOwnerNickname={rememberSpaceName}
             />
-          ) : null}
-          {tab === 'albums' ? (
-            <QzoneAlbumDialog
-              key={`${hostUin}:${refresh}`}
-              open
-              embedded
-              hostUin={hostUin}
-              onClose={() => setTab(hostUin === selfUin ? 'posts' : 'space')}
+          </QzonePage>
+        ) : null}
+        {visited.includes('albums') || tab === 'albums' ? (
+          <QzonePage active={active && tab === 'albums'} refreshKey={refreshes.albums ?? 0}>
+            <QzoneAlbums hostUin={selfUin} onClose={() => setTab('posts')} />
+          </QzonePage>
+        ) : null}
+        {spaces.map((uin) => (
+          <QzonePage
+            key={uin}
+            active={active && tab === 'space' && hostUin === uin}
+            refreshKey={refreshes[`space:${uin}`] ?? 0}
+          >
+            <Posts
+              selfUin={selfUin}
+              hostUin={uin}
+              nickname={spaceNames[uin] || uin}
+              onSpace={openSpace}
+              onOwnerNickname={rememberSpaceName}
             />
-          ) : null}
-        </div>
-        {compose ? (
+          </QzonePage>
+        ))}
+        {compose && active ? (
           <Composer
             selfUin={selfUin}
             onClose={() => setCompose(false)}
@@ -422,12 +514,26 @@ export function QzoneView({
               setCompose(false);
               setHostUin(selfUin);
               setTab('posts');
-              setRefresh((value) => value + 1);
+              refreshPage('posts');
             }}
           />
         ) : null}
       </section>
     </QzonePeopleContext.Provider>
+  );
+}
+
+function QzoneAlbums({ hostUin, onClose }: { hostUin: string; onClose: () => void }) {
+  const { active, refresh } = useContext(QzonePageContext);
+  return (
+    <QzoneAlbumDialog
+      open
+      embedded
+      active={active}
+      refreshKey={refresh}
+      hostUin={hostUin}
+      onClose={onClose}
+    />
   );
 }
 
@@ -478,14 +584,29 @@ function Posts({
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
+  const { refresh } = useContext(QzonePageContext);
+  const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const lastOffset = useRef(offset);
+  const headRequest = useRef(false);
+  const [pageRequest, setPageRequest] = useState(0);
+  const loadOffset = useCallback((value: number) => {
+    headRequest.current = false;
+    setOffset(value);
+    setPageRequest((current) => current + 1);
+  }, []);
   const moreRef = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(moreRef);
   const nextOffset = useRef(0);
   const currentPosts = useRef<QzoneEmotion[]>([]);
+  const bridgeTail = useRef<{ offset: number; done: boolean; indices: Map<string, number> } | null>(
+    null,
+  );
   const [done, setDone] = useState(false);
+  const doneRef = useRef(done);
+  doneRef.current = done;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
@@ -494,21 +615,54 @@ function Posts({
     let live = true;
     setLoading(true);
     setError('');
+    if (refresh !== lastRefresh.current) headRequest.current = true;
+    else if (offset !== lastOffset.current) headRequest.current = false;
+    lastRefresh.current = refresh;
+    lastOffset.current = offset;
+    const refreshing = headRequest.current;
+    const pageOffset = refreshing ? 0 : offset;
     void run((requestId) =>
-      client.account.qzone.posts.query({ selfUin, hostUin, requestId, offset }),
+      client.account.qzone.posts.query({ selfUin, hostUin, requestId, offset: pageOffset }),
     )
       .then((page) => {
         if (!live) return;
         setTotal(page.total);
         if (page.nickname) onOwnerNickname(hostUin, page.nickname);
-        const merged = mergeQzonePosts(currentPosts.current, page.list);
-        setDone(
-          !page.list.length ||
-            merged.length === currentPosts.current.length ||
-            offset + page.list.length >= page.total,
-        );
+        const previous = currentPosts.current;
+        const hadPosts = previous.length > 0;
+        const merged = mergeQzonePosts(previous, page.list).sort((a, b) => b.time - a.time);
+        const overlaps = page.list.some((post) => previous.some((old) => old.tid === post.tid));
+        if (
+          refreshing &&
+          hadPosts &&
+          !overlaps &&
+          page.list.length &&
+          page.list.length < page.total
+        ) {
+          // If more than a page arrived while away, bridge that gap before resuming the old tail.
+          bridgeTail.current ??= {
+            offset: nextOffset.current,
+            done: doneRef.current,
+            indices: new Map(previous.map((post, index) => [post.tid, index])),
+          };
+          nextOffset.current = page.list.length;
+          setDone(false);
+        } else if (!refreshing || !hadPosts) {
+          const tail = bridgeTail.current;
+          const overlap = tail ? page.list.findIndex((post) => tail.indices.has(post.tid)) : -1;
+          if (tail && overlap >= 0) {
+            const shift = pageOffset + overlap - tail.indices.get(page.list[overlap]!.tid)!;
+            nextOffset.current = Math.max(pageOffset + page.list.length, tail.offset + shift);
+            setDone(tail.done);
+            bridgeTail.current = null;
+          } else {
+            const reachedEnd = !page.list.length || pageOffset + page.list.length >= page.total;
+            setDone(reachedEnd || merged.length === previous.length);
+            nextOffset.current = pageOffset + page.list.length;
+            if (reachedEnd) bridgeTail.current = null;
+          }
+        }
         currentPosts.current = merged;
-        nextOffset.current = offset + page.list.length;
         setPosts(merged);
       })
       .catch((error: unknown) => {
@@ -521,10 +675,10 @@ function Posts({
       live = false;
       cancel();
     };
-  }, [selfUin, hostUin, offset, retry, run, cancel, onOwnerNickname]);
+  }, [selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
   useEffect(() => {
-    if (nearEnd && posts.length > 0 && !loading && !done && !error) setOffset(nextOffset.current);
-  }, [nearEnd, posts.length, loading, done, error]);
+    if (nearEnd && posts.length > 0 && !loading && !done && !error) loadOffset(nextOffset.current);
+  }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   return (
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
@@ -562,7 +716,7 @@ function Posts({
             type="button"
             className="weq-qzn-more"
             disabled={loading}
-            onClick={() => setOffset(nextOffset.current)}
+            onClick={() => loadOffset(nextOffset.current)}
           >
             {loading ? '加载中…' : '加载更多说说'}
           </button>
@@ -715,12 +869,17 @@ function PostActions({
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(null);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [likeError, setLikeError] = useState('');
+  const { refresh } = useContext(QzonePageContext);
+  const summaryRefresh = useRef<number | null>(null);
   const [commentCount, setCommentCount] = useState(post.commentNum);
+  useEffect(() => {
+    if (post.commentNum !== null) setCommentCount(post.commentNum);
+  }, [post.commentNum]);
   const ref = useRef<HTMLDivElement>(null);
   const visible = useNearViewport(ref, true);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible || summaryRefresh.current === refresh) return undefined;
     let live = true;
     void run(
       (requestId) =>
@@ -735,6 +894,7 @@ function PostActions({
     )
       .then((result) => {
         if (live) {
+          summaryRefresh.current = refresh;
           setLikes(result.likes);
           if (result.commentCount !== null) setCommentCount(result.commentCount);
         }
@@ -746,7 +906,7 @@ function PostActions({
       live = false;
       cancel();
     };
-  }, [visible, selfUin, hostUin, post.tid, post.commentNum, run, cancel]);
+  }, [visible, selfUin, hostUin, post.tid, post.commentNum, refresh, run, cancel]);
   const likeCount = likes?.reportedTotal ?? initialLikeCount;
   return (
     <div ref={ref}>
@@ -860,6 +1020,7 @@ function Interaction({
   initialLikes: QzoneLikesResult | null;
   onCommentCount: (count: number) => void;
 }) {
+  const { refresh } = useContext(QzonePageContext);
   const [result, setResult] = useState<QzoneInteraction | null>(null);
   const [likes, setLikes] = useState<QzoneLikesResult | null>(null);
   const [error, setError] = useState('');
@@ -869,8 +1030,7 @@ function Interaction({
   useEffect(() => {
     let live = true;
     setError('');
-    setResult(null);
-    setLikes(readyLikes);
+    if (readyLikes) setLikes(readyLikes);
     if (
       readyLikes?.coverage === 'complete' &&
       readyLikes.likes.every((person) => person.nickname.trim() && person.nickname !== person.uin)
@@ -936,14 +1096,34 @@ function Interaction({
       live = false;
       cancel();
     };
-  }, [mode, selfUin, hostUin, post.tid, post.time, retry, run, cancel, readyLikes, onCommentCount]);
-  if (error || (!result && !likes))
+  }, [
+    mode,
+    selfUin,
+    hostUin,
+    post.tid,
+    post.time,
+    retry,
+    refresh,
+    run,
+    cancel,
+    readyLikes,
+    onCommentCount,
+  ]);
+  if (!result && !likes)
     return (
       <State loading={!error} error={error} empty="" retry={() => setRetry((value) => value + 1)} />
     );
   if (likes)
     return (
       <div className="weq-qzn-interaction">
+        {error ? (
+          <p className="weq-qzn-error">
+            {error}{' '}
+            <button type="button" onClick={() => setRetry((value) => value + 1)}>
+              重试
+            </button>
+          </p>
+        ) : null}
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
             <button type="button" key={like.uin} onClick={() => onSpace(like.uin, like.nickname)}>
@@ -1008,6 +1188,14 @@ function Interaction({
   );
   return (
     <div className="weq-qzn-interaction">
+      {error ? (
+        <p className="weq-qzn-error">
+          {error}{' '}
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            重试
+          </button>
+        </p>
+      ) : null}
       <p className="weq-qzn-status">评论及回复共 {result!.commentCountInclusive ?? '?'} 条</p>
       {roots.map((root) => (
         <div key={root.id}>
@@ -1036,17 +1224,28 @@ function Feeds({
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
+  const { refresh } = useContext(QzonePageContext);
+  const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState(0);
   const [retry, setRetry] = useState(0);
   const [cursor, setCursor] = useState<string | undefined>();
+  const lastCursor = useRef(cursor);
+  const headRequest = useRef(false);
+  const [pageRequest, setPageRequest] = useState(0);
+  const loadCursor = useCallback((value: string) => {
+    headRequest.current = false;
+    setCursor(value);
+    setPageRequest((current) => current + 1);
+  }, []);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const accumulated = useRef<QzoneFeed[]>([]);
   const nextCursor = useRef<string | undefined>(undefined);
   const seenCursors = useRef(new Set<string>());
   const stalledPages = useRef(0);
+  const bridgeTail = useRef<{ cursor: string | undefined; keys: Set<string> } | null>(null);
   const moreRef = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(moreRef);
   const { run, cancel } = useQzoneRequests();
@@ -1054,7 +1253,15 @@ function Feeds({
     let live = true;
     setError('');
     setLoading(true);
-    void run((requestId) => client.account.qzone.feeds.query({ selfUin, requestId, cursor }))
+    if (refresh !== lastRefresh.current) headRequest.current = true;
+    else if (cursor !== lastCursor.current) headRequest.current = false;
+    lastRefresh.current = refresh;
+    lastCursor.current = cursor;
+    const refreshing = headRequest.current;
+    const pageCursor = refreshing ? undefined : cursor;
+    void run((requestId) =>
+      client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor }),
+    )
       .then((page) => {
         if (!live) return;
         const key = (feed: QzoneFeed): string =>
@@ -1062,20 +1269,40 @@ function Feeds({
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
         const previousSize = merged.size;
         for (const feed of page.feeds) merged.set(key(feed), feed);
-        stalledPages.current = merged.size === previousSize ? stalledPages.current + 1 : 0;
-        if (cursor) seenCursors.current.add(cursor);
-        const continuation = page.nextCursor;
-        nextCursor.current =
-          page.hasMore &&
-          continuation &&
-          continuation !== cursor &&
-          !seenCursors.current.has(continuation) &&
-          stalledPages.current < 3
-            ? continuation
-            : undefined;
-        accumulated.current = [...merged.values()];
+        const overlaps = page.feeds.some((feed) =>
+          accumulated.current.some((old) => key(old) === key(feed)),
+        );
+        if (refreshing && previousSize > 0 && !overlaps && page.hasMore && page.nextCursor) {
+          bridgeTail.current ??= {
+            cursor: nextCursor.current,
+            keys: new Set(accumulated.current.map(key)),
+          };
+          nextCursor.current = page.nextCursor;
+          stalledPages.current = 0;
+          setDone(false);
+        } else if (!refreshing || previousSize === 0) {
+          const tail = bridgeTail.current;
+          if (tail && page.feeds.some((feed) => tail.keys.has(key(feed)))) {
+            nextCursor.current = tail.cursor;
+            bridgeTail.current = null;
+          } else {
+            stalledPages.current = merged.size === previousSize ? stalledPages.current + 1 : 0;
+            if (pageCursor) seenCursors.current.add(pageCursor);
+            const continuation = page.nextCursor;
+            nextCursor.current =
+              page.hasMore &&
+              continuation &&
+              continuation !== pageCursor &&
+              !seenCursors.current.has(continuation) &&
+              stalledPages.current < 3
+                ? continuation
+                : undefined;
+            if (!nextCursor.current) bridgeTail.current = null;
+          }
+          setDone(!nextCursor.current);
+        }
+        accumulated.current = [...merged.values()].sort((a, b) => b.time - a.time);
         setFeeds(accumulated.current);
-        setDone(!nextCursor.current);
       })
       .catch((error: unknown) => {
         if (live) setError(errorText(error));
@@ -1087,15 +1314,21 @@ function Feeds({
       live = false;
       cancel();
     };
-  }, [selfUin, cursor, retry, run, cancel]);
+  }, [selfUin, cursor, pageRequest, retry, refresh, run, cancel]);
   useEffect(() => {
-    if (nearEnd && !loading && !error && !done && nextCursor.current) setCursor(nextCursor.current);
-  }, [nearEnd, loading, error, done, feeds]);
+    if (nearEnd && !loading && !error && !done && nextCursor.current)
+      loadCursor(nextCursor.current);
+  }, [nearEnd, loading, error, done, feeds, loadCursor]);
   const projections = useRef(
     new Map<string, { html: string; body: ReturnType<typeof projectQzoneFeed> }>(),
   );
   const { run: runLookup } = useQzoneRequests();
   const lookupPages = useRef(new Map<string, Promise<{ list: QzoneEmotion[]; total: number }>>());
+  const lookupRefresh = useRef(refresh);
+  if (lookupRefresh.current !== refresh) {
+    lookupPages.current.clear();
+    lookupRefresh.current = refresh;
+  }
   const lookupPost = useCallback(
     async (feed: QzoneFeed, tid: string | null): Promise<QzoneEmotion | null> => {
       const timeMatches = new Map<string, QzoneEmotion>();
@@ -1199,13 +1432,15 @@ function Feeds({
         ) : null}
         {feeds && !error ? (
           loading ? (
-            <p className="weq-qzn-status">正在加载更多动态…</p>
+            <p className="weq-qzn-status">
+              {headRequest.current ? '正在刷新动态…' : '正在加载更多动态…'}
+            </p>
           ) : !done ? (
             <button
               type="button"
               className="weq-qzn-more"
               onClick={() => {
-                if (nextCursor.current) setCursor(nextCursor.current);
+                if (nextCursor.current) loadCursor(nextCursor.current);
               }}
             >
               加载更多动态
@@ -1242,6 +1477,7 @@ function FeedCard({
   const ref = useRef<HTMLElement>(null);
   const visible = useNearViewport(ref, true);
   const [post, setPost] = useState<QzoneEmotion | null>(null);
+  const { refresh } = useContext(QzonePageContext);
   const needsLookup = feed.appid === 311 && (body.unsupported || !body.text.trim());
   useEffect(() => {
     if (!visible || !needsLookup) return undefined;
@@ -1254,7 +1490,7 @@ function FeedCard({
     return () => {
       live = false;
     };
-  }, [visible, needsLookup, feed, tid, lookup]);
+  }, [visible, needsLookup, feed, tid, lookup, refresh]);
   if (post)
     return (
       <Post

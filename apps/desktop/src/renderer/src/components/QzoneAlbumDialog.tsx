@@ -51,6 +51,13 @@ interface QzoneAlbumPhotoWire {
   height: number;
 }
 
+/** Native placeholder IDs are not unique; keep selections tied to the actual media. */
+function photoKey(photo: QzoneAlbumPhotoWire): string {
+  return (
+    photo.picKey || photo.url || photo.thumbUrl || `${photo.id}:${photo.uploadTime}:${photo.name}`
+  );
+}
+
 const PAGE_NUM = 30;
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
@@ -107,12 +114,16 @@ export function QzoneAlbumDialog({
   onClose,
   hostUin,
   embedded = false,
+  active = true,
+  refreshKey = 0,
 }: {
   open: boolean;
   onClose: () => void;
   /** 当前账号的 QQ 号（自己空间的相册）。 */
   hostUin: string;
   embedded?: boolean;
+  active?: boolean;
+  refreshKey?: number;
 }): ReactElement | null {
   const [access, setAccess] = useState<{
     qqOnline: boolean;
@@ -129,6 +140,8 @@ export function QzoneAlbumDialog({
   const [mediaLoadingMore, setMediaLoadingMore] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const runRef = useRef(0);
+  const lastRefresh = useRef(refreshKey);
+  const [refreshing, setRefreshing] = useState(false);
   /** 与 media 同步的下一页偏移：哨兵回调持旧闭包时也拿得到正确 pageStart。 */
   const mediaLenRef = useRef(0);
 
@@ -220,9 +233,73 @@ export function QzoneAlbumDialog({
     };
   }, [open, hostUin, access?.qqOnline]);
 
+  // Re-entering at the latest edge refreshes in place, without resetting selection or media.
+  useEffect(() => {
+    if (
+      !open ||
+      !active ||
+      refreshKey === lastRefresh.current ||
+      !access?.qqOnline ||
+      albumsLoading ||
+      mediaLoading ||
+      mediaLoadingMore
+    )
+      return;
+    lastRefresh.current = refreshKey;
+    const run = ++runRef.current;
+    let live = true;
+    setRefreshing(true);
+    setAlbumsError(null);
+    void (async () => {
+      if (selected) {
+        const page = (await client.account.qzoneAlbumMedia.query({
+          hostUin,
+          topicId: selected.id,
+          pageStart: 0,
+          pageNum: PAGE_NUM,
+        })) as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
+        if (!live || run !== runRef.current) return;
+        if (!page || !Array.isArray(page.photos)) throw new Error('暂时无法刷新相册，请稍后重试。');
+        const fresh = page.photos;
+        setMedia((previous) => {
+          const keys = new Set(fresh.map(photoKey));
+          const merged = [...fresh, ...previous.filter((photo) => !keys.has(photoKey(photo)))];
+          mediaLenRef.current = merged.length;
+          return merged;
+        });
+        setMediaTotal(Number(page?.totalInAlbum ?? mediaLenRef.current));
+      } else {
+        const rows = await client.account.qzoneAlbumList.query({ hostUin });
+        if (!Array.isArray(rows)) throw new Error('暂时无法刷新相册，请稍后重试。');
+        if (live && run === runRef.current) setAlbums(rows as QzoneAlbumWire[]);
+      }
+    })()
+      .catch((error: unknown) => {
+        if (live && run === runRef.current)
+          setAlbumsError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (live) setRefreshing(false);
+      });
+    return () => {
+      live = false;
+      setRefreshing(false);
+    };
+  }, [
+    open,
+    active,
+    refreshKey,
+    access?.qqOnline,
+    albumsLoading,
+    mediaLoading,
+    mediaLoadingMore,
+    selected,
+    hostUin,
+  ]);
+
   /** 翻页：pageStart = 已加载条数。返回是否成功（哨兵据此决定是否自动重试）。 */
   const loadMore = useCallback(async (): Promise<boolean> => {
-    if (!selected || mediaLoading || mediaLoadingMore) return true;
+    if (!selected || mediaLoading || mediaLoadingMore || refreshing || !active) return true;
     const run = runRef.current;
     setMediaLoadingMore(true);
     try {
@@ -244,7 +321,7 @@ export function QzoneAlbumDialog({
     } finally {
       if (run === runRef.current) setMediaLoadingMore(false);
     }
-  }, [selected, mediaLoading, mediaLoadingMore, hostUin]);
+  }, [selected, mediaLoading, mediaLoadingMore, refreshing, active, hostUin]);
 
   const backToList = useCallback(() => {
     mediaLenRef.current = 0;
@@ -279,6 +356,8 @@ export function QzoneAlbumDialog({
       </header>
 
       <div className="weq-qzone-album-body">
+        {refreshing && albums ? <p className="weq-qzn-status">正在刷新…</p> : null}
+        {albumsError && albums ? <p className="weq-qzn-status">{albumsError}</p> : null}
         {access === null ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
@@ -294,9 +373,9 @@ export function QzoneAlbumDialog({
                 : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
             </small>
           </div>
-        ) : albumsLoading ? (
+        ) : albumsLoading && !albums ? (
           <AlbumListSkeleton />
-        ) : albumsError ? (
+        ) : albumsError && !albums ? (
           <div className="weq-qzone-album-empty is-error">
             <Inbox size={26} />
             <span>相册列表加载失败</span>
@@ -304,6 +383,7 @@ export function QzoneAlbumDialog({
           </div>
         ) : selected ? (
           <MediaView
+            active={active}
             photos={media}
             total={mediaTotal}
             loading={mediaLoading}
@@ -597,6 +677,7 @@ function AlbumGridView({
 }
 
 function MediaView({
+  active = true,
   photos,
   total,
   loading,
@@ -609,6 +690,7 @@ function MediaView({
   onBack,
   onLoadMore,
 }: {
+  active?: boolean;
   photos: QzoneAlbumPhotoWire[];
   total: number;
   loading: boolean;
@@ -628,7 +710,7 @@ function MediaView({
    *
    * 注意不能用裸 `photo.id` 当键：cgi 返回的 id 全是占位 4294967295（真正的定位键
    * 是 lloc/sloc），同一相册所有行共享同一个 id，拿它做选择键会「点一个=全选」。
-   * 这里与下方渲染的 React key 保持一致，用 `id:index` 行内唯一键。 */
+   * 这里与 React key 一致，使用媒体定位信息，刷新插入新照片后也不会错选。 */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
@@ -665,7 +747,7 @@ function MediaView({
   // 滚动到底部自动加载下一页（不再有「加载更多」按钮）。
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore || loadFailed) return undefined;
+    if (!active || !el || !hasMore || loadFailed) return undefined;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -675,10 +757,10 @@ function MediaView({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, loadFailed, triggerLoadMore]);
+  }, [active, hasMore, loadFailed, triggerLoadMore]);
 
   /** 行内唯一选择键（与渲染 React key 一致）。 */
-  const rowKey = (index: number): string => `${photos[index]!.id}:${index}`;
+  const rowKey = (index: number): string => photoKey(photos[index]!);
 
   const toggleSelect = (row: string): void => {
     setSelected((prev) => {
@@ -825,8 +907,7 @@ function MediaView({
               const checked = selected.has(row);
               return (
                 <div
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 媒体列表按位置渲染，无稳定唯一键
-                  key={`${photo.id}:${index}`}
+                  key={row}
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
                 >
                   <button
