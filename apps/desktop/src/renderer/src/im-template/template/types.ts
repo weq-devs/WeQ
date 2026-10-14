@@ -87,7 +87,19 @@ export type Contact = User & {
 
 export type GroupMemberRole = 'owner' | 'admin' | 'member';
 
+export type ContactSection = {
+  id: string;
+  name: string;
+  items: Contact[];
+  count?: number | null;
+  description?: string;
+  onRetry?: () => void;
+};
+
 export type GroupMember = User & {
+  card?: string;
+  remark?: string;
+  nick?: string;
   role: GroupMemberRole;
   joinedAt: string;
   lastSpeakAt?: string | null;
@@ -200,6 +212,8 @@ export type DirectConversation = ConversationBase & {
 
 export type GroupConversation = ConversationBase & {
   type: 'group';
+  /** Official recent-contact 41220; absent if no settings row has been read. */
+  notifyLevel?: number;
   otherUser: null;
   group: {
     id: string;
@@ -211,6 +225,10 @@ export type GroupConversation = ConversationBase & {
     description?: string | null;
     remark?: string | null;
     memberCount: number;
+    listed?: boolean;
+    membershipKnown?: boolean;
+    roleKnown?: boolean;
+    unnamed?: boolean;
     maxMemberCount?: number;
     role: GroupMemberRole;
     createTime?: string | null;
@@ -265,7 +283,7 @@ export type GroupConversation = ConversationBase & {
 
 export type Conversation = DirectConversation | GroupConversation | MergedConversation;
 
-export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted';
+export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted' | 'groupAssistant';
 
 export type MergedConversation = ConversationBase & {
   type: 'merged';

@@ -407,3 +407,46 @@ describe('collector detail requests', () => {
     expect(raw).toHaveBeenCalledWith({ cids: ['cid'], response: bytes });
   });
 });
+
+describe('collector shared read transport', () => {
+  it('retries a transient HTTP failure without changing the binary envelope or credentials', async () => {
+    const raw = fixture([{ cid: 'synthetic-cid', modifyTime: 10n }]);
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(new Response(raw));
+    vi.stubGlobal('fetch', fetch);
+    const page = await getCollectionPageNetwork(cred, null);
+    expect(page.items[0]?.cid).toBe('synthetic-cid');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0]?.[1]?.body).toEqual(fetch.mock.calls[1]?.[1]?.body);
+    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual(fetch.mock.calls[1]?.[1]?.headers);
+    expect(fetch.mock.calls[0]?.[1]?.headers['Content-Type']).toBe('application/octet-stream');
+  });
+
+  it('does not replay an HTTP authentication failure or a decoded business failure', async () => {
+    const fetch = vi.fn(async () => new Response('denied', { status: 403 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(getCollectionPageNetwork(cred, null)).rejects.toMatchObject({
+      kind: 'authentication',
+      status: 403,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    fetch.mockClear();
+    fetch.mockImplementation(async () => new Response(fixture([], 1, 190013)));
+    await expect(getCollectionPageNetwork(cred, null)).rejects.toThrow('190013');
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces long Retry-After values without retrying the collector early', async () => {
+    const fetch = vi.fn(
+      async () => new Response('busy', { status: 429, headers: { 'Retry-After': '120' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    await expect(getCollectionPageNetwork(cred, null)).rejects.toMatchObject({
+      kind: 'rate-limit',
+      retryAfterMs: 120000,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+});

@@ -28,7 +28,8 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectAttachHook, type AttachHook } from '../bootstrap/attach';
-import { registerSsoSession, resolveSubAppId } from './sso_session';
+import { registerSsoSessionInTurn, resolveSsoClientSnapshot } from './sso_session';
+import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -49,12 +50,6 @@ const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
  * （用户重开会话 / 手动「立即重新获取」）或下次 `start()`。
  */
 const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
-
-interface SsoWorkState {
-  queue: Promise<void>;
-  owner?: object;
-}
-const ssoWork = new WeakMap<object, Map<number, SsoWorkState>>();
 
 export class AccountMonitorService {
   private running = false;
@@ -78,24 +73,11 @@ export class AccountMonitorService {
   }
 
   private ssoState(pid: number): SsoWorkState {
-    let entries = ssoWork.get(this.nt);
-    if (!entries) {
-      entries = new Map();
-      ssoWork.set(this.nt, entries);
-    }
-    let state = entries.get(pid);
-    if (!state) {
-      state = { queue: Promise.resolve() };
-      entries.set(pid, state);
-    }
-    return state;
+    return ssoWorkState(this.nt, pid);
   }
 
   private queueSso(pid: number, task: () => Promise<void>): Promise<void> {
-    const state = this.ssoState(pid);
-    const next = state.queue.then(task);
-    state.queue = next.catch(() => {});
-    return next;
+    return queueSsoWork(this.nt, pid, task);
   }
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The pid we currently believe hosts this account, or null. */
@@ -500,19 +482,19 @@ export class AccountMonitorService {
       uin: this.uin,
       uid: record?.uid ?? '',
       guid: record?.guid ?? '',
-      subAppId: resolveSubAppId(this.nt, this.platform, pid),
     };
+    const client = resolveSsoClientSnapshot(this.nt, this.platform, pid, identity);
     // Only a registration confirmed by this monitor can establish the fingerprint.
     // hasSsoSession alone says nothing about whether new material has been installed.
     const fingerprint = createHash('sha256')
       .update(
         JSON.stringify([
-          identity,
+          client.identity,
           material.a2,
           material.d2,
           material.d2Key,
-          this.platform.qqWrapperNodePath(pid),
-          this.platform.qqMajorNodePath(pid),
+          client.wrapperPath,
+          client.majorPath,
         ]),
       )
       .digest('hex');
@@ -523,13 +505,14 @@ export class AccountMonitorService {
     )
       return;
     this.assertCurrent(generation, pid);
-    const registered = await registerSsoSession(
+    const registered = await registerSsoSessionInTurn(
       this.nt,
       this.platform,
       pid,
       identity,
       material,
       () => this.isCurrent(generation, pid),
+      client,
     );
     this.assertCurrent(generation, pid);
     if (!registered) throw new Error('SSO 会话登记失败；未建立可用的原生发包会话。');
@@ -653,6 +636,22 @@ export class AccountMonitorService {
   private async harvestIfStale(pid: number, generation = this.generation): Promise<void> {
     if (!this.isCurrent(generation, pid) || !this.shouldAutoAttach()) return;
     const rec = this.accountConfig.getRecord();
+    const retry = this.harvestRetry;
+    if (retry?.pid === pid && (retry.cancelled || Date.now() < retry.nextAt)) return;
+    const stored = rec?.session;
+    // Check the owning monitor's metadata even while HTTP tickets remain fresh.
+    // Repair a lost native registration using saved material without another attach.
+    if (stored?.pid === pid && stored.a2 && stored.d2 && stored.d2Key) {
+      try {
+        const owner = this.ssoOwners.get(pid);
+        if ((owner && this.ssoState(pid).owner === owner) || !(await this.nt.hasSsoSession(pid)))
+          await this.storeSsoSession(pid, stored, generation);
+        this.assertCurrent(generation, pid);
+      } catch (error) {
+        if (this.isCurrent(generation, pid)) this.deferHarvest(pid, error);
+        return;
+      }
+    }
     const now = Date.now();
     const rkeys = rec?.rkeys ?? [];
     const rkeyStale =

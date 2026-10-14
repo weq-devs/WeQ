@@ -9,7 +9,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ChatType, classifyChatType, enumName, toChatTypeNumber } from '../src/domain/msg';
+import {
+  ChatType,
+  classifyChatType,
+  enumName,
+  isGroupTempChatType,
+  toChatTypeNumber,
+} from '../src/domain/msg';
 
 describe('classifyChatType', () => {
   it('classifies temp c2c-from-group as direct despite the GROUP in its name', () => {
@@ -66,5 +72,24 @@ describe('classifyChatType', () => {
     expect(toChatTypeNumber(123)).toBe(123);
     expect(toChatTypeNumber('KCHATTYPEC2C')).toBe(ChatType.KCHATTYPEC2C);
     expect(toChatTypeNumber('BOGUS')).toBeNull();
+  });
+});
+
+describe('isGroupTempChatType', () => {
+  it('is true only for chatType 100, in either wire form', () => {
+    expect(isGroupTempChatType(ChatType.KCHATTYPETEMPC2CFROMGROUP)).toBe(true);
+    expect(isGroupTempChatType('KCHATTYPETEMPC2CFROMGROUP')).toBe(true);
+    expect(isGroupTempChatType(100)).toBe(true);
+  });
+
+  it('stays false for a plain c2c even though 60001 may still carry a stale group code', () => {
+    // 从群临时会话转成正式好友：会话行 chatType 翻成 1，60001 却残留来源群号。
+    // 判据只认 chatType，因此好友私聊不会被误判成临时会话（发文件不再被拦）。
+    expect(isGroupTempChatType(ChatType.KCHATTYPEC2C)).toBe(false);
+    expect(isGroupTempChatType('KCHATTYPEC2C')).toBe(false);
+    expect(isGroupTempChatType(ChatType.KCHATTYPEGROUP)).toBe(false);
+    expect(isGroupTempChatType(ChatType.KCHATTYPETEMPC2CFROMUNKNOWN)).toBe(false);
+    expect(isGroupTempChatType(0)).toBe(false);
+    expect(isGroupTempChatType('BOGUS')).toBe(false);
   });
 });

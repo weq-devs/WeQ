@@ -58,6 +58,12 @@ interface HiddenProfileLike {
 interface MergedSessionPanelProps {
   kind: MergedKind;
   conversations: Conversation[];
+  /** Membership comes only from official recent-contact notifyLevel 2 rows. */
+  groupAssistantIds?: ReadonlySet<string>;
+  groupAssistantLoading?: boolean;
+  groupAssistantError?: string;
+  groupAssistantHasMore?: boolean;
+  onLoadMoreGroupAssistant?: () => void;
   anchorX: number;
   anchorY: number;
   onBack: () => void;
@@ -77,6 +83,11 @@ function toIsoTime(seconds: string | undefined): string {
 export function MergedSessionPanel({
   kind,
   conversations: _conversations,
+  groupAssistantIds,
+  groupAssistantLoading = false,
+  groupAssistantError,
+  groupAssistantHasMore = false,
+  onLoadMoreGroupAssistant,
   anchorX,
   anchorY,
   onBack,
@@ -86,6 +97,7 @@ export function MergedSessionPanel({
 }: MergedSessionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: anchorX, y: anchorY });
+  const [groupSearch, setGroupSearch] = useState('');
 
   // 获取公众号/服务号原始数据
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, {
@@ -120,7 +132,15 @@ export function MergedSessionPanel({
     y = Math.max(12, Math.min(y, viewportHeight - rect.height - 12));
 
     setPosition({ x, y });
-  }, [anchorX, anchorY]);
+  }, [
+    anchorX,
+    anchorY,
+    kind,
+    _conversations.length,
+    groupAssistantIds?.size,
+    groupAssistantLoading,
+    groupSearch,
+  ]);
 
   // 点击面板外部关闭
   useEffect(() => {
@@ -160,6 +180,10 @@ export function MergedSessionPanel({
   });
 
   const filtered = useMemo(() => {
+    if (kind === 'groupAssistant')
+      return _conversations.filter(
+        (conversation) => conversation.type === 'group' && groupAssistantIds?.has(conversation.id),
+      );
     if (kind === 'deleted') {
       // 从 deletedSessions 数据构建会话列表
       if (!deletedSessions.data) return [];
@@ -389,6 +413,8 @@ export function MergedSessionPanel({
     return [];
   }, [
     kind,
+    _conversations,
+    groupAssistantIds,
     deletedSessions.data,
     hiddenSessions.data,
     officialAccounts.data,
@@ -399,22 +425,34 @@ export function MergedSessionPanel({
 
   const sortedThreads = useMemo(
     () =>
-      filtered.slice().sort((a, b) => {
-        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        return bTime - aTime;
-      }),
-    [filtered],
+      filtered
+        .filter((conversation) => {
+          if (kind !== 'groupAssistant' || !groupSearch.trim()) return true;
+          const term = groupSearch.trim().toLocaleLowerCase();
+          return (
+            conversation.id.includes(term) ||
+            (conversation.type === 'group' &&
+              conversation.group.name.toLocaleLowerCase().includes(term))
+          );
+        })
+        .sort((a, b) => {
+          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+          return bTime - aTime;
+        }),
+    [filtered, groupSearch, kind],
   );
 
   const title =
-    kind === 'hidden'
-      ? '隐藏的会话'
-      : kind === 'deleted'
-        ? '最近删除'
-        : kind === 'service'
-          ? 'QQ服务号'
-          : 'QQ官方账号';
+    kind === 'groupAssistant'
+      ? '群助手'
+      : kind === 'hidden'
+        ? '隐藏的会话'
+        : kind === 'deleted'
+          ? '最近删除'
+          : kind === 'service'
+            ? 'QQ服务号'
+            : 'QQ官方账号';
 
   return (
     <div className="weq-merged-overlay">
@@ -427,14 +465,35 @@ export function MergedSessionPanel({
         }}
       >
         <div className="weq-merged-popover-header">
-          <div className="weq-merged-popover-title">{title}</div>
+          <div className="weq-merged-popover-title">
+            {title}
+            {kind === 'groupAssistant' ? (
+              <span className="weq-group-helper-count"> · {filtered.length} 个群</span>
+            ) : null}
+          </div>
           <button type="button" className="weq-merged-popover-close" onClick={onBack}>
             <X size={16} />
           </button>
         </div>
+        {kind === 'groupAssistant' ? (
+          <div className="weq-group-helper-search">
+            <input
+              aria-label="搜索群助手"
+              placeholder="搜索群名或群号"
+              value={groupSearch}
+              onChange={(event) => setGroupSearch(event.target.value)}
+            />
+          </div>
+        ) : null}
         <div className="weq-merged-popover-body">
+          {kind === 'groupAssistant' && groupAssistantError ? (
+            <div className="weq-merged-popover-empty" role="status">
+              群助手读取失败：{groupAssistantError}
+            </div>
+          ) : null}
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
+            const unreadCount = conv.unreadCount ?? 0;
             const time = conv.updatedAt
               ? new Date(conv.updatedAt).toLocaleTimeString('zh-CN', {
                   hour: '2-digit',
@@ -464,6 +523,14 @@ export function MergedSessionPanel({
                   </div>
                   {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                 </div>
+                {kind === 'groupAssistant' && unreadCount > 0 ? (
+                  <span
+                    className="weq-group-helper-unread"
+                    aria-label={`${unreadCount} 条未读消息`}
+                  >
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                ) : null}
                 {kind === 'hidden' && (
                   <EyeOff size={14} className="weq-merged-popover-item-badge" />
                 )}
@@ -473,7 +540,21 @@ export function MergedSessionPanel({
               </button>
             );
           })}
-          {sortedThreads.length === 0 && <div className="weq-merged-popover-empty">暂无会话</div>}
+          {sortedThreads.length === 0 &&
+            !(kind === 'groupAssistant' && (groupAssistantLoading || groupAssistantError)) && (
+              <div className="weq-merged-popover-empty">
+                {kind === 'groupAssistant' && groupSearch.trim() ? '未找到匹配的群' : '暂无会话'}
+              </div>
+            )}
+          {kind === 'groupAssistant' && groupAssistantHasMore && !groupAssistantLoading ? (
+            <button
+              type="button"
+              className="weq-group-helper-more"
+              onClick={onLoadMoreGroupAssistant}
+            >
+              {groupAssistantError ? '重试读取' : '继续读取群会话'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

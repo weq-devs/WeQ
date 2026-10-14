@@ -32,12 +32,15 @@ import {
   Terminal,
   Shield,
   Sparkles,
+  Star,
   User as UserIcon,
   Wand2,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { User } from '../im-template/template/types';
+import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
@@ -45,7 +48,7 @@ import { MutualMarkDialog } from './MutualMarkDialog';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { displayUserName } from '../im-template/template/user';
+import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
 import { useEscapeToClose } from '../im-template/template/modalUtils';
 import {
   ProfileRow,
@@ -72,7 +75,22 @@ const ROLE_META = {
   admin: { label: '管理员', Icon: Shield, cls: 'is-admin' },
 };
 
-export function MemberProfileCard({ member, anchor, onClose, groupCode, groupName }) {
+export function MemberProfileCard({
+  member,
+  anchor,
+  onClose,
+  groupCode,
+  groupName,
+  onOpenChat,
+}: {
+  member: User;
+  anchor: { x: number; y: number };
+  onClose: () => void;
+  groupCode?: string;
+  groupName?: string;
+  onOpenChat?: () => void;
+}) {
+  const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -101,8 +119,10 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
     let alive = true;
     setLoading(true);
     setProfile(null);
-    client.account.getProfile
-      .query({ uid })
+    const pending = uid
+      ? client.account.getProfile.query({ uid })
+      : client.account.getProfileByUin.query({ uin: member.identityValue });
+    pending
       .then((p) => {
         if (alive) {
           setProfile(p);
@@ -115,7 +135,7 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
     return () => {
       alive = false;
     };
-  }, [uid]);
+  }, [uid, member.identityValue]);
 
   // 机器人才去查 adelie 表；member.kind 来自 MainView 里的 botUids 集合。
   useEffect(() => {
@@ -153,9 +173,22 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
     setPos({ left, top, ready: true });
   }, [anchor.x, anchor.y, loading, profile, botProfile]);
 
-  const name = displayUserName(member);
+  const name =
+    'card' in member
+      ? displayGroupMemberName(
+          member.card,
+          profile?.remark || member.remark,
+          member.nick || profile?.nick,
+          displayUserName(member),
+        )
+      : displayUserName(member);
   const role = ROLE_META[member.role];
-  const uin = profile?.uin && profile.uin !== '0' ? profile.uin : null;
+  const uin =
+    profile?.uin && profile.uin !== '0'
+      ? profile.uin
+      : member.identityLabel === 'QQ'
+        ? member.identityValue
+        : null;
   const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
@@ -367,6 +400,20 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
           <div className="weq-profile-actions">
             {uin ? (
               <>
+                {openSpace ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      if (onOpenChat) onOpenChat();
+                      else openSpace(uin, profile?.nick || name);
+                    }}
+                  >
+                    <Star size={13} />
+                    {onOpenChat ? '查看私聊' : '查看空间'}
+                  </button>
+                ) : null}
                 <button
                   className="weq-profile-perhome"
                   type="button"
@@ -418,6 +465,8 @@ export function MemberProfileCard({ member, anchor, onClose, groupCode, groupNam
       {homeOpen ? (
         <PersonalityHomeDialog
           uin={uin}
+          spaceNickname={profile?.nick || name}
+          onOpenChat={onOpenChat}
           uid={member.id}
           isBot={member.kind === 'bot'}
           profile={toPersonalityProfile(

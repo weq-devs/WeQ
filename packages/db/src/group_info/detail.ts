@@ -62,6 +62,15 @@ export interface GroupDetail {
   address?: GroupAddress;
 }
 
+export interface GroupDirectoryEntry {
+  groupCode: string;
+  role: 'owner' | 'admin' | 'member' | null;
+  pinned: boolean;
+  notifyLevel: number;
+  unnamed: boolean;
+  memberCount: number;
+}
+
 export interface GroupDetailDbOptions {
   dbPath: string;
   key?: string;
@@ -76,6 +85,30 @@ export class GroupDetailDb {
 
   constructor(nt: NtHelperBinding, opts: GroupDetailDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+  }
+
+  /** Official current membership list; independent of partial group_member3 caches. */
+  async listDirectory(): Promise<GroupDirectoryEntry[]> {
+    const rows = await this.qq.query(
+      'SELECT "60001","60018","60022","60252","60281","60006" FROM group_list',
+    );
+    return rows.map(
+      (row): GroupDirectoryEntry => ({
+        groupCode: String(row[0]),
+        role:
+          Number(row[1]) === 4
+            ? 'owner'
+            : Number(row[1]) === 3
+              ? 'admin'
+              : Number(row[1]) === 2
+                ? 'member'
+                : null,
+        pinned: Number(row[2]) === 1,
+        notifyLevel: Number(row[3]),
+        unnamed: row[4] !== null && Number(row[4]) === 0,
+        memberCount: Number(row[5] ?? 0),
+      }),
+    );
   }
 
   /**

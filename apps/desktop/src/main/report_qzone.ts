@@ -61,7 +61,7 @@ function toReportPost(emotion: {
   content: string;
   images: string[];
   videos: Array<{ coverUrl: string }>;
-  commentNum: number;
+  commentNum: number | null;
   isPrivate: boolean;
 }): ReportQzonePost {
   return {
@@ -71,7 +71,7 @@ function toReportPost(emotion: {
     images: emotion.images,
     videoCover: emotion.videos[0]?.coverUrl ?? '',
     hasVideo: emotion.videos.length > 0,
-    commentCount: emotion.commentNum,
+    commentCount: emotion.commentNum ?? 0,
     likeCount: null,
     isPrivate: emotion.isPrivate,
   };

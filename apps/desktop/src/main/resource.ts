@@ -44,3 +44,10 @@ export function resolveResource(...segments: string[]): string | null {
   const full = join(root, ...segments);
   return existsSync(full) ? full : null;
 }
+
+/** Match native's offline index to desktop's actual packaged resource layout. */
+export function configureNativeDressResources(): void {
+  if (process.env.NT_HELPER_DRESS_DIR || process.env.WEQ_NATIVE_DIR) return;
+  const directory = resolveResource('dress');
+  if (directory) process.env.NT_HELPER_DRESS_DIR = directory;
+}

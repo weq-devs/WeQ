@@ -37,6 +37,9 @@ export interface GapFetchedMessage {
   kind: 'c2c' | 'group';
   msgId: string;
   msgSeq: string;
+  msgRandom?: string;
+  /** True only when this row was indexed using a server NT conversation sequence. */
+  ntSeqVerified?: boolean;
   /** 会话 key：私聊为对方 uid，群聊为群号。 */
   conv: string;
   senderUid: string;
@@ -100,6 +103,9 @@ function toGapMessage(
     kind,
     msgId: String(head.msgId),
     msgSeq: String(head.sequence),
+    ...(kind === 'c2c'
+      ? { msgRandom: String(head.msgId), ntSeqVerified: (head.ntMsgSeq ?? 0) > 0 }
+      : {}),
     conv,
     senderUid: sender.uid,
     senderUin: String(sender.uin),
@@ -150,11 +156,22 @@ export class GapHistoryService {
       return [];
     }
     try {
-      return await this.cache.query(kind, conv, startSeq, endSeq);
+      return await this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c');
     } catch (e) {
       console.error('[GapHistory] failed to read roam cache:', e);
       return [];
     }
+  }
+
+  /** Bounded, offline-only timeline overlay; excludes legacy cache rows with uncertain numbering. */
+  async cachedVerified(
+    kind: 'c2c' | 'group',
+    conv: string,
+    startSeq: number,
+    endSeq: number,
+    limit: number,
+  ): Promise<GapFetchedMessage[]> {
+    return this.cache.query(kind, conv, startSeq, endSeq, true, limit);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
@@ -224,7 +241,7 @@ export class GapHistoryService {
     // 1) 先查本机漫游缓存：窗口全部命中就直接返回，不联网（QQ 不在线也能看）。
     let cached: GapFetchedMessage[] = [];
     try {
-      cached = await this.cache.query(kind, conv, startSeq, windowEnd);
+      cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
     } catch (e) {
       console.error('[GapHistory] failed to read roam cache:', e);
     }
@@ -270,6 +287,12 @@ export class GapHistoryService {
         const bytes = extractPath(res.rawResponse, stepsFor(index));
         if (!bytes) continue;
         const decoded = decodeMessage(bytes);
+        if (
+          kind === 'c2c' &&
+          (decoded.head.ntMsgSeq ?? 0) > 0 &&
+          (decoded.head.sequence < startSeq || decoded.head.sequence > windowEnd)
+        )
+          continue;
         rawBySeq.set(decoded.head.sequence, bytes);
       }
     } catch (e) {

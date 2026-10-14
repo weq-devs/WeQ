@@ -1,11 +1,8 @@
 /**
  * QQ 空间说说「互动」读取 —— 评论列表 + 点赞列表。
  *
- * QQ 空间没有公开的纯 JSON 互动读取接口（PC/mobile 评论详情接口在多数环境下
- * 实测不可用），社区逆向方案（onebot-qzone）一致的做法是解析 **预渲染 HTML**：
- * 每条动态的 HTML 里内嵌了评论区（`comments-item`）和点赞区
- * （`user-list` / `f-item-passive` 点赞事件）。本模块解析器移植自 onebot-qzone
- * 的 `feeds3/` 解析器。
+ * 本模块保留 HTML 互动观察。结构化根评论分页见 qzone_comments.ts，
+ * facade 合并两条来源；HTML 只证明已观察内容，不能单独证明数量覆盖。
  *
  * 数据源是浏览器「空间主页 / 全部动态」链路的 `feeds_html_act_all`（hostuin =
  * 目标空间，自己或好友皆可）。注意该 cgi 的动态列表**不在** `data.data`，而在
@@ -51,6 +48,10 @@ export interface QzoneComment {
   replyToCommentId?: string;
   /** 评论内图片 URL。 */
   images: string[];
+  /** Present only when the comment source reports a like count. */
+  likeCount?: number;
+  /** Embedded liker list, when the source provides it. */
+  likeUsers?: QzoneLike[];
 }
 
 /** 一个点赞用户。 */
@@ -68,11 +69,13 @@ export interface QzoneInteraction {
   /** HTML can only demonstrate observed content, never all comments. */
   coverage?: 'observed' | 'unobserved';
   fieldCoverage?: {
-    comments: 'observed' | 'unobserved' | 'failed';
-    replies: 'observed' | 'unobserved' | 'failed';
+    comments: 'complete' | 'observed' | 'unobserved' | 'failed';
+    replies: 'complete' | 'observed' | 'unobserved' | 'failed';
     likes: 'observed' | 'unobserved' | 'failed';
   };
   comments: QzoneComment[];
+  /** Root comments plus replies, only when every root supplies a known reply count. */
+  commentCountInclusive?: number | null;
   likes: QzoneLike[];
 }
 
@@ -123,7 +126,20 @@ function stripHtmlTags(html: string): string {
     /<img[^>]+src=["'][^"']*\/qzone\/em\/(e\d+)\.[^"']*["'][^>]*>/gi,
     (_m, code: string) => `[em]${code}[/em]`,
   );
-  return withEmoji.replace(/<[^>]+>/g, '');
+  const withMentions = withEmoji.replace(
+    /<a\b([^>]*)>([\s\S]*?)<\/a>/gi,
+    (original, attrs: string, body: string) => {
+      const label = htmlUnescape(body.replace(/<[^>]+>/g, '')).trim();
+      if (!label.startsWith('@')) return original;
+      const uin =
+        attrs.match(/data-uin=["']([1-9]\d{4,19})["']/i)?.[1] ||
+        attrs.match(
+          /href=["'](?:https?:)?\/\/user\.qzone\.qq\.com\/([1-9]\d{4,19})(?:["'/#?])/i,
+        )?.[1];
+      return uin ? `@{uin:${uin},nick:${label.slice(1)}}` : original;
+    },
+  );
+  return withMentions.replace(/<[^>]+>/g, '');
 }
 
 // ───────────────────────── feed_data 分段 / canonical tid ─────────────────────────
@@ -166,6 +182,23 @@ interface CommentRecord {
   replyToNickname?: string;
   replyToCommentId?: string;
   pic: string[];
+  likeCount?: number;
+}
+
+function commentLikeMetadata(html: string): { likeCount?: number } {
+  const own = html.split(/<div[^>]*class=["'][^"']*mod-comments-sub/i)[0]!;
+  const attribute = own.match(
+    /<[^>]*\bdata-(?:likecount|likenum|like-num|likecnt)=["'](\d+)["']/i,
+  )?.[1];
+  const controls = own.match(
+    /<div[^>]*class=["'][^"']*comments-op[^"']*["'][^>]*>([\s\S]*?)(?:<\/div>|$)/i,
+  )?.[1];
+  const label = controls
+    ? htmlUnescape(stripHtmlTags(controls)).match(/(?:赞|点赞)\s*[（(]\s*(\d+)\s*[）)]/)?.[1]
+    : undefined;
+  const value = attribute ?? label;
+  const count = value === undefined ? null : Number(value);
+  return count !== null && Number.isSafeInteger(count) && count >= 0 ? { likeCount: count } : {};
 }
 
 /** 评论块内所有 t1_tid= 取值（校验评论归属，防相邻动态评论区滑入）。 */
@@ -500,6 +533,7 @@ function parseFeeds3CommentsInRegion(
       createtime: rootTime,
       isReply: false,
       pic: rootPic,
+      ...commentLikeMetadata(fullBlock),
     };
     bucket.push(rootComment);
 
@@ -547,6 +581,7 @@ function parseFeeds3CommentsInRegion(
           isReply: true,
           parentCommentId: rootTid,
           pic: replyPic,
+          ...commentLikeMetadata(`${replyOpenTag}${replyBody}`),
         };
         if (t2Uin) replyRecord.replyToUin = t2Uin;
         if (replyToNickname) replyRecord.replyToNickname = replyToNickname;
@@ -588,6 +623,7 @@ function parseFeeds3CommentsInRegion(
       createtime: createdTime,
       isReply,
       pic,
+      ...commentLikeMetadata(`${attrs}${body}`),
     };
     const t2Uin = body.match(/t2_uin=(\d+)/i)?.[1] ?? '';
     const t2Tid = body.match(/t2_tid=([^&"\s]+)/i)?.[1] ?? '';
@@ -830,6 +866,7 @@ function toQzoneComment(c: CommentRecord): QzoneComment {
     isReply: c.isReply,
     images: c.pic,
   };
+  if (c.likeCount !== undefined) out.likeCount = c.likeCount;
   if (c.parentCommentId !== undefined) out.parentCommentId = c.parentCommentId;
   if (c.replyToUin) out.replyToUin = c.replyToUin;
   if (c.replyToNickname) out.replyToNickname = c.replyToNickname;
@@ -956,6 +993,8 @@ interface RawOpCntData {
   message?: string;
   data?: Array<{
     current?: {
+      key?: string;
+      newdata?: { CS?: number; CP?: number; LIKE?: number };
       likedata?: {
         cnt?: number;
         list?: Array<[string | number, string, string | number]>;
@@ -967,6 +1006,7 @@ interface RawOpCntData {
 export interface QzoneLikesResult {
   likes: QzoneLike[];
   reportedTotal: number | null;
+  reportedCommentCount?: number | null;
   coverage: 'complete' | 'observed' | 'unobserved';
   reason:
     | 'matched-count'
@@ -982,12 +1022,21 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   if (typeof data.code === 'number' && data.code !== 0)
     throw qzoneCodeError('qzone qz_opcnt2 likes', data.code, data.message);
   const value = data.data?.[0]?.current?.likedata;
+  const cs = data.data?.[0]?.current?.newdata?.CS;
+  const reportedCommentCount =
+    data.code === 0 && typeof cs === 'number' && Number.isSafeInteger(cs) && cs >= 0 ? cs : null;
   const count = value?.cnt;
   const reportedTotal =
     typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
   const list = value?.list;
   if (!Array.isArray(list) && reportedTotal !== 0)
-    return { likes: [], reportedTotal, coverage: 'unobserved', reason: 'missing-data' };
+    return {
+      likes: [],
+      reportedTotal,
+      reportedCommentCount,
+      coverage: 'unobserved',
+      reason: 'missing-data',
+    };
   const unique = new Map<string, QzoneLike>();
   for (const entry of list ?? []) {
     if (!Array.isArray(entry) || entry.length < 2) continue;
@@ -1005,6 +1054,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   return {
     likes,
     reportedTotal,
+    reportedCommentCount,
     coverage: complete ? 'complete' : 'observed',
     reason: complete
       ? 'matched-count'
@@ -1050,6 +1100,59 @@ export async function fetchQzoneLikesResult(
   signal?.throwIfAborted();
   await captureRaw?.(text);
   return parseQzoneLikesResult(text);
+}
+
+/** Feed-supplied current keys distinguish a forwarded feed from the original post. */
+export async function fetchQzoneFeedCounts(
+  cred: WebCredential,
+  key: string,
+  appid: 4 | 311,
+  signal?: AbortSignal,
+): Promise<{ likeCount: number | null; commentCount: number | null }> {
+  let target: URL;
+  try {
+    target = new URL(key);
+  } catch {
+    throw new Error('动态计数目标无效。');
+  }
+  if (
+    key.length > 4096 ||
+    !['http:', 'https:'].includes(target.protocol) ||
+    target.username ||
+    target.password ||
+    target.port ||
+    !(target.hostname === 'qq.com' || target.hostname.endsWith('.qq.com')) ||
+    key.includes('<.>')
+  )
+    throw new Error('动态计数目标无效。');
+  const params = new URLSearchParams({
+    _stp: String(Date.now()),
+    unikey: `${key}<.>${key}`,
+    face: '0',
+    fupdate: '1',
+    g_tk: String(computeBkn(cred.pskey || cred.skey)),
+  });
+  const text = await webRequestText(
+    `https://user.qzone.qq.com/proxy/domain/r.qzone.qq.com/cgi-bin/user/qz_opcnt2?${params}`,
+    {
+      cookie: cookieHeader(cred),
+      signal,
+      timeoutMs: 10000,
+      headers: { Referer: 'https://user.qzone.qq.com/' },
+    },
+  );
+  const data = parseQzoneCallback<RawOpCntData>(text);
+  if (data.code !== 0) throw qzoneCodeError('qzone feed counters', data.code ?? -1, data.message);
+  if (!Array.isArray(data.data) || data.data.length !== 1)
+    throw new Error('动态计数响应格式无效。');
+  const current = data.data[0]?.current;
+  if (current?.key !== key) throw new Error('动态计数与当前内容不匹配。');
+  const validCount = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  return {
+    likeCount: validCount(current?.newdata?.LIKE ?? current?.likedata?.cnt),
+    commentCount: validCount(appid === 4 ? current?.newdata?.CP : current?.newdata?.CS),
+  };
 }
 
 /** Compatibility projection for consumers that only display the names. */
@@ -1123,7 +1226,7 @@ function lookupBucket(
       }
       if (t.time <= 0) continue;
       const embedded = `_${t.time}_`;
-      const sameAuthor = key.startsWith(`d${authorUin}_`) || t.tid.includes(String(authorUin));
+      const sameAuthor = key.startsWith(`d${authorUin}_`);
       if (key.includes(embedded) && sameAuthor) {
         aliasKey = key;
         break;
@@ -1134,14 +1237,15 @@ function lookupBucket(
     likes = buckets.likes.get(aliasKey);
   }
   const converted = (comments ?? []).map(toQzoneComment);
+  const ownLikes = (likes ?? []).filter((like) => like.ownerUin === authorUin);
   return {
     fieldCoverage: {
       comments: converted.some((comment) => !comment.isReply) ? 'observed' : 'unobserved',
       replies: converted.some((comment) => comment.isReply) ? 'observed' : 'unobserved',
-      likes: likes?.length ? 'observed' : 'unobserved',
+      likes: ownLikes.length ? 'observed' : 'unobserved',
     },
     comments: converted,
-    likes: (likes ?? []).map(toQzoneLike),
+    likes: ownLikes.map(toQzoneLike),
   };
 }
 
@@ -1184,7 +1288,11 @@ export async function collectQzoneInteractions(
       break; // 后续页失败：互动是 best-effort，不阻断正文导出
     }
     if (res.items.length === 0) break; // 空页 = 翻到头
-    parseIntoBuckets(res.html, buckets);
+    // Each item is an independent post. Joining them before parsing allowed a
+    // t1_tid near one item's end to claim the next item's user-list.
+    for (const item of res.items) {
+      parseIntoBuckets(decodeFeedHtml(item.html ?? ''), buckets);
+    }
 
     for (const it of res.items) {
       if (it.key) seenKeys.add(it.key);

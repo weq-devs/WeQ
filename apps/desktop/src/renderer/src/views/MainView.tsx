@@ -27,8 +27,14 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
-import { conversationSortTime, draftSortTimes } from '@weq/service/conversation-order';
+import {
+  classifyChatType,
+  datalineName,
+  isDatalineSelfUid,
+  isGroupTempChatType,
+  toChatTypeNumber,
+} from '@weq/codec';
+import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -116,7 +122,14 @@ import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
-import { QzoneView } from './QzoneView';
+import { displayGroupMemberName } from '../im-template/template/user';
+import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
+import { QzoneWorkspace } from './QzoneView';
+import {
+  QzoneNavigationContext,
+  QzoneProfileContext,
+  type QzoneSpaceRequest,
+} from '../lib/qzoneNavigation';
 import { ChannelView } from './ChannelView';
 import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
@@ -187,6 +200,7 @@ const messageRenderers: MessageRenderer[] = composeMessageRenderers({
 });
 
 const PAGE_SIZE = 50;
+const GROUP_INITIAL_PAGE_SIZE = 25;
 const GROUP_MEMBER_PAGE_SIZE = 120;
 /**
  * Cap for the live "re-read my loaded window" query. If a user scrolled up past
@@ -202,6 +216,8 @@ type RecentContactWire = {
   targetUid: string;
   targetUin: string;
   sendTime: string;
+  topTime: string;
+  pinned: boolean;
   preview: unknown | null;
   senderDisplayName: string;
   senderNick: string;
@@ -398,6 +414,7 @@ type CategoryWire = {
   id: number;
   name: string;
   buddyCount: number;
+  sortOrder?: number;
 };
 
 type BuddyRequestWire = {
@@ -431,6 +448,13 @@ type GroupNotifyWire = {
 };
 
 type GroupDetailWire = {
+  directory?: {
+    role: 'owner' | 'admin' | 'member' | null;
+    pinned: boolean;
+    notifyLevel: number;
+    unnamed: boolean;
+    memberCount: number;
+  } | null;
   groupCode: string;
   groupName: string;
   pinnedAnnounce: string;
@@ -763,6 +787,9 @@ function groupDetailToConversation(
   return {
     id: detail.groupCode,
     type: 'group',
+    notifyLevel:
+      detail.directory?.notifyLevel ??
+      (fallback?.type === 'group' ? fallback.notifyLevel : undefined),
     updatedAt,
     otherUser: null,
     group: {
@@ -774,9 +801,15 @@ function groupDetailToConversation(
       announcement: detail.pinnedAnnounce || group?.announcement || null,
       description: detail.description || null,
       remark: detail.remark || null,
-      memberCount: detail.memberCount || group?.memberCount || 0,
+      memberCount: detail.directory?.memberCount ?? detail.memberCount ?? group?.memberCount ?? 0,
       maxMemberCount: detail.maxMemberCount || undefined,
-      role: group?.role || 'member',
+      role:
+        detail.directory?.role ??
+        (detail.ownerUid === user?.uid ? 'owner' : group?.role || 'member'),
+      listed: Boolean(detail.directory),
+      membershipKnown: Object.hasOwn(detail, 'directory'),
+      roleKnown: Boolean(detail.directory?.role) || detail.ownerUid === user?.uid,
+      unnamed: detail.directory?.unnamed ?? false,
       createTime: secondsToIsoTime(detail.createTime),
       labels: detail.labels || null,
       entranceQ: detail.entranceQ || null,
@@ -791,7 +824,11 @@ function groupDetailToConversation(
         : user
           ? [{ ...user, role: 'member', joinedAt: updatedAt }]
           : [],
-    preference: fallback?.preference ?? fallbackPreference,
+    preference: {
+      ...fallbackPreference,
+      ...fallback?.preference,
+      pinned: detail.directory?.pinned ?? fallback?.preference?.pinned ?? false,
+    },
     unreadCount: fallback?.unreadCount ?? 0,
     lastMessage: fallback?.lastMessage ?? null,
   };
@@ -976,6 +1013,7 @@ function groupMemberWireToMember(
     ownerUid?: string;
     levelConfigs: Array<{ level: number; levelName: string }>;
     botUids: ReadonlySet<string>;
+    profileByUid: Map<string, UserProfileWire>;
   },
 ): GroupMember {
   return {
@@ -984,7 +1022,15 @@ function groupMemberWireToMember(
     identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
     username: m.uid,
     uin: m.uin,
-    displayName: m.card || m.nick || m.uin || 'Member',
+    card: m.card,
+    remark: ctx.profileByUid.get(m.uid)?.remark,
+    nick: m.nick || ctx.profileByUid.get(m.uid)?.nick,
+    displayName: displayGroupMemberName(
+      m.card,
+      ctx.profileByUid.get(m.uid)?.remark,
+      m.nick || ctx.profileByUid.get(m.uid)?.nick,
+      m.uin || m.uid || 'Member',
+    ),
     avatarUrl: senderAvatarSrc(m.uin),
     kind: ctx.botUids.has(m.uid) ? 'bot' : 'human',
     role: m.uid === ctx.ownerUid ? 'owner' : m.adminFlag > 0 ? 'admin' : 'member',
@@ -1021,8 +1067,14 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
  *
  * 发消息要用它：临时会话回复对方必须走 `routingHead.grpTmp`（来源群号 + 对方 uid），
  * 退化成普通 c2c 会被服务端当成非好友消息拒收。
+ *
+ * **不能只看 60001 非零**：它是会话行的冗余快照，会残留 —— 从群临时会话转成正式
+ * 好友后（chatType 100 → 1），来源群号仍留在那一列不清。真正的判据是 chatType 本身
+ * 仍是「群里发起的临时会话」（100）；否则和好友的普通私聊会被误判成临时会话，
+ * 发文件被拦、标题被冠上「来自 xxx 群」。
  */
 function tempSourceGroupCode(c: RecentContactWire): string | null {
+  if (!isGroupTempChatType(c.chatType)) return null;
   const code = c.tempSourceGroupCode;
   return code && code !== '0' ? code : null;
 }
@@ -1104,6 +1156,7 @@ function contactToConversation(
     return {
       id: c.targetUid,
       type: 'group',
+      notifyLevel: c.notifyLevel,
       updatedAt,
       otherUser: null,
       group: {
@@ -1113,8 +1166,11 @@ function contactToConversation(
         identityValue: c.targetUid,
         avatarUrl: avatarSrc(c),
         announcement: null,
-        memberCount: 1,
+        memberCount: 0,
         role: 'member',
+        listed: false,
+        membershipKnown: false,
+        roleKnown: false,
       },
       members: [{ ...user, role: 'member', joinedAt: updatedAt }],
       preference,
@@ -1188,10 +1244,16 @@ function messageSender(
           ? message.senderUin
           : message.senderUid,
       username: isMine ? user.username : message.senderUid || message.senderUin,
-      displayName: isMine
-        ? user.displayName
-        : member?.displayName ||
-          (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
+      card: member?.card,
+      remark: member?.remark,
+      nick: member?.nick,
+      displayName:
+        member?.displayName ||
+        (isMine
+          ? user.displayName
+          : message.senderUin && message.senderUin !== '0'
+            ? message.senderUin
+            : 'Member'),
       avatarUrl: isMine ? user.avatarUrl : member?.avatarUrl || senderAvatarSrc(message.senderUin),
       kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
       role: !isUinOnly ? member?.role : undefined,
@@ -2060,9 +2122,26 @@ export function MainView(): ReactElement {
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
   const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
-    {},
-    { getNextPageParam: (lastPage) => lastPage.nextCursor },
+    { limit: 500 },
+    { getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined) },
   );
+  // Folder membership must cover older rows too; never classify unobserved groups as folded.
+  useEffect(() => {
+    if (
+      contacts.hasNextPage &&
+      !contacts.isFetching &&
+      !contacts.error &&
+      (contacts.data?.pages.length ?? 0) < 100
+    ) {
+      void contacts.fetchNextPage();
+    }
+  }, [
+    contacts.hasNextPage,
+    contacts.isFetching,
+    contacts.error,
+    contacts.data?.pages.length,
+    contacts.fetchNextPage,
+  ]);
   const topContacts = trpc.account.listTopContacts.useQuery();
 
   // Flatten the paginated recent-contact pages into one list for the memos
@@ -2070,6 +2149,28 @@ export function MainView(): ReactElement {
   const recentContactsData = useMemo<RecentContactWire[]>(
     () => (contacts.data?.pages ?? []).flatMap((page) => page.items),
     [contacts.data],
+  );
+  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
+  // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
+  const groupAssistantIds = useMemo(() => {
+    const ids = new Set(
+      recentContactsData
+        .filter(
+          (contact) => chatTypeKind(contact.chatType) === 'group' && contact.notifyLevel === 2,
+        )
+        .map((contact) => contact.targetUid),
+    );
+    for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
+      if (group.directory?.notifyLevel === 2) ids.add(group.groupCode);
+    }
+    return ids;
+  }, [recentContactsData, allGroups.data]);
+  const groupAssistantEntry = useMemo(
+    () =>
+      recentContactsData.find(
+        (contact) => contact.chatType === 'KCHATTYPEGROUPHELPER' || Number(contact.chatType) === 7,
+      ),
+    [recentContactsData],
   );
   const contactsHasMore = Boolean(contacts.hasNextPage);
   const contactsLoadingMore = contacts.isFetchingNextPage;
@@ -2110,8 +2211,60 @@ export function MainView(): ReactElement {
   const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
   const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
+  const specialCare = trpc.account.specialCare.useQuery(
+    { selfUin: openedUin ?? '' },
+    {
+      enabled: Boolean(openedUin && sendAccess.data?.qqOnline),
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: true,
+      retry: false,
+    },
+  );
+  const [refreshingContacts, setRefreshingContacts] = useState(false);
+  const refreshingContactsRef = useRef(false);
+  const refreshContacts = async (): Promise<void> => {
+    if (refreshingContactsRef.current) return;
+    const accountUin = openedUin;
+    refreshingContactsRef.current = true;
+    setRefreshingContacts(true);
+    try {
+      const results = await Promise.all([
+        buddies.refetch(),
+        categories.refetch(),
+        profiles.refetch(),
+        refreshProfileCache()
+          .then(() => ({ isError: false }))
+          .catch(() => ({ isError: true })),
+        client.account.botUids
+          .query({ refresh: true })
+          .then((data) => {
+            if (useViewState.getState().openedUin === accountUin)
+              utils.account.botUids.setData(undefined, data);
+            return { isError: false };
+          })
+          .catch(() => ({ isError: true })),
+        allGroups.refetch(),
+        contacts.refetch(),
+        hiddenSessions.refetch(),
+        deletedSessions.refetch(),
+        buddyRequests.refetch(),
+        groupNotifies.refetch(),
+        ...(sendAccess.data?.qqOnline ? [specialCare.refetch()] : []),
+      ]);
+      if (
+        useViewState.getState().openedUin === accountUin &&
+        results.some((result) => result.isError)
+      )
+        pushToast({ tone: 'info', title: '部分联系人数据刷新失败，已保留上次结果' });
+    } catch {
+      if (useViewState.getState().openedUin === accountUin)
+        pushToast({ tone: 'info', title: '联系人刷新失败，请稍后重试' });
+    } finally {
+      refreshingContactsRef.current = false;
+      setRefreshingContacts(false);
+    }
+  };
   const [damagedEvent, setDamagedEvent] = useState<DatabaseDamagedEvent | null>(null);
 
   // 合并会话面板状态：包含类型和点击位置
@@ -2150,22 +2303,30 @@ export function MainView(): ReactElement {
   const refreshWindow = useCallback(async (): Promise<void> => {
     const sel = selectionRef.current;
     const win = windowRef.current;
-    if (!sel || !win.anchored || win.minSeq === null) return;
+    if (!sel || !win.anchored) return;
     const kind = sel.kind === 'group' ? 'group' : 'c2c';
     const conv = sel.id;
     try {
-      const page = await client.account.listFrom.query({
-        kind,
-        conv,
-        sinceSeq: win.minSeq,
-        limit: REFRESH_CAP,
-      });
-      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
+      const page =
+        win.minSeq === null
+          ? await client.account.listLatest.query({ kind, conv, limit: PAGE_SIZE })
+          : await client.account.listFrom.query({
+              kind,
+              conv,
+              sinceSeq: win.minSeq,
+              limit: REFRESH_CAP,
+            });
+      // Reject results after a conversation switch or a history-window change,
+      // including switching away and back to the same conversation.
+      if (selectionRef.current !== sel || windowRef.current !== win || !windowRef.current.anchored)
+        return;
       setLoaded(page.map(toMessageWire).reverse());
     } catch (err) {
       console.error('[live] refreshWindow failed', err);
     }
   }, []);
+
+  const [unreadRevision, setUnreadRevision] = useState(0);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
@@ -2173,6 +2334,8 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const sub = client.account.onDbChanged.subscribe(undefined, {
       onData() {
+        // Read watermarks can change while recent contacts remain identical.
+        setUnreadRevision((revision) => revision + 1);
         void utils.account.listRecentContacts.invalidate();
         void utils.account.listTopContacts.invalidate();
         void utils.account.listHiddenSessions.invalidate();
@@ -2270,6 +2433,10 @@ export function MainView(): ReactElement {
   const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
+  const [temporaryConversations, setTemporaryConversations] = useState<
+    Record<string, { conversation: Conversation; appearedAt: number }>
+  >({});
+  const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -2327,6 +2494,7 @@ export function MainView(): ReactElement {
   const [memberCard, setMemberCard] = useState<{
     member: User;
     anchor: { x: number; y: number };
+    fromSpace?: boolean;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -2979,9 +3147,11 @@ export function MainView(): ReactElement {
   );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
-  const { profileByUid, resolveProfiles } = useProfileResolver<UserProfileWire>(
-    profiles.data as UserProfileWire[] | undefined,
-  );
+  const {
+    profileByUid,
+    resolveProfiles,
+    refreshProfiles: refreshProfileCache,
+  } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -3007,29 +3177,21 @@ export function MainView(): ReactElement {
     const map: Record<string, number> = {};
     for (const top of (topContacts.data ?? []) as RecentContactTopWire[]) {
       if (top.targetId) map[top.targetId] = Number(top.topTime);
+      if (top.chatType === 'KCHATTYPEGROUPHELPER' || Number(top.chatType) === 7) {
+        map['merged:group-assistant'] = Number(top.topTime);
+      }
+    }
+    // The virtual helper entry carries its own authoritative pin flag. Its
+    // timestamp can survive unpinning, so the flag must override the registry.
+    if (groupAssistantEntry && typeof groupAssistantEntry.pinned === 'boolean') {
+      if (groupAssistantEntry.pinned) {
+        map['merged:group-assistant'] = Number(groupAssistantEntry.topTime);
+      } else {
+        delete map['merged:group-assistant'];
+      }
     }
     return map;
-  }, [topContacts.data]);
-  /**
-   * 有草稿的会话 → 草稿时间（`recent_contact_v3_table."41108"`）。会话列表排序
-   * 用它和最后消息时间取最大值：打了字（或有草稿）的会话要按草稿时间冒头，
-   * 而不是只看最新消息时间。见 `@weq/service/conversation-order`。
-   *
-   * 单独一条轻量 query（几行的 SELECT），这样 `onDbChanged` 时能跟手刷新排序；
-   * 真正的正文由 `drafts` state 承载，不在这里重读。
-   */
-  const draftTimesQuery = trpc.account.listConversationDraftTimes.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 5_000,
-  });
-  /**
-   * 会话 id → 排序用草稿时间（毫秒），**只取库里的 `41108`**。输入框里还没落库的
-   * 草稿刻意不参与 —— 排序只认数据库的数据，边打字不该让会话跳位置。
-   */
-  const draftTimeByConv = useMemo(
-    () => draftSortTimes(draftTimesQuery.data ?? []),
-    [draftTimesQuery.data],
-  );
+  }, [topContacts.data, groupAssistantEntry]);
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
   const groupNameByCode = useMemo(() => {
@@ -3163,6 +3325,10 @@ export function MainView(): ReactElement {
 
     // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
     // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
+    const directoryKnown = groups.some((detail) => Object.hasOwn(detail, 'directory'));
+    const listedCodes = new Set(
+      groups.filter((detail) => detail.directory).map((detail) => detail.groupCode),
+    );
     const recentConversations = recentContactsData
       .filter((c) => {
         const kind = classifyChatType(c.chatType);
@@ -3171,7 +3337,19 @@ export function MainView(): ReactElement {
         return !hiddenUidSet.has(c.targetUid);
       })
       .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
-      .filter((conversation): conversation is Conversation => conversation !== null);
+      .filter((conversation): conversation is Conversation => conversation !== null)
+      .map((conversation) =>
+        conversation.type === 'group' && directoryKnown
+          ? {
+              ...conversation,
+              group: {
+                ...conversation.group,
+                listed: listedCodes.has(conversation.id),
+                membershipKnown: true,
+              },
+            }
+          : conversation,
+      );
     const byId = new Map(
       recentConversations.map((conversation) => [conversation.id, conversation]),
     );
@@ -3308,16 +3486,72 @@ export function MainView(): ReactElement {
       byId.set('merged:deleted', merged);
     }
 
+    const assistantGroups = Array.from(byId.values()).filter(
+      (conversation) => conversation.type === 'group' && groupAssistantIds.has(conversation.id),
+    );
+    if (groupAssistantEntry || assistantGroups.length) {
+      const latest = assistantGroups.reduce<Conversation | null>(
+        (latest, current) =>
+          !latest ||
+          conversationSortTime(current.updatedAt, undefined) >
+            conversationSortTime(latest.updatedAt, undefined)
+            ? current
+            : latest,
+        null,
+      );
+      const updatedAt = latest?.updatedAt ?? toIsoTime(groupAssistantEntry?.sendTime ?? '0');
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:group-assistant',
+        type: 'merged',
+        mergedKind: 'groupAssistant',
+        title: '群助手',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: { ...fallbackPreference, muted: true },
+        unreadCount: assistantGroups.reduce(
+          (count, conversation) => count + (unreadByConv[conversation.id] ?? 0),
+          0,
+        ),
+        lastMessage: latest?.lastMessage
+          ? {
+              ...latest.lastMessage,
+              body: `${latest.type === 'group' ? latest.group.name : ''}：${latest.lastMessage.body ?? ''}`,
+              previewNodes: null,
+            }
+          : {
+              id: 'group-assistant-empty',
+              senderId: null,
+              body: '暂无群消息',
+              createdAt: updatedAt,
+            },
+      };
+      byId.set(merged.id, merged);
+    }
+
+    for (const [id, entry] of Object.entries(temporaryConversations)) {
+      const current = byId.get(id) ?? entry.conversation;
+      byId.set(id, {
+        ...current,
+        hidden: false,
+        updatedAt: new Date(
+          Math.max(Date.parse(current.updatedAt) || 0, entry.appearedAt),
+        ).toISOString(),
+      });
+    }
+
     return (
       Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
           const topTime = topTimeByConv[conversation.id];
-          if (!unread && !highlights && topTime === undefined) return conversation;
+          if (unread === undefined && !highlights && topTime === undefined) return conversation;
           return {
             ...conversation,
-            ...(unread ? { unreadCount: unread } : {}),
+            ...(unread === undefined ? {} : { unreadCount: unread }),
             ...(topTime === undefined
               ? {}
               : {
@@ -3326,25 +3560,30 @@ export function MainView(): ReactElement {
             highlights,
           };
         })
-        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按
-        // max(最后消息时间, 草稿时间) 倒序 —— 有草稿的会话不吃亏于「新消息」。
+        // 保留置顶优先；两组都按最近消息时间倒序，草稿与置顶时间不参与组内排序。
         .sort((a, b) => {
           const aTop = topTimeByConv[a.id];
           const bTop = topTimeByConv[b.id];
           if (aTop !== undefined || bTop !== undefined) {
             if (aTop === undefined) return 1;
             if (bTop === undefined) return -1;
-            return bTop - aTop;
           }
           return (
-            conversationSortTime(b.updatedAt, draftTimeByConv[b.id]) -
-            conversationSortTime(a.updatedAt, draftTimeByConv[a.id])
+            Math.max(
+              conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined),
+              temporaryConversations[b.id]?.appearedAt ?? 0,
+            ) -
+            Math.max(
+              conversationSortTime(a.lastMessage?.createdAt ?? a.updatedAt, undefined),
+              temporaryConversations[a.id]?.appearedAt ?? 0,
+            )
           );
         })
     );
   }, [
     allGroups.data,
     recentContactsData,
+    temporaryConversations,
     officialAccounts.data,
     serviceAccounts.data,
     hiddenSessions.data,
@@ -3356,9 +3595,187 @@ export function MainView(): ReactElement {
     unreadByConv,
     highlightsByConv,
     topTimeByConv,
-    draftTimeByConv,
+    groupAssistantIds,
+    groupAssistantEntry,
     botUids,
   ]);
+  const sidebarConversations = useMemo(
+    () =>
+      conversations.filter(
+        (conversation) =>
+          conversation.type !== 'group' ||
+          !groupAssistantIds.has(conversation.id) ||
+          Boolean(temporaryConversations[conversation.id]),
+      ),
+    [conversations, groupAssistantIds, temporaryConversations],
+  );
+
+  const specialContactSections = useMemo(() => {
+    const robots = buddyContacts.filter((contact) => botUids.has(contact.id));
+    const devices = conversations
+      .filter(
+        (conversation): conversation is Extract<Conversation, { type: 'direct' }> =>
+          conversation.type === 'direct' &&
+          conversation.chatType !== undefined &&
+          isDataline(conversation.chatType),
+      )
+      .map((conversation) => ({
+        ...conversation.otherUser,
+        identityLabel: '设备',
+        createdAt: new Date(0).toISOString(),
+      }));
+    const byUin = new Map(buddyContacts.map((contact) => [contact.identityValue, contact]));
+    const specialItems: Contact[] = (specialCare.data?.items ?? []).map((item) => {
+      const existing = byUin.get(item.uin);
+      if (existing) return existing;
+      const profile = [...profileByUid.values()].find((entry) => entry.uin === item.uin);
+      if (profile)
+        return buddyToContact(
+          { uid: profile.uid, uin: item.uin, qid: profile.qid, categoryId: 0 },
+          profileByUid,
+          categoryById,
+          botUids,
+        );
+      return {
+        id: item.uin,
+        identityLabel: 'QQ',
+        identityValue: item.uin,
+        username: item.uin,
+        displayName: item.name || item.uin,
+        nick: item.name,
+        avatarUrl: senderAvatarSrc(item.uin),
+        createdAt: new Date(0).toISOString(),
+      };
+    });
+    const online = Boolean(sendAccess.data?.qqOnline);
+    const description = !online
+      ? 'QQ 未在线，特别关心未更新'
+      : specialCare.isError
+        ? '特别关心读取失败'
+        : specialCare.data
+          ? specialCare.data.fansCount === null
+            ? '特关我的人数暂不可用'
+            : `特关我的人数：${specialCare.data.fansCount} 人`
+          : '正在读取特别关心…';
+    return [
+      { id: 'special:devices', name: '我的设备', items: devices },
+      { id: 'special:bots', name: '机器人', items: robots },
+      {
+        id: 'special:care',
+        name: '特别关心',
+        items: specialItems,
+        count: specialCare.data ? specialItems.length : null,
+        description,
+        onRetry:
+          online && specialCare.isError
+            ? () => {
+                void specialCare.refetch();
+              }
+            : undefined,
+      },
+    ];
+  }, [
+    buddyContacts,
+    botUids,
+    conversations,
+    specialCare.data,
+    specialCare.isError,
+    specialCare.refetch,
+    sendAccess.data?.qqOnline,
+    profileByUid,
+    categoryById,
+  ]);
+
+  const historicalContactSections = useMemo(() => {
+    const current = new Set(buddyContacts.map((contact) => contact.id));
+    const former = new Map<string, Contact>();
+    const temporary = new Map<string, Contact>();
+    const seen = new Set<string>();
+    const sources = [
+      ...recentContactsData,
+      ...((hiddenSessions.data ?? []) as HiddenSessionWire[]).filter((row) => row.resolvable),
+      ...((deletedSessions.data ?? []) as DeletedSessionWire[]).filter((row) => row.resolvable),
+    ];
+    for (const row of sources) {
+      const uid = row.targetUid;
+      if (seen.has(uid)) continue;
+      if (
+        !uid ||
+        uid === user.uid ||
+        current.has(uid) ||
+        botUids.has(uid) ||
+        classifyChatType(row.chatType) !== 'direct'
+      )
+        continue;
+      const type = toChatTypeNumber(row.chatType);
+      seen.add(uid);
+      const profile = profileByUid.get(uid);
+      const uin = profile?.uin || ('targetUin' in row ? row.targetUin : '') || '';
+      if (uin === user.identityValue) continue;
+      const contact = buddyToContact(
+        { uid, uin, qid: profile?.qid || '', categoryId: 0 },
+        profileByUid,
+        categoryById,
+        botUids,
+      );
+      if (!profile && 'targetDisplayName' in row) contact.displayName = contactTitle(row);
+      const target = type === 1 ? former : temporary;
+      if (!target.has(uid)) target.set(uid, contact);
+    }
+    return [
+      {
+        id: 'history:former',
+        name: '已删除好友 / 非好友',
+        items: [...former.values()],
+        description: '保留私聊记录，但不在当前好友列表',
+      },
+      { id: 'history:temporary', name: '临时会话', items: [...temporary.values()] },
+    ];
+  }, [
+    buddyContacts,
+    recentContactsData,
+    hiddenSessions.data,
+    deletedSessions.data,
+    user,
+    botUids,
+    profileByUid,
+    categoryById,
+  ]);
+
+  const contactDirectoryConversations = useMemo(() => {
+    const map = new Map([
+      ...hiddenConversationsById,
+      ...deletedConversationsById,
+      ...conversations.map((conversation) => [conversation.id, conversation] as const),
+    ]);
+    const details = (allGroups.data ?? []) as GroupDetailWire[];
+    for (const detail of details)
+      map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
+    if (details.some((detail) => Object.hasOwn(detail, 'directory'))) {
+      const currentCodes = new Set(
+        details.filter((detail) => detail.directory).map((detail) => detail.groupCode),
+      );
+      for (const [id, conversation] of map)
+        if (conversation.type === 'group')
+          map.set(id, {
+            ...conversation,
+            group: { ...conversation.group, listed: currentCodes.has(id), membershipKnown: true },
+          });
+    }
+    return [...map.values()];
+  }, [conversations, hiddenConversationsById, deletedConversationsById, allGroups.data, user]);
+
+  const profileContacts = useMemo(() => {
+    const byId = new Map<string, Contact>(buddyContacts.map((contact) => [contact.id, contact]));
+    for (const section of specialContactSections)
+      for (const contact of section.items) {
+        if (!byId.has(contact.id)) byId.set(contact.id, contact);
+      }
+    for (const section of historicalContactSections)
+      for (const contact of section.items) if (!byId.has(contact.id)) byId.set(contact.id, contact);
+    return [...byId.values()];
+  }, [buddyContacts, specialContactSections, historicalContactSections]);
+
   const groupsById = useMemo(
     () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
     [conversations],
@@ -3391,8 +3808,8 @@ export function MainView(): ReactElement {
     [],
   );
   const shell = useChatShellController({
-    conversations,
-    contacts: buddyContacts,
+    conversations: contactDirectoryConversations,
+    contacts: profileContacts,
     conversationPrefs,
     initialActiveConversationId: null,
     // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
@@ -3754,8 +4171,9 @@ export function MainView(): ReactElement {
   // quickly-switched-away conversation are ignored.
   useEffect(() => {
     setDeletedIds(new Set());
-    if (!selectedConversation) return;
-    const { kind, conv } = convFetchKey(selectedConversation);
+    if (!selectedUid || !(isDirect || isGroup)) return;
+    const kind = isGroup ? 'group' : 'c2c';
+    const conv = selectedUid;
     let alive = true;
     client.account.deletedMsgIds
       .query({ kind, conv })
@@ -3768,7 +4186,7 @@ export function MainView(): ReactElement {
     return () => {
       alive = false;
     };
-  }, [selectedConversation, convFetchKey]);
+  }, [selectedUid, isDirect, isGroup]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -3784,14 +4202,22 @@ export function MainView(): ReactElement {
       identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
       identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
       username: m.uid,
-      displayName: m.card || m.nick || m.uin || 'Member',
+      card: m.card,
+      remark: profileByUid.get(m.uid)?.remark,
+      nick: m.nick || profileByUid.get(m.uid)?.nick,
+      displayName: displayGroupMemberName(
+        m.card,
+        profileByUid.get(m.uid)?.remark,
+        m.nick || profileByUid.get(m.uid)?.nick,
+        m.uin || m.uid || 'Member',
+      ),
       avatarUrl: senderAvatarSrc(m.uin),
       kind: botUids.has(m.uid) ? ('bot' as const) : ('human' as const),
       role: 'member' as const,
       joinedAt: new Date(0).toISOString(),
     }));
     return { ...conv, members };
-  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids]);
+  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids, profileByUid]);
 
   // 切换到独占全屏的视图（home/export/agentlab/cache/qzone/channel）时，
   // 自动关闭可能还开着的公众号/服务号 ARK Feed 页面，否则会覆盖在新视图上。
@@ -3844,61 +4270,108 @@ export function MainView(): ReactElement {
     };
   }, [buddies.data]);
 
-  // Compute unread counts: for each recent conversation, query the last-read
-  // seq and subtract from the latest msgSeq. Re-runs whenever the contact list
-  // updates (every db change invalidates listRecentContacts). chatType: 1=c2c,
-  // 2=group — matching the "chatType_uid" key in msg_unread_info_table.
+  // Keep one unread reader alive: DB pings request a refresh, rather than
+  // cancelling and restarting an all-conversation scan on every change.
+  const unreadContactsRef = useRef(recentContactsData);
+  unreadContactsRef.current = recentContactsData;
+  const initialMessagesPendingRef = useRef(false);
+  initialMessagesPendingRef.current =
+    messagesLoading || trackedConversationId !== shell.activeConversationId;
+  const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const list = recentContactsData;
-    if (list.length === 0) return undefined;
-    let cancelled = false;
+    let disposed = false;
+    let running = false;
+    let pending = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = (): void => {
+      pending = true;
+      if (disposed || running || timer !== undefined) return;
+      // Fixed window: a busy group cannot continuously postpone the refresh.
+      timer = setTimeout(() => {
+        timer = undefined;
+        void loadUnread();
+      }, 1000);
+    };
 
     async function loadUnread(): Promise<void> {
-      const next: Record<string, number> = {};
+      if (disposed) return;
+      running = true;
+      pending = false;
+      const list = unreadContactsRef.current;
+      const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
-      const batchSize = 12;
-      for (let index = 0; index < list.length && !cancelled; index += batchSize) {
-        const batch = list.slice(index, index + batchSize);
-        const counts = await Promise.all(
-          batch.map(async (contact) => {
-            const kind = chatTypeKind(contact.chatType);
-            if (kind === null) return null;
-            const chatType = kind === 'group' ? 2 : 1;
-            try {
-              const info = await client.account.getUnreadInfo.query({
-                chatType,
-                uid: contact.targetUid,
-              });
-              const latest = BigInt(contact.msgSeq || '0');
-              const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-              const unread = latest > read ? Number(latest - read) : 0;
-              return {
-                uid: contact.targetUid,
-                unread,
-                highlights: (info?.highlights ?? null) as ConversationHighlight[] | null,
-              };
-            } catch {
-              return null;
-            }
-          }),
-        );
-        for (const entry of counts) {
-          if (!entry) continue;
-          next[entry.uid] = entry.unread;
-          if (entry.highlights?.length) highlights[entry.uid] = entry.highlights;
+      const succeeded = new Set<string>();
+      try {
+        const batchSize = 12;
+        for (let index = 0; index < list.length && !disposed; index += batchSize) {
+          // Give opening a conversation priority over background badge reads.
+          while (!disposed && initialMessagesPendingRef.current) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+          }
+          if (disposed) return;
+          await Promise.all(
+            list.slice(index, index + batchSize).map(async (contact) => {
+              const kind = chatTypeKind(contact.chatType);
+              if (kind === null) return;
+              try {
+                const info = await client.account.getUnreadInfo.query({
+                  chatType: kind === 'group' ? 2 : 1,
+                  uid: contact.targetUid,
+                });
+                const latest = BigInt(contact.msgSeq || '0');
+                const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
+                counts[contact.targetUid] = latest > read ? Number(latest - read) : 0;
+                succeeded.add(contact.targetUid);
+                if (info?.highlights?.length) {
+                  highlights[contact.targetUid] = info.highlights as ConversationHighlight[];
+                }
+              } catch {
+                // Preserve the last known value when an individual read fails.
+              }
+            }),
+          );
+          // Yield between batches so IPC and user input can be handled.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
-      }
-      if (!cancelled) {
-        setUnreadByConv(next);
-        setHighlightsByConv(highlights);
+        if (disposed) return;
+        const ids = new Set(list.map((contact) => contact.targetUid));
+        setUnreadByConv((current) => {
+          const next: Record<string, number> = {};
+          for (const id of ids) {
+            const value = succeeded.has(id) ? counts[id] : current[id];
+            if (value !== undefined) next[id] = value;
+          }
+          return Object.keys(next).length === Object.keys(current).length &&
+            Object.keys(next).every((id) => next[id] === current[id])
+            ? current
+            : next;
+        });
+        setHighlightsByConv((current) => {
+          const next: Record<string, ConversationHighlight[]> = {};
+          for (const id of ids) {
+            const value = succeeded.has(id) ? highlights[id] : current[id];
+            if (value?.length) next[id] = value;
+          }
+          return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+        });
+      } finally {
+        running = false;
+        if (pending && !disposed) schedule();
       }
     }
 
-    void loadUnread();
+    requestUnreadRefreshRef.current = schedule;
+    schedule();
     return () => {
-      cancelled = true;
+      disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      requestUnreadRefreshRef.current = null;
     };
-  }, [recentContactsData]);
+  }, []);
+  useEffect(() => {
+    requestUnreadRefreshRef.current?.();
+  }, [recentContactsData, unreadRevision]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render
@@ -3917,36 +4390,46 @@ export function MainView(): ReactElement {
     pendingScrollRestoreRef.current = null;
   }
 
+  const [groupExtrasId, setGroupExtrasId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isGroup || !selectedUid || messagesLoading) return undefined;
+    const timer = setTimeout(() => setGroupExtrasId(selectedUid), 250);
+    return () => clearTimeout(timer);
+  }, [selectedUid, isGroup, messagesLoading]);
+  const groupExtrasReady = Boolean(
+    isGroup && selectedUid && !messagesLoading && groupExtrasId === selectedUid,
+  );
+
   const groupDetail = trpc.account.getGroupDetail.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   // 打开群聊时把该群全部精华 msgSeq 拉下来（只查本地 group_essence 表，不联网），
   // 供聊天窗口给对应消息打「精华」角标。
   const groupEssenceSeqs = trpc.account.listGroupEssenceSeqs.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup), staleTime: 5 * 60 * 1000 },
+    { enabled: groupExtrasReady, staleTime: 5 * 60 * 1000 },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
   const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
     { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
-    { enabled: Boolean(selectedUid && isGroup), retry: false, staleTime: 5 * 60 * 1000 },
+    { enabled: groupExtrasReady, retry: false, staleTime: 5 * 60 * 1000 },
   );
   const groupLevelInfo = trpc.account.getGroupMemberLevelInfo.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   const groupExt = trpc.account.getGroupExt.useQuery(
     { groupCode: selectedUid },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: groupExtrasReady },
   );
   // 「已退群成员」：与群公告 / 群精华同一层 —— 灯箱打开时才查本地 group_member3
   // （64016=1），一次拉一页就够，不碰协议。
@@ -3965,11 +4448,16 @@ export function MainView(): ReactElement {
         }>
       ).map((member) => ({
         id: member.uid,
-        displayName: member.card || member.nick || member.uin || 'Member',
+        displayName: displayGroupMemberName(
+          member.card,
+          profileByUid.get(member.uid)?.remark,
+          member.nick || profileByUid.get(member.uid)?.nick,
+          member.uin || member.uid || 'Member',
+        ),
         identity: member.uin && member.uin !== '0' ? member.uin : member.uid,
         avatarUrl: avatarFromUin(member.uin),
       })),
-    [groupLeftMembers.data],
+    [groupLeftMembers.data, profileByUid],
   );
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
@@ -4059,7 +4547,7 @@ export function MainView(): ReactElement {
   ]);
 
   useEffect(() => {
-    if (!selectedUid || !isGroup) return;
+    if (!groupExtrasReady || !selectedUid || !isGroup) return;
     if (
       selectedGroupMemberWires.length > 0 ||
       selectedGroupMembersLoading ||
@@ -4068,6 +4556,7 @@ export function MainView(): ReactElement {
       return;
     requestMoreGroupMembers();
   }, [
+    groupExtrasReady,
     isGroup,
     requestMoreGroupMembers,
     selectedGroupMemberWires.length,
@@ -4084,8 +4573,9 @@ export function MainView(): ReactElement {
         ownerUid: groupDetail.data?.ownerUid,
         levelConfigs: groupLevelInfo.data?.levelConfigs ?? [],
         botUids,
+        profileByUid,
       }),
-    [groupDetail.data, groupLevelInfo.data, botUids],
+    [groupDetail.data, groupLevelInfo.data, botUids, profileByUid],
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.
@@ -4420,6 +4910,56 @@ export function MainView(): ReactElement {
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation]);
 
+  // Server acknowledgement can precede the QQ database write, or its watcher
+  // may be disabled. Re-read a small number of times without resending anything.
+  const pendingSyncKey = [...optimisticMessages, ...optimisticArks, ...optimisticForwards]
+    .filter((item) => item.convId === selectedUid && item.state === 'sent' && !item.seqRejected)
+    .map((item) => item.id)
+    .sort()
+    .join('|');
+  useEffect(() => {
+    if (!pendingSyncKey) return undefined;
+    let cancelled = false;
+    const selection = selectionRef.current;
+    const timers = [0, 1000, 3000, 7000].map((delay) =>
+      setTimeout(() => {
+        void (async () => {
+          await refreshWindow();
+          // One bounded history read after local refreshes have had time to settle.
+          // It only calls the existing read API; it never resends or writes QQ's DB.
+          if (
+            delay !== 7000 ||
+            cancelled ||
+            !selection ||
+            selection.kind !== 'direct' ||
+            selectionRef.current !== selection ||
+            !windowRef.current.anchored
+          )
+            return;
+          const current = loadedRef.current;
+          const sequences = current
+            .map((row) => Number(row.msgSeq))
+            .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
+          if (!sequences.length) return;
+          const last = Math.max(...sequences);
+          const endSeq = Math.min(0xffffffff, last + 10);
+          const result = await client.account.fetchGapMessages.query({
+            kind: 'c2c',
+            conv: selection.id,
+            startSeq: Math.max(1, endSeq - 29),
+            endSeq,
+          });
+          if (cancelled || selectionRef.current !== selection || !result.ok) return;
+          await refreshWindow();
+        })().catch((error: unknown) => console.error('[live] server confirmation failed', error));
+      }, delay),
+    );
+    return () => {
+      cancelled = true;
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [pendingSyncKey, refreshWindow]);
+
   /**
    * 发送失败的乐观条目不要一直挂在会话末尾。
    *
@@ -4659,7 +5199,13 @@ export function MainView(): ReactElement {
           latestSeq,
         });
         if (changed) {
+          setUnreadRevision((revision) => revision + 1);
           setUnreadByConv((current) => ({ ...current, [convId]: 0 }));
+          setHighlightsByConv((current) => {
+            const next = { ...current };
+            delete next[convId];
+            return next;
+          });
           void utils.account.listRecentContacts.invalidate();
         }
       } catch (err) {
@@ -5115,13 +5661,14 @@ export function MainView(): ReactElement {
     const kind = isGroup ? 'group' : 'c2c';
     const conv = selectedUid;
     let cancelled = false;
+    const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     setMessagesLoading(true);
     client.account.listLatest
-      .query({ kind, conv, limit: PAGE_SIZE })
+      .query({ kind, conv, limit })
       .then((page) => {
         if (cancelled) return;
         setLoaded(page.map(toMessageWire).reverse()); // newest-first → ASC
-        setHasOlder(page.length >= PAGE_SIZE);
+        setHasOlder(page.length >= limit);
         setAnchoredToLatest(true);
         setMessagesLoading(false);
 
@@ -6307,7 +6854,57 @@ export function MainView(): ReactElement {
     handleViewRecalled(target);
   }
 
-  return (
+  const openProfileChat = async (target: ProfileChatTarget): Promise<void> => {
+    const accountUin = user.identityValue;
+    let candidate: Conversation;
+    if (target.kind === 'group') candidate = target.conversation;
+    else {
+      let peer = target.user;
+      if (!peer.id && peer.identityLabel === 'QQ') {
+        const profile = await client.account.getProfileByUin.query({ uin: peer.identityValue });
+        if (profile?.uid) peer = { ...peer, id: profile.uid };
+      }
+      if (!peer.id) {
+        pushToast({ tone: 'info', title: '暂时无法确定此人的会话身份' });
+        return;
+      }
+      candidate = {
+        id: peer.id,
+        type: 'direct',
+        otherUser: peer,
+        group: null,
+        members: [],
+        updatedAt: new Date(0).toISOString(),
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: null,
+      };
+    }
+    if (useViewState.getState().openedUin !== accountUin) return;
+    const id = candidate.id;
+    const known =
+      conversations.find((conversation) => conversation.id === id) ??
+      hiddenConversationsById.get(id) ??
+      deletedConversationsById.get(id) ??
+      candidate;
+    const needsAppearance =
+      !recentContactsData.some((contact) => contact.targetUid === id) ||
+      hiddenUidSet.has(id) ||
+      groupAssistantIds.has(id);
+    if (needsAppearance)
+      setTemporaryConversations((current) =>
+        current[id]
+          ? current
+          : {
+              ...current,
+              [id]: { conversation: known, appearedAt: Date.now() },
+            },
+      );
+    setArkFeedState(null);
+    shell.openConversation(id);
+  };
+
+  const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
         <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
@@ -6385,6 +6982,10 @@ export function MainView(): ReactElement {
             onOpenFriendNotices={() => shell.openContactNotice('friend')}
             onOpenGroupNotices={() => shell.openContactNotice('group')}
             onContactTabChange={shell.changeContactTab}
+            onRefreshContacts={() => {
+              void refreshContacts();
+            }}
+            refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
               fullBleedView ? null : (
@@ -6393,13 +6994,22 @@ export function MainView(): ReactElement {
                     user={user}
                     view={shell.view}
                     contactTab={shell.contactTab}
-                    conversations={conversations}
+                    conversations={
+                      shell.view === 'contacts'
+                        ? contactDirectoryConversations
+                        : shell.view === 'messages' && !shell.query.trim()
+                          ? sidebarConversations
+                          : conversations
+                    }
                     activeConversationId={shell.activeConversationId}
                     selectedGroupConversationId={shell.selectedGroupConversationId}
                     selectedContactId={shell.selectedContactId}
                     conversationPrefs={conversationPrefs}
                     drafts={drafts}
                     contacts={buddyContacts}
+                    categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
+                    specialContactSections={specialContactSections}
+                    historicalContactSections={historicalContactSections}
                     loading={sidebarLoading}
                     onLoadMoreConversations={loadMoreContacts}
                     conversationsHasMore={contactsHasMore}
@@ -6419,158 +7029,170 @@ export function MainView(): ReactElement {
               )
             }
             mainContent={
-              arkFeedState ? (
-                <ArkFeedView
-                  conversationId={arkFeedState.conversationId}
-                  title={arkFeedState.title}
-                  onBack={() => {
-                    setArkFeedState(null);
-                  }}
-                  onEditMessage={async (msgId: string) => {
-                    try {
-                      const result = await client.account.getRawElements.query({ msgId });
-                      if (result) {
-                        setEditorState({ msgId, elements: result.elements });
-                      }
-                    } catch (e) {
-                      console.error('[MainView] Failed to fetch raw elements:', e);
-                    }
-                  }}
+              <>
+                <QzoneWorkspace
+                  key={user.identityValue}
+                  active={shell.view === 'qzone' && !arkFeedState}
+                  selfUin={user.identityValue}
+                  nickname={user.displayName}
+                  spaceRequest={qzoneSpaceRequest}
                 />
-              ) : shell.view === 'home' ? (
-                <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-              ) : shell.view === 'export' ? (
-                <ExportView />
-              ) : shell.view === 'agentlab' ? (
-                <AgentLabView />
-              ) : shell.view === 'cache' ? (
-                <CacheView />
-              ) : shell.view === 'qzone' ? (
-                <QzoneView />
-              ) : shell.view === 'channel' ? (
-                <ChannelView />
-              ) : shell.view === 'annual' ? (
-                <AnnualReportView />
-              ) : activeConversation?.type === 'merged' ? (
-                <ArkFeedView
-                  conversationId={activeConversation.id}
-                  title={activeConversation.title}
-                  onBack={shell.backConversation}
-                  onEditMessage={async (msgId: string) => {
-                    try {
-                      const result = await client.account.getRawElements.query({ msgId });
-                      if (result) {
-                        setEditorState({ msgId, elements: result.elements });
+                {arkFeedState ? (
+                  <ArkFeedView
+                    conversationId={arkFeedState.conversationId}
+                    title={arkFeedState.title}
+                    onBack={() => {
+                      setArkFeedState(null);
+                    }}
+                    onEditMessage={async (msgId: string) => {
+                      try {
+                        const result = await client.account.getRawElements.query({ msgId });
+                        if (result) {
+                          setEditorState({ msgId, elements: result.elements });
+                        }
+                      } catch (e) {
+                        console.error('[MainView] Failed to fetch raw elements:', e);
                       }
-                    } catch (e) {
-                      console.error('[MainView] Failed to fetch raw elements:', e);
-                    }
-                  }}
-                />
-              ) : (
-                <div className="weq-template-main-wrap">
-                  <div className="weq-readonly-chat">
-                    <ChatMainContent
-                      user={user}
-                      view={shell.view}
-                      contactTab={shell.contactTab}
-                      relationGraphSlot={<RelationGraphView />}
-                      contactNotice={shell.contactNotice}
-                      contactRequests={contactRequests}
-                      groupRequests={groupRequests}
-                      selectedContact={shell.selectedContact}
-                      selectedGroupConversation={selectedGroupConversationForDetail}
-                      activeConversation={activeConversation}
-                      messages={templateMessages}
-                      messageRenderers={messageRenderers}
-                      loadingMessages={loadingInitialMessages}
-                      atLatest={anchoredToLatest}
-                      conversationPrefs={conversationPrefs}
-                      drafts={drafts}
-                      query={shell.query}
-                      onAcceptContactRequest={noopAsync}
-                      onRejectContactRequest={noopAsync}
-                      onAcceptGroupRequest={noopAsync}
-                      onRejectGroupRequest={noopAsync}
-                      onMessageContact={noopAsync}
-                      onMessageGroup={noopAsync}
-                      onBackContact={shell.backContact}
-                      onBackGroup={shell.backGroup}
-                      onBackContactNotice={shell.backContactNotice}
-                      onUpdateConversationPreference={updateConversationPreference}
-                      onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
-                        undefined
+                    }}
+                  />
+                ) : shell.view === 'home' ? (
+                  <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+                ) : shell.view === 'export' ? (
+                  <ExportView />
+                ) : shell.view === 'agentlab' ? (
+                  <AgentLabView />
+                ) : shell.view === 'cache' ? (
+                  <CacheView />
+                ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
+                  <ChannelView />
+                ) : shell.view === 'annual' ? (
+                  <AnnualReportView />
+                ) : activeConversation?.type === 'merged' ? (
+                  <ArkFeedView
+                    conversationId={activeConversation.id}
+                    title={activeConversation.title}
+                    onBack={shell.backConversation}
+                    onEditMessage={async (msgId: string) => {
+                      try {
+                        const result = await client.account.getRawElements.query({ msgId });
+                        if (result) {
+                          setEditorState({ msgId, elements: result.elements });
+                        }
+                      } catch (e) {
+                        console.error('[MainView] Failed to fetch raw elements:', e);
                       }
-                      onLoadMoreGroupMembers={requestMoreGroupMembers}
-                      groupMembersLoading={selectedGroupMembersLoading}
-                      groupMembersError={selectedGroupMembersError}
-                      groupMemberSearch={memberSearch}
-                      onGroupMemberSearchChange={setMemberSearchKeyword}
-                      onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
-                      profileLoading={groupDetail.isLoading}
-                      sendAvailable={sendAvailable}
-                      onOpenNotificationSettings={noopAsync}
-                      onSend={sendMessage}
-                      onSendWindowShake={sendWindowShake}
-                      onSendArk={sendArkCard}
-                      arkLocation={arkLocation}
-                      arkContacts={arkContacts}
-                      defaultSignupGroupCode={
-                        selectedConversation?.type === 'group'
-                          ? selectedConversation.group.identityValue
-                          : undefined
-                      }
-                      onSendFlash={sendFlashTransfer}
-                      onSendRedPacket={sendRedPacket}
-                      onDraftChange={updateDraft}
-                      onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
-                      onBackConversation={shell.backConversation}
-                      onEditRaw={handleEditRaw}
-                      onDeleteMessage={handleDeleteMessage}
-                      onOpenGroupAlbums={handleOpenGroupAlbums}
-                      onOpenGroupFiles={handleOpenGroupFiles}
-                      onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
-                      onOpenGroupEssence={handleOpenGroupEssence}
-                      onRenameGroupMember={handleRenameGroupMember}
-                      onKickGroupMember={handleKickGroupMember}
-                      onOpenConversationSettings={handleOpenConversationSettings}
-                      onOpenGroupAnalytics={handleOpenGroupAnalytics}
-                      onOpenGroupBug={handleOpenGroupBug}
-                      onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
-                      groupBugOnline={groupBugStatus.data?.online ?? false}
-                      onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
-                      onOpenGroupMember={handleOpenGroupMember}
-                      onAddMessage={handleAddMessage}
-                      onMergeForward={handleMergeForward}
-                      onViewDeleted={handleViewDeleted}
-                      onViewRecalled={handleViewRecalled}
-                      onOpenGapMessages={handleOpenGapMessages}
-                      onSearchChatRecords={handleSearchChatRecords}
-                      onExportConversation={handleExportConversation}
-                      deletedIds={deletedIds}
-                      onRestoreMessage={handleRestoreMessage}
-                      unreadDock={unreadDock}
-                      missingJumpSeq={missingJumpSeq}
+                    }}
+                  />
+                ) : (
+                  <div className="weq-template-main-wrap">
+                    <div className="weq-readonly-chat">
+                      <ChatMainContent
+                        user={user}
+                        view={shell.view}
+                        contactTab={shell.contactTab}
+                        relationGraphSlot={<RelationGraphView />}
+                        contactNotice={shell.contactNotice}
+                        contactRequests={contactRequests}
+                        groupRequests={groupRequests}
+                        selectedContact={shell.selectedContact}
+                        selectedGroupConversation={selectedGroupConversationForDetail}
+                        activeConversation={activeConversation}
+                        messages={templateMessages}
+                        messageRenderers={messageRenderers}
+                        loadingMessages={loadingInitialMessages}
+                        atLatest={anchoredToLatest}
+                        conversationPrefs={conversationPrefs}
+                        drafts={drafts}
+                        query={shell.query}
+                        onAcceptContactRequest={noopAsync}
+                        onRejectContactRequest={noopAsync}
+                        onAcceptGroupRequest={noopAsync}
+                        onRejectGroupRequest={noopAsync}
+                        onMessageContact={noopAsync}
+                        onMessageGroup={noopAsync}
+                        onBackContact={shell.backContact}
+                        onBackGroup={shell.backGroup}
+                        onBackContactNotice={shell.backContactNotice}
+                        onUpdateConversationPreference={updateConversationPreference}
+                        onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
+                          undefined
+                        }
+                        onLoadMoreGroupMembers={requestMoreGroupMembers}
+                        groupMembersLoading={selectedGroupMembersLoading}
+                        groupMembersError={selectedGroupMembersError}
+                        groupMemberSearch={memberSearch}
+                        onGroupMemberSearchChange={setMemberSearchKeyword}
+                        onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
+                        profileLoading={groupDetail.isLoading}
+                        sendAvailable={sendAvailable}
+                        onOpenNotificationSettings={noopAsync}
+                        onSend={sendMessage}
+                        onSendWindowShake={sendWindowShake}
+                        onSendArk={sendArkCard}
+                        arkLocation={arkLocation}
+                        arkContacts={arkContacts}
+                        defaultSignupGroupCode={
+                          selectedConversation?.type === 'group'
+                            ? selectedConversation.group.identityValue
+                            : undefined
+                        }
+                        onSendFlash={sendFlashTransfer}
+                        onSendRedPacket={sendRedPacket}
+                        onDraftChange={updateDraft}
+                        onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
+                        onBackConversation={shell.backConversation}
+                        onEditRaw={handleEditRaw}
+                        onDeleteMessage={handleDeleteMessage}
+                        onOpenGroupAlbums={handleOpenGroupAlbums}
+                        onOpenGroupFiles={handleOpenGroupFiles}
+                        onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                        onOpenGroupEssence={handleOpenGroupEssence}
+                        onRenameGroupMember={handleRenameGroupMember}
+                        onKickGroupMember={handleKickGroupMember}
+                        onOpenConversationSettings={handleOpenConversationSettings}
+                        onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                        onOpenGroupBug={handleOpenGroupBug}
+                        onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
+                        groupBugOnline={groupBugStatus.data?.online ?? false}
+                        onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                        onOpenGroupMember={handleOpenGroupMember}
+                        onAddMessage={handleAddMessage}
+                        onMergeForward={handleMergeForward}
+                        onViewDeleted={handleViewDeleted}
+                        onViewRecalled={handleViewRecalled}
+                        onOpenGapMessages={handleOpenGapMessages}
+                        onSearchChatRecords={handleSearchChatRecords}
+                        onExportConversation={handleExportConversation}
+                        deletedIds={deletedIds}
+                        onRestoreMessage={handleRestoreMessage}
+                        unreadDock={unreadDock}
+                        missingJumpSeq={missingJumpSeq}
+                      />
+                    </div>
+                    <OverlayScrollbar
+                      targetSelector=".weq-readonly-chat .message-scroll"
+                      className="weq-message-scrollbar"
+                      refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
+                    />
+                    <OverlayScrollbar
+                      targetSelector=".weq-readonly-chat .group-info-member-list"
+                      className="weq-group-members-scrollbar"
+                      refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
                     />
                   </div>
-                  <OverlayScrollbar
-                    targetSelector=".weq-readonly-chat .message-scroll"
-                    className="weq-message-scrollbar"
-                    refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
-                  />
-                  <OverlayScrollbar
-                    targetSelector=".weq-readonly-chat .group-info-member-list"
-                    className="weq-group-members-scrollbar"
-                    refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
-                  />
-                </div>
-              )
+                )}
+              </>
             }
           >
             {mergedPanel && (
               <MergedSessionPanel
                 kind={mergedPanel.kind}
                 conversations={conversations}
+                groupAssistantIds={groupAssistantIds}
+                groupAssistantLoading={contacts.isFetching}
+                groupAssistantHasMore={Boolean(contacts.hasNextPage)}
+                onLoadMoreGroupAssistant={loadMoreContacts}
+                groupAssistantError={contacts.error?.message}
                 profileByUid={profileByUid}
                 groupNameByCode={groupNameByCode}
                 anchorX={mergedPanel.anchorX}
@@ -6589,6 +7211,8 @@ export function MainView(): ReactElement {
                     });
                     // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
                     shell.backConversation();
+                  } else if (mergedPanel.kind === 'groupAssistant') {
+                    handleSelectConversation(conv.id);
                   } else {
                     // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
                     setArkFeedState(null);
@@ -6821,12 +7445,25 @@ export function MainView(): ReactElement {
               member={memberCard.member}
               anchor={memberCard.anchor}
               groupCode={
-                selectedConversation?.type === 'group' ? selectedConversation.id : undefined
+                !memberCard.fromSpace && selectedConversation?.type === 'group'
+                  ? selectedConversation.id
+                  : undefined
               }
               groupName={
-                selectedConversation?.type === 'group' ? selectedConversation.group.name : undefined
+                !memberCard.fromSpace && selectedConversation?.type === 'group'
+                  ? selectedConversation.group.name
+                  : undefined
               }
               onClose={() => setMemberCard(null)}
+              onOpenChat={
+                memberCard.fromSpace
+                  ? () => {
+                      void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
+                        pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
+                      );
+                    }
+                  : undefined
+              }
             />
           ) : null}
           {addMessageConv ? (
@@ -6956,5 +7593,57 @@ export function MainView(): ReactElement {
         </ConvContext.Provider>
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
+  );
+  return (
+    <QzoneNavigationContext.Provider
+      value={(uin, nickname) => {
+        if (!/^[1-9]\d{4,19}$/.test(uin)) return;
+        if (shell.view === 'messages') flushAllDirtyDrafts();
+        setArkFeedState(null);
+        setQzoneSpaceRequest({
+          accountUin: user.identityValue,
+          uin,
+          nickname,
+          revision: crypto.randomUUID(),
+        });
+        shell.switchView('qzone');
+      }}
+    >
+      <QzoneProfileContext.Provider
+        value={(uin, nickname, anchor) => {
+          const contact = buddyContacts.find((person) => person.identityValue === uin);
+          const profile = [...profileByUid.values()].find((person) => person.uin === uin);
+          const conversation = [
+            ...conversations,
+            ...hiddenConversationsById.values(),
+            ...deletedConversationsById.values(),
+          ].find((conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin);
+          const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
+          setMemberCard({
+            member: contact ??
+              peer ?? {
+                id: profile?.uid || '',
+                identityLabel: 'QQ',
+                identityValue: uin,
+                username: profile?.uid || uin,
+                displayName: profile?.nick || nickname || uin,
+                avatarUrl: senderAvatarSrc(uin) || null,
+              },
+            anchor,
+            fromSpace: true,
+          });
+        }}
+      >
+        <ChatNavigationContext.Provider
+          value={(target) => {
+            void openProfileChat(target).catch(() =>
+              pushToast({ tone: 'info', title: '暂时无法打开会话，请稍后重试' }),
+            );
+          }}
+        >
+          {chatContent}
+        </ChatNavigationContext.Provider>
+      </QzoneProfileContext.Provider>
+    </QzoneNavigationContext.Provider>
   );
 }

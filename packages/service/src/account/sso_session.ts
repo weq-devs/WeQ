@@ -12,10 +12,12 @@
  * 本体维持（见 `sso/client.rs` 的模块注释）。
  */
 
-import type { NtHelperBinding, SessionMaterial } from '@weq/native';
+import { statSync } from 'node:fs';
+import type { AppidInfo, NtHelperBinding, SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getLogger } from '../common/logger';
+import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 
 /**
  * 兜底 `subAppId`：**仅**在 `major.node` 读不出 appid 时用。
@@ -89,6 +91,80 @@ export interface SsoIdentity {
   clientVersion?: string;
 }
 
+export interface SsoClientSnapshot {
+  pid: number;
+  identity: SsoIdentity & { subAppId: number };
+  majorPath: string | null;
+  wrapperPath: string | null;
+}
+
+// Ephemeral file generations only; no database, credentials or persistent disk identity.
+const clientMetadata = new WeakMap<object, Map<string, { stamp: string; info: AppidInfo }>>();
+function moduleStamp(path: string | null): string | null {
+  if (!path) return null;
+  try {
+    const stat = statSync(path, { bigint: true });
+    return stat.isFile()
+      ? [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':')
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve all registration fields from one observed running-client metadata read. */
+export function resolveSsoClientSnapshot(
+  nt: Pick<NtHelperBinding, 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  pid: number,
+  identity: SsoIdentity,
+): SsoClientSnapshot {
+  const majorPath = platform.qqMajorNodePath(pid);
+  const wrapperPath = platform.qqWrapperNodePath(pid);
+  let info: AppidInfo | undefined;
+  if (identity.subAppId === undefined || !identity.clientVersion) {
+    if (!majorPath && identity.subAppId === undefined)
+      throw new Error('运行中 QQ 的 major.node 不可用，无法确认 App ID。');
+    if (majorPath) {
+      try {
+        const key = JSON.stringify([pid, majorPath, wrapperPath]);
+        const before = moduleStamp(majorPath);
+        const cached = clientMetadata.get(nt)?.get(key);
+        if (before && cached?.stamp === before) info = cached.info;
+        else {
+          info = nt.resolveAppidFromMajor(majorPath);
+          const after = moduleStamp(majorPath);
+          if (before !== after) throw new Error('QQ 模块在读取期间发生变化，请稍后重试。');
+          if (after) {
+            let entries = clientMetadata.get(nt);
+            if (!entries) {
+              entries = new Map();
+              clientMetadata.set(nt, entries);
+            }
+            if (entries.size >= 64) entries.clear();
+            entries.set(key, { stamp: after, info: { ...info } });
+          }
+        }
+      } catch (error) {
+        info = undefined;
+        if (identity.subAppId === undefined) throw error;
+      }
+    }
+  }
+  const subAppId = identity.subAppId ?? Number(info?.appid);
+  if (!Number.isSafeInteger(subAppId) || subAppId <= 0 || subAppId > 0xffff_ffff)
+    throw new Error('SSO App ID 无效。');
+  const clientVersion =
+    identity.clientVersion ||
+    (info?.version && info.build ? `${info.version}-${info.build}` : undefined);
+  return {
+    pid,
+    identity: { ...identity, subAppId, ...(clientVersion ? { clientVersion } : {}) },
+    majorPath,
+    wrapperPath,
+  };
+}
+
 const logger = getLogger().child({ scope: 'sso-session' });
 
 /**
@@ -137,13 +213,39 @@ function materialToBuffers(
  * 返回 `false` —— 缺 uid 服务端会以 `-10003` 拒绝，缺 guid 更是不认这台设备，
  * 与其发一包必失败的请求，不如让调用方拿到明确的「物料不齐」。
  */
-export async function registerSsoSession(
+export function registerSsoSession(
   nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
   platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
   pid: number,
   identity: SsoIdentity,
   material: SessionMaterial,
   isCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  return queueSsoWork(nt, pid, async () => {
+    const registered = await registerSsoSessionInTurn(
+      nt,
+      platform,
+      pid,
+      identity,
+      material,
+      isCurrent,
+    );
+    // A successful non-monitor registration replaces the previous lease too.
+    // Old monitors must neither reuse its fingerprint nor clear its session.
+    if (registered) ssoWorkState(nt, pid).owner = {};
+    return registered;
+  });
+}
+
+/** Internal: caller must already hold queueSsoWork through registration and ownership publication. */
+export async function registerSsoSessionInTurn(
+  nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  pid: number,
+  identity: SsoIdentity,
+  material: SessionMaterial,
+  isCurrent: () => boolean = () => true,
+  snapshot?: SsoClientSnapshot,
 ): Promise<boolean> {
   const buffers = materialToBuffers(material);
   if (!buffers || !identity.uid || !identity.guid) {
@@ -161,23 +263,15 @@ export async function registerSsoSession(
 
   try {
     if (!isCurrent()) return false;
-    // subAppId 必须等于运行中 QQ 构建的 appid，否则服务端一律回 -10003。
-    // 调用方若显式给了就用它（仅测试 / 特殊场景），否则动态解析。
-    const subAppId = identity.subAppId ?? resolveSubAppId(nt, platform, pid);
-    if (!Number.isSafeInteger(subAppId) || subAppId <= 0 || subAppId > 0xffff_ffff)
-      throw new Error('SSO App ID 无效。');
-    let clientVersion = identity.clientVersion;
-    if (!clientVersion) {
-      const majorPath = platform.qqMajorNodePath(pid);
-      if (majorPath) {
-        try {
-          const info = nt.resolveAppidFromMajor(majorPath);
-          if (info.version && info.build) clientVersion = `${info.version}-${info.build}`;
-        } catch {
-          // Preserve compatibility when version metadata is unavailable.
-        }
-      }
-    }
+    const client = snapshot ?? resolveSsoClientSnapshot(nt, platform, pid, identity);
+    if (
+      client.pid !== pid ||
+      client.identity.uin !== identity.uin ||
+      client.identity.uid !== identity.uid ||
+      client.identity.guid !== identity.guid
+    )
+      throw new Error('SSO 客户端快照与账号会话不匹配。');
+    const { subAppId, clientVersion } = client.identity;
 
     if (!isCurrent()) return false;
     await nt.setSsoSession(
@@ -192,7 +286,7 @@ export async function registerSsoSession(
         subAppId,
         ...(clientVersion ? { clientVersion } : {}),
       },
-      platform.qqWrapperNodePath(pid),
+      client.wrapperPath,
     );
     logger.info('stored session material for the native sso transport', {
       event: 'set-sso-session',

@@ -41,10 +41,15 @@ import {
   collectQzoneInteractions,
   fetchQzoneLikes,
   fetchQzoneLikesResult,
+  fetchQzoneFeedCounts,
   type QzoneInteraction,
   type QzoneInteractionTarget,
   type QzoneLike,
 } from './qzone_interaction';
+import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
+import { fetchQzoneForwardPage } from './qzone_forwards';
+import { fetchQzoneNicknames } from './qzone_people';
+import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -56,6 +61,7 @@ const TI_DOMAIN = 'ti.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
+  private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
   constructor(nt: WebNative, session: AccountSession, resolvePid: () => number) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
@@ -63,6 +69,10 @@ export class WebQueryService {
 
   async getGroupNotice(groupCode: string): Promise<GroupNotice[]> {
     return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupNotice(c, groupCode));
+  }
+
+  async getSpecialCare() {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getSpecialCare(cred));
   }
 
   async getGroupEssence(
@@ -130,15 +140,16 @@ export class WebQueryService {
     );
   }
 
-  /** 好友动态(首页可靠;深翻页待游标分页)。`selfUin` 省略默认为本账号。 */
+  /** Friend-feed pages use the previous response's continuation. */
   async getQzoneFeeds(
     selfUin?: string,
     pageNum = 1,
     count = 10,
     signal?: AbortSignal,
+    cursor?: string,
   ): Promise<QzoneFeedsResult> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal),
+      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor),
     );
   }
 
@@ -150,11 +161,39 @@ export class WebQueryService {
     targetUin: string,
     targets: QzoneInteractionTarget[],
     signal?: AbortSignal,
-    captureRaw?: (text: string) => Promise<void>,
+    captureRaw?: (text: string, kind?: 'feeds' | 'comments', tid?: string) => Promise<void>,
   ): Promise<Map<string, QzoneInteraction>> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      collectQzoneInteractions(c, targetUin, targets, captureRaw, signal),
-    );
+    return withRetry(this.creds, QZONE_DOMAIN, async (c) => {
+      let legacy: Map<string, QzoneInteraction>;
+      try {
+        legacy = await collectQzoneInteractions(c, targetUin, targets, captureRaw, signal);
+      } catch (error) {
+        signal?.throwIfAborted();
+        const classified = error as { kind?: string; name?: string };
+        if (
+          classified.kind === 'rate-limit' ||
+          classified.kind === 'authentication' ||
+          classified.name === 'WebAuthError'
+        )
+          throw error;
+        legacy = new Map(
+          targets.map((target) => [
+            target.tid,
+            {
+              comments: [],
+              likes: [],
+              coverage: 'unobserved' as const,
+              fieldCoverage: {
+                comments: 'failed' as const,
+                replies: 'failed' as const,
+                likes: 'failed' as const,
+              },
+            },
+          ]),
+        );
+      }
+      return supplementQzoneComments(c, targetUin, targets, legacy, captureRaw, signal);
+    });
   }
 
   /**
@@ -169,6 +208,67 @@ export class WebQueryService {
   ) {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       fetchQzoneLikesResult(c, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  async getQzoneFeedCounts(key: string, appid: 4 | 311, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzoneFeedCounts(cred, key, appid, signal),
+    );
+  }
+
+  async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzoneForwardPage(cred, targetUin, tid, offset, signal),
+    );
+  }
+
+  /** Batch public nicknames; these are not friend remarks. */
+  async getQzoneNicknames(
+    uins: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<Record<string, string>> {
+    const names: Record<string, string> = {};
+    const missing: string[] = [];
+    const now = Date.now();
+    for (const uin of new Set(uins)) {
+      const cached = this.qzoneNameCache.get(uin);
+      if (cached && now - cached.at < 5 * 60 * 1000) names[uin] = cached.name;
+      else missing.push(uin);
+    }
+    for (let offset = 0; offset < missing.length; offset += 40) {
+      signal?.throwIfAborted();
+      let loaded: Record<string, string>;
+      try {
+        loaded = await withRetry(this.creds, QZONE_DOMAIN, (c) =>
+          fetchQzoneNicknames(c, missing.slice(offset, offset + 40), signal),
+        );
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!Object.keys(names).length) throw error;
+        break; // Preserve names already read if a later batch fails.
+      }
+      for (const [uin, name] of Object.entries(loaded)) {
+        this.qzoneNameCache.set(uin, { name, at: now });
+        names[uin] = name;
+      }
+    }
+    while (this.qzoneNameCache.size > 2000)
+      this.qzoneNameCache.delete(this.qzoneNameCache.keys().next().value!);
+    return names;
+  }
+
+  /** One summary page supplies the original root-comment total, without fetching every page. */
+  async getQzoneCommentCount(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+  ): Promise<number | null> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      async (c) =>
+        (await readQzoneComments(c, targetUin, tid, { maxPages: 1, signal })).reportedTotal,
     );
   }
 

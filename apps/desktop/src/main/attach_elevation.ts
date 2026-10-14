@@ -162,10 +162,12 @@ interface WorkerOutput {
  * inputs travel as argv (sudo 不重置环境，`env` 只是把 electron-as-node 需要
  * 的变量显式补回去).
  */
+class SudoPasswordRequired extends Error {}
+
 async function sudoAttach(
   pid: number,
   uin: string,
-  password: string,
+  password: string | null,
   signal?: AbortSignal,
 ): Promise<SessionMaterial> {
   const workerPath = resolveWorkerPath();
@@ -174,7 +176,7 @@ async function sudoAttach(
   const result = await runOwnedChild(
     resolveSudoPath(),
     [
-      '-S',
+      password === null ? '-n' : '-S',
       '-p',
       '',
       '/usr/bin/env',
@@ -185,7 +187,11 @@ async function sudoAttach(
       uin,
       ntHelperPath,
     ],
-    { input: `${password}\n`, signal },
+    {
+      ...(password === null ? {} : { input: `${password}\n` }),
+      signal,
+      env: { ...process.env, LC_ALL: 'C' },
+    },
   );
   let parsed: WorkerOutput | null = null;
   for (const raw of [result.stderr.trim(), result.stdout.trim()]) {
@@ -200,6 +206,14 @@ async function sudoAttach(
     }
   }
   if (result.code === 0 && parsed?.ok && parsed.material) return parsed.material;
+  if (
+    password === null &&
+    !parsed &&
+    result.code === 1 &&
+    /a password is required|a terminal is required|authentication is required/i.test(result.stderr)
+  ) {
+    throw new SudoPasswordRequired('系统需要管理员认证。');
+  }
   // stdout may contain partial credentials; never use it as a diagnostic.
   const detail = parsed?.error || `读取 worker 退出码 ${result.code}`;
   throw new Error(`提权读取 QQ 内存失败：${linuxSudoErrorHint(detail)}`);
@@ -380,6 +394,20 @@ export function createLinuxAttachHook(
   ): Promise<SessionMaterial> {
     signal?.throwIfAborted();
     let password: string | null = provided ?? null;
+    if (!password && !installInvisibleToRoot()) {
+      try {
+        const material = await sudoAttach(pid, uin, null, signal);
+        logger.info('read qq memory with existing system authorization', {
+          event: 'attach-sudo-cached-ok',
+          pid,
+        });
+        return material;
+      } catch (error) {
+        signal?.throwIfAborted();
+        // An SDK, worker or policy failure cannot be fixed by another password.
+        if (!(error instanceof SudoPasswordRequired)) throw error;
+      }
+    }
     if (!password) {
       // Check the packaged helper before asking the user for a password.
       if (!installInvisibleToRoot()) resolveWorkerPath();

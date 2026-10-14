@@ -158,8 +158,11 @@ export function QqWallet({
   const isPassword = fine === 6 || (!fineKnown && coarse === 2);
   const bagImage = isPassword ? 'password_bag.png' : 'normal_bag.png';
   const label = fineKnown ? REDBAG_LABEL[fine] : undefined;
+  // 用了自定义皮肤封面（skinId 有效且图没挂）时，祝福语落到封面底部的红包红带上 ——
+  // 皮肤封面中部花样/配色千差万别，米黄字压在中间常被浅色图案吞掉看不清。
+  const usingSkinCover = Boolean(skinIdStr) && !skinBroken;
   const coverSrc =
-    skinIdStr && !skinBroken ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage);
+    usingSkinCover && skinIdStr ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage);
 
   /**
    * 点红包卡片 → 先看在线注入状态（与发消息按钮同条件），有则开领取明细灯箱。
@@ -194,7 +197,7 @@ export function QqWallet({
 
   return (
     <div
-      className={`weq-redbag-card${isDesignated ? ' weq-redbag-card--designated' : ''}${canOpenDetail ? ' is-clickable' : ''}`}
+      className={`weq-redbag-card${isDesignated ? ' weq-redbag-card--designated' : ''}${usingSkinCover ? ' weq-redbag-card--skin' : ''}${canOpenDetail ? ' is-clickable' : ''}`}
       title={canOpenDetail ? '查看领取记录' : title || undefined}
       role={canOpenDetail ? 'button' : undefined}
       tabIndex={canOpenDetail ? 0 : undefined}

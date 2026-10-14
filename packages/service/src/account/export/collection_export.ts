@@ -8,7 +8,7 @@
  *
  * 收藏是异构内容（文本 / 链接 / 图片 / 语音 / 视频 / 文件 / 位置 / 图文），这里把
  * 每种 kind 收敛到一套统一列：类型 / 时间 / 来源 / 标题 / 正文 / 链接 / 图片 / 文件
- * / 时长 / 位置 / cid。图片只写 collector-CDN 的 URL（不下载）。
+ * / 时长 / 位置 / cid。缓存附件随导出复制，在线时补已声明的文件/视频原件。
  */
 
 import { writeTable, type Col, type TableFormat } from './table_writer';
@@ -29,6 +29,7 @@ export interface CollectionExportPic {
  */
 export interface CollectionExportRow {
   mediaCoverage?: string;
+  mediaFiles?: string[];
   detailFetchError?: string;
   contentStatus?: 'summary' | 'truncated' | 'cached' | 'complete';
   fullContent?: string;
@@ -93,6 +94,10 @@ export interface CollectionExportDeps {
       }
     >
   >;
+  downloadOriginalFiles?: (
+    cid: string,
+    signal?: AbortSignal,
+  ) => Promise<{ failed: number; attempted?: number; stopRequests?: boolean }>;
   exportCachedMedia?: (
     cid: string,
     directory: string,
@@ -128,12 +133,13 @@ export interface CollectionExportCoverage {
   detailsFailed: number;
   bodies: Record<CollectionBodyCoverage, number>;
   originalsComplete: false;
-  mediaDownloadState: 'not-requested' | 'cached-only';
+  mediaDownloadState: 'not-requested' | 'cached-only' | 'requested';
   /** Opaque detail variants may contain additional, as-yet unparsed media. */
   mediaReferencesComplete: false;
   attachments: Array<{
     cid: string;
     referenceId: string;
+    acquiredFromReferenceId?: string;
     kind: string;
     name: string;
     state: 'downloaded' | 'failed' | 'unavailable' | 'uncovered';
@@ -150,7 +156,7 @@ export interface CollectionExportCoverage {
     detailError?: string;
     body: CollectionBodyCoverage;
     /** URLs alone cannot establish whether a file is original or a thumbnail. */
-    media: 'not-requested' | 'cached-only';
+    media: 'not-requested' | 'cached-only' | 'requested';
     originalQuality: 'unverified';
   }>;
 }
@@ -337,6 +343,11 @@ const COLLECTION_COLS: Array<Col<CollectionExportRow>> = [
     get: (r) => r.mediaCoverage ?? '未下载，原件质量未核验',
   },
   {
+    key: 'mediaFiles',
+    header: '本地附件',
+    get: (r) => r.mediaFiles?.join('\n') ?? '',
+  },
+  {
     key: 'contentStatus',
     header: '内容完整性',
     get: (r) =>
@@ -471,15 +482,34 @@ export async function exportCollections(
   const coverage = summarizeCoverage(rows);
   if (deps.exportCachedMedia) {
     coverage.mediaDownloadState = 'cached-only';
+    let mediaFailures = 0;
+    let canDownload = Boolean(deps.downloadOriginalFiles && (deps.canFetchDetails?.() ?? true));
     for (const [index, row] of rows.entries()) {
       opts.signal?.throwIfAborted();
+      let requested = false;
+      if (canDownload && deps.downloadOriginalFiles) {
+        try {
+          const result = await deps.downloadOriginalFiles(row.cid, opts.signal);
+          requested = result.attempted !== 0 || result.failed > 0;
+          if (result.failed) mediaFailures++;
+          else if (result.attempted !== 0) mediaFailures = 0;
+          if (result.stopRequests) canDownload = false;
+        } catch {
+          opts.signal?.throwIfAborted();
+          requested = true;
+          mediaFailures++;
+        }
+        if (requested) coverage.mediaDownloadState = 'requested';
+        if (mediaFailures >= 3) canDownload = false;
+      }
       const entries = await deps.exportCachedMedia(
         row.cid,
         join(dirname(opts.outputPath), 'media'),
         opts.signal,
       );
-      coverage.items[index]!.media = 'cached-only';
+      coverage.items[index]!.media = requested ? 'requested' : 'cached-only';
       const saved = entries.filter((entry) => entry.file);
+      row.mediaFiles = [...new Set(saved.map((entry) => `media/${entry.file}`))];
       const originals = saved.filter((entry) => entry.receipt?.role === 'original').length;
       const previews = saved.filter((entry) => entry.receipt?.role === 'preview').length;
       row.mediaCoverage = entries.length
@@ -489,6 +519,9 @@ export async function exportCollections(
         coverage.attachments.push({
           cid: row.cid,
           referenceId: entry.reference.id,
+          ...(entry.receipt?.acquiredFromReferenceId
+            ? { acquiredFromReferenceId: entry.receipt.acquiredFromReferenceId }
+            : {}),
           kind: entry.reference.kind,
           name: entry.reference.name,
           state: entry.receipt?.state ?? 'uncovered',

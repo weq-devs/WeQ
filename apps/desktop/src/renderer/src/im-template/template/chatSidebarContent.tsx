@@ -4,6 +4,7 @@ import { ToolsPane } from './toolsPane';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
+  ContactSection,
   ContactTab,
   Conversation,
   ConversationDrafts,
@@ -24,6 +25,9 @@ export function ChatSidebarContent({
   view,
   contactTab,
   conversations,
+  categoryDefinitions = [],
+  specialContactSections = [],
+  historicalContactSections = [],
   activeConversationId,
   selectedGroupConversationId,
   selectedContactId,
@@ -46,6 +50,9 @@ export function ChatSidebarContent({
   view: MainView;
   contactTab: ContactTab;
   conversations: Conversation[];
+  categoryDefinitions?: { id: number; name: string; buddyCount: number; sortOrder?: number }[];
+  specialContactSections?: ContactSection[];
+  historicalContactSections?: ContactSection[];
   activeConversationId: string | null;
   selectedGroupConversationId: string | null;
   selectedContactId: string | null;
@@ -97,6 +104,9 @@ export function ChatSidebarContent({
       return (
         <ContactList
           contacts={contacts}
+          categoryDefinitions={categoryDefinitions}
+          specialSections={specialContactSections}
+          trailingSections={historicalContactSections}
           activeContactId={selectedContactId}
           loading={loading}
           onSelect={onSelectContact}

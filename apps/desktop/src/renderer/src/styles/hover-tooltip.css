@@ -1,0 +1,19 @@
+.weq-hover-tooltip {
+  position: fixed;
+  z-index: 2147483000;
+  pointer-events: none;
+  max-width: min(420px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  padding: 5px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 5px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-primary);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

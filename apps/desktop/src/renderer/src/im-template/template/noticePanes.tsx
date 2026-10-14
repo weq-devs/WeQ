@@ -71,29 +71,60 @@ export function ContactNoticeDialog({
               icon={<Bell />}
             />
           ) : (
-            requests.map((request) => (
-              <article className={cn('notice-card')} key={request.id}>
-                <Avatar
-                  name={displayUserName(request.user)}
-                  avatarUrl={request.user.avatarUrl}
-                  seed={request.user.identityValue}
-                />
-                <div className={cn('notice-copy')}>
-                  <p>
-                    <span>{displayUserName(request.user)}</span>
-                    {request.direction === 'incoming' ? ' 请求加为好友 ' : ' 正在验证你的邀请 '}
+            requests.map((request) => {
+              const who = displayUserName(request.user);
+              const badge = FRIEND_STATE_LABEL[request.status];
+              const fields = splitNoticeMessage(request.message || '请求添加对方为好友');
+              return (
+                <article
+                  className={cn('notice-card', 'notice-card-request', badge?.tone)}
+                  key={request.id}
+                >
+                  <Avatar
+                    name={who}
+                    avatarUrl={request.user.avatarUrl}
+                    seed={request.user.identityValue}
+                  />
+                  <div className="notice-copy">
+                    <p className="notice-line-head">
+                      <span className="notice-who" title={who}>
+                        {who}
+                      </span>
+                      <span className="notice-action-text">
+                        {request.direction === 'incoming' ? '请求加为好友' : '正在验证你的邀请'}
+                      </span>
+                    </p>
+                    <dl className="notice-fields">
+                      {fields.map((field) => (
+                        <div className="notice-field" key={`${field.label ?? ''}${field.value}`}>
+                          <dt>{field.label || '留言'}</dt>
+                          <dd title={field.value}>{field.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                  <div className="notice-meta">
+                    {badge ? (
+                      <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
+                    ) : null}
                     <time>{formatProfileDate(request.createdAt)}</time>
-                  </p>
-                  <strong>留言：{request.message || '请求添加对方为好友'}</strong>
-                </div>
-              </article>
-            ))
+                  </div>
+                </article>
+              );
+            })
           )}
         </div>
       </section>
     </div>
   );
 }
+
+const FRIEND_STATE_LABEL: Record<ContactRequest['status'], { text: string; tone: string }> = {
+  pending: { text: '待处理', tone: 'is-pending' },
+  accepted: { text: '已同意', tone: 'is-agreed' },
+  rejected: { text: '已拒绝', tone: 'is-refused' },
+  cancelled: { text: '已取消', tone: 'is-refused' },
+};
 
 /** 61003 处理状态 → 徽标文案 + 配色修饰类。配色全部走主题色，只用填充/描边区分。 */
 const HANDLE_STATE_LABEL: Record<
@@ -179,7 +210,7 @@ export function GroupNoticeDialog({
               const fields = request.message ? splitNoticeMessage(request.message) : [];
               return (
                 <article
-                  className={cn('notice-card', 'notice-card-group', badge?.tone)}
+                  className={cn('notice-card', 'notice-card-request', badge?.tone)}
                   key={request.id}
                 >
                   <Avatar

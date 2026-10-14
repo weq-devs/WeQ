@@ -448,6 +448,10 @@ export class GroupInfoService {
   /**
    * List all groups with detailed metadata.
    */
+  async listGroupDirectory() {
+    return this.session.groupDetail.listDirectory();
+  }
+
   async listAllGroups(limit = 100, offset = 0): Promise<GroupDetail[]> {
     return this.session.groupDetail.listAll(limit, offset);
   }

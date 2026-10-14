@@ -90,9 +90,10 @@ export class ProfileService {
    * profile rows, and the renderer wants this set on every member / contact /
    * conversation render to draw the bot badge. New bots only appear once QQ
    * itself writes a new profile row, so a stale set at worst misses a badge
-   * until the next launch.
+   * until the next launch or an explicit contact-list refresh.
    */
-  async botUids(): Promise<Set<string>> {
+  async botUids(refresh = false): Promise<Set<string>> {
+    if (refresh) this.botUidsCache = null;
     this.botUidsCache ??= this.session.profileInfo.botUids();
     return this.botUidsCache;
   }

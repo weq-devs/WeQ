@@ -148,6 +148,7 @@ export interface CategoryWire {
   id: number;
   name: string;
   buddyCount: number;
+  sortOrder?: number;
 }
 
 export interface BuddyRequestWire {
@@ -302,6 +303,8 @@ export interface RecentContactWire {
   /** Peer QQ uin for c2c (string); "0" when absent (e.g. groups/guilds). */
   targetUin: string;
   sendTime: string;
+  topTime: string;
+  pinned: boolean;
   /** Sanitized preview element (carries `displayText`), or null. */
   preview: unknown | null;
   senderDisplayName: string;
@@ -511,6 +514,8 @@ export function recentContactToWire(c: RecentContact): RecentContactWire {
     targetUid: c.targetUid,
     targetUin: c.targetUin.toString(),
     sendTime: c.sendTime.toString(),
+    topTime: c.topTime.toString(),
+    pinned: c.pinned,
     preview: c.preview ? sanitize(c.preview) : null,
     senderDisplayName: c.senderDisplayName,
     senderNick: c.senderNick,
@@ -715,6 +720,7 @@ export function categoryToWire(c: Category): CategoryWire {
     id: c.id,
     name: c.name,
     buddyCount: c.buddyCount,
+    sortOrder: c.sortOrder,
   };
 }
 

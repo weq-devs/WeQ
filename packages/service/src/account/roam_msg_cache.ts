@@ -50,12 +50,16 @@ function toBigIntSafe(value: string | undefined, fallback = 0n): bigint {
 function rowToMessage(row: SqlRow): GapFetchedMessage {
   // The SELECT below returns kind, conv first; they are read via row[0]/row[1],
   // so the destructure must skip those two columns.
-  const [, , msgId, msgSeq, senderUid, senderUin, sendTime, elements, decoration] = row;
+  const [, , msgId, msgSeq, senderUid, senderUin, sendTime, elements, decoration, ntSeqVerified] =
+    row;
   const message: GapFetchedMessage = {
     kind: String(row[0] ?? '') as GapFetchedMessage['kind'],
     conv: String(row[1] ?? ''),
     msgId: String(msgId ?? ''),
     msgSeq: String(msgSeq ?? ''),
+    ...(String(row[0]) === 'c2c'
+      ? { msgRandom: String(msgId ?? ''), ntSeqVerified: Number(ntSeqVerified) === 1 }
+      : {}),
     senderUid: String(senderUid ?? ''),
     senderUin: String(senderUin ?? ''),
     sendTime: String(sendTime ?? ''),
@@ -73,6 +77,7 @@ export class RoamMsgCacheDb {
   readonly dbPath: string;
   private readonly nt: Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>;
   private schemaReady = false;
+  private schemaPending: Promise<void> | undefined;
   /**
    * 写串行化：导出「消息补全」会 5-10 路并发拉窗，每个窗口都 store 一批并
    * `closeDb` 释放写连接——并发写同一库文件会让 closeDb 与在途写竞争。这里把
@@ -94,18 +99,21 @@ export class RoamMsgCacheDb {
     conv: string,
     startSeq: number,
     endSeq: number,
+    verifiedOnly = false,
+    limit = 2000,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     await this.ensureSchema();
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration
+      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
-        ORDER BY msg_seq ASC`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq)],
+          ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
+        ORDER BY msg_seq DESC LIMIT ?`,
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
     );
-    return rows.map(rowToMessage);
+    return rows.map(rowToMessage).reverse();
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
@@ -114,7 +122,7 @@ export class RoamMsgCacheDb {
     await this.ensureSchema();
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration
+      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
          FROM ${TABLE}
         WHERE msg_id = ? LIMIT 1`,
       [msgId],
@@ -133,7 +141,7 @@ export class RoamMsgCacheDb {
       const rowSql: string[] = [];
       const params: SqlValue[] = [];
       for (const message of messages) {
-        rowSql.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        rowSql.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         params.push(
           message.kind,
           message.conv,
@@ -145,12 +153,13 @@ export class RoamMsgCacheDb {
           serializeJson(message.elements),
           message.decoration ? serializeJson(message.decoration) : null,
           fetchedAt,
+          message.ntSeqVerified ? 1 : 0,
         );
       }
       await this.nt.executeSqlWrite(
         this.dbPath,
         `INSERT OR REPLACE INTO ${TABLE}
-           (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at)
+           (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at, nt_seq_verified)
          VALUES ${rowSql.join(', ')}`,
         params,
       );
@@ -180,6 +189,14 @@ export class RoamMsgCacheDb {
 
   private async ensureSchema(): Promise<void> {
     if (this.schemaReady) return;
+    this.schemaPending ??= this.createSchema().catch((error: unknown) => {
+      this.schemaPending = undefined;
+      throw error;
+    });
+    await this.schemaPending;
+  }
+
+  private async createSchema(): Promise<void> {
     if (!existsSync(this.dbPath)) {
       mkdirSync(dirname(this.dbPath), { recursive: true });
       // SQLite 空文件即空库；先落一个空文件再建表。
@@ -198,10 +215,33 @@ export class RoamMsgCacheDb {
         elements TEXT NOT NULL,
         decoration TEXT,
         fetched_at INTEGER NOT NULL,
+        nt_seq_verified INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (kind, conv, msg_seq)
       )`,
       null,
     );
+    const columns = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT name FROM pragma_table_info('${TABLE}') WHERE name = 'nt_seq_verified'`,
+      null,
+    );
+    if (columns.length === 0) {
+      try {
+        await this.nt.executeSqlWrite(
+          this.dbPath,
+          `ALTER TABLE ${TABLE} ADD COLUMN nt_seq_verified INTEGER NOT NULL DEFAULT 0`,
+          null,
+        );
+      } catch (error) {
+        // Another process may have completed the same additive migration.
+        const present = await this.nt.executeSql(
+          this.dbPath,
+          `SELECT name FROM pragma_table_info('${TABLE}') WHERE name = 'nt_seq_verified'`,
+          null,
+        );
+        if (present.length === 0) throw error;
+      }
+    }
     this.schemaReady = true;
   }
 }

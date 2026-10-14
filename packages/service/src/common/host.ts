@@ -23,6 +23,8 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** Decode uploaded image bytes; absent when the host has no image decoder. */
+  validateImageBuffer?(bytes: Uint8Array): Promise<boolean>;
   /** Decode a cached collection image; absent when the host cannot verify images. */
   inspectCollectionImage?(path: string): Promise<{ width: number; height: number } | null>;
   /**

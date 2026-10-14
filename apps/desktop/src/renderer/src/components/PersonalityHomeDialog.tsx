@@ -17,9 +17,9 @@
  *    默认用全身像替换「头像+挂件」，舞台底部的胶囊可一键切回。
  */
 
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, Loader2, MapPin, Sparkles, UserRound, WifiOff, X } from 'lucide-react';
+import { Heart, Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
 import {
@@ -29,6 +29,7 @@ import {
   qqShowUrl,
   resourceUrl,
 } from '../lib/resourceUrl';
+import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { trpc } from '../trpc/client';
 import botCardUrl from '@resources/img/bot.png';
 
@@ -84,6 +85,9 @@ export function PersonalityHomeDialog({
   uid,
   profile,
   isBot = false,
+  spaceNickname,
+  onNavigateAway,
+  onOpenChat,
   onClose,
 }: {
   /** 目标 QQ 号。装扮页只认 uin，拿不到 uin 的联系人不该开这个入口。 */
@@ -93,8 +97,12 @@ export function PersonalityHomeDialog({
   profile: PersonalityHomeProfile;
   /** 机器人没有会员装扮，跳过联网请求，直接用内置名片。 */
   isBot?: boolean;
+  spaceNickname?: string;
+  onNavigateAway?: () => void;
+  onOpenChat?: () => void;
   onClose: () => void;
 }) {
+  const openSpace = useContext(QzoneNavigationContext);
   const dress = trpc.account.dressup.peerHome.useQuery(
     { uin },
     // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
@@ -221,6 +229,23 @@ export function PersonalityHomeDialog({
 
           <h2 className="weq-perhome-name">{profile.name}</h2>
           {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
+          {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
+            <div className="weq-profile-actions">
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onNavigateAway?.();
+                  if (onOpenChat) onOpenChat();
+                  else openSpace(uin, spaceNickname || profile.name);
+                }}
+              >
+                <Star size={13} />
+                {onOpenChat ? '查看私聊' : '查看空间'}
+              </button>
+            </div>
+          ) : null}
 
           {stats.data ? (
             <div className="weq-perhome-stats">

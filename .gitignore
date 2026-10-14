@@ -73,3 +73,5 @@ resources/ninebird-runtime/
 
 # 装扮资源抓取脚本的中间产物（私有）
 /resources/dress/*_resources
+# 红包皮肤元数据由 `pnpm rpskin:fetch` 抓取，是**要入库**的长期数据
+# （resources/redpack/skins.json），所以这里刻意不 ignore。

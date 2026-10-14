@@ -150,7 +150,7 @@ import {
   collectReceivedItems,
   downloadUrlToFile,
 } from '@weq/service';
-import { resolveResource } from '../resource';
+import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
 import {
   openAccount,
@@ -832,6 +832,7 @@ export interface AppContext {
 let cached: AppContext | undefined;
 
 export function initAppContext(): AppContext {
+  configureNativeDressResources();
   if (cached) return cached;
 
   const result = loadNativeSafe();
@@ -1433,6 +1434,14 @@ export function initAppContext(): AppContext {
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              downloadOriginalFiles: (cid, signal) => {
+                if (
+                  userConfig.getSettings().autoAttachQq === false ||
+                  accountConfig.getRecord()?.qqOnline !== true
+                )
+                  throw new Error('离线时不请求收藏附件。');
+                return collectionSvc.downloadOriginalFiles(cid, signal);
+              },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },
@@ -1977,6 +1986,14 @@ export function initAppContext(): AppContext {
               historySummary: () => collectionSvc.collectionHistorySummary(),
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
+              downloadOriginalFiles: (cid, signal) => {
+                if (
+                  userConfig.getSettings().autoAttachQq === false ||
+                  accountConfig.getRecord()?.qqOnline !== true
+                )
+                  throw new Error('离线时不请求收藏附件。');
+                return collectionSvc.downloadOriginalFiles(cid, signal);
+              },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
             },

@@ -24,6 +24,7 @@ export interface ProfileResolver<T> {
    * 跳过，其余按 CHUNK 分块批量查询后回填。重复调用不会产生重复请求。
    */
   resolveProfiles: (uids: Iterable<string>) => void;
+  refreshProfiles: () => Promise<void>;
 }
 
 export function useProfileResolver<T extends { uid: string }>(
@@ -82,5 +83,17 @@ export function useProfileResolver<T extends { uid: string }>(
     [primedMap],
   );
 
-  return { profileByUid, resolveProfiles };
+  const refreshProfiles = useCallback(async (): Promise<void> => {
+    const uids = Object.keys(resolved);
+    for (let i = 0; i < uids.length; i += CHUNK) {
+      const list = await client.account.getProfilesByUids.query({ uids: uids.slice(i, i + CHUNK) });
+      setResolved((previous) => {
+        const next = { ...previous };
+        for (const profile of list as unknown as T[]) next[profile.uid] = profile;
+        return next;
+      });
+    }
+  }, [resolved]);
+
+  return { profileByUid, resolveProfiles, refreshProfiles };
 }

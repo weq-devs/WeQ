@@ -12,6 +12,8 @@
  *   40093  senderNick          (TEXT)
  *   40094  targetDisplayName   (TEXT, conversation name)
  *   40095  senderRemark        (TEXT)
+ *   41103  topTime            (INTEGER, unix seconds; may remain after unpin)
+ *   41104  pinned             (INTEGER, 1 = pinned)
  *   41110  targetAvatar        (TEXT)
  *   41135  targetRemark        (TEXT, conversation remark)
  *   41148  targetGroupNick     (TEXT, peer's group card — temp c2c-from-group rows)
@@ -32,7 +34,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001"`;
+const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
 
 /**
@@ -280,6 +282,8 @@ function rowToRecentContact(row: SqlRow): RecentContact {
     targetGroupNick: toStr(row[13]),
     notifyLevel: toNum(row[14]),
     tempSourceGroupCode: toBigint(row[15]),
+    topTime: toBigint(row[16]),
+    pinned: toNum(row[17]) === 1,
   };
 }
 

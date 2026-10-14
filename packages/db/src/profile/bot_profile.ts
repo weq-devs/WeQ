@@ -2,8 +2,9 @@
  * `profile_info_adelie` — QQ 机器人档案（QQ 内部把机器人叫 "adelie"）。
  *
  * 这张表是**懒填充的缓存**：只有在客户端拉过某个机器人的资料卡后才会有行。
- * 所以它不能当作「这个 uid 是机器人」的判据 —— 那个判据在 `profile_info_v6`
- * 的 21000 列里（见 `ProfileInfoDb.botUids`）。本类只负责把已缓存的档案读出来。
+ * 所以它不能当作「这个 uid 是机器人」的判据 —— 那个判据在 `ProfileInfoDb.botUids`
+ * （`profile_info_v6` 的 21000 botMark + uin 号段兜底）。本类只负责把已缓存的
+ * 档案读出来。
  *
  * Column map（本类读取的部分）：
  *   1000   uid             (TEXT)

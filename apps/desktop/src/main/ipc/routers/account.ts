@@ -50,6 +50,7 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
+import { qzoneRouter } from './qzone';
 import { mutualMarkRouter } from './mutual_mark';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { validateMcpConfig } from '../../mcp/external';
@@ -470,11 +471,50 @@ export interface GroupFileExportResult {
   failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
+/** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
+async function withConfirmedC2cHistory(
+  services: AccountServices,
+  kind: ChatKind,
+  conv: string,
+  rows: ChatMsgWire[],
+  limit: number,
+): Promise<ChatMsgWire[]> {
+  if (kind !== 'c2c' || rows.length === 0) return rows;
+  const sequences = rows
+    .map((row) => Number(row.msgSeq))
+    .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
+  if (!sequences.length) return rows;
+  try {
+    const cached = await services.gapHistory.cachedVerified(
+      'c2c',
+      conv,
+      Math.min(...sequences),
+      Math.min(0xffffffff, Math.max(...sequences) + 30),
+      limit,
+    );
+    const known = new Set(rows.map((row) => `${row.msgSeq}:${row.msgRandom}`));
+    const extra: ChatMsgWire[] = cached
+      .filter((row) => !known.has(`${row.msgSeq}:${row.msgRandom}`))
+      .map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' }));
+    return [...rows, ...extra].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq)).slice(0, limit);
+  } catch {
+    // Cache failure must never prevent reading the original QQ history.
+    return rows;
+  }
+}
+
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
+  const services = requireServices();
+  const msgs = services.msgs;
   return kind === 'group'
     ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+    : withConfirmedC2cHistory(
+        services,
+        kind,
+        conv,
+        (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
+        limit,
+      );
 }
 
 async function fetchBefore(
@@ -507,10 +547,17 @@ async function fetchFrom(
   sinceSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
+  const services = requireServices();
+  const msgs = services.msgs;
   return kind === 'group'
     ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+    : withConfirmedC2cHistory(
+        services,
+        kind,
+        conv,
+        (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
+        limit,
+      );
 }
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
@@ -1104,6 +1151,7 @@ export const accountRouter = router({
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
   dressup: dressupRouter,
+  qzone: qzoneRouter,
   // ---- 好友/群友互动标识（任务 / 惊喜 / 限定 / 幸运字符）----
   mutualMark: mutualMarkRouter,
 
@@ -2215,6 +2263,19 @@ export const accountRouter = router({
     return categories.map(categoryToWire);
   }),
 
+  specialCare: procedure
+    .input(z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) }))
+    .query(async ({ input }) => {
+      const services = requireServices();
+      if (String(getAppContext().account?.context.uin) !== input.selfUin)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      requireOnlineQqForWeb(services);
+      const result = await services.webQuery.getSpecialCare();
+      if (getAppContext().services !== services)
+        throw new Error('账号已切换，请重新读取特别关心。');
+      return result;
+    }),
+
   /** List QQ buddy request notifications. */
   listBuddyRequests: procedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
@@ -2239,9 +2300,11 @@ export const accountRouter = router({
    * The uids of every bot with a cached profile. The renderer fetches this
    * once and uses it to badge bots in member / contact / conversation lists.
    */
-  botUids: procedure.query(async () => {
-    return [...(await requireServices().profile.botUids())];
-  }),
+  botUids: procedure
+    .input(z.object({ refresh: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      return [...(await requireServices().profile.botUids(input?.refresh))];
+    }),
 
   /**
    * A bot's own profile (简介 / 指令列表 / 欢迎语). Null when QQ has never
@@ -2334,8 +2397,16 @@ export const accountRouter = router({
   /** List all groups from group_info.db. */
   listAllGroups: procedure.input(pageInput.optional()).query(async ({ input }) => {
     const page = input ?? { limit: 100, offset: 0 };
-    const groups = await requireServices().groupInfo.listAllGroups(page.limit, page.offset);
-    return groups.map(groupDetailToWire);
+    const service = requireServices().groupInfo;
+    const [groups, directory] = await Promise.all([
+      service.listAllGroups(page.limit, page.offset),
+      service.listGroupDirectory(),
+    ]);
+    const byCode = new Map(directory.map((entry) => [entry.groupCode, entry]));
+    return groups.map((group) => ({
+      ...groupDetailToWire(group),
+      directory: byCode.get(String(group.groupCode)) ?? null,
+    }));
   }),
 
   /** List group announcements. */

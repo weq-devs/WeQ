@@ -221,6 +221,49 @@ describe('collection attachment downloads', () => {
     ).toMatchObject({ state: 'failed', file: null, error: '收藏附件下载超时。' });
   });
 
+  it('closes a response arriving after timeout without publishing its bytes', async () => {
+    const { root, store, ref } = setup();
+    let resolve!: (response: Response) => void;
+    const result = await store.download(ref, {
+      timeoutMs: 5,
+      fetch: () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    });
+    expect(result).toMatchObject({ state: 'failed', file: null });
+    const cancel = vi.fn();
+    resolve(new Response(new ReadableStream({ cancel })));
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(readdirSync(root)).not.toContain('files');
+  });
+
+  it('settles a stalled download even when stream cancellation never settles', async () => {
+    const { root, store, ref } = setup();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const result = await store.download(ref, {
+      timeoutMs: 20,
+      fetch: async () => new Response(new ReadableStream({ cancel })),
+    });
+    expect(result).toMatchObject({ state: 'failed', file: null, error: '收藏附件下载超时。' });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(readdirSync(join(root, 'files'))).toEqual([]);
+  });
+
+  it('returns HTTP failure without waiting indefinitely for an unused body to cancel', async () => {
+    const { store, ref } = setup();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const result = await store.download(ref, {
+      fetch: async () => new Response(new ReadableStream({ cancel }), { status: 403 }),
+    });
+    expect(result).toMatchObject({
+      state: 'failed',
+      file: null,
+      error: '附件下载失败（HTTP 403）。',
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('copies only hash-checked cached bytes into an export and reports damaged originals as failed', async () => {
     const { root, store, ref } = setup();
     const result = await store.download(ref, {
@@ -263,4 +306,189 @@ describe('collection attachment downloads', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(readdirSync(root).some((name) => name.endsWith('.partial'))).toBe(false);
   });
+});
+
+describe('collector stored file/video originals', () => {
+  function stored(kind: 'file' | 'video') {
+    const root = mkdtempSync(join(tmpdir(), 'weq-collection-original-'));
+    roots.push(root);
+    const descriptor = {
+      fid: 'synthetic-fid',
+      src: 3,
+      bid: 236,
+      uid: 10001n,
+      name: kind === 'video' ? 'sample.mp4' : 'sample.txt',
+      size: BigInt(bytes.length),
+      md5: Buffer.from(md5, 'hex'),
+    };
+    const item = {
+      summary:
+        kind === 'video'
+          ? { videoSummary: { storeFileInfo: descriptor } }
+          : { fileSummary: { fileInfo: descriptor } },
+    } as never;
+    const ref = collectionMediaReferences('synthetic-cid', null, item)[0]!;
+    return { root, ref, store: new CollectionMediaStore(root) };
+  }
+  it.each(['file', 'video'] as const)(
+    'resolves and exports a verified %s without persisting its tickets',
+    async (kind) => {
+      const { root, ref, store } = stored(kind);
+      const resolveDownload = vi.fn(async () => ({
+        url: 'https://download.weiyun.com/ftn_handler/synthetic/',
+        cookie: 'downloadkey=synthetic-secret',
+      }));
+      const fetch = vi.fn(async (_url, options) => {
+        expect(options.headers.Cookie).toBe('downloadkey=synthetic-secret');
+        expect(options.redirect).toBe('manual');
+        return response();
+      }) as unknown as typeof globalThis.fetch;
+      const receipt = await store.download(ref, { resolveDownload, fetch });
+      expect(receipt).toMatchObject({
+        state: 'downloaded',
+        role: 'original',
+        md5Matches: true,
+        sizeMatches: true,
+      });
+      expect(JSON.stringify(receipt)).not.toContain('synthetic-secret');
+      expect(JSON.stringify(receipt)).not.toContain('ftn_handler');
+      const path = join(root, 'export');
+      const entry = await store.exportCached(ref, path);
+      expect(entry.file).toMatch(kind === 'video' ? /\.mp4$/ : /\.txt$/);
+      expect(readFileSync(join(path, entry.file!))).toEqual(bytes);
+      await store.download(ref, { resolveDownload, fetch });
+      expect(resolveDownload).toHaveBeenCalledTimes(1);
+    },
+  );
+  it('rejects redirects without following them or storing a successful receipt', async () => {
+    const { ref, store } = stored('file');
+    const fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { Location: 'https://evil.invalid/' } }),
+    ) as unknown as typeof globalThis.fetch;
+    const receipt = await store.download(ref, {
+      resolveDownload: async () => ({
+        url: 'https://download.weiyun.com/file',
+        cookie: 'key=synthetic',
+      }),
+      fetch,
+    });
+    expect(receipt.state).toBe('failed');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(receipt.file).toBeNull();
+  });
+  it('cancels a pending application without making a late media request', async () => {
+    const { ref, store } = stored('file');
+    const controller = new AbortController();
+    let resolve!: (value: { url: string; cookie: string }) => void;
+    const fetch = vi.fn() as unknown as typeof globalThis.fetch;
+    const pending = store.download(ref, {
+      signal: controller.signal,
+      fetch,
+      resolveDownload: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    });
+    while (!resolve) await new Promise((done) => setTimeout(done, 1));
+    controller.abort(new Error('synthetic cancellation'));
+    await expect(pending).rejects.toThrow('synthetic cancellation');
+    resolve({ url: 'https://download.weiyun.com/file', cookie: 'key=synthetic' });
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('collector copy and original-source file identity', () => {
+  it('reuses a verified collector copy for the same record without issuing a source-group request', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-source-alias-'));
+    roots.push(root);
+    const store = new CollectionMediaStore(root);
+    const file = { name: 'sample.txt', size: BigInt(bytes.length), md5: Buffer.from(md5, 'hex') };
+    const [stored, source] = collectionMediaReferences('cid', null, {
+      summary: {
+        fileSummary: {
+          fileInfo: { ...file, fid: 'collector-fid', src: 2, bid: 236 },
+          srcFileInfo: { ...file, fid: 'group-fid', src: 1, bid: 102 },
+        },
+      },
+    } as never);
+    const resolver = vi.fn(async () => ({
+      url: 'https://download.weiyun.com/synthetic',
+      cookie: '',
+    }));
+    const fetch = vi.fn(async () => response()) as unknown as typeof globalThis.fetch;
+    const original = await store.download(stored!, { resolveDownload: resolver, fetch });
+    const alias = await store.download(source!, { resolveDownload: resolver, fetch });
+    expect(alias).toMatchObject({
+      role: 'original',
+      sha256: original.sha256,
+      acquiredFromReferenceId: stored!.id,
+    });
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const reopened = new CollectionMediaStore(root);
+    await reopened.download(stored!);
+    expect(await reopened.download(source!)).toMatchObject({
+      role: 'original',
+      acquiredFromReferenceId: stored!.id,
+    });
+  });
+  it('does not reuse different records or mismatching SHA1 declarations', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-source-boundary-'));
+    roots.push(root);
+    const store = new CollectionMediaStore(root);
+    const file = {
+      name: 'sample.txt',
+      size: BigInt(bytes.length),
+      md5: Buffer.from(md5, 'hex'),
+      fid: 'collector-fid',
+    };
+    const [stored] = collectionMediaReferences('cid', null, {
+      summary: { fileSummary: { fileInfo: file } },
+    } as never);
+    await store.download(stored!, {
+      resolveDownload: async () => ({ url: 'https://download.weiyun.com/synthetic', cookie: '' }),
+      fetch: async () => response(),
+    });
+    for (const [cid, metadata] of [
+      ['other-cid', file],
+      ['cid', { ...file, sha1: new Uint8Array(20) }],
+    ] as const) {
+      const [source] = collectionMediaReferences(cid, null, {
+        summary: {
+          fileSummary: {
+            srcFileInfo: { ...metadata, fid: 'original-source-fid', src: 1, bid: 102 },
+          },
+        },
+      } as never);
+      expect(await store.download(source!)).toMatchObject({
+        state: 'unavailable',
+        role: 'unverified',
+      });
+    }
+  });
+});
+
+it('does not reuse a collector copy whose bytes failed original identity checks', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unverified-source-'));
+  roots.push(root);
+  const store = new CollectionMediaStore(root);
+  const metadata = {
+    fid: 'synthetic-fid',
+    name: 'sample.txt',
+    size: BigInt(bytes.length),
+    md5: Buffer.alloc(16),
+  };
+  const [stored, source] = collectionMediaReferences('cid', null, {
+    summary: {
+      fileSummary: { fileInfo: metadata, srcFileInfo: { ...metadata, fid: 'source-fid' } },
+    },
+  } as never);
+  const receipt = await store.download(stored!, {
+    resolveDownload: async () => ({ url: 'https://download.weiyun.com/synthetic', cookie: '' }),
+    fetch: async () => response(),
+  });
+  expect(receipt.role).toBe('unverified');
+  expect(await store.download(source!)).toMatchObject({ state: 'unavailable', role: 'unverified' });
 });

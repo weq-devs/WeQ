@@ -27,6 +27,7 @@ import {
   CollectorRespBody,
 } from '@weq/codec/proto/collection/index';
 import type { WebCredential } from './credential';
+import { WEB_READ_RETRY, webRequestBytes, WebRequestError } from './http';
 
 const ENDPOINT = 'https://collector.weiyun.com/collector.fcg';
 const HOST = 'collector.weiyun.com';
@@ -118,7 +119,7 @@ export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
   rawResponse: Uint8Array;
 }
 
-function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
+export function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
   const total = 16 + head.length + body.length;
   const out = Buffer.allocUnsafe(total);
   out.set(MAGIC, 0);
@@ -247,6 +248,11 @@ function mapItem(item: WireItem): CollectionItem {
     videoSummary: s.videoSummary
       ? {
           title: s.videoSummary.field1,
+          duration: s.videoSummary.field2,
+          format: s.videoSummary.field3,
+          category: s.videoSummary.field10,
+          previewType: s.videoSummary.field20,
+          storeType: s.videoSummary.field30,
           previewPicInfo: s.videoSummary.picture ? mapPic(s.videoSummary.picture) : undefined,
           storeFileInfo: s.videoSummary.file ? mapFile(s.videoSummary.file) : undefined,
         }
@@ -377,41 +383,24 @@ function mapDetail(content: WireDetail): CollectionCachedContent {
   return detail;
 }
 
-async function defaultTransport(request: CollectionHttpRequest): Promise<Uint8Array> {
-  const res = await fetch(request.url, {
+async function defaultTransport(
+  request: CollectionHttpRequest,
+  timeoutMs: number,
+): Promise<Uint8Array> {
+  const { Cookie, ...headers } = request.headers;
+  return webRequestBytes(request.url, {
     method: 'POST',
-    headers: request.headers,
-    body: Buffer.from(request.body),
+    cookie: Cookie ?? '',
+    headers,
+    body: request.body,
     signal: request.signal,
+    timeoutMs,
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+    retry: WEB_READ_RETRY,
   });
-  if (!res.ok) throw new Error(`collection cgi ${res.status} ${res.statusText}`);
-  const declaredLength = Number(res.headers.get('content-length') ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) {
-    await res.body?.cancel();
-    throw new Error('collection response exceeds size limit');
-  }
-  if (!res.body) throw new Error('collection response body is empty');
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error('collection response exceeds size limit');
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return new Uint8Array(Buffer.concat(chunks, size));
 }
 
-async function postCollector(
+export async function postCollector(
   body: Uint8Array,
   cred: WebCredential,
   opts: Pick<CollectionNetworkOptions, 'transport' | 'signal' | 'timeoutMs'>,
@@ -445,13 +434,22 @@ async function postCollector(
       rejectOnAbort = () => reject(controller.signal.reason);
       controller.signal.addEventListener('abort', rejectOnAbort, { once: true });
     });
-    const response = await Promise.race([(opts.transport ?? defaultTransport)(request), aborted]);
+    const response = await Promise.race([
+      opts.transport ? opts.transport(request) : defaultTransport(request, timeoutMs),
+      aborted,
+    ]);
     controller.signal.throwIfAborted();
     if (response.length > MAX_RESPONSE_BYTES)
       throw new Error('collection response exceeds size limit');
     return response;
   } catch (error) {
-    if (controller.signal.aborted) throw controller.signal.reason;
+    if (controller.signal.aborted) {
+      if (opts.signal?.aborted)
+        throw new WebRequestError('cancelled', '收藏请求已取消。', { cause: opts.signal.reason });
+      throw new WebRequestError('timeout', `collection request timed out after ${timeoutMs}ms`, {
+        cause: error,
+      });
+    }
     throw error;
   } finally {
     clearTimeout(timer);

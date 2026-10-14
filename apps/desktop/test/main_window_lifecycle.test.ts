@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createMainWindowLifecycle } from '../src/main/main_window_lifecycle.ts';
-import { macApplicationMenu } from '../src/main/application_menu.ts';
+import { macApplicationMenu, nativeMenuLabels } from '../src/main/application_menu.ts';
 
 class FakeWindow {
   destroyed = false;
@@ -118,7 +118,7 @@ test('the macOS File menu restores the one main window through the same lifecycl
   });
   assert.deepEqual(
     menu.map((item) => item.role ?? item.label),
-    ['appMenu', '文件', 'editMenu', 'viewMenu', 'windowMenu'],
+    ['appMenu', 'File', 'editMenu', 'viewMenu', 'windowMenu'],
   );
   const file = menu[1]!.submenu;
   assert.ok(Array.isArray(file));
@@ -131,4 +131,16 @@ test('the macOS File menu restores the one main window through the same lifecycl
   assert.equal(created.length, 1);
   assert.equal(created[0]!.visible, true);
   assert.equal(file[2]!.role, 'close');
+});
+
+test('custom native menu labels follow the system language without mixed Chinese in English', () => {
+  assert.deepEqual(nativeMenuLabels('en-US'), {
+    file: 'File',
+    newWindow: 'New Window',
+    showWindow: 'Show Main Window',
+    quit: 'Quit WeQ',
+  });
+  assert.equal(nativeMenuLabels('zh-Hans-CN').file, '文件');
+  assert.equal(nativeMenuLabels('zh_TW').newWindow, '新建窗口');
+  assert.equal(macApplicationMenu(() => {}, 'zh-CN')[1]!.label, '文件');
 });
