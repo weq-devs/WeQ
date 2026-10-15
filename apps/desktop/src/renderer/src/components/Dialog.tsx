@@ -9,8 +9,16 @@
  * resolve their Promise with the user's choice so call sites can `await`.
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
+import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
@@ -137,23 +145,25 @@ export function Modal({
   /** Extra class for the full-screen overlay layer. */
   layerClassName?: string;
 }): ReactElement | null {
-  const layer = useOverlayLayer(true);
+  const tabActive = useTabActive();
+  const layer = useOverlayLayer(tabActive);
 
-  useEffect(() => {
-    if (typeof document === 'undefined' || !onClose) return;
+  useLayoutEffect(() => {
+    if (!tabActive || typeof document === 'undefined' || !onClose) return;
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose?.();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [tabActive, onClose]);
 
   if (typeof document === 'undefined') return null;
 
   return createPortal(
     <div
       className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}`}
-      style={{ zIndex: layer }}
+      hidden={!tabActive}
+      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
       onMouseDown={onClose}
     >
       <div

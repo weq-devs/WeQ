@@ -131,6 +131,7 @@ import {
 } from './composerActions';
 import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
+import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow } from './messageRow';
 import { MessageContextMenu } from './messageContextMenu';
@@ -481,6 +482,7 @@ export function ChatPane({
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
   const jumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
+  const tabActive = useTabActive();
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [composerHeight, setComposerHeight] = useState(() =>
@@ -642,8 +644,8 @@ export function ChatPane({
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
-  useEffect(() => {
-    if (!selectionMode) return undefined;
+  useLayoutEffect(() => {
+    if (!tabActive || !selectionMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setSelectionMode(false);
@@ -652,7 +654,7 @@ export function ChatPane({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selectionMode]);
+  }, [tabActive, selectionMode]);
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -757,6 +759,7 @@ export function ChatPane({
   }, [conversation?.id, loading, visibleMessages]);
 
   useLayoutEffect(() => {
+    if (!tabActive) return;
     const conversationId = conversation?.id ?? null;
     const newestId = visibleMessages[visibleMessages.length - 1]?.id ?? null;
 
@@ -807,21 +810,21 @@ export function ChatPane({
     // Reading history → surface the pill instead of yanking the view down.
     setNewMessagePill((current) => current + appended);
     return;
-  }, [visibleMessages, conversation?.id, loading, atLatest]);
+  }, [tabActive, visibleMessages, conversation?.id, loading, atLatest]);
 
   // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
   // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
   const unreadJumpKey = unreadJump ? `${unreadJump.conversationId}:${unreadJump.total}` : null;
 
   useLayoutEffect(() => {
-    if (!unreadJumpKey) {
+    if (!tabActive || !unreadJumpKey) {
       return;
     }
 
     updateUnreadJumpRemainingRef.current();
     const frame = window.requestAnimationFrame(() => updateUnreadJumpRemainingRef.current());
     return () => window.cancelAnimationFrame(frame);
-  }, [unreadJumpKey, visibleMessages, loading]);
+  }, [tabActive, unreadJumpKey, visibleMessages, loading]);
 
   useEffect(
     () => () => {
@@ -855,7 +858,7 @@ export function ChatPane({
   }, [conversation?.id]);
 
   useEffect(() => {
-    if (!mobileComposerExpanded) {
+    if (!tabActive || !mobileComposerExpanded) {
       return;
     }
 
@@ -868,7 +871,7 @@ export function ChatPane({
     composerSelectionRef.current = null;
     const frame = window.requestAnimationFrame(() => focusComposerEnd(editor));
     return () => window.cancelAnimationFrame(frame);
-  }, [mobileComposerExpanded]);
+  }, [tabActive, mobileComposerExpanded]);
 
   // 只关心「菜单开着 / 关着」和它锚在哪条消息上；重新定位读的是 setContextMenu 的
   // 函数式更新，所以不需要整体依赖 contextMenu（它每次重定位都会变新对象）。
@@ -876,8 +879,8 @@ export function ChatPane({
   const contextMenuVariant = contextMenu?.variant ?? null;
   const contextMenuMessageId = contextMenu?.message.id ?? null;
 
-  useEffect(() => {
-    if (!contextMenuOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !contextMenuOpen) {
       return;
     }
 
@@ -899,12 +902,12 @@ export function ChatPane({
       document.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', closeMenu);
     };
-  }, [contextMenuOpen]);
+  }, [tabActive, contextMenuOpen]);
 
   // 头像菜单同款：点外面 / Esc / 改窗口尺寸就收起。
   const avatarMenuOpen = avatarMenu !== null;
-  useEffect(() => {
-    if (!avatarMenuOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !avatarMenuOpen) {
       return;
     }
     function closeAvatarMenu() {
@@ -923,13 +926,13 @@ export function ChatPane({
       document.removeEventListener('keydown', closeAvatarOnEscape);
       window.removeEventListener('resize', closeAvatarMenu);
     };
-  }, [avatarMenuOpen]);
+  }, [tabActive, avatarMenuOpen]);
 
   // Keep the desktop context menu glued to its message as the list scrolls,
   // instead of floating in place. Dismisses once the message leaves the list
   // viewport. Mobile menus (long-press sheet) keep their fixed placement.
-  useEffect(() => {
-    if (!contextMenuMessageId || contextMenuVariant === 'mobile') {
+  useLayoutEffect(() => {
+    if (!tabActive || !contextMenuMessageId || contextMenuVariant === 'mobile') {
       return;
     }
     const scroll = messageScrollRef.current;
@@ -980,10 +983,10 @@ export function ChatPane({
         window.cancelAnimationFrame(frame);
       }
     };
-  }, [contextMenuMessageId, contextMenuVariant]);
+  }, [tabActive, contextMenuMessageId, contextMenuVariant]);
 
-  useEffect(() => {
-    if (!emojiOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !emojiOpen) {
       return;
     }
 
@@ -1015,10 +1018,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeEmojiFromOutside);
       document.removeEventListener('keydown', closeEmojiOnEscape);
     };
-  }, [emojiOpen]);
+  }, [tabActive, emojiOpen]);
 
-  useEffect(() => {
-    if (!toolsOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !toolsOpen) {
       return;
     }
 
@@ -1050,10 +1053,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeToolsFromOutside);
       document.removeEventListener('keydown', closeToolsOnEscape);
     };
-  }, [toolsOpen]);
+  }, [tabActive, toolsOpen]);
 
-  useEffect(() => {
-    if (!voiceOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !voiceOpen) {
       return;
     }
 
@@ -1079,12 +1082,12 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeVoiceFromOutside);
       document.removeEventListener('keydown', closeVoiceOnEscape);
     };
-  }, [voiceOpen]);
+  }, [tabActive, voiceOpen]);
 
   // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
   // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
-  useEffect(() => {
-    if (!flashOpen) return;
+  useLayoutEffect(() => {
+    if (!tabActive || !flashOpen) return;
 
     function closeFlashFromOutside(event: globalThis.MouseEvent) {
       const target = event.target;
@@ -1114,10 +1117,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeFlashFromOutside);
       document.removeEventListener('keydown', closeFlashOnEscape);
     };
-  }, [flashOpen]);
+  }, [tabActive, flashOpen]);
 
-  useEffect(() => {
-    if (!arkOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !arkOpen) {
       return;
     }
 
@@ -1152,10 +1155,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeLinkFromOutside);
       document.removeEventListener('keydown', closeLinkOnEscape);
     };
-  }, [arkOpen]);
+  }, [tabActive, arkOpen]);
 
-  useEffect(() => {
-    if (!aiVoiceOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !aiVoiceOpen) {
       return;
     }
 
@@ -1187,10 +1190,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeAiVoiceFromOutside);
       document.removeEventListener('keydown', closeAiVoiceOnEscape);
     };
-  }, [aiVoiceOpen]);
+  }, [tabActive, aiVoiceOpen]);
 
-  useEffect(() => {
-    if (!bounceOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !bounceOpen) {
       return;
     }
 
@@ -1223,10 +1226,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeBounceFromOutside);
       document.removeEventListener('keydown', closeBounceOnEscape);
     };
-  }, [bounceOpen]);
+  }, [tabActive, bounceOpen]);
 
-  useEffect(() => {
-    if (!pokeOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !pokeOpen) {
       return;
     }
 
@@ -1259,10 +1262,10 @@ export function ChatPane({
       document.removeEventListener('mousedown', closePokeFromOutside);
       document.removeEventListener('keydown', closePokeOnEscape);
     };
-  }, [pokeOpen]);
+  }, [tabActive, pokeOpen]);
 
-  useEffect(() => {
-    if (!redPacketOpen) {
+  useLayoutEffect(() => {
+    if (!tabActive || !redPacketOpen) {
       return;
     }
 
@@ -1292,7 +1295,7 @@ export function ChatPane({
       document.removeEventListener('mousedown', closeRedPacketFromOutside);
       document.removeEventListener('keydown', closeRedPacketOnEscape);
     };
-  }, [redPacketOpen]);
+  }, [tabActive, redPacketOpen]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
@@ -1334,8 +1337,8 @@ export function ChatPane({
     [releaseInlineImages],
   );
 
-  useEffect(() => {
-    if (!mentionMenu) {
+  useLayoutEffect(() => {
+    if (!tabActive || !mentionMenu) {
       return;
     }
 
@@ -1358,7 +1361,7 @@ export function ChatPane({
     return () => {
       document.removeEventListener('mousedown', closeMentionFromOutside);
     };
-  }, [mentionMenu]);
+  }, [tabActive, mentionMenu]);
 
   function currentComposerEditor() {
     if (mobileComposerExpanded) {

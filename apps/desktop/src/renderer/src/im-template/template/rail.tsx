@@ -189,7 +189,11 @@ export function AppRail({
         />
       ) : null}
       <div className={cn('rail-groups')}>
-        <nav className={cn('rail-nav rail-nav-primary')} aria-label="Primary">
+        <nav
+          className={cn('rail-nav rail-nav-primary')}
+          aria-label="Primary"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <button
             className={cn(railButtonClass(activeView === 'messages'), 'rail-tab rail-tab-messages')}
             onClick={() => selectView('messages')}

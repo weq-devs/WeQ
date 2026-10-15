@@ -174,6 +174,9 @@ export function GraphCanvas({
     function applySize() {
       const rect = wrap.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const previous = sizeRef.current;
+      if (previous.w === rect.width && previous.h === rect.height && previous.dpr === dpr) return;
       sizeRef.current = { w: rect.width, h: rect.height, dpr };
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
       canvas.height = Math.max(1, Math.round(rect.height * dpr));

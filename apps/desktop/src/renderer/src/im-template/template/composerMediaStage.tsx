@@ -9,8 +9,9 @@
  * 图片不走这里 —— 图片像表情一样内联进输入框（见 chatPane 的 insertInlineImage）。
  */
 
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTabActive } from '../../components/RetainedTabs';
 import { FolderOpen, X } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -165,18 +166,25 @@ function AttachmentLightbox({
   attachment: ComposerAttachment;
   onClose: () => void;
 }) {
-  const layer = useOverlayLayer(true);
+  const tabActive = useTabActive();
+  const layer = useOverlayLayer(tabActive);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!tabActive) return undefined;
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [tabActive, onClose]);
 
   return createPortal(
-    <div className={cn('composer-media-lb-layer')} style={{ zIndex: layer }} onMouseDown={onClose}>
+    <div
+      className={cn('composer-media-lb-layer')}
+      hidden={!tabActive}
+      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
+      onMouseDown={onClose}
+    >
       <div className={cn('composer-media-lb')} onMouseDown={(event) => event.stopPropagation()}>
         <header className={cn('composer-media-lb-head')}>
           <span className={cn('composer-media-lb-title')}>
