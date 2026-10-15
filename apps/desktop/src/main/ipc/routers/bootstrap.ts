@@ -1070,6 +1070,22 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  // ---- 加入交流群引导（一次） ----
+
+  /** True once the user confirmed the 「加入交流群」 prompt (立即加群 / 不再提醒都会写)。 */
+  getJoinGroupPromptAcknowledged: procedure.query(() => {
+    return requireBootstrap().userConfig.isJoinGroupPromptAcknowledged();
+  }),
+
+  /**
+   * 确认「加入交流群」引导（persists to config.json）。点「立即加群」与「不再提醒」
+   * 共用这一条 —— 两者都代表「这条引导我看过了」，区别只在弹窗里要不要顺手加群。
+   */
+  acknowledgeJoinGroupPrompt: procedure.mutation(() => {
+    requireBootstrap().userConfig.acknowledgeJoinGroupPrompt();
+    return true;
+  }),
+
   // ---- voice transcription models (设置 → 语音转录) ----
 
   /** The model registry, each entry enriched with on-disk / in-flight state. */

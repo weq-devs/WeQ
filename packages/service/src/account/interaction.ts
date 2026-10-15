@@ -16,6 +16,7 @@ import type { NtHelperBinding } from '@weq/native';
 import {
   detectImageFormat,
   GetEmojiLikes,
+  SendGroupJoinRequest,
   SendGroupSignup,
   SendPoke,
   SetReaction,
@@ -43,6 +44,16 @@ export interface SendPokeParams {
   targetId: string;
   /** 群聊里要被戳的成员 uin；缺省戳群本身。 */
   targetUin?: string;
+}
+
+/** 入群申请（OIDB 0x11ec_1）的入参。 */
+export interface SendGroupJoinRequestServiceParams {
+  /** 目标群号（数字或纯数字字符串）。 */
+  groupCode: string | number;
+  /** 分享码换来的鉴权串（64 字符 base64）。由调用方提供，本服务不生成。 */
+  authKey: string;
+  /** 入群问题的答案；缺省空串。 */
+  answer?: string;
 }
 
 export interface MessageReactionUsersParams {
@@ -154,6 +165,28 @@ export class InteractionService {
       throw error;
     }
     return image ? { image } : {};
+  }
+
+  /**
+   * 发一条**入群申请**（OIDB 0x11ec_1）。
+   *
+   * `authKey` 必须由调用方提供 —— 它是「分享码换来的鉴权串」（见
+   * `@weq/service` 的 `resolveGroupShareAuthKey`），服务端按值校验：有效值直接放行，
+   * 无效 / 全零会降级成短信安全验证（native 侧同样按成功 ack 返回，拿不到那条链接）。
+   *
+   * `answer` 是自动进群问题的答案，缺省空串（照样显式上 wire，与抓包一致）。
+   */
+  async sendGroupJoinRequest(params: SendGroupJoinRequestServiceParams): Promise<void> {
+    const groupCode = Number(params.groupCode);
+    if (!Number.isSafeInteger(groupCode) || groupCode <= 0) {
+      throw new Error(`群号不合法：${String(params.groupCode)}`);
+    }
+    if (!params.authKey) throw new Error('缺少入群鉴权串（authKey）。');
+    await SendGroupJoinRequest.invoke(this.nt, this.resolvePid(), {
+      groupCode,
+      authKey: params.authKey,
+      ...(params.answer !== undefined ? { answer: params.answer } : {}),
+    });
   }
 
   /** 把纯数字目标解析成 uin；非纯数字按 uid 反查本地 uid 目录。 */

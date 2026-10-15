@@ -44,6 +44,7 @@ export function WelcomeDialog(): ReactElement | null {
     staleTime: Infinity,
   });
   const acknowledge = trpc.bootstrap.acknowledgeWelcome.useMutation();
+  const utils = trpc.useUtils();
   // Hide immediately on confirm even before the persist round-trips, so the
   // button never feels laggy. The query result gates the *first* show.
   const [dismissed, setDismissed] = useState(false);
@@ -62,6 +63,9 @@ export function WelcomeDialog(): ReactElement | null {
       // Persisting is best-effort: we already closed the dialog for this
       // session. Worst case it shows again next launch — acceptable.
     }
+    // 让「加入交流群」引导接手：它的显示条件是「欢迎框已确认 + 加群引导未确认」，
+    // 这里的查询是 staleTime: Infinity，不主动失效的话它会一直读到旧的 false。
+    void utils.bootstrap.getWelcomeAcknowledged.invalidate();
   }
 
   return (

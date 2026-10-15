@@ -581,7 +581,11 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
-export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
+export type {
+  SendPokeParams,
+  SendGroupSignupServiceParams,
+  SendGroupJoinRequestServiceParams,
+} from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
 export type {
   RecallMessageParams,
@@ -782,6 +786,19 @@ export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
+export {
+  GROUP_WPA_SUBCMD,
+  buildGroupWpaDeepLink,
+  encodeGroupWpaParam,
+  decodeGroupWpaParam,
+  parseGroupShareLocation,
+  resolveGroupShareAuthKey,
+} from './common/qq_group_join';
+export type {
+  GroupWpaParam,
+  GroupShareTarget,
+  GroupShareResolveOptions,
+} from './common/qq_group_join';
 export {
   sanitizeSegment,
   uniqueName,

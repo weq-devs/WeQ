@@ -521,6 +521,17 @@ export const DB_DAMAGE_REMINDER_POLICY_VERSION = 2;
 export const WELCOME_POLICY_VERSION = 2;
 
 /**
+ * 「加入交流群」引导弹窗这条引导的**策略版本**。
+ *
+ * 版本 1 = 现在：首次使用（欢迎框确认之后）或老用户升级后弹一次，点「立即加群」
+ * 或「不再提醒」都算确认，之后不再出现。抬版本号会让所有人再看到一次（例如换群 /
+ * 想让存量用户重新留意下面的加群入口时）。
+ *
+ * 与欢迎框的区别：它**不参与迁移**，也不阻挡任何功能 —— 纯引导，随时可跳过。
+ */
+export const JOIN_GROUP_PROMPT_VERSION = 1;
+
+/**
  * 一次性的偏好迁移：把「扫描 QQ 内存」默认关掉，等改版欢迎框重新征得同意。
  *
  * 只在**尚未确认当前策略版本**的配置上触发。这里刻意**不写版本号** —— 版本号是用户
@@ -721,6 +732,12 @@ export interface UserConfig {
    * 「未确认」，从而重新弹出一次新版引导。
    */
   welcomePolicyVersion?: number;
+  /**
+   * 已经确认过的「加入交流群」引导版本（缺省 = 0，见
+   * {@link JOIN_GROUP_PROMPT_VERSION}）。点「立即加群」或「不再提醒」都会写入，
+   * 之后同版本内不再弹出。
+   */
+  joinGroupPromptVersion?: number;
   /**
    * WeQ 验证器（应用锁，RFC 6238 TOTP）的 Base32 密钥。仅主进程读写，
    * 不通过 getSettings 暴露给渲染层，避免解锁凭证泄漏进 UI。
@@ -1253,6 +1270,26 @@ export class UserConfigService {
       event: 'welcome-ack',
       version: WELCOME_POLICY_VERSION,
       allowMemoryScan: options.allowMemoryScan,
+    });
+  }
+
+  /**
+   * 是否已经确认过**当前策略版本**的「加入交流群」引导弹窗。缺省（0）视为未确认，
+   * 于是首次使用与老用户升级各会看到一次。
+   */
+  isJoinGroupPromptAcknowledged(): boolean {
+    return (this.read().joinGroupPromptVersion ?? 0) >= JOIN_GROUP_PROMPT_VERSION;
+  }
+
+  /**
+   * 确认「加入交流群」引导（点「立即加群」或「不再提醒」都走这里）。写当前版本号，
+   * 之后同版本内不再弹出。
+   */
+  acknowledgeJoinGroupPrompt(): void {
+    this.write({ joinGroupPromptVersion: JOIN_GROUP_PROMPT_VERSION });
+    this.logger.info('join group prompt acknowledged', {
+      event: 'join-group-prompt-ack',
+      version: JOIN_GROUP_PROMPT_VERSION,
     });
   }
 
