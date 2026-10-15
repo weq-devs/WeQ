@@ -72,6 +72,39 @@ describe('post completion', () => {
       parseQzonePostDetail(jsonp({ code: 0, content: 'longer' }), '10002', 'synthetic'),
     ).toMatchObject({ content: 'longer', contentComplete: false });
   });
+  it('separates an explicit continuation flag from missing or malformed flags', () => {
+    for (const has_more_con of [true, 1, '1'])
+      expect(
+        parseQzonePostDetail(
+          jsonp({ code: 0, content: 'partial', has_more_con }),
+          '10002',
+          'synthetic',
+        ).contentHasMore,
+      ).toBe(true);
+    for (const has_more_con of [false, 0, '0'])
+      expect(
+        parseQzonePostDetail(
+          jsonp({ code: 0, content: 'full', has_more_con }),
+          '10002',
+          'synthetic',
+        ).contentHasMore,
+      ).toBe(false);
+    for (const has_more_con of [undefined, null, '', 2, 'unknown'])
+      expect(
+        parseQzonePostDetail(
+          jsonp({ code: 0, content: 'body', has_more_con }),
+          '10002',
+          'synthetic',
+        ).contentHasMore,
+      ).toBeNull();
+    expect(
+      parseQzonePostDetail(
+        jsonp({ code: 0, content: 'body', rt_has_more_con: 1 }),
+        '10002',
+        'synthetic',
+      ).repostHasMore,
+    ).toBe(true);
+  });
   it('rejects wrong owner/post, rejected or absent content', () => {
     for (const data of [
       { code: -10031 },

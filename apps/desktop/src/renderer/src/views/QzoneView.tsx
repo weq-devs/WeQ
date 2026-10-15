@@ -52,6 +52,7 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { completeQzonePostText } from '../lib/qzoneCompletion';
 import {
   projectQzoneRelated,
   qzoneRelatedKey,
@@ -1017,6 +1018,8 @@ function Post({
   const [completed, setCompleted] = useState<{ signature: string; post: QzoneEmotion } | null>(
     null,
   );
+  const completedRef = useRef(completed);
+  completedRef.current = completed;
   const post = completed?.signature === sourceSignature ? completed.post : sourcePost;
   const [completing, setCompleting] = useState(false);
   const [completionError, setCompletionError] = useState('');
@@ -1041,34 +1044,27 @@ function Post({
     setCompletionError('');
     const input = { selfUin, hostUin, tid: sourcePost.tid };
     void (async () => {
-      const next = { ...sourcePost };
+      let next = {
+        ...(completedRef.current?.signature === sourceSignature
+          ? completedRef.current.post
+          : sourcePost),
+      };
       const issues: string[] = [];
       if (textNeeded) {
-        try {
-          const detail = await run(
-            (requestId) => client.account.qzone.detail.query({ ...input, requestId }),
-            true,
-          );
-          if (!live) return;
-          next.content = detail.content;
-          next.contentTruncated = !detail.contentComplete;
-          if (
-            sourcePost.repost &&
-            detail.repost?.tid === sourcePost.repost.tid &&
-            detail.repost.uin === sourcePost.repost.uin
-          ) {
-            next.repost = {
-              ...sourcePost.repost,
-              content: detail.repost.content,
-              contentTruncated: !detail.repostComplete,
-            };
-          }
-          if (next.contentTruncated || next.repost?.contentTruncated)
-            issues.push('全文完整性未确认');
-        } catch {
-          if (!live) return;
-          issues.push('全文补全失败');
-        }
+        const result = await completeQzonePostText(
+          next,
+          () =>
+            run((requestId) => client.account.qzone.detail.query({ ...input, requestId }), true),
+          (partial) => {
+            if (!live) return;
+            completedRef.current = { signature: sourceSignature, post: partial };
+            setCompleted(completedRef.current);
+          },
+          () => live,
+        );
+        if (!live) return;
+        next = result.post;
+        if (result.issue) issues.push(result.issue);
       }
       if (imagesNeeded) {
         try {
@@ -1079,9 +1075,7 @@ function Post({
           if (!live) return;
           const safe = urls.map(qzoneMediaSource).filter((url): url is string => Boolean(url));
           next.images =
-            safe.length >= sourcePost.images.length
-              ? safe
-              : [...new Set([...sourcePost.images, ...safe])];
+            safe.length >= next.images.length ? safe : [...new Set([...next.images, ...safe])];
           if (next.images.length < (sourcePost.imageTotal ?? 0)) issues.push('仍有图片未补全');
         } catch {
           if (!live) return;
@@ -1090,7 +1084,8 @@ function Post({
       }
       if (!live) return;
       settled = true;
-      setCompleted({ signature: sourceSignature, post: next });
+      completedRef.current = { signature: sourceSignature, post: next };
+      setCompleted(completedRef.current);
       setCompletionError(issues.join(' · '));
       setCompleting(false);
     })();

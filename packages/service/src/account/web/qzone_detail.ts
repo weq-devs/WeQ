@@ -2,6 +2,12 @@ import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './cr
 import { WEB_READ_RETRY, webRequestText } from './http';
 import { mapMsgList, parseQzoneCallback } from './qzone';
 
+function hasMore(value: unknown): boolean | null {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  return null;
+}
+
 function accepted(text: string, hostUin: string, tid: string): Record<string, unknown> {
   const data = parseQzoneCallback<Record<string, unknown>>(text);
   if (data.code !== 0) {
@@ -50,9 +56,11 @@ export function parseQzonePostDetail(text: string, hostUin: string, tid: string)
   const post = mapMsgList({ msglist: [{ ...data, tid, content: data.content }] }).list[0]!;
   return {
     content: post.content,
+    contentHasMore: hasMore(data.has_more_con),
     contentComplete:
       data.has_more_con === 0 || data.has_more_con === '0' || data.has_more_con === false,
     repost: post.repost ?? null,
+    repostHasMore: hasMore(data.rt_has_more_con),
     repostComplete:
       data.rt_has_more_con === 0 || data.rt_has_more_con === '0' || data.rt_has_more_con === false,
   };

@@ -2,6 +2,14 @@
 
 Follow-up scope change: the user subsequently removed the R18 UI and moved it and the forward-list UI to [TODO](qzone-todo.md). Special care now lives in the friend-feed dropdown; related-to-me now uses collapsed activity cards rather than full post cards. The verification below describes the earlier implementation, not acceptance of these later UI changes.
 
+## Body Continuation Follow-Up
+
+The detail DTO now separates explicit `has_more_con/rt_has_more_con` values from absent flags (`true`, `false`, or `null`). The UI only continues when a flag explicitly reports more text; absent flags or an explicit end stop quietly, without the old completeness-uncertainty hint. This does not upgrade absent flags to evidence of archival completeness; the existing `contentComplete/repostComplete` fields retain their strict meaning.
+
+R02 returns a whole body and has no verified paging cursor. Each visible completion round therefore re-reads R02 only while more is explicit, updates the body in place, and stops on a repeated/cycling response or five reads. These two stops report actual remaining truncation, not missing metadata. Later failures and failed manual retries retain the longest acquired excerpt; cancelled/late results do not change a hidden post. Responses are not concatenated as if they were text chunks.
+
+Follow-up verification: 849 service tests, 41 focused parser/continuation/RPC tests (overlapping the suite), desktop main/preload/renderer typechecks and Biome checks pass. The actual QzoneView passes 28 synthetic desktop/mobile light/dark cases covering missing/end/more flags, stalled/capped responses, failures with retry, and late cancellation, without page errors or viewport overflow. QA: `qzone-body-qa*` in the existing local work directory below. No authenticated QQ requests or application restarts were performed. This follow-up changes bundled service code as well as renderer code, so the default development process must be restarted.
+
 ## Implemented Scope
 
 - R02: automatically request details for a visible post with explicit body/repost truncation. Keep existing content on failures, allow explicit retry, and only declare completeness when the response clears its truncation flag. Longer content without a completeness flag remains unverified. Responses with mismatched author/post identifiers are rejected when those fields are present.
