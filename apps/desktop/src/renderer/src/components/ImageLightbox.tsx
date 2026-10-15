@@ -11,14 +11,15 @@
  * cursor), click the image to toggle 2× zoom, drag to pan when zoomed.
  *
  * 窗口下面那条操作条（图片专属，视频那侧只有「另存为」）：
- *   - OCR          —— 只有带 `ocr` 上下文的图（聊天里出现过的图片）才有：要 `fileToken`
- *                     现签一条 CDN 直链交给 OIDB 0xe07_0。识别期间整张图上盖一层转圈；
- *                     出结果后把每段文字以**不透明文本框**盖回原位，并配一枚「眼镜」
- *                     在 OCR 前后之间切换。
+ *   - OCR          —— 只有带 `ocr` 上下文的图（聊天里出现过的图片）才有：优先走在线
+ *                     OIDB 0xe07_0（要 `fileToken` 现签一条 CDN 直链），QQ 不在线 /
+ *                     没有发包凭据时回退到本地模型（模型要在设置里下好，见 main/ocr）。
+ *                     识别期间整张图上盖一层转圈；出结果后把每段文字以**不透明文本框**
+ *                     盖回原位，并配一枚「眼镜」在 OCR 前后之间切换。
  *   - 另存为        —— 主进程弹保存对话框写盘。
  *   - 复制到剪贴板   —— 主进程 clipboard.writeImage 写系统剪贴板。
- * OCR 的前置条件与「发送键」同口径：QQ 在线 + 未开完全离线模式 + 发包物料齐全
- * （getGroupAlbumAccessState），缺一项就把按钮置灰并说明原因。
+ * 按钮能不能点由 `getGroupAlbumAccessState` 决定：在线那条腿要 QQ 在线 + 未开完全离线
+ * 模式 + 发包物料齐全；本地那条腿只要模型下好了（`ocrLocalModelId`）。两条都不行才置灰。
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
@@ -92,6 +93,13 @@ export function ImageLightbox(): ReactElement | null {
   /** 图片渲染后的实际像素尺寸（缩放用 transform，不影响 offsetWidth）。 */
   const [rendered, setRendered] = useState({ width: 0, height: 0 });
   const [blocks, setBlocks] = useState<OcrBlock[] | null>(null);
+  /**
+   * 结果自带的坐标系（被识别那张图的像素尺寸）。**不能直接用 `ocrContext` 的宽高**：
+   * 本地那条腿拿到的可能是落盘的缩略图（元素里记的却是原图尺寸），按回包的尺寸换算才不错位。
+   */
+  const [ocrSize, setOcrSize] = useState<{ width: number; height: number } | null>(null);
+  /** 这批结果是从哪条腿来的（在线 OIDB / 本地模型）—— 面板上标出来，方便对账。 */
+  const [source, setSource] = useState<'oidb' | 'local' | null>(null);
   /** 「眼镜」：在 OCR 前后之间切换（true = 看识别结果）。 */
   const [showOverlay, setShowOverlay] = useState(true);
   /** 纯文本面板是否展开（识别成功后自动展开）。 */
@@ -110,6 +118,8 @@ export function ImageLightbox(): ReactElement | null {
   // 换图（或关闭再开）时把 OCR 状态复位，别把上一张的结果带到新图上。
   useEffect(() => {
     setBlocks(null);
+    setOcrSize(null);
+    setSource(null);
     setPanelOpen(false);
     setBusy(false);
     setShowOverlay(true);
@@ -159,35 +169,53 @@ export function ImageLightbox(): ReactElement | null {
   const accessData = access.data;
   /** 服务端副本已过期（QQ 只留约 9 天）—— 这种图 OCR 必然失败，直接拦。 */
   const serverExpired = Boolean(ocrContext?.expiresAt && ocrContext.expiresAt < Date.now());
-  const canOcr = Boolean(
-    ocrContext &&
-      !serverExpired &&
-      accessData?.qqOnline &&
+  /** 在线那条腿（OIDB 0xe07_0）齐不齐 —— 与主进程的 `ocrOnlineBlocker` 同口径。 */
+  const onlineReady = Boolean(
+    accessData?.qqOnline &&
       accessData.attachEnabled &&
       accessData.hasA2 &&
       accessData.hasD2 &&
       accessData.hasD2Key &&
       accessData.hasGuid,
   );
+  /** 本地那条腿：设置里选了识别模型且已经下好。 */
+  const localReady = Boolean(accessData?.ocrLocalModelId);
+  const useOnline = onlineReady && !serverExpired;
+  const canOcr = Boolean(ocrContext && (useOnline || localReady));
   const ocrHint = !ocrContext
     ? '只有聊天里出现过的图片能识别文字'
-    : serverExpired
-      ? '这张图的服务端副本已过期（QQ 只保留约 9 天），识别不了'
-      : canOcr
-        ? '识别图片里的文字'
-        : 'QQ 未在线或发包物料不全，暂不可识别';
+    : useOnline
+      ? '识别图片里的文字（在线）'
+      : localReady
+        ? '识别图片里的文字（本地模型）'
+        : serverExpired
+          ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
+          : '需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型';
 
   async function runOcr(): Promise<void> {
     if (!ocrContext) return;
     setBusy(true);
     try {
-      const result = await ocrMutation.mutateAsync(ocrContext);
+      const result = await ocrMutation.mutateAsync({ ...ocrContext, src: src ?? undefined });
       setBlocks(result.blocks);
+      setOcrSize({
+        width: result.imageWidth || ocrContext.width,
+        height: result.imageHeight || ocrContext.height,
+      });
+      setSource(result.source ?? 'oidb');
       setShowOverlay(true);
       setPanelOpen(true);
       measure();
       if (result.blocks.length === 0) {
         useToast.getState().push({ tone: 'info', title: '没识别到文字' });
+      } else if (result.source === 'local') {
+        // 本地那条腿慢（CPU 推理），把耗时说出来，免得好端端一个转圈让人以为卡死了。
+        const seconds = result.elapsedMs ? `${(result.elapsedMs / 1000).toFixed(1)}s` : '';
+        useToast.getState().push({
+          tone: 'info',
+          title: `本地模型识别完成 · ${result.blocks.length} 段`,
+          message: seconds ? `用时 ${seconds}` : undefined,
+        });
       }
     } catch (error) {
       useToast.getState().push({
@@ -221,8 +249,10 @@ export function ImageLightbox(): ReactElement | null {
 
   // 覆盖层：把每段文字按回包坐标（原图像素）铺到渲染后的图上。缩放是 transform，
   // 所以这里只要按「渲染尺寸 / 原图尺寸」线性换算即可，跟着一起缩放。
-  const scaleX = rendered.width && ocrContext?.width ? rendered.width / ocrContext.width : 0;
-  const scaleY = rendered.height && ocrContext?.height ? rendered.height / ocrContext.height : 0;
+  const baseWidth = ocrSize?.width ?? ocrContext?.width ?? 0;
+  const baseHeight = ocrSize?.height ?? ocrContext?.height ?? 0;
+  const scaleX = rendered.width && baseWidth ? rendered.width / baseWidth : 0;
+  const scaleY = rendered.height && baseHeight ? rendered.height / baseHeight : 0;
   const overlayVisible = Boolean(blocks && blocks.length > 0 && showOverlay && scaleX && scaleY);
 
   return createPortal(
@@ -342,9 +372,12 @@ export function ImageLightbox(): ReactElement | null {
       {panelOpen && blocks && blocks.length > 0 ? (
         <OcrTextPanel
           blocks={blocks}
+          source={source ?? undefined}
           onExit={() => {
             setPanelOpen(false);
             setBlocks(null);
+            setOcrSize(null);
+            setSource(null);
             setShowOverlay(true);
           }}
         />

@@ -20,11 +20,13 @@ const PANEL_WIDTH = 340;
 
 export interface OcrTextPanelProps {
   blocks: OcrBlock[];
+  /** 这批结果从哪条腿来的：`oidb` = 在线、`local` = 本地模型（只影响副标题文案）。 */
+  source?: 'oidb' | 'local';
   /** 退出 OCR：收起面板并撤掉图上的覆盖层。 */
   onExit(): void;
 }
 
-export function OcrTextPanel({ blocks, onExit }: OcrTextPanelProps): ReactElement {
+export function OcrTextPanel({ blocks, source, onExit }: OcrTextPanelProps): ReactElement {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState(() => ({
     x: Math.max(EDGE, window.innerWidth - PANEL_WIDTH - 28),
@@ -92,7 +94,9 @@ export function OcrTextPanel({ blocks, onExit }: OcrTextPanelProps): ReactElemen
     >
       <div className="weq-ocr-panel-head" onMouseDown={onHeadDown}>
         <span className="weq-ocr-panel-title">识别结果</span>
-        <span className="weq-ocr-panel-meta">{blocks.length} 段 · 可拖动</span>
+        <span className="weq-ocr-panel-meta">
+          {blocks.length} 段 · {source === 'local' ? '本地模型' : '在线'} · 可拖动
+        </span>
         <button
           className="weq-ocr-panel-close"
           type="button"

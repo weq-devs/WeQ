@@ -45,6 +45,8 @@
     "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "lottie-web": "^5.13.0",
+    "onnxruntime-common": "1.30.0",
+    "onnxruntime-node": "1.30.0",
     "otplib": "^13.5.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
