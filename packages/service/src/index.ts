@@ -565,6 +565,16 @@ export type {
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';
+export { RoamingBackfillManager } from './account/roaming_backfill';
+export type {
+  RoamingJobOptions,
+  RoamingTarget,
+  RoamingJob,
+  RoamingJobStatus,
+  RoamingAttempt,
+  RoamingTargetPlan,
+  RoamingInterval,
+} from './account/roaming_backfill';
 export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';

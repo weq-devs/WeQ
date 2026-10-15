@@ -28,6 +28,7 @@ import {
   closeSalvageConnections,
   dbEventBus,
   type AccountServices,
+  type RoamingCacheChange,
 } from '../../context/app_context';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
@@ -3094,6 +3095,59 @@ export const accountRouter = router({
       );
     }),
 
+  roamingBackfill: router({
+    list: procedure.query(() => {
+      const services = requireServices();
+      const access = albumAccessState(services);
+      return {
+        jobs: services.roamingBackfill.list(),
+        activeId: services.roamingBackfill.running(),
+        scanning: services.roamingBackfill.scanning(),
+        online: access.qqOnline && access.attachEnabled,
+      };
+    }),
+    plan: procedure
+      .input(
+        z.object({
+          targets: z
+            .array(
+              z.object({
+                kind: z.enum(['group', 'c2c']),
+                conv: z.string().min(1),
+                name: z.string().min(1).max(300),
+              }),
+            )
+            .min(1)
+            .max(100),
+          range: z
+            .object({
+              start: z.number().int().nonnegative().optional(),
+              end: z.number().int().nonnegative().optional(),
+            })
+            .optional(),
+          beforeOldest: z.boolean().default(false),
+          intervalMs: z.number().int().min(500).max(60000).default(500),
+          maxRequests: z.number().int().min(1).max(10000).default(200),
+        }),
+      )
+      .mutation(({ input }) => requireServices().roamingBackfill.plan(input)),
+    start: procedure
+      .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))
+      .mutation(({ input }) =>
+        requireServices().roamingBackfill.start(input.id, input.retryRemaining),
+      ),
+    pause: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id)),
+    cancel: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id, true)),
+    remove: procedure.input(z.object({ id: z.string().uuid() })).mutation(({ input }) => {
+      requireServices().roamingBackfill.remove(input.id);
+      return true;
+    }),
+  }),
+
   /**
    * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。分页契约：
    * 首次传整个缺口起始（占位条上一条消息的 seq + 1），之后把返回的
@@ -3428,12 +3482,31 @@ export const accountRouter = router({
       return { msgId: res.msgId.toString(), msgSeq: res.msgSeq.toString() };
     }),
 
-  /**
-   * Live "nt_msg.db changed" ping (debounced). Carries no payload beyond a
-   * timestamp — the renderer responds by re-reading the open conversation's
-   * loaded seq window. This is what makes group inserts, recalls and sticker
-   * reactions show up without the (unreliable for groups) msgId delta.
-   */
+  /** Committed cache rows, scoped to this exact account session; no unread writes. */
+  onRoamingMessages: procedure.subscription(() => {
+    requireServices();
+    const session = getAppContext().account;
+    return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>((emit) => {
+      const handler = (change: RoamingCacheChange) => {
+        if (change.session !== session || getAppContext().account !== session) return;
+        emit.next({
+          kind: change.kind,
+          conv: change.conv,
+          messages: change.messages.map((row) => ({
+            ...row,
+            source: 'roaming',
+            msgRandom: row.msgRandom ?? '',
+          })),
+        });
+      };
+      dbEventBus.on('roaming', handler);
+      return () => {
+        dbEventBus.off('roaming', handler);
+      };
+    });
+  }),
+
+  /** Live DB-change ping; the renderer re-reads its original message window. */
   onDbChanged: procedure.subscription(() => {
     return observable<{ at: number }>((emit) => {
       const handler = (file: DbChange): void => {

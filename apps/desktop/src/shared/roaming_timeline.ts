@@ -19,6 +19,22 @@ export function timelineRowKey(row: TimelineRow): string {
   return row.source === 'roaming' ? `roaming:${row.msgSeq}:${row.msgId}` : row.msgId;
 }
 
+/** Fill the currently loaded window without extending it or re-anchoring history to latest. */
+export function mergeRoamingWindow<T extends TimelineRow>(
+  kind: 'c2c' | 'group',
+  local: T[],
+  cached: T[],
+): T[] {
+  const first = local.find((row) => timelineSeq(row.msgSeq) !== null);
+  const last = local.findLast((row) => timelineSeq(row.msgSeq) !== null);
+  if (!first || !last) return local;
+  const incoming = cached.filter((row) => {
+    const seq = timelineSeq(row.msgSeq);
+    return seq !== null && seq >= BigInt(first.msgSeq) && seq <= BigInt(last.msgSeq);
+  });
+  return incoming.length ? mergeRoamingTimeline(kind, local, incoming) : local;
+}
+
 /** Preserve every local row (including gray tips sharing a seq); cache only fills holes. */
 export function mergeRoamingTimeline<T extends TimelineRow>(
   kind: 'c2c' | 'group',

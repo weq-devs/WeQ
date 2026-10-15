@@ -17,7 +17,11 @@ import React, {
   type ReactElement,
 } from 'react';
 import { trpc } from '../trpc/client';
-import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
+import {
+  mergeRoamingTimeline,
+  mergeRoamingWindow,
+  timelineRowKey,
+} from '../../../shared/roaming_timeline';
 import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
@@ -2358,6 +2362,28 @@ export function MainView(): ReactElement {
   }, []);
 
   const [unreadRevision, setUnreadRevision] = useState(0);
+
+  useEffect(() => {
+    const sub = client.account.onRoamingMessages.subscribe(undefined, {
+      onData(change) {
+        const selection = selectionRef.current;
+        if (
+          !selection ||
+          selection.id !== change.conv ||
+          (selection.kind === 'group' ? 'group' : 'c2c') !== change.kind
+        )
+          return;
+        setLoaded((current) => {
+          if (selectionRef.current !== selection) return current;
+          return mergeRoamingWindow(change.kind, current, change.messages.map(toMessageWire));
+        });
+      },
+      onError(error) {
+        console.error('[roaming] cache subscription failed', error);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
@@ -7246,6 +7272,20 @@ export function MainView(): ReactElement {
             open={wonderfulToolsOpen}
             initialTool={wonderfulToolsTool}
             currentUin={user.identityValue}
+            roamingTarget={
+              selectedConversation &&
+              (selectedConversation.type === 'group' ||
+                (selectedConversation.type === 'direct' &&
+                  !isDataline(selectedConversation.chatType ?? 1)))
+                ? {
+                    ...convFetchKey(selectedConversation),
+                    name:
+                      selectedConversation.type === 'group'
+                        ? selectedConversation.group.name
+                        : selectedConversation.otherUser.displayName,
+                  }
+                : undefined
+            }
             onClose={() => setWonderfulToolsOpen(false)}
           />
           <GuildDirectDialog
@@ -7347,6 +7387,14 @@ export function MainView(): ReactElement {
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}
+              onOpenRoaming={
+                convSettings.kind === 'dataline'
+                  ? undefined
+                  : () => {
+                      setConvSettings(null);
+                      openWonderfulToolsAt('roaming-backfill');
+                    }
+              }
               members={currentGroupMembers.map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,

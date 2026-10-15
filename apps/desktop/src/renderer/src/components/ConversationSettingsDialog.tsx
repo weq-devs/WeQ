@@ -13,7 +13,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { BellRing, ShieldCheck, X } from 'lucide-react';
+import { BellRing, CloudDownload, ShieldCheck, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
@@ -38,6 +38,7 @@ export function ConversationSettingsDialog({
   title,
   members = [],
   onClose,
+  onOpenRoaming,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -48,6 +49,7 @@ export function ConversationSettingsDialog({
   /** 群成员（仅群聊的关键词用）。 */
   members?: KeywordMember[];
   onClose: () => void;
+  onOpenRoaming?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
@@ -138,6 +140,16 @@ export function ConversationSettingsDialog({
             <span title={title}>{title}</span>
           </div>
           <ul>
+            {onOpenRoaming ? (
+              <li>
+                <button type="button" className="weq-cvs-nav-item" onClick={onOpenRoaming}>
+                  <span className="weq-cvs-nav-icon">
+                    <CloudDownload size={16} strokeWidth={1.8} />
+                  </span>
+                  <span>批量补全缺失消息</span>
+                </button>
+              </li>
+            ) : null}
             <li>
               <button
                 type="button"

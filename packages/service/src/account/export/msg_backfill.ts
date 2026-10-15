@@ -219,8 +219,8 @@ export async function backfillConversationMessages(
       }
       if (res) {
         const elapsed = Date.now() - startedAt;
-        summary.requests += 1;
-        if (elapsed > rateLimitMs) {
+        if (res.networkRequested !== false) summary.requests += 1;
+        if (res.networkRequested !== false && (res.networkDurationMs ?? elapsed) > rateLimitMs) {
           summary.rateLimited += 1;
           if (!rateLimitedNotified) {
             rateLimitedNotified = true;
@@ -237,6 +237,12 @@ export async function backfillConversationMessages(
             stopped = true;
             summary.stoppedByError = true;
           } else {
+            summary.windowErrors += 1;
+            try {
+              opts.onWindowError?.(windowSeqs, res.message);
+            } catch {
+              /* UI callback only. */
+            }
             results[idx] = true; // 拉取失败按非空处理，避免被误判为「过期」。
           }
         } else {

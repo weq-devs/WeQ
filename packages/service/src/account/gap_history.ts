@@ -28,6 +28,7 @@ import {
 import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
+import { withRoamingRequest } from '../common/roaming_request_queue';
 
 /** 服务端单次最多返回约 30 条（protocol 层分页拉取实测）。 */
 const SERVER_MAX_WINDOW = 30;
@@ -59,12 +60,17 @@ export type GapFetchResult =
       nextStartSeq: number | null;
       /** 本次窗口实际拉到的条数。 */
       fetched: number;
+      networkRequested?: boolean;
+      networkDurationMs?: number;
+      networkError?: string;
     }
   | {
       ok: false;
       /** offline = 没有在线 QQ / 完全离线模式；error = 其它。 */
       reason: 'offline' | 'error';
       message: string;
+      networkRequested?: boolean;
+      networkDurationMs?: number;
     };
 
 /**
@@ -126,6 +132,33 @@ function mergeBySeq(
   return [...bySeq.values()].sort((a, b) => Number(a.msgSeq) - Number(b.msgSeq));
 }
 
+export function assertRoamingPageIdentity(
+  kind: 'group' | 'c2c',
+  conv: string,
+  selfUin: string,
+  decoded: ReturnType<typeof decodeMessage>,
+  start: number,
+  end: number,
+): void {
+  const peerMatches =
+    kind === 'group'
+      ? String(decoded.session.uin) === conv
+      : (decoded.sender.uid === conv && String(decoded.session.uin) === selfUin) ||
+        (decoded.session.uid === conv && String(decoded.sender.uin) === selfUin);
+  if (
+    !peerMatches ||
+    !Number.isSafeInteger(decoded.head.sequence) ||
+    decoded.head.sequence < start ||
+    decoded.head.sequence > end ||
+    !Number.isSafeInteger(decoded.head.timestamp) ||
+    decoded.head.timestamp <= 0 ||
+    (kind === 'c2c' &&
+      (!(decoded.head.ntMsgSeq && decoded.head.ntMsgSeq > 0) ||
+        decoded.head.sequence !== decoded.head.ntMsgSeq))
+  )
+    throw new Error('漫游响应的账号、会话或 NT 序号不一致，未提交本窗覆盖。');
+}
+
 export class GapHistoryService {
   private readonly cache: RoamMsgCacheDb;
 
@@ -134,7 +167,7 @@ export class GapHistoryService {
       NtHelperBinding,
       'sendPacket' | 'executeSql' | 'executeSqlWrite' | 'closeDb'
     >,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
     /** 本账号漫游消息缓存库的绝对路径（weq 缓存目录 /roam-msg/<uin>.db）。 */
     cacheDbPath: string,
@@ -173,6 +206,11 @@ export class GapHistoryService {
     descending: boolean,
   ): Promise<GapFetchedMessage[]> {
     return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
+  }
+
+  /** Batch coverage is committed only after this durable cache write succeeds. */
+  async retainForBatch(messages: GapFetchedMessage[]): Promise<void> {
+    await this.cache.store(messages);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
@@ -227,6 +265,7 @@ export class GapHistoryService {
     conv: string,
     startSeq: number,
     endSeq: number,
+    options: { signal?: AbortSignal; intervalMs?: number; strictIdentity?: boolean } = {},
   ): Promise<GapFetchResult> {
     if (!Number.isSafeInteger(startSeq) || !Number.isSafeInteger(endSeq) || startSeq > endSeq) {
       return { ok: false, reason: 'error', message: `seq 窗口非法: ${startSeq}-${endSeq}` };
@@ -253,6 +292,7 @@ export class GapHistoryService {
         messages: cached,
         nextStartSeq: hasNewer ? windowEnd + 1 : null,
         fetched: 0,
+        networkRequested: false,
       };
     }
 
@@ -261,33 +301,82 @@ export class GapHistoryService {
       pid = this.resolvePid();
     } catch {
       // 离线时至少把已缓存的部分展示出来。
-      return cached.length > 0
-        ? { ok: true, messages: cached, nextStartSeq: null, fetched: 0 }
-        : { ok: false, reason: 'offline', message: 'QQ 未在线，无法拉取缺失消息' };
+      return cached.length > 0 && !options.strictIdentity
+        ? { ok: true, messages: cached, nextStartSeq: null, fetched: 0, networkRequested: false }
+        : {
+            ok: false,
+            reason: 'offline',
+            message: 'QQ 未在线，无法拉取缺失消息',
+            networkRequested: false,
+          };
     }
 
     const rawBySeq = new Map<number, Uint8Array>();
+    let networkRequested = false;
+    let admissionFailed = false;
+    let networkDurationMs = 0;
     try {
-      const res =
-        kind === 'group'
-          ? await fetchGroupHistoryRaw(this.nt, pid, {
-              groupUin: Number(conv),
-              startSeq,
-              endSeq: windowEnd,
-            })
-          : await fetchC2cHistoryRaw(this.nt, pid, {
-              friendUid: conv,
-              startSeq,
-              endSeq: windowEnd,
-            });
+      const result = await withRoamingRequest(async () => {
+        // Another queued caller may have filled this exact page in the meantime.
+        cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+        if (cached.length === windowWidth) return { cached: true as const };
+        options.signal?.throwIfAborted();
+        try {
+          pid = this.resolvePid();
+        } catch (error) {
+          admissionFailed = true;
+          throw error;
+        }
+        networkRequested = true;
+        const started = Date.now();
+        try {
+          const response =
+            kind === 'group'
+              ? await fetchGroupHistoryRaw(this.nt, pid, {
+                  groupUin: Number(conv),
+                  startSeq,
+                  endSeq: windowEnd,
+                })
+              : await fetchC2cHistoryRaw(this.nt, pid, {
+                  friendUid: conv,
+                  startSeq,
+                  endSeq: windowEnd,
+                });
+          return { cached: false as const, response };
+        } finally {
+          networkDurationMs = Date.now() - started;
+        }
+      }, options);
+      if (result.cached)
+        return {
+          ok: true,
+          messages: cached,
+          nextStartSeq: windowEnd < endSeq ? windowEnd + 1 : null,
+          fetched: 0,
+          networkRequested: false,
+        };
+      const res = result.response;
 
       const stepsFor = (index: number): PathStep[] =>
         kind === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
 
       for (let index = 0; index < res.messages.length; index += 1) {
         const bytes = extractPath(res.rawResponse, stepsFor(index));
-        if (!bytes) continue;
+        if (!bytes) {
+          if (options.strictIdentity) throw new Error('漫游响应存在未能提取的消息体，未推进窗口。');
+          continue;
+        }
         const decoded = decodeMessage(bytes);
+        if (options.strictIdentity) {
+          assertRoamingPageIdentity(
+            kind,
+            conv,
+            this.session.context.uin,
+            decoded,
+            startSeq,
+            windowEnd,
+          );
+        }
         if (
           kind === 'c2c' &&
           (decoded.head.ntMsgSeq ?? 0) > 0 &&
@@ -297,13 +386,23 @@ export class GapHistoryService {
         rawBySeq.set(decoded.head.sequence, bytes);
       }
     } catch (e) {
-      if (cached.length > 0) {
-        return { ok: true, messages: cached, nextStartSeq: null, fetched: 0 };
+      if (cached.length > 0 && !options.strictIdentity) {
+        return {
+          ok: true,
+          messages: cached,
+          nextStartSeq: null,
+          fetched: 0,
+          networkRequested,
+          networkDurationMs,
+          networkError: e instanceof Error ? e.message : String(e),
+        };
       }
       return {
         ok: false,
-        reason: 'error',
+        reason: admissionFailed ? 'offline' : 'error',
         message: e instanceof Error ? e.message : String(e),
+        networkRequested,
+        networkDurationMs,
       };
     }
 
@@ -316,6 +415,8 @@ export class GapHistoryService {
         messages: cached,
         nextStartSeq: hasNewer ? windowEnd + 1 : null,
         fetched: 0,
+        networkRequested: true,
+        networkDurationMs,
       };
     }
 
@@ -339,6 +440,8 @@ export class GapHistoryService {
       messages,
       nextStartSeq: hasNewer ? windowEnd + 1 : null,
       fetched: fetchedMessages.length,
+      networkRequested: true,
+      networkDurationMs,
     };
   }
 }

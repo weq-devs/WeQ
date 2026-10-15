@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeRoamingTimeline,
+  mergeRoamingWindow,
   timelineSeq,
   timelineRowKey,
   type TimelineRow,
@@ -13,6 +14,18 @@ const row = (seq: number, extra: Partial<TimelineRow> = {}): TimelineRow => ({
 });
 
 describe('roaming timeline projection', () => {
+  it('pushes batches into a detached loaded window without extending its bounds', () => {
+    const loaded = [row(100), row(200)];
+    expect(
+      mergeRoamingWindow('group', loaded, [row(10), row(150), row(300)]).map((r) => r.msgSeq),
+    ).toEqual(['100', '150', '200']);
+    expect(mergeRoamingWindow('group', loaded, [row(10), row(300)])).toBe(loaded);
+  });
+  it('does not inject an unanchored batch into an empty or seq-less window', () => {
+    const loaded = [row(0)];
+    expect(mergeRoamingWindow('group', loaded, [row(1)])).toBe(loaded);
+    expect(mergeRoamingWindow('group', [], [row(1)])).toEqual([]);
+  });
   it('keeps server randoms separate from local IDs and keys repeated randoms by seq', () => {
     const merged = mergeRoamingTimeline(
       'group',
