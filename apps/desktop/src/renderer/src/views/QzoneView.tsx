@@ -20,10 +20,12 @@ import {
   ImagePlus,
   Loader2,
   MessageCircle,
+  Play,
   RefreshCw,
   Repeat2,
   Send,
   ThumbsUp,
+  VideoOff,
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -1166,9 +1168,11 @@ function Post({
           )}
         </div>
       ) : null}
-      <Pictures images={images.filter((url) => !links.some((link) => link.cover === url))} />
+      <QzoneMediaGrid
+        images={images.filter((url) => !links.some((link) => link.cover === url))}
+        videos={videos}
+      />
       <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
-      <QzoneVideos videos={videos} />
       {post.repost ? <Repost selfUin={selfUin} original={post.repost} onSpace={onSpace} /> : null}
       {sourceName ? <p className="weq-qzn-source">来自 {sourceName}</p> : null}
       <PostActions selfUin={selfUin} hostUin={hostUin} post={post} onSpace={onSpace} />
@@ -1176,31 +1180,37 @@ function Post({
   );
 }
 
-function QzoneVideos({ videos }: { videos: QzoneEmotion['videos'] }) {
+function QzoneVideo({ video, index }: { video: QzoneEmotion['videos'][number]; index: number }) {
+  const [coverFailed, setCoverFailed] = useState(false);
+  const src = qzoneMediaSource(video.videoUrl);
+  const cover = qzoneMediaSource(video.coverUrl);
   return (
-    <>
-      {videos.map((video, index) => {
-        const src = qzoneMediaSource(video.videoUrl);
-        const cover = qzoneMediaSource(video.coverUrl);
-        return src ? (
-          <button
-            type="button"
-            className="weq-qzn-video"
-            key={video.videoId || `${index}`}
-            onClick={() =>
-              openVideoLightbox(albumMediaUrl(src), cover ? albumMediaUrl(cover) : undefined)
-            }
-          >
-            {cover ? <img src={albumMediaUrl(cover)} alt="视频封面" loading="lazy" /> : null}
-            <span>播放视频</span>
-          </button>
-        ) : (
-          <p className="weq-qzn-status" key={video.videoId || `${index}`}>
-            此视频暂时没有可播放地址
-          </p>
-        );
-      })}
-    </>
+    <button
+      type="button"
+      className="weq-qzn-video"
+      disabled={!src}
+      aria-label={src ? `播放空间视频 ${index + 1}` : `空间视频 ${index + 1} 暂无播放地址`}
+      title={src ? '播放视频' : '此视频暂时没有可播放地址'}
+      onClick={() => {
+        if (src) openVideoLightbox(albumMediaUrl(src), cover ? albumMediaUrl(cover) : undefined);
+      }}
+    >
+      {cover && !coverFailed ? (
+        <img
+          src={albumMediaUrl(cover)}
+          alt={`视频封面 ${index + 1}`}
+          loading="lazy"
+          onError={() => setCoverFailed(true)}
+        />
+      ) : (
+        <span className="weq-qzn-video-placeholder">
+          {coverFailed ? '视频封面暂时无法加载' : '视频'}
+        </span>
+      )}
+      <span className="weq-qzn-video-play">
+        {src ? <Play size={20} /> : <VideoOff size={20} />}
+      </span>
+    </button>
   );
 }
 
@@ -1250,8 +1260,7 @@ function Repost({
           <QzoneText content={original.content} onSpace={onSpace} />
         </p>
       ) : null}
-      <Pictures images={original.images} />
-      <QzoneVideos videos={original.videos} />
+      <QzoneMediaGrid images={original.images} videos={original.videos} />
       {validUin && /^[a-zA-Z0-9_-]{1,128}$/.test(original.tid) ? (
         <PostActions
           key={`${original.uin}:${original.tid}`}
@@ -1498,13 +1507,41 @@ function FeedLinks({
 }
 
 function Pictures({ images }: { images: string[] }) {
+  return <QzoneMediaGrid images={images} />;
+}
+
+function QzoneMediaGrid({
+  images,
+  videos = [],
+}: {
+  images: string[];
+  videos?: QzoneEmotion['videos'];
+}) {
+  const seenVideos = new Set<string>();
+  const uniqueVideos = videos.filter((video) => {
+    const key = video.videoId || video.videoUrl || video.coverUrl;
+    if (!key || seenVideos.has(key)) return false;
+    seenVideos.add(key);
+    return true;
+  });
+  const covers = new Set(uniqueVideos.map((video) => qzoneMediaSource(video.coverUrl)));
   const urls = [
-    ...new Set(images.map(qzoneMediaSource).filter((url): url is string => Boolean(url))),
+    ...new Set(
+      images.map(qzoneMediaSource).filter((url): url is string => Boolean(url) && !covers.has(url)),
+    ),
   ];
-  return urls.length ? (
-    <div className="weq-qzn-pictures">
+  const count = urls.length + uniqueVideos.length;
+  return count ? (
+    <div className="weq-qzn-pictures" data-media-count={count}>
       {urls.map((url, index) => (
         <Picture key={url} url={url} index={index} />
+      ))}
+      {uniqueVideos.map((video, index) => (
+        <QzoneVideo
+          key={video.videoId || video.videoUrl || video.coverUrl}
+          video={video}
+          index={index}
+        />
       ))}
     </div>
   ) : null;
@@ -2236,7 +2273,7 @@ function FeedCard({
             commentNum: body.commentCount,
             isPrivate: false,
             images: body.images,
-            videos: [],
+            videos: body.videos,
             repost: body.repost ?? undefined,
           }
         : null,
@@ -2319,7 +2356,7 @@ function FeedCard({
         </p>
       ) : null}
       {loading ? <LoadingStatus /> : null}
-      <Pictures images={body.images} />
+      <QzoneMediaGrid images={body.images} videos={body.videos} />
       {body.repost ? <Repost selfUin={selfUin} original={body.repost} onSpace={onSpace} /> : null}
       <FeedLinks links={body.links} ownerUin={String(feed.uin)} ownerNickname={feed.nickname} />
       {body.sourceName ? <p className="weq-qzn-source">来自 {body.sourceName}</p> : null}

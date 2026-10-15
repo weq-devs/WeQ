@@ -16,6 +16,41 @@ export function qzoneMediaSource(value: string): string | null {
   }
 }
 
+export interface QzoneFeedVideo {
+  coverUrl: string;
+  videoUrl: string;
+  videoId: string;
+  duration: number;
+}
+
+/** A loader/spacer is UI, but a real lazy-image target must still be kept. */
+function feedImageSource(image: Element): string | null {
+  const lazy =
+    image.getAttribute('data-src') ||
+    image.getAttribute('data-original') ||
+    image.getAttribute('lz-src');
+  const source = qzoneMediaSource(lazy || image.getAttribute('src') || '');
+  if (!source) return null;
+  const url = new URL(source);
+  const uiHost = ['qzonestyle.gtimg.cn', 'qzs.qq.com', 'qzone.gtimg.cn'].includes(url.hostname);
+  if (
+    uiHost &&
+    (/^\/(?:ac\/|qzone_v\d+\/|qzone\/v\d+\/)/.test(url.pathname) ||
+      (image.classList.contains('load_img') && !lazy))
+  )
+    return null;
+  if (/qlogo|\/qzone\/em\/|\/qzone\/space\//.test(source) || url.hostname === 'user.qzone.qq.com')
+    return null;
+  if (image.getAttribute('width') === '1' && image.getAttribute('height') === '1' && !lazy)
+    return null;
+  return source;
+}
+
+function playableFeedVideo(value: string | null): string {
+  const source = qzoneMediaSource(value || '');
+  return source && !/\.(?:swf|html?)$/i.test(new URL(source).pathname) ? source : '';
+}
+
 /** Remote links remain data; only explicit web destinations are opened. */
 export function qzoneLinkTarget(value: string): string | null {
   if (!/^(?:https?:)?\/\//i.test(value.trim())) return null;
@@ -66,6 +101,7 @@ export function projectQzoneFeed(
   contentTruncated: boolean;
   sourceName: string | null;
   images: string[];
+  videos: QzoneFeedVideo[];
   links: { href: string; text: string; cover?: string }[];
   tid: string | null;
   likeCount: number | null;
@@ -80,7 +116,7 @@ export function projectQzoneFeed(
     nickname: string;
     content: string;
     images: string[];
-    videos: [];
+    videos: QzoneFeedVideo[];
   } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -140,7 +176,7 @@ export function projectQzoneFeed(
         nickname,
         content: body.text.replace(/^[：:\s]+/, ''),
         images: body.images,
-        videos: [],
+        videos: body.videos,
       };
       quote.remove();
     }
@@ -230,19 +266,58 @@ export function projectQzoneFeed(
   const body =
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
   const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
+  const videos: QzoneFeedVideo[] = [];
+  const videoRoots: Element[] = [];
+  for (const node of body.querySelectorAll(
+    '.f-video-wrap, a[data-v_vidiourl], a[data-v_vidioswfurl], a[data-v_itemid], video',
+  )) {
+    if (videoRoots.some((root) => root.contains(node))) continue;
+    const metadata = node.matches('a')
+      ? node
+      : (node.querySelector(
+          'a.img-item, a[data-v_itemid], a[data-v_vidiourl], a[data-v_vidioswfurl]',
+        ) ?? node);
+    const video = node.matches('video') ? node : node.querySelector('video');
+    const videoUrl =
+      [
+        node.getAttribute('url3'),
+        metadata.getAttribute('data-v_vidiourl'),
+        video?.getAttribute('src'),
+        video?.querySelector('source')?.getAttribute('src'),
+        metadata.getAttribute('data-v_vidioswfurl'),
+      ]
+        .map((value) => playableFeedVideo(value ?? null))
+        .find(Boolean) ?? '';
+    const coverUrl =
+      qzoneMediaSource(
+        metadata.getAttribute('data-v_picinfo_url') || video?.getAttribute('poster') || '',
+      ) ??
+      [...node.querySelectorAll('img')].map(feedImageSource).find(Boolean) ??
+      '';
+    const videoId =
+      metadata.getAttribute('data-v_itemid') || node.getAttribute('data-v_itemid') || '';
+    if (!videoUrl && !coverUrl && !videoId) continue;
+    videoRoots.push(node);
+    if (
+      !videos.some((item) =>
+        videoId
+          ? item.videoId === videoId
+          : videoUrl
+            ? item.videoUrl === videoUrl
+            : item.coverUrl === coverUrl,
+      )
+    )
+      videos.push({ coverUrl, videoUrl, videoId, duration: 0 });
+  }
   const cards = new Map<string, { href: string; text: string; cover?: string }>();
   const cardImages = new Set<string>();
   const pictureLinks = new WeakSet<Element>();
   for (const anchor of body.querySelectorAll('a[href]')) {
+    if (videoRoots.some((root) => root.contains(anchor))) continue;
     const image = anchor.querySelector('img');
     if (!image) continue;
     const href = qzoneLinkTarget(anchor.getAttribute('href')!);
-    const cover = qzoneMediaSource(
-      image.getAttribute('data-src') ||
-        image.getAttribute('lz-src') ||
-        image.getAttribute('src') ||
-        '',
-    );
+    const cover = feedImageSource(image);
     // Qzone wraps ordinary photos in links to its own photo viewer, not just mood permalinks.
     // Keep those anchors as pictures even when the destination has no file extension.
     const destination = href ? new URL(href) : null;
@@ -269,12 +344,7 @@ export function projectQzoneFeed(
   }
   const images = new Set<string>();
   for (const image of body.querySelectorAll('img')) {
-    const source = qzoneMediaSource(
-      image.getAttribute('data-src') ||
-        image.getAttribute('lz-src') ||
-        image.getAttribute('src') ||
-        '',
-    );
+    const source = videoRoots.some((root) => root.contains(image)) ? null : feedImageSource(image);
     if (
       source &&
       !cardImages.has(source) &&
@@ -286,6 +356,7 @@ export function projectQzoneFeed(
   }
   const links = cards;
   for (const link of body.querySelectorAll('a[href]')) {
+    if (videoRoots.some((root) => root.contains(link))) continue;
     try {
       const href = qzoneLinkTarget(link.getAttribute('href')!);
       if (!href || pictureLinks.has(link) || isQzoneFeedNavigation(link, href)) continue;
@@ -303,6 +374,8 @@ export function projectQzoneFeed(
       /* Invalid remote link is omitted. */
     }
   }
+  for (const root of videoRoots) root.remove();
+  for (const element of textBody.querySelectorAll('video, source')) element.remove();
   for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
   for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');
   return {
@@ -314,6 +387,7 @@ export function projectQzoneFeed(
       .replace(/\n{3,}/g, '\n\n')
       .trim(),
     images: [...images].filter((source) => !repost?.images.includes(source)),
+    videos,
     links: [...links.values()],
     tid,
     likeCount,
