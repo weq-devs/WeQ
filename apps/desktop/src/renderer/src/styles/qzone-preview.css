@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) 64px;
+  grid-template-rows: 52px minmax(0, 1fr);
   background: #111;
   color: #f4f4f4;
   outline: none;
@@ -17,14 +17,15 @@
 .weq-qz-preview-toolbar output { width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
 .weq-qz-preview button:not(:disabled):hover { background: #ffffff14; }
 .weq-qz-preview-viewport { position: relative; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(36px, 1fr) minmax(0, 82fr) minmax(36px, 1fr); }
-.weq-qz-preview-stage { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; pointer-events: none; overflow: hidden; }
+.weq-qz-preview-stage { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; pointer-events: none; overflow: hidden; }
 .weq-qz-preview-stage img, .weq-qz-preview-stage video { display: block; max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: auto; flex: 0 1 auto; min-width: 0; transform-origin: center; }
 .weq-qz-preview-stage p { pointer-events: auto; }
 .weq-qz-preview-side { position: relative; z-index: 1; display: grid; align-items: center; justify-items: center; padding: 0; }
 .weq-qz-preview-side.is-left:not(:disabled) { cursor: w-resize; }
 .weq-qz-preview-side.is-right:not(:disabled) { cursor: e-resize; }
-.weq-qz-preview-footer { display: flex; align-items: center; justify-content: center; padding: 8px 20px; gap: 8px; border-top: 1px solid #ffffff1a; min-width: 0; }
-.weq-qz-preview-footer > span, .weq-qz-preview-album { display: inline-flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-width: 0; font-size: 14px; }
-.weq-qz-preview-album { padding: 8px; border-radius: 4px; }
-.weq-qz-preview-album span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.weq-qz-preview-album svg { flex-shrink: 0; }
+.weq-qz-preview-blank { position: absolute; top: 0; bottom: 0; width: 50%; padding: 0; }
+.weq-qz-preview-blank.is-left { left: 0; }
+.weq-qz-preview-blank.is-right { right: 0; }
+.weq-qz-preview-blank.is-left:not(:disabled) { cursor: w-resize; }
+.weq-qz-preview-blank.is-right:not(:disabled) { cursor: e-resize; }
+.weq-qz-preview .weq-qz-preview-blank:not(:disabled):hover { background: transparent; }

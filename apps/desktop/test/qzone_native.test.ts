@@ -32,7 +32,6 @@ beforeEach(() => {
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
       getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
-      getQzonePostAlbum: vi.fn(async () => ({ hostUin, topicId: 'album', name: '照片' })),
       getQzoneRelated: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzoneMemories: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzoneAlbumPage: vi.fn(async () => ({
@@ -42,7 +41,6 @@ beforeEach(() => {
         warning: null,
       })),
       getQzoneSpaceStats: vi.fn(async () => ({
-        visitorCount: 123,
         postCount: 45,
         photoCount: null,
       })),
@@ -61,17 +59,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
-  it('binds post album lookup to the online account and exact post', async () => {
-    const input = { selfUin, hostUin, tid: 'post', requestId: query.requestId };
-    expect(await api.postAlbum(input)).toEqual({ hostUin, topicId: 'album', name: '照片' });
-    expect(services.webQuery.getQzonePostAlbum).toHaveBeenCalledWith(
-      hostUin,
-      'post',
-      expect.any(AbortSignal),
-    );
-    await expect(api.postAlbum({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
-    expect(services.webQuery.getQzonePostAlbum).toHaveBeenCalledTimes(1);
-  });
   it('validates scopes and binds completion, recall and album reads to the account', async () => {
     await api.feeds({ selfUin, requestId: query.requestId, scope: 7 });
     expect(services.webQuery.getQzoneFeeds).toHaveBeenCalledWith(
@@ -105,7 +92,6 @@ describe('native Qzone boundary', () => {
   });
   it('reads target-space statistics through the cancellable, account-bound read boundary', async () => {
     expect(await api.stats({ selfUin, hostUin, requestId: query.requestId })).toEqual({
-      visitorCount: 123,
       postCount: 45,
       photoCount: null,
     });

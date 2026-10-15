@@ -51,10 +51,9 @@ import {
 import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
-import { fetchQzoneContentCounts, fetchQzoneVisitorCount } from './qzone_stats';
+import { fetchQzoneContentCounts } from './qzone_stats';
 import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
 import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
-import { fetchQzonePostAlbum } from './qzone_media_album';
 import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -172,12 +171,6 @@ export class WebQueryService {
     );
   }
 
-  async getQzonePostAlbum(targetUin: string, tid: string, signal?: AbortSignal) {
-    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-      fetchQzonePostAlbum(cred, targetUin, tid, signal),
-    );
-  }
-
   async getQzoneRelated(offset: number, signal?: AbortSignal) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) => fetchQzoneRelated(cred, offset, signal));
   }
@@ -268,20 +261,17 @@ export class WebQueryService {
   }
 
   async getQzoneSpaceStats(targetUin: string, signal?: AbortSignal) {
-    const [content, visitors] = await Promise.allSettled([
-      withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-        fetchQzoneContentCounts(cred, targetUin, signal),
-      ),
-      withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-        fetchQzoneVisitorCount(cred, targetUin, signal),
-      ),
-    ]);
     signal?.throwIfAborted();
-    return {
-      postCount: content.status === 'fulfilled' ? content.value.postCount : null,
-      photoCount: content.status === 'fulfilled' ? content.value.photoCount : null,
-      visitorCount: visitors.status === 'fulfilled' ? visitors.value : null,
-    };
+    try {
+      const counts = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+        fetchQzoneContentCounts(cred, targetUin, signal),
+      );
+      signal?.throwIfAborted();
+      return counts;
+    } catch {
+      signal?.throwIfAborted();
+      return { postCount: null, photoCount: null };
+    }
   }
 
   async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {

@@ -1,5 +1,29 @@
 # Qzone Media Preview, 2026-10-15
 
+## Current Performance Fix And Removals
+
+The user's subsequent request supersedes the album-entry portions below: remove the preview's album entry and the space visitor-count display while fixing performance. The original implementation/verification below describes commit `c5ea07de`, not the current product contract.
+
+- Removed the entire preview footer and its album-name resolution props/effects, gallery-side lookup state and RPC hooks, plus the now-unused `postAlbum` route/service/module. Previews make no R15/R25 requests. Existing album navigation elsewhere remains available.
+- Removed the space visitor-count label and stopped fetching visitor counts in `getQzoneSpaceStats`. Only post/photo content totals are read; per-post view counts are unchanged. Content-count failure/cancellation handling remains tested.
+- Replaced the viewport's per-mousemove `getBoundingClientRect` and inline cursor writes with CSS-only left/right blank-space buttons behind the media. Existing accessible navigation buttons remain. Media and native video controls stay above the blank-space targets.
+- Existing album photos render immediately instead of waiting for R22. Detail completion can upgrade the image; a failed detail read preserves the usable photo and offers a toolbar retry. A failed upgraded image also falls back to the existing photo rather than leaving a blank preview.
+- Per-open preview detail promises/results are reused by media key and loader identity, including in-flight requests. Failed loads are evicted for retry; caches disappear when the preview closes. This is metadata/URL caching, not a duplicate media download cache.
+
+Measured synthetic before/after, using the same fixture:
+
+| Check | Before | After |
+| --- | --- | --- |
+| Viewport layout reads for 1,000 mousemove events | 1,000 | 0 |
+| Photo visible 120 ms into a simulated 600 ms detail request | No | Yes |
+| Detail requests for A -> B -> A in one album preview | A, B, A | A, B |
+
+The running WeQ/Electron process was absent at inspection, so these are reproduced code-path improvements, not a profile of the user's original live stall or a claim about overall frame-rate/CPU gains. No unrelated processes were stopped.
+
+Current verification: desktop typechecks, 9 statistics tests, 12 Qzone RPC tests, 10 preview browser scenarios (including missing original/retry, no footer, stale responses and actual album component), 48 feed/space media-grid scenarios and 13 parser cases pass. The media-grid suite also asserts zero album-lookup calls and no visitor-count label. Performance QA sources/before/after receipts are the existing Agents project's `qzone-preview-perf-qa.mjs`, `qzone-preview-perf-baseline.json` and `qzone-preview-perf-results.json`. Original album-query tests were removed with that feature; the earlier service-suite count is not presented as a new full-suite run.
+
+Production `electron-vite build` passes with the existing dynamic-import/deprecation warnings; the main bundle no longer contains the album resolver. UI/performance changes support renderer HMR. Removing the main-process album RPC and visitor read requires one development WeQ restart to fully load the new backend; no QQ restart is required. No App packaging/installation, authenticated content reads or push is part of this batch.
+
 ## Behavior
 
 - Qzone post/repost galleries, feed galleries and album media use one Qzone-specific photo/video preview. Chat image/video lightboxes are not replaced.

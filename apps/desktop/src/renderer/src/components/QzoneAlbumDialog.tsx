@@ -1126,8 +1126,6 @@ function MediaView({
         <QzoneMediaPreview
           items={previewItems}
           initialIndex={preview}
-          album={{ hostUin, topicId, name: albumName }}
-          onAlbum={() => {}}
           onClose={() => {
             setPreview(null);
             detailEpoch.current++;

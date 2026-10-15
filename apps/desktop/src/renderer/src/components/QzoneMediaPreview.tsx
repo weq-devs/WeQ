@@ -1,25 +1,9 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Images,
-  Loader2,
-  RotateCcw,
-  X,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { QzoneAlbumNavigationContext } from '../lib/qzoneNavigation';
 import { useZoomPan } from './useZoomPan';
 import '../styles/qzone-preview.css';
-
-export interface PreviewAlbum {
-  hostUin: string;
-  topicId: string;
-  name: string;
-}
 
 export interface QzonePreviewMedia {
   key: string;
@@ -33,17 +17,11 @@ export interface QzonePreviewMedia {
 export function QzoneMediaPreview({
   items,
   initialIndex,
-  album: knownAlbum,
-  resolveAlbum,
   onClose,
-  onAlbum,
 }: {
   items: QzonePreviewMedia[];
   initialIndex: number;
-  album?: PreviewAlbum;
-  resolveAlbum?: () => Promise<PreviewAlbum | null>;
   onClose: () => void;
-  onAlbum?: (album: PreviewAlbum) => void;
 }) {
   const [index, setIndex] = useState(initialIndex);
   const item = items[index];
@@ -53,13 +31,21 @@ export function QzoneMediaPreview({
     kind: 'image' | 'video';
   } | null>(null);
   const [error, setError] = useState('');
-  const [album, setAlbum] = useState(knownAlbum ?? null);
-  const [albumState, setAlbumState] = useState(resolveAlbum && !knownAlbum ? 'loading' : 'ready');
-  const [albumRetry, setAlbumRetry] = useState(0);
-  const navigate = useContext(QzoneAlbumNavigationContext);
+  const [detailError, setDetailError] = useState(false);
+  const [mediaRetry, setMediaRetry] = useState(0);
+  const mediaLoads = useRef(
+    new Map<
+      string,
+      {
+        load: NonNullable<QzonePreviewMedia['load']>;
+        promise: ReturnType<NonNullable<QzonePreviewMedia['load']>>;
+      }
+    >(),
+  );
   const root = useRef<HTMLDivElement>(null);
   const layer = useOverlayLayer(true);
-  const current = resolved?.key === item?.key ? resolved : item?.load ? null : item;
+  const current =
+    resolved?.key === item?.key ? resolved : item?.load && item.kind === 'video' ? null : item;
   const zoom = useZoomPan(item?.key, { clickZoom: current?.kind !== 'video' });
 
   useEffect(() => {
@@ -71,40 +57,34 @@ export function QzoneMediaPreview({
   }, []);
 
   useEffect(() => {
-    if (knownAlbum || !resolveAlbum) return;
-    let live = true;
-    setAlbumState('loading');
-    void resolveAlbum()
-      .then((value) => {
-        if (live) {
-          setAlbum(value);
-          setAlbumState('ready');
-        }
-      })
-      .catch(() => {
-        if (live) setAlbumState('error');
-      });
-    return () => {
-      live = false;
-    };
-  }, [knownAlbum, resolveAlbum, albumRetry]);
-
-  useEffect(() => {
     let live = true;
     setError('');
-    if (item?.load)
-      void item
-        .load()
+    setDetailError(false);
+    if (item?.load) {
+      let cached = mediaLoads.current.get(item.key);
+      if (!cached || cached.load !== item.load) {
+        const promise = Promise.resolve().then(item.load);
+        cached = { load: item.load, promise };
+        mediaLoads.current.set(item.key, cached);
+        void promise.catch(() => {
+          if (mediaLoads.current.get(item.key)?.promise === promise)
+            mediaLoads.current.delete(item.key);
+        });
+      }
+      void cached.promise
         .then((value) => {
           if (live) setResolved({ ...value, key: item.key });
         })
         .catch(() => {
-          if (live) setError('媒体读取失败');
+          if (!live) return;
+          if (item.kind === 'image' && item.src) setDetailError(true);
+          else setError('媒体读取失败');
         });
+    }
     return () => {
       live = false;
     };
-  }, [item]);
+  }, [item, mediaRetry]);
 
   function move(delta: number) {
     setIndex((value) => Math.max(0, Math.min(items.length - 1, value + delta)));
@@ -157,6 +137,16 @@ export function QzoneMediaPreview({
           {index + 1} / {items.length}
         </span>
         <div>
+          {detailError ? (
+            <button
+              type="button"
+              title="原图读取失败，重试"
+              aria-label="重试读取原图"
+              onClick={() => setMediaRetry((v) => v + 1)}
+            >
+              <RotateCcw size={15} />
+            </button>
+          ) : null}
           {current?.kind === 'image' ? (
             <>
               <button
@@ -188,23 +178,23 @@ export function QzoneMediaPreview({
           </button>
         </div>
       </header>
-      <div
-        className="weq-qz-preview-viewport"
-        onMouseMove={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const left = event.clientX < rect.left + rect.width / 2;
-          event.currentTarget.style.cursor = (left ? index > 0 : index < items.length - 1)
-            ? left
-              ? 'w-resize'
-              : 'e-resize'
-            : 'default';
-        }}
-        onClick={(event) => {
-          if (event.target !== event.currentTarget) return;
-          const rect = event.currentTarget.getBoundingClientRect();
-          move(event.clientX < rect.left + rect.width / 2 ? -1 : 1);
-        }}
-      >
+      <div className="weq-qz-preview-viewport">
+        <button
+          type="button"
+          className="weq-qz-preview-blank is-left"
+          aria-hidden="true"
+          tabIndex={-1}
+          disabled={index === 0}
+          onClick={() => move(-1)}
+        />
+        <button
+          type="button"
+          className="weq-qz-preview-blank is-right"
+          aria-hidden="true"
+          tabIndex={-1}
+          disabled={index === items.length - 1}
+          onClick={() => move(1)}
+        />
         <button
           className="weq-qz-preview-side is-left"
           type="button"
@@ -229,7 +219,13 @@ export function QzoneMediaPreview({
               draggable={false}
               style={zoom.style}
               onMouseDown={zoom.onMouseDown}
-              onError={() => setError('图片暂时无法加载')}
+              onError={() => {
+                if (current.src !== item.src && item.src) {
+                  mediaLoads.current.delete(item.key);
+                  setResolved({ key: item.key, kind: 'image', src: item.src });
+                  setDetailError(true);
+                } else setError('图片暂时无法加载');
+              }}
             />
           ) : (
             <video
@@ -253,43 +249,6 @@ export function QzoneMediaPreview({
           <ChevronRight size={26} />
         </button>
       </div>
-      <footer className="weq-qz-preview-footer">
-        {album ? (
-          <button
-            type="button"
-            className="weq-qz-preview-album"
-            title={album.name}
-            onClick={() => {
-              onClose();
-              if (onAlbum) onAlbum(album);
-              else navigate?.(album.hostUin, album.topicId, album.name);
-            }}
-            disabled={!onAlbum && !navigate}
-          >
-            <Images size={17} />
-            <span>{album.name || '未命名相册'}</span>
-          </button>
-        ) : albumState === 'loading' ? (
-          <span role="status">
-            <Loader2 size={14} className="weq-spin" />
-            正在读取相册…
-          </span>
-        ) : (
-          <span>
-            相册信息暂不可用
-            {albumState === 'error' ? (
-              <button
-                type="button"
-                title="重试读取相册"
-                aria-label="重试读取相册"
-                onClick={() => setAlbumRetry((v) => v + 1)}
-              >
-                <RotateCcw size={15} />
-              </button>
-            ) : null}
-          </span>
-        )}
-      </footer>
     </div>,
     document.body,
   );
