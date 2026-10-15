@@ -50,6 +50,25 @@ These known samples can be distinguished by their structural roles: standalone v
 
 This follow-up updates investigation notes only, not service/renderer behavior. No application restart, rebuild or HMR is needed for these notes. The earlier no-authenticated-request statement describes the preview-fix batch, not this subsequent authorized comparison.
 
+### Mixed Video / Live Photo / Still Comparison, 2026-10-15
+
+The user then published a new, labeled three-item post: ordinary video first, Live Photo second, static photo third. One latest-post list request (`pos=0`, `num=1`) and its matching R02 detail request both returned `code=0` through the same authorized in-memory credential path. No media downloads or older-post reads were performed.
+
+Both responses report `pictotal=3`, `videototal=0`, an empty top-level `video` array, and all three items in `pic`:
+
+| Field | Ordinary video | Live Photo | Static photo |
+| --- | --- | --- | --- |
+| `is_video` | 1 | 1 | Absent |
+| `video_info` | Present | Present, identical field names | Absent |
+| Nested `rtype` / `upload` / `video_status` / `video_right` | 3 / 0 / 1 / 0 | 3 / 0 / 1 / 0 | Not applicable |
+| `pic_id` | Absent | Absent | Present |
+| Photo-level `rtype` / `pictype` / `richsubtype` | Absent | Absent | 1 / 0 / 10000 |
+| Nested `video_time` | 4000 | 1000 | Not applicable |
+
+The two dynamic entries have identical field-name sets, both at photo level and within `video_info`. List responses have covers for both; detail responses leave both `pic_url` values empty. Both motion URLs use the same video host. Dimensions, IDs, URLs and durations differ as expected between assets, but none is a verified semantic type discriminator.
+
+This is a direct counterexample to classifying all `pic[].is_video` entries as Live Photos, or using `videototal=0` to exclude ordinary videos. The earlier 12-Live-Photo post supplied `pic_id` values, but this known Live Photo does not, so presence of that field is not a reliable requirement either. R01/R02 can distinguish still-image entries from entries carrying video, but do not provide a verified ordinary-video-versus-Live-Photo distinction in these samples. A different endpoint or verified source-level type metadata is needed before introducing general Live Photo labels. No classification code was changed; notes only, no restart required. No private IDs, body text, signed URLs or credentials are retained in this record.
+
 ## Development Reload
 
 This batch changes renderer parsing, components and CSS only. Vite renderer HMR can load it without restarting the WeQ main process or QQ; the user's current live development process was not inspected. If it retains the old renderer state/styles, refresh the development window. Earlier main/service changes still require their own restart if not yet loaded.
