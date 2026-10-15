@@ -55,6 +55,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
+import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
 import {
   projectQzoneRelated,
   qzoneRelatedKey,
@@ -1922,65 +1923,71 @@ function Interaction({
     (reply) => !roots.some((root) => root.id === reply.parentCommentId),
   );
   const focusedComment = focusComment ? relatedCommentTarget(focusComment, result!.comments) : null;
-  const renderComment = (comment: QzoneInteraction['comments'][number]) => (
-    <div
-      className={`weq-qzn-comment${comment.isReply ? ' is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`}
-      ref={focusedComment?.id === comment.id ? focusRef : undefined}
-      key={comment.id}
-    >
-      <button
-        type="button"
-        className="weq-qzn-person"
-        aria-label={`进入 ${comment.nickname || comment.uin} 的空间`}
-        onClick={() => onSpace(comment.uin, comment.nickname)}
+  const renderComment = (source: QzoneInteraction['comments'][number]) => {
+    const comment = qzoneReplyPresentation(
+      source,
+      roots.find((root) => root.id === source.parentCommentId)?.uin,
+    );
+    return (
+      <div
+        className={`weq-qzn-comment${comment.isReply ? ' is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`}
+        ref={focusedComment?.id === comment.id ? focusRef : undefined}
+        key={comment.id}
       >
-        <QqAvatar uin={comment.uin} size={26} />
-      </button>
-      <div>
         <button
           type="button"
           className="weq-qzn-person"
+          aria-label={`进入 ${comment.nickname || comment.uin} 的空间`}
           onClick={() => onSpace(comment.uin, comment.nickname)}
         >
-          <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
+          <QqAvatar uin={comment.uin} size={26} />
         </button>
-        {comment.isReply ? (
-          <span>
-            {' '}
-            回复{' '}
-            {comment.replyToUin ? (
-              <button
-                type="button"
-                className="weq-qzn-person"
-                onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
-              >
-                <QzoneName
-                  content={comment.replyToNickname || comment.replyToUin}
-                  uin={comment.replyToUin}
-                />
-              </button>
-            ) : (
-              <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
-            )}
-            ：
-          </span>
-        ) : null}
-        {comment.isReply ? (
-          <span className="weq-qzn-reply-message">
-            <QzoneText content={comment.content} onSpace={onSpace} />
-          </span>
-        ) : (
-          <p>
-            <QzoneText content={comment.content} onSpace={onSpace} />
-          </p>
-        )}
-        <Pictures images={comment.images} />
-        <div className="weq-qzn-comment-meta">
-          <time>{timeText(comment.time)}</time>
+        <div>
+          <button
+            type="button"
+            className="weq-qzn-person"
+            onClick={() => onSpace(comment.uin, comment.nickname)}
+          >
+            <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
+          </button>
+          {comment.isReply ? (
+            <span>
+              {' '}
+              回复{' '}
+              {comment.replyToUin ? (
+                <button
+                  type="button"
+                  className="weq-qzn-person"
+                  onClick={() => onSpace(comment.replyToUin!, comment.replyToNickname)}
+                >
+                  <QzoneName
+                    content={comment.replyToNickname || comment.replyToUin}
+                    uin={comment.replyToUin}
+                  />
+                </button>
+              ) : (
+                <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
+              )}
+              ：
+            </span>
+          ) : null}
+          {comment.isReply ? (
+            <span className="weq-qzn-reply-message">
+              <QzoneText content={comment.content} onSpace={onSpace} />
+            </span>
+          ) : (
+            <p>
+              <QzoneText content={comment.content} onSpace={onSpace} />
+            </p>
+          )}
+          <Pictures images={comment.images} />
+          <div className="weq-qzn-comment-meta">
+            <time>{timeText(comment.time)}</time>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
   return (
     <div className="weq-qzn-interaction">
       {loading ? <LoadingStatus /> : null}
@@ -2650,16 +2657,21 @@ function RelatedCard({
             )
           : [];
         const match = exact || (timed.length === 1 ? timed[0] : null);
-        if (match)
+        if (match) {
+          const display = qzoneReplyPresentation(
+            match,
+            result.comments.find((root) => root.id === match.parentCommentId && !root.isReply)?.uin,
+          );
           onComment(qzoneRelatedKey(feed), `${hostUin}:${tid}`, {
             id: match.id,
             uin: match.uin,
-            content: match.content,
+            content: display.content,
             images: match.images,
             isReply: match.isReply,
             parentCommentId: match.parentCommentId,
             replyId: match.replyId,
           });
+        }
       })
       .catch(() => {});
     return () => {
