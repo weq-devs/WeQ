@@ -1,6 +1,6 @@
 {
-  "tag": "nt-helper-20261015-593e2bd",
-  "commit": "593e2bd060fb6d9fae34f5e52a209721eb7bb683",
+  "tag": "nt-helper-20261015-826d136",
+  "commit": "826d13616985db574fb996233fe14d1b45cbc356",
   "pinnedAt": "2026-10-15",
   "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级：pnpm native:fetch --latest --verify 先验证新构建，再 pnpm native:fetch --latest --write-pin 写回这里并提交。"
 }
