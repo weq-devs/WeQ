@@ -188,6 +188,9 @@ export interface Platform {
    */
   resolveQqPid(uin: string): number | null;
 
+  /** Optional bounded, asynchronous online probe for routine account polling. */
+  resolveQqPidAsync?(uin: string): Promise<number | null>;
+
   /**
    * macOS only: is 系统完整性保护（SIP）still on? Reading another process's memory
    * goes through `task_for_pid`, which SIP + QQ's hardened runtime refuse even
