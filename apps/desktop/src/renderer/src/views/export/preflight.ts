@@ -8,6 +8,59 @@
 import type { AppDialogApi } from '../../lib/dialogUtils';
 import { client } from '../../trpc/client';
 
+type EstimateInput = Parameters<typeof client.account.exportPreflight.query>[0];
+export async function preflightExportEstimate(
+  dialog: AppDialogApi,
+  targets: readonly { kind: 'group' | 'c2c'; id: string; name: string }[],
+  options: {
+    range: { start: number | null; end: number | null };
+    formats: readonly string[];
+    exportMedia: boolean;
+    filter?: EstimateInput['filter'];
+  },
+): Promise<boolean> {
+  if (!targets.length) return false;
+  const formatBytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  try {
+    const results = [];
+    // Keep preflight bounded when exporting hundreds of conversations.
+    for (const target of targets.slice(0, 3))
+      results.push({
+        name: target.name,
+        ...(await client.account.exportPreflight.query({
+          kind: target.kind,
+          conv: target.id,
+          range: options.range,
+          formats: options.formats.filter((f) => f !== 'vcard') as EstimateInput['formats'],
+          exportMedia: options.exportMedia,
+          filter: options.filter,
+        })),
+      });
+    const first = results[0]!;
+    const estimate = results.every((r) => r.estimatedMessageBytes !== null)
+      ? results.reduce((sum, r) => sum + r.estimatedMessageBytes!, 0)
+      : null;
+    const summary = results
+      .map(
+        (r) =>
+          `${r.name}：${r.matchingMessages === null ? `数量未核定，已找到 ${r.matchingLowerBound} 条样本` : r.matchingMessages + ' 条'}`,
+      )
+      .join('\n');
+    return await dialog.confirm(
+      '导出预检',
+      `${summary}\n${targets.length > 3 ? `已抽样前 3 个，共 ${targets.length} 个会话。\n` : ''}正文估算：${estimate === null ? '未核定' : formatBytes(estimate)}（抽样估算，不含附件、头像、装扮及新增漫游消息）\n临时导出目录：${first.destination}\n可用空间：${formatBytes(first.availableBytes)}${results.some((r) => r.spaceWarning) ? '\n警告：估算正文可能超出当前可用空间。' : ''}`,
+      {
+        okLabel: '开始导出',
+        cancelLabel: '返回',
+        tone: results.some((r) => r.spaceWarning) ? 'warning' : 'info',
+      },
+    );
+  } catch (error) {
+    dialog.error('导出预检失败', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
 /**
  * Pre-flight for 补全缺失媒体: needs an online QQ (to harvest a fresh rkey).
  * Returns false to abort the export. Offline → hard block; 完全离线模式（自动

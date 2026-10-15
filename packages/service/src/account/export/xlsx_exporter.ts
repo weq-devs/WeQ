@@ -15,6 +15,7 @@
 
 import ExcelJS from 'exceljs';
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import type { MsgService } from '../msg';
 import {
   iterateC2cMessages,
@@ -92,6 +93,7 @@ export async function exportToXlsx(
         });
 
   let count = 0;
+  const audit = new MessageAudit();
   for await (const m of iterator) {
     if (rowsInSheet >= SHEET_ROW_LIMIT) {
       sheet.commit();
@@ -104,6 +106,7 @@ export async function exportToXlsx(
     opts.collectSenders?.add(exported.senderUin);
     if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
     await expandForwards(msgs, opts.kind, exported);
+    audit.observe(exported.elements);
     if (opts.withMediaPaths) annotateExportPaths(exported.elements);
     sheet.addRow(messageToCells(exported)).commit();
     rowsInSheet += 1;
@@ -117,6 +120,7 @@ export async function exportToXlsx(
   await workbook.commit();
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format: 'xlsx',
     messageCount: count,

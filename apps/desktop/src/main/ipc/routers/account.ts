@@ -64,6 +64,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
+  assertDestinationCapacity,
   getVoiceModel,
   buildBotExport,
   probeBotWebUi,
@@ -2044,6 +2045,67 @@ export const accountRouter = router({
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
+  conversationCalendar: procedure
+    .input(convInput)
+    .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
+
+  conversationBoundary: procedure
+    .input(
+      convInput.extend({
+        newest: z.boolean().default(false),
+        start: z.number().int().nonnegative().optional(),
+        end: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .query(({ input }) =>
+      requireServices().msgs.boundary(input.kind, input.conv, input.newest, {
+        start: input.start,
+        end: input.end,
+      }),
+    ),
+
+  browseConversation: procedure
+    .input(
+      convInput.extend({
+        filter: z.object({
+          start: z.number().int().nonnegative().optional(),
+          end: z.number().int().nonnegative().optional(),
+          sender: z.string().max(128).optional(),
+          keyword: z.string().max(512).optional(),
+          category: z
+            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+            .optional(),
+        }),
+        cursor: z.object({ time: z.number().int(), rowId: z.string().regex(/^-?\d+$/) }).optional(),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+    )
+    .query(async ({ input }) => {
+      if (
+        input.filter.start !== undefined &&
+        input.filter.end !== undefined &&
+        input.filter.start > input.filter.end
+      )
+        throw new Error('开始日期不能晚于结束日期。');
+      const result = await requireServices().msgs.browse(
+        input.kind,
+        input.conv,
+        input.filter,
+        input.cursor,
+        input.limit,
+      );
+      return {
+        ...result,
+        items: result.items.map((m) => ({
+          ...(input.kind === 'group'
+            ? groupMsgToWire(m as RenderGroupMsg)
+            : c2cMsgToWire(m as RenderC2cMsg)),
+          senderName: m.senderName,
+          content: m.content,
+        })),
+      };
+    }),
+
   listLatest: procedure
     .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))
     .query(({ input }) => fetchLatest(input.kind, input.conv, input.limit)),
@@ -4433,6 +4495,15 @@ export const accountRouter = router({
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+        filter: z
+          .object({
+            sender: z.string().max(128).optional(),
+            keyword: z.string().max(512).optional(),
+            category: z
+              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+              .optional(),
+          })
+          .optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -4558,6 +4629,29 @@ export const accountRouter = router({
   }),
 
   /** List all export tasks. */
+  exportPreflight: procedure
+    .input(
+      z.object({
+        kind: z.enum(['group', 'c2c']),
+        conv: z.string().min(1),
+        range: z
+          .object({ start: z.number().int().nullable(), end: z.number().int().nullable() })
+          .optional(),
+        filter: z
+          .object({
+            sender: z.string().max(128).optional(),
+            keyword: z.string().max(512).optional(),
+            category: z
+              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+              .optional(),
+          })
+          .optional(),
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        exportMedia: z.boolean().optional(),
+      }),
+    )
+    .query(({ input }) => requireServices().exportManager.preflight(input)),
+
   listExportTasks: procedure.query(() => {
     return requireServices().exportManager.listTasks();
   }),
@@ -4570,6 +4664,19 @@ export const accountRouter = router({
     }),
 
   /** Cancel a task. */
+  revealExportReport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (!task?.reportPath) throw new Error('完整性报告尚未生成。');
+      await getHost().revealPath(task.reportPath);
+      return true;
+    }),
+
+  resumeExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => requireServices().exportManager.resumeTask(input.taskId)),
+
   cancelExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
@@ -4767,13 +4874,19 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       // 不再使用默认导出目录记忆：每次都弹系统保存框，避免后续保存无法选择路径。
-      const { copyFileSync } = await import('node:fs');
+      const { copyFileSync, existsSync } = await import('node:fs');
       const target = await getHost().pickSaveTarget({
         defaultName: input.defaultName,
         extension: input.format,
       });
       if (!target) return false;
+      assertDestinationCapacity(target.path, input.sourcePath);
       copyFileSync(input.sourcePath, target.path);
+      const task = requireServices()
+        .exportManager.listTasks()
+        .find((t) => t.filePath === input.sourcePath);
+      if (task?.reportPath && existsSync(task.reportPath))
+        copyFileSync(task.reportPath, `${target.path}.report.json`);
       return true;
     }),
 
@@ -4793,6 +4906,7 @@ export const accountRouter = router({
       const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
       if (!picked) return false;
       const dest = join(picked, sanitizePathSegment(task.name, task.id));
+      assertDestinationCapacity(dest, task.bundleDir);
       cpSync(task.bundleDir, dest, { recursive: true });
       return true;
     }),
@@ -4827,6 +4941,7 @@ export const accountRouter = router({
         const picked = await host.pickDirectory({ title: '选择导出保存文件夹' });
         if (!picked) return false;
         const dest = join(picked, sanitizePathSegment(task.name, task.id));
+        assertDestinationCapacity(dest, task.bundleDir);
         cpSync(task.bundleDir, dest, { recursive: true });
         return true;
       }
@@ -4837,7 +4952,13 @@ export const accountRouter = router({
         extension: task.format,
       });
       if (!target) return false;
+      assertDestinationCapacity(target.path, task.filePath);
       copyFileSync(task.filePath, target.path);
+      if (task.reportPath) {
+        const { existsSync } = await import('node:fs');
+        if (existsSync(task.reportPath))
+          copyFileSync(task.reportPath, `${target.path}.report.json`);
+      }
       return true;
     }),
 

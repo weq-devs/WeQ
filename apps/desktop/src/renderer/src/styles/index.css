@@ -869,6 +869,7 @@ html[data-theme="dark"] .chat-empty {
     inset: 0;
     z-index: 140;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
     background:
       radial-gradient(ellipse at 30% 22%, rgba(0, 153, 255, 0.10), transparent 42%),
@@ -1321,6 +1322,8 @@ html[data-theme='dark'] .weq-splash-track {
 
   /* ---- modal + dialog ---- */
   .weq-modal {
+    max-width: calc(100vw - 24px);
+    min-width: 0;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
@@ -1370,6 +1373,7 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-dialog-x:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-fg-primary); }
   .weq-dialog-body {
     color: var(--weq-fg-secondary);
+    white-space: pre-line;
     font-size: 13.5px;
     line-height: 1.62;
     word-break: break-word;
@@ -3109,6 +3113,27 @@ html[data-theme='dark'] .weq-splash-track {
 .weq-action-primary {
   color: #ffffff;
 }
+
+.weq-message-calendar { padding: 16px; color: var(--weq-fg-primary); }
+.weq-message-calendar header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.weq-calendar-tools { display:flex; align-items:center; justify-content:space-between; gap:4px; margin-bottom:12px; }
+.weq-calendar-tools button { display:grid; place-items:center; width:28px; height:28px; border-radius:4px; }
+.weq-calendar-tools select { min-width:0; background:var(--weq-bg-elevated); color:var(--weq-fg-primary); border:1px solid var(--weq-border-subtle); padding:4px; }
+.weq-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-template-rows:18px repeat(6,48px); gap:4px; }
+.weq-calendar-grid > span { text-align:center; color:var(--weq-fg-muted); font-size:12px; }
+.weq-calendar-grid button { min-width:0; height:48px; display:flex; flex-direction:column; justify-content:center; align-items:center; border:1px solid transparent; border-radius:4px; }
+.weq-calendar-grid button.has-messages { background:var(--weq-bg-elevated); border-color:var(--weq-border-subtle); }
+.weq-calendar-grid button.has-messages:hover { border-color:var(--weq-accent-effective); }
+.weq-calendar-grid button:disabled { color:var(--weq-fg-muted); opacity:0.55; }
+.weq-calendar-grid small { font-size:10px; max-width:100%; overflow:hidden; }
+.weq-message-calendar footer { margin-top:12px; font-size:12px; color:var(--weq-fg-secondary); }
+.weq-record-filters { display:flex; flex-wrap:wrap; align-items:end; gap:8px; padding:0 16px 12px; color:var(--weq-fg-secondary); }
+.weq-record-filters label { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:12px; }
+.weq-record-filters input,.weq-record-filters select { max-width:100%; min-width:0; height:30px; padding:4px 6px; border:1px solid var(--weq-border-subtle); border-radius:4px; background:var(--weq-bg-elevated); color:var(--weq-fg-primary); font-size:12px; }
+.weq-record-filters .weq-record-self { flex-direction:row; align-items:center; height:30px; }
+.weq-record-filters .weq-record-self input { height:14px; }
+.weq-record-filters input:not([type="checkbox"]) { width:148px; }
+.weq-record-error { color:var(--weq-warn-fg); padding:8px 16px; font-size:12px; }
 
 .weq-action-primary:hover,
 .weq-action-primary:focus-visible {

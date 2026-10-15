@@ -13,6 +13,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
@@ -143,6 +144,7 @@ export async function exportJsonConversation(
   const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
+  const audit = new MessageAudit();
   try {
     if (isJsonl) {
       await writer.write(`${JSON.stringify({ _type: 'header', meta }, bigintReplacer)}\n`);
@@ -156,6 +158,7 @@ export async function exportJsonConversation(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
@@ -178,6 +181,7 @@ export async function exportJsonConversation(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(
@@ -196,6 +200,7 @@ export async function exportJsonConversation(
   }
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format: opts.format,
     messageCount: count,

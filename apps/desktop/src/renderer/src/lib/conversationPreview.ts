@@ -44,6 +44,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 type Rec = Record<string, unknown>;
+type DisplayNames = Pick<ReadonlyMap<string, string>, 'get'>;
 
 /** 没有「自己」身份上下文时的占位集合（如公会私信列表）。 */
 const NO_SELF: ReadonlySet<string> = new Set();
@@ -51,7 +52,7 @@ const NO_SELF: ReadonlySet<string> = new Set();
 export function previewNodes(
   preview: unknown,
   selfIdentities: ReadonlySet<string> = NO_SELF,
-  displayNames: ReadonlyMap<string, string> = new Map(),
+  displayNames: DisplayNames = new Map(),
 ): PreviewNode[] {
   if (!preview || typeof preview !== 'object') return [];
   const el = preview as Rec;
@@ -109,7 +110,12 @@ export function previewNodesToText(nodes: PreviewNode[]): string {
 
 // ---------- 灰条 ----------------------------------------------------------
 
-function grayTipNodes(el: Rec, kind: string, self: ReadonlySet<string>, displayNames: ReadonlyMap<string, string>): PreviewNode[] | null {
+function grayTipNodes(
+  el: Rec,
+  kind: string,
+  self: ReadonlySet<string>,
+  displayNames: DisplayNames,
+): PreviewNode[] | null {
   if (kind === 'grayTipRevoke') {
     const text = str(el.recallDisplayText).trim();
     return text ? [{ t: 'text', text }] : null;
@@ -232,13 +238,15 @@ function parseTipJson(raw: string, names: NameLookup): PreviewNode[] {
   } catch {
     return [];
   }
+  if (!Array.isArray(items)) return [];
 
   const nodes: PreviewNode[] = [];
   let personIndex = 0;
   for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
     if (item.type === 'qq' || item.type === 'url') {
-      const uid = item.uid || item.uin || '';
-      const name = names.resolve(uid, personIndex++, item.uin, item.nm) || item.txt || '';
+      const uid = str(item.uid) || str(item.uin);
+      const name = names.resolve(uid, personIndex++, str(item.uin), str(item.nm)) || str(item.txt);
       if (name) pushText(nodes, name);
     } else {
       pushText(nodes, item.txt ?? '');
@@ -257,7 +265,7 @@ interface NameLookup {
   resolve(uid: string, personIndex: number, uinHint?: string, label?: string): string;
 }
 
-function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: ReadonlyMap<string, string>): NameLookup {
+function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: DisplayNames): NameLookup {
   const byUid = new Map<string, string>();
   for (const key of ['actionInitiator', 'actionTarget']) {
     const who = el[key] as Rec | undefined;
@@ -269,7 +277,7 @@ function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: ReadonlyMap
 
   const attrs = Array.isArray(el.actionAttributes) ? (el.actionAttributes as Rec[]) : [];
   const attrValue = (key: string): string => {
-    const hit = attrs.find((a) => str(a.key) === key);
+    const hit = attrs.find((a) => a && str(a.key) === key);
     return hit ? str(hit.value).trim() : '';
   };
 
@@ -278,8 +286,8 @@ function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: ReadonlyMap
       if (self.has(uid)) return SELF_LABEL;
       if (label && label !== uid && !/^\d+$/.test(label)) return label;
       const known = byUid.get(uid);
-      if (known) return known;
       const uin = attrValue(`uin_str${personIndex + 1}`) || uinHint || label || uid;
+      if (known && known !== uid && known !== uin) return known;
       if (self.has(uin)) return SELF_LABEL;
       const resolved = displayNames.get(uid) || displayNames.get(uin);
       if (resolved) return resolved;
@@ -312,12 +320,17 @@ export function previewIdentityIds(preview: unknown): string[] {
       }
     }
     if (str(el.tipJson)) {
-      const items = (JSON.parse(str(el.tipJson)) as {items?: TipJsonItem[]}).items;
-      if (Array.isArray(items)) for (const item of items) {
-        if (item.type === 'qq' && (item.uid || item.uin)) ids.add(item.uid || item.uin!);
-      }
+      const items = (JSON.parse(str(el.tipJson)) as { items?: TipJsonItem[] }).items;
+      if (Array.isArray(items))
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const id = str(item.uid) || str(item.uin);
+          if (item.type === 'qq' && id) ids.add(id);
+        }
     }
-  } catch { /* Malformed preview still uses its existing text fallback. */ }
+  } catch {
+    /* Malformed preview still uses its existing text fallback. */
+  }
   return [...ids];
 }
 

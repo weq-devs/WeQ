@@ -43,6 +43,8 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
+import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
+import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -105,6 +107,29 @@ export class C2cMsgDb {
   constructor(nt: NtHelperBinding, opts: C2cMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
     this.table = opts.table ?? 'c2c_msg_table';
+  }
+  get sourcePath(): string {
+    return this.qq.dbPath;
+  }
+
+  calendar(part: C2cPartition) {
+    const { clause, value } = partitionWhere(part);
+    return queryMessageDays(this.qq, this.table, clause, value);
+  }
+
+  async browse(part: C2cPartition, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
+    const { clause, value } = partitionWhere(part);
+    const query = browseConditions(clause, value, filter, cursor);
+    const rows = await this.qq.query(
+      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      [...query.params, BigInt(limit)],
+    );
+    return rows.map((row) => ({ rowId: String(row[0]), message: rowToC2cMsg(row.slice(1)) }));
+  }
+
+  boundary(part: C2cPartition, newest: boolean, bounds?: MessageBounds) {
+    const { clause, value } = partitionWhere(part);
+    return queryMessageBoundary(this.qq, this.table, clause, value, newest, bounds);
   }
 
   /** Newest N messages in one conversation, newest-first (DESC by seq). */
