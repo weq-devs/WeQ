@@ -8,6 +8,8 @@
 
 欢迎加入**QQ交流群**讨论交流： [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
 
+
+
 ---
 
 ## 核心功能
@@ -97,6 +99,9 @@ pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon �
 ```
 
 > 贡献代码请先阅读 [贡献指南](./CONTRIBUTING.md)  作为参考
+
+### QQ交流群
+<img src="./resources/img/WeQ_qr.jpg" alt="WeQ QQ交流群二维码" width="360">
 
 ## 致谢
 
