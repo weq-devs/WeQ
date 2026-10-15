@@ -63,7 +63,7 @@ const steps = [
   step('Biome lint', 'pnpm lint'),
   step('Biome 格式检查', 'pnpm format:check'),
   step('TypeScript 类型检查 (pnpm -r typecheck)', 'pnpm -r typecheck'),
-  step('单元测试 (pnpm -r test，含 web + daemon)', 'pnpm -r test'),
+  step('单元测试 (pnpm -r test，含 desktop + web + daemon)', 'pnpm -r test'),
 ];
 
 if (!NO_DAEMON && hasCargo) {

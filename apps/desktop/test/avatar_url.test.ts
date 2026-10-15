@@ -6,12 +6,11 @@
  * s=**）→ 上游 400 → 代理回 502，面板里所有头像都裂。数据库 20004 列的 profile 头像
  * 是同一个形状。
  *
- * 跑法（apps/desktop 没有 test 脚本，不进 `pnpm -r test`）：
- *   cd apps/desktop && node --test test/avatar_url.test.ts
+ * 跑法：`pnpm --filter @weq/desktop test`（也随 `pnpm -r test` 进 CI）。
  */
 
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fixProfileAvatarUrl } from '../src/renderer/src/lib/avatarResolver.ts';
 
 /** 用户报的那条真实 URL（按抓包原样，只有 ek 截断）。 */
