@@ -60,12 +60,31 @@ function shareCover(root: Element): string | null {
   return null;
 }
 
+/**
+ * Real target of an inline lazy image.
+ *
+ * Some feeds ship the placeholder `src="/ac/b.gif"` and hide the real URL inside
+ * the `onload` handler (`QZFL.media.reduceImage(1,w,h,{trueSrc:'https:\/\/…'})`).
+ * The value is a JS string literal, so `\/` and `\x..` escapes must be decoded
+ * before it is a usable URL. Returns null when no handler carries a target.
+ */
+function inlineLazyImageSource(image: Element): string | null {
+  const handler = image.getAttribute('onload') || '';
+  const raw = handler.match(/trueSrc\s*:\s*(['"])(.*?)\1/s)?.[2];
+  if (!raw) return null;
+  return raw
+    .replace(/\\x([0-9a-f]{2})/gi, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-f]{4})/gi, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\(['"\\/])/g, '$1');
+}
+
 /** A loader/spacer is UI, but a real lazy-image target must still be kept. */
 function feedImageSource(image: Element): string | null {
   const lazy =
     image.getAttribute('data-src') ||
     image.getAttribute('data-original') ||
-    image.getAttribute('lz-src');
+    image.getAttribute('lz-src') ||
+    inlineLazyImageSource(image);
   const source = qzoneMediaSource(lazy || image.getAttribute('src') || '');
   if (!source) return null;
   const url = new URL(source);
