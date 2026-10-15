@@ -14,9 +14,9 @@ export function QzonePaginationSettings() {
   const save = trpc.bootstrap.setQzonePagination.useMutation();
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
-  const [seconds, setSeconds] = useState('10');
-  const [pages, setPages] = useState('5');
   const saved = settings.data?.qzonePagination;
+  const [seconds, setSeconds] = useState(() => String(saved?.windowSeconds ?? 10));
+  const [pages, setPages] = useState(() => String(saved?.maxPages ?? 5));
   useEffect(() => {
     if (!saved) return;
     setSeconds(String(saved.windowSeconds));
@@ -32,8 +32,14 @@ export function QzonePaginationSettings() {
     maxPages >= 1 &&
     maxPages <= 1000;
   const dirty = windowSeconds !== saved?.windowSeconds || maxPages !== saved?.maxPages;
+  const unavailable = !settings.isLoading && !saved;
   return (
-    <Card title="QQ 空间翻页频率">
+    <Card title="在线翻页限速">
+      {unavailable ? (
+        <p className="weq-set-row-desc" role="alert">
+          {settings.error?.message || '当前主进程未加载限速设置'}
+        </p>
+      ) : null}
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -86,7 +92,13 @@ export function QzonePaginationSettings() {
           }
         />
         <Row
-          label={saved ? `每 ${saved.windowSeconds} 秒最多 ${saved.maxPages} 页` : '读取中…'}
+          label={
+            saved
+              ? `每 ${saved.windowSeconds} 秒最多 ${saved.maxPages} 页`
+              : unavailable
+                ? '设置不可用'
+                : '读取中…'
+          }
           control={
             <button
               type="submit"

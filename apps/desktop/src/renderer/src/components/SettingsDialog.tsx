@@ -19,6 +19,7 @@ import {
   Check,
   CloudDownload,
   DatabaseZap,
+  Globe,
   Lock,
   LockKeyhole,
   Monitor,
@@ -32,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
@@ -43,6 +45,7 @@ import { DaemonSection } from './settings/DaemonSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
+import '../styles/settings-responsive.css';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -56,6 +59,7 @@ export type SectionId =
   | 'appearance'
   | 'applock'
   | 'account'
+  | 'qzone'
   | 'database'
   | 'voice'
   | 'agentlab'
@@ -95,6 +99,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'qzone',
+    label: 'QQ 空间设置',
+    icon: <Globe size={16} strokeWidth={1.8} />,
+    render: () => <QzoneSettingsSection />,
   },
   {
     id: 'database',
