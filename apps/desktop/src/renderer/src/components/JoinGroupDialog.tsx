@@ -10,21 +10,24 @@
  * 点「立即加群」或「不再提醒」都写这个版本号，之后同版本内不再出现（版本号可抬，
  * 见 service 的 JOIN_GROUP_PROMPT_VERSION）。
  *
- * 弹窗内容按账号的**实际能力**分四档（由 `account.getGroupJoinState` 的 `mode` 决定），
- * 按钮走对应的加群路径：
- *   1. `already-in` —— 已经在群里：只展示二维码 + 一行「你已在群里」；
- *   2. `inject`     —— QQ 在线且 a2/d2/d2key/guid 齐全：换 authKey 后直接发入群申请
- *                      （OIDB 0x11ec_1，@weq/protocol 的 SendGroupJoinRequest）；
- *   3. `deeplink`   —— QQ 在线但物料不全：换 authKey 后拼 `tencent://groupwpa/`
- *                      深链接，交给系统拉起 QQ 客户端自己发；
- *   4. `browser`    —— QQ 不在线：用系统浏览器打开分享页，手机 QQ 扫码加群。
+ * **已经在群里就不弹**：既然人已经在群里，加群引导没有任何意义（弹了也只是让用户
+ * 关掉），所以 `getGroupJoinState().inGroup` 为真时本组件直接返回 null。好在「已加入」
+ * 是本地群列表（`group_list`）就能判定的，不依赖在线状态。
  *
- * 中间那枚二维码是**分享短链**的 dots 风格渲染（见 GroupJoinQr），四种档位都展示 ——
- * 它是最通用的兜底（手机扫码），也承担「这个群长这样」的视觉锚点。
+ * 弹窗内容按账号的**实际能力**分三档（由 `account.getGroupJoinState` 的 `mode` 决定），
+ * 按钮走对应的加群路径：
+ *   1. `inject`     —— QQ 在线且 a2/d2/d2key/guid 齐全：换 authKey 后直接发入群申请
+ *                      （OIDB 0x11ec_1，@weq/protocol 的 SendGroupJoinRequest）；
+ *   2. `deeplink`   —— QQ 在线但物料不全：换 authKey 后拼 `tencent://groupwpa/`
+ *                      深链接，交给系统拉起 QQ 客户端自己发；
+ *   3. `browser`    —— QQ 不在线：用系统浏览器打开分享页，手机 QQ 扫码加群。
+ *
+ * 中间那枚二维码是**分享短链**的 dots 风格渲染（见 GroupJoinQr）—— 它是最通用的兜底
+ * （手机扫码），也承担「这个群长这样」的视觉锚点。
  */
 
 import { useState, type ReactElement } from 'react';
-import { CheckCircle2, Loader2, Users } from 'lucide-react';
+import { Loader2, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { GroupJoinQr } from './GroupJoinQr';
@@ -32,10 +35,6 @@ import logoUrl from '@resources/brand/logo.png';
 
 /** `mode` → 主按钮文案与一句引导语。 */
 const MODE_COPY = {
-  'already-in': {
-    hint: '你已经在群里了，无需重复申请。',
-    cta: '知道了',
-  },
   inject: {
     hint: '点击下方按钮，直接以当前登录的 QQ 发送入群申请。',
     cta: '立即加群',
@@ -50,7 +49,7 @@ const MODE_COPY = {
   },
 } as const;
 
-/** 四种档位共用的弹窗（内容按 mode 变化）。 */
+/** 加群引导弹窗（内容按 mode 变化）。 */
 export function JoinGroupDialog(): ReactElement | null {
   const welcome = trpc.bootstrap.getWelcomeAcknowledged.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -83,6 +82,8 @@ export function JoinGroupDialog(): ReactElement | null {
   if (dismissed) return null;
   if (!shouldPrompt) return null;
   if (!state.data) return null;
+  // 已经在群里：不弹。也就顺带不写版本号 —— 万一以后退群了，这条引导还能再出现一次。
+  if (state.data.inGroup) return null;
 
   const data = state.data;
   const copy = MODE_COPY[data.mode];
@@ -100,11 +101,6 @@ export function JoinGroupDialog(): ReactElement | null {
   }
 
   async function onPrimary(): Promise<void> {
-    // 已在群里 / 纯提示档：主按钮就是「知道了」，等同不再提醒。
-    if (data.mode === 'already-in') {
-      await dismissForever();
-      return;
-    }
     setNote(null);
     try {
       const result = await join.mutateAsync();
@@ -158,14 +154,7 @@ export function JoinGroupDialog(): ReactElement | null {
             <GroupJoinQr url={data.shareUrl} size={196} />
           </div>
 
-          {data.inGroup ? (
-            <p className="weq-join-group-status is-ok">
-              <CheckCircle2 size={12} strokeWidth={2.4} aria-hidden />
-              你已在群里
-            </p>
-          ) : (
-            <p className="weq-join-group-hint">{copy.hint}</p>
-          )}
+          <p className="weq-join-group-hint">{copy.hint}</p>
 
           {note ? (
             <div className={`weq-join-group-note is-${note.tone}`}>

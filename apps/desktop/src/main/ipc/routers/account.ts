@@ -356,7 +356,7 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
 });
 
 /** 加群引导弹窗的推荐动作（见 `getGroupJoinState`）。 */
-export type GroupJoinMode = 'already-in' | 'inject' | 'deeplink' | 'browser';
+export type GroupJoinMode = 'inject' | 'deeplink' | 'browser';
 
 /** 加群引导弹窗的全部前置状态（`account.getGroupJoinState` 的返回）。 */
 export interface GroupJoinState {
@@ -364,7 +364,10 @@ export interface GroupJoinState {
   groupName: string;
   /** 分享短链（二维码内容 / 浏览器兜底打开的地址）。 */
   shareUrl: string;
-  /** 本地群列表里是否已有这个群。 */
+  /**
+   * 本地群列表里是否已有这个群。**为真时渲染层直接不弹** —— 已在群里就没有引导的
+   * 余地了，只有不在群里才谈得上选哪种加群方式（所以此时 `mode` 无意义）。
+   */
   inGroup: boolean;
   /** 推荐动作，弹窗按钮照着它渲染。 */
   mode: GroupJoinMode;
@@ -3414,10 +3417,11 @@ export const accountRouter = router({
    *   - 群名 / 头像 / 分享链接（常量，不查库）。
    *
    * `mode` 是给前端的**推荐动作**，同一份状态只在这里判一次，弹窗按钮照着它渲染：
-   *   - `already-in` —— 已在群里，只需展示二维码；
    *   - `inject`     —— 在线 + 物料齐 → 换 authKey 后直接发入群申请；
    *   - `deeplink`   —— 在线但物料缺 → 拉起 QQ 深链接，让 QQ 客户端自己发；
    *   - `browser`    —— QQ 不在线 → 浏览器打开分享页扫码加群。
+   *
+   * 注意 `inGroup`：为真时渲染层**整个弹窗都不显示**，`mode` 只是照常在算（不消费）。
    */
   getGroupJoinState: procedure.query(async (): Promise<GroupJoinState> => {
     const state = albumAccessState();
@@ -3435,13 +3439,7 @@ export const accountRouter = router({
       state.hasD2 &&
       state.hasD2Key &&
       state.hasGuid;
-    const mode: GroupJoinMode = inGroup
-      ? 'already-in'
-      : !state.qqOnline
-        ? 'browser'
-        : canInject
-          ? 'inject'
-          : 'deeplink';
+    const mode: GroupJoinMode = !state.qqOnline ? 'browser' : canInject ? 'inject' : 'deeplink';
     return {
       groupCode: PROJECT_GROUP_CODE,
       groupName: PROJECT_GROUP_NAME,
@@ -3459,10 +3457,11 @@ export const accountRouter = router({
 
   /**
    * 执行加群引导的**推荐动作**（按 `getGroupJoinState().mode`）：
-   *   - `already-in`：空操作（前端此时只展示二维码，不该调到这里）；
    *   - `inject`    ：换 authKey → 发入群申请（OIDB 0x11ec_1），成功即结束；
    *   - `deeplink`  ：换 authKey → 拼 `tencent://groupwpa/` 深链接 → 交给系统拉起 QQ；
    *   - `browser`   ：用系统浏览器打开分享页（手机 QQ 扫码加群）。
+   *
+   * 不处理「已在群里」：那种情况下渲染层根本不显示弹窗，也就不会调到这里。
    *
    * 返回 `action` 说明实际走了哪条路，前端据此给不同文案（「已发送申请」/「已唤起 QQ」…）。
    * authKey 每次重新换（与分享者绑定、有实效），**不缓存**。

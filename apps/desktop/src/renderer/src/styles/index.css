@@ -26389,21 +26389,6 @@ html[data-theme="dark"] .weq-mf-mall-card {
   color: var(--weq-fg-secondary);
 }
 
-.weq-join-group-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.32rem;
-  margin: 0;
-  padding: 0.2rem 0.62rem;
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.weq-join-group-status.is-ok {
-  color: #1a9a6b;
-  background: color-mix(in srgb, #1a9a6b 12%, transparent);
-}
-
 .weq-join-group-note {
   display: flex;
   width: 100%;
