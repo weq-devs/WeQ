@@ -17,8 +17,9 @@
  * 图片字节全部走协议（weq-asset / weq-media），不过 tRPC。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTabActive } from '../../components/RetainedTabs';
 import {
   ArrowLeft,
   Clock,
@@ -577,7 +578,8 @@ function EmojiCatalogLightbox({
   onClose: () => void;
   onSelect: (item: EmojiItem) => void;
 }) {
-  const layer = useOverlayLayer(true);
+  const tabActive = useTabActive();
+  const layer = useOverlayLayer(tabActive);
   const [keyword, setKeyword] = useState('');
   const [debounced, setDebounced] = useState('');
   const [openPackId, setOpenPackId] = useState<string | null>(null);
@@ -587,13 +589,14 @@ function EmojiCatalogLightbox({
     return () => window.clearTimeout(t);
   }, [keyword]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!tabActive) return undefined;
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [tabActive, onClose]);
 
   const catalog = trpc.account.marketEmoji.searchCatalog.useQuery(
     { keyword: debounced || undefined, limit: 40 },
@@ -605,7 +608,12 @@ function EmojiCatalogLightbox({
   );
 
   return createPortal(
-    <div className={cn('emoji-lb-layer')} style={{ zIndex: layer }} onMouseDown={onClose}>
+    <div
+      className={cn('emoji-lb-layer')}
+      hidden={!tabActive}
+      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
+      onMouseDown={onClose}
+    >
       <div className={cn('emoji-lb')} onMouseDown={(e) => e.stopPropagation()}>
         <div className={cn('emoji-lb-head')}>
           {openPackId ? (

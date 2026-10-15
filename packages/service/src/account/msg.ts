@@ -44,6 +44,9 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import type { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
+import { matchesMessageFilter, type MessageFilter } from './message_filter';
+import { elementsToText } from './export/element_text';
+import { sourceStamp } from './export/resume';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -176,7 +179,79 @@ export class MsgService {
     private readonly deleted?: DeletedMsgStore,
     private readonly antiRecall?: AntiRecallService,
     readonly salvage?: MsgSalvageSource,
+    readonly exportFilter?: MessageFilter,
+    readonly exportSignal?: AbortSignal,
   ) {}
+
+  withExportFilter(filter?: MessageFilter, signal?: AbortSignal): MsgService {
+    return new MsgService(
+      this.session,
+      this.deleted,
+      this.antiRecall,
+      this.salvage,
+      filter,
+      signal,
+    );
+  }
+
+  exportSourceStamp(kind: 'group' | 'c2c', conv: string): string {
+    return sourceStamp(
+      kind === 'group' ? this.session.groupMsgs.sourcePath : this.c2cDbFor(conv).sourcePath,
+    );
+  }
+
+  async browse(
+    kind: 'group' | 'c2c',
+    conv: string,
+    filter: MessageFilter & { start?: number; end?: number },
+    cursor?: { time: number; rowId: string },
+    limit = 30,
+  ) {
+    const items: Array<RenderGroupMsg | RenderC2cMsg> = [];
+    let scanned = 0;
+    let next = cursor;
+    let hasMore = true;
+    const recalls = await this.recallMapFor(kind, conv);
+    while (items.length < limit && scanned < 5000) {
+      const page =
+        kind === 'group'
+          ? await this.session.groupMsgs.browse(conv, filter, next)
+          : await this.c2cDbFor(conv).browse(this.c2cPartition(conv), filter, next);
+      if (!page.length) {
+        hasMore = false;
+        break;
+      }
+      for (const row of page) {
+        scanned++;
+        next = { time: Number(row.message.sendTime), rowId: row.rowId };
+        const rendered =
+          kind === 'group'
+            ? this.renderGroupWithState(row.message as GroupMsg, recalls)
+            : this.renderC2cWithState(row.message as C2cMsg, recalls);
+        if (matchesMessageFilter(rendered, filter)) items.push(rendered);
+        if (items.length === limit) break;
+      }
+      if (items.length === limit) break;
+      if (page.length < 500) {
+        hasMore = false;
+        break;
+      }
+    }
+    const profiles = await this.session.profileInfo
+      .profilesByUids([...new Set(items.map((m) => m.senderUid))])
+      .catch(() => []);
+    const names = new Map(profiles.map((p) => [p.uid, p.remark || p.nick]));
+    return {
+      items: items.map((m) => ({
+        ...m,
+        senderName: names.get(m.senderUid) || String(m.senderUin),
+        content: elementsToText(m.elements),
+      })),
+      cursor: hasMore ? next : null,
+      scanned,
+      hasMore,
+    };
+  }
 
   /**
    * 取走并清空累计的跳过区间（导出任务在消息阶段结束后调用）。
@@ -585,6 +660,23 @@ export class MsgService {
     await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
+  }
+
+  calendar(kind: 'group' | 'c2c', conv: string) {
+    return kind === 'group'
+      ? this.session.groupMsgs.calendar(conv)
+      : this.c2cDbFor(conv).calendar(this.c2cPartition(conv));
+  }
+
+  boundary(
+    kind: 'group' | 'c2c',
+    conv: string,
+    newest: boolean,
+    bounds?: { start?: number; end?: number },
+  ) {
+    return kind === 'group'
+      ? this.session.groupMsgs.boundary(conv, newest, bounds)
+      : this.c2cDbFor(conv).boundary(this.c2cPartition(conv), newest, bounds);
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */

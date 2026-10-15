@@ -10,6 +10,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
@@ -39,6 +40,7 @@ export async function runGroupExport(
   const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
+  const audit = new MessageAudit();
   try {
     if (framing.head) await writer.write(framing.head);
     for await (const m of iterateGroupMessages(msgs, opts.groupCode, {
@@ -50,6 +52,7 @@ export async function runGroupExport(
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
       await expandForwards(msgs, 'group', exported);
+      audit.observe(exported.elements);
       if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const record = renderRecord(exported);
       await writer.write(count === 0 ? record : framing.between + record);
@@ -64,6 +67,7 @@ export async function runGroupExport(
   }
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format,
     messageCount: count,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { createMainWindowLifecycle } from '../src/main/main_window_lifecycle.ts';
 import { macApplicationMenu, nativeMenuLabels } from '../src/main/application_menu.ts';
 

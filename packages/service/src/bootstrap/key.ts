@@ -50,11 +50,15 @@ export interface KeyResult {
 }
 
 /**
- * Domains the login flow harvests a `p_skey` for. `vip.qq.com` is what the
- * home-dress fetch (`zb.vip.qq.com`) needs; it is the one the old ninebird
- * `collectPskey` grabbed, so keep the default set to exactly that.
+ * Domains the login flow harvests a `p_skey` for — **one `0x102a_0` request
+ * each**, because the server only answers for a single domain per request.
+ *
+ * `vip.qq.com` is what the home-dress fetch (`zb.vip.qq.com`) needs (the one the
+ * old ninebird `collectPskey` grabbed); `qzone.qq.com` is what the QZone web cgi
+ * (`WebQueryService`) and the 空间窗口 / 内嵌 webview (`main/qzone.ts`) need.
+ * Both are best-effort: a missing one never fails the login.
  */
-const PSKEY_DOMAINS = ['vip.qq.com'];
+const PSKEY_DOMAINS = ['vip.qq.com', 'qzone.qq.com'];
 
 /** Events surfaced during a streaming flow. */
 export type KeyEvent =

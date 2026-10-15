@@ -89,6 +89,7 @@ export interface GroupExportOptions {
 
 /** Result of a completed export. */
 export interface ExportResult {
+  coverage?: import('./message_audit').MessageCoverage;
   /** Absolute path of the written file. */
   filePath: string;
   /** Format that was produced. */

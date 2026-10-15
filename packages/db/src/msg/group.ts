@@ -44,6 +44,8 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
+import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
+import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -92,6 +94,33 @@ export class GroupMsgDb {
 
   constructor(nt: NtHelperBinding, opts: GroupMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+  }
+  get sourcePath(): string {
+    return this.qq.dbPath;
+  }
+
+  calendar(targetGroupCode: string) {
+    return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode);
+  }
+
+  async browse(conv: string, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor);
+    const rows = await this.qq.query(
+      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      [...query.params, BigInt(limit)],
+    );
+    return rows.map((row) => ({ rowId: String(row[0]), message: rowToGroupMsg(row.slice(1)) }));
+  }
+
+  boundary(targetGroupCode: string, newest: boolean, bounds?: MessageBounds) {
+    return queryMessageBoundary(
+      this.qq,
+      'group_msg_table',
+      '"40027"=?',
+      targetGroupCode,
+      newest,
+      bounds,
+    );
   }
 
   /** Newest N messages in one group, newest-first (DESC by seq). */

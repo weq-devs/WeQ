@@ -1114,7 +1114,15 @@ export function initAppContext(): AppContext {
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
       // QQ 空间 Web 查询（说说 / 相册）—— 也注入进导出管理器，供「好友空间导出」
       // 翻页拉说说。需在线 QQ 凭证；离线时 fetchMsgList 会抛错（前端已先拦截）。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 登录时顺带收的 Web 票据（vip / qzone）直接 seed：第一次 cgi 不用等 hook；
+      // cgi 判它失效时顺手把落盘那份删掉。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
@@ -1149,6 +1157,13 @@ export function initAppContext(): AppContext {
       //    不 await —— 旧产物照样能渲染，重做完了推一次清单前端自己换。
       void dressInstall.refreshDerived().then((refreshed) => {
         if (refreshed > 0) emitDressChanged();
+        // 4. 全量字体体检：「已装」清单之外的那些产物（别的账号 / 逐条消息 / 导出留下的）
+        //    同样会被渲染，所以把 `fonts/` 目录整体按当前转换链对一遍版本，落后的就地
+        //    重解（离线优先）。每次发版后第一次开账号跑一遍，完成后写 `fonts/.sweep.json`
+        //    去重；同样不 await —— 旧产物照样能渲染。
+        return dressInstall.sweepFontCache().then((repaired) => {
+          if (repaired > 0) emitDressChanged();
+        });
       });
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
@@ -1744,7 +1759,14 @@ export function initAppContext(): AppContext {
       );
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
+      // 登录票据同 seed 流程（见上面的 WebQueryService 注释）。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
@@ -1774,6 +1796,10 @@ export function initAppContext(): AppContext {
       // 升级后的自愈：与在线路径同一套（静态账号也该看到新产物）。
       void dressInstall.refreshDerived().then((refreshed) => {
         if (refreshed > 0) emitDressChanged();
+        // 全量字体体检：与在线路径同一套（静态账号也该看到洗干净后的产物）。
+        return dressInstall.sweepFontCache().then((repaired) => {
+          if (repaired > 0) emitDressChanged();
+        });
       });
       const fileSearch = new FileSearchService(session, staticPlatform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));

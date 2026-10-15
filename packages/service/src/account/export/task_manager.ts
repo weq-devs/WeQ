@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
@@ -36,6 +37,11 @@ import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
 import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bundle';
 import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
+import { MessageAudit, type MessageCoverage } from './message_audit';
+import { exportReport } from './export_report';
+import { exportOptionsHash, fileSha256, roamingDigest } from './resume';
+import { inspectDestination } from './storage_preflight';
+import { sequenceCoverage } from './sequence_coverage';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
   exportFriends,
@@ -107,6 +113,7 @@ import type { GuildDirectService } from '../guild_direct';
 
 /** 每个任务保留的任务日志行数上限（内存环形缓冲，防列表 IPC 膨胀）。 */
 const MAX_TASK_LOGS = 400;
+import type { MessageFilter } from '../message_filter';
 
 export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type { ConvKind };
@@ -232,6 +239,18 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  resumeBinding?: { source: string; options: string; roaming?: string };
+  formatCheckpoints?: Record<
+    string,
+    { sha256: string; result: ExportResult; senders: string[]; faces: string[] }
+  >;
+  sourceChanged?: boolean;
+  backfillSummary?: import('./msg_backfill').MessageBackfillSummary;
+  sequenceCoverage?: ReturnType<typeof sequenceCoverage>;
+  reportVersion?: 1;
+  reportPath?: string;
+  messageCoverage?: MessageCoverage;
+  formatCounts?: Record<string, number>;
   id: string;
   kind: ConvKind;
   conv: string; // groupCode or peerUid
@@ -270,6 +289,7 @@ export interface ExportTask {
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
   range?: ExportTimeRange;
+  filter?: MessageFilter;
   /** 频道私聊导出任务（kind 仍为 'c2c'，conv = peerTinyId，消息源走 guild_msg.db）。 */
   guild?: GuildExportTaskMeta;
   /** Bundle folder (message file + avatars/ + media/) when avatars or media are on. */
@@ -352,6 +372,8 @@ export interface MediaDeps {
 }
 
 export class ExportTaskManager extends EventEmitter {
+  private startedAt = Date.now();
+  private filteredSources = new Map<string, MsgService>();
   private tasks = new Map<string, ExportTask>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
@@ -387,7 +409,7 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
-        if (t.status === 'running') t.status = 'paused'; // crashed tasks → paused
+        if (t.status === 'running' || t.status === 'pending') t.status = 'paused'; // crashed or queued tasks require explicit continuation
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         this.tasks.set(t.id, t);
       }
@@ -399,6 +421,21 @@ export class ExportTaskManager extends EventEmitter {
   private saveTasks(): void {
     try {
       mkdirSync(this.cacheDir, { recursive: true });
+      for (const task of this.tasks.values()) {
+        if (task.createdAt >= this.startedAt) task.reportVersion = 1;
+        if (
+          task.reportVersion &&
+          ['completed', 'failed', 'cancelled', 'paused'].includes(task.status)
+        ) {
+          const path = task.bundleDir
+            ? join(task.bundleDir, 'export-report.json')
+            : task.filePath
+              ? `${task.filePath}.report.json`
+              : join(this.cacheDir, `report-${task.id}.json`);
+          writeFileAtomicSync(path, JSON.stringify(exportReport(task), null, 2));
+          task.reportPath = path;
+        }
+      }
       writeFileAtomicSync(this.persistPath, JSON.stringify([...this.tasks.values()], null, 2));
     } catch (e) {
       console.error('[ExportTaskManager] failed to save tasks:', e);
@@ -417,11 +454,72 @@ export class ExportTaskManager extends EventEmitter {
   listTasks(): ExportTaskView[] {
     return [...this.tasks.values()]
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((t) => ({ ...t, logs: this.taskLogs.get(t.id) ?? [] }));
+      .map((t) => ({ ...t, canResume: this.canResume(t), logs: this.taskLogs.get(t.id) ?? [] }));
   }
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  async preflight(opts: {
+    kind: 'group' | 'c2c';
+    conv: string;
+    range?: ExportTimeRange;
+    filter?: MessageFilter;
+    formats?: ExportFormat[];
+    exportMedia?: boolean;
+  }) {
+    if (opts.range?.start != null && opts.range.end != null && opts.range.start > opts.range.end)
+      throw new Error('开始日期不能晚于结束日期。');
+    if (
+      existsSync(this.cacheDir) &&
+      !(await import('node:fs')).statSync(this.cacheDir).isDirectory()
+    )
+      throw new Error('导出目录被普通文件占用。');
+    const { availableBytes } = inspectDestination(this.cacheDir);
+    const count = await this.msgs.countConv(opts.kind, opts.conv, {
+      startTime: opts.range?.start ?? undefined,
+      endTime: opts.range?.end ?? undefined,
+    });
+    const sample = await this.msgs.browse(
+      opts.kind,
+      opts.conv,
+      { ...opts.filter, start: opts.range?.start ?? undefined, end: opts.range?.end ?? undefined },
+      undefined,
+      100,
+    );
+    const bytes = sample.items.reduce(
+      (sum, message) =>
+        sum + Buffer.byteLength(JSON.stringify(toExportedMessage(message), bigintReplacer)),
+      0,
+    );
+    const matched =
+      opts.filter && Object.values(opts.filter).some(Boolean)
+        ? sample.hasMore
+          ? null
+          : sample.items.length
+        : count;
+    const estimatedBytes =
+      matched === null
+        ? null
+        : Math.ceil(
+            (sample.items.length ? bytes / sample.items.length : 0) *
+              matched *
+              2 *
+              (opts.formats?.length || 1),
+          );
+    return {
+      destination: this.cacheDir,
+      availableBytes,
+      sourceMessages: count,
+      matchingMessages: matched,
+      matchingLowerBound: sample.items.length,
+      estimatedMessageBytes: estimatedBytes,
+      estimateBasis:
+        'up to 100 matching local messages, serialized JSON bytes with a 2x allowance; excludes media/avatars/dress and new roaming messages',
+      mediaBytes: opts.exportMedia ? null : 0,
+      spaceWarning: estimatedBytes !== null && estimatedBytes > availableBytes,
+    };
   }
 
   async startTask(opts: {
@@ -447,14 +545,15 @@ export class ExportTaskManager extends EventEmitter {
     dress?: DressExportKinds;
     media?: MediaExportOptions;
     range?: ExportTimeRange;
+    filter?: MessageFilter;
     /** 频道私聊导出：会话身份快照（消息源走 guild_msg.db，无漫游补全）。 */
     guild?: GuildExportTaskMeta;
   }): Promise<string> {
     // 清洗 conv (uid/uin/groupCode) 以避免 Windows 文件名非法字符（陌生人 uid 含 *）
-    const safeConv = opts.conv.replace(/\*/g, 'x');
+    const safeConv = sanitizeSegment(opts.conv, 'conversation');
     const id = opts.guild
-      ? `guild-${safeConv}-${Date.now()}`
-      : `${opts.kind}-${safeConv}-${Date.now()}`;
+      ? `guild-${safeConv}-${Date.now()}-${randomUUID().slice(0, 8)}`
+      : `${opts.kind}-${safeConv}-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
@@ -632,6 +731,7 @@ export class ExportTaskManager extends EventEmitter {
       ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
       ...(opts.range ? { range: opts.range } : {}),
       ...(opts.guild ? { guild: opts.guild } : {}),
+      ...(opts.filter ? { filter: opts.filter } : {}),
       stages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -725,7 +825,19 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 该任务的导出消息源：guild 任务用 guild_msg.db 适配源，其余用主库 MsgService。 */
   private msgsFor(task: ExportTask): MsgService {
-    if (!task.guild) return this.msgs;
+    if (!task.guild) {
+      if (typeof this.msgs.withExportFilter !== 'function') return this.msgs;
+      if (!task.filter && !this.abortControllers.has(task.id)) return this.msgs;
+      let source = this.filteredSources.get(task.id);
+      if (!source) {
+        source = this.msgs.withExportFilter(
+          task.filter,
+          this.abortControllers.get(task.id)?.signal,
+        );
+        this.filteredSources.set(task.id, source);
+      }
+      return source;
+    }
     let src = this.guildSources.get(task.id);
     if (!src) {
       const svc = this.deps.guildDirect;
@@ -819,7 +931,8 @@ export class ExportTaskManager extends EventEmitter {
    * 取走即清（`takeSalvageSkips`），一次导出的账目不会串到下一次任务。
    */
   private logSalvageSkips(taskId: string): void {
-    const skips = this.msgs.takeSalvageSkips();
+    const task = this.tasks.get(taskId);
+    const skips = (task ? this.msgsFor(task) : this.msgs).takeSalvageSkips();
     if (skips.length === 0) return;
     const ranges = skips.reduce((sum, s) => sum + s.ranges.length, 0);
     const span = skips.reduce((sum, s) => sum + s.span, 0);
@@ -873,7 +986,7 @@ export class ExportTaskManager extends EventEmitter {
     if (opts.persist) this.saveTasks();
     this.emit('progress', {
       taskId: task.id,
-      status: 'running',
+      status: task.status,
       progress: task.progress,
       current: task.current,
       message: s.note ?? s.label,
@@ -890,9 +1003,30 @@ export class ExportTaskManager extends EventEmitter {
 
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
+    this.filteredSources.delete(id);
     const aborted = (): boolean => abort.signal.aborted;
+    const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
     try {
+      if (
+        !task.guild &&
+        (task.kind === 'group' || task.kind === 'c2c') &&
+        typeof this.msgs.exportSourceStamp === 'function'
+      ) {
+        const binding = {
+          source: this.msgs.exportSourceStamp(task.kind, task.conv),
+          options: exportOptionsHash(task),
+        };
+        if (
+          task.resumeBinding &&
+          (task.resumeBinding.source !== binding.source ||
+            task.resumeBinding.options !== binding.options)
+        )
+          throw new Error('来源数据库或导出选项已变化，不能续作原任务。请创建新的导出任务。');
+        task.resumeBinding = { ...task.resumeBinding, ...binding };
+        task.reportVersion = 1;
+        this.saveTasks();
+      }
       // 先让出事件循环：任务创建 / 列表刷新的 IPC 响应要先回到渲染进程，
       // 否则下面可能长时间阻塞的 seq 空窗扫描会让任务卡片迟迟不出现。
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -929,8 +1063,8 @@ export class ExportTaskManager extends EventEmitter {
         wantSysFaces ||
         task.format === 'html' ||
         formats.length > 1;
-      const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
-      if (isBundle) mkdirSync(outDir, { recursive: true });
+      const outDir = join(this.cacheDir, isBundle ? `bundle-${id}` : `task-${id}`);
+      mkdirSync(outDir, { recursive: true });
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
       const faces = wantSysFaces ? new Set<string>() : undefined;
@@ -963,8 +1097,9 @@ export class ExportTaskManager extends EventEmitter {
       // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
       // stage + media scan below can include the backfilled messages) ----
       const wantBackfill = Boolean(task.media?.completeMessages && !task.guild);
+      let backfillWindow: import('./msg_backfill').BackfillSeqWindow | undefined;
       let rateLimitedNotified = false;
-      if (wantBackfill) {
+      if (wantBackfill && this.stage(task, 'backfill')?.status !== 'completed') {
         const backfillDeps = this.deps.messageBackfill;
         const s = this.stage(task, 'backfill');
         if (!backfillDeps) {
@@ -987,12 +1122,14 @@ export class ExportTaskManager extends EventEmitter {
               kind: task.kind === 'group' ? 'group' : 'c2c',
               conv: task.conv,
               // 按导出时间范围收窄 seq 扫描：补全只拉时间窗内的缺失消息。
-              listSeqWindow: () => {
+              listSeqWindow: async () => {
                 const startTime = task.range?.start ?? undefined;
                 const endTime = task.range?.end ?? undefined;
-                return task.kind === 'group'
+                const window = await (task.kind === 'group'
                   ? this.msgsFor(task).getGroupSeqDesc(task.conv, { startTime, endTime })
-                  : this.msgsFor(task).getC2cSeqDesc(task.conv, { startTime, endTime });
+                  : this.msgsFor(task).getC2cSeqDesc(task.conv, { startTime, endTime }));
+                backfillWindow = window;
+                return window;
               },
               fetch: (k, c, start, end) => backfillDeps.fetch(k, c, start, end),
               concurrency: 8,
@@ -1046,12 +1183,13 @@ export class ExportTaskManager extends EventEmitter {
                 });
               },
             });
+            task.backfillSummary = summary;
             if (aborted()) {
-              task.status = 'cancelled';
+              if (!paused()) task.status = 'cancelled';
               return;
             }
             const tail = summary.stoppedByEmpty
-              ? '，更早的消息已过期'
+              ? '，更早窗口连续返回空，完整性未核验'
               : summary.stoppedByError
                 ? '，在线状态中断'
                 : '';
@@ -1091,6 +1229,23 @@ export class ExportTaskManager extends EventEmitter {
 
       // 漫游补全消息的来源：装扮扫描 / 媒体扫描 / 消息导出 / 计数共用（惰性只查一次）。
       const roam = wantBackfill ? this.roamSource(task) : undefined;
+      if (roam && task.resumeBinding) {
+        const cached = await roam();
+        const digest = roamingDigest(cached);
+        if (backfillWindow)
+          task.sequenceCoverage = sequenceCoverage(
+            backfillWindow,
+            cached,
+            task.kind === 'group' ? 'group' : 'c2c',
+            task.conv,
+            task.range,
+          );
+        backfillWindow = undefined;
+        if (task.resumeBinding.roaming && task.resumeBinding.roaming !== digest)
+          throw new Error('本地漫游缓存已变化，不能混用原格式断点。请创建新的导出任务。');
+        task.resumeBinding.roaming = digest;
+        this.saveTasks();
+      }
       if (wantBackfill) {
         this.log(id, 'task', '补全完成，进入并行阶段：装扮 / 媒体 / 消息同时进行');
       }
@@ -1194,7 +1349,7 @@ export class ExportTaskManager extends EventEmitter {
         countPromise,
       ]);
       if (aborted()) {
-        task.status = 'cancelled';
+        if (!paused()) task.status = 'cancelled';
         return;
       }
       dressUsage = dressUsageResult;
@@ -1330,8 +1485,11 @@ export class ExportTaskManager extends EventEmitter {
         );
         task.filePath = result.filePath;
         task.current = result.messageCount;
+        if (task.filter && Object.values(task.filter).some(Boolean))
+          task.total = result.messageCount;
+        task.messageCoverage = result.coverage;
         if (aborted()) {
-          task.status = 'cancelled';
+          if (!paused()) task.status = 'cancelled';
           return null;
         }
         this.touchStage(
@@ -1922,7 +2080,7 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       if (aborted()) {
-        task.status = 'cancelled';
+        if (!paused()) task.status = 'cancelled';
         return;
       }
       this.log(
@@ -1930,9 +2088,15 @@ export class ExportTaskManager extends EventEmitter {
         'task',
         `导出完成：${task.current} 条${task.bundleDir ? '（含资源 bundle）' : ''}`,
       );
+      task.sourceChanged =
+        !!task.resumeBinding &&
+        typeof this.msgs.exportSourceStamp === 'function' &&
+        task.resumeBinding.source !==
+          this.msgs.exportSourceStamp(task.kind as 'group' | 'c2c', task.conv);
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
+      if (aborted() && (paused() || task.status === 'cancelled')) return;
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       // Mark the running stage failed so the UI shows where it broke.
@@ -1943,8 +2107,10 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      if (aborted() && !paused()) task.status = 'cancelled';
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
+      this.filteredSources.delete(id);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -2955,7 +3121,10 @@ export class ExportTaskManager extends EventEmitter {
     const startedAt = Date.now();
     let count = 0;
     let fileSize = 0;
+    let coverage: MessageCoverage | undefined;
+    task.formatCounts = {};
     for (let i = 0; i < formats.length; i += 1) {
+      this.abortControllers.get(task.id)?.signal.throwIfAborted();
       const format = formats[i]!;
       const base = count;
       const tick = (p: { current: number; message: string }): void => {
@@ -2964,20 +3133,48 @@ export class ExportTaskManager extends EventEmitter {
         onProgress(base + p.current, `${prefix}${p.message}`);
         this.log(task.id, 'message', `${prefix}${p.message}`);
       };
-      const result = await this.exportMessagesOne(
-        task,
-        format,
-        filePathFor(format),
-        senders,
-        withMediaPaths,
-        tick,
-        faces,
-        roam,
-        dressByMsg,
-        dressManifest,
-        dressKinds,
-      );
+      const checkpoint = task.formatCheckpoints?.[format];
+      let result: ExportResult;
+      if (checkpoint) {
+        if (
+          checkpoint.result.filePath !== filePathFor(format) ||
+          (await fileSha256(filePathFor(format), this.abortControllers.get(task.id)?.signal)) !==
+            checkpoint.sha256
+        )
+          throw new Error('已完成的导出文件发生变化，拒绝续作。');
+        for (const sender of checkpoint.senders) senders?.add(sender);
+        for (const face of checkpoint.faces) faces?.add(face);
+        result = checkpoint.result;
+        this.log(task.id, 'message', `复用已校验的 ${format.toUpperCase()} 格式断点`);
+      } else {
+        result = await this.exportMessagesOne(
+          task,
+          format,
+          filePathFor(format),
+          senders,
+          withMediaPaths,
+          tick,
+          faces,
+          roam,
+          dressByMsg,
+          dressManifest,
+          dressKinds,
+        );
+        this.abortControllers.get(task.id)?.signal.throwIfAborted();
+        if (task.resumeBinding) {
+          task.formatCheckpoints ??= {};
+          task.formatCheckpoints[format] = {
+            result,
+            sha256: await fileSha256(result.filePath, this.abortControllers.get(task.id)?.signal),
+            senders: [...(senders ?? [])],
+            faces: [...(faces ?? [])],
+          };
+          this.saveTasks();
+        }
+      }
       count += result.messageCount;
+      task.formatCounts[format] = result.messageCount;
+      coverage ??= result.coverage;
       fileSize += result.fileSize;
       if (formats.length > 1) {
         this.log(
@@ -2990,7 +3187,8 @@ export class ExportTaskManager extends EventEmitter {
     return {
       filePath: filePathFor(formats[0]!),
       format: task.format,
-      messageCount: count,
+      messageCount: task.formatCounts[formats[0]!] ?? 0,
+      coverage,
       fileSize,
       durationMs: Date.now() - startedAt,
     };
@@ -3178,6 +3376,7 @@ export class ExportTaskManager extends EventEmitter {
     const writer = createExportWriter(outPath);
 
     let count = 0;
+    const audit = new MessageAudit();
     try {
       if (framing.head) await writer.write(framing.head);
       for await (const m of iterateC2cMessages(msgs, peerUid, {
@@ -3191,6 +3390,7 @@ export class ExportTaskManager extends EventEmitter {
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);
         await expandForwards(msgs, 'c2c', exported);
+        audit.observe(exported.elements);
         if (withMediaPaths) annotateExportPaths(exported.elements);
         const record = renderRecord(exported);
         await writer.write(count === 0 ? record : framing.between + record);
@@ -3204,6 +3404,7 @@ export class ExportTaskManager extends EventEmitter {
     }
 
     return {
+      coverage: audit.coverage,
       filePath: outPath,
       format,
       messageCount: count,
@@ -3230,6 +3431,32 @@ export class ExportTaskManager extends EventEmitter {
     return true;
   }
 
+  private canResume(task: ExportTask): boolean {
+    return (
+      ['paused', 'failed'].includes(task.status) &&
+      !!task.resumeBinding &&
+      !task.guild &&
+      !task.qzone &&
+      !task.contacts &&
+      !task.collection &&
+      !task.marketpack &&
+      !task.emojipack &&
+      !this.abortControllers.has(task.id)
+    );
+  }
+
+  resumeTask(id: string): boolean {
+    const task = this.tasks.get(id);
+    if (!task || !this.canResume(task)) return false;
+    task.status = 'pending';
+    task.error = undefined;
+    task.updatedAt = Date.now();
+    task.reportVersion = 1;
+    this.saveTasks();
+    this.enqueue(() => this.runTask(id));
+    return true;
+  }
+
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
     try {
@@ -3248,7 +3475,6 @@ export class ExportTaskManager extends EventEmitter {
     task.status = 'cancelled';
     task.updatedAt = Date.now();
     this.log(id, 'task', '任务已取消', 'warn');
-    this.cleanupOutput(task);
     this.saveTasks();
     this.emit('progress', {
       taskId: id,
@@ -3263,7 +3489,7 @@ export class ExportTaskManager extends EventEmitter {
   deleteTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;
-    if (task.status === 'running') return false;
+    if (task.status === 'running' || this.abortControllers.has(id)) return false;
     this.cleanupOutput(task);
     this.tasks.delete(id);
     this.taskLogs.delete(id);

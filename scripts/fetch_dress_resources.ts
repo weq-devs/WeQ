@@ -13,9 +13,20 @@
  *   }
  *
  * 用法：
+ *   # 固定范围
  *   pnpm tsx scripts/fetch_dress_resources.ts --font --4000-8000
  *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --2000000-2000100 --concurrency 8
  *   pnpm tsx scripts/fetch_dress_resources.ts --widget --100000-101000 --batch 40 --no-progress
+ *
+ *   # 续爬（推荐）：每类按已知分段，各自从文件里实际最大 id 往后扫，
+ *   # 连续 200 个空 id 就收手 —— 自动覆盖「上次边界 → 边界 + 200」的确认。
+ *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --font --widget --extend
+ *
+ * 可选参数：
+ *   --timeout <秒>   单次 GetUrl 的客户端超时（默认 4）。到点即二分拆小；拆到单条仍超时
+ *                    说明该 id 服务端不回包（dataset 里正常的空洞），直接跳过不重试。
+ *   --empty <n>      [--extend] 连续 n 个空 id 判定「到头了」（默认 200）。
+ *   --tail <n>       [--extend] 至少越过各段上界这么多再允许收手（默认 200）。
  *
  * 需要目标 QQ（testEnv.uin）在线并已登录。
  */
@@ -52,6 +63,9 @@ const opt = (f: string): string | undefined => {
 
 type Type = 'bubble' | 'font' | 'widget';
 
+/** `--extend`：不填范围，按已知分段自动续爬（见下方配置区说明）。 */
+const EXTEND = has('--extend');
+
 const TYPES: Type[] = (['bubble', 'font', 'widget'] as const).filter((t) => has(`--${t}`));
 if (TYPES.length === 0) {
   console.error('请指定类型: --bubble / --font / --widget');
@@ -69,8 +83,8 @@ if (rangeTok) {
   FROM = Number(opt('--from'));
   TO = Number(opt('--to'));
 }
-if (TO < FROM) {
-  console.error('请指定 id 范围，如 --4000-8000');
+if (!EXTEND && TO < FROM) {
+  console.error('请指定 id 范围（如 --4000-8000），或加 --extend 自动续爬');
   process.exit(1);
 }
 
@@ -82,8 +96,27 @@ const BATCH = Number(opt('--batch') ?? 16);
 const RETRY = Number(opt('--retry') ?? 3);
 /** 每发一个请求后停 `THROTTLE` 毫秒（默认 0）—— 服务端有风控，慢跑时调大。 */
 const THROTTLE = Number(opt('--throttle') ?? 0);
+/**
+ * 单次 GetUrl 的客户端超时（秒，默认 4）。
+ *
+ * 原生 SSO 的等待是写死的 30s，但**有些 id 服务端根本不会回包**（不是风控）——
+ * 死等 30s 会让整段奇慢。这里加一层更短的超时，到点即当作失败交给上层二分拆小：
+ * 拆到单条仍超时，说明就是那个 id 不回包，直接算 miss 跳过，不再重试。
+ */
+const REQUEST_TIMEOUT = Number(opt('--timeout') ?? 4) * 1000;
 const OUT_DIR = path.resolve(opt('--out') ?? path.join('resources', 'dress'));
 const NO_PROGRESS = has('--no-progress');
+/**
+ * 以下三项只在 `--extend`（按分段自动续爬）时生效：从每段**文件里实际最大 id**
+ * 往后接着扫，保证至少扫过「上次边界 + TAIL_MARGIN」以确认那之后全空；一旦连续
+ * `EMPTY_STOP` 个 id 一个都没命中就收手（dataset 尾部的正常空洞）。
+ */
+/** 连续多少个空 id 判定「到头了」。 */
+const EMPTY_STOP = Number(opt('--empty') ?? 200);
+/** 至少多扫这么多 id（越过上次边界），确保尾部确实是空的。 */
+const TAIL_MARGIN = Number(opt('--tail') ?? 200);
+/** 开区间续爬时每轮取多少个 id。 */
+const WINDOW = 40;
 
 /**
  * 抓取身份固定用手Q 形状、与默认(PC)身份无关:这份本地 bundle 是按 android 段 scid
@@ -226,6 +259,38 @@ function readExistingKeys(file: string): Set<string> {
   return keys;
 }
 
+/** 从 (id:part) 键集合里抽出出现过的 id，升序去重。 */
+function idsOf(keys: Set<string>): number[] {
+  const ids = new Set<number>();
+  for (const k of keys) ids.add(Number(k.slice(0, k.indexOf(':'))));
+  return [...ids].sort((a, b) => a - b);
+}
+
+/**
+ * 每类的已知 id 分段（据脚本底部「已跑过的范围」）。
+ *
+ * `lo`/`hi` 是**半开区间** `[lo, hi)`，用来圈定「哪段属于同一批 id」，续爬时取该段
+ * 内已有的最大 id 往下接；`hi` 取下一段的 `lo`（最后一段用 MAX_SAFE_INTEGER），这样
+ * 越过旧边界的新记录也算在本段里，不会每次重扫。
+ *
+ * `floor` 是**上次跑到的边界**：至少要扫到 `floor + TAIL_MARGIN` 才能收手，用来确认
+ * 「旧边界之后确实是空的」（否则连续空可能在旧边界之前就凑够，漏掉中间的空档）。
+ */
+interface Band {
+  lo: number;
+  hi: number;
+  floor: number;
+}
+const BANDS: Record<Type, Band[]> = {
+  bubble: [
+    { lo: 1, hi: 1_000_000, floor: 60_000 },
+    { lo: 1_000_000, hi: 2_000_000, floor: 1_000_050 },
+    { lo: 2_000_000, hi: Number.MAX_SAFE_INTEGER, floor: 2_180_000 },
+  ],
+  font: [{ lo: 1, hi: Number.MAX_SAFE_INTEGER, floor: 62_000 }],
+  widget: [{ lo: 1, hi: Number.MAX_SAFE_INTEGER, floor: 200_000 }],
+};
+
 // ─────────────────────────── 并发池 ───────────────────────────
 
 async function poolMap<T, R>(
@@ -249,6 +314,18 @@ async function poolMap<T, R>(
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** 客户端超时（区别于原生 30s 超时），到点即拒绝，交给上层拆分/跳过。 */
+class RequestTimeout extends Error {}
+
+/** 给 Promise 加一层更短的超时；原 Promise 仍在后台跑完（结果丢弃）。 */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new RequestTimeout(`client timeout ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -263,6 +340,8 @@ class Progress {
   retries = 0;
   /** 重试若干次后仍失败的批次数（只统计，不再逐条刷屏）。 */
   failures = 0;
+  /** 单条超时被跳过的 id 数（服务端对这些 id 根本不回包，属正常空洞）。 */
+  timeouts = 0;
   private lastError = '';
 
   /**
@@ -287,7 +366,7 @@ class Progress {
     const kb = (bytes / 1024).toFixed(1);
     const tail =
       this.failures > 0 ? `  ⚠ fail ${this.failures}: ${truncate(this.lastError, 48)}` : '';
-    const line = `\r\x1b[K[${bar}] ${(pct * 100).toFixed(1).padStart(5)}%  ${String(done).padStart(6)}/${total}  hit ${String(hit).padStart(6)}  new ${String(written).padStart(6)}  ${String(kb).padStart(8)}K  ${secs}s  retry ${this.retries}${tail}`;
+    const line = `\r\x1b[K[${bar}] ${(pct * 100).toFixed(1).padStart(5)}%  ${String(done).padStart(6)}/${total}  hit ${String(hit).padStart(6)}  new ${String(written).padStart(6)}  ${String(kb).padStart(8)}K  ${secs}s  retry ${this.retries}  tmo ${this.timeouts}${tail}`;
     process.stdout.write(line);
   }
 
@@ -374,95 +453,99 @@ async function resolveTarget(native: ReturnType<typeof loadNative>): Promise<num
 
 // ─────────────────────────── 单类型抓取 ───────────────────────────
 
+/** 打印一次抓取的收尾统计。`unit` 为「任务」或「扫过」这类量词。 */
+function report(
+  file: string,
+  reqCount: number,
+  hitCount: number,
+  total: number,
+  writtenCount: number,
+  progress: Progress,
+  unit = '任务',
+): void {
+  const fileSize = existsSync(file) ? readFileSync(file).length : 0;
+  console.log(
+    `  完成: 请求 ${reqCount} 次  命中 ${hitCount}  写入 ${writtenCount} 条（共 ${total} ${unit}）  ` +
+      `文件 ${file}（${(fileSize / 1024).toFixed(1)} KB，含历史）  ` +
+      `重试 ${progress.retries} 次  超时空洞 ${progress.timeouts}  失败批次 ${progress.failures}\n`,
+  );
+}
+
 async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
   const parts = PARTS[type];
   const file = path.join(OUT_DIR, `${type}_resources`);
   mkdirSync(OUT_DIR, { recursive: true });
 
   const existing = readExistingKeys(file);
-  const tasks: { id: number; part: string }[] = [];
-  let skipped = 0;
-  for (let id = FROM; id <= TO; id++) {
-    for (const part of parts) {
-      if (existing.has(`${id}:${part}`)) {
-        skipped++;
-        continue;
-      }
-      tasks.push({ id, part });
-    }
-  }
-
-  const total = tasks.length;
-  const idCount = TO - FROM + 1;
-  console.log(
-    `══ ${type}  ${FROM}-${TO}（${idCount} 个 id × ${parts.length} 分包 = ${idCount * parts.length} 任务）══`,
-  );
-  if (total === 0) {
-    console.log(`  全部已在 ${file} 中，无需抓取\n`);
-    return;
-  }
-  console.log(
-    `  需抓取 ${total} 个（已有 ${skipped} 个跳过）  batch=${BATCH} 并发=${CONCURRENCY} 重试=${RETRY}\n`,
-  );
-
-  const batches = chunk(tasks, BATCH);
   const progress = new Progress();
-  let doneCount = 0;
   let hitCount = 0;
   let writtenCount = 0;
   let writtenBytes = 0;
   let reqCount = 0;
+  let scanned = 0;
 
   /**
-   * 发一个 `batch` 并把命中的记录落盘。失败时（超时 / 抛错）：
-   *   - `batch.length > 1` → 二分拆小再各发一次（服务端对条数有硬上限，且
-   *     个别区间会静默丢弃，拆小正好绕开这两类）；
-   *   - 单条仍失败 → 记一次 `progress.fail`（只统计，不刷屏）。
+   * 发一批 scid 并取回结果。失败时（超时 / 抛错）二分拆小重试：
+   *   - `refs.length > 1` → 拆成两半各发一次（服务端单包有条数上限，且个别 id
+   *     根本不回包，拆小正好绕开这两类）；
+   *   - 单条仍超时 → 该 id 服务端不回包，是 dataset 里本来就有的**空洞**，记
+   *     `progress.timeouts` 后跳过，不再重试；
+   *   - 单条其他失败 → 记 `progress.fail`（只统计，不刷屏）。
    */
-  const sendBatch = async (batch: { id: number; part: string }[]): Promise<void> => {
-    const byScid = new Map<string, { id: number; part: string }>();
-    for (const t of batch) byScid.set(scidFor(type, t.id, t.part).scid, t);
+  /**
+   * 按 `BATCH` 分块并发发送，再把各块结果拼起来。extend 模式一次窗口可能凑出上百
+   * 个 scid，直接整包发会超服务端条数上限被静默丢弃，所以这里先切块。
+   */
+  const sendRefs = async (refs: ScidRef[]): Promise<ResourceUrl[]> => {
+    if (refs.length <= BATCH) return sendRefsChunk(refs);
+    const resultChunks = await poolMap(chunk(refs, BATCH), CONCURRENCY, (c) => sendRefsChunk(c));
+    return resultChunks.flat();
+  };
 
+  const sendRefsChunk = async (refs: ScidRef[]): Promise<ResourceUrl[]> => {
+    if (refs.length === 0) return [];
     let results: ResourceUrl[] | null = null;
     let lastErr: unknown = null;
-    // 整批只试一次就拆（超时是 30s，整批重试代价太大）；单条才走 RETRY 次重试。
-    const attempts = batch.length > 1 ? 1 : RETRY;
+    // 整批只试一次就拆（多等一轮没意义）；单条才走 RETRY 次重试。
+    const attempts = refs.length > 1 ? 1 : RETRY;
     for (let attempt = 1; attempt <= attempts && results === null; attempt++) {
       try {
-        results = await getResourceUrls(
-          nt,
-          pid,
-          batch.map((t) => scidFor(type, t.id, t.part)),
-          CLIENT,
-        );
+        results = await withTimeout(getResourceUrls(nt, pid, refs, CLIENT), REQUEST_TIMEOUT);
       } catch (err) {
         lastErr = err;
         progress.retries++;
         if (attempt < attempts) await sleep(250 * attempt);
       }
-      // 服务端有风控：可选的每请求间隔，慢跑时把 `--throttle` 调大。
       if (THROTTLE > 0) await sleep(THROTTLE);
     }
     reqCount++;
 
-    if (results === null) {
-      if (batch.length > 1) {
-        const mid = Math.ceil(batch.length / 2);
-        await sendBatch(batch.slice(0, mid));
-        await sendBatch(batch.slice(mid));
-        return;
-      }
-      progress.fail(lastErr instanceof Error ? lastErr.message : String(lastErr));
-      doneCount += 1;
-      progress.tick(doneCount, total, hitCount, writtenCount, writtenBytes);
-      return;
+    if (results !== null) return results;
+    if (refs.length > 1) {
+      const mid = Math.ceil(refs.length / 2);
+      return [
+        ...(await sendRefsChunk(refs.slice(0, mid))),
+        ...(await sendRefsChunk(refs.slice(mid))),
+      ];
     }
+    // 单条仍失败：超时 = 服务端对此 id 不回包（正常的空洞），其余才算失败。
+    if (lastErr instanceof RequestTimeout) progress.timeouts++;
+    else progress.fail(lastErr instanceof Error ? lastErr.message : String(lastErr));
+    return [];
+  };
 
+  /** 把结果按 (id, part) 归位、编码落盘；返回本次命中的 id 集合。 */
+  const collect = (
+    results: ResourceUrl[],
+    byScid: Map<string, { id: number; part: string }>,
+  ): Set<number> => {
     const records: Buffer[] = [];
+    const hitIds = new Set<number>();
     for (const r of results) {
       const t = byScid.get(r.scid);
       if (!t || !r.ok) continue;
       hitCount++;
+      hitIds.add(t.id);
       records.push(encodeRecord(t.id, t.part, stripHost(r.url), r.size));
     }
     if (records.length > 0) {
@@ -470,19 +553,119 @@ async function fetchType(nt: Nt, pid: number, type: Type): Promise<void> {
       writtenCount += records.length;
       writtenBytes += records.reduce((a, b) => a + b.length, 0);
     }
-    doneCount += batch.length;
-    progress.tick(doneCount, total, hitCount, writtenCount, writtenBytes);
+    return hitIds;
   };
 
-  await poolMap(batches, CONCURRENCY, (batch) => sendBatch(batch));
-  progress.done();
+  // ── 模式一：固定范围（显式给 --from/--to 或 --A-B）──────────────
+  if (!EXTEND) {
+    const tasks: { id: number; part: string }[] = [];
+    let skipped = 0;
+    for (let id = FROM; id <= TO; id++) {
+      for (const part of parts) {
+        if (existing.has(`${id}:${part}`)) {
+          skipped++;
+          continue;
+        }
+        tasks.push({ id, part });
+      }
+    }
+    const total = tasks.length;
+    const idCount = TO - FROM + 1;
+    console.log(
+      `══ ${type}  ${FROM}-${TO}（${idCount} 个 id × ${parts.length} 分包 = ${idCount * parts.length} 任务）══`,
+    );
+    if (total === 0) {
+      console.log(`  全部已在 ${file} 中，无需抓取\n`);
+      return;
+    }
+    console.log(
+      `  需抓取 ${total} 个（已有 ${skipped} 个跳过）  batch=${BATCH} 并发=${CONCURRENCY} ` +
+        `重试=${RETRY} 超时=${REQUEST_TIMEOUT / 1000}s\n`,
+    );
 
-  const fileSize = existsSync(file) ? readFileSync(file).length : 0;
+    let done = 0;
+    await poolMap(chunk(tasks, BATCH), CONCURRENCY, async (batch) => {
+      const byScid = new Map<string, { id: number; part: string }>();
+      for (const t of batch) byScid.set(scidFor(type, t.id, t.part).scid, t);
+      collect(await sendRefs(batch.map((t) => scidFor(type, t.id, t.part))), byScid);
+      done += batch.length;
+      progress.tick(done, total, hitCount, writtenCount, writtenBytes);
+    });
+    progress.done();
+    report(file, reqCount, hitCount, total, writtenCount, progress);
+    return;
+  }
+
+  // ── 模式二：--extend（按分段续爬，连续空到达阈值即停）────────────
   console.log(
-    `  完成: 请求 ${reqCount} 次  命中 ${hitCount}/${total}  新写入 ${writtenCount} 条  ` +
-      `文件 ${file}（${(fileSize / 1024).toFixed(1)} KB，含历史）  ` +
-      `重试 ${progress.retries} 次  失败批次 ${progress.failures}\n`,
+    `══ ${type}  extend（每段从已有最大 id 续爬，连续空 ${EMPTY_STOP} 个即停；` +
+      `至少越过各段上界 +${TAIL_MARGIN}）══`,
   );
+  // 已出现过的 id（含历史记录里任一分包），用来判断某 id 是否「有货」。
+  const present = new Set<number>(idsOf(existing));
+
+  for (const band of BANDS[type]) {
+    // 取本段内已有最大的 id（不能用 Math.max(...)：尾部段十几万条会把调用栈撑爆）。
+    let maxKnown = 0;
+    for (const id of present) {
+      if (id >= band.lo && id < band.hi && id > maxKnown) maxKnown = id;
+    }
+    const start = (maxKnown > 0 ? maxKnown : band.lo - 1) + 1;
+    // 至少要扫过「上次边界 + TAIL_MARGIN」，确保那之后确实全空。
+    const floorEnd = band.floor + TAIL_MARGIN;
+    console.log(
+      `\n  ── 段 [${band.lo}, ${band.hi === Number.MAX_SAFE_INTEGER ? '∞' : band.hi})：` +
+        `已有最大 ${start - 1}，从 ${start} 起，至少扫到 ${floorEnd}`,
+    );
+
+    let cursor = start;
+    let consecEmpty = 0;
+    let bandHits = 0;
+    let bandScanned = 0;
+    while (true) {
+      const ids: number[] = [];
+      for (let i = cursor; i < cursor + WINDOW; i++) ids.push(i);
+      const windowEnd = ids[ids.length - 1];
+
+      const refs: ScidRef[] = [];
+      const byScid = new Map<string, { id: number; part: string }>();
+      for (const id of ids) {
+        for (const part of parts) {
+          if (existing.has(`${id}:${part}`)) continue;
+          const ref = scidFor(type, id, part);
+          refs.push(ref);
+          byScid.set(ref.scid, { id, part });
+        }
+      }
+      const hitIds = collect(await sendRefs(refs), byScid);
+
+      for (const id of ids) {
+        if (present.has(id) || hitIds.has(id)) {
+          consecEmpty = 0;
+          if (hitIds.has(id)) {
+            bandHits++;
+            present.add(id);
+          }
+        } else {
+          consecEmpty++;
+        }
+        bandScanned++;
+        scanned++;
+      }
+      progress.tick(scanned, Math.max(scanned, 1), hitCount, writtenCount, writtenBytes);
+
+      if (consecEmpty >= EMPTY_STOP && windowEnd >= floorEnd) {
+        console.log(
+          `\n    段 [${band.lo}, ${band.hi === Number.MAX_SAFE_INTEGER ? '∞' : band.hi}) 收手：` +
+            `扫 ${bandScanned} 个，新增命中 ${bandHits}，到 ${windowEnd} 已连续 ${consecEmpty} 个空 id`,
+        );
+        break;
+      }
+      cursor += WINDOW;
+    }
+  }
+  progress.done();
+  report(file, reqCount, hitCount, scanned, writtenCount, progress, '扫过');
 }
 
 // ─────────────────────────── main ───────────────────────────
@@ -507,4 +690,10 @@ main().catch((e) => {
  *   2026/09/30  bubble 1-60000 // 1000000-1000050 // 2000000-2180000   font 1-62000   widget 1-200000
  *   2026/10/13  bubble →2180200   font →61257   widget →200386
  *               （补齐上次尾部：bubble 2179440+、widget 199742+、font 61210+）
+ *   2026/10/16  bubble →2181294   font →61274   widget →200723   （--extend 续爬）
+ *               （各段连续空 200 即停，已复跑确认三类尾部全空；font 段尾部最稀疏）
+ *
+ * 下次直接跑：
+ *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --font --widget --extend
+ * 它会从各段真实最大 id 往后扫，连续 200 个空 id 自动收手，并至少越过旧边界 +200。
  * */

@@ -32,7 +32,8 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useState } from 'react';
+import { useTabActive } from '../../components/RetainedTabs';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
@@ -233,6 +234,7 @@ export function ContactProfileDialog({
   contact: Contact | undefined;
   onClose: () => void;
 }) {
+  const tabActive = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -245,8 +247,8 @@ export function ContactProfileDialog({
     setMarkOpen(false);
   }, [contact?.id]);
 
-  useEffect(() => {
-    if (!contact) {
+  useLayoutEffect(() => {
+    if (!tabActive || !contact) {
       return undefined;
     }
     function onKey(event: KeyboardEvent) {
@@ -256,7 +258,7 @@ export function ContactProfileDialog({
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [contact, onClose]);
+  }, [tabActive, contact, onClose]);
 
   if (!contact) {
     return null;
@@ -552,6 +554,7 @@ export function GroupProfileDialog({
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
 }) {
+  const tabActive = useTabActive();
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
 
@@ -559,8 +562,8 @@ export function GroupProfileDialog({
     setCopied(false);
   }, [conversation?.id]);
 
-  useEffect(() => {
-    if (!conversation) {
+  useLayoutEffect(() => {
+    if (!tabActive || !conversation) {
       return undefined;
     }
     function onKey(event: KeyboardEvent) {
@@ -570,7 +573,7 @@ export function GroupProfileDialog({
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [conversation, onClose]);
+  }, [tabActive, conversation, onClose]);
 
   if (!conversation) {
     return null;

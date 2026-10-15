@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./db-tolerance-copy": "./src/account/db_tolerance_copy.ts",
+    "./qzone-pagination": "./src/common/qzone_pagination.ts",
     "./conversation-order": "./src/account/conversation_order.ts",
     "./qq-group-join": "./src/common/qq_group_join.ts",
     "./draft-edit": "./src/account/draft_edit.ts",

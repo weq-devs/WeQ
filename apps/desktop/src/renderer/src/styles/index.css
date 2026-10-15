@@ -869,6 +869,7 @@ html[data-theme="dark"] .chat-empty {
     inset: 0;
     z-index: 140;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
     background:
       radial-gradient(ellipse at 30% 22%, rgba(0, 153, 255, 0.10), transparent 42%),
@@ -1321,13 +1322,16 @@ html[data-theme='dark'] .weq-splash-track {
 
   /* ---- modal + dialog ---- */
   .weq-modal {
+    max-width: calc(100vw - 24px);
+    min-width: 0;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
     background:
       radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 8%, transparent), transparent 44%),
-      linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(250, 255, 253, 0.9));
-    box-shadow: 0 24px 60px -28px rgba(7, 31, 61, 0.45);
+      var(--weq-bg-surface);
+    color: var(--weq-fg-primary);
+    box-shadow: var(--weq-shadow-card);
   }
 
   .weq-dialog {
@@ -1354,7 +1358,7 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-dialog-title {
     font-size: 16px;
     font-weight: 600;
-    color: #0f2d4c;
+    color: var(--weq-fg-primary);
   }
   .weq-dialog-x {
     display: inline-flex;
@@ -1366,9 +1370,10 @@ html[data-theme='dark'] .weq-splash-track {
     color: #51677c;
     transition: background-color 140ms ease, color 140ms ease;
   }
-  .weq-dialog-x:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: #0f2d4c; }
+  .weq-dialog-x:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-fg-primary); }
   .weq-dialog-body {
-    color: #36495d;
+    color: var(--weq-fg-secondary);
+    white-space: pre-line;
     font-size: 13.5px;
     line-height: 1.62;
     word-break: break-word;
@@ -3109,10 +3114,59 @@ html[data-theme='dark'] .weq-splash-track {
   color: #ffffff;
 }
 
+.weq-message-calendar { padding: 16px; color: var(--weq-fg-primary); }
+.weq-message-calendar header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.weq-calendar-tools { display:flex; align-items:center; justify-content:space-between; gap:4px; margin-bottom:12px; }
+.weq-calendar-tools button { display:grid; place-items:center; width:28px; height:28px; border-radius:4px; }
+.weq-calendar-tools select { min-width:0; background:var(--weq-bg-elevated); color:var(--weq-fg-primary); border:1px solid var(--weq-border-subtle); padding:4px; }
+.weq-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-template-rows:18px repeat(6,48px); gap:4px; }
+.weq-calendar-grid > span { text-align:center; color:var(--weq-fg-muted); font-size:12px; }
+.weq-calendar-grid button { min-width:0; height:48px; display:flex; flex-direction:column; justify-content:center; align-items:center; border:1px solid transparent; border-radius:4px; }
+.weq-calendar-grid button.has-messages { background:var(--weq-bg-elevated); border-color:var(--weq-border-subtle); }
+.weq-calendar-grid button.has-messages:hover { border-color:var(--weq-accent-effective); }
+.weq-calendar-grid button:disabled { color:var(--weq-fg-muted); opacity:0.55; }
+.weq-calendar-grid small { font-size:10px; max-width:100%; overflow:hidden; }
+.weq-message-calendar footer { margin-top:12px; font-size:12px; color:var(--weq-fg-secondary); }
+.weq-record-filters { display:flex; flex-wrap:wrap; align-items:end; gap:8px; padding:0 16px 12px; color:var(--weq-fg-secondary); }
+.weq-record-filters label { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:12px; }
+.weq-record-filters input,.weq-record-filters select { max-width:100%; min-width:0; height:30px; padding:4px 6px; border:1px solid var(--weq-border-subtle); border-radius:4px; background:var(--weq-bg-elevated); color:var(--weq-fg-primary); font-size:12px; }
+.weq-record-filters .weq-record-self { flex-direction:row; align-items:center; height:30px; }
+.weq-record-filters .weq-record-self input { height:14px; }
+.weq-record-filters input:not([type="checkbox"]) { width:148px; }
+.weq-record-error { color:var(--weq-warn-fg); padding:8px 16px; font-size:12px; }
+
 .weq-action-primary:hover,
 .weq-action-primary:focus-visible {
   color: #ffffff;
 }
+
+/* Shared dialogs and bootstrap surfaces must not rely on child-specific fixes. */
+html[data-theme="dark"] :is(.weq-dialog-x, .weq-db-report-path, .weq-acct-uin,
+  .weq-acct-row-uin, .weq-bignum-l, .weq-chart-empty, .weq-legend-size,
+  .weq-col-size, .weq-stats-path-txt, .help-list span) {
+  color: var(--weq-fg-secondary);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-section h4, .weq-db-feedback-menu button,
+  .weq-acct-name, .weq-acct-row-name, .weq-keyfield-text, .weq-bignum-v,
+  .weq-chart-title, .weq-legend-name, .weq-col-name, .help-list strong) {
+  color: var(--weq-fg-primary);
+}
+html[data-theme="dark"] :is(.weq-db-feedback-menu, .weq-acct-pop, .weq-acct-ctx-menu,
+  .weq-bignum, .weq-chart, .weq-keyfield-input) {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-details, .help-modal .help-list li) {
+  border-color: var(--weq-border-subtle);
+}
+html[data-theme="dark"] :is(.weq-db-damaged-section a, .weq-db-expand-toggle,
+  .weq-db-feedback-menu button:hover) {
+  color: var(--weq-accent-effective);
+}
+html[data-theme="dark"] .weq-dialog-error .weq-dialog-icon { color: #ff929b; }
+html[data-theme="dark"] .weq-dialog-warning .weq-dialog-icon { color: #f5c269; }
+html[data-theme="dark"] .weq-keyfield-text::placeholder { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-bignum-v.is-accent { color: var(--weq-accent-effective); }
 
 .weq-dialog-foot .weq-action-primary,
 .weq-dialog-foot .weq-action-soft {

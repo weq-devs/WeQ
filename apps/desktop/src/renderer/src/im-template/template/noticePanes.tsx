@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Bell, Users, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
+import { useTabActive } from '../../components/RetainedTabs';
 import { cn } from './classNames';
 import { formatProfileDate } from './format';
 import { Avatar, EmptyState } from './primitives';
@@ -9,8 +10,9 @@ import { displayUserName } from './user';
 
 /** Esc 关闭灯箱；仅在打开时挂监听。 */
 function useEscClose(active: boolean, onClose: () => void) {
-  useEffect(() => {
-    if (!active) {
+  const tabActive = useTabActive();
+  useLayoutEffect(() => {
+    if (!tabActive || !active) {
       return undefined;
     }
     function onKey(event: KeyboardEvent) {
@@ -20,7 +22,7 @@ function useEscClose(active: boolean, onClose: () => void) {
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [active, onClose]);
+  }, [tabActive, active, onClose]);
 }
 
 /**

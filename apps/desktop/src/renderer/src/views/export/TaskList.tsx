@@ -24,6 +24,8 @@ import {
   Globe,
   Loader2,
   Pause,
+  Play,
+  FileCheck,
   Sticker,
   Trash2,
   Users,
@@ -84,6 +86,8 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  canResume?: boolean;
+  reportPath?: string;
   id: string;
   kind: 'group' | 'c2c';
   name: string;
@@ -360,6 +364,8 @@ function TaskCard({
 function TaskDetail({
   task: t,
   onPause,
+  onResume,
+  onReport,
   onCancel,
   onDownload,
   onDelete,
@@ -367,6 +373,8 @@ function TaskDetail({
 }: {
   task: UiTask;
   onPause: (t: UiTask) => void;
+  onResume?: (t: UiTask) => void;
+  onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
@@ -406,6 +414,26 @@ function TaskDetail({
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
+          {t.canResume && onResume ? (
+            <button
+              type="button"
+              title="继续导出"
+              aria-label="继续导出"
+              onClick={() => onResume(t)}
+            >
+              <Play size={15} />
+            </button>
+          ) : null}
+          {t.reportPath && onReport ? (
+            <button
+              type="button"
+              title="完整性报告"
+              aria-label="完整性报告"
+              onClick={() => onReport(t)}
+            >
+              <FileCheck size={15} />
+            </button>
+          ) : null}
           {t.status === 'running' ? (
             <button type="button" title="暂停" onClick={() => onPause(t)}>
               <Pause size={15} />
@@ -494,6 +522,8 @@ function TaskDetail({
 export function TaskList({
   tasks,
   onPause,
+  onResume,
+  onReport,
   onCancel,
   onDownload,
   onDelete,
@@ -505,6 +535,8 @@ export function TaskList({
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
+  onResume?: (t: UiTask) => void;
+  onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
@@ -634,6 +666,8 @@ export function TaskList({
             <TaskDetail
               task={selected}
               onPause={onPause}
+              onResume={onResume}
+              onReport={onReport}
               onCancel={onCancel}
               onDownload={onDownload}
               onDelete={onDelete}

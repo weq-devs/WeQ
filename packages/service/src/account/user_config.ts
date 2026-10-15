@@ -461,6 +461,28 @@ export class AccountConfigService {
     });
   }
 
+  /**
+   * Drop one domain's login-harvested p_skey once a cgi has rejected it.
+   *
+   * 落盘的 seed 票据只该在「还有效」时留着：它会在下次开账号时被重新 seed 进
+   * `WebCredentialProvider`，而过期的 seed 会短路掉活 hook 查询（见
+   * `credential.ts` 的 `seedPskey` / `invalidate`），结果是每个域每次请求都先白
+   * 失败一轮。所以失效即删除，等下次登录再收一份新的。
+   */
+  clearLoginPskey(domain: string): void {
+    const existing = this.readRecord()?.loginPskey;
+    if (!existing || !(domain in existing)) return;
+    const rest = { ...existing };
+    delete rest[domain];
+    // 空表就整字段撤掉（`undefined` 会被 JSON.stringify 丢掉），别留个 `{}`。
+    this.patch({ loginPskey: Object.keys(rest).length > 0 ? rest : undefined });
+    this.logger.info('dropped invalid login pskey', {
+      event: 'clear-login-pskey',
+      domain,
+      remaining: Object.keys(rest),
+    });
+  }
+
   private patch(partial: Partial<AccountConfig>): void {
     const existing = this.readRecord();
     if (!existing) return; // save() seeds the record before any patch

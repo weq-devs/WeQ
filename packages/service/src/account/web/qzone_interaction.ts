@@ -40,6 +40,8 @@ export interface QzoneComment {
   isReply: boolean;
   /** 二级：所属一级评论 id。 */
   parentCommentId?: string;
+  /** Structured reply identity, independent of the UI composite id. */
+  replyId?: string;
   /** 二级：回复的目标用户 QQ。 */
   replyToUin?: string;
   /** 二级：回复的目标昵称。 */
@@ -172,6 +174,7 @@ function canonicalPostTidFromFeedAttrs(
 
 interface CommentRecord {
   commentid: string;
+  replyId?: string;
   uin: string;
   name: string;
   content: string;
@@ -574,6 +577,7 @@ function parseFeeds3CommentsInRegion(
           commentid: t2Tid
             ? `${rootTid}_r_${replyTid}_${replyUin}`
             : `${rootTid}_${replyTid}_${replyUin}`,
+          replyId: replyTid,
           uin: replyUin,
           name: replyNick,
           content: replyContent,
@@ -868,6 +872,7 @@ function toQzoneComment(c: CommentRecord): QzoneComment {
   };
   if (c.likeCount !== undefined) out.likeCount = c.likeCount;
   if (c.parentCommentId !== undefined) out.parentCommentId = c.parentCommentId;
+  if (c.replyId !== undefined) out.replyId = c.replyId;
   if (c.replyToUin) out.replyToUin = c.replyToUin;
   if (c.replyToNickname) out.replyToNickname = c.replyToNickname;
   if (c.replyToCommentId) out.replyToCommentId = c.replyToCommentId;
@@ -994,7 +999,7 @@ interface RawOpCntData {
   data?: Array<{
     current?: {
       key?: string;
-      newdata?: { CS?: number; CP?: number; LIKE?: number };
+      newdata?: { CS?: number; CP?: number; LIKE?: number; PRD?: number };
       likedata?: {
         cnt?: number;
         list?: Array<[string | number, string, string | number]>;
@@ -1007,6 +1012,8 @@ export interface QzoneLikesResult {
   likes: QzoneLike[];
   reportedTotal: number | null;
   reportedCommentCount?: number | null;
+  /** Server-reported reads, not unique visitors or the liker list length. */
+  reportedViewCount?: number | null;
   coverage: 'complete' | 'observed' | 'unobserved';
   reason:
     | 'matched-count'
@@ -1025,6 +1032,11 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   const cs = data.data?.[0]?.current?.newdata?.CS;
   const reportedCommentCount =
     data.code === 0 && typeof cs === 'number' && Number.isSafeInteger(cs) && cs >= 0 ? cs : null;
+  const reads = data.data?.length === 1 ? data.data[0]?.current?.newdata?.PRD : undefined;
+  const reportedViewCount =
+    data.code === 0 && typeof reads === 'number' && Number.isSafeInteger(reads) && reads >= 0
+      ? reads
+      : null;
   const count = value?.cnt;
   const reportedTotal =
     typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
@@ -1034,6 +1046,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
       likes: [],
       reportedTotal,
       reportedCommentCount,
+      reportedViewCount,
       coverage: 'unobserved',
       reason: 'missing-data',
     };
@@ -1055,6 +1068,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
     likes,
     reportedTotal,
     reportedCommentCount,
+    reportedViewCount,
     coverage: complete ? 'complete' : 'observed',
     reason: complete
       ? 'matched-count'

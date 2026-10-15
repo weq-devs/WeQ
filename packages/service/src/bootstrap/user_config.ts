@@ -34,6 +34,12 @@ import { normalizeAccountConfig } from '../account/user_config';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
+import {
+  DEFAULT_QZONE_PAGINATION,
+  normalizeQzonePagination,
+  qzonePaginationLimiter,
+  type QzonePaginationSettings,
+} from '../common/qzone_pagination';
 import { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export interface AutoEnterTarget {
@@ -478,6 +484,8 @@ export interface AppSettings {
    * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
    */
   logRetentionDays: number;
+  /** App-wide online Qzone page request budget, shared across accounts and exports. */
+  qzonePagination: QzonePaginationSettings;
 }
 
 /** 日志保留天数的默认值（7 天）。 */
@@ -657,6 +665,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
 };
 
 export interface UserConfig {
@@ -735,6 +744,7 @@ export class UserConfigService {
     // settings（都用 `getSettings()` 重建），跑在后面有丢掉旧规则的风险。
     this.migrateGroupKeywordToAccounts();
     this.runConfigMigrations();
+    qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
   }
 
   /**
@@ -1062,6 +1072,7 @@ export class UserConfigService {
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1152,6 +1163,7 @@ export class UserConfigService {
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
@@ -1180,6 +1192,7 @@ export class UserConfigService {
       },
     };
     this.write({ settings: next });
+    qzonePaginationLimiter.configure(next.qzonePagination);
     this.logger.info('updated app settings', {
       event: 'set-settings',
       patchKeys: Object.keys(patch),

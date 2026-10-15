@@ -140,13 +140,14 @@ export interface WebTokens {
  * 已注入时走 hook 上的 TS ptlogin2 流程（秒回）；未注入 / 完全离线模式回退
  * ptlogin2 本地快速登录。
  * 仅支持 PT_LOGIN_DOMAINS；任一步失败返回空串，不抛错。
+ * `seedPskey`（可选）：登录时收下的该域 p_skey，在 hook 与 pt_login 都拿不到时兜底。
  */
 export async function fetchWebTokens(
   nt: WebNative,
   uin: string,
   pid: number,
   domain: string,
-  opts: { needSkey?: boolean } = {},
+  opts: { needSkey?: boolean; seedPskey?: string } = {},
 ): Promise<WebTokens> {
   if (!PT_LOGIN_DOMAINS.has(domain)) return { skey: '', pskey: '' };
   try {
@@ -161,8 +162,11 @@ export async function fetchWebTokens(
     const pskey = await fetchPskeyViaPtLogin(nt, pid, uin, domain);
     return { skey, pskey };
   } catch {
-    return { skey: '', pskey: '' };
+    /* hook 与 pt_login 都拿不到（QQ 退出 / 未注入且探测端口失败）→ 退回登录收下的票据 */
   }
+  // 登录时顺带收的 p_skey：可能已经过期，但总比空 jar 强，交给服务端判。
+  // 只有 p_skey、没有 skey —— qzone.qq.com 的 g_tk 用 p_skey 就能算，够用。
+  return { skey: '', pskey: opts.seedPskey ?? '' };
 }
 
 /**
@@ -196,6 +200,12 @@ export class WebCredentialProvider {
     private readonly nt: WebNative,
     private readonly uin: string,
     private readonly resolvePid: () => number,
+    /**
+     * 登录时收下的 seed 票据被判失效时的回调（见 {@link invalidate}）。传进来的是
+     * 「把落盘那份也删掉」的钩子（`AccountConfigService.clearLoginPskey`）；不传就只
+     * 丢弃本实例的缓存，下次开账号还会 seed 一遍同样的死票据。
+     */
+    private readonly onSeedInvalidated?: (domain: string) => void,
   ) {
     this.logger = getLogger().child({ scope: 'web-credential', accountUin: this.uin });
   }
@@ -204,6 +214,9 @@ export class WebCredentialProvider {
    * Pre-load p_skey harvested elsewhere (e.g. from a login flow that grabbed
    * it while QQ was still up). Saves a hook round-trip, and works even after
    * that process is gone.
+   *
+   * seed 进来的域会被记下来：cgi 判它失效时 {@link invalidate} 除了丢掉缓存，
+   * 还会让落盘那份一起删掉（见 `onSeedInvalidated`）。
    */
   seedPskey(byDomain: Record<string, string>): void {
     for (const [domain, pskey] of Object.entries(byDomain)) {
@@ -224,17 +237,40 @@ export class WebCredentialProvider {
    * The seeded p_skey (harvested at login, possibly hours ago) is the most
    * likely thing to be stale, and once seeded it short-circuits the live hook
    * path — so dropping it here is what actually unblocks the retry.
+   *
+   * 掉的是一个**登录时 seed 进来的**域时，还会通过 {@link onSeedInvalidated}
+   * 让落盘那份也被删掉：否则下次开账号又会 seed 同一个死票据，每个域每次请求都先
+   * 白失败一轮。
    */
   invalidate(domain: string): void {
+    const wasSeeded = this.seededDomains.has(domain);
     this.logger.info('invalidating cached web credential', {
       event: 'invalidate-web-credential',
       domain,
-      wasSeeded: this.seededDomains.has(domain),
+      wasSeeded,
     });
     this.skey = null;
     this.pskeyByDomain.delete(domain);
     this.cookieByDomain.delete(domain);
     this.seededDomains.delete(domain);
+    if (wasSeeded) this.dropSeededPskey(domain);
+  }
+
+  /**
+   * 通知持有方（账号配置）把失效的 login p_skey 删掉。回调不该拖垮调用方 ——
+   * `invalidate` 在错误路径上跑，落盘失败只记日志。
+   */
+  private dropSeededPskey(domain: string): void {
+    if (!this.onSeedInvalidated) return;
+    try {
+      this.onSeedInvalidated(domain);
+    } catch (error) {
+      this.logger.warn('failed to drop invalid login pskey', {
+        event: 'drop-seeded-pskey-failed',
+        domain,
+        ...logErrorContext(error),
+      });
+    }
   }
 
   /**

@@ -114,6 +114,42 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('uses the asynchronous account probe instead of the blocking native probe', async () => {
+    const f = fixture();
+    f.platform.resolveQqPidAsync = vi.fn(async () => 42);
+    f.platform.resolveQqPid = vi.fn(() => {
+      throw new Error('must not block main');
+    });
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.platform.resolveQqPidAsync).toHaveBeenCalledWith('12345');
+    expect(f.platform.resolveQqPid).not.toHaveBeenCalled();
+    expect(f.hook.ensure).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.platform.resolveQqPidAsync).toHaveBeenCalledTimes(2);
+    f.monitor.stop();
+  });
+
+  it('ignores a late online result after the monitor is stopped', async () => {
+    const f = fixture();
+    let complete!: (pid: number) => void;
+    f.platform.resolveQqPidAsync = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const write = vi.spyOn(f.config, 'setOnline');
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    f.monitor.stop();
+    const writesAtStop = write.mock.calls.length;
+    complete(42);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(write).toHaveBeenCalledTimes(writesAtStop);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+  });
+
   it('backs off failed scans from 30 seconds to a bounded five minutes', async () => {
     const f = fixture();
     f.hook.ensure.mockRejectedValue(new Error('worker unavailable'));
@@ -174,6 +210,7 @@ describe('account monitor authorization and SSO readiness', () => {
     );
     const first = f.monitor.harvestRkeysNow();
     const joined = f.monitor.harvestRkeysNow();
+    await flushPromises();
     rejectScan(new Error('worker unavailable'));
     expect(await first).toBe(false);
     expect(await joined).toBe(false);

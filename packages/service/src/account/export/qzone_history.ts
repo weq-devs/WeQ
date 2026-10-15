@@ -24,7 +24,7 @@ interface QzoneHistoryLedger {
     anchors?: Array<{ tid: string; time: number }>;
   } | null;
   interactionRawPages: Array<{
-    kind: 'feeds' | 'likes';
+    kind: 'feeds' | 'comments' | 'likes';
     tid: string | null;
     sha256: string;
     file: string;
@@ -166,7 +166,11 @@ export class QzoneHistoryStore {
     this.ledger = next;
   }
 
-  saveInteractionRaw(capture: { kind: 'feeds' | 'likes'; tid?: string; response: string }): void {
+  saveInteractionRaw(capture: {
+    kind: 'feeds' | 'comments' | 'likes';
+    tid?: string;
+    response: string;
+  }): void {
     const sha256 = createHash('sha256').update(capture.response).digest('hex');
     const file = `interaction-raw/${capture.kind}-${sha256}.txt`;
     writeFileAtomicSync(join(this.root, file), capture.response);
@@ -204,7 +208,7 @@ export class QzoneHistoryStore {
       this.root,
       path,
       [...this.ledger.rawPages, ...this.ledger.interactionRawPages],
-      /^(raw\/page-\d+-\d+-[a-f0-9]{64}\.txt|interaction-raw\/(feeds|likes)-[a-f0-9]{64}\.txt)$/,
+      /^(raw\/page-\d+-\d+-[a-f0-9]{64}\.txt|interaction-raw\/(feeds|comments|likes)-[a-f0-9]{64}\.txt)$/,
     );
     writeFileAtomicSync(path, JSON.stringify(this.ledger, null, 2));
   }

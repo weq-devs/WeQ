@@ -554,6 +554,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setQzonePagination: procedure
+    .input(
+      z.object({
+        windowSeconds: z.number().int().min(1).max(3600),
+        maxPages: z.number().int().min(1).max(1000),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ qzonePagination: input }).qzonePagination;
+    }),
+
   /**
    * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
    * 决定页面没有 og:image 时要不要用离屏窗口截一张。纯持久化。

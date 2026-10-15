@@ -18,8 +18,9 @@
  * --im-color-line），主题色与深浅模式自动跟随，见 styles/ark-panel.css。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTabActive } from '../../components/RetainedTabs';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import {
@@ -157,11 +158,12 @@ function ContactSearch({
   onChange: (next: string) => void;
   disabled?: boolean;
 }) {
+  const tabActive = useTabActive();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLSpanElement | null>(null);
   /** 下拉挂到 `document.body`，向 overlayStack 领一个盖住面板的层级（见下面 place 注释）。 */
-  const layer = useOverlayLayer(open);
+  const layer = useOverlayLayer(tabActive && open);
   /**
    * 下拉的贴屏坐标。
    *
@@ -199,7 +201,8 @@ function ContactSearch({
       .slice(0, 8);
   }, [entries, query]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!tabActive) return;
     if (!open) {
       setAnchor(null);
       return;
@@ -226,7 +229,7 @@ function ContactSearch({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [open]);
+  }, [tabActive, open]);
 
   function handleType(text: string): void {
     setQuery(text);
@@ -289,7 +292,7 @@ function ContactSearch({
         </span>
       ) : null}
 
-      {open && anchor && results.length > 0
+      {tabActive && open && anchor && results.length > 0
         ? createPortal(
             <ul
               className={cn('ark-contact-list')}

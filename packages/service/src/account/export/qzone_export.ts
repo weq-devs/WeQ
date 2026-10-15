@@ -51,7 +51,7 @@ export interface QzoneExportDeps {
     targetUin: string,
     targets: QzoneInteractionTarget[],
     signal?: AbortSignal,
-    captureRaw?: (text: string) => Promise<void>,
+    captureRaw?: (text: string, kind?: 'feeds' | 'comments', tid?: string) => Promise<void>,
   ) => Promise<Map<string, QzoneInteraction>>;
   /**
    * Best-effort 读单条说说的点赞名单（r.qzone qz_opcnt2）。可选 —— 注入后，
@@ -156,7 +156,7 @@ export interface QzoneExportData {
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
   onRawInteraction?: (capture: {
-    kind: 'feeds' | 'likes';
+    kind: 'feeds' | 'comments' | 'likes';
     tid?: string;
     response: string;
   }) => Promise<void>;
@@ -1148,7 +1148,8 @@ async function attachInteractions(
         targets,
         opts.signal,
         opts.onRawInteraction
-          ? (response) => opts.onRawInteraction!({ kind: 'feeds', response })
+          ? (response, kind, tid) =>
+              opts.onRawInteraction!({ kind: kind ?? 'feeds', tid, response })
           : undefined,
       );
       opts.signal?.throwIfAborted();

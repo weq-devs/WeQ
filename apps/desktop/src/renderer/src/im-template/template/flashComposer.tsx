@@ -28,8 +28,9 @@
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTabActive } from '../../components/RetainedTabs';
 import type { RefObject } from 'react';
 import { ImagePlus, Loader2, RotateCcw, SendHorizontal, Sparkles, X, Zap } from 'lucide-react';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -451,7 +452,8 @@ export function FlashComposer({
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const lightboxLayer = useOverlayLayer(lightbox);
+  const tabActive = useTabActive();
+  const lightboxLayer = useOverlayLayer(tabActive && lightbox);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const filesInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
@@ -485,14 +487,14 @@ export function FlashComposer({
    * 开着就只把灯箱收起来，退回文件框，草稿一点不丢。chatPane 那一层看到
    * `.flash-lightbox` 会主动让路（见那边的 closeFlashOnEscape）。
    */
-  useEffect(() => {
-    if (!lightbox) return;
+  useLayoutEffect(() => {
+    if (!tabActive || !lightbox) return;
     function onEscape(event: KeyboardEvent): void {
       if (event.key === 'Escape') setLightbox(false);
     }
     document.addEventListener('keydown', onEscape);
     return () => document.removeEventListener('keydown', onEscape);
-  }, [lightbox]);
+  }, [lightbox, tabActive]);
 
   /** 追加一批文件（拖拽 / 选择共用）；按路径去重。 */
   const addFiles = useCallback((incoming: FlashDraftFile[]) => {
@@ -747,7 +749,7 @@ export function FlashComposer({
         `position: fixed` 的子孙另开一个包含块（就是输入框那一格），挂在里面的话
         `inset: 0` 只盖住输入区，卡片跟着掉到屏幕底部。挂到 body 才是整屏居中。
       */}
-      {lightbox
+      {lightbox && tabActive
         ? createPortal(
             <div
               className={cn('flash-lightbox')}

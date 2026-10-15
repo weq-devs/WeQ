@@ -123,12 +123,15 @@ async function resolveCardVideoUrl(itemId: number): Promise<string> {
  * @param nt       native helper（用于获取 web 凭证）
  * @param session  当前账号 session（取 uin + profileInfo db）
  * @param pid      已注入的 QQ 进程 pid
+ * @param seedPskey 登录时收下的 p_skey（域 → p_skey），用来省掉一次 hook 往返
+ * @param onSeedInvalidated 上面那份票据被判失效时调用（让落盘那份也删掉）
  */
 export async function fetchHomeDress(
   nt: WebNative,
   session: AccountSession,
   pid: number,
   seedPskey?: Record<string, string>,
+  onSeedInvalidated?: (domain: string) => void,
 ): Promise<HomeDressSnapshot> {
   const logger = getLogger().child({ scope: 'home-dress', accountUin: session.context.uin });
   const uin = session.context.uin;
@@ -140,7 +143,7 @@ export async function fetchHomeDress(
   // 不按时间戳判过期 —— p_skey 的真实 TTL 没有可靠依据，宁可多一次往返也别硬编码猜测值。
   let self: Awaited<ReturnType<typeof getSelfDress>>;
   try {
-    self = await getSelfDress(await resolveCred(nt, uin, pid, seedPskey));
+    self = await getSelfDress(await resolveCred(nt, uin, pid, seedPskey, onSeedInvalidated));
   } catch (e) {
     if (!seedPskey) throw e;
     logger.warn('self dress failed with seeded pskey; retrying via live hook', {
@@ -148,7 +151,11 @@ export async function fetchHomeDress(
       pid,
       ...logErrorContext(e),
     });
-    self = await getSelfDress(await resolveCred(nt, uin, pid, undefined));
+    // 既然这份 seed 用不了就把落盘那份也删掉（见 `clearLoginPskey`）—— 这里的 cgi 不
+    // 会报 `WebAuthError`，所以 provider 的失效回调不会触发，得自己删。留着只会让下次
+    // 开账号又先白失败一轮；代价是以后多打一次 hook 而已。
+    if (seedPskey[VIP_DOMAIN]) dropSeededDomain(onSeedInvalidated, VIP_DOMAIN);
+    self = await getSelfDress(await resolveCred(nt, uin, pid, undefined, onSeedInvalidated));
   }
 
   const pick = (appId: number) => self.items.find((i) => i.appId === appId);
@@ -224,14 +231,36 @@ export async function fetchHomeDress(
   return snapshot;
 }
 
+/**
+ * 调持有方的「把落盘 seed 删掉」钩子。删盘失败只记日志 —— 装扮抓取本身不该因此
+ * 失败（与 `WebCredentialProvider.dropSeededPskey` 同一套容错）。
+ */
+function dropSeededDomain(
+  onSeedInvalidated: ((domain: string) => void) | undefined,
+  domain: string,
+): void {
+  try {
+    onSeedInvalidated?.(domain);
+  } catch (error) {
+    getLogger()
+      .child({ scope: 'home-dress' })
+      .warn('failed to drop invalid login pskey', {
+        event: 'drop-seeded-pskey-failed',
+        domain,
+        ...logErrorContext(error),
+      });
+  }
+}
+
 /** vip.qq.com 的凭证。`seedPskey` 为空时强制走活 hook。 */
 async function resolveCred(
   nt: WebNative,
   uin: string,
   pid: number,
   seedPskey: Record<string, string> | undefined,
+  onSeedInvalidated?: (domain: string) => void,
 ) {
-  const creds = new WebCredentialProvider(nt, uin, () => pid);
+  const creds = new WebCredentialProvider(nt, uin, () => pid, onSeedInvalidated);
   if (seedPskey) creds.seedPskey(seedPskey);
   return creds.forDomain(VIP_DOMAIN);
 }

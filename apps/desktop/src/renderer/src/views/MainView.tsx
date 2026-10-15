@@ -24,7 +24,7 @@ import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
@@ -125,6 +125,7 @@ import { CacheView } from './cache/CacheView';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
 import { QzoneWorkspace } from './QzoneView';
+import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import {
   QzoneNavigationContext,
   QzoneProfileContext,
@@ -1103,11 +1104,28 @@ function contactToConversation(
   user: User,
   groupNameByCode: Map<string, string>,
   botUids: Set<string>,
+  displayNames: ReadonlyMap<string, string> = new Map(),
+  groupNames: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   // 「自己」的身份集合：戳一戳灰条的预览里我这半只带 uid，需要它才能渲染成「你」。
-  const nodes = previewNodes(c.preview, new Set(selfIdentityValues(user)));
+  const names = new Map<string, string>();
+  const memberNames = kind === 'group' ? groupNames.get(c.targetUid) : undefined;
+  const senderName = c.senderDisplayName || c.senderNick;
+  if (
+    c.senderUid &&
+    senderName &&
+    !(/^\d+$/.test(senderName) && (memberNames?.get(c.senderUid) || displayNames.get(c.senderUid)))
+  )
+    names.set(c.senderUid, senderName);
+  if (kind === 'direct' && title !== c.targetUid && title !== c.targetUin) {
+    names.set(c.targetUid, title);
+    if (c.targetUin && c.targetUin !== '0') names.set(c.targetUin, title);
+  }
+  const nodes = previewNodes(c.preview, new Set(selfIdentityValues(user)), {
+    get: (id) => names.get(id) || memberNames?.get(id) || displayNames.get(id),
+  });
   const preview = previewNodesToText(nodes) || null;
   const updatedAt = toIsoTime(c.sendTime);
   const preference: ConversationPreference = {
@@ -1960,6 +1978,7 @@ function OverlayScrollbar({
   refreshKey: string;
 }): ReactElement | null {
   const [state, setState] = useState<OverlayScrollbarState>(overlayScrollbarInitialState);
+  const tabActive = useTabActive();
   const targetRef = useRef<HTMLElement | null>(null);
   const hoverRef = useRef(false);
   const draggingRef = useRef(false);
@@ -2005,8 +2024,11 @@ function OverlayScrollbar({
   }, [updateScrollbar]);
 
   useEffect(() => {
-    const target = document.querySelector<HTMLElement>(targetSelector);
-    targetRef.current = target;
+    if (!tabActive) return undefined;
+    const target = [...document.querySelectorAll<HTMLElement>(targetSelector)].find(
+      (element) => element.getClientRects().length > 0,
+    );
+    targetRef.current = target ?? null;
     hoverRef.current = false;
     draggingRef.current = false;
 
@@ -2051,7 +2073,7 @@ function OverlayScrollbar({
         frameRef.current = null;
       }
     };
-  }, [refreshKey, scheduleUpdate, targetSelector]);
+  }, [tabActive, refreshKey, scheduleUpdate, targetSelector]);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     const target = targetRef.current;
@@ -2095,7 +2117,7 @@ function OverlayScrollbar({
     scheduleUpdate();
   }
 
-  if (!state.canScroll) return null;
+  if (!tabActive || !state.canScroll) return null;
 
   return (
     <div
@@ -3098,6 +3120,8 @@ export function MainView(): ReactElement {
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
   const { missingMembers, resolveMembers } = useGroupMemberResolver<GroupMemberWire>();
+  const { missingMembers: previewMembers, resolveMembers: resolvePreviewMembers } =
+    useGroupMemberResolver<GroupMemberWire>();
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -3152,6 +3176,30 @@ export function MainView(): ReactElement {
     resolveProfiles,
     refreshProfiles: refreshProfileCache,
   } = useProfileResolver<UserProfileWire>(profiles.data as UserProfileWire[] | undefined);
+  const previewDisplayNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const profile of profileByUid.values()) {
+      const name = profile.remark || profile.nick;
+      if (!name) continue;
+      names.set(profile.uid, name);
+      if (profile.uin && profile.uin !== '0') names.set(profile.uin, name);
+    }
+    return names;
+  }, [profileByUid]);
+  const previewGroupNames = useMemo(() => {
+    const groups = new Map<string, ReadonlyMap<string, string>>();
+    for (const [code, members] of Object.entries(previewMembers)) {
+      const names = new Map<string, string>();
+      for (const member of Object.values(members)) {
+        const name = member.card || member.nick;
+        if (!name) continue;
+        names.set(member.uid, name);
+        if (member.uin && member.uin !== '0') names.set(member.uin, name);
+      }
+      groups.set(code, names);
+    }
+    return groups;
+  }, [previewMembers]);
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -3228,7 +3276,14 @@ export function MainView(): ReactElement {
     if (hiddenUidSet.size === 0) return map;
     for (const contact of recentContactsData) {
       if (!hiddenUidSet.has(contact.targetUid)) continue;
-      const conv = contactToConversation(contact, user, groupNameByCode, botUids);
+      const conv = contactToConversation(
+        contact,
+        user,
+        groupNameByCode,
+        botUids,
+        previewDisplayNames,
+        previewGroupNames,
+      );
       if (conv) map.set(conv.id, conv);
     }
     for (const detail of (allGroups.data ?? []) as GroupDetailWire[]) {
@@ -3236,7 +3291,16 @@ export function MainView(): ReactElement {
       map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
     }
     return map;
-  }, [hiddenUidSet, recentContactsData, allGroups.data, groupNameByCode, user, botUids]);
+  }, [
+    hiddenUidSet,
+    recentContactsData,
+    allGroups.data,
+    groupNameByCode,
+    user,
+    botUids,
+    previewDisplayNames,
+    previewGroupNames,
+  ]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
   // 和隐藏会话不同，删除会话已经不在 recent_contact 里，所以只能用 deletedSessions 数据。
@@ -3336,7 +3400,16 @@ export function MainView(): ReactElement {
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
       })
-      .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
+      .map((contact) =>
+        contactToConversation(
+          contact,
+          user,
+          groupNameByCode,
+          botUids,
+          previewDisplayNames,
+          previewGroupNames,
+        ),
+      )
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown
@@ -3593,6 +3666,8 @@ export function MainView(): ReactElement {
     profileByUid,
     user,
     unreadByConv,
+    previewDisplayNames,
+    previewGroupNames,
     highlightsByConv,
     topTimeByConv,
     groupAssistantIds,
@@ -3798,8 +3873,7 @@ export function MainView(): ReactElement {
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
-      // 从其它页（联系人/导出/助手…）切回「消息」时，落在 QQ 式企鹅占位而不是自动选中
-      // 最近一条会话——会话由用户在左栏显式点选后才进入。
+      // 首次进入消息页不自动选中会话；后续切回保留用户已经选中的会话。
       shouldAutoSelectConversation: () => false,
       replaceShell: () => undefined,
       pushShellDetail: () => undefined,
@@ -3830,6 +3904,9 @@ export function MainView(): ReactElement {
       ? deletedConversationsById.get(shell.activeConversationId)
       : undefined);
   const selectedUid = selectedConversation?.id ?? '';
+  const messagesTabActive = shell.view === 'messages' && !arkFeedState;
+  const messagesTabActiveRef = useRef(messagesTabActive);
+  messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
 
@@ -4218,22 +4295,6 @@ export function MainView(): ReactElement {
     }));
     return { ...conv, members };
   }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids, profileByUid]);
-
-  // 切换到独占全屏的视图（home/export/agentlab/cache/qzone/channel）时，
-  // 自动关闭可能还开着的公众号/服务号 ARK Feed 页面，否则会覆盖在新视图上。
-  useEffect(() => {
-    const fullBleed =
-      shell.view === 'home' ||
-      shell.view === 'export' ||
-      shell.view === 'agentlab' ||
-      shell.view === 'cache' ||
-      shell.view === 'qzone' ||
-      shell.view === 'channel' ||
-      shell.view === 'annual';
-    if (fullBleed && arkFeedState) {
-      setArkFeedState(null);
-    }
-  }, [shell.view, arkFeedState]);
 
   useEffect(() => {
     const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
@@ -4675,6 +4736,12 @@ export function MainView(): ReactElement {
   // batch every render issues at most one query per never-seen uid.
   useEffect(() => {
     const uids: string[] = [];
+    for (const contact of recentContactsData) {
+      const ids = previewIdentityIds(contact.preview).filter((id) => id.startsWith('u_'));
+      uids.push(...ids);
+      if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
+        resolvePreviewMembers(contact.targetUid, ids, new Set(), () => true);
+    }
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
       uids.push(request.peerUid);
@@ -4700,6 +4767,8 @@ export function MainView(): ReactElement {
     groupNotifies.data,
     hiddenSessions.data,
     deletedSessions.data,
+    recentContactsData,
+    resolvePreviewMembers,
     resolveProfiles,
   ]);
 
@@ -5138,18 +5207,23 @@ export function MainView(): ReactElement {
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockConvRef = useRef<string | null>(null);
+  const unreadSelectionId =
+    selectedConversation &&
+    (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
+      ? selectedConversation.id
+      : null;
 
   // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
-    const conv = selectedConversation;
-    const convId = conv && (conv.type === 'direct' || conv.type === 'group') ? conv.id : null;
+    const convId = unreadSelectionId;
     if (unreadDockConvRef.current !== convId) setUnreadDock(null);
     setMissingJumpSeq(null);
     if (convId === null) unreadDockConvRef.current = null;
-  }, [selectedConversation]);
+  }, [unreadSelectionId]);
 
   useEffect(() => {
     const conv = selectedConversation;
+    if (!messagesTabActive) return undefined;
     if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
       return undefined;
     }
@@ -5163,7 +5237,13 @@ export function MainView(): ReactElement {
     // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
     // 因为 loaded / recentContactsData 的后续变化会重跑本 effect（此时早退），
     // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
-    const stillCurrent = () => unreadDockConvRef.current === convId;
+    const stillCurrent = () => {
+      if (!messagesTabActiveRef.current) {
+        if (unreadDockConvRef.current === convId) unreadDockConvRef.current = null;
+        return false;
+      }
+      return unreadDockConvRef.current === convId;
+    };
 
     (async () => {
       let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
@@ -5215,7 +5295,7 @@ export function MainView(): ReactElement {
       setUnreadDock(dock);
     })();
     return undefined;
-  }, [selectedConversation, messagesLoading, loaded, recentContactsData, utils]);
+  }, [messagesTabActive, selectedConversation, messagesLoading, loaded, recentContactsData, utils]);
 
   useEffect(() => {
     if (contacts.isLoading) return;
@@ -5506,6 +5586,7 @@ export function MainView(): ReactElement {
       setSearchDismissed(true);
       shell.setQuery('');
       if (!conv) return;
+      setArkFeedState(null);
       if (!seq) {
         if (toastOnMissingSeq) {
           pushToast({
@@ -5519,6 +5600,7 @@ export function MainView(): ReactElement {
       }
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
+        shell.switchView('messages');
         void centerWindowOnSeq(conv, kind, seq);
         return;
       }
@@ -5782,7 +5864,7 @@ export function MainView(): ReactElement {
   }, [selectedConversation, hasNewer, loaded]);
 
   useEffect(() => {
-    if (!selectedConversation) return undefined;
+    if (!messagesTabActive || !selectedConversation) return undefined;
 
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (!scroll) return undefined;
@@ -5814,9 +5896,16 @@ export function MainView(): ReactElement {
       scrollElement.removeEventListener('scroll', maybeLoadEdge);
       window.cancelAnimationFrame(frame);
     };
-  }, [requestOlderMessages, requestNewerMessages, selectedConversation, templateMessages.length]);
+  }, [
+    messagesTabActive,
+    requestOlderMessages,
+    requestNewerMessages,
+    selectedConversation,
+    templateMessages.length,
+  ]);
 
   useLayoutEffect(() => {
+    if (!messagesTabActive) return undefined;
     const restore = pendingScrollRestoreRef.current;
     if (!restore || restore.conversationId !== selectedConversation?.id) return undefined;
 
@@ -5844,7 +5933,7 @@ export function MainView(): ReactElement {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedConversation?.id, templateMessages.length]);
+  }, [messagesTabActive, selectedConversation?.id, templateMessages.length]);
 
   useEffect(() => {
     if (!searchQuery && !searchFocused) return undefined;
@@ -6915,7 +7004,7 @@ export function MainView(): ReactElement {
             contactTab={shell.contactTab}
             activeNotice={shell.contactNotice}
             sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
-            mainOpen={shell.mainOpen}
+            mainOpen={shell.mainOpen || (shell.view === 'messages' && Boolean(arkFeedState))}
             messageBadgeCount={0}
             contactBadgeCount={0}
             showTools={false}
@@ -6988,45 +7077,47 @@ export function MainView(): ReactElement {
             refreshingContacts={refreshingContacts}
             onSidebarWidthChange={shell.updateSidebarWidth}
             sidebarContent={
-              fullBleedView ? null : (
-                <>
-                  <ChatSidebarContent
-                    user={user}
-                    view={shell.view}
-                    contactTab={shell.contactTab}
-                    conversations={
-                      shell.view === 'contacts'
-                        ? contactDirectoryConversations
-                        : shell.view === 'messages' && !shell.query.trim()
-                          ? sidebarConversations
-                          : conversations
-                    }
-                    activeConversationId={shell.activeConversationId}
-                    selectedGroupConversationId={shell.selectedGroupConversationId}
-                    selectedContactId={shell.selectedContactId}
-                    conversationPrefs={conversationPrefs}
-                    drafts={drafts}
-                    contacts={buddyContacts}
-                    categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
-                    specialContactSections={specialContactSections}
-                    historicalContactSections={historicalContactSections}
-                    loading={sidebarLoading}
-                    onLoadMoreConversations={loadMoreContacts}
-                    conversationsHasMore={contactsHasMore}
-                    conversationsLoadingMore={contactsLoadingMore}
-                    query={shell.query}
-                    onSelectConversation={handleSelectConversation}
-                    onSelectContact={shell.selectContact}
-                    onSelectGroup={shell.selectGroup}
-                    activateToolsOnSelect={false}
-                  />
-                  <OverlayScrollbar
-                    targetSelector=".app-shell .sidebar-body"
-                    className="weq-sidebar-scrollbar"
-                    refreshKey={`sidebar:${shell.view}:${shell.query}`}
-                  />
-                </>
-              )
+              <RetainedTabs activeKey={shell.view} scrollable>
+                {fullBleedView ? null : (
+                  <>
+                    <ChatSidebarContent
+                      user={user}
+                      view={shell.view}
+                      contactTab={shell.contactTab}
+                      conversations={
+                        shell.view === 'contacts'
+                          ? contactDirectoryConversations
+                          : shell.view === 'messages' && !shell.query.trim()
+                            ? sidebarConversations
+                            : conversations
+                      }
+                      activeConversationId={shell.activeConversationId}
+                      selectedGroupConversationId={shell.selectedGroupConversationId}
+                      selectedContactId={shell.selectedContactId}
+                      conversationPrefs={conversationPrefs}
+                      drafts={drafts}
+                      contacts={buddyContacts}
+                      categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
+                      specialContactSections={specialContactSections}
+                      historicalContactSections={historicalContactSections}
+                      loading={sidebarLoading}
+                      onLoadMoreConversations={loadMoreContacts}
+                      conversationsHasMore={contactsHasMore}
+                      conversationsLoadingMore={contactsLoadingMore}
+                      query={shell.query}
+                      onSelectConversation={handleSelectConversation}
+                      onSelectContact={shell.selectContact}
+                      onSelectGroup={shell.selectGroup}
+                      activateToolsOnSelect={false}
+                    />
+                    <OverlayScrollbar
+                      targetSelector=".app-shell .sidebar-body [data-retained-panel]:not([hidden])"
+                      className="weq-sidebar-scrollbar"
+                      refreshKey={`sidebar:${shell.view}:${shell.query}`}
+                    />
+                  </>
+                )}
+              </RetainedTabs>
             }
             mainContent={
               <>
@@ -7037,150 +7128,153 @@ export function MainView(): ReactElement {
                   nickname={user.displayName}
                   spaceRequest={qzoneSpaceRequest}
                 />
-                {arkFeedState ? (
-                  <ArkFeedView
-                    conversationId={arkFeedState.conversationId}
-                    title={arkFeedState.title}
-                    onBack={() => {
-                      setArkFeedState(null);
-                    }}
-                    onEditMessage={async (msgId: string) => {
-                      try {
-                        const result = await client.account.getRawElements.query({ msgId });
-                        if (result) {
-                          setEditorState({ msgId, elements: result.elements });
+                <RetainedTabs activeKey={shell.view}>
+                  {shell.view === 'messages' && arkFeedState ? (
+                    <ArkFeedView
+                      conversationId={arkFeedState.conversationId}
+                      title={arkFeedState.title}
+                      onBack={() => {
+                        setArkFeedState(null);
+                      }}
+                      onEditMessage={async (msgId: string) => {
+                        try {
+                          const result = await client.account.getRawElements.query({ msgId });
+                          if (result) {
+                            setEditorState({ msgId, elements: result.elements });
+                          }
+                        } catch (e) {
+                          console.error('[MainView] Failed to fetch raw elements:', e);
                         }
-                      } catch (e) {
-                        console.error('[MainView] Failed to fetch raw elements:', e);
-                      }
-                    }}
-                  />
-                ) : shell.view === 'home' ? (
-                  <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-                ) : shell.view === 'export' ? (
-                  <ExportView />
-                ) : shell.view === 'agentlab' ? (
-                  <AgentLabView />
-                ) : shell.view === 'cache' ? (
-                  <CacheView />
-                ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
-                  <ChannelView />
-                ) : shell.view === 'annual' ? (
-                  <AnnualReportView />
-                ) : activeConversation?.type === 'merged' ? (
-                  <ArkFeedView
-                    conversationId={activeConversation.id}
-                    title={activeConversation.title}
-                    onBack={shell.backConversation}
-                    onEditMessage={async (msgId: string) => {
-                      try {
-                        const result = await client.account.getRawElements.query({ msgId });
-                        if (result) {
-                          setEditorState({ msgId, elements: result.elements });
+                      }}
+                    />
+                  ) : shell.view === 'home' ? (
+                    <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+                  ) : shell.view === 'export' ? (
+                    <ExportView />
+                  ) : shell.view === 'agentlab' ? (
+                    <AgentLabView />
+                  ) : shell.view === 'cache' ? (
+                    <CacheView />
+                  ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
+                    <ChannelView />
+                  ) : shell.view === 'annual' ? (
+                    <AnnualReportView />
+                  ) : shell.view === 'messages' && activeConversation?.type === 'merged' ? (
+                    <ArkFeedView
+                      conversationId={activeConversation.id}
+                      title={activeConversation.title}
+                      onBack={shell.backConversation}
+                      onEditMessage={async (msgId: string) => {
+                        try {
+                          const result = await client.account.getRawElements.query({ msgId });
+                          if (result) {
+                            setEditorState({ msgId, elements: result.elements });
+                          }
+                        } catch (e) {
+                          console.error('[MainView] Failed to fetch raw elements:', e);
                         }
-                      } catch (e) {
-                        console.error('[MainView] Failed to fetch raw elements:', e);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="weq-template-main-wrap">
-                    <div className="weq-readonly-chat">
-                      <ChatMainContent
-                        user={user}
-                        view={shell.view}
-                        contactTab={shell.contactTab}
-                        relationGraphSlot={<RelationGraphView />}
-                        contactNotice={shell.contactNotice}
-                        contactRequests={contactRequests}
-                        groupRequests={groupRequests}
-                        selectedContact={shell.selectedContact}
-                        selectedGroupConversation={selectedGroupConversationForDetail}
-                        activeConversation={activeConversation}
-                        messages={templateMessages}
-                        messageRenderers={messageRenderers}
-                        loadingMessages={loadingInitialMessages}
-                        atLatest={anchoredToLatest}
-                        conversationPrefs={conversationPrefs}
-                        drafts={drafts}
-                        query={shell.query}
-                        onAcceptContactRequest={noopAsync}
-                        onRejectContactRequest={noopAsync}
-                        onAcceptGroupRequest={noopAsync}
-                        onRejectGroupRequest={noopAsync}
-                        onMessageContact={noopAsync}
-                        onMessageGroup={noopAsync}
-                        onBackContact={shell.backContact}
-                        onBackGroup={shell.backGroup}
-                        onBackContactNotice={shell.backContactNotice}
-                        onUpdateConversationPreference={updateConversationPreference}
-                        onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
-                          undefined
-                        }
-                        onLoadMoreGroupMembers={requestMoreGroupMembers}
-                        groupMembersLoading={selectedGroupMembersLoading}
-                        groupMembersError={selectedGroupMembersError}
-                        groupMemberSearch={memberSearch}
-                        onGroupMemberSearchChange={setMemberSearchKeyword}
-                        onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
-                        profileLoading={groupDetail.isLoading}
-                        sendAvailable={sendAvailable}
-                        onOpenNotificationSettings={noopAsync}
-                        onSend={sendMessage}
-                        onSendWindowShake={sendWindowShake}
-                        onSendArk={sendArkCard}
-                        arkLocation={arkLocation}
-                        arkContacts={arkContacts}
-                        defaultSignupGroupCode={
-                          selectedConversation?.type === 'group'
-                            ? selectedConversation.group.identityValue
-                            : undefined
-                        }
-                        onSendFlash={sendFlashTransfer}
-                        onSendRedPacket={sendRedPacket}
-                        onDraftChange={updateDraft}
-                        onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
-                        onBackConversation={shell.backConversation}
-                        onEditRaw={handleEditRaw}
-                        onDeleteMessage={handleDeleteMessage}
-                        onOpenGroupAlbums={handleOpenGroupAlbums}
-                        onOpenGroupFiles={handleOpenGroupFiles}
-                        onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
-                        onOpenGroupEssence={handleOpenGroupEssence}
-                        onRenameGroupMember={handleRenameGroupMember}
-                        onKickGroupMember={handleKickGroupMember}
-                        onOpenConversationSettings={handleOpenConversationSettings}
-                        onOpenGroupAnalytics={handleOpenGroupAnalytics}
-                        onOpenGroupBug={handleOpenGroupBug}
-                        onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
-                        groupBugOnline={groupBugStatus.data?.online ?? false}
-                        onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
-                        onOpenGroupMember={handleOpenGroupMember}
-                        onAddMessage={handleAddMessage}
-                        onMergeForward={handleMergeForward}
-                        onViewDeleted={handleViewDeleted}
-                        onViewRecalled={handleViewRecalled}
-                        onOpenGapMessages={handleOpenGapMessages}
-                        onSearchChatRecords={handleSearchChatRecords}
-                        onExportConversation={handleExportConversation}
-                        deletedIds={deletedIds}
-                        onRestoreMessage={handleRestoreMessage}
-                        unreadDock={unreadDock}
-                        missingJumpSeq={missingJumpSeq}
+                      }}
+                    />
+                  ) : (
+                    <div className="weq-template-main-wrap">
+                      <div className="weq-readonly-chat">
+                        <ChatMainContent
+                          user={user}
+                          view={shell.view}
+                          contactTab={shell.contactTab}
+                          relationGraphSlot={<RelationGraphView />}
+                          contactNotice={shell.contactNotice}
+                          contactRequests={contactRequests}
+                          groupRequests={groupRequests}
+                          selectedContact={shell.selectedContact}
+                          selectedGroupConversation={selectedGroupConversationForDetail}
+                          activeConversation={activeConversation}
+                          messages={templateMessages}
+                          messageRenderers={messageRenderers}
+                          loadingMessages={loadingInitialMessages}
+                          atLatest={anchoredToLatest}
+                          conversationPrefs={conversationPrefs}
+                          drafts={drafts}
+                          query={shell.query}
+                          onAcceptContactRequest={noopAsync}
+                          onRejectContactRequest={noopAsync}
+                          onAcceptGroupRequest={noopAsync}
+                          onRejectGroupRequest={noopAsync}
+                          onMessageContact={noopAsync}
+                          onMessageGroup={noopAsync}
+                          onBackContact={shell.backContact}
+                          onBackGroup={shell.backGroup}
+                          onBackContactNotice={shell.backContactNotice}
+                          onUpdateConversationPreference={updateConversationPreference}
+                          onUpdateGroup={async (
+                            _conversationId: string,
+                            _input: GroupUpdateInput,
+                          ) => undefined}
+                          onLoadMoreGroupMembers={requestMoreGroupMembers}
+                          groupMembersLoading={selectedGroupMembersLoading}
+                          groupMembersError={selectedGroupMembersError}
+                          groupMemberSearch={memberSearch}
+                          onGroupMemberSearchChange={setMemberSearchKeyword}
+                          onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
+                          profileLoading={groupDetail.isLoading}
+                          sendAvailable={sendAvailable}
+                          onOpenNotificationSettings={noopAsync}
+                          onSend={sendMessage}
+                          onSendWindowShake={sendWindowShake}
+                          onSendArk={sendArkCard}
+                          arkLocation={arkLocation}
+                          arkContacts={arkContacts}
+                          defaultSignupGroupCode={
+                            selectedConversation?.type === 'group'
+                              ? selectedConversation.group.identityValue
+                              : undefined
+                          }
+                          onSendFlash={sendFlashTransfer}
+                          onSendRedPacket={sendRedPacket}
+                          onDraftChange={updateDraft}
+                          onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
+                          onBackConversation={shell.backConversation}
+                          onEditRaw={handleEditRaw}
+                          onDeleteMessage={handleDeleteMessage}
+                          onOpenGroupAlbums={handleOpenGroupAlbums}
+                          onOpenGroupFiles={handleOpenGroupFiles}
+                          onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                          onOpenGroupEssence={handleOpenGroupEssence}
+                          onRenameGroupMember={handleRenameGroupMember}
+                          onKickGroupMember={handleKickGroupMember}
+                          onOpenConversationSettings={handleOpenConversationSettings}
+                          onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                          onOpenGroupBug={handleOpenGroupBug}
+                          onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
+                          groupBugOnline={groupBugStatus.data?.online ?? false}
+                          onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                          onOpenGroupMember={handleOpenGroupMember}
+                          onAddMessage={handleAddMessage}
+                          onMergeForward={handleMergeForward}
+                          onViewDeleted={handleViewDeleted}
+                          onViewRecalled={handleViewRecalled}
+                          onOpenGapMessages={handleOpenGapMessages}
+                          onSearchChatRecords={handleSearchChatRecords}
+                          onExportConversation={handleExportConversation}
+                          deletedIds={deletedIds}
+                          onRestoreMessage={handleRestoreMessage}
+                          unreadDock={unreadDock}
+                          missingJumpSeq={missingJumpSeq}
+                        />
+                      </div>
+                      <OverlayScrollbar
+                        targetSelector=".weq-readonly-chat .message-scroll"
+                        className="weq-message-scrollbar"
+                        refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
+                      />
+                      <OverlayScrollbar
+                        targetSelector=".weq-readonly-chat .group-info-member-list"
+                        className="weq-group-members-scrollbar"
+                        refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
                       />
                     </div>
-                    <OverlayScrollbar
-                      targetSelector=".weq-readonly-chat .message-scroll"
-                      className="weq-message-scrollbar"
-                      refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
-                    />
-                    <OverlayScrollbar
-                      targetSelector=".weq-readonly-chat .group-info-member-list"
-                      className="weq-group-members-scrollbar"
-                      refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
-                    />
-                  </div>
-                )}
+                  )}
+                </RetainedTabs>
               </>
             }
           >
@@ -7252,6 +7346,7 @@ export function MainView(): ReactElement {
             renderers={messageRenderers}
           />
           <QzoneAlbumDialog
+            selfUin={user.identityValue}
             open={qzoneAlbumOpen}
             onClose={() => setQzoneAlbumOpen(false)}
             hostUin={user.identityValue}

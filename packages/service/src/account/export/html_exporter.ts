@@ -26,6 +26,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
@@ -888,6 +889,7 @@ export async function exportToHtml(
   );
 
   let count = 0;
+  const audit = new MessageAudit();
   let lastDay = '';
   let rowFirst = true;
   /* 每行预渲染成一条 JSON 记录流式写入，浏览器端再按需实例化（虚拟滚动）。 */
@@ -900,6 +902,7 @@ export async function exportToHtml(
       const exported = toExportedMessage(raw);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, opts.kind, exported);
+      audit.observe(exported.elements);
       if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const day = dayKey(exported.sendTime);
       if (day !== lastDay) {
@@ -922,6 +925,7 @@ export async function exportToHtml(
   }
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format: 'html',
     messageCount: count,

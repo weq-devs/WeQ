@@ -4,8 +4,9 @@ const mocks = vi.hoisted(() => ({
   imageValid: true,
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => mocks.ctx }));
-vi.mock('electron', () => ({
-  nativeImage: { createFromBuffer: () => ({ isEmpty: () => !mocks.imageValid }) },
+vi.mock('@weq/service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weq/service')>()),
+  getHost: () => ({ validateImageBuffer: () => mocks.imageValid }),
 }));
 import { qzoneRouter } from '../src/main/ipc/routers/qzone';
 import { qzoneMediaSource, mergeQzonePosts } from '../src/renderer/src/lib/qzone';
@@ -29,6 +30,27 @@ beforeEach(() => {
         ],
       })),
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
+      getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
+      getQzoneStructuredComments: vi.fn(async () => ({
+        comments: [],
+        likes: [],
+        coverage: 'observed',
+        commentCountInclusive: 0,
+      })),
+      getQzoneInteractions: vi.fn(async () => new Map()),
+      getQzoneRelated: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzoneMemories: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzoneAlbumPage: vi.fn(async () => ({
+        albums: [],
+        total: 0,
+        nextOffset: null,
+        warning: null,
+      })),
+      getQzoneSpaceStats: vi.fn(async () => ({
+        postCount: 45,
+        photoCount: null,
+      })),
       publishQzone: vi.fn(async () => ({ tid: 'synthetic_new_tid', time: 1700000000 })),
       uploadQzoneImage: vi.fn(async () => ({
         richval: ',synthetic',
@@ -44,6 +66,69 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('routes structured reply reads directly without scanning homepage HTML', async () => {
+    const input = {
+      selfUin,
+      hostUin,
+      tid: 'post',
+      time: 123,
+      requestId: query.requestId,
+      structuredOnly: true,
+    };
+    expect(await api.interactions(input)).toMatchObject({ comments: [], commentCountInclusive: 0 });
+    expect(services.webQuery.getQzoneStructuredComments).toHaveBeenCalledWith(
+      hostUin,
+      'post',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneInteractions).not.toHaveBeenCalled();
+    await expect(api.interactions({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+  });
+  it('validates scopes and binds completion, recall and album reads to the account', async () => {
+    await api.feeds({ selfUin, requestId: query.requestId, scope: 7 });
+    expect(services.webQuery.getQzoneFeeds).toHaveBeenCalledWith(
+      selfUin,
+      1,
+      10,
+      expect.any(AbortSignal),
+      undefined,
+      7,
+    );
+    const post = { selfUin, hostUin, tid: 'synthetic', requestId: query.requestId };
+    await api.detail(post);
+    await api.images(post);
+    await api.related({ selfUin, requestId: query.requestId, offset: 27 });
+    await api.memories({ selfUin, requestId: query.requestId, year: 2020 });
+    await api.albumPage({ selfUin, hostUin, requestId: query.requestId, offset: 40 });
+    expect(services.webQuery.getQzonePostDetail).toHaveBeenCalledWith(
+      hostUin,
+      'synthetic',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzonePostImages).toHaveBeenCalledWith(
+      hostUin,
+      'synthetic',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneRelated).toHaveBeenCalledWith(27, expect.any(AbortSignal));
+    expect(services.webQuery.getQzoneMemories).toHaveBeenCalledWith(2020, expect.any(AbortSignal));
+    await expect(api.detail({ ...post, selfUin: '10003' })).rejects.toThrow('账号已切换');
+    await expect(api.memories({ selfUin, requestId: query.requestId, year: 0 })).rejects.toThrow();
+  });
+  it('reads target-space statistics through the cancellable, account-bound read boundary', async () => {
+    expect(await api.stats({ selfUin, hostUin, requestId: query.requestId })).toEqual({
+      postCount: 45,
+      photoCount: null,
+    });
+    expect(services.webQuery.getQzoneSpaceStats).toHaveBeenCalledWith(
+      hostUin,
+      expect.any(AbortSignal),
+    );
+    await expect(
+      api.stats({ selfUin: '10003', hostUin, requestId: query.requestId }),
+    ).rejects.toThrow('账号已切换');
+    expect(services.webQuery.getQzoneSpaceStats).toHaveBeenCalledTimes(1);
+  });
   it('requires the expected current account and online QQ before any request', async () => {
     await expect(api.posts({ ...query, selfUin: '10003' })).rejects.toThrow('账号已切换');
     services.accountConfig.getRecord.mockReturnValue({ qqOnline: false, qqPid: 1 });
@@ -52,6 +137,7 @@ describe('native Qzone boundary', () => {
   });
   it('projects posts without raw media data', async () => {
     expect(await api.posts(query)).toEqual({
+      nickname: null,
       total: 1,
       list: [{ tid: 'synthetic_tid', content: 'fixture' }],
     });
@@ -120,9 +206,16 @@ describe('Qzone media and paging', () => {
       'https://qq.com.evil.test/a',
       'https://user:pass@qpic.cn/a',
       'https://qpic.cn:8080/a',
+      '//localhost/private.png',
+      '//qpic.cn.evil.test/cover.png',
+      '//user:pass@qpic.cn/cover.png',
     ])
       expect(qzoneMediaSource(value)).toBeNull();
     expect(qzoneMediaSource('http://a.qpic.cn/fixture.png')).toBe('http://a.qpic.cn/fixture.png');
+    expect(qzoneMediaSource('//mmbiz.qpic.cn/cover.png')).toBe('https://mmbiz.qpic.cn/cover.png');
+    expect(qzoneMediaSource('//y.gtimg.cn/music/cover.png')).toBe(
+      'https://y.gtimg.cn/music/cover.png',
+    );
   });
   it('merges overlapping pages by stable tid, preserving updated rows', () => {
     expect(

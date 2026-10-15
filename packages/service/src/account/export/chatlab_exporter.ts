@@ -23,6 +23,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
@@ -312,6 +313,7 @@ export async function exportToChatlab(
   const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
+  const audit = new MessageAudit();
   try {
     if (isJsonl) {
       // JSONL: header line, member lines, then one message per line.
@@ -324,6 +326,7 @@ export async function exportToChatlab(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
@@ -349,6 +352,7 @@ export async function exportToChatlab(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
@@ -364,6 +368,7 @@ export async function exportToChatlab(
   }
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format: opts.format,
     messageCount: count,

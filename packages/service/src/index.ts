@@ -685,6 +685,7 @@ export type {
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
+export { assertDestinationCapacity } from './account/export/storage_preflight';
 export type {
   DressExportKinds,
   DressUsage,

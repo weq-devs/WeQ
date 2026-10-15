@@ -877,6 +877,18 @@ export interface NtHelperBinding {
    */
   convertFont(inputPath: string, outputPath: string, options?: ConvertFontOptions): string;
 
+  /**
+   * 字体转换链的版本号（nt_helper 的 `FONT_PIPELINE_VERSION`）。
+   *
+   * 产出 `fonts/<id>.ttf` 时把它写进 sidecar，读缓存时对不上就地重解 —— native 侧改
+   * 字体转换（比如修 hdmx/LTSH 那类被判 OTS 拒绝的表）不必再等 WeQ 这边手改
+   * `DRESS_DERIVE_VERSION`，那正是「native 修好了、旧缓存却永远不重做」的根因。
+   *
+   * **可选**：早于这个导出的 native 构建里没有它（锚定的 tag 还没跟上时），调用方按
+   * `typeof nt.getFontPipelineVersion !== 'function'` 探测，拿不到就当 0（未知）。
+   */
+  getFontPipelineVersion?(): number;
+
   // --- dress offline resource index (local .dat bundles, no protocol needed) ---
   /**
    * Look up one dress resource's download URL from the local bundle
@@ -981,8 +993,10 @@ export interface QuickLoginOptions {
   /** `nt_msg.db` 头 `0x2f..0xaf` 的 128 字节 key_meta（dbSalt）。 */
   keyMeta?: string;
   /**
-   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。空 / 缺省则
-   * 不发这一轮；取不到不是致命错误。WeQ 侧默认只要 `vip.qq.com`。
+   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。**一域一轮请求**
+   * （服务端一轮只回一个域）；空 / 缺省则一轮都不发；取不到不是致命错误，
+   * 也不会让登录失败。WeQ 侧默认要 `vip.qq.com`（首页装扮）与
+   * `qzone.qq.com`（QQ 空间 Web cgi / 空间窗口）。
    */
   pskeyDomains?: string[];
 }
