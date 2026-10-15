@@ -1,8 +1,9 @@
 # 本地文字识别（OCR）模型
 
-> 现状：**本地引擎已经接上灯箱了** —— 聊天图片的「OCR」按钮在线优先（OIDB 0xe07_0）、
-> 在线不可用或失败时回退本地模型（见第四节）。**导出侧的批量自动 OCR 还没接**，
-> 筛图模型目前只在设置页里可选、下载。
+> 现状：**本地引擎已经接上灯箱和 MCP 了** —— 聊天图片的「OCR」按钮在线优先
+> （OIDB 0xe07_0）、在线不可用或失败时回退本地模型（见第四节）；MCP / 内置助手那边
+> 是同一个策略，两个工具 `get_ocr_status` / `ocr_image_text`，返回值里标明这次用的
+> 是哪条腿。**导出侧的批量自动 OCR 还没接**，筛图模型目前只在设置页里可选、下载。
 >
 > 模型侧这一轮的落地：注册表 [`packages/service/src/common/ocr_models.ts`](../../packages/service/src/common/ocr_models.ts)、
 > 通用仓库 [`model_store.ts`](../../packages/service/src/common/model_store.ts)、
@@ -107,6 +108,38 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 **按钮门禁**：`getGroupAlbumAccessState` 多返回一个 `ocrLocalModelId`，渲染层按
 「在线可用 或 本地模型下好了」决定能不能点；两条腿都没有才置灰并说明原因。
 
+### MCP / 内置助手的入口：`get_ocr_status` + `ocr_image_text`
+
+同一个策略也挂在工具注册表（[`main/mcp/tools.ts`](../../apps/desktop/src/main/mcp/tools.ts)）
+上，因此外部 MCP 客户端与内置助手都能调：
+
+| 工具 | 干什么 |
+| --- | --- |
+| `get_ocr_status` | 查两条腿现在各能不能走（在线：QQ 在线 + 未开完全离线 + 物料齐全；本地：识别模型已下载并选中），`reason` 给出不能走的原因 |
+| `ocr_image_text` | 定一张图 → 识别文字，`engine` 可选 `auto`（默认）/ `online` / `local` |
+
+**怎么定图**：`kind` + `conv` + `msgId` 定位聊天里的图片（同一消息多张图用 `imageIndex`），
+或者直接给本机文件 `path`（绝对路径 / `~/` 开头）。
+
+**取图那一步按 MCP 的处境改写**：外部调用者没有渲染层的 `weq-media://` 地址，所以走消息
+定位时图片字节直接从本机媒体缓存里捞（`fileSearch`，与 `transcribe_voice_message` 同一条
+路，取不到就如实报错）；`path` 那种则直接读盘 —— 这也是 `local.ts` 的取图链新长出来的
+一条腿（`data:` / 本机路径 / `weq-media://` / `http(s)://` 四条来源）。
+
+**回给调用者的区分信息**（用户要的「能看出走的哪条」就落在这三个字段上）：
+
+- `source`：`online` / `local`；
+- `engine`：中文说明，如「在线接口（QQ 图片文字识别 OIDB 0xe07_0）」/「本地离线模型
+  （ppocr-v5-mobile，本机推理，未联网）」；
+- `offline`：布尔，`true` 即本地离线模型（这次没有任何图片内容离开本机）。
+
+另外 `notes[]` 记录中途的回退与跳过原因（例如「在线接口没成：服务端已经取不到这张图了」
+「本机没有已下载的识别模型，本地这条腿走不了」），失败时返回 `ok: false` + `error` +
+`notes`，而不是抛一句没头没尾的错。
+
+两个工具都**只读**（不写库、不上传文件），所以照常进外部 MCP 只读面板；`path` 那条腿
+只能走本地模型 —— 在线接口要的是聊天图片的 `fileToken`，本机文件没有。
+
 ### 打包（还没在真机安装包上验过）
 
 - `extraResources`：`out/main/ocrWorker.mjs` 拷到 `<resources>/out/main/`（fork 出去的
@@ -154,7 +187,9 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
    [`media_download.ts`](../../packages/service/src/account/media_download.ts)；
    所以「离线」只到推理这一步，纯离线只对已缓存 / 已落盘的图成立。
 4. **入口门禁**：群相册 / 收藏 / 本地资源那些入口没带 `fileToken`，灯箱里依旧没有 OCR
-   按钮；要给它们开 OCR，得先有一条「按文件路径取字节」的腿（`localfile` 那条已经在）。
+   按钮。**「按文件路径取字节」的腿已经在 `local.ts` 里落地了**（MCP 的 `ocr_image_text`
+   走 `path` 时就是它），要给这些入口开按钮，还差把它们手里的本地路径 / URL 喂进
+   `runLocalOcr` 这一小步。
 
 ## 七、已知的坑
 
