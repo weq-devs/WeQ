@@ -158,8 +158,9 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 常驻行：只挂最新一条对方消息（含自己消息时不出常驻行）。 */}
-      {isLatestPeer && !result ? (
+      {/* 常驻行：只挂最新一条对方消息；本轮分析结束后仍无结果则静默
+          （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
+      {isLatestPeer && !result && !ctx.settled ? (
         <span className="weq-intent-chips">
           <IntentPillLoading width={52} />
           <IntentPillLoading width={40} />

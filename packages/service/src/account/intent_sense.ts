@@ -103,6 +103,8 @@ export interface IntentSenseStatus extends IntentSenseConfig {
   apiConfigured: boolean;
   /** local 引擎端口已注入（桌面版有，web 版没有）。 */
   localAvailable: boolean;
+  /** local 引擎 worker 已启动且模型加载完成（分析真正可跑）。 */
+  localReady: boolean;
 }
 
 const DEFAULT_CONFIG: IntentSenseConfig = {
@@ -362,6 +364,7 @@ export class IntentSenseService {
       ...this.config,
       apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
       localAvailable: !!this.opts.localEngine,
+      localReady: !!this.opts.localEngine?.ready,
     };
   }
 
@@ -404,7 +407,7 @@ export class IntentSenseService {
     if (!this.config.enabled) return false;
     const override = this.config.conversationOverrides[conversationKey(kind, id)];
     if (override === false) return false;
-    if (this.config.engine === 'local') return !!this.opts.localEngine;
+    if (this.config.engine === 'local') return !!this.opts.localEngine?.ready;
     return !!this.opts.resolveEndpoint && !!this.config.providerRef;
   }
 

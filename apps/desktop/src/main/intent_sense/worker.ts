@@ -157,10 +157,15 @@ function f16ToF32(h: Uint16Array): Float32Array {
  *      回来并补 sigmoid 对齐 act_probability 语义。
  */
 async function createLaya(modelDir: string): Promise<LayaLike> {
-  const { Laya } = requireFn('@receptron/laya') as {
+  // @receptron/laya 是纯 ESM 包：Node 22+ 的 require(esm) 能吃，但 Electron 34
+  // 内置 Node 20 会 ERR_REQUIRE_ESM —— worker 本身是 ESM（.mjs），直接
+  // dynamic import（external 裸标识符，产物原样保留）。
+  const layaMod = (await import('@receptron/laya')) as unknown as {
     Laya: abstract new (...args: unknown[]) => LayaLike;
   };
-  // onnxruntime / tokenizers 必须解析到 @receptron/laya 同层的实例（版本随它锁）。
+  const { Laya } = layaMod;
+  // onnxruntime / tokenizers 是 CJS，必须解析到 @receptron/laya 同层的实例
+  // （desktop 没直接依赖它们，pnpm 严格布局下只有 laya 的依赖树里有）。
   const entry = requireFn.resolve('@receptron/laya') as string;
   const sibling = createRequire(entry.replace(/[/\\]index\.js$/, '/laya.js')) as NodeRequire;
   const ort = sibling('onnxruntime-node') as {

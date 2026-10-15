@@ -47,6 +47,8 @@ export interface IntentSenseContextValue {
   requestAnalysis: (msgId: string) => void;
   /** 最新一条对方消息 id（常驻胶囊只挂在它下面）。 */
   latestPeerMsgId: string | null;
+  /** 本轮 ensureAnalysis 已跑完（无结果的消息不再显示加载占位）。 */
+  settled: boolean;
   /** 会话类型与 id（消费组件回传后端用）。 */
   kind: 'c2c' | 'group';
   conv: string;
@@ -83,12 +85,13 @@ export function IntentSenseProvider({
   const analysesRef = useRef(new Map<string, IntentAnalysis>());
   const requestedRef = useRef(new Set<string>());
   const [version, setVersion] = useState(0);
+  const [settled, setSettled] = useState(false);
 
   const status = useIntentSenseStatus();
   const statusData = status.data;
   const overridden = statusData?.conversationOverrides?.[`${kind}:${conv}`];
   const engineOk =
-    statusData?.engine === 'local' ? !!statusData.localAvailable : !!statusData?.apiConfigured;
+    statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
@@ -102,10 +105,12 @@ export function IntentSenseProvider({
     [bump],
   );
 
-  // 会话打开：拉齐缓存 + 后台增量补分析。
+  // 会话打开：拉齐缓存 + 后台增量补分析。本轮跑完置 settled —— 没出结果的
+  // 消息不再显示加载占位（引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。
   useEffect(() => {
     if (!effective || !conv) return;
     let disposed = false;
+    setSettled(false);
     void client.account.intentSense.listMessageAnalyses
       .query({ kind, conv })
       .then((results) => {
@@ -114,7 +119,12 @@ export function IntentSenseProvider({
       .catch(() => {
         /* 无账号会话等场景静默 */
       });
-    void client.account.intentSense.ensureAnalysis.mutate({ kind, conv }).catch(() => undefined);
+    void client.account.intentSense.ensureAnalysis
+      .mutate({ kind, conv })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!disposed) setSettled(true);
+      });
     return () => {
       disposed = true;
     };
@@ -172,10 +182,11 @@ export function IntentSenseProvider({
       getAnalysis,
       requestAnalysis,
       latestPeerMsgId,
+      settled,
       kind,
       conv,
     }),
-    [effective, version, getAnalysis, requestAnalysis, latestPeerMsgId, kind, conv],
+    [effective, version, getAnalysis, requestAnalysis, latestPeerMsgId, settled, kind, conv],
   );
 
   return <IntentSenseContext.Provider value={value}>{children}</IntentSenseContext.Provider>;

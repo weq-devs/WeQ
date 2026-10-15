@@ -30,7 +30,7 @@ export function AffinityPill({
   const statusData = status.data;
   const overridden = statusData?.conversationOverrides?.[`c2c:${peerUid}`];
   const engineOk =
-    statusData?.engine === 'local' ? !!statusData.localAvailable : !!statusData?.apiConfigured;
+    statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const active = !!statusData?.enabled && overridden !== false && engineOk;
   const profile = trpc.account.intentSense.getProfile.useQuery(
     { peerUid },

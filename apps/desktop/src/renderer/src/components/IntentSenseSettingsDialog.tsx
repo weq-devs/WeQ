@@ -129,7 +129,9 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
     if (!res.ok) {
       showError('本地引擎启动失败', res.error ?? '');
     }
+    // 引擎 ready 状态变了：getStatus/localEngine 一起失效，胶囊与好感度立即生效。
     void utils.account.intentSense.getLocalEngine.invalidate();
+    void utils.account.intentSense.getStatus.invalidate();
   }
 
   const downloading = local?.downloading || (progress !== null && !progress.done);

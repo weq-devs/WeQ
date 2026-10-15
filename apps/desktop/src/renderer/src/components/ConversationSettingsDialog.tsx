@@ -76,7 +76,7 @@ export function ConversationSettingsDialog({
   const intentData = intentStatus.data;
   const intentOverride = intentData?.conversationOverrides?.[`${intentKind}:${conv}`];
   const intentEngineOk =
-    intentData?.engine === 'local' ? !!intentData.localAvailable : !!intentData?.apiConfigured;
+    intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
   const intentOnHere = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
 
   useEscapeToClose(onClose);
