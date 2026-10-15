@@ -32,19 +32,42 @@ pnpm dev           # 启动桌面端开发
 
 ## 提交前检查（必须）
 
-提交 PR 前，请在本地依次跑通以下命令，确保没有引入回归：
+提交 PR 前，请跑通本地 CI 门禁，确保没有引入回归：
 
 ```bash
-pnpm typecheck    # 类型检查(CI 强制，不通过会被拦截)
+pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test / daemon 门禁
+```
+
+`pnpm ci:local` 把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍，
+不 fail-fast —— 那一步红了也继续跑完，最后给一张汇总表。常用参数：
+
+- `pnpm ci:local --fix` —— 先 `pnpm format` + `pnpm lint:fix` 刷平，再跑门禁。
+  改完代码懒得管格式时用这个，省得再来一轮。
+- `pnpm ci:local --full` —— 额外跑 web 打包冒烟（≈ CI 的 `build-web` job）。
+- `pnpm ci:local --no-daemon` —— 跳过 Rust 三项（本机没装 Rust 时用）。
+- `pnpm ci:local --fail-fast` / `--list` —— 失败即停 / 只打印将跑的步骤。
+
+脚本会自己判断本机有没有 `cargo`，没有就自动跳过 Rust 三项并给出提示。
+
+需要单独跑某一步时，等价命令是：
+
+```bash
 pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
-pnpm -r test
-pnpm check
+pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
+pnpm -r test      # 全量单测（含 @weq/web 与 daemon）
+pnpm check        # Biome 的 lint + format 汇总检查
 pnpm --filter @weq/web build
 
-# daemon包的 clippy检查, cd到对应目录
-cargo clippy -- -D warnings
+# daemon 包的三项，cd 到 packages/daemon 再跑
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
 ```
+
+> 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，
+> 由 release 流水线兜底。改动打包链路时本地用
+> `pnpm --filter @weq/desktop build:unpack` 单独验一遍即可。
 
 ---
 
