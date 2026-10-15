@@ -127,6 +127,8 @@ export interface ExportPresetOptions {
   downloadPtt: boolean;
   completeDress: boolean;
   transcribeVoice: boolean;
+  /** 图片文字识别（自动 OCR）。旧数据缺省补 false。 */
+  ocrImages: boolean;
   dress: {
     bubble: boolean;
     font: boolean;
@@ -236,6 +238,7 @@ function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | und
     downloadPtt: o.downloadPtt,
     completeDress: o.completeDress,
     transcribeVoice: o.transcribeVoice,
+    ocrImages: typeof o.ocrImages === 'boolean' ? o.ocrImages : false,
     dress: {
       bubble: dress.bubble,
       font: dress.font,

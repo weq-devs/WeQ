@@ -106,6 +106,8 @@ const exportPresetOptionsSchema = z.object({
   downloadPtt: z.boolean(),
   completeDress: z.boolean(),
   transcribeVoice: z.boolean(),
+  /** 图片文字识别（自动 OCR）。旧客户端不传时读取端补 false。 */
+  ocrImages: z.boolean().default(false),
   dress: z.object({
     bubble: z.boolean(),
     font: z.boolean(),

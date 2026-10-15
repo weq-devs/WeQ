@@ -44,6 +44,8 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
+import { runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
+import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
@@ -1122,6 +1124,11 @@ export function initAppContext(): AppContext {
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 导出阶段的在线图片识字：同一个 0xe07_0 链路（服务端自己去取图），只是要
+      // 批量复用一条 rkey，所以单独包一层（见 main/ocr/online.ts）。
+      const onlineOcr = new OnlineImageOcr(
+        new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
+      );
       // QQ 空间 Web 查询（说说 / 相册）—— 也注入进导出管理器，供「好友空间导出」
       // 翻页拉说说。需在线 QQ 凭证；离线时 fetchMsgList 会抛错（前端已先拦截）。
       // 登录时顺带收的 Web 票据（vip / qzone）直接 seed：第一次 cgi 不用等 hook；
@@ -1336,6 +1343,12 @@ export function initAppContext(): AppContext {
             // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
             // 漏包 / 过期的语音由上面的本地模型补全。
             onlineTranscribe: onlineTranscriber.transcribe,
+            // 图片文字识别（导出时自动 OCR）：本地 PP-OCR（onnxruntime 原生，住在
+            // app 侧）+ 筛图 + 在线的 0xe07_0。三条都按需注入 —— 本地模型没下好时
+            // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
+            ocrLocal: runLocalOcrFile,
+            ocrFilter: runLocalOcrFilterFile,
+            onlineOcr: onlineOcr.recognize,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             // ChatLab name / role / profile resolvers. The service export package
@@ -1959,6 +1972,10 @@ export function initAppContext(): AppContext {
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             transcribe: transcribeSilk,
+            // 静态（导入目录）账号也能做图片文字识别：本地模型只看本机文件，不需要
+            // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
+            ocrLocal: runLocalOcrFile,
+            ocrFilter: runLocalOcrFilterFile,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             chatlab: {

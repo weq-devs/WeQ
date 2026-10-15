@@ -94,8 +94,14 @@ export class ChatImageOcrService {
   /**
    * 识别一张聊天图片里的文字。抛错意味着「这次没成」—— 调用方（router）负责转成
    * 用户能看懂的提示。
+   *
+   * `rkey` 是可选的外部凭据：批量识别（导出时自动 OCR）一次取一条 rkey 复用整批，
+   * 不必每张图都去签一次。缺省时本方法自己取。
    */
-  async recognize(params: ChatImageOcrParams): Promise<ChatImageOcrResult> {
+  async recognize(
+    params: ChatImageOcrParams,
+    rkey?: DownloadRkey | null,
+  ): Promise<ChatImageOcrResult> {
     const { peerType, fileToken, width, height } = params;
     if (!fileToken) throw new Error('这张图没有 fileToken，拿不到服务端地址。');
     if (!width || !height) throw new Error('这张图缺尺寸信息，没法定位文字框。');
@@ -103,13 +109,10 @@ export class ChatImageOcrService {
     const pid = this.resolvePid();
     if (!pid) throw new Error('QQ 未在线，无法识别文字。');
 
-    const rkeyType = peerType === 'group' ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
-    const rkeys = await fetchDownloadRkeys(this.nt, pid, [rkeyType]);
-    const rkey: DownloadRkey | undefined = rkeys.find((item) => item.type === rkeyType) ?? rkeys[0];
-    if (!rkey) throw new Error('没拿到图片下载凭据（rkey），确认 QQ 在线后重试。');
+    const credential = rkey ?? (await this.fetchRkey(peerType));
 
     const result = await OcrImage.invoke(this.nt, pid, {
-      url: composeMediaDownloadUrl(fileToken, rkey),
+      url: composeMediaDownloadUrl(fileToken, credential),
       fileMd5: params.md5,
       fileSize: params.fileSize,
       width,
@@ -128,5 +131,21 @@ export class ChatImageOcrService {
       imageHeight: result.imageHeight || height,
       sessionId: result.sessionId,
     };
+  }
+
+  /**
+   * 取一条图片下载凭据（rkey，约 1 小时有效）。
+   *
+   * 批量识别时**取一次复用整批** —— 每张图都重新签一次纯属浪费（批量导出可能上千张）。
+   * 拿不到就抛错（调用方转成给用户看的中文短句）。
+   */
+  async fetchRkey(peerType: 'c2c' | 'group'): Promise<DownloadRkey> {
+    const pid = this.resolvePid();
+    if (!pid) throw new Error('QQ 未在线，无法识别文字。');
+    const rkeyType = peerType === 'group' ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
+    const rkeys = await fetchDownloadRkeys(this.nt, pid, [rkeyType]);
+    const rkey: DownloadRkey | undefined = rkeys.find((item) => item.type === rkeyType) ?? rkeys[0];
+    if (!rkey) throw new Error('没拿到图片下载凭据（rkey），确认 QQ 在线后重试。');
+    return rkey;
   }
 }

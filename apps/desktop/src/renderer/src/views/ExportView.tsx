@@ -65,7 +65,7 @@ import {
   type GroupFileExportResult,
 } from './export/GroupFileExportLightbox';
 import { FailureLightbox } from './export/FailureLightbox';
-import { preflightQqOnline } from './export/preflight';
+import { ocrReadiness, preflightQqOnline } from './export/preflight';
 import {
   buildChatExportMedia,
   preflightChatExport,
@@ -937,7 +937,11 @@ export function ExportView(): ReactElement {
     const range = { start: options.range.start, end: options.range.end };
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     // 频道私聊没有漫游缓存可拉，补全消息恒关闭；其余检查与聊天消息同款。
-    const media = buildChatExportMedia(options, { messageCompletion: false });
+    const media = buildChatExportMedia(options, {
+      messageCompletion: false,
+      // 筛图模型当下下好没有（实时状态，不进持久化预设）。
+      ocrPrefilter: options.ocrImages ? (await ocrReadiness()).filterReady : false,
+    });
     const ok = await preflightChatExport(dialog, options, { messageCompletion: false });
     if (!ok) return;
 

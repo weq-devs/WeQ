@@ -140,6 +140,72 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 两个工具都**只读**（不写库、不上传文件），所以照常进外部 MCP 只读面板；`path` 那条腿
 只能走本地模型 —— 在线接口要的是聊天图片的 `fileToken`，本机文件没有。
 
+### 导出侧：`ocrfilter` + `ocr` 两个阶段（已落地）
+
+导出里的自动 OCR 与语音转写**同构**：和消息导出并发跑，产物 `ocr.json` 落在 bundle
+根目录，消息文件早在落盘时就埋好了锚点，最后由回写把文件名换成文字。差别只有一条 ——
+语音锚点是 `[语音: 名字]`，图片是 `[图片: 名字]`（HTML 是图片下方的
+`<small class="cap">名字</small>`，只在勾了 OCR 时渲染，免得给所有导出加文件名水印）。
+
+```
+预筛选（ocrfilter）        识别（ocr）                              回写
+筛图模型 det-only  ──▶  在线 0xe07_0（新→旧、并发、连败 10 张放弃）
+  没文字的图直接跳过        └─ 没拿到的 → 本地 PP-OCR ──▶  ocr.json ──▶ [图片] 文字
+```
+
+代码分工（和灯箱那条线一样，service 零原生）：
+
+| 位置 | 干什么 |
+| --- | --- |
+| `@weq/service` `export/ocr_export.ts` | 三步流水线的**策略**：预筛选、新→旧排序、并发、连续失败放弃、本地兜底、失败记账、写 `ocr.json`。纯 TS，可单测 |
+| 同上 `runBatchWithFailureLimit` | 通用的「并发 + 连续失败就整体放弃」执行器（单测钉住语义） |
+| `@weq/service` `export/ocr_rewrite.ts` | 回写：TXT / CSV / ChatLab JSON 换 `[图片: 名字]`，HTML 换那行小字（多行转 `<br>`） |
+| `apps/desktop/main/ocr/local.ts` | 注入的两条本地腿：`runLocalOcrFile`（出文字）/ `runLocalOcrFilterFile`（只判断有没有文字） |
+| `apps/desktop/main/ocr/online.ts` | 注入的在线腿：0xe07_0 一张一发 + **rkey 缓存**（批量只签一条，约 45 分钟） |
+| `export/task_manager.ts` | 两个阶段 + 进度 / 日志 / 回写时序（和语音转写一样等消息文件落盘） |
+
+**几个刻意的选择**：
+
+- **预筛选只对本机有本体的图生效**（要读像素）。本机没有、又还没过期的图直接送在线 ——
+  服务端自己去 CDN 取图，不需要本地有文件。
+- **筛图失败的图按「有文字」处理**：宁可多跑一次识别，也不静默丢文字。筛图模型中途
+  不可用（被删了）则整体跳过预筛选，只留一条告警。
+- **判据是「检测框非空」，但丢掉面积占整图 ≥ 90% 的框**（`main/ocr/filter.ts` 的
+  `judgeTextBoxes`，纯函数可单测）。140 张实测样本上这条规则只改判 2 张（都是 420×420、
+  框正好等于整图的误报）；剩下的误报（占比 59-64%）与「整屏都是文字的小截图」在面积、
+  置信度上都分不开 —— 加置信度阈值（≥ 0.5）一个都没滤掉（误报框的分数有 0.91-0.96），
+  所以判据**故意留松**：多跑几张识别只是慢一点，漏判是真丢文字。
+- **在线从新到旧试，连败 10 张就放弃**（`OCR_ONLINE_FAILURE_LIMIT`）：服务端取不到图
+  往往是整批一起过期，继续试只是白等；放弃后剩下的全部回退本地（有模型的话）。
+- **在线认过但一个字都没识别出来的图不再送本地**：图能取到、服务端也认过一遍了，本地
+  多半同样是空。这种既不算成功也不算失败（`text: ''` 留在 `ocr.json` 里）。
+- **`ocr.json` 一定写**（哪怕一张都没识别），形状稳定：
+
+```json
+{
+  "generatedAt": "2026-10-16T…",
+  "stats": { "total": 120, "ok": 43, "failed": 1, "online": 30, "local": 13,
+             "onlineOnly": 5, "filtered": 77 },
+  "images": {
+    "A1B2.jpg": {
+      "text": "第一行\n第二行",
+      "source": "oidb",
+      "width": 1080, "height": 1920, "elapsedMs": 320,
+      "blocks": [{ "text": "第一行", "quad": {…}, "rect": {…}, "parag": "…", "field2": 97 }]
+    }
+  }
+}
+```
+
+**面板入口**（`ExportLightbox` 的「扩展功能」）：OCR 开关的放行条件是「QQ 在线 或 本地
+识别模型已下载」；「在线识别」开关只在 QQ 在线 + 未开完全离线 + 物料齐全时出现；两个模型
+（筛图 / 识别）都能在面板里直接下载 —— 下载完成自动 `setOcrModel` 设为当前模型。渲染层
+把「筛图模型当下下好没有」作为 `media.ocrPrefilter` 传给主进程（实时判定，不进持久化预设），
+主进程据此把 `ocrfilter` 阶段标成 skipped 而不是空跑。
+
+**还没接的**：定时导出模板（`ScheduleOptions`）里没有 OCR 选项；频道私聊 / 群相册等其它
+入口同理（跟着各自的时间表）。
+
 ### 打包（还没在真机安装包上验过）
 
 - `extraResources`：`out/main/ocrWorker.mjs` 拷到 `<resources>/out/main/`（fork 出去的
@@ -177,19 +243,19 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 
 ## 六、还差什么
 
-1. **导出侧自动 OCR**：勾选后先用筛图模型过一遍（跳过没有文字的图），再送识别模型；
-   结果回写到导出文件里，照语音转写那套「先落盘、转写完成再回写」的机制
-   （`packages/service/src/account/export/media_export.ts`）。这一轮**没接**。
-2. **打包真机验证**：`pnpm build:unpack` 起一次，确认 `ocrWorker.mjs` +
+1. **打包真机验证**：`pnpm build:unpack` 起一次，确认 `ocrWorker.mjs` +
    `resources/node_modules/onnxruntime-node` 的布局在安装包里成立（见第四节的说明）。
-3. **取图**：本地 OCR 只解决「像素 → 文字」。字节来源要么本机 QQ 落盘，要么 rkey + CDN
+2. **取图**：本地 OCR 只解决「像素 → 文字」。字节来源要么本机 QQ 落盘，要么 rkey + CDN
    下载（需要在线 QQ），链路已在
    [`media_download.ts`](../../packages/service/src/account/media_download.ts)；
    所以「离线」只到推理这一步，纯离线只对已缓存 / 已落盘的图成立。
-4. **入口门禁**：群相册 / 收藏 / 本地资源那些入口没带 `fileToken`，灯箱里依旧没有 OCR
+3. **入口门禁**：群相册 / 收藏 / 本地资源那些入口没带 `fileToken`，灯箱里依旧没有 OCR
    按钮。**「按文件路径取字节」的腿已经在 `local.ts` 里落地了**（MCP 的 `ocr_image_text`
    走 `path` 时就是它），要给这些入口开按钮，还差把它们手里的本地路径 / URL 喂进
    `runLocalOcr` 这一小步。
+4. **导出侧的后续**：定时导出模板还没带 OCR 选项；筛图模型换档（把判据从 tiny 换成
+   `ch_PP-OCRv5_det_mobile` 或加面积 / 置信度阈值）是纯注册表 + 几行判据的改动；OCR
+   那条腿目前只在完整消息 / 频道私聊导出里跑。
 
 ## 七、已知的坑
 

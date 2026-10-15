@@ -18,10 +18,11 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OcrBlock } from '@weq/protocol';
-import { getOcrModel } from '@weq/service';
+import { getOcrModel, type OcrFilterOutcome, type OcrImageOutcome } from '@weq/service';
 import { getAppContext } from '../context/app_context';
 import { handleMediaRequest } from '../media_protocol';
 import { runOcrEngine, type OcrEnginePaths } from './engine';
+import { judgeTextBoxes } from './filter';
 import { decodeImageBytes, decodeImageDataUrl } from './image';
 // 只引类型：管线本体由 worker 独享（带上运行时会让 rollup 多抽一个共享 chunk，
 // 见 `engine.ts` 顶部那段说明）。
@@ -60,6 +61,31 @@ export interface LocalOcrOutcome {
   imageHeight: number;
   elapsedMs: number;
   modelId: string;
+}
+
+/** 一个「已选且已下载」的本地筛图模型（只出「有没有文字」，不出文字）。 */
+export interface LocalOcrFilterModel {
+  modelId: string;
+  /** 检测模型文件的绝对路径。 */
+  det: string;
+}
+
+/**
+ * 当前可用的本地筛图模型：设置里选了 + 模型下好了才算数，否则返回 null。
+ * 筛图只要检测网络，所以注册表里那份 1.7 MB 的 tiny 检测模型就够。
+ */
+export function resolveLocalOcrFilterModel(): LocalOcrFilterModel | null {
+  const boot = getAppContext().bootstrap;
+  if (!boot) return null;
+  const modelId = boot.userConfig.getSettings().ocr.filterModelId;
+  if (!modelId) return null;
+  const model = getOcrModel(modelId);
+  // 识别模型不能拿来筛图（它要 rec / dict，这里只给 det）。
+  if (model?.kind !== 'filter') return null;
+  if (!boot.ocrModels.getModelStatus(modelId)?.downloaded) return null;
+  const det = boot.ocrModels.resolveModelPaths(modelId).det;
+  if (!det) return null;
+  return { modelId, det };
 }
 
 /**
@@ -142,4 +168,65 @@ export async function runLocalOcr(src: string, model: LocalOcrModel): Promise<Lo
   const image = src.startsWith('data:') ? decodeImageDataUrl(src) : decodeImageBytes(bytes);
   if (!image) throw new Error('这张图的格式解不开，本地模型识别不了。');
   return recognizeImage(image, model);
+}
+
+// ── 导出阶段（批量）用的两个入口 ─────────────────────────────────────────────
+// 都是「一张图进、一份结果出」，并发 / 顺序 / 回退由 @weq/service 的导出阶段控制。
+// 每次调用自己解析一次当前选用的模型，用户中途换了设置立刻生效。
+
+/**
+ * 本地识别一张图（导出阶段注入 `OcrImageFn`）。**不抛错**：模型没配好、图读不到、
+ * 引擎崩了都从 `ok: false` 里说人话，让导出阶段决定要不要记账。
+ */
+export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcome> {
+  const model = resolveLocalOcrModel();
+  if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 图片识别）' };
+  try {
+    const r = await runLocalOcr(imagePath, model);
+    return {
+      ok: true,
+      text: r.blocks.map((b) => b.text).join('\n'),
+      blocks: r.blocks,
+      width: r.imageWidth,
+      height: r.imageHeight,
+      elapsedMs: r.elapsedMs,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * 筛图：只跑检测网络，回答「这张图里有没有文字」（导出阶段注入 `OcrFilterFn`）。
+ *
+ * 判据本体（含丢掉「整图大小的框」那一步）在纯函数 {@link judgeTextBoxes} 里，见那里的
+ * 说明 —— 实测 tiny 模型在正方形小图上会把整张图判成一个文字块，那是误报。
+ */
+export async function runLocalOcrFilterFile(imagePath: string): Promise<OcrFilterOutcome> {
+  const model = resolveLocalOcrFilterModel();
+  if (!model) {
+    return { ok: false, error: '未下载筛图模型', unavailable: true };
+  }
+  try {
+    const bytes = await readFile(imagePath);
+    const image = decodeImageBytes(bytes);
+    if (!image) return { ok: false, error: '这张图的格式解不开' };
+    // 筛图一次并发好几个进程，每个少开点线程（见 engine 的 threads）。
+    const r = await runOcrEngine({
+      image,
+      paths: { det: model.det },
+      mode: 'detect',
+      threads: 2,
+    });
+    if (!r.ok) return { ok: false, error: r.error ?? '筛图失败' };
+    const decision = judgeTextBoxes(r.blocks, r.imageWidth, r.imageHeight);
+    return {
+      ok: true,
+      hasText: decision.hasText,
+      boxes: decision.boxes,
+      elapsedMs: r.elapsedMs,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

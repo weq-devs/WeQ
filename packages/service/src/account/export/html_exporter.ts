@@ -85,6 +85,12 @@ export interface HtmlExportOptions {
   collectFaces?: Set<string>;
   /** Stamp media elements with their bundle relative path (so `<img>` resolves). */
   withMediaPaths?: boolean;
+  /**
+   * 图片下方渲染一行文件名小字（`<small class="cap">名字</small>`），供批量 OCR
+   * 跑完后把文件名**回写**成识别出的文字（见 `ocr_rewrite`）。只在导出勾了
+   * 「图片文字识别」时开，免得给所有 HTML 导出都加上文件名水印。
+   */
+  ocrAnchors?: boolean;
   /** 导出装扮：勾选的类别（null/undefined = 不导出装扮）。 */
   dress?: DressExportKinds;
   /** 导出装扮：dress 阶段预扫描得到的 msgId → decoration。 */
@@ -368,7 +374,11 @@ function renderFace(el: RenderElement, collectFaces?: Set<string>): string {
 }
 
 /** One element → an HTML fragment for the bubble body. */
-function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
+function renderElement(
+  el: RenderElement,
+  collectFaces?: Set<string>,
+  ocrAnchors?: boolean,
+): string {
   switch (el.type) {
     case 'text':
       return escapeMultiline(el.data.textContent ?? '');
@@ -399,10 +409,18 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'pic': {
       const p = bundlePath(el);
-      const cls = el.data.subType === 1 ? 'media emoji' : 'media';
-      if (p)
-        return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
-      return `<span class="ph">${el.data.subType === 1 ? '[表情]' : '[图片]'}</span>`;
+      const isEmoji = el.data.subType === 1;
+      const cls = isEmoji ? 'media emoji' : 'media';
+      // OCR 回写锚点：图片下方的文件名小字（同语音的 `<small class="cap">…</small>`），
+      // 批量 OCR 跑完后把文件名换成识别出的文字。
+      const cap =
+        ocrAnchors && !isEmoji && el.data.fileName
+          ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
+          : '';
+      const img = p
+        ? `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${isEmoji ? '表情' : '图片'}">`
+        : `<span class="ph">${isEmoji ? '[表情]' : '[图片]'}</span>`;
+      return cap ? `<span class="pic-wrap">${img}${cap}</span>` : img;
     }
     case 'video': {
       const p = bundlePath(el);
@@ -441,7 +459,7 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return '<span class="ph">[Markdown]</span>';
     }
     case 'multiMsg':
-      return renderForward(el.data.forwardMessages, collectFaces);
+      return renderForward(el.data.forwardMessages, collectFaces, ocrAnchors);
     case 'grayTipRevoke':
     case 'grayTipPoke':
     case 'grayTipGroup':
@@ -477,14 +495,18 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
 }
 
 /** All elements → the bubble body (reply quote floats to the top). */
-function renderBody(elements: RenderElement[], collectFaces?: Set<string>): string {
+function renderBody(
+  elements: RenderElement[],
+  collectFaces?: Set<string>,
+  ocrAnchors?: boolean,
+): string {
   const quotes = elements
     .filter((e) => e.type === 'reply')
-    .map((e) => renderElement(e, collectFaces))
+    .map((e) => renderElement(e, collectFaces, ocrAnchors))
     .join('');
   const rest = elements
     .filter((e) => e.type !== 'reply')
-    .map((e) => renderElement(e, collectFaces))
+    .map((e) => renderElement(e, collectFaces, ocrAnchors))
     .join('');
   return quotes + rest;
 }
@@ -495,7 +517,11 @@ function renderBody(elements: RenderElement[], collectFaces?: Set<string>): stri
  * recurses (its own `multiMsg` element renders another card via `renderBody`).
  * Falls back to a `[合并转发]` placeholder when the cache wasn't expanded.
  */
-function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Set<string>): string {
+function renderForward(
+  messages: ForwardMessage[] | undefined,
+  collectFaces?: Set<string>,
+  ocrAnchors?: boolean,
+): string {
   if (!messages || messages.length === 0) return '<span class="ph">[合并转发]</span>';
   const rows = messages
     .map((msg) => {
@@ -503,7 +529,7 @@ function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Se
       const time = msg.sendTime
         ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>`
         : '';
-      const body = renderBody(msg.elements, collectFaces);
+      const body = renderBody(msg.elements, collectFaces, ocrAnchors);
       return `<div class="fwd-msg"><div class="fwd-meta"><span class="fwd-name">${name}</span>${time}</div><div class="fwd-body">${body}</div></div>`;
     })
     .join('');
@@ -518,6 +544,7 @@ function renderMessage(
   collectFaces?: Set<string>,
   dec?: MsgDecoration,
   widgets?: Map<number, DressWidgetManifest>,
+  ocrAnchors?: boolean,
 ): string {
   if (isSystemOnly(m.elements)) {
     // Render gray-tip content with rich text extraction instead of bracket labels.
@@ -545,7 +572,7 @@ function renderMessage(
       : sender.role === 'admin'
         ? '<span class="role">管理员</span>'
         : '';
-  const body = renderBody(m.elements, collectFaces);
+  const body = renderBody(m.elements, collectFaces, ocrAnchors);
   const attrs = dec
     ? ` data-bubble="${dec.bubbleId}" data-font="${dec.fontId}" data-widget="${dec.widgetId}"`
     : '';
@@ -697,6 +724,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .media{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
 .media.emoji{max-width:90px;max-height:90px}
 .voice{display:inline-flex;flex-direction:column;gap:2px}.voice audio{height:34px}
+.pic-wrap{display:inline-flex;flex-direction:column;gap:2px}
 .cap{color:var(--sub)}
 .file{display:inline-flex;align-items:center;gap:6px;color:var(--accent);text-decoration:none;background:rgba(0,153,255,.08);border-radius:6px;padding:6px 9px}
 .file small{color:var(--sub)}
@@ -911,7 +939,17 @@ export async function exportToHtml(
       }
       const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
       const dec = opts.dressLookup?.(exported.msgId);
-      await writeRow(renderMessage(exported, sender, selfId, opts.collectFaces, dec, widgetById));
+      await writeRow(
+        renderMessage(
+          exported,
+          sender,
+          selfId,
+          opts.collectFaces,
+          dec,
+          widgetById,
+          opts.ocrAnchors,
+        ),
+      );
       count += 1;
       if (count % progressEvery === 0)
         opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });

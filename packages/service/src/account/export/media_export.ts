@@ -124,6 +124,8 @@ export interface MediaFailure {
     | 'media'
     | 'record'
     | 'transcribe'
+    | 'ocrfilter'
+    | 'ocr'
     | 'sticker'
     | 'emoji';
   fileName: string;

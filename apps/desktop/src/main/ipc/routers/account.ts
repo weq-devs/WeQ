@@ -39,7 +39,12 @@ import { detectThumbType, type OcrBlock } from '@weq/protocol';
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
-import { resolveLocalOcrModel, runLocalOcr, type LocalOcrModel } from '../../ocr/local';
+import {
+  resolveLocalOcrModel,
+  resolveLocalOcrFilterModel,
+  runLocalOcr,
+  type LocalOcrModel,
+} from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
@@ -411,6 +416,11 @@ export interface GroupAlbumAccessState {
    * 物料不全）时，灯箱的 OCR 按钮就靠它活着；两条腿都没有才置灰。
    */
   ocrLocalModelId: string | null;
+  /**
+   * 本地筛图模型（只判断「图里有没有文字」）的 id —— 已选且已下载时非空。
+   * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
+   */
+  ocrFilterModelId: string | null;
 }
 
 export interface AlbumMediaWire extends AlbumMedia {
@@ -625,6 +635,8 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
     // 本地 OCR 那条腿的可用性：设置里选了识别模型且文件下好了才有值。渲染层拿它决定
     // OCR 按钮能不能点（在线那条腿不可用时，本地模型就是唯一的出路）。
     ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
+    // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
+    ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
   };
 }
 
@@ -2325,6 +2337,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -4733,6 +4753,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({

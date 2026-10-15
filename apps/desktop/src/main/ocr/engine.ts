@@ -49,6 +49,11 @@ export interface OcrEngineRequest {
   /** `ocr` = 出文字；`detect` = 只出框（筛图用）。 */
   mode?: 'ocr' | 'detect';
   detOptions?: Partial<DetOptions>;
+  /**
+   * 推理线程数（缺省 = min(8, 核数)）。批量跑多个 worker 时调小，别把核数吃满 ——
+   * 筛图那条路一次并发好几个进程，每个都开 8 线程只会互相抢。
+   */
+  threads?: number;
 }
 
 export interface OcrEngineResult {
@@ -157,6 +162,7 @@ export function runOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult
       cls: paths.cls,
       dict: paths.dict,
       detOptions: request.detOptions,
+      threads: request.threads,
     };
     worker.send(params);
   });

@@ -139,6 +139,28 @@ export {
   type VoiceRewriteStats,
 } from './voice_rewrite';
 export {
+  ocrFoundImages,
+  runBatchWithFailureLimit,
+  OCR_RESULTS_FILE,
+  OCR_ONLINE_FAILURE_LIMIT,
+  type OcrExportSummary,
+  type OcrFilterFn,
+  type OcrFilterOutcome,
+  type OcrImageFn,
+  type OcrImageOutcome,
+  type OcrOnlineImageFn,
+  type OcrOnlineRequest,
+  type OcrResultEntry,
+  type OcrStageDeps,
+  type BatchOutcome,
+  type BatchRunResult,
+} from './ocr_export';
+export {
+  rewriteOcrTexts,
+  type OcrRewriteOptions,
+  type OcrRewriteStats,
+} from './ocr_rewrite';
+export {
   scanConvMedia,
   mediaDirsFromAccountDir,
   mediaDirsFromNtDataDir,
