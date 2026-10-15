@@ -11,6 +11,7 @@ import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
+import { MessageProvenance } from '../../components/MessageProvenance';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -439,6 +440,7 @@ export function MessageBubble({
             <span>精华</span>
           </span>
         ) : null}
+        <MessageProvenance message={message} />
         {recallText && !hideRecallTag ? (
           <div className={cn('weq-msg-recall-tag')} title="防撤回已保留原消息">
             <RotateCcw size={12} />

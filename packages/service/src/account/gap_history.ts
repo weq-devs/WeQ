@@ -163,15 +163,16 @@ export class GapHistoryService {
     }
   }
 
-  /** Bounded, offline-only timeline overlay; excludes legacy cache rows with uncertain numbering. */
-  async cachedVerified(
+  /** Bounded, offline-only timeline page; private-chat rows need verified NT numbering. */
+  async cachedTimeline(
     kind: 'c2c' | 'group',
     conv: string,
     startSeq: number,
     endSeq: number,
     limit: number,
+    descending: boolean,
   ): Promise<GapFetchedMessage[]> {
-    return this.cache.query(kind, conv, startSeq, endSeq, true, limit);
+    return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */

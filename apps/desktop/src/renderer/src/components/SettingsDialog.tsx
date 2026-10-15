@@ -262,6 +262,8 @@ function AppearanceSection(): ReactElement {
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
   const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
+  const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
+  const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
   const [msgDecoration, setMsgDecoration] = useState(true);
@@ -427,6 +429,31 @@ function AppearanceSection(): ReactElement {
             label="聊天头像挂件"
           />
         </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>显示消息序号（seq）</strong>
+          </div>
+          <Toggle
+            checked={settings.data?.showMessageSeq ?? false}
+            disabled={!settings.data || setShowMessageSeq.isLoading}
+            onChange={(enabled) => {
+              setSeqError(null);
+              setShowMessageSeq.mutate(
+                { enabled },
+                {
+                  onSuccess: () => {
+                    void settings.refetch();
+                  },
+                  onError: (error) => setSeqError(error.message),
+                },
+              );
+            }}
+            label="显示消息序号（seq）"
+          />
+        </div>
+        {seqError ? <p role="alert">{seqError}</p> : null}
       </div>
       <div className="weq-settings-appearance-card">
         <div className="weq-settings-appearance-head">

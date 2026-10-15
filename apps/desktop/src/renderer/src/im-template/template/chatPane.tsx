@@ -458,7 +458,7 @@ export function ChatPane({
     previousSeq: string;
     currentSeq: string;
     count: number;
-  }) => void;
+  }) => void | Promise<void>;
   /** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
@@ -2662,6 +2662,7 @@ export function ChatPane({
     const picked = selectedMessages;
     exitSelection();
     for (const message of picked) {
+      if (message.source === 'roaming') continue;
       void onDeleteMessage?.(message, conversation);
     }
   }
@@ -2672,7 +2673,7 @@ export function ChatPane({
       const decoration = (message as { decoration?: unknown }).decoration ?? null;
       const qqElements = (message as { qqElements?: unknown }).qqElements ?? null;
       return {
-        msgId: message.id,
+        msgId: message.msgId ?? message.id,
         senderId: message.senderId,
         senderUin: sender.identityValue,
         senderName: displayUserName(sender),
@@ -3049,7 +3050,7 @@ export function ChatPane({
     const selectedText = window.getSelection()?.toString().trim();
     // Non-copyable messages (images/files/cards) render an empty body — fall
     // back to a `msgid=xxx` reference so there's always something on the clipboard.
-    const body = message.body?.trim() ? message.body : `msgid=${message.id}`;
+    const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
     await copyTextToClipboard(selectedText || body);
     setContextMenu(null);
   }
@@ -3057,6 +3058,7 @@ export function ChatPane({
   // QQ-style delete: the DB row's type columns become (1,1) and the message
   // STAYS in the chat, rendered under a translucent overlay (no local hiding).
   function deleteMessage(message: Message) {
+    if (message.source === 'roaming') return;
     if (!conversation) {
       return;
     }
@@ -3638,7 +3640,15 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
+                disabled={
+                  selectedMessages.length === 0 ||
+                  selectedMessages.some((message) => message.source === 'roaming')
+                }
+                title={
+                  selectedMessages.some((message) => message.source === 'roaming')
+                    ? '漫游缓存消息不支持原库删除，请仅选择本地消息'
+                    : '删除所选本地消息'
+                }
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
@@ -4169,8 +4179,10 @@ export function ChatPane({
           state={contextMenu}
           onCopy={copyMessage}
           onDownloadImage={downloadMessageImage}
-          onDelete={deleteMessage}
-          onEditRaw={onEditRaw ? editMessageRaw : undefined}
+          onDelete={contextMenu.message.source === 'roaming' ? undefined : deleteMessage}
+          onEditRaw={
+            onEditRaw && contextMenu.message.source !== 'roaming' ? editMessageRaw : undefined
+          }
           onViewDecoration={viewDecoration}
           onReply={startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
@@ -4185,7 +4197,11 @@ export function ChatPane({
               : '这条消息缺少会话内序号，无法贴表情')
           }
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
-          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
+          onRecall={
+            contextRecallInfo?.show && contextMenu.message.source !== 'roaming'
+              ? recallMessageFor
+              : undefined
+          }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
         />
       ) : null}

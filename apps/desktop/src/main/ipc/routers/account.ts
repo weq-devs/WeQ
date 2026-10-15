@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
   PROJECT_GROUP_CODE,
   PROJECT_GROUP_NAME,
@@ -511,32 +512,37 @@ export interface GroupFileExportResult {
   failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
-/** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
-async function withConfirmedC2cHistory(
+/** Merge an offline cache page using the same cursor and ordering as the local page. */
+async function withRoamingHistory(
   services: AccountServices,
   kind: ChatKind,
   conv: string,
   rows: ChatMsgWire[],
   limit: number,
+  min = 1n,
+  max = 0xffffffffn,
+  descending = true,
 ): Promise<ChatMsgWire[]> {
-  if (kind !== 'c2c' || rows.length === 0) return rows;
-  const sequences = rows
-    .map((row) => Number(row.msgSeq))
-    .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
-  if (!sequences.length) return rows;
   try {
-    const cached = await services.gapHistory.cachedVerified(
-      'c2c',
+    const cached = await services.gapHistory.cachedTimeline(
+      kind,
       conv,
-      Math.min(...sequences),
-      Math.min(0xffffffff, Math.max(...sequences) + 30),
+      Number(min < 1n ? 1n : min),
+      Number(max > 0xffffffffn ? 0xffffffffn : max),
       limit,
+      descending,
     );
-    const known = new Set(rows.map((row) => `${row.msgSeq}:${row.msgRandom}`));
-    const extra: ChatMsgWire[] = cached
-      .filter((row) => !known.has(`${row.msgSeq}:${row.msgRandom}`))
-      .map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' }));
-    return [...rows, ...extra].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq)).slice(0, limit);
+    return mergeRoamingTimeline<ChatMsgWire>(
+      kind,
+      rows,
+      cached.map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' })),
+      {
+        min,
+        max,
+        limit,
+        descending,
+      },
+    );
   } catch {
     // Cache failure must never prevent reading the original QQ history.
     return rows;
@@ -546,15 +552,11 @@ async function withConfirmedC2cHistory(
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
 async function fetchBefore(
@@ -563,10 +565,13 @@ async function fetchBefore(
   beforeSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
 async function fetchAfter(
@@ -575,10 +580,13 @@ async function fetchAfter(
   afterSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
 async function fetchFrom(
@@ -589,15 +597,11 @@ async function fetchFrom(
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { Message } from './types';
 import { cn } from './classNames';
+import { useState } from 'react';
 
 /**
  * A run of messages QQ never synced to this device. Rendered between the two
@@ -11,21 +12,32 @@ export function MessageGapDivider({
   onOpen,
 }: {
   count: number;
-  /** 提供后占位条变为可点击按钮，点击拉起「缺失消息」弹窗（需在线 QQ 发包拉取）。 */
-  onOpen?: () => void;
+  onOpen?: () => void | Promise<void>;
 }) {
+  const [loading, setLoading] = useState(false);
   return (
     <div className={cn('weq-graytip-band')}>
       <button
         type="button"
         className={cn('weq-graytip-band-hint', 'weq-gap-band-button')}
-        onClick={onOpen}
-        disabled={!onOpen}
+        onClick={async () => {
+          if (!onOpen || loading) return;
+          setLoading(true);
+          try {
+            await onOpen();
+          } finally {
+            setLoading(false);
+          }
+        }}
+        disabled={!onOpen || loading}
+        aria-busy={loading}
         title={onOpen ? '点击拉取并查看这些缺失消息' : undefined}
       >
-        {onOpen
-          ? `此处有 ${count} 条消息缺失 · 点击拉取`
-          : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
+        {loading
+          ? '正在拉取缺失消息…'
+          : onOpen
+            ? `此处有 ${count} 条消息缺失 · 点击拉取`
+            : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
       </button>
     </div>
   );

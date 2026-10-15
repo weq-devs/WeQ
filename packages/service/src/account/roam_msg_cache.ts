@@ -93,7 +93,7 @@ export class RoamMsgCacheDb {
     this.dbPath = dbPath;
   }
 
-  /** 读一段 [startSeq, endSeq] 的缓存消息，按 seq 升序。 */
+  /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
   async query(
     kind: 'c2c' | 'group',
     conv: string,
@@ -101,6 +101,7 @@ export class RoamMsgCacheDb {
     endSeq: number,
     verifiedOnly = false,
     limit = 2000,
+    descending = true,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     await this.ensureSchema();
@@ -110,10 +111,11 @@ export class RoamMsgCacheDb {
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
-        ORDER BY msg_seq DESC LIMIT ?`,
+        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?`,
       [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
     );
-    return rows.map(rowToMessage).reverse();
+    const messages = rows.map(rowToMessage);
+    return descending ? messages.reverse() : messages;
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
