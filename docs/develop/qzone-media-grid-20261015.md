@@ -30,6 +30,26 @@ No Live Photo classification is implemented by this change. Current structured r
 
 The inspected WeQ types, referenced QzonePhoto/QZoneExport readers and Tencent's public legacy Mood model do not provide a verified Live Photo discriminator for these response variants. This is lack of verified evidence, not a claim that current QQ endpoints can never supply one. Reliable classification needs an explicit type flag or a verified asset-pairing schema, compared against known Live Photo and normal-video response samples. Do not classify by filename, extension, duration, cover resemblance or array position.
 
+### Authorized Two-Post Comparison, 2026-10-15
+
+The user identified their newest post as one normal video and their second-newest post as 12 Live Photos, and authorized comparing them. A bounded read through the running development app's existing local MCP authentication path fetched one list page (`pos=0`, `num=2`) and the two corresponding R02 detail responses. All three Qzone requests returned `code=0`. Credentials and raw responses remained in memory; no media was downloaded, no older posts were requested, and no archive disk was accessed.
+
+| Observed field | Known normal-video post | Known 12-Live-Photo post |
+| --- | --- | --- |
+| `video` | One entry | Empty array |
+| `videototal` | 1 | 0 |
+| `pic` | Absent | 12 entries |
+| `pictotal` | Absent | 12 |
+| `pic[].is_video` | Not applicable | 1 for all 12 |
+| `pic[].video_info` | Not applicable | Present for all 12, with motion URL and video ID |
+| `pic[].pic_id` and still-image URLs | Not applicable | Present for all 12 |
+
+R02 detail responses confirmed the same media structure as the list. Both kinds use `rtype=3` and `t1_subtype=2`, so neither field separates them in these samples. The Live Photo motion durations include a reported zero as well as 1000/2000 ms; duration is not a classifier. Each Live Photo's nested `absolute_position` matches its index, but that is ordering metadata, not a type flag.
+
+These known samples can be distinguished by their structural roles: standalone video versus photo entries with paired motion. This is evidence for a candidate rule, not proof that every mixed-media `pic[].is_video` entry is a Live Photo. Neither response exposes an independently verified Live Photo flag. Before introducing a general Live Photo label, compare a known ordinary-video-and-photo mixed post or obtain a verified discriminator. Keep the existing classification unchanged until that ambiguity is resolved; do not hardcode account/post IDs or the user's sample order.
+
+This follow-up updates investigation notes only, not service/renderer behavior. No application restart, rebuild or HMR is needed for these notes. The earlier no-authenticated-request statement describes the preview-fix batch, not this subsequent authorized comparison.
+
 ## Development Reload
 
 This batch changes renderer parsing, components and CSS only. Vite renderer HMR can load it without restarting the WeQ main process or QQ; the user's current live development process was not inspected. If it retains the old renderer state/styles, refresh the development window. Earlier main/service changes still require their own restart if not yet loaded.
