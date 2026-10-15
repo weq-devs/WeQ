@@ -181,9 +181,16 @@ describe('Qzone media and paging', () => {
       'https://qq.com.evil.test/a',
       'https://user:pass@qpic.cn/a',
       'https://qpic.cn:8080/a',
+      '//localhost/private.png',
+      '//qpic.cn.evil.test/cover.png',
+      '//user:pass@qpic.cn/cover.png',
     ])
       expect(qzoneMediaSource(value)).toBeNull();
     expect(qzoneMediaSource('http://a.qpic.cn/fixture.png')).toBe('http://a.qpic.cn/fixture.png');
+    expect(qzoneMediaSource('//mmbiz.qpic.cn/cover.png')).toBe('https://mmbiz.qpic.cn/cover.png');
+    expect(qzoneMediaSource('//y.gtimg.cn/music/cover.png')).toBe(
+      'https://y.gtimg.cn/music/cover.png',
+    );
   });
   it('merges overlapping pages by stable tid, preserving updated rows', () => {
     expect(

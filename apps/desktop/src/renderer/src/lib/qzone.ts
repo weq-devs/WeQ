@@ -1,7 +1,7 @@
 /** Native projection of feed HTML. Remote attributes, scripts and controls never render. */
 export function qzoneMediaSource(value: string): string | null {
   try {
-    const url = new URL(value);
+    const url = new URL(value.startsWith('//') ? `https:${value}` : value);
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port)
       return null;
     if (
@@ -21,6 +21,43 @@ export interface QzoneFeedVideo {
   videoUrl: string;
   videoId: string;
   duration: number;
+}
+
+export interface QzoneFeedLink {
+  href: string;
+  text: string;
+  cover?: string;
+  description?: string;
+  source?: string;
+  kind?: 'music' | 'link';
+}
+
+function shareKind(href: string, root?: Element): 'music' | 'link' {
+  const host = new URL(href).hostname;
+  return root?.matches('.f-music, .music-card, .qz-music') ||
+    ['y.qq.com', 'music.qq.com', 'kg.qq.com', 'music.163.com'].some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+    ? 'music'
+    : 'link';
+}
+
+function shareCover(root: Element): string | null {
+  for (const image of root.querySelectorAll('img')) {
+    const source = feedImageSource(image);
+    if (source) return source;
+  }
+  for (const node of [root, ...root.querySelectorAll('[style], [data-cover], [data-pic]')]) {
+    const explicit = qzoneMediaSource(
+      node.getAttribute('data-cover') || node.getAttribute('data-pic') || '',
+    );
+    if (explicit) return explicit;
+    const background = (node as HTMLElement).style?.backgroundImage;
+    const match = background?.match(/^url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)$/i);
+    const source = qzoneMediaSource(match?.[1] || match?.[2] || match?.[3]?.trim() || '');
+    if (source) return source;
+  }
+  return null;
 }
 
 /** A loader/spacer is UI, but a real lazy-image target must still be kept. */
@@ -102,7 +139,7 @@ export function projectQzoneFeed(
   sourceName: string | null;
   images: string[];
   videos: QzoneFeedVideo[];
-  links: { href: string; text: string; cover?: string }[];
+  links: QzoneFeedLink[];
   tid: string | null;
   likeCount: number | null;
   commentCount: number | null;
@@ -265,7 +302,6 @@ export function projectQzoneFeed(
     element.remove();
   const body =
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
-  const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
   const videos: QzoneFeedVideo[] = [];
   const videoRoots: Element[] = [];
   for (const node of body.querySelectorAll(
@@ -309,9 +345,56 @@ export function projectQzoneFeed(
     )
       videos.push({ coverUrl, videoUrl, videoId, duration: 0 });
   }
-  const cards = new Map<string, { href: string; text: string; cover?: string }>();
+  const cards = new Map<string, QzoneFeedLink>();
   const cardImages = new Set<string>();
   const pictureLinks = new WeakSet<Element>();
+  const shareSelector =
+    '.fui-txtimg, .f-share, .f-link, .share-card, .music-card, .f-music, .qz-music, .f-ct-txtimg';
+  for (const anchor of body.querySelectorAll('a[href]')) {
+    if (!body.contains(anchor) || videoRoots.some((root) => root.contains(anchor))) continue;
+    const root = anchor.closest(shareSelector);
+    if (!root || root === body || root.querySelector('.f-info, .qz_info_cut')) continue;
+    const heading = root.querySelector(
+      'h3 a[href], h4 a[href], .link-title a[href], .music-title a[href], a.f-title, a.link-title, a.music-title',
+    );
+    const titleLink = heading || anchor;
+    const href = qzoneLinkTarget(titleLink.getAttribute('href') || '');
+    if (!href || isQzoneFeedNavigation(titleLink, href)) continue;
+    const destination = new URL(href);
+    if (
+      destination.hostname === 'user.qzone.qq.com' ||
+      titleLink.matches('.img-item') ||
+      /\.(?:jpe?g|png|gif|webp)$/i.test(destination.pathname)
+    )
+      continue;
+    const text = (titleLink.getAttribute('title') || titleLink.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text || /^(?:查看详情|详情|全文|展开全文)$/.test(text)) continue;
+    const cover = shareCover(root);
+    const description = [
+      ...root.querySelectorAll('.description, .desc, .f-desc, .link-desc, .music-desc, .txt-box p'),
+    ]
+      .filter((node) => !node.contains(titleLink))
+      .map((node) =>
+        (node.getAttribute('title') || node.textContent || '').replace(/\s+/g, ' ').trim(),
+      )
+      .filter((value) => value && value !== text)
+      .join(' ');
+    const source = root
+      .querySelector('.link-source, .music-source, .source-name')
+      ?.textContent?.trim();
+    cards.set(href, {
+      href,
+      text,
+      ...(cover ? { cover } : {}),
+      ...(description ? { description } : {}),
+      source: source || destination.hostname,
+      kind: shareKind(href, root),
+    });
+    if (cover) cardImages.add(cover);
+    root.remove();
+  }
   for (const anchor of body.querySelectorAll('a[href]')) {
     if (videoRoots.some((root) => root.contains(anchor))) continue;
     const image = anchor.querySelector('img');
@@ -338,7 +421,7 @@ export function projectQzoneFeed(
       anchor.textContent?.trim() ||
       image.getAttribute('alt')?.trim() ||
       new URL(href).hostname;
-    cards.set(href, { href, text, cover });
+    cards.set(href, { href, text, cover, source: new URL(href).hostname, kind: shareKind(href) });
     cardImages.add(cover);
     anchor.remove();
   }
@@ -369,12 +452,19 @@ export function projectQzoneFeed(
         link.remove();
         continue;
       }
-      links.set(href, { href, text });
+      if (!links.has(href))
+        links.set(href, {
+          href,
+          text: link.getAttribute('title')?.trim() || text,
+          source: new URL(href).hostname,
+          kind: shareKind(href),
+        });
     } catch {
       /* Invalid remote link is omitted. */
     }
   }
   for (const root of videoRoots) root.remove();
+  const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
   for (const element of textBody.querySelectorAll('video, source')) element.remove();
   for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
   for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');

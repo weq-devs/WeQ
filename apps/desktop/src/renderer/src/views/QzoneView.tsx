@@ -17,8 +17,11 @@ import {
   AtSign,
   ChevronDown,
   Eye,
+  ExternalLink,
   ImagePlus,
   Loader2,
+  Link2,
+  Music2,
   MessageCircle,
   Play,
   RefreshCw,
@@ -1495,12 +1498,36 @@ function FeedLinks({
               .catch((error: unknown) => setError(errorText(error)));
           }}
         >
-          {link.cover ? <img src={albumMediaUrl(link.cover)} alt="" loading="lazy" /> : null}
-          <span>{link.text}</span>
+          <FeedLinkCover
+            key={link.cover || 'no-cover'}
+            src={link.cover}
+            music={link.kind === 'music'}
+          />
+          <span className="weq-qzn-feed-link-body">
+            <strong>{link.text}</strong>
+            {link.description ? <span>{link.description}</span> : null}
+            <small>{link.source || new URL(link.href).hostname}</small>
+          </span>
+          <ExternalLink className="weq-qzn-feed-link-external" size={16} aria-hidden />
         </button>
       ))}
       {error ? <p className="weq-qzn-error">{error}</p> : null}
     </>
+  );
+}
+
+function FeedLinkCover({ src, music }: { src?: string; music: boolean }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="weq-qzn-feed-link-cover" aria-hidden>
+      {src && !failed ? (
+        <img src={albumMediaUrl(src)} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : music ? (
+        <Music2 size={26} />
+      ) : (
+        <Link2 size={26} />
+      )}
+    </span>
   );
 }
 
@@ -2369,9 +2396,12 @@ function FeedCard({
           <time>{timeText(feed.time)}</time>
         </div>
         <span className="weq-qzn-feed-kind">
-          {({ 311: '说说', 2: '日志', 4: '相册', 216: '动态' } as Record<number, string>)[
-            feed.appid
-          ] || '动态'}
+          {(
+            { 311: '说说', 2: '日志', 4: '相册', 202: '分享', 216: '动态' } as Record<
+              number,
+              string
+            >
+          )[feed.appid] || '动态'}
         </span>
       </div>
       {body.text.trim() && !body.unsupported ? (
