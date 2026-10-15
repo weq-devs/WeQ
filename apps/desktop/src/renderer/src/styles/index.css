@@ -1153,7 +1153,9 @@ html[data-theme='dark'] .weq-splash-track {
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.7);
-  cursor: default;
+  /* 图片外面那层 frame 由 useZoomPan 写着 zoom-in / grab；图片要继承它，别把
+   * 「能缩放」的光标提示盖掉（视频不靠这层——它的挂载点就是自己，inline style 直接生效）。 */
+  cursor: inherit;
   /* transform-origin 保持默认居中，useZoomPan 的锚点数学依赖于此。 */
   transform-origin: center center;
 }

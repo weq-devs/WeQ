@@ -151,6 +151,20 @@ describe('OcrImage (0xe07_0) —— 下行', () => {
       { x: 10, y: 28 },
     ]);
   });
+
+  it('失败帧：retCode=200 + 错误码串 + 一句中文，结果为空', () => {
+    const failed = OcrImage.decodeResponse(hexToBytes(V.OCR_RESP_EXPIRED_HEX));
+    expect(failed.retCode).toBe(200);
+    expect(failed.status).toBe('FailedOperation.DownLoadError');
+    expect(failed.message).toBe('服务忙,请稍后重试');
+    expect(failed.blocks).toEqual([]);
+    expect(failed.imageWidth).toBe(0);
+  });
+
+  it('成功帧的 retCode 解出来是 0、message 为空', () => {
+    expect(result.retCode).toBe(0);
+    expect(result.message).toBe('');
+  });
 });
 
 describe('OcrImage (0xe07_0) —— invoke', () => {

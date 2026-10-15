@@ -32,6 +32,14 @@
 //   `10.111/112`  图片宽 / 高（回显上行的尺寸）
 //   `10.101/102/103` 语种列表 / 默认语种 / 语种码→中文名对照
 //
+// 失败帧是另一副样子（实测：拿一条已过期的 CDN 直链去发，回包只有 63 字节）：
+//   `1`  = 200，`2` = `FailedOperation.DownLoadError`（错误码串），
+//   `3`  = `服务忙,请稍后重试`（给用户看的中文，注意是**半角逗号**），`10` = 空结果。
+// 也就是说「服务端取不到图」和「服务端识别失败」从 `2` 上区分不出来 —— 前者会把
+// `2` 填成错误码串、`3` 填成一句泛泛的「服务忙」。聊天图片的 CDN 有效期只有
+// `fileTTL`（元素里的 45518，实测 777600 秒 = 9 天），过期的图**本地有缓存也救不回来**
+// （URL 是给服务端去取的），调用方应把 `FailedOperation.DownLoadError` 单独拎出来提示。
+//
 // 坐标系是**喂进去那张图的像素坐标**（原点左上，与 `10.111/112` 同系）。原尺寸送进去
 // 时回包的框可以直接画在原图上 —— 实测 `5` 与图上文字的外接矩形几乎重合（偏差只有
 // 贴边像素和 JPEG 边缘的几像素）。若送的是裁切 / 缩放过的图，用
@@ -106,7 +114,9 @@ const OCR_RESULT = message([
 ]);
 
 const OCR_RESP = message([
+  { name: 'retCode', tag: 1, type: 'uint32' },
   { name: 'status', tag: 2, type: 'string' },
+  { name: 'message', tag: 3, type: 'string' },
   { name: 'result', tag: 10, type: OCR_RESULT },
 ]);
 
@@ -143,8 +153,17 @@ export interface OcrLanguage {
 }
 
 export interface OcrResult {
-  /** 回包状态串，成功为 `succ`。 */
+  /**
+   * 业务返回码：成功时是 0（proto3 默认省略，解出来就是 0）；失败时实测 200。
+   */
+  retCode: number;
+  /**
+   * 成功为 `succ`；失败时是**错误码串**（如 `FailedOperation.DownLoadError` =
+   * 服务端取不到那张图）。
+   */
   status: string;
+  /** 失败时给用户看的中文短句（如 `服务忙,请稍后重试`）；成功时为空。 */
+  message: string;
   blocks: OcrBlock[];
   /** 识别出的源语种（如 `en`）。 */
   srcLang: string;
@@ -245,7 +264,9 @@ function readBlock(raw: unknown): OcrBlock {
 function deserializeResult(body: Record<string, unknown>): OcrResult {
   const result = asRecord(body.result);
   return {
+    retCode: toInt(body.retCode),
     status: asString(body.status),
+    message: asString(body.message),
     blocks: asArray(result.blocks).map(readBlock),
     srcLang: asString(result.srcLang),
     sessionId: asString(result.sessionId),

@@ -180,6 +180,11 @@ export function QqImage({
   }
   // Animated emojis open nothing; real photos open the full-size lightbox.
   const openable = !isAnimatedEmoji;
+  /** 服务端副本的到期时刻（ms），元素没带 TTL 时为 undefined。 */
+  const ttlSeconds = num(data, 'fileTTL');
+  const uploadedSeconds = num(data, 'uploadTimestamp');
+  const expiresAtMs =
+    ttlSeconds > 0 && uploadedSeconds > 0 ? (uploadedSeconds + ttlSeconds) * 1000 : undefined;
   // 灯箱的 OCR 上下文：真图片（拿得到 fileToken + 尺寸）才给 —— 灯箱据此才会出现 OCR
   // 按钮。会话场景按 ConvContext 的约定判断（群号非空 = 群聊，空 = 私聊），和视频 /
   // 文件那几条 OIDB 链路同一口径。
@@ -192,6 +197,10 @@ export function QqImage({
           height: h,
           md5: /^[0-9a-f]{32}$/i.test(md5) ? md5.toLowerCase() : undefined,
           fileSize: num(data, 'fileSize') || undefined,
+          // 服务端副本的到期时刻：元素里 uploadTimestamp(45517) + fileTTL(45518) 正好等于
+          // 45505，实测 TTL 是 777600 秒（9 天）。过期后 OCR 必然失败（URL 是交给服务端去
+          // 取的，本地有缓存也没用），所以前端提前拦一下。
+          expiresAt: expiresAtMs,
         }
       : null;
   return (

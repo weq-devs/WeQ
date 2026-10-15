@@ -24,7 +24,13 @@ interface OidbCall {
 }
 
 /** 按命令字回不同内容的记账 native：0x9067_202 给 rkey，0xe07_0 给 OCR 回包。 */
-function fakeNative(reply: { rkeyType?: number; ocrStatus?: string; rkey?: string }) {
+function fakeNative(reply: {
+  rkeyType?: number;
+  ocrStatus?: string;
+  rkey?: string;
+  /** 直接给一帧原始回包（用于失败帧的黄金向量）。 */
+  ocrFrame?: Uint8Array;
+}) {
   const calls: OidbCall[] = [];
   return {
     calls,
@@ -54,6 +60,7 @@ function fakeNative(reply: { rkeyType?: number; ocrStatus?: string; rkey?: strin
           : new Uint8Array(0);
         return Buffer.from(bytes);
       }
+      if (reply.ocrFrame) return Buffer.from(reply.ocrFrame);
       const bytes = encode(OcrImage.respSchema, {
         status: reply.ocrStatus ?? 'succ',
         result: {
@@ -148,6 +155,24 @@ describe('ChatImageOcrService', () => {
     const service = new ChatImageOcrService(nt, session, () => PID);
 
     await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(/failed/);
+  });
+
+  it('服务端取不到图（直链已过期）时给出「过期」而不是「识别失败」', async () => {
+    // 黄金向量：63 字节失败帧 —— retCode=200 / FailedOperation.DownLoadError / 服务忙,请稍后重试
+    const frame = Uint8Array.from(
+      (
+        '08c801121d4661696c65644f7065726174696f6e2e446f776e4c6f61644572726f721a19e69c8d' +
+        'e58aa1e5bf992ce8afb7e7a88de5908ee9878de8af955200'
+      ).match(/../g) ?? [],
+      (h) => Number.parseInt(h, 16),
+    );
+    const nt = fakeNative({ rkeyType: 10, ocrFrame: frame });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+
+    await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(/过期/);
+    await expect(service.recognize({ ...params, peerType: 'c2c' })).rejects.toThrow(
+      /FailedOperation\.DownLoadError/,
+    );
   });
 
   it('缺 fileToken / 缺尺寸 / QQ 未在线都不发包', async () => {

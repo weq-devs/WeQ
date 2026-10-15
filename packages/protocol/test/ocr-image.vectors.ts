@@ -71,3 +71,11 @@ export const OCR_REQUEST_FILE_SIZE = 119054;
 
 /** 回包里的 sessionId（每次请求都不同，这里只用于断言解码路径走通）。 */
 export const OCR_RESP_SESSION_ID = '7ce0e058-a310-4bb8-8ea3-ebc6ac1de6fc';
+
+/**
+ * 下行**失败帧**（63 字节，实测：把一条已过期的 CDN 直链发给 0xe07_0）：
+ *   `1` = 200、`2` = `FailedOperation.DownLoadError`、`3` = `服务忙,请稍后重试`、`10` = 空。
+ */
+export const OCR_RESP_EXPIRED_HEX =
+  '08c801121d4661696c65644f7065726174696f6e2e446f776e4c6f61644572726f721a19e69c8de58aa1' +
+  'e5bf992ce8afb7e7a88de5908ee9878de8af955200';

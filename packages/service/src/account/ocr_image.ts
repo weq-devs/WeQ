@@ -65,6 +65,25 @@ export interface ChatImageOcrResult {
   sessionId: string;
 }
 
+/** 服务端**取不到图**时的错误码串（0xe07_0 回包的 `2`）。 */
+export const OCR_DOWNLOAD_ERROR = 'FailedOperation.DownLoadError';
+
+/**
+ * 把失败帧翻译成用户能看懂的一句话。
+ *
+ * 关键是别把 {@link OCR_DOWNLOAD_ERROR} 当成「识别失败」：它的含义是**服务端取不到那张
+ * 图** —— 聊天图片的 CDN 链接只有 `fileTTL`（元素 45518，实测 777600 秒 = 9 天）的有效期，
+ * 过期后服务端只会回一句泛泛的「服务忙，请稍后重试」。注意 URL 是**交给服务端去取**的，
+ * 所以本地缓存再全也救不回来，只能换近期的图。
+ */
+function describeOcrFailure(result: { retCode: number; status: string; message: string }): string {
+  const code = result.status || `retCode=${result.retCode}`;
+  if (result.status === OCR_DOWNLOAD_ERROR) {
+    return `服务端已经取不到这张图了（QQ 的图片链接约 9 天过期），换张近期的图试试（${code}）`;
+  }
+  return `文字识别失败：${result.message || code}`;
+}
+
 export class ChatImageOcrService {
   constructor(
     private readonly nt: ChatImageOcrNt,
@@ -97,8 +116,8 @@ export class ChatImageOcrService {
       height,
     });
 
-    if (result.status && result.status !== 'succ') {
-      throw new Error(`文字识别失败：${result.status}`);
+    if (result.retCode !== 0 || (result.status && result.status !== 'succ')) {
+      throw new Error(describeOcrFailure(result));
     }
     return {
       status: result.status,

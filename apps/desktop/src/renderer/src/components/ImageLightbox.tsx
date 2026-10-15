@@ -44,6 +44,12 @@ export interface LightboxOcrContext {
   height: number;
   md5?: string;
   fileSize?: number;
+  /**
+   * 服务端副本的到期时刻（ms）—— 元素里 uploadTimestamp + fileTTL 算出来的。
+   * QQ 的图片链接实测只保留 9 天（777600 秒），过期后 OCR 必然失败：URL 是**交给服务端
+   * 去取图**的，本地缓存救不回来。所以这里提前把按钮拦掉，别让用户白等一轮。
+   */
+  expiresAt?: number;
 }
 
 interface LightboxStore {
@@ -82,6 +88,7 @@ export function ImageLightbox(): ReactElement | null {
   const layer = useOverlayLayer(src !== null);
 
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const layerRef = useRef<HTMLDivElement | null>(null);
   /** 图片渲染后的实际像素尺寸（缩放用 transform，不影响 offsetWidth）。 */
   const [rendered, setRendered] = useState({ width: 0, height: 0 });
   const [blocks, setBlocks] = useState<OcrBlock[] | null>(null);
@@ -131,9 +138,30 @@ export function ImageLightbox(): ReactElement | null {
     return () => window.removeEventListener('resize', measure);
   }, [measure, src]);
 
+  // 滚轮缩放挂在**整块灯箱**上（不只图片那点面积）：以前只有光标正好在图上才缩放，
+  // 图占不满屏时四周暗底滚轮毫无反应，用起来像「滚轮坏了」。文字面板与操作条要留给
+  // 自己的滚动 / 点击，所以那两处直接放行；落在图片上的由 useZoomPan 自己的监听处理
+  // （这里跳过，避免同一个事件被算两次）。
+  const wheelAt = zoom.wheelAt;
+  useEffect(() => {
+    const node = layerRef.current;
+    if (!node || !src) return;
+    const onWheel = (event: WheelEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.('.weq-lightbox-frame, .weq-ocr-panel, .weq-lightbox-actions')) return;
+      event.preventDefault();
+      wheelAt(event.clientX, event.clientY, event.deltaY);
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, [src, wheelAt]);
+
   const accessData = access.data;
+  /** 服务端副本已过期（QQ 只留约 9 天）—— 这种图 OCR 必然失败，直接拦。 */
+  const serverExpired = Boolean(ocrContext?.expiresAt && ocrContext.expiresAt < Date.now());
   const canOcr = Boolean(
     ocrContext &&
+      !serverExpired &&
       accessData?.qqOnline &&
       accessData.attachEnabled &&
       accessData.hasA2 &&
@@ -143,9 +171,11 @@ export function ImageLightbox(): ReactElement | null {
   );
   const ocrHint = !ocrContext
     ? '只有聊天里出现过的图片能识别文字'
-    : canOcr
-      ? '识别图片里的文字'
-      : 'QQ 未在线或发包物料不全，暂不可识别';
+    : serverExpired
+      ? '这张图的服务端副本已过期（QQ 只保留约 9 天），识别不了'
+      : canOcr
+        ? '识别图片里的文字'
+        : 'QQ 未在线或发包物料不全，暂不可识别';
 
   async function runOcr(): Promise<void> {
     if (!ocrContext) return;
@@ -196,7 +226,12 @@ export function ImageLightbox(): ReactElement | null {
   const overlayVisible = Boolean(blocks && blocks.length > 0 && showOverlay && scaleX && scaleY);
 
   return createPortal(
-    <div className="weq-lightbox-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={close}>
+    <div
+      ref={layerRef}
+      className="weq-lightbox-layer weq-anim-fade"
+      style={{ zIndex: layer }}
+      onMouseDown={close}
+    >
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
