@@ -13,9 +13,13 @@
 import { existsSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { EmotionKind, IntentKind, IntentLocalEnginePort, MbtiDim } from '@weq/service';
+import { getLogger } from '@weq/service';
 import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
+
+const logger = getLogger().child({ scope: 'intent-sense' });
 
 /** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
@@ -86,15 +90,25 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     await this.stop();
     const workerPath = this.resolveWorkerPath();
     const worker = fork(workerPath, [], {
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      // stderr 转发到主进程日志：worker 崩溃时能看到真实原因（此前 ignore 全盲）。
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       serialization: 'advanced',
     });
     this.worker = worker;
+    worker.stderr?.on('data', (chunk: Buffer) => {
+      logger.warn('intent-sense worker stderr', {
+        event: 'intent-sense-worker-stderr',
+        text: String(chunk).slice(0, 2000),
+      });
+    });
     worker.on('message', (msg: WorkerMessage) => this.onMessage(msg));
-    worker.on('exit', () => {
+    // 启动窗口期内 worker 崩溃：把退出码带进 start 的 reject，别让人干等超时。
+    let exited = false;
+    worker.on('exit', (code) => {
+      exited = true;
       this.worker = null;
       this.readyFlag = false;
-      this.failAll(new Error('意图感知本地引擎已退出'));
+      this.failAll(new Error(`意图感知本地引擎已退出 (code ${code ?? '?'})`));
     });
     worker.on('error', (error) => {
       this.readyFlag = false;
@@ -112,6 +126,16 @@ class LocalEngineBridge implements IntentLocalEnginePort {
           reject(new Error(msg?.error ?? '本地引擎加载失败'));
         }
       };
+      const onEarlyExit = (code: number | null): void => {
+        clearTimeout(timer);
+        worker.removeListener('message', onFirst);
+        reject(new Error(`本地引擎进程启动即退出 (code ${code ?? '?'})，详见主进程日志`));
+      };
+      if (exited) {
+        onEarlyExit(null);
+        return;
+      }
+      worker.once('exit', onEarlyExit);
       worker.on('message', onFirst);
       worker.send({ type: 'load', modelDir });
     });
@@ -206,10 +230,10 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   private resolveWorkerPath(): string {
-    const candidates = [
-      join(__dirname, 'intentSenseWorker.mjs'),
-      join(__dirname, '..', 'intentSenseWorker.mjs'),
-    ];
+    // 不用裸 __dirname（Electron 主进程 ESM 下该 banner 依赖 import.meta.dirname，
+    // 不可靠 —— captureWorker 的同款函数也是 fileURLToPath 写法）。
+    const here = dirname(fileURLToPath(import.meta.url));
+    const candidates = [join(here, 'intentSenseWorker.mjs'), join(here, '..', 'intentSenseWorker.mjs')];
     return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
   }
 }
