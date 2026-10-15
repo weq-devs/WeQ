@@ -776,11 +776,14 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 群关键词提醒的规则。前端在会话设置里改完就整体写回（按群号 keyed），主进程
-   * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   * 群关键词提醒的规则（按账号存）。前端在会话设置里改完就整体写回（按群号
+   * keyed），主进程的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   *
+   * 没有打开的账号时返回空表 —— 规则挂在账号记录上，读不到「当前账号」就没有规则。
    */
   getGroupKeywordRules: procedure.query(() => {
-    return requireBootstrap().userConfig.getSettings().groupKeyword.rules;
+    const accountConfig = getAppContext().services?.accountConfig;
+    return accountConfig?.getGroupKeywordRules() ?? {};
   }),
 
   setGroupKeywordRules: procedure
@@ -802,9 +805,12 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      userConfig.setSettings({ groupKeyword: { rules: input.rules } });
-      const next = userConfig.getSettings().groupKeyword.rules;
+      const accountConfig = getAppContext().services?.accountConfig;
+      if (!accountConfig) {
+        throw new Error('No account session open — call bootstrap.openAccount first.');
+      }
+      accountConfig.setGroupKeywordRules(input.rules);
+      const next = accountConfig.getGroupKeywordRules();
       await getAppContext().applyGroupKeyword(next);
       return next;
     }),
@@ -1080,6 +1086,22 @@ export const bootstrapRouter = router({
       });
       return true;
     }),
+
+  // ---- 加入交流群引导（一次） ----
+
+  /** True once the user confirmed the 「加入交流群」 prompt (立即加群 / 不再提醒都会写)。 */
+  getJoinGroupPromptAcknowledged: procedure.query(() => {
+    return requireBootstrap().userConfig.isJoinGroupPromptAcknowledged();
+  }),
+
+  /**
+   * 确认「加入交流群」引导（persists to config.json）。点「立即加群」与「不再提醒」
+   * 共用这一条 —— 两者都代表「这条引导我看过了」，区别只在弹窗里要不要顺手加群。
+   */
+  acknowledgeJoinGroupPrompt: procedure.mutation(() => {
+    requireBootstrap().userConfig.acknowledgeJoinGroupPrompt();
+    return true;
+  }),
 
   // ---- voice transcription models (设置 → 语音转录) ----
 

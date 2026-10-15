@@ -1571,7 +1571,7 @@ export function initAppContext(): AppContext {
       void this.applySsePush(userConfig.getSettings().ssePush);
       // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
       // SSE 未开启也要提醒（产品要求）。
-      void this.applyGroupKeyword(userConfig.getSettings().groupKeyword.rules);
+      void this.applyGroupKeyword(accountConfig.getGroupKeywordRules());
 
       // Warm the local search index in the background (never blocks the UI):
       // messages that arrived while WeQ was closed are caught up here, so the
@@ -2097,7 +2097,7 @@ export function initAppContext(): AppContext {
       void this.applySsePush(userConfig.getSettings().ssePush);
       // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
       // SSE 未开启也要提醒（产品要求）。
-      void this.applyGroupKeyword(userConfig.getSettings().groupKeyword.rules);
+      void this.applyGroupKeyword(accountConfig.getGroupKeywordRules());
 
       // 静态账号同样在打开时预热年度报告的可用年份（与在线账号同口径、同缓存）。
       const annualReport = this.services?.annualReport;

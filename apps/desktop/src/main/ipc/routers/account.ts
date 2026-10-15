@@ -12,6 +12,11 @@
  */
 
 import { z } from 'zod';
+import {
+  PROJECT_GROUP_CODE,
+  PROJECT_GROUP_NAME,
+  PROJECT_GROUP_SHARE_URL,
+} from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
 import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -58,6 +63,8 @@ import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_grou
 import {
   clientKeyExpiryMs,
   buildPtlogin2JumpUrl,
+  buildGroupWpaDeepLink,
+  resolveGroupShareAuthKey,
   fetchClientKey,
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
@@ -348,6 +355,38 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
   albums: z.array(albumSelectionInput).min(1),
   concurrency: z.number().int().min(1).max(8).optional(),
 });
+
+/** 加群引导弹窗的推荐动作（见 `getGroupJoinState`）。 */
+export type GroupJoinMode = 'inject' | 'deeplink' | 'browser';
+
+/** 加群引导弹窗的全部前置状态（`account.getGroupJoinState` 的返回）。 */
+export interface GroupJoinState {
+  groupCode: string;
+  groupName: string;
+  /** 分享短链（二维码内容 / 浏览器兜底打开的地址）。 */
+  shareUrl: string;
+  /**
+   * 本地群列表里是否已有这个群。**为真时渲染层直接不弹** —— 已在群里就没有引导的
+   * 余地了，只有不在群里才谈得上选哪种加群方式（所以此时 `mode` 无意义）。
+   */
+  inGroup: boolean;
+  /** 推荐动作，弹窗按钮照着它渲染。 */
+  mode: GroupJoinMode;
+  qqOnline: boolean;
+  attachEnabled: boolean;
+  hasA2: boolean;
+  hasD2: boolean;
+  hasD2Key: boolean;
+  hasGuid: boolean;
+}
+
+/** `account.joinProjectGroup` 的结果：实际走了哪条路 + 关键物料。 */
+export interface GroupJoinResult {
+  action: 'inject' | 'deeplink' | 'browser';
+  groupCode: string;
+  /** deeplink / browser 时实际打开的链接。 */
+  link?: string;
+}
 
 export interface GroupAlbumAccessState {
   qqOnline: boolean;
@@ -3429,6 +3468,87 @@ export const accountRouter = router({
   /** Live prerequisites for group album list/media/export. */
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
+  }),
+
+  // ---- 加入交流群引导（分享码 → authKey → 入群申请 / 深链接 / 浏览器） ----
+
+  /**
+   * 加群引导弹窗的**全部前置状态**，一次查询拿齐：
+   *   - `inGroup`：本地群列表（`group_list`）里有没有这个群 → 决定是否还要引导加群；
+   *   - qqOnline / attachEnabled / 物料齐全度（a2 / d2 / d2key / guid）→ 决定走哪条路；
+   *   - 群名 / 头像 / 分享链接（常量，不查库）。
+   *
+   * `mode` 是给前端的**推荐动作**，同一份状态只在这里判一次，弹窗按钮照着它渲染：
+   *   - `inject`     —— 在线 + 物料齐 → 换 authKey 后直接发入群申请；
+   *   - `deeplink`   —— 在线但物料缺 → 拉起 QQ 深链接，让 QQ 客户端自己发；
+   *   - `browser`    —— QQ 不在线 → 浏览器打开分享页扫码加群。
+   *
+   * 注意 `inGroup`：为真时渲染层**整个弹窗都不显示**，`mode` 只是照常在算（不消费）。
+   */
+  getGroupJoinState: procedure.query(async (): Promise<GroupJoinState> => {
+    const state = albumAccessState();
+    let inGroup = false;
+    try {
+      const directory = await requireServices().groupInfo.listGroupDirectory();
+      inGroup = directory.some((entry) => entry.groupCode === PROJECT_GROUP_CODE);
+    } catch {
+      // 群列表读不出来（库损坏 / 权限）不该挡住引导 —— 当作「不在群里」。
+    }
+    const canInject =
+      state.qqOnline &&
+      state.attachEnabled &&
+      state.hasA2 &&
+      state.hasD2 &&
+      state.hasD2Key &&
+      state.hasGuid;
+    const mode: GroupJoinMode = !state.qqOnline ? 'browser' : canInject ? 'inject' : 'deeplink';
+    return {
+      groupCode: PROJECT_GROUP_CODE,
+      groupName: PROJECT_GROUP_NAME,
+      shareUrl: PROJECT_GROUP_SHARE_URL,
+      inGroup,
+      mode,
+      qqOnline: state.qqOnline,
+      attachEnabled: state.attachEnabled,
+      hasA2: state.hasA2,
+      hasD2: state.hasD2,
+      hasD2Key: state.hasD2Key,
+      hasGuid: state.hasGuid,
+    };
+  }),
+
+  /**
+   * 执行加群引导的**推荐动作**（按 `getGroupJoinState().mode`）：
+   *   - `inject`    ：换 authKey → 发入群申请（OIDB 0x11ec_1），成功即结束；
+   *   - `deeplink`  ：换 authKey → 拼 `tencent://groupwpa/` 深链接 → 交给系统拉起 QQ；
+   *   - `browser`   ：用系统浏览器打开分享页（手机 QQ 扫码加群）。
+   *
+   * 不处理「已在群里」：那种情况下渲染层根本不显示弹窗，也就不会调到这里。
+   *
+   * 返回 `action` 说明实际走了哪条路，前端据此给不同文案（「已发送申请」/「已唤起 QQ」…）。
+   * authKey 每次重新换（与分享者绑定、有实效），**不缓存**。
+   */
+  joinProjectGroup: procedure.mutation(async (): Promise<GroupJoinResult> => {
+    const state = albumAccessState();
+    if (state.qqOnline && state.attachEnabled) {
+      const target = await resolveGroupShareAuthKey(PROJECT_GROUP_SHARE_URL);
+      const canInject = state.hasA2 && state.hasD2 && state.hasD2Key && state.hasGuid;
+      if (canInject) {
+        await requireServices().interaction.sendGroupJoinRequest({
+          groupCode: target.groupCode,
+          authKey: target.authKey,
+        });
+        return { action: 'inject', groupCode: target.groupCode };
+      }
+      const deepLink = buildGroupWpaDeepLink({
+        groupUin: target.groupCode,
+        authKey: target.authKey,
+      });
+      await getHost().openExternal(deepLink);
+      return { action: 'deeplink', groupCode: target.groupCode, link: deepLink };
+    }
+    await getHost().openExternal(PROJECT_GROUP_SHARE_URL);
+    return { action: 'browser', groupCode: PROJECT_GROUP_CODE, link: PROJECT_GROUP_SHARE_URL };
   }),
 
   /**
