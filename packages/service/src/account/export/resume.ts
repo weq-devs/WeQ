@@ -3,7 +3,7 @@ import { createReadStream, statSync, lstatSync } from 'node:fs';
 import type { ExportTask } from './task_manager';
 
 export function sourceStamp(path: string): string {
-  const files = [path, path + '-wal'].map((file) => {
+  const files = [path, `${path}-wal`].map((file) => {
     try {
       const s = statSync(file, { bigint: true });
       return {

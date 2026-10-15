@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X } from 'lucid
 import { Modal } from '../Dialog';
 import { client } from '../../trpc/client';
 
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
 export function ConversationCalendar({
   kind,
   conv,
@@ -60,7 +62,7 @@ export function ConversationCalendar({
     setBusy(true);
     setError('');
     try {
-      const start = day ? Math.floor(Date.parse(day + 'T00:00:00+08:00') / 1000) : undefined;
+      const start = day ? Math.floor(Date.parse(`${day}T00:00:00+08:00`) / 1000) : undefined;
       const result = await client.account.conversationBoundary.query({
         kind,
         conv,
@@ -116,11 +118,11 @@ export function ConversationCalendar({
           <select
             aria-label="月份"
             value={mon}
-            onChange={(e) => setMonth(String(year) + '-' + e.target.value.padStart(2, '0'))}
+            onChange={(e) => setMonth(`${year}-${e.target.value.padStart(2, '0')}`)}
           >
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i} value={i + 1}>
-                {i + 1}月
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((monthNumber) => (
+              <option key={monthNumber} value={monthNumber}>
+                {monthNumber}月
               </option>
             ))}
           </select>
@@ -141,14 +143,14 @@ export function ConversationCalendar({
         ) : (
           <>
             <div className="weq-calendar-grid">
-              {['日', '一', '二', '三', '四', '五', '六'].map((d) => (
+              {WEEKDAYS.map((d) => (
                 <span key={d}>{d}</span>
               ))}
-              {Array.from({ length: startWeekday }, (_, i) => (
-                <span key={'pad' + i} />
+              {WEEKDAYS.slice(0, startWeekday).map((weekday) => (
+                <span key={`${month}-pad-${weekday}`} />
               ))}
               {Array.from({ length }, (_, i) => {
-                const day = month + '-' + String(i + 1).padStart(2, '0');
+                const day = `${month}-${String(i + 1).padStart(2, '0')}`;
                 const count = counts.get(day) || 0;
                 return (
                   <button

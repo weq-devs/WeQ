@@ -18,6 +18,7 @@
 
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -30,9 +31,9 @@ import { Modal, useDialog } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { openLightbox } from './ImageLightbox';
-import { openVideoLightbox } from './VideoLightbox';
+import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
+import { useQzoneRequests } from '../hooks/useQzoneRequests';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
 export interface QzoneAlbumWire {
@@ -172,6 +173,7 @@ export function QzoneAlbumDialog({
   open,
   onClose,
   hostUin,
+  selfUin,
   embedded = false,
   active = true,
   refreshKey = 0,
@@ -181,6 +183,7 @@ export function QzoneAlbumDialog({
   onClose: () => void;
   /** 当前账号的 QQ 号（自己空间的相册）。 */
   hostUin: string;
+  selfUin: string;
   embedded?: boolean;
   active?: boolean;
   refreshKey?: number;
@@ -193,6 +196,14 @@ export function QzoneAlbumDialog({
   const [albums, setAlbums] = useState<QzoneAlbumWire[] | null>(null);
   const [albumsLoading, setAlbumsLoading] = useState(false);
   const [albumsError, setAlbumsError] = useState<string | null>(null);
+  const [albumNext, setAlbumNext] = useState<number | null>(null);
+  const [albumTotal, setAlbumTotal] = useState<number | null>(null);
+  const albumPages = useRef(new Set<number>());
+  const albumLoaded = useRef(false);
+  const [albumRetry, setAlbumRetry] = useState(0);
+  const albumPageLock = useRef(false);
+  const albumSentinel = useRef<HTMLDivElement>(null);
+  const { run: runAlbums, cancel: cancelAlbums } = useQzoneRequests();
   /** 选中的相册：null = 相册列表页。 */
   const [selected, setSelected] = useState<QzoneAlbumWire | null>(null);
   const [media, setMedia] = useState<QzoneAlbumPhotoWire[]>([]);
@@ -245,6 +256,10 @@ export function QzoneAlbumDialog({
     const run = ++runRef.current;
     setAccess(null);
     setAlbums(null);
+    setAlbumNext(null);
+    setAlbumTotal(null);
+    albumPages.current.clear();
+    albumLoaded.current = false;
     setSelected(null);
     setMedia([]);
     setMediaTotal(0);
@@ -274,16 +289,22 @@ export function QzoneAlbumDialog({
 
   // 在线状态落定后拉相册列表。
   useEffect(() => {
-    if (!open || !access?.qqOnline) return;
+    if (!open || !active || !access?.qqOnline) return;
+    if (albumLoaded.current) return;
     const run = ++runRef.current;
     setAlbumsLoading(true);
     setAlbumsError(null);
-    void client.account.qzoneAlbumList
-      .query({ hostUin })
-      .then((rows) => {
+    void runAlbums((requestId) =>
+      client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+    )
+      .then((page) => {
         if (run !== runRef.current) return;
-        const list = (rows as QzoneAlbumWire[] | null) ?? [];
-        setAlbums(list);
+        setAlbums(page.albums);
+        albumLoaded.current = true;
+        setAlbumNext(page.nextOffset);
+        setAlbumTotal(page.total);
+        setAlbumsError(page.warning);
+        albumPages.current.add(0);
         setAlbumsLoading(false);
       })
       .catch((e: unknown) => {
@@ -293,8 +314,92 @@ export function QzoneAlbumDialog({
       });
     return () => {
       runRef.current += 1;
+      cancelAlbums();
     };
-  }, [open, hostUin, access?.qqOnline]);
+  }, [open, active, selfUin, hostUin, access?.qqOnline, albumRetry, runAlbums, cancelAlbums]);
+
+  useEffect(() => {
+    if (!active) {
+      runRef.current++;
+      cancelAlbums();
+      setAlbumsLoading(false);
+    }
+    return () => cancelAlbums();
+  }, [active, cancelAlbums]);
+
+  const loadAlbumPage = useCallback(async () => {
+    if (albumNext === null || albumPageLock.current || albumsLoading || !active) return;
+    if (albumPages.current.has(albumNext) || albumPages.current.size >= 200) {
+      setAlbumsError('相册分页未前进或达到本轮上限。');
+      setAlbumNext(null);
+      return;
+    }
+    const run = runRef.current;
+    albumPageLock.current = true;
+    setAlbumsLoading(true);
+    setAlbumsError(null);
+    try {
+      const page = await runAlbums((requestId) =>
+        client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: albumNext }),
+      );
+      if (run !== runRef.current) return;
+      const previous = albums ?? [];
+      const ids = new Set(previous.map((album) => album.id));
+      const fresh = page.albums.filter((album) => !ids.has(album.id));
+      if (page.albums.length > 0 && fresh.length === 0)
+        throw new Error('相册分页重复，已停止自动加载。');
+      if (albumTotal !== null && page.total !== null && page.total !== albumTotal)
+        throw new Error('相册总数发生变化，请刷新后重试。');
+      const knownTotal = page.total ?? albumTotal;
+      const pageEnd = albumNext + page.albums.length;
+      setAlbums([...previous, ...fresh]);
+      setAlbumNext(
+        knownTotal === null
+          ? page.nextOffset
+          : page.albums.length > 0 && pageEnd < knownTotal
+            ? pageEnd
+            : null,
+      );
+      setAlbumTotal(knownTotal);
+      setAlbumsError(
+        page.warning ||
+          (page.albums.length === 0 && knownTotal !== null && pageEnd < knownTotal
+            ? '相册列表提前结束，未取得声明总数中的全部相册。'
+            : fresh.length < page.albums.length
+              ? '部分相册重复，清单完整性未确认。'
+              : null),
+      );
+      albumPages.current.add(albumNext);
+    } catch (error) {
+      if (run === runRef.current)
+        setAlbumsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      albumPageLock.current = false;
+      if (run === runRef.current) setAlbumsLoading(false);
+    }
+  }, [albumNext, albumsLoading, active, selfUin, hostUin, albums, albumTotal, runAlbums]);
+
+  useEffect(() => {
+    const element = albumSentinel.current;
+    if (
+      !element ||
+      !open ||
+      !active ||
+      selected ||
+      albumNext === null ||
+      albumsError ||
+      albumsLoading
+    )
+      return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadAlbumPage();
+      },
+      { root: element.closest('.weq-qzn-scroll, .weq-qzone-album-body'), rootMargin: '300px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [open, active, selected, albumNext, albumsError, albumsLoading, loadAlbumPage]);
 
   const openedTarget = useRef<string | null>(null);
   useEffect(() => {
@@ -373,9 +478,17 @@ export function QzoneAlbumDialog({
         });
         setMediaTotal(Number(page?.totalInAlbum ?? mediaLenRef.current));
       } else {
-        const rows = await client.account.qzoneAlbumList.query({ hostUin });
-        if (!Array.isArray(rows)) throw new Error('暂时无法刷新相册，请稍后重试。');
-        if (live && run === runRef.current) setAlbums(rows as QzoneAlbumWire[]);
+        const page = await runAlbums((requestId) =>
+          client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+        );
+        if (live && run === runRef.current) {
+          setAlbums(page.albums);
+          albumLoaded.current = true;
+          setAlbumNext(page.nextOffset);
+          setAlbumTotal(page.total);
+          setAlbumsError(page.warning);
+          albumPages.current = new Set([0]);
+        }
       }
     })()
       .catch((error: unknown) => {
@@ -399,6 +512,8 @@ export function QzoneAlbumDialog({
     mediaLoadingMore,
     selected,
     hostUin,
+    selfUin,
+    runAlbums,
   ]);
 
   /** 翻页：pageStart = 已加载条数。返回是否成功（哨兵据此决定是否自动重试）。 */
@@ -490,6 +605,9 @@ export function QzoneAlbumDialog({
             <Inbox size={26} />
             <span>相册列表加载失败</span>
             <small>{albumsError}</small>
+            <button type="button" onClick={() => setAlbumRetry((value) => value + 1)}>
+              重试
+            </button>
           </div>
         ) : selected ? (
           <MediaView
@@ -503,6 +621,7 @@ export function QzoneAlbumDialog({
             hasMore={hasMore}
             albumName={selected.name}
             hostUin={hostUin}
+            selfUin={selfUin}
             topicId={selected.id}
             onBack={backToList}
             onLoadMore={() => loadMore()}
@@ -510,15 +629,30 @@ export function QzoneAlbumDialog({
         ) : !albums || albums.length === 0 ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
-            <span>这个空间还没有相册</span>
-            <small>QQ 空间里创建相册后，这里会自动出现。</small>
+            <span>{albumsError ? '相册清单尚未读取完整' : '这个空间还没有相册'}</span>
           </div>
         ) : (
-          <AlbumGridView
-            albums={albums}
-            hostUin={hostUin}
-            onOpen={(album) => void openAlbum(album)}
-          />
+          <>
+            <AlbumGridView
+              albums={albums}
+              hostUin={hostUin}
+              onOpen={(album) => void openAlbum(album)}
+            />
+            <div ref={albumSentinel} className="weq-qzal-sentinel">
+              {albumNext !== null ? (
+                <button type="button" disabled={albumsLoading} onClick={() => void loadAlbumPage()}>
+                  {albumsLoading ? <Loader2 size={13} className="weq-spin" /> : null}
+                  {albumsError ? '重试加载相册' : '加载更多相册'}
+                </button>
+              ) : (
+                <span className="weq-qzal-sentinel-text">
+                  {albumTotal === null
+                    ? '已到本次列表末尾（总数未知）'
+                    : `已加载 ${albums.length} / ${albumTotal} 个相册`}
+                </span>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -796,6 +930,7 @@ function MediaView({
   hasMore,
   albumName,
   hostUin,
+  selfUin,
   topicId,
   onBack,
   onLoadMore,
@@ -809,6 +944,7 @@ function MediaView({
   hasMore: boolean;
   albumName: string;
   hostUin: string;
+  selfUin: string;
   topicId: string;
   onBack: () => void;
   onLoadMore: () => Promise<boolean>;
@@ -829,6 +965,22 @@ function MediaView({
   } = useAlbumSelection(photos.map(photoKey));
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
+  const [preview, setPreview] = useState<number | null>(null);
+  const [details, setDetails] = useState<
+    Record<string, { name: string; width: number | null; height: number | null }>
+  >({});
+  const { run: runDetail, cancel: cancelDetail } = useQzoneRequests();
+  const detailEpoch = useRef(0);
+  useEffect(() => {
+    if (!active) {
+      cancelDetail();
+      setPreview(null);
+    }
+    return () => {
+      detailEpoch.current++;
+      cancelDetail();
+    };
+  }, [active, cancelDetail]);
   const [downloading, setDownloading] = useState(false);
   /** 上一页加载失败：哨兵停止自动触发，底部显示「点击重试」。 */
   const [loadFailed, setLoadFailed] = useState(false);
@@ -882,35 +1034,52 @@ function MediaView({
     setSelected(allSelected ? new Set() : new Set(photos.map((_, i) => rowKey(i))));
   };
 
-  /** 点视频封面：按 picKey 现取本体 mp4 进视频灯箱；取不到回退大图。 */
-  async function openMedia(photo: QzoneAlbumPhotoWire, row: string): Promise<void> {
-    const proxied = albumMediaUrl(photo.url || photo.thumbUrl);
-    if (!photo.isVideo) {
-      openLightbox(proxied, photo.name || '空间相册媒体');
-      return;
-    }
-    if (!photo.picKey) {
-      openLightbox(proxied, photo.name || '空间相册媒体');
-      return;
-    }
-    setVideoResolving(row);
-    try {
-      const mp4 = await client.account.qzoneAlbumVideoUrl.query({
-        hostUin,
-        topicId,
-        picKey: photo.picKey,
-      });
-      if (mp4) {
-        openVideoLightbox(albumMediaUrl(mp4), albumMediaUrl(photo.thumbUrl || photo.url));
-      } else {
-        // 只有 m3u8 之类取不到可播 mp4 时回退封面大图。
-        openLightbox(proxied, photo.name || '空间相册媒体');
-      }
-    } catch (e) {
-      showError('视频打开失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      setVideoResolving(null);
-    }
+  const previewItems = useMemo<QzonePreviewMedia[]>(
+    () =>
+      photos.map((photo) => ({
+        key: photoKey(photo),
+        kind: photo.isVideo ? 'video' : 'image',
+        src: albumMediaUrl(photo.url || photo.thumbUrl),
+        poster: albumMediaUrl(photo.thumbUrl || photo.url),
+        title: photo.name,
+        load: photo.picKey
+          ? async () => {
+              cancelDetail();
+              const epoch = ++detailEpoch.current;
+              const row = photoKey(photo);
+              setVideoResolving(row);
+              try {
+                const detail = await runDetail((requestId) =>
+                  client.account.qzone.albumDetail.query({
+                    selfUin,
+                    hostUin,
+                    topicId,
+                    picKey: photo.picKey,
+                    requestId,
+                  }),
+                );
+                if (epoch === detailEpoch.current)
+                  setDetails((current) => ({ ...current, [row]: detail }));
+                if (photo.isVideo && !detail.videoUrl) throw new Error('此视频暂无可播放地址。');
+                return {
+                  src: albumMediaUrl(
+                    photo.isVideo
+                      ? detail.videoUrl
+                      : detail.imageUrl || photo.url || photo.thumbUrl,
+                  ),
+                  kind: photo.isVideo ? ('video' as const) : ('image' as const),
+                };
+              } finally {
+                if (epoch === detailEpoch.current) setVideoResolving(null);
+              }
+            }
+          : undefined,
+      })),
+    [photos, selfUin, hostUin, topicId, runDetail, cancelDetail],
+  );
+
+  function openMedia(photo: QzoneAlbumPhotoWire, _row: string): void {
+    setPreview(photos.indexOf(photo));
   }
 
   /** 勾选媒体并发下载保存：先选文件夹，再由主进程并发拉取落盘。 */
@@ -953,6 +1122,17 @@ function MediaView({
 
   return (
     <div className="weq-qzal-media-view">
+      {preview !== null ? (
+        <QzoneMediaPreview
+          items={previewItems}
+          initialIndex={preview}
+          onClose={() => {
+            setPreview(null);
+            detailEpoch.current++;
+            cancelDetail();
+          }}
+        />
+      ) : null}
       <div className="weq-qzal-toolbar">
         <button type="button" className="weq-qzal-back" onClick={onBack}>
           返回相册
@@ -1011,6 +1191,7 @@ function MediaView({
               const row = rowKey(index);
               const proxied = albumMediaUrl(photo.url || photo.thumbUrl);
               const checked = selected.has(row);
+              const detail = details[row];
               return (
                 <div
                   key={row}
@@ -1046,7 +1227,14 @@ function MediaView({
                       ) : null}
                     </span>
                     <span className="weq-qzal-media-caption">
-                      <span className="weq-qzal-media-name">{photo.name || '未命名'}</span>
+                      <span className="weq-qzal-media-name">
+                        {detail?.name || photo.name || '未命名'}
+                      </span>
+                      {detail?.width && detail.height ? (
+                        <small>
+                          {detail.width} × {detail.height}
+                        </small>
+                      ) : null}
                       {photo.uploadTime ? <time>{fmtDay(photo.uploadTime)}</time> : null}
                     </span>
                   </button>

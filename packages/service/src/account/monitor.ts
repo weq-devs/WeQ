@@ -183,8 +183,8 @@ export class AccountMonitorService {
   async harvestRkeysNow(): Promise<boolean> {
     const generation = this.generation;
     if (!this.isCurrent(generation) || !this.shouldAutoAttach()) return false;
-    const pid = this.attachedPid ?? this.resolvePid();
-    if (pid === null) return false;
+    const pid = this.attachedPid ?? (await this.resolvePid());
+    if (pid === null || !this.isCurrent(generation)) return false;
     // An explicit refresh is the user's request to retry, including after cancellation.
     this.harvestRetry = null;
     try {
@@ -264,7 +264,8 @@ export class AccountMonitorService {
 
   private async loginPoll(): Promise<void> {
     const generation = this.generation;
-    const pid = this.resolvePid();
+    const pid = await this.resolvePid();
+    if (!this.isCurrent(generation)) return;
     if (pid === null) {
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
@@ -285,8 +286,9 @@ export class AccountMonitorService {
    * yields the exact pid. A successful probe with no QQ holder means the
    * account is offline. Null means "no QQ instance for this account right now".
    */
-  private resolvePid(): number | null {
+  private async resolvePid(): Promise<number | null> {
     try {
+      if (this.platform.resolveQqPidAsync) return await this.platform.resolveQqPidAsync(this.uin);
       return this.platform.resolveQqPid(this.uin);
     } catch {
       return null;
@@ -302,7 +304,8 @@ export class AccountMonitorService {
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
-    const pid = this.resolvePid();
+    const pid = await this.resolvePid();
+    if (!this.isCurrent(generation)) return;
     if (pid === null) {
       this.generation += 1;
       this.ssoInflight.clear();

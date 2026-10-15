@@ -88,39 +88,35 @@ describe('Qzone space statistics', () => {
     expect(urls[1]!.searchParams.get('mask')).toBe('1');
     for (const url of urls) expect(url.searchParams.get('uin')).toBe('10002');
   });
-  it('retains content totals if visitor access is denied, without inventing visit counts', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async (url: string) =>
-          new Response(stringify(url.includes('main_page_cgi') ? content(8, 9) : { code: -10031 })),
-      ),
-    );
+  it('reads content totals without requesting visitor information', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      expect(url).toContain('main_page_cgi');
+      return new Response(stringify(content(8, 9)));
+    });
+    vi.stubGlobal('fetch', fetch);
     const service = Object.create(WebQueryService.prototype) as WebQueryService;
     Reflect.set(service, 'creds', { forDomain: async () => credential });
     expect(await service.getQzoneSpaceStats('10002')).toEqual({
       postCount: 8,
       photoCount: 9,
-      visitorCount: null,
     });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it('retains visitor totals when content counts are unavailable', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async (url: string) =>
-          new Response(stringify(url.includes('main_page_cgi') ? { code: -10031 } : visits(10))),
-      ),
-    );
+  it('does not fall back to visitor reads when content counts are unavailable', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      expect(url).toContain('main_page_cgi');
+      return new Response(stringify({ code: -10031 }));
+    });
+    vi.stubGlobal('fetch', fetch);
     const service = Object.create(WebQueryService.prototype) as WebQueryService;
     Reflect.set(service, 'creds', { forDomain: async () => credential });
     expect(await service.getQzoneSpaceStats('10002')).toEqual({
       postCount: null,
       photoCount: null,
-      visitorCount: 10,
     });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it('does not swallow cancellation while merging independent count sources', async () => {
+  it('does not swallow cancellation while reading content counts', async () => {
     const controller = new AbortController();
     controller.abort(new Error('synthetic cancellation'));
     const service = Object.create(WebQueryService.prototype) as WebQueryService;
