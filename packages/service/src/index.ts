@@ -52,9 +52,6 @@ export type {
   ExternalRkeyServerConfig,
   SsePushConfig,
   SsePushServerConfig,
-  GroupKeywordConfig,
-  GroupKeywordEntryConfig,
-  GroupKeywordRuleConfig,
   ExportPresets,
   ExportPresetVariant,
   ExportLightboxPreset,
@@ -513,7 +510,11 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // 群关键词提醒：和 SSE 推送共用 createNtMsgDbHook，监听新插入的群消息，按用户
 // 为每个群配置的关键词匹配。命中结果交给上层弹通知 + 写 unread 2006 高亮。
-export { GroupKeywordService, matchesRule } from './account/group_keyword';
+export {
+  GroupKeywordService,
+  matchesRule,
+  normalizeGroupKeywordRules,
+} from './account/group_keyword';
 export type {
   GroupKeywordEntry,
   GroupKeywordRule,

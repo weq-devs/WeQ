@@ -9,8 +9,9 @@
  *     早期版本把成员范围存在群一级，给新词设范围会覆盖旧词；现在按词存。
  *   - 成员范围：在关键词卡片上点「指定成员」就地展开搜索 / 快捷选择（群主 / 全部管理员）。
  *
- * 规则写到本地（主进程 user config），主进程按它匹配新到达的群消息。这里只管读写
- * 这份配置，不碰任何消息库。整体视觉沿用群公告灯箱那套（主题色 / 深浅模式自动跟随）。
+ * 规则**按账号**写到本地（主进程的账号配置），主进程按它匹配新到达的群消息。这里
+ * 只管读写这份配置，不碰任何消息库。整体视觉沿用群公告灯箱那套（主题色 / 深浅模式
+ * 自动跟随）。
  *
  * 保存时机：改动后**防抖写回**（免得每敲一个字打一次 IPC），卸载时再 `flush` 一次 ——
  * 编辑器一卸载（会话设置关窗）就落盘，否则「加完词立刻关闭」会落在防抖窗口里被丢掉。
@@ -74,14 +75,14 @@ export function GroupKeywordEditor({
     onSaveState?.({ saving, savedAt });
   }, [saving, savedAt, onSaveState]);
 
-  // 读当前全部规则（保留其它群的），取本群那份作为草稿。
+  // 读当前账号的全部规则（保留其它群的），取本群那份作为草稿。
   useEffect(() => {
     let cancelled = false;
-    client.bootstrap.getSettings
+    client.bootstrap.getGroupKeywordRules
       .query()
-      .then((settings) => {
+      .then((allRules) => {
         if (cancelled) return;
-        const rules: RuleMap = settings?.groupKeyword?.rules ?? {};
+        const rules: RuleMap = allRules ?? {};
         rulesRef.current = rules;
         const mine = rules[groupId]?.keywords ?? [];
         setEntries(mine);

@@ -765,11 +765,14 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 群关键词提醒的规则。前端在会话设置里改完就整体写回（按群号 keyed），主进程
-   * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   * 群关键词提醒的规则（按账号存）。前端在会话设置里改完就整体写回（按群号
+   * keyed），主进程的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   *
+   * 没有打开的账号时返回空表 —— 规则挂在账号记录上，读不到「当前账号」就没有规则。
    */
   getGroupKeywordRules: procedure.query(() => {
-    return requireBootstrap().userConfig.getSettings().groupKeyword.rules;
+    const accountConfig = getAppContext().services?.accountConfig;
+    return accountConfig?.getGroupKeywordRules() ?? {};
   }),
 
   setGroupKeywordRules: procedure
@@ -791,9 +794,12 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      userConfig.setSettings({ groupKeyword: { rules: input.rules } });
-      const next = userConfig.getSettings().groupKeyword.rules;
+      const accountConfig = getAppContext().services?.accountConfig;
+      if (!accountConfig) {
+        throw new Error('No account session open — call bootstrap.openAccount first.');
+      }
+      accountConfig.setGroupKeywordRules(input.rules);
+      const next = accountConfig.getGroupKeywordRules();
       await getAppContext().applyGroupKeyword(next);
       return next;
     }),
