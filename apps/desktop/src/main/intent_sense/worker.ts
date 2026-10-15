@@ -16,7 +16,9 @@
  *   → { type:'close' }
  */
 
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 
 const requireFn = createRequire(__filename);
 
@@ -123,22 +125,119 @@ function levelToSentiment(score: number, levels: number): number {
   return Math.round(pct * 2 - 100);
 }
 
+/** IEEE half (Uint16Array 原始位) → float32。 */
+function f16ToF32(h: Uint16Array): Float32Array {
+  const out = new Float32Array(h.length);
+  for (let i = 0; i < h.length; i++) {
+    const v = h[i] as number;
+    const sign = v & 0x8000 ? -1 : 1;
+    const exp = (v >> 10) & 0x1f;
+    const frac = v & 0x3ff;
+    out[i] =
+      exp === 0
+        ? sign * 6.103515625e-8 * frac
+        : exp === 31
+          ? frac
+            ? Number.NaN
+            : sign * Number.POSITIVE_INFINITY
+          : sign * 2 ** (exp - 15) * (1 + frac / 1024);
+  }
+  return out;
+}
+
+/**
+ * 加载多语言 Laya。三处与 `@receptron/laya` 自带 `Laya.load` 的默认路径不同，
+ * 必须自己组装（它的 load 硬编码了英文 ModernBERT checkpoint 的约定）：
+ *   1. special token：英文版查 `[CLS]`/`[SEP]`，多语言 mmBERT 词表是
+ *      `<s>`/`</s>`/`<mask>`/`<pad>` —— 语义等价替换（buildSequence 只依赖
+ *      槽位语义，与具体符号无关）。
+ *   2. fp16 导出的输出是 float16 张量，包只认 Float32Array —— patch
+ *      session.run 把 float16 输出转 float32。
+ *   3. 多语言导出把 `act_probs` 改名成了 `act_logits`（原始 logit）—— 改名
+ *      回来并补 sigmoid 对齐 act_probability 语义。
+ */
+async function createLaya(modelDir: string): Promise<LayaLike> {
+  const { Laya } = requireFn('@receptron/laya') as {
+    Laya: abstract new (...args: unknown[]) => LayaLike;
+  };
+  // onnxruntime / tokenizers 必须解析到 @receptron/laya 同层的实例（版本随它锁）。
+  const entry = requireFn.resolve('@receptron/laya') as string;
+  const sibling = createRequire(entry.replace(/[/\\]index\.js$/, '/laya.js')) as NodeRequire;
+  const ort = sibling('onnxruntime-node') as {
+    InferenceSession: {
+      create: (
+        path: string,
+        opts: Record<string, unknown>,
+      ) => Promise<{
+        run: (feeds: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      }>;
+    };
+    Tensor: new (type: string, data: unknown, dims: readonly number[]) => unknown;
+  };
+  const { Tokenizer } = sibling('@huggingface/tokenizers') as {
+    Tokenizer: new (
+      a: unknown,
+      b: unknown,
+    ) => {
+      token_to_id(t: string): number | undefined;
+      encode(text: string, opts: { add_special_tokens: boolean }): { ids: number[] };
+    };
+  };
+
+  const read = (f: string): unknown => JSON.parse(readFileSync(join(modelDir, f), 'utf8'));
+  const config = read('laya_config.json');
+  const tok = new Tokenizer(read('tokenizer/tokenizer.json'), read('tokenizer/tokenizer_config.json'));
+  const idOf = (t: string): number => {
+    const v = tok.token_to_id(t);
+    if (v === undefined) throw new Error(`special token ${t} missing from tokenizer`);
+    return v;
+  };
+  const ids = {
+    cls: idOf('<s>'),
+    sep: idOf('</s>'),
+    mask: idOf('<mask>'),
+    pad: idOf('<pad>'),
+    maskTok: '<mask>',
+  };
+
+  const session = await ort.InferenceSession.create(join(modelDir, 'laya.onnx'), {
+    executionProviders: ['cpu'],
+    graphOptimizationLevel: 'all',
+  });
+  const rawRun = session.run.bind(session);
+  session.run = async (feeds: Record<string, unknown>) => {
+    const out = await rawRun(feeds);
+    const fix = (t: unknown, sigmoid: boolean): unknown => {
+      const tensor = t as { type?: string; data?: Uint16Array; dims?: readonly number[] } | undefined;
+      if (tensor?.type !== 'float16' || !(tensor.data instanceof Uint16Array)) return t;
+      const f = f16ToF32(tensor.data);
+      if (sigmoid) for (let i = 0; i < f.length; i++) f[i] = 1 / (1 + Math.exp(-(f[i] ?? 0)));
+      return new ort.Tensor('float32', f, tensor.dims ?? [f.length]);
+    };
+    return {
+      ...out,
+      logits: fix(out.logits, false),
+      act_probs: out.act_probs ?? fix(out.act_logits, true),
+    };
+  };
+
+  // Laya 的构造器在 d.ts 里标 private（类型层面），运行时组装是官方 load 之外
+  // 唯一能带自定义 ids/patch 的入口 —— Reflect.construct 绕过类型限制。
+  return Reflect.construct(Laya, [session, tok, config, ids, modelDir]) as LayaLike;
+}
+
 async function loadLaya(modelDir: string): Promise<LayaLike> {
   if (laya) return laya;
   if (loading) return loading;
-  loading = (async () => {
-    const mod = requireFn('@receptron/laya') as {
-      Laya: { load: (opts: { modelDir: string }) => Promise<LayaLike> };
-    };
-    const instance = await mod.Laya.load({ modelDir });
-    laya = instance;
-    return instance;
-  })();
-  try {
-    return await loading;
-  } finally {
-    loading = null;
-  }
+  loading = createLaya(modelDir)
+    .then((instance) => {
+      laya = instance;
+      return instance;
+    })
+    .finally(() => {
+      loading = null;
+    });
+  return loading;
 }
 
 async function handleAnalyze(id: number, text: string): Promise<void> {
