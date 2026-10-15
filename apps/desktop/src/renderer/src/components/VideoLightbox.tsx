@@ -10,46 +10,61 @@
  * (controls / autoplay / range streaming) rather than an `<img>`. Click the
  * backdrop or press ESC to close. Scroll to zoom (anchored at the cursor) and
  * drag to pan when zoomed; single click is left to the native play/pause.
+ *
+ * 底部操作条只放「另存为」—— 视频不做 OCR（识别文字是图片的事），也不做「复制到
+ * 剪贴板」（把一段视频塞进剪贴板没有意义）。
  */
 
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
+import { exportMedia } from '../lib/mediaExport';
+import { useToast } from './Toast';
 import { useZoomPan } from './useZoomPan';
 
 interface VideoLightboxStore {
   src: string | null;
   poster: string;
-  open(src: string, poster?: string): void;
+  /** 另存为对话框里的默认文件名（调用方手上的原始名字）。 */
+  name: string;
+  open(src: string, poster?: string, name?: string): void;
   close(): void;
 }
 
 const useVideoLightbox = create<VideoLightboxStore>((set, get) => ({
   src: null,
   poster: '',
-  open(src, poster = '') {
+  name: '',
+  open(src, poster = '', name = '') {
     if (!src || get().src === src) return; // de-dup: same video already open
-    set({ src, poster });
+    set({ src, poster, name });
   },
   close() {
-    set({ src: null, poster: '' });
+    set({ src: null, poster: '', name: '' });
   },
 }));
 
 /** Open the video lightbox for `src`. No-op if that exact src is already showing. */
-export function openVideoLightbox(src: string, poster?: string): void {
-  useVideoLightbox.getState().open(src, poster);
+export function openVideoLightbox(src: string, poster?: string, name?: string): void {
+  useVideoLightbox.getState().open(src, poster, name);
 }
 
 /** Mount once. Renders the active video overlay, if any. */
 export function VideoLightbox(): ReactElement | null {
   const src = useVideoLightbox((s) => s.src);
   const poster = useVideoLightbox((s) => s.poster);
+  const posterName = useVideoLightbox((s) => s.name);
   const close = useVideoLightbox((s) => s.close);
   const zoom = useZoomPan(src, { clickZoom: false });
   const layer = useOverlayLayer(src !== null);
+
+  async function onSave(): Promise<void> {
+    const result = await exportMedia({ url: src ?? '', name: posterName }, 'save');
+    if (result.ok || result.canceled) return;
+    useToast.getState().push({ tone: 'error', title: '另存为失败', message: result.error });
+  }
 
   useEffect(() => {
     if (!src) return;
@@ -67,32 +82,42 @@ export function VideoLightbox(): ReactElement | null {
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
-      <div
-        className="weq-lightbox-stage weq-anim-pop"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video
-          ref={zoom.setEl}
-          className="weq-lightbox-image"
-          src={src}
-          poster={poster || undefined}
-          controls
-          autoPlay
-          style={zoom.style}
-          onMouseDown={zoom.onMouseDown}
-          onError={(e) => {
-            // TEMP-DEBUG：排查空间相册个别视频播不了（复现后贴回即可删）。
-            const el = e.currentTarget;
-            console.warn('[qzal-video-debug] <video> 播放失败', {
-              src: el.currentSrc || src,
-              errorCode: el.error?.code,
-              errorMsg: el.error?.message,
-              networkState: el.networkState,
-              readyState: el.readyState,
-            });
-          }}
-        />
+      <div className="weq-lightbox-stage-wrap weq-anim-pop">
+        <div className="weq-lightbox-stage" onMouseDown={(event) => event.stopPropagation()}>
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            ref={zoom.setEl}
+            className="weq-lightbox-image"
+            src={src}
+            poster={poster || undefined}
+            controls
+            autoPlay
+            style={zoom.style}
+            onMouseDown={zoom.onMouseDown}
+            onError={(e) => {
+              // TEMP-DEBUG：排查空间相册个别视频播不了（复现后贴回即可删）。
+              const el = e.currentTarget;
+              console.warn('[qzal-video-debug] <video> 播放失败', {
+                src: el.currentSrc || src,
+                errorCode: el.error?.code,
+                errorMsg: el.error?.message,
+                networkState: el.networkState,
+                readyState: el.readyState,
+              });
+            }}
+          />
+        </div>
+        <div className="weq-lightbox-actions" onMouseDown={(event) => event.stopPropagation()}>
+          <button
+            className="weq-lightbox-action"
+            type="button"
+            title="另存为"
+            onClick={() => void onSave()}
+          >
+            <Download size={15} />
+            另存为
+          </button>
+        </div>
       </div>
     </div>,
     document.body,

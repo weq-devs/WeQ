@@ -102,7 +102,7 @@ export class MediaDownloadService {
       hasOriginalUrl: Boolean(opts.originalUrl),
     });
     for (const rkey of this.validRkeys(allowed)) {
-      urls.push(buildUrl(fileToken, rkey));
+      urls.push(composeMediaDownloadUrl(fileToken, rkey));
     }
 
     // 先试本机在线 QQ 自己获取的 rkey（含老图片的原始 URL）；全部失败且配置了
@@ -120,7 +120,7 @@ export class MediaDownloadService {
         });
       }
       for (const rkey of externalRkeys) {
-        bytes = await tryFetch(buildUrl(fileToken, rkey));
+        bytes = await tryFetch(composeMediaDownloadUrl(fileToken, rkey));
         if (bytes) break;
       }
     }
@@ -170,7 +170,11 @@ function resolveOriginalUrl(originalUrl: string): string {
   return `${MEDIA_HOST}${originalUrl.startsWith('/') ? '' : '/'}${originalUrl}`;
 }
 
-function buildUrl(fileToken: string, rkey: DownloadRkey): string {
+/**
+ * 媒体 CDN 直链：`…/download?appid=<1406|1407>&fileid=<token>&spec=0&rkey=…`。
+ * 群场景用 appid 1407、私聊用 1406（由 rkey 的 type 反推）。
+ */
+export function composeMediaDownloadUrl(fileToken: string, rkey: DownloadRkey): string {
   const appid = GROUP_RKEY_TYPES.has(rkey.type) ? '1407' : '1406';
   // rkey.rkey already includes its "&rkey=" prefix as QQ returns it.
   return `${DOWNLOAD_BASE}?appid=${appid}&fileid=${encodeURIComponent(fileToken)}&spec=0${rkey.rkey}`;

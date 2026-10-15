@@ -581,6 +581,8 @@ export type {
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { ChatImageOcrService } from './account/ocr_image';
+export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';
 export type {
   SendPokeParams,

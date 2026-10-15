@@ -11,6 +11,8 @@
 @import "streamdown/styles.css";
 /* Electron 拖拽命中区 ↔ 浮层点击：集中打 no-drag 洞（见文件头注释）。 */
 @import "./drag-region.css";
+/* 图片/视频灯箱底部操作条 + OCR 覆盖层与纯文本面板。 */
+@import "./lightbox-actions.css";
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个

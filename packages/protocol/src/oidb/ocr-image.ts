@@ -13,6 +13,12 @@
 // 地址里的 `<uuid>` 本地无源（服务端 VOD 分配）—— 可以直接当常量复用：同一条 URL
 // 连发两次，回包文本一致（只是 `10.3` 的 sessionId 每次不同）。
 //
+// ⚠️ 实测（2026-10-16，两组探针）：服务端是**拿我们给的 URL 去取图**，`10.10/10.11`
+// 那个 md5 只是随行元数据 —— 同一条 URL 只换 md5/尺寸，回包文字依旧是 URL 那张图的
+// （`10.111/112` 会被原样回显成我们送的宽高）。所以随便一条服务端够得着的直链都行
+// （`@weq/service` 的 ChatImageOcrService 用的就是本机现签的 CDN 直链），`fileMd5`
+// 属于可选项。抓包里那条 VOD 地址只是客户端上传后的产物，本地拼不出来也不必拼。
+//
 // 抓包的信封上还有一个 `6: "android 9.2.85"`（客户端平台串）。native 的
 // `sendOidbPacket` 组包不带这个字段，实测服务端不校验它（去掉照样回 `succ`）。
 // 重放也不需要签名（不带 SecSign 即可）。
@@ -267,8 +273,11 @@ export namespace OcrImage {
   export interface Params {
     /** 服务端 VOD 直链（路径 UUID 可当常量复用）。 */
     url: string;
-    /** 图片文件 md5，32 位十六进制（大小写都收，上行统一小写）。 */
-    fileMd5: string;
+    /**
+     * 图片文件 md5，32 位十六进制（大小写都收，上行统一小写）。
+     * **可选** —— 实测服务端按 URL 取图、不看这个字段；给了就带上，纯属如实上报。
+     */
+    fileMd5?: string;
     /** 文件字节数，上行 `4.10.12`。 */
     fileSize?: number;
     /** 图片宽，上行 `4.10.13`；回包坐标就以它为基准。 */
@@ -280,8 +289,8 @@ export namespace OcrImage {
   }
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    const md5 = p.fileMd5.trim().toLowerCase();
-    if (!MD5_HEX.test(md5)) {
+    const md5 = (p.fileMd5 ?? '').trim().toLowerCase();
+    if (md5 !== '' && !MD5_HEX.test(md5)) {
       throw new Error(`图片 OCR 需要 32 位十六进制的 md5，收到「${p.fileMd5}」`);
     }
     if (!p.url) throw new Error('图片 OCR 缺少图片地址（url）');

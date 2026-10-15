@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { OcrImage, quadToRect, rectToQuad, scaleOcrRect } from '../src/index';
 import { bytesToHex } from '../src/oidb/shared';
-import { encode } from '../src/protobuf';
+import { decode, encode } from '../src/protobuf';
 import * as V from './ocr-image.vectors';
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -86,6 +86,16 @@ describe('OcrImage (0xe07_0) —— 上行', () => {
   it('md5 不是 32 位 hex 时直接报错（不发出半包）', () => {
     expect(() => OcrImage.encodeRequest({ ...PARAMS, fileMd5: 'deadbeef' })).toThrow(/md5/);
     expect(() => OcrImage.encodeRequest({ ...PARAMS, url: '' })).toThrow(/图片地址/);
+  });
+
+  it('md5 可省（服务端按 url 取图，md5 只是随行元数据）', () => {
+    const bytes = OcrImage.encodeRequest({ ...PARAMS, fileMd5: undefined });
+    const body = decode(OcrImage.reqSchema, bytes) as { image: Record<string, unknown> };
+    expect(body.image.url).toBe(V.OCR_REQUEST_URL);
+    expect(body.image.fileMd5).toBeUndefined();
+    expect(body.image.fileMd5Dup).toBeUndefined();
+    // 比黄金向量少两个 32 字节的 md5 字段（各带 2 字节 tag + 长度）
+    expect(hexToBytes(V.OCR_REQ_INNER_HEX).length - bytes.length).toBe(2 * (2 + 32));
   });
 });
 

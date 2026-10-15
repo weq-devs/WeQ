@@ -180,12 +180,26 @@ export function QqImage({
   }
   // Animated emojis open nothing; real photos open the full-size lightbox.
   const openable = !isAnimatedEmoji;
+  // 灯箱的 OCR 上下文：真图片（拿得到 fileToken + 尺寸）才给 —— 灯箱据此才会出现 OCR
+  // 按钮。会话场景按 ConvContext 的约定判断（群号非空 = 群聊，空 = 私聊），和视频 /
+  // 文件那几条 OIDB 链路同一口径。
+  const ocrContext =
+    openable && token && w && h
+      ? {
+          peerType: conv ? ('group' as const) : ('c2c' as const),
+          fileToken: token,
+          width: w,
+          height: h,
+          md5: /^[0-9a-f]{32}$/i.test(md5) ? md5.toLowerCase() : undefined,
+          fileSize: num(data, 'fileSize') || undefined,
+        }
+      : null;
   return (
     // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
     // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
     <span
       className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
-      onClick={openable ? () => openLightbox(src, name || '[图片]') : undefined}
+      onClick={openable ? () => openLightbox(src, name || '[图片]', ocrContext) : undefined}
     >
       <ShimmerImage
         className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}

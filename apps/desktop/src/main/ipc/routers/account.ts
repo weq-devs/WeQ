@@ -629,6 +629,24 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   }
 }
 
+/**
+ * 聊天图片文字识别（OIDB 0xe07_0）的前置条件，口径与渲染层的「发送键」完全一致：
+ * QQ 在线 + 未开完全离线模式 + 发包凭据（a2 / d2 / d2key / guid）齐全。这条链路既要
+ * 借在线 QQ 的进程发包，又要现签一条媒体下载 rkey，缺任一项都跑不动。
+ */
+function requireOcrAccess(services = requireServices()): void {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) {
+    throw new Error('需要先登录该账号的 QQ 客户端才能识别文字。');
+  }
+  if (!state.attachEnabled) {
+    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
+  }
+  if (!state.hasA2 || !state.hasD2 || !state.hasD2Key || !state.hasGuid) {
+    throw new Error('本机账号物料不全（a2 / d2 / d2key / guid），暂时发不了包。');
+  }
+}
+
 function requireFreshClientKeyForAlbum(services = requireServices()): void {
   const state = albumAccessState(services);
   if (!state.qqOnline) {
@@ -3469,6 +3487,38 @@ export const accountRouter = router({
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
   }),
+
+  /**
+   * 聊天图片文字识别（OIDB 0xe07_0）—— 识别聊天里出现过的图片上的文字。
+   *
+   * 前置条件与「发送键」同口径（见 {@link requireOcrAccess}）：QQ 在线 + 未开完全离线
+   * 模式 + a2/d2/d2key/guid 齐全。入参就是图片元素自己的信息：`fileToken` 用来现签
+   * 一条 CDN 直链，宽高既是随行元数据、也是回包坐标系的基准（回包坐标直接对应原图
+   * 像素，前端可以按比例覆盖到图片上）。
+   */
+  ocrChatImage: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        fileToken: z.string().min(1),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        md5: z.string().optional(),
+        fileSize: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      requireOcrAccess(services);
+      try {
+        return await services.chatImageOcr.recognize(input);
+      } catch (error) {
+        // 服务层抛的都是给人看的中文短句；兜底再包一层，避免渲染层收到空 message。
+        throw new Error(
+          error instanceof Error && error.message ? error.message : '文字识别失败，请稍后重试。',
+        );
+      }
+    }),
 
   // ---- 加入交流群引导（分享码 → authKey → 入群申请 / 深链接 / 浏览器） ----
 

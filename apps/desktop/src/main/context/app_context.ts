@@ -116,6 +116,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ChatImageOcrService,
   InteractionService,
   GroupModerationService,
   DbWatchService,
@@ -662,6 +663,8 @@ export interface AccountServices {
   gapHistory: GapHistoryService;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  /** 聊天图片文字识别（OIDB 0xe07_0，需在线 QQ 发包取 rkey）。 */
+  chatImageOcr: ChatImageOcrService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
   flashTransfer: FlashTransferService;
   /** 发消息（文本/媒体，MessageSvc.PbSendMsg + NTV2 上传，需在线 QQ 发包）。 */
@@ -1514,6 +1517,7 @@ export function initAppContext(): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
           platform.native.ntHelper,
           session,
@@ -2064,6 +2068,7 @@ export function initAppContext(): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
         messageSend: new MessageSendService(platform.native.ntHelper, session, livePid, (packId) =>
           emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
