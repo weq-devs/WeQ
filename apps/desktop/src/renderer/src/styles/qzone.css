@@ -101,6 +101,10 @@
 .weq-qzn-space-stats dl > div { display: flex; align-items: baseline; gap: 8px; }
 .weq-qzn-space-stats dt { font-size: 12px; }
 .weq-qzn-space-stats dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--foreground); }
+.weq-qzn-feed-options { max-width: 820px; width: 100%; margin: 0 auto; padding: 16px 26px 0; box-sizing: border-box; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--muted-foreground); }
+.weq-qzn-feed-options label { display: inline-flex; align-items: center; gap: 8px; }
+.weq-qzn .weq-qzn-feed-options input[type="checkbox"] { width: 16px; min-width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
+.weq-qzn-completion { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
 .weq-qzn-picture { position: relative; background: var(--muted); }
 .weq-qzn-picture-loader { position: absolute; left: calc(50% - 11px); top: calc(50% - 11px); }
 .weq-qzn-repost .weq-qzn-interaction { background: var(--background); }

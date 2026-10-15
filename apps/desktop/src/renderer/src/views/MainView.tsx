@@ -7330,6 +7330,7 @@ export function MainView(): ReactElement {
             renderers={messageRenderers}
           />
           <QzoneAlbumDialog
+            selfUin={user.identityValue}
             open={qzoneAlbumOpen}
             onClose={() => setQzoneAlbumOpen(false)}
             hostUin={user.identityValue}

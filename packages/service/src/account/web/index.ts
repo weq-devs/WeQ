@@ -16,6 +16,8 @@ import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import {
   getQzoneAlbumList,
+  getQzoneAlbumPage,
+  getQzoneAlbumDetail,
   getQzoneAlbumMedia,
   getQzoneAlbumVideoUrl,
   type QzoneAlbum,
@@ -50,6 +52,8 @@ import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts, fetchQzoneVisitorCount } from './qzone_stats';
+import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
+import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -148,9 +152,47 @@ export class WebQueryService {
     count = 10,
     signal?: AbortSignal,
     cursor?: string,
+    scope: 0 | 7 = 0,
   ): Promise<QzoneFeedsResult> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor),
+      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor, scope),
+    );
+  }
+
+  async getQzonePostDetail(targetUin: string, tid: string, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzonePostDetail(cred, targetUin, tid, signal),
+    );
+  }
+
+  async getQzonePostImages(targetUin: string, tid: string, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzonePostImages(cred, targetUin, tid, signal),
+    );
+  }
+
+  async getQzoneRelated(offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => fetchQzoneRelated(cred, offset, signal));
+  }
+
+  async getQzoneMemories(year: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => fetchQzoneMemories(cred, year, signal));
+  }
+
+  async getQzoneAlbumPage(targetUin: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneAlbumPage(cred, targetUin, offset, 40, signal),
+    );
+  }
+
+  async getQzoneAlbumDetail(
+    targetUin: string,
+    albumId: string,
+    picKey: string,
+    signal?: AbortSignal,
+  ) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneAlbumDetail(cred, targetUin, albumId, picKey, signal),
     );
   }
 

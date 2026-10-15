@@ -30,6 +30,16 @@ beforeEach(() => {
         ],
       })),
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
+      getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
+      getQzoneRelated: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzoneMemories: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzoneAlbumPage: vi.fn(async () => ({
+        albums: [],
+        total: 0,
+        nextOffset: null,
+        warning: null,
+      })),
       getQzoneSpaceStats: vi.fn(async () => ({
         visitorCount: 123,
         postCount: 45,
@@ -50,6 +60,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('validates scopes and binds completion, recall and album reads to the account', async () => {
+    await api.feeds({ selfUin, requestId: query.requestId, scope: 7 });
+    expect(services.webQuery.getQzoneFeeds).toHaveBeenCalledWith(
+      selfUin,
+      1,
+      10,
+      expect.any(AbortSignal),
+      undefined,
+      7,
+    );
+    const post = { selfUin, hostUin, tid: 'synthetic', requestId: query.requestId };
+    await api.detail(post);
+    await api.images(post);
+    await api.related({ selfUin, requestId: query.requestId, offset: 27 });
+    await api.memories({ selfUin, requestId: query.requestId, year: 2020 });
+    await api.albumPage({ selfUin, hostUin, requestId: query.requestId, offset: 40 });
+    expect(services.webQuery.getQzonePostDetail).toHaveBeenCalledWith(
+      hostUin,
+      'synthetic',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzonePostImages).toHaveBeenCalledWith(
+      hostUin,
+      'synthetic',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneRelated).toHaveBeenCalledWith(27, expect.any(AbortSignal));
+    expect(services.webQuery.getQzoneMemories).toHaveBeenCalledWith(2020, expect.any(AbortSignal));
+    await expect(api.detail({ ...post, selfUin: '10003' })).rejects.toThrow('账号已切换');
+    await expect(api.memories({ selfUin, requestId: query.requestId, year: 0 })).rejects.toThrow();
+  });
   it('reads target-space statistics through the cancellable, account-bound read boundary', async () => {
     expect(await api.stats({ selfUin, hostUin, requestId: query.requestId })).toEqual({
       visitorCount: 123,

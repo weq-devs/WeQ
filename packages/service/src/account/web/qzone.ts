@@ -254,8 +254,12 @@ interface RawTopVideo {
 }
 
 interface RawEmotion {
+  uin?: string | number;
   tid?: string;
   content?: string;
+  has_more_con?: boolean | number | string;
+  rt_has_more_con?: boolean | number | string;
+  pictotal?: number | string;
   created_time?: number;
   cmtnum?: number;
   fwdnum?: number | string;
@@ -302,6 +306,10 @@ export interface QzoneEmotion {
   /** Feed id —— 后续 删/评/赞 的句柄。 */
   tid: string;
   content: string;
+  contentTruncated?: boolean;
+  imageTotal?: number | null;
+  /** Number of returned pic entries; top-level videos are a separate collection. */
+  imageReturned?: number;
   /** 发表时间,unix 秒。 */
   time: number;
   /** 评论数；接口未提供时为 null。 */
@@ -322,6 +330,7 @@ export interface QzoneEmotion {
     content: string;
     images: string[];
     videos: QzoneEmotionVideo[];
+    contentTruncated?: boolean;
   };
   /** 原生媒体字段用于增量版本检测；含无本体 URL 的视频与语音未知字段。 */
   nativeMedia?: {
@@ -420,6 +429,14 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
       return {
         tid: String(e.tid ?? ''),
         content: e.content ?? '',
+        imageReturned: pics.length,
+        contentTruncated: e.has_more_con === true || e.has_more_con === 1 || e.has_more_con === '1',
+        imageTotal:
+          e.pictotal !== undefined &&
+          /^\d+$/.test(String(e.pictotal)) &&
+          Number.isSafeInteger(Number(e.pictotal))
+            ? Number(e.pictotal)
+            : null,
         time: Number(e.created_time ?? 0),
         commentNum:
           e.cmtnum !== undefined &&
@@ -446,6 +463,10 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
                 uin: String(e.rt_uin ?? ''),
                 nickname: typeof e.rt_uinname === 'string' ? e.rt_uinname : '',
                 content: originalContent,
+                contentTruncated:
+                  e.rt_has_more_con === true ||
+                  e.rt_has_more_con === 1 ||
+                  e.rt_has_more_con === '1',
                 images: originalPics
                   .filter((p) => !(p.is_video && p.video_info?.url3))
                   .map(pickPicUrl)
@@ -542,7 +563,7 @@ export async function getQzoneMsgList(
 // Pagination continues with data.main.externparam from the previous page;
 // basetime and pagenum must also be mirrored in the top-level request.
 
-interface RawFeedItem {
+export interface RawFeedItem {
   uin?: number | string;
   opuin?: number | string;
   nickname?: string;
@@ -631,6 +652,7 @@ export async function getQzoneFeeds(
   count = 10,
   signal?: AbortSignal,
   cursor?: string,
+  scope: 0 | 7 = 0,
 ): Promise<QzoneFeedsResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
   const continuation = new URLSearchParams(cursor ?? '');
@@ -642,7 +664,7 @@ export async function getQzoneFeeds(
   const url = `https://h5.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${new URLSearchParams(
     {
       uin: selfUin,
-      scope: '0',
+      scope: String(scope),
       view: '1',
       filter: 'all',
       flag: '1',

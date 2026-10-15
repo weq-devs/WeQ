@@ -63,6 +63,7 @@ export function projectQzoneFeed(
   allowRepost = true,
 ): {
   text: string;
+  contentTruncated: boolean;
   sourceName: string | null;
   images: string[];
   links: { href: string; text: string; cover?: string }[];
@@ -83,6 +84,11 @@ export function projectQzoneFeed(
   } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  const contentTruncated =
+    Boolean(doc.querySelector('[data-has-more-con="1"]')) ||
+    [...doc.querySelectorAll('a')].some((anchor) =>
+      /^(?:全文|展开全文)$/.test(anchor.textContent?.trim() ?? ''),
+    );
   const unsupported = /功能内测中|内容暂不支持查看/.test(doc.body.textContent ?? '');
   for (const image of doc.querySelectorAll('img')) {
     const source =
@@ -313,6 +319,7 @@ export function projectQzoneFeed(
     likeCount,
     commentCount,
     counterKey,
+    contentTruncated,
     forwardCount,
     advertisement,
     unsupported,

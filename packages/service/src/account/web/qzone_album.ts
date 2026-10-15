@@ -62,9 +62,96 @@ interface RawAlbum {
 }
 
 interface RawAlbumListData {
+  albumList?: RawAlbum[] | null;
   albumListModeSort?: RawAlbum[] | null;
   /** Current CGI may return the album count here, rather than a legacy list. */
   albumsInUser?: RawAlbum[] | number | null;
+}
+
+export interface QzoneAlbumPage {
+  albums: QzoneAlbum[];
+  total: number | null;
+  nextOffset: number | null;
+  warning: string | null;
+}
+
+export function parseQzoneAlbumPage(
+  text: string,
+  offset: number,
+  pageSize: number,
+): QzoneAlbumPage {
+  const ret = parseQzoneCallback<RawAlbumListRet>(text);
+  if (ret.code !== 0) throw qzoneCodeError('qzone 相册列表', ret.code ?? -1, ret.message);
+  const data = ret.data;
+  const list = Array.isArray(data?.albumList)
+    ? data.albumList
+    : Array.isArray(data?.albumListModeSort)
+      ? data.albumListModeSort
+      : Array.isArray(data?.albumsInUser)
+        ? data.albumsInUser
+        : null;
+  if (!list) throw new Error('相册列表响应缺少列表。');
+  const rawTotal = data?.albumsInUser;
+  const total =
+    typeof rawTotal === 'number' && Number.isSafeInteger(rawTotal) && rawTotal >= 0
+      ? rawTotal
+      : null;
+  const albums = list.map(mapAlbum);
+  if (
+    albums.some((album) => !album.id) ||
+    new Set(albums.map((album) => album.id)).size !== albums.length
+  )
+    throw new Error('相册列表包含缺失或重复的 ID。');
+  const next = offset + list.length;
+  const earlyEmpty = list.length === 0 && total !== null && offset < total;
+  const hasMore = list.length > 0 && (total !== null ? next < total : list.length >= pageSize);
+  return {
+    albums,
+    total,
+    nextOffset: hasMore ? next : null,
+    warning: earlyEmpty ? '相册列表提前结束，未取得声明总数中的全部相册。' : null,
+  };
+}
+
+/** Explicit ordered pagination, separate from the legacy first-batch export API. */
+export async function getQzoneAlbumPage(
+  cred: WebCredential,
+  hostUin: string,
+  offset = 0,
+  pageSize = 40,
+  signal?: AbortSignal,
+): Promise<QzoneAlbumPage> {
+  const params = new URLSearchParams({
+    hostUin,
+    uin: cred.uin,
+    appid: '4',
+    mode: '2',
+    sortOrder: '2',
+    pageStart: String(offset),
+    pageNum: String(pageSize),
+    needUserInfo: '1',
+    g_tk: String(computeBkn(cred.pskey || cred.skey)),
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    source: 'qzone',
+    plat: 'qzone',
+    format: 'jsonp',
+    notice: '0',
+    filter: '1',
+    handset: '4',
+    idcNum: '4',
+    callbackFun: 'shine0',
+  });
+  const text = await webRequestText(
+    `https://user.qzone.qq.com/proxy/domain/photo.qzone.qq.com/fcgi-bin/fcg_list_album_v3?${params}`,
+    {
+      cookie: cookieHeader(cred),
+      signal,
+      retry: WEB_READ_RETRY,
+      headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
+    },
+  );
+  return parseQzoneAlbumPage(text, offset, pageSize);
 }
 
 interface RawAlbumListRet {
@@ -280,6 +367,14 @@ export async function getQzoneAlbumMedia(
 interface RawFloatviewPhoto {
   picKey?: string;
   lloc?: string;
+  sloc?: string;
+  url?: string;
+  raw?: string;
+  pre?: string;
+  name?: string;
+  desc?: string;
+  width?: number;
+  height?: number;
   is_video?: boolean | number;
   video_info?: RawPhoto['video_info'];
 }
@@ -297,12 +392,13 @@ interface RawFloatviewRet {
  * 带签名会过期，导出 / 播放前即时取。拿不到 mp4（如只有 m3u8）返回空串。
  * 凭证失效抛 {@link WebAuthError}。
  */
-export async function getQzoneAlbumVideoUrl(
+export async function getQzoneAlbumDetail(
   cred: WebCredential,
   hostUin: string,
   topicId: string,
   picKey: string,
-): Promise<string> {
+  signal?: AbortSignal,
+) {
   const gtk = computeBkn(cred.pskey || cred.skey);
   const params = new URLSearchParams({
     g_tk: String(gtk),
@@ -338,16 +434,35 @@ export async function getQzoneAlbumVideoUrl(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
     retry: WEB_READ_RETRY,
+    signal,
   });
   const ret = parseQzoneCallback<RawFloatviewRet>(text);
-  if (typeof ret.code === 'number' && ret.code !== 0) {
-    throw qzoneCodeError('qzone 相册视频详情', ret.code, ret.message);
+  if (ret.code !== 0) {
+    throw qzoneCodeError('qzone 相册媒体详情', ret.code ?? -1, ret.message);
   }
   const photo = (ret.data?.photos ?? []).find(
-    (p) => p.picKey === picKey || p.lloc === picKey || p.is_video || p.video_info,
+    (p) => p.picKey === picKey || p.lloc === picKey || p.sloc === picKey,
   );
+  if (!photo) throw new Error('相册详情未返回对应的媒体定位键。');
   const vi = photo?.video_info;
   // mp4 本体：download_url 是新接口形态，url3 是旧接口形态；video_url 是 m3u8
   // （Chromium 不能直接播），一律不取。
-  return vi?.download_url || vi?.url3 || '';
+  return {
+    picKey,
+    name: photo.name ?? '',
+    desc: photo.desc ?? '',
+    imageUrl: photo.raw || photo.url || photo.pre || '',
+    videoUrl: vi?.download_url || vi?.url3 || '',
+    width: Number.isSafeInteger(photo.width) && photo.width! > 0 ? photo.width! : null,
+    height: Number.isSafeInteger(photo.height) && photo.height! > 0 ? photo.height! : null,
+  };
+}
+
+export async function getQzoneAlbumVideoUrl(
+  cred: WebCredential,
+  hostUin: string,
+  topicId: string,
+  picKey: string,
+): Promise<string> {
+  return (await getQzoneAlbumDetail(cred, hostUin, topicId, picKey)).videoUrl;
 }

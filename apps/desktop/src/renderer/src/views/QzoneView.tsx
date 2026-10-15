@@ -36,32 +36,13 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
+import { useQzoneRequests } from '../hooks/useQzoneRequests';
 
-type Tab = 'feeds' | 'posts' | 'space';
+type Tab = 'feeds' | 'posts' | 'space' | 'related' | 'memories';
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 function timeText(time: number): string {
   return time ? new Date(time * 1000).toLocaleString('zh-CN', { hour12: false }) : '';
-}
-
-let activeReads = 0;
-const readQueue: (() => void)[] = [];
-function queueQzoneRead<T>(work: () => Promise<T>, background: boolean): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const start = (): void => {
-      activeReads++;
-      void Promise.resolve()
-        .then(work)
-        .then(resolve, reject)
-        .finally(() => {
-          activeReads--;
-          readQueue.shift()?.();
-        });
-    };
-    if (activeReads < 2) start();
-    else if (background) readQueue.push(start);
-    else readQueue.unshift(start);
-  });
 }
 
 const QzonePageContext = createContext({ active: true, refresh: 0 });
@@ -318,33 +299,6 @@ function QzoneEmoji({ code }: { code: string }) {
   );
 }
 
-/** Explicit cancellation also reaches main-process CGIs over Electron IPC. */
-function useQzoneRequests() {
-  const ids = useRef(new Set<string>());
-  const cancel = useCallback(() => {
-    for (const requestId of ids.current)
-      void client.account.qzone.cancel.mutate({ requestId }).catch(() => {});
-    ids.current.clear();
-  }, []);
-  useEffect(() => cancel, [cancel]);
-  const run = useCallback(
-    async <T,>(work: (requestId: string) => Promise<T>, background = false): Promise<T> => {
-      const requestId = crypto.randomUUID();
-      ids.current.add(requestId);
-      try {
-        return await queueQzoneRead(() => {
-          if (!ids.current.has(requestId)) throw new Error('空间加载已取消。');
-          return work(requestId);
-        }, background);
-      } finally {
-        ids.current.delete(requestId);
-      }
-    },
-    [],
-  );
-  return { run, cancel };
-}
-
 export function QzoneView({
   selfUin,
   nickname,
@@ -480,6 +434,20 @@ export function QzoneView({
             >
               我的空间
             </button>
+            <button
+              type="button"
+              aria-current={tab === 'related' ? 'page' : undefined}
+              onClick={() => setTab('related')}
+            >
+              与我相关
+            </button>
+            <button
+              type="button"
+              aria-current={tab === 'memories' ? 'page' : undefined}
+              onClick={() => setTab('memories')}
+            >
+              那年今日
+            </button>
             {spaces.map((uin) => (
               <span className="weq-qzn-space-tab" key={uin}>
                 <button
@@ -552,6 +520,13 @@ export function QzoneView({
             <Feeds selfUin={selfUin} onSpace={openSpace} />
           </QzonePage>
         ) : null}
+        {(['related', 'memories'] as const).map((kind) =>
+          visited.includes(kind) || tab === kind ? (
+            <QzonePage key={kind} active={active && tab === kind} refreshKey={refreshes[kind] ?? 0}>
+              <Recall selfUin={selfUin} kind={kind} onSpace={openSpace} />
+            </QzonePage>
+          ) : null,
+        )}
         {visited.includes('posts') || tab === 'posts' ? (
           <SpaceContent
             active={active && tab === 'posts'}
@@ -699,6 +674,7 @@ function SpaceContent({
       {visitedAlbums ? (
         <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
           <QzoneAlbums
+            selfUin={selfUin}
             hostUin={hostUin}
             albumRequest={albumRequest}
             onClose={() => setPane('posts')}
@@ -710,10 +686,12 @@ function SpaceContent({
 }
 
 function QzoneAlbums({
+  selfUin,
   hostUin,
   albumRequest,
   onClose,
 }: {
+  selfUin: string;
   hostUin: string;
   albumRequest?: QzoneAlbumRequest;
   onClose: () => void;
@@ -721,6 +699,7 @@ function QzoneAlbums({
   const { active, refresh } = useContext(QzonePageContext);
   return (
     <QzoneAlbumDialog
+      selfUin={selfUin}
       open
       embedded
       active={active}
@@ -1000,7 +979,7 @@ function Post({
   selfUin,
   hostUin,
   nickname,
-  post,
+  post: sourcePost,
   onSpace,
   articleRef,
   ownerSpace = false,
@@ -1017,6 +996,98 @@ function Post({
   sourceName?: string | null;
   links?: ReturnType<typeof projectQzoneFeed>['links'];
 }) {
+  const localRef = useRef<HTMLElement>(null);
+  const ref = articleRef ?? localRef;
+  const visible = useNearViewport(ref);
+  const { refresh } = useContext(QzonePageContext);
+  const { run, cancel } = useQzoneRequests();
+  const sourceSignature = JSON.stringify(sourcePost);
+  const [completed, setCompleted] = useState<{ signature: string; post: QzoneEmotion } | null>(
+    null,
+  );
+  const post = completed?.signature === sourceSignature ? completed.post : sourcePost;
+  const [completing, setCompleting] = useState(false);
+  const [completionError, setCompletionError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const attempted = useRef('');
+  useEffect(() => {
+    const attempt = `${sourceSignature}:${refresh}:${retry}`;
+    const textNeeded = sourcePost.contentTruncated || sourcePost.repost?.contentTruncated;
+    const imagesNeeded =
+      sourcePost.imageTotal != null &&
+      sourcePost.imageTotal > (sourcePost.imageReturned ?? sourcePost.images.length);
+    if (!textNeeded && !imagesNeeded) {
+      setCompleting(false);
+      setCompletionError('');
+    }
+    if (!visible || (!textNeeded && !imagesNeeded) || attempted.current === attempt)
+      return undefined;
+    attempted.current = attempt;
+    let live = true;
+    let settled = false;
+    setCompleting(true);
+    setCompletionError('');
+    const input = { selfUin, hostUin, tid: sourcePost.tid };
+    void (async () => {
+      const next = { ...sourcePost };
+      const issues: string[] = [];
+      if (textNeeded) {
+        try {
+          const detail = await run(
+            (requestId) => client.account.qzone.detail.query({ ...input, requestId }),
+            true,
+          );
+          if (!live) return;
+          next.content = detail.content;
+          next.contentTruncated = !detail.contentComplete;
+          if (
+            sourcePost.repost &&
+            detail.repost?.tid === sourcePost.repost.tid &&
+            detail.repost.uin === sourcePost.repost.uin
+          ) {
+            next.repost = {
+              ...sourcePost.repost,
+              content: detail.repost.content,
+              contentTruncated: !detail.repostComplete,
+            };
+          }
+          if (next.contentTruncated || next.repost?.contentTruncated)
+            issues.push('全文完整性未确认');
+        } catch {
+          if (!live) return;
+          issues.push('全文补全失败');
+        }
+      }
+      if (imagesNeeded) {
+        try {
+          const urls = await run(
+            (requestId) => client.account.qzone.images.query({ ...input, requestId }),
+            true,
+          );
+          if (!live) return;
+          const safe = urls.map(qzoneMediaSource).filter((url): url is string => Boolean(url));
+          next.images =
+            safe.length >= sourcePost.images.length
+              ? safe
+              : [...new Set([...sourcePost.images, ...safe])];
+          if (next.images.length < (sourcePost.imageTotal ?? 0)) issues.push('仍有图片未补全');
+        } catch {
+          if (!live) return;
+          issues.push('图片补全失败');
+        }
+      }
+      if (!live) return;
+      settled = true;
+      setCompleted({ signature: sourceSignature, post: next });
+      setCompletionError(issues.join(' · '));
+      setCompleting(false);
+    })();
+    return () => {
+      live = false;
+      if (!settled) attempted.current = '';
+      cancel();
+    };
+  }, [visible, sourceSignature, sourcePost, selfUin, hostUin, refresh, retry, run, cancel]);
   const openProfile = useContext(QzoneProfileContext);
   const openOwner = (event: React.MouseEvent<HTMLButtonElement>): void => {
     if (ownerSpace && openProfile)
@@ -1037,7 +1108,7 @@ function Post({
       )
     : post.videos;
   return (
-    <article ref={articleRef} className="weq-qzn-post">
+    <article ref={ref} className="weq-qzn-post">
       <div className="weq-qzn-post-head">
         <button
           type="button"
@@ -1062,6 +1133,28 @@ function Post({
         <p className="weq-qzn-content">
           <QzoneText content={post.content} onSpace={onSpace} />
         </p>
+      ) : null}
+      {completing || completionError ? (
+        <div className="weq-qzn-completion" role="status">
+          {completing ? (
+            <>
+              <Loader2 size={13} className="weq-spin" />
+              正在补全说说…
+            </>
+          ) : (
+            <>
+              <span>{completionError}</span>
+              <button
+                type="button"
+                title="重试补全"
+                aria-label="重试补全说说"
+                onClick={() => setRetry((value) => value + 1)}
+              >
+                <RefreshCw size={13} />
+              </button>
+            </>
+          )}
+        </div>
       ) : null}
       <Pictures images={images.filter((url) => !links.some((link) => link.cover === url))} />
       <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
@@ -1670,7 +1763,97 @@ function Feeds({
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
-  const { refresh } = useContext(QzonePageContext);
+  const [onlyCare, setOnlyCare] = useState(false);
+  return (
+    <>
+      <div className="weq-qzn-feed-options">
+        <label>
+          <input
+            type="checkbox"
+            checked={onlyCare}
+            onChange={(event) => {
+              setOnlyCare(event.target.checked);
+              const scroll = event.currentTarget.closest('.weq-qzn-scroll');
+              if (scroll) scroll.scrollTop = 0;
+            }}
+          />
+          仅显示特别关心
+        </label>
+      </div>
+      <FeedTimeline
+        key={String(onlyCare)}
+        selfUin={selfUin}
+        onSpace={onSpace}
+        scope={onlyCare ? 7 : 0}
+      />
+    </>
+  );
+}
+
+function Recall({
+  selfUin,
+  kind,
+  onSpace,
+}: {
+  selfUin: string;
+  kind: 'related' | 'memories';
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const currentYear = Number(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }).slice(0, 4),
+  );
+  const [year, setYear] = useState(currentYear - 1);
+  return (
+    <>
+      {kind === 'memories' ? (
+        <div className="weq-qzn-feed-options">
+          <select
+            aria-label="回顾年份"
+            value={year}
+            onChange={(event) => {
+              setYear(Number(event.target.value));
+              const scroll = event.currentTarget.closest('.weq-qzn-scroll');
+              if (scroll) scroll.scrollTop = 0;
+            }}
+          >
+            {Array.from(
+              { length: Math.max(1, currentYear - 1995) },
+              (_, index) => currentYear - 1 - index,
+            ).map((value) => (
+              <option key={value} value={value}>
+                {value} 年
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <FeedTimeline
+        key={`${kind}:${year}`}
+        selfUin={selfUin}
+        onSpace={onSpace}
+        kind={kind}
+        year={year}
+      />
+    </>
+  );
+}
+
+function FeedTimeline({
+  selfUin,
+  onSpace,
+  scope = 0,
+  kind = 'friends',
+  year = 2025,
+}: {
+  selfUin: string;
+  onSpace: (uin: string, nickname?: string) => void;
+  scope?: 0 | 7;
+  kind?: 'friends' | 'related' | 'memories';
+  year?: number;
+}) {
+  const { active, refresh } = useContext(QzonePageContext);
+  const [incomplete, setIncomplete] = useState(false);
+  const title = kind === 'friends' ? '好友动态' : kind === 'related' ? '与我相关' : '那年今日';
   const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(null);
   const [error, setError] = useState('');
@@ -1696,6 +1879,7 @@ function Feeds({
   const nearEnd = useNearViewport(moreRef);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
+    if (!active) return undefined;
     let live = true;
     setError('');
     setLoading(true);
@@ -1705,11 +1889,22 @@ function Feeds({
     lastCursor.current = cursor;
     const refreshing = headRequest.current;
     const pageCursor = refreshing ? undefined : cursor;
-    void run((requestId) =>
-      client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor }),
+    void run<{ feeds: QzoneFeed[]; hasMore: boolean; nextCursor?: string; incomplete?: boolean }>(
+      (requestId) => {
+        if (kind === 'related')
+          return client.account.qzone.related.query({
+            selfUin,
+            requestId,
+            offset: Number(new URLSearchParams(pageCursor).get('offset') ?? 0),
+          });
+        if (kind === 'memories')
+          return client.account.qzone.memories.query({ selfUin, requestId, year });
+        return client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor, scope });
+      },
     )
       .then((page) => {
         if (!live) return;
+        setIncomplete('incomplete' in page && page.incomplete === true);
         const key = (feed: QzoneFeed): string =>
           `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
@@ -1747,6 +1942,7 @@ function Feeds({
           }
           setDone(!nextCursor.current);
         }
+        if (page.hasMore && !nextCursor.current) setIncomplete(true);
         accumulated.current = [...merged.values()].sort((a, b) => b.time - a.time);
         setFeeds(accumulated.current);
       })
@@ -1760,7 +1956,7 @@ function Feeds({
       live = false;
       cancel();
     };
-  }, [selfUin, cursor, pageRequest, retry, refresh, run, cancel]);
+  }, [active, selfUin, cursor, pageRequest, retry, refresh, scope, kind, year, run, cancel]);
   useEffect(() => {
     if (nearEnd && !loading && !error && !done && nextCursor.current)
       loadCursor(nextCursor.current);
@@ -1775,7 +1971,11 @@ function Feeds({
       }
     >(),
   );
-  const { run: runLookup } = useQzoneRequests();
+  const { run: runLookup, cancel: cancelLookup } = useQzoneRequests();
+  useEffect(() => {
+    if (!active) cancelLookup();
+    return () => cancelLookup();
+  }, [active, cancelLookup]);
   const lookupPages = useRef(new Map<string, Promise<{ list: QzoneEmotion[]; total: number }>>());
   const lookupRefresh = useRef(refresh);
   if (lookupRefresh.current !== refresh) {
@@ -1846,7 +2046,7 @@ function Feeds({
   return (
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
-        <h2>好友动态</h2>
+        <h2>{title}</h2>
         <select
           aria-label="动态类型"
           value={filter}
@@ -1904,11 +2104,13 @@ function Feeds({
             </button>
           ) : (
             <p className="weq-qzn-status">
-              {shown?.length
-                ? '已加载当前可查看的动态'
-                : filter
-                  ? '暂无此类型动态'
-                  : '暂时没有可查看的动态'}
+              {incomplete
+                ? '仍有未加载内容，接口未提供可用的续页位置'
+                : shown?.length
+                  ? '已加载当前可查看的动态'
+                  : filter
+                    ? '暂无此类型动态'
+                    : '暂时没有可查看的动态'}
             </p>
           )
         ) : null}
@@ -1931,6 +2133,23 @@ function FeedCard({
   lookup: (feed: QzoneFeed, tid: string | null) => Promise<QzoneEmotion | null>;
 }) {
   const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+  const projectedPost = useMemo<QzoneEmotion | null>(
+    () =>
+      tid
+        ? {
+            tid,
+            content: body.text,
+            contentTruncated: body.contentTruncated,
+            time: feed.time,
+            commentNum: body.commentCount,
+            isPrivate: false,
+            images: body.images,
+            videos: [],
+            repost: body.repost ?? undefined,
+          }
+        : null,
+    [tid, body, feed.time],
+  );
   const ref = useRef<HTMLElement>(null);
   const visible = useNearViewport(ref, true);
   const [post, setPost] = useState<QzoneEmotion | null>(null);
@@ -1961,6 +2180,19 @@ function FeedCard({
         hostUin={String(feed.uin)}
         nickname={feed.nickname || String(feed.uin)}
         post={post}
+        onSpace={onSpace}
+        articleRef={ref}
+        sourceName={body.sourceName}
+        links={body.links}
+      />
+    );
+  if (feed.appid === 311 && tid && /^[a-f0-9]{6,128}$/i.test(tid) && !body.unsupported)
+    return (
+      <Post
+        selfUin={selfUin}
+        hostUin={String(feed.uin)}
+        nickname={feed.nickname || String(feed.uin)}
+        post={projectedPost!}
         onSpace={onSpace}
         articleRef={ref}
         sourceName={body.sourceName}
