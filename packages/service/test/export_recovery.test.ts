@@ -70,7 +70,7 @@ it('pause survives worker unwinding and a new manager resumes the same task ID',
   let paused = false;
   f.manager.on('progress', () => {
     const task = f.manager.listTasks()[0];
-    if (!paused && task?.stages.find((s) => s.key === 'message')?.current! >= 1000) {
+    if (!paused && task && (task.stages.find((s) => s.key === 'message')?.current ?? 0) >= 1000) {
       paused = true;
       f.manager.pauseTask(task.id);
     }
@@ -136,7 +136,7 @@ it('changed source refuses resume instead of combining two snapshots', async () 
   let paused = false;
   f.manager.on('progress', () => {
     const t = f.manager.listTasks()[0];
-    if (!paused && t?.stages[0]?.current! >= 1000) {
+    if (!paused && t && (t.stages[0]?.current ?? 0) >= 1000) {
       paused = true;
       f.manager.pauseTask(t.id);
     }

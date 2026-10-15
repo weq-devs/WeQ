@@ -43,7 +43,7 @@ export async function preflightExportEstimate(
     const summary = results
       .map(
         (r) =>
-          `${r.name}：${r.matchingMessages === null ? `数量未核定，已找到 ${r.matchingLowerBound} 条样本` : r.matchingMessages + ' 条'}`,
+          `${r.name}：${r.matchingMessages === null ? `数量未核定，已找到 ${r.matchingLowerBound} 条样本` : `${r.matchingMessages} 条`}`,
       )
       .join('\n');
     return await dialog.confirm(

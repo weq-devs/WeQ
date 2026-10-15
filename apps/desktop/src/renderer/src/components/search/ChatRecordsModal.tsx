@@ -62,8 +62,8 @@ export function ChatRecordsModal({
       sender: sender.trim() || undefined,
       keyword: keyword.trim() || undefined,
       category: category || undefined,
-      start: startDay ? Math.floor(Date.parse(startDay + 'T00:00:00+08:00') / 1000) : undefined,
-      end: endDay ? Math.floor(Date.parse(endDay + 'T23:59:59+08:00') / 1000) : undefined,
+      start: startDay ? Math.floor(Date.parse(`${startDay}T00:00:00+08:00`) / 1000) : undefined,
+      end: endDay ? Math.floor(Date.parse(`${endDay}T23:59:59+08:00`) / 1000) : undefined,
     }),
     [sender, keyword, category, startDay, endDay],
   );
@@ -688,16 +688,14 @@ function formatTime(sendTimeSeconds: string): string {
   if (!Number.isFinite(secs) || secs <= 0) return '';
   const d = new Date(secs * 1000);
   if (!Number.isFinite(d.getTime())) return '时间未核验';
-  return (
-    new Intl.DateTimeFormat('zh-CN', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    }).format(d) + ' +08'
-  );
+  return `${new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(d)} +08`;
 }

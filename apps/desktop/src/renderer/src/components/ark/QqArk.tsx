@@ -459,7 +459,9 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
                 <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.label}</div>
               ) : null}
               {item.value ? (
-                <div style={{ fontSize: 14, color: 'var(--weq-fg-primary)', fontWeight: 500 }}>{item.value}</div>
+                <div style={{ fontSize: 14, color: 'var(--weq-fg-primary)', fontWeight: 500 }}>
+                  {item.value}
+                </div>
               ) : null}
             </div>
           ))}
