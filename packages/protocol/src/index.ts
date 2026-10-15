@@ -22,6 +22,7 @@
  *   oidb/send-location-ark.ts    — SendLocationArk (trpc LocationArk.SsoSendMessage, 位置卡片发送)。
  *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
  *   oidb/send-group-signup.ts    — SendGroupSignup (0x921b_0, 群报名/收集表卡片)。
+ *   oidb/send-group-join-request.ts — SendGroupJoinRequest (0x11ec_1, 入群申请)。
  *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
  *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
  *   oidb/get-emoji-likes.ts      — GetEmojiLikes (0x9083_1, 某表情的回应人列表, 可分页)。
@@ -114,6 +115,12 @@ export type {
   SendGroupSignupParams,
   SendGroupSignupImage,
 } from './oidb/send-group-signup';
+export {
+  SendGroupJoinRequest,
+  JOIN_REQUEST_FIELD1,
+  JOIN_REQUEST_SOURCE_ID,
+} from './oidb/send-group-join-request';
+export type { SendGroupJoinRequestParams } from './oidb/send-group-join-request';
 export { SendPoke } from './oidb/send-poke';
 export type { SendPokeParams } from './oidb/send-poke';
 export { SetReaction } from './oidb/set-reaction';

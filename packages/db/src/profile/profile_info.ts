@@ -109,8 +109,9 @@ export interface ProfileExtInfo {
   /** QQ空间相册。 */
   album: AlbumPhoto[];
   /**
-   * 机器人类型（1 = 第三方机器人，2 = QQ 官方 AI 小Q）。仅机器人有此字段，
-   * 是全库唯一可靠的机器人判据 —— 见 `21000.ts` 的 `BotMarkWire`。
+   * 机器人类型（1 = 第三方机器人，2 = QQ 官方 AI 小Q）。只有机器人的资料里有
+   * 这一块（见 `21000.ts` 的 `BotMarkWire`），但**很多机器人至今没被回写**，
+   * 所以不能单靠它判定 —— 见 `BOT_UIN_RANGES` 的号段兜底。
    */
   botType?: number;
 }
@@ -135,7 +136,7 @@ export interface UserProfile {
   extRelation?: ExtensionRelation;
   /** 21000 列 —— VIP/特权、互动标识、教育、所在地、兴趣、相册。 */
   extInfo?: ProfileExtInfo;
-  /** 是否机器人（= `extInfo.botType` 存在）。 */
+  /** 是否机器人（`extInfo.botType` 存在，或 uin 落在机器人号段内）。 */
   isBot: boolean;
 }
 
@@ -156,6 +157,37 @@ export interface ProfileInfoDbOptions {
 }
 
 const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104","21000"`;
+
+/**
+ * QQ 机器人专属的 uin 号段（闭区间，两端含）。
+ *
+ * 21000 里的 `botMark`（见 `21000.ts` 的 `BotMarkWire`）只在**客户端拉过并回写过**
+ * 某个机器人资料时才落库，很多真机器人（DKbot / 小冰 / 麦麦子MaiBot…）的 `21000`
+ * 至今是 NULL —— 光靠 botMark 会漏判。这些号段是 QQ 官方分配给机器人的固定区间，
+ * 拿它当**兜底**判据：只多认不漏认（现有 botMark 命中项全部落在号段内）。
+ *
+ * 注意这是**静态**名单，QQ 新增/回收号段时需要同步维护。
+ */
+const BOT_UIN_RANGES: ReadonlyArray<readonly [bigint, bigint]> = [
+  [3328144510n, 3328144510n],
+  [2854196301n, 2854216399n],
+  [66600000n, 66600000n],
+  [3889000000n, 3889999999n],
+  [4010000000n, 4019999999n],
+];
+
+/** 按 uin 号段判断是否机器人（兜底；botMark 缺失时的补充判据）。 */
+function isBotUin(uin: bigint): boolean {
+  for (const [min, max] of BOT_UIN_RANGES) {
+    if (uin >= min && uin <= max) return true;
+  }
+  return false;
+}
+
+/** `botUids` 里号段预筛的 SQL 片段：`"1002"` 落在任一机器人区间内。 */
+const BOT_UIN_RANGE_SQL = BOT_UIN_RANGES.map(([min, max]) =>
+  min === max ? `"1002" = ${min}` : `"1002" BETWEEN ${min} AND ${max}`,
+).join(' OR ');
 
 export class ProfileInfoDb {
   private readonly qq: QqDb;
@@ -303,22 +335,31 @@ export class ProfileInfoDb {
   /**
    * The uids of every bot this account has ever cached a profile for.
    *
-   * Cheap because of the `instr` prefilter: `x'E29A0E'` is the wire key of tag
-   * 29100 (29100<<3 | 2), so SQLite only has to decode the handful of 21000
-   * blobs that contain those three bytes. On a 52k-row table that's ~25 ms
-   * versus decoding every blob. Callers cache the result per account and use
-   * it to mark bots in member / contact / conversation lists.
+   * Two cheap prefilters, OR-ed together:
+   *  - `instr("21000", x'E29A0E')` — `x'E29A0E'` is the wire key of tag 29100
+   *    (29100<<3 | 2), so SQLite only has to decode the handful of 21000 blobs
+   *    that contain those bytes (on a 52k-row table that's ~25 ms versus
+   *    decoding every blob);
+   *  - `"1002"` in a known bot uin range — hits `profile_info_v6_idx1002` and
+   *    catches bots whose 21000 has no botMark yet (see `BOT_UIN_RANGES`).
+   * Callers cache the result per account and use it to mark bots in member /
+   * contact / conversation lists.
    */
   async botUids(): Promise<Set<string>> {
     const rows = await this.qq.query(
-      `SELECT "1000","21000" FROM profile_info_v6 WHERE instr("21000", x'E29A0E') > 0`,
+      `SELECT "1000","1002","21000" FROM profile_info_v6
+       WHERE instr("21000", x'E29A0E') > 0 OR ${BOT_UIN_RANGE_SQL}`,
     );
     const out = new Set<string>();
     for (const row of rows) {
       const uid = String(row[0] ?? '');
-      // instr can match the same bytes inside an unrelated field, so confirm
-      // by actually decoding — the marker must survive the real parse.
-      if (uid && parseExtInfo(row[1])?.botType !== undefined) out.add(uid);
+      if (!uid) continue;
+      // A uin in a bot range is conclusive on its own; otherwise instr can
+      // match the same bytes inside an unrelated field, so confirm by actually
+      // decoding — the marker must survive the real parse.
+      if (isBotUin(toBigint(row[1])) || parseExtInfo(row[2])?.botType !== undefined) {
+        out.add(uid);
+      }
     }
     return out;
   }
@@ -425,7 +466,9 @@ function rowToProfile(row: SqlRow): UserProfile {
     customStatus,
     extRelation,
     extInfo,
-    isBot: extInfo?.botType !== undefined,
+    // botMark (21000) is authoritative but often not backfilled yet, so fall
+    // back to the bot uin ranges — same superset rule as `botUids()`.
+    isBot: extInfo?.botType !== undefined || isBotUin(toBigint(row[2])),
   };
 }
 
