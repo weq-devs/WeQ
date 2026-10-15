@@ -47,6 +47,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `setLogPath(path)` | `path: string` | `Promise<void>` | 配置日志输出路径；内部 `logger::set_log_path`。 |
 | `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `Promise<AppidInfo>` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。 |
 | `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
+| `getFontPipelineVersion()` | — | `number` | native 侧字体转换链的版本号（`font::FONT_PIPELINE_VERSION`）：改 `src/font/**` 的产物字节就 +1。宿主把产出 `fonts/<id>.ttf` 时的这个号写进 sidecar，读缓存时对不上就地重解 —— 这样「native 修了字体的表处理」不必再等宿主手改版本号（`hdmx`/`LTSH` 那次就是漏在这里）。 |
 | `getMarketFaceKey(packetId)` | `packetId: string` | `Promise<MarketFaceKey \| null>` | 恢复商城表情包 QQTEA 密钥（自包含：抓 android.json 提示 → xydata 快路径 → 采样爆破）。返回 `null` 表示拿不到。 |
 | `queryDressResourceUrl(dtype, itemId, name)` | 三个字符串 | `DressResourceUrl \| null` | 纯本地查装扮资源下载 URL（font/bubble/widget × 部件名），不联网、不依赖协议。`null` = 本地包缺失或未命中（此时交给协议兜底）。 |
 

@@ -877,6 +877,18 @@ export interface NtHelperBinding {
    */
   convertFont(inputPath: string, outputPath: string, options?: ConvertFontOptions): string;
 
+  /**
+   * 字体转换链的版本号（nt_helper 的 `FONT_PIPELINE_VERSION`）。
+   *
+   * 产出 `fonts/<id>.ttf` 时把它写进 sidecar，读缓存时对不上就地重解 —— native 侧改
+   * 字体转换（比如修 hdmx/LTSH 那类被判 OTS 拒绝的表）不必再等 WeQ 这边手改
+   * `DRESS_DERIVE_VERSION`，那正是「native 修好了、旧缓存却永远不重做」的根因。
+   *
+   * **可选**：早于这个导出的 native 构建里没有它（锚定的 tag 还没跟上时），调用方按
+   * `typeof nt.getFontPipelineVersion !== 'function'` 探测，拿不到就当 0（未知）。
+   */
+  getFontPipelineVersion?(): number;
+
   // --- dress offline resource index (local .dat bundles, no protocol needed) ---
   /**
    * Look up one dress resource's download URL from the local bundle

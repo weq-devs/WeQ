@@ -25,6 +25,13 @@
  * 把「已装」的那些补一遍，以及任何一次按需 fetch（逐条消息 40801 / 导出 / 年度报告）。
  *
  * 以后气泡或挂件的解析链也变了，照这个模式加一枚字段即可（它们的 sidecar 已经在了）。
+ *
+ * 字体比其他资源多一层：产物是 **native 侧**（nt_helper 的 `src/font/`）算出来的，那条链
+ * 变了宿主不一定知道。所以字体的 sidecar 除了 `deriveVersion` 还记一枚 `fontPipeline`
+ * （native 的 `FONT_PIPELINE_VERSION`，经 `getFontPipelineVersion()` 读回），两者都对
+ * 得上才算命中 —— `hdmx`/`LTSH` 那次修复就是「native 修好了、宿主没 +1」，坏产物于是
+ * 一直以「当前版本」的身份躺在缓存里。另外 {@link DressSharedCache.refreshAllFonts}
+ * 会在每次 WeQ 发版后的第一次开账号把整个 `fonts/` 目录体检一遍（不只是「已装」的款）。
  */
 
 import {
@@ -42,6 +49,7 @@ import { join } from 'node:path';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
+import { getHost } from '../common/host';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   extractAllFromZip,
@@ -60,9 +68,11 @@ import { downloadUrlToFile } from './media_url';
  * 图包 + OTS 预检；3 = 修 `eimg` 偏移基准（20405 那类「数据区第 0 槽不是图片」的字体
  * 以前一帧都导不出来）；4 = 气泡中央拉伸源加宽（`.9.png` 的 slice 存在气泡 sidecar
  * 里，见 bubble_skin.ts 的 MIDDLE_GROW_PX —— 不 +1 的话已装气泡会一直用旧的 2px
- * 拉伸源）。缓存里版本号低于它的产物会被就地重新派生（见文件头）。
+ * 拉伸源）；5 = 补上 native 字体链版本这枚信号（见 {@link FontSidecar.fontPipeline}）——
+ * 4 号那批产物是「native 侧修了 hdmx/LTSH、宿主没 +1」时期留下的，其中被 OTS 拒绝的
+ * 那些得靠这个号重解一次。缓存里版本号低于它的产物会被就地重新派生（见文件头）。
  */
-export const DRESS_DERIVE_VERSION = 4;
+export const DRESS_DERIVE_VERSION = 5;
 
 /** 一组同尺寸的炫彩帧（同一款字体下可能有好几段，见 {@link readFontFx}）。 */
 export interface FontFxVariant {
@@ -81,10 +91,31 @@ export interface FontFx {
 /** `fonts/<id>.json` —— 字体派生物的 sidecar。 */
 export interface FontSidecar {
   itemId: number;
-  /** 产出这份 ttf 的转换链版本，见 {@link DRESS_DERIVE_VERSION}。 */
+  /** 产出这份 ttf 的**宿主侧**转换链版本，见 {@link DRESS_DERIVE_VERSION}。 */
   deriveVersion: number;
+  /**
+   * 产出这份 ttf 的 **native 字体链版本**（nt_helper 的 `FONT_PIPELINE_VERSION`，
+   * 经 `getFontPipelineVersion()` 读回）。
+   *
+   * 与 {@link deriveVersion} 分工：那个是宿主解析链的号（靠人手 +1），这个是 native
+   * 转换代码的号（改 `src/font/**` 就 +1）。缺省当 `0` 处理 —— 老 sidecar 没有这枚
+   * 字段，与任何 ≥1 的真实链版本都对不上，于是就地重解一次，正好把历史坏缓存洗掉。
+   */
+  fontPipeline?: number;
   /** 炫彩帧分组；字体里没有 `eimg` 表（绝大多数款）时缺席。 */
   fx?: FontFx;
+}
+
+/** `fonts/.sweep.json` —— {@link DressSharedCache.refreshAllFonts} 的进度戳。 */
+interface FontSweepStamp {
+  /** 跑这次体检的 WeQ 版本（`getHost().appVersion()`），拿不到时是空串。 */
+  appVersion: string;
+  /** 见 {@link DRESS_DERIVE_VERSION}。 */
+  deriveVersion: number;
+  /** native 字体链版本，见 {@link FontSidecar.fontPipeline}。 */
+  fontPipeline: number;
+  /** 完成时间（ISO），只给人看。 */
+  finishedAt: string;
 }
 
 /**
@@ -97,6 +128,10 @@ export interface FontDerived {
   itemId: number;
   family: string;
   file: string;
+  /**
+   * 渲染戳 —— `deriveVersion` 与 `fontPipeline` 合成的**一个数**（见 {@link fontRenderStamp}）。
+   * 渲染侧只把它当「内容变了就换 URL」的戳，别拿它跟单个版本号比大小。
+   */
   deriveVersion: number;
   fx: FontFx | null;
 }
@@ -350,9 +385,11 @@ export class DressSharedCache {
   /**
    * 安装一款字体（派生链入口）：缓存命中（且是当前派生版本）直接返回，否则重新派生。
    *
-   * 「命中」要求 sidecar 的 deriveVersion 等于 {@link DRESS_DERIVE_VERSION} —— 升级后
-   * 缓存里那份旧产物因此不算命中，会**就地重新派生**（先用本地已缓存的原始 zip，不必
-   * 联网、也不依赖 `resources/dress` 离线 bundle），这是「升级完就能看到新特性」的关键。
+   * 「命中」要求 sidecar 的 deriveVersion 等于 {@link DRESS_DERIVE_VERSION} **且**
+   * fontPipeline 等于 native 当前的 `getFontPipelineVersion()` —— 升级后（宿主改了链，
+   * 或者换了一份字体转换代码变了的 native）缓存里那份旧产物因此不算命中，会**就地重新
+   * 派生**（先用本地已缓存的原始 zip，不必联网、也不依赖 `resources/dress` 离线 bundle），
+   * 这是「升级完就能看到新特性」的关键。
    *
    * 旧产物另留一份当兜底：新派生链全挂了（没原始 zip、没离线 bundle、没在线实例）时
    * 继续用旧的 —— 老款字体至少还是能渲染的，不该因为一次升级变成「装不上」。
@@ -373,6 +410,160 @@ export class DressSharedCache {
         ...logErrorContext(e),
       });
       return stale;
+    }
+  }
+
+  /**
+   * 把共享缓存里的**全部**字体产物按当前转换链对一遍版本（升级后的全量体检）。
+   *
+   * 与 {@link DressService.refreshDerived} 的分工：那个只管「已装」清单里的款，在账号
+   * 打开时补一遍；这里扫 `fonts/` 目录本身 —— 别的账号、逐条消息（40801）、导出、年度
+   * 报告留下的那些同样会被渲染，却永远不会出现在「已装」清单里，版本自愈不能只靠前者。
+   *
+   * 判据是**版本号**而不是「产物有没有坏」：sidecar 对不上当前的
+   * `{@link DRESS_DERIVE_VERSION}.{@link FontSidecar.fontPipeline}` 就地重解（走
+   * {@link installFont} 的同一条链）。刻意不在运行期跑 OTS 校验 —— 生产构建里根本没有
+   * `ots-sanitize` 二进制（那是开发者机器上的预检，见 nt_helper 的 scripts/setup-ots.sh），
+   * 拿它当判据只会静默失手；而 OTS 通过也不等于产物对（彩色表/炫彩帧都可能缺）。
+   *
+   * 每个「WeQ 版本 × 转换链版本」组合只跑一次：跑完把组合写进 `fonts/.sweep.json`，
+   * 下次开账号读到一致就直接返回 0（所以这是「发版后第一次开账号体检一遍」）。
+   *
+   * 全程离线优先、从不动旧产物：拿不到原始件（没缓存 zip、没离线 bundle、没在线实例）
+   * 的那款直接跳过，等它下次被按需 fetch 时自愈；重解失败也保留旧产物继续能渲染。
+   *
+   * @returns 真正重做了的款数（0 = 缓存已全部对得上当前链，调用方不必推前端）
+   */
+  async refreshAllFonts(): Promise<number> {
+    const cachedStamp = this.fontSweepStamp();
+    if (cachedStamp && this.isSweepStampCurrent(cachedStamp)) return 0;
+
+    const ids = this.cachedFontIds();
+    let repaired = 0;
+    let failed = 0;
+    for (const itemId of ids) {
+      // 版本对得上就不碰 —— 全量体检的常态是「一款都不用重做」。
+      if (this.isFontDerived(itemId)) continue;
+      try {
+        await this.installFont(itemId, '');
+      } catch (e) {
+        this.logger.warn('font sweep re-derive threw', {
+          event: 'dress-font-sweep-failed',
+          itemId,
+          ...logErrorContext(e),
+        });
+      }
+      // 不看返回值只看落地结果：installFont 在重解失败时会静默回落旧产物。
+      if (this.isFontDerived(itemId)) repaired += 1;
+      else failed += 1;
+      // convertFont 是同步的 native 调用，逐款让出一次事件循环，别把主进程钉死。
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    this.writeSweepStamp();
+    this.logger.info('font sweep finished', {
+      event: 'dress-font-sweep',
+      scanned: ids.length,
+      repaired,
+      failed,
+      deriveVersion: DRESS_DERIVE_VERSION,
+      fontPipeline: this.fontPipelineVersion(),
+    });
+    return repaired;
+  }
+
+  /** `fonts/` 里所有字体产物的 itemId（sidecar 与 ttf 的并集）。 */
+  private cachedFontIds(): number[] {
+    let names: string[];
+    try {
+      names = readdirSync(this.fontsDir);
+    } catch {
+      return [];
+    }
+    const ids = new Set<number>();
+    for (const name of names) {
+      // `<id>.json` 是 sidecar，`<id>.ttf` 是产物本身。`<id>_raw.ttf` 是转换中途崩了
+      // 留下的临时件（正常路径转换完就删），不参与体检，也不会被当成缓存读。
+      const match = /^(\d+)\.(json|ttf)$/.exec(name);
+      if (!match) continue;
+      const itemId = Number(match[1]);
+      if (itemId > 0) ids.add(itemId);
+    }
+    return [...ids].sort((a, b) => a - b);
+  }
+
+  /** 全量字体体检的进度戳路径（见 {@link refreshAllFonts}）。 */
+  private fontSweepStampPath(): string {
+    return join(this.fontsDir, '.sweep.json');
+  }
+
+  /** 读进度戳；缺失 / 损坏返回 null（= 值得跑一遍）。 */
+  private fontSweepStamp(): FontSweepStamp | null {
+    try {
+      const raw = JSON.parse(readFileSync(this.fontSweepStampPath(), 'utf-8')) as FontSweepStamp;
+      if (typeof raw.deriveVersion !== 'number') return null;
+      return raw;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 这次的「WeQ 版本 × 转换链版本」是不是已经体检过了。
+   *
+   * appVersion 也在组合里：这就是「WeQ 更新变化后把缓存目录逐个扫描一次」的开关 ——
+   * 即便链版本一个没动，一次发版也会让下次开账号把整个 `fonts/` 目录过一遍（版本都对
+   * 得上的话只是读 N 个 sidecar，不做任何转换）。
+   */
+  private isSweepStampCurrent(stamp: FontSweepStamp): boolean {
+    return (
+      stamp.appVersion === this.appVersion() &&
+      stamp.deriveVersion === DRESS_DERIVE_VERSION &&
+      (stamp.fontPipeline ?? 0) === this.fontPipelineVersion()
+    );
+  }
+
+  /** 记下这次体检的组合（写在全部跑完之后，中途崩掉下次重跑也不会漏）。 */
+  private writeSweepStamp(): void {
+    const stamp: FontSweepStamp = {
+      appVersion: this.appVersion(),
+      deriveVersion: DRESS_DERIVE_VERSION,
+      fontPipeline: this.fontPipelineVersion(),
+      finishedAt: new Date().toISOString(),
+    };
+    try {
+      writeFileSync(this.fontSweepStampPath(), JSON.stringify(stamp, null, 2));
+    } catch (e) {
+      this.logger.warn('failed to write font sweep stamp', {
+        event: 'dress-font-sweep-stamp-failed',
+        ...logErrorContext(e),
+      });
+    }
+  }
+
+  /** 当前 WeQ 版本；拿不到时返回空串（体检照跑，只是不再享受「发版即体检」）。 */
+  private appVersion(): string {
+    try {
+      return getHost().appVersion();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * 当前 native 的字体转换链版本。
+   *
+   * 锚定的 native 构建还没跟上这个导出时按 `0`（= 未知）算：那时 sidecar 里也没有
+   * 这枚字段（同样当 0），于是两边一致、行为与加它之前完全相同 —— 只有 DRESS_DERIVE_VERSION
+   * 那一号在管。等以后换上有这个导出的 native，`0 → 2` 的差异会让缓存全体重解一次，
+   * 正好把「不知道是哪条链产出的」那批洗掉。
+   */
+  private fontPipelineVersion(): number {
+    try {
+      const version = this.ntHelper.getFontPipelineVersion?.();
+      return typeof version === 'number' && Number.isInteger(version) && version > 0 ? version : 0;
+    } catch {
+      return 0;
     }
   }
 
@@ -479,9 +670,11 @@ export class DressSharedCache {
     }
 
     const fx = readFontFx(assetsDir);
+    const fontPipeline = this.fontPipelineVersion();
     const sidecar: FontSidecar = {
       itemId,
       deriveVersion: DRESS_DERIVE_VERSION,
+      fontPipeline,
       ...(fx ? { fx } : {}),
     };
     writeFileSync(this.fontSidecarPath(itemId), JSON.stringify(sidecar, null, 2));
@@ -491,6 +684,7 @@ export class DressSharedCache {
       itemId,
       bytes: ttf.length,
       deriveVersion: DRESS_DERIVE_VERSION,
+      fontPipeline,
       fxVariants: fx?.variants.length ?? 0,
     });
 
@@ -498,7 +692,7 @@ export class DressSharedCache {
       itemId,
       family: fontFamilyFor(itemId),
       file: finalFile,
-      deriveVersion: DRESS_DERIVE_VERSION,
+      deriveVersion: fontRenderStamp(sidecar),
       fx,
     };
   }
@@ -636,14 +830,22 @@ export class DressSharedCache {
     }
   }
 
-  /** 缓存的字体产物是不是**当前派生版本**。 */
+  /** 缓存的字体产物是不是**当前转换链**（宿主链 + native 链都对得上）产出的。 */
   isFontDerived(itemId: number): boolean {
-    const sidecar = this.fontSidecar(itemId);
-    return Boolean(sidecar && sidecar.deriveVersion === DRESS_DERIVE_VERSION);
+    return this.isCurrentSidecar(this.fontSidecar(itemId));
+  }
+
+  /** sidecar 是否是当前转换链产出的，判定规则见 {@link isFontDerived}。 */
+  private isCurrentSidecar(sidecar: FontSidecar | null): boolean {
+    if (!sidecar) return false;
+    return (
+      sidecar.deriveVersion === DRESS_DERIVE_VERSION &&
+      (sidecar.fontPipeline ?? 0) === this.fontPipelineVersion()
+    );
   }
 
   /**
-   * 字体的渲染入口：文件路径 + 派生版本 + 炫彩帧几何。没装返回 null。
+   * 字体的渲染入口：文件路径 + 渲染戳 + 炫彩帧几何。没装返回 null。
    *
    * 旧版本产物（sidecar 缺失或版本不符）照样返回 —— 它能渲染、该显示，只是
    * 内容可能不是最新的，等着被 {@link installFont} 就地重做。
@@ -651,12 +853,16 @@ export class DressSharedCache {
   fontDerived(itemId: number): FontDerived | null {
     const file = this.fontFile(itemId);
     if (!file) return null;
-    const sidecar = this.fontSidecar(itemId);
+    return this.derivedFrom(itemId, file, this.fontSidecar(itemId));
+  }
+
+  /** 由已解析出的文件路径 + sidecar 拼出 {@link FontDerived}（省一次重复读）。 */
+  private derivedFrom(itemId: number, file: string, sidecar: FontSidecar | null): FontDerived {
     return {
       itemId,
       family: fontFamilyFor(itemId),
       file,
-      deriveVersion: sidecar?.deriveVersion ?? 0,
+      deriveVersion: fontRenderStamp(sidecar),
       fx: sidecar?.fx ?? null,
     };
   }
@@ -678,15 +884,17 @@ export class DressSharedCache {
    * 已派生到当前版本的字体产物；sidecar 对不上、文件损坏时返回 null（= 需要重新派生）。
    */
   private loadDerivedFont(itemId: number): FontDerived | null {
-    const derived = this.fontDerived(itemId);
-    if (!derived || derived.deriveVersion !== DRESS_DERIVE_VERSION) return null;
+    const file = this.fontFile(itemId);
+    if (!file) return null;
+    const sidecar = this.fontSidecar(itemId);
+    if (!this.isCurrentSidecar(sidecar)) return null;
     // 只有这里会整份读 ttf 做可渲染性校验（装/取的频次低），清单路径不做。
     try {
-      if (!isRenderableSfnt(readFileSync(derived.file))) return null;
+      if (!isRenderableSfnt(readFileSync(file))) return null;
     } catch {
       return null;
     }
-    return derived;
+    return this.derivedFrom(itemId, file, sidecar);
   }
 
   /** 缓存里的**旧版本**字体产物（能渲染就当兜底用）。 */
@@ -778,6 +986,18 @@ export class DressSharedCache {
 /** @font-face 的 family 名。 */
 export function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
+}
+
+/**
+ * 渲染戳：把 `deriveVersion` 与 `fontPipeline` 合成**一个数**给渲染侧当 URL 上的 `v=`。
+ *
+ * 为什么要合成：ttf 的路径（`<id>.ttf`）从不变化，靠 query 上的版本戳让浏览器丢掉旧
+ * `@font-face`。链条换了就必须换 URL —— 哪怕 DRESS_DERIVE_VERSION 没动、只是 native
+ * 侧改了转换（如 hdmx/LTSH 那次），否则同一会话里已注册的 face 还是旧字节。
+ * `deriveVersion` 是 1 位数量级，乘 1000 给 native 链版本留够位。
+ */
+function fontRenderStamp(sidecar: FontSidecar | null): number {
+  return (sidecar?.deriveVersion ?? 0) * 1000 + (sidecar?.fontPipeline ?? 0);
 }
 
 /** 导出帧的文件名 → `eimg` 槽位号（名字就是 `frame_<slot>.png`，见 nt_helper 的 dump）。 */
