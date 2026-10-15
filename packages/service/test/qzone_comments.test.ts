@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// Comment parser/page-budget fixtures do not wait on the app-wide network quota.
+// Real dispatch throttling and cancellation are covered by qzone_pagination_limit.test.ts.
+vi.mock('../src/common/qzone_pagination', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/common/qzone_pagination')>()),
+  waitForQzonePage: async () => {},
+}));
 import {
   parseQzoneCommentPage,
   readQzoneComments,

@@ -1,6 +1,7 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
 import { z } from 'zod';
 import { getHost } from '@weq/service';
+import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
@@ -31,15 +32,15 @@ async function request<T>(
   if ([...pending.values()].filter((entry) => entry.services === services).length >= 4)
     throw new Error('请等待当前空间内容加载完成。');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('空间加载超时，请重试。')), 60_000);
   pending.set(input.requestId, { services, controller });
   try {
-    const result = await run(services, controller.signal);
+    const result = await withQzonePaginationTimeout(controller, 60_000, () =>
+      run(services, controller.signal),
+    );
     controller.signal.throwIfAborted();
     if (getAppContext().services !== services) throw new Error('账号已切换，请重新打开空间。');
     return result;
   } finally {
-    clearTimeout(timer);
     pending.delete(input.requestId);
   }
 }

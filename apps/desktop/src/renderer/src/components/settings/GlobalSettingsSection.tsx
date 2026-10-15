@@ -36,6 +36,7 @@ import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
+import { QzonePaginationSettings } from './QzonePaginationSettings';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -567,6 +568,8 @@ export function GlobalSettingsSection(): ReactElement {
       </Card>
 
       {/* Default export save directory */}
+      <QzonePaginationSettings />
+
       <Card title="导出保存目录">
         <Row
           label={
