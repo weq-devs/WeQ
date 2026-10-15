@@ -43,6 +43,7 @@ export type {
   AppLockMethod,
   WindowCloseBehavior,
   VoiceTranscribeConfig,
+  OcrModelsConfig,
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
@@ -770,6 +771,13 @@ export {
 } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
+export { ModelStore } from './common/model_store';
+export type {
+  ModelFile,
+  ModelEntry,
+  ModelDiskState,
+  ModelDownloadProgress,
+} from './common/model_store';
 export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
 export type {
   TranscribeModelInfo,
@@ -777,6 +785,13 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
+export { OcrModelService, OCR_MODELS, getOcrModel } from './common/ocr_models';
+export type {
+  OcrModelInfo,
+  OcrModelKind,
+  OcrModelStatus,
+  OcrDownloadProgress,
+} from './common/ocr_models';
 export {
   getLogDir,
   getLogger,

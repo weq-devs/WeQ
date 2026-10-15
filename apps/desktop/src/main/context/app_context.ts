@@ -56,6 +56,7 @@ import {
   LinkPreviewService,
   AgentLabConfigService,
   VoiceTranscribeService,
+  OcrModelService,
   TtsService,
   getVoiceModel,
   MsgService,
@@ -570,6 +571,11 @@ export interface BootstrapServices {
   agentLabConfig: AgentLabConfigService;
   /** Voice-transcription model management (download/select). Account-independent. */
   voiceTranscribe: VoiceTranscribeService;
+  /**
+   * 本地图片文字识别（OCR）的模型管理（下载/选择）。账号无关。
+   * 目前只做模型下载与存储，推理引擎还没接（见 `@weq/service` 的 ocr_models.ts）。
+   */
+  ocrModels: OcrModelService;
   /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
   tts: TtsService;
   /**
@@ -970,6 +976,7 @@ export function initAppContext(): AppContext {
     linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
+    ocrModels: new OcrModelService(platform),
     tts: new TtsService(),
     attachHook,
     externalRkey: new ExternalRkeyService(userConfig),

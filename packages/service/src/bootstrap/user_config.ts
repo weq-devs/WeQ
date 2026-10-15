@@ -331,6 +331,20 @@ export interface VoiceTranscribeConfig {
 }
 
 /**
+ * 本地图片文字识别（OCR）的模型选择。两个用途各自独立：
+ *
+ *   - `modelId`       识别模型（出文字 + 像素坐标框）：空 = 未选；
+ *   - `filterModelId` 筛图模型（只判断有没有文字，用于批量 OCR 前先筛掉无文字的图）：
+ *                     空 = 不过滤。
+ *
+ * 两个 id 都指向 `@weq/service` 的 OCR 模型注册表（`common/ocr_models.ts`）。
+ */
+export interface OcrModelsConfig {
+  modelId: string;
+  filterModelId: string;
+}
+
+/**
  * Local MCP server config. The server is account-bound — it only listens while
  * an account is open and stops when the account switches / logs out. Bound to
  * 127.0.0.1 and gated by a bearer `token` (generated on first enable).
@@ -409,6 +423,8 @@ export interface AppSettings {
   autoLockMinutes: number;
   appLock: AppLockConfig;
   voiceTranscribe: VoiceTranscribeConfig;
+  /** 本地图片文字识别（OCR）的模型选择。 */
+  ocr: OcrModelsConfig;
   mcp: McpServerConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
@@ -646,6 +662,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
+  // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
+  ocr: { modelId: '', filterModelId: '' },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
@@ -1082,6 +1100,10 @@ export class UserConfigService {
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
+      ocr: {
+        modelId: s?.ocr?.modelId ?? d.ocr.modelId,
+        filterModelId: s?.ocr?.filterModelId ?? d.ocr.filterModelId,
+      },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
         port: s?.mcp?.port ?? d.mcp.port,
@@ -1175,6 +1197,10 @@ export class UserConfigService {
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
       },
+      ocr: {
+        modelId: patch.ocr?.modelId ?? current.ocr.modelId,
+        filterModelId: patch.ocr?.filterModelId ?? current.ocr.filterModelId,
+      },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
         port: patch.mcp?.port ?? current.mcp.port,
@@ -1201,6 +1227,8 @@ export class UserConfigService {
       autoLockMinutes: next.autoLockMinutes,
       voiceModelId: next.voiceTranscribe.modelId,
       ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
+      ocrModelId: next.ocr.modelId,
+      ocrFilterModelId: next.ocr.filterModelId,
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,
