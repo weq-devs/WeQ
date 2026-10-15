@@ -12,14 +12,14 @@
 
 import { existsSync } from 'node:fs';
 import { fork } from 'node:child_process';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { app } from 'electron';
 import type { EmotionKind, IntentKind, IntentLocalEnginePort, MbtiDim } from '@weq/service';
 import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
 
 /** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
-  /** 模型 bundle 落盘目录（userData/models/laya-multilingual）。 */
+  /** 模型 bundle 落盘目录（weq 用户数据目录下）。 */
   modelDir(): string;
   isModelDownloaded(): boolean;
   download(options: { mirror: boolean; onProgress?: (p: BundleProgress) => void }): Promise<void>;
@@ -27,9 +27,27 @@ export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
   stop(): Promise<void>;
 }
 
-/** Laya bundle 的落盘位置（userData 下，不随卸载进安装目录）。 */
+/**
+ * weq 用户数据根（与 @weq/platform 的 appDataRoot 同款派生，不用
+ * `app.getPath('userData')` —— dev 模式下那是 Electron 默认目录，与
+ * service 层实际落盘的 weq 目录不是同一个，模型会被找丢）。
+ */
+function weqAppDataRoot(): string {
+  if (process.platform === 'win32') {
+    const base = process.env.APPDATA;
+    if (!base) throw new Error('%APPDATA% not set — cannot derive weq user data root');
+    return join(base, 'weq');
+  }
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'weq');
+  }
+  const xdg = process.env.XDG_CONFIG_HOME;
+  return join(xdg && xdg.length > 0 ? xdg : join(homedir(), '.config'), 'weq');
+}
+
+/** Laya bundle 的落盘位置。 */
 export function layaModelDir(): string {
-  return join(app.getPath('userData'), 'models', 'laya-multilingual');
+  return join(weqAppDataRoot(), 'models', 'laya-multilingual');
 }
 
 interface WorkerMessage {
