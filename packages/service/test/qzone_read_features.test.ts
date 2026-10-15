@@ -111,6 +111,21 @@ describe('post completion', () => {
 });
 
 describe('separate feed recipes', () => {
+  it('preserves activity hints without deriving action kinds from post app IDs', () => {
+    const result = parseQzoneRecall(
+      jsonp({
+        code: 0,
+        data: {
+          data: [
+            { uin: 10002, appid: 311, feedstime: '好友赞了你的说说', html: '<div>fixture</div>' },
+          ],
+          main: {},
+        },
+      }),
+      'related',
+    );
+    expect(result.feeds[0]).toMatchObject({ appid: 311, actionHint: '好友赞了你的说说' });
+  });
   it('uses scope=7 with the original continuation protocol', async () => {
     const fetch = mockBody({ code: 0, data: { data: [], main: { hasMoreFeeds: false } } });
     await getQzoneFeeds(cred, cred.uin, 1, 10, undefined, 'basetime=123&pagenum=2', 7);

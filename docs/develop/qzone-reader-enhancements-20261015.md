@@ -1,5 +1,7 @@
 # Qzone Reader Enhancements, 2026-10-15
 
+Follow-up scope change: the user subsequently removed the R18 UI and moved it and the forward-list UI to [TODO](qzone-todo.md). Special care now lives in the friend-feed dropdown; related-to-me now uses collapsed activity cards rather than full post cards. The verification below describes the earlier implementation, not acceptance of these later UI changes.
+
 ## Implemented Scope
 
 - R02: automatically request details for a visible post with explicit body/repost truncation. Keep existing content on failures, allow explicit retry, and only declare completeness when the response clears its truncation flag. Longer content without a completeness flag remains unverified. Responses with mismatched author/post identifiers are rejected when those fields are present.

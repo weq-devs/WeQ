@@ -7,12 +7,25 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type ReactElement,
   type RefObject,
 } from 'react';
-import { Eye, ImagePlus, Loader2, MessageCircle, RefreshCw, Send, ThumbsUp, X } from 'lucide-react';
+import {
+  AtSign,
+  ChevronDown,
+  Eye,
+  ImagePlus,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  Repeat2,
+  Send,
+  ThumbsUp,
+  X,
+} from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
@@ -37,8 +50,14 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import {
+  projectQzoneRelated,
+  qzoneRelatedKey,
+  type RelatedActivity,
+  type RelatedKind,
+} from '../lib/qzoneRelated';
 
-type Tab = 'feeds' | 'posts' | 'space' | 'related' | 'memories';
+type Tab = 'feeds' | 'posts' | 'space' | 'related';
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 function timeText(time: number): string {
@@ -441,13 +460,6 @@ export function QzoneView({
             >
               与我相关
             </button>
-            <button
-              type="button"
-              aria-current={tab === 'memories' ? 'page' : undefined}
-              onClick={() => setTab('memories')}
-            >
-              那年今日
-            </button>
             {spaces.map((uin) => (
               <span className="weq-qzn-space-tab" key={uin}>
                 <button
@@ -520,13 +532,11 @@ export function QzoneView({
             <Feeds selfUin={selfUin} onSpace={openSpace} />
           </QzonePage>
         ) : null}
-        {(['related', 'memories'] as const).map((kind) =>
-          visited.includes(kind) || tab === kind ? (
-            <QzonePage key={kind} active={active && tab === kind} refreshKey={refreshes[kind] ?? 0}>
-              <Recall selfUin={selfUin} kind={kind} onSpace={openSpace} />
-            </QzonePage>
-          ) : null,
-        )}
+        {visited.includes('related') || tab === 'related' ? (
+          <QzonePage active={active && tab === 'related'} refreshKey={refreshes.related ?? 0}>
+            <FeedTimeline selfUin={selfUin} kind="related" onSpace={openSpace} />
+          </QzonePage>
+        ) : null}
         {visited.includes('posts') || tab === 'posts' ? (
           <SpaceContent
             active={active && tab === 'posts'}
@@ -1763,78 +1773,17 @@ function Feeds({
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
-  const [onlyCare, setOnlyCare] = useState(false);
+  const [filter, setFilter] = useState('0');
+  const scope = filter === 'care' ? 7 : 0;
   return (
-    <>
-      <div className="weq-qzn-feed-options">
-        <label>
-          <input
-            type="checkbox"
-            checked={onlyCare}
-            onChange={(event) => {
-              setOnlyCare(event.target.checked);
-              const scroll = event.currentTarget.closest('.weq-qzn-scroll');
-              if (scroll) scroll.scrollTop = 0;
-            }}
-          />
-          仅显示特别关心
-        </label>
-      </div>
-      <FeedTimeline
-        key={String(onlyCare)}
-        selfUin={selfUin}
-        onSpace={onSpace}
-        scope={onlyCare ? 7 : 0}
-      />
-    </>
-  );
-}
-
-function Recall({
-  selfUin,
-  kind,
-  onSpace,
-}: {
-  selfUin: string;
-  kind: 'related' | 'memories';
-  onSpace: (uin: string, nickname?: string) => void;
-}) {
-  const currentYear = Number(
-    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }).slice(0, 4),
-  );
-  const [year, setYear] = useState(currentYear - 1);
-  return (
-    <>
-      {kind === 'memories' ? (
-        <div className="weq-qzn-feed-options">
-          <select
-            aria-label="回顾年份"
-            value={year}
-            onChange={(event) => {
-              setYear(Number(event.target.value));
-              const scroll = event.currentTarget.closest('.weq-qzn-scroll');
-              if (scroll) scroll.scrollTop = 0;
-            }}
-          >
-            {Array.from(
-              { length: Math.max(1, currentYear - 1995) },
-              (_, index) => currentYear - 1 - index,
-            ).map((value) => (
-              <option key={value} value={value}>
-                {value} 年
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
-      <FeedTimeline
-        key={`${kind}:${year}`}
-        selfUin={selfUin}
-        onSpace={onSpace}
-        kind={kind}
-        year={year}
-      />
-    </>
+    <FeedTimeline
+      key={scope}
+      selfUin={selfUin}
+      onSpace={onSpace}
+      scope={scope}
+      filter={filter}
+      onFilter={setFilter}
+    />
   );
 }
 
@@ -1843,21 +1792,24 @@ function FeedTimeline({
   onSpace,
   scope = 0,
   kind = 'friends',
-  year = 2025,
+  filter = '0',
+  onFilter,
 }: {
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
   scope?: 0 | 7;
-  kind?: 'friends' | 'related' | 'memories';
-  year?: number;
+  kind?: 'friends' | 'related';
+  filter?: string;
+  onFilter?: (filter: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const [incomplete, setIncomplete] = useState(false);
-  const title = kind === 'friends' ? '好友动态' : kind === 'related' ? '与我相关' : '那年今日';
+  const title = kind === 'friends' ? '好友动态' : '与我相关';
   const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(null);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState(0);
+  const [interactionTab, setInteractionTab] = useState<RelatedKind>('like');
+  const relatedPanel = useId();
   const [retry, setRetry] = useState(0);
   const [cursor, setCursor] = useState<string | undefined>();
   const lastCursor = useRef(cursor);
@@ -1897,8 +1849,6 @@ function FeedTimeline({
             requestId,
             offset: Number(new URLSearchParams(pageCursor).get('offset') ?? 0),
           });
-        if (kind === 'memories')
-          return client.account.qzone.memories.query({ selfUin, requestId, year });
         return client.account.qzone.feeds.query({ selfUin, requestId, cursor: pageCursor, scope });
       },
     )
@@ -1906,7 +1856,9 @@ function FeedTimeline({
         if (!live) return;
         setIncomplete('incomplete' in page && page.incomplete === true);
         const key = (feed: QzoneFeed): string =>
-          `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
+          kind === 'related'
+            ? qzoneRelatedKey(feed)
+            : `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
         const previousSize = merged.size;
         for (const feed of page.feeds) merged.set(key(feed), feed);
@@ -1956,7 +1908,7 @@ function FeedTimeline({
       live = false;
       cancel();
     };
-  }, [active, selfUin, cursor, pageRequest, retry, refresh, scope, kind, year, run, cancel]);
+  }, [active, selfUin, cursor, pageRequest, retry, refresh, scope, kind, run, cancel]);
   useEffect(() => {
     if (nearEnd && !loading && !error && !done && nextCursor.current)
       loadCursor(nextCursor.current);
@@ -2022,9 +1974,18 @@ function FeedTimeline({
     [selfUin, runLookup],
   );
   const currentProjector = projectQzoneFeed;
+  const related = useMemo(
+    () =>
+      kind === 'related'
+        ? feeds?.map((feed) => ({ feed, activity: projectQzoneRelated(feed) }))
+        : undefined,
+    [kind, feeds],
+  );
+  const unclassified = related?.filter((item) => item.activity.kind === 'unknown') ?? [];
+  const relatedShown = related?.filter((item) => item.activity.kind === interactionTab);
   const shown = useMemo(
     () =>
-      feeds
+      (kind === 'friends' ? feeds : undefined)
         ?.filter((feed) => feed.uin > 0)
         .map((feed) => {
           const key = `${feed.uin}:${feed.appid}:${feed.key || feed.time}`;
@@ -2038,27 +1999,108 @@ function FeedTimeline({
         .filter(
           ({ feed, body }) =>
             !body.advertisement &&
-            (!filter ||
-              (filter === -1 ? ![311, 2, 4].includes(feed.appid) : feed.appid === filter)),
+            (filter === '0' ||
+              filter === 'care' ||
+              (filter === '-1'
+                ? ![311, 2, 4].includes(feed.appid)
+                : feed.appid === Number(filter))),
         ),
-    [feeds, filter, currentProjector],
+    [kind, feeds, filter, currentProjector],
   );
   return (
     <div className="weq-qzn-timeline">
       <div className="weq-qzn-section-title">
         <h2>{title}</h2>
-        <select
-          aria-label="动态类型"
-          value={filter}
-          onChange={(event) => setFilter(Number(event.target.value))}
-        >
-          <option value={0}>全部动态</option>
-          <option value={311}>说说</option>
-          <option value={2}>日志</option>
-          <option value={4}>相册</option>
-          <option value={-1}>其他动态</option>
-        </select>
+        {kind === 'friends' ? (
+          <select
+            aria-label="动态类型"
+            value={filter}
+            onChange={(event) => {
+              onFilter?.(event.target.value);
+              const scroll = event.currentTarget.closest('.weq-qzn-scroll');
+              if (scroll) scroll.scrollTop = 0;
+            }}
+          >
+            <option value={0}>全部动态</option>
+            <option value="care">特别关心</option>
+            <option value={311}>说说</option>
+            <option value={2}>日志</option>
+            <option value={4}>相册</option>
+            <option value={-1}>其他动态</option>
+          </select>
+        ) : null}
       </div>
+      {kind === 'related' ? (
+        <>
+          <div className="weq-qzn-related-tabs" role="tablist" aria-label="互动类型">
+            {RELATED_TABS.map(({ value, label, icon: Icon }, index) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={interactionTab === value}
+                aria-controls={relatedPanel}
+                tabIndex={interactionTab === value ? 0 : -1}
+                onClick={() => setInteractionTab(value)}
+                onKeyDown={(event) => {
+                  const next =
+                    event.key === 'ArrowRight'
+                      ? (index + 1) % RELATED_TABS.length
+                      : event.key === 'ArrowLeft'
+                        ? (index + RELATED_TABS.length - 1) % RELATED_TABS.length
+                        : event.key === 'Home'
+                          ? 0
+                          : event.key === 'End'
+                            ? RELATED_TABS.length - 1
+                            : null;
+                  if (next === null) return;
+                  event.preventDefault();
+                  setInteractionTab(RELATED_TABS[next]!.value);
+                  event.currentTarget.parentElement
+                    ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+                    [next]?.focus();
+                }}
+              >
+                <Icon size={15} />
+                {value === 'mention' ? <span className="sr-only">@</span> : label}
+                <span aria-hidden="true" title="已加载的互动">
+                  {related?.filter((item) => item.activity.kind === value).length ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div
+            id={relatedPanel}
+            role="tabpanel"
+            aria-label={RELATED_TABS.find((item) => item.value === interactionTab)?.label}
+          >
+            {relatedShown?.map(({ feed, activity }) => (
+              <RelatedCard
+                key={qzoneRelatedKey(feed)}
+                feed={feed}
+                activity={activity}
+                onSpace={onSpace}
+              />
+            ))}
+            {feeds && !loading && !relatedShown?.length ? (
+              <p className="weq-qzn-status">暂无此类互动</p>
+            ) : null}
+          </div>
+          {unclassified.length ? (
+            <details className="weq-qzn-related-unknown">
+              <summary>未识别（{unclassified.length}）</summary>
+              {unclassified.map(({ feed, activity }) => (
+                <RelatedCard
+                  key={qzoneRelatedKey(feed)}
+                  feed={feed}
+                  activity={activity}
+                  onSpace={onSpace}
+                />
+              ))}
+            </details>
+          ) : null}
+        </>
+      ) : null}
       {!feeds ? (
         <State
           loading={loading && !error}
@@ -2090,7 +2132,7 @@ function FeedTimeline({
           loading ? (
             <p className="weq-qzn-status">
               <Loader2 size={16} className="weq-spin" />
-              {headRequest.current ? '正在刷新动态…' : '正在加载更多动态…'}
+              {headRequest.current ? '正在刷新…' : '正在加载更多…'}
             </p>
           ) : !done ? (
             <button
@@ -2100,22 +2142,72 @@ function FeedTimeline({
                 if (nextCursor.current) loadCursor(nextCursor.current);
               }}
             >
-              加载更多动态
+              {kind === 'related' ? '加载更多互动' : '加载更多动态'}
             </button>
           ) : (
             <p className="weq-qzn-status">
               {incomplete
                 ? '仍有未加载内容，接口未提供可用的续页位置'
-                : shown?.length
-                  ? '已加载当前可查看的动态'
-                  : filter
-                    ? '暂无此类型动态'
-                    : '暂时没有可查看的动态'}
+                : kind === 'related'
+                  ? '已加载当前返回的互动'
+                  : shown?.length
+                    ? '已加载当前可查看的动态'
+                    : filter !== '0'
+                      ? '暂无此类型动态'
+                      : '暂时没有可查看的动态'}
             </p>
           )
         ) : null}
       </div>
     </div>
+  );
+}
+
+const RELATED_TABS = [
+  { value: 'like', label: '点赞', icon: ThumbsUp },
+  { value: 'comment', label: '评论', icon: MessageCircle },
+  { value: 'forward', label: '转发', icon: Repeat2 },
+  { value: 'mention', label: '@', icon: AtSign },
+] as const;
+
+function RelatedCard({
+  feed,
+  activity,
+  onSpace,
+}: {
+  feed: QzoneFeed;
+  activity: RelatedActivity;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const Icon = RELATED_TABS.find((item) => item.value === activity.kind)?.icon ?? MessageCircle;
+  return (
+    <details className="weq-qzn-related-card">
+      <summary>
+        <Icon size={17} className="weq-qzn-related-icon" />
+        <span>{activity.action}</span>
+        <time>{timeText(feed.time)}</time>
+        <ChevronDown size={15} className="weq-qzn-related-chevron" />
+      </summary>
+      <div className="weq-qzn-related-detail">
+        <dl>
+          <div>
+            <dt>互动类型</dt>
+            <dd>{RELATED_TABS.find((item) => item.value === activity.kind)?.label ?? '未识别'}</dd>
+          </div>
+          {activity.target ? (
+            <div>
+              <dt>关联类型</dt>
+              <dd>{activity.target}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {activity.actorUin ? (
+          <button type="button" onClick={() => onSpace(activity.actorUin!, activity.actorName)}>
+            查看 {activity.actorName || activity.actorUin} 的空间
+          </button>
+        ) : null}
+      </div>
+    </details>
   );
 }
 

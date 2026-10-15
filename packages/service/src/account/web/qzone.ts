@@ -573,6 +573,7 @@ export interface RawFeedItem {
   key?: string;
   feedskey?: string;
   html?: string;
+  feedstime?: string;
 }
 
 interface RawFeedsRet {
@@ -599,6 +600,8 @@ export interface QzoneFeed {
   key: string;
   /** 预渲染 HTML 原样带出。 */
   html: string;
+  /** Activity hint supplied by related-to-me feeds; not the post's app/type ID. */
+  actionHint?: string;
 }
 
 export interface QzoneFeedsResult {
@@ -629,6 +632,9 @@ export function mapFeeds(data: RawFeedsRet): QzoneFeedsResult {
       // per-feed 标识(NOT 列表级的下一页游标 —— 那个在 data.* 上,不在 item 上)。
       key: String(f.key ?? f.feedskey ?? ''),
       html: f.html ?? '',
+      ...(typeof f.feedstime === 'string' && f.feedstime.trim()
+        ? { actionHint: f.feedstime.trim() }
+        : {}),
     })),
     hasMore,
     ...(hasMore && typeof nextCursor === 'string' && nextCursor && nextCursor.length <= 16384
