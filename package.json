@@ -25,7 +25,8 @@
     "native:check": "node scripts/fetch-native.mjs --check",
     "version:set": "node scripts/set-version.mjs",
     "mface:fetch": "node scripts/parcel_crawler.mjs",
-    "rpskin:fetch": "tsx scripts/fetch_red_pack_skins.ts"
+    "rpskin:fetch": "tsx scripts/fetch_red_pack_skins.ts",
+    "sso:send": "tsx scripts/sso_send.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
