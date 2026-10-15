@@ -7,7 +7,27 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { computeBkn, cookieHeader, type WebCredential } from '../src/account/web/credential';
+import {
+  computeBkn,
+  cookieHeader,
+  fetchWebTokens,
+  WebCredentialProvider,
+  type WebCredential,
+  type WebNative,
+} from '../src/account/web/credential';
+
+/**
+ * 「hook 与 pt_login 都不可用」的 native 桩：两条路都必须失败，用来验证最后那层
+ * 登录票据兜底。
+ */
+function deadNative(): WebNative {
+  return {
+    sendOidbPacket: () => Promise.reject(new Error('hook 不可用')),
+    probePtLoginPort: () => ({ success: false, msg: '没有候选端口', port: 0 }),
+    ptFetchSkey: () => Promise.resolve({ success: false, msg: '桩', skey: '' }),
+    ptFetchPskey: () => Promise.resolve({ success: false, msg: '桩', pskey: '' }),
+  };
+}
 
 describe('computeBkn', () => {
   it.each([
@@ -53,5 +73,80 @@ describe('cookieHeader', () => {
   it('空 token 被丢弃', () => {
     const cred: WebCredential = { uin: '12345', skey: 'SK', pskey: '' };
     expect(cookieHeader(cred)).toBe('uin=o12345; skey=SK; p_uin=o12345');
+  });
+});
+
+/**
+ * 登录时收下的 seed 票据失效后必须能被删掉 —— 否则下次开账号又会 seed 同一个死
+ * 票据，每个域每次请求都先白失败一轮。
+ */
+describe('WebCredentialProvider 的 seed 失效处理', () => {
+  const nt = deadNative();
+  const provider = (onSeedInvalidated?: (domain: string) => void): WebCredentialProvider =>
+    new WebCredentialProvider(nt, '12345', () => 0, onSeedInvalidated);
+
+  it('invalidate 掉 seed 进来的域时通知持有方', () => {
+    const dropped: string[] = [];
+    const creds = provider((d) => dropped.push(d));
+    creds.seedPskey({ 'vip.qq.com': 'V', 'qzone.qq.com': 'Q' });
+
+    creds.invalidate('vip.qq.com');
+
+    expect(dropped).toEqual(['vip.qq.com']);
+  });
+
+  it('没 seed 过的域不打扰持有方；同一个域只通知一次', () => {
+    const dropped: string[] = [];
+    const creds = provider((d) => dropped.push(d));
+
+    creds.invalidate('vip.qq.com'); // 本来就不是 seed 来的
+    creds.seedPskey({ 'qzone.qq.com': 'Q' });
+    creds.invalidate('qzone.qq.com');
+    creds.invalidate('qzone.qq.com'); // seed 标记已随第一次清掉
+
+    expect(dropped).toEqual(['qzone.qq.com']);
+  });
+
+  it('持有方删盘抛错不外泄', () => {
+    const creds = provider(() => {
+      throw new Error('写配置失败');
+    });
+    creds.seedPskey({ 'vip.qq.com': 'V' });
+
+    expect(() => creds.invalidate('vip.qq.com')).not.toThrow();
+  });
+
+  it('没传回调时照样能 invalidate', () => {
+    const creds = provider();
+    creds.seedPskey({ 'vip.qq.com': 'V' });
+
+    expect(() => creds.invalidate('vip.qq.com')).not.toThrow();
+  });
+});
+
+describe('fetchWebTokens 的登录票据兜底', () => {
+  it('hook 与 pt_login 都拿不到时退回 seed 的 p_skey', async () => {
+    const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'qzone.qq.com', {
+      needSkey: true,
+      seedPskey: 'SEEDED',
+    });
+
+    expect(tokens).toEqual({ skey: '', pskey: 'SEEDED' });
+  });
+
+  it('没有 seed 时维持空串，不抛错', async () => {
+    const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'qzone.qq.com', {
+      needSkey: true,
+    });
+
+    expect(tokens).toEqual({ skey: '', pskey: '' });
+  });
+
+  it('不在 PT_LOGIN_DOMAINS 里的域不吃 seed', async () => {
+    const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'tenpay.com', {
+      seedPskey: 'SEEDED',
+    });
+
+    expect(tokens).toEqual({ skey: '', pskey: '' });
   });
 });

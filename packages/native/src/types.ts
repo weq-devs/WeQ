@@ -993,8 +993,10 @@ export interface QuickLoginOptions {
   /** `nt_msg.db` 头 `0x2f..0xaf` 的 128 字节 key_meta（dbSalt）。 */
   keyMeta?: string;
   /**
-   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。空 / 缺省则
-   * 不发这一轮；取不到不是致命错误。WeQ 侧默认只要 `vip.qq.com`。
+   * 登录成功后顺带取这些域名的 `p_skey`（OIDB `0x102a_0`）。**一域一轮请求**
+   * （服务端一轮只回一个域）；空 / 缺省则一轮都不发；取不到不是致命错误，
+   * 也不会让登录失败。WeQ 侧默认要 `vip.qq.com`（首页装扮）与
+   * `qzone.qq.com`（QQ 空间 Web cgi / 空间窗口）。
    */
   pskeyDomains?: string[];
 }

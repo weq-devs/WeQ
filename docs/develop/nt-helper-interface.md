@@ -98,7 +98,9 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 **`QuickLoginResult`**：`a2` / `d2` / `d2Key` / `uin`，外加 `dbKey?`（`0xcde_2` 结果）与
 `pskey?: Record<string, string>`（`0x102a_0` 结果，域 → p_skey；未请求或没拿到时缺省）。
 `pskeyDomains` 走的是**同一条登录连接**、属尽力而为：取不到只记日志，不会让登录失败。
-WeQ 侧默认只要 `vip.qq.com`（首页装扮 `zb.vip.qq.com` 用）。
+**一个域名一轮请求**（服务端一轮只回一个域，真机抓包里客户端也每轮只带一个域），所以两个域就是两轮
+`0x102a_0`。WeQ 侧默认要 `vip.qq.com`（首页装扮 `zb.vip.qq.com` 用）与 `qzone.qq.com`
+（QQ 空间 Web cgi / 空间窗口用）。
 
 `onEvent(err, event)` 推送进度：`state`（阶段文案）、`unusual-device`（异常设备需确认，
 带 `unusualDeviceCheckSig` / `unusualDeviceQrSig` / `uinToken`）、`qr-code`
@@ -294,7 +296,8 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 > **不要为此改 native 引入新接口**。
 >
 > ⚠️ 唯一的例外是**登录流程自己**：`quickLogin` / `qrLogin` 在换到 a2/d2/d2key 的那条连接上
-> 顺带发 `0xcde_2`（dbkey）与 `0x102a_0`（`pskeyDomains` → `p_skey`，默认只要 `vip.qq.com`）。
+> 顺带发 `0xcde_2`（dbkey）与 `0x102a_0`（`pskeyDomains` → `p_skey`，一域一轮，默认
+> `vip.qq.com` + `qzone.qq.com`）。
 > 这两步必须在登录连接里完成（会话物料刚拿到、连接还热），所以留在 native；除此之外的业务命令
 > 一律走上面的通用接口，不要在 login 里继续加。
 

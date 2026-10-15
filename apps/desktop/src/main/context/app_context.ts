@@ -1114,7 +1114,15 @@ export function initAppContext(): AppContext {
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
       // QQ 空间 Web 查询（说说 / 相册）—— 也注入进导出管理器，供「好友空间导出」
       // 翻页拉说说。需在线 QQ 凭证；离线时 fetchMsgList 会抛错（前端已先拦截）。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 登录时顺带收的 Web 票据（vip / qzone）直接 seed：第一次 cgi 不用等 hook；
+      // cgi 判它失效时顺手把落盘那份删掉。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
@@ -1751,7 +1759,14 @@ export function initAppContext(): AppContext {
       );
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
+      // 登录票据同 seed 流程（见上面的 WebQueryService 注释）。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
