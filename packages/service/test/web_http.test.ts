@@ -9,6 +9,14 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('web request bounds', () => {
+  it('does not automatically retry HTTP 501 even with an idempotent read budget', async () => {
+    const fetch = vi.fn(async () => new Response('unsupported', { status: 501 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      webRequestText('https://fixture.invalid/cgi', { cookie: '', retry: { maxAttempts: 2 } }),
+    ).rejects.toMatchObject({ kind: 'http', status: 501, retryable: false });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('forwards cancellation to fetch', async () => {
     vi.stubGlobal(
       'fetch',

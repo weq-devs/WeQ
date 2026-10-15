@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { completeQzonePostText } from '../src/renderer/src/lib/qzoneCompletion';
+import {
+  completeQzonePostText,
+  qzoneImageCompletionScope,
+} from '../src/renderer/src/lib/qzoneCompletion';
 import type { QzoneEmotion } from '../src/renderer/src/views/qzone_types';
 
 const source = (): QzoneEmotion => ({
@@ -20,6 +23,36 @@ const detail = (content: string, contentHasMore: boolean | null) => ({
 });
 
 describe('visible Qzone body continuation', () => {
+  it('places borrowed original media completion in the repost scope', () => {
+    const post = source();
+    post.images = ['same'];
+    post.repost = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: ['same'],
+      videos: [],
+    };
+    expect(qzoneImageCompletionScope(post)).toBe('repost');
+    post.images.push('own');
+    expect(qzoneImageCompletionScope(post)).toBe('post');
+  });
+  it('never associates similar URLs or unknown media by resemblance', () => {
+    const post = source();
+    post.images = ['https://a.qpic.cn/image?variant=one'];
+    post.repost = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: ['https://a.qpic.cn/image?variant=two'],
+      videos: [],
+    };
+    expect(qzoneImageCompletionScope(post)).toBe('post');
+    post.images = [];
+    expect(qzoneImageCompletionScope(post)).toBe('post');
+  });
   it.each([null, false])('stops without a warning when more=%s', async (more) => {
     const read = vi.fn(async () => detail('full body', more));
     const result = await completeQzonePostText(

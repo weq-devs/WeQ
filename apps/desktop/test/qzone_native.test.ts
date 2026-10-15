@@ -32,6 +32,13 @@ beforeEach(() => {
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
       getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
+      getQzoneStructuredComments: vi.fn(async () => ({
+        comments: [],
+        likes: [],
+        coverage: 'observed',
+        commentCountInclusive: 0,
+      })),
+      getQzoneInteractions: vi.fn(async () => new Map()),
       getQzoneRelated: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzoneMemories: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzoneAlbumPage: vi.fn(async () => ({
@@ -59,6 +66,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('routes structured reply reads directly without scanning homepage HTML', async () => {
+    const input = {
+      selfUin,
+      hostUin,
+      tid: 'post',
+      time: 123,
+      requestId: query.requestId,
+      structuredOnly: true,
+    };
+    expect(await api.interactions(input)).toMatchObject({ comments: [], commentCountInclusive: 0 });
+    expect(services.webQuery.getQzoneStructuredComments).toHaveBeenCalledWith(
+      hostUin,
+      'post',
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneInteractions).not.toHaveBeenCalled();
+    await expect(api.interactions({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+  });
   it('validates scopes and binds completion, recall and album reads to the account', async () => {
     await api.feeds({ selfUin, requestId: query.requestId, scope: 7 });
     expect(services.webQuery.getQzoneFeeds).toHaveBeenCalledWith(

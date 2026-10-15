@@ -27,6 +27,40 @@ function mockBody(value: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('post completion', () => {
+  it('provides a full visible post for related activity without exposing native wire fields', () => {
+    const result = parseQzonePostDetail(
+      jsonp({
+        code: 0,
+        uin: '10002',
+        tid: 'synthetic',
+        content: '全文',
+        created_time: 123,
+        cmtnum: 4,
+        pic: [{ url3: 'https://a.qpic.cn/own.png' }],
+        rt_tid: 'original',
+        rt_uin: '10003',
+        rt_con: '转发原文',
+        rt_pic: [{ url3: 'https://a.qpic.cn/original.png' }],
+        voice: [{ private: 'wire' }],
+      }),
+      '10002',
+      'synthetic',
+    );
+    expect(result.post).toMatchObject({
+      tid: 'synthetic',
+      content: '全文',
+      time: 123,
+      commentNum: 4,
+      images: ['https://a.qpic.cn/own.png'],
+      repost: {
+        tid: 'original',
+        uin: '10003',
+        content: '转发原文',
+        images: ['https://a.qpic.cn/original.png'],
+      },
+    });
+    expect(result.post).not.toHaveProperty('nativeMedia');
+  });
   it('retains explicit truncation and declared image totals', () => {
     expect(
       mapMsgList({
@@ -144,6 +178,40 @@ describe('post completion', () => {
 });
 
 describe('separate feed recipes', () => {
+  it('advances echoed offsets conservatively on short pages, allowing deduplicated overlap', () => {
+    const feed = { uin: 10002, key: 'event', html: '<p>fixture</p>' };
+    expect(
+      parseQzoneRecall(
+        jsonp({
+          code: 0,
+          data: {
+            data: [feed],
+            main: { hasMoreFeeds: true, offset: 40, count: 10, total_number: 1 },
+          },
+        }),
+        'related',
+        40,
+      ),
+    ).toMatchObject({ nextCursor: 'offset=41', hasMore: true, incomplete: false });
+    for (const count of [undefined, 0, -1, 101, 'bad'])
+      expect(
+        parseQzoneRecall(
+          jsonp({
+            code: 0,
+            data: { data: [feed], main: { hasMoreFeeds: true, offset: 40, count } },
+          }),
+          'related',
+          40,
+        ),
+      ).toMatchObject({ nextCursor: undefined, incomplete: true });
+    expect(
+      parseQzoneRecall(
+        jsonp({ code: 0, data: { data: [], main: { hasMoreFeeds: true, offset: 40, count: 10 } } }),
+        'related',
+        40,
+      ),
+    ).toMatchObject({ nextCursor: undefined, incomplete: true });
+  });
   it('preserves activity hints without deriving action kinds from post app IDs', () => {
     const result = parseQzoneRecall(
       jsonp({
@@ -216,6 +284,10 @@ describe('separate feed recipes', () => {
     await fetchQzoneRelated(cred, 27);
     let url = new URL(fetch.mock.calls[0]![0]);
     expect(url.searchParams.get('offset')).toBe('27');
+    expect(url.searchParams.get('begin_time')).toBe('');
+    expect(url.searchParams.get('end_time')).toBe('');
+    expect(url.searchParams.get('has_get_key')).toBe('');
+    expect(url.searchParams.getAll('g_tk')).toHaveLength(1);
     expect(url.searchParams.has('clear')).toBe(false);
     fetch = mockBody({ code: 0, data: { host_data: [], main: {} } });
     await fetchQzoneMemories(cred, 2020);

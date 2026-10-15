@@ -88,7 +88,7 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 function retryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status !== 501);
 }
 
 function validate(init: WebRequestInit): {

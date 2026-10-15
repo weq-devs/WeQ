@@ -216,6 +216,7 @@ export function QzoneAlbumDialog({
   const [refreshing, setRefreshing] = useState(false);
   /** 与 media 同步的下一页偏移：哨兵回调持旧闭包时也拿得到正确 pageStart。 */
   const mediaLenRef = useRef(0);
+  const mediaPages = useRef(new Set<number>());
 
   /** 打开某相册：拉第一页媒体。 */
   const openAlbum = useCallback(
@@ -223,6 +224,7 @@ export function QzoneAlbumDialog({
       const run = ++runRef.current;
       setSelected(album);
       mediaLenRef.current = 0;
+      mediaPages.current.clear();
       setMediaLoadingMore(false);
       setMedia([]);
       setMediaTotal(0);
@@ -233,7 +235,9 @@ export function QzoneAlbumDialog({
         .then((res) => {
           if (run !== runRef.current) return;
           const page = res as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
+          if (!page || !Array.isArray(page.photos)) throw new Error('未取得相册媒体列表。');
           const photos = page?.photos ?? [];
+          mediaPages.current.add(0);
           mediaLenRef.current = photos.length;
           setMedia(photos);
           setMediaTotal(Number(page?.totalInAlbum ?? 0));
@@ -470,6 +474,7 @@ export function QzoneAlbumDialog({
         if (!live || run !== runRef.current) return;
         if (!page || !Array.isArray(page.photos)) throw new Error('暂时无法刷新相册，请稍后重试。');
         const fresh = page.photos;
+        mediaPages.current.add(0);
         setMedia((previous) => {
           const keys = new Set(fresh.map(photoKey));
           const merged = [...fresh, ...previous.filter((photo) => !keys.has(photoKey(photo)))];
@@ -520,16 +525,20 @@ export function QzoneAlbumDialog({
   const loadMore = useCallback(async (): Promise<boolean> => {
     if (!selected || mediaLoading || mediaLoadingMore || refreshing || !active) return true;
     const run = runRef.current;
+    const pageStart = mediaLenRef.current;
     setMediaLoadingMore(true);
     try {
       const res = (await client.account.qzoneAlbumMedia.query({
         hostUin,
         topicId: selected.id,
-        pageStart: mediaLenRef.current,
+        pageStart,
         pageNum: PAGE_NUM,
       })) as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
       if (run !== runRef.current) return true;
+      if (!res || !Array.isArray(res.photos)) return false;
       const photos = res?.photos ?? [];
+      if (!photos.length && Number(res.totalInAlbum) > mediaLenRef.current) return false;
+      mediaPages.current.add(pageStart);
       mediaLenRef.current += photos.length;
       setMedia((prev) => [...prev, ...photos]);
       setMediaTotal(Number(res?.totalInAlbum ?? mediaLenRef.current));
@@ -566,6 +575,9 @@ export function QzoneAlbumDialog({
           <strong id="weq-qzone-album-title">
             {selected ? selected.name || '相册' : '空间相册'}
           </strong>
+        </span>
+        <span className="weq-qzn-page-count" style={{ flexShrink: 0 }}>
+          （已获取 {selected ? mediaPages.current.size : albumPages.current.size} 页）
         </span>
         {!embedded ? (
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -619,6 +631,7 @@ export function QzoneAlbumDialog({
             loadingMore={mediaLoadingMore}
             error={mediaError}
             hasMore={hasMore}
+            fetchedPages={mediaPages.current.size}
             albumName={selected.name}
             hostUin={hostUin}
             selfUin={selfUin}
@@ -643,6 +656,7 @@ export function QzoneAlbumDialog({
                 <button type="button" disabled={albumsLoading} onClick={() => void loadAlbumPage()}>
                   {albumsLoading ? <Loader2 size={13} className="weq-spin" /> : null}
                   {albumsError ? '重试加载相册' : '加载更多相册'}
+                  {`（已获取 ${albumPages.current.size} 页）`}
                 </button>
               ) : (
                 <span className="weq-qzal-sentinel-text">
@@ -928,6 +942,7 @@ function MediaView({
   loadingMore,
   error,
   hasMore,
+  fetchedPages,
   albumName,
   hostUin,
   selfUin,
@@ -942,6 +957,7 @@ function MediaView({
   loadingMore: boolean;
   error: string | null;
   hasMore: boolean;
+  fetchedPages: number;
   albumName: string;
   hostUin: string;
   selfUin: string;
@@ -1255,6 +1271,7 @@ function MediaView({
               <span className="weq-qzal-sentinel-text">
                 <Loader2 size={13} className="weq-spin" />
                 加载中…
+                {`（已获取 ${fetchedPages} 页）`}
               </span>
             ) : null}
           </div>

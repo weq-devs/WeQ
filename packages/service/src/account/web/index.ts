@@ -48,7 +48,11 @@ import {
   type QzoneInteractionTarget,
   type QzoneLike,
 } from './qzone_interaction';
-import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
+import {
+  readQzoneComments,
+  supplementQzoneComments,
+  inclusiveQzoneCommentCount,
+} from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts } from './qzone_stats';
@@ -200,6 +204,28 @@ export class WebQueryService {
    * Best-effort 读取某空间若干说说的评论 + 点赞（空间动态页 HTML 解析）。
    * 供好友空间导出「补全互动」使用；互动缺失不抛错(空桶)，拉取失败抛错。
    */
+  async getQzoneStructuredComments(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+  ): Promise<QzoneInteraction> {
+    const snapshot = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      readQzoneComments(cred, targetUin, tid, { signal }),
+    );
+    const inclusive = inclusiveQzoneCommentCount(snapshot);
+    return {
+      coverage: 'observed',
+      comments: [...snapshot.comments, ...snapshot.replies],
+      likes: [],
+      commentCountInclusive: inclusive,
+      fieldCoverage: {
+        comments: snapshot.countMatched ? 'complete' : 'observed',
+        replies: inclusive !== null ? 'complete' : 'observed',
+        likes: 'unobserved',
+      },
+    };
+  }
+
   async getQzoneInteractions(
     targetUin: string,
     targets: QzoneInteractionTarget[],

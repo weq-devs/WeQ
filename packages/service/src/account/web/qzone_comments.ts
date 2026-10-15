@@ -35,6 +35,17 @@ function decodeError(): never {
   throw new WebRequestError('decode', '空间评论响应格式无效。');
 }
 
+/** The automatic recipient token on a reply is separate from the authored body. */
+export function qzoneReplyBody(
+  content: string,
+  parentUin: string,
+): { content: string; recipient?: string } {
+  const prefix = content.match(/^@\{uin:([1-9]\d{4,19}),nick:[^}]*?,who:1\}\s*/);
+  return prefix?.[1] === parentUin
+    ? { content: content.slice(prefix[0].length), recipient: parentUin }
+    : { content };
+}
+
 export function parseQzoneCommentPage(
   value: unknown,
   owner: string,
@@ -113,15 +124,20 @@ export function parseQzoneCommentPage(
       )
         return decodeError();
       seenReplies.add(replyId);
+      const body = qzoneReplyBody(reply.content, uin);
       replies.push({
         id: `${id}_r_${replyId}_${replyUin}`,
         parentCommentId: id,
+        replyId,
         uin: replyUin,
         nickname: replyPoster.name,
-        content: reply.content,
+        content: body.content,
         time: replyTime,
         isReply: true,
         images: [],
+        ...(body.recipient
+          ? { replyToUin: body.recipient, replyToNickname: poster.name, replyToCommentId: id }
+          : {}),
       });
     }
   }
@@ -292,6 +308,24 @@ export async function supplementQzoneComments(
       for (const reply of oldReplies) {
         const rootId = reply.parentCommentId!;
         const structured = snapshot.replies.filter((row) => row.parentCommentId === rootId);
+        const exact = replies.find(
+          (row) =>
+            row.parentCommentId === rootId &&
+            row.uin === reply.uin &&
+            (row.id === reply.id || (row.replyId !== undefined && row.replyId === reply.replyId)),
+        );
+        if (exact) {
+          if (reply.replyToUin) {
+            if (!exact.replyToUin)
+              exact.content = qzoneReplyBody(exact.content, reply.replyToUin).content;
+            exact.replyToUin ??= reply.replyToUin;
+            exact.replyToNickname ??= reply.replyToNickname;
+            exact.replyToCommentId ??= reply.replyToCommentId;
+          }
+          if (exact.content === reply.content)
+            exact.images = [...new Set([...exact.images, ...reply.images])];
+          continue;
+        }
         if (
           snapshot.replyCounts[rootId] != null &&
           structured.length === snapshot.replyCounts[rootId]

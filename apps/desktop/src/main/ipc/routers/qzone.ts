@@ -133,18 +133,28 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal, input.cursor, input.scope),
       ),
     ),
-  interactions: procedure.input(post.extend({ time: z.number().int().min(0) })).query(({ input }) =>
-    request(input, async (services, signal) => {
-      const interactions = await services.webQuery.getQzoneInteractions(
-        input.hostUin,
-        [{ tid: input.tid, time: input.time }],
-        signal,
-      );
-      return (
-        interactions.get(input.tid) ?? { comments: [], likes: [], coverage: 'unobserved' as const }
-      );
-    }),
-  ),
+  interactions: procedure
+    .input(
+      post.extend({ time: z.number().int().min(0), structuredOnly: z.boolean().default(false) }),
+    )
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        if (input.structuredOnly)
+          return services.webQuery.getQzoneStructuredComments(input.hostUin, input.tid, signal);
+        const interactions = await services.webQuery.getQzoneInteractions(
+          input.hostUin,
+          [{ tid: input.tid, time: input.time }],
+          signal,
+        );
+        return (
+          interactions.get(input.tid) ?? {
+            comments: [],
+            likes: [],
+            coverage: 'unobserved' as const,
+          }
+        );
+      }),
+    ),
   likes: procedure
     .input(post)
     .query(({ input }) =>

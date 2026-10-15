@@ -11,6 +11,7 @@ interface RawRecallResponse {
       hasMoreFeeds_0?: unknown;
       hasMoreFeeds_1?: unknown;
       offset?: unknown;
+      count?: unknown;
     };
   };
 }
@@ -42,10 +43,23 @@ export function parseQzoneRecall(text: string, kind: 'related' | 'memories', off
       ? more(main.hasMoreFeeds)
       : more(main.hasMoreFeeds_0) || more(main.hasMoreFeeds_1);
   const rawOffset = main.offset;
-  const nextOffset =
+  const returnedOffset =
     typeof rawOffset === 'number' || (typeof rawOffset === 'string' && /^\d+$/.test(rawOffset))
       ? Number(rawOffset)
       : null;
+  const rawCount = main.count;
+  const pageSize =
+    (typeof rawCount === 'number' || (typeof rawCount === 'string' && /^\d+$/.test(rawCount))) &&
+    Number.isSafeInteger(Number(rawCount)) &&
+    Number(rawCount) > 0 &&
+    Number(rawCount) <= 100
+      ? Number(rawCount)
+      : null;
+  // Filtered/folded short pages should overlap, not skip potentially unseen events.
+  const nextOffset =
+    returnedOffset === offset && pageSize !== null && feeds.length > 0
+      ? offset + Math.min(pageSize, feeds.length)
+      : returnedOffset;
   const validOffset =
     kind === 'related' &&
     hasMore &&
@@ -89,11 +103,11 @@ export async function fetchQzoneRelated(cred: WebCredential, offset = 0, signal?
       'feeds2_html_pav_all',
       {
         uin: cred.uin,
-        begin_time: '0',
-        end_time: '0',
+        begin_time: '',
+        end_time: '',
         getappnotification: '1',
         getnotifi: '1',
-        has_get_key: '0',
+        has_get_key: '',
         offset: String(offset),
         set: '0',
         count: '10',

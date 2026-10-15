@@ -7,6 +7,23 @@ interface PostDetail {
   repostHasMore: boolean | null;
 }
 
+/** Borrowed originals are identified by exact media identity, not titles or similar URLs. */
+export function qzoneImageCompletionScope(post: QzoneEmotion): 'post' | 'repost' {
+  const original = post.repost;
+  if (!original || post.images.length + post.videos.length === 0) return 'post';
+  const images = new Set(original.images);
+  const mirrored =
+    post.images.every((url) => images.has(url)) &&
+    post.videos.every((video) =>
+      original.videos.some(
+        (other) =>
+          (video.videoId && video.videoId === other.videoId) ||
+          (video.videoUrl && video.videoUrl === other.videoUrl),
+      ),
+    );
+  return mirrored ? 'repost' : 'post';
+}
+
 /** R02 returns a whole body, not appendable chunks or a verified page cursor. */
 export async function completeQzonePostText(
   source: QzoneEmotion,

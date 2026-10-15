@@ -54,7 +54,9 @@ export function parseQzonePostDetail(text: string, hostUin: string, tid: string)
   const data = accepted(text, hostUin, tid);
   if (typeof data.content !== 'string') throw new Error('说说详情缺少正文。');
   const post = mapMsgList({ msglist: [{ ...data, tid, content: data.content }] }).list[0]!;
+  const { nativeMedia: _nativeMedia, ...visiblePost } = post;
   return {
+    post: visiblePost,
     content: post.content,
     contentHasMore: hasMore(data.has_more_con),
     contentComplete:
