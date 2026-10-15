@@ -52,9 +52,6 @@ export type {
   ExternalRkeyServerConfig,
   SsePushConfig,
   SsePushServerConfig,
-  GroupKeywordConfig,
-  GroupKeywordEntryConfig,
-  GroupKeywordRuleConfig,
   ExportPresets,
   ExportPresetVariant,
   ExportLightboxPreset,
@@ -513,7 +510,11 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // 群关键词提醒：和 SSE 推送共用 createNtMsgDbHook，监听新插入的群消息，按用户
 // 为每个群配置的关键词匹配。命中结果交给上层弹通知 + 写 unread 2006 高亮。
-export { GroupKeywordService, matchesRule } from './account/group_keyword';
+export {
+  GroupKeywordService,
+  matchesRule,
+  normalizeGroupKeywordRules,
+} from './account/group_keyword';
 export type {
   GroupKeywordEntry,
   GroupKeywordRule,
@@ -581,7 +582,11 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { InteractionService } from './account/interaction';
-export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
+export type {
+  SendPokeParams,
+  SendGroupSignupServiceParams,
+  SendGroupJoinRequestServiceParams,
+} from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
 export type {
   RecallMessageParams,
@@ -783,6 +788,19 @@ export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
+export {
+  GROUP_WPA_SUBCMD,
+  buildGroupWpaDeepLink,
+  encodeGroupWpaParam,
+  decodeGroupWpaParam,
+  parseGroupShareLocation,
+  resolveGroupShareAuthKey,
+} from './common/qq_group_join';
+export type {
+  GroupWpaParam,
+  GroupShareTarget,
+  GroupShareResolveOptions,
+} from './common/qq_group_join';
 export {
   sanitizeSegment,
   uniqueName,

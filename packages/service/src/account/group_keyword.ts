@@ -40,6 +40,54 @@ export interface GroupKeywordRule {
 /** 全部群的关键词规则，key 为群号。 */
 export type GroupKeywordRules = Record<string, GroupKeywordRule>;
 
+function normalizeMemberUids(raw: unknown): string[] {
+  return Array.isArray(raw)
+    ? [...new Set(raw.filter((u): u is string => typeof u === 'string' && u.trim() !== ''))]
+    : [];
+}
+
+/**
+ * 归一化一份规则表：丢弃空关键词 / 非字符串 / 非数字群号，去重并 trim，保留顺序。
+ * 未知输入一律返回空表 —— 配置来自磁盘，宁可少提醒也不要因脏数据抛错。
+ *
+ * 同时兼容**旧格式**：早期把 `memberUids` 存在群一级（`value.memberUids`），关键词
+ * 只是字符串数组。遇到这种结构时，把那份群级范围套用到该群所有关键词上一次性
+ * 迁移，之后一律按「每个关键词各自带范围」读写。
+ */
+export function normalizeGroupKeywordRules(raw: unknown): GroupKeywordRules {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: GroupKeywordRules = {};
+  for (const [groupCode, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+$/.test(groupCode)) continue;
+    if (!value || typeof value !== 'object') continue;
+    const v = value as { keywords?: unknown; memberUids?: unknown };
+    if (!Array.isArray(v.keywords)) continue;
+
+    const legacyMemberUids = normalizeMemberUids(v.memberUids);
+    const seen = new Set<string>();
+    const keywords: GroupKeywordEntry[] = [];
+    for (const item of v.keywords) {
+      // 新格式：{ keyword, memberUids }；旧格式：裸字符串（沿用群级 memberUids）。
+      const keyword = typeof item === 'string' ? item : (item as { keyword?: unknown })?.keyword;
+      if (typeof keyword !== 'string') continue;
+      const trimmed = keyword.trim();
+      if (trimmed === '') continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const memberUids =
+        typeof item === 'string'
+          ? legacyMemberUids
+          : normalizeMemberUids((item as { memberUids?: unknown }).memberUids);
+      keywords.push({ keyword: trimmed, memberUids });
+    }
+
+    if (keywords.length === 0) continue;
+    out[groupCode] = { keywords };
+  }
+  return out;
+}
+
 /** 一次命中：交给上层弹通知 + 写高亮。 */
 export interface GroupKeywordHit {
   /** 群号。 */
