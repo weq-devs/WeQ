@@ -4,8 +4,9 @@ const mocks = vi.hoisted(() => ({
   imageValid: true,
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => mocks.ctx }));
-vi.mock('electron', () => ({
-  nativeImage: { createFromBuffer: () => ({ isEmpty: () => !mocks.imageValid }) },
+vi.mock('@weq/service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weq/service')>()),
+  getHost: () => ({ validateImageBuffer: () => mocks.imageValid }),
 }));
 import { qzoneRouter } from '../src/main/ipc/routers/qzone';
 import { qzoneMediaSource, mergeQzonePosts } from '../src/renderer/src/lib/qzone';
@@ -29,6 +30,11 @@ beforeEach(() => {
         ],
       })),
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
+      getQzoneSpaceStats: vi.fn(async () => ({
+        visitorCount: 123,
+        postCount: 45,
+        photoCount: null,
+      })),
       publishQzone: vi.fn(async () => ({ tid: 'synthetic_new_tid', time: 1700000000 })),
       uploadQzoneImage: vi.fn(async () => ({
         richval: ',synthetic',
@@ -44,6 +50,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('reads target-space statistics through the cancellable, account-bound read boundary', async () => {
+    expect(await api.stats({ selfUin, hostUin, requestId: query.requestId })).toEqual({
+      visitorCount: 123,
+      postCount: 45,
+      photoCount: null,
+    });
+    expect(services.webQuery.getQzoneSpaceStats).toHaveBeenCalledWith(
+      hostUin,
+      expect.any(AbortSignal),
+    );
+    await expect(
+      api.stats({ selfUin: '10003', hostUin, requestId: query.requestId }),
+    ).rejects.toThrow('账号已切换');
+    expect(services.webQuery.getQzoneSpaceStats).toHaveBeenCalledTimes(1);
+  });
   it('requires the expected current account and online QQ before any request', async () => {
     await expect(api.posts({ ...query, selfUin: '10003' })).rejects.toThrow('账号已切换');
     services.accountConfig.getRecord.mockReturnValue({ qqOnline: false, qqPid: 1 });
@@ -52,6 +73,7 @@ describe('native Qzone boundary', () => {
   });
   it('projects posts without raw media data', async () => {
     expect(await api.posts(query)).toEqual({
+      nickname: null,
       total: 1,
       list: [{ tid: 'synthetic_tid', content: 'fixture' }],
     });

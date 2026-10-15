@@ -45,6 +45,13 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  stats: procedure
+    .input(target)
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneSpaceStats(input.hostUin, signal),
+      ),
+    ),
   posts: procedure
     .input(target.extend({ offset: z.number().int().min(0).max(100_000) }))
     .query(({ input }) =>

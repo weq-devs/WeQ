@@ -95,6 +95,12 @@
 .weq-qzn-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; font-size: 12px; color: var(--muted-foreground); }
 .weq-qzn-page-sentinel > .weq-qzn-status { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .weq-qzn-actions { align-items: center; }
+.weq-qzn-actions { flex-wrap: wrap; column-gap: 12px; row-gap: 0; }
+.weq-qzn-space-stats { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; color: var(--muted-foreground); }
+.weq-qzn-space-stats dl { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
+.weq-qzn-space-stats dl > div { display: flex; align-items: baseline; gap: 8px; }
+.weq-qzn-space-stats dt { font-size: 12px; }
+.weq-qzn-space-stats dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--foreground); }
 .weq-qzn-picture { position: relative; background: var(--muted); }
 .weq-qzn-picture-loader { position: absolute; left: calc(50% - 11px); top: calc(50% - 11px); }
 .weq-qzn-repost .weq-qzn-interaction { background: var(--background); }

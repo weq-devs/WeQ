@@ -12,7 +12,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import { ImagePlus, Loader2, MessageCircle, RefreshCw, Send, ThumbsUp, X } from 'lucide-react';
+import { Eye, ImagePlus, Loader2, MessageCircle, RefreshCw, Send, ThumbsUp, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
@@ -775,6 +775,72 @@ function State({
   );
 }
 
+function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) {
+  const { active, refresh } = useContext(QzonePageContext);
+  const completed = useRef<number | null>(null);
+  const [stats, setStats] = useState<{
+    visitorCount: number | null;
+    postCount: number | null;
+    photoCount: number | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const { run, cancel } = useQzoneRequests();
+  useEffect(() => {
+    if (!active || completed.current === refresh) return undefined;
+    let live = true;
+    setLoading(true);
+    setError('');
+    void run((requestId) => client.account.qzone.stats.query({ selfUin, hostUin, requestId }))
+      .then((value) => {
+        if (!live) return;
+        setStats(value);
+        completed.current = refresh;
+      })
+      .catch((reason: unknown) => {
+        if (live) setError(errorText(reason));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+      cancel();
+    };
+  }, [active, selfUin, hostUin, refresh, retry, run, cancel]);
+  const items = [
+    ['访客人次', stats?.visitorCount],
+    ['说说', stats?.postCount],
+    ['照片', stats?.photoCount],
+  ] as const;
+  return (
+    <div className="weq-qzn-space-stats" aria-label="空间统计" aria-busy={loading}>
+      <dl>
+        {items.map(([label, value]) => (
+          <div key={label} title={value == null && !loading ? '接口未提供可用计数' : undefined}>
+            <dt>{label}</dt>
+            <dd>{value == null ? (loading ? '…' : '未知') : value.toLocaleString('zh-CN')}</dd>
+          </div>
+        ))}
+      </dl>
+      {error || (!loading && stats && items.some(([, value]) => value == null)) ? (
+        <button
+          type="button"
+          title={error || '重新读取空间统计'}
+          aria-label="重新读取空间统计"
+          onClick={() => {
+            completed.current = null;
+            setRetry((value) => value + 1);
+          }}
+        >
+          <RefreshCw size={14} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Posts({
   selfUin,
   hostUin,
@@ -791,7 +857,6 @@ function Posts({
   const { refresh } = useContext(QzonePageContext);
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const lastOffset = useRef(offset);
   const headRequest = useRef(false);
@@ -830,7 +895,6 @@ function Posts({
     )
       .then((page) => {
         if (!live) return;
-        setTotal(page.total);
         if (page.nickname) onOwnerNickname(hostUin, page.nickname);
         const previous = currentPosts.current;
         const hadPosts = previous.length > 0;
@@ -885,13 +949,7 @@ function Posts({
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   return (
     <div className="weq-qzn-timeline">
-      <div className="weq-qzn-section-title">
-        {total > 0 ? (
-          <span>
-            {posts.length} / {total}
-          </span>
-        ) : null}
-      </div>
+      <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text="正在刷新…" />
       ) : null}
@@ -1203,6 +1261,10 @@ function PostActions({
           <MessageCircle size={16} />
           评论 {commentCount ?? '?'}
         </button>
+        <span title={likeError || '浏览量（非去重访客数）'}>
+          <Eye size={16} />
+          浏览 {likes?.reportedViewCount ?? '?'}
+        </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
       </div>
       {expanded ? (

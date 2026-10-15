@@ -49,6 +49,7 @@ import {
 import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
+import { fetchQzoneContentCounts, fetchQzoneVisitorCount } from './qzone_stats';
 import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -215,6 +216,23 @@ export class WebQueryService {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       fetchQzoneFeedCounts(cred, key, appid, signal),
     );
+  }
+
+  async getQzoneSpaceStats(targetUin: string, signal?: AbortSignal) {
+    const [content, visitors] = await Promise.allSettled([
+      withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+        fetchQzoneContentCounts(cred, targetUin, signal),
+      ),
+      withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+        fetchQzoneVisitorCount(cred, targetUin, signal),
+      ),
+    ]);
+    signal?.throwIfAborted();
+    return {
+      postCount: content.status === 'fulfilled' ? content.value.postCount : null,
+      photoCount: content.status === 'fulfilled' ? content.value.photoCount : null,
+      visitorCount: visitors.status === 'fulfilled' ? visitors.value : null,
+    };
   }
 
   async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {

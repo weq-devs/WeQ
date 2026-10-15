@@ -994,7 +994,7 @@ interface RawOpCntData {
   data?: Array<{
     current?: {
       key?: string;
-      newdata?: { CS?: number; CP?: number; LIKE?: number };
+      newdata?: { CS?: number; CP?: number; LIKE?: number; PRD?: number };
       likedata?: {
         cnt?: number;
         list?: Array<[string | number, string, string | number]>;
@@ -1007,6 +1007,8 @@ export interface QzoneLikesResult {
   likes: QzoneLike[];
   reportedTotal: number | null;
   reportedCommentCount?: number | null;
+  /** Server-reported reads, not unique visitors or the liker list length. */
+  reportedViewCount?: number | null;
   coverage: 'complete' | 'observed' | 'unobserved';
   reason:
     | 'matched-count'
@@ -1025,6 +1027,11 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   const cs = data.data?.[0]?.current?.newdata?.CS;
   const reportedCommentCount =
     data.code === 0 && typeof cs === 'number' && Number.isSafeInteger(cs) && cs >= 0 ? cs : null;
+  const reads = data.data?.length === 1 ? data.data[0]?.current?.newdata?.PRD : undefined;
+  const reportedViewCount =
+    data.code === 0 && typeof reads === 'number' && Number.isSafeInteger(reads) && reads >= 0
+      ? reads
+      : null;
   const count = value?.cnt;
   const reportedTotal =
     typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
@@ -1034,6 +1041,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
       likes: [],
       reportedTotal,
       reportedCommentCount,
+      reportedViewCount,
       coverage: 'unobserved',
       reason: 'missing-data',
     };
@@ -1055,6 +1063,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
     likes,
     reportedTotal,
     reportedCommentCount,
+    reportedViewCount,
     coverage: complete ? 'complete' : 'observed',
     reason: complete
       ? 'matched-count'
