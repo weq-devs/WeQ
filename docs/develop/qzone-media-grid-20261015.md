@@ -69,6 +69,8 @@ The two dynamic entries have identical field-name sets, both at photo level and 
 
 This is a direct counterexample to classifying all `pic[].is_video` entries as Live Photos, or using `videototal=0` to exclude ordinary videos. The earlier 12-Live-Photo post supplied `pic_id` values, but this known Live Photo does not, so presence of that field is not a reliable requirement either. R01/R02 can distinguish still-image entries from entries carrying video, but do not provide a verified ordinary-video-versus-Live-Photo distinction in these samples. A different endpoint or verified source-level type metadata is needed before introducing general Live Photo labels. No classification code was changed; notes only, no restart required. No private IDs, body text, signed URLs or credentials are retained in this record.
 
+The subsequent bounded exploration of the reference's other media endpoints is recorded in [Live Photo Read-API Investigation](qzone-live-photo-investigation-20261015.md). R15/R21/R22 provided an exact album-to-video identity chain, but the known ordinary video and Live Photo still share the returned type fields. No automatic classification was added.
+
 ## Development Reload
 
 This batch changes renderer parsing, components and CSS only. Vite renderer HMR can load it without restarting the WeQ main process or QQ; the user's current live development process was not inspected. If it retains the old renderer state/styles, refresh the development window. Earlier main/service changes still require their own restart if not yet loaded.
