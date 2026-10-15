@@ -54,6 +54,7 @@ import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts, fetchQzoneVisitorCount } from './qzone_stats';
 import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
 import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
+import { fetchQzonePostAlbum } from './qzone_media_album';
 import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -168,6 +169,12 @@ export class WebQueryService {
   async getQzonePostImages(targetUin: string, tid: string, signal?: AbortSignal) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       fetchQzonePostImages(cred, targetUin, tid, signal),
+    );
+  }
+
+  async getQzonePostAlbum(targetUin: string, tid: string, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzonePostAlbum(cred, targetUin, tid, signal),
     );
   }
 

@@ -18,6 +18,7 @@
 
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -30,8 +31,7 @@ import { Modal, useDialog } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { openLightbox } from './ImageLightbox';
-import { openVideoLightbox } from './VideoLightbox';
+import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 
@@ -965,13 +965,17 @@ function MediaView({
   } = useAlbumSelection(photos.map(photoKey));
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
+  const [preview, setPreview] = useState<number | null>(null);
   const [details, setDetails] = useState<
     Record<string, { name: string; width: number | null; height: number | null }>
   >({});
   const { run: runDetail, cancel: cancelDetail } = useQzoneRequests();
   const detailEpoch = useRef(0);
   useEffect(() => {
-    if (!active) cancelDetail();
+    if (!active) {
+      cancelDetail();
+      setPreview(null);
+    }
     return () => {
       detailEpoch.current++;
       cancelDetail();
@@ -1030,48 +1034,52 @@ function MediaView({
     setSelected(allSelected ? new Set() : new Set(photos.map((_, i) => rowKey(i))));
   };
 
-  /** 点视频封面：按 picKey 现取本体 mp4 进视频灯箱；取不到回退大图。 */
-  async function openMedia(photo: QzoneAlbumPhotoWire, row: string): Promise<void> {
-    const proxied = albumMediaUrl(photo.url || photo.thumbUrl);
-    if (!photo.picKey) {
-      openLightbox(proxied, photo.name || '空间相册媒体');
-      return;
-    }
-    setVideoResolving(row);
-    const epoch = ++detailEpoch.current;
-    cancelDetail();
-    try {
-      const detail = await runDetail((requestId) =>
-        client.account.qzone.albumDetail.query({
-          selfUin,
-          hostUin,
-          topicId,
-          picKey: photo.picKey,
-          requestId,
-        }),
-      );
-      if (epoch !== detailEpoch.current) return;
-      setDetails((current) => ({ ...current, [row]: detail }));
-      if (photo.isVideo && detail.videoUrl) {
-        openVideoLightbox(
-          albumMediaUrl(detail.videoUrl),
-          albumMediaUrl(photo.thumbUrl || photo.url),
-        );
-      } else {
-        // 只有 m3u8 之类取不到可播 mp4 时回退封面大图。
-        const title = detail.name || photo.name || '空间相册媒体';
-        const size = detail.width && detail.height ? ` · ${detail.width} × ${detail.height}` : '';
-        openLightbox(
-          detail.imageUrl ? albumMediaUrl(detail.imageUrl) : proxied,
-          `${title}${size}${photo.isVideo ? '（视频封面）' : ''}`,
-        );
-      }
-    } catch (e) {
-      if (epoch === detailEpoch.current)
-        showError('媒体详情读取失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      if (epoch === detailEpoch.current) setVideoResolving(null);
-    }
+  const previewItems = useMemo<QzonePreviewMedia[]>(
+    () =>
+      photos.map((photo) => ({
+        key: photoKey(photo),
+        kind: photo.isVideo ? 'video' : 'image',
+        src: albumMediaUrl(photo.url || photo.thumbUrl),
+        poster: albumMediaUrl(photo.thumbUrl || photo.url),
+        title: photo.name,
+        load: photo.picKey
+          ? async () => {
+              cancelDetail();
+              const epoch = ++detailEpoch.current;
+              const row = photoKey(photo);
+              setVideoResolving(row);
+              try {
+                const detail = await runDetail((requestId) =>
+                  client.account.qzone.albumDetail.query({
+                    selfUin,
+                    hostUin,
+                    topicId,
+                    picKey: photo.picKey,
+                    requestId,
+                  }),
+                );
+                if (epoch === detailEpoch.current)
+                  setDetails((current) => ({ ...current, [row]: detail }));
+                if (photo.isVideo && !detail.videoUrl) throw new Error('此视频暂无可播放地址。');
+                return {
+                  src: albumMediaUrl(
+                    photo.isVideo
+                      ? detail.videoUrl
+                      : detail.imageUrl || photo.url || photo.thumbUrl,
+                  ),
+                  kind: photo.isVideo ? ('video' as const) : ('image' as const),
+                };
+              } finally {
+                if (epoch === detailEpoch.current) setVideoResolving(null);
+              }
+            }
+          : undefined,
+      })),
+    [photos, selfUin, hostUin, topicId, runDetail, cancelDetail],
+  );
+
+  function openMedia(photo: QzoneAlbumPhotoWire, _row: string): void {
+    setPreview(photos.indexOf(photo));
   }
 
   /** 勾选媒体并发下载保存：先选文件夹，再由主进程并发拉取落盘。 */
@@ -1114,6 +1122,19 @@ function MediaView({
 
   return (
     <div className="weq-qzal-media-view">
+      {preview !== null ? (
+        <QzoneMediaPreview
+          items={previewItems}
+          initialIndex={preview}
+          album={{ hostUin, topicId, name: albumName }}
+          onAlbum={() => {}}
+          onClose={() => {
+            setPreview(null);
+            detailEpoch.current++;
+            cancelDetail();
+          }}
+        />
+      ) : null}
       <div className="weq-qzal-toolbar">
         <button type="button" className="weq-qzal-back" onClick={onBack}>
           返回相册

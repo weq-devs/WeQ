@@ -45,6 +45,13 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  postAlbum: procedure
+    .input(post)
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzonePostAlbum(input.hostUin, input.tid, signal),
+      ),
+    ),
   detail: procedure
     .input(post)
     .query(({ input }) =>

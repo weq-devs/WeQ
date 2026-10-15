@@ -31,8 +31,11 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
-import { openLightbox } from '../components/ImageLightbox';
-import { openVideoLightbox } from '../components/VideoLightbox';
+import {
+  QzoneMediaPreview,
+  type PreviewAlbum,
+  type QzonePreviewMedia,
+} from '../components/QzoneMediaPreview';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import {
   projectQzoneFeed,
@@ -1166,6 +1169,7 @@ function Post({
       <QzoneMediaGrid
         images={images.filter((url) => !links.some((link) => link.cover === url))}
         videos={videos}
+        source={{ selfUin, hostUin, tid: post.tid }}
       />
       <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? <Repost selfUin={selfUin} original={post.repost} onSpace={onSpace} /> : null}
@@ -1175,7 +1179,15 @@ function Post({
   );
 }
 
-function QzoneVideo({ video, index }: { video: QzoneEmotion['videos'][number]; index: number }) {
+function QzoneVideo({
+  video,
+  index,
+  onOpen,
+}: {
+  video: QzoneEmotion['videos'][number];
+  index: number;
+  onOpen: () => void;
+}) {
   const [coverFailed, setCoverFailed] = useState(false);
   const src = qzoneMediaSource(video.videoUrl);
   const cover = qzoneMediaSource(video.coverUrl);
@@ -1186,9 +1198,7 @@ function QzoneVideo({ video, index }: { video: QzoneEmotion['videos'][number]; i
       disabled={!src}
       aria-label={src ? `播放空间视频 ${index + 1}` : `空间视频 ${index + 1} 暂无播放地址`}
       title={src ? '播放视频' : '此视频暂时没有可播放地址'}
-      onClick={() => {
-        if (src) openVideoLightbox(albumMediaUrl(src), cover ? albumMediaUrl(cover) : undefined);
-      }}
+      onClick={onOpen}
     >
       {cover && !coverFailed ? (
         <img
@@ -1255,7 +1265,15 @@ function Repost({
           <QzoneText content={original.content} onSpace={onSpace} />
         </p>
       ) : null}
-      <QzoneMediaGrid images={original.images} videos={original.videos} />
+      <QzoneMediaGrid
+        images={original.images}
+        videos={original.videos}
+        source={
+          original.tid && original.uin
+            ? { selfUin, hostUin: original.uin, tid: original.tid }
+            : undefined
+        }
+      />
       {validUin && /^[a-zA-Z0-9_-]{1,128}$/.test(original.tid) ? (
         <PostActions
           key={`${original.uin}:${original.tid}`}
@@ -1508,10 +1526,44 @@ function Pictures({ images }: { images: string[] }) {
 function QzoneMediaGrid({
   images,
   videos = [],
+  source,
+  album,
 }: {
   images: string[];
   videos?: QzoneEmotion['videos'];
+  source?: { selfUin: string; hostUin: string; tid: string };
+  album?: PreviewAlbum;
 }) {
+  const [preview, setPreview] = useState<number | null>(null);
+  const { active, refresh } = useContext(QzonePageContext);
+  const { run, cancel } = useQzoneRequests();
+  const selfUin = source?.selfUin,
+    hostUin = source?.hostUin,
+    tid = source?.tid;
+  const resolvedAlbum = useRef<PreviewAlbum | null | undefined>(undefined);
+  const sourceKey = `${selfUin}:${hostUin}:${tid}`;
+  const currentSource = useRef(sourceKey);
+  currentSource.current = sourceKey;
+  useEffect(() => {
+    resolvedAlbum.current = undefined;
+    setPreview(null);
+    return cancel;
+  }, [sourceKey, refresh, cancel]);
+  useEffect(() => {
+    if (!active) {
+      setPreview(null);
+      cancel();
+    }
+  }, [active, cancel]);
+  const resolveAlbum = useCallback(async () => {
+    if (!selfUin || !hostUin || !tid) return null;
+    if (resolvedAlbum.current !== undefined) return resolvedAlbum.current;
+    const result = await run((requestId) =>
+      client.account.qzone.postAlbum.query({ selfUin, hostUin, tid, requestId }),
+    );
+    if (currentSource.current === sourceKey && result) resolvedAlbum.current = result;
+    return result;
+  }, [selfUin, hostUin, tid, sourceKey, run]);
   const seenVideos = new Set<string>();
   const uniqueVideos = videos.filter((video) => {
     const key = video.videoId || video.videoUrl || video.coverUrl;
@@ -1526,34 +1578,53 @@ function QzoneMediaGrid({
     ),
   ];
   const count = urls.length + uniqueVideos.length;
+  const items: QzonePreviewMedia[] = [
+    ...urls.map((url) => ({ key: url, kind: 'image' as const, src: albumMediaUrl(url) })),
+    ...uniqueVideos.map((video) => ({
+      key: video.videoId || video.videoUrl,
+      kind: 'video' as const,
+      src: albumMediaUrl(video.videoUrl),
+      poster: video.coverUrl ? albumMediaUrl(video.coverUrl) : undefined,
+    })),
+  ];
   return count ? (
-    <div className="weq-qzn-pictures" data-media-count={count}>
-      {urls.map((url, index) => (
-        <Picture key={url} url={url} index={index} />
-      ))}
-      {uniqueVideos.map((video, index) => (
-        <QzoneVideo
-          key={video.videoId || video.videoUrl || video.coverUrl}
-          video={video}
-          index={index}
+    <>
+      <div className="weq-qzn-pictures" data-media-count={count}>
+        {urls.map((url, index) => (
+          <Picture key={url} url={url} index={index} onOpen={() => setPreview(index)} />
+        ))}
+        {uniqueVideos.map((video, index) => (
+          <QzoneVideo
+            key={video.videoId || video.videoUrl || video.coverUrl}
+            video={video}
+            index={index}
+            onOpen={() => setPreview(urls.length + index)}
+          />
+        ))}
+      </div>
+      {preview !== null ? (
+        <QzoneMediaPreview
+          items={items}
+          initialIndex={preview}
+          album={album}
+          resolveAlbum={source ? resolveAlbum : undefined}
+          onClose={() => {
+            setPreview(null);
+            cancel();
+          }}
         />
-      ))}
-    </div>
+      ) : null}
+    </>
   ) : null;
 }
 
-function Picture({ url, index }: { url: string; index: number }) {
+function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: () => void }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   return failed ? (
     <span className="weq-qzn-image-unavailable">图片暂时无法加载</span>
   ) : (
-    <button
-      type="button"
-      className="weq-qzn-picture"
-      aria-busy={!loaded}
-      onClick={() => openLightbox(albumMediaUrl(url), '空间图片')}
-    >
+    <button type="button" className="weq-qzn-picture" aria-busy={!loaded} onClick={onOpen}>
       {!loaded ? (
         <Loader2 size={22} className="weq-spin weq-qzn-picture-loader" aria-label="正在加载图片" />
       ) : null}
@@ -2351,7 +2422,20 @@ function FeedCard({
         </p>
       ) : null}
       {loading ? <LoadingStatus /> : null}
-      <QzoneMediaGrid images={body.images} videos={body.videos} />
+      <QzoneMediaGrid
+        images={body.images}
+        videos={body.videos}
+        source={feed.appid === 311 && tid ? { selfUin, hostUin: String(feed.uin), tid } : undefined}
+        album={(() => {
+          if (feed.appid !== 4) return undefined;
+          const links = body.links
+            .map((link) => ({ link, target: qzoneAlbumTarget(link.href) }))
+            .filter((x) => x.target?.hostUin === String(feed.uin));
+          if (links.length !== 1) return undefined;
+          const { link, target } = links[0]!;
+          return { ...target!, name: link.text.match(/《([^》]+)》/)?.[1] || link.text || '相册' };
+        })()}
+      />
       {body.repost ? <Repost selfUin={selfUin} original={body.repost} onSpace={onSpace} /> : null}
       <FeedLinks links={body.links} ownerUin={String(feed.uin)} ownerNickname={feed.nickname} />
       {body.sourceName ? <p className="weq-qzn-source">来自 {body.sourceName}</p> : null}
