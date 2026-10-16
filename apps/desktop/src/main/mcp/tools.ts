@@ -33,7 +33,13 @@ import {
   RedBagPrePack,
   type OcrBlock,
 } from '@weq/protocol';
-import type { DressMallItem, RenderElement, SendDress, SendElement } from '@weq/service';
+import type {
+  DressMallItem,
+  OcrResultCache,
+  RenderElement,
+  SendDress,
+  SendElement,
+} from '@weq/service';
 import {
   computeBkn,
   DressAppId,
@@ -42,6 +48,8 @@ import {
   fetchWebTokens,
   HonorType,
   normalizeMallItems,
+  ocrCacheFor,
+  ocrCacheKey,
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
@@ -157,6 +165,30 @@ function ocrBoxes(blocks: readonly OcrBlock[]): Array<Record<string, unknown>> {
     height: block.rect.height,
     confidence: block.field2,
   }));
+}
+
+/**
+ * 识别结果缓存（与灯箱 / 导出共用一份，见 `@weq/service` 的 `common/ocr_cache.ts`）。
+ * bootstrap 没就绪时返回 null —— 缓存只是加速，拿不到就照常识别。
+ */
+function ocrResultCache(): OcrResultCache | null {
+  const boot = getAppContext().bootstrap;
+  if (!boot) return null;
+  try {
+    return ocrCacheFor(boot.userConfig.cacheDir('ocr'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 这张图在缓存里的键：元素 md5 优先，其次文件名（QQ 的图片文件名就是 `<md5>.<ext>`）。
+ *
+ * 归一规则在 `@weq/service` 的 `ocrCacheKey` 里（只认 hex）：聊天图片与
+ * `~/…/Pic/<月>/Ori/<md5>.jpg` 这类本机路径因此天然对上同一个键。
+ */
+function ocrCacheKeyOf(md5: string, fileName: string): string | null {
+  return ocrCacheKey(md5) ?? ocrCacheKey(fileName);
 }
 
 /** 原生 ntHelper 绑定（未加载时抛错）。 */
@@ -2678,8 +2710,15 @@ export const AI_TOOLS: AiTool[] = [
         | undefined;
       /** 本地模型要的图（本机文件路径）。 */
       let localPath: string | null = path ?? null;
+      /** 识别用的是哪一份像素（原图 / 缩略图）—— 结果缓存里要记清楚，坐标才换得回来。 */
+      let localVariant: 'original' | 'thumb' | 'downloaded' | 'unknown' = path
+        ? 'original'
+        : 'unknown';
       /** 给模型看的「这是哪张图」。 */
       let target = path ? `本机文件 ${path}` : '';
+      /** 聊天图片的文件名 / 元素 md5（缓存键用；给 path 时外面传的是路径）。 */
+      let fileName = '';
+      let picMd5 = '';
 
       if (!path) {
         if (!kind || !conv || !msgId) {
@@ -2729,13 +2768,15 @@ export const AI_TOOLS: AiTool[] = [
           };
         }
         const isEmoji = Number(pic.data.subType) === 1;
-        const fileName = String(pic.data.fileName ?? '');
+        fileName = String(pic.data.fileName ?? '');
+        picMd5 = String(pic.data.md5 ?? '');
         // 本地那条腿：本机媒体缓存里找原图，找不到退而求其次用缩略图（尺寸小一档，
         // 精度差些但总比没有强）；发送时间用来定位月份目录。
         const hit = fileName
           ? await svc.fileSearch.findFile(Number(row.sendTime), fileName, isEmoji ? 'emoji' : 'pic')
           : { source: null, thumb: null };
         localPath = hit.source ?? hit.thumb ?? null;
+        localVariant = hit.source ? 'original' : hit.thumb ? 'thumb' : 'unknown';
         target = `消息 ${msgId} 里的第 ${index + 1} 张图${fileName ? `（${fileName}）` : ''}`;
         online = {
           peerType: kind,
@@ -2747,6 +2788,66 @@ export const AI_TOOLS: AiTool[] = [
 
       // ── 2) 排腿：auto = 在线优先 + 本地兜底；显式指定就只走那一条 ────────
       const notes: string[] = [];
+      const cache = ocrResultCache();
+      const cacheKey = cache ? ocrCacheKeyOf(picMd5, fileName || (path ?? '')) : null;
+      if (cache && cacheKey) {
+        // 同一张图在本机识别过就直接给（灯箱 / 导出 / 之前的 MCP 调用写下的都算）。
+        // 明确要求某条腿（engine=online / local）时不拿另一条腿的缓存顶替。
+        const prefer = engine === 'online' ? 'oidb' : engine === 'local' ? 'local' : 'auto';
+        const hit = await cache.getText(cacheKey, prefer).catch(() => null);
+        if (hit) {
+          return {
+            ok: true,
+            found: true,
+            source: hit.source === 'oidb' ? 'online' : 'local',
+            engine: `${hit.source === 'oidb' ? '在线接口（QQ 图片文字识别 OIDB 0xe07_0）' : `本地离线模型（${hit.modelId ?? '未知模型'}，本机推理，未联网）`}·本机缓存`,
+            offline: hit.source === 'local',
+            cached: true,
+            cachedAt: new Date(hit.at).toISOString(),
+            target,
+            text: hit.text,
+            lineCount: hit.blocks?.length ?? (hit.text ? hit.text.split('\n').length : 0),
+            ...(hit.lang ? { srcLang: hit.lang } : {}),
+            ...(hit.modelId ? { modelId: hit.modelId } : {}),
+            ...(hit.frame.width > 0 ? { imageWidth: hit.frame.width } : {}),
+            ...(hit.frame.height > 0 ? { imageHeight: hit.frame.height } : {}),
+            ...(includeBoxes && hit.blocks ? { boxes: ocrBoxes(hit.blocks) } : {}),
+            notes: [...notes, '这次没有重新识别：本机缓存里已经有这张图的结果（同图同结果）。'],
+            ...(hit.text ? {} : { hint: '缓存里这条结果就是空文字（这张图当时没识别到文字）。' }),
+          };
+        }
+      }
+      /** 把这次的结果落进缓存（写失败绝不影响工具返回）。 */
+      const putCached = async (
+        producer: string,
+        result: {
+          text: string;
+          blocks: readonly OcrBlock[];
+          imageWidth: number;
+          imageHeight: number;
+          modelId?: string;
+          lang?: string;
+          elapsedMs?: number;
+          variant?: 'original' | 'thumb' | 'downloaded' | 'unknown';
+        },
+      ): Promise<void> => {
+        if (!cache || !cacheKey) return;
+        await cache
+          .putText(cacheKey, producer, {
+            text: result.text,
+            ...(result.blocks.length > 0 ? { blocks: [...result.blocks] } : {}),
+            frame: {
+              width: result.imageWidth,
+              height: result.imageHeight,
+              variant: result.variant ?? 'unknown',
+            },
+            ...(result.modelId ? { modelId: result.modelId } : {}),
+            ...(result.lang ? { lang: result.lang } : {}),
+            ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+            ids: { ...(picMd5 ? { elementMd5: picMd5 } : {}), ...(fileName ? { fileName } : {}) },
+          })
+          .catch(() => undefined);
+      };
       const blocker = ocrOnlineBlocker();
       const legs: Array<'online' | 'local'> = [];
       if (engine === 'online') {
@@ -2780,6 +2881,14 @@ export const AI_TOOLS: AiTool[] = [
               height: online!.height,
             });
             const text = ocrBlocksToText(result.blocks);
+            await putCached('oidb', {
+              text,
+              blocks: result.blocks,
+              imageWidth: result.imageWidth,
+              imageHeight: result.imageHeight,
+              lang: result.srcLang,
+              variant: 'original',
+            });
             return {
               ok: true,
               found: true,
@@ -2817,6 +2926,16 @@ export const AI_TOOLS: AiTool[] = [
         try {
           const result = await runLocalOcr(localPath, local);
           const text = ocrBlocksToText(result.blocks);
+          await putCached(`local:${result.modelId}`, {
+            text,
+            blocks: result.blocks,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            modelId: result.modelId,
+            elapsedMs: result.elapsedMs,
+            // 本机媒体缓存里可能只有缩略图（`findFile` 的 source 缺失时退到 thumb）。
+            variant: localVariant,
+          });
           return {
             ok: true,
             found: true,

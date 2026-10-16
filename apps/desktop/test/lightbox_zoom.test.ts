@@ -18,6 +18,7 @@ vi.mock('@renderer/trpc/client', () => ({
   trpc: {
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
       ocrChatImage: { useMutation: () => ({ mutateAsync: async () => ({ blocks: [] }) }) },
     },
   },

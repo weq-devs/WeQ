@@ -83,6 +83,8 @@ import {
   type OcrImageFn,
   type OcrOnlineImageFn,
 } from './ocr_export';
+import type { OcrResultCache } from '../../common/ocr_cache';
+import { GROUP_PTT_RKEY_TYPE, PRIVATE_PTT_RKEY_TYPE } from '../media_download';
 import { rewriteOcrTexts } from './ocr_rewrite';
 import { exportSysFaces, exportMarketFaces } from './sysface_export';
 import {
@@ -388,6 +390,16 @@ export interface MediaDeps {
    * 该图也能识别（前提是 CDN 直链还没过期）。并发 / 连续失败放弃由导出阶段控制。
    */
   onlineOcr?: OcrOnlineImageFn;
+  /**
+   * 识别结果缓存（`userConfig.cacheDir('ocr')`）—— 与灯箱 / MCP 共用的一份。
+   * 命中的图整条流水线都不用跑；过期图（CDN 失效 + 本机没本体）只有它还能出文字。
+   */
+  ocrCache?: OcrResultCache;
+  /**
+   * 当前筛图模型 id 的取值函数 —— 只给缓存分格用（换了模型旧结论自动失效）。
+   * 用函数而不是字符串：任务跑的中途也能换模型。
+   */
+  ocrFilterModelId?: () => string | null;
   /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
   chatlab?: ChatlabDeps;
   /** 频道私聊（guild direct）导出源——guild_msg.db / guild1.db，由 app 注入。 */
@@ -1106,6 +1118,8 @@ export class ExportTaskManager extends EventEmitter {
         ocrLocal,
         ocrFilter,
         onlineOcr,
+        ocrCache,
+        ocrFilterModelId,
       } = this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
@@ -2194,6 +2208,8 @@ export class ExportTaskManager extends EventEmitter {
           let r: Awaited<ReturnType<typeof ocrFoundImages>>;
           try {
             r = await ocrFoundImages(scene, outDir, {
+              ...(ocrCache ? { cache: ocrCache } : {}),
+              ...(ocrCache && ocrFilterModelId ? { filterModelId: ocrFilterModelId } : {}),
               ...(usePrefilter && ocrFilter ? { filter: ocrFilter } : {}),
               ...(ocrLocal ? { local: ocrLocal } : {}),
               ...(useOnlineOcr && onlineOcr ? { online: onlineOcr } : {}),
@@ -2293,6 +2309,7 @@ export class ExportTaskManager extends EventEmitter {
               failed: r.stage.failed,
               note:
                 `已识别 ${r.stage.ok} 张出文字（在线 ${r.online} · 本地 ${r.local}）` +
+                (r.cached > 0 ? ` · 缓存命中 ${r.cached}` : '') +
                 (r.stage.failed ? ` · 失败 ${r.stage.failed}` : ''),
               ...(r.stage.failures ? { failures: r.stage.failures } : {}),
             },

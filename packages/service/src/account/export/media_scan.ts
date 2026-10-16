@@ -301,6 +301,8 @@ function collectFromElements(
     let picWidth = 0;
     let picHeight = 0;
     let picSize = 0;
+    // 图片内容的 md5（小写 hex）—— 结果缓存的键（见 `common/ocr_cache.ts`）。
+    let picMd5 = '';
     // ptt 在线转写请求所需字段（其它 kind 用不到，保持默认）。
     let pttMd5 = '';
     let pttDuration = 0;
@@ -316,6 +318,7 @@ function collectFromElements(
         picWidth = el.data.imgWidth;
         picHeight = el.data.imgHeight;
         picSize = el.data.fileSize;
+        picMd5 = el.data.md5 ?? '';
         originalUrl = el.data.originalUrl;
         uploadTime = el.data.uploadTime;
         uploadTimestamp = el.data.uploadTimestamp;
@@ -381,9 +384,10 @@ function collectFromElements(
               senderUin: msgCtx.senderUin,
               peerUin: msgCtx.peerUin,
               isGroup: msgCtx.isGroup,
-              // pic 的 render 视图没带 md5（wire 45424 是 ptt 那条），服务端不校验，
-              // 如实留空串。
-              md5: '',
+              // 元素的 45424 / 45406（render 视图已归一成小写 hex）。服务端不校验它，
+              // 但我们的结果缓存按它寻址（见 `common/ocr_cache.ts`）：认不出时为空串，
+              // 缓存退到文件名 stem 当键。
+              md5: picMd5,
               width: picWidth,
               height: picHeight,
               fileSize: picSize,

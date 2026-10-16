@@ -190,6 +190,7 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
       width: r.imageWidth,
       height: r.imageHeight,
       elapsedMs: r.elapsedMs,
+      modelId: r.modelId,
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -225,6 +226,7 @@ export async function runLocalOcrFilterFile(imagePath: string): Promise<OcrFilte
       hasText: decision.hasText,
       boxes: decision.boxes,
       elapsedMs: r.elapsedMs,
+      modelId: model.modelId,
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

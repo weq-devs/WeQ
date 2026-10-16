@@ -19,6 +19,7 @@ import {
   runBatchWithFailureLimit,
 } from '../src/account/export/ocr_export';
 import { rewriteOcrTexts } from '../src/account/export/ocr_rewrite';
+import { OcrResultCache } from '../src/common/ocr_cache';
 
 let dir: string;
 
@@ -302,5 +303,137 @@ describe('ocrFoundImages', () => {
       '10001: [图片 → media/image/a.jpg] 甲 乙 和 [图片: b.jpg]\n',
     );
     expect(stats).toEqual({ files: 1, replaced: 1, skipped: 0 });
+  });
+});
+
+describe('ocrFoundImages + 结果缓存', () => {
+  const MD5_A = 'a'.repeat(32);
+  const MD5_B = 'b'.repeat(32);
+
+  /** 一张「元素里带 md5」的图片引用（缓存键就是它）。 */
+  function picMd5(md5: string, extra: Partial<MediaRef> = {}): MediaRef {
+    const base = pic(`${md5}.jpg`, extra);
+    return {
+      ...base,
+      ocr: { ...base.ocr!, md5 },
+    };
+  }
+
+  it('缓存命中：筛图 / 在线 / 本地一条都不跑，结果标 cached', async () => {
+    const cache = new OcrResultCache(dir);
+    await cache.putText(MD5_A, 'oidb', {
+      text: '以前在线识别过',
+      frame: { width: 800, height: 600, variant: 'original' },
+      lang: 'zh',
+    });
+
+    const filter = vi.fn(async () => ({ ok: true as const, hasText: true, boxes: 2 }));
+    const online = vi.fn(async () => ({ ok: true as const, text: '在线' }));
+    const local = vi.fn(async () => ({ ok: true as const, text: '本地' }));
+    const r = await ocrFoundImages(scan([picMd5(MD5_A)]), dir, {
+      cache,
+      filter,
+      filterModelId: () => 'ppocr-v6-det-tiny',
+      online,
+      local,
+    });
+
+    expect(filter).not.toHaveBeenCalled();
+    expect(online).not.toHaveBeenCalled();
+    expect(local).not.toHaveBeenCalled();
+    expect(r.cached).toBe(1);
+    expect(r.results[`${MD5_A}.jpg`]).toMatchObject({
+      text: '以前在线识别过',
+      source: 'oidb',
+      cached: true,
+      width: 800,
+      height: 600,
+    });
+    // 产物与统计口径：total 是「这次真跑的」，cached 单独一档
+    expect(readArtifact().stats).toMatchObject({ total: 0, cached: 1, ok: 1 });
+    expect(r.stage).toMatchObject({ total: 0, ok: 1, failed: 0 });
+  });
+
+  it('跑过的图落进缓存：第二次同一张图直接命中（本地模型不再跑）', async () => {
+    const cache = new OcrResultCache(dir);
+    const local = vi.fn(async () => ({
+      ok: true as const,
+      text: '本地结果',
+      width: 800,
+      height: 600,
+      modelId: 'ppocr-v5-mobile',
+      elapsedMs: 2500,
+    }));
+
+    const first = await ocrFoundImages(scan([picMd5(MD5_B)]), dir, { cache, local });
+    expect(first).toMatchObject({ local: 1, cached: 0 });
+    expect(await cache.getText(MD5_B)).toMatchObject({
+      text: '本地结果',
+      source: 'local',
+      modelId: 'ppocr-v5-mobile',
+      frame: { width: 800, height: 600, variant: 'original' },
+    });
+
+    const second = await ocrFoundImages(scan([picMd5(MD5_B)]), dir, { cache, local });
+    expect(local).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ cached: 1, local: 0 });
+    expect(second.results[`${MD5_B}.jpg`]).toMatchObject({ cached: true, text: '本地结果' });
+  });
+
+  it('本机没有本体、只能走在线的图：缓存命中时连网都不用出', async () => {
+    const cache = new OcrResultCache(dir);
+    await cache.putText(MD5_A, 'oidb', {
+      text: '过期图的老结果',
+      frame: { width: 800, height: 600, variant: 'original' },
+    });
+    const online = vi.fn(async () => ({ ok: true as const, text: '在线' }));
+    const r = await ocrFoundImages(scan([], [missingPic(`${MD5_A}.jpg`, 100)]), dir, {
+      cache,
+      online,
+    });
+    expect(online).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ cached: 1, online: 0, onlineOnly: 0, ok: 1 });
+  });
+
+  it('筛图结论按模型缓存：同模型第二次不跑筛图，换模型要重判', async () => {
+    const cache = new OcrResultCache(dir);
+    const filter = vi.fn(async () => ({ ok: true as const, hasText: true, boxes: 5 }));
+    const local = vi.fn(async () => ({
+      ok: true as const,
+      text: '文字',
+      modelId: 'ppocr-v5-mobile',
+    }));
+    const first = await ocrFoundImages(scan([picMd5(MD5_A)]), dir, {
+      cache,
+      filter,
+      filterModelId: () => 'ppocr-v6-det-tiny',
+      local,
+      filterConcurrency: 1,
+    });
+    expect(filter).toHaveBeenCalledTimes(1);
+    expect(first.filter).toMatchObject({ withText: 1, skipped: 0 });
+
+    // 同一模型、不同图也能吃到「有文字」的结论？不行 —— 缓存按图寻址，这里换个 md5 再验
+    const again = await ocrFoundImages(scan([picMd5(MD5_A)]), dir, {
+      cache,
+      filter,
+      filterModelId: () => 'ppocr-v6-det-tiny',
+      local,
+      filterConcurrency: 1,
+    });
+    // 第二张图（同一张）筛图与识别都命中缓存：一个模型都不跑
+    expect(filter).toHaveBeenCalledTimes(1);
+    expect(local).toHaveBeenCalledTimes(1);
+    expect(again).toMatchObject({ cached: 1, local: 0 });
+
+    // 换了筛图模型：结论不认，重新判
+    await ocrFoundImages(scan([picMd5(MD5_B)]), dir, {
+      cache,
+      filter,
+      filterModelId: () => 'ppocr-v5-det-mobile',
+      local,
+      filterConcurrency: 1,
+    });
+    expect(filter).toHaveBeenCalledTimes(2);
   });
 });

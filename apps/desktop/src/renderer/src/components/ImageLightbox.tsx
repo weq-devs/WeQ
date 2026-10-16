@@ -100,6 +100,8 @@ export function ImageLightbox(): ReactElement | null {
   const [ocrSize, setOcrSize] = useState<{ width: number; height: number } | null>(null);
   /** 这批结果是从哪条腿来的（在线 OIDB / 本地模型）—— 面板上标出来，方便对账。 */
   const [source, setSource] = useState<'oidb' | 'local' | null>(null);
+  /** 这批结果是不是本机缓存直接给的（面板副标题标「缓存」，也不报「本地模型用时」）。 */
+  const [cached, setCached] = useState(false);
   /** 「眼镜」：在 OCR 前后之间切换（true = 看识别结果）。 */
   const [showOverlay, setShowOverlay] = useState(true);
   /** 纯文本面板是否展开（识别成功后自动展开）。 */
@@ -120,6 +122,7 @@ export function ImageLightbox(): ReactElement | null {
     setBlocks(null);
     setOcrSize(null);
     setSource(null);
+    setCached(false);
     setPanelOpen(false);
     setBusy(false);
     setShowOverlay(true);
@@ -167,6 +170,19 @@ export function ImageLightbox(): ReactElement | null {
   }, [src, wheelAt]);
 
   const accessData = access.data;
+  /**
+   * 本机结果缓存里有没有这张图（键是图片 md5，与导出 / MCP 共用同一份）。
+   * 只有能算出 md5 的图才查得动 —— 查得到就多一条「不用联网也不用模型」的路。
+   */
+  const cacheLookup = trpc.account.ocrCacheLookup.useQuery(
+    { md5: ocrContext?.md5 ?? '' },
+    {
+      enabled: src !== null && Boolean(ocrContext?.md5),
+      staleTime: 4000,
+      refetchOnWindowFocus: true,
+    },
+  );
+  const cachedReady = cacheLookup.data?.hit === true;
   /** 服务端副本已过期（QQ 只留约 9 天）—— 这种图 OCR 必然失败，直接拦。 */
   const serverExpired = Boolean(ocrContext?.expiresAt && ocrContext.expiresAt < Date.now());
   /** 在线那条腿（OIDB 0xe07_0）齐不齐 —— 与主进程的 `ocrOnlineBlocker` 同口径。 */
@@ -181,16 +197,18 @@ export function ImageLightbox(): ReactElement | null {
   /** 本地那条腿：设置里选了识别模型且已经下好。 */
   const localReady = Boolean(accessData?.ocrLocalModelId);
   const useOnline = onlineReady && !serverExpired;
-  const canOcr = Boolean(ocrContext && (useOnline || localReady));
+  const canOcr = Boolean(ocrContext && (useOnline || localReady || cachedReady));
   const ocrHint = !ocrContext
     ? '只有聊天里出现过的图片能识别文字'
     : useOnline
       ? '识别图片里的文字（在线）'
       : localReady
         ? '识别图片里的文字（本地模型）'
-        : serverExpired
-          ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
-          : '需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型';
+        : cachedReady
+          ? '直接给本机缓存的识别结果（这张图以前识别过）'
+          : serverExpired
+            ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
+            : '需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型';
 
   async function runOcr(): Promise<void> {
     if (!ocrContext) return;
@@ -203,11 +221,23 @@ export function ImageLightbox(): ReactElement | null {
         height: result.imageHeight || ocrContext.height,
       });
       setSource(result.source ?? 'oidb');
+      setCached(result.cached === true);
       setShowOverlay(true);
       setPanelOpen(true);
       measure();
       if (result.blocks.length === 0) {
-        useToast.getState().push({ tone: 'info', title: '没识别到文字' });
+        useToast.getState().push({
+          tone: 'info',
+          title: '没识别到文字',
+          ...(result.cached ? { message: '（本机缓存里这条结果就是空文字）' } : {}),
+        });
+      } else if (result.cached) {
+        // 缓存命中是瞬时的：别报「本地模型用时 3.2s」，那是当初那次的耗时。
+        useToast.getState().push({
+          tone: 'info',
+          title: `直接用了本机缓存的结果 · ${result.blocks.length} 段`,
+          message: '这张图以前识别过（灯箱 / 导出 / MCP 哪一条都算），没有再跑一遍。',
+        });
       } else if (result.source === 'local') {
         // 本地那条腿慢（CPU 推理），把耗时说出来，免得好端端一个转圈让人以为卡死了。
         const seconds = result.elapsedMs ? `${(result.elapsedMs / 1000).toFixed(1)}s` : '';
@@ -373,11 +403,13 @@ export function ImageLightbox(): ReactElement | null {
         <OcrTextPanel
           blocks={blocks}
           source={source ?? undefined}
+          cached={cached}
           onExit={() => {
             setPanelOpen(false);
             setBlocks(null);
             setOcrSize(null);
             setSource(null);
+            setCached(false);
             setShowOverlay(true);
           }}
         />

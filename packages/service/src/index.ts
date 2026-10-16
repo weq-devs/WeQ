@@ -801,6 +801,21 @@ export type {
   OcrDownloadProgress,
 } from './common/ocr_models';
 export {
+  OCR_CACHE_SCHEMA_VERSION,
+  OcrResultCache,
+  ocrCacheFor,
+  ocrCacheKey,
+} from './common/ocr_cache';
+export type {
+  OcrCacheFilterHit,
+  OcrCacheFrame,
+  OcrCacheFrameVariant,
+  OcrCacheIds,
+  OcrCachePrefer,
+  OcrCacheTextHit,
+  OcrCacheTextInput,
+} from './common/ocr_cache';
+export {
   getLogDir,
   getLogger,
   initLogger,

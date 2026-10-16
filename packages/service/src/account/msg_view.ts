@@ -86,7 +86,14 @@ export interface RenderPicElement {
     imgHeight: number;
     imgType: number;
     isOriginal: boolean;
-    // md5: string;
+    /**
+     * 图片内容的 md5（32 位小写 hex）—— 元素的 45424 大写 hex，缺了就用 45406 的
+     * 二进制 MD5 现转。
+     *
+     * 这是「同一张图」的稳定身份：灯箱 OCR 与导出批量 OCR 各跑一遍时靠它共享结果
+     * （见 `common/ocr_cache.ts`），也是安卓 chatpic 备份的寻址键。
+     */
+    md5?: string;
     /** CDN download token; used to fetch the image when it isn't on disk. */
     fileToken: string;
     /** Upload/processing time (unix seconds). */
@@ -685,7 +692,8 @@ function mapPic(el: PicElement): RenderPicElement {
       imgHeight: el.imgHeight,
       imgType: el.imgType,
       isOriginal: el.isOriginal,
-      // md5: el.md5,
+      // 45424 是**大写** hex，统一成小写，免得同一个 md5 出现两种写法、缓存键各算一份。
+      md5: el.md5 ? el.md5.toLowerCase() : toHex(el.md5Bytes),
       fileToken: el.fileToken,
       uploadTime: el.uploadTime,
       uploadTimestamp: el.uploadTimestamp,

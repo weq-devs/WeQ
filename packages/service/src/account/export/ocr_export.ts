@@ -7,6 +7,9 @@
  *
  * 三步流水线：
  *
+ *   0. **结果缓存**（`deps.cache`）：按图片 md5 寻址的长期缓存（`common/ocr_cache.ts`）。
+ *      命中的图**一步都不用跑** —— 筛图、在线请求、本地推理全免。灯箱 / MCP 写过
+ *      的图这里也直接白拿；过期图（CDN 已失效、本机又没本体）只有靠它还能出文字。
  *   1. **预筛选**（`ocrfilter`）：先用最省的检测模型判断「这张图里有没有文字」，
  *      风景 / 人像这类直接跳过，不进识别模型。强烈建议开 —— 识别是整个导出里最慢的
  *      一步。没注入筛图模型就不筛（全部送识别），筛图失败的图按「有文字」处理
@@ -28,6 +31,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { OcrBlock } from '@weq/protocol';
+import type { OcrCacheIds, OcrCacheTextHit, OcrResultCache } from '../../common/ocr_cache';
 import type { MediaRef, MediaScanResult } from './media_scan';
 import type { MediaFailure, MediaStageResult, StageLog, StageProgress } from './media_export';
 
@@ -48,6 +52,8 @@ export interface OcrImageOutcome {
   width?: number;
   height?: number;
   elapsedMs?: number;
+  /** 本地那条腿用的识别模型 id（在线 / 筛图不填）—— 缓存按它分格存，换模型自动失效。 */
+  modelId?: string;
   /** 失败原因（给人看的中文短句）。 */
   error?: string;
 }
@@ -66,6 +72,8 @@ export interface OcrFilterOutcome {
   /** 检测到的文字框个数（日志用）。 */
   boxes?: number;
   elapsedMs?: number;
+  /** 这次用的筛图模型 id —— 缓存按它分格（换了模型旧结论自动失效）。 */
+  modelId?: string;
   error?: string;
   /**
    * 筛图这条腿**根本不可用**（模型被删了 / 没选）—— 与「这张图筛图失败」不同：
@@ -114,6 +122,8 @@ export interface OcrResultEntry {
   width?: number;
   height?: number;
   elapsedMs?: number;
+  /** 这条是从结果缓存里拿的（这次没有重新识别）。 */
+  cached?: true;
   /** 逐行文字 + 像素坐标框（坐标即 `width × height` 那张图上的像素）。 */
   blocks?: OcrBlock[];
 }
@@ -195,6 +205,16 @@ export async function runBatchWithFailureLimit<TIn, TOut>(
 
 /** `ocrFoundImages` 的可注入依赖 + 进度 / 日志回调。 */
 export interface OcrStageDeps {
+  /**
+   * 识别结果缓存（缺省 = 不读写缓存）。传的是 app 侧按 `userConfig.cacheDir('ocr')`
+   * 建的那一份，与灯箱 / MCP 共用（见 `common/ocr_cache.ts`）。
+   */
+  cache?: OcrResultCache;
+  /**
+   * 当前筛图模型 id 的取值函数 —— 只有拿得到它才缓存筛图结论（换了模型必须能失效）。
+   * 用函数而不是字符串：模型可以在任务跑的中途被换掉，缓存键得跟着变。
+   */
+  filterModelId?: () => string | null;
   /** 在线识别一张图（缺省或未注入 = 纯本地）。 */
   online?: OcrOnlineImageFn;
   /** 在线并发（默认 5）。 */
@@ -224,6 +244,8 @@ export interface OcrExportSummary {
   total: number;
   ok: number;
   failed: number;
+  /** 其中有多少张是**结果缓存**直接给的（这次没跑筛图 / 在线 / 本地）。 */
+  cached: number;
   /** 在线 / 本地各自出了多少张。 */
   online: number;
   local: number;
@@ -250,11 +272,32 @@ function textOf(outcome: OcrImageOutcome): string {
   return text.trim();
 }
 
+/** 缓存里顺带记一份身份信息（便于人查；不参与键）。 */
+function cacheIdsOf(ref: MediaRef): OcrCacheIds {
+  return {
+    ...(ref.ocr?.md5 ? { elementMd5: ref.ocr.md5 } : {}),
+    fileName: ref.fileName,
+  };
+}
+
+/** 缓存命中 → `ocr.json` 里那条记录（坐标与尺寸沿用记录自带的坐标系）。 */
+function entryFromCache(hit: OcrCacheTextHit): OcrResultEntry {
+  return {
+    text: hit.text,
+    source: hit.source,
+    cached: true,
+    ...(hit.modelId ? { modelId: hit.modelId } : {}),
+    ...(hit.frame.width > 0 ? { width: hit.frame.width } : {}),
+    ...(hit.frame.height > 0 ? { height: hit.frame.height } : {}),
+    ...(hit.blocks ? { blocks: hit.blocks } : {}),
+  };
+}
+
 /** 并发跑一批（本模块内部用；策略见的批量执行器，这里只要并发不要连败放弃）。 */
 async function mapLimit<T>(
   items: readonly T[],
   limit: number,
-  fn: (item: T) => Promise<void>,
+  fn: (item: T, index: number) => Promise<void>,
 ): Promise<void> {
   let i = 0;
   const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
@@ -262,7 +305,7 @@ async function mapLimit<T>(
       const index = i;
       i += 1;
       if (index >= items.length) return;
-      await fn(items[index]!);
+      await fn(items[index]!, index);
     }
   });
   await Promise.all(workers);
@@ -334,10 +377,39 @@ export async function ocrFoundImages(
   const onLog = deps.onLog;
   const quiet = makeQuietLog(onLog);
   const results: Record<string, OcrResultEntry> = {};
+  const cache = deps.cache;
+  /** 一张图在缓存里的键：元素 md5 优先，没有就退到文件名 stem。 */
+  const cacheKeyOf = (ref: MediaRef): string | null =>
+    cache ? cache.keyFor(ref.ocr?.md5 || ref.stem) : null;
+  /** 命中缓存的文字（读失败一律当未命中：缓存坏了不该拖垮导出）。 */
+  const readCachedText = async (ref: MediaRef): Promise<OcrCacheTextHit | null> => {
+    const key = cacheKeyOf(ref);
+    if (!cache || !key) return null;
+    return cache.getText(key).catch(() => null);
+  };
+  /** 把一次识别结果落进缓存（在线 / 本地都走它；缓存写失败不影响导出）。 */
+  const writeCachedText = async (
+    ref: MediaRef,
+    producer: string,
+    outcome: OcrImageOutcome,
+  ): Promise<void> => {
+    const key = cacheKeyOf(ref);
+    if (!cache || !key) return;
+    await cache
+      .putText(key, producer, {
+        text: textOf(outcome),
+        ...(outcome.blocks ? { blocks: outcome.blocks } : {}),
+        frame: { width: outcome.width ?? 0, height: outcome.height ?? 0, variant: 'original' },
+        ...(outcome.modelId ? { modelId: outcome.modelId } : {}),
+        ...(outcome.elapsedMs !== undefined ? { elapsedMs: outcome.elapsedMs } : {}),
+        ids: cacheIdsOf(ref),
+      })
+      .catch(() => undefined);
+  };
 
   // ---- 候选：本机有本体的图（预筛要用）+ 本机没有但还能下载的图（只能走在线）----
-  const localCandidates = scan.found.filter((ref) => ref.kind === 'pic' && ref.path);
-  const onlineOnlyRefs = deps.online
+  let localCandidates = scan.found.filter((ref) => ref.kind === 'pic' && ref.path);
+  let onlineOnlyRefs = deps.online
     ? scan.downloadList.filter((ref) => ref.kind === 'pic' && canGoOnline(ref))
     : [];
   // 新 → 旧：在线那条腿从最近的消息开始试（CDN 直链只有约 9 天寿命）。
@@ -350,6 +422,7 @@ export async function ocrFoundImages(
       total: 0,
       ok: 0,
       failed: 0,
+      cached: 0,
       online: 0,
       local: 0,
       onlineOnly: 0,
@@ -358,6 +431,53 @@ export async function ocrFoundImages(
     onLog?.('没有需要识别的图片（跳过）');
     return summary;
   }
+
+  // ---- 0. 结果缓存：命中的图一步都不用跑（筛图 / 在线 / 本地推理全免）----
+  /** 命中缓存的图直接进结果，返回还需要真跑的那些（顺序不变）。 */
+  const dropCached = async (refs: MediaRef[]): Promise<MediaRef[]> => {
+    const keep = new Array<boolean>(refs.length).fill(true);
+    await mapLimit(refs, 16, async (ref, index) => {
+      const hit = await readCachedText(ref);
+      if (!hit) return;
+      results[ref.fileName] = entryFromCache(hit);
+      keep[index] = false;
+    });
+    return refs.filter((_ref, index) => keep[index]);
+  };
+
+  let cachedCount = 0;
+  if (cache) {
+    const before = localCandidates.length + onlineOnlyRefs.length;
+    [localCandidates, onlineOnlyRefs] = await Promise.all([
+      dropCached(localCandidates),
+      dropCached(onlineOnlyRefs),
+    ]);
+    cachedCount = before - (localCandidates.length + onlineOnlyRefs.length);
+    if (cachedCount > 0) {
+      onLog?.(
+        `结果缓存命中 ${cachedCount} 张（筛图 / 在线 / 本地都不用跑）` +
+          (localCandidates.length + onlineOnlyRefs.length === 0 ? '，其余没有需要识别的图' : ''),
+      );
+    }
+  }
+
+  if (localCandidates.length + onlineOnlyRefs.length === 0) {
+    // 候选全部命中缓存：产物照写，统计口径不变（total = 这次实际要跑的 0 张）。
+    const okCount = Object.values(results).filter((r) => r.text !== '').length;
+    const summary = writeArtifact(bundleDir, results, {
+      total: 0,
+      ok: okCount,
+      failed: 0,
+      cached: cachedCount,
+      online: 0,
+      local: 0,
+      onlineOnly: 0,
+      filter: null,
+    });
+    onLog?.(`图片文字识别完成：${okCount} 张出文字，全部来自结果缓存`);
+    return summary;
+  }
+
   onLog?.(
     `图片文字识别：候选 ${localCandidates.length} 张本地图片` +
       (onlineOnlyRefs.length > 0
@@ -370,6 +490,9 @@ export async function ocrFoundImages(
   let filter: OcrExportSummary['filter'] = null;
   if (deps.filter) {
     const filterFn = deps.filter;
+    // 每次跑这一趟现取：模型中途被换掉时缓存键要跟着换（用旧模型的结论就是错的）。
+    // 放在循环外是省「每张图都读一遍设置」，粒度仍然是「一趟预筛选」。
+    const filterModelId = deps.filterModelId?.() ?? null;
     filter = { scanned: 0, withText: 0, skipped: 0, failed: 0 };
     const kept: MediaRef[] = [];
     let unavailable = false;
@@ -377,6 +500,22 @@ export async function ocrFoundImages(
     deps.onFilterProgress?.(0, localCandidates.length);
     await mapLimit(localCandidates, deps.filterConcurrency ?? 4, async (ref) => {
       try {
+        // 筛图结论也缓存（换模型 / 没给模型 id 就不吃缓存，免得拿旧模型的判断）。
+        const key = cacheKeyOf(ref);
+        const verdict =
+          cache && filterModelId && key
+            ? await cache.getFilter(key, filterModelId).catch(() => null)
+            : null;
+        if (verdict) {
+          if (verdict.hasText) {
+            filter!.withText += 1;
+            kept.push(ref);
+          } else {
+            filter!.skipped += 1;
+            quiet.log(`跳过 ${ref.fileName}（缓存：没检测到文字）`);
+          }
+          return;
+        }
         const r = await filterFn(ref.path!);
         if (!r.ok && r.unavailable) {
           // 筛图模型被删了 / 没选：整体跳过预筛选（后面的图不再问它），免得刷一堆
@@ -397,6 +536,20 @@ export async function ocrFoundImages(
         } else {
           filter!.skipped += 1;
           quiet.log(`跳过 ${ref.fileName}（没检测到文字）`);
+        }
+        if (r.ok && cache && filterModelId && key) {
+          await cache
+            .putFilter(
+              key,
+              filterModelId,
+              {
+                hasText: r.hasText === true,
+                ...(r.boxes !== undefined ? { boxes: r.boxes } : {}),
+                ...(r.elapsedMs !== undefined ? { elapsedMs: r.elapsedMs } : {}),
+              },
+              cacheIdsOf(ref),
+            )
+            .catch(() => undefined);
         }
       } catch (e) {
         filter!.failed += 1;
@@ -463,6 +616,7 @@ export async function ocrFoundImages(
         // 在线说成功但一个字都没识别出来：如实记一条空结果，不再送本地（图能取到、
         // 服务端也认过一遍了，本地多半同样是空）。
         results[item.fileName] = { text: '', source: 'oidb' };
+        await writeCachedText(item, 'oidb', value);
         continue;
       }
       results[item.fileName] = {
@@ -473,6 +627,7 @@ export async function ocrFoundImages(
         ...(value.elapsedMs !== undefined ? { elapsedMs: value.elapsedMs } : {}),
         ...(value.blocks ? { blocks: value.blocks } : {}),
       };
+      await writeCachedText(item, 'oidb', value);
       onlineCount += 1;
     }
     for (const { item, error } of batch.failures) {
@@ -513,6 +668,8 @@ export async function ocrFoundImages(
             `已识别 ${ref.fileName}（本地·${text.length} 字）` +
               (r.elapsedMs !== undefined ? `，${Math.round(r.elapsedMs)}ms` : ''),
           );
+          // 结果按模型分格存：换了识别模型不会命中旧结果（宁可重跑，也别拿差一档的旧文字）。
+          if (r.modelId) await writeCachedText(ref, `local:${r.modelId}`, r);
         } else {
           pushFailure(failures, ref.fileName, r.error ?? '本地识别失败');
           accounted.add(ref.fileName);
@@ -559,6 +716,7 @@ export async function ocrFoundImages(
     total: ocrQueue.length,
     ok: okCount,
     failed: failures.length,
+    cached: cachedCount,
     online: onlineCount,
     local: localCount,
     onlineOnly: onlineOnlyRefs.length,
@@ -568,6 +726,7 @@ export async function ocrFoundImages(
   onLog?.(
     `图片文字识别完成：${summary.stage.ok}/${summary.stage.total} 张出文字` +
       `（在线 ${summary.online} · 本地 ${summary.local}）` +
+      (summary.cached > 0 ? ` · 缓存命中 ${summary.cached}` : '') +
       (summary.stage.failed ? ` · 失败 ${summary.stage.failed}` : ''),
   );
   if (quiet.hidden > 0) onLog?.(`（另有 ${quiet.hidden} 条同类日志被省略）`, 'warn');
@@ -589,6 +748,7 @@ function writeArtifact(
     total: number;
     ok: number;
     failed: number;
+    cached: number;
     online: number;
     local: number;
     onlineOnly: number;
@@ -603,6 +763,7 @@ function writeArtifact(
       total: stats.total,
       ok: stats.ok,
       failed: stats.failed,
+      cached: stats.cached,
       online: stats.online,
       local: stats.local,
       onlineOnly: stats.onlineOnly,
@@ -617,6 +778,7 @@ function writeArtifact(
     total: stats.total,
     ok: stats.ok,
     failed: stats.failed,
+    cached: stats.cached,
     online: stats.online,
     local: stats.local,
     onlineOnly: stats.onlineOnly,

@@ -44,7 +44,7 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
-import { runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
+import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
 import {
@@ -153,6 +153,7 @@ import {
   collectOwnItems,
   collectReceivedItems,
   downloadUrlToFile,
+  ocrCacheFor,
 } from '@weq/service';
 import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -1121,6 +1122,10 @@ export function initAppContext(): AppContext {
         // 本机 rkey 不可用（无在线 QQ / 已过期）时回退到外部 rkey 服务器。
         bootstrap.externalRkey,
       );
+      // 识别结果缓存（内容寻址，`<缓存根>/ocr/`）：灯箱 / MCP / 导出共用同一份实例。
+      // 刻意不进「清理缓存」白名单 —— 过期图片的结果清掉就再也拿不回来了（见
+      // `docs/develop/ocr-cache-plan-20261016.md`）。
+      const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
@@ -1349,6 +1354,10 @@ export function initAppContext(): AppContext {
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
             onlineOcr: onlineOcr.recognize,
+            // 识别结果缓存：与灯箱 / MCP 共用同一份（内容寻址，`<缓存根>/ocr/`）。
+            // 灯箱里识别过的图，导出直接命中；过期图（CDN 失效 + 本机没本体）也只有它还能出文字。
+            ocrCache,
+            ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             // ChatLab name / role / profile resolvers. The service export package
@@ -1781,6 +1790,8 @@ export function initAppContext(): AppContext {
         userConfig.cacheDir('media'),
         bootstrap.externalRkey,
       );
+      /** 识别结果缓存（同上：与灯箱 / MCP 共用一份，见 `common/ocr_cache.ts`）。 */
+      const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
       // 登录票据同 seed 流程（见上面的 WebQueryService 注释）。
@@ -1976,6 +1987,9 @@ export function initAppContext(): AppContext {
             // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
+            // 识别结果缓存（同上：与灯箱 / MCP 共用一份）。
+            ocrCache,
+            ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             chatlab: {

@@ -7,7 +7,10 @@
  * 要 fork onnxruntime，那是 `ocr_pipeline.test.ts` 与真机的事）。
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface Record0 {
   qqOnline: boolean;
@@ -20,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   record: null as Record0 | null,
   autoAttachQq: true,
   localModel: null as { modelId: string; paths: Record<string, string> } | null,
+  /** 识别结果缓存的根目录（每个用例一个临时目录）。 */
+  cacheRoot: '',
   recognize: vi.fn(),
   findFile: vi.fn(),
   runLocalOcr: vi.fn(),
@@ -36,7 +41,10 @@ vi.mock('../src/main/context/app_context', () => ({
       chatImageOcr: { recognize: mocks.recognize },
     },
     bootstrap: {
-      userConfig: { getSettings: () => ({ autoAttachQq: mocks.autoAttachQq }) },
+      userConfig: {
+        getSettings: () => ({ autoAttachQq: mocks.autoAttachQq }),
+        cacheDir: (category: string) => join(mocks.cacheRoot, category),
+      },
     },
   }),
 }));
@@ -47,6 +55,7 @@ vi.mock('../src/main/ocr/local', () => ({
 }));
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
+import { OcrResultCache } from '@weq/service';
 
 function tool(name: string) {
   const found = AI_TOOLS.find((t) => t.name === name);
@@ -80,6 +89,7 @@ const readyRecord: Record0 = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.cacheRoot = mkdtempSync(join(tmpdir(), 'weq-ocr-mcp-'));
   mocks.record = { ...readyRecord };
   mocks.autoAttachQq = true;
   mocks.localModel = null;
@@ -111,6 +121,10 @@ beforeEach(() => {
     elapsedMs: 1234,
     modelId: 'ppocr-v5-mobile',
   });
+});
+
+afterEach(() => {
+  if (mocks.cacheRoot) rmSync(mocks.cacheRoot, { recursive: true, force: true });
 });
 
 describe('ocr_image_text', () => {
@@ -202,5 +216,69 @@ describe('get_ocr_status', () => {
     const out = (await tool('get_ocr_status').run({})) as Record<string, { available: boolean }>;
     expect(out.online.available).toBe(false);
     expect(out.local.available).toBe(false);
+  });
+});
+
+describe('ocr_image_text + 结果缓存', () => {
+  /** 把这张图的元素 md5 设成指定值 —— 缓存键就是它。 */
+  function setPicMd5(md5: string): void {
+    (mocks.pic as { data: Record<string, unknown> }).data.md5 = md5;
+  }
+
+  it('本机缓存里已经有这张图 → 直接给结果，两条腿都不跑', async () => {
+    const md5 = 'd'.repeat(32);
+    setPicMd5(md5);
+    const cache = new OcrResultCache(join(mocks.cacheRoot, 'ocr'));
+    await cache.putText(md5, 'oidb', {
+      text: '缓存里的文字',
+      blocks: [ocrBlock('缓存里的文字')],
+      frame: { width: 800, height: 600, variant: 'original' },
+      lang: 'zh',
+    });
+
+    const out = await ocr({ kind: 'group', conv: '123', msgId: '456' });
+    expect(out).toMatchObject({
+      ok: true,
+      cached: true,
+      source: 'online',
+      text: '缓存里的文字',
+      offline: false,
+      lineCount: 1,
+    });
+    expect(String(out.engine)).toContain('本机缓存');
+    expect(mocks.recognize).not.toHaveBeenCalled();
+    expect(mocks.runLocalOcr).not.toHaveBeenCalled();
+  });
+
+  it('本地模型跑完写进缓存：下一次调用直接命中，不再动模型', async () => {
+    const md5 = 'e'.repeat(32);
+    setPicMd5(md5);
+    mocks.record = { ...readyRecord, qqOnline: false };
+    mocks.localModel = { modelId: 'ppocr-v5-mobile', paths: {} };
+
+    const first = await ocr({ kind: 'group', conv: '123', msgId: '456' });
+    expect(first).toMatchObject({ ok: true, source: 'local', text: '本地结果' });
+    expect(first.cached).toBeUndefined();
+
+    const second = await ocr({ kind: 'group', conv: '123', msgId: '456' });
+    expect(second).toMatchObject({ ok: true, cached: true, source: 'local', text: '本地结果' });
+    expect(mocks.runLocalOcr).toHaveBeenCalledTimes(1);
+  });
+
+  it('engine 明确要某一腿时不拿另一条腿的缓存顶替', async () => {
+    const md5 = 'f'.repeat(32);
+    setPicMd5(md5);
+    const cache = new OcrResultCache(join(mocks.cacheRoot, 'ocr'));
+    await cache.putText(md5, 'local:ppocr-v5-mobile', {
+      text: '只有本地的那份',
+      frame: { width: 800, height: 600, variant: 'original' },
+      modelId: 'ppocr-v5-mobile',
+    });
+
+    // 明确要在线：本地缓存不作数，照走在线
+    const out = await ocr({ kind: 'group', conv: '123', msgId: '456', engine: 'online' });
+    expect(out).toMatchObject({ source: 'online', text: '在线结果' });
+    expect(out.cached).toBeUndefined();
+    expect(mocks.recognize).toHaveBeenCalledTimes(1);
   });
 });
