@@ -299,6 +299,11 @@ export async function decodeFoundVoices(
  * own 转文字, or a previous WeQ run that wrote back) are reused as-is and never
  * re-recognized. `onTranscribed` persists a fresh result back onto the element
  * so the next export skips it too.
+ *
+ * 候选**不限于本机有本体的语音**：库里已经存过转写的（哪怕语音文件早被 QQ 清掉）
+ * 直接白拿写进 `transcripts.json`；本机没本体但还能取回的（在线那条腿只吃元数据，
+ * 或者 `fetchSilk` 现拉一次字节）也一并尝试 —— 不然「聊天里转过、导出里还是文件名」
+ * 这种事会一直发生。
  */
 export async function transcribeFoundVoices(
   scan: MediaScanResult,
@@ -312,16 +317,45 @@ export async function transcribeFoundVoices(
   online?: OnlineTranscribeFn,
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency = 5,
+  /**
+   * 本机没有 SILK 时现取一份（可选）：导出侧通常传「拿 fileToken 去 CDN 下」——语音
+   * 的下载缓存按 token 存，重复调用不会重复下。返回 null 表示这条真取不到。
+   */
+  fetchSilk?: (ref: MediaRef) => Promise<string | null>,
 ): Promise<MediaStageResult> {
-  const voices = scan.found.filter((ref) => ref.kind === 'ptt');
+  // 本机有的 + 本机没有的都要看：后者里可能有「已经转过文字」的白拿结果。
+  const voices = [...scan.found, ...scan.missing].filter((ref) => ref.kind === 'ptt');
   const transcripts: Record<string, string> = {};
+  let reused = 0;
   for (const ref of voices) {
-    if (ref.transcript) transcripts[ref.fileName] = ref.transcript;
+    if (ref.transcript) {
+      transcripts[ref.fileName] = ref.transcript;
+      reused += 1;
+    }
   }
 
-  const items = voices.filter((ref) => ref.path && !ref.transcript);
-  const cached = voices.length - items.length;
-  const result: MediaStageResult = { total: voices.length, ok: cached, failed: 0 };
+  /** 在线那条腿只吃元数据（服务端自己去取图），本机有没有字节都一样能试。 */
+  const hasOnlineMeta = (ref: MediaRef): boolean =>
+    Boolean(ref.online?.md5 && ref.fileToken && ref.online.senderUin && ref.online.peerUin);
+  /**
+   * 这条语音还有没有指望：本机有本体 / 能在网上转 / 能现拉字节。
+   *
+   * 「能现拉」不看已过期的（CDN 直链都过期了，下也是白下）；在线那条腿照试 ——
+   * 它只把元数据报给服务端，取不到图是服务端的事。
+   */
+  const canAttempt = (ref: MediaRef): boolean => {
+    if (ref.path) return true;
+    if (online && hasOnlineMeta(ref)) return true;
+    return Boolean(fetchSilk && ref.fileToken && !ref.expired);
+  };
+
+  const items = voices.filter((ref) => !ref.transcript && canAttempt(ref));
+  const hopeless = voices.filter((ref) => !ref.transcript && !canAttempt(ref));
+  if (hopeless.length > 0) {
+    onLog?.(`${hopeless.length} 条语音本机没有文件、也取不回来（没有可用的转写），已跳过`, 'warn');
+  }
+
+  const result: MediaStageResult = { total: voices.length, ok: reused, failed: 0 };
 
   const flush = async (): Promise<void> => {
     await writeFile(
@@ -336,7 +370,7 @@ export async function transcribeFoundVoices(
     return result;
   }
 
-  let done = cached;
+  let done = reused + hopeless.length;
   onProgress?.(done, result.total);
 
   const succeed = async (ref: MediaRef, text: string, via: 'online' | 'local'): Promise<void> => {
@@ -424,9 +458,20 @@ export async function transcribeFoundVoices(
   }
 
   // ---- 2. 本地模型补全（漏包 / 过期 / 缺字段） ----
+  /** 本地那条腿的输入：本机的 SILK，或者现取一份（拿不到就如实算失败）。 */
+  const silkFor = async (ref: MediaRef): Promise<string | null> => {
+    if (ref.path) return ref.path;
+    if (!fetchSilk) return null;
+    return fetchSilk(ref).catch(() => null);
+  };
   await runWithConcurrency(remaining, concurrency, async (ref) => {
     try {
-      const r = await transcribe(ref.path!);
+      const silk = await silkFor(ref);
+      if (!silk) {
+        fail(ref, '本机没有这条语音的文件，也取不回来');
+        return;
+      }
+      const r = await transcribe(silk);
       if (r.ok) {
         await succeed(ref, r.text ?? '', 'local');
       } else {

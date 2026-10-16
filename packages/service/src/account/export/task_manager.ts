@@ -2061,8 +2061,18 @@ export class ExportTaskManager extends EventEmitter {
       if (wantTranscribe && transcribe && scan) {
         const found = scan;
         jobs.push(async () => {
-          const voices = found.found.filter((r) => r.kind === 'ptt');
-          this.log(id, 'transcribe', `语音转写：共 ${voices.length} 条语音`);
+          // 候选 = 本机有本体的 + 本机没有的（后者里有「已经转过文字」的白拿结果，
+          // 也可能在线那条腿还能救回来，见 `transcribeFoundVoices`）。
+          const voices = [...found.found, ...found.missing].filter((r) => r.kind === 'ptt');
+          const stored = voices.filter((r) => r.transcript).length;
+          const offDisk = voices.filter((r) => !r.path).length;
+          this.log(
+            id,
+            'transcribe',
+            `语音转写：共 ${voices.length} 条语音（已存转写 ${stored} 条` +
+              (offDisk > 0 ? ` · 本机没有文件 ${offDisk} 条` : '') +
+              '）',
+          );
           this.touchStage(
             task,
             'transcribe',
@@ -2103,6 +2113,16 @@ export class ExportTaskManager extends EventEmitter {
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
             useOnline ? onlineTranscribe : undefined,
             task.media?.onlineConcurrency ?? 5,
+            // 本机没有 SILK 时现取一份：语音下载缓存按 fileToken 存，重复调用不会重复下。
+            mediaDownload
+              ? (ref) =>
+                  mediaDownload
+                    .download(ref.fileToken, {
+                      ext: '.silk',
+                      rkeyTypes: [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE],
+                    })
+                    .catch(() => null)
+              : undefined,
           );
           // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
           // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），
@@ -2149,7 +2169,11 @@ export class ExportTaskManager extends EventEmitter {
               current: r.total,
               total: r.total,
               failed: r.failed,
-              note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              note:
+                `已转写 ${r.ok}/${r.total}` +
+                (r.failed ? ` · 失败 ${r.failed}` : '') +
+                // total 里还含「本机没有文件、也没法取回」的那些（不是失败，是没辙）。
+                (r.total > r.ok + r.failed ? ` · 无源 ${r.total - r.ok - r.failed}` : ''),
               ...(r.failures ? { failures: r.failures } : {}),
             },
             { persist: true },

@@ -505,7 +505,14 @@ export async function scanConvMedia(
   };
   for (const ref of rawRefs) {
     const key = `${ref.kind}:${ref.stem}`;
-    if (!uniqueByKey.has(key)) uniqueByKey.set(key, ref);
+    const existing = uniqueByKey.get(key);
+    if (!existing) {
+      uniqueByKey.set(key, ref);
+    } else if (!existing.transcript && ref.transcript) {
+      // 同一条语音被转发 / 重发过时，代表项未必是「已经转过文字」的那条。转写结果是
+      // **白拿**的，别因为先遇到没转写的那条就把它丢掉（写回仍按代表项的 msgId 走）。
+      existing.transcript = ref.transcript;
+    }
     if (MONTH_KINDS.includes(ref.kind)) {
       months[ref.kind].add(monthOf(ref.sendTime));
       months[ref.kind].add(shiftMonth(ref.sendTime, -1));
