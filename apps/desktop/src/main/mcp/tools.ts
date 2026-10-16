@@ -47,6 +47,7 @@ import {
   fetchDownloadRkeys,
   fetchWebTokens,
   HonorType,
+  localOcrBlocker,
   normalizeMallItems,
   ocrCacheFor,
   ocrCacheKey,
@@ -2648,6 +2649,8 @@ export const AI_TOOLS: AiTool[] = [
     run: async () => {
       const blocker = ocrOnlineBlocker();
       const local = resolveLocalOcrModel();
+      /** 本地那条腿的不可用原因：先看这台机器有没有引擎（如 macOS Intel 没有），再看模型。 */
+      const localEngine = localOcrBlocker();
       return {
         online: {
           available: blocker === null,
@@ -2657,7 +2660,11 @@ export const AI_TOOLS: AiTool[] = [
           available: local !== null,
           ...(local
             ? { modelId: local.modelId }
-            : { reason: '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。' }),
+            : {
+                reason:
+                  localEngine ??
+                  '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+              }),
         },
         policy:
           'ocr_image_text 的 engine 默认 auto：在线可用就先走在线，失败（图过期 / 服务端取不到）再回退本地模型。',
@@ -2860,7 +2867,11 @@ export const AI_TOOLS: AiTool[] = [
         legs.push('online');
       } else if (engine === 'local') {
         if (!local) {
-          throw new Error('还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。');
+          // 平台能力优先：没有引擎的机器（如 macOS Intel）别把用户指去下模型。
+          throw new Error(
+            localOcrBlocker() ??
+              '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+          );
         }
         legs.push('local');
       } else {

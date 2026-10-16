@@ -30,6 +30,14 @@ const mocks = vi.hoisted(() => ({
   runLocalOcr: vi.fn(),
   getGroupMessageById: vi.fn(),
   pic: null as unknown,
+  /** 平台能力：本机有没有可用的本地识别引擎（null = 有）。 */
+  localOcrBlocker: null as string | null,
+}));
+
+// 只换掉平台能力判定：真模块里的注册表 / 缓存照旧（下面还直接 import 了 OcrResultCache）。
+vi.mock('@weq/service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weq/service')>()),
+  localOcrBlocker: () => mocks.localOcrBlocker,
 }));
 
 vi.mock('../src/main/context/app_context', () => ({
@@ -93,6 +101,7 @@ beforeEach(() => {
   mocks.record = { ...readyRecord };
   mocks.autoAttachQq = true;
   mocks.localModel = null;
+  mocks.localOcrBlocker = null;
   mocks.pic = {
     type: 'pic',
     data: {
@@ -216,6 +225,14 @@ describe('get_ocr_status', () => {
     const out = (await tool('get_ocr_status').run({})) as Record<string, { available: boolean }>;
     expect(out.online.available).toBe(false);
     expect(out.local.available).toBe(false);
+  });
+
+  it('本机没有推理引擎时报的是平台原因，而不是「还没选模型」', async () => {
+    // macOS Intel：模型下得再好也没引擎可跑，别把用户指去下载。
+    mocks.localOcrBlocker = '当前平台（macOS Intel）没有本地识别引擎：……';
+    const out = (await tool('get_ocr_status').run({})) as Record<string, { reason?: string }>;
+    expect(out.local.reason).toContain('macOS Intel');
+    expect(out.local.reason).not.toContain('还没选本地识别模型');
   });
 });
 

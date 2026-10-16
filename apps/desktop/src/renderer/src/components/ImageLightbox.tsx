@@ -196,6 +196,11 @@ export function ImageLightbox(): ReactElement | null {
   );
   /** 本地那条腿：设置里选了识别模型且已经下好。 */
   const localReady = Boolean(accessData?.ocrLocalModelId);
+  /**
+   * 本机没有可用的推理引擎时的原因（如 macOS Intel 没有 onnxruntime 二进制）。
+   * 有它就别再劝用户「去下个本地模型」—— 那台机器上下完也跑不起来。
+   */
+  const localBlocker = accessData?.ocrLocalBlocker ?? null;
   const useOnline = onlineReady && !serverExpired;
   const canOcr = Boolean(ocrContext && (useOnline || localReady || cachedReady));
   const ocrHint = !ocrContext
@@ -206,9 +211,11 @@ export function ImageLightbox(): ReactElement | null {
         ? '识别图片里的文字（本地模型）'
         : cachedReady
           ? '直接给本机缓存的识别结果（这张图以前识别过）'
-          : serverExpired
-            ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
-            : '需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型';
+          : localBlocker
+            ? localBlocker
+            : serverExpired
+              ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
+              : '需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型';
 
   async function runOcr(): Promise<void> {
     if (!ocrContext) return;

@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Check, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { Card, SectionHeader } from './controls';
@@ -72,6 +72,11 @@ interface ModelKindCardProps {
   selectedId: string;
   progress: LiveProgress | null;
   busy: boolean;
+  /**
+   * 本机没有可用的推理引擎时的那句话（平台能力，与模型下没下好无关）。非空即收起
+   * 整个模型列表与下载 / 选用入口 —— 这台上跑不起来，下了也是白下。
+   */
+  engineBlocker: string | null;
   onDownload(id: string): void;
   onDelete(id: string): void;
   onSelect(id: string): void;
@@ -87,6 +92,7 @@ function ModelKindCard({
   selectedId,
   progress,
   busy,
+  engineBlocker,
   onDownload,
   onDelete,
   onSelect,
@@ -94,7 +100,12 @@ function ModelKindCard({
   return (
     <Card title={title}>
       <p className="weq-set-note">{desc}</p>
-      {models.length === 0 ? (
+      {engineBlocker ? (
+        <p className="weq-set-warnbox">
+          <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+          <span>{engineBlocker}</span>
+        </p>
+      ) : models.length === 0 ? (
         <div className="weq-set-empty">{emptyHint}</div>
       ) : (
         <div className="weq-models">
@@ -184,7 +195,7 @@ function ModelKindCard({
           })}
         </div>
       )}
-      <p className="weq-set-note">{unselectedHint}</p>
+      {engineBlocker ? null : <p className="weq-set-note">{unselectedHint}</p>}
     </Card>
   );
 }
@@ -277,7 +288,9 @@ export function OcrModelsSection(): ReactElement {
     }
   }
 
-  const all = models.data ?? [];
+  const all = models.data?.models ?? [];
+  /** 平台能力：本机没有推理引擎时（如 macOS Intel）整屏只留一句原因。 */
+  const engineBlocker = models.data?.engineBlocker ?? null;
   const ocrModels = all.filter((m) => m.kind === 'ocr');
   const filterModels = all.filter((m) => m.kind === 'filter');
   const busy = remove.isLoading || setModel.isLoading;
@@ -299,6 +312,7 @@ export function OcrModelsSection(): ReactElement {
         selectedId={selectedOcr}
         progress={progress}
         busy={busy}
+        engineBlocker={engineBlocker}
         onDownload={(id) => void onDownload(id)}
         onDelete={(id) => void onDelete(id, selectedOcr, 'ocr')}
         onSelect={(id) => void onSelect(id, 'ocr', selectedOcr)}
@@ -313,6 +327,7 @@ export function OcrModelsSection(): ReactElement {
         selectedId={selectedFilter}
         progress={progress}
         busy={busy}
+        engineBlocker={engineBlocker}
         onDownload={(id) => void onDownload(id)}
         onDelete={(id) => void onDelete(id, selectedFilter, 'filter')}
         onSelect={(id) => void onSelect(id, 'filter', selectedFilter)}

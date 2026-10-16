@@ -343,6 +343,8 @@ export function ExportLightbox({
   const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
   /** OCR 模型清单（含已选中的模型 id）—— 面板里直接下载用。 */
   const [ocrModels, setOcrModels] = useState<OcrModelRowData[]>([]);
+  /** 本机没有可用推理引擎时的原因（如 macOS Intel）—— 非空就不摆下载入口。 */
+  const [ocrEngineBlocker, setOcrEngineBlocker] = useState<string | null>(null);
   /** 当前选中的 OCR 模型 id（识别 / 筛图各一个）。 */
   const [ocrSelected, setOcrSelected] = useState<{ ocr: string; filter: string }>({
     ocr: '',
@@ -374,8 +376,9 @@ export function ExportLightbox({
           client.bootstrap.getSettings.query(),
         ]);
         if (cancelled) return;
+        setOcrEngineBlocker(models.engineBlocker);
         setOcrModels(
-          models
+          models.models
             // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
             // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 图片识别」里下 ——
             // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
@@ -444,8 +447,9 @@ export function ExportLightbox({
                 client.bootstrap.ocrModels.query(),
                 ocrReadiness(),
               ]);
+              setOcrEngineBlocker(models.engineBlocker);
               setOcrModels(
-                models
+                models.models
                   .filter((m) => m.kind === 'filter')
                   .map((m) => ({
                     id: m.id,
@@ -839,7 +843,8 @@ export function ExportLightbox({
                       label="图片文字识别"
                       desc={
                         ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
-                          ? '需要在线 QQ，或先在「设置 → 图片识别」下好本地识别模型'
+                          ? ocrReady.localEngineBlocker ||
+                            '需要在线 QQ，或先在「设置 → 图片识别」下好本地识别模型'
                           : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
                       }
                       control={
@@ -896,7 +901,7 @@ export function ExportLightbox({
                             }
                           />
                         ) : null}
-                        {ocrReady && !ocrReady.localReady ? (
+                        {ocrReady && !ocrReady.localReady && !ocrEngineBlocker ? (
                           <p className="weq-exp-block-hint">
                             没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在
                             「设置 → 图片识别」里下载。
@@ -905,28 +910,33 @@ export function ExportLightbox({
                         <div className="weq-exp-ocr-models">
                           <p className="weq-exp-block-hint">
                             <ScanText size={12} aria-hidden />{' '}
-                            {ocrReady?.filterReady
-                              ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
-                              : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。'}
+                            {ocrEngineBlocker ??
+                              (ocrReady?.filterReady
+                                ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
+                                : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。')}
                           </p>
-                          {ocrModels.map((m) => (
-                            <OcrModelRow
-                              key={m.id}
-                              name={`${m.name}（筛图）`}
-                              sizeLabel={m.sizeLabel}
-                              downloaded={m.downloaded}
-                              selected={ocrSelected.filter === m.id}
-                              progress={ocrProgress[m.id] ?? null}
-                              disabled={Boolean(ocrProgress[m.id])}
-                              onDownload={() => void downloadOcrModel(m.id)}
-                            />
-                          ))}
-                          <p className="weq-exp-block-hint">
-                            「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
-                            都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在
-                            「设置 →
-                            图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
-                          </p>
+                          {ocrEngineBlocker
+                            ? null
+                            : ocrModels.map((m) => (
+                                <OcrModelRow
+                                  key={m.id}
+                                  name={`${m.name}（筛图）`}
+                                  sizeLabel={m.sizeLabel}
+                                  downloaded={m.downloaded}
+                                  selected={ocrSelected.filter === m.id}
+                                  progress={ocrProgress[m.id] ?? null}
+                                  disabled={Boolean(ocrProgress[m.id])}
+                                  onDownload={() => void downloadOcrModel(m.id)}
+                                />
+                              ))}
+                          {ocrEngineBlocker ? null : (
+                            <p className="weq-exp-block-hint">
+                              「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
+                              都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在
+                              「设置 →
+                              图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
+                            </p>
+                          )}
                         </div>
                       </>
                     ) : null}

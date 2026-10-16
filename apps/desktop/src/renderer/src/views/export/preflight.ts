@@ -182,6 +182,11 @@ export interface OcrReadiness {
   filterReady: boolean;
   /** 在线那条腿能不能走：QQ 在线 + 未开完全离线 + a2 / d2 / d2key / guid 齐全。 */
   onlineCapable: boolean;
+  /**
+   * 本机**没有可用的推理引擎**时的原因（如 macOS Intel 没有 onnxruntime 二进制）。
+   * 非空时本地那两条腿一定是 false —— 这时候别再提示用户「去下载模型」。
+   */
+  localEngineBlocker: string | null;
 }
 
 /**
@@ -194,7 +199,12 @@ export interface OcrReadiness {
  *   - 预筛选：`filterReady` 才跑，否则直接全部送识别（会慢很多，灯箱里提示下载）。
  */
 export async function ocrReadiness(): Promise<OcrReadiness> {
-  const state: OcrReadiness = { localReady: false, filterReady: false, onlineCapable: false };
+  const state: OcrReadiness = {
+    localReady: false,
+    filterReady: false,
+    onlineCapable: false,
+    localEngineBlocker: null,
+  };
   try {
     const access = await client.account.getGroupAlbumAccessState.query();
     state.onlineCapable = Boolean(
@@ -213,8 +223,15 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
     const models = await client.bootstrap.ocrModels.query();
     const ocrId = settings.ocr.modelId;
     const filterId = settings.ocr.filterModelId;
-    state.localReady = Boolean(ocrId && models.find((m) => m.id === ocrId)?.downloaded);
-    state.filterReady = Boolean(filterId && models.find((m) => m.id === filterId)?.downloaded);
+    // 平台能力优先：引擎都跑不起来时，「模型下好了」不算数（主进程的
+    // `resolveLocalOcrModel` / `resolveLocalOcrFilterModel` 是同一个口径）。
+    state.localEngineBlocker = models.engineBlocker;
+    state.localReady = Boolean(
+      !models.engineBlocker && ocrId && models.models.find((m) => m.id === ocrId)?.downloaded,
+    );
+    state.filterReady = Boolean(
+      !models.engineBlocker && filterId && models.models.find((m) => m.id === filterId)?.downloaded,
+    );
   } catch {
     /* 模型状态读不到按未就绪处理 */
   }
@@ -230,8 +247,10 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
   if (!ready.onlineCapable && !ready.localReady) {
     await dialog.info(
       '无法识别图片文字',
-      '「图片文字识别」需要在线 QQ（用服务端识别），或者先下载一个本地识别模型' +
-        '（设置 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
+      ready.localEngineBlocker
+        ? `${ready.localEngineBlocker}这台机器上只能走在线识别：请先登录该账号的 QQ 客户端并关闭完全离线模式，再重试；或关闭该选项后继续导出。`
+        : '「图片文字识别」需要在线 QQ（用服务端识别），或者先下载一个本地识别模型' +
+            '（设置 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
     );
     return false;
   }

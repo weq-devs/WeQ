@@ -18,7 +18,12 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OcrBlock } from '@weq/protocol';
-import { getOcrModel, type OcrFilterOutcome, type OcrImageOutcome } from '@weq/service';
+import {
+  getOcrModel,
+  localOcrBlocker,
+  type OcrFilterOutcome,
+  type OcrImageOutcome,
+} from '@weq/service';
 import { getAppContext } from '../context/app_context';
 import { handleMediaRequest } from '../media_protocol';
 import { runOcrEngine, type OcrEnginePaths } from './engine';
@@ -39,6 +44,9 @@ export interface LocalOcrModel {
  * （前端据此决定 OCR 按钮能不能点）。
  */
 export function resolveLocalOcrModel(): LocalOcrModel | null {
+  // 先看这台机器有没有能跑的推理引擎（如 macOS Intel 就没有）：没有的话模型下好了
+  // 也不算数 —— 否则用户会一路下完 21 MB，再在每次识别时撞 MODULE_NOT_FOUND。
+  if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
   const modelId = boot.userConfig.getSettings().ocr.modelId;
@@ -75,6 +83,8 @@ export interface LocalOcrFilterModel {
  * 筛图只要检测网络，所以注册表里那份 1.7 MB 的 tiny 检测模型就够。
  */
 export function resolveLocalOcrFilterModel(): LocalOcrFilterModel | null {
+  // 同上：没有引擎就没有本地筛图（两侧共用同一个 worker）。
+  if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
   const modelId = boot.userConfig.getSettings().ocr.filterModelId;
@@ -179,6 +189,8 @@ export async function runLocalOcr(src: string, model: LocalOcrModel): Promise<Lo
  * 引擎崩了都从 `ok: false` 里说人话，让导出阶段决定要不要记账。
  */
 export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcome> {
+  const blocker = localOcrBlocker();
+  if (blocker) return { ok: false, error: blocker };
   const model = resolveLocalOcrModel();
   if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 图片识别）' };
   try {
@@ -204,6 +216,8 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
  * 说明 —— 实测 tiny 模型在正方形小图上会把整张图判成一个文字块，那是误报。
  */
 export async function runLocalOcrFilterFile(imagePath: string): Promise<OcrFilterOutcome> {
+  const blocker = localOcrBlocker();
+  if (blocker) return { ok: false, error: blocker, unavailable: true };
   const model = resolveLocalOcrFilterModel();
   if (!model) {
     return { ok: false, error: '未下载筛图模型', unavailable: true };

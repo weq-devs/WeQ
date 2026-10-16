@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Platform } from '@weq/platform';
-import { OCR_MODELS, OcrModelService, getOcrModel } from '../src/common/ocr_models';
+import {
+  OCR_MODELS,
+  ONNXRUNTIME_CPU_TARGETS,
+  OcrModelService,
+  getOcrModel,
+  localOcrBlocker,
+} from '../src/common/ocr_models';
 import { VOICE_MODELS } from '../src/common/voice_transcribe';
 
 let roots: string[] = [];
@@ -122,5 +128,55 @@ describe('OcrModelService', () => {
     expect(service.listByKind('ocr').map((m) => m.id)).toEqual(['ppocr-v5-mobile']);
     expect(service.getModel('nope')).toBeUndefined();
     expect(service.getModelStatus('nope')).toBeUndefined();
+  });
+});
+
+/**
+ * 本地推理引擎的平台能力。
+ *
+ * 这事踩过：`onnxruntime-node` 从 1.2x 起不发 macOS Intel（darwin/x64）的二进制，
+ * 而 binding 是按 `process.platform` / `process.arch` 硬拼路径 require 的 —— Intel Mac
+ * 上模型下得再好也只会 MODULE_NOT_FOUND。判定必须与「打包时留了哪份二进制」
+ * （`apps/desktop/electron-builder.yml`）一致，所以这里连矩阵本身一起钉住。
+ */
+describe('localOcrBlocker', () => {
+  it('allows exactly the platform/arch pairs onnxruntime-node ships binaries for', () => {
+    // 钉住上游矩阵：升级 onnxruntime 版本、或上游增删平台时，这里会红 —— 那时
+    // electron-builder.yml 里 win / mac / linux 三段的 filter 也要跟着看一眼。
+    expect([...ONNXRUNTIME_CPU_TARGETS].sort()).toEqual([
+      'darwin/arm64',
+      'linux/arm64',
+      'linux/x64',
+      'win32/arm64',
+      'win32/x64',
+    ]);
+    for (const target of ONNXRUNTIME_CPU_TARGETS) {
+      const [platform, arch] = target.split('/') as [string, string];
+      expect(localOcrBlocker(platform, arch)).toBeNull();
+    }
+  });
+
+  it('explains why macOS Intel has no local engine (and mentions the online leg)', () => {
+    const reason = localOcrBlocker('darwin', 'x64');
+    expect(reason).toBeTruthy();
+    // 得说清是哪个平台、缺的是哪个二进制 —— 否则用户只会以为「模型没下好」。
+    expect(reason).toContain('macOS Intel');
+    expect(reason).toContain('darwin/x64');
+    expect(reason).toContain('在线识别');
+  });
+
+  it('blocks unknown targets instead of pretending they work', () => {
+    for (const target of ['freebsd/x64', 'win32/ia32', 'darwin/x64']) {
+      const [platform, arch] = target.split('/') as [string, string];
+      expect(localOcrBlocker(platform, arch)).toBeTruthy();
+    }
+  });
+
+  it('defaults to the platform it actually runs on', () => {
+    // 缺省参数取运行时的 process.platform / process.arch（不能写死 linux/x64）：
+    // CI 三个平台都跑，所以断言按「当前机器在不在上游矩阵里」分叉。
+    const supported = ONNXRUNTIME_CPU_TARGETS.includes(`${process.platform}/${process.arch}`);
+    if (supported) expect(localOcrBlocker()).toBeNull();
+    else expect(localOcrBlocker()).toContain(`${process.platform}/${process.arch}`);
   });
 });

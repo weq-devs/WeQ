@@ -19,8 +19,8 @@
  * 来源：ModelScope 的 `RapidAI/RapidOCR`（PaddleOCR 官方 PP-OCR 模型的 ONNX 版，
  * 与 PaddleOCR 官方发布同源）。体积按上游仓库的真实字节数写进注册表。
  *
- * ⚠️ 目前**只做下载与存储**，还没有接推理：`engine` / `variant` 与文件 key
- * （`det` / `rec` / `cls` / `dict`）就是给下一轮引擎用的契约。
+ * 这一层**零原生**：真正跑推理的 worker（onnxruntime + PP-OCR 后处理）在 app 侧
+ * （`apps/desktop/src/main/ocr/`），哪些机器跑得起来见 {@link localOcrBlocker}。
  */
 
 import { join } from 'node:path';
@@ -184,6 +184,65 @@ export const OCR_MODELS: OcrModelInfo[] = [
 /** Look up a model in the registry by id. */
 export function getOcrModel(id: string): OcrModelInfo | undefined {
   return OCR_MODELS.find((m) => m.id === id);
+}
+
+/**
+ * onnxruntime-node 真正发布过的 CPU 二进制矩阵（包内 `bin/napi-v6/<platform>/<arch>/`）。
+ *
+ * 为什么要把这份清单写进代码：`onnxruntime-node/dist/binding.js` 是按
+ * `process.platform` + `process.arch` **硬拼路径** require 的
+ * （`require(\`../bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node\`)`），
+ * 包里没有那个目录就是必然的 MODULE_NOT_FOUND —— 不是「模型没下好」，是引擎根本不在这台机器上。
+ *
+ * 上游从 1.2x 起就不发 macOS Intel（darwin/x64）了，于是 Intel Mac 上本地识别**没有
+ * 引擎可跑**。这份清单是两处的共同事实源：
+ *
+ *   - 打包时留哪份二进制：`apps/desktop/electron-builder.yml` 的 win / mac / linux 段
+ *     （按 `${arch}` 挑 `bin/napi-v6/<platform>/${arch}/**`）；
+ *   - 这台机器能不能跑本地识别：{@link localOcrBlocker}。
+ *
+ * 改这里（升级 onnxruntime 版本）时两边一起看。
+ */
+export const ONNXRUNTIME_CPU_TARGETS: readonly string[] = [
+  'win32/x64',
+  'win32/arm64',
+  'linux/x64',
+  'linux/arm64',
+  'darwin/arm64',
+];
+
+/** 平台名 → 用户认得出的名字（错误提示里用）。 */
+const PLATFORM_LABELS: Record<string, string> = {
+  darwin: 'macOS',
+  win32: 'Windows',
+  linux: 'Linux',
+};
+
+/** `darwin` + `x64` → `macOS Intel`，让用户直接对上自己那台机器。 */
+function targetLabel(platform: string, arch: string): string {
+  const name = PLATFORM_LABELS[platform] ?? platform;
+  if (arch === 'x64') return `${name} Intel`;
+  if (arch === 'arm64') return `${name} ARM`;
+  return `${name} ${arch}`;
+}
+
+/**
+ * 这台机器能不能跑本地识别引擎：能跑返回 null，跑不了返回**给人看的原因**。
+ *
+ * 口径与 `apps/desktop/src/main/ocr/local.ts` 的可用性判定一致（那里拿它当前置闸，
+ * 于是灯箱 / 导出 / MCP 三处都会走「本地那条腿不可用」的分支），也与打包时实际留下的
+ * 二进制一致。典型场景就是 macOS Intel：模型下好了也加载不了，别让用户白下 21 MB。
+ */
+export function localOcrBlocker(
+  platform: string = process.platform,
+  arch: string = process.arch,
+): string | null {
+  const target = `${platform}/${arch}`;
+  if (ONNXRUNTIME_CPU_TARGETS.includes(target)) return null;
+  return (
+    `当前平台（${targetLabel(platform, arch)}）没有本地识别引擎：onnxruntime 没发布 ` +
+    `${target} 的二进制，本地模型在这台机器上跑不起来（在线识别不受影响）。`
+  );
 }
 
 export class OcrModelService extends ModelStore<OcrModelInfo> {

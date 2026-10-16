@@ -62,6 +62,7 @@ import {
   testSsePushTarget,
   attachAndRegisterSsoSession,
   resolveDeviceGuid,
+  localOcrBlocker,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -1152,13 +1153,20 @@ export const bootstrapRouter = router({
 
   // ---- local OCR models (设置 → 图片识别) ----
   //
-  // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。这一轮**只做模型的
-  // 下载与存储**，还没有本地识别引擎 —— 引擎（onnxruntime）与导出侧自动识别是
-  // 单独一轮的事。
+  // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
+  // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。
 
-  /** The OCR model registry (识别 + 筛图两种用途)，各带落盘 / 下载中状态。 */
+  /**
+   * The OCR model registry (识别 + 筛图两种用途)，各带落盘 / 下载中状态；
+   * 外加 `engineBlocker`：**本机能不能跑本地推理引擎** —— 能跑是 null，跑不了是
+   * 给人看的原因（如 macOS Intel 上游没发 onnxruntime 二进制）。渲染层据此收起
+   * 下载入口，别让用户下完 21 MB 才发现这台机器跑不起来。
+   */
   ocrModels: procedure.query(() => {
-    return requireBootstrap().ocrModels.listModels();
+    return {
+      models: requireBootstrap().ocrModels.listModels(),
+      engineBlocker: localOcrBlocker(),
+    };
   }),
 
   /**

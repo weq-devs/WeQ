@@ -15,6 +15,13 @@ files:
   # Workspace packages are removed from the release manifest before packaging.
   - "node_modules/**/*"
   - "!node_modules/@weq/**/*"
+  # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
+  # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包
+  # 因此直接翻倍）。运行时真正加载的是下面 extraResources 拷到 <resources>/node_modules/
+  # 的那份 —— fork 出去的 ocrWorker.mjs 从 <resources>/out/main/ 起跑，node 的模块解析
+  # 只会顺着目录往上撞到 <resources>/node_modules，永远拐不进 app.asar.unpacked。
+  # 所以整包从 asar 里剔掉。
+  - "!node_modules/onnxruntime-node/**"
 extraResources:
   - from: ../../LICENSE
     to: ../LICENSE
@@ -54,14 +61,18 @@ extraResources:
   # asar 里的文件，所以单独拷一份到 <resources>/out/main/。它是自包含的单文件
   # （rollup 已把管线打进这个 chunk，没有相对 import），拷一个文件就够。
   #
-  # onnxruntime 的原生绑定一并放在 asar 外面：worker 从 <resources>/out/main/ 跑起来，
-  # 模块解析会顺着目录往上找到 <resources>/node_modules/ —— 这也是为什么要把包整个拷
-  # 过来，而不是只依赖 asar 里的那份（asar 里 dlopen 不了 .node/.so）。运行时只依赖
-  # onnxruntime-common（它自家 install 脚本用的 adm-zip / global-agent 不需要）。
+  # 推理引擎 onnxruntime-node 的原生绑定也得在 asar 外面：worker 从
+  # <resources>/out/main/ 跑起来，模块解析顺着目录往上撞到 <resources>/node_modules/。
+  # 但**不能**在这里整包拷 —— 这个包本身 288 MB，里面装着三个平台 × 两个架构的 CPU
+  # 二进制（win32 134 MB / darwin 86 MB / linux 69 MB，其中 darwin 还自带一份重复的
+  # dylib），而本次构建的平台只用得到其中一份。所以按平台 / 架构分开挑：条目写在下面
+  # win / mac / linux 各自的 `extraResources` 里（filter 里的 pattern 同样会过
+  # app-builder-lib 的 macroExpander，`${arch}` 会展开），各平台与 `@weq/service` 的
+  # `localOcrBlocker()` 用的是同一份二进制矩阵。
+  #
+  # onnxruntime-common 是纯 JS（~1 MB）且三个平台一样，留在这里一份就够。
   - from: out/main/ocrWorker.mjs
     to: out/main/ocrWorker.mjs
-  - from: node_modules/onnxruntime-node
-    to: node_modules/onnxruntime-node
   - from: node_modules/onnxruntime-common
     to: node_modules/onnxruntime-common
 
@@ -89,6 +100,17 @@ win:
   extraFiles:
     - from: ../../native/win32/x64
       to: native/win32/x64
+  # 本地 OCR 的推理引擎：只带本次构建的架构那一份（见顶部 extraResources 的说明）。
+  # `script/` 只在 postinstall 用得上，不带。
+  extraResources:
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/win32/${arch}/**
   target:
     - target: nsis
       arch:
@@ -122,6 +144,15 @@ linux:
   extraResources:
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
+    # 本地 OCR 的推理引擎：只带 linux/${arch} 那份（见顶部 extraResources 的说明）。
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/linux/${arch}/**
   extraFiles:
     - from: ../../native/linux/${arch}
       to: native/linux/${arch}
@@ -148,6 +179,18 @@ mac:
   extraResources:
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
+    # 本地 OCR 的推理引擎：只带 darwin/${arch} 那份（见顶部 extraResources 的说明）。
+    # ⚠️ 上游**没有** darwin/x64（Intel Mac）的二进制，所以 mac-x64 这个 filter 一个文件
+    # 都匹配不到 —— 那台机器上本地识别本来就跑不起来，`localOcrBlocker()` 会在
+    # 设置页 / 灯箱 / MCP 三处如实说明，不再引导用户去下一个用不了的模型。
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/darwin/${arch}/**
   extraFiles:
     - from: ../../native/darwin/${arch}
       to: native/darwin/${arch}

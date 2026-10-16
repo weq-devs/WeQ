@@ -229,17 +229,30 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
 **还没接的**：定时导出模板（`ScheduleOptions`）里没有 OCR 选项；频道私聊 / 群相册等其它
 入口同理（跟着各自的时间表）。
 
-### 打包（还没在真机安装包上验过）
+### 打包（按平台 × 架构各留一份二进制）
 
 - `extraResources`：`out/main/ocrWorker.mjs` 拷到 `<resources>/out/main/`（fork 出去的
-  子进程读不了 asar 里的文件，语音那条线同理），并把 `node_modules/onnxruntime-node`
-  与其运行时依赖 `onnxruntime-common` 整份拷到 `<resources>/node_modules/` —— worker
-  从 `<resources>/out/main/` 起，模块解析正好能顺着往上找到它们。
+  子进程读不了 asar 里的文件，语音那条线同理），运行时依赖 `onnxruntime-common` 整份
+  拷到 `<resources>/node_modules/` —— worker 从 `<resources>/out/main/` 起，模块解析
+  正好能顺着往上找到它们。注意这条链**不会**拐进 `app.asar.unpacked/`，所以引擎必须
+  落在 `<resources>/node_modules/` 里。
+- **`onnxruntime-node` 只拷本次构建的那一份**（`electron-builder.yml` 的 win / mac /
+  linux 段各自 `filter` 出 `bin/napi-v6/<platform>/${arch}/**`）：这个 npm 包一个
+  288 MB，装的是三个平台 × 两个架构的 CPU 二进制（win32 134 MB / darwin 86 MB /
+  linux 69 MB，darwin 还自带一份重复的 dylib），整包拷等于把安装包凭空撑大一倍 ——
+  v2.0.5 的 Windows `setup.exe` 就是这么从 201 MB 涨到 363 MB 的。
+- 同一个包也从 asar 里剔掉（`files: "!node_modules/onnxruntime-node/**"`）：它是原生
+  模块，留在 asar 里会被 electron-builder 的 smartUnpack **再整包解一份**到
+  `app.asar.unpacked/`，而那一份运行时谁也读不到。
 - worker 是**自包含单文件**（rollup 已把管线打进去，没有相对 import）。为此主进程侧
   只允许**类型**引用 `pipeline.ts`，否则 rollup 会抽出一个共享 chunk，拷出去就少了文件。
 - CI 里要按平台 × 架构验一遍（历史上 arm64 装错 binding 出过事，见 `release.yml`）。
-  onnxruntime-node 的 npm 包**自带**全平台二进制，它的 postinstall 在 linux/x64 上还想
-  拉 CUDA EP（几百 MB），已在 `pnpm-workspace.yaml` 里显式拒绝。
+  onnxruntime-node 的 postinstall 在 linux/x64 上还想拉 CUDA EP（几百 MB），已在
+  `pnpm-workspace.yaml` 里显式拒绝。
+- **平台矩阵**：上游从 1.2x 起不发 macOS Intel（darwin/x64）的二进制，`bin/napi-v6/`
+  下只有 `darwin/arm64`、`linux/{x64,arm64}`、`win32/{x64,arm64}`。这份矩阵写在
+  `packages/service/src/common/ocr_models.ts` 的 `ONNXRUNTIME_CPU_TARGETS`，跑不起来的
+  平台由 `localOcrBlocker()` 在设置页 / 灯箱 / MCP 三处如实说明。
 
 ## 五、筛图模型实测（2026-10-16，扫本机 QQ 图片）
 
@@ -309,7 +322,11 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
   server 档（体积大 3–5 倍，CPU 慢好几倍）。
 - **方向**：cls 只能纠 180°（倒转），不是任意角度旋转。
 - **打包**：新增原生依赖要在 `electron-builder.yml` 与 `release.yml` 里按平台 × 架构
-  逐项校验（历史上 arm64 装错 binding 出过事）。
+  逐项校验（历史上 arm64 装错 binding 出过事）；体积大的原生包（如 onnxruntime-node
+  288 MB）**必须按平台 / 架构挑文件**，别整包拷 —— 也不要把原生模块留在 asar 里，
+  smartUnpack 会再整包解一份到 `app.asar.unpacked/`（v2.0.5 的 Windows 安装包因此翻倍）。
+- **macOS Intel**：上游没有 darwin/x64 的 onnxruntime，本地识别在这台机器上跑不起来
+  （`localOcrBlocker()` 会拦住并说明），别把它当成「模型没下好」的 bug 报上来。
 - **与在线版共存**：两者输出契约一致，可以「在线优先、本地兜底」，也可以只用本地 ——
   和语音转写「在线漏包回退本地模型」是同一个思路。
 

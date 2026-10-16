@@ -14,6 +14,7 @@ import { fork } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OcrBlock } from '@weq/protocol';
+import { localOcrBlocker } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 // 只引**类型**：管线本体（`pipeline.ts`）由 worker 独享，主进程这边带上它的运行时
 // 会让 rollup 把两端共用的模块抽成一个独立 chunk，而 worker 是 fork 出去单独运行的
@@ -102,6 +103,16 @@ export function runOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult
       elapsedMs: Date.now() - started,
       error,
     });
+
+    // 最后一层闸：这台机器上根本没有能跑的推理引擎（如 macOS Intel 没有 onnxruntime
+    // 二进制）时不必 fork 出去再等一句 MODULE_NOT_FOUND，直接给原因 —— 调用方
+    // （灯箱 / 导出 / MCP）拿到的都是同一句话。上层 `local.ts` 已经按它做了可用性
+    // 判定，这里兜的是「绕过判定直接调引擎」的调用者。
+    const blocker = localOcrBlocker();
+    if (blocker) {
+      done(fail(blocker));
+      return;
+    }
 
     let workerPath: string;
     try {

@@ -795,7 +795,13 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
-export { OcrModelService, OCR_MODELS, getOcrModel } from './common/ocr_models';
+export {
+  OcrModelService,
+  OCR_MODELS,
+  ONNXRUNTIME_CPU_TARGETS,
+  getOcrModel,
+  localOcrBlocker,
+} from './common/ocr_models';
 export type {
   OcrModelInfo,
   OcrModelKind,

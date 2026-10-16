@@ -87,6 +87,7 @@ import {
   findLatestDbHealthReport,
   writeDbHealthReport,
   ocrCacheFor,
+  localOcrBlocker,
   type AlbumMedia,
   type AlbumMediaPage,
   type NewMessages,
@@ -423,6 +424,12 @@ export interface GroupAlbumAccessState {
    * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
    */
   ocrFilterModelId: string | null;
+  /**
+   * **本机能不能跑本地识别引擎**：能跑为 null，跑不了是给人看的原因（如 macOS Intel
+   * 上游没发 onnxruntime 二进制）。与那两个 id 的区别：这是平台能力，跟模型下没下好无关。
+   * 灯箱的置灰提示据此说人话（否则 Intel Mac 上会一直劝用户「去下个本地模型」）。
+   */
+  ocrLocalBlocker: string | null;
 }
 
 export interface AlbumMediaWire extends AlbumMedia {
@@ -639,6 +646,9 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
     ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
     // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
     ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
+    // 平台能力（与模型状态无关）：本机没有可用的推理引擎时两个 id 必然是 null，
+    // 渲染层用这句话代替「去下个本地模型」的提示。
+    ocrLocalBlocker: localOcrBlocker(),
   };
 }
 
@@ -3675,7 +3685,10 @@ export const accountRouter = router({
         }
       }
       if (!online && !local) {
-        throw new Error('识别文字需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型。');
+        // 平台能力优先：没有引擎的机器（如 macOS Intel）只能走在线，别劝人家去下模型。
+        throw new Error(
+          localOcrBlocker() ?? '识别文字需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型。',
+        );
       }
 
       if (online) {
