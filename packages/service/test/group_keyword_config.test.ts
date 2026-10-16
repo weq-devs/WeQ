@@ -43,6 +43,49 @@ function accountSvc(dir: string, uin: string, dataDir: string): AccountConfigSer
   return s;
 }
 
+describe('UserConfigService 设备 guid / a1 同步', () => {
+  it('rotateAccountGuids 把所有账号记录换成新 guid，并作废旧 a1 payload', () => {
+    const dir = tmpDir();
+    const a = accountSvc(dir, '111', '/data/111');
+    const b = accountSvc(dir, '222', '/data/222');
+    a.setGuid('old'.repeat(10));
+    a.setA1Payload('aa'.repeat(8));
+    b.setGuid('old'.repeat(10));
+    b.setA1Payload('bb'.repeat(8));
+
+    const svc = new UserConfigService(fakePlatform(dir));
+    const next = 'cd'.repeat(16);
+    svc.rotateAccountGuids(next);
+
+    const records = svc.listAccountConfigs();
+    expect(records.map((r) => r.guid)).toEqual([next, next]);
+    // 旧 guid 解出来的 a1 payload 已经失效 —— 必须清掉，不能留在盘上。
+    expect(records.every((r) => r.a1Payload === undefined)).toBe(true);
+  });
+
+  it('clearAccountA1Payload 只清命中的那个账号', () => {
+    const dir = tmpDir();
+    const a = accountSvc(dir, '111', '/data/111');
+    const b = accountSvc(dir, '222', '/data/222');
+    a.setA1Payload('aa'.repeat(8));
+    b.setA1Payload('bb'.repeat(8));
+
+    const svc = new UserConfigService(fakePlatform(dir));
+    svc.clearAccountA1Payload('111');
+
+    const byUin = new Map(svc.listAccountConfigs().map((r) => [r.uin, r]));
+    expect(byUin.get('111')?.a1Payload).toBeUndefined();
+    expect(byUin.get('222')?.a1Payload).toBe('bb'.repeat(8));
+  });
+
+  it('rotateAccountGuids 在没有账号记录目录时静默跳过（不抛）', () => {
+    const dir = tmpDir();
+    const svc = new UserConfigService(fakePlatform(dir));
+    expect(() => svc.rotateAccountGuids('ab'.repeat(16))).not.toThrow();
+    expect(svc.listAccountConfigs()).toEqual([]);
+  });
+});
+
 describe('normalizeGroupKeywordRules', () => {
   it('丢弃空关键词 / 非字符串，去重并 trim（新格式：每个词带自己的成员范围）', () => {
     expect(

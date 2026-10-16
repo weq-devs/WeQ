@@ -22,6 +22,7 @@ export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 
 export { KeyService } from './bootstrap/key';
+export { loginDbPaths, readLoginAccounts } from './bootstrap/login_db';
 export type {
   KeyResult,
   KeyEvent,
@@ -312,6 +313,13 @@ export type {
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
+export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
+export type {
+  LoginAccountEntry,
+  LoginAccountSyncHooks,
+  LoginAccountToolDeps,
+  LoginAccountWriteResult,
+} from './account/login_account_tool';
 export type {
   AccountDbFile,
   DbDecryptItem,

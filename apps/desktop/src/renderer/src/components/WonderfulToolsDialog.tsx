@@ -31,6 +31,7 @@ import {
   Copy,
   Database,
   DatabaseZap,
+  Fingerprint,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -45,6 +46,7 @@ import { closeFromScrim } from '../im-template/template/modalUtils';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { DbRepairPanel } from './DbRepairPanel';
+import { LoginAccountPanel } from './LoginAccountPanel';
 
 interface AccountRow {
   uin: string;
@@ -77,7 +79,13 @@ interface ScanProgressView {
 }
 
 /** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
-export type ToolId = 'key-scan' | 'other-device-key' | 'db-repair' | 'capture' | 'reverse';
+export type ToolId =
+  | 'key-scan'
+  | 'other-device-key'
+  | 'db-repair'
+  | 'capture'
+  | 'reverse'
+  | 'login-accounts';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
@@ -85,6 +93,7 @@ const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
   { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
+  { id: 'login-accounts', label: 'QQ 登陆账号管理', desc: '快登 · 删除 · 换 guid' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
@@ -93,6 +102,7 @@ const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'db-repair': DatabaseZap,
   capture: Radio,
   reverse: Braces,
+  'login-accounts': Fingerprint,
 };
 
 function errMsg(e: unknown): string {
@@ -847,6 +857,20 @@ export function WonderfulToolsDialog({
                 }))}
                 onRefreshAccounts={() => void loadAccounts()}
               />
+            ) : null}
+
+            {activeTool === 'login-accounts' ? (
+              <>
+                <header className="weq-wtools-pane-head">
+                  <div className="weq-wtools-pane-title">
+                    <Fingerprint size={17} strokeWidth={1.9} />
+                    <h2 id="weq-wtools-title">QQ 登陆账号管理</h2>
+                  </div>
+                </header>
+                <div className="weq-wtools-pane-body">
+                  <LoginAccountPanel />
+                </div>
+              </>
             ) : null}
 
             {activeTool === 'reverse' ? (
