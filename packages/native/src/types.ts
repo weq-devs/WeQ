@@ -41,10 +41,13 @@ export enum InitStatus {
  * `BUILD_TIMESTAMP`) report `null` for both times and `isDev: true`.
  */
 export interface NativeBuildInfo {
-  /** Unix seconds baked in at compile time; `null` for dev builds. */
-  buildTime: number | null;
-  /** Unix seconds at which the build stops being valid; `null` for dev builds. */
-  expireTime: number | null;
+  /**
+   * Unix seconds baked in at compile time. **Absent** (undefined) for dev builds —
+   * napi renders Rust's `Option<i64>` as an optional field, not `null`.
+   */
+  buildTime?: number;
+  /** Unix seconds at which the build stops being valid; absent for dev builds. */
+  expireTime?: number;
   /** Length of the validity window in seconds. */
   validitySecs: number;
   /** True for local dev builds (no expiry check). */
