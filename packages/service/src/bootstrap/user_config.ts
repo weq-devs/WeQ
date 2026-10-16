@@ -465,6 +465,8 @@ export interface AppSettings {
   showMsgDecoration: boolean;
   /** Show the original conversation sequence beside each message. */
   showMessageSeq: boolean;
+  /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
+  showMessageTime: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -682,6 +684,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   preferCdn: false,
   showMsgDecoration: true,
   showMessageSeq: false,
+  showMessageTime: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1073,6 +1076,7 @@ export class UserConfigService {
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
+      showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1155,6 +1159,7 @@ export class UserConfigService {
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
+      showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,

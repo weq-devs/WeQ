@@ -1,20 +1,35 @@
 import { createContext, useContext } from 'react';
+import '../styles/message-metadata.css';
 
 export const ShowMessageSeqContext = createContext(false);
+export const ShowMessageTimeContext = createContext(false);
 
 export function MessageProvenance({
   message,
+  system = false,
 }: {
-  message: { msgSeq?: string; source?: 'roaming'; sourceFormat?: 'native' | 'protocol' };
+  message: {
+    msgSeq?: string;
+    createdAt?: string;
+    source?: 'roaming';
+    sourceFormat?: 'native' | 'protocol';
+  };
+  system?: boolean;
 }) {
   const showSeq = useContext(ShowMessageSeqContext);
+  const showTime = useContext(ShowMessageTimeContext);
   const seq =
-    showSeq && /^\d+$/.test(message.msgSeq ?? '') && BigInt(message.msgSeq!) > 0n
+    !system && showSeq && /^\d+$/.test(message.msgSeq ?? '') && BigInt(message.msgSeq!) > 0n
       ? message.msgSeq
       : null;
-  if (message.source !== 'roaming' && !seq) return null;
+  const date = message.createdAt ? new Date(message.createdAt) : null;
+  const time =
+    showTime && date && Number.isFinite(date.getTime())
+      ? date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+      : null;
+  if (message.source !== 'roaming' && !seq && !time) return null;
   return (
-    <div className="weq-message-provenance">
+    <span className="weq-message-provenance">
       {message.source === 'roaming' ? (
         <span
           title={
@@ -31,6 +46,11 @@ export function MessageProvenance({
           seq {seq}
         </span>
       ) : null}
-    </div>
+      {time ? (
+        <time dateTime={message.createdAt} title="发送时间（北京时间）">
+          {time}
+        </time>
+      ) : null}
+    </span>
   );
 }

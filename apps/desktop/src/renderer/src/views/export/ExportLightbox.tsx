@@ -44,6 +44,7 @@ import { useToast } from '../../components/Toast';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
+import type { CalendarTarget } from '../../lib/messageCalendar';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import {
   DEFAULT_MEDIA_KINDS,
@@ -293,6 +294,7 @@ export function ExportLightbox({
   headline,
   summary,
   contactScope = 'friends',
+  calendarTargets,
   initialOptions,
   initialFormats,
   initialSchedule = DEFAULT_SCHEDULE,
@@ -307,6 +309,7 @@ export function ExportLightbox({
   summary: string;
   /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
   contactScope?: 'friends' | 'group';
+  calendarTargets?: CalendarTarget[];
   /**
    * 回填的上次配置（可能来自持久化预设 —— 旧版本缺 `onlineTranscribe` 等新字段，
    * 也可能是个 partial）。用 {@link normalizeLightboxOptions} 补全默认值。
@@ -762,6 +765,7 @@ export function ExportLightbox({
                       value={opts.range}
                       onChange={(range) => patch({ range })}
                       mode={isScheduled ? 'scheduled' : 'single'}
+                      calendarTargets={calendarTargets}
                     />
                   </Card>
                 ) : (

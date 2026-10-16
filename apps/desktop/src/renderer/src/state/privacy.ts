@@ -2,7 +2,7 @@
  * 隐私模式（全局视觉开关，持久化）。
  *
  * 开启后由一个 `html[data-privacy]` 根属性驱动 styles/privacy.css：把头像 /
- * 昵称 / 会话预览 / 消息气泡等敏感元素整屏 blur，hover 临时看清。主要用途是
+ * 昵称 / 会话预览 / 消息气泡等敏感元素整屏 blur，不在悬停时自动揭示。主要用途是
  * 截图 / 录屏时遮挡隐私——遮罩是 DOM 上的 filter，webContents.capturePage()
  * 会如实截到糊后的效果，故截图天然与本开关联动。
  *

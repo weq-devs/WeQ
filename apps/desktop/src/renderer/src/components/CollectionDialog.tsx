@@ -41,6 +41,7 @@ import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
 import { IS_WEB } from '../lib/target';
+import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 
 interface PicWire {
   uri: string;
@@ -537,6 +538,7 @@ export function CollectionDialog({
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [exportSelection, setExportSelection] = useState<{ cids?: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
@@ -551,6 +553,7 @@ export function CollectionDialog({
   const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
   selectedContentStatus.current = selected?.contentStatus;
   useEscapeToClose(() => {
+    if (exportSelection) return;
     if (selected) setSelected(null);
     else onClose();
   });
@@ -571,6 +574,7 @@ export function CollectionDialog({
         void client.account.cancelCollectionDetailSync.mutate({ requestId: run.requestId });
       }
       setSelected(null);
+      setExportSelection(null);
       return;
     }
     let cancelled = false;
@@ -875,6 +879,24 @@ export function CollectionDialog({
             ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
             <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
+            <button
+              type="button"
+              className="weq-col-detail-back"
+              title={selected ? '导出当前收藏' : '导出收藏'}
+              aria-label={selected ? '导出当前收藏' : '导出收藏'}
+              disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
+              onClick={() =>
+                setExportSelection(
+                  selected
+                    ? { cids: [selected.cid] }
+                    : query || kind !== 'all'
+                      ? { cids: filtered.map((item) => item.cid) }
+                      : {},
+                )
+              }
+            >
+              <Download size={17} />
+            </button>
             {loaded && !selected ? (
               <span className="weq-collection-total">{items.length}</span>
             ) : null}
@@ -1019,6 +1041,12 @@ export function CollectionDialog({
               </button>
             ))}
           </div>
+        ) : null}
+        {exportSelection ? (
+          <CollectionExportDialog
+            cids={exportSelection.cids}
+            onClose={() => setExportSelection(null)}
+          />
         ) : null}
         <div className="weq-collection-body">
           {selected ? (

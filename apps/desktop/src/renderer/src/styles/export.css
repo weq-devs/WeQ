@@ -570,6 +570,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
+  box-sizing: border-box;
   background: rgba(16, 30, 49, 0.36);
   backdrop-filter: blur(2px);
 }
@@ -578,6 +579,8 @@
   display: flex;
   flex-direction: column;
   width: min(520px, 94vw);
+  max-width: 100%;
+  min-width: 0;
   max-height: 88vh;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
@@ -589,7 +592,7 @@
 
 /* 重构后的分板块宽灯箱 */
 .weq-exp-dialog.is-wide {
-  width: min(920px, 96vw);
+  width: min(920px, calc(100vw - 48px));
 }
 
 .weq-exp-dialog.is-wide .weq-exp-dialog-body {
@@ -642,12 +645,12 @@
 .weq-exp-dialog-title strong {
   font-size: 15px;
   font-weight: 600;
-  color: #1f2430;
+  color: var(--weq-fg-primary);
 }
 
 .weq-exp-dialog-title span {
   font-size: 12px;
-  color: #8a94a4;
+  color: var(--weq-fg-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -975,7 +978,7 @@
 .weq-exp-step-title {
   font-size: 12px;
   font-weight: 600;
-  color: #445161;
+  color: var(--weq-fg-primary);
 }
 
 .weq-exp-step-desc {
@@ -1279,11 +1282,11 @@
   justify-content: space-between;
   gap: 10px;
   padding: 5px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--weq-bg-surface);
   font-size: 12.5px;
-  color: #445161;
+  color: var(--weq-fg-primary);
 }
 
 .weq-exp-range-summary-main {
@@ -1301,8 +1304,8 @@
   flex: none;
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  color: #8a94a4;
+  background: var(--muted);
+  color: var(--weq-fg-secondary);
   font-size: 10.5px;
 }
 

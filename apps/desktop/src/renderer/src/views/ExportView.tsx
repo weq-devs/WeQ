@@ -1588,6 +1588,16 @@ export function ExportView(): ReactElement {
           headline={lightboxHeadline}
           summary={lightboxSummary}
           contactScope={contactScope}
+          calendarTargets={
+            ['full', 'chatlab', 'scheduled'].includes(lightbox)
+              ? convItems
+                  .filter((item) => convSelection.has(item.id))
+                  .map((item) => ({
+                    kind: item.kind === 'group' ? 'group' : 'c2c',
+                    conv: item.id,
+                  }))
+              : undefined
+          }
           // 优先回填最近一次导出的配置；联系人导出默认不下载头像（大群头像量大）。
           initialOptions={
             lightbox !== 'album'

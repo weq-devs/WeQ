@@ -219,7 +219,7 @@ export function MessageRow({
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
       >
         <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
-        <MessageProvenance message={message} />
+        <MessageProvenance message={message} system />
       </div>
     );
   }

@@ -23,7 +23,8 @@ export interface RoamingJobOptions {
   range?: { start?: number; end?: number };
   beforeOldest: boolean;
   intervalMs: number;
-  maxRequests: number;
+  /** 仅保留旧断点的字段与校验和；不再限制请求数。 */
+  maxRequests?: number;
 }
 export type RoamingJobStatus =
   | 'planned'
@@ -229,7 +230,6 @@ function validateOptions(options: RoamingJobOptions): void {
     (options.transport === 'native500' && !/^[a-f0-9]{64}$/.test(options.nativeBinding ?? '')) ||
     !Array.isArray(options.targets) ||
     !options.targets.length ||
-    options.targets.length > 100 ||
     options.targets.some(
       (t) =>
         !['group', 'c2c'].includes(t.kind) ||
@@ -243,9 +243,8 @@ function validateOptions(options: RoamingJobOptions): void {
     !Number.isInteger(options.intervalMs) ||
     options.intervalMs < 500 ||
     options.intervalMs > 60000 ||
-    !Number.isInteger(options.maxRequests) ||
-    options.maxRequests < 1 ||
-    options.maxRequests > 10000 ||
+    (options.maxRequests !== undefined &&
+      (!Number.isSafeInteger(options.maxRequests) || options.maxRequests < 1)) ||
     typeof options.beforeOldest !== 'boolean' ||
     [options.range?.start, options.range?.end].some(
       (v) => v !== undefined && (!Number.isSafeInteger(v) || v < 0),
@@ -569,12 +568,6 @@ export class RoamingBackfillManager {
           let network = false;
           let outcome: RoamingAttempt['outcome'] = 'cache';
           if (missing.length) {
-            if (runRequests >= job.options.maxRequests) {
-              job.status = 'paused';
-              job.note = '已到本轮请求预算，剩余区间已保存。';
-              this.save();
-              return;
-            }
             if (signal.aborted) break;
             try {
               this.deps.checkOnline(job.options.transport);
@@ -593,7 +586,6 @@ export class RoamingBackfillManager {
               job.options.intervalMs,
               () => {
                 if (reserved) throw Error('同一小窗重复预约，未派发请求。');
-                if (runRequests >= job.options.maxRequests) throw Error('已到本轮 SSO 请求预算。');
                 const previous = job.inFlight;
                 job.inFlight = { target: key(target), ...window, at: Date.now() };
                 job.requests++;

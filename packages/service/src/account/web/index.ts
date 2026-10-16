@@ -176,15 +176,25 @@ export class WebQueryService {
     );
   }
 
-  async getQzonePostDetail(targetUin: string, tid: string, signal?: AbortSignal) {
+  async getQzonePostDetail(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-      fetchQzonePostDetail(cred, targetUin, tid, signal),
+      fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
     );
   }
 
-  async getQzonePostImages(targetUin: string, tid: string, signal?: AbortSignal) {
+  async getQzonePostImages(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-      fetchQzonePostImages(cred, targetUin, tid, signal),
+      fetchQzonePostImages(cred, targetUin, tid, signal, captureRaw),
     );
   }
 

@@ -1,0 +1,24 @@
+.weq-message-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.weq-message-heading:empty {
+  display: none;
+}
+
+.weq-message-heading > .weq-message-provenance {
+  display: inline-flex;
+  margin: 0;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme="dark"] .weq-message-heading > .weq-message-provenance {
+  color: var(--weq-fg-secondary);
+}

@@ -383,41 +383,44 @@ export function MessageBubble({
         onPointerLeave={clearLongPress}
         onDragStart={(event) => event.preventDefault()}
       >
-        {showSenderName ? (
-          <span className={cn('message-name')}>
-            {senderName}
-            {(() => {
-              const role = (sender as any).role;
-              const isRoleBadge = role === 'owner' || role === 'admin';
-              // 群头衔优先级：群主/管理员 > 自定义头衔/群等级
-              const badgeText = isRoleBadge
-                ? role === 'owner'
-                  ? '群主'
-                  : '管理员'
-                : (sender as any).customTitle || (sender as any).levelName;
-              if (!badgeText) return null;
-              const levelBracket = (sender as any).levelBracket;
-              const memberLevel = (sender as any).memberLevel;
-              return (
-                <small
-                  className={cn(
-                    'member-badge',
-                    isRoleBadge ? role : '',
-                    !isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : '',
-                  )}
-                >
-                  {!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}
-                  {badgeText}
+        <div className="weq-message-heading">
+          {showSenderName ? (
+            <span className={cn('message-name')}>
+              {senderName}
+              {(() => {
+                const role = (sender as any).role;
+                const isRoleBadge = role === 'owner' || role === 'admin';
+                // 群头衔优先级：群主/管理员 > 自定义头衔/群等级
+                const badgeText = isRoleBadge
+                  ? role === 'owner'
+                    ? '群主'
+                    : '管理员'
+                  : (sender as any).customTitle || (sender as any).levelName;
+                if (!badgeText) return null;
+                const levelBracket = (sender as any).levelBracket;
+                const memberLevel = (sender as any).memberLevel;
+                return (
+                  <small
+                    className={cn(
+                      'member-badge',
+                      isRoleBadge ? role : '',
+                      !isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : '',
+                    )}
+                  >
+                    {!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}
+                    {badgeText}
+                  </small>
+                );
+              })()}
+              {senderKind === 'bot' ? (
+                <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                  <Bot size={12} strokeWidth={2.4} />
                 </small>
-              );
-            })()}
-            {senderKind === 'bot' ? (
-              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                <Bot size={12} strokeWidth={2.4} />
-              </small>
-            ) : null}
-          </span>
-        ) : null}
+              ) : null}
+            </span>
+          ) : null}
+          <MessageProvenance message={message} />
+        </div>
         {renderMessageWithRegistry(
           {
             message,
@@ -440,7 +443,6 @@ export function MessageBubble({
             <span>精华</span>
           </span>
         ) : null}
-        <MessageProvenance message={message} />
         {recallText && !hideRecallTag ? (
           <div className={cn('weq-msg-recall-tag')} title="防撤回已保留原消息">
             <RotateCcw size={12} />

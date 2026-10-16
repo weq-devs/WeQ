@@ -105,10 +105,13 @@ describe('offline roaming timeline cache pages', () => {
     const platform = { appDataRoot: () => root } as Platform;
     const config = new UserConfigService(platform);
     expect(config.getSettings().showMessageSeq).toBe(false);
+    expect(config.getSettings().showMessageTime).toBe(false);
     config.setSettings({ showMessageSeq: true });
+    config.setSettings({ showMessageTime: true });
     config.setSettings({ preferCdn: true });
     const reopened = new UserConfigService(platform);
     expect(reopened.getSettings().showMessageSeq).toBe(true);
+    expect(reopened.getSettings().showMessageTime).toBe(true);
     reopened.setSettings({ showMessageSeq: false });
     expect(new UserConfigService(platform).getSettings().showMessageSeq).toBe(false);
     expect(reopened.getSettings().preferCdn).toBe(true);

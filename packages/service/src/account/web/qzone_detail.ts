@@ -30,6 +30,7 @@ async function read(
   cgi: string,
   extra: Record<string, string>,
   signal?: AbortSignal,
+  captureRaw?: (text: string) => Promise<void>,
 ): Promise<string> {
   const query = new URLSearchParams({
     uin: hostUin,
@@ -39,7 +40,7 @@ async function read(
     format: 'jsonp',
     ...extra,
   });
-  return webRequestText(
+  const text = await webRequestText(
     `https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/${cgi}?${query}`,
     {
       cookie: cookieHeader(cred),
@@ -48,6 +49,8 @@ async function read(
       headers: { Referer: `https://user.qzone.qq.com/${hostUin}` },
     },
   );
+  await captureRaw?.(text);
+  return text;
 }
 
 export function parseQzonePostDetail(text: string, hostUin: string, tid: string) {
@@ -73,6 +76,7 @@ export async function fetchQzonePostDetail(
   hostUin: string,
   tid: string,
   signal?: AbortSignal,
+  captureRaw?: (text: string) => Promise<void>,
 ) {
   return parseQzonePostDetail(
     await read(
@@ -86,6 +90,7 @@ export async function fetchQzonePostDetail(
         code_version: '1',
       },
       signal,
+      captureRaw,
     ),
     hostUin,
     tid,
@@ -107,9 +112,10 @@ export async function fetchQzonePostImages(
   hostUin: string,
   tid: string,
   signal?: AbortSignal,
+  captureRaw?: (text: string) => Promise<void>,
 ) {
   return parseQzonePostImages(
-    await read(cred, hostUin, tid, 'emotion_cgi_get_pics_v6', {}, signal),
+    await read(cred, hostUin, tid, 'emotion_cgi_get_pics_v6', {}, signal, captureRaw),
     hostUin,
     tid,
   );

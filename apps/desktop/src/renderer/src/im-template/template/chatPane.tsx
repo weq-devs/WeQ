@@ -13,12 +13,12 @@ import {
   Download,
   Search,
   Trash2,
-  RotateCcw,
+  ListX,
+  ListRestart,
   FileText,
   Images,
   FolderOpen,
   Bug,
-  Gift,
   Hand,
   Image as ImageIcon,
   Link2,
@@ -35,6 +35,7 @@ import {
   Vibrate,
   X,
 } from 'lucide-react';
+import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { useThemeStore } from '../../state/theme';
@@ -3326,7 +3327,7 @@ export function ChatPane({
               title="删除列表"
               onClick={() => onViewDeleted(conversation)}
             >
-              <Trash2 size={18} />
+              <ListX size={18} />
             </button>
           ) : null}
           {onViewRecalled && (conversation.type === 'group' || conversation.type === 'direct') ? (
@@ -3336,7 +3337,7 @@ export function ChatPane({
               title="撤回列表"
               onClick={() => onViewRecalled(conversation)}
             >
-              <RotateCcw size={18} />
+              <ListRestart size={18} />
             </button>
           ) : null}
           {conversation.type === 'group' ? (
@@ -3749,7 +3750,7 @@ export function ChatPane({
             disabled={currentPreference.blocked}
             onClick={toggleRedPacketPanel}
           >
-            <Gift size={21} strokeWidth={1.5} />
+            <AiOutlineRedEnvelope size={21} />
           </button>
           {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
           {canUseWindowShake ? (
@@ -4120,7 +4121,7 @@ export function ChatPane({
                 disabled={currentPreference.blocked}
                 onClick={toggleRedPacketPanel}
               >
-                <Gift size={22} strokeWidth={1.5} />
+                <AiOutlineRedEnvelope size={22} />
               </button>
               {canUseWindowShake ? (
                 <button

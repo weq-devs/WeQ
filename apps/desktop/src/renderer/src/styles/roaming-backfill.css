@@ -12,13 +12,14 @@
 .weq-roaming-panel input[type="date"] { color-scheme: light; }
 html[data-theme="dark"] .weq-roaming-panel input[type="date"] { color-scheme: dark; }
 .weq-roaming-checkbox { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 12px; }
-.weq-roaming-selection-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin: 12px 0 6px; font-size: 12px; }
-.weq-roaming-targets { max-height: 220px; overflow: auto; border-block: 1px solid var(--border); }
-.weq-roaming-target { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.weq-roaming-selection-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 6px; font-size: 12px; }
+.weq-roaming-selection-head input { flex: 1 1 200px; width: auto !important; }
+.weq-roaming-targets { border-block: 1px solid var(--border); }
+.weq-roaming-target { display: flex; height: 100%; box-sizing: border-box; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .weq-roaming-target:last-child { border-bottom: 0; }
 .weq-roaming-target > span { display: grid; gap: 2px; min-width: 0; }
-.weq-roaming-target strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
-.weq-roaming-target small { color: var(--weq-fg-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.weq-roaming-target strong { font-size: 13px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.weq-roaming-target small { color: var(--weq-fg-secondary); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .weq-roaming-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .weq-roaming-actions > span { flex: 1 1 200px; color: var(--weq-fg-secondary); font-size: 11px; }
 .weq-roaming-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 12px; cursor: pointer; }
