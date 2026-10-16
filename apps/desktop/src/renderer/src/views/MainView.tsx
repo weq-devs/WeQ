@@ -1304,8 +1304,7 @@ function messageSender(
  * 乐观渲染的合并转发 → 模板层 Message。
  *
  * 渲染成一张同款「聊天记录」卡片（`multiMsg` 元素）——与真消息同步回来后的样子一致，
- * 因此同步到位后不会出现视觉跳变。状态标识（发送中 / 已发送 / 发送失败）通过额外
- * 的 `optimistic` 字段带到气泡上，由 MessageBubble 画一个小标签。
+ * 因此同步到位后不会出现视觉跳变。`optimistic` 字段驱动旁侧发送圈圈与失败提示。
  */
 function optimisticToTemplate(
   item: OptimisticForward,
@@ -1338,6 +1337,7 @@ function optimisticToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
@@ -1351,8 +1351,8 @@ function optimisticToTemplate(
  * 乐观渲染的 Ark 卡片 → 模板层 Message。
  *
  * 走与真消息**同一条渲染通路**：一个 `ark` 元素交给 `QqArk`，所以同步到位后卡片
- * 不会变样。状态标识（发送中 / 已发送 / 发送失败）通过额外的 `optimistic` 字段带到
- * 气泡上，由 MessageBubble 画一个小标签（和乐观合并转发同款）。
+ * 不会变样。旁侧发送圈圈与失败提示通过额外的 `optimistic` 字段带到
+ * 气泡上，由 MessageBubble 统一呈现。
  */
 function optimisticArkToTemplate(
   item: OptimisticArk,
@@ -1373,6 +1373,7 @@ function optimisticArkToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
@@ -1438,6 +1439,7 @@ function optimisticMessageToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;

@@ -107,6 +107,12 @@ import {
   type RandomFaceDraft,
 } from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
+import {
+  isLocalOutgoingMessage,
+  outgoingActionBlockReason,
+  selectMessageIds,
+  selectedMessagesText,
+} from '../../lib/messageSelection';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
@@ -611,9 +617,10 @@ export function ChatPane({
     x: number;
     y: number;
   } | null>(null);
-  // 多选：右键「多选」进入；此时输入框让位给「合并转发 / 删除 / 复制 JSON / 退出」。
+  // 多选：右键进入，输入框让位给批量操作；选择数不设上限。
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
     anchor: { x: number; y: number };
@@ -645,6 +652,7 @@ export function ChatPane({
   useEffect(() => {
     setSelectionMode(false);
     setSelectedIds(new Set());
+    selectionAnchor.current = null;
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
@@ -654,6 +662,7 @@ export function ChatPane({
       if (event.key === 'Escape') {
         setSelectionMode(false);
         setSelectedIds(new Set());
+        selectionAnchor.current = null;
       }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -709,6 +718,48 @@ export function ChatPane({
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
     [visibleMessages, selectedIds],
   );
+  const selectionOrder = useMemo(
+    () => visibleMessages.map((message) => message.id),
+    [visibleMessages],
+  );
+  const copySelectedMessagesText = useCallback(async () => {
+    if (!conversation) return;
+    try {
+      const copied = await copyTextToClipboard(
+        selectedMessagesText(selectedMessages, conversation, user),
+      );
+      if (!copied) throw new Error('未能写入剪贴板，请重新复制。');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [conversation, selectedMessages, user, pushToast]);
+  useLayoutEffect(() => {
+    if (!tabActive || !selectionMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+      )
+        return;
+      if (event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        setContextMenu(null);
+        setSelectedIds(new Set(selectionOrder));
+        selectionAnchor.current ??= selectionOrder[0] ?? null;
+      } else if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
+        event.preventDefault();
+        void copySelectedMessagesText();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [tabActive, selectionMode, selectionOrder, selectedMessages.length, copySelectedMessagesText]);
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
@@ -1656,6 +1707,8 @@ export function ChatPane({
     if (moderationBlockedReason) {
       return { show: true, reason: moderationBlockedReason };
     }
+    const pendingReason = outgoingActionBlockReason(message);
+    if (pendingReason) return { show: true, reason: pendingReason };
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
     if (!Number.isFinite(seq) || seq <= 0) {
       return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
@@ -2570,15 +2623,10 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
-    // 乐观渲染的合并转发还不在库里 —— 右键菜单的每一项都会写库 / 查库，直接不弹。
-    if (message.id.startsWith('optimistic-')) {
-      event.preventDefault();
-      return;
-    }
     // 多选模式下右键 = 切换选中，不再弹菜单。
     if (selectionMode) {
       event.preventDefault();
-      toggleSelectMessage(message);
+      toggleSelectMessage(message, event);
       return;
     }
     if (window.matchMedia('(max-width: 760px)').matches) {
@@ -2631,23 +2679,23 @@ export function ChatPane({
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
     setSelectedIds(new Set([message.id]));
+    selectionAnchor.current = message.id;
   }
 
-  function toggleSelectMessage(message: Message) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(message.id)) {
-        next.delete(message.id);
-      } else {
-        next.add(message.id);
-      }
-      return next;
-    });
+  function toggleSelectMessage(message: Message, event?: ReactMouseEvent) {
+    const anchor = selectionAnchor.current;
+    window.getSelection()?.removeAllRanges();
+    setSelectedIds((current) =>
+      selectMessageIds(current, selectionOrder, message.id, anchor, event),
+    );
+    if (!event?.shiftKey || !anchor || !selectionOrder.includes(anchor))
+      selectionAnchor.current = message.id;
   }
 
   function exitSelection() {
     setSelectionMode(false);
     setSelectedIds(new Set());
+    selectionAnchor.current = null;
   }
 
   function mergeForwardSelected() {
@@ -2666,7 +2714,7 @@ export function ChatPane({
     const picked = selectedMessages;
     exitSelection();
     for (const message of picked) {
-      if (message.source === 'roaming') continue;
+      if (message.source === 'roaming' || isLocalOutgoingMessage(message)) continue;
       void onDeleteMessage?.(message, conversation);
     }
   }
@@ -3062,7 +3110,7 @@ export function ChatPane({
   // QQ-style delete: the DB row's type columns become (1,1) and the message
   // STAYS in the chat, rendered under a translucent overlay (no local hiding).
   function deleteMessage(message: Message) {
-    if (message.source === 'roaming') return;
+    if (message.source === 'roaming' || isLocalOutgoingMessage(message)) return;
     if (!conversation) {
       return;
     }
@@ -3078,6 +3126,7 @@ export function ChatPane({
   }
 
   function editMessageRaw(message: Message) {
+    if (isLocalOutgoingMessage(message)) return;
     // Close the menu before the editor lightbox opens so it doesn't linger
     // on top of / behind the modal.
     setContextMenu(null);
@@ -3643,14 +3692,19 @@ export function ChatPane({
       >
         {selectionMode ? (
           <div className={cn('selection-bar')}>
-            <div className={cn('selection-bar-info')}>
-              <span className={cn('selection-bar-count')}>{selectedIds.size}</span>
+            <div
+              className={cn('selection-bar-info')}
+              aria-label={`已选 ${selectedMessages.length} 条消息`}
+              aria-live="polite"
+            >
+              <span className={cn('selection-bar-count')}>{selectedMessages.length}</span>
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
+                aria-label="合并转发"
                 title={sendGateReason ? `${sendGateReason}，暂不可发送` : '合并转发'}
                 disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
                 onClick={mergeForwardSelected}
@@ -3661,13 +3715,18 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action')}
+                aria-label="删除"
                 disabled={
                   selectedMessages.length === 0 ||
-                  selectedMessages.some((message) => message.source === 'roaming')
+                  selectedMessages.some(
+                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                  )
                 }
                 title={
-                  selectedMessages.some((message) => message.source === 'roaming')
-                    ? '漫游缓存消息不支持原库删除，请仅选择本地消息'
+                  selectedMessages.some(
+                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                  )
+                    ? '所选消息尚未入库或来自漫游缓存，不能执行原库删除'
                     : '删除所选本地消息'
                 }
                 onClick={deleteSelectedMessages}
@@ -3679,12 +3738,31 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action')}
                 disabled={selectedMessages.length === 0}
+                onClick={() => void copySelectedMessagesText()}
+                title="复制为纯文本"
+                aria-label="复制纯文本"
+              >
+                <FileText size={17} />
+                <span>复制纯文本</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
                 onClick={copySelectedMessagesJson}
+                title="复制 JSON"
+                aria-label="复制 JSON"
               >
                 <ClipboardCopy size={17} />
                 <span>复制 JSON</span>
               </button>
-              <button type="button" className={cn('selection-action')} onClick={exitSelection}>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                onClick={exitSelection}
+                title="退出多选"
+                aria-label="退出多选"
+              >
                 <X size={17} />
                 <span>退出</span>
               </button>
@@ -4200,18 +4278,29 @@ export function ChatPane({
           state={contextMenu}
           onCopy={copyMessage}
           onDownloadImage={downloadMessageImage}
-          onDelete={contextMenu.message.source === 'roaming' ? undefined : deleteMessage}
+          onDelete={
+            contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)
+              ? undefined
+              : deleteMessage
+          }
           onEditRaw={
-            onEditRaw && contextMenu.message.source !== 'roaming' ? editMessageRaw : undefined
+            onEditRaw &&
+            contextMenu.message.source !== 'roaming' &&
+            !isLocalOutgoingMessage(contextMenu.message)
+              ? editMessageRaw
+              : undefined
           }
           onViewDecoration={viewDecoration}
           onReply={startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
-          replyBlockedReason={quoteBlockReason(contextMenu.message)}
+          replyBlockedReason={
+            outgoingActionBlockReason(contextMenu.message) ?? quoteBlockReason(contextMenu.message)
+          }
           onMultiSelect={enterSelection}
           onReact={openReactionPicker}
           // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
           reactBlockedReason={
+            outgoingActionBlockReason(contextMenu.message) ??
             reactionBlockedReason ??
             (Number((contextMenu.message as { msgSeq?: unknown }).msgSeq) > 0
               ? null

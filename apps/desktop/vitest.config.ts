@@ -12,7 +12,10 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     // 渲染层源码用 `@renderer/*` 别名（见 electron.vite.config.ts），组件单测也得认。
-    alias: { '@renderer': resolve(__dirname, 'src/renderer/src') },
+    alias: {
+      '@renderer': resolve(__dirname, 'src/renderer/src'),
+      '@resources': resolve(__dirname, '../../resources'),
+    },
   },
   test: {
     environment: 'happy-dom',

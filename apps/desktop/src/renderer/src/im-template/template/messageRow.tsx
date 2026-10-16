@@ -17,7 +17,8 @@
  * 决定「画成灰条还是画成气泡」。
  */
 
-import type { ReactElement } from 'react';
+import type { ReactElement, MouseEvent as ReactMouseEvent } from 'react';
+import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
 import type { MessageRenderer } from './messageRenderers';
@@ -205,7 +206,7 @@ export function MessageRow({
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
-  onToggleSelect?: (message: Message) => void;
+  onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -214,10 +215,30 @@ export function MessageRow({
       // 右鍵菜单与普通消息同一入口（聊天区靠它弹「复制 / 删除 / 多选」），
       // 所以这一层必须保留 data-message-id 与 onContextMenu。
       <div
-        className={grayTipClassName}
+        className={[
+          grayTipClassName,
+          selectionMode ? 'selection-mode' : '',
+          selected ? 'is-selected' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         data-message-id={message.id}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
+        onClickCapture={
+          selectionMode && onToggleSelect
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleSelect(message, event);
+              }
+            : undefined
+        }
       >
+        {selectionMode ? (
+          <span className="message-select-mark" aria-hidden>
+            {selected ? <Check size={13} /> : null}
+          </span>
+        ) : null}
         <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
         <MessageProvenance message={message} system />
       </div>
