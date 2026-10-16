@@ -129,7 +129,7 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
+import { GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
@@ -325,6 +325,7 @@ export function ChatPane({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupInfoDetail,
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
@@ -418,6 +419,11 @@ export function ChatPane({
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  /** 群资料面板「群资料」入口：卡片本体搬到了应用层（components/GroupInfoDetailDialog）。 */
+  onOpenGroupInfoDetail?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    detail: GroupInfoDetail,
+  ) => void;
   /** 群管理「修改群昵称」：应用层开弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (
     conversation: Extract<Conversation, { type: 'group' }>,
@@ -493,7 +499,6 @@ export function ChatPane({
       composerHeightMax,
     ),
   );
-  const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -634,7 +639,9 @@ export function ChatPane({
   const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
-    setGroupInfoDetail(detail);
+    if (conversation?.type === 'group') {
+      onOpenGroupInfoDetail?.(conversation, detail);
+    }
   }
 
   // 切会话时退出多选（选中集属于上一个会话）。
@@ -836,7 +843,6 @@ export function ChatPane({
   );
 
   useEffect(() => {
-    setGroupInfoDetail(null);
     setEmojiOpen(false);
     setToolsOpen(false);
     setContextMenu(null);
@@ -4218,24 +4224,6 @@ export function ChatPane({
         <MessageDecorationCard
           decoration={decorationCard.decoration}
           onClose={() => setDecorationCard(null)}
-        />
-      ) : null}
-      {groupInfoDetail && conversation.type === 'group' ? (
-        <GroupInfoDetailDialog
-          conversation={conversation}
-          detail={groupInfoDetail}
-          onClose={() => setGroupInfoDetail(null)}
-          onJumpToMessage={(seq) => {
-            // 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
-            // jumpToSeq 内部会 String(seq) 归一化，再按已加载窗口的 seq 范围决定
-            // 快路径（滚动）/ 重建居中窗口。
-            setGroupInfoDetail(null);
-            if (seq == null) {
-              console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
-              return;
-            }
-            jumpToSeq({ seq });
-          }}
         />
       ) : null}
     </section>

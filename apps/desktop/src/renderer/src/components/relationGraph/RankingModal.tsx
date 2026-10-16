@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from 'lucide-react';
 import { client } from '../../trpc/client';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../OverlayLayer';
 import { groupAvatar, personAvatar } from './graphModel';
 
 export type RankingKind = 'intimacy' | 'common' | 'memberLevel' | 'groupActivity';
@@ -62,18 +62,13 @@ export function RankingModal({
   data: { nodes?: any[]; groups?: any[] } | null;
   onClose: () => void;
 }) {
-  useEscapeToClose(onClose);
   const meta = RANK_META[kind];
   const [group, setGroup] = useState<any | null>(null);
 
   const subtitle = kind === 'memberLevel' && group ? group.name || group.code : meta.sub;
 
   return (
-    <div
-      className="modal-scrim weq-graph-modal-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim weq-graph-modal-scrim" onClose={onClose}>
       <section className="weq-rank" role="dialog" aria-modal="true">
         <header className="weq-rank-head">
           <span className="weq-rank-head-icon">{meta.icon}</span>
@@ -98,7 +93,7 @@ export function RankingModal({
           <GroupChooser groups={data?.groups ?? []} onPick={setGroup} />
         )}
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

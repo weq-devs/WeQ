@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { ReactElement } from 'react';
 import { X } from 'lucide-react';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
 
@@ -36,14 +36,8 @@ export function GroupAnnouncementsDialog({
   bulletins?: GroupBulletinWire[];
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-
   return (
-    <div
-      className="modal-scrim group-announcements-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-announcements-scrim" onClose={onClose}>
       <section
         className="group-announcements-dialog"
         role="dialog"
@@ -127,7 +121,7 @@ export function GroupAnnouncementsDialog({
           ) : null}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

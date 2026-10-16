@@ -10,13 +10,12 @@
  * .weq-mutual-layer）。
  */
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Award, Loader2, WifiOff, X } from 'lucide-react';
 import type { FriendMark } from '@weq/service';
 import { MutualMarkLevelDialog } from './MutualMarkLevelDialog';
 import { trpc } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 
 /** 单个标识单元：大图标（点击看全部等级）+ 名称 + 点亮/累计天数 + 状态。 */
 function MarkCell({ mark, onOpen }: { mark: FriendMark; onOpen: (mark: FriendMark) => void }) {
@@ -72,8 +71,6 @@ export function MutualMarkDialog({
   name: string;
   onClose: () => void;
 }) {
-  useEscapeToClose(onClose);
-
   const [levelMark, setLevelMark] = useState<FriendMark | null>(null);
 
   const query = trpc.account.mutualMark.get.useQuery(
@@ -85,17 +82,8 @@ export function MutualMarkDialog({
   const data = query.data;
   const categories = (data?.categories ?? []).filter((cat) => cat.marks.length > 0);
 
-  return createPortal(
-    <div
-      className="weq-profile-layer weq-mutual-layer"
-      role="presentation"
-      // 必须 stopPropagation：portal 挂在 body 上，但 React 事件仍沿组件树冒泡，
-      // 调用方（好友资料灯箱 / 群成员卡）的遮罩也监听 mousedown 关闭自己。
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-    >
+  return (
+    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
       <section
         className="weq-mutual-dialog weq-anim-pop"
         role="dialog"
@@ -159,7 +147,6 @@ export function MutualMarkDialog({
           <MutualMarkLevelDialog mark={levelMark} onClose={() => setLevelMark(null)} />
         ) : null}
       </section>
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

@@ -18,7 +18,7 @@ import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
 function notifyKeyOf(kind: string, id: string): string {
@@ -65,8 +65,6 @@ export function ConversationSettingsDialog({
   const setNotify = trpc.account.antiRecall.setNotify.useMutation();
   const busy = setTargets.isLoading || setNotify.isLoading;
 
-  useEscapeToClose(onClose);
-
   const enabled = status.data?.enabled ?? false;
   const mode = status.data?.mode ?? 'selected';
   const allProtected = mode === 'all';
@@ -110,11 +108,7 @@ export function ConversationSettingsDialog({
   }
 
   return (
-    <div
-      className="modal-scrim group-keyword-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
       <section
         className="weq-cvs-dialog"
         role="dialog"
@@ -232,6 +226,6 @@ export function ConversationSettingsDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
