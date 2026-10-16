@@ -31,6 +31,8 @@ export interface CommitFileResult {
 export namespace CommitFile {
   export const command = 0x93d0;
   export const subCommand = 1;
+  // 0x93d0_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = FLASH_COMMIT_FILE_REQ;
   export const respSchema = FLASH_COMMIT_FILE_RESP;
 

@@ -50,6 +50,8 @@ export interface QqShowInfo {
 export namespace GetQqShowUrl {
   export const command = 0xfe1;
   export const subCommand = 3;
+  // 0xfe1_3 不在 LagrangeV2 签名白名单里（白名单只有 0xfe1_2 / 0xfe1_8），needSign = false。
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = QQ_SHOW_REQ;
   export const respSchema = QQ_SHOW_RESP;

@@ -46,6 +46,8 @@ export interface DownloadRkey {
 export namespace FetchDownloadRkeys {
   export const command = 0x9067;
   export const subCommand = 202;
+  // 0x9067_202 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = NTV2_RICH_MEDIA_REQ;
   export const respSchema = NTV2_RKEY_RESP;

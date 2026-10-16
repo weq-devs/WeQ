@@ -83,6 +83,8 @@ export interface GroupHistoryParams {
 
 export namespace GetGroupHistory {
   export const cmd = SSO_GET_GROUP_MSG_CMD;
+  // SsoGetGroupMsg 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = SSO_GET_GROUP_MSG_REQUEST;
   export const respSchema = SSO_GET_GROUP_MSG_RESPONSE;
 
@@ -159,6 +161,8 @@ export interface C2cHistoryParams {
 
 export namespace GetC2cHistory {
   export const cmd = SSO_GET_C2C_MSG_CMD;
+  // SsoGetC2cMsg 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = SSO_GET_C2C_MSG_REQUEST;
   export const respSchema = SSO_GET_C2C_MSG_RESPONSE;
 

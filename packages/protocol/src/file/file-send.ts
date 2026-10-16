@@ -83,6 +83,8 @@ interface GroupFileUploadParams {
 const UploadGroupFile = {
   command: 0x6d6,
   subCommand: 0,
+  // 0x6d6_0 不在 LagrangeV2 签名白名单里（白名单只有 0x6d6_2 / 0x6d6_3），needSign = false。
+  needSign: false,
   uinForm: true,
   reqSchema: OIDB_GROUP_FILE_UPLOAD_REQ,
   respSchema: OIDB_GROUP_FILE_UPLOAD_RESP,

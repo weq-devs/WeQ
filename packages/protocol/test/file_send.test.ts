@@ -45,6 +45,7 @@ interface OidbCall {
   subCommand: number;
   body: Uint8Array;
   isUid: boolean;
+  needSign?: boolean;
 }
 interface PacketCall {
   pid: number;
@@ -67,8 +68,9 @@ function makeNative(handlers: {
       subCommand: number,
       body: Buffer,
       isUid: boolean,
+      needSign?: boolean,
     ): Promise<Buffer> => {
-      const call = { pid, command, subCommand, body: new Uint8Array(body), isUid };
+      const call = { pid, command, subCommand, body: new Uint8Array(body), isUid, needSign };
       oidbCalls.push(call);
       return Buffer.from(handlers.oidb(call));
     },
@@ -172,6 +174,8 @@ describe('sendGroupFile', () => {
     expect(native.oidbCalls[0]!.command).toBe(0x6d6);
     expect(native.oidbCalls[0]!.subCommand).toBe(0);
     expect(native.oidbCalls[0]!.isUid).toBe(true);
+    // 0x6d6_0 不在 LagrangeV2 签名白名单里（白名单只有 0x6d6_2 / 0x6d6_3），不签名。
+    expect(native.oidbCalls[0]!.needSign).toBe(false);
     expect(req.file?.groupUin).toBe(673646675);
     expect(req.file?.appId).toBe(4);
     expect(req.file?.busId).toBe(102);

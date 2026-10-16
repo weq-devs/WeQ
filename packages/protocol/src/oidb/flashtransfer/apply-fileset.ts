@@ -46,6 +46,8 @@ export interface ApplyFilesetResult {
 export namespace ApplyFileset {
   export const command = 0x93cf;
   export const subCommand = 1;
+  // 0x93cf_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = FLASH_APPLY_FILESET_REQ;
   export const respSchema = FLASH_APPLY_FILESET_RESP;
 
