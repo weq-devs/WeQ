@@ -7,22 +7,50 @@
  *
  * ⚠️ 只能在**主进程**调用（`nativeImage` 是 Electron 的 API）；跑推理的 worker 是
  * 纯 Node 子进程，拿不到它 —— 所以解码在主进程做完，再把裸 RGB 喂给 worker。
+ *
+ * ⚠️ 这里的 electron **不能写成静态 import**：web 端（`apps/web`）也会加载本模块 ——
+ * MCP 工具 → `ocr/local.ts` → 这里，而 electron 在纯 Node 下 import 会直接
+ * "does not provide an export named 'nativeImage'" 把 web 服务打挂
+ * （`apps/web/scripts/check-electron-free.ts` 就是为此立的门禁）。所以走运行时的
+ * `require('electron')`，只有真的解码时才碰它 —— web 从不调用这条路径。
  */
 
-import { nativeImage, type NativeImage } from 'electron';
+import { createRequire } from 'node:module';
 import type { RgbImage } from './pipeline';
+
+/** Electron `nativeImage` 的最小结构（这里只用得上这仨方法）。 */
+interface NativeImageLike {
+  isEmpty(): boolean;
+  toBitmap(): Buffer;
+  getSize(): { width: number; height: number };
+}
+
+interface ElectronLike {
+  nativeImage: {
+    createFromBuffer(bytes: Buffer): NativeImageLike;
+    createFromDataURL(url: string): NativeImageLike;
+  };
+}
+
+let cachedElectron: ElectronLike | null = null;
+
+/** 运行时取 electron（懒加载 + 只取一次；见文件头那段说明）。 */
+function electron(): ElectronLike {
+  cachedElectron ??= createRequire(import.meta.url)('electron') as ElectronLike;
+  return cachedElectron;
+}
 
 /** 解码一份图片字节（jpg / png / …）；解不开返回 null。 */
 export function decodeImageBytes(bytes: Buffer): RgbImage | null {
-  return toRgb(nativeImage.createFromBuffer(bytes));
+  return toRgb(electron().nativeImage.createFromBuffer(bytes));
 }
 
 /** 解码一个 `data:` URL（剪贴板截图之类）。 */
 export function decodeImageDataUrl(url: string): RgbImage | null {
-  return toRgb(nativeImage.createFromDataURL(url));
+  return toRgb(electron().nativeImage.createFromDataURL(url));
 }
 
-function toRgb(image: NativeImage): RgbImage | null {
+function toRgb(image: NativeImageLike): RgbImage | null {
   if (image.isEmpty()) return null;
   const bitmap = image.toBitmap();
   const size = image.getSize();
