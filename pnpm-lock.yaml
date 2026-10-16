@@ -543,6 +543,9 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(lightningcss@1.32.0)(supports-color@7.2.0)
 
   packages/platform:
     dependencies:

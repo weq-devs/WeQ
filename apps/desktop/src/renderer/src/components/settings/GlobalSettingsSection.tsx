@@ -1,11 +1,10 @@
 /**
  * 设置 → 全局设置.
  *
- * App-wide, account-independent items: WeQ 版本信息 + 现有配置账号列表 +
- * 默认进入账号选择 + 缓存目录（可自定义）.
+ * App-wide, account-independent items: 现有配置账号列表 + 默认进入账号选择 +
+ * 缓存目录（可自定义）. 版本信息与软件更新搬到了「版本」页（VersionSection）。
  *
  * Data sources:
- *   - `bootstrap.getVersionInfo`      — WeQ / Electron / Chrome / Node versions
  *   - `bootstrap.listAccountConfigs`  — saved account configs
  *   - `bootstrap.getAutoEnter`        — auto-enter target
  *   - `bootstrap.getCacheDir`         — effective / override / default cache paths
@@ -35,9 +34,7 @@ import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { UpdateCard } from './UpdateCard';
 import { DesktopOnly } from '../../lib/target';
-import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -84,10 +81,6 @@ export function GlobalSettingsSection(): ReactElement {
   const [preferCdn, setPreferCdn] = useState(false);
   const [logRetentionDays, setLogRetentionDays] = useState(7);
 
-  const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -327,7 +320,6 @@ export function GlobalSettingsSection(): ReactElement {
     }
   }
 
-  const v = version.data;
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
 
@@ -338,33 +330,6 @@ export function GlobalSettingsSection(): ReactElement {
         title="全局设置"
         desc="与账号无关的应用级设置。"
       />
-
-      {/* Version */}
-      <Card>
-        <div className="weq-set-hero">
-          <img src={logoUrl} alt="" width={52} height={52} className="weq-set-hero-logo" />
-          <div className="weq-set-hero-info">
-            <span className="weq-set-hero-name">WeQ</span>
-            <span className="weq-set-hero-sub weq-number">
-              版本 {v?.app ?? (version.isLoading ? '…' : '未知')}
-            </span>
-            {v ? (
-              <span className="weq-set-hero-sig">
-                Electron {v.electron} · Chrome {v.chrome} · Node {v.node}
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <p className="weq-set-note">
-          <Info size={12} strokeWidth={1.9} aria-hidden /> WeQ 完全自主解密解析 QQ
-          本地数据库读取聊天记录
-        </p>
-      </Card>
-
-      {/* Software update — the web build can't replace its own binary. */}
-      <DesktopOnly>
-        <UpdateCard />
-      </DesktopOnly>
 
       {/* Window close behavior */}
       <DesktopOnly>

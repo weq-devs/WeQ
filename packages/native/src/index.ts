@@ -17,6 +17,7 @@ export {
   resolveNtHelperPath,
   getNativeLogRoot,
   INIT_ERROR_MESSAGES,
+  readNativeBuildInfo,
 } from './loader';
 export type { LoadNativeOptions, NativeLoadResult } from './loader';
 export { MAX_FAST_DECRYPT_BYTES, selectDatabaseDecryptMethod } from './decrypt';

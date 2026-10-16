@@ -27,9 +27,12 @@
    （`DRESS_KEY_SEED`，见 nt_helper 的 `build.rs`）并烘焙进 `.node`。跨版本混用会让
    `queryDressResourceUrl()` 永远返回 `null` —— 装扮离线查询静默退化成联网协议。
    所以 `pnpm native:fetch` 永远从**同一个 release tag** 成对取。
-2. **`.node` 满 30 天失效。** CI 构建带 `BUILD_TIMESTAMP`，`getInitStatus()` 返回 `-1`；
-   本地 `cargo` / `napi` 自编的不带时间戳，不受此限。所以发布时间到了就得换一份新的，
-   而 `--require-fresh`（默认 25 天）会把过期构建挡在打包之前。
+2. **`.node` 有有效期。** CI 构建带 `BUILD_TIMESTAMP`，`getInitStatus()` 在过期后返回
+   `-1`；本地 `cargo` / `napi` 自编的不带时间戳，不受此限。有效期长度**只由 nt_helper
+   的 Rust 定义一处**（`common::BUILD_VALIDITY_SECS`），二进制通过 `getBuildInfo()`
+   自报 `buildTime` / `expireTime`；WeQ 侧（脚本、CI、UI）一律按这个时间戳判断，不抄天数。
+   所以发布时间到了就得换一份新的，而 `--require-fresh`（剩余不足 1/5 有效期）会把过期
+   构建挡在打包之前。
 
 ## 版本锚：`native/pinned.json`
 
@@ -141,9 +144,12 @@ macos-x64 / macos-arm64 / web）在 `pnpm install` 之后各插了一步：
 ```
 
 每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
-不是 latest）。`--require-fresh` 挡住超过 25 天的构建 —— 也就是说锚点太旧时，发布会在打包
-之前就失败，而不是发出一个起不来的安装包；`--verify` 在 runner 上真的 `require()` 一次
+不是 latest）。`--require-fresh` 在剩余有效期不足 1/5 时失败 —— 也就是说锚点太旧时，发布会在
+打包之前就失败，而不是发出一个起不来的安装包；`--verify` 在 runner 上真的 `require()` 一次
 并跑 `getInitStatus()`，二进制有问题当场失败，而不是等用户装上才发现。
+
+`pnpm native:fetch --write-pin` 会把二进制自报的 `builtAt` / `expiresAt` 一起写进
+`native/pinned.json`；WeQ 的 Release 说明就取这两个值（不再单独跑构建去问）。
 
 需要跑最新的 native 构建前，先把锚点升级（见上一节），否则 CI 打出来的仍是旧的那份。
 

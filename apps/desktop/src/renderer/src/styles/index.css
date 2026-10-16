@@ -1590,6 +1590,41 @@ html[data-theme='dark'] .weq-splash-track {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
   }
 
+  /* ---- native 过期弹窗（内嵌更新组件） ---- */
+  .weq-native-expired .weq-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .weq-native-expired .weq-dialog-body p {
+    margin: 0;
+  }
+  .weq-native-expired-times {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 12.5px;
+    color: var(--weq-fg-muted);
+  }
+  .weq-native-expired-update {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--weq-border-subtle);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  }
+  .weq-native-expired-update .weq-set-row {
+    padding: 0;
+  }
+  .weq-native-expired .weq-set-note code {
+    padding: 0 0.25rem;
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+    font-size: 12px;
+  }
+
   /* ---- close-confirm dialog (关闭 WeQ：托盘 / 退出) ---- */
   /* Token-driven so it tracks light/dark, like the welcome dialog. */
   .weq-close {

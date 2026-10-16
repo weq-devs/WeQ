@@ -36,7 +36,9 @@ native/<platform>/<arch>/           platform ∈ {win32, linux, darwin}
 
 ## 有效期
 
-CI 构建的 `.node` 带 `BUILD_TIMESTAMP`，**满 30 天失效**（`getInitStatus()` 返回 `-1`）。
+CI 构建的 `.node` 带 `BUILD_TIMESTAMP`，**超出有效期后失效**（`getInitStatus()` 返回 `-1`）。
+有效期长度只在 nt_helper 的 Rust 里定义一处，二进制通过 `getBuildInfo()` 自报
+`buildTime` / `expireTime`；`pnpm native:fetch` 会把这两个时间写进 `pinned.json`。
 本地 `cargo`/`napi` 自己编的构建不带时间戳、不校验有效期，但那份的装扮资源也只有本机构建
 产物能用。所以 dev 侧隔一段时间重新 `pnpm native:fetch` 一次是正常的，不是出问题了。
 

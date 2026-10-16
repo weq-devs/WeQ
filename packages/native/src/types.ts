@@ -33,6 +33,24 @@ export enum InitStatus {
   UnknownError = 99,
 }
 
+/**
+ * Build time / validity window reported by the binary itself. Mirrors
+ * `BuildInfo` in `nt_helper/src/lib.rs`.
+ *
+ * `expireTime` is `buildTime + validitySecs`. Local dev builds (no
+ * `BUILD_TIMESTAMP`) report `null` for both times and `isDev: true`.
+ */
+export interface NativeBuildInfo {
+  /** Unix seconds baked in at compile time; `null` for dev builds. */
+  buildTime: number | null;
+  /** Unix seconds at which the build stops being valid; `null` for dev builds. */
+  expireTime: number | null;
+  /** Length of the validity window in seconds. */
+  validitySecs: number;
+  /** True for local dev builds (no expiry check). */
+  isDev: boolean;
+}
+
 // ---------- QQ process / login detection ---------------------------------
 
 /**
@@ -529,6 +547,12 @@ export interface CaptureSupport {
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
+  /**
+   * Build time / validity window reported by the binary. Absent on older
+   * `.node` builds (added alongside the version page) — always probe with
+   * `typeof nt.getBuildInfo === 'function'`.
+   */
+  getBuildInfo?(): NativeBuildInfo;
   setLogPath(path: string): void;
   /**
    * 打开 / 关闭底层调试日志模式（运行时可调，无需重启）。**默认关闭**：不打印、

@@ -21,6 +21,7 @@ import { useToast } from '../components/Toast';
 import { HomeScreen } from './bootstrap/HomeScreen';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
+import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
 import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { DesktopOnly, IS_MAC, shellBridge } from '../lib/target';
@@ -62,16 +63,20 @@ export function BootstrapView(): ReactElement {
     refetchOnWindowFocus: false,
   });
 
+  // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
+  // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
+  const nativeBuildInfo = trpc.bootstrap.getNativeBuildInfo.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+
   // ---- native-init error dialog (blocking) ----
+  // expired 走专有的 NativeExpiredDialog（内嵌更新组件），damaged 仍用通用错误框。
   useEffect(() => {
-    if (!nativeErr) return;
-    if (nativeErr.kind === 'expired') {
-      showError('版本过旧', '本地组件版本过旧，请更新到最新版本后再使用。', { dismissible: false });
-    } else {
-      showError('安装损坏', 'QQ 助手组件已损坏或被篡改，请重新安装或更新后重试。', {
-        dismissible: false,
-      });
-    }
+    if (!nativeErr || nativeErr.kind === 'expired') return;
+    showError('安装损坏', 'QQ 助手组件已损坏或被篡改，请重新安装或更新后重试。', {
+      dismissible: false,
+    });
   }, [nativeErr, showError]);
 
   // ---- install warnings (once) ----
@@ -185,6 +190,12 @@ export function BootstrapView(): ReactElement {
             {nativeErr.kind === 'expired' ? '组件版本过旧，请更新。' : '组件安装损坏，请重新安装。'}
           </p>
         </Centered>
+        {nativeErr.kind === 'expired' ? (
+          <NativeExpiredDialog
+            buildTime={nativeBuildInfo.data?.buildTime ?? null}
+            expireTime={nativeBuildInfo.data?.expireTime ?? null}
+          />
+        ) : null}
       </Shell>
     );
   }

@@ -21,12 +21,12 @@ import { existsSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { NativeBundle, NtHelperBinding } from './types';
+import type { NativeBuildInfo, NativeBundle, NtHelperBinding } from './types';
 import { InitStatus } from './types';
 
 export const INIT_ERROR_MESSAGES: Record<InitStatus, string> = {
   [InitStatus.Success]: 'Initialization successful',
-  [InitStatus.Expired]: 'Build expired (> 30 days old)',
+  [InitStatus.Expired]: 'Build expired (past its validity window)',
   [InitStatus.Damaged]: 'Binary file damaged',
   [InitStatus.Tampered]: 'Binary file tampered',
   [InitStatus.UnknownError]: 'Unknown initialization error',
@@ -168,6 +168,31 @@ export function resolveNtHelperPath(opts: LoadNativeOptions = {}): string {
   const ntHelperPath = join(platformRoot, 'nt_helper.node');
   assertExists(ntHelperPath, 'nt_helper.node');
   return ntHelperPath;
+}
+
+/**
+ * Read the `nt_helper.node` build time / validity window without running the
+ * init gate.
+ *
+ * Deliberately bypasses {@link loadNative}: when the build has expired the
+ * loader throws, but the version page still needs the deadline to show and to
+ * drive the update prompt. Returns `null` when the addon can't be required or
+ * predates `getBuildInfo()` (older builds).
+ */
+export function readNativeBuildInfo(opts: LoadNativeOptions = {}): NativeBuildInfo | null {
+  let addonPath: string;
+  try {
+    addonPath = resolveNtHelperPath(opts);
+  } catch {
+    return null;
+  }
+  try {
+    const ntHelper = requireFromHere(addonPath) as NtHelperBinding;
+    if (typeof ntHelper.getBuildInfo !== 'function') return null;
+    return ntHelper.getBuildInfo();
+  } catch {
+    return null;
+  }
 }
 
 /**
