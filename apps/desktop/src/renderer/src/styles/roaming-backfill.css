@@ -5,6 +5,7 @@
 .weq-roaming-access { color: var(--weq-fg-secondary); font-size: 12px; }
 .weq-roaming-body { overflow: auto; padding: 16px; min-width: 0; }
 .weq-roaming-scope > h3 { margin: 0 0 12px; font-size: 14px; }
+.weq-roaming-transport { display: grid; gap: 5px; margin-bottom: 12px; font-size: 12px; }
 .weq-roaming-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .weq-roaming-fields label { display: grid; gap: 5px; min-width: 0; color: var(--weq-fg-secondary); font-size: 12px; }
 .weq-roaming-panel input:not([type="checkbox"]), .weq-roaming-panel select { min-width: 0; max-width: 100%; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 12px; }
@@ -40,6 +41,15 @@ html[data-theme="dark"] .weq-roaming-panel input[type="date"] { color-scheme: da
 .weq-roaming-receipt-list { max-height: 240px; overflow: auto; }
 .weq-roaming-receipt-list > div { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .weq-roaming-receipt-list small { color: var(--weq-fg-secondary); }
+.chat-actions:has(.chat-header-roaming-action) { -webkit-app-region: no-drag; }
+@media (max-width: 760px) {
+  .chat-pane:has(.chat-header-roaming-action) { --chat-header-height: 84px !important; }
+  .chat-pane:has(.chat-header-roaming-action) > .chat-header { grid-template-rows: 42px 42px; gap: 0 4px; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-header > .back-button { grid-row: 1; grid-column: 1; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-title { grid-row: 1; grid-column: 2; overflow: hidden; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-actions { grid-row: 2; grid-column: 1 / -1; min-width: 0; width: 100%; overflow-x: auto; justify-content: flex-start; scrollbar-width: thin; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-actions .icon-button { flex: 0 0 36px; }
+}
 @media (max-width: 560px) {
   .weq-wtools-dialog.is-roaming { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
   .is-roaming .weq-wtools-shell { flex-direction: column; }

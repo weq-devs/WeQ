@@ -188,6 +188,19 @@ export interface ExportOptions {
   onlineTranscribe: boolean;
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency: number;
+  /**
+   * 图片文字识别（自动 OCR）：把图片里的文字识别出来写进 `ocr.json`（含逐行文字与
+   * 像素坐标框），并把消息文件里的 `[图片: 名字]` 锚点回写成文字。
+   * 开启条件：QQ 在线，或已下载本地识别模型。
+   */
+  ocrImages: boolean;
+  /**
+   * 在线识别：优先把图交给 QQ 服务端的图片 OCR，没拿到的回退本地模型。
+   * 前提是 QQ 在线且有发包物料；关掉就是纯本地识别。
+   */
+  onlineOcr: boolean;
+  /** 在线识别的并发请求数（默认 5）。 */
+  ocrConcurrency: number;
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
   dress: DressKinds;
   /** 导出完成后自动弹保存路径（不再记忆上次目录）。 */
@@ -211,6 +224,9 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   transcribeVoice: false,
   onlineTranscribe: false,
   onlineConcurrency: 5,
+  ocrImages: false,
+  onlineOcr: false,
+  ocrConcurrency: 5,
   dress: { ...DEFAULT_DRESS },
   autoSave: false,
   chatlab: false,
@@ -253,6 +269,8 @@ export interface ScheduleOptions {
   downloadPtt: boolean;
   completeDress?: boolean;
   transcribeVoice: boolean;
+  /** 图片文字识别（自动 OCR）。 */
+  ocrImages?: boolean;
   /** 导出装扮资源（气泡 / 字体 / 挂件）。 */
   dress?: DressKinds;
   /** 导出完成后自动弹保存路径。 */

@@ -16,6 +16,9 @@ export interface RoamingTarget {
   name: string;
 }
 export interface RoamingJobOptions {
+  /** 旧通道值仅为读取原断点保留；旧 sso30 可按原小窗继续，聚合/SDK 任务不迁移。 */
+  transport?: 'sso' | 'sso30' | 'native500' | 'sso500';
+  nativeBinding?: string;
   targets: RoamingTarget[];
   range?: { start?: number; end?: number };
   beforeOldest: boolean;
@@ -59,6 +62,7 @@ export interface RoamingJob {
   targets: RoamingTargetPlan[];
   requests: number;
   checkedWindows: number;
+  protocolPages?: number;
   cacheWindows: number;
   observed: number;
   errors: number;
@@ -80,9 +84,10 @@ export interface RoamingBackfillDeps {
     end: number,
     signal: AbortSignal,
     intervalMs: number,
+    beforeRequest: () => void,
   ): Promise<GapFetchResult>;
   retain(messages: GapFetchedMessage[]): Promise<void>;
-  checkOnline(): void;
+  checkOnline(transport?: RoamingJobOptions['transport']): void;
   onMessages?(target: RoamingTarget, messages: GapFetchedMessage[]): void;
 }
 
@@ -201,7 +206,16 @@ export function roamingJobSummary(job: RoamingJob) {
     remainingSeqs: remaining,
     pendingSeqs: pending,
     estimatedWindows: job.targets.reduce(
-      (n, t) => n + t.pending.reduce((m, r) => m + Math.ceil((r.end - r.start + 1) / 30), 0),
+      (n, t) =>
+        n +
+        t.pending.reduce(
+          (m, r) =>
+            m +
+            (job.options.transport === 'native500' || job.options.transport === 'sso500'
+              ? r.end - r.start + 1
+              : Math.ceil((r.end - r.start + 1) / 30)),
+          0,
+        ),
       0,
     ),
     coverage: 'observed-only' as const,
@@ -210,6 +224,9 @@ export function roamingJobSummary(job: RoamingJob) {
 
 function validateOptions(options: RoamingJobOptions): void {
   if (
+    (options.transport !== undefined &&
+      !['sso', 'sso30', 'native500', 'sso500'].includes(options.transport)) ||
+    (options.transport === 'native500' && !/^[a-f0-9]{64}$/.test(options.nativeBinding ?? '')) ||
     !Array.isArray(options.targets) ||
     !options.targets.length ||
     options.targets.length > 100 ||
@@ -300,7 +317,8 @@ export class RoamingBackfillManager {
             job.observed,
             job.errors,
             job.unparsedOrEmpty,
-          ].some((n) => !validCount(n))
+          ].some((n) => !validCount(n)) ||
+          (job.protocolPages !== undefined && !validCount(job.protocolPages))
         )
           throw new Error('批量漫游断点校验失败，已保留原件。');
         for (const [index, target] of job.targets.entries()) {
@@ -384,7 +402,11 @@ export class RoamingBackfillManager {
 
   async plan(options: RoamingJobOptions) {
     this.idle();
+    if (options.transport === 'native500') throw Error('SDK 历史通道已移除，请新建纯协议任务。');
+    if (options.transport === 'sso500' || options.transport === 'sso30')
+      throw Error('历史通道已统一为 SSO，请新建 SSO 任务。');
     validateOptions(options);
+    options = { ...options, transport: 'sso' };
     this.planning = true;
     try {
       const targets: RoamingTargetPlan[] = [];
@@ -438,6 +460,7 @@ export class RoamingBackfillManager {
   start(id: string, retryRemaining = false) {
     this.idle();
     const job = this.job(id);
+    this.assertSupportedTransport(job);
     if (job.status === 'cancelled' || job.status === 'completed')
       throw new Error('已结束的任务不能继续。');
     const previous = {
@@ -527,8 +550,13 @@ export class RoamingBackfillManager {
         target.pending = subtractRoamingIntervals(target.pending, localCoverage);
         this.save();
         while (target.pending.length && !signal.aborted) {
+          this.assertSupportedTransport(job);
           const tail = target.pending.at(-1)!;
-          const window = { start: Math.max(tail.start, tail.end - 29), end: tail.end };
+          const window = {
+            start: Math.max(tail.start, tail.end - 29),
+            end: tail.end,
+          };
+          let examined = window;
           const cached = await this.deps.cached(target, window.start, window.end);
           const known = this.validRows(target, window, cached);
           const cachedCoverage = known.map((row) => ({
@@ -537,6 +565,7 @@ export class RoamingBackfillManager {
           }));
           const missing = subtractRoamingIntervals([window], cachedCoverage);
           let rows = known;
+          let unresolved = 0;
           let network = false;
           let outcome: RoamingAttempt['outcome'] = 'cache';
           if (missing.length) {
@@ -548,34 +577,60 @@ export class RoamingBackfillManager {
             }
             if (signal.aborted) break;
             try {
-              this.deps.checkOnline();
+              this.deps.checkOnline(job.options.transport);
             } catch (error) {
               job.status = 'paused';
               job.note = error instanceof Error ? error.message : String(error);
               this.save();
               return;
             }
-            job.inFlight = { target: key(target), ...window, at: Date.now() };
-            this.save();
+            let reserved = false;
             const result = await this.deps.fetch(
               target,
               window.start,
               window.end,
               signal,
               job.options.intervalMs,
+              () => {
+                if (reserved) throw Error('同一小窗重复预约，未派发请求。');
+                if (runRequests >= job.options.maxRequests) throw Error('已到本轮 SSO 请求预算。');
+                const previous = job.inFlight;
+                job.inFlight = { target: key(target), ...window, at: Date.now() };
+                job.requests++;
+                runRequests++;
+                try {
+                  this.save();
+                } catch (error) {
+                  job.requests--;
+                  runRequests--;
+                  job.inFlight = previous;
+                  throw error;
+                }
+                reserved = true;
+              },
             );
             network = result.networkRequested !== false;
-            if (network) {
-              runRequests++;
-              job.requests++;
-            }
+            if (network !== reserved) throw Error('SSO 请求回执与预约不一致，窗口保留。');
             if (result.ok) {
-              const verified = this.validRows(target, window, result.messages);
-              if (result.messages.some((row) => this.validRows(target, window, [row]).length !== 1))
+              if (result.examinedStart !== undefined) {
+                if (
+                  !Number.isSafeInteger(result.examinedStart) ||
+                  result.examinedStart < window.start ||
+                  result.examinedStart > window.end
+                )
+                  throw Error('SSO 小窗检查边界无效，未推进窗口。');
+                examined = { start: result.examinedStart, end: window.end };
+              }
+              if (result.unresolvedRecords !== undefined && !validCount(result.unresolvedRecords))
+                throw Error('SSO 不完整观察计数无效，未推进窗口。');
+              unresolved = result.unresolvedRecords ?? 0;
+              const scope = window;
+              const verified = this.validRows(target, scope, result.messages);
+              if (result.messages.some((row) => this.validRows(target, scope, [row]).length !== 1))
                 throw new Error('响应中存在会话、序号或身份未通过核验的记录，未推进窗口。');
               // A cache write must succeed before coverage or the task cursor advances.
               await this.deps.retain(verified);
-              rows = this.validRows(target, window, [...known, ...verified]);
+              rows = this.validRows(target, scope, [...known, ...verified]);
               outcome = network ? (rows.length ? 'observed' : 'empty') : 'cache';
               if (!network) job.cacheWindows++;
               if (result.networkError) throw new Error(result.networkError);
@@ -602,7 +657,7 @@ export class RoamingBackfillManager {
                 detail: result.message.slice(0, 500),
               });
               job.attempts = job.attempts.slice(-200);
-              delete job.inFlight;
+              if (!result.unknown) delete job.inFlight;
               this.save();
               return;
             }
@@ -614,16 +669,21 @@ export class RoamingBackfillManager {
             end: Number(row.msgSeq),
           }));
           const previous = count(target.remaining);
+          job.unparsedOrEmpty += unresolved;
           job.unparsedOrEmpty += rows.filter(
             (row) =>
-              row.elements.length === 0 &&
+              (row.elements.length === 0 ||
+                row.elements.some((element) => element.type === 'unknown')) &&
               target.remaining.some(
                 (r) => Number(row.msgSeq) >= r.start && Number(row.msgSeq) <= r.end,
               ),
           ).length;
           target.remaining = subtractRoamingIntervals(target.remaining, covered);
           job.observed += previous - count(target.remaining);
-          target.pending = subtractRoamingIntervals(target.pending, [window]);
+          target.pending = subtractRoamingIntervals(
+            subtractRoamingIntervals(target.pending, [examined]),
+            covered,
+          );
           delete job.inFlight;
           job.checkedWindows++;
           job.updatedAt = Date.now();
@@ -664,13 +724,25 @@ export class RoamingBackfillManager {
       } else job.note = '任务已取消；已取得的记录保留，未完成区间未视为补齐。';
       this.save();
     } catch (error) {
+      if (runRequests > 0 && job.inFlight) {
+        job.attempts.push({
+          id: randomUUID(),
+          ...job.inFlight,
+          at: Date.now(),
+          outcome: 'error',
+          observed: 0,
+          network: true,
+          detail: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+        });
+        job.attempts = job.attempts.slice(-200);
+      }
       if (signal.aborted) {
         if (job.status !== 'cancelled') job.status = 'paused';
         job.note =
           job.status === 'cancelled'
             ? '任务已取消；未确认的窗口与已取得记录均保留。'
             : '已停止；未确认的窗口保留，继续时先复核缓存。';
-      } else {
+      } else if (job.status !== 'paused') {
         job.status = 'failed';
         job.errors++;
         job.note = error instanceof Error ? error.message : String(error);
@@ -695,8 +767,15 @@ export class RoamingBackfillManager {
         seq <= window.end &&
         (target.kind === 'group' || row.ntSeqVerified === true)
       )
-        bySeq.set(String(seq), row);
+        bySeq.set(row.sourceFormat ? `${seq}:${row.msgId}` : String(seq), row);
     }
     return [...bySeq.values()];
+  }
+
+  private assertSupportedTransport(job: RoamingJob): void {
+    if (job.options.transport === 'native500')
+      throw Error('SDK 历史通道已移除，旧任务仅保留记录；请新建纯协议任务。');
+    if (job.options.transport === 'sso500')
+      throw Error('500 条聚合通道已移除，旧任务与缓存保留；请新建 SSO 任务。');
   }
 }

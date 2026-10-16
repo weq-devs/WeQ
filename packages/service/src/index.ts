@@ -43,6 +43,7 @@ export type {
   AppLockMethod,
   WindowCloseBehavior,
   VoiceTranscribeConfig,
+  OcrModelsConfig,
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
@@ -102,6 +103,7 @@ export type {
   ClientKey,
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
+export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
   fetchClientKey,
@@ -591,6 +593,8 @@ export type {
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { ChatImageOcrService } from './account/ocr_image';
+export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';
 export type {
   SendPokeParams,
@@ -696,6 +700,7 @@ export type {
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
 export { assertDestinationCapacity } from './account/export/storage_preflight';
+export { inferOcrFailureKind } from './account/export';
 export type {
   DressExportKinds,
   DressUsage,
@@ -742,6 +747,15 @@ export type {
   OnlineTranscribeFn,
   OnlineTranscribeRequest,
   OnlineTranscribeOutcome,
+  OcrImageFn,
+  OcrImageOutcome,
+  OcrFilterFn,
+  OcrFilterOutcome,
+  OcrOnlineImageFn,
+  OcrOnlineRequest,
+  OcrExportSummary,
+  OcrResultEntry,
+  OcrFailureKind,
   StageLog,
   StageProgress,
 } from './account/export';
@@ -778,6 +792,13 @@ export {
 } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
+export { ModelStore } from './common/model_store';
+export type {
+  ModelFile,
+  ModelEntry,
+  ModelDiskState,
+  ModelDownloadProgress,
+} from './common/model_store';
 export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
 export type {
   TranscribeModelInfo,
@@ -785,6 +806,34 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
+export {
+  OcrModelService,
+  OCR_MODELS,
+  ONNXRUNTIME_CPU_TARGETS,
+  getOcrModel,
+  localOcrBlocker,
+} from './common/ocr_models';
+export type {
+  OcrModelInfo,
+  OcrModelKind,
+  OcrModelStatus,
+  OcrDownloadProgress,
+} from './common/ocr_models';
+export {
+  OCR_CACHE_SCHEMA_VERSION,
+  OcrResultCache,
+  ocrCacheFor,
+  ocrCacheKey,
+} from './common/ocr_cache';
+export type {
+  OcrCacheFilterHit,
+  OcrCacheFrame,
+  OcrCacheFrameVariant,
+  OcrCacheIds,
+  OcrCachePrefer,
+  OcrCacheTextHit,
+  OcrCacheTextInput,
+} from './common/ocr_cache';
 export {
   getLogDir,
   getLogger,

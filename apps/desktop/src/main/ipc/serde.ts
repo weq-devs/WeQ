@@ -243,6 +243,7 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
  * and `msgSeq` (column 40003) drives the renderer's seq-window model.
  */
 export interface ChatMsgWire {
+  sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
   kind: 'c2c' | 'group';

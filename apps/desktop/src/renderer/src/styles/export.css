@@ -937,6 +937,14 @@
   color: #a0a9b5;
 }
 
+/* 图片文字识别的模型小卡片（筛图 / 识别各一行，复用设置页的 weq-model 样式） */
+.weq-exp-ocr-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 2px;
+}
+
 /* ===== 灯箱 · 补全选项（4.1 / 4.2 / 4.3 统一样式） ===== */
 .weq-exp-step-row {
   display: flex;

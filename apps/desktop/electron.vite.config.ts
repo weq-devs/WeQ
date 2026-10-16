@@ -38,6 +38,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
+          // 本地 OCR 推理同样在子进程里跑（onnxruntime 是原生库，见 main/ocr/worker.ts）。
+          ocrWorker: resolve(__dirname, 'src/main/ocr/worker.ts'),
           attachWorker: resolve(__dirname, 'src/main/attach_worker.ts'),
           // 抓包会话要以 root 跑（Electron 不能以 root 运行），所以和 attachWorker
           // 一样单独打一个入口，用 `sudo` + `ELECTRON_RUN_AS_NODE` 拉起。
@@ -48,6 +50,7 @@ export default defineConfig({
         output: {
           entryFileNames: (chunk) =>
             chunk.name === 'transcribeWorker' ||
+            chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
             chunk.name === 'keyScanWorker'

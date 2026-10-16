@@ -33,6 +33,13 @@ export interface ZoomPan {
   /** 展开到媒体元素上的 transform / cursor 样式。 */
   style: CSSProperties;
   onMouseDown(event: React.MouseEvent): void;
+  /**
+   * 以某个坐标点为中心缩放一档（滚轮步进）。
+   *
+   * 给「想让整块容器都能滚轮缩放」的调用方用 —— 灯箱把 wheel 转发到这里，
+   * 锚点仍然按**媒体元素**的包围盒算，所以光标下的那个点保持不动。
+   */
+  wheelAt(clientX: number, clientY: number, deltaY: number): void;
   /** 是否处于放大状态（供外层决定是否显示「重置」按钮等）。 */
   zoomed: boolean;
   scale: number;
@@ -88,18 +95,27 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
     [],
   );
 
+  /** 滚轮一档：以 (clientX, clientY) 为锚点缩放。 */
+  const wheelAt = useCallback(
+    (clientX: number, clientY: number, deltaY: number): void => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const factor = deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+      zoomAt(clientX, clientY, ref.current.scale * factor, rect);
+    },
+    [el, zoomAt],
+  );
+
   // 滚轮缩放：用原生 non-passive 监听，才能 preventDefault 阻止页面滚动。
   useEffect(() => {
     if (!el) return;
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const factor = event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
-      zoomAt(event.clientX, event.clientY, ref.current.scale * factor, rect);
+      wheelAt(event.clientX, event.clientY, event.deltaY);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [el, zoomAt]);
+  }, [el, wheelAt]);
 
   const onMouseDown = useCallback(
     (event: React.MouseEvent) => {
@@ -166,6 +182,7 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
     setEl,
     style,
     onMouseDown,
+    wheelAt,
     zoomed: t.scale > 1,
     scale: t.scale,
     zoomIn: () => step(1.25),

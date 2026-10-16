@@ -291,6 +291,7 @@ type ServiceAccountWire = {
 };
 
 type MessageWire = {
+  sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
   msgId: string;
@@ -335,6 +336,7 @@ type MessageWire = {
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
+  sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
   msgId: string;
@@ -358,6 +360,7 @@ type ChatMsgWire = {
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
   return {
+    sourceFormat: w.sourceFormat,
     source: w.source,
     ntSeqVerified: w.ntSeqVerified,
     msgId: w.msgId,
@@ -1533,10 +1536,11 @@ function messageToTemplate(
   }
   return {
     id: timelineRowKey(message),
+    sourceFormat: message.sourceFormat,
     conversationId: conversation.id,
     senderId: sender.id,
     sender,
-    body: messageBody(message.elements),
+    body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
     createdAt: toIsoTime(message.sendTime),
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
@@ -1706,6 +1710,7 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
  * element still pass even if other elements are unknown.)
  */
 function isRenderableMessage(message: MessageWire): boolean {
+  if (message.sourceFormat) return true;
   const elements = message.elements ?? [];
   const hasRenderableElement = elements.some((el) => {
     const type = (el as RenderElementWire | null)?.type;
@@ -1917,6 +1922,7 @@ function elementText(element: unknown): string {
       return code ? `[临时会话] 来自群 ${code}` : '[临时会话]';
     }
     case 'unknown':
+      if ('nativeElement' in data) return '[未解析的原生消息]';
       console.warn('[unsupported-element] unknown element type encountered', data);
       return '';
     default:
@@ -7191,6 +7197,7 @@ export function MainView(): ReactElement {
                           onOpenGapMessages={handleOpenGapMessages}
                           onSearchChatRecords={handleSearchChatRecords}
                           onExportConversation={handleExportConversation}
+                          onOpenRoamingBackfill={() => openWonderfulToolsAt('roaming-backfill')}
                           deletedIds={deletedIds}
                           onRestoreMessage={handleRestoreMessage}
                           unreadDock={unreadDock}
@@ -7387,14 +7394,6 @@ export function MainView(): ReactElement {
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}
-              onOpenRoaming={
-                convSettings.kind === 'dataline'
-                  ? undefined
-                  : () => {
-                      setConvSettings(null);
-                      openWonderfulToolsAt('roaming-backfill');
-                    }
-              }
               members={currentGroupMembers.map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,

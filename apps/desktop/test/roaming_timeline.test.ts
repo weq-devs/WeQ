@@ -14,6 +14,45 @@ const row = (seq: number, extra: Partial<TimelineRow> = {}): TimelineRow => ({
 });
 
 describe('roaming timeline projection', () => {
+  it('preserves protocol same-seq IDs across cache projection and exact local deduplication', () => {
+    const local = row(2, { msgId: '9007199254740993000' });
+    const incoming = [
+      row(2, { msgId: local.msgId, sourceFormat: 'protocol' }),
+      row(2, { msgId: '9007199254740993001', sourceFormat: 'protocol' }),
+    ];
+    const result = mergeRoamingTimeline('group', [local], incoming);
+    expect(result.map((item) => item.msgId)).toEqual([local.msgId, '9007199254740993001']);
+    expect(timelineRowKey(result[1]!)).toBe('roaming:protocol:2:9007199254740993001');
+  });
+  it('keeps native same-seq variants and only deduplicates against exact local IDs', () => {
+    const normal = row(2, { msgId: 'native-normal' });
+    const native = [
+      row(2, { msgId: 'native-normal', sourceFormat: 'native' }),
+      row(2, { msgId: 'native-gray', sourceFormat: 'native' }),
+    ];
+    expect(mergeRoamingTimeline('group', [normal], native).map((row) => row.msgId)).toEqual([
+      'native-normal',
+      'native-gray',
+    ]);
+    expect(timelineRowKey({ ...native[1]!, source: 'roaming' })).toBe(
+      'roaming:native:2:native-gray',
+    );
+  });
+  it('reconciles SSO random IDs with native records only on exact sequence/random/sender metadata', () => {
+    const sso = row(2, { msgId: '1234', senderUid: 'u_sender' });
+    const native = row(2, {
+      msgId: '9007199254740993000',
+      sourceFormat: 'native',
+      msgRandom: '1234',
+      senderUid: 'u_sender',
+    });
+    expect(mergeRoamingTimeline('group', [], [sso, native]).map((row) => row.msgId)).toEqual([
+      native.msgId,
+    ]);
+    expect(
+      mergeRoamingTimeline('group', [], [sso, { ...native, senderUid: 'u_other' }]),
+    ).toHaveLength(2);
+  });
   it('pushes batches into a detached loaded window without extending its bounds', () => {
     const loaded = [row(100), row(200)];
     expect(

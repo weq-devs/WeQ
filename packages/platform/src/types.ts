@@ -73,6 +73,17 @@ export interface Platform {
   ntDataDir(uin: string): string | null;
 
   /**
+   * Resolve QQ NT's bundled jieba dictionary directory
+   * (`<root>/global/nt_data/search/resource_jieba`, or win32's
+   * `<root>/nt_qq/global/nt_data/search/resource_jieba`). This lives in the
+   * SHARED `global/` tree, not a per-account directory, so it is intentionally
+   * uin-independent. Used to improve Chinese word segmentation for chat
+   * analytics (词云 / 常用语). Returns null when QQ never downloaded it —
+   * callers must fall back to their built-in segmenter.
+   */
+  jiebaDictDir(): string | null;
+
+  /**
    * Resolve `group_info.db` (group metadata and essence messages) for a
    * specific QQ account. Co-located with `nt_msg.db`.
    */

@@ -1,7 +1,7 @@
 /**
  * 导出灯箱：在右侧选好对象后弹出，收集本次导出的细项后确认。
  *
- * 重构后是「宽面板 + 分板块」：左侧一列放时间范围与补全选项，右侧一列放
+ * 重构后是「宽面板 + 分板块」：左侧一列放时间范围、补全选项与图片识别，右侧一列放
  * 导出格式 / 导出内容 / 扩展功能，底部为操作条。所有配置都在本组件内部
  * draft，只有点「开始导出」才回传给父组件。
  *
@@ -12,13 +12,17 @@
  *      QQ系统表情）/ 头像 / 装扮数据（子选项：气泡·字体·挂件）。
  *   4. 补全选项 —— 补全媒体资源（需在线 QQ + 已选导出媒体）、漫游消息、
  *      本地未缓存的装扮资源。
- *   5. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
+ *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别与并发、筛图模型下载。
+ *      单独一栏（左列、补全选项下面）：它不依赖「导出什么」，只跟「跑不跑识别」有关，
+ *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 图片识别」里下。
+ *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   CalendarClock,
   Check,
+  Download,
   FileText,
   Film,
   FolderOpen,
@@ -28,6 +32,7 @@ import {
   MessageSquare,
   Mic,
   RefreshCw,
+  ScanText,
   Smile,
   Sparkles,
   UserRound,
@@ -36,6 +41,7 @@ import {
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
+import { ocrReadiness, type OcrReadiness } from './preflight';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -66,6 +72,8 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
     dress: { ...DEFAULT_OPTIONS.dress, ...partial?.dress },
     // 在线转录是会话态：每次都要重新点开关 arm，不从持久化预设回填。
     onlineTranscribe: false,
+    // 同理：在线识别依赖当下 QQ 在线（离线时开关会被隐藏），不沿用上次的选择。
+    onlineOcr: false,
   };
 }
 
@@ -191,6 +199,95 @@ function StepRow({
   );
 }
 
+/**
+ * 图片文字识别里的一个模型小行：名字 / 说明 / 体积 + 「下载」按钮或下载进度条。
+ * 复用设置页那套 `weq-model*` 样式（同一个应用里的模型卡片长得一样）。
+ */
+function OcrModelRow({
+  name,
+  sizeLabel,
+  downloaded,
+  selected,
+  progress,
+  disabled,
+  onDownload,
+}: {
+  name: string;
+  sizeLabel: string;
+  downloaded: boolean;
+  selected: boolean;
+  /** 正在下载时的进度（0-100 + 字节数），未下载时为 null。 */
+  progress: { percent: number; downloadedBytes: number; totalBytes: number } | null;
+  disabled: boolean;
+  onDownload: () => void;
+}): ReactElement {
+  const pct = progress ? Math.round(progress.percent) : 0;
+  return (
+    <div className={`weq-model${selected ? ' is-selected' : ''}`}>
+      <div className="weq-model-main">
+        <div className="weq-model-head">
+          <span className="weq-model-name">{name}</span>
+          {downloaded ? <span className="weq-set-badge weq-set-badge-ok">已下载</span> : null}
+          {selected ? <span className="weq-set-badge weq-set-badge-ok">当前模型</span> : null}
+        </div>
+        <span className="weq-model-size weq-number">约 {sizeLabel}</span>
+        {progress ? (
+          <div className="weq-set-progress">
+            <div className="weq-set-progress-track">
+              <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="weq-set-progress-meta weq-number">
+              <span>{pct}%</span>
+              <span>
+                {fmtMb(progress.downloadedBytes)} / {fmtMb(progress.totalBytes)}
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div className="weq-model-actions">
+        {downloaded ? null : progress ? (
+          <button type="button" className="weq-set-btn weq-set-btn-sm" disabled>
+            <Loader2 size={12} strokeWidth={2} className="weq-spin" aria-hidden />
+            下载中
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-sm"
+            onClick={onDownload}
+            disabled={disabled}
+          >
+            <Download size={12} strokeWidth={1.8} aria-hidden />
+            下载
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 字节 → "x.x MB"（下载进度条用）。 */
+function fmtMb(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 面板里要显示的一个 OCR 模型（识别 / 筛图各一类）。 */
+interface OcrModelRowData {
+  id: string;
+  kind: 'ocr' | 'filter';
+  name: string;
+  sizeLabel: string;
+  downloaded: boolean;
+}
+
+/** 正在下载的 OCR 模型进度。 */
+interface OcrModelProgress {
+  percent: number;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
 export function ExportLightbox({
   variant,
   headline,
@@ -242,6 +339,24 @@ export function ExportLightbox({
   const [voiceModelReady, setVoiceModelReady] = useState<boolean | null>(null);
   /** 在线转录 arm 中（点开关时 run）。 */
   const [armingOnline, setArmingOnline] = useState(false);
+  /** 图片文字识别的前置状态（在线可用 / 本地模型 / 筛图模型）。 */
+  const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
+  /** OCR 模型清单（含已选中的模型 id）—— 面板里直接下载用。 */
+  const [ocrModels, setOcrModels] = useState<OcrModelRowData[]>([]);
+  /** 本机没有可用推理引擎时的原因（如 macOS Intel）—— 非空就不摆下载入口。 */
+  const [ocrEngineBlocker, setOcrEngineBlocker] = useState<string | null>(null);
+  /** 当前选中的 OCR 模型 id（识别 / 筛图各一个）。 */
+  const [ocrSelected, setOcrSelected] = useState<{ ocr: string; filter: string }>({
+    ocr: '',
+    filter: '',
+  });
+  /** 正在下载的 OCR 模型进度（key = 模型 id）。 */
+  const [ocrProgress, setOcrProgress] = useState<Record<string, OcrModelProgress>>({});
+  // 订阅只该建一次；这两个引用会被订阅回调用到，通过 ref 取最新值避免重建订阅。
+  const ocrModelsRef = useRef<OcrModelRowData[]>([]);
+  ocrModelsRef.current = ocrModels;
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
   /** 本次灯箱是否已确认导出 —— 未确认就关闭时把在线转录的抓包收掉。 */
   const submittedRef = useRef(false);
   useEffect(() => {
@@ -251,6 +366,39 @@ export function ExportLightbox({
       setQqOnline(s.qqOnline);
       setAttachEnabled(s.attachEnabled);
     });
+    void ocrReadiness().then((r) => {
+      if (!cancelled) setOcrReady(r);
+    });
+    void (async () => {
+      try {
+        const [models, settings] = await Promise.all([
+          client.bootstrap.ocrModels.query(),
+          client.bootstrap.getSettings.query(),
+        ]);
+        if (cancelled) return;
+        setOcrEngineBlocker(models.engineBlocker);
+        setOcrModels(
+          models.models
+            // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
+            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 图片识别」里下 ——
+            // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
+            .filter((m) => m.kind === 'filter')
+            .map((m) => ({
+              id: m.id,
+              kind: m.kind as 'ocr' | 'filter',
+              name: m.name,
+              sizeLabel: m.sizeLabel,
+              downloaded: m.downloaded,
+            })),
+        );
+        setOcrSelected({
+          ocr: settings.ocr.modelId,
+          filter: settings.ocr.filterModelId,
+        });
+      } catch {
+        /* 模型清单读不到就不显示下载区 */
+      }
+    })();
     void (async () => {
       try {
         const settings = await client.bootstrap.getSettings.query();
@@ -278,6 +426,117 @@ export function ExportLightbox({
       void client.account.onlineTranscribeDisarm.mutate().catch(() => undefined);
     };
   }, []);
+
+  // OCR 模型下载进度（与设置页同一个订阅流）：下完就**顺手设为当前模型**，
+  // 用户点「下载」即完成「下载 + 选用」两步（没有模型的场景就是奔着这个来的）。
+  useEffect(() => {
+    const sub = client.bootstrap.onOcrModelProgress.subscribe(undefined, {
+      onData: (p) => {
+        if (p.done) {
+          setOcrProgress((prev) => {
+            const next = { ...prev };
+            delete next[p.id];
+            return next;
+          });
+          const model = ocrModelsRef.current.find((m) => m.id === p.id);
+          void (async () => {
+            try {
+              if (model)
+                await client.bootstrap.setOcrModel.mutate({ kind: model.kind, modelId: p.id });
+              const [models, readiness] = await Promise.all([
+                client.bootstrap.ocrModels.query(),
+                ocrReadiness(),
+              ]);
+              setOcrEngineBlocker(models.engineBlocker);
+              setOcrModels(
+                models.models
+                  .filter((m) => m.kind === 'filter')
+                  .map((m) => ({
+                    id: m.id,
+                    kind: m.kind as 'ocr' | 'filter',
+                    name: m.name,
+                    sizeLabel: m.sizeLabel,
+                    downloaded: m.downloaded,
+                  })),
+              );
+              setOcrReady(readiness);
+            } catch (e) {
+              pushToastRef.current({
+                tone: 'error',
+                title: '模型选用失败',
+                detail: e instanceof Error ? e.message : String(e),
+                ttl: 6000,
+              });
+            }
+          })();
+          return;
+        }
+        if (p.error) {
+          setOcrProgress((prev) => {
+            const next = { ...prev };
+            delete next[p.id];
+            return next;
+          });
+          pushToastRef.current({
+            tone: 'error',
+            title: '模型下载失败',
+            detail: p.error,
+            ttl: 6000,
+          });
+          return;
+        }
+        setOcrProgress((prev) => ({
+          ...prev,
+          [p.id]: {
+            percent: p.percent,
+            downloadedBytes: p.downloadedBytes,
+            totalBytes: p.totalBytes,
+          },
+        }));
+      },
+      onError: (err) => console.error('[ocr] progress subscription error', err),
+    });
+    return () => sub.unsubscribe();
+  }, []);
+
+  /**
+   * 在面板里下载一个筛图模型（下完自动设为当前模型）。
+   *
+   * 只认 `filter`：出文字的识别模型**不给在导出面板下载**（那会让人以为"下了就能纯离线"，
+   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 图片识别」里单独决定），所以这里
+   * 兜一层 —— 万一哪天 UI 漏了一行，也不会从面板把那份模型拖下来。
+   */
+  async function downloadOcrModel(id: string): Promise<void> {
+    const model = ocrModelsRef.current.find((m) => m.id === id);
+    if (model && model.kind !== 'filter') {
+      pushToast({
+        tone: 'warning',
+        title: '识别模型请在设置页下载',
+        detail: '导出面板只提供筛图模型；出文字的识别模型在「设置 → 图片识别」里下载。',
+        ttl: 6000,
+      });
+      return;
+    }
+    try {
+      setOcrProgress((prev) => ({
+        ...prev,
+        [id]: { percent: 0, downloadedBytes: 0, totalBytes: 0 },
+      }));
+      await client.bootstrap.downloadOcrModel.mutate({ id });
+    } catch (e) {
+      setOcrProgress((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      pushToast({
+        tone: 'error',
+        title: '启动下载失败',
+        detail: e instanceof Error ? e.message : String(e),
+        ttl: 6000,
+      });
+    }
+  }
 
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
@@ -574,6 +833,113 @@ export function ExportLightbox({
                         />
                       }
                     />
+                  </Card>
+                ) : null}
+
+                {/* 图片文字识别 —— 独立一栏，跟「补全选项」并列（不再塞在「扩展功能」里） */}
+                {isMessageFlow ? (
+                  <Card title="图片识别">
+                    <Row
+                      label="图片文字识别"
+                      desc={
+                        ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
+                          ? ocrReady.localEngineBlocker ||
+                            '需要在线 QQ，或先在「设置 → 图片识别」下好本地识别模型'
+                          : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
+                      }
+                      control={
+                        <Toggle
+                          checked={opts.ocrImages}
+                          disabled={Boolean(
+                            ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable,
+                          )}
+                          onChange={(v) =>
+                            patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })
+                          }
+                        />
+                      }
+                    />
+                    {opts.ocrImages ? (
+                      <>
+                        {ocrReady?.onlineCapable ? (
+                          <Row
+                            label="在线识别"
+                            desc={
+                              opts.onlineOcr
+                                ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
+                                : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
+                            }
+                            control={
+                              <Toggle
+                                checked={opts.onlineOcr}
+                                onChange={(v) => patch({ onlineOcr: v })}
+                              />
+                            }
+                          />
+                        ) : null}
+                        {opts.onlineOcr ? (
+                          <Row
+                            label="识别并发"
+                            desc="同时向 QQ 服务端发起的识别请求数"
+                            control={
+                              <span className="weq-exp-num">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={32}
+                                  value={opts.ocrConcurrency}
+                                  onChange={(e) =>
+                                    patch({
+                                      ocrConcurrency: Math.max(
+                                        1,
+                                        Math.min(32, Number(e.target.value) || 1),
+                                      ),
+                                    })
+                                  }
+                                />
+                              </span>
+                            }
+                          />
+                        ) : null}
+                        {ocrReady && !ocrReady.localReady && !ocrEngineBlocker ? (
+                          <p className="weq-exp-block-hint">
+                            没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在
+                            「设置 → 图片识别」里下载。
+                          </p>
+                        ) : null}
+                        <div className="weq-exp-ocr-models">
+                          <p className="weq-exp-block-hint">
+                            <ScanText size={12} aria-hidden />{' '}
+                            {ocrEngineBlocker ??
+                              (ocrReady?.filterReady
+                                ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
+                                : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。')}
+                          </p>
+                          {ocrEngineBlocker
+                            ? null
+                            : ocrModels.map((m) => (
+                                <OcrModelRow
+                                  key={m.id}
+                                  name={`${m.name}（筛图）`}
+                                  sizeLabel={m.sizeLabel}
+                                  downloaded={m.downloaded}
+                                  selected={ocrSelected.filter === m.id}
+                                  progress={ocrProgress[m.id] ?? null}
+                                  disabled={Boolean(ocrProgress[m.id])}
+                                  onDownload={() => void downloadOcrModel(m.id)}
+                                />
+                              ))}
+                          {ocrEngineBlocker ? null : (
+                            <p className="weq-exp-block-hint">
+                              「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
+                              都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在
+                              「设置 →
+                              图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
                   </Card>
                 ) : null}
               </div>

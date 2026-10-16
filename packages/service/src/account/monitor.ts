@@ -576,7 +576,14 @@ export class AccountMonitorService {
         ttlSeconds: key.ttlSeconds,
       });
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
-      void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
+      void fetchHomeDress(
+        this.nt,
+        this.session,
+        pid,
+        this.accountConfig.getRecord()?.loginPskey,
+        // 落盘那份 seed 被 cgi 判失效时删掉：否则每次开账号都会先白失败一轮。
+        (domain) => this.accountConfig.clearLoginPskey(domain),
+      )
         .then(async (dress) => {
           if (!this.isCurrent(generation, pid)) return;
           this.accountConfig.setHomeDress(dress);

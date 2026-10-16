@@ -276,8 +276,13 @@ function AlbumMediaView({
                 onClick={() => {
                   if (!proxiedFull) return;
                   // 视频走 <video> 灯箱,图片走图片灯箱。
-                  if (isVideo) openVideoLightbox(proxiedFull, src ? albumMediaUrl(src) : undefined);
-                  else openLightbox(proxiedFull, item.fileName || '群相册图片');
+                  if (isVideo) {
+                    openVideoLightbox(
+                      proxiedFull,
+                      src ? albumMediaUrl(src) : undefined,
+                      item.fileName,
+                    );
+                  } else openLightbox(proxiedFull, item.fileName || '群相册图片');
                 }}
               >
                 <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />

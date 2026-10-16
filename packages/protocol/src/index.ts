@@ -26,6 +26,7 @@
  *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
  *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
  *   oidb/get-emoji-likes.ts      — GetEmojiLikes (0x9083_1, 某表情的回应人列表, 可分页)。
+ *   oidb/ocr-image.ts            — OcrImage (0xe07_0, 图片 OCR: 上行 url+md5+尺寸, 下行文本 + 文字框坐标)。
  *   redbag/              — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
@@ -77,6 +78,16 @@ export { GetQqShowUrl } from './oidb/get-qq-show-url';
 export type { QqShowInfo } from './oidb/get-qq-show-url';
 export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
+export {
+  OcrImage,
+  OCR_CLIENT_TAG,
+  OCR_TASK_TYPE,
+  quadToRect,
+  rectToQuad,
+  scaleOcrPoints,
+  scaleOcrRect,
+} from './oidb/ocr-image';
+export type { OcrBlock, OcrLanguage, OcrPoint, OcrRect, OcrResult } from './oidb/ocr-image';
 export { SendTuwenArk } from './oidb/send-tuwen-ark';
 export type { SendTuwenArkParams, SendTuwenArkResult } from './oidb/send-tuwen-ark';
 export {

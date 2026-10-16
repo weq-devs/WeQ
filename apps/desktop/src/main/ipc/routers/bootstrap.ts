@@ -53,6 +53,7 @@ import {
   logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
+  type OcrDownloadProgress,
   type TtsProviderConfig,
   type DirSizeProgress,
   validateChatpicRoot,
@@ -61,6 +62,7 @@ import {
   testSsePushTarget,
   attachAndRegisterSsoSession,
   resolveDeviceGuid,
+  localOcrBlocker,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -105,6 +107,8 @@ const exportPresetOptionsSchema = z.object({
   downloadPtt: z.boolean(),
   completeDress: z.boolean(),
   transcribeVoice: z.boolean(),
+  /** 图片文字识别（自动 OCR）。旧客户端不传时读取端补 false。 */
+  ocrImages: z.boolean().default(false),
   dress: z.object({
     bubble: z.boolean(),
     font: z.boolean(),
@@ -1152,6 +1156,67 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
     return true;
   }),
+
+  // ---- local OCR models (设置 → 图片识别) ----
+  //
+  // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
+  // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。
+
+  /**
+   * The OCR model registry (识别 + 筛图两种用途)，各带落盘 / 下载中状态；
+   * 外加 `engineBlocker`：**本机能不能跑本地推理引擎** —— 能跑是 null，跑不了是
+   * 给人看的原因（如 macOS Intel 上游没发 onnxruntime 二进制）。渲染层据此收起
+   * 下载入口，别让用户下完 21 MB 才发现这台机器跑不起来。
+   */
+  ocrModels: procedure.query(() => {
+    return {
+      models: requireBootstrap().ocrModels.listModels(),
+      engineBlocker: localOcrBlocker(),
+    };
+  }),
+
+  /**
+   * Start downloading an OCR model (fire-and-forget). Progress is delivered via
+   * the `onOcrModelProgress` subscription; returns immediately.
+   */
+  downloadOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    // Don't await — the subscription drives the UI. Swallow rejections here;
+    // the terminal 'progress' event already carries the error.
+    void requireBootstrap()
+      .ocrModels.downloadModel(input.id)
+      .catch(() => {});
+    return true;
+  }),
+
+  /** Subscribe to OCR-model download progress (all models share one stream). */
+  onOcrModelProgress: procedure.subscription(() => {
+    return observable<OcrDownloadProgress>((emit) => {
+      const handler = (p: OcrDownloadProgress): void => emit.next(p);
+      const svc = requireBootstrap().ocrModels;
+      svc.on('progress', handler);
+      return () => {
+        svc.off('progress', handler);
+      };
+    });
+  }),
+
+  /** Delete a downloaded OCR model's files. No-op while a download is in flight. */
+  deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    return requireBootstrap().ocrModels.deleteModel(input.id);
+  }),
+
+  /**
+   * Set (or clear with '') the selected model for one purpose. `kind` picks the
+   * settings slot: `ocr` = 识别模型，`filter` = 筛图模型。
+   */
+  setOcrModel: procedure
+    .input(z.object({ kind: z.enum(['ocr', 'filter']), modelId: z.string() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        ocr: input.kind === 'ocr' ? { modelId: input.modelId } : { filterModelId: input.modelId },
+      });
+      return true;
+    }),
 
   // ---- agent lab provider config ----
 

@@ -9,6 +9,7 @@ import {
   ChevronUp,
   ChevronsUp,
   CirclePlus,
+  CloudDownload,
   Download,
   Search,
   Trash2,
@@ -340,6 +341,7 @@ export function ChatPane({
   onOpenGapMessages,
   onSearchChatRecords,
   onExportConversation,
+  onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
   onMergeForward,
@@ -452,6 +454,7 @@ export function ChatPane({
   onSearchChatRecords?: (conversation: Conversation) => void;
   /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
   onExportConversation?: (conversation: Conversation) => void;
+  onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (gap: {
     conversation: Conversation;
@@ -3266,7 +3269,7 @@ export function ChatPane({
           </strong>
           {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
         </div>
-        <div className={cn('chat-actions')}>
+        <div className={cn('chat-actions')} role="toolbar" aria-label="会话工具栏">
           {onSearchChatRecords &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
             <button
@@ -3287,6 +3290,23 @@ export function ChatPane({
               onClick={() => onExportConversation(conversation)}
             >
               <Download size={18} />
+            </button>
+          ) : null}
+          {onOpenRoamingBackfill &&
+          (conversation.type === 'group' ||
+            (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))) ? (
+            <button
+              className={cn(
+                'icon-button',
+                'group-header-info-action',
+                'chat-header-roaming-action',
+              )}
+              type="button"
+              title="批量补全缺失消息"
+              aria-label="批量补全缺失消息"
+              onClick={() => onOpenRoamingBackfill(conversation)}
+            >
+              <CloudDownload size={18} />
             </button>
           ) : null}
           {onAddMessage && (conversation.type === 'group' || conversation.type === 'direct') ? (

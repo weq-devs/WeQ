@@ -72,8 +72,21 @@ export class WebQueryService {
   private readonly creds: WebCredentialProvider;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
-  constructor(nt: WebNative, session: AccountSession, resolvePid: () => number) {
-    this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
+  /**
+   * @param loginPskey 登录时顺带收下的 p_skey（域 → p_skey）。seed 进来后第一次
+   *   cgi（如 qzone.qq.com 的说说/相册）就不必等一次 hook 往返。票据失效不影响
+   *   正确性：{@link withRetry} 会清掉它、走活 hook 重试。
+   * @param onSeedInvalidated seed 的票据被判失效时调用（落盘那份一起删掉）。
+   */
+  constructor(
+    nt: WebNative,
+    session: AccountSession,
+    resolvePid: () => number,
+    loginPskey?: Record<string, string>,
+    onSeedInvalidated?: (domain: string) => void,
+  ) {
+    this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid, onSeedInvalidated);
+    if (loginPskey) this.creds.seedPskey(loginPskey);
   }
 
   async getGroupNotice(groupCode: string): Promise<GroupNotice[]> {

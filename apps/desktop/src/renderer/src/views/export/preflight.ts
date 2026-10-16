@@ -174,6 +174,99 @@ export async function preflightOnlineTranscribe(dialog: AppDialogApi): Promise<b
   return true;
 }
 
+/** 图片文字识别（自动 OCR）当前的前置状态。 */
+export interface OcrReadiness {
+  /** 本地识别模型（出文字的那份）已选且已下载。 */
+  localReady: boolean;
+  /** 筛图模型（只判断有没有文字）已选且已下载。 */
+  filterReady: boolean;
+  /** 在线那条腿能不能走：QQ 在线 + 未开完全离线 + a2 / d2 / d2key / guid 齐全。 */
+  onlineCapable: boolean;
+  /**
+   * 本机**没有可用的推理引擎**时的原因（如 macOS Intel 没有 onnxruntime 二进制）。
+   * 非空时本地那两条腿一定是 false —— 这时候别再提示用户「去下载模型」。
+   */
+  localEngineBlocker: string | null;
+}
+
+/**
+ * 探一遍图片文字识别的前置条件（灯箱的开关注灰、预筛选提示、导出前的拦截都用它）。
+ *
+ * 口径与主进程完全一致（见 `account.ts` 的 `ocrOnlineBlocker` / `resolveLocalOcrModel`）：
+ *   - OCR 总开关：`localReady || onlineCapable` 有一个满足就能开；
+ *   - 「在线识别」开关：只在 `onlineCapable` 时可开（在线那条腿既借 QQ 进程发包、
+ *     又要现签一条媒体 rkey）；
+ *   - 预筛选：`filterReady` 才跑，否则直接全部送识别（会慢很多，灯箱里提示下载）。
+ */
+export async function ocrReadiness(): Promise<OcrReadiness> {
+  const state: OcrReadiness = {
+    localReady: false,
+    filterReady: false,
+    onlineCapable: false,
+    localEngineBlocker: null,
+  };
+  try {
+    const access = await client.account.getGroupAlbumAccessState.query();
+    state.onlineCapable = Boolean(
+      access.qqOnline &&
+        access.attachEnabled &&
+        access.hasA2 &&
+        access.hasD2 &&
+        access.hasD2Key &&
+        access.hasGuid,
+    );
+  } catch {
+    /* 读不到就当离线；下面本地模型那条腿还能救 */
+  }
+  try {
+    const settings = await client.bootstrap.getSettings.query();
+    const models = await client.bootstrap.ocrModels.query();
+    const ocrId = settings.ocr.modelId;
+    const filterId = settings.ocr.filterModelId;
+    // 平台能力优先：引擎都跑不起来时，「模型下好了」不算数（主进程的
+    // `resolveLocalOcrModel` / `resolveLocalOcrFilterModel` 是同一个口径）。
+    state.localEngineBlocker = models.engineBlocker;
+    state.localReady = Boolean(
+      !models.engineBlocker && ocrId && models.models.find((m) => m.id === ocrId)?.downloaded,
+    );
+    state.filterReady = Boolean(
+      !models.engineBlocker && filterId && models.models.find((m) => m.id === filterId)?.downloaded,
+    );
+  } catch {
+    /* 模型状态读不到按未就绪处理 */
+  }
+  return state;
+}
+
+/**
+ * Pre-flight for 图片文字识别: 在线可用 或 本地识别模型下好了，二选一即可。
+ * 都没有就硬拦截（点了也识别不出来）。
+ */
+export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean> {
+  const ready = await ocrReadiness();
+  if (!ready.onlineCapable && !ready.localReady) {
+    await dialog.info(
+      '无法识别图片文字',
+      ready.localEngineBlocker
+        ? `${ready.localEngineBlocker}这台机器上只能走在线识别：请先登录该账号的 QQ 客户端并关闭完全离线模式，再重试；或关闭该选项后继续导出。`
+        : '「图片文字识别」需要在线 QQ（用服务端识别），或者先下载一个本地识别模型' +
+            '（设置 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
+    );
+    return false;
+  }
+  if (!ready.filterReady) {
+    // 预筛选是强烈建议项：没有它每张图都要跑一遍识别模型，导出会慢很多。
+    const ok = await dialog.confirm(
+      '未下载筛图模型',
+      '没有筛图模型就没办法先甩掉风景 / 人像这类没有文字的图，每张图都会送进识别模型，' +
+        '导出会慢很多（只有 1.7 MB，导出面板的「图片识别」栏里可以直接下载）。是否继续导出？',
+      { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
+    );
+    if (!ok) return false;
+  }
+  return true;
+}
+
 /**
  * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
  * (自动读取 QQ 内存 开启) — the roam pull goes through the live SSO channel.

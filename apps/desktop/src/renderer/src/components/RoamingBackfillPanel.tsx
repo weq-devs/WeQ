@@ -51,6 +51,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
     void utils.account.roamingBackfill.list.invalidate();
   };
   const onError = (e: { message: string }) => setError(e.message);
+  const staleBackend = Boolean(state.data && state.data.historyVersion !== 2);
   const plan = trpc.account.roamingBackfill.plan.useMutation({
     onSuccess: (task) => {
       setTaskId(task.id);
@@ -109,6 +110,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
       beforeOldest,
       intervalMs,
       maxRequests,
+      transport: 'sso',
     });
   }
 
@@ -120,14 +122,21 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
           <h2 id="weq-wtools-title">批量补全缺失消息</h2>
         </div>
         <span className="weq-roaming-access">
-          {state.data
-            ? state.data.online
-              ? '当前账号 QQ 在线'
-              : '离线 · 可扫描本地锚点及复核缓存'
-            : '读取任务状态中'}
+          {state.data?.onlineAllowed === false
+            ? '完全离线模式'
+            : state.data
+              ? state.data.online
+                ? '当前账号 QQ 在线'
+                : '离线 · 可扫描本地锚点及复核缓存'
+              : '读取任务状态中'}
         </span>
       </header>
       <div className="weq-roaming-body">
+        {staleBackend ? (
+          <p role="alert" className="weq-roaming-error">
+            当前后端不包含所选历史接口，请重启开发版 WeQ。
+          </p>
+        ) : null}
         {state.error || error ? (
           <p role="alert" className="weq-roaming-error">
             {error ?? state.error?.message}
@@ -140,6 +149,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
         ) : null}
         <section aria-label="补全范围" className="weq-roaming-scope">
           <h3>新建补全任务</h3>
+          <p className="weq-roaming-access">SSO · 每次请求最多 30 个 seq</p>
           <div className="weq-roaming-fields">
             <label>
               开始日期（北京时间）
@@ -166,7 +176,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
               />
             </label>
             <label>
-              本轮在线请求预算
+              本轮 SSO 请求预算
               <input
                 type="number"
                 min={1}
@@ -231,7 +241,14 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
             <span>最近会话列表上限 1,000；无本地锚点的历史覆盖未知</span>
             <button
               type="button"
-              disabled={!selected.length || busy || mutating || Boolean(state.error)}
+              disabled={
+                !selected.length ||
+                busy ||
+                mutating ||
+                !state.data ||
+                Boolean(state.error) ||
+                staleBackend
+              }
               onClick={scan}
             >
               <ScanSearch size={15} />
@@ -285,10 +302,21 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
                 ))}
               </dl>
               <p className="weq-roaming-boundary">{job.note}</p>
+              {job.options.transport === 'native500' || job.options.transport === 'sso500' ? (
+                <p role="alert" className="weq-roaming-error">
+                  {job.options.transport === 'native500' ? 'SDK 历史通道' : '500 条聚合通道'}
+                  已移除，此旧任务不能继续；任务记录与已取得缓存保留。
+                </p>
+              ) : null}
               <div className="weq-roaming-task-meta">
                 <span>
-                  待检查窗口上限 {format(job.estimatedWindows)} · 间隔 {job.options.intervalMs} ms ·
-                  每轮预算 {job.options.maxRequests}
+                  待检查请求上限 {format(job.estimatedWindows)} ·{' '}
+                  {job.options.transport === 'native500'
+                    ? 'SDK 通道已移除（历史任务）'
+                    : job.options.transport === 'sso500'
+                      ? '聚合通道已移除（历史任务）'
+                      : 'SSO'}{' '}
+                  · 间隔 {job.options.intervalMs} ms · 每轮预算 {job.options.maxRequests}
                 </span>
                 <span>
                   范围：
@@ -312,7 +340,13 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
                 {['planned', 'paused', 'failed'].includes(job.status) ? (
                   <button
                     type="button"
-                    disabled={busy || mutating}
+                    disabled={
+                      busy ||
+                      mutating ||
+                      job.options.transport === 'native500' ||
+                      job.options.transport === 'sso500' ||
+                      staleBackend
+                    }
                     onClick={() => {
                       setError(null);
                       run.mutate({ id: job.id });
@@ -335,7 +369,13 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
                 {job.status === 'partial' ? (
                   <button
                     type="button"
-                    disabled={busy || mutating}
+                    disabled={
+                      busy ||
+                      mutating ||
+                      job.options.transport === 'native500' ||
+                      job.options.transport === 'sso500' ||
+                      staleBackend
+                    }
                     onClick={() => {
                       setError(null);
                       run.mutate({ id: job.id, retryRemaining: true });

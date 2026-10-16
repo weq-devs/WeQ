@@ -44,6 +44,8 @@ import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
+import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
+import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
@@ -56,6 +58,7 @@ import {
   LinkPreviewService,
   AgentLabConfigService,
   VoiceTranscribeService,
+  OcrModelService,
   TtsService,
   getVoiceModel,
   MsgService,
@@ -118,6 +121,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ChatImageOcrService,
   InteractionService,
   GroupModerationService,
   DbWatchService,
@@ -151,6 +155,8 @@ import {
   collectOwnItems,
   collectReceivedItems,
   downloadUrlToFile,
+  ocrCacheFor,
+  warmJiebaDict,
 } from '@weq/service';
 import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -397,11 +403,12 @@ async function createRoamingBackfill(
         ? msgs.getGroupSeqDesc(target.conv, { startTime: range?.start, endTime: range?.end })
         : msgs.getC2cSeqDesc(target.conv, { startTime: range?.start, endTime: range?.end }),
     cached: (target, start, end) => history.cached(target.kind, target.conv, start, end),
-    fetch: (target, start, end, signal, intervalMs) =>
+    fetch: (target, start, end, signal, intervalMs, beforeRequest) =>
       history.fetch(target.kind, target.conv, start, end, {
         signal,
         intervalMs,
         strictIdentity: true,
+        beforeRequest,
       }),
     retain: (rows) => history.retainForBatch(rows),
     checkOnline: () => {
@@ -625,6 +632,11 @@ export interface BootstrapServices {
   agentLabConfig: AgentLabConfigService;
   /** Voice-transcription model management (download/select). Account-independent. */
   voiceTranscribe: VoiceTranscribeService;
+  /**
+   * 本地图片文字识别（OCR）的模型管理（下载/选择）。账号无关。
+   * 目前只做模型下载与存储，推理引擎还没接（见 `@weq/service` 的 ocr_models.ts）。
+   */
+  ocrModels: OcrModelService;
   /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
   tts: TtsService;
   /**
@@ -719,6 +731,8 @@ export interface AccountServices {
   roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  /** 聊天图片文字识别（OIDB 0xe07_0，需在线 QQ 发包取 rkey）。 */
+  chatImageOcr: ChatImageOcrService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
   flashTransfer: FlashTransferService;
   /** 发消息（文本/媒体，MessageSvc.PbSendMsg + NTV2 上传，需在线 QQ 发包）。 */
@@ -973,6 +987,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
+  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict(platform.jiebaDictDir());
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
@@ -1024,6 +1041,7 @@ export function initAppContext(): AppContext {
     linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
+    ocrModels: new OcrModelService(platform),
     tts: new TtsService(),
     attachHook,
     externalRkey: new ExternalRkeyService(userConfig),
@@ -1167,12 +1185,29 @@ export function initAppContext(): AppContext {
         // 本机 rkey 不可用（无在线 QQ / 已过期）时回退到外部 rkey 服务器。
         bootstrap.externalRkey,
       );
+      // 识别结果缓存（内容寻址，`<缓存根>/ocr/`）：灯箱 / MCP / 导出共用同一份实例。
+      // 刻意不进「清理缓存」白名单 —— 过期图片的结果清掉就再也拿不回来了（见
+      // `docs/develop/ocr-cache-plan-20261016.md`）。
+      const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 导出阶段的在线图片识字：同一个 0xe07_0 链路（服务端自己去取图），只是要
+      // 批量复用一条 rkey，所以单独包一层（见 main/ocr/online.ts）。
+      const onlineOcr = new OnlineImageOcr(
+        new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
+      );
       // QQ 空间 Web 查询（说说 / 相册）—— 也注入进导出管理器，供「好友空间导出」
       // 翻页拉说说。需在线 QQ 凭证；离线时 fetchMsgList 会抛错（前端已先拦截）。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 登录时顺带收的 Web 票据（vip / qzone）直接 seed：第一次 cgi 不用等 hook；
+      // cgi 判它失效时顺手把落盘那份删掉。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
@@ -1207,6 +1242,13 @@ export function initAppContext(): AppContext {
       //    不 await —— 旧产物照样能渲染，重做完了推一次清单前端自己换。
       void dressInstall.refreshDerived().then((refreshed) => {
         if (refreshed > 0) emitDressChanged();
+        // 4. 全量字体体检：「已装」清单之外的那些产物（别的账号 / 逐条消息 / 导出留下的）
+        //    同样会被渲染，所以把 `fonts/` 目录整体按当前转换链对一遍版本，落后的就地
+        //    重解（离线优先）。每次发版后第一次开账号跑一遍，完成后写 `fonts/.sweep.json`
+        //    去重；同样不 await —— 旧产物照样能渲染。
+        return dressInstall.sweepFontCache().then((repaired) => {
+          if (repaired > 0) emitDressChanged();
+        });
       });
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
@@ -1383,6 +1425,16 @@ export function initAppContext(): AppContext {
             // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
             // 漏包 / 过期的语音由上面的本地模型补全。
             onlineTranscribe: onlineTranscriber.transcribe,
+            // 图片文字识别（导出时自动 OCR）：本地 PP-OCR（onnxruntime 原生，住在
+            // app 侧）+ 筛图 + 在线的 0xe07_0。三条都按需注入 —— 本地模型没下好时
+            // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
+            ocrLocal: runLocalOcrFile,
+            ocrFilter: runLocalOcrFilterFile,
+            onlineOcr: onlineOcr.recognize,
+            // 识别结果缓存：与灯箱 / MCP 共用同一份（内容寻址，`<缓存根>/ocr/`）。
+            // 灯箱里识别过的图，导出直接命中；过期图（CDN 失效 + 本机没本体）也只有它还能出文字。
+            ocrCache,
+            ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             // ChatLab name / role / profile resolvers. The service export package
@@ -1571,6 +1623,7 @@ export function initAppContext(): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
           platform.native.ntHelper,
           session,
@@ -1815,9 +1868,18 @@ export function initAppContext(): AppContext {
         userConfig.cacheDir('media'),
         bootstrap.externalRkey,
       );
+      /** 识别结果缓存（同上：与灯箱 / MCP 共用一份，见 `common/ocr_cache.ts`）。 */
+      const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
+      // 登录票据同 seed 流程（见上面的 WebQueryService 注释）。
+      const webQuery = new WebQueryService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        accountConfig.getRecord()?.loginPskey,
+        (domain) => accountConfig.clearLoginPskey(domain),
+      );
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
@@ -1847,6 +1909,10 @@ export function initAppContext(): AppContext {
       // 升级后的自愈：与在线路径同一套（静态账号也该看到新产物）。
       void dressInstall.refreshDerived().then((refreshed) => {
         if (refreshed > 0) emitDressChanged();
+        // 全量字体体检：与在线路径同一套（静态账号也该看到洗干净后的产物）。
+        return dressInstall.sweepFontCache().then((repaired) => {
+          if (repaired > 0) emitDressChanged();
+        });
       });
       const fileSearch = new FileSearchService(session, staticPlatform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
@@ -2009,6 +2075,13 @@ export function initAppContext(): AppContext {
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             transcribe: transcribeSilk,
+            // 静态（导入目录）账号也能做图片文字识别：本地模型只看本机文件，不需要
+            // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
+            ocrLocal: runLocalOcrFile,
+            ocrFilter: runLocalOcrFilterFile,
+            // 识别结果缓存（同上：与灯箱 / MCP 共用一份）。
+            ocrCache,
+            ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
             // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
             dressInstall,
             chatlab: {
@@ -2125,6 +2198,7 @@ export function initAppContext(): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
         messageSend: new MessageSendService(platform.native.ntHelper, session, livePid, (packId) =>
           emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),

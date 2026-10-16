@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 import type { AccountSession } from '@weq/account';
@@ -77,7 +78,11 @@ function setup(seqs = [100n, 1n]) {
     source: 'synthetic-account:synthetic-source',
     listSeqWindow: vi.fn(async () => ({ seqs, below: null, above: null })),
     cached: (peer, start, end) => history.cached(peer.kind, peer.conv, start, end),
-    fetch,
+    fetch: async (peer, start, end, _signal, _interval, beforeRequest) => {
+      const result = await fetch(peer, start, end);
+      if (result.networkRequested !== false) beforeRequest();
+      return result;
+    },
     retain: (rows) => history.retainForBatch(rows),
     checkOnline: vi.fn(),
     onMessages: vi.fn(),
@@ -91,6 +96,91 @@ function setup(seqs = [100n, 1n]) {
   const done = () => RoamingBackfillManager.waitForIdle(path);
   return { path, manager, deps, fetch, history, make, done };
 }
+
+describe('removed SDK transport', () => {
+  it('rejects new SDK plans before reading sources or sending requests', async () => {
+    const f = setup();
+    await expect(
+      f.manager.plan(options({ transport: 'native500', nativeBinding: 'a'.repeat(64) })),
+    ).rejects.toThrow('SDK 历史通道已移除');
+    expect(f.deps.listSeqWindow).not.toHaveBeenCalled();
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it('retains legacy tasks, hashes and in-flight windows without silently falling back', async () => {
+    const f = setup();
+    const legacy = await f.manager.plan(options());
+    const ordinary = await f.manager.plan(options());
+    const saved = JSON.parse(readFileSync(f.path, 'utf8'));
+    const job = saved.jobs[0];
+    job.options.transport = 'native500';
+    job.options.nativeBinding = 'a'.repeat(64);
+    job.optionsHash = createHash('sha256').update(JSON.stringify(job.options)).digest('hex');
+    job.status = 'paused';
+    job.inFlight = { target: 'group:12345', start: 70, end: 99, at: 123 };
+    writeFileSync(f.path, JSON.stringify(saved));
+    const before = readFileSync(f.path, 'utf8');
+    const reloaded = f.make();
+    expect(reloaded.list()).toHaveLength(2);
+    expect(reloaded.list().find((item) => item.id === legacy.id)).toMatchObject({
+      optionsHash: job.optionsHash,
+      options: job.options,
+      inFlight: job.inFlight,
+    });
+    expect(() => reloaded.start(legacy.id)).toThrow('SDK 历史通道已移除');
+    expect(() => reloaded.start(legacy.id, true)).toThrow('SDK 历史通道已移除');
+    expect(readFileSync(f.path, 'utf8')).toBe(before);
+    expect(f.fetch).not.toHaveBeenCalled();
+    reloaded.start(ordinary.id);
+    await f.done();
+    expect(f.fetch).toHaveBeenCalled();
+    expect(reloaded.list().find((item) => item.id === legacy.id)).toMatchObject({
+      optionsHash: job.optionsHash,
+      inFlight: job.inFlight,
+    });
+  });
+});
+
+describe('unified SSO task compatibility', () => {
+  it('rejects new legacy channel choices instead of silently changing their options', async () => {
+    const f = setup();
+    for (const transport of ['sso30', 'sso500'] as const)
+      await expect(f.manager.plan(options({ transport }))).rejects.toThrow('历史通道已统一');
+    expect(f.deps.listSeqWindow).not.toHaveBeenCalled();
+  });
+  it.each(['sso30', 'sso500'] as const)(
+    'preserves old %s options, hashes and pending intervals',
+    async (transport) => {
+      const f = setup([5n, 1n]);
+      const task = await f.manager.plan(options({ transport: 'sso' }));
+      const saved = JSON.parse(readFileSync(f.path, 'utf8'));
+      const old = saved.jobs[0];
+      old.options.transport = transport;
+      old.optionsHash = createHash('sha256').update(JSON.stringify(old.options)).digest('hex');
+      writeFileSync(f.path, JSON.stringify(saved));
+      const reloaded = f.make();
+      expect(reloaded.list()[0]).toMatchObject({
+        options: old.options,
+        optionsHash: old.optionsHash,
+        pendingSeqs: 3,
+      });
+      if (transport === 'sso500') {
+        const before = readFileSync(f.path, 'utf8');
+        expect(() => reloaded.start(task.id)).toThrow('聚合通道已移除');
+        expect(() => reloaded.start(task.id, true)).toThrow('聚合通道已移除');
+        expect(readFileSync(f.path, 'utf8')).toBe(before);
+        expect(f.fetch).not.toHaveBeenCalled();
+      } else {
+        reloaded.start(task.id);
+        await f.done();
+        expect(reloaded.list()[0]).toMatchObject({
+          status: 'completed',
+          options: old.options,
+          optionsHash: old.optionsHash,
+        });
+      }
+    },
+  );
+});
 
 describe('exact interval algebra', () => {
   it('merges overlapping/adjacent ranges and subtracts only observed points', () => {

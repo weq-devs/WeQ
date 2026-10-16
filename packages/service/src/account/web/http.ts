@@ -48,6 +48,7 @@ export interface WebRetryPolicy {
 }
 
 export interface WebRequestInit {
+  redirect?: 'error';
   method?: 'GET' | 'POST';
   cookie: string;
   body?: string | Uint8Array;
@@ -184,6 +185,7 @@ async function requestOnce(
   try {
     const fetched = fetch(url, {
       method,
+      redirect: init.redirect,
       headers: {
         Cookie: init.cookie,
         ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),

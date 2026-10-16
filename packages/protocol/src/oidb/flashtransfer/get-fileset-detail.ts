@@ -31,6 +31,8 @@ export interface GetFilesetDetailParams {
 export namespace GetFilesetDetail {
   export const command = 0x93d3;
   export const subCommand = 1;
+  // 0x93d3_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = FLASH_GET_DETAIL_REQ;
   export const respSchema = FLASH_GET_DETAIL_RESP;
 

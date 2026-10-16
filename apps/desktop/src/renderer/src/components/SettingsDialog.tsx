@@ -27,6 +27,7 @@ import {
   Palette,
   Plug,
   Radio,
+  ScanText,
   Settings2,
   Sun,
   User,
@@ -38,6 +39,7 @@ import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
+import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
@@ -62,6 +64,7 @@ export type SectionId =
   | 'qzone'
   | 'database'
   | 'voice'
+  | 'ocr'
   | 'agentlab'
   | 'mcp'
   | 'rkey'
@@ -117,6 +120,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音配置',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'ocr',
+    label: '图片识别',
+    icon: <ScanText size={16} strokeWidth={1.8} />,
+    render: () => <OcrModelsSection />,
   },
   {
     id: 'agentlab',

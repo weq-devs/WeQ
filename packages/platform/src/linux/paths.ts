@@ -172,6 +172,31 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
   return findLoginDbs(home, overrideRoot)[0] ?? null;
 }
 
+// ---------- global resources (root-level, shared by every account) --------
+
+/**
+ * `<root>/global/nt_data/search/resource_jieba` — QQ's bundled jieba
+ * dictionary (`jieba_dict.utf8` / `hmm_model.utf8` / `user_dict.utf8`). It
+ * lives under the SHARED `global/` tree, not a per-account
+ * `nt_qq_<hash>/nt_data`, so it resolves straight from the root list. Missing
+ * (a fresh install that never searched) is a normal outcome — callers fall
+ * back to the built-in segmenter.
+ *
+ * Only the primary `<root>/global` location is probed, deliberately NOT the
+ * legacy `<root>/nt_qq/global` fallback that `login.db` keeps — this is an
+ * edge feature and old layouts can take the fallback path.
+ */
+export function findJiebaDictDir(home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnderRoot(
+    home,
+    overrideRoot,
+    'global',
+    'nt_data',
+    'search',
+    'resource_jieba',
+  );
+}
+
 // ---------- per-account databases (nt_db) ---------------------------------
 
 /** `<root>/nt_qq_<hash>` — the account's user-data directory. */

@@ -324,6 +324,7 @@ export type Message = {
    */
   msgSeq?: string;
   source?: 'roaming';
+  sourceFormat?: 'native' | 'protocol';
   ntSeqVerified?: boolean;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';

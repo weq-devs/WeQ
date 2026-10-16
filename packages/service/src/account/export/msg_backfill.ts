@@ -32,6 +32,7 @@ const DEFAULT_RATE_LIMIT_MS = 3000;
 
 /** 补全能力（由 app 注入，桥接聊天页的 GapHistoryService）。 */
 export interface MessageBackfillDeps {
+  cachedForExport?(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]>;
   /** 读本机漫游缓存一段 [startSeq, endSeq] 的缺失消息（不联网）。 */
   cached(
     kind: 'c2c' | 'group',

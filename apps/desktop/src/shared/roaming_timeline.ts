@@ -1,4 +1,8 @@
 export interface TimelineRow {
+  sourceFormat?: 'native' | 'protocol';
+  sendTime?: string;
+  msgRandom?: string;
+  senderUid?: string;
   msgId: string;
   msgSeq: string;
   source?: 'roaming';
@@ -16,7 +20,9 @@ export function timelineSeq(value: string): bigint | null {
 
 /** Server history IDs can be client randoms, not local snowflake IDs. */
 export function timelineRowKey(row: TimelineRow): string {
-  return row.source === 'roaming' ? `roaming:${row.msgSeq}:${row.msgId}` : row.msgId;
+  return row.source === 'roaming'
+    ? `roaming:${row.sourceFormat ? `${row.sourceFormat}:` : ''}${row.msgSeq}:${row.msgId}`
+    : row.msgId;
 }
 
 /** Fill the currently loaded window without extending it or re-anchoring history to latest. */
@@ -44,6 +50,12 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
 ): T[] {
   const result = local.filter((row) => row.source !== 'roaming');
   const localSeqs = new Set(result.map((row) => row.msgSeq));
+  const localIds = new Set(result.map((row) => row.msgId));
+  const nativeRandoms = new Set(
+    [...local, ...cached]
+      .filter((row) => row.sourceFormat && row.msgRandom && row.msgRandom !== '0')
+      .map((row) => `${row.msgSeq}:${row.msgRandom}:${row.senderUid ?? ''}`),
+  );
   const added = new Set<string>();
   for (const row of [...local.filter((item) => item.source === 'roaming'), ...cached]) {
     const seq = timelineSeq(row.msgSeq);
@@ -52,11 +64,16 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (kind === 'c2c' && row.ntSeqVerified !== true) ||
       (options.min !== undefined && seq < options.min) ||
       (options.max !== undefined && seq > options.max) ||
-      localSeqs.has(row.msgSeq) ||
-      added.has(row.msgSeq)
+      (row.sourceFormat
+        ? localIds.has(row.msgId)
+        : localSeqs.has(row.msgSeq) ||
+          nativeRandoms.has(
+            `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
+          )) ||
+      added.has(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq)
     )
       continue;
-    added.add(row.msgSeq);
+    added.add(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq);
     result.push({ ...row, source: 'roaming' });
   }
   result.sort((a, b) => {

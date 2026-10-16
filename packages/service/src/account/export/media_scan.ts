@@ -101,6 +101,28 @@ export interface MediaRef {
   /** ptt only: transcript already stored on the element (wire tag 45923), if any. */
   transcript?: string;
   /**
+   * pic only：批量文字识别（导出时自动 OCR）所需的元素字段。
+   *
+   * 在线那条腿（OIDB 0xe07_0）要的就是这些：`fileToken` 现签一条 CDN 直链交给服务端
+   * 取图，宽高既是随行元数据也是回包坐标系（见 `ChatImageOcrService`）。本机没落盘
+   * 的图也能走在线（服务端自己去取），但没有本体就跑不了本地模型。
+   */
+  ocr?: {
+    /** 发送者 uin（十进制字符串）。 */
+    senderUin: string;
+    /** 私聊 = 对方 uin；群聊 = 群号（十进制字符串）。 */
+    peerUin: string;
+    isGroup: boolean;
+    /** 图片 md5（32 位小写 hex；元素里没有时为空串 —— 服务端不校验）。 */
+    md5: string;
+    /** 图片宽（元素 45411）。 */
+    width: number;
+    /** 图片高（元素 45412）。 */
+    height: number;
+    /** 图片字节数。 */
+    fileSize: number;
+  };
+  /**
    * ptt only：在线转写（pttTrans）所需的消息 / 元素字段。QQ 在线且抓包就绪时，
    * 导出阶段可凭它直接发请求拿 QQ 自己转的文本，再对结果缺失者用本地模型补全。
    * 关键项（fileToken / md5 / 发送者 / 会话）缺一即退化为纯本地转写。
@@ -275,6 +297,12 @@ function collectFromElements(
     let fileTTL = 0;
     let expireTimestamp = 0;
     let transcript = '';
+    // pic 在线识字（OIDB 0xe07_0）所需字段（其它 kind 用不到，保持默认）。
+    let picWidth = 0;
+    let picHeight = 0;
+    let picSize = 0;
+    // 图片内容的 md5（小写 hex）—— 结果缓存的键（见 `common/ocr_cache.ts`）。
+    let picMd5 = '';
     // ptt 在线转写请求所需字段（其它 kind 用不到，保持默认）。
     let pttMd5 = '';
     let pttDuration = 0;
@@ -287,6 +315,10 @@ function collectFromElements(
         kind = el.data.subType === 1 ? 'emoji' : 'pic';
         fileName = el.data.fileName;
         fileToken = el.data.fileToken;
+        picWidth = el.data.imgWidth;
+        picHeight = el.data.imgHeight;
+        picSize = el.data.fileSize;
+        picMd5 = el.data.md5 ?? '';
         originalUrl = el.data.originalUrl;
         uploadTime = el.data.uploadTime;
         uploadTimestamp = el.data.uploadTimestamp;
@@ -346,6 +378,22 @@ function collectFromElements(
       expired: false,
       path: null,
       ...(transcript ? { transcript } : {}),
+      ...(kind === 'pic'
+        ? {
+            ocr: {
+              senderUin: msgCtx.senderUin,
+              peerUin: msgCtx.peerUin,
+              isGroup: msgCtx.isGroup,
+              // 元素的 45424 / 45406（render 视图已归一成小写 hex）。服务端不校验它，
+              // 但我们的结果缓存按它寻址（见 `common/ocr_cache.ts`）：认不出时为空串，
+              // 缓存退到文件名 stem 当键。
+              md5: picMd5,
+              width: picWidth,
+              height: picHeight,
+              fileSize: picSize,
+            },
+          }
+        : {}),
       ...(kind === 'ptt'
         ? {
             online: {
@@ -457,7 +505,14 @@ export async function scanConvMedia(
   };
   for (const ref of rawRefs) {
     const key = `${ref.kind}:${ref.stem}`;
-    if (!uniqueByKey.has(key)) uniqueByKey.set(key, ref);
+    const existing = uniqueByKey.get(key);
+    if (!existing) {
+      uniqueByKey.set(key, ref);
+    } else if (!existing.transcript && ref.transcript) {
+      // 同一条语音被转发 / 重发过时，代表项未必是「已经转过文字」的那条。转写结果是
+      // **白拿**的，别因为先遇到没转写的那条就把它丢掉（写回仍按代表项的 msgId 走）。
+      existing.transcript = ref.transcript;
+    }
     if (MONTH_KINDS.includes(ref.kind)) {
       months[ref.kind].add(monthOf(ref.sendTime));
       months[ref.kind].add(shiftMonth(ref.sendTime, -1));

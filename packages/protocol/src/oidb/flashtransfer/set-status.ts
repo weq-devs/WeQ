@@ -13,6 +13,8 @@ export interface SetFilesetStatusParams {
 export namespace SetFilesetStatus {
   export const command = 0x93d1;
   export const subCommand = 1;
+  // 0x93d1_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = FLASH_SET_STATUS_REQ;
   export const respSchema = FLASH_SET_STATUS_RESP;
 

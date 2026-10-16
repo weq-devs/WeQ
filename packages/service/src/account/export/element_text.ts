@@ -38,6 +38,16 @@ function withPath(label: string, el: RenderElement): string {
   return p ? `${label.replace(/\]$/, '')} → ${p}]` : label;
 }
 
+/**
+ * 图片的文本标签：有文件名 → `[图片: <名字>]`，没有 → 沿用旧的 `[图片]`。
+ *
+ * 文件名是给批量 OCR 回写用的锚点（同语音的 `[语音: 名字]`）：OCR 是最后跑完的
+ * 一步，靠这个键把 `[图片: 名字]` 换成 `[图片] 识别文字`（见 `ocr_rewrite`）。
+ */
+function picLabel(fileName: string | undefined): string {
+  return fileName ? `[图片: ${fileName}]` : '[图片]';
+}
+
 /** Bundle-relative path stamped by {@link annotateExportPaths}, if any. */
 function bundleRelPath(el: RenderElement): string | undefined {
   return (el.data as { exportPath?: string }).exportPath;
@@ -53,7 +63,8 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'face':
       return el.data.faceText ? `[${el.data.faceText}]` : '[表情]';
     case 'pic':
-      return withPath(el.data.subType === 1 ? '[表情]' : '[图片]', el);
+      // 表情图（subType 1）不认字，保持旧形状；普通图片带文件名锚点（见 picLabel）。
+      return withPath(el.data.subType === 1 ? '[表情]' : picLabel(el.data.fileName), el);
     case 'video':
       return withPath('[视频]', el);
     case 'ptt':
