@@ -13,6 +13,7 @@ import type {
 import { humanizeText } from './typo';
 import { scoreReplyWillingness } from './willing';
 import { selectStickerByEmotion, pickRandomSticker, usableStickers } from './sticker';
+import { tokenizeText } from './segment';
 
 // 标记（全局，用于从文本里剥离）：[[发表情:…]] / 内部 [[sticker:md5]] / 内部 [[voice:id]]。
 const EMOTION_MARKER_G = /\[\[发表情[:：].+?\]\]/g;
@@ -54,15 +55,7 @@ export function reportUsage(endpoint: AgentLabEndpoint, raw: unknown): void {
 }
 
 function splitKeywords(text: string): string[] {
-  return Array.from(
-    new Set(
-      text
-        .toLowerCase()
-        .split(/[^a-z0-9\u4e00-\u9fa5]+/i)
-        .map((item) => item.trim())
-        .filter((item) => item.length >= 2),
-    ),
-  ).slice(0, 24);
+  return Array.from(new Set(tokenizeText(text))).slice(0, 24);
 }
 
 /** \u4f9b service \u7ed9\u8bb0\u5fc6\u6761\u76ee\u9884\u7b97\u5173\u952e\u8bcd\uff08\u4e0e pair \u68c0\u7d22\u540c\u53e3\u5f84\uff09\u3002 */

@@ -154,6 +154,7 @@ import {
   collectReceivedItems,
   downloadUrlToFile,
   ocrCacheFor,
+  warmJiebaDict,
 } from '@weq/service';
 import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -928,6 +929,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
+  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict(platform.jiebaDictDir());
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
