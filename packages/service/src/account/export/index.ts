@@ -141,9 +141,11 @@ export {
 export {
   ocrFoundImages,
   runBatchWithFailureLimit,
+  inferOcrFailureKind,
   OCR_RESULTS_FILE,
   OCR_ONLINE_FAILURE_LIMIT,
   type OcrExportSummary,
+  type OcrFailureKind,
   type OcrFilterFn,
   type OcrFilterOutcome,
   type OcrImageFn,

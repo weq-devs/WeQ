@@ -5,20 +5,23 @@
  * 结果写成 bundle 根目录的 `ocr.json`，消息文件早在落盘时就埋好了锚点，最后由
  * `ocr_rewrite` 把文件名字换成识别出的文字。
  *
- * 三步流水线：
+ * 三步流水线（第 1、2 步**并行**，不再等整批筛完才发在线请求）：
  *
  *   0. **结果缓存**（`deps.cache`）：按图片 md5 寻址的长期缓存（`common/ocr_cache.ts`）。
  *      命中的图**一步都不用跑** —— 筛图、在线请求、本地推理全免。灯箱 / MCP 写过
  *      的图这里也直接白拿；过期图（CDN 已失效、本机又没本体）只有靠它还能出文字。
  *   1. **预筛选**（`ocrfilter`）：先用最省的检测模型判断「这张图里有没有文字」，
  *      风景 / 人像这类直接跳过，不进识别模型。强烈建议开 —— 识别是整个导出里最慢的
- *      一步。没注入筛图模型就不筛（全部送识别），筛图失败的图按「有文字」处理
- *      （宁可多跑一次，也不静默丢文字）。
+ *      一步。它跑在后台，每张图的结论通过 `verdicts` 直接交给在线 worker：筛好一张
+ *      就发一张（以前要等 56 张全筛完）。没注入筛图模型就不筛（全部送识别），筛图
+ *      失败的图按「有文字」处理（宁可多跑一次，也不静默丢文字）。
  *   2. **在线优先**（可选，`ocr`）：QQ 在线时把图交给 QQ 服务端的图片 OCR
  *      （OIDB 0xe07_0，服务端自己去取图）。**从新的往旧的试** —— 聊天图片的 CDN
  *      直链只有约 9 天寿命，越新的越可能还取得到。并发发请求，**连续失败
  *      {@link OCR_ONLINE_FAILURE_LIMIT} 张就宣告在线那条腿彻底不行**，剩下的全部
  *      回退本地模型（服务端取不到图往往是整批一起过期，继续试只是白等）。
+ *      **单张回包超时不算连败**（见 {@link OcrFailureKind}）：那是这张图的应答没能
+ *      按时解出来，别的图照样可能是好的，拿它当放弃依据只会白丢结果。
  *   3. **本地模型兜底**（`ocr`）：在线没拿到的（含被放弃的）交给本地 PP-OCR 跑，
  *      前提是这张图的本体在这台机器上。
  *
@@ -26,6 +29,10 @@
  *
  * 非本地的图片也可以走在线（服务端自己去 CDN 取），所以预筛选只对**本机有本体**的图
  * 生效；本机没有、又还没过期的图会直接送在线（无法预筛，日志里单独报个数）。
+ *
+ * 进度：`ocr` 阶段的分母 = 进识别腿的图（被筛图甩掉的会从分母里减掉），分子 = 已经有
+ * 结论的图（出结果 / 判失败 / 被放弃）。在线阶段还会每 10 s 起一条心跳日志，回包卡在
+ * native 那 30 s 截止时间上时用户也看得见「在飞几张、几张超时」，而不是盯着 0%。
  */
 
 import { writeFileSync } from 'node:fs';
@@ -40,6 +47,36 @@ export const OCR_RESULTS_FILE = 'ocr.json';
 
 /** 在线识别连续失败多少张就放弃在线那条腿（默认）。 */
 export const OCR_ONLINE_FAILURE_LIMIT = 10;
+
+/**
+ * 在线阶段的心跳间隔（毫秒）。回包最慢要等 native 的 30 s 截止时间，10 s 一条正好
+ * 让人看见「还在等、在飞几张」，而不是盯着一动不动的 0%。
+ */
+const OCR_HEARTBEAT_MS = 10_000;
+
+/** 没进展时心跳至少隔多久再报一次（别把任务日志刷满）。 */
+const OCR_HEARTBEAT_IDLE_MS = 30_000;
+
+/**
+ * 在线识别失败的类型 —— 用来分别统计，也用来判断「这条腿是不是整体挂了」。
+ *
+ * 关键区分是 {@link OcrFailureKind.timeout}：它是**单张**性质（某张图的回包没能按时解出来），
+ * 不代表整条腿不可用，所以不参与「连续失败放弃在线」的连败计数（2026-10-16 那次就是被
+ * 8 个回包解压失败引发的连败判断，把 35 张没试过的图一起判了死刑）。
+ */
+export type OcrFailureKind = 'timeout' | 'download_error' | 'credential' | 'other';
+
+/**
+ * 从错误文案里猜失败类型（注入的在线实现没给 `errorKind` 时的兜底 —— 老版本 app
+ * 注入的还是裸文案）。文案来源见 `ChatImageOcrService.describeOcrFailure` 与 native
+ * 的 `send_oidb_packet failed: SSO 请求超时…`。
+ */
+export function inferOcrFailureKind(message: string): OcrFailureKind {
+  if (/超时|timed?\s?out/i.test(message)) return 'timeout';
+  if (/DownLoadError|取不到这张图/.test(message)) return 'download_error';
+  if (/rkey|凭据|未在线|fileToken|缺尺寸/.test(message)) return 'credential';
+  return 'other';
+}
 
 /** 一次图片识别的产出（两条腿共用同一形状）。 */
 export interface OcrImageOutcome {
@@ -56,6 +93,8 @@ export interface OcrImageOutcome {
   modelId?: string;
   /** 失败原因（给人看的中文短句）。 */
   error?: string;
+  /** 失败归类（在线那条腿填；缺省时上层按 {@link inferOcrFailureKind} 现猜）。 */
+  errorKind?: OcrFailureKind;
 }
 
 /**
@@ -133,12 +172,17 @@ export interface BatchOutcome<T> {
   ok: boolean;
   value?: T;
   error?: string;
+  /** 失败归类（可选；统计与连败判定用）。 */
+  kind?: OcrFailureKind;
 }
+
+/** 一张图在在线那条腿上的产出：识别结果，或者「被筛图甩掉」（不进结果、不算失败）。 */
+type OnlineAttempt = { kind: 'result'; outcome: OcrImageOutcome } | { kind: 'skipped' };
 
 /** 批量执行的结果（成功 / 失败 / 因连续失败被放弃的项）。 */
 export interface BatchRunResult<TIn, TOut> {
   results: Array<{ item: TIn; value: TOut }>;
-  failures: Array<{ item: TIn; error: string }>;
+  failures: Array<{ item: TIn; error: string; kind?: OcrFailureKind }>;
   /** 因连续失败达到上限而**没有被尝试**的项。 */
   abandoned: TIn[];
 }
@@ -149,6 +193,9 @@ export interface BatchRunResult<TIn, TOut> {
  *
  * 计数按「完成的顺序」算 —— 成功一次把连败清零；已经在飞的请求照常等它落地
  * （它可能正好成功）。并发度 1 时就是字面意义的「连续失败」。
+ *
+ * `isFatal` 决定某次失败算不算「这条腿不行了」的证据（缺省全算）。在线那条腿传的是
+ * 「超时不算」—— 单张回包没解出来跟整条腿挂掉是两回事，不该据此放弃剩下的图。
  */
 export async function runBatchWithFailureLimit<TIn, TOut>(
   items: readonly TIn[],
@@ -156,6 +203,8 @@ export async function runBatchWithFailureLimit<TIn, TOut>(
   opts: {
     concurrency?: number;
     failureLimit?: number;
+    /** 这次失败是否计入「连败」（返回 false = 只记失败、不影响放弃判断）。 */
+    isFatal?: (error: string, kind?: OcrFailureKind) => boolean;
     /** 放弃时的回调（日志用；`remaining` = 放弃时还没试的项数）。 */
     onGiveUp?: (streak: number, remaining: number) => void;
   } = {},
@@ -188,8 +237,10 @@ export async function runBatchWithFailureLimit<TIn, TOut>(
         results.push({ item, value: outcome.value as TOut });
         continue;
       }
+      const error = outcome.error ?? '未知错误';
+      failures.push({ item, error, ...(outcome.kind ? { kind: outcome.kind } : {}) });
+      if (opts.isFatal && !opts.isFatal(error, outcome.kind)) continue;
       streak += 1;
-      failures.push({ item, error: outcome.error ?? '未知错误' });
       if (streak >= limit && !gaveUp) {
         gaveUp = true;
         const remaining = items.length - attempted.size;
@@ -249,6 +300,8 @@ export interface OcrExportSummary {
   /** 在线 / 本地各自出了多少张。 */
   online: number;
   local: number;
+  /** 在线那条腿**超时**失败的张数（回包没按时解出来，单张性质）。 */
+  timeouts: number;
   /** 本机没有本体、只能送在线的张数。 */
   onlineOnly: number;
   /** 筛图统计；没开筛图时为 null。 */
@@ -425,6 +478,7 @@ export async function ocrFoundImages(
       cached: 0,
       online: 0,
       local: 0,
+      timeouts: 0,
       onlineOnly: 0,
       filter: null,
     });
@@ -471,6 +525,7 @@ export async function ocrFoundImages(
       cached: cachedCount,
       online: 0,
       local: 0,
+      timeouts: 0,
       onlineOnly: 0,
       filter: null,
     });
@@ -485,20 +540,68 @@ export async function ocrFoundImages(
         : ''),
   );
 
-  // ---- 1. 预筛选：先甩掉没有文字的图 ----
-  let items = localCandidates;
+  // ---- 筛图与在线识别**并行**：筛好一张就发一张，不再等整批筛完 ----
+  //
+  // 以前是「整批筛完才开始在线」，白等一次筛图的时间（实测 ~10 s，图多的会话更久）。
+  // 现在筛图在后台跑，在线 worker 只等**自己那张图**的结论；本机没本体、只能走在线
+  // 的图更是立刻就能发。
+  const onlineFn = deps.online;
+  const localFn = deps.local;
+  /** 全部候选（本机有本体的 + 只能走在线的）—— 进度口径按它算。 */
+  const ocrQueue: MediaRef[] = [...localCandidates, ...onlineOnlyRefs];
+  /** 被筛图甩掉的图：不进识别腿、不进结果，也不进进度。 */
+  const filteredOut = new Set<string>();
+  /** fileName → 「这张图里有没有文字」；没有条目 = 不用筛（没开筛图 / 本机没本体）。 */
+  const verdicts = new Map<string, Promise<boolean>>();
+
+  let progressTotal = ocrQueue.length;
+  let progressDone = 0;
+  const settledNames = new Set<string>();
+  const reportProgress = (): void => deps.onProgress?.(progressDone, progressTotal);
+  /** 一张图在识别那条线上有了结论（出结果 / 判失败 / 被放弃）—— 每张只算一次。 */
+  const settle = (fileName: string): void => {
+    if (settledNames.has(fileName)) return;
+    settledNames.add(fileName);
+    progressDone += 1;
+    reportProgress();
+  };
+  // 先报一次：进度条一上来就有真分母（以前这里是 0/0，界面上只能一直显示 0%）。
+  reportProgress();
+
+  // ---- 1. 预筛选：后台跑，结论交给在线 worker ----
   let filter: OcrExportSummary['filter'] = null;
-  if (deps.filter) {
+  /** 每张待筛图的「结论开关」—— 在线 worker 拿它等，筛图那趟负责解开。 */
+  const verdictResolvers = new Map<string, (hasText: boolean) => void>();
+  const filterTask = (async (): Promise<void> => {
+    if (!deps.filter || localCandidates.length === 0) {
+      if (localCandidates.length > 0) {
+        onLog?.('未启用预筛选（没下载筛图模型），全部图片都会送识别，会慢很多', 'warn');
+      }
+      return;
+    }
+    // 承诺必须**先全部摆好**再开跑：在线 worker 随时可能来要某张图的结论，晚一步它
+    // 就把「还没筛到」当成「不用筛」，直接把这图发给服务端（白花一次请求，结果也会和
+    // 「被筛掉」自相矛盾）。
+    for (const ref of localCandidates) {
+      verdicts.set(
+        ref.fileName,
+        new Promise<boolean>((resolve) => {
+          verdictResolvers.set(ref.fileName, resolve);
+        }),
+      );
+    }
     const filterFn = deps.filter;
     // 每次跑这一趟现取：模型中途被换掉时缓存键要跟着换（用旧模型的结论就是错的）。
     // 放在循环外是省「每张图都读一遍设置」，粒度仍然是「一趟预筛选」。
     const filterModelId = deps.filterModelId?.() ?? null;
     filter = { scanned: 0, withText: 0, skipped: 0, failed: 0 };
-    const kept: MediaRef[] = [];
     let unavailable = false;
     let done = 0;
     deps.onFilterProgress?.(0, localCandidates.length);
     await mapLimit(localCandidates, deps.filterConcurrency ?? 4, async (ref) => {
+      const resolveVerdict = verdictResolvers.get(ref.fileName) ?? (() => undefined);
+      // 兜底：筛不出来就当有文字（宁可多跑一次识别，也不静默丢文字）。
+      let hasText = true;
       try {
         // 筛图结论也缓存（换模型 / 没给模型 id 就不吃缓存，免得拿旧模型的判断）。
         const key = cacheKeyOf(ref);
@@ -507,9 +610,9 @@ export async function ocrFoundImages(
             ? await cache.getFilter(key, filterModelId).catch(() => null)
             : null;
         if (verdict) {
-          if (verdict.hasText) {
+          hasText = verdict.hasText;
+          if (hasText) {
             filter!.withText += 1;
-            kept.push(ref);
           } else {
             filter!.skipped += 1;
             quiet.log(`跳过 ${ref.fileName}（缓存：没检测到文字）`);
@@ -524,16 +627,14 @@ export async function ocrFoundImages(
             unavailable = true;
             onLog?.(`筛图模型不可用（${r.error ?? '未知原因'}），本次跳过预筛选`, 'warn');
           }
-          kept.push(ref);
         } else if (!r.ok) {
           // 筛图失败按「有文字」处理：宁可多跑一次识别，也不静默丢文字。
           filter!.failed += 1;
-          kept.push(ref);
           quiet.log(`筛图失败 ${ref.fileName}：${r.error ?? '未知错误'}（按有文字处理）`, 'warn');
         } else if (r.hasText) {
           filter!.withText += 1;
-          kept.push(ref);
         } else {
+          hasText = false;
           filter!.skipped += 1;
           quiet.log(`跳过 ${ref.fileName}（没检测到文字）`);
         }
@@ -553,18 +654,24 @@ export async function ocrFoundImages(
         }
       } catch (e) {
         filter!.failed += 1;
-        kept.push(ref);
         quiet.log(
           `筛图异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}（按有文字处理）`,
           'warn',
         );
       } finally {
+        // 甩掉的图不再是「待识别」：总数减一（它不再出现在进度里）。
+        if (!hasText && !filteredOut.has(ref.fileName)) {
+          filteredOut.add(ref.fileName);
+          progressTotal -= 1;
+        }
+        // 解开在线 worker 手里那个承诺（不管筛成什么样都不能让它干等）。
+        resolveVerdict(hasText);
         filter!.scanned += 1;
         done += 1;
         deps.onFilterProgress?.(done, localCandidates.length);
+        reportProgress();
       }
     });
-    items = kept;
     if (unavailable) filter.unavailable = true;
     else
       onLog?.(
@@ -572,82 +679,146 @@ export async function ocrFoundImages(
           (filter.failed > 0 ? `（${filter.failed} 张筛图失败，按有文字处理）` : '') +
           (quiet.hidden > 0 ? `（省略 ${quiet.hidden} 条同类日志）` : ''),
       );
-  } else if (localCandidates.length > 0) {
-    onLog?.('未启用预筛选（没下载筛图模型），全部图片都会送识别，会慢很多', 'warn');
-  }
-
-  // 在线那条腿的候选：过了筛的本地图（有在线信息）+ 本机没本体的图。
-  const onlineQueue: MediaRef[] = [...items.filter(canGoOnline), ...onlineOnlyRefs].sort(byNewest);
-  const ocrQueue: MediaRef[] = [...items, ...onlineOnlyRefs];
+  })()
+    .catch((e: unknown) => {
+      // 筛图整趟挂了不该拖垮识别：还没拿到结论的图在 worker 侧按「有文字」处理。
+      onLog?.(`预筛选异常（整趟放弃）：${e instanceof Error ? e.message : String(e)}`, 'warn');
+    })
+    .finally(() => {
+      // 兜底：不管这趟是怎么结束的，剩下没解开的结论一律按「有文字」—— 宁可多跑一次
+      // 识别，也不能让在线 worker 卡在一个永远不会解开的承诺上。
+      for (const resolve of verdictResolvers.values()) resolve(true);
+    });
 
   // ---- 2. 在线优先（从新到旧，连续失败即放弃）----
-  const onlineFn = deps.online;
+  //
+  // 筛图那边还没筛完也没关系：worker 会先等自己那张图的结论（见 `verdicts`），结论说
+  // 「没文字」就跳过这张（不进结果、也不算失败）。
+  const onlineQueue: MediaRef[] = (
+    onlineFn ? [...localCandidates.filter(canGoOnline), ...onlineOnlyRefs] : []
+  ).sort(byNewest);
   let onlineCount = 0;
+  let timeoutCount = 0;
   if (onlineFn && onlineQueue.length > 0) {
     const concurrency = deps.onlineConcurrency ?? 5;
+    const failureLimit = deps.onlineFailureLimit ?? OCR_ONLINE_FAILURE_LIMIT;
     onLog?.(
-      `在线识别：${onlineQueue.length} 张（并发 ${concurrency}，连续失败 ` +
-        `${deps.onlineFailureLimit ?? OCR_ONLINE_FAILURE_LIMIT} 张即放弃在线）`,
+      `在线识别：最多 ${onlineQueue.length} 张（并发 ${concurrency}，连续失败 ${failureLimit} ` +
+        '张即放弃在线；单张回包超时不算连败）',
     );
-    const batch = await runBatchWithFailureLimit(
-      onlineQueue,
-      async (ref) => {
-        try {
-          const r = await onlineFn(toOnlineRequest(ref));
-          return r.ok ? { ok: true as const, value: r } : { ok: false as const, error: r.error };
-        } catch (e) {
-          return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-        }
-      },
-      {
-        concurrency,
-        failureLimit: deps.onlineFailureLimit ?? OCR_ONLINE_FAILURE_LIMIT,
-        onGiveUp: (streak, remaining) =>
-          onLog?.(
-            `在线识别连续失败 ${streak} 张，判定在线那条腿不可用，放弃剩余 ${remaining} 张` +
-              (deps.local ? '（有本地模型，全部回退本地）' : '（没有本地模型，这些图会记为失败）'),
-            'warn',
-          ),
-      },
-    );
+    /** 这一批里失败的那些（给统计与心跳用）。 */
+    const onlineFailures: Array<{ item: MediaRef; error: string; kind: OcrFailureKind }> = [];
+    let inFlight = 0;
+    // 心跳：让用户在等回包的时候看得见「在跑、在飞几张、几张超时」。
+    let lastBeat = Date.now();
+    let lastBeatDone = progressDone;
+    const beat = setInterval(() => {
+      if (progressDone === lastBeatDone && Date.now() - lastBeat < OCR_HEARTBEAT_IDLE_MS) return;
+      lastBeat = Date.now();
+      lastBeatDone = progressDone;
+      onLog?.(
+        `在线识别进行中：已定 ${progressDone}/${progressTotal}` +
+          `（成功 ${onlineCount} · 失败 ${onlineFailures.length}` +
+          (timeoutCount > 0 ? ` · 超时 ${timeoutCount}` : '') +
+          ` · 在飞 ${inFlight}）`,
+      );
+    }, OCR_HEARTBEAT_MS);
+    let batch: BatchRunResult<MediaRef, OnlineAttempt>;
+    try {
+      batch = await runBatchWithFailureLimit<MediaRef, OnlineAttempt>(
+        onlineQueue,
+        async (ref) => {
+          // 等这张图的筛图结论；没有条目 = 不用筛（没开筛图，或本机没本体）。
+          const verdict = verdicts.get(ref.fileName);
+          if (verdict && !(await verdict)) return { ok: true, value: { kind: 'skipped' } };
+          inFlight += 1;
+          try {
+            const r = await onlineFn(toOnlineRequest(ref));
+            if (r.ok) return { ok: true, value: { kind: 'result', outcome: r } };
+            const error = r.error ?? '在线识别失败';
+            return { ok: false, error, kind: r.errorKind ?? inferOcrFailureKind(error) };
+          } catch (e) {
+            const error = e instanceof Error ? e.message : String(e);
+            return { ok: false, error, kind: inferOcrFailureKind(error) };
+          } finally {
+            inFlight -= 1;
+          }
+        },
+        {
+          concurrency,
+          failureLimit,
+          // 单张超时不算「这条腿不行了」：那是这张图的回包没解出来（native 侧 30 s
+          // 截止时间到了），别的图照样可能是好的 —— 拿它当放弃依据只会白丢结果。
+          isFatal: (error, kind) => (kind ?? inferOcrFailureKind(error)) !== 'timeout',
+          onGiveUp: (streak, remaining) =>
+            onLog?.(
+              `在线识别连续失败 ${streak} 张，判定在线那条腿不可用，放弃剩余 ${remaining} 张` +
+                (localFn ? '（有本地模型，全部回退本地）' : '（没有本地模型，这些图会记为失败）'),
+              'warn',
+            ),
+        },
+      );
+    } finally {
+      clearInterval(beat);
+    }
     for (const { item, value } of batch.results) {
-      const text = textOf(value);
+      if (value.kind === 'skipped') continue; // 筛图甩掉的：不进结果、也不算失败
+      settle(item.fileName);
+      const outcome = value.outcome;
+      const text = textOf(outcome);
       if (!text) {
         // 在线说成功但一个字都没识别出来：如实记一条空结果，不再送本地（图能取到、
         // 服务端也认过一遍了，本地多半同样是空）。
         results[item.fileName] = { text: '', source: 'oidb' };
-        await writeCachedText(item, 'oidb', value);
+        await writeCachedText(item, 'oidb', outcome);
         continue;
       }
       results[item.fileName] = {
         text,
         source: 'oidb',
-        ...(value.width ? { width: value.width } : {}),
-        ...(value.height ? { height: value.height } : {}),
-        ...(value.elapsedMs !== undefined ? { elapsedMs: value.elapsedMs } : {}),
-        ...(value.blocks ? { blocks: value.blocks } : {}),
+        ...(outcome.width ? { width: outcome.width } : {}),
+        ...(outcome.height ? { height: outcome.height } : {}),
+        ...(outcome.elapsedMs !== undefined ? { elapsedMs: outcome.elapsedMs } : {}),
+        ...(outcome.blocks ? { blocks: outcome.blocks } : {}),
       };
-      await writeCachedText(item, 'oidb', value);
+      await writeCachedText(item, 'oidb', outcome);
       onlineCount += 1;
     }
-    for (const { item, error } of batch.failures) {
+    for (const { item, error, kind } of batch.failures) {
+      const k = kind ?? inferOcrFailureKind(error);
+      onlineFailures.push({ item, error, kind: k });
+      if (k === 'timeout') timeoutCount += 1;
+      settle(item.fileName);
       quiet.log(`在线识别失败 ${item.fileName}：${error}`, 'warn');
     }
+    // 被放弃的图也离队了（回退本地或记失败），进度上不该再挂着。
+    for (const item of batch.abandoned) settle(item.fileName);
     onLog?.(
-      `在线识别完成：成功 ${onlineCount} / 失败 ${batch.failures.length}` +
+      `在线识别完成：成功 ${onlineCount} / 失败 ${onlineFailures.length}` +
+        (timeoutCount > 0 ? `（其中超时 ${timeoutCount} 张）` : '') +
         (batch.abandoned.length > 0 ? ` · 放弃 ${batch.abandoned.length}` : ''),
     );
-  } else if (onlineQueue.length > 0 && !deps.local) {
+    if (timeoutCount > 0) {
+      onLog?.(
+        `${timeoutCount} 张图的在线回包超时（30 s 内没拿到能解析的应答）` +
+          (localFn ? '，已回退本地模型' : '，没有本地模型，这些图只能记为失败'),
+        'warn',
+      );
+    }
+  } else if (onlineQueue.length > 0 && !localFn) {
     onLog?.('未开启在线识别，也没有本地模型，这些图片无法识别', 'warn');
   }
+
+  // 筛图那趟到此必须收尾：筛掉的图要算进统计，本地兜底的候选也得排除它们。
+  await filterTask;
 
   // ---- 3. 本地兜底：在线没拿到（含被放弃）的、且本机有本体的图 ----
   const failures: MediaFailure[] = [];
   const accounted = new Set<string>();
-  const localPending = ocrQueue.filter((ref) => !(ref.fileName in results));
+  const localPending = ocrQueue.filter(
+    (ref) => !(ref.fileName in results) && !filteredOut.has(ref.fileName),
+  );
   const localRunnable = localPending.filter((ref) => ref.path);
-  const localFn = deps.local;
-  deps.onProgress?.(hasResultCount(results, ocrQueue), ocrQueue.length);
 
   if (localFn && localRunnable.length > 0) {
     onLog?.(`本地模型识别：${localRunnable.length} 张（并发 ${deps.localConcurrency ?? 2}）`);
@@ -681,7 +852,7 @@ export async function ocrFoundImages(
         accounted.add(ref.fileName);
         quiet.log(`本地识别异常 ${ref.fileName}：${message}`, 'warn');
       } finally {
-        deps.onProgress?.(hasResultCount(results, ocrQueue), ocrQueue.length);
+        settle(ref.fileName);
       }
     });
   }
@@ -696,6 +867,7 @@ export async function ocrFoundImages(
       ref.fileName,
       ref.path ? '没有可用的本地识别模型（在线识别也没成功）' : '在线识别没成功，本地也没有这张图',
     );
+    settle(ref.fileName);
   }
   if (noLocalModel > 0) {
     onLog?.(`${noLocalModel} 张图在线识别没成功，又没有本地识别模型，只能记为失败`, 'warn');
@@ -713,31 +885,26 @@ export async function ocrFoundImages(
   const okCount = produced.filter((r) => r.text !== '').length;
   const localCount = produced.filter((r) => r.source === 'local' && r.text !== '').length;
   const summary = writeArtifact(bundleDir, results, {
-    total: ocrQueue.length,
+    total: ocrQueue.length - filteredOut.size,
     ok: okCount,
     failed: failures.length,
     cached: cachedCount,
     online: onlineCount,
     local: localCount,
     onlineOnly: onlineOnlyRefs.length,
+    timeouts: timeoutCount,
     filter,
     failures,
   });
   onLog?.(
     `图片文字识别完成：${summary.stage.ok}/${summary.stage.total} 张出文字` +
       `（在线 ${summary.online} · 本地 ${summary.local}）` +
+      (summary.timeouts > 0 ? ` · 超时 ${summary.timeouts}` : '') +
       (summary.cached > 0 ? ` · 缓存命中 ${summary.cached}` : '') +
       (summary.stage.failed ? ` · 失败 ${summary.stage.failed}` : ''),
   );
   if (quiet.hidden > 0) onLog?.(`（另有 ${quiet.hidden} 条同类日志被省略）`, 'warn');
   return summary;
-}
-
-/** 已经出结果的张数（进度用）。 */
-function hasResultCount(results: Record<string, OcrResultEntry>, queue: MediaRef[]): number {
-  let n = 0;
-  for (const ref of queue) if (ref.fileName in results) n += 1;
-  return n;
 }
 
 /** 把结果写成 `ocr.json`（即使一张都没有也写，产物形状稳定）。 */
@@ -751,6 +918,7 @@ function writeArtifact(
     cached: number;
     online: number;
     local: number;
+    timeouts: number;
     onlineOnly: number;
     filter: OcrExportSummary['filter'];
     failures?: MediaFailure[];
@@ -766,6 +934,7 @@ function writeArtifact(
       cached: stats.cached,
       online: stats.online,
       local: stats.local,
+      timeouts: stats.timeouts,
       onlineOnly: stats.onlineOnly,
       filtered: stats.filter ? stats.filter.skipped : 0,
     },
@@ -781,6 +950,7 @@ function writeArtifact(
     cached: stats.cached,
     online: stats.online,
     local: stats.local,
+    timeouts: stats.timeouts,
     onlineOnly: stats.onlineOnly,
     filter: stats.filter,
     stage: {

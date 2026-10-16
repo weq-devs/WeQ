@@ -231,7 +231,7 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
     await dialog.info(
       '无法识别图片文字',
       '「图片文字识别」需要在线 QQ（用服务端识别），或者先下载一个本地识别模型' +
-        '（设置 → 图片识别，也可以在导出面板里直接下载）。请处理后重试，或关闭该选项后继续导出。',
+        '（设置 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
     );
     return false;
   }
@@ -240,7 +240,7 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
     const ok = await dialog.confirm(
       '未下载筛图模型',
       '没有筛图模型就没办法先甩掉风景 / 人像这类没有文字的图，每张图都会送进识别模型，' +
-        '导出会慢很多（在导出面板的「图片文字识别」里可以直接下载，只有 1.7 MB）。是否继续导出？',
+        '导出会慢很多（只有 1.7 MB，导出面板的「图片识别」栏里可以直接下载）。是否继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;

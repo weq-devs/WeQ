@@ -2225,7 +2225,7 @@ export class ExportTaskManager extends EventEmitter {
               id,
               'ocr',
               `在线识别已开启（并发 ${task.media?.onlineOcrConcurrency ?? 5}），` +
-                '连续失败 10 张即放弃在线、回退本地模型',
+                '连续失败 10 张即放弃在线、回退本地模型（单张回包超时不算连败）',
             );
           }
 
@@ -2333,6 +2333,7 @@ export class ExportTaskManager extends EventEmitter {
               failed: r.stage.failed,
               note:
                 `已识别 ${r.stage.ok} 张出文字（在线 ${r.online} · 本地 ${r.local}）` +
+                (r.timeouts > 0 ? ` · 超时 ${r.timeouts}` : '') +
                 (r.cached > 0 ? ` · 缓存命中 ${r.cached}` : '') +
                 (r.stage.failed ? ` · 失败 ${r.stage.failed}` : ''),
               ...(r.stage.failures ? { failures: r.stage.failures } : {}),

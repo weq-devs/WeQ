@@ -1,7 +1,7 @@
 /**
  * 导出灯箱：在右侧选好对象后弹出，收集本次导出的细项后确认。
  *
- * 重构后是「宽面板 + 分板块」：左侧一列放时间范围与补全选项，右侧一列放
+ * 重构后是「宽面板 + 分板块」：左侧一列放时间范围、补全选项与图片识别，右侧一列放
  * 导出格式 / 导出内容 / 扩展功能，底部为操作条。所有配置都在本组件内部
  * draft，只有点「开始导出」才回传给父组件。
  *
@@ -12,7 +12,10 @@
  *      QQ系统表情）/ 头像 / 装扮数据（子选项：气泡·字体·挂件）。
  *   4. 补全选项 —— 补全媒体资源（需在线 QQ + 已选导出媒体）、漫游消息、
  *      本地未缓存的装扮资源。
- *   5. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
+ *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别与并发、筛图模型下载。
+ *      单独一栏（左列、补全选项下面）：它不依赖「导出什么」，只跟「跑不跑识别」有关，
+ *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 图片识别」里下。
+ *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -373,7 +376,10 @@ export function ExportLightbox({
         if (cancelled) return;
         setOcrModels(
           models
-            .filter((m) => m.kind === 'ocr' || m.kind === 'filter')
+            // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
+            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 图片识别」里下 ——
+            // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
+            .filter((m) => m.kind === 'filter')
             .map((m) => ({
               id: m.id,
               kind: m.kind as 'ocr' | 'filter',
@@ -440,7 +446,7 @@ export function ExportLightbox({
               ]);
               setOcrModels(
                 models
-                  .filter((m) => m.kind === 'ocr' || m.kind === 'filter')
+                  .filter((m) => m.kind === 'filter')
                   .map((m) => ({
                     id: m.id,
                     kind: m.kind as 'ocr' | 'filter',
@@ -489,8 +495,24 @@ export function ExportLightbox({
     return () => sub.unsubscribe();
   }, []);
 
-  /** 在面板里下载一个 OCR 模型（下完自动设为当前模型）。 */
+  /**
+   * 在面板里下载一个筛图模型（下完自动设为当前模型）。
+   *
+   * 只认 `filter`：出文字的识别模型**不给在导出面板下载**（那会让人以为"下了就能纯离线"，
+   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 图片识别」里单独决定），所以这里
+   * 兜一层 —— 万一哪天 UI 漏了一行，也不会从面板把那份模型拖下来。
+   */
   async function downloadOcrModel(id: string): Promise<void> {
+    const model = ocrModelsRef.current.find((m) => m.id === id);
+    if (model && model.kind !== 'filter') {
+      pushToast({
+        tone: 'warning',
+        title: '识别模型请在设置页下载',
+        detail: '导出面板只提供筛图模型；出文字的识别模型在「设置 → 图片识别」里下载。',
+        ttl: 6000,
+      });
+      return;
+    }
     try {
       setOcrProgress((prev) => ({
         ...prev,
@@ -809,6 +831,107 @@ export function ExportLightbox({
                     />
                   </Card>
                 ) : null}
+
+                {/* 图片文字识别 —— 独立一栏，跟「补全选项」并列（不再塞在「扩展功能」里） */}
+                {isMessageFlow ? (
+                  <Card title="图片识别">
+                    <Row
+                      label="图片文字识别"
+                      desc={
+                        ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
+                          ? '需要在线 QQ，或先在「设置 → 图片识别」下好本地识别模型'
+                          : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
+                      }
+                      control={
+                        <Toggle
+                          checked={opts.ocrImages}
+                          disabled={Boolean(
+                            ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable,
+                          )}
+                          onChange={(v) =>
+                            patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })
+                          }
+                        />
+                      }
+                    />
+                    {opts.ocrImages ? (
+                      <>
+                        {ocrReady?.onlineCapable ? (
+                          <Row
+                            label="在线识别"
+                            desc={
+                              opts.onlineOcr
+                                ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
+                                : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
+                            }
+                            control={
+                              <Toggle
+                                checked={opts.onlineOcr}
+                                onChange={(v) => patch({ onlineOcr: v })}
+                              />
+                            }
+                          />
+                        ) : null}
+                        {opts.onlineOcr ? (
+                          <Row
+                            label="识别并发"
+                            desc="同时向 QQ 服务端发起的识别请求数"
+                            control={
+                              <span className="weq-exp-num">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={32}
+                                  value={opts.ocrConcurrency}
+                                  onChange={(e) =>
+                                    patch({
+                                      ocrConcurrency: Math.max(
+                                        1,
+                                        Math.min(32, Number(e.target.value) || 1),
+                                      ),
+                                    })
+                                  }
+                                />
+                              </span>
+                            }
+                          />
+                        ) : null}
+                        {ocrReady && !ocrReady.localReady ? (
+                          <p className="weq-exp-block-hint">
+                            没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在
+                            「设置 → 图片识别」里下载。
+                          </p>
+                        ) : null}
+                        <div className="weq-exp-ocr-models">
+                          <p className="weq-exp-block-hint">
+                            <ScanText size={12} aria-hidden />{' '}
+                            {ocrReady?.filterReady
+                              ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
+                              : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。'}
+                          </p>
+                          {ocrModels.map((m) => (
+                            <OcrModelRow
+                              key={m.id}
+                              name={`${m.name}（筛图）`}
+                              sizeLabel={m.sizeLabel}
+                              downloaded={m.downloaded}
+                              selected={ocrSelected.filter === m.id}
+                              progress={ocrProgress[m.id] ?? null}
+                              disabled={Boolean(ocrProgress[m.id])}
+                              onDownload={() => void downloadOcrModel(m.id)}
+                            />
+                          ))}
+                          <p className="weq-exp-block-hint">
+                            「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
+                            都会跑一遍识别模型。下载完成会自动设为当前模型。出文字的**识别模型**在
+                            「设置 →
+                            图片识别」里下载：它是在线拿不到时的兜底，两条腿的逻辑不放在这里选。
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
+                  </Card>
+                ) : null}
               </div>
 
               {/* 右列：格式 + 内容 + 扩展 */}
@@ -1073,97 +1196,6 @@ export function ExportLightbox({
                           </span>
                         }
                       />
-                    ) : null}
-                    <Row
-                      label="图片文字识别"
-                      desc={
-                        ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
-                          ? '需要在线 QQ，或先下载本地识别模型（下面可以直接下载）'
-                          : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
-                      }
-                      control={
-                        <Toggle
-                          checked={opts.ocrImages}
-                          disabled={Boolean(
-                            ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable,
-                          )}
-                          onChange={(v) =>
-                            patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })
-                          }
-                        />
-                      }
-                    />
-                    {opts.ocrImages ? (
-                      <>
-                        {ocrReady?.onlineCapable ? (
-                          <Row
-                            label="在线识别"
-                            desc={
-                              opts.onlineOcr
-                                ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
-                                : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
-                            }
-                            control={
-                              <Toggle
-                                checked={opts.onlineOcr}
-                                onChange={(v) => patch({ onlineOcr: v })}
-                              />
-                            }
-                          />
-                        ) : null}
-                        {opts.onlineOcr ? (
-                          <Row
-                            label="识别并发"
-                            desc="同时向 QQ 服务端发起的识别请求数"
-                            control={
-                              <span className="weq-exp-num">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={32}
-                                  value={opts.ocrConcurrency}
-                                  onChange={(e) =>
-                                    patch({
-                                      ocrConcurrency: Math.max(
-                                        1,
-                                        Math.min(32, Number(e.target.value) || 1),
-                                      ),
-                                    })
-                                  }
-                                />
-                              </span>
-                            }
-                          />
-                        ) : null}
-                        <div className="weq-exp-ocr-models">
-                          <p className="weq-exp-block-hint">
-                            <ScanText size={12} aria-hidden />{' '}
-                            {ocrReady?.filterReady
-                              ? '已开启预筛选：先用超轻量模型甩掉没有文字的图，快很多。'
-                              : '建议下载筛图模型（1.7 MB）：先甩掉风景 / 人像这类没有文字的图，识别会快很多。'}
-                          </p>
-                          {ocrModels.map((m) => (
-                            <OcrModelRow
-                              key={m.id}
-                              name={m.kind === 'filter' ? `${m.name}（筛图）` : m.name}
-                              sizeLabel={m.sizeLabel}
-                              downloaded={m.downloaded}
-                              selected={
-                                m.kind === 'filter'
-                                  ? ocrSelected.filter === m.id
-                                  : ocrSelected.ocr === m.id
-                              }
-                              progress={ocrProgress[m.id] ?? null}
-                              disabled={Boolean(ocrProgress[m.id])}
-                              onDownload={() => void downloadOcrModel(m.id)}
-                            />
-                          ))}
-                          <p className="weq-exp-block-hint">
-                            「筛图」只判断图里有没有文字（识别前先筛一遍）；不下载也能识别，只是每张图
-                            都会跑一遍识别模型。下载完成会自动设为当前模型。
-                          </p>
-                        </div>
-                      </>
                     ) : null}
                     <Row
                       label="ChatLab 格式"

@@ -689,6 +689,7 @@ export type {
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
 export { assertDestinationCapacity } from './account/export/storage_preflight';
+export { inferOcrFailureKind } from './account/export';
 export type {
   DressExportKinds,
   DressUsage,
@@ -743,6 +744,7 @@ export type {
   OcrOnlineRequest,
   OcrExportSummary,
   OcrResultEntry,
+  OcrFailureKind,
   StageLog,
   StageProgress,
 } from './account/export';

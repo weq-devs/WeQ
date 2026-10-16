@@ -6,6 +6,9 @@
  *   2. **在线优先、从新到旧**：CDN 直链只有约 9 天寿命，越新的越可能还能取。
  *   3. **连续失败即放弃在线**：连败到上限就整体放弃，剩下的（含被放弃的）回退本地模型；
  *      没有本地模型就如实记失败，`ocr.json` 照样写（产物形状稳定）。
+ *   4. **筛图与在线并行 + 进度/心跳**：筛好一张就发一张（不等整批筛完）；分母是真张数，
+ *      在线每张落地都推进一次，等回包时还有心跳日志（2026-10-16 那次"卡在 0% 到结束"
+ *      就是这个反面）。
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -435,5 +438,123 @@ describe('ocrFoundImages + 结果缓存', () => {
       filterConcurrency: 1,
     });
     expect(filter).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ocrFoundImages + 流水线 / 进度', () => {
+  /** 一个能手动解开的 promise（卡住某张图的筛图 / 在线请求）。 */
+  function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it('筛图与在线并行：第一张筛完就发在线，不等整批筛完', async () => {
+    const gate = deferred(); // 卡住最后一张（最旧）的筛图
+    const filter = vi.fn(async (path: string) => {
+      if (path.endsWith('late.jpg')) await gate.promise;
+      return { ok: true as const, hasText: true };
+    });
+    const onlineCalls: string[] = [];
+    const online = vi.fn(async (req: { fileName: string }) => {
+      onlineCalls.push(req.fileName);
+      return { ok: true as const, text: `在线-${req.fileName}` };
+    });
+    const s = scan([
+      pic('a.jpg', { sendTime: 300 }),
+      pic('b.jpg', { sendTime: 200 }),
+      pic('late.jpg', { sendTime: 100 }),
+    ]);
+    const run = ocrFoundImages(s, dir, {
+      filter,
+      online,
+      filterConcurrency: 1,
+      onlineConcurrency: 2,
+    });
+
+    // 筛图还卡在最后一张（第 3 次调用在飞）时，前两张的在线请求已经发出去了。
+    // 旧实现是「整批筛完才开始在线」，这里 online 会是 0 次。
+    await vi.waitFor(() => expect(online).toHaveBeenCalledTimes(2));
+    expect(filter).toHaveBeenCalledTimes(3);
+    expect(onlineCalls).toEqual(['a.jpg', 'b.jpg']);
+
+    gate.resolve();
+    const r = await run;
+    expect(r).toMatchObject({ total: 3, ok: 3, online: 3, local: 0, failed: 0 });
+  });
+
+  it('单张回包超时不算「这条腿不行了」：后面的图照样试在线', async () => {
+    const calls: string[] = [];
+    const online = vi.fn(async (req: { fileName: string }) => {
+      calls.push(req.fileName);
+      // 文案来自 native：send_oidb_packet failed: SSO 请求超时：OidbSvcTrpcTcp.0xe07_0
+      return req.fileName === 'p00.jpg'
+        ? { ok: false as const, error: 'SSO 请求超时：OidbSvcTrpcTcp.0xe07_0（seq=1792136378）' }
+        : { ok: true as const, text: '取到了' };
+    });
+    const items = [
+      pic('p00.jpg', { sendTime: 300 }),
+      pic('p01.jpg', { sendTime: 200 }),
+      pic('p02.jpg', { sendTime: 100 }),
+    ];
+    const r = await ocrFoundImages(scan(items), dir, {
+      online,
+      onlineConcurrency: 1,
+      // 连败上限压到 1：旧语义下第一个超时就会把剩下两张一起放弃。
+      onlineFailureLimit: 1,
+    });
+
+    expect(calls).toEqual(['p00.jpg', 'p01.jpg', 'p02.jpg']);
+    expect(r).toMatchObject({ total: 3, ok: 2, online: 2, failed: 1, timeouts: 1 });
+    expect(readArtifact().stats.timeouts).toBe(1);
+  });
+
+  it('进度：一上来就有真分母，筛掉的图从分母里减掉，在线每张落地都推进', async () => {
+    const seen: Array<[number, number]> = [];
+    const filter = vi.fn(async (path: string) => ({
+      ok: true as const,
+      hasText: !path.endsWith('b.jpg'),
+    }));
+    const online = vi.fn(async () => ({ ok: true as const, text: '文字' }));
+    const s = scan([pic('a.jpg'), pic('b.jpg'), pic('c.jpg')]);
+    const r = await ocrFoundImages(s, dir, {
+      filter,
+      online,
+      filterConcurrency: 1,
+      onlineConcurrency: 1,
+      onProgress: (done, total) => seen.push([done, total]),
+    });
+
+    // 界面上「一直 0%」的反面：分母是真张数，不是 0/0。
+    expect(seen[0]).toEqual([0, 3]);
+    expect(seen).toContainEqual([0, 2]); // b.jpg 被筛掉，分母减一
+    expect(seen.at(-1)).toEqual([2, 2]);
+    expect(r.stage.total).toBe(2);
+  });
+
+  it('心跳：在线还在等回包时也会说话（默认 30 s 至少一条）', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = deferred();
+      const logs: string[] = [];
+      const online = vi.fn(async () => {
+        await gate.promise;
+        return { ok: true as const, text: '文字' };
+      });
+      const run = ocrFoundImages(scan([pic('a.jpg')]), dir, {
+        online,
+        onLog: (text) => logs.push(text),
+      });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(logs.some((l) => l.includes('在线识别进行中'))).toBe(true);
+
+      gate.resolve();
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
