@@ -1,0 +1,68 @@
+.weq-roaming-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--weq-fg-primary); }
+.weq-wtools-dialog.is-roaming { width: min(980px, calc(100vw - 32px)); height: min(760px, calc(100vh - 48px)); }
+.weq-roaming-panel .weq-wtools-pane-head { flex-wrap: wrap; gap: 8px; }
+.is-roaming .weq-wtools-pane-head { padding-right: 48px; }
+.weq-roaming-access { color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-roaming-body { overflow: auto; padding: 16px; min-width: 0; }
+.weq-roaming-scope > h3 { margin: 0 0 12px; font-size: 14px; }
+.weq-roaming-transport { display: grid; gap: 5px; margin-bottom: 12px; font-size: 12px; }
+.weq-roaming-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.weq-roaming-fields label { display: grid; gap: 5px; min-width: 0; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-roaming-panel input:not([type="checkbox"]), .weq-roaming-panel select { min-width: 0; max-width: 100%; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 12px; }
+.weq-roaming-panel input[type="date"] { color-scheme: light; }
+html[data-theme="dark"] .weq-roaming-panel input[type="date"] { color-scheme: dark; }
+.weq-roaming-checkbox { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 12px; }
+.weq-roaming-selection-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin: 12px 0 6px; font-size: 12px; }
+.weq-roaming-targets { max-height: 220px; overflow: auto; border-block: 1px solid var(--border); }
+.weq-roaming-target { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.weq-roaming-target:last-child { border-bottom: 0; }
+.weq-roaming-target > span { display: grid; gap: 2px; min-width: 0; }
+.weq-roaming-target strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.weq-roaming-target small { color: var(--weq-fg-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.weq-roaming-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.weq-roaming-actions > span { flex: 1 1 200px; color: var(--weq-fg-secondary); font-size: 11px; }
+.weq-roaming-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 12px; cursor: pointer; }
+.weq-roaming-panel button:disabled { opacity: 0.5; cursor: default; }
+.weq-roaming-panel input:focus-visible, .weq-roaming-panel button:focus-visible, .weq-roaming-panel select:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+.weq-roaming-task { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.weq-roaming-task-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.weq-roaming-task-head h3 { margin: 0; font-size: 14px; }
+.weq-roaming-task-status { display: grid; gap: 5px; margin: 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.weq-roaming-task-status > span { color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-roaming-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.weq-roaming-stats > div { min-width: 0; }
+.weq-roaming-stats dt { color: var(--weq-fg-secondary); font-size: 11px; }
+.weq-roaming-stats dd { margin: 3px 0 0; font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.weq-roaming-boundary { color: var(--weq-fg-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.weq-roaming-task-meta { display: grid; gap: 4px; color: var(--weq-fg-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.weq-roaming-error { color: var(--destructive); font-size: 12px; overflow-wrap: anywhere; }
+.weq-roaming-receipts { border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; }
+.weq-roaming-receipts summary { cursor: pointer; }
+.weq-roaming-receipt-list { max-height: 240px; overflow: auto; }
+.weq-roaming-receipt-list > div { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.weq-roaming-receipt-list small { color: var(--weq-fg-secondary); }
+.chat-actions:has(.chat-header-roaming-action) { -webkit-app-region: no-drag; }
+@media (max-width: 760px) {
+  .chat-pane:has(.chat-header-roaming-action) { --chat-header-height: 84px !important; }
+  .chat-pane:has(.chat-header-roaming-action) > .chat-header { grid-template-rows: 42px 42px; gap: 0 4px; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-header > .back-button { grid-row: 1; grid-column: 1; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-title { grid-row: 1; grid-column: 2; overflow: hidden; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-actions { grid-row: 2; grid-column: 1 / -1; min-width: 0; width: 100%; overflow-x: auto; justify-content: flex-start; scrollbar-width: thin; }
+  .chat-pane:has(.chat-header-roaming-action) .chat-actions .icon-button { flex: 0 0 36px; }
+}
+@media (max-width: 560px) {
+  .weq-wtools-dialog.is-roaming { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+  .is-roaming .weq-wtools-shell { flex-direction: column; }
+  .is-roaming .weq-wtools-nav { width: 100%; padding: 8px 46px 8px 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .is-roaming .weq-wtools-brand { display: none; }
+  .is-roaming .weq-wtools-nav-list { flex-direction: row; overflow-x: auto; }
+  .is-roaming .weq-wtools-nav-item { flex: 0 0 auto; padding: 7px; }
+  .is-roaming .weq-wtools-nav-item strong { white-space: nowrap; }
+  .is-roaming .weq-wtools-nav-item em { display: none; }
+  .is-roaming .weq-wtools-pane { min-height: 0; }
+  .is-roaming .weq-wtools-pane-head { padding: 14px 12px 10px; }
+  .weq-roaming-body { padding: 12px; }
+  .weq-roaming-fields { grid-template-columns: minmax(0, 1fr); }
+  .weq-roaming-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .weq-roaming-task-head { grid-template-columns: minmax(0, 1fr); }
+}

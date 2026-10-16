@@ -1,13 +1,13 @@
 /**
  * GapHistoryService — 拉取聊天时间线中「缺失」的远端消息（按 seq 窗口）。
  *
- * 本地 DB 的 seq 一旦跳号（详见 renderer 的 messageGap.ts），说明 QQ 服务端
- * 还有这些消息但从未同步到本机。这里直接走 @weq/protocol 的原始 SSO 通道
+ * 本地 DB 的 seq 跳号只是候选缺口，不证明服务端一定仍有对应消息。
+ * 这里直接走 @weq/protocol 的原始 SSO 通道
  * （SsoGetGroupMsg / SsoGetC2cMsg）按窗口拉取，再用 decodeMessage 把每条消息
  * 解成 codec 风格元素，最后统一提升成渲染视图（{ type, data }），让前端可以
  * 像普通消息一样完整渲染（头像 / 昵称 / 装扮 / 消息体）。
  *
- * 注意：服务端单次请求最多返回约 30 条，所以按 30 个 seq 一段分页拉取：
+ * 每次请求覆盖最多 30 个 seq，不把序号跨度当成消息条数：
  * 第一页从缺口起始（最旧）往后拉一段，之后每次把上一页返回的 nextStartSeq
  * 作为新的 startSeq 继续向更新的方向推，直到缺口拉完或漫游中断。
  *
@@ -18,22 +18,23 @@
 
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import {
-  decodeMessage,
-  extractPath,
-  fetchC2cHistoryRaw,
-  fetchGroupHistoryRaw,
-  type PathStep,
-} from '@weq/protocol';
+import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weq/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
+import { withRoamingRequest } from '../common/roaming_request_queue';
+import { statfsSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { decodeSsoHistoryWindow } from './sso_history_window';
 
-/** 服务端单次最多返回约 30 条（protocol 层分页拉取实测）。 */
+/** 单个物理请求的最大 seq 跨度，不是消息条数承诺。 */
 const SERVER_MAX_WINDOW = 30;
 
 /** 一条拉取到的远端消息，形状与主时间线的 ChatMsgWire 对齐。 */
 export interface GapFetchedMessage {
+  sourceFormat?: 'native' | 'protocol';
+  protocolRaw?: string;
+  nativeRaw?: Record<string, unknown>;
   kind: 'c2c' | 'group';
   msgId: string;
   msgSeq: string;
@@ -55,16 +56,24 @@ export type GapFetchResult =
   | {
       ok: true;
       messages: GapFetchedMessage[];
-      /** 下一段（更新）30-seq 窗口的起始 seq（含）；null = 缺口已拉完 / 漫游中断。 */
+      /** 下一段更新窗口的起始 seq；null 只表示本轮区间已检查，不保证缺口补齐。 */
       nextStartSeq: number | null;
       /** 本次窗口实际拉到的条数。 */
       fetched: number;
+      networkRequested?: boolean;
+      networkDurationMs?: number;
+      networkError?: string;
+      examinedStart?: number;
+      unresolvedRecords?: number;
     }
   | {
       ok: false;
       /** offline = 没有在线 QQ / 完全离线模式；error = 其它。 */
       reason: 'offline' | 'error';
+      unknown?: boolean;
       message: string;
+      networkRequested?: boolean;
+      networkDurationMs?: number;
     };
 
 /**
@@ -89,7 +98,7 @@ export function renderDecodedElements(elements: Record<string, unknown>[]): Rend
   });
 }
 
-function toGapMessage(
+export function toGapMessage(
   kind: 'c2c' | 'group',
   conv: string,
   decoded: ReturnType<typeof decodeMessage>,
@@ -115,15 +124,31 @@ function toGapMessage(
   };
 }
 
-/** 缓存命中 + 新拉取的消息按 seq 去重合并，保持升序（旧在上、新在下）。 */
-function mergeBySeq(
-  cached: GapFetchedMessage[],
-  fetched: GapFetchedMessage[],
-): GapFetchedMessage[] {
-  const bySeq = new Map<number, GapFetchedMessage>();
-  for (const message of cached) bySeq.set(Number(message.msgSeq), message);
-  for (const message of fetched) bySeq.set(Number(message.msgSeq), message);
-  return [...bySeq.values()].sort((a, b) => Number(a.msgSeq) - Number(b.msgSeq));
+export function assertRoamingPageIdentity(
+  kind: 'group' | 'c2c',
+  conv: string,
+  selfUin: string,
+  decoded: ReturnType<typeof decodeMessage>,
+  start: number,
+  end: number,
+): void {
+  const peerMatches =
+    kind === 'group'
+      ? String(decoded.session.uin) === conv
+      : (decoded.sender.uid === conv && String(decoded.session.uin) === selfUin) ||
+        (decoded.session.uid === conv && String(decoded.sender.uin) === selfUin);
+  if (
+    !peerMatches ||
+    !Number.isSafeInteger(decoded.head.sequence) ||
+    decoded.head.sequence < start ||
+    decoded.head.sequence > end ||
+    !Number.isSafeInteger(decoded.head.timestamp) ||
+    decoded.head.timestamp <= 0 ||
+    (kind === 'c2c' &&
+      (!(decoded.head.ntMsgSeq && decoded.head.ntMsgSeq > 0) ||
+        decoded.head.sequence !== decoded.head.ntMsgSeq))
+  )
+    throw new Error('漫游响应的账号、会话或 NT 序号不一致，未提交本窗覆盖。');
 }
 
 export class GapHistoryService {
@@ -134,7 +159,7 @@ export class GapHistoryService {
       NtHelperBinding,
       'sendPacket' | 'executeSql' | 'executeSqlWrite' | 'closeDb'
     >,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
     /** 本账号漫游消息缓存库的绝对路径（weq 缓存目录 /roam-msg/<uin>.db）。 */
     cacheDbPath: string,
@@ -163,15 +188,25 @@ export class GapHistoryService {
     }
   }
 
-  /** Bounded, offline-only timeline overlay; excludes legacy cache rows with uncertain numbering. */
-  async cachedVerified(
+  /** Bounded, offline-only timeline page; private-chat rows need verified NT numbering. */
+  async cachedTimeline(
     kind: 'c2c' | 'group',
     conv: string,
     startSeq: number,
     endSeq: number,
     limit: number,
+    descending: boolean,
   ): Promise<GapFetchedMessage[]> {
-    return this.cache.query(kind, conv, startSeq, endSeq, true, limit);
+    return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
+  }
+
+  /** Batch coverage is committed only after this durable cache write succeeds. */
+  async retainForBatch(messages: GapFetchedMessage[]): Promise<void> {
+    for (let i = 0; i < messages.length; i += 80) await this.cache.store(messages.slice(i, i + 80));
+  }
+
+  async cachedForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
+    return this.cache.allForExport(kind, conv);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
@@ -226,118 +261,145 @@ export class GapHistoryService {
     conv: string,
     startSeq: number,
     endSeq: number,
+    options: {
+      signal?: AbortSignal;
+      intervalMs?: number;
+      strictIdentity?: boolean;
+      beforeRequest?: () => void;
+    } = {},
   ): Promise<GapFetchResult> {
-    if (!Number.isSafeInteger(startSeq) || !Number.isSafeInteger(endSeq) || startSeq > endSeq) {
-      return { ok: false, reason: 'error', message: `seq 窗口非法: ${startSeq}-${endSeq}` };
-    }
-    if (endSeq > 0xffffffff) {
-      return { ok: false, reason: 'error', message: 'seq 超出 uint32 范围，无法拉取' };
-    }
-
-    // 本次要拉的服务端窗口：缺口起始最多 30 个 seq。
+    if (
+      !Number.isSafeInteger(startSeq) ||
+      !Number.isSafeInteger(endSeq) ||
+      startSeq < 1 ||
+      startSeq > endSeq ||
+      endSeq > 0xffffffff
+    )
+      return { ok: false, reason: 'error', networkRequested: false, message: 'SSO 历史窗口无效。' };
     const windowEnd = Math.min(endSeq, startSeq + SERVER_MAX_WINDOW - 1);
-    const windowWidth = windowEnd - startSeq + 1;
-
-    // 1) 先查本机漫游缓存：窗口全部命中就直接返回，不联网（QQ 不在线也能看）。
+    const complete = (rows: GapFetchedMessage[]) =>
+      new Set(rows.map((row) => row.msgSeq)).size === windowEnd - startSeq + 1;
+    const nextStartSeq = windowEnd < endSeq ? windowEnd + 1 : null;
     let cached: GapFetchedMessage[] = [];
     try {
       cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
-    } catch (e) {
-      console.error('[GapHistory] failed to read roam cache:', e);
-    }
-    if (cached.length === windowWidth) {
-      const hasNewer = windowEnd < endSeq;
+    } catch (error) {
       return {
-        ok: true,
-        messages: cached,
-        nextStartSeq: hasNewer ? windowEnd + 1 : null,
-        fetched: 0,
+        ok: false,
+        reason: 'error',
+        networkRequested: false,
+        message: error instanceof Error ? error.message : '漫游缓存读取失败。',
       };
     }
-
+    if (complete(cached))
+      return { ok: true, messages: cached, nextStartSeq, fetched: 0, networkRequested: false };
     let pid: number;
     try {
       pid = this.resolvePid();
     } catch {
-      // 离线时至少把已缓存的部分展示出来。
-      return cached.length > 0
-        ? { ok: true, messages: cached, nextStartSeq: null, fetched: 0 }
-        : { ok: false, reason: 'offline', message: 'QQ 未在线，无法拉取缺失消息' };
+      return cached.length > 0 && !options.strictIdentity
+        ? { ok: true, messages: cached, nextStartSeq: null, fetched: 0, networkRequested: false }
+        : {
+            ok: false,
+            reason: 'offline',
+            message: 'QQ 未在线，无法拉取缺失消息',
+            networkRequested: false,
+          };
     }
-
-    const rawBySeq = new Map<number, Uint8Array>();
+    let networkRequested = false;
+    let admissionFailed = false;
+    let networkDurationMs = 0;
     try {
-      const res =
-        kind === 'group'
-          ? await fetchGroupHistoryRaw(this.nt, pid, {
-              groupUin: Number(conv),
-              startSeq,
-              endSeq: windowEnd,
-            })
-          : await fetchC2cHistoryRaw(this.nt, pid, {
-              friendUid: conv,
-              startSeq,
-              endSeq: windowEnd,
-            });
-
-      const stepsFor = (index: number): PathStep[] =>
-        kind === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
-
-      for (let index = 0; index < res.messages.length; index += 1) {
-        const bytes = extractPath(res.rawResponse, stepsFor(index));
-        if (!bytes) continue;
-        const decoded = decodeMessage(bytes);
-        if (
-          kind === 'c2c' &&
-          (decoded.head.ntMsgSeq ?? 0) > 0 &&
-          (decoded.head.sequence < startSeq || decoded.head.sequence > windowEnd)
-        )
-          continue;
-        rawBySeq.set(decoded.head.sequence, bytes);
-      }
-    } catch (e) {
-      if (cached.length > 0) {
-        return { ok: true, messages: cached, nextStartSeq: null, fetched: 0 };
-      }
-      return {
-        ok: false,
-        reason: 'error',
-        message: e instanceof Error ? e.message : String(e),
-      };
-    }
-
-    if (rawBySeq.size === 0) {
-      // 空窗不证明缺口已拉完：QQ 漫游覆盖的是从最新向前的连续一段，缺口最旧
-      // 的一端可能不在覆盖范围内。继续向更新方向推进；已缓存的部分照常展示。
-      const hasNewer = windowEnd < endSeq;
+      const result = await withRoamingRequest(async () => {
+        cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+        if (complete(cached)) return { cached: true as const };
+        options.signal?.throwIfAborted();
+        try {
+          pid = this.resolvePid();
+        } catch (error) {
+          admissionFailed = true;
+          throw error;
+        }
+        const space = statfsSync(dirname(this.cache.dbPath));
+        if (space.bavail * space.bsize < 1024 ** 3)
+          throw Error('漫游缓存卷可用空间不足 1 GiB，未派发请求。');
+        options.beforeRequest?.();
+        networkRequested = true;
+        const started = Date.now();
+        let received = false;
+        try {
+          const response =
+            kind === 'group'
+              ? await fetchGroupHistoryRaw(this.nt, pid, {
+                  groupUin: Number(conv),
+                  startSeq,
+                  endSeq: windowEnd,
+                })
+              : await fetchC2cHistoryRaw(this.nt, pid, {
+                  friendUid: conv,
+                  startSeq,
+                  endSeq: windowEnd,
+                });
+          networkDurationMs = Date.now() - started;
+          received = true;
+          if (this.resolvePid() !== pid) throw Error('QQ 会话已变化，未接受在途 SSO 响应。');
+          const decoded = decodeSsoHistoryWindow(
+            response,
+            { kind, conv, name: conv },
+            this.session.context.uin,
+            { start: startSeq, end: windowEnd },
+          );
+          // 全窗核验并持久化后，调用方才能提交覆盖和断点。
+          if (decoded.observations.length)
+            await this.cache.storeProtocolObservations(decoded.observations);
+          await this.cache.store(decoded.messages);
+          const observed = [
+            ...decoded.messages.map((row) => Number(row.msgSeq)),
+            ...decoded.observations.map((row) => row.msgSeq),
+          ];
+          return {
+            cached: false as const,
+            messages: await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c'),
+            fetched: decoded.messages.length,
+            unresolvedRecords: decoded.observations.length,
+            examinedStart: observed.length ? Math.min(...observed) : startSeq,
+          };
+        } finally {
+          if (!received) networkDurationMs = Date.now() - started;
+        }
+      }, options);
+      if (result.cached)
+        return { ok: true, messages: cached, nextStartSeq, fetched: 0, networkRequested: false };
       return {
         ok: true,
-        messages: cached,
-        nextStartSeq: hasNewer ? windowEnd + 1 : null,
-        fetched: 0,
+        messages: result.messages,
+        nextStartSeq,
+        fetched: result.fetched,
+        unresolvedRecords: result.unresolvedRecords,
+        examinedStart: result.examinedStart,
+        networkRequested: true,
+        networkDurationMs,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (cached.length > 0 && !options.strictIdentity)
+        return {
+          ok: true,
+          messages: cached,
+          nextStartSeq: null,
+          fetched: 0,
+          networkRequested,
+          networkDurationMs,
+          networkError: message,
+        };
+      return {
+        ok: false,
+        reason: admissionFailed ? 'offline' : 'error',
+        message,
+        networkRequested,
+        networkDurationMs,
+        unknown: networkRequested,
       };
     }
-
-    const seqs = [...rawBySeq.keys()].sort((a, b) => a - b);
-    const fetchedMessages = seqs.map((seq) =>
-      toGapMessage(kind, conv, decodeMessage(rawBySeq.get(seq)!)),
-    );
-    // 2) 拉到的消息全部写入本机漫游缓存（best-effort，写失败不影响返回）。
-    try {
-      await this.cache.store(fetchedMessages);
-    } catch (e) {
-      console.error('[GapHistory] failed to store roam cache:', e);
-    }
-    // 3) 缓存命中 + 新拉取的合并（去重、升序）。
-    const messages = mergeBySeq(cached, fetchedMessages);
-    // 窗口上界还没到缺口的 endSeq = 更新的 seq 还在缺口内，继续分页；
-    // 反之这一页已经把缺口最新的一端盖住了。
-    const hasNewer = windowEnd < endSeq;
-    return {
-      ok: true,
-      messages,
-      nextStartSeq: hasNewer ? windowEnd + 1 : null,
-      fetched: fetchedMessages.length,
-    };
   }
 }

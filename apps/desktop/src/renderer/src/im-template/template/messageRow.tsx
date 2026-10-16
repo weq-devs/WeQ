@@ -32,6 +32,7 @@ import {
   GROUP_CALL_ENDED_SUBTYPES,
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
+import { MessageProvenance } from '../../components/MessageProvenance';
 
 /**
  * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
@@ -218,6 +219,7 @@ export function MessageRow({
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
       >
         <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
+        <MessageProvenance message={message} />
       </div>
     );
   }

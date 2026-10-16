@@ -18991,6 +18991,27 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
    乐观渲染标识 (im-template/messageBubble)
    发出去但还没被 QQ 同步回来的合并转发：气泡下方一枚小标签告诉你它的状态。
    sending = 转圈呼吸，sent = 静默绿，failed = 红。这条消息只活在前端 state 里。 */
+.weq-message-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.weq-message-seq {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.weq-graytip-band > .weq-message-provenance {
+  justify-content: center;
+}
+
 .weq-msg-optimistic-tag {
   display: inline-flex;
   align-items: center;

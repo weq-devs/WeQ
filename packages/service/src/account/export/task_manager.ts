@@ -965,7 +965,9 @@ export class ExportTaskManager extends EventEmitter {
     let promise: Promise<GapFetchedMessage[]> | null = null;
     return () => {
       if (!deps || task.guild || (task.kind !== 'group' && task.kind !== 'c2c')) return [];
-      promise ??= deps.cached(task.kind, task.conv, 1, 0xffffffff);
+      promise ??= deps.cachedForExport
+        ? deps.cachedForExport(task.kind, task.conv)
+        : deps.cached(task.kind, task.conv, 1, 0xffffffff);
       return promise;
     };
   }

@@ -323,6 +323,9 @@ export type Message = {
    * rejects); those fall to the end of the timeline.
    */
   msgSeq?: string;
+  source?: 'roaming';
+  sourceFormat?: 'native' | 'protocol';
+  ntSeqVerified?: boolean;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';
   createdAt: string;

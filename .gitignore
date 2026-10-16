@@ -75,3 +75,25 @@ resources/ninebird-runtime/
 /resources/dress/*_resources
 # 红包皮肤元数据由 `pnpm rpskin:fetch` 抓取，是**要入库**的长期数据
 # （resources/redpack/skins.json），所以这里刻意不 ignore。
+
+# 已移至仓库外的研究/实验源码，不重新纳入产品仓库。
+/resources/native-history-standalone/
+/resources/packet-research/
+/resources/native-history-plugin/
+/scripts/analyze-history-packets.ts
+/scripts/build-native-history-standalone.mjs
+/scripts/build-packet-research.mjs
+/scripts/capture-qq-window.sh
+/scripts/probe-native-history-standalone.mjs
+/scripts/replay-history-packet.ts
+/packages/protocol/test/packet-pagination-research.test.ts
+/packages/protocol/test/packet-research.test.ts
+/packages/protocol/test/packet-session-cache.test.ts
+/packages/service/src/account/native_history.ts
+/packages/service/test/native_history.test.ts
+/packages/service/src/account/protocol_history.ts
+/packages/service/test/protocol_history.test.ts
+/docs/develop/napneko-native-reference-20261016.md
+/docs/develop/native-history-without-napcat-research-20261016.md
+/docs/develop/protocol-history-500-20261016.md
+/docs/develop/native-history-500-20261016.md

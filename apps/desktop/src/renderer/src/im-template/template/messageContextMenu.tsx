@@ -46,7 +46,7 @@ export function MessageContextMenu({
   onCopy: (message: Message) => void | Promise<void>;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
-  onDelete: (message: Message) => void;
+  onDelete?: (message: Message) => void;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
   /** 引用：把这条消息挂到输入框上方（引用条）。 */
@@ -185,10 +185,12 @@ export function MessageContextMenu({
           <span>下载</span>
         </button>
       ) : null}
-      <button type="button" onClick={() => onDelete(state.message)}>
-        <Trash2 size={17} />
-        <span>删除</span>
-      </button>
+      {onDelete ? (
+        <button type="button" onClick={() => onDelete(state.message)}>
+          <Trash2 size={17} />
+          <span>删除</span>
+        </button>
+      ) : null}
     </div>
   );
 }

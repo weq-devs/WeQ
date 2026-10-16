@@ -463,6 +463,8 @@ export interface AppSettings {
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
    */
   showMsgDecoration: boolean;
+  /** Show the original conversation sequence beside each message. */
+  showMessageSeq: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -679,6 +681,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   showMsgDecoration: true,
+  showMessageSeq: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1160,6 +1163,7 @@ export class UserConfigService {
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1241,6 +1245,7 @@ export class UserConfigService {
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,

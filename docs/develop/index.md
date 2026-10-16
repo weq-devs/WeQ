@@ -14,6 +14,8 @@ pnpm dev
 
 ## 章节
 
+- [SSO 历史路径统一](./unified-sso-history-20261017.md) — 单窗读取、物理请求预算、旧任务及缓存兼容
+
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
