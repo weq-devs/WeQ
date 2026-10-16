@@ -9,6 +9,8 @@ import { client } from '../../trpc/client';
 import {
   preflightMediaCompletion,
   preflightMessageCompletion,
+  ocrReadiness,
+  preflightOcrImages,
   preflightVoiceTranscribe,
   preflightOnlineTranscribe,
 } from './preflight';
@@ -25,7 +27,7 @@ export interface ChatExportTarget {
 /** 灯箱选项 → `account.startExport` 的 media 入参（媒体子选项只在导出媒体时生效）。 */
 export function buildChatExportMedia(
   options: ExportOptions,
-  opts: { messageCompletion?: boolean } = {},
+  opts: { messageCompletion?: boolean; ocrPrefilter?: boolean } = {},
 ): {
   exportMedia: boolean;
   completeMessages: boolean;
@@ -36,6 +38,10 @@ export function buildChatExportMedia(
   transcribeVoice: boolean;
   onlineTranscribe: boolean;
   onlineConcurrency: number;
+  ocrImages: boolean;
+  onlineOcr: boolean;
+  onlineOcrConcurrency: number;
+  ocrPrefilter: boolean;
   mediaKinds: ExportOptions['mediaKinds'] | undefined;
   completeDress: boolean;
 } {
@@ -52,6 +58,12 @@ export function buildChatExportMedia(
     // 在线转写依附于「语音转写」；未开语音转写时强制关闭。
     onlineTranscribe: options.transcribeVoice && options.onlineTranscribe,
     onlineConcurrency: options.onlineConcurrency,
+    ocrImages: options.ocrImages,
+    // 在线识别依附于「图片文字识别」；未开 OCR 时强制关闭。
+    onlineOcr: options.ocrImages && options.onlineOcr,
+    onlineOcrConcurrency: options.ocrConcurrency,
+    // 筛图模型没下好就跳过预筛选阶段（灯箱 / 设置里都能下）。
+    ocrPrefilter: options.ocrImages && opts.ocrPrefilter === true,
     mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
     completeDress: options.completeDress,
   };
@@ -89,6 +101,11 @@ export async function preflightChatExport(
     if (!ok) return false;
   }
 
+  if (media.ocrImages) {
+    const ok = await preflightOcrImages(dialog);
+    if (!ok) return false;
+  }
+
   // 在线转录必须已经 arm（灯箱点开关时 arm）；否则硬拦截。
   if (media.onlineTranscribe) {
     const ok = await preflightOnlineTranscribe(dialog);
@@ -110,7 +127,9 @@ export async function startChatExportTasks(
   opts: { messageCompletion?: boolean } = {},
 ): Promise<string[]> {
   const fmt0 = formats[0] ?? defaultFormat;
-  const media = buildChatExportMedia(options, opts);
+  // 筛图模型的状态是**实时**的（不进持久化预设）：导出那一刻下好了就筛，没下好就跳过。
+  const ocrPrefilter = options.ocrImages ? (await ocrReadiness()).filterReady : false;
+  const media = buildChatExportMedia(options, { ...opts, ocrPrefilter });
   const range = { start: options.range.start, end: options.range.end };
   const ids: string[] = [];
   for (const t of targets) {

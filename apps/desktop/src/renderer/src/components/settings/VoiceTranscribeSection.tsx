@@ -163,19 +163,19 @@ export function VoiceTranscribeSection(): ReactElement {
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
         ) : (
-          <div className="weq-voice-models">
+          <div className="weq-models">
             {modelList.map((m) => {
               const isSelected = selectedId === m.id;
               const isDownloading = progress?.id === m.id;
               const pct = isDownloading ? Math.round(progress!.percent) : 0;
               return (
-                <div key={m.id} className={`weq-voice-model${isSelected ? ' is-selected' : ''}`}>
-                  <div className="weq-voice-model-icon">
+                <div key={m.id} className={`weq-model${isSelected ? ' is-selected' : ''}`}>
+                  <div className="weq-model-icon">
                     <AudioLines size={18} strokeWidth={1.8} aria-hidden />
                   </div>
-                  <div className="weq-voice-model-main">
-                    <div className="weq-voice-model-head">
-                      <span className="weq-voice-model-name">{m.name}</span>
+                  <div className="weq-model-main">
+                    <div className="weq-model-head">
+                      <span className="weq-model-name">{m.name}</span>
                       {m.recommended ? (
                         <span className="weq-set-badge weq-set-badge-ok">推荐</span>
                       ) : null}
@@ -184,8 +184,8 @@ export function VoiceTranscribeSection(): ReactElement {
                         <span className="weq-set-badge weq-set-badge-ok">当前模型</span>
                       ) : null}
                     </div>
-                    <span className="weq-voice-model-desc">{m.desc}</span>
-                    <span className="weq-voice-model-size weq-number">
+                    <span className="weq-model-desc">{m.desc}</span>
+                    <span className="weq-model-size weq-number">
                       {m.downloaded ? `占用 ${fmtBytes(m.sizeOnDisk)}` : `约 ${m.sizeLabel}`}
                     </span>
 
@@ -205,7 +205,7 @@ export function VoiceTranscribeSection(): ReactElement {
                     ) : null}
                   </div>
 
-                  <div className="weq-voice-model-actions">
+                  <div className="weq-model-actions">
                     {m.downloaded ? (
                       <>
                         <button

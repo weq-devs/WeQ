@@ -31,8 +31,15 @@ import {
   prePackRedBag,
   RedBagPasswordPool,
   RedBagPrePack,
+  type OcrBlock,
 } from '@weq/protocol';
-import type { DressMallItem, RenderElement, SendDress, SendElement } from '@weq/service';
+import type {
+  DressMallItem,
+  OcrResultCache,
+  RenderElement,
+  SendDress,
+  SendElement,
+} from '@weq/service';
 import {
   computeBkn,
   DressAppId,
@@ -41,9 +48,12 @@ import {
   fetchWebTokens,
   HonorType,
   normalizeMallItems,
+  ocrCacheFor,
+  ocrCacheKey,
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
+import { resolveLocalOcrModel, runLocalOcr } from '../ocr/local';
 import { decodeBlobBytes, decodeBlobHex, decodeBlobText } from './blob_decoder';
 import {
   JS_SANDBOX_DEFAULT_TIMEOUT_MS,
@@ -113,6 +123,72 @@ function currentUin(): string {
   const uin = getAppContext().account?.context.uin;
   if (!uin) throw new Error('当前没有已登录的账号。');
   return String(uin);
+}
+
+/**
+ * 图片文字识别的**在线那条腿**（OIDB 0xe07_0）现在能不能走 —— 口径与 IPC 的
+ * `ocrOnlineBlocker`（`main/ipc/routers/account.ts`）完全一致：QQ 在线 + 未开完全离线
+ * 模式 + 发包凭据（a2 / d2 / d2key / guid）齐全。这条链路既要借在线 QQ 的进程发包，
+ * 又要现签一条媒体下载 rkey，缺任一项都跑不动。
+ *
+ * 能走返回 null；不能走返回**给人看的原因**（工具会把它放进 `notes`，让调用者知道
+ * 这次为什么没走在线）。
+ */
+function ocrOnlineBlocker(): string | null {
+  const record = services().accountConfig.getRecord();
+  if (!record?.qqOnline || !record.qqPid) return '该账号的 QQ 未在线，走不了在线识别。';
+  if (getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+    return '已开启完全离线模式（自动读取 QQ 内存 已关闭），在线识别不可用。';
+  }
+  const session = record.session;
+  if (!session?.a2 || !session?.d2 || !session?.d2Key || !record.guid) {
+    return '本机账号物料不全（a2 / d2 / d2key / guid），在线识别发不了包。';
+  }
+  return null;
+}
+
+/** 识别结果 → 整段文字（一行一段，空行丢掉）。在线 / 本地两条腿共用同一口径。 */
+function ocrBlocksToText(blocks: readonly OcrBlock[]): string {
+  return blocks
+    .map((block) => block.text)
+    .filter((text) => text.trim() !== '')
+    .join('\n');
+}
+
+/** 一条腿的结果 → 回给调用者的文字框（`includeBoxes` 时才带）。 */
+function ocrBoxes(blocks: readonly OcrBlock[]): Array<Record<string, unknown>> {
+  return blocks.map((block) => ({
+    text: block.text,
+    x: block.rect.x,
+    y: block.rect.y,
+    width: block.rect.width,
+    height: block.rect.height,
+    confidence: block.field2,
+  }));
+}
+
+/**
+ * 识别结果缓存（与灯箱 / 导出共用一份，见 `@weq/service` 的 `common/ocr_cache.ts`）。
+ * bootstrap 没就绪时返回 null —— 缓存只是加速，拿不到就照常识别。
+ */
+function ocrResultCache(): OcrResultCache | null {
+  const boot = getAppContext().bootstrap;
+  if (!boot) return null;
+  try {
+    return ocrCacheFor(boot.userConfig.cacheDir('ocr'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 这张图在缓存里的键：元素 md5 优先，其次文件名（QQ 的图片文件名就是 `<md5>.<ext>`）。
+ *
+ * 归一规则在 `@weq/service` 的 `ocrCacheKey` 里（只认 hex）：聊天图片与
+ * `~/…/Pic/<月>/Ori/<md5>.jpg` 这类本机路径因此天然对上同一个键。
+ */
+function ocrCacheKeyOf(md5: string, fileName: string): string | null {
+  return ocrCacheKey(md5) ?? ocrCacheKey(fileName);
 }
 
 /** 原生 ntHelper 绑定（未加载时抛错）。 */
@@ -2552,6 +2628,349 @@ export const AI_TOOLS: AiTool[] = [
         hint: allOk
           ? '转写结果仅本工具返回；如需把文字写回语音消息（QQ 也会显示），请在内置助手里使用带写库能力的入口。'
           : '部分语音转写失败，多为模型未就绪或本地音频缺失。',
+      };
+    },
+  }),
+
+  // ── 图片文字识别（在线接口 / 本地离线模型） ────────────────────────────
+  // 与灯箱（`account.ocrChatImage`）同一套策略：**在线优先、本地兜底**，两条腿都产出
+  // 同构的 blocks。区别只在取图：外部调用者没有渲染层的 `weq-media://` 地址，所以图片
+  // 字节直接从本机媒体缓存里捞（`fileSearch`，与 transcribe_voice_message 同一条路）。
+
+  tool({
+    name: 'get_ocr_status',
+    description:
+      '查【图片文字识别】两条腿现在各能不能走，调 ocr_image_text 之前用它决定 engine 传什么。' +
+      '\n① `online`：在线接口（QQ 图片文字识别 OIDB 0xe07_0），需要该账号 QQ 在线 + 未开完全离线模式 + 物料齐全（a2 / d2 / d2key / guid）；精度更好，但 QQ 的图片链接只保留约 9 天。' +
+      '\n② `local`：本地离线模型（PP-OCR，设置 → 图片识别里下载并选中），在本机推理、不把图发出去；精度略低一档，CPU 推理较慢。' +
+      '\n只读，不发网络包，也不改设置。',
+    input: z.object({}),
+    run: async () => {
+      const blocker = ocrOnlineBlocker();
+      const local = resolveLocalOcrModel();
+      return {
+        online: {
+          available: blocker === null,
+          ...(blocker ? { reason: blocker } : {}),
+        },
+        local: {
+          available: local !== null,
+          ...(local
+            ? { modelId: local.modelId }
+            : { reason: '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。' }),
+        },
+        policy:
+          'ocr_image_text 的 engine 默认 auto：在线可用就先走在线，失败（图过期 / 服务端取不到）再回退本地模型。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'ocr_image_text',
+    description:
+      '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
+      '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线、物料齐全，且 QQ 的图片链接只保留约 9 天（过期图必然失败）。' +
+      '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
+      '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
+      '\n【结果怎么看】`source`（`online` / `local`）+ `engine`（中文说明用的哪条腿）+ `offline`（`true` 即本地离线模型）三者标出实际通道；`notes` 说明中途有没有回退、以及为什么没用在线；`text` 是识别出的整段文字，`lineCount` 是段数，`boxes`（可选）带每段的像素坐标框。' +
+      '\n【怎么定图】给 kind + conv + msgId（msgId 来自 get_messages 的 includeIds 输出）定位聊天里的图片，同一条消息多张图时用 imageIndex 指定第几张（0 起）；也可以直接给 path —— 本机图片文件（绝对路径或 ~/ 开头）。注意 path 那种图**只能走本地模型**：在线那条腿要的是聊天图片的 fileToken，本机文件里没有。' +
+      '\n【本机路径这条腿的前提】本地模型只解决「像素 → 文字」，图本身得取得到：走消息定位时读的是 QQ 本机媒体缓存（聊天里没下载过 / 被清理过的图取不到，会如实报错）。' +
+      '\n只读：不写数据库、不上传文件（在线那条腿只是把图片的 CDN 地址报给腾讯自己的识别服务）。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).optional().describe('会话类型（数据线设备 uid 也按 c2c）'),
+      conv: z.string().optional().describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().optional().describe('目标消息 msgId（40001，数字字符串）'),
+      imageIndex: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('同一条消息里第几张图（0 起，按元素顺序；不传 = 第一张）'),
+      path: z
+        .string()
+        .optional()
+        .describe('改为直接给本机图片文件路径（绝对路径或 ~/ 开头）；这种图只能走本地模型'),
+      engine: z
+        .enum(['auto', 'online', 'local'])
+        .default('auto')
+        .describe('auto=在线优先、本地兜底；online / local=只走那一条'),
+      includeBoxes: z
+        .boolean()
+        .default(false)
+        .describe('是否附带每段文字的像素坐标框（text / x / y / width / height / confidence）'),
+    }),
+    run: async ({ kind, conv, msgId, imageIndex, path, engine, includeBoxes }) => {
+      const svc = services();
+      const local = resolveLocalOcrModel();
+
+      // ── 1) 定图：本机路径，或者聊天消息里的一个 pic 元素 ────────────────
+      /** 在线那条腿要的随行元数据（只有聊天图片有；本机路径没有 fileToken）。 */
+      let online:
+        | { peerType: 'c2c' | 'group'; fileToken: string; width: number; height: number }
+        | undefined;
+      /** 本地模型要的图（本机文件路径）。 */
+      let localPath: string | null = path ?? null;
+      /** 识别用的是哪一份像素（原图 / 缩略图）—— 结果缓存里要记清楚，坐标才换得回来。 */
+      let localVariant: 'original' | 'thumb' | 'downloaded' | 'unknown' = path
+        ? 'original'
+        : 'unknown';
+      /** 给模型看的「这是哪张图」。 */
+      let target = path ? `本机文件 ${path}` : '';
+      /** 聊天图片的文件名 / 元素 md5（缓存键用；给 path 时外面传的是路径）。 */
+      let fileName = '';
+      let picMd5 = '';
+
+      if (!path) {
+        if (!kind || !conv || !msgId) {
+          throw new Error(
+            '要么给 path（本机图片文件），要么给 kind + conv + msgId 定位聊天里的图片。',
+          );
+        }
+        const id = safeBigint(msgId);
+        if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+        const row =
+          kind === 'group'
+            ? await svc.msgs.getGroupMessageById(conv, id)
+            : await svc.msgs.getC2cMessageById(conv, id);
+        if (!row) {
+          return {
+            ok: false,
+            found: false,
+            kind,
+            conv,
+            msgId,
+            hint: '本地消息表里没有这条消息（msgId 不在该会话/库中）。',
+          };
+        }
+        const pics = row.elements.filter(
+          (el): el is Extract<RenderElement, { type: 'pic' }> => el.type === 'pic',
+        );
+        if (pics.length === 0) {
+          return {
+            ok: false,
+            found: true,
+            kind,
+            conv,
+            msgId,
+            error: '这条消息里没有图片元素。',
+          };
+        }
+        const index = imageIndex ?? 0;
+        const pic = pics[index];
+        if (!pic) {
+          return {
+            ok: false,
+            found: true,
+            kind,
+            conv,
+            msgId,
+            error: `这条消息只有 ${pics.length} 张图，imageIndex=${index} 超出范围。`,
+          };
+        }
+        const isEmoji = Number(pic.data.subType) === 1;
+        fileName = String(pic.data.fileName ?? '');
+        picMd5 = String(pic.data.md5 ?? '');
+        // 本地那条腿：本机媒体缓存里找原图，找不到退而求其次用缩略图（尺寸小一档，
+        // 精度差些但总比没有强）；发送时间用来定位月份目录。
+        const hit = fileName
+          ? await svc.fileSearch.findFile(Number(row.sendTime), fileName, isEmoji ? 'emoji' : 'pic')
+          : { source: null, thumb: null };
+        localPath = hit.source ?? hit.thumb ?? null;
+        localVariant = hit.source ? 'original' : hit.thumb ? 'thumb' : 'unknown';
+        target = `消息 ${msgId} 里的第 ${index + 1} 张图${fileName ? `（${fileName}）` : ''}`;
+        online = {
+          peerType: kind,
+          fileToken: String(pic.data.fileToken ?? ''),
+          width: Number(pic.data.imgWidth ?? 0),
+          height: Number(pic.data.imgHeight ?? 0),
+        };
+      }
+
+      // ── 2) 排腿：auto = 在线优先 + 本地兜底；显式指定就只走那一条 ────────
+      const notes: string[] = [];
+      const cache = ocrResultCache();
+      const cacheKey = cache ? ocrCacheKeyOf(picMd5, fileName || (path ?? '')) : null;
+      if (cache && cacheKey) {
+        // 同一张图在本机识别过就直接给（灯箱 / 导出 / 之前的 MCP 调用写下的都算）。
+        // 明确要求某条腿（engine=online / local）时不拿另一条腿的缓存顶替。
+        const prefer = engine === 'online' ? 'oidb' : engine === 'local' ? 'local' : 'auto';
+        const hit = await cache.getText(cacheKey, prefer).catch(() => null);
+        if (hit) {
+          return {
+            ok: true,
+            found: true,
+            source: hit.source === 'oidb' ? 'online' : 'local',
+            engine: `${hit.source === 'oidb' ? '在线接口（QQ 图片文字识别 OIDB 0xe07_0）' : `本地离线模型（${hit.modelId ?? '未知模型'}，本机推理，未联网）`}·本机缓存`,
+            offline: hit.source === 'local',
+            cached: true,
+            cachedAt: new Date(hit.at).toISOString(),
+            target,
+            text: hit.text,
+            lineCount: hit.blocks?.length ?? (hit.text ? hit.text.split('\n').length : 0),
+            ...(hit.lang ? { srcLang: hit.lang } : {}),
+            ...(hit.modelId ? { modelId: hit.modelId } : {}),
+            ...(hit.frame.width > 0 ? { imageWidth: hit.frame.width } : {}),
+            ...(hit.frame.height > 0 ? { imageHeight: hit.frame.height } : {}),
+            ...(includeBoxes && hit.blocks ? { boxes: ocrBoxes(hit.blocks) } : {}),
+            notes: [...notes, '这次没有重新识别：本机缓存里已经有这张图的结果（同图同结果）。'],
+            ...(hit.text ? {} : { hint: '缓存里这条结果就是空文字（这张图当时没识别到文字）。' }),
+          };
+        }
+      }
+      /** 把这次的结果落进缓存（写失败绝不影响工具返回）。 */
+      const putCached = async (
+        producer: string,
+        result: {
+          text: string;
+          blocks: readonly OcrBlock[];
+          imageWidth: number;
+          imageHeight: number;
+          modelId?: string;
+          lang?: string;
+          elapsedMs?: number;
+          variant?: 'original' | 'thumb' | 'downloaded' | 'unknown';
+        },
+      ): Promise<void> => {
+        if (!cache || !cacheKey) return;
+        await cache
+          .putText(cacheKey, producer, {
+            text: result.text,
+            ...(result.blocks.length > 0 ? { blocks: [...result.blocks] } : {}),
+            frame: {
+              width: result.imageWidth,
+              height: result.imageHeight,
+              variant: result.variant ?? 'unknown',
+            },
+            ...(result.modelId ? { modelId: result.modelId } : {}),
+            ...(result.lang ? { lang: result.lang } : {}),
+            ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+            ids: { ...(picMd5 ? { elementMd5: picMd5 } : {}), ...(fileName ? { fileName } : {}) },
+          })
+          .catch(() => undefined);
+      };
+      const blocker = ocrOnlineBlocker();
+      const legs: Array<'online' | 'local'> = [];
+      if (engine === 'online') {
+        if (!online) {
+          throw new Error(
+            '在线接口只能识别聊天记录里的图片（要有图片的 fileToken）：请改用 kind/conv/msgId 定位，或把 engine 改成 local。',
+          );
+        }
+        if (blocker) throw new Error(blocker);
+        legs.push('online');
+      } else if (engine === 'local') {
+        if (!local) {
+          throw new Error('还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。');
+        }
+        legs.push('local');
+      } else {
+        if (online && !blocker) legs.push('online');
+        else notes.push(blocker ?? '这张图来自本机文件，没有在线接口需要的 fileToken');
+        legs.push('local');
+      }
+
+      // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
+      let failure: string | null = null;
+      for (const leg of legs) {
+        if (leg === 'online') {
+          try {
+            const result = await svc.chatImageOcr.recognize({
+              peerType: online!.peerType,
+              fileToken: online!.fileToken,
+              width: online!.width,
+              height: online!.height,
+            });
+            const text = ocrBlocksToText(result.blocks);
+            await putCached('oidb', {
+              text,
+              blocks: result.blocks,
+              imageWidth: result.imageWidth,
+              imageHeight: result.imageHeight,
+              lang: result.srcLang,
+              variant: 'original',
+            });
+            return {
+              ok: true,
+              found: true,
+              source: 'online',
+              engine: '在线接口（QQ 图片文字识别 OIDB 0xe07_0）',
+              offline: false,
+              target,
+              text,
+              lineCount: result.blocks.length,
+              srcLang: result.srcLang,
+              imageWidth: result.imageWidth,
+              imageHeight: result.imageHeight,
+              ...(includeBoxes ? { boxes: ocrBoxes(result.blocks) } : {}),
+              ...(notes.length ? { notes } : {}),
+              ...(text ? {} : { hint: '这张图里没识别到文字（可能是纯图，或文字太小/太艺术）。' }),
+            };
+          } catch (error) {
+            // 在线这条腿最常见的失败是「图过期」；本地那条腿仍可能救回来，所以不立刻
+            // 抛出，先记下来，等两条腿都折了再如实回报。
+            failure = error instanceof Error && error.message ? error.message : String(error);
+            notes.push(`在线接口没成：${failure}`);
+          }
+          continue;
+        }
+
+        // 本地离线模型那条腿
+        if (!local) {
+          notes.push('本机没有已下载的识别模型，本地这条腿走不了。');
+          continue;
+        }
+        if (!localPath) {
+          notes.push('本机媒体缓存里没有这张图，本地这条腿取不到图。');
+          continue;
+        }
+        try {
+          const result = await runLocalOcr(localPath, local);
+          const text = ocrBlocksToText(result.blocks);
+          await putCached(`local:${result.modelId}`, {
+            text,
+            blocks: result.blocks,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            modelId: result.modelId,
+            elapsedMs: result.elapsedMs,
+            // 本机媒体缓存里可能只有缩略图（`findFile` 的 source 缺失时退到 thumb）。
+            variant: localVariant,
+          });
+          return {
+            ok: true,
+            found: true,
+            source: 'local',
+            engine: `本地离线模型（${result.modelId}，本机推理，未联网）`,
+            offline: true,
+            target,
+            text,
+            lineCount: result.blocks.length,
+            modelId: result.modelId,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            elapsedMs: result.elapsedMs,
+            ...(includeBoxes ? { boxes: ocrBoxes(result.blocks) } : {}),
+            ...(notes.length ? { notes } : {}),
+            ...(text ? {} : { hint: '这张图里没识别到文字（可能是纯图，或文字太小/太艺术）。' }),
+          };
+        } catch (error) {
+          failure = error instanceof Error && error.message ? error.message : String(error);
+          notes.push(`本地模型没成：${failure}`);
+        }
+      }
+
+      // 两条腿都没成：不抛错（抛出去只剩一句 message，notes 全丢了），把过程如实交回，
+      // 让调用者能分清「识别没成功」和「工具本身坏了」。
+      return {
+        ok: false,
+        found: true,
+        source: null,
+        offline: null,
+        target,
+        error:
+          failure ?? notes[notes.length - 1] ?? '这次没识别成功：在线与本地两条腿都没能跑起来。',
+        notes,
+        hint: '先用 get_ocr_status 看两条腿的可用性：在线要 QQ 在线 + 物料齐全；本地要「设置 → 图片识别」里下好识别模型，且本机缓存过这张图。',
       };
     },
   }),

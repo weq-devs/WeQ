@@ -9,7 +9,8 @@
  *   - `content`  — a plain-text rendering: text runs verbatim, media as bracket
  *                  labels (`[图片]`, `[视频]`, `[文件: name]`). Voice carries its
  *                  file name (`[语音: name]`) so an external transcripts.json
- *                  (the 语音转写 stage) stays join-able by file name.
+ *                  (the 语音转写 stage) stays join-able by file name; images do
+ *                  the same (`[图片: name]`) for the 图片文字识别 stage's ocr.json.
  *
  * Members come *before* messages (the ChatLab JSON parser only scans the first
  * ~200 KB for the members block, and the JSONL parser wants them up front), so
@@ -108,7 +109,14 @@ function renderContent(elements: RenderElement[]): string {
         out += el.data.faceText ? `[${el.data.faceText}]` : '[表情]';
         break;
       case 'pic':
-        out += el.data.subType === 1 ? '[表情]' : '[图片]';
+        // 普通图片带文件名锚点，同语音：批量 OCR 跑完之后靠这个键把
+        // `[图片: 名字]` 换成 `[图片] 识别文字`（见 ocr_rewrite）。
+        out +=
+          el.data.subType === 1
+            ? '[表情]'
+            : el.data.fileName
+              ? `[图片: ${el.data.fileName}]`
+              : '[图片]';
         break;
       case 'video':
         out += '[视频]';

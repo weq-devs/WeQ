@@ -33,12 +33,18 @@ import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
-import { detectThumbType } from '@weq/protocol';
+import { detectThumbType, type OcrBlock } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
+import {
+  resolveLocalOcrModel,
+  resolveLocalOcrFilterModel,
+  runLocalOcr,
+  type LocalOcrModel,
+} from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
@@ -80,10 +86,12 @@ import {
   collectDbDamageFeedback,
   findLatestDbHealthReport,
   writeDbHealthReport,
+  ocrCacheFor,
   type AlbumMedia,
   type AlbumMediaPage,
   type NewMessages,
   type DbChange,
+  type OcrResultCache,
   type RenderC2cMsg,
   type RenderGroupMsg,
 } from '@weq/service';
@@ -405,6 +413,16 @@ export interface GroupAlbumAccessState {
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
+  /**
+   * 本地 OCR 识别模型的 id —— 已选且已下载时非空。在线那条腿不可用（QQ 离线 /
+   * 物料不全）时，灯箱的 OCR 按钮就靠它活着；两条腿都没有才置灰。
+   */
+  ocrLocalModelId: string | null;
+  /**
+   * 本地筛图模型（只判断「图里有没有文字」）的 id —— 已选且已下载时非空。
+   * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
+   */
+  ocrFilterModelId: string | null;
 }
 
 export interface AlbumMediaWire extends AlbumMedia {
@@ -616,6 +634,11 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,
+    // 本地 OCR 那条腿的可用性：设置里选了识别模型且文件下好了才有值。渲染层拿它决定
+    // OCR 按钮能不能点（在线那条腿不可用时，本地模型就是唯一的出路）。
+    ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
+    // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
+    ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
   };
 }
 
@@ -627,6 +650,125 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   if (!state.attachEnabled) {
     throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
+}
+
+/**
+ * 聊天图片文字识别的**在线那条腿**（OIDB 0xe07_0）能不能走，口径与渲染层的「发送键」
+ * 完全一致：QQ 在线 + 未开完全离线模式 + 发包凭据（a2 / d2 / d2key / guid）齐全 ——
+ * 这条链路既要借在线 QQ 的进程发包，又要现签一条媒体下载 rkey，缺任一项都跑不动。
+ *
+ * 能走返回 null；不能走返回**给人看的原因**（渲染层拿它当置灰提示，router 拿它当报错）。
+ */
+function ocrOnlineBlocker(services = requireServices()): string | null {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) return '需要先登录该账号的 QQ 客户端才能识别文字。';
+  if (!state.attachEnabled) {
+    return '已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。';
+  }
+  if (!state.hasA2 || !state.hasD2 || !state.hasD2Key || !state.hasGuid) {
+    return '本机账号物料不全（a2 / d2 / d2key / guid），暂时发不了包。';
+  }
+  return null;
+}
+
+/** 在线那条腿现在能不能走。 */
+function canOcrOnline(services = requireServices()): boolean {
+  return ocrOnlineBlocker(services) === null;
+}
+
+/**
+ * 识别结果缓存：与导出批量识别、MCP 工具共用同一份（内容寻址，`<缓存根>/ocr/`）。
+ * 灯箱里识别过的图，导出直接命中；反过来也一样。
+ */
+function ocrResultCache(): OcrResultCache {
+  return ocrCacheFor(getAppContext().bootstrap!.userConfig.cacheDir('ocr'));
+}
+
+/**
+ * 一次识别结果 → 缓存条目。缓存写失败**绝不能**影响这次调用，所以整条链吞错。
+ *
+ * `variant` 记的是「我们识别的是哪一份像素」：在线那条腿用的是元素里记的宽高（原图），
+ * 本地那条腿读的是媒体协议给的那张（可能是缩略图，尺寸按回包的自报值）。
+ */
+async function cacheOcrText(
+  md5: string | undefined,
+  producer: string,
+  result: {
+    text?: string;
+    blocks: OcrBlock[];
+    imageWidth: number;
+    imageHeight: number;
+    elapsedMs?: number;
+    modelId?: string;
+    lang?: string;
+    variant?: 'original' | 'thumb' | 'downloaded' | 'unknown';
+  },
+): Promise<void> {
+  if (!md5) return;
+  const cache = ocrResultCache();
+  const key = cache.keyFor(md5);
+  if (!key) return;
+  const text = (result.text ?? result.blocks.map((b) => b.text).join('\n')).trim();
+  await cache
+    .putText(key, producer, {
+      text,
+      ...(result.blocks.length > 0 ? { blocks: result.blocks } : {}),
+      frame: {
+        width: result.imageWidth,
+        height: result.imageHeight,
+        variant: result.variant ?? 'unknown',
+      },
+      ...(result.modelId ? { modelId: result.modelId } : {}),
+      ...(result.lang ? { lang: result.lang } : {}),
+      ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+      ids: { elementMd5: md5 },
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * 灯箱「识别文字」的返回形状（在线 / 本地 / 缓存三条路共用一套字段）。
+ *
+ * `blocks` 的坐标与 `imageWidth × imageHeight` 同系 —— 那是**被识别那张图**的像素尺寸
+ * （本地那条腿可能读到缩略图），渲染层必须按它换算，别用元素里记的宽高。
+ */
+export interface ChatOcrLightboxResult {
+  status: string;
+  srcLang: string;
+  blocks: OcrBlock[];
+  imageWidth: number;
+  imageHeight: number;
+  sessionId: string;
+  source: 'oidb' | 'local';
+  /** 本地那条腿用的模型 id。 */
+  modelId?: string;
+  /** 本地那条腿的推理耗时（缓存命中时是当初那次的时间）。 */
+  elapsedMs?: number;
+  /** 结果直接来自本机缓存：这次没有重新识别（在线 / 本地都不用跑）。 */
+  cached?: boolean;
+}
+
+/**
+ * 走本地模型识别灯箱里那张图。只解决「像素 → 文字」，取图复用媒体协议那条链
+ * （见 `main/ocr/local.ts`）；结果整成与在线版同构的 blocks，前端不用区分来源。
+ */
+async function recognizeOcrLocally(
+  input: { src?: string },
+  model: LocalOcrModel,
+): Promise<ChatOcrLightboxResult & { source: 'local'; modelId: string }> {
+  if (!input.src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
+  const result = await runLocalOcr(input.src, model);
+  return {
+    status: 'succ',
+    srcLang: 'local',
+    blocks: result.blocks,
+    imageWidth: result.imageWidth,
+    imageHeight: result.imageHeight,
+    sessionId: '',
+    source: 'local',
+    modelId: result.modelId,
+    elapsedMs: result.elapsedMs,
+  };
 }
 
 function requireFreshClientKeyForAlbum(services = requireServices()): void {
@@ -2259,6 +2401,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -3470,6 +3620,139 @@ export const accountRouter = router({
     return albumAccessState();
   }),
 
+  /**
+   * 聊天图片文字识别 —— 识别聊天里出现过的图片上的文字。
+   *
+   * 两条腿，**在线优先**：
+   *
+   *   1. **在线**（OIDB 0xe07_0）：QQ 在线 + 未开完全离线 + a2/d2/d2key/guid 齐全时走它
+   *      （见 {@link ocrOnlineBlocker}）。入参就是图片元素自己的信息：`fileToken` 用来
+   *      现签一条 CDN 直链，宽高既是随行元数据、也是回包坐标系的基准。
+   *   2. **本地模型**：上面那些条件缺一项、或者在线那条路失败（图过期 / 服务端取不到），
+   *      就用设置里下好的本地识别模型跑（`onnxruntime` + PP-OCR，见 `main/ocr/`）。
+   *      它要的是**图本体**，所以 `src`（灯箱正在显示的那张图的地址）得一起传进来。
+   *
+   * 两条腿都不可用时按钮就该是灰的（渲染层按 `getGroupAlbumAccessState` 判定）；
+   * 真走到了这一步再报错。返回值带 `source`，前端据此在结果上标「在线 / 本地」。
+   */
+  ocrChatImage: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        fileToken: z.string().min(1),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        md5: z.string().optional(),
+        fileSize: z.number().int().nonnegative().optional(),
+        /** 灯箱正在显示的图片地址（本地模型那条腿取图用）。 */
+        src: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }): Promise<ChatOcrLightboxResult> => {
+      const services = requireServices();
+      const local = resolveLocalOcrModel();
+      const online = canOcrOnline(services);
+      // 缓存命中就一步都不用跑：灯箱连点、导出刚跑过、甚至过期图（服务端取不到、
+      // 本机也没本体）都能立刻出结果。键是图片 md5，和导出 / MCP 完全同一套。
+      const cacheKey = input.md5 ? ocrResultCache().keyFor(input.md5) : null;
+      if (cacheKey) {
+        const hit = await ocrResultCache()
+          .getText(cacheKey)
+          .catch(() => null);
+        if (hit) {
+          return {
+            status: 'succ',
+            srcLang: hit.lang ?? (hit.source === 'local' ? 'local' : 'zh'),
+            blocks: hit.blocks ?? [],
+            imageWidth: hit.frame.width,
+            imageHeight: hit.frame.height,
+            sessionId: '',
+            source: hit.source,
+            ...(hit.modelId ? { modelId: hit.modelId } : {}),
+            ...(hit.elapsedMs !== undefined ? { elapsedMs: hit.elapsedMs } : {}),
+            cached: true as const,
+          };
+        }
+      }
+      if (!online && !local) {
+        throw new Error('识别文字需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型。');
+      }
+
+      if (online) {
+        try {
+          const result = await services.chatImageOcr.recognize(input);
+          await cacheOcrText(input.md5, 'oidb', {
+            text: result.blocks.map((b) => b.text).join('\n'),
+            blocks: result.blocks,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            lang: result.srcLang,
+            variant: 'original',
+          });
+          return { ...result, source: 'oidb' as const };
+        } catch (error) {
+          // 服务层抛的都是给人看的中文短句；兜底再包一层，避免渲染层收到空 message。
+          const message =
+            error instanceof Error && error.message ? error.message : '文字识别失败，请稍后重试。';
+          if (!local) throw new Error(message);
+          try {
+            const localResult = await recognizeOcrLocally(input, local);
+            await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
+              text: localResult.blocks.map((b) => b.text).join('\n'),
+              blocks: localResult.blocks,
+              imageWidth: localResult.imageWidth,
+              imageHeight: localResult.imageHeight,
+              modelId: localResult.modelId,
+              elapsedMs: localResult.elapsedMs,
+            });
+            return localResult;
+          } catch (localError) {
+            // 两条腿都折了：主线是在线那条的报错（用户更可能因此有动作），本地这条附在后面。
+            const localMessage =
+              localError instanceof Error && localError.message
+                ? localError.message
+                : '本地模型也没识别成功';
+            throw new Error(`${message}（本地模型：${localMessage}）`);
+          }
+        }
+      }
+
+      // 在线不可用（QQ 离线 / 未开自动读取 / 物料不全）→ 本地模型兜底。
+      try {
+        const localResult = await recognizeOcrLocally(input, local!);
+        await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
+          text: localResult.blocks.map((b) => b.text).join('\n'),
+          blocks: localResult.blocks,
+          imageWidth: localResult.imageWidth,
+          imageHeight: localResult.imageHeight,
+          modelId: localResult.modelId,
+          elapsedMs: localResult.elapsedMs,
+        });
+        return localResult;
+      } catch (error) {
+        throw new Error(
+          error instanceof Error && error.message ? error.message : '本地识别失败，请稍后重试。',
+        );
+      }
+    }),
+
+  /**
+   * 结果缓存里有没有这张图（灯箱的 OCR 按钮门禁用）。
+   *
+   * 「QQ 离线 + 没下本地模型 + 服务端副本已过期」的图本来只能置灰，但只要**以前**识别过
+   * （灯箱、导出、MCP 哪一条都算），结果就还在本机 —— 这时按钮照样能点，直接给缓存。
+   */
+  ocrCacheLookup: procedure.input(z.object({ md5: z.string().min(1) })).query(async ({ input }) => {
+    const cache = ocrResultCache();
+    const key = cache.keyFor(input.md5);
+    if (!key)
+      return { hit: false, source: null as 'oidb' | 'local' | null, at: null as number | null };
+    const hit = await cache.getText(key).catch(() => null);
+    return hit
+      ? { hit: true, source: hit.source, at: hit.at }
+      : { hit: false, source: null as 'oidb' | 'local' | null, at: null as number | null };
+  }),
+
   // ---- 加入交流群引导（分享码 → authKey → 入群申请 / 深链接 / 浏览器） ----
 
   /**
@@ -4599,6 +4882,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({

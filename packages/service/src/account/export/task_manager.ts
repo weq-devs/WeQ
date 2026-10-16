@@ -76,6 +76,16 @@ import {
   type MediaDirs,
   type MediaScanResult,
 } from './media_scan';
+import {
+  ocrFoundImages,
+  OCR_RESULTS_FILE,
+  type OcrFilterFn,
+  type OcrImageFn,
+  type OcrOnlineImageFn,
+} from './ocr_export';
+import type { OcrResultCache } from '../../common/ocr_cache';
+import { GROUP_PTT_RKEY_TYPE, PRIVATE_PTT_RKEY_TYPE } from '../media_download';
+import { rewriteOcrTexts } from './ocr_rewrite';
 import { exportSysFaces, exportMarketFaces } from './sysface_export';
 import {
   resolveOwnOriginals,
@@ -131,6 +141,10 @@ export type StageKey =
   | 'file'
   | 'ptt'
   | 'transcribe'
+  /** 图片文字识别：预筛选（只留检测到文字的图）。 */
+  | 'ocrfilter'
+  /** 图片文字识别：识别（在线优先、本地兜底）。 */
+  | 'ocr'
   | 'sysface'
   | 'sticker'
   /** 导出表情包：扫描本地表情资源。 */
@@ -236,6 +250,24 @@ export interface MediaExportOptions {
   onlineTranscribe?: boolean;
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency?: number;
+  /**
+   * 图片文字识别（自动 OCR）：把图片里的文字识别出来，写进 bundle 的 `ocr.json`
+   * （逐行文字 + 像素坐标框），并把消息文件里的 `[图片: 名字]` 锚点回写成文字。
+   * 在线 QQ 在线时可以直接用服务端的图片 OCR，否则用设置里下好的本地识别模型。
+   */
+  ocrImages?: boolean;
+  /**
+   * 在线识别：识别图片时优先把图交给 QQ 服务端（OIDB 0xe07_0），没拿到的回退本地
+   * 模型。前提是 QQ 在线且有发包物料；不开启就是纯本地识别。
+   */
+  onlineOcr?: boolean;
+  /** 在线识别的并发请求数（默认 5）。 */
+  onlineOcrConcurrency?: number;
+  /**
+   * 预筛选：识别之前先跑一遍超轻量检测模型，把没有文字的图（风景 / 人像）甩掉。
+   * 由渲染层按「筛图模型下好了没」传进来；缺省 = 不筛（每张图都送给识别模型）。
+   */
+  ocrPrefilter?: boolean;
 }
 
 export interface ExportTask {
@@ -343,6 +375,31 @@ export interface MediaDeps {
    * 抓包会话需在导出前先 arm；不可用时抛错，转写阶段自动回退本地模型。
    */
   onlineTranscribe?: OnlineTranscribeFn;
+  /**
+   * 本地 OCR 识别引擎（原生 onnxruntime，住在 app 侧）：输入本机图片路径，
+   * 输出逐行文字 + 像素坐标框。`@weq/service` 保持零原生，同语音那条线的分工。
+   */
+  ocrLocal?: OcrImageFn;
+  /**
+   * 筛图引擎（超轻量检测模型，同样由 app 注入）：批量识别之前先判断「这张图里有没有
+   * 文字」，把风景 / 人像这类直接甩掉。缺省 = 不筛（全部送识别）。
+   */
+  ocrFilter?: OcrFilterFn;
+  /**
+   * 在线图片 OCR（OIDB 0xe07_0）—— 由 app 注入；服务端自己去取图，所以本机没有
+   * 该图也能识别（前提是 CDN 直链还没过期）。并发 / 连续失败放弃由导出阶段控制。
+   */
+  onlineOcr?: OcrOnlineImageFn;
+  /**
+   * 识别结果缓存（`userConfig.cacheDir('ocr')`）—— 与灯箱 / MCP 共用的一份。
+   * 命中的图整条流水线都不用跑；过期图（CDN 失效 + 本机没本体）只有它还能出文字。
+   */
+  ocrCache?: OcrResultCache;
+  /**
+   * 当前筛图模型 id 的取值函数 —— 只给缓存分格用（换了模型旧结论自动失效）。
+   * 用函数而不是字符串：任务跑的中途也能换模型。
+   */
+  ocrFilterModelId?: () => string | null;
   /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
   chatlab?: ChatlabDeps;
   /** 频道私聊（guild direct）导出源——guild_msg.db / guild1.db，由 app 注入。 */
@@ -557,6 +614,7 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+    const wantOcr = Boolean(opts.media?.ocrImages);
     const wantDress = Boolean(
       opts.dress && (opts.dress.bubble || opts.dress.font || opts.dress.widget),
     );
@@ -704,6 +762,24 @@ export class ExportTaskManager extends EventEmitter {
       stages.push({
         key: 'transcribe',
         label: '语音转写',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
+    }
+    // 图片文字识别：先预筛选（只留检测到文字的图），再识别（在线优先 / 本地兜底）。
+    // 它只看图片元素，不依赖「导出媒体」的类别勾选，所以单独两个阶段。
+    if (wantOcr) {
+      stages.push({
+        key: 'ocrfilter',
+        label: '筛选文字图',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
+      stages.push({
+        key: 'ocr',
+        label: '图片文字识别',
         status: 'pending',
         current: 0,
         total: 0,
@@ -1039,10 +1115,17 @@ export class ExportTaskManager extends EventEmitter {
         decodeSilk,
         transcribe,
         onlineTranscribe,
+        ocrLocal,
+        ocrFilter,
+        onlineOcr,
+        ocrCache,
+        ocrFilterModelId,
       } = this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
+      // 图片文字识别：在线那条腿或本地模型有一个能用就开（渲染层同样按这个口径放行）。
+      const wantOcr = Boolean(task.media?.ocrImages && (ocrLocal || onlineOcr));
       const wantDress = Boolean(
         task.dress &&
           (task.dress.bubble || task.dress.font || task.dress.widget) &&
@@ -1050,7 +1133,7 @@ export class ExportTaskManager extends EventEmitter {
       );
       // 收集消息里用到的系统表情 faceId，sysface 阶段据此复制图片到 media/face/。
       const wantSysFaces = Boolean(task.media?.mediaKinds?.sysface);
-      const needsScan = wantMedia || wantTranscribe;
+      const needsScan = wantMedia || wantTranscribe || wantOcr;
       const formats = task.formats?.length ? task.formats : [task.format];
       // Avatars / media / transcription → output is a bundle folder; else a lone
       // file. 系统表情也产出 media/face/，需要 bundle。HTML 始终是 bundle。
@@ -1059,6 +1142,7 @@ export class ExportTaskManager extends EventEmitter {
         wantAvatars ||
         wantMedia ||
         wantTranscribe ||
+        wantOcr ||
         wantDress ||
         wantSysFaces ||
         task.format === 'html' ||
@@ -1084,6 +1168,15 @@ export class ExportTaskManager extends EventEmitter {
         if (s) {
           s.status = 'skipped';
           s.note = '转录引擎不可用';
+        }
+      }
+      if (task.media?.ocrImages && !wantOcr) {
+        for (const key of ['ocrfilter', 'ocr'] as StageKey[]) {
+          const s = this.stage(task, key);
+          if (s) {
+            s.status = 'skipped';
+            s.note = '识别引擎不可用';
+          }
         }
       }
       if (task.dress && !this.deps.dressInstall) {
@@ -1273,6 +1366,8 @@ export class ExportTaskManager extends EventEmitter {
           'video',
           'file',
           'transcribe',
+          'ocrfilter',
+          'ocr',
         ] as StageKey[]) {
           const s = this.stage(task, key);
           if (s) {
@@ -1291,7 +1386,7 @@ export class ExportTaskManager extends EventEmitter {
         );
       }
       const scanStage: StageKey | null =
-        needsScan && dirs ? (wantMedia ? 'media' : 'transcribe') : null;
+        needsScan && dirs ? (wantMedia ? 'media' : wantOcr ? 'ocrfilter' : 'transcribe') : null;
       if (scanStage) {
         this.touchStage(
           task,
@@ -1966,8 +2061,18 @@ export class ExportTaskManager extends EventEmitter {
       if (wantTranscribe && transcribe && scan) {
         const found = scan;
         jobs.push(async () => {
-          const voices = found.found.filter((r) => r.kind === 'ptt');
-          this.log(id, 'transcribe', `语音转写：共 ${voices.length} 条语音`);
+          // 候选 = 本机有本体的 + 本机没有的（后者里有「已经转过文字」的白拿结果，
+          // 也可能在线那条腿还能救回来，见 `transcribeFoundVoices`）。
+          const voices = [...found.found, ...found.missing].filter((r) => r.kind === 'ptt');
+          const stored = voices.filter((r) => r.transcript).length;
+          const offDisk = voices.filter((r) => !r.path).length;
+          this.log(
+            id,
+            'transcribe',
+            `语音转写：共 ${voices.length} 条语音（已存转写 ${stored} 条` +
+              (offDisk > 0 ? ` · 本机没有文件 ${offDisk} 条` : '') +
+              '）',
+          );
           this.touchStage(
             task,
             'transcribe',
@@ -2008,6 +2113,16 @@ export class ExportTaskManager extends EventEmitter {
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
             useOnline ? onlineTranscribe : undefined,
             task.media?.onlineConcurrency ?? 5,
+            // 本机没有 SILK 时现取一份：语音下载缓存按 fileToken 存，重复调用不会重复下。
+            mediaDownload
+              ? (ref) =>
+                  mediaDownload
+                    .download(ref.fileToken, {
+                      ext: '.silk',
+                      rkeyTypes: [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE],
+                    })
+                    .catch(() => null)
+              : undefined,
           );
           // 回写：消息文件早在转写跑的时候就落盘了，这里把 `[语音: 名字]` 锚点
           // 换成转写文本。必须等 messageJob 结束（否则可能改写正在写入的文件），
@@ -2054,8 +2169,174 @@ export class ExportTaskManager extends EventEmitter {
               current: r.total,
               total: r.total,
               failed: r.failed,
-              note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              note:
+                `已转写 ${r.ok}/${r.total}` +
+                (r.failed ? ` · 失败 ${r.failed}` : '') +
+                // total 里还含「本机没有文件、也没法取回」的那些（不是失败，是没辙）。
+                (r.total > r.ok + r.failed ? ` · 无源 ${r.total - r.ok - r.failed}` : ''),
               ...(r.failures ? { failures: r.failures } : {}),
+            },
+            { persist: true },
+          );
+        });
+      }
+
+      // ---- 图片文字识别（预筛选 → 在线优先 → 本地兜底），与转写等阶段并发 ----
+      if (wantOcr && scan) {
+        const scene = scan;
+        const usePrefilter = Boolean(task.media?.ocrPrefilter && ocrFilter);
+        const useOnlineOcr = Boolean(task.media?.onlineOcr && onlineOcr);
+        jobs.push(async () => {
+          const filterStage = this.stage(task, 'ocrfilter');
+          const ocrStage = this.stage(task, 'ocr');
+          const localCount = scene.found.filter((r) => r.kind === 'pic' && r.path).length;
+          if (filterStage) {
+            if (usePrefilter) {
+              this.touchStage(
+                task,
+                'ocrfilter',
+                {
+                  status: 'running',
+                  current: 0,
+                  total: localCount,
+                  note: `预筛 0/${localCount}`,
+                },
+                { persist: true },
+              );
+            } else if (task.media?.ocrImages) {
+              this.touchStage(
+                task,
+                'ocrfilter',
+                { status: 'skipped', current: 0, total: 0, note: '未下载筛图模型' },
+                { persist: true },
+              );
+            }
+          }
+          if (ocrStage) {
+            this.touchStage(
+              task,
+              'ocr',
+              { status: 'running', current: 0, total: 0, note: '准备识别…' },
+              { persist: true },
+            );
+          }
+          if (useOnlineOcr) {
+            this.log(
+              id,
+              'ocr',
+              `在线识别已开启（并发 ${task.media?.onlineOcrConcurrency ?? 5}），` +
+                '连续失败 10 张即放弃在线、回退本地模型（单张回包超时不算连败）',
+            );
+          }
+
+          let r: Awaited<ReturnType<typeof ocrFoundImages>>;
+          try {
+            r = await ocrFoundImages(scene, outDir, {
+              ...(ocrCache ? { cache: ocrCache } : {}),
+              ...(ocrCache && ocrFilterModelId ? { filterModelId: ocrFilterModelId } : {}),
+              ...(usePrefilter && ocrFilter ? { filter: ocrFilter } : {}),
+              ...(ocrLocal ? { local: ocrLocal } : {}),
+              ...(useOnlineOcr && onlineOcr ? { online: onlineOcr } : {}),
+              onlineConcurrency: task.media?.onlineOcrConcurrency ?? 5,
+              onFilterProgress: (done, total) => {
+                if (aborted()) return;
+                this.touchStage(task, 'ocrfilter', {
+                  current: done,
+                  total,
+                  note: `预筛 ${done}/${total}`,
+                });
+              },
+              onProgress: (done, total) => {
+                if (aborted()) return;
+                this.touchStage(task, 'ocr', {
+                  current: done,
+                  total,
+                  note: `识别 ${done}/${total}`,
+                });
+              },
+              onLog: (text, level) => this.log(id, 'ocr', text, level ?? 'info'),
+            });
+          } catch (e) {
+            // 识别整体失败不阻断导出：产物里没有 ocr.json，消息仍是完整可读的。
+            const message = e instanceof Error ? e.message : String(e);
+            for (const key of ['ocrfilter', 'ocr'] as StageKey[]) {
+              const s = this.stage(task, key);
+              if (!s || s.status === 'skipped' || s.status === 'completed') continue;
+              this.touchStage(task, key, { status: 'failed', note: message }, { persist: true });
+            }
+            this.log(id, 'ocr', `图片文字识别失败（不阻断导出）：${message}`, 'error');
+            return;
+          }
+
+          if (filterStage && usePrefilter && filterStage.status !== 'skipped') {
+            const f = r.filter;
+            this.touchStage(
+              task,
+              'ocrfilter',
+              {
+                status: 'completed',
+                current: f ? f.scanned : 0,
+                total: f ? f.scanned : 0,
+                failed: f ? f.failed : 0,
+                note: f
+                  ? f.unavailable
+                    ? '筛图模型不可用，本次跳过预筛选'
+                    : `有文字 ${f.withText} · 跳过 ${f.skipped}`
+                  : '没有需要筛的图片',
+              },
+              { persist: true },
+            );
+          }
+
+          // 回写：与语音转写同一套时序 —— 必须等消息文件落盘，且要在阶段标记
+          // completed 之前（前端一看到 completed 就会自动保存整个 bundle）。
+          const messagesWritten = await messageJob.then(
+            () => true,
+            () => false,
+          );
+          if (messagesWritten && !aborted() && r.stage.ok > 0) {
+            this.touchStage(
+              task,
+              'ocr',
+              { status: 'running', note: '正在把识别结果写回导出文件…' },
+              { persist: true },
+            );
+            try {
+              const parsed = JSON.parse(readFileSync(join(outDir, OCR_RESULTS_FILE), 'utf-8')) as {
+                images?: Record<string, { text?: string }>;
+              };
+              const w = rewriteOcrTexts(this.exportFilePaths(task, outDir), parsed.images ?? {}, {
+                chatlabJson: task.chatlab === true,
+                onLog: (text, level) => this.log(id, 'ocr', text, level ?? 'info'),
+              });
+              if (w.replaced > 0) {
+                this.log(id, 'ocr', `已把 ${w.replaced} 张图片的文字写回 ${w.files} 个导出文件`);
+              }
+            } catch (e) {
+              // 回写失败不阻断导出：识别结果仍在 ocr.json 里。
+              this.log(
+                id,
+                'ocr',
+                `识别结果回写失败（不影响导出）：${e instanceof Error ? e.message : String(e)}`,
+                'warn',
+              );
+            }
+          }
+
+          this.touchStage(
+            task,
+            'ocr',
+            {
+              status: 'completed',
+              current: r.stage.total,
+              total: r.stage.total,
+              failed: r.stage.failed,
+              note:
+                `已识别 ${r.stage.ok} 张出文字（在线 ${r.online} · 本地 ${r.local}）` +
+                (r.timeouts > 0 ? ` · 超时 ${r.timeouts}` : '') +
+                (r.cached > 0 ? ` · 缓存命中 ${r.cached}` : '') +
+                (r.stage.failed ? ` · 失败 ${r.stage.failed}` : ''),
+              ...(r.stage.failures ? { failures: r.stage.failures } : {}),
             },
             { persist: true },
           );
@@ -3251,6 +3532,8 @@ export class ExportTaskManager extends EventEmitter {
           collectSenders: senders,
           collectFaces: faces,
           withMediaPaths,
+          // 勾了图片识字才给图片加文件名小字锚点：识别跑完后靠它回写成文字。
+          ocrAnchors: Boolean(task.media?.ocrImages),
           dress: dressKinds,
           dressLookup,
           dressManifest: dressManifest ?? undefined,

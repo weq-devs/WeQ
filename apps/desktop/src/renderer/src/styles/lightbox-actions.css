@@ -1,0 +1,345 @@
+/* 灯箱底部操作条 + OCR 覆盖层 / 文字面板。
+ *
+ * 灯箱底色是刻意压暗的（两种主题下都暗），所以操作条统一走「深色玻璃」；强调色一律取
+ * `--weq-accent-effective`，跟着设置里的主题色走。OCR 覆盖在**图片上**的文本框属于
+ * 内容层，得跟着明暗主题走（浅色主题下是纸白底，深色主题下是深底），见下面的
+ * `html[data-theme="dark"]` 覆盖。
+ */
+
+.weq-lightbox-stage-wrap {
+  display: grid;
+  place-items: center;
+  gap: 1.1rem;
+}
+
+/* ── 操作条 ───────────────────────────────────────────────── */
+
+.weq-lightbox-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: color-mix(in srgb, #0b0d12 68%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.85);
+  cursor: default;
+}
+
+.weq-lightbox-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.weq-lightbox-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.weq-lightbox-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.weq-lightbox-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.weq-lightbox-action:focus-visible {
+  outline: 2px solid var(--weq-accent-effective, #4c8dff);
+  outline-offset: 1px;
+}
+
+/* 主操作（OCR）+ 已出结果时的「眼镜」：跟主题色绑定。 */
+.weq-lightbox-action-primary,
+.weq-lightbox-action-accent {
+  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 82%, transparent);
+  color: #fff;
+}
+
+.weq-lightbox-action-primary:hover:not(:disabled),
+.weq-lightbox-action-accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 100%, transparent);
+  color: #fff;
+}
+
+.weq-lightbox-action-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ── 图片上的 OCR 层 ──────────────────────────────────────── */
+
+/* 缩放 / 平移的变换挂在 frame 上，图片与覆盖层一起动。 */
+.weq-lightbox-frame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  transform-origin: center center;
+}
+
+.weq-ocr-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 不透明文本框：直接盖住原位（原文字被完全遮住），字色跟着主题色系。 */
+.weq-ocr-cover {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0 0.18em;
+  border-radius: 3px;
+  background: #fbfbfd;
+  color: #14161c;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 34%, transparent),
+    0 2px 10px -4px rgba(0, 0, 0, 0.45);
+  line-height: 1.08;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+html[data-theme='dark'] .weq-ocr-cover {
+  background: #191c24;
+  color: #eef1f8;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 46%, transparent),
+    0 2px 10px -4px rgba(0, 0, 0, 0.7);
+}
+
+/* OCR 进行中：盖住整张图（比图片略大一点的转圈）。 */
+.weq-ocr-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #05070c 48%, transparent);
+  backdrop-filter: blur(2px);
+  line-height: 1.2;
+}
+
+.weq-ocr-spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 3px solid color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 26%, transparent);
+  border-top-color: var(--weq-accent-effective, #4c8dff);
+  animation: weq-ocr-spin 820ms linear infinite;
+}
+
+.weq-ocr-busy-text {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+@keyframes weq-ocr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 操作条里那个小转圈（OCR 进行中）。 */
+.weq-spin {
+  animation: weq-ocr-spin 820ms linear infinite;
+}
+
+/* ── 纯文本面板（可拖动） ─────────────────────────────────── */
+
+.weq-ocr-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: color-mix(in srgb, #101319 88%, transparent);
+  backdrop-filter: blur(18px) saturate(1.25);
+  box-shadow: 0 28px 70px -26px rgba(0, 0, 0, 0.9);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: default;
+}
+
+.weq-ocr-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: grab;
+  user-select: none;
+}
+
+.weq-ocr-panel-head:active {
+  cursor: grabbing;
+}
+
+.weq-ocr-panel-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.weq-ocr-panel-meta {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.72rem;
+}
+
+.weq-ocr-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.weq-ocr-panel-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.weq-ocr-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.weq-ocr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  transition: background 140ms ease;
+}
+
+.weq-ocr-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* 正文可选中：想自己挑一段复制就挑。 */
+.weq-ocr-row-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.weq-ocr-row-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.weq-ocr-row:hover .weq-ocr-row-copy,
+.weq-ocr-row-copy:focus-visible {
+  opacity: 1;
+}
+
+.weq-ocr-row-copy:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 30%, transparent);
+  color: #fff;
+}
+
+.weq-ocr-panel-foot {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.weq-ocr-panel-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.79rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.weq-ocr-panel-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.weq-ocr-panel-btn-primary {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 78%, transparent);
+  color: #fff;
+}
+
+.weq-ocr-panel-btn-primary:hover {
+  background: var(--weq-accent-effective, #4c8dff);
+}
+
+.weq-ocr-panel-hint {
+  padding: 2px 12px 10px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.71rem;
+}

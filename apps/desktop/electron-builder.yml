@@ -50,6 +50,21 @@ extraResources:
   - from: out/main/attachWorker.mjs
     to: out/main/attachWorker.mjs
 
+  # 本地 OCR 的推理 worker 同理（见 main/ocr/worker.ts）：fork 出去的子进程读不了
+  # asar 里的文件，所以单独拷一份到 <resources>/out/main/。它是自包含的单文件
+  # （rollup 已把管线打进这个 chunk，没有相对 import），拷一个文件就够。
+  #
+  # onnxruntime 的原生绑定一并放在 asar 外面：worker 从 <resources>/out/main/ 跑起来，
+  # 模块解析会顺着目录往上找到 <resources>/node_modules/ —— 这也是为什么要把包整个拷
+  # 过来，而不是只依赖 asar 里的那份（asar 里 dlopen 不了 .node/.so）。运行时只依赖
+  # onnxruntime-common（它自家 install 脚本用的 adm-zip / global-agent 不需要）。
+  - from: out/main/ocrWorker.mjs
+    to: out/main/ocrWorker.mjs
+  - from: node_modules/onnxruntime-node
+    to: node_modules/onnxruntime-node
+  - from: node_modules/onnxruntime-common
+    to: node_modules/onnxruntime-common
+
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the
