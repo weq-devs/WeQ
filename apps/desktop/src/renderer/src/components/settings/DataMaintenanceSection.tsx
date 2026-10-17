@@ -51,7 +51,7 @@ export function DataMaintenanceSection({
   });
   return (
     <div className="weq-data-maintenance">
-      <SectionHeader title="数据与维护" />
+      <SectionHeader title="维护工具" desc="当前账号；各项在独立工具中打开。" />
       {account.isError ? (
         <div role="alert" className="weq-maintenance-status">
           {account.error.message}

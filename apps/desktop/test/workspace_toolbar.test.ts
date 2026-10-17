@@ -25,8 +25,16 @@ describe('全局工具条范围', () => {
     document.body.append(host);
     const root = createRoot(host);
     const analysis = vi.fn();
+    const composition = vi.fn();
     try {
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: analysis })));
+      act(() =>
+        root.render(
+          createElement(WorkspaceTools, {
+            onOpenAnalysis: analysis,
+            onOpenComposition: composition,
+          }),
+        ),
+      );
       act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
       const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -35,10 +43,23 @@ describe('全局工具条范围', () => {
         '消息补全',
         '分析与报告',
         'WeQ 助手',
+        '合成聊天记录',
       ]);
       act(() => buttons[3]!.click());
       expect(analysis).toHaveBeenCalledOnce();
       expect(document.querySelector('[role="toolbar"]')).toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      act(() =>
+        document
+          .querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="合成聊天记录"]')!
+          .click(),
+      );
+      expect(composition).toHaveBeenCalledOnce();
+      expect(
+        [...document.querySelectorAll('[aria-modal="true"]')].every((element) =>
+          Boolean(element.closest('[hidden], [inert]')),
+        ),
+      ).toBe(true);
     } finally {
       act(() => root.unmount());
       host.remove();

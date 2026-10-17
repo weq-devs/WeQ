@@ -56,7 +56,6 @@ import {
 } from '../components/settings/DataMaintenanceSection';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
-import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { QuickExportLightbox, type QuickExportTarget } from './export/QuickExportLightbox';
@@ -2525,7 +2524,6 @@ export function MainView(): ReactElement {
     setSettingsOpen(false);
     setMaintenanceTool(tool);
   }
-  const [helpOpen, setHelpOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [temporaryConversations, setTemporaryConversations] = useState<
     Record<string, { conversation: Conversation; appearedAt: number }>
@@ -7298,13 +7296,11 @@ export function MainView(): ReactElement {
               setSettingsOpen(true);
             }}
             onOpenDbRepair={() => openMaintenance('db-repair')}
-            onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
-            onOpenHelp={() => setHelpOpen(true)}
             onOpenInvite={noopAsync}
             onQueryChange={shell.setQuery}
             onSearchFocus={() => {
@@ -7651,7 +7647,7 @@ export function MainView(): ReactElement {
               setMaintenanceTool(null);
               setSettingsSection(
                 maintenanceTool === 'login-accounts'
-                  ? 'account'
+                  ? 'accounts'
                   : maintenanceTool === 'capture' || maintenanceTool === 'reverse'
                     ? 'diagnostics'
                     : 'maintenance',
@@ -7659,8 +7655,8 @@ export function MainView(): ReactElement {
               setSettingsOpen(true);
             }}
           />
-          <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <WorkspaceTools
+            onOpenComposition={() => setMergeForwardLibraryOpen(true)}
             hidden={settingsOpen || maintenanceTool !== null}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={() => shell.switchView('annual')}

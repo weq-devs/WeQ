@@ -28,6 +28,7 @@ import {
   RefreshCw,
   Repeat2,
   Send,
+  Settings,
   ThumbsUp,
   VideoOff,
   X,
@@ -46,6 +47,7 @@ import {
   qzoneAlbumTarget,
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
+import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import '../styles/qzone.css';
 import {
@@ -395,6 +397,7 @@ export function QzoneView({
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const openSpace = useCallback(
     (uin: string, name?: string): void => {
       const value = uin.trim();
@@ -454,6 +457,14 @@ export function QzoneView({
             </div>
           </div>
           <div className="weq-qzn-tools">
+            <button
+              type="button"
+              title="空间设置"
+              aria-label="空间设置"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={17} />
+            </button>
             <button
               type="button"
               title="导出说说"
@@ -645,6 +656,28 @@ export function QzoneView({
       }}
     >
       {workspace}
+      {settingsOpen && active ? (
+        <Modal
+          onClose={() => setSettingsOpen(false)}
+          width={760}
+          labelledBy="weq-qzone-settings-title"
+        >
+          <header className="weq-tools-header">
+            <h2 id="weq-qzone-settings-title">空间设置</h2>
+            <button
+              type="button"
+              aria-label="关闭空间设置"
+              title="关闭空间设置"
+              onClick={() => setSettingsOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="weq-local-settings-body">
+            <QzoneSettingsSection />
+          </div>
+        </Modal>
+      ) : null}
     </QzoneAlbumNavigationContext.Provider>
   );
 }

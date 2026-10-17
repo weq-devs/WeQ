@@ -126,30 +126,52 @@ describe('QQ 频道内的私聊工作区', () => {
     }
   });
 
-  it('更多功能不再提供第二个频道私聊入口', () => {
+  it('内容入口按顺序直接排列，移除更多、克隆和帮助的重复入口', () => {
     const noop = () => {};
+    const collection = vi.fn();
+    const market = vi.fn();
+    const dress = vi.fn();
     const f = mount(
       createElement(AppRail, {
         user: createTemplateDemoData().user,
         view: 'channel',
         onViewChange: noop,
         onOpenSettings: noop,
-        onOpenCollection: noop,
-        onOpenMarketBrowser: noop,
-        onOpenDressUp: noop,
+        onOpenCollection: collection,
+        onOpenMarketBrowser: market,
+        onOpenDressUp: dress,
         onOpenProfile: noop,
         onOpenAbout: noop,
-        onOpenHelp: noop,
         onOpenInvite: noop,
         onOpenWonderfulTools: noop,
         onOpenAntiRecall: noop,
         onOpenDbRepair: noop,
         onOpenQzoneAlbum: noop,
-        onOpenMergeForward: noop,
       }),
     );
     try {
-      act(() => f.host.querySelector<HTMLButtonElement>('[title="更多功能"]')!.click());
+      expect(
+        [...f.host.querySelectorAll('.rail-nav > button')].map((b) => b.getAttribute('title')),
+      ).toEqual([
+        '消息',
+        '联系人',
+        'QQ 空间',
+        'QQ 频道',
+        '我的收藏',
+        '商城表情',
+        '个性装扮',
+        '设置',
+        '应用',
+      ]);
+      for (const title of ['我的收藏', '商城表情', '个性装扮']) {
+        act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
+      }
+      expect(collection).toHaveBeenCalledOnce();
+      expect(market).toHaveBeenCalledOnce();
+      expect(dress).toHaveBeenCalledOnce();
+      expect(f.host.querySelector('[title="更多功能"]')).toBeNull();
+      expect(f.host.querySelector('[title="克隆消息（模拟）"]')).toBeNull();
+      expect(f.host.querySelector('[title="帮助"]')).toBeNull();
       expect(f.host.querySelector('[title="频道私聊"]')).toBeNull();
       expect(f.host.querySelector('[title="QQ 频道"]')).not.toBeNull();
     } finally {

@@ -35,6 +35,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
+vi.mock('../src/renderer/src/components/settings/HelpSection', () => ({
+  HelpSection: () => '帮助子页面',
+}));
 vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({ DbExplorer: () => '数据库面板' }));
 vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
   DbRepairPanel: ({ currentUin }: { currentUin: string }) => {
@@ -92,6 +95,28 @@ function entries(host: Element) {
 }
 
 describe('设置的数据与维护', () => {
+  it('帮助可从设置分类打开，且不叠加独立弹窗', () => {
+    const f = mount(
+      createElement(SettingsDialog, {
+        open: true,
+        initialSection: 'maintenance',
+        onClose: vi.fn(),
+        onOpenMaintenance: vi.fn(),
+        onOpenRecalls: vi.fn(),
+      }),
+    );
+    try {
+      const help = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
+        (button) => button.textContent === '帮助与关于',
+      );
+      expect(help).toBeDefined();
+      act(() => help!.click());
+      expect(f.host.querySelector('.weq-settings-body')?.textContent).toBe('帮助子页面');
+      expect(f.host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    } finally {
+      f.dispose();
+    }
+  });
   it('高级诊断入口归设置，分别打开抓包与解析，不启动诊断动作', () => {
     const open = vi.fn();
     const f = mount(
@@ -247,7 +272,7 @@ describe('设置的数据与维护', () => {
         )!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          '数据与维护',
+          '数据与存储',
         );
         expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
       } finally {

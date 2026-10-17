@@ -35,7 +35,7 @@ import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { DesktopOnly } from '../../lib/target';
+import { DesktopOnly, IS_WEB } from '../../lib/target';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -72,7 +72,11 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 0, label: '永久保留' },
 ];
 
-export function GlobalSettingsSection(): ReactElement {
+export function GlobalSettingsSection({
+  section = 'general',
+}: {
+  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs';
+}): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
@@ -88,6 +92,7 @@ export function GlobalSettingsSection(): ReactElement {
     refetchOnMount: 'always',
   });
   const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
+    enabled: section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -95,15 +100,18 @@ export function GlobalSettingsSection(): ReactElement {
   // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
   // 只比 uin 会给两条记录都打上「当前账号」。
   const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
   const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
+    enabled: section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const cacheDir = trpc.bootstrap.getCacheDir.useQuery(undefined, {
+    enabled: section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -124,6 +132,7 @@ export function GlobalSettingsSection(): ReactElement {
 
   // ---- WeQ 缓存清理（头像/媒体/商城表情/语音，均可重下）----
   const cacheUsage = trpc.bootstrap.listClearableCache.useQuery(undefined, {
+    enabled: section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -327,325 +336,352 @@ export function GlobalSettingsSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<Settings2 size={16} strokeWidth={1.8} />}
-        title="全局设置"
-        desc="与账号无关的应用级设置。"
+        title={
+          {
+            general: '窗口行为',
+            accounts: '账号管理',
+            storage: '缓存与网络',
+            saving: '默认保存',
+            logs: '日志设置',
+          }[section]
+        }
       />
 
       {/* Window close behavior */}
-      <DesktopOnly>
-        <Card title="窗口">
+      {section === 'general' && (
+        <>
+          <DesktopOnly>
+            <Card title="窗口">
+              <Row
+                label={
+                  <span className="weq-set-row-icon">
+                    <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
+                    关闭按钮
+                  </span>
+                }
+                desc={
+                  closeBehavior === 'tray'
+                    ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
+                    : closeBehavior === 'quit'
+                      ? '点击关闭按钮后直接完全退出应用。'
+                      : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
+                }
+                control={
+                  <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
+                    {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={closeBehavior === opt.value}
+                        className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
+                        disabled={settings.isLoading || setWindowClose.isLoading}
+                        onClick={() => void onSetCloseBehavior(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
+            </Card>
+          </DesktopOnly>
+          {IS_WEB ? (
+            <p className="weq-set-note" role="status">
+              浏览器模式下，窗口关闭行为由浏览器管理。
+            </p>
+          ) : null}
+        </>
+      )}
+
+      {/* Account list */}
+      {section === 'accounts' && (
+        <Card title="现有配置">
+          {accountList.length === 0 ? (
+            <div className="weq-set-empty">
+              {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
+            </div>
+          ) : (
+            <div className="weq-set-accounts">
+              {accountList.map((acc) => {
+                const isAutoEnter = autoEnterTarget?.configId === acc.configId;
+                const currentConfigId = currentConfig.data?.configId ?? null;
+                const isCurrent = currentConfigId
+                  ? acc.configId === currentConfigId
+                  : !!openedUin && acc.uin === openedUin;
+                return (
+                  <div key={acc.configId} className="weq-set-account-item">
+                    <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
+                    <div className="weq-set-account-info">
+                      <span className="weq-set-account-name">
+                        {acc.displayName || acc.uin}
+                        {acc.static ? (
+                          <span className="weq-set-badge">
+                            {acc.mobile ? '手机备份' : '静态账号'}
+                          </span>
+                        ) : null}
+                        {isAutoEnter ? (
+                          <span className="weq-set-badge weq-set-badge-ok">默认进入</span>
+                        ) : null}
+                        {isCurrent ? (
+                          <span className="weq-set-badge weq-set-badge-ok">当前账号</span>
+                        ) : null}
+                      </span>
+                      <span className="weq-set-account-uin weq-number">QQ {acc.uin}</span>
+                      {acc.dataDir ? (
+                        <span className="weq-set-account-dir" title={acc.dataDir}>
+                          {acc.dataDir}
+                        </span>
+                      ) : null}
+                    </div>
+                    {isAutoEnter ? (
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                        onClick={() => void onClearAutoEnter()}
+                        disabled={clearAutoEnter.isLoading}
+                        title="下次打开 WeQ 不再自动进入该账号"
+                      >
+                        <RotateCcw size={12} strokeWidth={1.8} aria-hidden />
+                        取消默认进入
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                        onClick={() => void onSetAutoEnter(acc.uin, acc.dataDir)}
+                        disabled={setAutoEnter.isLoading}
+                      >
+                        <User size={12} strokeWidth={1.8} aria-hidden />
+                        设为默认
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-set-btn-del"
+                      onClick={() => void onDeleteAccount(acc)}
+                      disabled={deleteAccount.isLoading || isCurrent}
+                      title={
+                        isCurrent ? '当前已登录的账号无法删除，请先退出登录' : '删除该账号配置'
+                      }
+                    >
+                      <Trash2 size={12} strokeWidth={1.8} aria-hidden />
+                      删除
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="weq-set-note">
+            已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号；想改回手动选择，
+            对已默认的账号点击「取消默认进入」即可。「删除」只移除 WeQ 侧保存的配置，不影响 QQ
+            本体数据。
+          </p>
+          {autoEnterTarget ? (
+            <div className="weq-set-actions">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => void onClearAutoEnter()}
+                disabled={clearAutoEnter.isLoading}
+              >
+                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+                清除默认进入账号
+              </button>
+            </div>
+          ) : null}
+        </Card>
+      )}
+
+      {section === 'storage' && (
+        <>
+          {/* Prefer CDN */}
+          <Card title="网络">
+            <Row
+              label={
+                <span className="weq-set-row-icon">
+                  <Cloud size={15} strokeWidth={1.8} aria-hidden />
+                  优先使用 CDN
+                </span>
+              }
+              desc={
+                preferCdn
+                  ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
+                  : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
+              }
+              control={
+                <Toggle
+                  checked={preferCdn}
+                  disabled={settings.isLoading || setPreferCdnMut.isLoading}
+                  onChange={(next) => void onSetPreferCdn(next)}
+                  label="优先使用 CDN"
+                />
+              }
+            />
+          </Card>
+
+          {/* Cache directory */}
+          <Card title="缓存目录">
+            <Row
+              label={
+                <span className="weq-set-path" title={cacheDir.data?.effective}>
+                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                  <span className="weq-set-path-txt">
+                    {cacheDir.data?.effective ?? (cacheDir.isLoading ? '读取中…' : '—')}
+                  </span>
+                </span>
+              }
+              desc={
+                cacheDir.data?.override
+                  ? '已使用自定义目录。更改后将于下次进入账号时对媒体缓存生效。'
+                  : '默认目录。下载的图片/视频等媒体会缓存在这里。'
+              }
+              control={
+                <div className="weq-set-btn-group">
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={cacheBusy}
+                    onClick={() => void onPickCache()}
+                  >
+                    <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                    选择目录
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={cacheBusy || !cacheDir.data?.override}
+                    onClick={() => void onResetCache()}
+                  >
+                    <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+                    重置默认
+                  </button>
+                </div>
+              }
+            />
+          </Card>
+        </>
+      )}
+      {/* Default export save directory */}
+      {section === 'saving' && (
+        <Card title="导出保存目录">
+          <Row
+            label="默认保存方式"
+            control={
+              <select
+                aria-label="默认导出保存方式"
+                value={settings.data?.exportSaveMode ?? 'after'}
+                disabled={settings.isLoading || setExportMode.isLoading}
+                onChange={(event) => {
+                  const mode = event.target.value;
+                  if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
+                  void setExportMode
+                    .mutateAsync({ mode })
+                    .then(() => settings.refetch())
+                    .catch((error: unknown) => showError('更新保存方式失败', errMsg(error)));
+                }}
+              >
+                <option value="preset">使用预设目录</option>
+                <option value="before">开始前选择</option>
+                <option value="after">完成后选择</option>
+              </select>
+            }
+          />
           <Row
             label={
-              <span className="weq-set-row-icon">
-                <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
-                关闭按钮
+              <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
+                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                <span className="weq-set-path-txt">
+                  {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
+                </span>
               </span>
             }
             desc={
-              closeBehavior === 'tray'
-                ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
-                : closeBehavior === 'quit'
-                  ? '点击关闭按钮后直接完全退出应用。'
-                  : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
+              settings.data?.defaultExportDir
+                ? '供「使用预设目录」模式使用，单次工具调整不修改默认目录。'
+                : '尚未设置预设目录。'
             }
             control={
-              <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
-                {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={closeBehavior === opt.value}
-                    className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
-                    disabled={settings.isLoading || setWindowClose.isLoading}
-                    onClick={() => void onSetCloseBehavior(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="weq-set-btn-group">
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={pickExportDir.isLoading}
+                  onClick={() => void onPickExportDir()}
+                >
+                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                  选择目录
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
+                  onClick={() => void onResetExportDir()}
+                >
+                  <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+                  清除设置
+                </button>
               </div>
             }
           />
         </Card>
-      </DesktopOnly>
-
-      {/* Account list */}
-      <Card title="现有配置">
-        {accountList.length === 0 ? (
-          <div className="weq-set-empty">
-            {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
-          </div>
-        ) : (
-          <div className="weq-set-accounts">
-            {accountList.map((acc) => {
-              const isAutoEnter = autoEnterTarget?.configId === acc.configId;
-              const currentConfigId = currentConfig.data?.configId ?? null;
-              const isCurrent = currentConfigId
-                ? acc.configId === currentConfigId
-                : !!openedUin && acc.uin === openedUin;
-              return (
-                <div key={acc.configId} className="weq-set-account-item">
-                  <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
-                  <div className="weq-set-account-info">
-                    <span className="weq-set-account-name">
-                      {acc.displayName || acc.uin}
-                      {acc.static ? (
-                        <span className="weq-set-badge">
-                          {acc.mobile ? '手机备份' : '静态账号'}
-                        </span>
-                      ) : null}
-                      {isAutoEnter ? (
-                        <span className="weq-set-badge weq-set-badge-ok">默认进入</span>
-                      ) : null}
-                      {isCurrent ? (
-                        <span className="weq-set-badge weq-set-badge-ok">当前账号</span>
-                      ) : null}
-                    </span>
-                    <span className="weq-set-account-uin weq-number">QQ {acc.uin}</span>
-                    {acc.dataDir ? (
-                      <span className="weq-set-account-dir" title={acc.dataDir}>
-                        {acc.dataDir}
-                      </span>
-                    ) : null}
-                  </div>
-                  {isAutoEnter ? (
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                      onClick={() => void onClearAutoEnter()}
-                      disabled={clearAutoEnter.isLoading}
-                      title="下次打开 WeQ 不再自动进入该账号"
-                    >
-                      <RotateCcw size={12} strokeWidth={1.8} aria-hidden />
-                      取消默认进入
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                      onClick={() => void onSetAutoEnter(acc.uin, acc.dataDir)}
-                      disabled={setAutoEnter.isLoading}
-                    >
-                      <User size={12} strokeWidth={1.8} aria-hidden />
-                      设为默认
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-set-btn-del"
-                    onClick={() => void onDeleteAccount(acc)}
-                    disabled={deleteAccount.isLoading || isCurrent}
-                    title={isCurrent ? '当前已登录的账号无法删除，请先退出登录' : '删除该账号配置'}
-                  >
-                    <Trash2 size={12} strokeWidth={1.8} aria-hidden />
-                    删除
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <p className="weq-set-note">
-          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号；想改回手动选择，
-          对已默认的账号点击「取消默认进入」即可。「删除」只移除 WeQ 侧保存的配置，不影响 QQ
-          本体数据。
-        </p>
-        {autoEnterTarget ? (
-          <div className="weq-set-actions">
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              onClick={() => void onClearAutoEnter()}
-              disabled={clearAutoEnter.isLoading}
-            >
-              <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-              清除默认进入账号
-            </button>
-          </div>
-        ) : null}
-      </Card>
-
-      {/* Prefer CDN */}
-      <Card title="网络">
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <Cloud size={15} strokeWidth={1.8} aria-hidden />
-              优先使用 CDN
-            </span>
-          }
-          desc={
-            preferCdn
-              ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
-              : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
-          }
-          control={
-            <Toggle
-              checked={preferCdn}
-              disabled={settings.isLoading || setPreferCdnMut.isLoading}
-              onChange={(next) => void onSetPreferCdn(next)}
-              label="优先使用 CDN"
-            />
-          }
-        />
-      </Card>
-
-      {/* Cache directory */}
-      <Card title="缓存目录">
-        <Row
-          label={
-            <span className="weq-set-path" title={cacheDir.data?.effective}>
-              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-              <span className="weq-set-path-txt">
-                {cacheDir.data?.effective ?? (cacheDir.isLoading ? '读取中…' : '—')}
-              </span>
-            </span>
-          }
-          desc={
-            cacheDir.data?.override
-              ? '已使用自定义目录。更改后将于下次进入账号时对媒体缓存生效。'
-              : '默认目录。下载的图片/视频等媒体会缓存在这里。'
-          }
-          control={
-            <div className="weq-set-btn-group">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={cacheBusy}
-                onClick={() => void onPickCache()}
-              >
-                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                选择目录
-              </button>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={cacheBusy || !cacheDir.data?.override}
-                onClick={() => void onResetCache()}
-              >
-                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                重置默认
-              </button>
-            </div>
-          }
-        />
-      </Card>
-
-      {/* Default export save directory */}
-      <Card title="导出保存目录">
-        <Row
-          label="默认保存方式"
-          control={
-            <select
-              aria-label="默认导出保存方式"
-              value={settings.data?.exportSaveMode ?? 'after'}
-              disabled={settings.isLoading || setExportMode.isLoading}
-              onChange={(event) => {
-                const mode = event.target.value;
-                if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
-                void setExportMode
-                  .mutateAsync({ mode })
-                  .then(() => settings.refetch())
-                  .catch((error: unknown) => showError('更新保存方式失败', errMsg(error)));
-              }}
-            >
-              <option value="preset">使用预设目录</option>
-              <option value="before">开始前选择</option>
-              <option value="after">完成后选择</option>
-            </select>
-          }
-        />
-        <Row
-          label={
-            <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
-              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-              <span className="weq-set-path-txt">
-                {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
-              </span>
-            </span>
-          }
-          desc={
-            settings.data?.defaultExportDir
-              ? '供「使用预设目录」模式使用，单次工具调整不修改默认目录。'
-              : '尚未设置预设目录。'
-          }
-          control={
-            <div className="weq-set-btn-group">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={pickExportDir.isLoading}
-                onClick={() => void onPickExportDir()}
-              >
-                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                选择目录
-              </button>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
-                onClick={() => void onResetExportDir()}
-              >
-                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                清除设置
-              </button>
-            </div>
-          }
-        />
-      </Card>
+      )}
 
       {/* Clear WeQ cache */}
-      <Card title="清理缓存">
-        <p className="weq-set-note">
-          <Info size={12} strokeWidth={1.9} aria-hidden /> 以下缓存均可在需要时自动重新下载，
-          删除不影响聊天记录、克隆体数据与导出产物。默认清理全部，也可勾选后单独清理。
-        </p>
-        <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
-          {cacheUsage.isLoading ? (
-            <div className="weq-set-empty">读取缓存占用中…</div>
-          ) : cacheItems.length === 0 ? (
-            <div className="weq-set-empty">暂无可清理的缓存</div>
-          ) : (
-            cacheItems.map((item) => (
-              <label
-                key={item.id}
-                className="weq-set-cache-item"
-                {...cacheMulti.itemProps(item.id)}
-              >
-                <input
-                  type="checkbox"
-                  checked={pickedCats.has(item.id)}
-                  readOnly
-                  disabled={clearWeqCache.isLoading}
-                />
-                <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                <span className="weq-set-cache-label">{item.label}</span>
-                <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
-              </label>
-            ))
-          )}
-        </div>
-        <div className="weq-set-actions">
-          <span className="weq-set-cache-total">
-            合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
-          </span>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-danger"
-            disabled={clearWeqCache.isLoading || cacheItems.length === 0 || totalCacheBytes === 0}
-            onClick={() => void onClearWeqCache()}
-          >
-            {clearWeqCache.isLoading ? (
-              <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
+      {section === 'storage' && (
+        <Card title="清理缓存">
+          <p className="weq-set-note">
+            <Info size={12} strokeWidth={1.9} aria-hidden /> 以下缓存均可在需要时自动重新下载，
+            删除不影响聊天记录、克隆体数据与导出产物。默认清理全部，也可勾选后单独清理。
+          </p>
+          <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
+            {cacheUsage.isLoading ? (
+              <div className="weq-set-empty">读取缓存占用中…</div>
+            ) : cacheItems.length === 0 ? (
+              <div className="weq-set-empty">暂无可清理的缓存</div>
             ) : (
-              <Trash2 size={14} strokeWidth={1.8} aria-hidden />
+              cacheItems.map((item) => (
+                <label
+                  key={item.id}
+                  className="weq-set-cache-item"
+                  {...cacheMulti.itemProps(item.id)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={pickedCats.has(item.id)}
+                    readOnly
+                    disabled={clearWeqCache.isLoading}
+                  />
+                  <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+                  <span className="weq-set-cache-label">{item.label}</span>
+                  <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+                </label>
+              ))
             )}
-            {pickedCats.size > 0 ? '清理所选' : '清理全部'}
-          </button>
-        </div>
-      </Card>
+          </div>
+          <div className="weq-set-actions">
+            <span className="weq-set-cache-total">
+              合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
+            </span>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-danger"
+              disabled={clearWeqCache.isLoading || cacheItems.length === 0 || totalCacheBytes === 0}
+              onClick={() => void onClearWeqCache()}
+            >
+              {clearWeqCache.isLoading ? (
+                <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
+              ) : (
+                <Trash2 size={14} strokeWidth={1.8} aria-hidden />
+              )}
+              {pickedCats.size > 0 ? '清理所选' : '清理全部'}
+            </button>
+          </div>
+        </Card>
+      )}
 
-      <DesktopOnly>
+      {section === 'logs' && (
         <Card title="日志">
           <Row
             label="日志保留时长"
@@ -675,18 +711,20 @@ export function GlobalSettingsSection(): ReactElement {
               </select>
             }
           />
-          <Row
-            label="日志文件夹"
-            desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
-            control={
-              <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
-                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                打开日志文件夹
-              </button>
-            }
-          />
+          <DesktopOnly>
+            <Row
+              label="日志文件夹"
+              desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
+              control={
+                <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
+                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                  打开日志文件夹
+                </button>
+              }
+            />
+          </DesktopOnly>
         </Card>
-      </DesktopOnly>
+      )}
     </div>
   );
 }

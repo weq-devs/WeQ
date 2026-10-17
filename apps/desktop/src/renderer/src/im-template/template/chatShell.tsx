@@ -34,14 +34,11 @@ export function ChatShell({
   onOpenDressUp,
   onOpenProfile,
   onOpenAbout,
-  onOpenHelp,
-  onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
   onOpenInvite,
   onOpenWonderfulTools,
   onOpenAntiRecall,
   onOpenDbRepair,
   onOpenQzoneAlbum,
-  onOpenMergeForward,
   onQueryChange,
   onQuickInvite,
   onCreateGroup,
@@ -79,13 +76,11 @@ export function ChatShell({
   onOpenDressUp: () => void;
   onOpenProfile: () => void;
   onOpenAbout: () => void;
-  onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
-  onOpenMergeForward: () => void;
   onQueryChange: (query: string) => void;
   onQuickInvite: () => void;
   onCreateGroup: () => void;
@@ -127,13 +122,11 @@ export function ChatShell({
           onOpenDressUp={onOpenDressUp}
           onOpenProfile={onOpenProfile}
           onOpenAbout={onOpenAbout}
-          onOpenHelp={onOpenHelp}
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
           onOpenAntiRecall={onOpenAntiRecall}
           onOpenDbRepair={onOpenDbRepair}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
-          onOpenMergeForward={onOpenMergeForward}
           messageBadgeCount={messageBadgeCount}
           contactBadgeCount={contactBadgeCount}
           showTools={showTools}
