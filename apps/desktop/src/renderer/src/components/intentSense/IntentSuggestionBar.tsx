@@ -50,26 +50,72 @@ export function IntentSuggestionBar({
 
   return (
     <div className="weq-int-suggest">
-      <Lightbulb size={13} style={{ opacity: 0.55, flexShrink: 0 }} aria-hidden />
-      {loading && list.length === 0
-        ? Array.from({ length: 3 }, (_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 固定三条占位骨架，顺序恒定。
-            <span key={`skeleton-${i}`} className="weq-int-suggest-pill" style={{ minWidth: 96 }}>
-              <span>…</span>
-            </span>
-          ))
-        : list.map((s) => (
-            <button
-              key={`${s.tone ?? ''}:${s.text}`}
-              type="button"
-              className="weq-int-suggest-pill"
-              title="点击填入输入框"
-              onClick={() => onInsert(s.text)}
-            >
-              {s.tone ? <span className="weq-int-suggest-tone">{s.tone}</span> : null}
-              <span>{s.text}</span>
-            </button>
-          ))}
+      <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
+      <div
+        className="weq-int-suggest-track"
+        onWheel={(e) => {
+          if (e.deltaY === 0) return;
+          const target = (e.target as HTMLElement | null)?.closest(
+            '.weq-int-suggest-text',
+          ) as HTMLElement | null;
+          if (target && target.scrollWidth > target.clientWidth) {
+            const canScrollRight =
+              e.deltaY > 0 && target.scrollLeft + target.clientWidth < target.scrollWidth - 1;
+            const canScrollLeft = e.deltaY < 0 && target.scrollLeft > 0;
+            if (canScrollRight || canScrollLeft) {
+              target.scrollLeft += e.deltaY;
+              e.preventDefault();
+              return;
+            }
+          }
+          const track = e.currentTarget;
+          if (track.scrollWidth > track.clientWidth) {
+            track.scrollLeft += e.deltaY;
+            e.preventDefault();
+          }
+        }}
+      >
+        {loading && list.length === 0
+          ? Array.from({ length: 3 }, (_, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 固定三条占位骨架，顺序恒定。
+              <span
+                key={`skeleton-${i}`}
+                className="weq-int-suggest-pill is-skeleton"
+                style={{ minWidth: 88 }}
+              >
+                <span>…</span>
+              </span>
+            ))
+          : list.map((s) => (
+              <button
+                key={`${s.tone ?? ''}:${s.text}`}
+                type="button"
+                className="weq-int-suggest-pill"
+                title={`${s.tone ? `[${s.tone}] ` : ''}${s.text}\n点击填入输入框`}
+                onClick={() => onInsert(s.text)}
+                onMouseEnter={(e) => {
+                  const textEl = e.currentTarget.querySelector(
+                    '.weq-int-suggest-text',
+                  ) as HTMLElement | null;
+                  if (!textEl) return;
+                  const overflow = textEl.scrollWidth - textEl.clientWidth;
+                  if (overflow > 2) {
+                    textEl.scrollTo({ left: overflow, behavior: 'smooth' });
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  const textEl = e.currentTarget.querySelector(
+                    '.weq-int-suggest-text',
+                  ) as HTMLElement | null;
+                  if (!textEl || textEl.scrollLeft === 0) return;
+                  textEl.scrollTo({ left: 0, behavior: 'smooth' });
+                }}
+              >
+                {s.tone ? <span className="weq-int-suggest-tone">{s.tone}</span> : null}
+                <span className="weq-int-suggest-text">{s.text}</span>
+              </button>
+            ))}
+      </div>
       <button
         type="button"
         className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
@@ -84,7 +130,7 @@ export function IntentSuggestionBar({
           }
         }}
       >
-        <RefreshCw size={13} />
+        <RefreshCw size={12} />
       </button>
     </div>
   );

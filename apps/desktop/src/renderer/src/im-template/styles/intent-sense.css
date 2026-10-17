@@ -73,6 +73,11 @@
   background: color-mix(in srgb, #f43f5e 14%, transparent);
   border-color: color-mix(in srgb, #f43f5e 32%, transparent);
 }
+.weq-intent-pill[data-emotion='admiration'] {
+  color: #7e22ce;
+  background: color-mix(in srgb, #a855f7 15%, transparent);
+  border-color: color-mix(in srgb, #a855f7 34%, transparent);
+}
 .weq-intent-pill[data-emotion='neutral'] {
   color: #64748b;
   background: color-mix(in srgb, #94a3b8 14%, transparent);
@@ -111,6 +116,7 @@
 
 html[data-theme='dark'] .weq-intent-pill[data-emotion='joy'],
 html[data-theme='dark'] .weq-intent-pill[data-emotion='excitement'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='admiration'],
 html[data-theme='dark'] .weq-intent-pill[data-emotion='neutral'],
 html[data-theme='dark'] .weq-intent-pill[data-emotion='sadness'],
 html[data-theme='dark'] .weq-intent-pill[data-emotion='anger'],
@@ -350,53 +356,132 @@ html[data-theme='dark'] .weq-intent-popover {
   color: var(--weq-fg-tertiary, #999);
 }
 
-/* ── 回复建议（composer 上方 pills）─────────────────────────────────── */
+/* ── 回复建议（composer 上方紧凑单行滚动 pills）──────────────────────── */
+
+.chat-pane:has(> .weq-int-suggest) {
+  grid-template-rows:
+    var(--chat-header-height)
+    minmax(0, 1fr)
+    auto
+    var(--composer-height, 190px);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .group-info-panel {
+  grid-row: 2 / 5;
+}
+
+.chat-pane:has(> .weq-int-suggest) > .composer-toggle {
+  bottom: calc(var(--composer-height, 190px) + 28px);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .new-message-pill {
+  bottom: calc(var(--composer-height, 190px) + 40px);
+}
+
+.chat-pane:has(> .weq-chat-backdrop) > .weq-int-suggest {
+  background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .composer {
+  border-top: 0;
+  padding-top: 6px;
+}
 
 .weq-int-suggest {
+  z-index: 2;
+  grid-column: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px 0;
-  flex-wrap: wrap;
+  gap: 5px;
+  height: 28px;
+  min-width: 0;
+  padding: 3px 14px 1px 18px;
+  border-top: 1px solid var(--weq-bar-border, #dedede);
+  background: var(--weq-bar-surface, rgba(255, 255, 255, 0.58));
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+
+.weq-int-suggest-icon {
+  opacity: 0.55;
+  flex-shrink: 0;
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-int-suggest-track {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.weq-int-suggest-track::-webkit-scrollbar {
+  display: none;
 }
 
 .weq-int-suggest-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 340px;
-  padding: 3px 11px;
+  gap: 4px;
+  height: 21px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 11px;
+  line-height: 1;
   color: var(--weq-fg-primary, #222);
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 24%, transparent);
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   transition:
     background 120ms ease-out,
-    transform 120ms ease-out;
+    border-color 120ms ease-out;
 }
 
 .weq-int-suggest-pill:hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 16%, transparent);
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 38%, transparent);
 }
 
 .weq-int-suggest-pill span.weq-int-suggest-tone {
   flex-shrink: 0;
-  font-size: 10px;
-  color: var(--weq-fg-tertiary, #999);
+  padding: 1px 4px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 80%, var(--weq-fg-primary, #222));
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 14%, transparent);
+}
+
+.weq-int-suggest-text {
+  display: inline-block;
+  max-width: 240px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.weq-int-suggest-text::-webkit-scrollbar {
+  display: none;
 }
 
 .weq-int-suggest-refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: none;
   background: transparent;

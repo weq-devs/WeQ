@@ -23,6 +23,7 @@ import {
   Laugh,
   MessageCircle,
   Share2,
+  Sparkles,
   Sun,
   Loader2,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = 
   request: { label: '请求', icon: Hand },
   greeting: { label: '问候', icon: Sun },
   share: { label: '分享', icon: Share2 },
+  praise: { label: '夸赞', icon: Sparkles },
   vent: { label: '吐槽', icon: CloudLightning },
   joke: { label: '玩梗', icon: Laugh },
   plan: { label: '约定', icon: CalendarCheck },
@@ -44,6 +46,7 @@ const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = 
 const EMOTION_LABELS: Record<string, string> = {
   joy: '开心',
   excitement: '兴奋',
+  admiration: '赞叹',
   neutral: '平静',
   sadness: '低落',
   anger: '生气',

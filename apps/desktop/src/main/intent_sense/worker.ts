@@ -24,28 +24,32 @@ const requireFn = createRequire(__filename);
 
 /** 与 @weq/service 的 INTENT_LABELS / EMOTION_LABELS 键保持一致。 */
 const INTENT_CRITERIA: Record<string, string> = {
-  question: '提出问题、寻求信息或答案',
-  request: '请求对方做某事、求助',
+  question: '提出问题、好奇追问、求科普或寻求答案（如：尊嘟假嘟、细说、怎么搞）',
+  request: '请求对方做某事、帮忙或求助',
   greeting: '打招呼、问候、寒暄',
-  share: '分享见闻、经历、链接、图片内容',
-  vent: '吐槽、抱怨、发泄情绪',
-  joke: '开玩笑、玩梗、调侃、发搞笑内容',
-  plan: '商量或约定要做的事（时间地点安排）',
+  share: '分享见闻、经历、成果、链接、图片内容',
+  praise:
+    '夸赞、佩服、惊叹对方或某事很厉害、捧场（含正话反说或夸张惊叹，如：牛逼、666、绝了、给跪了、吓哭了、看傻了、恐怖如斯）',
+  vent: '吐槽、抱怨、发泄负面情绪或反语敷衍（如：麻了、丸辣、天塌了、啊对对对、好好好）',
+  joke: '开玩笑、玩梗、调侃、发搞笑内容或狂喜大笑（如：笑死、笑哭、蚌埠住了、哈哈哈）',
+  plan: '商量、约定或爽快答应要做的事（时间地点安排、包的、冲冲冲）',
   info: '通知、告知事实、同步进展',
-  chat: '没有明确目的的日常闲聊',
+  chat: '没有明确目的的日常闲聊、温情互动',
   other: '以上都不符合',
 };
 
 const EMOTION_CRITERIA: Record<string, string> = {
-  joy: '开心、愉快、满足',
-  excitement: '兴奋、激动、期待',
-  neutral: '平静、无明显情绪',
-  sadness: '低落、难过、失落',
-  anger: '生气、不满、烦躁',
-  anxiety: '焦虑、担心、紧张',
-  affection: '亲昵、撒娇、关心、善意',
-  fatigue: '疲惫、倦怠、没精力',
-  curiosity: '好奇、感兴趣、想知道',
+  joy: '开心、愉快、大笑、觉得好笑（如：哈哈、笑死、笑哭、蚌埠住了）',
+  excitement: '兴奋、激动、期待、干劲十足（如：冲冲冲、包的、太期待了）',
+  admiration:
+    '赞叹、惊叹、佩服、被震撼、觉得太牛逼或太厉害了（含网络夸张修辞如：吓哭了、给跪了、看傻了、头皮发麻、恐怖如斯、太变态了、666、绝了）',
+  neutral: '平静、客观陈述、无明显情绪',
+  sadness: '低落、难过、失落、委屈',
+  anger: '生气、不满、烦躁、阴阳怪气敷衍（如：气死、啊对对对、好好好）',
+  anxiety: '真实焦虑、担心、害怕、紧张慌乱',
+  affection: '亲昵、撒娇、关心、感动暖心（如：贴贴、抱抱、感动哭了、泪目、awsl）',
+  fatigue: '疲惫、倦怠、心累、没精力（如：麻了、燃尽了、累死、困死、躺平）',
+  curiosity: '好奇、感兴趣、吃瓜追问（如：尊嘟假嘟、细说、真的假的）',
 };
 
 const INTENSITY_LEVELS = ['几乎没有情绪', '轻微', '中等', '强烈', '极其强烈'];
@@ -245,18 +249,45 @@ async function loadLaya(modelDir: string): Promise<LayaLike> {
   return loading;
 }
 
-async function handleAnalyze(id: number, text: string): Promise<void> {
+interface WorkerContextTurn {
+  mine?: boolean;
+  text?: string;
+}
+
+async function handleAnalyze(
+  id: number,
+  text: string,
+  mine?: boolean,
+  context?: WorkerContextTurn[],
+  pragmaticHint?: string | null,
+): Promise<void> {
   const engine = await loadLaya(layaModelDir!);
-  const state = `私聊消息：「${text}」`;
+  const parts: string[] = [];
+  if (Array.isArray(context) && context.length > 0) {
+    const lines = context
+      .filter((c) => c && typeof c.text === 'string' && c.text.trim().length > 0)
+      .slice(-4)
+      .map((c) => `${c.mine ? '我' : '对方'}：「${c.text!.trim().slice(0, 160)}」`);
+    if (lines.length > 0) {
+      parts.push(`上文对话：\n${lines.join('\n')}`);
+    }
+  }
+  const speaker = mine === true ? '我' : '对方';
+  parts.push(`当前待分析消息（${speaker}）：「${text}」`);
+  if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
+    parts.push(`语境与网络用语提示：${pragmaticHint.trim()}`);
+  }
+  const state = parts.join('\n');
   const res = await engine.systemOne(state, {
     intent: {
       type: 'choice',
-      instructions: '发送这条消息的人的沟通意图是什么？',
+      instructions: '结合上下文语境，发送当前这条消息的人的真实沟通意图是什么？',
       criteria: INTENT_CRITERIA,
     },
     emotion: {
       type: 'choice',
-      instructions: '发送者当前的情绪状态最接近哪一种？',
+      instructions:
+        '结合上下文语境与中文网络用语习惯（注意区分字面恐惧/哭泣与夸张式赞叹/笑哭），发送者当前真实的情绪状态最接近哪一种？',
       criteria: EMOTION_CRITERIA,
     },
     intensity: {
@@ -266,7 +297,7 @@ async function handleAnalyze(id: number, text: string): Promise<void> {
     },
     sentiment: {
       type: 'score',
-      instructions: '这条消息的整体情感倾向？',
+      instructions: '结合语境，这条消息的真实整体情感倾向？（夸赞/惊叹/玩梗大笑为积极）',
       criteria: SENTIMENT_LEVELS,
     },
   });
@@ -318,6 +349,9 @@ process.on(
     type?: string;
     id?: number;
     text?: string;
+    mine?: boolean;
+    context?: WorkerContextTurn[];
+    pragmaticHint?: string | null;
     samples?: string[];
     modelDir?: string;
     error?: string;
@@ -332,9 +366,13 @@ process.on(
         break;
       }
       case 'analyze': {
-        handleAnalyze(m.id as number, m.text as string).catch((e) =>
-          emit({ type: 'analyze-error', id: m.id, error: String(e) }),
-        );
+        handleAnalyze(
+          m.id as number,
+          m.text as string,
+          m.mine as boolean | undefined,
+          m.context as WorkerContextTurn[] | undefined,
+          m.pragmaticHint as string | null | undefined,
+        ).catch((e) => emit({ type: 'analyze-error', id: m.id, error: String(e) }));
         break;
       }
       case 'mbti': {

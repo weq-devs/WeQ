@@ -214,4 +214,170 @@ describe('IntentSenseService', () => {
     expect(r2?.msgId).toBe('7');
     expect(analyze).toHaveBeenCalledTimes(1);
   });
+
+  it('语境与语料库校准：上文展示牛逼成果时，下文「吓哭了/给跪了/卧槽」判为夸赞(praise)+赞叹(admiration)', async () => {
+    // 模拟字面分类器被「吓」「哭」「卧槽」误导，原始返回 anxiety/sadness/anger 与负向情感分
+    const literalBlindAnalyze = vi.fn(async (text: string, opts?: unknown) => {
+      expect(opts).toBeDefined();
+      if (text.includes('做出')) {
+        return {
+          intent: 'share' as const,
+          emotion: 'excitement' as const,
+          intensity: 80,
+          sentiment: 70,
+          confidence: 0.8,
+        };
+      }
+      return {
+        intent: 'vent' as const,
+        emotion: 'anxiety' as const,
+        intensity: 60,
+        sentiment: -70,
+        confidence: 0.55,
+      };
+    });
+
+    const msgs = [
+      textMsg(1n, 'u_self', '我刚把整个引擎手搓重构完了，做出了一个很牛逼的成果！', 1000),
+      textMsg(2n, 'u_peer', '吓哭了', 1020),
+      textMsg(3n, 'u_peer', '给大佬跪了', 1030),
+      textMsg(4n, 'u_peer', '卧槽', 1040),
+    ];
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(literalBlindAnalyze),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local' });
+
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    const got = svc.getMessageAnalyses('c2c', 'u_peer', ['2', '3', '4']);
+    for (const id of ['2', '3', '4']) {
+      const item = got.find((r) => r.msgId === id);
+      expect(item?.intent).toBe('praise');
+      expect(item?.emotion).toBe('admiration');
+      expect(item?.sentiment).toBeGreaterThanOrEqual(80);
+      expect(item?.intensity).toBeGreaterThanOrEqual(80);
+    }
+  });
+
+  it('真实惊吓语境消歧：上文提到半夜遇到蛇，下文「吓哭了」保持焦虑(anxiety)而非赞叹', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'vent' as const,
+      emotion: 'anxiety' as const,
+      intensity: 85,
+      sentiment: -75,
+      confidence: 0.85,
+    }));
+    const msgs = [
+      textMsg(1n, 'u_self', '昨晚走夜路看到一条大蛇差点踩上去，太吓人了', 1000),
+      textMsg(2n, 'u_peer', '吓哭了', 1020),
+    ];
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(analyze),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local' });
+
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    const [res] = svc.getMessageAnalyses('c2c', 'u_peer', ['2']);
+    expect(res?.emotion).toBe('anxiety');
+    expect(res?.sentiment).toBeLessThan(0);
+  });
+
+  it('中文互联网黑话与反语校准：笑死 / 羡慕哭了 / 泪目 / 啊对对对 / 人麻了', async () => {
+    // 模拟字面模型把带「死/哭/麻」全判成 sadness，把「对对对」判成 joy
+    const naiveAnalyze = vi.fn(async (text: string) => {
+      if (text.includes('对对对')) {
+        return {
+          intent: 'chat' as const,
+          emotion: 'joy' as const,
+          intensity: 40,
+          sentiment: 60,
+          confidence: 0.5,
+        };
+      }
+      return {
+        intent: 'vent' as const,
+        emotion: 'sadness' as const,
+        intensity: 50,
+        sentiment: -60,
+        confidence: 0.5,
+      };
+    });
+    const msgs = [
+      textMsg(1n, 'u_peer', '笑死我了蚌埠住了', 1000),
+      textMsg(2n, 'u_peer', '羡慕哭了', 1100),
+      textMsg(3n, 'u_peer', '感动哭了泪目', 1200),
+      textMsg(4n, 'u_peer', '啊对对对', 1300),
+      textMsg(5n, 'u_peer', '加班到现在人麻了', 1400),
+    ];
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(naiveAnalyze),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local' });
+
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    const byId = new Map(
+      svc.getMessageAnalyses('c2c', 'u_peer', ['1', '2', '3', '4', '5']).map((r) => [r.msgId, r]),
+    );
+
+    expect(byId.get('1')?.intent).toBe('joke');
+    expect(byId.get('1')?.emotion).toBe('joy');
+    expect(byId.get('1')?.sentiment).toBeGreaterThan(0);
+
+    expect(byId.get('2')?.intent).toBe('praise');
+    expect(byId.get('2')?.emotion).toBe('admiration');
+    expect(byId.get('2')?.sentiment).toBeGreaterThan(0);
+
+    expect(byId.get('3')?.emotion).toBe('affection');
+    expect(byId.get('3')?.sentiment).toBeGreaterThan(0);
+
+    expect(byId.get('4')?.intent).toBe('vent');
+    expect(byId.get('4')?.emotion).toBe('anger');
+    expect(byId.get('4')?.sentiment).toBeLessThan(0);
+
+    expect(byId.get('5')?.intent).toBe('vent');
+    expect(byId.get('5')?.emotion).toBe('fatigue');
+    expect(byId.get('5')?.sentiment).toBeLessThan(0);
+  });
+
+  it('analyzeMessage 单条悬停支持 API 引擎并自动携带前序上下文', async () => {
+    const msgs = [
+      textMsg(1n, 'u_self', '这个算法我优化了100倍，终于做出来了！', 1000),
+      textMsg(2n, 'u_peer', '吓哭了', 1015),
+    ];
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({ baseUrl: 'http://x', apiKey: 'k', model: ref.model }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'p', model: 'm' },
+    });
+    const fetchMock = vi.fn(async (_url: string, init?: { body?: string }) => {
+      const payload = JSON.parse(init?.body ?? '{}') as {
+        messages?: Array<{ role: string; content: string }>;
+      };
+      const userPrompt = payload.messages?.find((m) => m.role === 'user')?.content ?? '';
+      // 验证单条悬停请求里包含了上文参考
+      expect(userPrompt).toContain('优化了100倍');
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"results":[{"i":0,"intent":"vent","emotion":"anxiety","intensity":70,"sentiment":-50,"confidence":0.6}]}',
+              },
+            },
+          ],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await svc.analyzeMessage('c2c', 'u_peer', '2');
+    expect(res?.intent).toBe('praise');
+    expect(res?.emotion).toBe('admiration');
+    expect(res?.sentiment).toBeGreaterThanOrEqual(80);
+  });
 });

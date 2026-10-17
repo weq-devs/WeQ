@@ -28,6 +28,11 @@ import type { AgentLabEndpoint, AgentLabModelRef } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore } from '../common/json_store';
 import { segmentWords } from './text_segment';
+import {
+  analyzePragmatics,
+  calibrateIntentSense,
+  type IntentContextTurn,
+} from './intent_corpus';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
@@ -39,6 +44,7 @@ export const INTENT_LABELS = {
   request: '请求',
   greeting: '问候',
   share: '分享',
+  praise: '夸赞',
   vent: '吐槽',
   joke: '玩梗',
   plan: '约定',
@@ -51,6 +57,7 @@ export type IntentKind = keyof typeof INTENT_LABELS;
 export const EMOTION_LABELS = {
   joy: '开心',
   excitement: '兴奋',
+  admiration: '赞叹',
   neutral: '平静',
   sadness: '低落',
   anger: '生气',
@@ -160,6 +167,15 @@ export interface ReplySuggestion {
 
 // ── 本地引擎端口（桌面版注入）──────────────────────────────────────────────
 
+export interface IntentLocalAnalyzeOptions {
+  /** 当前消息是否为本机发出。 */
+  mine?: boolean;
+  /** 紧邻的前序对话上下文（按时间升序）。 */
+  context?: IntentContextTurn[];
+  /** 语料库与上下文预分析生成的语用提示（辅助模型理解反语/夸张/网络黑话）。 */
+  pragmaticHint?: string | null;
+}
+
 /**
  * Laya ONNX worker 的服务侧视图。桌面版在主进程里持有 utilityProcess 桥并实现
  * 这个接口；service 层只依赖它，不感知 Electron。web 版不注入（null）。
@@ -167,8 +183,11 @@ export interface ReplySuggestion {
 export interface IntentLocalEnginePort {
   /** worker 存活且模型已加载。 */
   readonly ready: boolean;
-  /** 单条文本 → 意图/情绪（Laya choice + score）。 */
-  analyze(text: string): Promise<{
+  /** 单条文本（可选附加上下文与语用提示） → 意图/情绪（Laya choice + score）。 */
+  analyze(
+    text: string,
+    options?: IntentLocalAnalyzeOptions,
+  ): Promise<{
     intent: IntentKind;
     emotion: EmotionKind;
     intensity: number;
@@ -190,8 +209,13 @@ export interface IntentAnalyzedEvent {
 
 /** 单会话缓存上限（按 sendTime 裁最旧）。 */
 const CACHE_MAX_ENTRIES = 2000;
+/** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
+const CACHE_SCHEMA_VERSION = 2;
 /** ensureAnalysis 默认回看窗口。 */
 const DEFAULT_WINDOW = 300;
+/** 单条消息回看前序上下文的最大轮数与时间间隔（2 小时内视为同一段对话）。 */
+const CONTEXT_MAX_TURNS = 4;
+const CONTEXT_MAX_GAP_SEC = 2 * 3600;
 /** api 引擎每批消息数（一次结构化调用）。 */
 const API_BATCH = 20;
 /** 画像聚合最多扫描的消息数。 */
@@ -264,15 +288,36 @@ function extractJsonBlock(text: string): unknown {
   }
 }
 
+/** 提取 rows[targetIndex] 之前紧邻的对话上下文（最多 CONTEXT_MAX_TURNS 条，跨度不超过 2h）。 */
+function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): IntentContextTurn[] {
+  const target = rows[targetIndex];
+  if (!target || targetIndex <= 0) return [];
+  const picked: IntentContextTurn[] = [];
+  let nextTime = target.sendTime;
+  for (let i = targetIndex - 1; i >= 0 && picked.length < CONTEXT_MAX_TURNS; i--) {
+    const prev = rows[i];
+    if (!prev || !prev.text) continue;
+    if (nextTime > 0 && prev.sendTime > 0 && nextTime - prev.sendTime > CONTEXT_MAX_GAP_SEC) {
+      break;
+    }
+    picked.push({ mine: prev.mine, text: prev.text, sendTime: prev.sendTime });
+    nextTime = prev.sendTime;
+  }
+  return picked.reverse();
+}
+
 // ── 缓存条目形状（JsonStore normalize 用）──────────────────────────────────
 
 interface CacheFile {
+  version?: number;
   results: IntentSenseResult[];
 }
 
 function normalizeCacheFile(raw: unknown): CacheFile {
-  const list = (raw as { results?: unknown } | null)?.results;
-  if (!Array.isArray(list)) return { results: [] };
+  const obj = raw as { version?: unknown; results?: unknown } | null;
+  if (obj?.version !== CACHE_SCHEMA_VERSION) return { version: CACHE_SCHEMA_VERSION, results: [] };
+  const list = obj?.results;
+  if (!Array.isArray(list)) return { version: CACHE_SCHEMA_VERSION, results: [] };
   const results: IntentSenseResult[] = [];
   for (const item of list) {
     const r = item as Partial<IntentSenseResult> | null;
@@ -291,7 +336,7 @@ function normalizeCacheFile(raw: unknown): CacheFile {
       analyzedAt: Number(r.analyzedAt ?? 0) || 0,
     });
   }
-  return { results };
+  return { version: CACHE_SCHEMA_VERSION, results };
 }
 
 export interface IntentSenseOptions {
@@ -476,11 +521,28 @@ export class IntentSenseService {
     const cache = this.cacheFor(kind, conv);
     const hit = cache.data.results.find((r) => r.msgId === msgId);
     if (hit) return hit;
-    const rows = await this.loadMessages(kind, conv, 1, [msgId]);
-    if (rows.length === 0) return null;
-    const row = rows[0] as SenseRow;
-    if (!row.text) return null;
-    const result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text);
+
+    // 优先从最近窗口定位该消息，以便一并拿到前序对话上下文；若不在近期窗口则回退按 ID 单查。
+    const recent = await this.loadMessages(kind, conv, 60);
+    const idx = recent.findIndex((r) => r.msgId === msgId);
+    let row: SenseRow | undefined;
+    let context: IntentContextTurn[] = [];
+    if (idx >= 0) {
+      row = recent[idx];
+      context = extractContextBefore(recent, idx);
+    } else {
+      const rows = await this.loadMessages(kind, conv, 1, [msgId]);
+      row = rows[0];
+    }
+    if (!row || !row.text) return null;
+
+    let result: IntentSenseResult | null = null;
+    if (this.config.engine === 'local') {
+      result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
+    } else {
+      const batchOut = await this.analyzeBatchViaApi([{ ...row, context }], context);
+      result = batchOut[0] ?? null;
+    }
     if (result) {
       this.storeResults(kind, conv, [result]);
       this.emitAnalyzed({ kind, conv, results: [result] });
@@ -511,13 +573,25 @@ export class IntentSenseService {
     const cache = this.cacheFor(kind, conv);
     const known = new Set(cache.data.results.map((r) => r.msgId));
     const rows = await this.loadMessages(kind, conv, limit);
-    const pending = rows.filter((r) => !known.has(r.msgId) && r.text);
+    const pending: Array<{ row: SenseRow; context: IntentContextTurn[] }> = [];
+    for (let idx = 0; idx < rows.length; idx++) {
+      const r = rows[idx]!;
+      if (!known.has(r.msgId) && r.text) {
+        pending.push({ row: r, context: extractContextBefore(rows, idx) });
+      }
+    }
     let analyzed = 0;
     let failed = 0;
     if (pending.length > 0) {
       if (this.config.engine === 'local') {
-        for (const row of pending) {
-          const result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text);
+        for (const { row, context } of pending) {
+          const result = await this.analyzeOne(
+            row.mine,
+            row.sendTime,
+            row.msgId,
+            row.text,
+            context,
+          );
           if (result) {
             this.storeResults(kind, conv, [result]);
             this.emitAnalyzed({ kind, conv, results: [result] });
@@ -528,14 +602,22 @@ export class IntentSenseService {
         }
       } else {
         for (let i = 0; i < pending.length; i += API_BATCH) {
-          const batch = pending.slice(i, i + API_BATCH);
-          const results = await this.analyzeBatchViaApi(batch);
+          const slice = pending.slice(i, i + API_BATCH);
+          const leadingContext = slice[0]?.context ?? [];
+          const batchInput = slice.map(({ row, context }) => ({
+            msgId: row.msgId,
+            mine: row.mine,
+            sendTime: row.sendTime,
+            text: row.text,
+            context,
+          }));
+          const results = await this.analyzeBatchViaApi(batchInput, leadingContext);
           if (results.length > 0) {
             this.storeResults(kind, conv, results);
             this.emitAnalyzed({ kind, conv, results });
           }
           analyzed += results.length;
-          failed += batch.length - results.length;
+          failed += slice.length - results.length;
         }
       }
     }
@@ -551,21 +633,38 @@ export class IntentSenseService {
     sendTime: number,
     msgId: string,
     text: string,
+    context: IntentContextTurn[] = [],
   ): Promise<IntentSenseResult | null> {
     const port = this.opts.localEngine;
     if (!port?.ready) return null;
     try {
-      const out = await port.analyze(text);
+      const prag = analyzePragmatics(text, context);
+      const out = await port.analyze(text, {
+        mine,
+        context,
+        pragmaticHint: prag.promptHint,
+      });
       if (!out) return null;
+      const calibrated = calibrateIntentSense(
+        {
+          intent: normalizeIntent(out.intent),
+          emotion: normalizeEmotion(out.emotion),
+          intensity: clamp(out.intensity, 0, 100),
+          sentiment: clamp(out.sentiment, -100, 100),
+          confidence: clamp(out.confidence, 0, 1),
+        },
+        text,
+        context,
+      );
       return {
         msgId,
         mine,
         sendTime,
-        intent: normalizeIntent(out.intent),
-        emotion: normalizeEmotion(out.emotion),
-        intensity: clamp(out.intensity, 0, 100),
-        sentiment: clamp(out.sentiment, -100, 100),
-        confidence: clamp(out.confidence, 0, 1),
+        intent: calibrated.intent,
+        emotion: calibrated.emotion,
+        intensity: clamp(calibrated.intensity, 0, 100),
+        sentiment: clamp(calibrated.sentiment, -100, 100),
+        confidence: clamp(calibrated.confidence, 0, 1),
         engine: 'local',
         analyzedAt: Date.now(),
       };
@@ -589,17 +688,43 @@ export class IntentSenseService {
     }
   }
 
-  /** 一次 OpenAI 兼容调用分析一批消息（严格 JSON 输出指令 + 宽松解析）。 */
+  /** 一次 OpenAI 兼容调用分析一批消息（带前序上下文 + 语用提示 + 后置校准）。 */
   private async analyzeBatchViaApi(
-    batch: Array<{ msgId: string; mine: boolean; sendTime: number; text: string }>,
+    batch: Array<{
+      msgId: string;
+      mine: boolean;
+      sendTime: number;
+      text: string;
+      context?: IntentContextTurn[];
+    }>,
+    leadingContext: IntentContextTurn[] = [],
   ): Promise<IntentSenseResult[]> {
     const endpoint = this.endpoint();
     if (!endpoint) return [];
-    const lines = batch.map((b, i) => `${i}. ${b.mine ? '我' : '对方'}: ${b.text}`);
+    const contextHeader =
+      leadingContext.length > 0
+        ? [
+            '【上文对话参考（仅供理解语境，不要输出到 results 中）】',
+            ...leadingContext.map((c) => `[上文] ${c.mine ? '我' : '对方'}: ${c.text}`),
+            '',
+            '【待分析消息】',
+          ]
+        : [];
+    const lines = batch.map((b, i) => {
+      const prag = analyzePragmatics(b.text, b.context ?? leadingContext);
+      const hint = prag.promptHint ? ` （语用提示：${prag.promptHint}）` : '';
+      return `${i}. ${b.mine ? '我' : '对方'}: ${b.text}${hint}`;
+    });
+    const userContent = [...contextHeader, ...lines].join('\n');
     const system =
-      '你是聊天消息意图/情绪分析器。对输入的每条消息输出 intent/emotion/intensity/sentiment/confidence。' +
-      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}；` +
-      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}。` +
+      '你是精通中文互联网语境、反语、夸张修辞与网络黑话的聊天消息意图/情绪分析专家。' +
+      '请结合上下文语境，对【待分析消息】中的每条消息输出 intent/emotion/intensity/sentiment/confidence。\n' +
+      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（其中 praise=夸赞/佩服/捧场，joke=玩梗/调侃，vent=吐槽/抱怨）；\n` +
+      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（其中 admiration=赞叹/惊叹/佩服/觉得太牛逼，affection=亲昵/暖心/感动，excitement=兴奋/激动）。\n` +
+      '重要语用准则：\n' +
+      '1. 夸张式赞叹：若上文提到厉害的成果、作品、战绩或牛逼操作，下文回复「吓哭了」「看傻了」「给跪了」「头皮发麻」「恐怖如斯」「太变态了」「怪物吧」「这是人能做出来的？」「卧槽」「逆天」「？？？」等，绝非恐惧/焦虑/悲伤，而是极度惊叹与佩服，必须判为 intent="praise", emotion="admiration", sentiment 为高正值（+75~+95）！\n' +
+      '2. 程度副词化的「死/哭」：「笑死/笑哭/蚌埠住了」是玩梗+开心(joy)；「羡慕哭了/馋哭了」是夸赞+赞叹(admiration)；「感动哭了/泪目/awsl」是亲昵(affection)。\n' +
+      '3. 反语与阴阳怪气：「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」是敷衍或不满，判为 intent="vent", emotion="anger", sentiment<0。\n' +
       'intensity 0-100（情绪强度），sentiment -100..100（消极到积极），confidence 0..1。' +
       '只输出 JSON：{"results":[{"i":序号,"intent":"...","emotion":"...","intensity":0,"sentiment":0,"confidence":0}]}，不要输出其它内容。';
     try {
@@ -611,7 +736,7 @@ export class IntentSenseService {
           temperature: 0.2,
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: lines.join('\n') },
+            { role: 'user', content: userContent },
           ],
         }),
         signal: AbortSignal.timeout(60_000),
@@ -631,15 +756,26 @@ export class IntentSenseService {
         if (!Number.isInteger(i) || i < 0 || i >= batch.length) continue;
         const src = batch[i];
         if (!src) continue;
+        const calibrated = calibrateIntentSense(
+          {
+            intent: normalizeIntent(r.intent),
+            emotion: normalizeEmotion(r.emotion),
+            intensity: clamp(Number(r.intensity ?? 50) || 0, 0, 100),
+            sentiment: clamp(Number(r.sentiment ?? 0) || 0, -100, 100),
+            confidence: clamp(Number(r.confidence ?? 0.5) || 0, 0, 1),
+          },
+          src.text,
+          src.context ?? leadingContext,
+        );
         out.push({
           msgId: src.msgId,
           mine: src.mine,
           sendTime: src.sendTime,
-          intent: normalizeIntent(r.intent),
-          emotion: normalizeEmotion(r.emotion),
-          intensity: clamp(Number(r.intensity ?? 50) || 0, 0, 100),
-          sentiment: clamp(Number(r.sentiment ?? 0) || 0, -100, 100),
-          confidence: clamp(Number(r.confidence ?? 0.5) || 0, 0, 1),
+          intent: calibrated.intent,
+          emotion: calibrated.emotion,
+          intensity: clamp(calibrated.intensity, 0, 100),
+          sentiment: clamp(calibrated.sentiment, -100, 100),
+          confidence: clamp(calibrated.confidence, 0, 1),
           engine: 'api',
           analyzedAt: Date.now(),
         });
@@ -1062,7 +1198,7 @@ export class IntentSenseService {
     if (existing) return existing;
     const store = new JsonStore<CacheFile>(
       `${this.storeDir}/analysis/${fileSafe(key)}.json`,
-      () => ({ results: [] }),
+      () => ({ version: CACHE_SCHEMA_VERSION, results: [] }),
       { normalize: normalizeCacheFile },
     );
     this.analysisStores.set(key, store);
@@ -1082,7 +1218,7 @@ export class IntentSenseService {
     if (all.length > CACHE_MAX_ENTRIES) {
       all = [...all].sort((a, b) => a.sendTime - b.sendTime).slice(all.length - CACHE_MAX_ENTRIES);
     }
-    store.data = { results: all };
+    store.data = { version: CACHE_SCHEMA_VERSION, results: all };
     store.save();
   }
 }

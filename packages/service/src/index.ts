@@ -293,6 +293,7 @@ export type {
   IntentSenseConfig,
   IntentSenseStatus,
   IntentSenseOptions,
+  IntentLocalAnalyzeOptions,
   IntentLocalEnginePort,
   IntentAnalyzedEvent,
   IntentProfile,
@@ -301,6 +302,15 @@ export type {
   ReplySuggestion,
   EnsureStats,
 } from './account/intent_sense';
+export {
+  analyzePragmatics,
+  calibrateIntentSense,
+  detectUpstreamSignal,
+  type IntentContextTurn,
+  type UpstreamContextSignal,
+  type PragmaticAnalysis,
+  type RawEngineSenseOutput,
+} from './account/intent_corpus';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
 export type {
   MergeForwardDraft,

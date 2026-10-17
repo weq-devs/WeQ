@@ -15,7 +15,13 @@ import { fork } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EmotionKind, IntentKind, IntentLocalEnginePort, MbtiDim } from '@weq/service';
+import type {
+  EmotionKind,
+  IntentKind,
+  IntentLocalAnalyzeOptions,
+  IntentLocalEnginePort,
+  MbtiDim,
+} from '@weq/service';
 import { getLogger } from '@weq/service';
 import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
 
@@ -152,8 +158,11 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     }
   }
 
-  /** 单条文本 → 意图/情绪（service 的 analyzeOne 消费）。 */
-  async analyze(text: string): Promise<{
+  /** 单条文本（及上下文/语用提示） → 意图/情绪（service 的 analyzeOne 消费）。 */
+  async analyze(
+    text: string,
+    options?: IntentLocalAnalyzeOptions,
+  ): Promise<{
     intent: IntentKind;
     emotion: EmotionKind;
     intensity: number;
@@ -162,7 +171,13 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   } | null> {
     if (!this.ready) return null;
     try {
-      const msg = (await this.request({ type: 'analyze', text })) as WorkerMessage;
+      const msg = (await this.request({
+        type: 'analyze',
+        text,
+        mine: options?.mine,
+        context: options?.context,
+        pragmaticHint: options?.pragmaticHint ?? null,
+      })) as WorkerMessage;
       if (msg?.type !== 'result') return null;
       return {
         intent: normalizeIntent(msg.intent),
@@ -243,6 +258,7 @@ const INTENT_KEYS: readonly IntentKind[] = [
   'request',
   'greeting',
   'share',
+  'praise',
   'vent',
   'joke',
   'plan',
@@ -254,6 +270,7 @@ const INTENT_KEYS: readonly IntentKind[] = [
 const EMOTION_KEYS: readonly EmotionKind[] = [
   'joy',
   'excitement',
+  'admiration',
   'neutral',
   'sadness',
   'anger',
@@ -296,7 +313,7 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     get ready() {
       return impl.ready;
     },
-    analyze: (text: string) => impl.analyze(text),
+    analyze: (text: string, options?: IntentLocalAnalyzeOptions) => impl.analyze(text, options),
     inferMbti: (samples: string[]) => impl.inferMbti(samples),
     modelDir: () => layaModelDir(),
     isModelDownloaded: () => isLayaBundleReady(layaModelDir()),
