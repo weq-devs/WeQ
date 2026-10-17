@@ -7,6 +7,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -20,6 +21,7 @@ import {
   CloudDownload,
   DatabaseZap,
   Globe,
+  HardDrive,
   Lock,
   LockKeyhole,
   Monitor,
@@ -47,6 +49,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
+import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import '../styles/settings-responsive.css';
@@ -66,6 +69,7 @@ export type SectionId =
   | 'account'
   | 'qzone'
   | 'database'
+  | 'maintenance'
   | 'voice'
   | 'ocr'
   | 'agentlab'
@@ -78,7 +82,7 @@ interface SettingsSection {
   id: SectionId;
   label: string;
   icon: ReactElement;
-  render: () => ReactNode;
+  render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
@@ -123,6 +127,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '数据库宽容',
     icon: <DatabaseZap size={16} strokeWidth={1.8} />,
     render: () => <DatabaseToleranceSection />,
+  },
+  {
+    id: 'maintenance',
+    label: '数据与维护',
+    icon: <HardDrive size={16} strokeWidth={1.8} />,
+    render: (onOpen) => <DataMaintenanceSection onOpen={onOpen} />,
   },
   {
     id: 'voice',
@@ -187,6 +197,7 @@ export function SettingsDialog({
   open,
   onClose,
   initialSection,
+  onOpenMaintenance,
 }: {
   open: boolean;
   onClose: () => void;
@@ -195,13 +206,22 @@ export function SettingsDialog({
    * 否则"先关掉、再从损坏弹窗点进来"会停在用户上次看的那个分区上。
    */
   initialSection?: SectionId;
+  onOpenMaintenance: (tool: MaintenanceTool) => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>('global');
+  const [activeId, setActiveId] = useState<SectionId>(() => initialSection ?? 'global');
+  const navRef = useRef<HTMLElement | null>(null);
   const sections = SETTINGS_SECTIONS;
 
   useEffect(() => {
     if (open && initialSection) setActiveId(initialSection);
   }, [open, initialSection]);
+
+  useEffect(() => {
+    if (open)
+      navRef.current
+        ?.querySelector<HTMLElement>('.weq-settings-nav-item.is-active')
+        ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [open, activeId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -234,7 +254,7 @@ export function SettingsDialog({
         >
           <X size={18} />
         </button>
-        <nav className="weq-settings-nav" aria-label="设置分类">
+        <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
           <h2 id="weq-settings-title" className="weq-settings-nav-title">
             设置
           </h2>
@@ -253,7 +273,7 @@ export function SettingsDialog({
             ))}
           </ul>
         </nav>
-        <div className="weq-settings-body">{active.render()}</div>
+        <div className="weq-settings-body">{active.render(onOpenMaintenance)}</div>
       </section>
     </div>
   );

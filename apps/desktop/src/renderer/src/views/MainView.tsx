@@ -50,6 +50,10 @@ import {
   SettingsDialog,
   type SectionId as SettingsDialogSectionId,
 } from '../components/SettingsDialog';
+import {
+  DataMaintenanceDialog,
+  type MaintenanceTool,
+} from '../components/settings/DataMaintenanceSection';
 import { CollectionDialog } from '../components/CollectionDialog';
 import {
   WonderfulToolsDialog,
@@ -2515,6 +2519,12 @@ export function MainView(): ReactElement {
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
     undefined,
   );
+  const [maintenanceTool, setMaintenanceTool] = useState<MaintenanceTool | null>(null);
+  function openMaintenance(tool: MaintenanceTool) {
+    setSettingsOpen(false);
+    setWonderfulToolsOpen(false);
+    setMaintenanceTool(tool);
+  }
   const [helpOpen, setHelpOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
   /** 打开妙妙工具时先落到哪一页（损坏弹窗 → 数据库修复）。账号固定为当前登录的这一个。 */
@@ -2630,6 +2640,10 @@ export function MainView(): ReactElement {
 
   /** 打开妙妙工具，并指定先落到哪一页 —— 多个入口（左栏「更多功能」、「损坏」弹窗）都会直达某一页。 */
   function openWonderfulToolsAt(tool: WonderfulToolId) {
+    if (tool === 'db-repair') {
+      openMaintenance('db-repair');
+      return;
+    }
     setWonderfulToolsTool(tool);
     setWonderfulToolsOpen(true);
   }
@@ -7146,7 +7160,10 @@ export function MainView(): ReactElement {
               }
               shell.switchView('home');
             }}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => {
+              setMaintenanceTool(null);
+              setSettingsOpen(true);
+            }}
             onOpenCollection={() => shell.switchView('collections')}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
             onOpenAntiRecall={() => setAntiRecallOpen(true)}
@@ -7465,6 +7482,20 @@ export function MainView(): ReactElement {
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             initialSection={settingsSection}
+            onOpenMaintenance={openMaintenance}
+          />
+          <DataMaintenanceDialog
+            tool={maintenanceTool}
+            account={{
+              uin: openedUin ?? '',
+              name: user.displayName,
+              avatarUrl: user.avatarUrl ?? '',
+            }}
+            onClose={() => {
+              setMaintenanceTool(null);
+              setSettingsSection('maintenance');
+              setSettingsOpen(true);
+            }}
           />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <WorkspaceTools onOpenAnalysis={() => shell.switchView('annual')} />
@@ -7500,10 +7531,11 @@ export function MainView(): ReactElement {
             onOpenSettings={(section) => {
               // 宽容级别只能在设置页里选，弹窗只负责把人送过去。
               setSettingsSection(section);
+              setMaintenanceTool(null);
               setSettingsOpen(true);
             }}
             onOpenRepair={() => {
-              // 修复是真正的出路：把人直接放到妙妙工具的那一页上（那里有进度条与回滚）。
+              // 故障捷径复用数据与维护的修复面板，进度与回滚仍走原服务。
               // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
               setDamagedEvent(null);
               openWonderfulToolsAt('db-repair');
