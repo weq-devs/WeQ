@@ -4815,17 +4815,18 @@ html[data-theme="dark"] .weq-report-root {
 
 .weq-home.is-wheel {
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .weq-home.is-wheel .weq-home-lede {
-  margin-top: 16px;
+  margin-top: 10px;
 }
 
 .weq-home-wheel-viewport {
   position: relative;
-  height: 304px;
-  margin: 6px -74px 0;
+  width: 100%;
+  height: 288px;
+  margin: 4px 0 0;
   overflow: hidden;
   touch-action: pan-y;
 }
@@ -4837,8 +4838,27 @@ html[data-theme="dark"] .weq-report-root {
   display: flex;
   gap: 18px;
   padding: 10px 0;
+  transform: translateX(
+    calc(
+      var(--wheel-card-width) / -2 - var(--wheel-index, 0) * var(--wheel-step)
+    )
+  );
   transition: transform 680ms var(--rp-ease-drop);
   will-change: transform;
+}
+
+/* 一页只有一张卡时，不参与轮盘定位：交给 flex 中心，避免 fixed 宽度在
+   窄窗口下越界。多卡仍走轮盘轨道。 */
+.weq-home-wheel-track[data-count="1"] {
+  position: relative;
+  left: auto;
+  justify-content: center;
+  transform: none;
+}
+
+.weq-home-wheel-track[data-count="1"] .weq-home-wheel-card {
+  flex-basis: min(336px, 100%);
+  width: min(336px, 100%);
 }
 
 .weq-home-wheel-card {
@@ -4846,9 +4866,9 @@ html[data-theme="dark"] .weq-report-root {
   display: flex;
   flex: 0 0 336px;
   width: 336px;
-  height: 268px;
+  height: 260px;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 17px 20px 14px;
   border: 1px solid var(--rp-hair);
   border-radius: 18px;
@@ -4933,6 +4953,8 @@ html[data-theme="dark"] .weq-report-root {
 }
 
 .weq-home-wheel-name {
+  flex: 0 0 auto;
+  min-height: 1.16em;
   overflow: hidden;
   margin-top: 2px;
   color: var(--rp-ink);
@@ -4943,10 +4965,16 @@ html[data-theme="dark"] .weq-report-root {
   line-height: 1.16;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  z-index: 2;
 }
 
 .weq-home-wheel-count {
+  position: relative;
+  z-index: 1;
   display: flex;
+  flex: 0 0 auto;
+  height: 58px;
   align-items: baseline;
   gap: 9px;
   margin: 0;
@@ -4955,10 +4983,19 @@ html[data-theme="dark"] .weq-report-root {
 .weq-home-wheel-number {
   color: var(--rp-warm);
   font-family: var(--rp-serif-base) !important;
-  font-size: 54px;
+  font-size: 50px;
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
+  white-space: nowrap;
+}
+
+.weq-home-wheel-count.is-long .weq-home-wheel-number {
+  font-size: 43px;
+}
+
+.weq-home-wheel-count.is-xl .weq-home-wheel-number {
+  font-size: 36px;
 }
 
 .weq-home-wheel-unit {
@@ -4993,10 +5030,11 @@ html[data-theme="dark"] .weq-report-root {
 
 .weq-home-wheel-spark {
   display: flex;
-  height: 54px;
+  flex: 0 1 48px;
+  min-height: 32px;
   align-items: flex-end;
   gap: 2px;
-  margin-top: auto;
+  margin-top: 2px;
   padding: 0 1px;
 }
 
@@ -5060,7 +5098,7 @@ html[data-theme="dark"] .weq-report-root {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  margin-top: 4px;
+  margin-top: 8px;
   color: var(--rp-ink-faint);
   font-size: 10px;
   letter-spacing: 0.12em;

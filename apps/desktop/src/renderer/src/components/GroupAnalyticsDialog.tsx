@@ -354,7 +354,7 @@ export function GroupAnalyticsDialog({
         </div>
       </div>
 
-      {/* 时间轴：全历史周柱状图 + 可拖动的消息曲线（默认最近一年） */}
+      {/* 时间轴：所选区间周柱状图 + 可拖动的消息曲线（默认最近一年） */}
       {report ? (
         <section className="ga-ov-section ca-block">
           <div className="ca-block-head">
@@ -362,7 +362,7 @@ export function GroupAnalyticsDialog({
               <CalendarDays size={15} />
               活跃时间轴
             </h3>
-            <small>每周一根柱子 · 拖动下方曲线选择区间</small>
+            <small>所选区间每周一根 · 拖动下方曲线重排</small>
           </div>
           <GitHubTimeline weeks={report.timeline.weekly} range={range} />
           <RangeTimeline

@@ -1,6 +1,7 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
 import { isAllTimeYear, reportYearUnixRange } from '../../time';
 import { segmentWords } from '../../../text_segment';
+import { weekStartKey } from '../../../analytics_weeks';
 import type { HomeGroupCard, HomeGroupTop, HomePageData, HomeTopicWord } from './types';
 
 /** 词云与话题行共用的素材上限：太多颗词会让背景抢走群名的视线。 */
@@ -26,7 +27,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
     title: '我的主场',
     description: '这一年，你把哪个群聊成了自己的主场。',
     order: 8,
-    version: '0.2.0',
+    version: '0.2.1',
     apiVersion: 1,
     category: '群聊',
     enabledByDefault: true,
@@ -72,11 +73,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
       // sparkline 只是装饰：查询失败不能把整页弄没，卡片仍显示数字。
       weeklyRows = [];
     }
-    const maxReportedWeek = weeklyRows.reduce((max, row) => Math.max(max, row.week), 0);
-    const spanWeeks =
-      startSec > 0 && endSec > 0
-        ? Math.max(1, Math.floor((endSec - startSec) / (7 * 86400)) + 1)
-        : Math.max(1, maxReportedWeek + 1);
+    const spanWeeks = reportWeekSpan(startSec, endSec, weeklyRows);
     const keepWeeks = Math.min(53, spanWeeks);
     const weekBase = spanWeeks - keepWeeks;
     const weeklyByCode = new Map<string, number[]>();
@@ -146,4 +143,23 @@ export const homePage: ReportPageDefinition<HomePageData> = {
 /** 次数降序、同次数字典序 —— 稳定，不给随机性留空间。 */
 function rankTopics(a: HomeTopicWord, b: HomeTopicWord): number {
   return b.count - a.count || a.word.localeCompare(b.word, 'zh');
+}
+
+/** 报告窗口覆盖多少个「周一起点」——必须与 countWeeklyByGroups 的 SQL 同口径。 */
+export function reportWeekSpan(
+  startSec: number,
+  endSec: number,
+  weeklyRows: ReadonlyArray<{ week: number }> = [],
+): number {
+  if (startSec > 0 && endSec > startSec) {
+    const first = localDaySeconds(weekStartKey(new Date(startSec * 1000)));
+    const last = localDaySeconds(weekStartKey(new Date((endSec - 1) * 1000)));
+    return Math.max(1, Math.round((last - first) / (7 * 86400)) + 1);
+  }
+  return Math.max(1, weeklyRows.reduce((max, row) => Math.max(max, row.week), 0) + 1);
+}
+
+function localDaySeconds(key: string): number {
+  const [year, month, day] = key.split('-').map(Number);
+  return Math.floor(new Date(year!, month! - 1, day!, 0, 0, 0, 0).getTime() / 1000);
 }

@@ -2,7 +2,7 @@
  * 私聊 / 群聊分析共用的「时间轴」组件。
  *
  * 三段：
- *   1. {@link GitHubTimeline} —— 全历史周柱状图（每周一根，像 GitHub 贡献图）；
+ *   1. {@link GitHubTimeline} —— 所选区间的周柱状图（每周一根，随区间重排）；
  *   2. {@link RangeTimeline}  —— 消息曲线 + 可拖动的区间选择（默认最近一年）；
  *   3. {@link PersonWeekCard} —— 发言人卡片里的周 sparkline。
  *
@@ -62,6 +62,33 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Catmull-Rom → 三次贝塞尔。曲线经过每个真实数据点；把控制点限制在同一段
+ * 的纵向范围内，避免高计数尖峰在平滑后跌到 0 以下（SVG 不会裁掉它，视觉上
+ * 会出现假的负值波浪）。
+ */
+export function smoothLine(points: ReadonlyArray<readonly [number, number]>): string {
+  if (points.length === 0) return '';
+  let path = `M${points[0]![0].toFixed(2)},${points[0]![1].toFixed(2)}`;
+  if (points.length === 1) return path;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    const low = Math.min(p1[1], p2[1]);
+    const high = Math.max(p1[1], p2[1]);
+    const c1y = clamp(p1[1] + (p2[1] - p0[1]) / 6, low, high);
+    const c2y = clamp(p2[1] - (p3[1] - p1[1]) / 6, low, high);
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    path += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(
+      2,
+    )} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`;
+  }
+  return path;
+}
+
+/**
  * 选择区间的兜底：开始/结束必须落在数据范围内，且至少间隔一天。
  * 数据范围为空时原样返回。
  */
@@ -82,7 +109,13 @@ export function normalizeRange(
   return { start: a, end: b };
 }
 
-/** 顶部 GitHub 式周柱状图：全历史，一根柱子一周；选中区间高亮，其余压暗。 */
+/**
+ * 顶部周柱状图：只画当前所选区间的周，一根柱子一周。
+ *
+ * 布局不是固定的「全历史一屏」：选中一年时大约 53 根，选中三个月时只有
+ * 十几根。CSS Grid 的 `1fr` 让每根柱子随数量变宽/变窄；区间外的周不再
+ * 「变淡保留」，而是直接从新布局里移除。
+ */
 export function GitHubTimeline({
   weeks,
   range,
@@ -90,16 +123,10 @@ export function GitHubTimeline({
   weeks: WeeklyPoint[];
   range: RangeSelection | null;
 }): ReactElement {
-  const max = useMemo(() => Math.max(1, ...weeks.map((w) => w.count)), [weeks]);
-  const selected = useMemo(() => {
-    if (!range) return null;
-    return weeks.map((w) => {
-      const t = parseDayKey(w.weekStart);
-      return t >= range.start && t <= range.end;
-    });
-  }, [weeks, range]);
+  const shown = useMemo(() => weeksInRange(weeks, range), [weeks, range]);
+  const max = useMemo(() => Math.max(1, ...shown.map((w) => w.count)), [shown]);
 
-  if (weeks.length === 0) {
+  if (shown.length === 0) {
     return <p className="ca-empty">暂无消息时间轴</p>;
   }
 
@@ -107,11 +134,11 @@ export function GitHubTimeline({
     <div className="ca-github">
       <div
         className="ca-github-bars"
-        style={{ gap: weeks.length > 180 ? 0 : 2 }}
+        data-count={shown.length}
         role="img"
-        aria-label="每周消息数量"
+        aria-label={`${shown[0]?.weekStart} 至 ${shown[shown.length - 1]?.weekStart} 每周消息数量`}
       >
-        {weeks.map((week, index) => {
+        {shown.map((week, index) => {
           const level =
             week.count === 0 ? 0 : Math.min(4, 1 + Math.floor((week.count / max) * 3.999));
           return (
@@ -120,7 +147,6 @@ export function GitHubTimeline({
               key={`${week.weekStart}:${index}`}
               className="ca-github-bar"
               data-level={level}
-              data-dim={selected && !selected[index] ? 'yes' : 'no'}
               style={{ height: week.count === 0 ? 3 : `${18 + (week.count / max) * 82}%` }}
               title={`${week.weekStart} 起的一周 · ${formatNumber(week.count)} 条`}
             />
@@ -128,11 +154,24 @@ export function GitHubTimeline({
         })}
       </div>
       <div className="ca-github-axis">
-        <span>{weeks[0]?.weekStart.slice(0, 7)}</span>
-        <span>{weeks[weeks.length - 1]?.weekStart.slice(0, 7)}</span>
+        <span>{shown[0]?.weekStart}</span>
+        <span>{shown[shown.length - 1]?.weekStart}</span>
       </div>
     </div>
   );
+}
+
+/**
+ * 截出与选区相交的周。周起点不一定与选区恰好重合：选区从周三开始，这一周
+ * 仍要算进来（否则该周的消息会从图中消失）。区间为空时保留全历史。
+ */
+export function weeksInRange(weeks: WeeklyPoint[], range: RangeSelection | null): WeeklyPoint[] {
+  const valid = weeks.filter((week) => typeof week.weekStart === 'string' && week.weekStart);
+  if (!range) return valid;
+  return valid.filter((week) => {
+    const start = parseDayKey(week.weekStart);
+    return start + 7 * DAY_SECONDS > range.start && start <= range.end;
+  });
 }
 
 /**
@@ -196,15 +235,13 @@ export function RangeTimeline({
 
   const maxCount = Math.max(1, ...points.map((p) => p.v));
   const W = 720;
-  const H = 128;
+  const H = 96;
   const PAD = { left: 6, right: 6, top: 12, bottom: 18 };
   const x = (t: number): number =>
     PAD.left + ((clamp(t, min, max) - min) / span) * (W - PAD.left - PAD.right);
   const y = (v: number): number => PAD.top + (1 - v / maxCount) * (H - PAD.top - PAD.bottom);
 
-  const line = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.t).toFixed(2)},${y(p.v).toFixed(2)}`)
-    .join(' ');
+  const line = smoothLine(points.map((p) => [x(p.t), y(p.v)] as const));
   const area =
     points.length > 0
       ? `${line} L${x(points[points.length - 1]!.t).toFixed(2)},${H - PAD.bottom} L${x(

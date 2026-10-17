@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { homePage } from '../src/account/annual_report/pages/home/compute';
+import { homePage, reportWeekSpan } from '../src/account/annual_report/pages/home/compute';
 import { reportYearUnixRange } from '../src/account/annual_report/time';
 
 const YEAR = 2026;
@@ -51,7 +51,8 @@ describe('我的主场：轮盘卡片', () => {
     expect(data.groups.map((g) => g.groupCode)).toEqual(
       Array.from({ length: 8 }, (_, i) => `g${i}`),
     );
-    // 2026 年是 53 周窗口（1/1 周四 → 12/31 周四），首尾都要落在正确柱子上。
+    // 2026-01-01 所在周的周一是 2025-12-29，12/31 仍在同一周序列里。
+    // 年度报告的半开窗口覆盖 53 个周起点。
     expect(data.groups[0]!.weekly).toHaveLength(53);
     expect(data.groups[0]!.weekly[0]).toBe(2);
     expect(data.groups[0]!.weekly[52]).toBe(5);
@@ -63,5 +64,36 @@ describe('我的主场：轮盘卡片', () => {
     expect(data.groupSentTotal).toBe(ranked.reduce((sum, row) => sum + row.sentCount, 0));
     expect(startSec).toBeGreaterThan(0);
     expect(endSec).toBeGreaterThan(startSec);
+    expect(reportWeekSpan(startSec, endSec)).toBe(53);
+  });
+
+  it('周序列从所在周的周一算起，与 SQL 周序号口径一致', () => {
+    // 2026-01-07 是周三；从周三开始的一段时间仍覆盖它所在的整周。
+    const start = Math.floor(new Date(2026, 0, 7, 12).getTime() / 1000);
+    const end = Math.floor(new Date(2026, 0, 21, 12).getTime() / 1000);
+    expect(reportWeekSpan(start, end)).toBe(3);
+  });
+
+  it('sparkline SQL 失败时仍保留冠军兜底所需的卡片数字', async () => {
+    const q = {
+      group: {
+        countRows: async () => rankedRows().slice(0, 1),
+        weeklyCounts: async () => {
+          throw new Error('sparkline unavailable');
+        },
+        speechRows: async () => [],
+        standing: async () => null,
+      },
+    };
+    const data = await homePage.compute({
+      year: YEAR,
+      scope: {} as never,
+      q: q as never,
+      signal: new AbortController().signal,
+      dataRevision: 'test',
+    });
+    expect(data.groups).toHaveLength(1);
+    expect(data.groups[0]?.sentCount).toBe(100);
+    expect(data.groups[0]?.weekly).toHaveLength(53);
   });
 });

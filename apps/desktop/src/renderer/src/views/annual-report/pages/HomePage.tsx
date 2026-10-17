@@ -17,6 +17,13 @@ function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
 }
 
+/** 数字越长字号越小：卡宽固定，不能靠换行，也不让数字盖到群名上。 */
+function countSizeClass(value: number): string {
+  if (value >= 1_000_000) return 'is-xl';
+  if (value >= 100_000) return 'is-long';
+  return '';
+}
+
 /** 卡片宽度 / 间距（设计画幅 960px 内的固定值，舞台整体缩放）。 */
 const CARD_WIDTH = 336;
 const CARD_GAP = 18;
@@ -42,25 +49,35 @@ function groupAvatarUrl(code: string): string {
 export function HomePage({ page, data, active }: ReportPageProps<HomePageData>): ReactElement {
   const allTime = isAllTimeYear(data.year);
   const top = data.top;
-  const cards: HomeGroupCard[] = (
-    data.groups?.length
-      ? data.groups
-      : top
-        ? [
-            {
-              groupCode: top.groupCode,
-              groupName: top.groupName,
-              sentCount: top.sentCount,
-              totalCount: top.groupTotal,
-              memberCount: top.memberCount,
-              weekly: [],
-            },
-          ]
-        : []
-  ).slice(0, 8);
+  const rawCards: Array<Partial<HomeGroupCard>> = data.groups?.length
+    ? data.groups
+    : top
+      ? [
+          {
+            groupCode: top.groupCode ?? '',
+            groupName: top.groupName,
+            sentCount: top.sentCount ?? 0,
+            totalCount: top.groupTotal ?? 0,
+            memberCount: top.memberCount ?? 0,
+            weekly: [],
+          },
+        ]
+      : [];
+  const cards = rawCards
+    .map((card) => ({
+      ...card,
+      groupCode: String(card.groupCode ?? ''),
+      groupName: String(card.groupName || card.groupCode || '未命名群聊'),
+      sentCount: Number(card.sentCount) || 0,
+      totalCount: Number(card.totalCount) || 0,
+      memberCount: Number(card.memberCount) || 0,
+      weekly: Array.isArray(card.weekly) ? card.weekly.map((count) => Number(count) || 0) : [],
+    }))
+    .slice(0, 8);
 
   const [wheel, setWheel] = useState(0);
-  const activeIndex = Math.min(wheel, Math.max(0, cards.length - 1));
+  const cardCount = cards.length;
+  const activeIndex = Math.min(wheel, Math.max(0, cardCount - 1));
   const indexRef = useRef(activeIndex);
   indexRef.current = activeIndex;
   const wheelGesture = useRef({ acc: 0, lastAt: 0, fired: false });
@@ -72,18 +89,22 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
   const suppressClickRef = useRef(false);
   const { registerPageGuard } = useReportView();
 
-  // 换年份 / 换数据时回到第一张。
+  // 换年份 / 换数据时回到第一张；冠军兜底卡可能导致卡片数变化，也要夹住索引。
   useEffect(() => {
     setWheel(0);
   }, [data.year]);
 
+  useEffect(() => {
+    setWheel((current) => Math.min(current, Math.max(0, cardCount - 1)));
+  }, [cardCount]);
+
   // 键盘 / 竖向滑动经过报告舞台的 guard：一次手势转一格，转到边界才放行翻页。
   // 只有当前页能注册 —— 所有页都常驻在 deck 里，非当前页注册会抢走别的页的翻页。
   useEffect(() => {
-    if (!active || cards.length <= 1) return undefined;
+    if (!active || cardCount <= 1) return undefined;
     return registerPageGuard((direction) => {
       const current = indexRef.current;
-      if (direction > 0 && current < cards.length - 1) {
+      if (direction > 0 && current < cardCount - 1) {
         setWheel(current + 1);
         return true;
       }
@@ -93,14 +114,14 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
       }
       return false;
     });
-  }, [active, registerPageGuard, cards.length]);
+  }, [active, registerPageGuard, cardCount]);
 
   /**
    * 滚轮：在轮盘内部先把这一甩吃掉；转到边界后**不再 stopPropagation**，
    * 让报告舞台拿到后续滚动去翻页。这与舞台自己的「一甩一页」判定互补。
    */
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
-    if (cards.length <= 1) return;
+    if (cardCount <= 1) return;
     const now = performance.now();
     const gesture = wheelGesture.current;
     if (now - gesture.lastAt > WHEEL_IDLE_MS) {
@@ -122,7 +143,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
     const direction = gesture.acc > 0 ? 1 : -1;
     gesture.acc = 0;
     const current = indexRef.current;
-    const atEdge = direction > 0 ? current >= cards.length - 1 : current <= 0;
+    const atEdge = direction > 0 ? current >= cardCount - 1 : current <= 0;
     if (atEdge) {
       // 到底了：放给舞台，继续滚就翻页。
       return;
@@ -164,13 +185,15 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
     if (Math.abs(dx) < DRAG_STEP) return;
     const current = indexRef.current;
     const next = dx < 0 ? current + 1 : current - 1;
-    setWheel(Math.max(0, Math.min(cards.length - 1, next)));
+    setWheel(Math.max(0, Math.min(cardCount - 1, next)));
   };
 
+  const viewportStyle = {
+    '--wheel-card-width': `${CARD_WIDTH}px`,
+    '--wheel-step': `${CARD_WIDTH + CARD_GAP}px`,
+  } as CSSProperties;
   const trackStyle = {
-    transform: `translateX(calc(-${CARD_WIDTH / 2}px - ${
-      activeIndex * (CARD_WIDTH + CARD_GAP)
-    }px))`,
+    '--wheel-index': activeIndex,
   } as CSSProperties;
 
   return (
@@ -193,6 +216,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
 
             <div
               className="weq-home-wheel-viewport"
+              style={viewportStyle}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -202,7 +226,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
               role="list"
               aria-label="发言最多的群聊轮盘"
             >
-              <div className="weq-home-wheel-track" style={trackStyle}>
+              <div className="weq-home-wheel-track" style={trackStyle} data-count={cardCount}>
                 {cards.map((card, index) => {
                   const isActive = index === activeIndex;
                   const distance = Math.abs(index - activeIndex);
@@ -245,7 +269,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
                         {card.groupName}
                       </strong>
 
-                      <p className="weq-home-wheel-count">
+                      <p className={`weq-home-wheel-count ${countSizeClass(card.sentCount)}`}>
                         {isActive ? (
                           <Odometer
                             value={card.sentCount}
@@ -282,12 +306,18 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
                         )}
                       </div>
 
-                      <footer className="weq-home-wheel-foot">
-                        <span>
-                          <b>{fmt(card.memberCount)}</b> 位成员
-                        </span>
-                        {isChampion && top ? <Signature top={top} /> : null}
-                      </footer>
+                      {(card.memberCount > 0 || (isChampion && top)) && (
+                        <footer className="weq-home-wheel-foot">
+                          {card.memberCount > 0 ? (
+                            <span>
+                              <b>{fmt(card.memberCount)}</b> 位成员
+                            </span>
+                          ) : (
+                            <span aria-hidden />
+                          )}
+                          {isChampion && top ? <Signature top={top} /> : null}
+                        </footer>
+                      )}
                     </article>
                   );
                 })}
