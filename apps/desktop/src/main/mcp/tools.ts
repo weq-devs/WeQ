@@ -240,8 +240,30 @@ interface AiMsgLine {
   /** 稳定消息标识（仅 includeIds 时附上，供 get_message_details 回查）。 */
   msgId?: string;
   msgSeq?: string;
+  /**
+   * 发送方本地 client sequence（列 40005，仅私聊有值，仅 includeIds 时附上）——
+   * 私聊引用回复要把它当 `replyToClientSeq` 传回去，只用 msgSeq 定位不到原消息。
+   */
+  clientSeq?: string;
   /** 与上一条（更早那条）的时间间隔，人读形式（如「2小时」）；仅在间隔较大时附上。 */
   gap?: string;
+}
+
+/**
+ * `includeIds` 的统一输出：稳定 id（msgId / msgSeq），外加私聊才有的 `clientSeq`
+ * —— 后者是私聊引用回复的**唯一**正确指针（见 {@link AiMsgLine.clientSeq}）。
+ */
+function msgIdsOf(row: {
+  msgId: bigint;
+  msgSeq: bigint;
+  clientSeq?: bigint;
+}): Pick<AiMsgLine, 'msgId' | 'msgSeq' | 'clientSeq'> {
+  const clientSeq = row.clientSeq ?? 0n;
+  return {
+    msgId: String(row.msgId),
+    msgSeq: String(row.msgSeq),
+    ...(clientSeq > 0n ? { clientSeq: String(clientSeq) } : {}),
+  };
 }
 
 const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
@@ -933,7 +955,8 @@ export const AI_TOOLS: AiTool[] = [
         .boolean()
         .default(false)
         .describe(
-          '是否在每条消息上附带 msgId/msgSeq（供 get_message_details 回查；默认 false 更省 token）',
+          '是否在每条消息上附带 msgId/msgSeq/clientSeq（前两个供 get_message_details 回查；' +
+            '私聊的 clientSeq 是引用回复要传给 send_text_message 的 replyToClientSeq；默认 false 更省 token）',
         ),
     }),
     run: async ({ kind, conv, limit, before, includeIds }) => {
@@ -969,7 +992,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
-          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
+          ...(includeIds ? msgIdsOf(r) : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
         if (i > 0) {
@@ -2038,7 +2061,10 @@ export const AI_TOOLS: AiTool[] = [
       includeIds: z
         .boolean()
         .default(false)
-        .describe('是否附带 msgId/msgSeq（供 get_message_details 回查；默认 false）'),
+        .describe(
+          '是否附带 msgId/msgSeq/clientSeq（前两个供 get_message_details 回查；' +
+            '私聊的 clientSeq 是引用回复要传给 send_text_message 的 replyToClientSeq；默认 false）',
+        ),
     }),
     run: async ({ kind, conv, date, limit, includeIds }) => {
       const svc = services();
@@ -2069,7 +2095,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
-          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
+          ...(includeIds ? msgIdsOf(r) : {}),
         };
         if (i > 0) {
           const gapSec = Number(r.sendTime) - Number(slice[i - 1]!.sendTime);
@@ -3982,7 +4008,10 @@ export const AI_TOOLS: AiTool[] = [
       '⚠️ 这是真实的发送行为：会直接出现在对方/群里，且**本工具不能撤回**（需要撤回时走界面）。' +
       '⚠️ 需要该账号的 QQ 在线（完全离线模式下不可用），失败会如实返回 result / errMsg。' +
       '\n【目标怎么写】群聊传群号（纯数字）；私聊传 QQ 号，或传 uid（find_contact / search_buddies 能拿到 uid，更稳）。' +
-      '\n【@ 与引用】at 传 QQ 号/uid 数组；引用回复传 replyToMsgSeq（get_messages 返回的 msgSeq）。' +
+      '\n【@ 与引用】at 传 QQ 号/uid 数组。引用回复群聊传 replyToMsgSeq（get_messages 返回的 msgSeq 即可）；' +
+      '**私聊必须再传 replyToClientSeq** —— 私聊引用指针用的是「发送方本地 client sequence」，' +
+      '只给 msgSeq 会发成一个定位不到原消息的引用框（get_messages 开 includeIds=true 会返回 clientSeq）。' +
+      'replyToClientSeq 在群聊里不用传（群消息这两个编号本来就是同一个值）。' +
       '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信，' +
       '传了也改变不了收端看到的装扮（详见 SendDress 注释）。' +
       '\n【结果怎么看】ok=false 就是**没发出去**（result 非 0，hint 里解释了常见码：79 = 场景/参数不符）。别把“调用了”当“发送成功”。' +
@@ -3998,6 +4027,15 @@ export const AI_TOOLS: AiTool[] = [
         .positive()
         .optional()
         .describe('引用回复：被引用消息的 seq（群内/会话内序号）'),
+      replyToClientSeq: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          '引用回复（私聊必传）：被引用消息的发送方本地 clientSeq（get_messages 开 includeIds=true 会给）。' +
+            '私聊只给 replyToMsgSeq 会定位不到原消息',
+        ),
       replyToSenderUin: z
         .number()
         .int()
@@ -4012,6 +4050,7 @@ export const AI_TOOLS: AiTool[] = [
       text,
       at,
       replyToMsgSeq,
+      replyToClientSeq,
       replyToSenderUin,
       ...dressArgs
     }) => {
@@ -4024,6 +4063,7 @@ export const AI_TOOLS: AiTool[] = [
         text,
         ...(at && at.length > 0 ? { at } : {}),
         ...(replyToMsgSeq !== undefined ? { replyToMsgSeq } : {}),
+        ...(replyToClientSeq !== undefined ? { replyToClientSeq } : {}),
         ...(replyToSenderUin !== undefined ? { replyToSenderUin } : {}),
         ...(dress ? { dress } : {}),
       });
@@ -4210,6 +4250,8 @@ export const AI_TOOLS: AiTool[] = [
       '超级/动态表情需目录信息 {"kind":"face","faceId":358,"superSticker":{"packId":"1","stickerId":"33"}}' +
       '\n  {"kind":"mface","marketEmoticonId":"<32位hex>","emojiPackId":123}（商城贴纸，id 从收消息的元素里拿）' +
       '\n  {"kind":"reply","origMsgSeq":123,"origSenderUin":456}' +
+      '　⚠️ 引用指针 origMsgSeq 群聊填群内 seq、**私聊填被引用消息的 clientSeq**（列 40005，' +
+      'get_messages 开 includeIds=true 会给）；私聊填会话级 msgSeq 会定位不到原消息' +
       '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
       '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条；' +
       '可选 "combo":0~3 = 连击次数，缺省 0）' +

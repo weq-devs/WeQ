@@ -146,6 +146,31 @@ describe('buildTextElements', () => {
     ]);
   });
 
+  // 私聊引用指针用的是「发送方本地 client sequence」（列 40005），不是会话级 seq
+  // （列 40003）：QQ 在私聊里按 client sequence 解析 srcMsg.origSeqs[0]，拿 40003 去
+  // 引用只会得到一个定位不到原消息的引用框（真机：群聊正常、私聊定位不到）。
+  it('私聊引用优先用 replyToClientSeq 当指针，缺省才退回 replyToMsgSeq', () => {
+    expect(
+      buildTextElements({
+        peerType: 'c2c',
+        targetId: '1',
+        text: '喵',
+        replyToMsgSeq: 821,
+        replyToClientSeq: 6851,
+      }),
+    ).toEqual([
+      { kind: 'reply', origMsgSeq: 6851 },
+      { kind: 'text', textContent: '喵' },
+    ]);
+    // 群聊（或老调用方）只给 msgSeq：行为与以前一致。
+    expect(
+      buildTextElements({ peerType: 'group', targetId: '1', text: '喵', replyToMsgSeq: 1862 }),
+    ).toEqual([
+      { kind: 'reply', origMsgSeq: 1862 },
+      { kind: 'text', textContent: '喵' },
+    ]);
+  });
+
   it('空的 @ 项被丢掉，不产生空 at 元素', () => {
     expect(buildTextElements({ peerType: 'c2c', targetId: '1', text: 'x', at: ['  '] })).toEqual([
       { kind: 'text', textContent: 'x' },

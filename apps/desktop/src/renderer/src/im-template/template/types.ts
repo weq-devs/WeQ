@@ -323,6 +323,13 @@ export type Message = {
    * rejects); those fall to the end of the timeline.
    */
   msgSeq?: string;
+  /**
+   * Sender-local client sequence (column 40005, wire `contentHead.sequence`
+   * tag 5); c2c-only — group rows carry no such value. **A private-chat reply
+   * must quote this number instead of `msgSeq`** (QQ resolves a c2c reply
+   * pointer in the sender-local space); see `composerQuote.composerQuoteElement`.
+   */
+  clientSeq?: string;
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   ntSeqVerified?: boolean;

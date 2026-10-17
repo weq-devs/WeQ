@@ -313,6 +313,13 @@ type MessageWire = {
    * where optimistic messages land — always has it).
    */
   msgRandom?: string;
+  /**
+   * Column 40005 — the sender-local client sequence (`contentHead.sequence`,
+   * tag 5); c2c-only (group rows have no such column value → absent). A
+   * private-chat reply must quote THIS number, not `msgSeq` — see
+   * `composerQuote.composerQuoteElement`.
+   */
+  clientSeq?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -345,6 +352,8 @@ type ChatMsgWire = {
   msgId: string;
   msgSeq: string;
   msgRandom?: string;
+  /** 列 40005（发送方本地 client sequence，仅私聊）—— 私聊引用要发它。 */
+  clientSeq?: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
@@ -369,6 +378,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     msgId: w.msgId,
     msgSeq: w.msgSeq,
     msgRandom: w.msgRandom ?? '',
+    clientSeq: w.clientSeq,
     senderUid: w.senderUid,
     senderUin: w.senderUin,
     sendTime: w.sendTime,
@@ -1559,6 +1569,9 @@ function messageToTemplate(
     // Per-conversation sequence, carried through so chatPane can spot the gaps
     // where messages QQ never synced locally would have been.
     msgSeq: message.msgSeq,
+    // Sender-local client sequence (column 40005); c2c-only, and what a private
+    // chat reply has to quote (see composerQuote.composerQuoteElement).
+    clientSeq: message.clientSeq,
     // Per-message decoration (bubble/font/widget itemIds from column 40801).
     source: message.source,
     ntSeqVerified: message.ntSeqVerified,
@@ -1571,6 +1584,7 @@ function messageToTemplate(
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;
+    clientSeq?: string;
     decoration?: {
       bubbleId: number;
       fontId: number;
