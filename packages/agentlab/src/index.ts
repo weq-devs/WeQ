@@ -28,6 +28,7 @@ export {
   type Segmenter,
   type JiebaDictText,
 } from './segment';
+export { normalizeChatToken } from './stopwords';
 export { scoreReplyWillingness } from './willing';
 export {
   scoreReplyGate,

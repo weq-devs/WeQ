@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createJiebaSegmenter, setDefaultSegmenter, tokenizeText } from '../src/segment';
+import { normalizeChatToken } from '../src/stopwords';
 
 /**
  * 手写主词典：故意收录「北京大学」「密钥」「重启」「小笼包」几个合成词，
@@ -159,5 +160,35 @@ describe('tokenizeText（常用语 / 关键词提取）', () => {
     setDefaultSegmenter(build());
     expect(tokenizeText('密钥 和 Close')).toEqual(['密钥', 'close']);
     setDefaultSegmenter(null);
+  });
+
+  it('常用语与词云共用停用词过滤，不把虚词算进高频词', () => {
+    setDefaultSegmenter(build());
+    expect(tokenizeText('今天 和 一下 密钥 就是 的')).toEqual(['今天', '密钥']);
+    setDefaultSegmenter(null);
+  });
+});
+
+describe('normalizeChatToken（停用词 / 噪声）', () => {
+  it('过滤单字、纯数字、纯符号和短虚词', () => {
+    for (const raw of ['', '的', '我', '12345', '...', '就是', '那么', '一下', '我的']) {
+      expect(normalizeChatToken(raw)).toBeNull();
+    }
+  });
+
+  it('过滤英文功能词，但保留有内容的英文词', () => {
+    expect(normalizeChatToken('The')).toBeNull();
+    expect(normalizeChatToken("don't")).toBeNull();
+    expect(normalizeChatToken('socket')).toBe('socket');
+  });
+
+  it('不误杀可能真的是口头禅的聊天词', () => {
+    for (const word of ['谢谢', '加油', '晚安', '欢迎', '开始', '问题', '今天', '结果', '好朋友']) {
+      expect(normalizeChatToken(word)).toBe(word);
+    }
+  });
+
+  it('统一小写并去掉首尾空白', () => {
+    expect(normalizeChatToken('  Close  ')).toBe('close');
   });
 });

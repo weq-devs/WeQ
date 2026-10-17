@@ -9,9 +9,12 @@
  *   2. **HMM（Viterbi）兜底**：词典里查不到的生词串（人名、网络新词）用
  *      B/E/M/S 四态隐马模型猜词边界 —— 没有它，生词会被切成单字丢掉。
  *
- * 与结巴一致，只做切分、不做停用词过滤：虚词该不该丢是调用方的事（见
- * `@weq/service` 的 `text_segment`）。
+ * 切词与过滤分开：`cut()` 只负责切分；`tokenizeText()` 面向「常用语 /
+ * 关键词」会套用 {@link normalizeChatToken} 的停用词规则。结巴式分词器本身
+ * 不做过滤，调用方需要原始切分时可以直接用 `cut()`。
  */
+
+import { normalizeChatToken } from './stopwords';
 
 /** 一个把文本切成词的切分器。 */
 export interface Segmenter {
@@ -33,16 +36,16 @@ export function setDefaultSegmenter(segmenter: Segmenter | null): void {
 
 /**
  * 关键词 / 常用语提取用的通用切词：装了默认切分器（QQ 词典）就按词切，
- * 否则退回原有的「非中英数字符即分隔」正则。两边都过滤掉长度 < 2 的碎片，
- * 保持 token 形状一致。
+ * 否则退回原有的「非中英数字符即分隔」正则。两边共用
+ * {@link normalizeChatToken}，与 `@weq/service` 的词云 / 口头禅过滤口径一致。
  */
 export function tokenizeText(text: string): string[] {
   const seg = defaultSegmenter;
   const raw = seg ? seg.cut(text) : text.split(/[^a-z0-9\u4e00-\u9fa5]+/i);
   const out: string[] = [];
   for (const item of raw) {
-    const w = item.trim().toLowerCase();
-    if (w.length >= 2) out.push(w);
+    const w = normalizeChatToken(item);
+    if (w) out.push(w);
   }
   return out;
 }
