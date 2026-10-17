@@ -285,6 +285,11 @@ export type {
 } from './account/anti_recall';
 export { notifyKey } from './account/anti_recall';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export { MergeForwardArchiveStore } from './account/merge_forward_archive';
+export type {
+  MergeForwardArchiveEntry,
+  MergeForwardArchiveKind,
+} from './account/merge_forward_archive';
 export type {
   MergeForwardDraft,
   MergeForwardDraftInput,

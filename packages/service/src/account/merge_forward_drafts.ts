@@ -141,7 +141,10 @@ function normalizeNode(raw: unknown, index: number): MergeForwardNode | null {
   };
 }
 
-function normalizeDraft(raw: unknown, fallbackId: string): MergeForwardDraft | null {
+export function normalizeMergeForwardDraft(
+  raw: unknown,
+  fallbackId: string,
+): MergeForwardDraft | null {
   if (!isObject(raw)) return null;
   const nodes = Array.isArray(raw.nodes)
     ? raw.nodes
@@ -167,7 +170,7 @@ export class MergeForwardDraftStore {
         if (!isObject(raw)) return {};
         const out: Record<string, MergeForwardDraft> = {};
         for (const [key, value] of Object.entries(raw)) {
-          const draft = normalizeDraft(value, key);
+          const draft = normalizeMergeForwardDraft(value, key);
           if (draft) out[draft.id] = draft;
         }
         return out;
