@@ -141,7 +141,7 @@ import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './c
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow } from './messageRow';
+import { MessageRow, grayTipOf } from './messageRow';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
@@ -305,6 +305,7 @@ export function ChatPane({
   messageRenderers,
   loading,
   atLatest = true,
+  onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
   groupMembersLoading,
@@ -368,6 +369,7 @@ export function ChatPane({
    * the "new message" pill and auto-scroll-to-bottom are suppressed.
    */
   atLatest?: boolean;
+  onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
@@ -563,6 +565,7 @@ export function ChatPane({
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  const reactionRequestPending = useRef(false);
   // 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员）。同戳一戳一样需要
   // 在线且已注入的 QQ；一律不做乐观渲染，成功与否只看 toast。
   const recallMessage = trpc.account.recallMessage.useMutation();
@@ -697,6 +700,24 @@ export function ChatPane({
   // Tracks whether the view is pinned to the bottom of the message list.
   // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
   const atBottomRef = useRef(true);
+  const readGestureUntil = useRef(0);
+  const lastReadSignal = useRef({ key: '', at: 0 });
+  const readContextRef = useRef({
+    tabActive,
+    atLatest,
+    loading,
+    conversation,
+    onReadCurrentConversation,
+    lastId: messages.at(-1)?.id,
+  });
+  readContextRef.current = {
+    tabActive,
+    atLatest,
+    loading,
+    conversation,
+    onReadCurrentConversation,
+    lastId: messages.at(-1)?.id,
+  };
   // Last message id we auto-scrolled / accounted for, to detect new arrivals.
   const lastMessageIdRef = useRef<string | null>(null);
   // Conversation id the scroll-tracking refs above currently describe.
@@ -1573,6 +1594,7 @@ export function ChatPane({
   /** 右键消息「贴表情」：把表情面板锜在这条消息下面。 */
   function openReactionPicker(message: Message) {
     setContextMenu(null);
+    if (messageReactionBlockedReason(message)) return;
     const idSelector = message.id.replace(/["\\]/g, '\\$&');
     const el = messageScrollRef.current?.querySelector<HTMLElement>(
       `[data-message-id="${idSelector}"]`,
@@ -1590,31 +1612,53 @@ export function ChatPane({
   function chooseReaction(code: string) {
     const picker = reactionPicker;
     setReactionPicker(null);
-    if (!picker || !conversation || conversation.type !== 'group') {
+    if (picker) changeMessageReaction(picker.message, code, true);
+  }
+
+  function messageReactionBlockedReason(message: Message): string | null {
+    if (grayTipOf(message)) return '系统消息不支持贴表情';
+    if (conversation?.type !== 'group') return '只有群消息支持贴表情';
+    if (reactionRequestPending.current) return '正在处理表情回应';
+    return (
+      outgoingActionBlockReason(message) ??
+      reactionBlockedReason ??
+      (Number.isSafeInteger(Number(message.msgSeq)) && Number(message.msgSeq) > 0
+        ? null
+        : '这条消息缺少会话内序号，无法贴表情')
+    );
+  }
+
+  function changeMessageReaction(message: Message, code: string, isSet: boolean) {
+    const current = visibleMessages.find((row) => row.id === message.id);
+    if (!current || !conversation || conversation.type !== 'group') return;
+    const reason = messageReactionBlockedReason(current);
+    if (reason) {
+      pushToast({ tone: 'warning', message: reason });
       return;
     }
-    const seq = Number((picker.message as { msgSeq?: unknown }).msgSeq);
-    if (!Number.isFinite(seq) || seq <= 0) {
-      pushToast({ tone: 'warning', message: '这条消息缺少会话内序号，无法贴表情' });
+    if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
-    }
+    reactionRequestPending.current = true;
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
-        sequence: seq,
+        sequence: Number(current.msgSeq),
         code,
-        isSet: true,
+        isSet,
       },
       {
         onSuccess: () => {
-          pushToast({ tone: 'success', message: '表情回应已发出' });
+          pushToast({ tone: 'success', message: isSet ? '表情回应已发出' : '自己的贴表情已撤回' });
         },
         onError: (error) => {
           pushToast({
             tone: 'error',
-            title: '贴表情失败',
+            title: isSet ? '贴表情失败' : '撤回贴表情失败',
             detail: error instanceof Error ? error.message : String(error),
           });
+        },
+        onSettled: () => {
+          reactionRequestPending.current = false;
         },
       },
     );
@@ -1696,7 +1740,7 @@ export function ChatPane({
    * 返回 `show=false` 表示这项根本不出现；`reason` 非空表示出现但置灰。
    */
   function recallAvailability(message: Message): { show: boolean; reason: string | null } {
-    if (!conversation) {
+    if (!conversation || grayTipOf(message)) {
       return { show: false, reason: null };
     }
     const mine = message.senderId === user.id;
@@ -1726,6 +1770,11 @@ export function ChatPane({
   /** 撤回一条消息。不做乐观渲染，只把结果 toast 出来，等 QQ 同步翻新会话。 */
   function recallMessageFor(message: Message) {
     setContextMenu(null);
+    const current = visibleMessages.find((row) => row.id === message.id);
+    if (!current || grayTipOf(current) || current.source === 'roaming') return;
+    message = current;
+    const availability = recallAvailability(message);
+    if (!availability.show || availability.reason) return;
     if (!conversation || moderationBlockedReason) {
       return;
     }
@@ -2079,12 +2128,16 @@ export function ChatPane({
     }
 
     const payloadBody = `${text}${tokens.join('')}`;
+    const readAfterSend = atLatest && isScrolledToBottom(2);
+    if (readAfterSend) requestReadAtBottom();
+    readGestureUntil.current = 0;
     setSending(true);
     try {
       const locals = planNeedsLocalMedia(payloadBody)
         ? await collectLocalMedia(options.locals ?? [])
         : undefined;
       await onSend(payloadBody, locals);
+      if (readAfterSend) requestReadAtBottom();
     } catch (error) {
       // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
       // 不能因为一次失败就把用户打好的字吞掉。
@@ -2950,24 +3003,53 @@ export function ChatPane({
     if (!scroll) {
       return;
     }
+    readGestureUntil.current = 0;
     scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
     setNewMessagePill(0);
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
-  function isScrolledToBottom() {
+  function isScrolledToBottom(tolerance = 48) {
     const scroll = messageScrollRef.current;
     if (!scroll) {
       return true;
     }
     // Tolerance covers sub-pixel rounding and short content.
-    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 48;
+    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= tolerance;
+  }
+
+  function requestReadAtBottom() {
+    const current = readContextRef.current;
+    if (
+      !current.onReadCurrentConversation ||
+      !current.conversation ||
+      current.conversation.id !== conversation?.id ||
+      !current.tabActive ||
+      !current.atLatest ||
+      current.loading ||
+      !messageScrollRef.current ||
+      document.visibilityState === 'hidden' ||
+      !isScrolledToBottom(2)
+    )
+      return;
+    const key = `${current.conversation.id}:${current.conversation.updatedAt}:${current.conversation.unreadCount}:${current.lastId}`;
+    const now = performance.now();
+    if (lastReadSignal.current.key === key && now - lastReadSignal.current.at < 300) return;
+    lastReadSignal.current = { key, at: now };
+    current.onReadCurrentConversation(current.conversation);
+  }
+
+  function handleReadGesture(event: { target: EventTarget | null }) {
+    if (event.target instanceof Element && event.target.closest('.message-scroll'))
+      readGestureUntil.current = performance.now() + 1000;
+    requestReadAtBottom();
   }
 
   function handleMessageScroll() {
     const bottom = isScrolledToBottom();
     atBottomRef.current = bottom;
+    if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
     if (bottom && newMessagePill > 0) {
       setNewMessagePill(0);
     }
@@ -3288,6 +3370,11 @@ export function ChatPane({
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
       style={paneStyle}
+      onPointerDownCapture={handleReadGesture}
+      onClickCapture={handleReadGesture}
+      onWheelCapture={handleReadGesture}
+      onTouchMoveCapture={handleReadGesture}
+      onKeyUpCapture={handleReadGesture}
     >
       <ChatBackdrop
         imageUrl={backdrop.imageUrl}
@@ -3565,6 +3652,11 @@ export function ChatPane({
                     selectionMode={selectionMode}
                     selected={selectionMode && selectedIds.has(message.id)}
                     onToggleSelect={toggleSelectMessage}
+                    reactionRemoval={{
+                      onRemove: (code) => changeMessageReaction(message, code, false),
+                      blockedReason: messageReactionBlockedReason(message),
+                      busy: setMessageReaction.isLoading,
+                    }}
                     onAvatarClick={
                       !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
@@ -4299,13 +4391,16 @@ export function ChatPane({
           onMultiSelect={enterSelection}
           onReact={openReactionPicker}
           // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
-          reactBlockedReason={
-            outgoingActionBlockReason(contextMenu.message) ??
-            reactionBlockedReason ??
-            (Number((contextMenu.message as { msgSeq?: unknown }).msgSeq) > 0
-              ? null
-              : '这条消息缺少会话内序号，无法贴表情')
+          reactBlockedReason={messageReactionBlockedReason(contextMenu.message)}
+          onRemoveReaction={
+            grayTipOf(contextMenu.message)
+              ? undefined
+              : (message, code) => {
+                  setContextMenu(null);
+                  changeMessageReaction(message, code, false);
+                }
           }
+          removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
           onRecall={
             contextRecallInfo?.show && contextMenu.message.source !== 'roaming'

@@ -6,7 +6,7 @@ import { renderMessageWithRegistry, type MessageRenderer } from './messageRender
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
-import { SetEmojiReactions } from '../../components/SetEmojiReactions';
+import { SetEmojiReactions, type ReactionRemoval } from '../../components/SetEmojiReactions';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
@@ -89,6 +89,7 @@ export function MessageBubble({
   selected,
   selectionMode,
   onToggleSelect,
+  reactionRemoval,
 }: {
   message: Message;
   conversation: Conversation;
@@ -139,6 +140,7 @@ export function MessageBubble({
   /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
   selectionMode?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
+  reactionRemoval?: ReactionRemoval;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -429,6 +431,7 @@ export function MessageBubble({
           list={message.setEmojiList}
           groupId={conversation.type === 'group' ? conversation.group.identityValue : null}
           sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
+          removal={selectionMode ? undefined : reactionRemoval}
         />
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">

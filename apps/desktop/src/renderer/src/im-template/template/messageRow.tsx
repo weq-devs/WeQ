@@ -34,6 +34,7 @@ import {
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import type { ReactionRemoval } from '../../components/SetEmojiReactions';
 
 /**
  * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
@@ -121,6 +122,7 @@ export function GrayTipLine({
           element={gt.el as never}
           conversation={conversation as never}
           message={message as never}
+          user={user}
         />
       );
     case 'grayTipGroup':
@@ -183,6 +185,7 @@ export function MessageRow({
   selectionMode = false,
   selected = false,
   onToggleSelect,
+  reactionRemoval,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -207,6 +210,7 @@ export function MessageRow({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
+  reactionRemoval?: ReactionRemoval;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -217,6 +221,7 @@ export function MessageRow({
       <div
         className={[
           grayTipClassName,
+          'weq-system-message-row',
           selectionMode ? 'selection-mode' : '',
           selected ? 'is-selected' : '',
         ]
@@ -239,8 +244,10 @@ export function MessageRow({
             {selected ? <Check size={13} /> : null}
           </span>
         ) : null}
-        <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
-        <MessageProvenance message={message} system />
+        <div className="weq-system-message-content">
+          <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
+          <MessageProvenance message={message} system />
+        </div>
       </div>
     );
   }
@@ -273,6 +280,7 @@ export function MessageRow({
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
+      reactionRemoval={reactionRemoval}
     />
   );
 }
