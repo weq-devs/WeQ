@@ -1,6 +1,9 @@
 /* Tailwind v4 — single-line import; no tailwind.config.js, no PostCSS needed. */
 @import "tailwindcss";
 @import "../im-template/styles.css";
+/* 群相册 / 群文件 / 群分析这些 WeQ 弹窗的样式。原先夹在 im-template/styles/chat.css 里，
+   2026-10-17 整块搬回 WeQ 侧（主窗口与导出窗口都 import 本文件，所以只在这里引入一次）。 */
+@import "./group-media.css";
 /* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
 @import "./privacy.css";
 /* ARK Feed 公众号/服务号消息流样式 */
@@ -7601,7 +7604,8 @@ html[data-theme="dark"] .weq-profile-member .avatar {
  * 负责，这里只管观感。
  * ──────────────────────────────────────────────────────────────────── */
 .weq-member-pop-scrim {
-  /* position/inset/z-index 由组件 inline 设定；此处仅兜底 */
+  /* position/inset/z-index 由 OverlayLayer 设定（层级走 overlayStack 发放）；
+     此处只管观感。 */
   background: transparent;
 }
 
@@ -12419,9 +12423,13 @@ html[data-theme="dark"] .weq-provider-modal {
  * 这里只定卡片外框、卡内排版，以及把 --weq-orb-size 调小到适合卡片的尺度。
  * ──────────────────────────────────────────────────────────────────── */
 /**
- * 个性主页是从资料卡**里面**打开的，必须盖在调用方之上。群成员卡（.weq-member-pop-scrim）
- * 的遮罩是 inline `z-index: 90`，比 .weq-profile-layer 的 80 高 —— 沿用后者会被压在下面
- * 完全看不见。取 100 压过两者。
+ * 个性主页是从资料卡**里面**打开的，必须盖在调用方之上。
+ *
+ * 这里取 100 只是给「还没走 OverlayLayer 」的调用方兜底（比 .weq-profile-layer 的 80 高）。
+ * 从群成员卡进来时不靠它：那时卡片已经 `display: none` 收起（见 MemberProfileCard 的
+ * `dismissed`），且卡片自己的层由 overlayStack 发放（≥1200）——真要叠在一起的话，
+ * .weq-perhome-layer / 互动标识 / 成员聊天分析这三个嵌套灯箱也该一起迁到 OverlayLayer，
+ * 把层级都交给 overlayStack 统一发放。
  */
 .weq-perhome-layer {
   z-index: 100;

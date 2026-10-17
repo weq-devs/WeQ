@@ -6,6 +6,7 @@ import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
+import { formatShortDate } from './format';
 
 export type GroupInfoDetail = 'profile' | 'albums';
 
@@ -259,93 +260,4 @@ export function GroupInfoPanel({
       </section>
     </aside>
   );
-}
-
-export function GroupInfoDetailDialog({
-  conversation,
-  detail,
-  onClose,
-}: {
-  conversation: GroupConversationView;
-  detail: GroupInfoDetail;
-  onClose: () => void;
-}) {
-  const group = conversation.group;
-  const profileRows = [
-    ['群名称', group.name],
-    [group.identityLabel, group.identityValue],
-    group.description ? ['群简介', group.description] : null,
-    group.remark ? ['群备注', group.remark] : null,
-    group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
-    group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
-    group.labels ? ['标签', group.labels] : null,
-    group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
-    group.addressName ? ['群地点', group.addressName] : null,
-    group.entranceQ ? ['入群问题', group.entranceQ] : null,
-  ].filter(Boolean) as string[][];
-
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  return (
-    <div
-      className={cn('modal-scrim', 'group-info-detail-scrim')}
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <section
-        className={cn('group-info-detail-dialog')}
-        role="dialog"
-        aria-modal="true"
-        aria-label={groupInfoDetailTitle(detail)}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <strong>{groupInfoDetailTitle(detail)}</strong>
-            <span>{group.name}</span>
-          </div>
-          <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className={cn('group-info-detail-body')}>
-          {detail === 'profile' ? (
-            <div className={cn('group-info-detail-rows')}>
-              {profileRows.map(([label, value]) => (
-                <div className={cn('group-info-detail-row')} key={label}>
-                  <span>{label}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function groupInfoDetailTitle(_detail: GroupInfoDetail) {
-  return '群资料';
-}
-
-function formatShortDate(value: string | null | undefined) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime()) || date.getTime() <= 0) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
 }

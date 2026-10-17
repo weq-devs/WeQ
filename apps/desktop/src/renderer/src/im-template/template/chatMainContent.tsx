@@ -1,5 +1,4 @@
 ﻿// @ts-nocheck
-import { ContactNoticeDialog, GroupNoticeDialog } from './noticePanes';
 import {
   ContactProfileDialog,
   ContactProfilePane,
@@ -21,13 +20,10 @@ import type { ProfileActionRegistry } from './profileActions';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
-  ContactNoticeView,
   ContactTab,
-  ContactRequest,
   Conversation,
   ConversationDrafts,
   ConversationPreference,
-  GroupJoinRequest,
   MainView,
   Message,
   MessageAction,
@@ -43,9 +39,6 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
-  contactNotice,
-  contactRequests,
-  groupRequests,
   selectedContact,
   selectedGroupConversation,
   activeConversation,
@@ -70,7 +63,6 @@ export function ChatMainContent({
   onMessageGroup: _onMessageGroup,
   onBackContact,
   onBackGroup,
-  onBackContactNotice,
   onUpdateConversationPreference: _onUpdateConversationPreference,
   onUpdateGroup: _onUpdateGroup,
   onLoadMoreGroupMembers,
@@ -100,6 +92,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupInfoDetail,
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
@@ -129,9 +122,6 @@ export function ChatMainContent({
   contactTab?: ContactTab;
   /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
-  contactNotice: ContactNoticeView | null;
-  contactRequests: ContactRequest[];
-  groupRequests: GroupJoinRequest[];
   selectedContact?: Contact;
   selectedGroupConversation?: GroupConversation;
   activeConversation?: Conversation;
@@ -157,7 +147,6 @@ export function ChatMainContent({
   onMessageGroup: (conversationId: string) => Promise<void>;
   onBackContact: () => void;
   onBackGroup: () => void;
-  onBackContactNotice: () => void;
   onUpdateConversationPreference: (
     conversationId: string,
     key: keyof ConversationPreference,
@@ -203,6 +192,11 @@ export function ChatMainContent({
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
+  /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
+  onOpenGroupInfoDetail?: (
+    conversation: GroupConversation,
+    detail: import('./groupInfoPanel').GroupInfoDetail,
+  ) => void;
   /** 群管理「修改群昵称」：应用层弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 群管理「踢出群聊」：应用层二次确认。 */
@@ -251,16 +245,6 @@ export function ChatMainContent({
           (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
         <ContactProfileDialog contact={selectedContact} onClose={onBackContact} />
         <GroupProfileDialog conversation={selectedGroupConversation} onClose={onBackGroup} />
-        <ContactNoticeDialog
-          open={contactNotice === 'friend'}
-          requests={contactRequests}
-          onClose={onBackContactNotice}
-        />
-        <GroupNoticeDialog
-          open={contactNotice === 'group'}
-          requests={groupRequests}
-          onClose={onBackContactNotice}
-        />
       </>
     );
   }
@@ -315,6 +299,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       onOpenGroupEssence={onOpenGroupEssence}
+      onOpenGroupInfoDetail={onOpenGroupInfoDetail}
       onRenameGroupMember={onRenameGroupMember}
       onKickGroupMember={onKickGroupMember}
       onOpenConversationSettings={onOpenConversationSettings}

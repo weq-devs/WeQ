@@ -1,33 +1,24 @@
-// @ts-nocheck
+/**
+ * 好友通知 / 群通知两个灯箱。
+ *
+ * 原先住在 `im-template/template/noticePanes.tsx`（模板只该放上游 IM 层的东西），
+ * 2026-10-17 随「浮层统一」搬到 WeQ 侧：外壳改走 {@link ./OverlayLayer}，
+ * 于是 portal / 层级 / Esc / 点遮罩关闭都是同一套，不再各自手写。
+ *
+ * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
+ * `requests` 是已经取好的申请列表。
+ */
 import { Bell, Users, X } from 'lucide-react';
-import { useLayoutEffect } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
-import { cn } from './classNames';
-import { formatProfileDate } from './format';
-import { Avatar, EmptyState } from './primitives';
-import type { ContactRequest, GroupJoinRequest } from './types';
-import { displayUserName } from './user';
-
-/** Esc 关闭灯箱；仅在打开时挂监听。 */
-function useEscClose(active: boolean, onClose: () => void) {
-  const tabActive = useTabActive();
-  useLayoutEffect(() => {
-    if (!tabActive || !active) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, active, onClose]);
-}
+import { cn } from '../im-template/template/classNames';
+import { formatProfileDate } from '../im-template/template/format';
+import { Avatar, EmptyState } from '../im-template/template/primitives';
+import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
+import { displayUserName } from '../im-template/template/user';
+import { OverlayLayer } from './OverlayLayer';
 
 /**
  * 好友通知灯箱。沿用 weq 设计：遮罩 + 居中卡片，固定标题 + 可滚动列表。
- * 内容为只读展示（与原 ContactNoticePane 一致），改为弹窗滚动查看。
+ * 内容为只读展示，改为弹窗滚动查看。
  */
 export function ContactNoticeDialog({
   open,
@@ -38,13 +29,8 @@ export function ContactNoticeDialog({
   requests: ContactRequest[];
   onClose: () => void;
 }) {
-  useEscClose(open, onClose);
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" open={open} onClose={onClose}>
       <section
         className="weq-notice-dialog weq-anim-pop"
         role="dialog"
@@ -117,7 +103,7 @@ export function ContactNoticeDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 
@@ -171,13 +157,8 @@ export function GroupNoticeDialog({
   requests: GroupJoinRequest[];
   onClose: () => void;
 }) {
-  useEscClose(open, onClose);
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" open={open} onClose={onClose}>
       <section
         className="weq-notice-dialog weq-anim-pop"
         role="dialog"
@@ -265,6 +246,6 @@ export function GroupNoticeDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

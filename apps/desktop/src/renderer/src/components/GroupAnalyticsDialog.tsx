@@ -33,7 +33,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import {
   ContributionHeatmap,
@@ -114,8 +114,6 @@ export function GroupAnalyticsDialog({
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍群历史。 */
   initialData?: { report?: unknown; batches?: unknown; graph?: unknown };
 }) {
-  useEscapeToClose(onClose);
-
   const [report, setReport] = useState<StatsReport | null>(
     (initialData?.report as StatsReport) ?? null,
   );
@@ -474,12 +472,8 @@ export function GroupAnalyticsDialog({
   if (exportMode) return card;
 
   return (
-    <div
-      className="modal-scrim group-album-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
       {card}
-    </div>
+    </OverlayLayer>
   );
 }

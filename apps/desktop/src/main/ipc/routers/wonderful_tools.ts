@@ -37,10 +37,13 @@ import {
 import {
   attachAndRegisterSsoSession,
   getHost,
+  LoginAccountToolService,
+  loginDbPaths,
   requestDecryptKeyFromInstance,
+  resolveLoginAccountDir,
   resolveDeviceGuid,
 } from '@weq/service';
-import { requireBootstrap, requirePlatform } from '../../context/app_context';
+import { rememberAccountUid, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
 import type { CaptureBatchWire, CaptureStatsWire } from '../../capture_protocol';
@@ -585,6 +588,117 @@ export const wonderfulToolsRouter = router({
         };
       },
     ),
+
+  // ── QQ 登陆账号管理 ──────────────────────────────────────────────────
+
+  /**
+   * 「QQ 登陆账号管理」页的数据：login.db 里的全部历史账号（含「有 a1 = 快速登录」
+   * 标记）、本机设备 guid、以及**当前 QQ 实例数**。
+   *
+   * 实例数是整页的闸门：所有写操作（删账号 / 移除快登 / 换 guid）都要求它等于 0
+   * —— 这些文件由 QQ 自己维护，在线时改会被它覆盖回去。用 QQ 自己记的
+   * `launcherCounts` 探测（`probeOnline`），不数进程。
+   */
+  loginAccountsOverview: procedure.query(async () => {
+    const boot = requireBootstrap();
+    const platform = requirePlatform();
+    const tool = makeLoginAccountTool();
+    const [accounts, online] = await Promise.all([
+      tool.list(),
+      Promise.resolve(boot.globalConfig.probeOnline()),
+    ]);
+    return {
+      accounts,
+      guid: tool.readGuid(),
+      qqInstanceCount: online.count,
+      canWrite: online.count === 0,
+      dataRoot: platform.qqDataRoot(),
+      supported: typeof platform.native.ntHelper.writeDeviceGuid === 'function',
+    };
+  }),
+
+  /**
+   * 移除快登：清掉该账号缓存的 a1（`login.db [1004]`）。
+   *
+   * 只回写操作结论 —— 界面拿到结果后会自己重新拉一次 overview（那里同时还要
+   * 重探实例数），这里再列一遍数据库就是白解密一遍。
+   */
+  loginAccountRemoveA1: procedure
+    .input(z.object({ uin: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      assertNoQqRunning();
+      return makeLoginAccountTool().removeQuickLogin(input.uin);
+    }),
+
+  /** 真删账号：把该行从 login.db 删掉（账号目录 / 聊天记录不动）。 */
+  loginAccountDelete: procedure
+    .input(z.object({ uin: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      assertNoQqRunning();
+      return makeLoginAccountTool().deleteAccount(input.uin);
+    }),
+
+  /**
+   * 随机更换设备 guid（让本机在服务端眼里变成新设备）。
+   *
+   * 换完顺带把 WeQ 账号配置里那份 guid / a1 payload 同步（`sync` 钩子），否则
+   * 我们自己发包时会拿旧 guid 冒充新设备。
+   */
+  loginAccountRotateGuid: procedure.mutation(async () => {
+    assertNoQqRunning();
+    return { guid: await makeLoginAccountTool().rotateGuid() };
+  }),
 });
+
+/**
+ * 写操作的前置闸门：有 QQ 在跑就直接拒绝。
+ *
+ * 这不是保守 —— `login.db` 与 `msf` 下的设备标识文件都是 QQ 常驻读写并缓存在
+ * 内存里的，在线时改完会被它覆盖（Windows 的硬件回退还会立刻重写自己的缓存），
+ * 用户看到的是"点了没反应"。与其做一个静默失效的按钮，不如明确要求先退出 QQ。
+ */
+function assertNoQqRunning(): void {
+  const probe = requireBootstrap().globalConfig.probeOnline();
+  if (probe.count > 0) {
+    throw new Error(
+      `检测到本机有 ${probe.count} 个 QQ 实例在运行，修改登录数据会被 QQ 覆盖。请先完全退出 QQ 再试。`,
+    );
+  }
+}
+
+/** 组装「QQ 登陆账号管理」用的服务（每次现取配置，避免持有过期路径）。 */
+function makeLoginAccountTool(): LoginAccountToolService {
+  const boot = requireBootstrap();
+  const platform = requirePlatform();
+  return new LoginAccountToolService({
+    nt: platform.native.ntHelper,
+    loginDbPaths: loginDbPaths(platform),
+    dataRoot: platform.qqDataRoot(),
+    // 数据目录名在 linux / macOS 上由 login.db 里的 uid 派生 —— 这个号可能
+    // 还没在 WeQ 里打开过（uin→uid 的配置没落盘），所以把 uid 一起给它现算。
+    accountDir: (uin, uid) => {
+      const dir = resolveLoginAccountDir(platform, uin, uid);
+      if (dir && uid) rememberAccountUid(uin, uid);
+      return dir;
+    },
+    sync: {
+      // guid 变了：WeQ 每个账号配置里都存着一份（发包身份用），必须跟着换，
+      // 同时作废按旧 guid 解出来的 A1 payload 缓存。账号服务的记录是每次都从
+      // 磁盘现读的，所以写完文件它下一次读就是新值。
+      onGuidRotated: (guid) => boot.userConfig.rotateAccountGuids(guid),
+      // 某账号的 a1 被清掉：WeQ 缓存的那份 payload 同步作废，否则下次快登会拿
+      // 一个 QQ 那边已经不认的凭据去换票据。
+      onA1Removed: (uin) => boot.userConfig.clearAccountA1Payload(uin),
+      // 真删账号：WeQ 自己那份账号配置也清掉 —— login.db 已经不认识它了，留着
+      // 只会让人在账号列表里点进去打开一个 QQ 都没有的号。**只删配置**，
+      // 聊天记录 / 数据目录一律不动。
+      onAccountRemoved: (uin) => {
+        for (const cfg of boot.userConfig.listAccountConfigs()) {
+          if (cfg.uin === uin) boot.userConfig.deleteAccountConfig(cfg.configId);
+        }
+      },
+    },
+  });
+}
 
 export type WonderfulToolsRouter = typeof wonderfulToolsRouter;

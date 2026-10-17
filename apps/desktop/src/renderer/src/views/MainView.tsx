@@ -68,6 +68,9 @@ import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
+import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
+import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
+import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { AntiRecallDialog } from '../components/AntiRecallDialog';
 import {
@@ -2532,6 +2535,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [groupInfoDetail, setGroupInfoDetail] = useState<{
+    groupCode: string;
+    detail: GroupInfoDetail;
+  } | null>(null);
   /** 群成员管理弹窗（改群昵称 / 踢人）：应用层持有，与群公告 / 群精华同层。 */
   const [groupMemberDialog, setGroupMemberDialog] = useState<
     | { kind: 'rename'; groupId: string; targetUid: string; name: string; initialCard: string }
@@ -2705,6 +2712,15 @@ export function MainView(): ReactElement {
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
+    },
+    [],
+  );
+
+  // 群资料面板里点「群资料」：卡片本体在 WeQ 侧（components/GroupInfoDetailDialog），
+  // 这里只记下是哪个群 + 看哪个分组，渲染时用当前的 selectedConversation 喂数据。
+  const handleOpenGroupInfoDetail = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, detail: GroupInfoDetail) => {
+      setGroupInfoDetail({ groupCode: conversation.id, detail });
     },
     [],
   );
@@ -7167,9 +7183,6 @@ export function MainView(): ReactElement {
                           view={shell.view}
                           contactTab={shell.contactTab}
                           relationGraphSlot={<RelationGraphView />}
-                          contactNotice={shell.contactNotice}
-                          contactRequests={contactRequests}
-                          groupRequests={groupRequests}
                           selectedContact={shell.selectedContact}
                           selectedGroupConversation={selectedGroupConversationForDetail}
                           activeConversation={activeConversation}
@@ -7192,7 +7205,6 @@ export function MainView(): ReactElement {
                           onMessageGroup={noopAsync}
                           onBackContact={shell.backContact}
                           onBackGroup={shell.backGroup}
-                          onBackContactNotice={shell.backContactNotice}
                           onUpdateConversationPreference={updateConversationPreference}
                           onUpdateGroup={async (
                             _conversationId: string,
@@ -7228,6 +7240,7 @@ export function MainView(): ReactElement {
                           onOpenGroupFiles={handleOpenGroupFiles}
                           onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                           onOpenGroupEssence={handleOpenGroupEssence}
+                          onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
                           onRenameGroupMember={handleRenameGroupMember}
                           onKickGroupMember={handleKickGroupMember}
                           onOpenConversationSettings={handleOpenConversationSettings}
@@ -7378,6 +7391,27 @@ export function MainView(): ReactElement {
               groupCode={albumDialog.groupCode}
               groupName={albumDialog.groupName}
               onClose={() => setAlbumDialog(null)}
+            />
+          ) : null}
+          {/* 好友 / 群通知灯箱：开关与数据都在这一层（`shell.contactNotice` 同时决定
+              联系人页右侧是否算「有详情在展示」，见 shellController 的 mainOpen）。 */}
+          <ContactNoticeDialog
+            open={shell.contactNotice === 'friend'}
+            requests={contactRequests}
+            onClose={shell.backContactNotice}
+          />
+          <GroupNoticeDialog
+            open={shell.contactNotice === 'group'}
+            requests={groupRequests}
+            onClose={shell.backContactNotice}
+          />
+          {groupInfoDetail &&
+          selectedConversation?.type === 'group' &&
+          selectedConversation.id === groupInfoDetail.groupCode ? (
+            <GroupInfoDetailDialog
+              conversation={selectedConversation}
+              detail={groupInfoDetail.detail}
+              onClose={() => setGroupInfoDetail(null)}
             />
           ) : null}
           {groupFileDialog ? (

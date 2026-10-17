@@ -18,8 +18,8 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { closeFromScrim, useEscapeToClose } from '@renderer/im-template/template';
 import { GraphCanvas } from './GraphCanvas';
+import { OverlayLayer } from '../OverlayLayer';
 import { buildGraph, communityColor, personAvatar, groupAvatar } from './graphModel';
 import { RankingModal, type RankingKind } from './RankingModal';
 import type { GraphMode, GraphSettings, GroupFilterMode, RelationGraphData } from './types';
@@ -307,8 +307,6 @@ export function RelationGraphView() {
 function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
   const [draft, setDraft] = useState<Set<string>>(() => new Set(value));
   const [query, setQuery] = useState('');
-  useEscapeToClose(onClose);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return groups;
@@ -341,11 +339,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
   const title = mode === 'blacklist' ? '选择要排除的群' : '选择要统计的群';
 
   return (
-    <div
-      className="modal-scrim weq-graph-modal-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim weq-graph-modal-scrim" onClose={onClose}>
       <section className="weq-grouppick" role="dialog" aria-modal="true">
         <header className="weq-grouppick-head">
           <div>
@@ -432,7 +426,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
           </div>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

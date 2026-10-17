@@ -923,6 +923,97 @@ export class UserConfigService {
     }
   }
 
+  /**
+   * 设备 guid 变了（妙妙工具 → QQ 登陆账号管理里换的）：把所有账号记录里那份
+   *「发包身份用的 guid」同步成新值，并作废按旧 guid 解出来的 A1 payload 缓存。
+   *
+   * 为什么必须一起改：`guid` 是服务端认设备的依据，WeQ 自己发包（快登 / 抓包 /
+   * 在线识别）读的就是这份配置；不同步的话，换完 guid 反而让旧缓存和磁盘不一致 ——
+   * 服务端会看到"同一份凭据来自两台设备"。A1 payload 是用 guid 当 AES 密钥解出来的，
+   * 新 guid 解不开旧 payload，所以一并作废（下次开会话会重新解密）。
+   *
+   * best-effort：读写失败的记录跳过，绝不抛给调用方。
+   */
+  rotateAccountGuids(guid: string): void {
+    if (!guid) return;
+    const dir = join(this.root, 'config', 'accounts');
+    let files: string[];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      return; // 还没有账号记录目录
+    }
+    let updated = 0;
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = join(dir, file);
+      try {
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+        if (raw.guid === guid && raw.a1Payload === undefined) continue;
+        const config = normalizeAccountConfig(raw);
+        if (!config.configId) config.configId = basename(file, '.json');
+        // 按旧 guid 解出来的 A1 payload 已经失效：删掉，让下次开会话重解。
+        const { a1Payload: _stale, ...rest } = config;
+        writeFileSync(filePath, JSON.stringify({ ...rest, guid }, null, 2), 'utf-8');
+        updated++;
+      } catch (error) {
+        this.logger.warn('skipped account config while rotating guid', {
+          event: 'set-account-guid-skip',
+          file,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    if (updated > 0) {
+      this.logger.info('synced account configs to the new device guid', {
+        event: 'set-account-guid',
+        files: updated,
+      });
+    }
+  }
+
+  /**
+   * 某账号的 A1 被清掉了（`login.db [1004]` 被写成 NULL）：把 WeQ 缓存的那份 A1
+   * payload 一并作废 —— 留着的话快速登录会拿一个 QQ 那边已经不认的凭据去换票据。
+   *
+   * best-effort。
+   */
+  clearAccountA1Payload(uin: string): void {
+    if (!uin) return;
+    const dir = join(this.root, 'config', 'accounts');
+    let files: string[];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      return;
+    }
+    let updated = 0;
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = join(dir, file);
+      try {
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+        if (raw.uin !== uin || raw.a1Payload === undefined) continue;
+        const { a1Payload: _dropped, ...rest } = raw;
+        writeFileSync(filePath, JSON.stringify(rest, null, 2), 'utf-8');
+        updated++;
+      } catch (error) {
+        this.logger.warn('skipped account config while clearing a1 payload', {
+          event: 'clear-account-a1-skip',
+          file,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    if (updated > 0) {
+      this.logger.info('cleared cached a1 payload for account', {
+        event: 'clear-account-a1',
+        accountUin: uin,
+        files: updated,
+      });
+    }
+  }
+
   listAccountConfigs(): AccountConfig[] {
     const dir = join(this.root, 'config', 'accounts');
     try {

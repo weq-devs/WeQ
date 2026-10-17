@@ -268,6 +268,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | ---- | ---- | ---- | ---- |
 | `scanSessionMaterial(pid)` | pid | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key（十六进制串；没扫到的项为 `undefined`，不影响其它项）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
 | `readDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 离线算出设备 guid（32 位小写 hex）。**不需要任何权限、不碰进程**；算不出返回 `null`。 |
+| `writeDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 随机换一个设备 guid 并写回数据目录，返回新值。三端各改写自己那份来源（Linux `machine-info` 的 MAC / macOS `machineid-info` 的 machine_id / Windows `Registry20` 或 `Registry2.0.db`）。与 `readDeviceGuid` 一样**同步**——只改文件，不 await 任何东西。**调用方必须先确认没有 QQ 实例在跑**（在线时会被 QQ 覆盖回去）；不需要权限。老产物没有这个方法，调用方要按"旧产物"处理。 |
 | `setSsoSession(pid, session, wrapperPath?)` | 物料 + `wrapper.node` 路径 | `Promise<void>` | 登记这一场会话。**只存不连**：不读内存、不发包时一个 socket 都不存在；TCP 等到第一次发包才建，闲置一分钟丢弃，断了下次发包自动重连。 |
 | `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 

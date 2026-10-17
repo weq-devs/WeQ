@@ -22,7 +22,6 @@ export * from './messageRow';
 export * from './mentions';
 export * from './modalUtils';
 export * from './mobileProfileSheet';
-export * from './noticePanes';
 export * from './preferences';
 export * from './profileEditorModal';
 export * from './profileActions';

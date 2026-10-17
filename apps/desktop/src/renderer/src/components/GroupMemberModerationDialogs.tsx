@@ -10,7 +10,7 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 
 function DialogHeader({
   title,
@@ -47,15 +47,10 @@ export function GroupMemberRenameDialog({
   onCancel: () => void;
   onConfirm: (card: string) => void;
 }): ReactElement {
-  useEscapeToClose(onCancel);
   const [value, setValue] = useState(initialCard ?? '');
 
   return (
-    <div
-      className="modal-scrim group-member-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onCancel)}
-    >
+    <OverlayLayer className="modal-scrim group-member-scrim" onClose={onCancel}>
       <section
         className="group-member-dialog"
         role="dialog"
@@ -94,7 +89,7 @@ export function GroupMemberRenameDialog({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 
@@ -109,14 +104,8 @@ export function GroupMemberKickDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }): ReactElement {
-  useEscapeToClose(onCancel);
-
   return (
-    <div
-      className="modal-scrim group-member-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onCancel)}
-    >
+    <OverlayLayer className="modal-scrim group-member-scrim" onClose={onCancel}>
       <section
         className="group-member-dialog is-confirm"
         role="dialog"
@@ -136,6 +125,6 @@ export function GroupMemberKickDialog({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
