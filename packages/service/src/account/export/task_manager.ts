@@ -807,7 +807,14 @@ export class ExportTaskManager extends EventEmitter {
       ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
       ...(opts.range ? { range: opts.range } : {}),
       ...(opts.guild ? { guild: opts.guild } : {}),
-      ...(opts.filter ? { filter: opts.filter } : {}),
+      ...(opts.filter
+        ? {
+            filter: {
+              ...opts.filter,
+              ...(opts.filter.messageIds ? { messageIds: [...opts.filter.messageIds] } : {}),
+            },
+          }
+        : {}),
       stages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1419,6 +1426,7 @@ export class ExportTaskManager extends EventEmitter {
       // 预计算导出总量（本地消息按时间窗计数 + 漫游补全消息），让 message 阶段
       // 从一开始就有分母，且不会出现“已导出条数超过总量”的倒挂。
       const countPromise = (async (): Promise<number> => {
+        if (task.filter?.messageIds) return task.filter.messageIds.length;
         if (task.kind !== 'group' && task.kind !== 'c2c') return 0;
         try {
           let total = await this.msgsFor(task).countConv(task.kind, task.conv, {

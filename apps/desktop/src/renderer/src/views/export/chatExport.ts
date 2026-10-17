@@ -22,6 +22,7 @@ export interface ChatExportTarget {
   name: string;
   kind?: 'group' | 'c2c';
   total?: number;
+  messageIds?: string[];
 }
 
 /** 灯箱选项 → `account.startExport` 的 media 入参（媒体子选项只在导出媒体时生效）。 */
@@ -146,7 +147,7 @@ export async function startChatExportTasks(
         : {}),
       ...(options.chatlab ? { chatlab: true } : {}),
       media,
-      range,
+      ...(t.messageIds ? { filter: { messageIds: [...t.messageIds] } } : { range }),
     });
     ids.push(id);
   }

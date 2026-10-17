@@ -189,7 +189,7 @@ export function MessageContextMenu({
       {onEditRaw ? (
         <button type="button" onClick={() => onEditRaw(state.message)}>
           <Edit3 size={17} />
-          <span>修改</span>
+          <span>修改本地记录</span>
         </button>
       ) : null}
       {hasDecoration && onViewDecoration ? (

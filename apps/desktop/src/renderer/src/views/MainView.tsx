@@ -128,8 +128,7 @@ import type {
 } from '../components/search/types';
 import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
-import { ExportView } from './ExportView';
-import { CacheView } from './cache/CacheView';
+import { WorkspaceTools } from '../components/WorkspaceTools';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
 import { QzoneWorkspace } from './QzoneView';
@@ -2509,11 +2508,9 @@ export function MainView(): ReactElement {
     undefined,
   );
   const [helpOpen, setHelpOpen] = useState(false);
-  const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
   /** 打开妙妙工具时先落到哪一页（损坏弹窗 → 数据库修复）。账号固定为当前登录的这一个。 */
   const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
-  const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [temporaryConversations, setTemporaryConversations] = useState<
     Record<string, { conversation: Conversation; appearedAt: number }>
@@ -5526,13 +5523,7 @@ export function MainView(): ReactElement {
   const searchQuery = shell.query.trim();
   const searchRunRef = useRef(0);
   useEffect(() => {
-    if (shell.view !== 'messages' && shell.view !== 'contacts') {
-      setSearchQuick(null);
-      setSearchSlow(null);
-      setSearchQuickLoading(false);
-      setSearchSlowLoading(false);
-      return undefined;
-    }
+    const run = ++searchRunRef.current;
     if (!searchQuery) {
       setSearchQuick(null);
       setSearchSlow(null);
@@ -5540,7 +5531,6 @@ export function MainView(): ReactElement {
       setSearchSlowLoading(false);
       return undefined;
     }
-    const run = ++searchRunRef.current;
     setSearchQuickLoading(true);
     setSearchSlowLoading(true);
     setSearchDismissed(false);
@@ -5571,13 +5561,12 @@ export function MainView(): ReactElement {
         });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchQuery, shell.view]);
+  }, [searchQuery]);
 
   // 搜索框刚点开、还什么都没输入 → 显示 QQ 自己的「最近搜索」（search_history 表，
   // 只读、只有几行）。读一次就常驻，不在每次聚焦时重新拉。
   useEffect(() => {
     if (!searchFocused || searchQuery || searchHistory !== null) return undefined;
-    if (shell.view !== 'messages' && shell.view !== 'contacts') return undefined;
     let cancelled = false;
     client.account.searchHistory
       .query({ limit: 20 })
@@ -5591,7 +5580,7 @@ export function MainView(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [searchFocused, searchQuery, searchHistory, shell.view]);
+  }, [searchFocused, searchQuery, searchHistory]);
 
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
@@ -6932,9 +6921,9 @@ export function MainView(): ReactElement {
 
   const fullBleedView =
     shell.view === 'home' ||
-    shell.view === 'export' ||
     shell.view === 'agentlab' ||
-    shell.view === 'cache' ||
+    shell.view === 'collections' ||
+    shell.view === 'guild-direct' ||
     shell.view === 'qzone' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
@@ -7045,12 +7034,12 @@ export function MainView(): ReactElement {
               shell.switchView('home');
             }}
             onOpenSettings={() => setSettingsOpen(true)}
-            onOpenCollection={() => setCollectionOpen(true)}
+            onOpenCollection={() => shell.switchView('collections')}
             onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
             onOpenAntiRecall={() => setAntiRecallOpen(true)}
             onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
-            onOpenGuildDirect={() => setGuildDirectOpen(true)}
+            onOpenGuildDirect={() => shell.switchView('guild-direct')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
@@ -7163,12 +7152,18 @@ export function MainView(): ReactElement {
                     />
                   ) : shell.view === 'home' ? (
                     <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-                  ) : shell.view === 'export' ? (
-                    <ExportView />
                   ) : shell.view === 'agentlab' ? (
                     <AgentLabView />
-                  ) : shell.view === 'cache' ? (
-                    <CacheView />
+                  ) : shell.view === 'collections' ? (
+                    <CollectionDialog open embedded onClose={() => shell.switchView('messages')} />
+                  ) : shell.view === 'guild-direct' ? (
+                    <GuildDirectDialog
+                      open
+                      embedded
+                      onClose={() => shell.switchView('messages')}
+                      selfUser={user}
+                      renderers={messageRenderers}
+                    />
                   ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
                     <ChannelView />
                   ) : shell.view === 'annual' ? (
@@ -7348,7 +7343,11 @@ export function MainView(): ReactElement {
             initialSection={settingsSection}
           />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
-          <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
+          <WorkspaceTools
+            onOpenAnalysis={() => shell.switchView('annual')}
+            onOpenMaintenance={() => openWonderfulToolsAt('key-scan')}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             initialTool={wonderfulToolsTool}
@@ -7368,12 +7367,6 @@ export function MainView(): ReactElement {
                 : undefined
             }
             onClose={() => setWonderfulToolsOpen(false)}
-          />
-          <GuildDirectDialog
-            open={guildDirectOpen}
-            onClose={() => setGuildDirectOpen(false)}
-            selfUser={user}
-            renderers={messageRenderers}
           />
           <QzoneAlbumDialog
             selfUin={user.identityValue}

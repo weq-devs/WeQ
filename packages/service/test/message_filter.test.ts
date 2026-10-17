@@ -27,3 +27,43 @@ it('mixed-content messages belong to each actual category', () => {
     'system',
   ]);
 });
+
+it('精确间断选择只接受指定消息，大 ID 不转成浮点数，空选不等于全部', () => {
+  const selected = { messageIds: ['9007199254740993', '9007199254740995'] };
+  expect(matchesMessageFilter({ ...message, msgId: 9007199254740993n }, selected)).toBe(true);
+  expect(matchesMessageFilter({ ...message, msgId: 9007199254740994n }, selected)).toBe(false);
+  expect(matchesMessageFilter({ ...message, msgId: 9007199254740995n }, selected)).toBe(true);
+  expect(matchesMessageFilter({ ...message, msgId: '9007199254740993' }, { messageIds: [] })).toBe(
+    false,
+  );
+  expect(matchesMessageFilter(message, selected)).toBe(false);
+});
+
+it('同一个数值 ID 的本地消息和漫游变体按精确来源区分', () => {
+  const selected = { messageIds: ['roaming:protocol:8:9007199254740993'] };
+  expect(matchesMessageFilter({ ...message, msgId: '9007199254740993' }, selected)).toBe(false);
+  expect(
+    matchesMessageFilter(
+      {
+        ...message,
+        msgId: '9007199254740993',
+        msgSeq: 8n,
+        source: 'roaming',
+        sourceFormat: 'protocol',
+      },
+      selected,
+    ),
+  ).toBe(true);
+  expect(
+    matchesMessageFilter(
+      {
+        ...message,
+        msgId: '9007199254740993',
+        msgSeq: 8n,
+        source: 'roaming',
+        sourceFormat: 'native',
+      },
+      selected,
+    ),
+  ).toBe(false);
+});

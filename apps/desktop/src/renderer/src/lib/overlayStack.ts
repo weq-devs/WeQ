@@ -18,6 +18,16 @@ import { useRef } from 'react';
 const BASE = 1200;
 let counter = BASE;
 
+/** 底层页面快捷键不能穿透工具遮罩；保留但隐藏的工具不算活动对话框。 */
+export function hasActiveModal(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    [...document.querySelectorAll('[aria-modal="true"]')].some(
+      (element) => !element.closest('[hidden], [inert]'),
+    )
+  );
+}
+
 /**
  * Claim a z-index for a layer while `active`. Claimed once per open; reopening
  * claims a fresh (higher) value. Returns undefined when inactive so callers can

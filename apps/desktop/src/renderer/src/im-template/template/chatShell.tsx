@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import type { CSSProperties, ReactNode } from 'react';
+import { Search } from 'lucide-react';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -105,6 +106,19 @@ export function ChatShell({
   return (
     <div className={cn('app-shell-root', IS_MAC && 'is-mac')}>
       <TitleBar user={user} homeActive={view === 'home'} onGoHome={onGoHome} />
+      <div className="weq-global-search">
+        <label>
+          <Search size={18} aria-hidden />
+          <input
+            aria-label="全局搜索"
+            placeholder="搜索全部内容"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onFocus={onSearchFocus}
+          />
+        </label>
+        {searchPanel ? <div className="weq-global-search-results">{searchPanel}</div> : null}
+      </div>
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
@@ -142,6 +156,7 @@ export function ChatShell({
         >
           <SidebarHeader
             user={user}
+            showSearch={false}
             view={view}
             query={query}
             onQueryChange={onQueryChange}

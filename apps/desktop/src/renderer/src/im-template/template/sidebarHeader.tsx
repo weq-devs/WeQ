@@ -20,6 +20,7 @@ export function SidebarHeader({
   onContactTabChange,
   onRefreshContacts,
   refreshingContacts = false,
+  showSearch = true,
   activeNotice,
   searchPanel,
   onSearchFocus,
@@ -39,6 +40,7 @@ export function SidebarHeader({
   onContactTabChange: (tab: ContactTab) => void;
   onRefreshContacts?: () => void;
   refreshingContacts?: boolean;
+  showSearch?: boolean;
   activeNotice: 'friend' | 'group' | null;
   /**
    * 挂在搜索框正下方的浮层（统一搜索下拉 / 最近搜索）。
@@ -149,19 +151,21 @@ export function SidebarHeader({
         </div>
         <div className={cn('mobile-sidebar-actions')}>{renderAddMenu()}</div>
       </div>
-      <div className={cn('search-row')}>
-        <label className={cn('search-box')}>
-          <Search size={22} />
-          <input
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onFocus={() => onSearchFocus?.()}
-            placeholder="搜索"
-          />
-        </label>
-        <div className={cn('desktop-sidebar-add')}>{renderAddMenu()}</div>
-        {searchPanel ? <div className={cn('search-panel-slot')}>{searchPanel}</div> : null}
-      </div>
+      {showSearch ? (
+        <div className={cn('search-row')}>
+          <label className={cn('search-box')}>
+            <Search size={22} />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onFocus={() => onSearchFocus?.()}
+              placeholder="搜索"
+            />
+          </label>
+          <div className={cn('desktop-sidebar-add')}>{renderAddMenu()}</div>
+          {searchPanel ? <div className={cn('search-panel-slot')}>{searchPanel}</div> : null}
+        </div>
+      ) : null}
       {view === 'contacts' ? (
         <div className={cn('contact-tools')}>
           <button

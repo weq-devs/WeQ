@@ -11,7 +11,7 @@ import { client } from '../../trpc/client';
 type EstimateInput = Parameters<typeof client.account.exportPreflight.query>[0];
 export async function preflightExportEstimate(
   dialog: AppDialogApi,
-  targets: readonly { kind: 'group' | 'c2c'; id: string; name: string }[],
+  targets: readonly { kind: 'group' | 'c2c'; id: string; name: string; messageIds?: string[] }[],
   options: {
     range: { start: number | null; end: number | null };
     formats: readonly string[];
@@ -33,7 +33,9 @@ export async function preflightExportEstimate(
           range: options.range,
           formats: options.formats.filter((f) => f !== 'vcard') as EstimateInput['formats'],
           exportMedia: options.exportMedia,
-          filter: options.filter,
+          filter: target.messageIds
+            ? { ...options.filter, messageIds: target.messageIds }
+            : options.filter,
         })),
       });
     const first = results[0]!;

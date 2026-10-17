@@ -88,6 +88,8 @@ import {
   type ScheduledTask,
 } from './export/types';
 import '../styles/export.css';
+import { MessageScopePicker } from './export/MessageScopePicker';
+import type { ContentSelection } from '../../../shared/content_selection';
 
 interface ModeDef {
   id: ExportMode;
@@ -297,7 +299,13 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
   };
 }
 
-export function ExportView(): ReactElement {
+export function ExportTool({
+  surface = 'export',
+  initialSelection,
+}: {
+  surface?: 'export' | 'tasks';
+  initialSelection?: ContentSelection;
+}): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const pushToast = useToast((s) => s.push);
@@ -310,16 +318,37 @@ export function ExportView(): ReactElement {
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
 
-  const [mode, setMode] = useState<ExportMode>('full');
+  const [mode, setMode] = useState<ExportMode>(
+    initialSelection?.owner.kind === 'collections' ? 'collection' : 'full',
+  );
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: mode === 'guild',
   });
-  const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
+  const [convSelection, setConvSelection] = useState<Set<string>>(
+    () =>
+      new Set(
+        initialSelection?.owner.kind === 'messages'
+          ? [
+              initialSelection.owner.container.slice(
+                initialSelection.owner.container.indexOf(':') + 1,
+              ),
+            ]
+          : [],
+      ),
+  );
+  const [messageSelections, setMessageSelections] = useState<Record<string, string[]>>(() => {
+    if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
+      return {};
+    const conv = initialSelection.owner.container.slice(
+      initialSelection.owner.container.indexOf(':') + 1,
+    );
+    return { [conv]: [...initialSelection.scope.ids] };
+  });
   /** 频道私聊多选：id = nodeId（与普通会话 uid 空间不同，分开存。） */
   const [guildSelection, setGuildSelection] = useState<Set<string>>(new Set());
   /** 任务面板展开/收起（默认收起）。 */
-  const [taskPanelExpanded, setTaskPanelExpanded] = useState(false);
+  const [taskPanelExpanded, setTaskPanelExpanded] = useState(true);
   /** 新任务到达时，强制选中该任务。 */
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
@@ -331,6 +360,12 @@ export function ExportView(): ReactElement {
   const [contactGroupId, setContactGroupId] = useState<string | null>(null);
   /** 导出收藏：选中的收藏类型（空 = 全部）。 */
   const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
+  const [collectionIds, setCollectionIds] = useState<string[] | undefined>(() =>
+    initialSelection?.owner.kind === 'collections' && initialSelection.scope.type === 'items'
+      ? [...initialSelection.scope.ids]
+      : undefined,
+  );
+  const [filteredCollectionIds, setFilteredCollectionIds] = useState<string[]>([]);
   /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
   const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
@@ -873,7 +908,7 @@ export function ExportView(): ReactElement {
       await client.account.startCollectionExport.mutate({
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
-        ...(kinds.length ? { kinds } : {}),
+        cids: collectionIds ?? filteredCollectionIds,
       });
       setCollectionKinds(new Set());
       refetchTasks();
@@ -888,18 +923,36 @@ export function ExportView(): ReactElement {
     options: ExportOptions,
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
-    const targets = convItems.filter((it) => convSelection.has(it.id));
+    const targets = convItems
+      .filter((it) => convSelection.has(it.id))
+      .map((item) => ({
+        ...item,
+        ...(messageSelections[item.id] !== undefined
+          ? {
+              messageIds: [...messageSelections[item.id]!],
+              total: messageSelections[item.id]!.length,
+            }
+          : {}),
+      }));
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
+    const precise = targets.some((target) => target.messageIds !== undefined);
+    const effectiveOptions: ExportOptions = precise
+      ? {
+          ...options,
+          completeMessages: false,
+          range: { preset: 'all', start: null, end: null },
+        }
+      : options;
     // 前置检查（补全消息 / 媒体补全确认 / 语音模型）与任务创建都走共用逻辑，
     // 聊天页顶栏的快捷导出灯箱用的是同一套。
-    const ok = await preflightChatExport(dialog, options);
+    const ok = await preflightChatExport(dialog, effectiveOptions);
     if (!ok) return;
     if (
       !(await preflightExportEstimate(
         dialog,
         targets.map((t) => ({ ...t, kind: t.kind ?? 'c2c' })),
         {
-          range: { start: options.range.start, end: options.range.end },
+          range: { start: effectiveOptions.range.start, end: effectiveOptions.range.end },
           formats,
           exportMedia: options.exportMedia,
         },
@@ -909,7 +962,12 @@ export function ExportView(): ReactElement {
 
     setSubmitting(true);
     try {
-      const autoSaveTaskIds = await startChatExportTasks(targets, options, formats, format);
+      const autoSaveTaskIds = await startChatExportTasks(
+        targets,
+        effectiveOptions,
+        formats,
+        format,
+      );
       if (options.autoSave && autoSaveTaskIds.length > 0) {
         autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
       }
@@ -1279,10 +1337,12 @@ export function ExportView(): ReactElement {
           : mode === 'contacts'
             ? contactScope === 'group' && !contactGroupId
             : mode === 'collection'
-              ? collectionLoading || (collectionCounts.all ?? 0) === 0
+              ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
               : mode === 'guild'
                 ? guildSelection.size === 0
-                : convSelection.size === 0;
+                : convSelection.size === 0 ||
+                  (mode === 'full' &&
+                    [...convSelection].some((id) => messageSelections[id]?.length === 0));
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -1318,261 +1378,294 @@ export function ExportView(): ReactElement {
               : '导出聊天记录';
 
   return (
-    <div className="weq-exp">
-      <div className="weq-exp-top">
-        {/* 左侧模式栏 */}
-        <nav className="weq-exp-modes" aria-label="导出模式">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className={`weq-exp-mode${m.id === mode ? ' is-active' : ''}`}
-              onClick={() => setMode(m.id)}
-            >
-              <span className="weq-exp-mode-icon">{m.icon}</span>
-              <span className="weq-exp-mode-text">
-                <strong>{m.label}</strong>
-                <small>{m.desc}</small>
-              </span>
-            </button>
-          ))}
-        </nav>
+    <div className={`weq-exp weq-export-tool is-${surface}`}>
+      {surface === 'export' && !lightbox ? (
+        <div className="weq-exp-top">
+          {/* 右侧选择面板 */}
+          <section className="weq-exp-pane">
+            <header className="weq-exp-pane-head">
+              <div className="weq-exp-pane-title">
+                <label htmlFor="weq-export-content-kind">内容种类</label>
+                <select
+                  id="weq-export-content-kind"
+                  value={mode}
+                  onChange={(event) => {
+                    const selected = MODES.find((item) => item.id === event.target.value);
+                    if (selected) setMode(selected.id);
+                  }}
+                >
+                  {MODES.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                <span>{activeMode.desc}</span>
+              </div>
+            </header>
 
-        {/* 右侧选择面板 */}
-        <section className="weq-exp-pane">
-          <header className="weq-exp-pane-head">
-            <div className="weq-exp-pane-title">
-              <strong>{activeMode.label}</strong>
-              <span>{activeMode.desc}</span>
-            </div>
-          </header>
-
-          <div className="weq-exp-pane-body">
-            {mode === 'marketpack' ? (
-              <MarketEmojiDownloadPane onStarted={refetchTasks} />
-            ) : mode === 'emojipack' ? (
-              <EmojiPackExportPane onStarted={refetchTasks} />
-            ) : mode === 'scheduled' ? (
-              <div className="weq-exp-sched">
-                <div className="weq-exp-sched-head">
-                  <div className="weq-exp-sched-head-text">
-                    <strong>定时导出任务</strong>
-                    <small>
-                      选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。
-                    </small>
+            <div className="weq-exp-pane-body">
+              {mode === 'marketpack' ? (
+                <MarketEmojiDownloadPane onStarted={refetchTasks} />
+              ) : mode === 'emojipack' ? (
+                <EmojiPackExportPane onStarted={refetchTasks} />
+              ) : mode === 'scheduled' ? (
+                <div className="weq-exp-sched">
+                  <div className="weq-exp-sched-head">
+                    <div className="weq-exp-sched-head-text">
+                      <strong>定时导出任务</strong>
+                      <small>
+                        选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。
+                      </small>
+                    </div>
+                  </div>
+                  <ConversationPicker
+                    items={convItems}
+                    loading={conversations.isLoading}
+                    selected={convSelection}
+                    onChange={setConvSelection}
+                  />
+                  <div className="weq-exp-sched-list">
+                    {schedules.isLoading ? (
+                      <ScheduleListSkeleton />
+                    ) : (schedules.data ?? []).length === 0 ? (
+                      <div className="weq-exp-sched-empty">
+                        <strong>暂无定时任务</strong>
+                        <small>选好会话和格式后，点击下方「新建定时任务」开始创建。</small>
+                      </div>
+                    ) : (
+                      (schedules.data as ScheduledTask[]).map((s) => (
+                        <ScheduleRow
+                          key={s.id}
+                          schedule={s}
+                          onToggle={() => void onToggleSchedule(s)}
+                          onDelete={() => void onDeleteSchedule(s)}
+                          onRunNow={() => void onRunScheduleNow(s)}
+                        />
+                      ))
+                    )}
                   </div>
                 </div>
+              ) : mode === 'full' || mode === 'qzone' ? (
+                <>
+                  <ConversationPicker
+                    items={pickerItems}
+                    loading={conversations.isLoading}
+                    selected={convSelection}
+                    onChange={setConvSelection}
+                    emptyText={
+                      mode === 'qzone' ? '暂无好友（仅私聊会话可作为导出目标）' : undefined
+                    }
+                  />
+                  {mode === 'full'
+                    ? convItems
+                        .filter((item) => convSelection.has(item.id))
+                        .map((item) => (
+                          <details
+                            key={item.id}
+                            open={messageSelections[item.id] !== undefined}
+                            className="weq-message-scope-conversation"
+                          >
+                            <summary>{item.name} · 消息范围</summary>
+                            <MessageScopePicker
+                              kind={item.kind ?? 'c2c'}
+                              conv={item.id}
+                              selected={messageSelections[item.id]}
+                              onChange={(ids) =>
+                                setMessageSelections((current) => {
+                                  const next = { ...current };
+                                  if (ids === undefined) delete next[item.id];
+                                  else next[item.id] = [...ids];
+                                  return next;
+                                })
+                              }
+                            />
+                          </details>
+                        ))
+                    : null}
+                </>
+              ) : mode === 'guild' ? (
                 <ConversationPicker
-                  items={convItems}
-                  loading={conversations.isLoading}
-                  selected={convSelection}
-                  onChange={setConvSelection}
+                  items={guildItems}
+                  loading={guildSessions.isLoading}
+                  selected={guildSelection}
+                  onChange={setGuildSelection}
+                  emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
                 />
-                <div className="weq-exp-sched-list">
-                  {schedules.isLoading ? (
-                    <ScheduleListSkeleton />
-                  ) : (schedules.data ?? []).length === 0 ? (
-                    <div className="weq-exp-sched-empty">
-                      <strong>暂无定时任务</strong>
-                      <small>选好会话和格式后，点击下方「新建定时任务」开始创建。</small>
-                    </div>
-                  ) : (
-                    (schedules.data as ScheduledTask[]).map((s) => (
-                      <ScheduleRow
-                        key={s.id}
-                        schedule={s}
-                        onToggle={() => void onToggleSchedule(s)}
-                        onDelete={() => void onDeleteSchedule(s)}
-                        onRunNow={() => void onRunScheduleNow(s)}
+              ) : mode === 'contacts' ? (
+                <div className="weq-exp-contacts">
+                  <div className="weq-exp-contacts-switch">
+                    <Segmented<'friends' | 'group'>
+                      value={contactScope}
+                      onChange={setContactScope}
+                      options={[
+                        { value: 'friends', label: '好友', icon: <UserRound size={13} /> },
+                        { value: 'group', label: '群成员', icon: <Users size={13} /> },
+                      ]}
+                    />
+                  </div>
+                  {contactScope === 'friends' ? (
+                    <>
+                      <CategoryChips
+                        items={catItems}
+                        total={friendTotal}
+                        loading={categories.isLoading}
+                        selected={catSelection}
+                        onChange={setCatSelection}
                       />
-                    ))
+                      <FriendPreview
+                        items={friendPreview}
+                        loading={buddies.isLoading || friendNames.isLoading}
+                        scoped={catSelection.size > 0}
+                      />
+                    </>
+                  ) : (
+                    <SingleSelectPicker
+                      items={groupItems}
+                      loading={groups.isLoading}
+                      selectedId={contactGroupId}
+                      onSelect={setContactGroupId}
+                      searchPlaceholder="搜索群名称或群号"
+                      emptyText="暂无群聊"
+                    />
                   )}
                 </div>
-              </div>
-            ) : mode === 'full' || mode === 'qzone' ? (
-              <ConversationPicker
-                items={pickerItems}
-                loading={conversations.isLoading}
-                selected={convSelection}
-                onChange={setConvSelection}
-                emptyText={mode === 'qzone' ? '暂无好友（仅私聊会话可作为导出目标）' : undefined}
-              />
-            ) : mode === 'guild' ? (
-              <ConversationPicker
-                items={guildItems}
-                loading={guildSessions.isLoading}
-                selected={guildSelection}
-                onChange={setGuildSelection}
-                emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
-              />
-            ) : mode === 'contacts' ? (
-              <div className="weq-exp-contacts">
-                <div className="weq-exp-contacts-switch">
-                  <Segmented<'friends' | 'group'>
-                    value={contactScope}
-                    onChange={setContactScope}
-                    options={[
-                      { value: 'friends', label: '好友', icon: <UserRound size={13} /> },
-                      { value: 'group', label: '群成员', icon: <Users size={13} /> },
-                    ]}
-                  />
-                </div>
-                {contactScope === 'friends' ? (
-                  <>
-                    <CategoryChips
-                      items={catItems}
-                      total={friendTotal}
-                      loading={categories.isLoading}
-                      selected={catSelection}
-                      onChange={setCatSelection}
-                    />
-                    <FriendPreview
-                      items={friendPreview}
-                      loading={buddies.isLoading || friendNames.isLoading}
-                      scoped={catSelection.size > 0}
-                    />
-                  </>
-                ) : (
-                  <SingleSelectPicker
-                    items={groupItems}
-                    loading={groups.isLoading}
-                    selectedId={contactGroupId}
-                    onSelect={setContactGroupId}
-                    searchPlaceholder="搜索群名称或群号"
-                    emptyText="暂无群聊"
-                  />
-                )}
-              </div>
-            ) : mode === 'collection' ? (
-              <CollectionScope
-                items={collectionItems ?? []}
-                counts={collectionCounts}
-                loading={collectionLoading}
-                selected={collectionKinds}
-                onChange={setCollectionKinds}
-              />
-            ) : mode === 'album' ? (
-              <SingleSelectPicker
-                items={groupItems}
-                loading={groups.isLoading}
-                selectedId={albumGroupId}
-                onSelect={setAlbumGroupId}
-                searchPlaceholder="搜索群名称或群号"
-                emptyText="暂无群聊"
-              />
-            ) : mode === 'groupfile' ? (
-              <SingleSelectPicker
-                items={groupItems}
-                loading={groups.isLoading}
-                selectedId={fileGroupId}
-                onSelect={setFileGroupId}
-                searchPlaceholder="搜索群名称或群号"
-                emptyText="暂无群聊"
-              />
-            ) : (
-              <DatabasePicker
-                items={dbItems}
-                loading={databases.isLoading}
-                selected={dbSelection}
-                onChange={setDbSelection}
-              />
-            )}
-          </div>
-
-          {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
-          {mode !== 'marketpack' && mode !== 'emojipack' ? (
-            <footer className="weq-exp-pane-foot">
-              {mode === 'scheduled' ? (
-                <span className="weq-exp-foot-hint">
-                  {convSelection.size > 0
-                    ? `已选 ${convSelection.size} 个会话 · 灯箱内多选格式 · 点击新建定时任务`
-                    : '请先选择至少一个会话'}
-                </span>
-              ) : showFormatChips ? (
-                <div className="weq-exp-foot-format">
-                  <span className="weq-exp-foot-label">格式</span>
-                  <Segmented<ExportFormat>
-                    value={format}
-                    onChange={setFormat}
-                    options={formatOptions}
-                    small
-                  />
-                </div>
-              ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (
-                <span className="weq-exp-foot-hint">
-                  {mode === 'qzone'
-                    ? convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`
-                      : '请先选择要导出的空间'
-                    : mode === 'guild'
-                      ? guildSelection.size > 0
-                        ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`
-                        : '请先选择至少一个频道私聊会话'
-                      : convSelection.size > 0
-                        ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
-                        : '请先选择至少一个会话'}
-                </span>
-              ) : mode === 'contacts' ? (
-                <span className="weq-exp-foot-hint">
-                  {contactScope === 'friends'
-                    ? catSelection.size > 0
-                      ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
-                      : '全部好友 · 灯箱内选择格式与头像'
-                    : contactGroupId
-                      ? '已选择群 · 灯箱内选择格式与头像'
-                      : '请先选择群'}
-                </span>
+              ) : mode === 'collection' ? (
+                <CollectionScope
+                  items={collectionItems ?? []}
+                  counts={collectionCounts}
+                  loading={collectionLoading}
+                  selected={collectionKinds}
+                  onChange={setCollectionKinds}
+                  selectedIds={collectionIds}
+                  onSelectedIdsChange={setCollectionIds}
+                  onFilteredIdsChange={setFilteredCollectionIds}
+                />
+              ) : mode === 'album' ? (
+                <SingleSelectPicker
+                  items={groupItems}
+                  loading={groups.isLoading}
+                  selectedId={albumGroupId}
+                  onSelect={setAlbumGroupId}
+                  searchPlaceholder="搜索群名称或群号"
+                  emptyText="暂无群聊"
+                />
+              ) : mode === 'groupfile' ? (
+                <SingleSelectPicker
+                  items={groupItems}
+                  loading={groups.isLoading}
+                  selectedId={fileGroupId}
+                  onSelect={setFileGroupId}
+                  searchPlaceholder="搜索群名称或群号"
+                  emptyText="暂无群聊"
+                />
               ) : (
-                <span className="weq-exp-foot-hint">
-                  {mode === 'album'
-                    ? '选择一个群，下一步选择相册与时间范围'
-                    : mode === 'groupfile'
-                      ? '选择一个群，下一步选择要下载的文件'
-                      : dbSelection.size > 0
-                        ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
-                        : '选择数据库后导出解密副本'}
-                </span>
+                <DatabasePicker
+                  items={dbItems}
+                  loading={databases.isLoading}
+                  selected={dbSelection}
+                  onChange={setDbSelection}
+                />
               )}
-              <button
-                type="button"
-                className="weq-exp-primary"
-                disabled={primaryDisabled}
-                onClick={onPrimary}
-              >
-                {primaryLabel}
-              </button>
-            </footer>
-          ) : null}
-        </section>
-      </div>
+            </div>
+
+            {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
+            {mode !== 'marketpack' && mode !== 'emojipack' ? (
+              <footer className="weq-exp-pane-foot">
+                {mode === 'scheduled' ? (
+                  <span className="weq-exp-foot-hint">
+                    {convSelection.size > 0
+                      ? `已选 ${convSelection.size} 个会话 · 灯箱内多选格式 · 点击新建定时任务`
+                      : '请先选择至少一个会话'}
+                  </span>
+                ) : showFormatChips ? (
+                  <div className="weq-exp-foot-format">
+                    <span className="weq-exp-foot-label">格式</span>
+                    <Segmented<ExportFormat>
+                      value={format}
+                      onChange={setFormat}
+                      options={formatOptions}
+                      small
+                    />
+                  </div>
+                ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (
+                  <span className="weq-exp-foot-hint">
+                    {mode === 'qzone'
+                      ? convSelection.size > 0
+                        ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`
+                        : '请先选择要导出的空间'
+                      : mode === 'guild'
+                        ? guildSelection.size > 0
+                          ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`
+                          : '请先选择至少一个频道私聊会话'
+                        : convSelection.size > 0
+                          ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
+                          : '请先选择至少一个会话'}
+                  </span>
+                ) : mode === 'contacts' ? (
+                  <span className="weq-exp-foot-hint">
+                    {contactScope === 'friends'
+                      ? catSelection.size > 0
+                        ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
+                        : '全部好友 · 灯箱内选择格式与头像'
+                      : contactGroupId
+                        ? '已选择群 · 灯箱内选择格式与头像'
+                        : '请先选择群'}
+                  </span>
+                ) : (
+                  <span className="weq-exp-foot-hint">
+                    {mode === 'album'
+                      ? '选择一个群，下一步选择相册与时间范围'
+                      : mode === 'groupfile'
+                        ? '选择一个群，下一步选择要下载的文件'
+                        : dbSelection.size > 0
+                          ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
+                          : '选择数据库后导出解密副本'}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="weq-exp-primary"
+                  disabled={primaryDisabled}
+                  onClick={onPrimary}
+                >
+                  {primaryLabel}
+                </button>
+              </footer>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
 
       {/* 底部任务列表（可折叠覆盖层） */}
-      <TaskList
-        tasks={uiTasks}
-        onPause={onPause}
-        onResume={(t) => {
-          void client.account.resumeExportTask
-            .mutate({ taskId: t.id })
-            .then((ok) => {
-              if (!ok) dialog.error('无法继续', '任务仍在收尾，或没有可验证的断点。');
-              refetchTasks();
-            })
-            .catch((e) => dialog.error('续作失败', String(e)));
-        }}
-        onReport={(t) => {
-          void client.account.revealExportReport
-            .mutate({ taskId: t.id })
-            .catch((e) => dialog.error('打开报告失败', String(e)));
-        }}
-        onCancel={onCancel}
-        onDownload={(t) => void onDownload(t)}
-        onDelete={onDelete}
-        onSaveAll={() => void onSaveAll()}
-        onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
-        autoSelectId={autoSelectTaskId}
-        isExpanded={taskPanelExpanded}
-        onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
-      />
+      {surface === 'tasks' ? (
+        <TaskList
+          tasks={uiTasks}
+          onPause={onPause}
+          onResume={(t) => {
+            void client.account.resumeExportTask
+              .mutate({ taskId: t.id })
+              .then((ok) => {
+                if (!ok) dialog.error('无法继续', '任务仍在收尾，或没有可验证的断点。');
+                refetchTasks();
+              })
+              .catch((e) => dialog.error('续作失败', String(e)));
+          }}
+          onReport={(t) => {
+            void client.account.revealExportReport
+              .mutate({ taskId: t.id })
+              .catch((e) => dialog.error('打开报告失败', String(e)));
+          }}
+          onCancel={onCancel}
+          onDownload={(t) => void onDownload(t)}
+          onDelete={onDelete}
+          onSaveAll={() => void onSaveAll()}
+          onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+          autoSelectId={autoSelectTaskId}
+          isExpanded={taskPanelExpanded}
+          onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
+        />
+      ) : null}
 
       {failureView ? (
         <FailureLightbox
@@ -1584,6 +1677,18 @@ export function ExportView(): ReactElement {
 
       {lightbox ? (
         <ExportLightbox
+          embedded
+          scopeSummary={
+            lightbox === 'full' &&
+            [...convSelection].some((id) => messageSelections[id] !== undefined)
+              ? [...convSelection]
+                  .map(
+                    (id) =>
+                      `${convItems.find((item) => item.id === id)?.name ?? id}：${messageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${messageSelections[id]!.length} 条消息`}`,
+                  )
+                  .join('；')
+              : undefined
+          }
           variant={lightbox}
           headline={lightboxHeadline}
           summary={lightboxSummary}
@@ -1853,12 +1958,18 @@ function CollectionScope({
   loading,
   selected,
   onChange,
+  selectedIds,
+  onSelectedIdsChange,
+  onFilteredIdsChange,
 }: {
   items: CollectionPreviewItem[];
   counts: Record<string, number>;
   loading: boolean;
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  selectedIds?: string[];
+  onSelectedIdsChange: (ids: string[] | undefined) => void;
+  onFilteredIdsChange: (ids: string[]) => void;
 }): ReactElement {
   const [query, setQuery] = useState('');
   const total = counts.all ?? 0;
@@ -1882,6 +1993,9 @@ function CollectionScope({
     if (!q) return scoped;
     return scoped.filter((it) => `${it.title} ${it.sub} ${it.source}`.toLowerCase().includes(q));
   }, [scoped, query]);
+  useEffect(() => {
+    onFilteredIdsChange(filtered.map((item) => item.cid));
+  }, [filtered, onFilteredIdsChange]);
 
   return (
     <div className="weq-exp-contacts">
@@ -1927,9 +2041,21 @@ function CollectionScope({
 
       <div className="weq-exp-friends">
         <div className="weq-exp-friends-head">
-          <strong>{allActive ? '全部收藏预览' : '所选类型预览'}</strong>
+          <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
           <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
         </div>
+        <label className="weq-message-scope-mode">
+          <input
+            type="checkbox"
+            checked={selectedIds !== undefined}
+            onChange={(event) => onSelectedIdsChange(event.target.checked ? [] : undefined)}
+          />
+          <span>
+            {selectedIds === undefined
+              ? '导出全部筛选结果'
+              : `精确选中 ${selectedIds.length} 条收藏`}
+          </span>
+        </label>
         <div className="weq-exp-search">
           <Search size={15} aria-hidden />
           <input
@@ -1955,6 +2081,17 @@ function CollectionScope({
           ) : (
             filtered.map((it) => (
               <div key={it.cid} className="weq-exp-row is-static">
+                <input
+                  type="checkbox"
+                  aria-label={`选择收藏 ${it.title}`}
+                  checked={selectedIds === undefined || selectedIds.includes(it.cid)}
+                  onChange={(event) => {
+                    const next = new Set(selectedIds ?? filtered.map((item) => item.cid));
+                    if (event.target.checked) next.add(it.cid);
+                    else next.delete(it.cid);
+                    onSelectedIdsChange([...next]);
+                  }}
+                />
                 <span className="weq-exp-col-icon" data-kind={it.kind}>
                   {collectionKindIcon(it.kind)}
                 </span>

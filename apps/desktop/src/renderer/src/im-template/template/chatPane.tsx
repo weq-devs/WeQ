@@ -1,4 +1,6 @@
 ﻿// @ts-nocheck
+import { useContentMultiSelect } from '../../state/contentSelection';
+import { hasActiveModal } from '../../lib/overlayStack';
 import {
   AudioLines,
   BarChart3,
@@ -626,8 +628,10 @@ export function ChatPane({
     y: number;
   } | null>(null);
   // 多选：右键进入，输入框让位给批量操作；选择数不设上限。
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { selectionMode, setSelectionMode, selectedIds, setSelectedIds } = useContentMultiSelect({
+    kind: 'messages',
+    container: `${conversation?.type ?? 'none'}:${conversation?.id ?? ''}`,
+  });
   const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
@@ -658,10 +662,8 @@ export function ChatPane({
     }
   }
 
-  // 切会话时退出多选（选中集属于上一个会话）。
+  // 切会话仅重置范围操作锚点；选择归属由账号级工作区保留。
   useEffect(() => {
-    setSelectionMode(false);
-    setSelectedIds(new Set());
     selectionAnchor.current = null;
   }, [conversation?.id]);
 
@@ -669,15 +671,15 @@ export function ChatPane({
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
+      if (hasActiveModal()) return;
       if (event.key === 'Escape') {
         setSelectionMode(false);
-        setSelectedIds(new Set());
         selectionAnchor.current = null;
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, selectionMode]);
+  }, [tabActive, selectionMode, setSelectionMode]);
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -768,6 +770,7 @@ export function ChatPane({
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (hasActiveModal()) return;
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const target = event.target;
       if (
@@ -787,7 +790,14 @@ export function ChatPane({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, selectionMode, selectionOrder, selectedMessages.length, copySelectedMessagesText]);
+  }, [
+    tabActive,
+    selectionMode,
+    selectionOrder,
+    selectedMessages.length,
+    copySelectedMessagesText,
+    setSelectedIds,
+  ]);
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
@@ -2753,7 +2763,6 @@ export function ChatPane({
 
   function exitSelection() {
     setSelectionMode(false);
-    setSelectedIds(new Set());
     selectionAnchor.current = null;
   }
 
@@ -3456,7 +3465,7 @@ export function ChatPane({
             <button
               className={cn('icon-button', 'group-header-info-action')}
               type="button"
-              title="添加消息"
+              title="插入本地消息（不会发送给对方）"
               onClick={() => onAddMessage(conversation)}
             >
               <CirclePlus size={18} />

@@ -275,6 +275,10 @@ export interface NewMessagesWire {
 
 type ChatKind = 'c2c' | 'group';
 
+const exactMessageIdsInput = z
+  .array(z.string().regex(/^(?:roaming:(?:(?:native|protocol):)?\d+:)?-?\d+$/))
+  .optional();
+
 const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
@@ -5035,6 +5039,7 @@ export const accountRouter = router({
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
         filter: z
           .object({
+            messageIds: exactMessageIdsInput,
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
             category: z
@@ -5181,6 +5186,7 @@ export const accountRouter = router({
           .optional(),
         filter: z
           .object({
+            messageIds: exactMessageIdsInput,
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
             category: z

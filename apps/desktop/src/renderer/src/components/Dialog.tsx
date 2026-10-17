@@ -135,6 +135,7 @@ export function Modal({
   width,
   className,
   layerClassName,
+  open = true,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -144,26 +145,30 @@ export function Modal({
   className?: string;
   /** Extra class for the full-screen overlay layer. */
   layerClassName?: string;
+  /** 关闭时保留子树，后台任务和工具内会话不因遮罩收起而销毁。 */
+  open?: boolean;
 }): ReactElement | null {
   const tabActive = useTabActive();
-  const layer = useOverlayLayer(tabActive);
+  const active = tabActive && open;
+  const layer = useOverlayLayer(active);
 
   useLayoutEffect(() => {
-    if (!tabActive || typeof document === 'undefined' || !onClose) return;
+    if (!active || typeof document === 'undefined' || !onClose) return;
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose?.();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, onClose]);
+  }, [active, onClose]);
 
   if (typeof document === 'undefined') return null;
 
   return createPortal(
     <div
       className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}`}
-      hidden={!tabActive}
-      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
+      hidden={!active}
+      inert={!active}
+      style={{ zIndex: layer, display: active ? undefined : 'none' }}
       onMouseDown={onClose}
     >
       <div

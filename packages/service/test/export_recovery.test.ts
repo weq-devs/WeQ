@@ -7,6 +7,8 @@ import { sourceStamp, roamingDigest, fileSha256 } from '../src/account/export/re
 import type { MsgService, RenderGroupMsg } from '../src/account/msg';
 import { MessageAudit } from '../src/account/export/message_audit';
 import { sequenceCoverage } from '../src/account/export/sequence_coverage';
+import type { MessageFilter } from '../src/account/message_filter';
+import { iterateGroupMessages } from '../src/account/export/message_source';
 
 const dirs: string[] = [];
 it('sequence-gap reports keep exact bounded candidates, not a proof of lost messages', () => {
@@ -57,13 +59,63 @@ function fixture(total = 3000) {
     countConv: async () => total,
     takeSalvageSkips: () => [],
     exportSourceStamp: () => sourceStamp(source),
-    withExportFilter(_filter: unknown, signal?: AbortSignal) {
-      return Object.assign(Object.create(this), { exportSignal: signal });
+    withExportFilter(filter: MessageFilter | undefined, signal?: AbortSignal) {
+      return Object.assign(Object.create(this), { exportSignal: signal, exportFilter: filter });
     },
     browse: async () => ({ items: rows.slice(0, 100), hasMore: total > 100 }),
   } as unknown as MsgService;
   return { root, source, msgs, manager: new ExportTaskManager(msgs, join(root, 'exports')) };
 }
+
+it('精确间断消息集合贯穿多格式导出、持久任务与不可变参数', async () => {
+  const f = fixture(7);
+  const ids = ['2', '6'];
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '精确选择',
+    format: 'txt',
+    formats: ['txt', 'json', 'csv'],
+    total: 2,
+    filter: { messageIds: ids },
+  });
+  ids.push('3');
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)!.status));
+  const task = f.manager.getTask(id)!;
+  expect(task.error).toBeUndefined();
+  expect(task.filter?.messageIds).toEqual(['2', '6']);
+  expect(task.formatCounts).toEqual({ txt: 2, json: 2, csv: 2 });
+  const text = readFileSync(task.filePath!, 'utf8');
+  expect(text).toContain('message 1');
+  expect(text).toContain('message 5');
+  expect(text).not.toContain('message 2');
+  const reloaded = new ExportTaskManager(f.msgs, join(f.root, 'exports'));
+  expect(reloaded.getTask(id)?.filter?.messageIds).toEqual(['2', '6']);
+});
+
+it('精确漫游行不被同数值 ID 的本地消息抢占', async () => {
+  const f = fixture(7);
+  const source = f.msgs.withExportFilter({ messageIds: ['roaming:protocol:5:2'] });
+  const items: RenderGroupMsg[] = [];
+  for await (const row of iterateGroupMessages(source, '777', {
+    roam: () => [
+      {
+        kind: 'group',
+        conv: '777',
+        msgId: '2',
+        msgSeq: '5',
+        sourceFormat: 'protocol',
+        sendTime: '1800000005',
+        senderUid: 'u_fixture',
+        senderUin: '123',
+        elements: [{ type: 'text', data: { textContent: 'remote fixture' } }],
+      },
+    ],
+  }))
+    items.push(row);
+  expect(items).toHaveLength(1);
+  expect(items[0]?.elements).toEqual([{ type: 'text', data: { textContent: 'remote fixture' } }]);
+});
 
 it('pause survives worker unwinding and a new manager resumes the same task ID', async () => {
   const f = fixture();

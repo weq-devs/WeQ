@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  ArrowLeft,
   ChevronDown,
   MessageCircle,
   MessageSquarePlus,
@@ -359,7 +358,7 @@ function ExpandableSessionRow({
   );
 }
 
-export function AgentLabView(): ReactElement {
+export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant' }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
@@ -434,7 +433,9 @@ export function AgentLabView(): ReactElement {
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  const [sel, setSel] = useState<Selection>({ kind: 'home' });
+  const [sel, setSel] = useState<Selection>(() =>
+    mode === 'assistant' ? { kind: 'assistant', sessionId: null, navKey: 0 } : { kind: 'home' },
+  );
   // WeQ 助手会话列表：仅进入助手模式时拉取。
   const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: sel.kind === 'assistant',
@@ -684,9 +685,6 @@ export function AgentLabView(): ReactElement {
       <aside className="weq-agentlab-list">
         {sel.kind === 'assistant' ? (
           <>
-            <button className="weq-agentlab-list-back" onClick={() => setSel({ kind: 'home' })}>
-              <ArrowLeft size={14} /> 返回 AgentLab
-            </button>
             <div className="weq-agentlab-list-head weq-asst-list-head">
               <Sparkles size={15} /> WeQ 助手 · 对话
             </div>
@@ -731,16 +729,7 @@ export function AgentLabView(): ReactElement {
           </>
         ) : (
           <>
-            <div className="weq-agentlab-list-head">AgentLab</div>
-            <button className="weq-agentlab-item" onClick={openAssistantDraft}>
-              <span className="weq-agentlab-item-avatar is-bot">
-                <Sparkles size={18} />
-              </span>
-              <span className="weq-agentlab-item-text">
-                <strong>WeQ 助手</strong>
-                <small>调用工具帮你完成操作</small>
-              </span>
-            </button>
+            <div className="weq-agentlab-list-head">克隆消息 · 模拟对话</div>
 
             <div className="weq-agentlab-list-label">好友克隆</div>
             <div className="weq-agentlab-list-scroll">
@@ -871,7 +860,7 @@ export function AgentLabView(): ReactElement {
             key={sel.navKey}
             sessionId={sel.sessionId}
             chatModels={flatModels.chat}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={openAssistantDraft}
             onSessionCreated={(newId) =>
               setSel((cur) =>
                 cur.kind === 'assistant' && cur.navKey === sel.navKey

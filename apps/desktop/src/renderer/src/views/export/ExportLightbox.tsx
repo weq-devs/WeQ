@@ -290,6 +290,8 @@ interface OcrModelProgress {
 }
 
 export function ExportLightbox({
+  embedded = false,
+  scopeSummary,
   variant,
   headline,
   summary,
@@ -304,6 +306,8 @@ export function ExportLightbox({
   onClose,
   onConfirm,
 }: {
+  embedded?: boolean;
+  scopeSummary?: string;
   variant: LightboxVariant;
   headline: string;
   summary: string;
@@ -329,7 +333,9 @@ export function ExportLightbox({
   onClose: () => void;
   onConfirm: (result: LightboxResult) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
+  useEscapeToClose(() => {
+    if (!embedded) onClose();
+  });
   const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
@@ -691,14 +697,14 @@ export function ExportLightbox({
 
   return (
     <div
-      className="modal-scrim weq-exp-modal-scrim"
+      className={embedded ? 'weq-export-options' : 'modal-scrim weq-exp-modal-scrim'}
       role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
+      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
     >
       <section
         className="weq-exp-dialog is-wide"
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="weq-exp-dialog-head">
@@ -760,13 +766,17 @@ export function ExportLightbox({
               {/* 左列：时间范围 + 补全选项 */}
               <div className="weq-exp-col">
                 {!isContacts ? (
-                  <Card title="时间范围">
-                    <TimeRangePicker
-                      value={opts.range}
-                      onChange={(range) => patch({ range })}
-                      mode={isScheduled ? 'scheduled' : 'single'}
-                      calendarTargets={calendarTargets}
-                    />
+                  <Card title={scopeSummary ? '精确消息范围' : '时间范围'}>
+                    {scopeSummary ? (
+                      <p>{scopeSummary}</p>
+                    ) : (
+                      <TimeRangePicker
+                        value={opts.range}
+                        onChange={(range) => patch({ range })}
+                        mode={isScheduled ? 'scheduled' : 'single'}
+                        calendarTargets={calendarTargets}
+                      />
+                    )}
                   </Card>
                 ) : (
                   <Card title="导出联系人">

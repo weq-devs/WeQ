@@ -4,17 +4,14 @@ import {
   LayoutGrid,
   MessageCircle,
   MessagesSquare,
-  Download,
   Settings,
   Hash,
   Bookmark,
-  HardDrive,
   Store,
   Palette,
   MoreHorizontal,
   Wand2,
   HelpCircle,
-  BarChart3,
   Images,
   DatabaseZap,
   FileStack,
@@ -243,45 +240,14 @@ export function AppRail({
             <span className={cn('rail-label')}>QQ频道</span>
           </button>
           <button
-            className={cn(railButtonClass(activeView === 'export'), 'rail-tab rail-tab-export')}
-            onClick={() => selectView('export')}
-            title="导出"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Download size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>导出</span>
-          </button>
-          <button
             className={cn(railButtonClass(activeView === 'agentlab'), 'rail-tab rail-tab-agentlab')}
             onClick={() => selectView('agentlab')}
-            title="AgentLab"
+            title="克隆消息（模拟）"
           >
             <span className={cn('rail-tab-icon')}>
               <Bot size={22} strokeWidth={1.5} />
             </span>
-            <span className={cn('rail-label')}>AgentLab</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'cache'), 'rail-tab rail-tab-cache')}
-            onClick={() => selectView('cache')}
-            title="本地缓存资源"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <HardDrive size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>缓存</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'annual'), 'rail-tab rail-tab-annual')}
-            onClick={() => selectView('annual')}
-            title="年度报告"
-            type="button"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <BarChart3 size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>年度报告</span>
+            <span className={cn('rail-label')}>克隆</span>
           </button>
           {/* 相对定位的壳:弹出框要贴在这个按钮右边,而不是整条 rail 的某个固定高度。 */}
           <div className={cn('rail-more-wrap')} ref={moreRef}>

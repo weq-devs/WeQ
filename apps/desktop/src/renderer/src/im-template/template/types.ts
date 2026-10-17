@@ -420,6 +420,8 @@ export type MainView =
   | 'home'
   | 'messages'
   | 'contacts'
+  | 'collections'
+  | 'guild-direct'
   | 'export'
   | 'agentlab'
   | 'cache'

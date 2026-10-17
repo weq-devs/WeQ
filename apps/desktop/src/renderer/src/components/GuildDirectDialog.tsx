@@ -167,6 +167,7 @@ export function GuildDirectDialog({
   onClose,
   selfUser,
   renderers,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -174,6 +175,7 @@ export function GuildDirectDialog({
   selfUser: User;
   /** 与主聊天相同的渲染器（qqMessageRenderer 等）。 */
   renderers?: MessageRenderer[];
+  embedded?: boolean;
 }): ReactElement | null {
   const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(null);
   const [selected, setSelected] = useState<GuildDirectSessionWire | null>(null);
@@ -302,176 +304,184 @@ export function GuildDirectDialog({
 
   if (!open) return null;
 
-  return (
-    <Modal onClose={onClose} width={1120} labelledBy="weq-guild-direct-title">
-      <div className="weq-guild-direct">
-        <header className="weq-guild-direct-head">
-          <span className="weq-guild-direct-title">
-            <span className="weq-guild-direct-title-icon" aria-hidden="true">
-              <Hash size={16} strokeWidth={2} />
-            </span>
-            <strong id="weq-guild-direct-title">频道私聊</strong>
+  const content = (
+    <div
+      className="weq-guild-direct"
+      role={embedded ? 'region' : undefined}
+      aria-labelledby="weq-guild-direct-title"
+    >
+      <header className="weq-guild-direct-head">
+        <span className="weq-guild-direct-title">
+          <span className="weq-guild-direct-title-icon" aria-hidden="true">
+            <Hash size={16} strokeWidth={2} />
           </span>
+          <strong id="weq-guild-direct-title">频道私聊</strong>
+        </span>
+        {!embedded ? (
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
             <X size={17} />
           </button>
-        </header>
+        ) : null}
+      </header>
 
-        <div className="weq-guild-direct-body">
-          <aside className="weq-guild-direct-side">
-            <div className="weq-guild-direct-side-title">会话列表</div>
-            <div className="weq-guild-direct-list">
-              {listLoading ? (
-                <div className="weq-guild-direct-empty">加载中…</div>
-              ) : listError ? (
-                <div className="weq-guild-direct-empty">
-                  <Inbox size={26} />
-                  <span>会话列表加载失败</span>
-                  <small>{listError}</small>
-                </div>
-              ) : !sessions || sessions.length === 0 ? (
-                <div className="weq-guild-direct-empty">
-                  <Inbox size={26} />
-                  <span>没有频道私聊会话</span>
-                  <small>该账号本地没有 direct_node_list_table 会话记录。</small>
-                </div>
-              ) : (
-                sessions.map((session) => {
-                  const active = selected?.nodeId === session.nodeId;
-                  const previewText = sessionPreviewText(session);
-                  return (
-                    <button
-                      type="button"
-                      key={session.nodeId}
-                      className={cn('weq-guild-direct-item', active && 'active')}
-                      onClick={() => openSession(session)}
-                    >
-                      <Avatar
-                        name={session.peerNick || session.peerTinyId}
-                        avatarUrl={session.peerAvatarUrl}
-                        seed={session.peerTinyId}
-                      />
-                      <span className="weq-guild-direct-item-main">
-                        <span className="weq-guild-direct-item-top">
-                          <span className="weq-guild-direct-item-title">
-                            <span className="weq-guild-direct-item-name">
-                              {session.peerNick || session.peerTinyId}
-                            </span>
-                            {session.guildName ? (
-                              <span
-                                className="weq-guild-direct-item-guild"
-                                title={session.guildName}
-                              >
-                                <Hash size={11} strokeWidth={2.4} aria-hidden="true" />
-                                <span className="weq-guild-direct-item-guild-text">
-                                  {session.guildName}
-                                </span>
-                              </span>
-                            ) : null}
-                          </span>
-                          <time className="weq-guild-direct-item-time">
-                            {formatListTime(session.lastTime)}
-                          </time>
-                        </span>
-                        <span className="weq-guild-direct-item-preview">
-                          {previewText || '（无本地预览）'}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </aside>
-
-          <section className="weq-guild-direct-chat">
-            {!selected || !conversation || !peer ? (
-              <div className="weq-guild-direct-empty weq-guild-direct-pick-hint">
-                <MessageSquareText size={34} strokeWidth={1.5} />
-                <span>选择会话查看频道私聊</span>
-                <small>从左侧选择一个频道私聊会话，右侧展示该会话的本地消息。</small>
+      <div className="weq-guild-direct-body">
+        <aside className="weq-guild-direct-side">
+          <div className="weq-guild-direct-side-title">会话列表</div>
+          <div className="weq-guild-direct-list">
+            {listLoading ? (
+              <div className="weq-guild-direct-empty">加载中…</div>
+            ) : listError ? (
+              <div className="weq-guild-direct-empty">
+                <Inbox size={26} />
+                <span>会话列表加载失败</span>
+                <small>{listError}</small>
+              </div>
+            ) : !sessions || sessions.length === 0 ? (
+              <div className="weq-guild-direct-empty">
+                <Inbox size={26} />
+                <span>没有频道私聊会话</span>
+                <small>该账号本地没有 direct_node_list_table 会话记录。</small>
               </div>
             ) : (
-              <>
-                <div className="weq-guild-direct-chat-head">
-                  <Avatar
-                    name={peer.displayName}
-                    avatarUrl={peer.avatarUrl}
-                    seed={peer.identityValue}
-                  />
-                  <span className="weq-guild-direct-chat-title">
-                    <span className="weq-guild-direct-chat-namewrap">
-                      <strong>{peer.displayName}</strong>
-                      {selected.guildName ? (
-                        <span className="weq-guild-direct-chat-guild" title={selected.guildName}>
-                          <Hash size={12} strokeWidth={2.2} aria-hidden="true" />
-                          <span className="weq-guild-direct-chat-guild-text">
-                            {selected.guildName}
+              sessions.map((session) => {
+                const active = selected?.nodeId === session.nodeId;
+                const previewText = sessionPreviewText(session);
+                return (
+                  <button
+                    type="button"
+                    key={session.nodeId}
+                    className={cn('weq-guild-direct-item', active && 'active')}
+                    onClick={() => openSession(session)}
+                  >
+                    <Avatar
+                      name={session.peerNick || session.peerTinyId}
+                      avatarUrl={session.peerAvatarUrl}
+                      seed={session.peerTinyId}
+                    />
+                    <span className="weq-guild-direct-item-main">
+                      <span className="weq-guild-direct-item-top">
+                        <span className="weq-guild-direct-item-title">
+                          <span className="weq-guild-direct-item-name">
+                            {session.peerNick || session.peerTinyId}
                           </span>
+                          {session.guildName ? (
+                            <span className="weq-guild-direct-item-guild" title={session.guildName}>
+                              <Hash size={11} strokeWidth={2.4} aria-hidden="true" />
+                              <span className="weq-guild-direct-item-guild-text">
+                                {session.guildName}
+                              </span>
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
+                        <time className="weq-guild-direct-item-time">
+                          {formatListTime(session.lastTime)}
+                        </time>
+                      </span>
+                      <span className="weq-guild-direct-item-preview">
+                        {previewText || '（无本地预览）'}
+                      </span>
                     </span>
-                  </span>
-                </div>
-
-                <div className="weq-guild-direct-topbar" aria-live="polite">
-                  {olderLoading ? (
-                    <span>加载更早消息…</span>
-                  ) : hasMore ? (
-                    <span>继续向上滚动可加载更早的本地消息</span>
-                  ) : rows.length > 0 ? (
-                    <span>已是最早的本地消息</span>
-                  ) : null}
-                </div>
-
-                <ForwardKindContext.Provider value="c2c">
-                  <ConvContext.Provider value="">
-                    <ReplyJumpContext.Provider value={noop}>
-                      <div
-                        className={cn('message-scroll', 'weq-guild-direct-msgs')}
-                        ref={scrollRef}
-                        onScroll={handleMsgScroll}
-                      >
-                        {latestLoading ? (
-                          <div className="weq-guild-direct-empty">加载消息…</div>
-                        ) : rows.length === 0 ? (
-                          <div className="weq-guild-direct-empty">
-                            <Inbox size={26} />
-                            <span>该会话没有本地消息</span>
-                          </div>
-                        ) : (
-                          rows.map(({ row, previous }) => (
-                            <div key={row.message.id} className="weq-guild-direct-msg">
-                              {shouldShowMessageTime(previous, row.message) ? (
-                                <MessageTimeDivider value={row.message.createdAt} />
-                              ) : null}
-                              <MessageBubble
-                                message={row.message}
-                                conversation={conversation}
-                                sender={row.sender}
-                                mine={row.mine}
-                                senderName={displayUserName(row.sender)}
-                                senderAvatarUrl={row.sender.avatarUrl}
-                                senderSeed={row.sender.identityValue}
-                                senderKind={row.sender.kind}
-                                showSenderName={false}
-                                active={false}
-                                renderers={renderers}
-                                onContextMenu={noop}
-                                onLongPress={noop}
-                              />
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </ReplyJumpContext.Provider>
-                  </ConvContext.Provider>
-                </ForwardKindContext.Provider>
-              </>
+                  </button>
+                );
+              })
             )}
-          </section>
-        </div>
+          </div>
+        </aside>
+
+        <section className="weq-guild-direct-chat">
+          {!selected || !conversation || !peer ? (
+            <div className="weq-guild-direct-empty weq-guild-direct-pick-hint">
+              <MessageSquareText size={34} strokeWidth={1.5} />
+              <span>选择会话查看频道私聊</span>
+              <small>从左侧选择一个频道私聊会话，右侧展示该会话的本地消息。</small>
+            </div>
+          ) : (
+            <>
+              <div className="weq-guild-direct-chat-head">
+                <Avatar
+                  name={peer.displayName}
+                  avatarUrl={peer.avatarUrl}
+                  seed={peer.identityValue}
+                />
+                <span className="weq-guild-direct-chat-title">
+                  <span className="weq-guild-direct-chat-namewrap">
+                    <strong>{peer.displayName}</strong>
+                    {selected.guildName ? (
+                      <span className="weq-guild-direct-chat-guild" title={selected.guildName}>
+                        <Hash size={12} strokeWidth={2.2} aria-hidden="true" />
+                        <span className="weq-guild-direct-chat-guild-text">
+                          {selected.guildName}
+                        </span>
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              </div>
+
+              <div className="weq-guild-direct-topbar" aria-live="polite">
+                {olderLoading ? (
+                  <span>加载更早消息…</span>
+                ) : hasMore ? (
+                  <span>继续向上滚动可加载更早的本地消息</span>
+                ) : rows.length > 0 ? (
+                  <span>已是最早的本地消息</span>
+                ) : null}
+              </div>
+
+              <ForwardKindContext.Provider value="c2c">
+                <ConvContext.Provider value="">
+                  <ReplyJumpContext.Provider value={noop}>
+                    <div
+                      className={cn('message-scroll', 'weq-guild-direct-msgs')}
+                      ref={scrollRef}
+                      onScroll={handleMsgScroll}
+                    >
+                      {latestLoading ? (
+                        <div className="weq-guild-direct-empty">加载消息…</div>
+                      ) : rows.length === 0 ? (
+                        <div className="weq-guild-direct-empty">
+                          <Inbox size={26} />
+                          <span>该会话没有本地消息</span>
+                        </div>
+                      ) : (
+                        rows.map(({ row, previous }) => (
+                          <div key={row.message.id} className="weq-guild-direct-msg">
+                            {shouldShowMessageTime(previous, row.message) ? (
+                              <MessageTimeDivider value={row.message.createdAt} />
+                            ) : null}
+                            <MessageBubble
+                              message={row.message}
+                              conversation={conversation}
+                              sender={row.sender}
+                              mine={row.mine}
+                              senderName={displayUserName(row.sender)}
+                              senderAvatarUrl={row.sender.avatarUrl}
+                              senderSeed={row.sender.identityValue}
+                              senderKind={row.sender.kind}
+                              showSenderName={false}
+                              active={false}
+                              renderers={renderers}
+                              onContextMenu={noop}
+                              onLongPress={noop}
+                            />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </ReplyJumpContext.Provider>
+                </ConvContext.Provider>
+              </ForwardKindContext.Provider>
+            </>
+          )}
+        </section>
       </div>
+    </div>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <Modal onClose={onClose} width={1120} labelledBy="weq-guild-direct-title">
+      {content}
     </Modal>
   );
 }

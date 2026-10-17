@@ -42,6 +42,7 @@ import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
 import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
+import { ContentSelectionProvider } from './state/contentSelection';
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -174,7 +175,9 @@ export default function App(): ReactElement {
             ) : view === 'bootstrap' ? (
               <BootstrapView />
             ) : (
-              <MainView key={openedUin ?? ''} />
+              <ContentSelectionProvider key={openedUin ?? ''}>
+                <MainView />
+              </ContentSelectionProvider>
             )}
             {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
             {view === 'main' ? <WelcomeDialog /> : null}

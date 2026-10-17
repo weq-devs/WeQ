@@ -26,6 +26,7 @@ import {
   Layers,
   Link2,
   Loader2,
+  ListChecks,
   MapPin,
   Music,
   Play,
@@ -42,6 +43,7 @@ import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalU
 import { CollectionContent, collectionContentText } from './CollectionContent';
 import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
+import { useContentMultiSelect } from '../state/contentSelection';
 
 interface PicWire {
   uri: string;
@@ -490,13 +492,25 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
 function CollectionCard({
   it,
   onOpen,
+  selected,
+  onSelect,
 }: {
   it: CollectionItemWire;
   onOpen: (item: CollectionItemWire) => void;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
 }): ReactElement {
   return (
     <article className="weq-col-card">
       <header className="weq-col-card-head">
+        {onSelect ? (
+          <input
+            type="checkbox"
+            aria-label={`选择收藏 ${it.cid}`}
+            checked={selected ?? false}
+            onChange={(event) => onSelect(event.target.checked)}
+          />
+        ) : null}
         <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
         <span className="weq-col-card-who">
           <span className="weq-col-card-name">{it.authorName || '未知'}</span>
@@ -524,11 +538,14 @@ function CollectionCard({
 export function CollectionDialog({
   open,
   onClose,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }): ReactElement | null {
   const [items, setItems] = useState<CollectionItemWire[]>([]);
+  const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -553,6 +570,7 @@ export function CollectionDialog({
   const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
   selectedContentStatus.current = selected?.contentStatus;
   useEscapeToClose(() => {
+    if (embedded) return;
     if (exportSelection) return;
     if (selected) setSelected(null);
     else onClose();
@@ -855,16 +873,22 @@ export function CollectionDialog({
   if (!open) return null;
 
   return (
-    <div className="weq-collection-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <div
+      className={embedded ? 'weq-content-collection' : 'weq-collection-layer'}
+      role="presentation"
+      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
+    >
       <div
         className="weq-collection-dialog"
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         aria-labelledby="weq-collection-title"
       >
-        <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
+        {!embedded ? (
+          <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
+            <X size={18} strokeWidth={2} />
+          </button>
+        ) : null}
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
             {selected ? (
@@ -879,24 +903,51 @@ export function CollectionDialog({
             ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
             <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
-            <button
-              type="button"
-              className="weq-col-detail-back"
-              title={selected ? '导出当前收藏' : '导出收藏'}
-              aria-label={selected ? '导出当前收藏' : '导出收藏'}
-              disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
-              onClick={() =>
-                setExportSelection(
-                  selected
-                    ? { cids: [selected.cid] }
-                    : query || kind !== 'all'
-                      ? { cids: filtered.map((item) => item.cid) }
-                      : {},
-                )
-              }
-            >
-              <Download size={17} />
-            </button>
+            {!selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-label={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-pressed={multiSelect.selectionMode}
+                onClick={() => multiSelect.setSelectionMode(!multiSelect.selectionMode)}
+              >
+                <ListChecks size={17} />
+              </button>
+            ) : null}
+            {multiSelect.selectionMode && !selected ? (
+              <>
+                <span>已选 {multiSelect.selectedIds.size} 条收藏</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    multiSelect.setSelectedIds(new Set(filtered.map((item) => item.cid)))
+                  }
+                >
+                  全选筛选结果
+                </button>
+              </>
+            ) : null}
+            {!embedded ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={selected ? '导出当前收藏' : '导出收藏'}
+                aria-label={selected ? '导出当前收藏' : '导出收藏'}
+                disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
+                onClick={() =>
+                  setExportSelection(
+                    selected
+                      ? { cids: [selected.cid] }
+                      : query || kind !== 'all'
+                        ? { cids: filtered.map((item) => item.cid) }
+                        : {},
+                  )
+                }
+              >
+                <Download size={17} />
+              </button>
+            ) : null}
             {loaded && !selected ? (
               <span className="weq-collection-total">{items.length}</span>
             ) : null}
@@ -1158,7 +1209,23 @@ export function CollectionDialog({
           ) : (
             <div className="weq-collection-grid">
               {pageItems.map((it) => (
-                <CollectionCard key={it.cid} it={it} onOpen={setSelected} />
+                <CollectionCard
+                  key={it.cid}
+                  it={it}
+                  onOpen={setSelected}
+                  selected={multiSelect.selectedIds.has(it.cid)}
+                  onSelect={
+                    multiSelect.selectionMode
+                      ? (checked) =>
+                          multiSelect.setSelectedIds((current) => {
+                            const next = new Set(current);
+                            if (checked) next.add(it.cid);
+                            else next.delete(it.cid);
+                            return next;
+                          })
+                      : undefined
+                  }
+                />
               ))}
             </div>
           )}
