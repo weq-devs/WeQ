@@ -1,53 +1,29 @@
 import { useState } from 'react';
-import {
-  BarChart3,
-  Bot,
-  ChartPie,
-  Database,
-  Download,
-  ListTodo,
-  DatabaseZap,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { BarChart3, Bot, Download, ListTodo, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { FloatingToolsBar, type FloatingToolItem } from './FloatingToolsBar';
 import { RetainedTabs } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
 import { AgentLabView } from '../views/AgentLabView';
-import { DbExplorer } from '../views/cache/DbExplorer';
-import { ResourceAnalyticsDialog } from '../views/cache/ResourceAnalyticsDialog';
-import { ResourceCleanupDialog } from '../views/cache/ResourceCleanupDialog';
 import { trpc } from '../trpc/client';
 import { useCurrentContentSelection } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 
-type Tool = 'export' | 'tasks' | 'assistant' | 'database' | 'storage' | 'cleanup';
+type Tool = 'export' | 'tasks' | 'assistant';
 const TITLES: Record<Tool, string> = {
   export: '导出',
   tasks: '任务',
   assistant: 'WeQ 助手',
-  database: '数据库管理',
-  storage: '存储占用',
-  cleanup: '清理缓存',
 };
 
-export function WorkspaceTools({
-  onOpenAnalysis,
-  onOpenDbRepair,
-}: {
-  onOpenAnalysis: () => void;
-  onOpenDbRepair: () => void;
-}) {
+export function WorkspaceTools({ onOpenAnalysis }: { onOpenAnalysis: () => void }) {
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('export');
   const selection = useCurrentContentSelection();
   const tasks = trpc.account.listExportTasks.useQuery(undefined, { refetchInterval: 5000 });
-  const config = trpc.account.getAccountConfig.useQuery();
   const running =
     tasks.data?.filter((task) => task.status === 'running' || task.save?.status === 'saving')
       .length ?? 0;
-  const separate = tool === 'storage' || tool === 'cleanup';
   const close = () => setOpen(false);
   const select = (next: Tool) => {
     setTool(next);
@@ -72,40 +48,12 @@ export function WorkspaceTools({
       icon: <Bot size={20} />,
       action: () => select('assistant'),
     },
-    {
-      id: 'database',
-      label: '数据库管理',
-      icon: <Database size={20} />,
-      action: () => select('database'),
-    },
-    ...(config.data && !config.data.static
-      ? [
-          {
-            id: 'storage',
-            label: '存储占用',
-            icon: <ChartPie size={20} />,
-            action: () => select('storage'),
-          },
-          {
-            id: 'cleanup',
-            label: '清理缓存',
-            icon: <Trash2 size={20} />,
-            action: () => select('cleanup'),
-          },
-        ]
-      : []),
-    {
-      id: 'db-repair',
-      label: '数据库修复',
-      icon: <DatabaseZap size={20} />,
-      action: () => leave(onOpenDbRepair),
-    },
   ];
   return (
     <>
       <FloatingToolsBar items={items} running={running} />
       <Modal
-        open={open && !separate}
+        open={open}
         onClose={close}
         width={1000}
         className="weq-tools-modal"
@@ -117,22 +65,18 @@ export function WorkspaceTools({
             <X size={18} />
           </button>
         </header>
-        <RetainedTabs activeKey={open && !separate ? tool : 'closed'}>
-          {open && !separate ? (
+        <RetainedTabs activeKey={open ? tool : 'closed'}>
+          {open ? (
             tool === 'export' ? (
               <ExportTool initialSelection={selection ?? undefined} />
             ) : tool === 'tasks' ? (
               <ExportTool surface="tasks" />
             ) : tool === 'assistant' ? (
               <AgentLabView mode="assistant" />
-            ) : tool === 'database' ? (
-              <DbExplorer />
             ) : null
           ) : null}
         </RetainedTabs>
       </Modal>
-      {open && tool === 'storage' ? <ResourceAnalyticsDialog open onClose={close} /> : null}
-      {open && tool === 'cleanup' ? <ResourceCleanupDialog open onClose={close} /> : null}
     </>
   );
 }

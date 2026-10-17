@@ -7467,10 +7467,7 @@ export function MainView(): ReactElement {
             initialSection={settingsSection}
           />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
-          <WorkspaceTools
-            onOpenAnalysis={() => shell.switchView('annual')}
-            onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
-          />
+          <WorkspaceTools onOpenAnalysis={() => shell.switchView('annual')} />
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             initialTool={wonderfulToolsTool}
