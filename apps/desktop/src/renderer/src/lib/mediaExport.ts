@@ -23,7 +23,43 @@ export async function exportMedia(
   mode: MediaExportMode,
 ): Promise<MediaExportResult> {
   const invoke = window.electron?.ipcRenderer?.invoke;
-  if (!invoke) return { ok: false, error: '当前环境不支持导出' };
+  if (!invoke || source.url.startsWith('blob:')) {
+    if (mode !== 'clipboard') return { ok: false, error: '当前环境不支持另存为' };
+    try {
+      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined')
+        throw new Error('当前浏览器不支持图片剪贴板，请使用 HTTPS 或桌面端');
+      // 把异步取图交给 ClipboardItem，保留点击时的用户激活。
+      const png = (async () => {
+        const response = await fetch(source.url);
+        if (!response.ok) throw new Error('图片读取失败');
+        const blob = await response.blob();
+        if (blob.type === 'image/png') return blob;
+        const image = await createImageBitmap(blob);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('图片转换失败');
+          context.drawImage(image, 0, 0);
+          return await new Promise<Blob>((resolve, reject) =>
+            canvas.toBlob(
+              (result) => (result ? resolve(result) : reject(new Error('图片转换失败'))),
+              'image/png',
+            ),
+          );
+        } finally {
+          image.close();
+        }
+      })();
+      // 剪贴板权限先被拒绝时，取图仍可能稍后失败；避免留下未处理的拒绝。
+      void png.catch(() => {});
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : '复制图片失败' };
+    }
+  }
   try {
     const result = (await invoke('media:export', {
       url: source.url,

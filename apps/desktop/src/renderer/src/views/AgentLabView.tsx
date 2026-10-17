@@ -364,9 +364,17 @@ function ExpandableSessionRow({
 export function AgentLabView({
   mode = 'clones',
   searchTarget,
+  openTarget,
+  createRequest,
+  embedded = false,
+  onBackToDirectory,
 }: {
   mode?: 'clones' | 'assistant';
   searchTarget?: GeneratedSearchHit | null;
+  openTarget?: { kind: 'persona' | 'group'; id: string; revision: number } | null;
+  createRequest?: number;
+  embedded?: boolean;
+  onBackToDirectory?: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -464,6 +472,14 @@ export function AgentLabView({
   });
   const assistantSessions = assistantSessionsQuery.data ?? [];
   const [cloneOpen, setCloneOpen] = useState(false);
+  useEffect(() => {
+    if (createRequest) setCloneOpen(true);
+  }, [createRequest]);
+  useEffect(() => {
+    if (!openTarget) return;
+    navSeq.current += 1;
+    setSel({ kind: openTarget.kind, id: openTarget.id, sessionId: null, navKey: navSeq.current });
+  }, [openTarget]);
   const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
@@ -729,11 +745,15 @@ export function AgentLabView({
 
   return (
     <div
-      className={`weq-agentlab-shell weq-agentlab-workspace${sel.kind !== 'home' ? ' is-conversation' : ''}${mobileListOpen ? ' is-list-open' : ''}`}
+      className={`weq-agentlab-shell weq-agentlab-workspace${embedded ? ' is-embedded' : ''}${sel.kind !== 'home' ? ' is-conversation' : ''}${mobileListOpen ? ' is-list-open' : ''}`}
     >
       {/* 左侧 agent 列表 */}
-      <aside className="weq-agentlab-list">
-        {sel.kind !== 'home' ? (
+      <aside
+        className="weq-agentlab-list"
+        hidden={embedded}
+        style={embedded ? { display: 'none' } : undefined}
+      >
+        {sel.kind !== 'home' && !embedded ? (
           <button
             type="button"
             className="weq-agentlab-mobile-nav"
@@ -948,7 +968,10 @@ export function AgentLabView({
             personaList={personaList}
             profileByUid={profileByUid}
             faceDescToId={faceDescToId}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={() => {
+              setSel({ kind: 'home' });
+              if (embedded) onBackToDirectory?.();
+            }}
             onDeleted={() => setSel({ kind: 'home' })}
             onSessionCreated={(sessionId) => onGroupSessionCreated(sel.id, sel.navKey, sessionId)}
           />
@@ -963,7 +986,10 @@ export function AgentLabView({
             clonedUin={clonedProfile?.uin || activePersona.sourceUin}
             faces={cloneFaces}
             modelLabel={personaModelLabel}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={() => {
+              setSel({ kind: 'home' });
+              if (embedded) onBackToDirectory?.();
+            }}
             onSessionCreated={(sessionId) => onPersonaSessionCreated(sel.id, sel.navKey, sessionId)}
             onOpenSettings={() => setSettingsOpen(true)}
             onDeletePersona={() => void onDeletePersona()}

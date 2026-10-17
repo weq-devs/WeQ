@@ -39,6 +39,7 @@ function mount(docked = false) {
   );
   const slot = host.querySelector<HTMLElement>('[data-weq-tools-dock]')!;
   vi.spyOn(slot, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 590, 44, 44));
+  act(() => window.dispatchEvent(new Event('resize')));
   return {
     host,
     root,
@@ -125,7 +126,24 @@ describe('左栏快捷控制与工具吸附', () => {
     expect(floatingDockHit({ x: 32, y: 610 }, null)).toBe(false);
   });
 
-  it('拖至槽位后进入左栏 DOM 并持久化，不误打开工具条', () => {
+  it('经过快捷控制上方空隙仍保持展开，真正移出连续悬停区域才收起', () => {
+    const f = mount();
+    try {
+      const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
+      vi.spyOn(utilities, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 500, 46, 160));
+      pointer(utilities, 'pointerover', 32, 620);
+      pointer(utilities, 'pointerout', 32, 496);
+      expect(utilities.classList.contains('is-expanded')).toBe(true);
+      pointer(document.body, 'pointermove', 32, 494);
+      expect(utilities.classList.contains('is-expanded')).toBe(true);
+      pointer(document.body, 'pointermove', 160, 494);
+      expect(utilities.classList.contains('is-expanded')).toBe(false);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('拖至槽位后按槽位坐标停靠，保留顶层 DOM 并持久化，不误打开工具条', () => {
     const f = mount();
     try {
       const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
@@ -133,7 +151,10 @@ describe('左栏快捷控制与工具吸附', () => {
       pointer(button, 'pointermove', 32, 610);
       expect(f.slot.classList.contains('is-drop-target')).toBe(true);
       pointer(button, 'pointerup', 32, 610);
-      expect(f.slot.querySelector('.weq-floating-tools.is-docked')).not.toBeNull();
+      const docked = document.querySelector<HTMLElement>('.weq-floating-tools.is-docked')!;
+      expect(docked.parentElement).toBe(document.body);
+      expect(docked.style.left).toBe('10px');
+      expect(docked.style.top).toBe('590px');
       expect(f.storage.getItem('weq:tools-docked')).toBe('true');
       expect(document.querySelector('[role="toolbar"]')).toBeNull();
     } finally {
@@ -144,10 +165,11 @@ describe('左栏快捷控制与工具吸附', () => {
   it('恢复停靠偏好，并能从停靠位置拖出恢复浮动', () => {
     const f = mount(true);
     try {
-      const button = f.slot.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
+      const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
       expect(button).not.toBeNull();
       pointer(button, 'pointerdown', 32, 610);
       pointer(button, 'pointermove', 430, 300);
+      expect(button.parentElement?.parentElement).toBe(document.body);
       pointer(button, 'pointerup', 430, 300);
       expect(f.slot.querySelector('.weq-floating-tools')).toBeNull();
       expect(document.querySelector('.weq-floating-tools:not(.is-docked)')).not.toBeNull();

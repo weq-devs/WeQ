@@ -86,6 +86,7 @@ export function MemberProfileCard({
   groupCode,
   groupName,
   onOpenChat,
+  onPreviewChat,
 }: {
   member: User;
   anchor: { x: number; y: number };
@@ -93,6 +94,7 @@ export function MemberProfileCard({
   groupCode?: string;
   groupName?: string;
   onOpenChat?: () => void;
+  onPreviewChat?: () => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
@@ -394,6 +396,30 @@ export function MemberProfileCard({
             聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
         {uin || canAnalyze ? (
           <div className="weq-profile-actions">
+            {onOpenChat ? (
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenChat();
+                }}
+              >
+                查看私聊
+              </button>
+            ) : null}
+            {onPreviewChat ? (
+              <button
+                className="weq-profile-perhome"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onPreviewChat();
+                }}
+              >
+                预览私聊
+              </button>
+            ) : null}
             {uin ? (
               <>
                 {openSpace ? (
@@ -402,12 +428,11 @@ export function MemberProfileCard({
                     type="button"
                     onClick={() => {
                       onClose();
-                      if (onOpenChat) onOpenChat();
-                      else openSpace(uin, profile?.nick || name);
+                      openSpace(uin, profile?.nick || name);
                     }}
                   >
                     <Star size={13} />
-                    {onOpenChat ? '查看私聊' : '查看空间'}
+                    查看空间
                   </button>
                 ) : null}
                 <button

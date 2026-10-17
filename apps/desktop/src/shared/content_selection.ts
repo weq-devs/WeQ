@@ -1,4 +1,5 @@
 export type ContentKind =
+  | 'conversations'
   | 'messages'
   | 'guild-direct'
   | 'contacts'

@@ -91,6 +91,7 @@ export function MessageBubble({
   onToggleSelect,
   reactionRemoval,
   repeatAction,
+  pendingAction,
 }: {
   message: Message;
   conversation: Conversation;
@@ -143,6 +144,7 @@ export function MessageBubble({
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
   repeatAction?: import('react').ReactNode;
+  pendingAction?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -436,6 +438,7 @@ export function MessageBubble({
           sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
           removal={selectionMode ? undefined : reactionRemoval}
         />
+        {pendingAction}
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
             <Sparkle size={10} strokeWidth={2.6} />

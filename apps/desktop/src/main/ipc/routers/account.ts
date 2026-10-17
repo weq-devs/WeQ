@@ -150,6 +150,13 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
+function requireSendAccount(expected?: string): AccountServices {
+  const ctx = getAppContext();
+  if (expected && String(ctx.account?.context.uin ?? '') !== expected)
+    throw new Error('账号已切换，已停止发送');
+  return requireServices();
+}
+
 function requireScheduler(): import('@weq/service').ExportScheduler {
   const ctx = getAppContext();
   if (!ctx.scheduler) {
@@ -4028,6 +4035,7 @@ export const accountRouter = router({
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        expectedAccountUin: z.string().min(1).optional(),
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
@@ -4035,7 +4043,7 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendElements({
+      return requireSendAccount(input.expectedAccountUin).messageSend.sendElements({
         peerType: input.peerType,
         targetId: input.targetId,
         ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
@@ -4053,6 +4061,7 @@ export const accountRouter = router({
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        expectedAccountUin: z.string().min(1).optional(),
         path: z.string().min(1),
         fileName: z.string().min(1).optional(),
         folderId: z.string().optional(),
@@ -4060,7 +4069,7 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendFile({
+      return requireSendAccount(input.expectedAccountUin).messageSend.sendFile({
         peerType: input.peerType,
         targetId: input.targetId,
         path: input.path,

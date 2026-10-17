@@ -187,6 +187,7 @@ export function MessageRow({
   onToggleSelect,
   reactionRemoval,
   repeatAction,
+  pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -213,6 +214,7 @@ export function MessageRow({
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
   repeatAction?: ReactNode;
+  pendingAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -284,6 +286,7 @@ export function MessageRow({
       onToggleSelect={onToggleSelect}
       reactionRemoval={reactionRemoval}
       repeatAction={repeatAction}
+      pendingAction={pendingAction}
     />
   );
 }

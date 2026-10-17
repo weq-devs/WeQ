@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 import '../styles/rail-utility-dock.css';
 
@@ -11,6 +11,27 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const id = useId();
   const expanded = pinned || focusWithin || (hovered && !suppressHover);
+  const containsPointer = useCallback((x: number, y: number) => {
+    const rect = root.current?.getBoundingClientRect();
+    if (!rect?.width || !rect.height) return false;
+    const tool = document
+      .querySelector<HTMLElement>('.weq-floating-tools.is-docked')
+      ?.getBoundingClientRect();
+    const left = Math.min(rect.left, tool?.left ?? rect.left) - 8;
+    const right = Math.max(rect.right, tool?.right ?? rect.right) + 8;
+    const top = Math.min(rect.top, tool?.top ?? rect.top) - 8;
+    return x >= left && x <= right && y >= top && y <= rect.bottom + 8;
+  }, []);
+  useEffect(() => {
+    if (!hovered) return;
+    const move = (event: PointerEvent) => {
+      if (containsPointer(event.clientX, event.clientY)) return;
+      setHovered(false);
+      setSuppressHover(false);
+    };
+    document.addEventListener('pointermove', move);
+    return () => document.removeEventListener('pointermove', move);
+  }, [hovered, containsPointer]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || root.current?.contains(event.target)) return;
@@ -29,7 +50,8 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
         setHovered(true);
         setSuppressHover(false);
       }}
-      onPointerLeave={() => {
+      onPointerLeave={(event) => {
+        if (containsPointer(event.clientX, event.clientY)) return;
         setHovered(false);
         setSuppressHover(false);
       }}

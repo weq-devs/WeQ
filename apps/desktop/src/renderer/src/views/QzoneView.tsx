@@ -363,6 +363,9 @@ export function QzoneView({
     setOwnerNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
+  const [postRequests, setPostRequests] = useState<
+    Record<string, { tid: string; revision: string }>
+  >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
     if (!value) return;
@@ -421,6 +424,23 @@ export function QzoneView({
       return;
     handledRequest.current = spaceRequest.revision;
     openSpace(spaceRequest.uin, spaceRequest.nickname);
+    if (spaceRequest.target?.kind === 'album')
+      setAlbumRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: {
+          hostUin: spaceRequest.uin,
+          topicId: spaceRequest.target!.kind === 'album' ? spaceRequest.target!.topicId : '',
+          name: '',
+          revision: spaceRequest.revision,
+        },
+      }));
+    if (spaceRequest.target?.kind === 'post') {
+      const tid = spaceRequest.target.tid;
+      setPostRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
+      }));
+    }
   }, [active, selfUin, spaceRequest, openSpace]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
@@ -576,6 +596,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            postRequest={postRequests[selfUin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -590,6 +611,7 @@ export function QzoneView({
             nickname={spaceNames[uin] || uin}
             ownerNickname={ownerNames[uin]}
             albumRequest={albumRequests[uin]}
+            postRequest={postRequests[uin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -636,6 +658,7 @@ function SpaceContent({
   nickname,
   ownerNickname,
   albumRequest,
+  postRequest,
   onSpace,
   onOwnerNickname,
 }: {
@@ -646,6 +669,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
+  postRequest?: { tid: string; revision: string };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -655,6 +679,9 @@ function SpaceContent({
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
+  useEffect(() => {
+    if (postRequest) setPane('posts');
+  }, [postRequest]);
   useEffect(() => {
     if (
       !albumRequest ||
@@ -707,13 +734,25 @@ function SpaceContent({
         ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
-        <Posts
-          selfUin={selfUin}
-          hostUin={hostUin}
-          nickname={ownerNickname || nickname}
-          onSpace={onSpace}
-          onOwnerNickname={onOwnerNickname}
-        />
+        <div>
+          {postRequest ? (
+            <LinkedPost
+              key={postRequest.revision}
+              selfUin={selfUin}
+              hostUin={hostUin}
+              tid={postRequest.tid}
+              nickname={ownerNickname || nickname}
+              onSpace={onSpace}
+            />
+          ) : null}
+          <Posts
+            selfUin={selfUin}
+            hostUin={hostUin}
+            nickname={ownerNickname || nickname}
+            onSpace={onSpace}
+            onOwnerNickname={onOwnerNickname}
+          />
+        </div>
       </QzonePage>
       {visitedAlbums ? (
         <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
@@ -725,6 +764,69 @@ function SpaceContent({
           />
         </QzonePage>
       ) : null}
+    </div>
+  );
+}
+
+function LinkedPost({
+  selfUin,
+  hostUin,
+  tid,
+  nickname,
+  onSpace,
+}: {
+  selfUin: string;
+  hostUin: string;
+  tid: string;
+  nickname: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const { run } = useQzoneRequests();
+  const [post, setPost] = useState<QzoneEmotion | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let live = true;
+    setError('');
+    setPost(null);
+    ref.current?.scrollIntoView({ block: 'start' });
+    void run(
+      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
+      true,
+    )
+      .then((result) => {
+        if (!live) return;
+        if (!result.post) throw new Error('动态详情不存在或无权访问');
+        setPost(result.post);
+      })
+      .catch((cause) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [selfUin, hostUin, tid, retry, run]);
+  return (
+    <div ref={ref} className="weq-qzn-linked-post">
+      {post ? (
+        <Post
+          selfUin={selfUin}
+          hostUin={hostUin}
+          nickname={nickname}
+          post={post}
+          onSpace={onSpace}
+        />
+      ) : error ? (
+        <p role="alert">
+          {error}
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            重试
+          </button>
+        </p>
+      ) : (
+        <p role="status">正在读取动态…</p>
+      )}
     </div>
   );
 }

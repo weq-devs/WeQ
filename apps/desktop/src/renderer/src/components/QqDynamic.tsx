@@ -19,7 +19,8 @@
  * 深色主题下会读不清，正文统一走主题色。
  */
 
-import { useEffect, useState, type ComponentType, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type ComponentType, type ReactElement } from 'react';
+import { QzoneCardNavigationContext, qzoneDynamicTarget } from '../lib/qzoneNavigation';
 import {
   Bell,
   Gift,
@@ -131,6 +132,7 @@ export function QqDynamic({
   tags?: DynamicTag[];
 }): ReactElement {
   const [coverBroken, setCoverBroken] = useState(false);
+  const navigate = useContext(QzoneCardNavigationContext);
   const [publisher, setPublisher] = useState<{
     nick?: string;
     remark?: string;
@@ -168,7 +170,13 @@ export function QqDynamic({
 
   const jump = extractDynamicLink(meta);
   const highlights = extractMetaHighlights(meta);
-  const onOpen = jump ? () => window.open(jump, '_blank') : undefined;
+  const target = qzoneDynamicTarget(meta);
+  const onOpen =
+    target && navigate
+      ? () => navigate(target)
+      : jump
+        ? () => window.open(jump, '_blank')
+        : undefined;
 
   return (
     <div
@@ -176,6 +184,13 @@ export function QqDynamic({
       role={onOpen ? 'link' : undefined}
       title={onOpen ? jump : undefined}
       onClick={onOpen}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
     >
       <div className="weq-dynamic-accent" style={{ background: accentColor }} />
       <div className="weq-dynamic-body">

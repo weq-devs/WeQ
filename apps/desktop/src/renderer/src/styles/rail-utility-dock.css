@@ -56,6 +56,7 @@
 }
 
 .weq-rail-tools-slot {
+  pointer-events: none;
   position: absolute;
   bottom: calc(100% + 8px);
   left: 1px;
@@ -74,9 +75,7 @@
 @keyframes weq-dock-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 
 .weq-floating-tools.is-docked:not(.is-dragging) {
-  position: relative;
-  left: auto !important;
-  top: auto !important;
+  position: fixed;
 }
 
 .app-shell .rail-footer .weq-tools-trigger {
@@ -88,6 +87,8 @@
   color: var(--weq-fg-secondary);
   box-shadow: none;
 }
+.weq-floating-tools.is-docked .weq-tools-trigger { border-radius: 6px; border: 0; background: transparent; color: var(--weq-fg-secondary); box-shadow: none; }
+.weq-floating-tools.is-docked .weq-tools-trigger:hover { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
 
 .app-shell .rail-footer .weq-tools-trigger:hover {
   color: var(--weq-accent-effective);

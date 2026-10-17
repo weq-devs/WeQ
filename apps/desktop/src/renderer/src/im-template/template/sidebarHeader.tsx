@@ -1,6 +1,9 @@
 ﻿// @ts-nocheck
 import { ChevronRight, Plus, Search, UserPlus, UsersRound, RefreshCw } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { ContactDirectoryContext } from '../../lib/conversationDirectory';
+import { useContentMultiSelect } from '../../state/contentSelection';
+import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
@@ -54,6 +57,8 @@ export function SidebarHeader({
   groupNoticeCount?: number;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const directory = useContext(ContactDirectoryContext);
+  const selection = useContentMultiSelect({ kind: 'contacts', container: contactTab });
 
   useEffect(() => {
     if (!addOpen) {
@@ -174,6 +179,28 @@ export function SidebarHeader({
       ) : null}
       {view === 'contacts' ? (
         <div className={cn('contact-tools')}>
+          <DirectoryToolbar
+            noun="联系人"
+            query={directory?.query ?? ''}
+            onQuery={(value) => directory?.onQuery(value)}
+            selecting={selection.selectionMode}
+            onSelecting={selection.setSelectionMode}
+            count={selection.selectedIds.size}
+            onSelectAll={() => selection.setSelectedIds(new Set(directory?.ids ?? []))}
+          >
+            {onRefreshContacts ? (
+              <button
+                type="button"
+                onClick={onRefreshContacts}
+                disabled={refreshingContacts}
+                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                aria-busy={refreshingContacts}
+              >
+                <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
+              </button>
+            ) : null}
+          </DirectoryToolbar>
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'friend'))}
@@ -210,19 +237,6 @@ export function SidebarHeader({
                 群聊
               </button>
             </div>
-            {onRefreshContacts ? (
-              <button
-                type="button"
-                className="contact-list-refresh"
-                onClick={onRefreshContacts}
-                disabled={refreshingContacts}
-                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                aria-busy={refreshingContacts}
-              >
-                <RefreshCw size={15} />
-              </button>
-            ) : null}
           </div>
         </div>
       ) : null}

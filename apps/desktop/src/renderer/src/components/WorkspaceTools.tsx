@@ -74,7 +74,12 @@ export function WorkspaceTools({
   ];
   return (
     <>
-      <FloatingToolsBar items={items} running={running} hidden={hidden} />
+      <FloatingToolsBar
+        items={items}
+        running={running}
+        hidden={hidden}
+        expandKey={selection ? `${selection.owner.kind}:${selection.owner.container}` : undefined}
+      />
       <Modal
         open={open}
         onClose={close}

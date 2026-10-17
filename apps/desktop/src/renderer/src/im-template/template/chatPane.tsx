@@ -32,6 +32,9 @@ import {
   Settings2,
   Zap,
   Share2,
+  Forward,
+  Copy,
+  Loader2,
   Smile,
   Sparkles,
   Vibrate,
@@ -151,6 +154,9 @@ import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { repeatTarget } from '../../lib/messageRepeat';
+import { mediaUrl } from '../../lib/resourceUrl';
+import { exportMedia } from '../../lib/mediaExport';
+import { messageRichClipboard } from '../../lib/messageClipboard';
 import type { RepeatElement } from '../../lib/messageRepeat';
 import {
   readMentionClipboard,
@@ -248,6 +254,18 @@ function _hasGroupAnnouncements(conversation: Conversation) {
 }
 
 function getMessageDownloadUrl(message: Message) {
+  const picture = message.qqElements?.find((element) => element.type === 'pic');
+  if (picture) {
+    const data = picture.data ?? {};
+    return mediaUrl('pic', {
+      t: Date.parse(message.createdAt),
+      name: String(data.fileName ?? ''),
+      token: String(data.fileToken ?? ''),
+      orig: String(data.originalUrl ?? ''),
+      md5: String(data.md5 ?? ''),
+      recv: data.subType === 1 ? 1 : 0,
+    });
+  }
   const markdownImage = message.body.match(/!\[[^\]\n]*\]\((https?:\/\/[^\s)]+)\)/i)?.[1];
   if (markdownImage) {
     return markdownImage;
@@ -270,6 +288,17 @@ function imageFilenameFromUrl(url: string) {
   } catch {
     return 'chat-image';
   }
+}
+
+function pureImageUrl(message: Message) {
+  const elements = (message.qqElements ?? []).filter(
+    (element) =>
+      element.type !== 'reply' &&
+      !(element.type === 'text' && !String(element.data?.textContent ?? '').trim()),
+  );
+  return elements.length === 1 && elements[0].type === 'pic'
+    ? getMessageDownloadUrl(message)
+    : undefined;
 }
 
 function formatUnreadJumpCount(value: number) {
@@ -368,6 +397,7 @@ export function ChatPane({
   deletedIds,
   onRestoreMessage,
   onMergeForward,
+  onForwardMessages,
   unreadDock,
   missingJumpSeq,
 }: {
@@ -503,6 +533,7 @@ export function ChatPane({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /**
    * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
    * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
@@ -603,6 +634,22 @@ export function ChatPane({
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
   const reactionRequestPending = useRef(false);
+  const [pendingActions, setPendingActions] = useState<Record<string, string>>({});
+  const actionContext = useRef(conversation?.id);
+  actionContext.current = conversation?.id;
+  useEffect(() => setPendingActions({}), [conversation?.id]);
+  function beginInlineAction(id: string, label: string) {
+    const context = conversation?.id;
+    setPendingActions((current) => ({ ...current, [id]: label }));
+    return () => {
+      if (actionContext.current === context)
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+    };
+  }
   // 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员）。同戳一戳一样需要
   // 在线且已注入的 QQ；一律不做乐观渲染，成功与否只看 toast。
   const recallMessage = trpc.account.recallMessage.useMutation();
@@ -1613,10 +1660,9 @@ export function ChatPane({
             targetId,
             ...(pokingSelf ? { targetUin: user.identityValue } : {}),
           };
+    const finish = atLatest ? beginInlineAction('timeline:poke', '正在戳一戳') : () => {};
     sendPoke.mutate(params, {
-      onSuccess: () => {
-        pushToast({ tone: 'success', message: '戳一戳已发出' });
-      },
+      onSettled: finish,
       onError: (error) => {
         pushToast({
           tone: 'error',
@@ -1687,6 +1733,7 @@ export function ChatPane({
     if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
     reactionRequestPending.current = true;
+    const finish = beginInlineAction(message.id, isSet ? '正在贴表情' : '正在撤回表情回应');
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
@@ -1695,9 +1742,6 @@ export function ChatPane({
         isSet,
       },
       {
-        onSuccess: () => {
-          pushToast({ tone: 'success', message: isSet ? '表情回应已发出' : '自己的贴表情已撤回' });
-        },
         onError: (error) => {
           pushToast({
             tone: 'error',
@@ -1706,6 +1750,7 @@ export function ChatPane({
           });
         },
         onSettled: () => {
+          finish();
           reactionRequestPending.current = false;
         },
       },
@@ -1848,10 +1893,9 @@ export function ChatPane({
             ...(random > 0 ? { random } : {}),
             ...(timestamp > 0 ? { timestamp } : {}),
           };
+    const finish = beginInlineAction(message.id, '正在撤回消息');
     recallMessage.mutate(params, {
-      onSuccess: () => {
-        pushToast({ tone: 'success', message: '撤回请求已发送' });
-      },
+      onSettled: finish,
       onError: (error) => {
         pushToast({
           tone: 'error',
@@ -2804,9 +2848,17 @@ export function ChatPane({
       '[data-message-id]',
     ) as HTMLElement | null;
     const anchorRect = anchorEl?.getBoundingClientRect();
+    const imageUrl =
+      event.target instanceof HTMLImageElement
+        ? event.target.currentSrc || event.target.src
+        : pureImageUrl(message);
     setContextMenu({
       message,
-      downloadUrl: getMessageDownloadUrl(message),
+      imageUrl,
+      downloadUrl:
+        (event.target instanceof HTMLImageElement
+          ? event.target.currentSrc || event.target.src
+          : undefined) || getMessageDownloadUrl(message),
       x: Math.min(event.clientX, window.innerWidth - 126),
       y: Math.min(event.clientY, window.innerHeight - 84),
       variant: 'desktop',
@@ -2820,6 +2872,7 @@ export function ChatPane({
     const maxTop = Math.max(92, window.innerHeight - 166);
     setContextMenu({
       message,
+      imageUrl: pureImageUrl(message),
       downloadUrl: getMessageDownloadUrl(message),
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
@@ -2890,6 +2943,19 @@ export function ChatPane({
       };
     });
     void copyTextToClipboard(JSON.stringify(payload, null, 2));
+  }
+
+  async function copySelectedMessagesRich() {
+    const value = messageRichClipboard(
+      selectedMessages.map((message) => ({
+        sender: displayUserName(resolveMessageSender(message, conversation, user)),
+        time: message.createdAt,
+        body: message.body,
+        elements: message.qqElements,
+      })),
+    );
+    if (!(await writeMentionClipboard(value)))
+      pushToast({ tone: 'error', message: '复制富文本失败' });
   }
 
   function updateComposerHeight(height: number) {
@@ -3288,6 +3354,13 @@ export function ChatPane({
   }
 
   async function copyMessage(message: Message) {
+    const image = contextMenu?.imageUrl;
+    if (image) {
+      setContextMenu(null);
+      const result = await exportMedia({ url: image }, 'clipboard');
+      if (!result.ok) pushToast({ tone: 'error', title: '复制图片失败', detail: result.error });
+      return;
+    }
     const selectedText = window.getSelection()?.toString().trim();
     // Non-copyable messages (images/files/cards) render an empty body — fall
     // back to a `msgid=xxx` reference so there's always something on the clipboard.
@@ -3803,7 +3876,7 @@ export function ChatPane({
                             void repeatLatestMessage();
                           }}
                         >
-                          +1
+                          {repeating ? <Loader2 size={15} className="spin" /> : '+1'}
                         </button>
                       ) : undefined
                     }
@@ -3815,6 +3888,18 @@ export function ChatPane({
                       blockedReason: messageReactionBlockedReason(message),
                       busy: setMessageReaction.isLoading,
                     }}
+                    pendingAction={
+                      pendingActions[message.id] ? (
+                        <span
+                          className="weq-message-sending"
+                          role="status"
+                          aria-label={pendingActions[message.id]}
+                          title={pendingActions[message.id]}
+                        >
+                          <Loader2 size={15} />
+                        </span>
+                      ) : undefined
+                    }
                     onAvatarClick={
                       !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
@@ -3830,6 +3915,13 @@ export function ChatPane({
             return out;
           })()
         )}
+        {pendingActions['timeline:poke'] ? (
+          <div className="weq-inline-interaction-pending" role="status" aria-label="正在戳一戳">
+            <span className="weq-message-sending">
+              <Loader2 size={15} />
+            </span>
+          </div>
+        ) : null}
         <div ref={endRef} />
       </div>
 
@@ -3960,7 +4052,26 @@ export function ChatPane({
                 onClick={mergeForwardSelected}
               >
                 <Share2 size={17} />
-                <span>合并转发</span>
+              </button>
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="逐条转发"
+                title={sendGateReason || '逐条转发'}
+                disabled={Boolean(sendGateReason) || !selectedMessages.length || !onForwardMessages}
+                onClick={() => onForwardMessages?.([...selectedMessages], conversation)}
+              >
+                <Forward size={17} />
+              </button>
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="复制富文本"
+                title="复制富文本"
+                disabled={!selectedMessages.length}
+                onClick={() => void copySelectedMessagesRich()}
+              >
+                <Copy size={17} />
               </button>
               <button
                 type="button"
@@ -3982,7 +4093,6 @@ export function ChatPane({
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
-                <span>删除</span>
               </button>
               <button
                 type="button"
@@ -3993,7 +4103,6 @@ export function ChatPane({
                 aria-label="复制纯文本"
               >
                 <FileText size={17} />
-                <span>复制纯文本</span>
               </button>
               <button
                 type="button"
@@ -4004,7 +4113,6 @@ export function ChatPane({
                 aria-label="复制 JSON"
               >
                 <ClipboardCopy size={17} />
-                <span>复制 JSON</span>
               </button>
               <button
                 type="button"
@@ -4014,7 +4122,6 @@ export function ChatPane({
                 aria-label="退出多选"
               >
                 <X size={17} />
-                <span>退出</span>
               </button>
             </div>
           </div>
@@ -4529,6 +4636,14 @@ export function ChatPane({
         <MessageContextMenu
           state={contextMenu}
           onCopy={copyMessage}
+          onForward={
+            onForwardMessages
+              ? (message) => {
+                  setContextMenu(null);
+                  onForwardMessages([message], conversation);
+                }
+              : undefined
+          }
           onDownloadImage={downloadMessageImage}
           onDelete={
             contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)

@@ -58,10 +58,12 @@ export function FloatingToolsBar({
   items,
   running = 0,
   hidden = false,
+  expandKey,
 }: {
   items: FloatingToolItem[];
   running?: number;
   hidden?: boolean;
+  expandKey?: string;
 }) {
   const [position, setPosition] = useState(initialPosition);
   const [size, setSize] = useState(viewport);
@@ -71,6 +73,7 @@ export function FloatingToolsBar({
   const [dropTarget, setDropTarget] = useState(false);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [dockPosition, setDockPosition] = useState(position);
+  const [slotVisible, setSlotVisible] = useState(false);
   const [clickSerial, setClickSerial] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{
@@ -83,6 +86,9 @@ export function FloatingToolsBar({
   const skipPointerClick = useRef(false);
   const latest = useRef(position);
   useEffect(() => {
+    if (expandKey && !hidden) setExpanded(true);
+  }, [expandKey, hidden]);
+  useEffect(() => {
     if (!hidden) return;
     setExpanded(false);
     drag.current = null;
@@ -90,7 +96,7 @@ export function FloatingToolsBar({
     setDropTarget(false);
   }, [hidden]);
   const layout = floatingToolbarLayout(
-    docked && slot && !dragging ? dockPosition : position,
+    docked && slotVisible && !dragging ? dockPosition : position,
     size,
     items.length,
   );
@@ -105,6 +111,7 @@ export function FloatingToolsBar({
     if (!slot) return;
     const measure = () => {
       const rect = slot.getBoundingClientRect();
+      setSlotVisible(rect.width > 0 && rect.height > 0);
       setDockPosition({ x: rect.left, y: rect.top });
     };
     measure();
@@ -134,16 +141,16 @@ export function FloatingToolsBar({
     return () => window.removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || expandKey) return;
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setExpanded(false);
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded]);
+  }, [expanded, expandKey]);
   const style = {
-    left: position.x,
-    top: position.y,
+    left: docked && slotVisible && !dragging ? dockPosition.x : position.x,
+    top: docked && slotVisible && !dragging ? dockPosition.y : position.y,
     '--weq-tools-columns': 1,
     '--weq-tools-max-height': `${layout.maxHeight}px`,
   } as CSSProperties;
@@ -151,7 +158,7 @@ export function FloatingToolsBar({
     <div
       ref={root}
       hidden={hidden}
-      className={`weq-floating-tools${docked && slot ? ' is-docked' : ''}${dragging ? ' is-dragging' : ''}${expanded ? ' is-expanded' : ''}`}
+      className={`weq-floating-tools${docked && slotVisible && !dragging ? ' is-docked' : ''}${dragging ? ' is-dragging' : ''}${expanded ? ' is-expanded' : ''}`}
       style={style}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
@@ -198,7 +205,7 @@ export function FloatingToolsBar({
             x: event.clientX,
             y: event.clientY,
             origin:
-              docked && slot
+              docked && slotVisible
                 ? {
                     x: event.currentTarget.getBoundingClientRect().left,
                     y: event.currentTarget.getBoundingClientRect().top,
@@ -296,6 +303,6 @@ export function FloatingToolsBar({
       ) : null}
     </div>
   );
-  // 浮动状态脱离业务页面的变换/裁剪容器；停靠时才进入左栏槽位。
-  return createPortal(content, docked && slot ? slot : document.body);
+  // 停靠只改变坐标与外观，始终留在顶层，拖动中也不受左栏的层叠/裁剪影响。
+  return createPortal(content, document.body);
 }

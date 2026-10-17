@@ -1,6 +1,8 @@
 .weq-agentlab-mobile-nav {
   display: none;
 }
+.weq-agentlab-shell.weq-agentlab-workspace.is-embedded { grid-template-columns: minmax(0, 1fr); }
+.weq-agentlab-shell.is-embedded > .weq-agentlab-main { display: flex; min-width: 0; }
 
 @media (max-width: 600px) {
   .weq-agentlab-shell.weq-agentlab-workspace {

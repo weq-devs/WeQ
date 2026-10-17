@@ -8,6 +8,7 @@
   Palette,
   Quote,
   SmilePlus,
+  Forward,
 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
@@ -19,6 +20,7 @@ export type MessageContextMenuState = {
   x: number;
   y: number;
   downloadUrl?: string;
+  imageUrl?: string;
   variant?: 'desktop' | 'mobile';
   /**
    * Click point offset within the anchored message row at open time. Used to
@@ -31,6 +33,7 @@ export type MessageContextMenuState = {
 export function MessageContextMenu({
   state,
   onCopy,
+  onForward,
   onDownloadImage,
   onDelete,
   onEditRaw,
@@ -47,6 +50,7 @@ export function MessageContextMenu({
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
+  onForward?: (message: Message) => void;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
   onDelete?: (message: Message) => void;
@@ -130,6 +134,12 @@ export function MessageContextMenu({
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />
           <span>多选</span>
+        </button>
+      ) : null}
+      {onForward ? (
+        <button type="button" title="转发" onClick={() => onForward(state.message)}>
+          <Forward size={17} />
+          <span>转发</span>
         </button>
       ) : null}
       {onReply ? (

@@ -1,0 +1,12 @@
+.weq-sequential-forward { display: flex; flex-direction: column; box-sizing: border-box; padding: 16px; max-height: calc(100dvh - 48px); overflow: hidden; color: var(--weq-fg-primary); }
+.weq-sequential-forward header, .weq-sequential-forward footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.weq-sequential-forward header button { display: grid; place-items: center; width: 30px; height: 30px; }
+.weq-sequential-forward fieldset { border: 0; padding: 0; margin: 12px 0; min-width: 0; min-height: 0; overflow-y: auto; }
+.weq-sequential-forward .weq-mf-targets { height: min(32dvh, 240px); }
+.weq-sequential-forward header, .weq-sequential-forward footer, .weq-forward-status { flex: none; }
+.weq-forward-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.weq-forward-options label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--weq-fg-secondary); }
+.weq-forward-options input, .weq-forward-options select { min-width: 0; width: 100%; background: var(--weq-bg-surface); color: var(--weq-fg-primary); border: 1px solid var(--weq-border-strong); border-radius: 4px; padding: 6px; }
+.weq-forward-status { display: flex; gap: 6px; align-items: center; overflow-wrap: anywhere; margin-bottom: 12px; }
+.weq-sequential-forward footer { justify-content: flex-end; }
+html[data-theme="dark"] .weq-sequential-forward { color: var(--weq-fg-primary); }

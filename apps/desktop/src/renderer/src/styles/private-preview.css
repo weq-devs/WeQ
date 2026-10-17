@@ -1,0 +1,4 @@
+.weq-private-preview-scroll { overflow-anchor: none; }
+.weq-gap-history-top { min-height: 28px; color: var(--weq-fg-muted); }
+.weq-gap-history-top > span { display: inline-flex; align-items: center; gap: 6px; }
+html[data-theme="dark"] .weq-gap-history-top { color: var(--weq-fg-muted); }

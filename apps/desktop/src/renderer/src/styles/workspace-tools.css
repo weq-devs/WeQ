@@ -72,7 +72,7 @@
 
 .weq-floating-tools {
   position: fixed;
-  z-index: 90;
+  z-index: 1190;
   width: 44px;
   height: 44px;
   user-select: none;

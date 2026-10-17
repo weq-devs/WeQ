@@ -21,7 +21,8 @@
  *     本组件只负责渲染。
  */
 
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactElement } from 'react';
+import '../../styles/private-preview.css';
 import { CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
@@ -48,6 +49,8 @@ export function GapMessagesModal({
   notice,
   onLoadMore,
   onClose,
+  preview = false,
+  onRetry,
 }: {
   conversation: Conversation;
   user: User;
@@ -68,6 +71,8 @@ export function GapMessagesModal({
   notice?: string;
   onLoadMore: () => void;
   onClose: () => void;
+  preview?: boolean;
+  onRetry?: () => void;
 }): ReactElement {
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
@@ -76,11 +81,63 @@ export function GapMessagesModal({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const initialPositioned = useRef(false);
+  const followBottom = useRef(true);
+  const earlierPending = useRef(false);
+  const anchor = useRef<{ height: number; top: number; first?: string } | null>(null);
+  const loadMore = useCallback(() => {
+    if (!preview) {
+      onLoadMore();
+      return;
+    }
+    const element = scrollRef.current;
+    if (!element || !initialPositioned.current || earlierPending.current || loadingMore || !hasMore)
+      return;
+    anchor.current = {
+      height: element.scrollHeight,
+      top: element.scrollTop,
+      first: messages[0]?.id,
+    };
+    earlierPending.current = true;
+    onLoadMore();
+  }, [preview, onLoadMore, loadingMore, hasMore, messages]);
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!preview || !element) return;
+    if (loading) {
+      initialPositioned.current = false;
+      followBottom.current = true;
+      anchor.current = null;
+      earlierPending.current = false;
+      return;
+    }
+    if (!initialPositioned.current && messages.length) {
+      element.scrollTop = element.scrollHeight;
+      initialPositioned.current = true;
+      followBottom.current = true;
+    } else if (anchor.current && !loadingMore) {
+      if (anchor.current.first !== messages[0]?.id)
+        element.scrollTop = anchor.current.top + element.scrollHeight - anchor.current.height;
+      anchor.current = null;
+      earlierPending.current = false;
+    }
+  }, [preview, loading, loadingMore, messages]);
+  useEffect(() => {
+    if (!preview || !historyRef.current) return;
+    const observer = new ResizeObserver(() => {
+      const element = scrollRef.current;
+      if (element && followBottom.current && !anchor.current)
+        element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(historyRef.current);
+    return () => observer.disconnect();
+  }, [preview, loading, messages.length]);
 
   // 哨兵可见（距滚动容器底部 400px 内）即自动拉更新一页；失败/加载中时哨兵
   // 换成重试/加载态，观察器随之断开，避免空转重复请求。列表为空但 hasMore 时
   // 哨兵也保持挂载，让空窗（漫游未覆盖的旧端）能自动向后推进。
-  const sentinelVisible = !loading && !error && hasMore && !moreFailed;
+  const sentinelVisible = !loading && !loadingMore && !error && hasMore && !moreFailed;
   useEffect(() => {
     if (!sentinelVisible) return undefined;
     const root = scrollRef.current;
@@ -88,13 +145,13 @@ export function GapMessagesModal({
     if (!root || !sentinel) return undefined;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
       },
       { root, rootMargin: '400px' },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [sentinelVisible, onLoadMore]);
+  }, [sentinelVisible, loadMore]);
 
   return (
     <Modal onClose={onClose} width={520} labelledBy="weq-gap-messages-title">
@@ -105,7 +162,7 @@ export function GapMessagesModal({
           <header className="weq-compose-head">
             <div className="weq-compose-titlewrap">
               <strong id="weq-gap-messages-title" className="weq-compose-title">
-                缺失消息
+                {preview ? '预览私聊' : '缺失消息'}
               </strong>
               <span className="weq-compose-sub">{subtitle}</span>
             </div>
@@ -121,24 +178,63 @@ export function GapMessagesModal({
 
           <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
             <ConvContext.Provider value={convKey}>
-              <div ref={scrollRef} className={cn('message-scroll', 'weq-deleted-scroll')}>
+              <div
+                ref={scrollRef}
+                className={cn(
+                  'message-scroll',
+                  'weq-deleted-scroll',
+                  preview && 'weq-private-preview-scroll',
+                )}
+                onScroll={(event) => {
+                  if (!preview || loading) return;
+                  const element = event.currentTarget;
+                  followBottom.current =
+                    element.scrollHeight - element.clientHeight - element.scrollTop < 40;
+                  if (element.scrollTop < 160 && !moreFailed) loadMore();
+                }}
+              >
                 {loading ? (
                   <div className={cn('weq-deleted-empty', 'weq-gap-loading')}>
                     <RefreshCw size={26} className="weq-gap-spin" />
-                    <span>正在从 QQ 服务端拉取…</span>
+                    <span>{preview ? '正在读取本地消息…' : '正在从 QQ 服务端拉取…'}</span>
                   </div>
                 ) : error ? (
                   <div className="weq-deleted-empty">
                     <CloudOff size={26} />
                     <span>{error}</span>
+                    {onRetry ? (
+                      <button type="button" onClick={onRetry}>
+                        重试
+                      </button>
+                    ) : null}
                   </div>
                 ) : messages.length === 0 && !hasMore ? (
                   <div className="weq-deleted-empty">
                     <CloudOff size={26} />
-                    <span className="weq-gap-empty-hint">没有可拉取的消息</span>
+                    <span className="weq-gap-empty-hint">
+                      {preview ? '没有本地聊天记录' : '没有可拉取的消息'}
+                    </span>
                   </div>
                 ) : (
-                  <>
+                  <div ref={historyRef}>
+                    {preview ? (
+                      <div className="weq-gap-footer weq-gap-history-top">
+                        {loadingMore ? (
+                          <span role="status">
+                            <RefreshCw size={13} className="weq-gap-spin" />
+                            正在加载更早的消息…
+                          </span>
+                        ) : moreFailed ? (
+                          <button type="button" onClick={loadMore}>
+                            加载失败，点击重试
+                          </button>
+                        ) : hasMore ? (
+                          <div ref={sentinelRef}>向上滚动加载更早消息</div>
+                        ) : (
+                          <span>已到最早记录</span>
+                        )}
+                      </div>
+                    ) : null}
                     {messages.map((message) => {
                       const mine = message.senderId === user.id;
                       const sender = resolveMessageSender(message, conversation, user);
@@ -164,25 +260,29 @@ export function GapMessagesModal({
                         </div>
                       );
                     })}
-                    <div className="weq-gap-footer">
-                      {loadingMore ? (
-                        <span className="weq-gap-footer-spin">
-                          <RefreshCw size={13} className="weq-gap-spin" />
-                          正在加载更新的消息…
-                        </span>
-                      ) : moreFailed ? (
-                        <button type="button" className="weq-gap-footer-retry" onClick={onLoadMore}>
-                          加载失败，点击重试
-                        </button>
-                      ) : hasMore ? (
-                        <div ref={sentinelRef}>
-                          已加载 {messages.length} / 共 {totalCount} 条 · 向下滚动加载更多
-                        </div>
-                      ) : (
-                        <span>已加载全部 {messages.length} 条</span>
-                      )}
-                    </div>
-                  </>
+                    {!preview ? (
+                      <div className="weq-gap-footer">
+                        {loadingMore ? (
+                          <span className="weq-gap-footer-spin">
+                            <RefreshCw size={13} className="weq-gap-spin" />
+                            {preview ? '正在加载更早的消息…' : '正在加载更新的消息…'}
+                          </span>
+                        ) : moreFailed ? (
+                          <button type="button" className="weq-gap-footer-retry" onClick={loadMore}>
+                            加载失败，点击重试
+                          </button>
+                        ) : hasMore ? (
+                          <div ref={sentinelRef}>
+                            {preview
+                              ? `已加载 ${messages.length} 条 · 向下加载更早记录`
+                              : `已加载 ${messages.length} / 共 ${totalCount} 条 · 向下滚动加载更多`}
+                          </div>
+                        ) : (
+                          <span>已加载全部 {messages.length} 条</span>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </ConvContext.Provider>
