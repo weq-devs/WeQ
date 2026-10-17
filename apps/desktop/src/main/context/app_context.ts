@@ -987,9 +987,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
-  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
-  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
-  void warmJiebaDict(platform.jiebaDictDir());
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
+  // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
