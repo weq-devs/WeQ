@@ -14,6 +14,9 @@ pnpm dev
 
 ## 章节
 
+- [SSO 历史路径统一](./unified-sso-history-20261017.md) — 单窗读取、物理请求计数、旧任务及缓存兼容
+- [消息显示、补全与导出更新](./message-display-export-20261017.md) — 紧凑元信息、隐私、共享日历、大列表与空间/收藏导出
+
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
@@ -24,6 +27,7 @@ pnpm dev
 - [发消息](./send-message.md) — `MessageSvc.PbSendMsg` + 富媒体上传（NTV2/highway）+ 文件（群/私聊，老 OIDB + highway）、元素类型表、MCP 工具与已知缺口
 - [本地文字识别模型](./ocr-models.md) — PP-OCR 的 ONNX 模型选型（识别 + 筛图）、下载与存储，以及接推理那一轮要做的
 - [图片文字识别结果缓存（规划）](./ocr-cache-plan-20261016.md) — 按图片 md5 落盘的结果缓存：灯箱与导出共用，命中就省掉整条识别流水线
+- [词云 / 常用语的中文分词](./jieba-word-segmentation-20261017.md) — 接入 QQ 自带结巴词典，技术词不再被切碎；ICU 兜底
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---

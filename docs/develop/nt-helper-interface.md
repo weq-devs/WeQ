@@ -35,7 +35,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
    - 非 `0` = 环境校验失败（构建过期 / 损坏 / 源码改动被检测到），此时多数接口会**直接抛错**（`"Environment validation failed"`）或返回一个默认的“失败”值，详见 §2.
 3. `getInitStatus()` 可以且**应该**在每次加载 `require` 之后调用一次，作为对「模块是否可用」的硬性检查（如 `attach_worker.ts` 的做法）。
 
-> **dev 构建无时间戳 → 跳过校验**：本地 `cargo/npm build` 出的 `.node` 不带 `BUILD_TIMESTAMP`，`getInitStatus()` 直接返回 `0`，没有任何有效期 / LICENSE 限制；带时间戳的 CI release 构建才会走 30 天有效期检查。
+> **dev 构建无时间戳 → 跳过校验**：本地 `cargo/npm build` 出的 `.node` 不带 `BUILD_TIMESTAMP`，`getInitStatus()` 直接返回 `0`，没有任何有效期 / LICENSE 限制；带时间戳的 CI release 构建才会走有效期检查。有效期长度只由 nt_helper 的 Rust 定义一处，查询用 `getBuildInfo()`（返回 `buildTime` / `expireTime` / `validitySecs` / `isDev`）。
 
 ---
 
@@ -44,6 +44,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `getInitStatus()` | — | `number` | 全局初始化状态：`0`=可用，`-1`=过期，`-200`=损坏，`-201`=被篡改，`99`=未知。 |
+| `getBuildInfo()` | — | `BuildInfo` | 构建时间 / 有效期窗口：`{ buildTime: number \| null; expireTime: number \| null; validitySecs: number; isDev: boolean }`（Unix 秒）。`expireTime = buildTime + validitySecs`。有效期长度只在 native 侧定义一处。**不经过初始化校验**，过期后仍可查询（用于驱动更新提示）。 |
 | `setLogPath(path)` | `path: string` | `Promise<void>` | 配置日志输出路径；内部 `logger::set_log_path`。 |
 | `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `Promise<AppidInfo>` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。 |
 | `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
@@ -54,6 +55,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 **携带数据的封箱类型**
 
 - `AppidInfo = { appid: string; qua?: string; version?: string; build?: string }`
+- `BuildInfo = { buildTime: number | null; expireTime: number | null; validitySecs: number; isDev: boolean }`
 - `MarketFaceKey = { timestamp: number; key: string; source: 'xydata' | 'brute-force' }`
 - `DressResourceUrl = { url: string; size: number }`
 - `ConvertFontOptions = { color?: boolean; colorChars?: string; assetsDir?: string; checkOts?: boolean }`（缺省即全开；`assetsDir: ''` 关图包，`color: false` 关彩色，`checkOts: false` 关校验）。早于该开关的 nt_helper 会忽略第三个参数（只做转换），调用方不必探测版本。
@@ -268,6 +270,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | ---- | ---- | ---- | ---- |
 | `scanSessionMaterial(pid)` | pid | `Promise<SessionMaterial>` | 运行时 RTTI 自举、零硬编码 RVA，读出该会话的 a2 / d2 / d2key（十六进制串；没扫到的项为 `undefined`，不影响其它项）。失败时 reject，错误信息本身就是提权/版本变化的诊断提示。 |
 | `readDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 离线算出设备 guid（32 位小写 hex）。**不需要任何权限、不碰进程**；算不出返回 `null`。 |
+| `writeDeviceGuid(dataRoot)` | QQ 数据根路径 | `string \| null` | 随机换一个设备 guid 并写回数据目录，返回新值。三端各改写自己那份来源（Linux `machine-info` 的 MAC / macOS `machineid-info` 的 machine_id / Windows `Registry20` 或 `Registry2.0.db`）。与 `readDeviceGuid` 一样**同步**——只改文件，不 await 任何东西。**调用方必须先确认没有 QQ 实例在跑**（在线时会被 QQ 覆盖回去）；不需要权限。老产物没有这个方法，调用方要按"旧产物"处理。 |
 | `setSsoSession(pid, session, wrapperPath?)` | 物料 + `wrapper.node` 路径 | `Promise<void>` | 登记这一场会话。**只存不连**：不读内存、不发包时一个 socket 都不存在；TCP 等到第一次发包才建，闲置一分钟丢弃，断了下次发包自动重连。 |
 | `hasSsoSession(pid)` / `clearSsoSession(pid)` | pid | `Promise<boolean>` | 诊断 / 忘掉物料（账号下线、QQ 重启时调用，会一并关掉可能存在的连接）。 |
 

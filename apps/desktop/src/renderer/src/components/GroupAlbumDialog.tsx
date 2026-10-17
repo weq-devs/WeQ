@@ -6,7 +6,7 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { openLightbox } from './ImageLightbox';
 import { openVideoLightbox } from './VideoLightbox';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 
 export interface GroupAlbumWire {
   id: string;
@@ -54,7 +54,6 @@ export function GroupAlbumDialog({
   initialAlbums?: GroupAlbumWire[];
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
   const dialog = useAppDialog();
   const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
   const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
@@ -116,11 +115,7 @@ export function GroupAlbumDialog({
   }
 
   return (
-    <div
-      className="modal-scrim group-album-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
       <section
         className="group-album-dialog"
         role="dialog"
@@ -154,7 +149,7 @@ export function GroupAlbumDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

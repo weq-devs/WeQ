@@ -121,8 +121,20 @@ export interface SendTextParams {
   dress?: SendDress;
   /** @ 谁：QQ 号或 uid；命中不了会如实报错（不会假装 @ 上了）。 */
   at?: (string | number)[];
-  /** 引用回复：被引用消息的群内/会话内 seq（`msgSeq`）。 */
+  /**
+   * 引用回复：被引用消息的群内/会话内 seq（`msgSeq`，列 40003）。群聊用这一个就够。
+   *
+   * 私聊**必须**再给 {@link replyToClientSeq}：QQ 在私聊里按「发送方本地 client
+   * sequence」解析引用指针，只有它才能定位到原消息（详见 {@link MessageSendService}
+   * 与 `buildTextElements`）。
+   */
   replyToMsgSeq?: number;
+  /**
+   * 引用回复（私聊）：被引用消息的**发送方本地 client sequence**（列 40005，wire
+   * `contentHead.sequence` tag 5）。给了就用它当引用指针，群聊不需要（群消息里
+   * `contentHead.sequence` 就是群内 seq）。
+   */
+  replyToClientSeq?: number;
   /** 引用回复的对端 QQ 号（可选，带上更稳）。 */
   replyToSenderUin?: number;
   /** 被引用消息的时间（Unix 秒，可选）。 */
@@ -1120,13 +1132,24 @@ export function decimalCoordinate(value: string, what: string, limit: number): s
  *
  * @ 是「文本 elem + pbReserve 带目标」的组合：所以每个 @ 生成一个独立 at 元素，
  * 后面接正文；@ 与正文之间补一个空格，避免连在一起被客户端当成一个词。
+ *
+ * **引用指针（`origMsgSeq`）填哪个号，群聊和私聊不是一回事**（2026-10-17 真机对账）：
+ *   - 群聊：群内 seq（列 40003）—— 群消息的 `contentHead.sequence` 就是群内 seq；
+ *   - 私聊：被引用消息的**发送方本地 client sequence**（列 40005，wire
+ *     `contentHead.sequence` tag 5）。会话级 seq（40003 / `ntMsgSeq`）是历史分页
+ *     用的另一套编号，拿它当引用指针，收端只会显示一个定位不到原消息的引用框。
+ * 所以这里优先 `replyToClientSeq`，没有（群聊 / 老调用方）才退回 `replyToMsgSeq`。
  */
 export function buildTextElements(params: SendTextParams): SendElement[] {
   const elements: SendElement[] = [];
-  if (params.replyToMsgSeq !== undefined) {
+  const replyPointer =
+    params.replyToClientSeq !== undefined && params.replyToClientSeq > 0
+      ? params.replyToClientSeq
+      : params.replyToMsgSeq;
+  if (replyPointer !== undefined) {
     elements.push({
       kind: 'reply',
-      origMsgSeq: params.replyToMsgSeq,
+      origMsgSeq: replyPointer,
       ...(params.replyToSenderUin !== undefined ? { origSenderUin: params.replyToSenderUin } : {}),
       ...(params.replyToMsgTime !== undefined ? { origMsgTime: params.replyToMsgTime } : {}),
     });

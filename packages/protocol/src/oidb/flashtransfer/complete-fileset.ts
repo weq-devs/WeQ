@@ -11,6 +11,8 @@ export interface CompleteFilesetParams {
 export namespace CompleteFileset {
   export const command = 0x93db;
   export const subCommand = 1;
+  // 0x93db_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = FLASH_COMPLETE_FILESET_REQ;
   export const respSchema = FLASH_COMPLETE_FILESET_RESP;
 

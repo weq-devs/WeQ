@@ -21,6 +21,13 @@ export {
 } from './http';
 export { selectStickerByEmotion, pickRandomSticker } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
+export {
+  createJiebaSegmenter,
+  setDefaultSegmenter,
+  tokenizeText,
+  type Segmenter,
+  type JiebaDictText,
+} from './segment';
 export { scoreReplyWillingness } from './willing';
 export {
   scoreReplyGate,

@@ -53,6 +53,7 @@ const daemonDir = join(repoRoot, 'packages', 'daemon');
 
 /** 装没装 cargo —— 没装就把 daemon 三项降级成跳过（而不是直接红）。 */
 const hasCargo = spawnSync('cargo', ['--version'], { stdio: 'ignore', shell: true }).status === 0;
+const skipDaemon = NO_DAEMON || !hasCargo;
 
 /** 一条门禁步骤。`cwd` 省略即仓库根。 */
 function step(name, cmd, cwd) {
@@ -63,7 +64,14 @@ const steps = [
   step('Biome lint', 'pnpm lint'),
   step('Biome 格式检查', 'pnpm format:check'),
   step('TypeScript 类型检查 (pnpm -r typecheck)', 'pnpm -r typecheck'),
-  step('单元测试 (pnpm -r test，含 desktop + web + daemon)', 'pnpm -r test'),
+  step(
+    skipDaemon
+      ? '非 Rust 工作区单元测试（含 desktop + web）'
+      : '单元测试（含 desktop + web + daemon）',
+    skipDaemon
+      ? "pnpm --filter '!@weq/daemon' -r --workspace-concurrency=2 test --maxWorkers=2 --minWorkers=1"
+      : 'pnpm -r test',
+  ),
 ];
 
 if (!NO_DAEMON && hasCargo) {

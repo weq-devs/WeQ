@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { ArrowLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { fileIconUrl } from '../lib/resourceUrl';
 import {
   fileExtIcon,
@@ -30,7 +30,6 @@ export function GroupFileDialog({
   groupName: string;
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
   const dialog = useAppDialog();
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
   const [listing, setListing] = useState<GroupFileListing | null>(null);
@@ -98,11 +97,7 @@ export function GroupFileDialog({
   }, [listing]);
 
   return (
-    <div
-      className="modal-scrim group-album-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
       <section
         className="group-album-dialog group-file-dialog"
         role="dialog"
@@ -209,6 +204,6 @@ export function GroupFileDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

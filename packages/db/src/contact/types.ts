@@ -25,7 +25,7 @@ export interface RecentContact {
   /** 40050 — latest message timestamp (unix seconds). */
   sendTime: bigint;
   /** 40051 — latest-message preview element (carries displayText). null if absent / undecodable. */
-  preview: PreviewElement | null;
+  preview: (PreviewElement & { previewElements?: PreviewElement[] }) | null;
   /** 40090 — sender display name (mainly the group card). */
   senderDisplayName: string;
   /** 40093 — sender nickname. */

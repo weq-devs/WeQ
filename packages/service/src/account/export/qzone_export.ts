@@ -33,9 +33,25 @@ import type {
   QzoneLikesResult,
 } from '../web/qzone_interaction';
 import type { ExportTimeRange } from './types';
+import type { parseQzonePostDetail } from '../web/qzone_detail';
+import { qzoneImageCompletionScope } from '../../common/qzone_media_scope';
+
+export type QzoneRawKind = 'feeds' | 'comments' | 'likes' | 'detail' | 'images';
 
 /** 注入的说说拉取能力（一页）。 */
 export interface QzoneExportDeps {
+  fetchPostDetail?: (
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) => Promise<ReturnType<typeof parseQzonePostDetail>>;
+  fetchPostImages?: (
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) => Promise<string[]>;
   fetchMsgList: (
     targetUin: string,
     pos: number,
@@ -156,7 +172,7 @@ export interface QzoneExportData {
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
   onRawInteraction?: (capture: {
-    kind: 'feeds' | 'comments' | 'likes';
+    kind: QzoneRawKind;
     tid?: string;
     response: string;
   }) => Promise<void>;
@@ -488,16 +504,28 @@ export async function fetchQzoneEmotionRange(
   throw new QzonePaginationError('空间分页达到安全上限，尚未完成。', all, pos, 'page-limit');
 }
 
-/** 秒级时间戳 → `YYYY-MM-DD HH:mm:ss`（本地时区）。 */
+/** 秒级时间戳 → `YYYY-MM-DD HH:mm:ss`（北京时间）。 */
 function fmtTime(sec: number): string {
   if (!sec) return '';
-  const d = new Date(sec * 1000);
-  const p = (n: number): string => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(sec * 1000));
 }
 
 /** 带互动字段的说说（导出形态；未拉互动时两个字段缺失，等同 QzoneEmotion）。 */
 export interface EmotionWithInteraction extends QzoneEmotion {
+  contentEvidence?: {
+    body: 'complete' | 'observed' | 'truncated' | 'failed';
+    images: 'observed' | 'expanded' | 'failed';
+    error?: string;
+  };
   comments?: QzoneComment[];
   likes?: QzoneLike[];
   interactionCoverage?: QzoneInteractionCoverage;
@@ -820,6 +848,7 @@ function statsToHtml(e: EmotionWithInteraction): string {
   // 拉过互动就按实际拉到评论数，否则用服务端返回的计数。
   const cmtTotal = Math.max(e.commentNum || 0, e.comments?.length ?? 0);
   if (cmtTotal > 0) parts.push(`<span class="cmt-count">💬 ${cmtTotal} 条评论</span>`);
+  if (e.forwardNum !== undefined) parts.push(`<span>转发 ${e.forwardNum}</span>`);
   if (parts.length === 0) return '';
   return `<div class="stats">${parts.join('<span class="sep">·</span>')}</div>`;
 }
@@ -913,7 +942,11 @@ function emotionToHtml(
     `<small>${when}${privateBadge ? ` · ${privateBadge}` : ''}</small>` +
     '</div></header>';
   const content = e.content ? `<div class="content">${qzoneTextToHtml(e.content)}</div>` : '';
-  const pictures = picturesToHtml(e, localMedia, mediaFiles);
+  const pictures =
+    qzoneImageCompletionScope(e) === 'repost' ? '' : picturesToHtml(e, localMedia, mediaFiles);
+  const repost = e.repost
+    ? `<blockquote class="repost"><strong>${escapeHtml(e.repost.nickname || e.repost.uin)}</strong><div class="content">${qzoneTextToHtml(e.repost.content)}</div>${picturesToHtml({ ...e, ...e.repost, tid: `${e.tid}_repost` }, localMedia, mediaFiles)}</blockquote>`
+    : '';
   const stats = statsToHtml(e);
   const coverageText = interactionCoverageText(e);
   const coverage = coverageText ? `<div class="stats">${escapeHtml(coverageText)}</div>` : '';
@@ -921,7 +954,14 @@ function emotionToHtml(
     e.comments && e.comments.length > 0
       ? `<section class="comments">${commentsToHtml(e.comments)}</section>`
       : '';
-  return `<article class="card">${head}${content}${pictures}${stats}${coverage}${comments}</article>`;
+  const contentNote =
+    e.contentEvidence &&
+    (e.contentEvidence.body === 'truncated' ||
+      e.contentEvidence.body === 'failed' ||
+      e.contentEvidence.images === 'failed')
+      ? '<p class="stats">部分正文或附图未补全，已保留可取得内容。</p>'
+      : '';
+  return `<article class="card">${head}${content}${pictures}${repost}${stats}${coverage}${contentNote}${comments}</article>`;
 }
 
 /** 整页 HTML 文档：资料头（头像 / 昵称 / 统计）+ 各说说 article。 */
@@ -960,9 +1000,15 @@ function commentToTxt(c: QzoneComment, indent: string): string {
 function emotionToTxt(e: EmotionWithInteraction): string {
   const head = `[${fmtTime(e.time)}]${e.isPrivate ? ' (私密)' : ''}${e.commentNum ? ` (评论 ${e.commentNum})` : ''}`;
   const lines = [head];
+  if (e.forwardNum !== undefined) lines.push(`转发 ${e.forwardNum}`);
   const coverageText = interactionCoverageText(e);
   if (coverageText) lines.push(coverageText);
   if (e.content) lines.push(e.content);
+  if (e.repost) {
+    lines.push(`转发自 ${e.repost.nickname || e.repost.uin}（${e.repost.tid}）:`, e.repost.content);
+    if (e.repost.images.length) lines.push(`原帖图片: ${e.repost.images.join(', ')}`);
+    for (const video of e.repost.videos) lines.push(`原帖视频: ${video.videoUrl}`);
+  }
   if (e.images.length) lines.push(`图片: ${e.images.join(', ')}`);
   for (const v of e.videos) {
     const dur = v.duration ? ` (${Math.round(v.duration / 1000)}s)` : '';
@@ -1023,32 +1069,38 @@ async function downloadMedia(
   const files: string[] = [];
   const outcomes: QzoneMediaOutcome[] = [];
   for (const e of emotions) {
-    e.images.forEach((url, i) => {
-      jobs.push({
-        url,
-        dest: join(mediaRoot, imageFileName(e, url, i)),
-        path: imageFileName(e, url, i),
-        kind: 'image',
-      });
-    });
-    e.videos.forEach((v, i) => {
-      if (v.videoUrl) {
+    const sources: QzoneEmotion[] = [
+      qzoneImageCompletionScope(e) === 'repost' ? { ...e, images: [], videos: [] } : e,
+    ];
+    if (e.repost) sources.push({ ...e, ...e.repost, tid: `${e.tid}_repost` });
+    for (const source of sources) {
+      source.images.forEach((url, i) => {
         jobs.push({
-          url: v.videoUrl,
-          dest: join(mediaRoot, videoBodyFileName(e, i)),
-          path: videoBodyFileName(e, i),
-          kind: 'video',
-        });
-      }
-      if (v.coverUrl) {
-        jobs.push({
-          url: v.coverUrl,
-          dest: join(mediaRoot, videoCoverFileName(e, i)),
-          path: videoCoverFileName(e, i),
+          url,
+          dest: join(mediaRoot, imageFileName(source, url, i)),
+          path: imageFileName(source, url, i),
           kind: 'image',
         });
-      }
-    });
+      });
+      source.videos.forEach((v, i) => {
+        if (v.videoUrl) {
+          jobs.push({
+            url: v.videoUrl,
+            dest: join(mediaRoot, videoBodyFileName(source, i)),
+            path: videoBodyFileName(source, i),
+            kind: 'video',
+          });
+        }
+        if (v.coverUrl) {
+          jobs.push({
+            url: v.coverUrl,
+            dest: join(mediaRoot, videoCoverFileName(source, i)),
+            path: videoCoverFileName(source, i),
+            kind: 'image',
+          });
+        }
+      });
+    }
   }
   const total = jobs.length;
   if (total === 0) {
@@ -1277,6 +1329,87 @@ export async function collectQzone(
   // 互动字段挂在 EmotionWithInteraction 上；不带互动时数组元素仍是合法 QzoneEmotion。
   const rows: EmotionWithInteraction[] = fetched.filter((e) => inRange(e, opts.range));
 
+  // 只对列表明确截断/缺图的条目补读，复用原生空间页的精确 tid 接口。
+  let blocked = false;
+  for (const row of rows) {
+    opts.signal?.throwIfAborted();
+    row.contentEvidence = {
+      body: row.contentTruncated ? 'truncated' : 'observed',
+      images: 'observed',
+    };
+    const capture = (kind: QzoneRawKind) =>
+      opts.onRawInteraction
+        ? (response: string) => opts.onRawInteraction!({ kind, tid: row.tid, response })
+        : undefined;
+    if (
+      !blocked &&
+      deps.fetchPostDetail &&
+      (row.contentTruncated || row.repost?.contentTruncated)
+    ) {
+      try {
+        const detail = await deps.fetchPostDetail(
+          opts.targetUin,
+          row.tid,
+          opts.signal,
+          capture('detail'),
+        );
+        opts.signal?.throwIfAborted();
+        if (detail.post.tid !== row.tid) throw new Error('说说补全 ID 不匹配。');
+        if (detail.contentComplete || detail.content.length >= row.content.length)
+          row.content = detail.content;
+        row.contentTruncated = detail.contentHasMore ?? row.contentTruncated;
+        row.contentEvidence.body = detail.contentComplete
+          ? 'complete'
+          : row.contentTruncated
+            ? 'truncated'
+            : 'observed';
+        if (
+          row.repost &&
+          detail.repost &&
+          row.repost.tid === detail.repost.tid &&
+          row.repost.uin === detail.repost.uin
+        ) {
+          if (detail.repostComplete || detail.repost.content.length >= row.repost.content.length)
+            row.repost.content = detail.repost.content;
+          row.repost.contentTruncated = detail.repostHasMore ?? row.repost.contentTruncated;
+        }
+      } catch (error) {
+        opts.signal?.throwIfAborted();
+        row.contentEvidence.body = 'failed';
+        row.contentEvidence.error = error instanceof Error ? error.message : String(error);
+        const classified = error as { kind?: string; name?: string };
+        blocked = classified.kind === 'rate-limit' || classified.name === 'WebAuthError';
+      }
+      if (!blocked) await sleep(PAGE_DELAY_MS);
+    }
+    if (
+      !blocked &&
+      deps.fetchPostImages &&
+      row.imageTotal != null &&
+      row.imageTotal > (row.imageReturned ?? row.images.length + row.videos.length)
+    ) {
+      try {
+        const images = await deps.fetchPostImages(
+          opts.targetUin,
+          row.tid,
+          opts.signal,
+          capture('images'),
+        );
+        opts.signal?.throwIfAborted();
+        const owner = qzoneImageCompletionScope(row) === 'repost' && row.repost ? row.repost : row;
+        owner.images = [...new Set([...owner.images, ...images])];
+        row.contentEvidence.images = 'expanded';
+      } catch (error) {
+        opts.signal?.throwIfAborted();
+        row.contentEvidence.images = 'failed';
+        row.contentEvidence.error = error instanceof Error ? error.message : String(error);
+        const classified = error as { kind?: string; name?: string };
+        blocked = classified.kind === 'rate-limit' || classified.name === 'WebAuthError';
+      }
+      if (!blocked) await sleep(PAGE_DELAY_MS);
+    }
+  }
+
   // 补全互动（评论 + 点赞）：批量拉一次，各格式产物共用。
   let interaction: QzoneInteractionSummary | undefined;
   if (opts.includeInteraction && !opts.signal?.aborted) {
@@ -1366,6 +1499,11 @@ export async function writeQzone(
         originalQualityVerified: false,
         interaction: data.interaction ?? null,
         fullInteractionCoverageVerified: false,
+        content: rows.map((row) => ({
+          tid: row.tid,
+          evidence: row.contentEvidence ?? null,
+          repostTruncated: row.repost?.contentTruncated ?? null,
+        })),
         history: data.history ?? null,
       },
       null,

@@ -36,8 +36,18 @@ native/<platform>/<arch>/           platform ∈ {win32, linux, darwin}
 
 ## 有效期
 
-CI 构建的 `.node` 带 `BUILD_TIMESTAMP`，**满 30 天失效**（`getInitStatus()` 返回 `-1`）。
+CI 构建的 `.node` 带 `BUILD_TIMESTAMP`，**超出有效期后失效**（`getInitStatus()` 返回 `-1`）。
+有效期长度只在 nt_helper 的 Rust 里定义一处，二进制通过 `getBuildInfo()` 自报
+`buildTime` / `expireTime`；`pnpm native:fetch` 会把这两个时间写进 `pinned.json`。
 本地 `cargo`/`napi` 自己编的构建不带时间戳、不校验有效期，但那份的装扮资源也只有本机构建
 产物能用。所以 dev 侧隔一段时间重新 `pnpm native:fetch` 一次是正常的，不是出问题了。
 
 细节见 [`docs/develop/native-artifacts.md`](../docs/develop/native-artifacts.md)。
+
+## SSO 历史响应
+
+历史拉取已统一为单次最多 30 个 seq 的 SSO 小窗，不再提供 SDK 或独立的 `sso500` 聚合通道。
+较大的 SSO 响应可能压缩；上游已将支持解压的构建纳入 `native/pinned.json`。统一路径不依赖
+额外实验能力导出，不把缺少该导出误当作不能收发 SSO。
+源码更新不代表本机组件已替换；更新仍须成对取 native 与装扮资源，并完整重启 WeQ。
+任务兼容、缓存和验收边界见 [SSO 路径统一](../docs/develop/unified-sso-history-20261017.md)。

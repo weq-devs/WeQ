@@ -1,5 +1,4 @@
 ﻿// @ts-nocheck
-import { ContactNoticeDialog, GroupNoticeDialog } from './noticePanes';
 import {
   ContactProfileDialog,
   ContactProfilePane,
@@ -21,13 +20,10 @@ import type { ProfileActionRegistry } from './profileActions';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
-  ContactNoticeView,
   ContactTab,
-  ContactRequest,
   Conversation,
   ConversationDrafts,
   ConversationPreference,
-  GroupJoinRequest,
   MainView,
   Message,
   MessageAction,
@@ -43,9 +39,6 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
-  contactNotice,
-  contactRequests,
-  groupRequests,
   selectedContact,
   selectedGroupConversation,
   activeConversation,
@@ -58,6 +51,7 @@ export function ChatMainContent({
   selectedToolId,
   loadingMessages,
   atLatest,
+  onReadCurrentConversation,
   conversationPrefs,
   drafts,
   query = '',
@@ -69,7 +63,6 @@ export function ChatMainContent({
   onMessageGroup: _onMessageGroup,
   onBackContact,
   onBackGroup,
-  onBackContactNotice,
   onUpdateConversationPreference: _onUpdateConversationPreference,
   onUpdateGroup: _onUpdateGroup,
   onLoadMoreGroupMembers,
@@ -99,6 +92,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupInfoDetail,
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
@@ -115,6 +109,7 @@ export function ChatMainContent({
   onOpenGapMessages,
   onSearchChatRecords,
   onExportConversation,
+  onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
   onOpenTool,
@@ -127,9 +122,6 @@ export function ChatMainContent({
   contactTab?: ContactTab;
   /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
-  contactNotice: ContactNoticeView | null;
-  contactRequests: ContactRequest[];
-  groupRequests: GroupJoinRequest[];
   selectedContact?: Contact;
   selectedGroupConversation?: GroupConversation;
   activeConversation?: Conversation;
@@ -143,6 +135,7 @@ export function ChatMainContent({
   loadingMessages: boolean;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
+  onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
   query?: string;
@@ -154,7 +147,6 @@ export function ChatMainContent({
   onMessageGroup: (conversationId: string) => Promise<void>;
   onBackContact: () => void;
   onBackGroup: () => void;
-  onBackContactNotice: () => void;
   onUpdateConversationPreference: (
     conversationId: string,
     key: keyof ConversationPreference,
@@ -200,6 +192,11 @@ export function ChatMainContent({
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
+  /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
+  onOpenGroupInfoDetail?: (
+    conversation: GroupConversation,
+    detail: import('./groupInfoPanel').GroupInfoDetail,
+  ) => void;
   /** 群管理「修改群昵称」：应用层弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 群管理「踢出群聊」：应用层二次确认。 */
@@ -227,6 +224,7 @@ export function ChatMainContent({
   onSearchChatRecords?: (conversation: Conversation) => void;
   /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
   onExportConversation?: (conversation: Conversation) => void;
+  onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
@@ -247,16 +245,6 @@ export function ChatMainContent({
           (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
         <ContactProfileDialog contact={selectedContact} onClose={onBackContact} />
         <GroupProfileDialog conversation={selectedGroupConversation} onClose={onBackGroup} />
-        <ContactNoticeDialog
-          open={contactNotice === 'friend'}
-          requests={contactRequests}
-          onClose={onBackContactNotice}
-        />
-        <GroupNoticeDialog
-          open={contactNotice === 'group'}
-          requests={groupRequests}
-          onClose={onBackContactNotice}
-        />
       </>
     );
   }
@@ -282,6 +270,7 @@ export function ChatMainContent({
       messageRenderers={messageRenderers}
       loading={loadingMessages}
       atLatest={atLatest}
+      onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
@@ -310,6 +299,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       onOpenGroupEssence={onOpenGroupEssence}
+      onOpenGroupInfoDetail={onOpenGroupInfoDetail}
       onRenameGroupMember={onRenameGroupMember}
       onKickGroupMember={onKickGroupMember}
       onOpenConversationSettings={onOpenConversationSettings}
@@ -326,6 +316,7 @@ export function ChatMainContent({
       onOpenGapMessages={onOpenGapMessages}
       onSearchChatRecords={onSearchChatRecords}
       onExportConversation={onExportConversation}
+      onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}

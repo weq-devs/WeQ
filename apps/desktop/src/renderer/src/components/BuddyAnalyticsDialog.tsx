@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { FaceEmoji } from './FaceEmoji';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import {
@@ -134,8 +134,6 @@ export function BuddyAnalyticsDialog({
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍。 */
   initialData?: unknown;
 }) {
-  useEscapeToClose(onClose);
-
   const [data, setData] = useState<BuddyAnalyticsData | null>(
     (initialData as BuddyAnalyticsData) ?? null,
   );
@@ -428,12 +426,8 @@ export function BuddyAnalyticsDialog({
   if (exportMode) return card;
 
   return (
-    <div
-      className="modal-scrim group-album-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
       {card}
-    </div>
+    </OverlayLayer>
   );
 }

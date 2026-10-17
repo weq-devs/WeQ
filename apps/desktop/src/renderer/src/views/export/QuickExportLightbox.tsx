@@ -117,6 +117,7 @@ export function QuickExportLightbox({
       variant="full"
       headline={`导出「${target.name}」`}
       summary={`${kindLabel} · ${fmtCount(total)} 条`}
+      calendarTargets={[{ kind: target.kind, conv: target.id }]}
       initialOptions={initialOptions}
       initialFormats={presets?.full?.formats}
       submitting={submitting}

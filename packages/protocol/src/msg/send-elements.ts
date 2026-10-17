@@ -133,7 +133,17 @@ export interface SendMfaceElement {
 /** 引用回复（收侧 `{ kind: 'reply', origMsgSeq, origSenderUin, … }`）。 */
 export interface SendReplyElement {
   kind: 'reply';
-  /** 被引用消息的序列号（群聊=群内 seq，私聊=会话级 index）。 */
+  /**
+   * 引用指针（wire 上的 `srcMsg.origSeqs[0]`）。**两套编号，别填错**：
+   *   - 群聊 = 群内 seq（列 40003，也是群消息的 `contentHead.sequence`）；
+   *   - 私聊 = 被引用消息的**发送方本地 client sequence**（列 40005，wire
+   *     `contentHead.sequence` tag 5）。
+   *
+   * 私聊不能填会话级 seq（列 40003 / `contentHead.ntMsgSeq`）：那是历史分页用的
+   * 另一套编号，QQ 按它定位不到原消息（收端只画一个空引用框）。两套编号在群聊里
+   * 恰好是同一个值，所以群聊这条从来不会炸 —— 真机对账见
+   * `docs/develop/send-message.md` 的「引用指针」。
+   */
   origMsgSeq: number;
   origSenderUin?: number;
   origMsgTime?: number;

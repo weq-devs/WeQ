@@ -9,15 +9,16 @@ import {
   ChevronUp,
   ChevronsUp,
   CirclePlus,
+  CloudDownload,
   Download,
   Search,
   Trash2,
-  RotateCcw,
+  ListX,
+  ListRestart,
   FileText,
   Images,
   FolderOpen,
   Bug,
-  Gift,
   Hand,
   Image as ImageIcon,
   Link2,
@@ -34,6 +35,7 @@ import {
   Vibrate,
   X,
 } from 'lucide-react';
+import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { useThemeStore } from '../../state/theme';
@@ -105,6 +107,12 @@ import {
   type RandomFaceDraft,
 } from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
+import {
+  isLocalOutgoingMessage,
+  outgoingActionBlockReason,
+  selectMessageIds,
+  selectedMessagesText,
+} from '../../lib/messageSelection';
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
@@ -129,11 +137,11 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import { GroupInfoDetailDialog, GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
+import { GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow } from './messageRow';
+import { MessageRow, grayTipOf } from './messageRow';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
@@ -297,6 +305,7 @@ export function ChatPane({
   messageRenderers,
   loading,
   atLatest = true,
+  onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
   groupMembersLoading,
@@ -325,6 +334,7 @@ export function ChatPane({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   onOpenGroupEssence,
+  onOpenGroupInfoDetail,
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
@@ -340,6 +350,7 @@ export function ChatPane({
   onOpenGapMessages,
   onSearchChatRecords,
   onExportConversation,
+  onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
   onMergeForward,
@@ -359,6 +370,7 @@ export function ChatPane({
    * the "new message" pill and auto-scroll-to-bottom are suppressed.
    */
   atLatest?: boolean;
+  onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
@@ -418,6 +430,11 @@ export function ChatPane({
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  /** 群资料面板「群资料」入口：卡片本体搬到了应用层（components/GroupInfoDetailDialog）。 */
+  onOpenGroupInfoDetail?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    detail: GroupInfoDetail,
+  ) => void;
   /** 群管理「修改群昵称」：应用层开弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (
     conversation: Extract<Conversation, { type: 'group' }>,
@@ -452,13 +469,14 @@ export function ChatPane({
   onSearchChatRecords?: (conversation: Conversation) => void;
   /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
   onExportConversation?: (conversation: Conversation) => void;
+  onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (gap: {
     conversation: Conversation;
     previousSeq: string;
     currentSeq: string;
     count: number;
-  }) => void;
+  }) => void | Promise<void>;
   /** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
@@ -493,7 +511,6 @@ export function ChatPane({
       composerHeightMax,
     ),
   );
-  const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -553,6 +570,7 @@ export function ChatPane({
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
+  const reactionRequestPending = useRef(false);
   // 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员）。同戳一戳一样需要
   // 在线且已注入的 QQ；一律不做乐观渲染，成功与否只看 toast。
   const recallMessage = trpc.account.recallMessage.useMutation();
@@ -607,9 +625,10 @@ export function ChatPane({
     x: number;
     y: number;
   } | null>(null);
-  // 多选：右键「多选」进入；此时输入框让位给「合并转发 / 删除 / 复制 JSON / 退出」。
+  // 多选：右键进入，输入框让位给批量操作；选择数不设上限。
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
     anchor: { x: number; y: number };
@@ -634,13 +653,16 @@ export function ChatPane({
   const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
-    setGroupInfoDetail(detail);
+    if (conversation?.type === 'group') {
+      onOpenGroupInfoDetail?.(conversation, detail);
+    }
   }
 
   // 切会话时退出多选（选中集属于上一个会话）。
   useEffect(() => {
     setSelectionMode(false);
     setSelectedIds(new Set());
+    selectionAnchor.current = null;
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
@@ -650,6 +672,7 @@ export function ChatPane({
       if (event.key === 'Escape') {
         setSelectionMode(false);
         setSelectedIds(new Set());
+        selectionAnchor.current = null;
       }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -684,6 +707,24 @@ export function ChatPane({
   // Tracks whether the view is pinned to the bottom of the message list.
   // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
   const atBottomRef = useRef(true);
+  const readGestureUntil = useRef(0);
+  const lastReadSignal = useRef({ key: '', at: 0 });
+  const readContextRef = useRef({
+    tabActive,
+    atLatest,
+    loading,
+    conversation,
+    onReadCurrentConversation,
+    lastId: messages.at(-1)?.id,
+  });
+  readContextRef.current = {
+    tabActive,
+    atLatest,
+    loading,
+    conversation,
+    onReadCurrentConversation,
+    lastId: messages.at(-1)?.id,
+  };
   // Last message id we auto-scrolled / accounted for, to detect new arrivals.
   const lastMessageIdRef = useRef<string | null>(null);
   // Conversation id the scroll-tracking refs above currently describe.
@@ -705,6 +746,48 @@ export function ChatPane({
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
     [visibleMessages, selectedIds],
   );
+  const selectionOrder = useMemo(
+    () => visibleMessages.map((message) => message.id),
+    [visibleMessages],
+  );
+  const copySelectedMessagesText = useCallback(async () => {
+    if (!conversation) return;
+    try {
+      const copied = await copyTextToClipboard(
+        selectedMessagesText(selectedMessages, conversation, user),
+      );
+      if (!copied) throw new Error('未能写入剪贴板，请重新复制。');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [conversation, selectedMessages, user, pushToast]);
+  useLayoutEffect(() => {
+    if (!tabActive || !selectionMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+      )
+        return;
+      if (event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        setContextMenu(null);
+        setSelectedIds(new Set(selectionOrder));
+        selectionAnchor.current ??= selectionOrder[0] ?? null;
+      } else if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
+        event.preventDefault();
+        void copySelectedMessagesText();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [tabActive, selectionMode, selectionOrder, selectedMessages.length, copySelectedMessagesText]);
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
@@ -836,7 +919,6 @@ export function ChatPane({
   );
 
   useEffect(() => {
-    setGroupInfoDetail(null);
     setEmojiOpen(false);
     setToolsOpen(false);
     setContextMenu(null);
@@ -1518,6 +1600,7 @@ export function ChatPane({
   /** 右键消息「贴表情」：把表情面板锜在这条消息下面。 */
   function openReactionPicker(message: Message) {
     setContextMenu(null);
+    if (messageReactionBlockedReason(message)) return;
     const idSelector = message.id.replace(/["\\]/g, '\\$&');
     const el = messageScrollRef.current?.querySelector<HTMLElement>(
       `[data-message-id="${idSelector}"]`,
@@ -1535,31 +1618,53 @@ export function ChatPane({
   function chooseReaction(code: string) {
     const picker = reactionPicker;
     setReactionPicker(null);
-    if (!picker || !conversation || conversation.type !== 'group') {
+    if (picker) changeMessageReaction(picker.message, code, true);
+  }
+
+  function messageReactionBlockedReason(message: Message): string | null {
+    if (grayTipOf(message)) return '系统消息不支持贴表情';
+    if (conversation?.type !== 'group') return '只有群消息支持贴表情';
+    if (reactionRequestPending.current) return '正在处理表情回应';
+    return (
+      outgoingActionBlockReason(message) ??
+      reactionBlockedReason ??
+      (Number.isSafeInteger(Number(message.msgSeq)) && Number(message.msgSeq) > 0
+        ? null
+        : '这条消息缺少会话内序号，无法贴表情')
+    );
+  }
+
+  function changeMessageReaction(message: Message, code: string, isSet: boolean) {
+    const current = visibleMessages.find((row) => row.id === message.id);
+    if (!current || !conversation || conversation.type !== 'group') return;
+    const reason = messageReactionBlockedReason(current);
+    if (reason) {
+      pushToast({ tone: 'warning', message: reason });
       return;
     }
-    const seq = Number((picker.message as { msgSeq?: unknown }).msgSeq);
-    if (!Number.isFinite(seq) || seq <= 0) {
-      pushToast({ tone: 'warning', message: '这条消息缺少会话内序号，无法贴表情' });
+    if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
-    }
+    reactionRequestPending.current = true;
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
-        sequence: seq,
+        sequence: Number(current.msgSeq),
         code,
-        isSet: true,
+        isSet,
       },
       {
         onSuccess: () => {
-          pushToast({ tone: 'success', message: '表情回应已发出' });
+          pushToast({ tone: 'success', message: isSet ? '表情回应已发出' : '自己的贴表情已撤回' });
         },
         onError: (error) => {
           pushToast({
             tone: 'error',
-            title: '贴表情失败',
+            title: isSet ? '贴表情失败' : '撤回贴表情失败',
             detail: error instanceof Error ? error.message : String(error),
           });
+        },
+        onSettled: () => {
+          reactionRequestPending.current = false;
         },
       },
     );
@@ -1641,7 +1746,7 @@ export function ChatPane({
    * 返回 `show=false` 表示这项根本不出现；`reason` 非空表示出现但置灰。
    */
   function recallAvailability(message: Message): { show: boolean; reason: string | null } {
-    if (!conversation) {
+    if (!conversation || grayTipOf(message)) {
       return { show: false, reason: null };
     }
     const mine = message.senderId === user.id;
@@ -1652,6 +1757,8 @@ export function ChatPane({
     if (moderationBlockedReason) {
       return { show: true, reason: moderationBlockedReason };
     }
+    const pendingReason = outgoingActionBlockReason(message);
+    if (pendingReason) return { show: true, reason: pendingReason };
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
     if (!Number.isFinite(seq) || seq <= 0) {
       return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
@@ -1669,6 +1776,11 @@ export function ChatPane({
   /** 撤回一条消息。不做乐观渲染，只把结果 toast 出来，等 QQ 同步翻新会话。 */
   function recallMessageFor(message: Message) {
     setContextMenu(null);
+    const current = visibleMessages.find((row) => row.id === message.id);
+    if (!current || grayTipOf(current) || current.source === 'roaming') return;
+    message = current;
+    const availability = recallAvailability(message);
+    if (!availability.show || availability.reason) return;
     if (!conversation || moderationBlockedReason) {
       return;
     }
@@ -2022,12 +2134,16 @@ export function ChatPane({
     }
 
     const payloadBody = `${text}${tokens.join('')}`;
+    const readAfterSend = atLatest && isScrolledToBottom(2);
+    if (readAfterSend) requestReadAtBottom();
+    readGestureUntil.current = 0;
     setSending(true);
     try {
       const locals = planNeedsLocalMedia(payloadBody)
         ? await collectLocalMedia(options.locals ?? [])
         : undefined;
       await onSend(payloadBody, locals);
+      if (readAfterSend) requestReadAtBottom();
     } catch (error) {
       // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
       // 不能因为一次失败就把用户打好的字吞掉。
@@ -2566,15 +2682,10 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
-    // 乐观渲染的合并转发还不在库里 —— 右键菜单的每一项都会写库 / 查库，直接不弹。
-    if (message.id.startsWith('optimistic-')) {
-      event.preventDefault();
-      return;
-    }
     // 多选模式下右键 = 切换选中，不再弹菜单。
     if (selectionMode) {
       event.preventDefault();
-      toggleSelectMessage(message);
+      toggleSelectMessage(message, event);
       return;
     }
     if (window.matchMedia('(max-width: 760px)').matches) {
@@ -2627,23 +2738,23 @@ export function ChatPane({
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
     setSelectedIds(new Set([message.id]));
+    selectionAnchor.current = message.id;
   }
 
-  function toggleSelectMessage(message: Message) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(message.id)) {
-        next.delete(message.id);
-      } else {
-        next.add(message.id);
-      }
-      return next;
-    });
+  function toggleSelectMessage(message: Message, event?: ReactMouseEvent) {
+    const anchor = selectionAnchor.current;
+    window.getSelection()?.removeAllRanges();
+    setSelectedIds((current) =>
+      selectMessageIds(current, selectionOrder, message.id, anchor, event),
+    );
+    if (!event?.shiftKey || !anchor || !selectionOrder.includes(anchor))
+      selectionAnchor.current = message.id;
   }
 
   function exitSelection() {
     setSelectionMode(false);
     setSelectedIds(new Set());
+    selectionAnchor.current = null;
   }
 
   function mergeForwardSelected() {
@@ -2662,6 +2773,7 @@ export function ChatPane({
     const picked = selectedMessages;
     exitSelection();
     for (const message of picked) {
+      if (message.source === 'roaming' || isLocalOutgoingMessage(message)) continue;
       void onDeleteMessage?.(message, conversation);
     }
   }
@@ -2672,7 +2784,7 @@ export function ChatPane({
       const decoration = (message as { decoration?: unknown }).decoration ?? null;
       const qqElements = (message as { qqElements?: unknown }).qqElements ?? null;
       return {
-        msgId: message.id,
+        msgId: message.msgId ?? message.id,
         senderId: message.senderId,
         senderUin: sender.identityValue,
         senderName: displayUserName(sender),
@@ -2897,24 +3009,53 @@ export function ChatPane({
     if (!scroll) {
       return;
     }
+    readGestureUntil.current = 0;
     scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
     setNewMessagePill(0);
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
-  function isScrolledToBottom() {
+  function isScrolledToBottom(tolerance = 48) {
     const scroll = messageScrollRef.current;
     if (!scroll) {
       return true;
     }
     // Tolerance covers sub-pixel rounding and short content.
-    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 48;
+    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= tolerance;
+  }
+
+  function requestReadAtBottom() {
+    const current = readContextRef.current;
+    if (
+      !current.onReadCurrentConversation ||
+      !current.conversation ||
+      current.conversation.id !== conversation?.id ||
+      !current.tabActive ||
+      !current.atLatest ||
+      current.loading ||
+      !messageScrollRef.current ||
+      document.visibilityState === 'hidden' ||
+      !isScrolledToBottom(2)
+    )
+      return;
+    const key = `${current.conversation.id}:${current.conversation.updatedAt}:${current.conversation.unreadCount}:${current.lastId}`;
+    const now = performance.now();
+    if (lastReadSignal.current.key === key && now - lastReadSignal.current.at < 300) return;
+    lastReadSignal.current = { key, at: now };
+    current.onReadCurrentConversation(current.conversation);
+  }
+
+  function handleReadGesture(event: { target: EventTarget | null }) {
+    if (event.target instanceof Element && event.target.closest('.message-scroll'))
+      readGestureUntil.current = performance.now() + 1000;
+    requestReadAtBottom();
   }
 
   function handleMessageScroll() {
     const bottom = isScrolledToBottom();
     atBottomRef.current = bottom;
+    if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
     if (bottom && newMessagePill > 0) {
       setNewMessagePill(0);
     }
@@ -3049,7 +3190,7 @@ export function ChatPane({
     const selectedText = window.getSelection()?.toString().trim();
     // Non-copyable messages (images/files/cards) render an empty body — fall
     // back to a `msgid=xxx` reference so there's always something on the clipboard.
-    const body = message.body?.trim() ? message.body : `msgid=${message.id}`;
+    const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
     await copyTextToClipboard(selectedText || body);
     setContextMenu(null);
   }
@@ -3057,6 +3198,7 @@ export function ChatPane({
   // QQ-style delete: the DB row's type columns become (1,1) and the message
   // STAYS in the chat, rendered under a translucent overlay (no local hiding).
   function deleteMessage(message: Message) {
+    if (message.source === 'roaming' || isLocalOutgoingMessage(message)) return;
     if (!conversation) {
       return;
     }
@@ -3072,6 +3214,7 @@ export function ChatPane({
   }
 
   function editMessageRaw(message: Message) {
+    if (isLocalOutgoingMessage(message)) return;
     // Close the menu before the editor lightbox opens so it doesn't linger
     // on top of / behind the modal.
     setContextMenu(null);
@@ -3233,6 +3376,11 @@ export function ChatPane({
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
       style={paneStyle}
+      onPointerDownCapture={handleReadGesture}
+      onClickCapture={handleReadGesture}
+      onWheelCapture={handleReadGesture}
+      onTouchMoveCapture={handleReadGesture}
+      onKeyUpCapture={handleReadGesture}
     >
       <ChatBackdrop
         imageUrl={backdrop.imageUrl}
@@ -3264,7 +3412,7 @@ export function ChatPane({
           </strong>
           {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
         </div>
-        <div className={cn('chat-actions')}>
+        <div className={cn('chat-actions')} role="toolbar" aria-label="会话工具栏">
           {onSearchChatRecords &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
             <button
@@ -3287,6 +3435,23 @@ export function ChatPane({
               <Download size={18} />
             </button>
           ) : null}
+          {onOpenRoamingBackfill &&
+          (conversation.type === 'group' ||
+            (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))) ? (
+            <button
+              className={cn(
+                'icon-button',
+                'group-header-info-action',
+                'chat-header-roaming-action',
+              )}
+              type="button"
+              title="批量补全缺失消息"
+              aria-label="批量补全缺失消息"
+              onClick={() => onOpenRoamingBackfill(conversation)}
+            >
+              <CloudDownload size={18} />
+            </button>
+          ) : null}
           {onAddMessage && (conversation.type === 'group' || conversation.type === 'direct') ? (
             <button
               className={cn('icon-button', 'group-header-info-action')}
@@ -3304,7 +3469,7 @@ export function ChatPane({
               title="删除列表"
               onClick={() => onViewDeleted(conversation)}
             >
-              <Trash2 size={18} />
+              <ListX size={18} />
             </button>
           ) : null}
           {onViewRecalled && (conversation.type === 'group' || conversation.type === 'direct') ? (
@@ -3314,7 +3479,7 @@ export function ChatPane({
               title="撤回列表"
               onClick={() => onViewRecalled(conversation)}
             >
-              <RotateCcw size={18} />
+              <ListRestart size={18} />
             </button>
           ) : null}
           {conversation.type === 'group' ? (
@@ -3493,6 +3658,11 @@ export function ChatPane({
                     selectionMode={selectionMode}
                     selected={selectionMode && selectedIds.has(message.id)}
                     onToggleSelect={toggleSelectMessage}
+                    reactionRemoval={{
+                      onRemove: (code) => changeMessageReaction(message, code, false),
+                      blockedReason: messageReactionBlockedReason(message),
+                      busy: setMessageReaction.isLoading,
+                    }}
                     onAvatarClick={
                       !selectionMode &&
                       (conversation.type === 'group' || conversation.type === 'direct') &&
@@ -3620,14 +3790,19 @@ export function ChatPane({
       >
         {selectionMode ? (
           <div className={cn('selection-bar')}>
-            <div className={cn('selection-bar-info')}>
-              <span className={cn('selection-bar-count')}>{selectedIds.size}</span>
+            <div
+              className={cn('selection-bar-info')}
+              aria-label={`已选 ${selectedMessages.length} 条消息`}
+              aria-live="polite"
+            >
+              <span className={cn('selection-bar-count')}>{selectedMessages.length}</span>
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
+                aria-label="合并转发"
                 title={sendGateReason ? `${sendGateReason}，暂不可发送` : '合并转发'}
                 disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
                 onClick={mergeForwardSelected}
@@ -3638,7 +3813,20 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
+                aria-label="删除"
+                disabled={
+                  selectedMessages.length === 0 ||
+                  selectedMessages.some(
+                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                  )
+                }
+                title={
+                  selectedMessages.some(
+                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                  )
+                    ? '所选消息尚未入库或来自漫游缓存，不能执行原库删除'
+                    : '删除所选本地消息'
+                }
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
@@ -3648,12 +3836,31 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action')}
                 disabled={selectedMessages.length === 0}
+                onClick={() => void copySelectedMessagesText()}
+                title="复制为纯文本"
+                aria-label="复制纯文本"
+              >
+                <FileText size={17} />
+                <span>复制纯文本</span>
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                disabled={selectedMessages.length === 0}
                 onClick={copySelectedMessagesJson}
+                title="复制 JSON"
+                aria-label="复制 JSON"
               >
                 <ClipboardCopy size={17} />
                 <span>复制 JSON</span>
               </button>
-              <button type="button" className={cn('selection-action')} onClick={exitSelection}>
+              <button
+                type="button"
+                className={cn('selection-action')}
+                onClick={exitSelection}
+                title="退出多选"
+                aria-label="退出多选"
+              >
                 <X size={17} />
                 <span>退出</span>
               </button>
@@ -3719,7 +3926,7 @@ export function ChatPane({
             disabled={currentPreference.blocked}
             onClick={toggleRedPacketPanel}
           >
-            <Gift size={21} strokeWidth={1.5} />
+            <AiOutlineRedEnvelope size={21} />
           </button>
           {/* 窗口抖动仅私聊可见 —— 群聊（含群临时会话）下这枚按钮整个不渲染。 */}
           {canUseWindowShake ? (
@@ -4090,7 +4297,7 @@ export function ChatPane({
                 disabled={currentPreference.blocked}
                 onClick={toggleRedPacketPanel}
               >
-                <Gift size={22} strokeWidth={1.5} />
+                <AiOutlineRedEnvelope size={22} />
               </button>
               {canUseWindowShake ? (
                 <button
@@ -4169,23 +4376,43 @@ export function ChatPane({
           state={contextMenu}
           onCopy={copyMessage}
           onDownloadImage={downloadMessageImage}
-          onDelete={deleteMessage}
-          onEditRaw={onEditRaw ? editMessageRaw : undefined}
+          onDelete={
+            contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)
+              ? undefined
+              : deleteMessage
+          }
+          onEditRaw={
+            onEditRaw &&
+            contextMenu.message.source !== 'roaming' &&
+            !isLocalOutgoingMessage(contextMenu.message)
+              ? editMessageRaw
+              : undefined
+          }
           onViewDecoration={viewDecoration}
           onReply={startQuote}
           // 系统消息 / 缺少会话内序号不给引：菜单里那枚「引用」直接置灰并说明原因。
-          replyBlockedReason={quoteBlockReason(contextMenu.message)}
+          replyBlockedReason={
+            outgoingActionBlockReason(contextMenu.message) ?? quoteBlockReason(contextMenu.message)
+          }
           onMultiSelect={enterSelection}
           onReact={openReactionPicker}
           // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
-          reactBlockedReason={
-            reactionBlockedReason ??
-            (Number((contextMenu.message as { msgSeq?: unknown }).msgSeq) > 0
-              ? null
-              : '这条消息缺少会话内序号，无法贴表情')
+          reactBlockedReason={messageReactionBlockedReason(contextMenu.message)}
+          onRemoveReaction={
+            grayTipOf(contextMenu.message)
+              ? undefined
+              : (message, code) => {
+                  setContextMenu(null);
+                  changeMessageReaction(message, code, false);
+                }
           }
+          removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
-          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
+          onRecall={
+            contextRecallInfo?.show && contextMenu.message.source !== 'roaming'
+              ? recallMessageFor
+              : undefined
+          }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
         />
       ) : null}
@@ -4218,24 +4445,6 @@ export function ChatPane({
         <MessageDecorationCard
           decoration={decorationCard.decoration}
           onClose={() => setDecorationCard(null)}
-        />
-      ) : null}
-      {groupInfoDetail && conversation.type === 'group' ? (
-        <GroupInfoDetailDialog
-          conversation={conversation}
-          detail={groupInfoDetail}
-          onClose={() => setGroupInfoDetail(null)}
-          onJumpToMessage={(seq) => {
-            // 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
-            // jumpToSeq 内部会 String(seq) 归一化，再按已加载窗口的 seq 范围决定
-            // 快路径（滚动）/ 重建居中窗口。
-            setGroupInfoDetail(null);
-            if (seq == null) {
-              console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
-              return;
-            }
-            jumpToSeq({ seq });
-          }}
         />
       ) : null}
     </section>

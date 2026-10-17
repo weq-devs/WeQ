@@ -13,11 +13,16 @@
  * 在"WeQ 已经用到新字段、而本地那份还是旧的"这类情况下静默降级。锚文件是这个仓库里
  * 唯一一处"我们认哪一份 native"的记录，升级它是一次显式提交（见 --write-pin）。
  *
- * 为什么还要 latest：CI 构建出的 `.node` 带 30 天有效期（`BUILD_TIMESTAMP`，由
+ * 为什么还要 latest：CI 构建出的 `.node` 自带有效期（`BUILD_TIMESTAMP`，
  * `getInitStatus()` 判定），拿过期包打出来的安装包起不来。所以发布时间到了就得换一份
  * 新的：升级流程 = `--latest --verify` 验证新构建 → `--latest --write-pin` 写回锚点 →
  * 提交锚文件。`--check` 会提醒锚点已经落后于上游，`--require-fresh` 则在 CI 上把过期
  * 构建直接挡在打包之前。
+ *
+ * **有效期不在这里定义**：脚本装完 `require` 一次刚取到的 `.node`，用它自报的
+ * `getBuildInfo()`（`buildTime` / `expireTime` / `validitySecs`）算出「还剩多久」，
+ * 再按**剩余比例**判断新鲜度。天数只在 nt_helper 的 Rust 里定义一处，未来改成 45 天
+ * 这里无需跟着改。
  *
  * 用法：
  *   pnpm native:fetch                      # 本机平台 + 装扮资源（锚定的 tag）
@@ -29,7 +34,7 @@
  *   pnpm native:fetch --dress-only         # 只补装扮资源
  *   pnpm native:fetch --no-dress           # 只要 .node
  *   pnpm native:fetch --check              # 只比对，不改文件（缺失 / 落后 / 过期 → 退出码 1）
- *   pnpm native:fetch --require-fresh      # CI 用：超过 --max-age（默认 25）天直接失败
+ *   pnpm native:fetch --require-fresh      # CI 用：剩余有效期不足 1/5 直接失败
  *   pnpm native:fetch --verify             # 装完在宿主机 require 一次并跑 getInitStatus()
  *   pnpm native:fetch --from-dir ./dist    # 从本地目录装（需含 manifest.json + 各资产；离线 / 镜像）
  *   pnpm native:fetch --dry-run            # 只打印将要写入的文件
@@ -54,6 +59,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
+import { isStale, manifestValidity, validityText } from '../packages/native/validity.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
 
@@ -83,13 +89,6 @@ const PIN = join('native', 'pinned.json');
 const DEFAULT_PIN_NOTE =
   'WeQ 的代码锚定在这份 native 构建上。升级：pnpm native:fetch --latest --verify → ' +
   'pnpm native:fetch --latest --write-pin → 提交本文件。';
-
-/** nt_helper 的硬约束：.node 构建满 30 天即失效。 */
-const HARD_MAX_AGE_DAYS = 30;
-/** --require-fresh 默认卡在 25 天，留 5 天余量。 */
-const DEFAULT_MAX_AGE_DAYS = 25;
-/** 超过这个天数就提醒（不失败）。 */
-const WARN_AGE_DAYS = 21;
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -128,7 +127,6 @@ const explicitVersion = opt('--version') ?? process.env.NT_HELPER_VERSION;
 const fromDirArg = opt('--from-dir');
 const fromDir = fromDirArg ? resolve(fromDirArg) : undefined;
 const root = opt('--root') ? resolve(opt('--root')) : repoRoot;
-const maxAgeDays = Number(opt('--max-age') ?? DEFAULT_MAX_AGE_DAYS);
 
 const releaseRepo = process.env.NT_HELPER_RELEASE_REPO ?? DEFAULT_REPO;
 const baseUrl = (
@@ -266,11 +264,6 @@ async function sha256File(file) {
   const hash = createHash('sha256');
   await pipeline(createReadStream(file), hash);
   return hash.digest('hex');
-}
-
-function ageDays(iso) {
-  const at = Date.parse(iso);
-  return Number.isNaN(at) ? Number.NaN : (Date.now() - at) / 86400_000;
 }
 
 /**
@@ -465,12 +458,22 @@ async function fetchLatestTag() {
   }
 }
 
-/** 把当前取值写回版本锚（升级锚点用；`note` 原样保留）。 */
-async function writePinFile(manifest, previous) {
+/**
+ * 把当前取值写回版本锚（升级锚点用；`note` 原样保留）。
+ *
+ * 顺带把**构建时间 / 过期时间**写进去：日期来自刚装好的 `.node` 自报的
+ * `getBuildInfo()`（读不到时回落到 manifest 的 `expiresAt`）。release workflow
+ * 之后直接信任这两个字段，不再单独跑一遍去问二进制 —— 有效期天数只在 Rust 里
+ * 定义一处，这里只做转抄。
+ */
+async function writePinFile(manifest, previous, binaryInfo) {
+  const validity = manifestValidity(manifest, binaryInfo);
   const dest = join(root, PIN);
   const pin = {
     tag: manifest.tag,
     ...(manifest.commit ? { commit: manifest.commit } : {}),
+    ...(validity.buildAt ? { builtAt: validity.buildAt } : {}),
+    ...(validity.expireAt ? { expiresAt: validity.expireAt } : {}),
     pinnedAt: new Date().toISOString().slice(0, 10),
     note:
       typeof previous?.note === 'string' && previous.note.length > 0
@@ -478,7 +481,8 @@ async function writePinFile(manifest, previous) {
         : DEFAULT_PIN_NOTE,
   };
   await writeFile(dest, `${JSON.stringify(pin, null, 2)}\n`);
-  log(`锚点已写入 ${PIN}：${pin.tag}`);
+  const tail = validityText(validity);
+  log(`锚点已写入 ${PIN}：${pin.tag}${tail ? `（${tail}）` : ''}`);
 }
 
 /** manifest → 本次要落盘的文件清单。 */
@@ -576,10 +580,12 @@ async function writeMarker(manifest, files) {
     merged.set(entry.path, { path: entry.path, sha256: entry.sha256 });
   }
 
+  const validity = manifestValidity(manifest, readHostBuildInfo());
   const marker = {
     tag: manifest.tag,
     commit: manifest.commit,
-    builtAt: manifest.builtAt,
+    builtAt: validity.buildAt ?? manifest.builtAt,
+    ...(validity.expireAt ? { expiresAt: validity.expireAt } : {}),
     fetchedAt: new Date().toISOString(),
     files: [...merged.values()],
   };
@@ -601,10 +607,10 @@ async function readMarker() {
 // ─────────────────────────── 校验 ───────────────────────────
 
 async function check(manifest, pin) {
-  const age = ageDays(manifest.builtAt);
-  const ageText = Number.isNaN(age) ? '未知' : `${age.toFixed(1)} 天`;
+  const validity = manifestValidity(manifest);
   log(
-    `远端：${manifest.tag}（commit ${String(manifest.commit ?? '').slice(0, 7)}，${ageText}前构建）`,
+    `远端：${manifest.tag}（commit ${String(manifest.commit ?? '').slice(0, 7)}，` +
+      `${validityText(validity) ?? '有效期未知'}）`,
   );
 
   const marker = await readMarker();
@@ -631,14 +637,14 @@ async function check(manifest, pin) {
       problems.push(`内容对不上（被改过？）：${entry.path}`);
     }
   }
-  if (Number.isNaN(age) || age > HARD_MAX_AGE_DAYS) {
-    problems.push(`远端构建已过期（${ageText} > ${HARD_MAX_AGE_DAYS} 天），装上也用不了`);
+  if (validity.expired) {
+    problems.push(`远端构建已过期（${validityText(validity)}），装上也用不了`);
   }
 
   if (problems.length === 0) {
     log(`本地：${marker.tag} ✔ 一致（${marker.files?.length ?? 0} 个文件）`);
-    if (age > WARN_AGE_DAYS) {
-      log(`提醒：这份构建还有约 ${(HARD_MAX_AGE_DAYS - age).toFixed(1)} 天到期，建议重新 fetch`);
+    if (isStale(validity)) {
+      log(`提醒：这份构建${validityText(validity)}，建议重新 fetch`);
     }
     const latestTag = await fetchLatestTag();
     if (latestTag && latestTag !== manifest.tag) {
@@ -654,35 +660,77 @@ async function check(manifest, pin) {
 }
 
 /**
- * 在宿主机 require 一次刚装好的 .node，跑 `getInitStatus()`。
+ * require 一份已落盘的 `.node`，把 `getBuildInfo()` / `getInitStatus()` 一次读出来。
+ *
+ * 返回值里 `addon` 是模块本体（可能 undefined，require 失败时），`buildInfo` 是二进制
+ * 自报的构建信息（老 `.node` 没有这个函数时 undefined）。require 失败不抛，交给调用方决定。
+ */
+function readAddon(addonPath) {
+  const require = createRequire(import.meta.url);
+  try {
+    const mod = require(addonPath);
+    return {
+      addon: mod,
+      buildInfo: typeof mod.getBuildInfo === 'function' ? mod.getBuildInfo() : undefined,
+      status: typeof mod.getInitStatus === 'function' ? mod.getInitStatus() : undefined,
+      error: undefined,
+    };
+  } catch (err) {
+    return { addon: undefined, buildInfo: undefined, status: undefined, error: err };
+  }
+}
+
+/**
+ * 宿主平台 `.node` 的路径（没装过就是 null）。
+ */
+function hostAddonPath() {
+  const spec = PLATFORMS[hostTag];
+  return spec ? join(root, spec.dir, 'nt_helper.node') : null;
+}
+
+/**
+ * 读当前已落盘的宿主 `.node` 自报的构建信息（`getBuildInfo()`）。
+ *
+ * 用于写 marker / 锚文件：文件不在、require 失败、或老二进制没这个函数时一律返回
+ * undefined，调用方回落到 manifest 字段。**刻意不跑 `getInitStatus()`** —— 写 marker
+ * 不该因为构建过期而失败。
+ */
+function readHostBuildInfo() {
+  const addonPath = hostAddonPath();
+  if (!addonPath || !existsSync(addonPath)) return undefined;
+  return readAddon(addonPath).buildInfo;
+}
+
+/**
+ * 在宿主机 require 一次刚装好的 .node，跑 `getInitStatus()`，顺带取回
+ * `getBuildInfo()` 供写进锚文件 / marker。
  *
  * 这是唯一能提前发现「二进制装上了但用不了」（构建过期 / LICENSE 不匹配 /
- * 平台错配）的检查，release 流程拿它当门禁。
+ * 平台错配）的检查，release 流程拿它当门禁。返回值 `{ code, buildInfo }`：
+ * `code` 非 0 即失败（与退出码语义一致）。
  */
 async function verifyHost(files) {
   const spec = PLATFORMS[hostTag];
   if (!spec || !files.some((entry) => entry.path.startsWith(spec.dir))) {
     log(`跳过 --verify：本次没装宿主平台（${hostTag}）的 .node`);
-    return 0;
+    return { code: 0, buildInfo: undefined };
   }
-  const addon = join(root, spec.dir, 'nt_helper.node');
-  const require = createRequire(import.meta.url);
-  let status;
-  try {
-    const mod = require(addon);
-    status = await mod.getInitStatus?.();
-  } catch (err) {
-    console.error(`✘ require/调用失败：${err instanceof Error ? err.message : err}`);
-    return 1;
+  const addonPath = join(root, spec.dir, 'nt_helper.node');
+  const { buildInfo, status, error } = readAddon(addonPath);
+  if (error) {
+    console.error(`✘ require/调用失败：${error instanceof Error ? error.message : error}`);
+    return { code: 1, buildInfo: undefined };
   }
   if (status !== 0) {
     console.error(
       `✘ getInitStatus() = ${status}（0 才是可用；-1 过期 / -200 损坏 / -201 被篡改 / 99 未知）`,
     );
-    return 1;
+    return { code: 1, buildInfo };
   }
-  log(`--verify ✔ ${spec.dir}/nt_helper.node 可用（getInitStatus() = 0）`);
-  return 0;
+  const validity = manifestValidity(undefined, buildInfo);
+  const tail = validityText(validity) ? `，${validityText(validity)}` : '';
+  log(`--verify ✔ ${spec.dir}/nt_helper.node 可用（getInitStatus() = 0${tail}）`);
+  return { code: 0, buildInfo };
 }
 
 // ─────────────────────────── 主流程 ───────────────────────────
@@ -707,10 +755,16 @@ async function main() {
   const { manifest, localDir } = await loadManifest(version);
   if (!manifest?.tag) throw new Error('manifest 里没有 tag 字段，发布仓格式不对？');
 
-  const age = ageDays(manifest.builtAt);
-  if (requireFresh && !Number.isNaN(age) && age > maxAgeDays) {
+  const remoteValidity = manifestValidity(manifest);
+  if (requireFresh && remoteValidity.expired) {
     throw new Error(
-      `最新构建也过期了（${age.toFixed(1)} 天 > ${maxAgeDays} 天）——` +
+      `最新构建已过有效期（${validityText(remoteValidity)}）——` +
+        '先去 nt_helper 跑一次 Rust-Release-Build 再发版。',
+    );
+  }
+  if (requireFresh && isStale(remoteValidity)) {
+    throw new Error(
+      `最新构建剩余有效期不足（${validityText(remoteValidity)}，阈值 1/5）——` +
         '先去 nt_helper 跑一次 Rust-Release-Build 再发版。',
     );
   }
@@ -721,14 +775,18 @@ async function main() {
   log(`来源：${localDir ?? `${releaseRepo}@${manifest.tag}`}`);
   log(`写入：${root}`);
   await install(manifest, files, localDir);
-  if (writePin && !dryRun) await writePinFile(manifest, pin);
 
-  if (!dryRun && (Number.isNaN(age) || age > WARN_AGE_DAYS)) {
-    log(
-      `提醒：这份构建是 ${Number.isNaN(age) ? '未知' : age.toFixed(1)} 天前编的，满 ${HARD_MAX_AGE_DAYS} 天会失效`,
-    );
+  // 装完从刚落到本地的 .node 里问出构建信息，再写锚文件（日期以二进制为准）。
+  const hostBuildInfo = dryRun ? undefined : readHostBuildInfo();
+  const validity = manifestValidity(manifest, hostBuildInfo);
+  if (writePin && !dryRun) await writePinFile(manifest, pin, hostBuildInfo);
+
+  if (!dryRun && isStale(validity)) {
+    const text = validityText(validity) ?? '有效期未知';
+    log(`提醒：这份构建${text}，建议重新 fetch；CI 的 --require-fresh 会在剩余不足 1/5 时失败`);
   }
-  return doVerify && !dryRun ? verifyHost(files) : 0;
+  if (doVerify && !dryRun) return (await verifyHost(files)).code;
+  return 0;
 }
 
 try {

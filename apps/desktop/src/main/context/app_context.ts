@@ -20,7 +20,7 @@
 
 import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb } from '@weq/db';
 import {
@@ -112,6 +112,8 @@ import {
   ResourceCleanupService,
   WebQueryService,
   GapHistoryService,
+  RoamingBackfillManager,
+  type GapFetchedMessage,
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
@@ -154,6 +156,7 @@ import {
   collectReceivedItems,
   downloadUrlToFile,
   ocrCacheFor,
+  warmJiebaDict,
 } from '@weq/service';
 import { resolveResource, configureNativeDressResources } from '../resource';
 import { createDressNameResolver } from '../dress_names';
@@ -168,14 +171,22 @@ import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
- * below. Two events:
+ * below. Events:
  *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
  *     the open conversation's seq-window re-query in the renderer.
  *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
  *     inserted rows; reserved for unread / popup notifications.
+ *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
+
+export interface RoamingCacheChange {
+  session: AccountSession;
+  kind: 'group' | 'c2c';
+  conv: string;
+  messages: GapFetchedMessage[];
+}
 
 export interface AccountForcedClosedEvent {
   reason: 'database-damaged';
@@ -373,6 +384,53 @@ function createDbTolerance(
   return new DbToleranceService(
     join(userConfig.cacheDir(join('db_tolerance', accountConfigId(uin, dataDir))), 'config.json'),
   );
+}
+
+async function createRoamingBackfill(
+  userConfig: UserConfigService,
+  session: AccountSession,
+  accountConfig: AccountConfigService,
+  configId: string,
+  msgs: MsgService,
+  history: GapHistoryService,
+): Promise<RoamingBackfillManager> {
+  const path = join(userConfig.cacheDir(join('roaming-jobs', configId)), 'tasks.json');
+  await RoamingBackfillManager.waitForIdle(path);
+  return new RoamingBackfillManager(path, {
+    source: `${configId}:${resolve(session.msgDbPath)}`,
+    listSeqWindow: (target, range) =>
+      target.kind === 'group'
+        ? msgs.getGroupSeqDesc(target.conv, { startTime: range?.start, endTime: range?.end })
+        : msgs.getC2cSeqDesc(target.conv, { startTime: range?.start, endTime: range?.end }),
+    cached: (target, start, end) => history.cached(target.kind, target.conv, start, end),
+    fetch: (target, start, end, signal, intervalMs, beforeRequest) =>
+      history.fetch(target.kind, target.conv, start, end, {
+        signal,
+        intervalMs,
+        strictIdentity: true,
+        beforeRequest,
+      }),
+    retain: (rows) => history.retainForBatch(rows),
+    checkOnline: () => {
+      const record = accountConfig.getRecord();
+      if (
+        userConfig.getSettings().autoAttachQq === false ||
+        !record?.qqOnline ||
+        !record.qqPid ||
+        record.uin !== session.context.uin
+      )
+        throw new Error('当前账号 QQ 未在线，或完全离线模式已开启。请恢复在线后继续。');
+    },
+    onMessages: (target, messages) => {
+      if (getAppContext().account !== session) return;
+      dbEventBus.emit('roaming', {
+        session,
+        kind: target.kind,
+        conv: target.conv,
+        messages,
+      } satisfies RoamingCacheChange);
+    },
+  });
 }
 
 /**
@@ -670,6 +728,7 @@ export interface AccountServices {
   groupFile: GroupFileService;
   /** 拉取聊天时间线缺失的远端消息（需在线 QQ 发包）。 */
   gapHistory: GapHistoryService;
+  roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
   /** 聊天图片文字识别（OIDB 0xe07_0，需在线 QQ 发包取 rkey）。 */
@@ -928,6 +987,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
+  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict(platform.jiebaDictDir());
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
@@ -1056,6 +1118,7 @@ export function initAppContext(): AppContext {
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
+      this.services?.roamingBackfill.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1228,12 +1291,26 @@ export function initAppContext(): AppContext {
       const gapHistory = new GapHistoryService(
         platform.native.ntHelper,
         session,
-        resolveOnlinePid,
+        () => {
+          if (userConfig.getSettings().autoAttachQq === false)
+            throw new Error('完全离线模式已开启，已停止漫游请求。');
+          return resolveOnlinePid();
+        },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
       const guildDirect = new GuildDirectService(session);
+      const msgs = new MsgService(session, deletedMsgs, antiRecall);
+      const roamingBackfill = await createRoamingBackfill(
+        userConfig,
+        session,
+        accountConfig,
+        exportConfigId,
+        msgs,
+        gapHistory,
+      );
       this.services = {
-        msgs: new MsgService(session, deletedMsgs, antiRecall),
+        msgs,
+        roamingBackfill,
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
@@ -1392,6 +1469,10 @@ export function initAppContext(): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
+              fetchPostDetail: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
+              fetchPostImages: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostImages(uin, tid, signal, captureRaw),
               fetchMsgList: (uin, pos, num, signal, captureRaw) =>
                 webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal, captureRaw) =>
@@ -1487,7 +1568,7 @@ export function initAppContext(): AppContext {
                   accountConfig.getRecord()?.qqOnline !== true
                 )
                   throw new Error('离线时不请求收藏附件。');
-                return collectionSvc.downloadOriginalFiles(cid, signal);
+                return collectionSvc.downloadExportMedia(cid, signal);
               },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
@@ -1707,6 +1788,7 @@ export function initAppContext(): AppContext {
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
+      this.services?.roamingBackfill.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1871,12 +1953,26 @@ export function initAppContext(): AppContext {
       const gapHistory = new GapHistoryService(
         platform.native.ntHelper,
         session,
-        livePid,
+        () => {
+          if (userConfig.getSettings().autoAttachQq === false)
+            throw new Error('完全离线模式已开启，已停止漫游请求。');
+          return livePid();
+        },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
       const guildDirect = new GuildDirectService(session);
+      const msgs = new MsgService(session, deletedMsgs, antiRecall);
+      const roamingBackfill = await createRoamingBackfill(
+        userConfig,
+        session,
+        accountConfig,
+        exportConfigId,
+        msgs,
+        gapHistory,
+      );
       this.services = {
-        msgs: new MsgService(session, deletedMsgs, antiRecall),
+        msgs,
+        roamingBackfill,
         recentContacts: new RecentContactService(session),
         guildDirect,
         hiddenSessions: new HiddenSessionService(session),
@@ -2019,6 +2115,10 @@ export function initAppContext(): AppContext {
               },
             },
             qzone: {
+              fetchPostDetail: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
+              fetchPostImages: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostImages(uin, tid, signal, captureRaw),
               fetchMsgList: (uin, pos, num, signal, captureRaw) =>
                 webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal, captureRaw) =>
@@ -2060,7 +2160,7 @@ export function initAppContext(): AppContext {
                   accountConfig.getRecord()?.qqOnline !== true
                 )
                   throw new Error('离线时不请求收藏附件。');
-                return collectionSvc.downloadOriginalFiles(cid, signal);
+                return collectionSvc.downloadExportMedia(cid, signal);
               },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
@@ -2215,6 +2315,7 @@ export function initAppContext(): AppContext {
       ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
+      this.services?.roamingBackfill.dispose();
       this.account?.dispose();
       this.account = null;
       this.services = null;

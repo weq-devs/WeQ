@@ -37,6 +37,8 @@ import type {
 
 /** Common metadata fields moved inside the 'data' property. */
 interface BaseRenderData {
+  /** Original SDK element retained for native-history projections and export. */
+  nativeElement?: unknown;
   elementId?: bigint;
   isSender?: boolean;
   subType?: number;

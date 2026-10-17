@@ -2,20 +2,25 @@
  * RoamMsgCacheDb — 按账号缓存「缺失消息」（漫游消息回填）的本地 SQLite。
  *
  * 布局：weq 缓存目录下新开 `roam-msg/` 文件夹，每个账号一个数据库文件
- * `<cacheBase>/roam-msg/<uin>.db`。只存已经从 QQ 服务端拉到的渲染视图
- * （{ type, data } 元素），前端再次遇到同一个缺口时先查这里，命中就直接
- * 渲染，不用重新联网（甚至 QQ 不在线也能看）。
+ * `<cacheBase>/roam-msg/<uin>.db`。正常消息保存渲染视图，增强来源另保留原始数据；
+ * 前端再次遇到同一个缺口时先查这里，命中就直接渲染，不用重新联网。
  *
- * 表结构：单表 `gap_msg`，主键 (kind, conv, msg_seq) 即「会话 + seq」复合索引
- * （一个 seq 最多一条），读取按主键区间扫描即可拿到一段 seq 窗口。
+ * `gap_msg` 保留旧单 seq 主键；native/protocol 表保留同 seq 不同身份。
+ * 不完整协议观察独立存表，不进入消息读取和恢复覆盖。
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GapFetchedMessage } from './gap_history';
+import { nativeHistoryElements } from './native_history_projection';
+import type { ProtocolHistoryObservation } from './sso_history_window';
 
 const TABLE = 'gap_msg';
+const NATIVE_TABLE = 'native_gap_msg';
+const PROTOCOL_TABLE = 'protocol_gap_msg';
+const OBSERVATION_TABLE = 'protocol_gap_observation';
 
 /** SQLite 存不了 bigint 字段值，渲染元素里又有 elementId/origMsgId 等 bigint，JSON 序列化时包一层。 */
 function serializeJson(value: unknown): string {
@@ -73,6 +78,36 @@ function rowToMessage(row: SqlRow): GapFetchedMessage {
   return message;
 }
 
+function nativeRow(row: SqlRow): GapFetchedMessage {
+  const message = JSON.parse(String(row[0])) as GapFetchedMessage;
+  return {
+    ...message,
+    sourceFormat: 'native',
+    elements: nativeHistoryElements(message.nativeRaw?.elements),
+  };
+}
+
+function combineCache(
+  legacy: GapFetchedMessage[],
+  native: GapFetchedMessage[],
+  protocol: GapFetchedMessage[] = [],
+): GapFetchedMessage[] {
+  const key = (row: GapFetchedMessage) =>
+    `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid}:${row.sendTime}`;
+  const nativeExact = new Set(
+    native.filter((row) => row.msgRandom && row.msgRandom !== '0').map(key),
+  );
+  const nativeIds = new Set(native.map((row) => `${row.msgSeq}:${row.msgId}`));
+  const enriched = [
+    ...protocol.filter(
+      (row) => !nativeIds.has(`${row.msgSeq}:${row.msgId}`) && !nativeExact.has(key(row)),
+    ),
+    ...native,
+  ];
+  const exact = new Set(enriched.filter((row) => row.msgRandom && row.msgRandom !== '0').map(key));
+  return [...legacy.filter((row) => !exact.has(key(row))), ...enriched];
+}
+
 export class RoamMsgCacheDb {
   readonly dbPath: string;
   private readonly nt: Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>;
@@ -93,7 +128,7 @@ export class RoamMsgCacheDb {
     this.dbPath = dbPath;
   }
 
-  /** 读一段 [startSeq, endSeq] 的缓存消息，按 seq 升序。 */
+  /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
   async query(
     kind: 'c2c' | 'group',
     conv: string,
@@ -101,6 +136,7 @@ export class RoamMsgCacheDb {
     endSeq: number,
     verifiedOnly = false,
     limit = 2000,
+    descending = true,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     await this.ensureSchema();
@@ -110,16 +146,107 @@ export class RoamMsgCacheDb {
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
-        ORDER BY msg_seq DESC LIMIT ?`,
+        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?`,
       [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
     );
-    return rows.map(rowToMessage).reverse();
+    const native = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
+       ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'}, msg_id LIMIT ?`,
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
+    );
+    const protocol = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
+       ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'},msg_id LIMIT ?`,
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
+    );
+    const messages = combineCache(
+      rows.map(rowToMessage),
+      native.map(nativeRow),
+      protocol.map((row) => parseJson<GapFetchedMessage>(String(row[0]))),
+    )
+      .sort((a, b) => {
+        const order = Number(a.msgSeq) - Number(b.msgSeq);
+        return (descending ? -order : order) || a.msgId.localeCompare(b.msgId);
+      })
+      .slice(0, Math.max(1, Math.min(2000, limit)));
+    return descending ? messages.reverse() : messages;
+  }
+
+  /** Export-only full scan with bounded DB pages, including every same-seq native ID. */
+  async allForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
+    await this.ensureSchema();
+    const legacy: GapFetchedMessage[] = [],
+      native: GapFetchedMessage[] = [];
+    let seq = 0n;
+    for (;;) {
+      const rows = await this.nt.executeSql(
+        this.dbPath,
+        `SELECT kind,conv,msg_id,msg_seq,sender_uid,sender_uin,send_time,elements,decoration,nt_seq_verified
+         FROM ${TABLE} WHERE kind = ? AND conv = ? AND msg_seq > ? ${kind === 'c2c' ? 'AND nt_seq_verified = 1' : ''}
+         ORDER BY msg_seq LIMIT 1000`,
+        [kind, conv, seq],
+      );
+      if (!rows.length) break;
+      const page = rows.map(rowToMessage);
+      legacy.push(...page);
+      seq = BigInt(page.at(-1)!.msgSeq);
+    }
+    seq = 0n;
+    let id = '';
+    for (;;) {
+      const rows = await this.nt.executeSql(
+        this.dbPath,
+        `SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1
+         AND (msg_seq > ? OR (msg_seq = ? AND msg_id > ?)) ORDER BY msg_seq,msg_id LIMIT 250`,
+        [kind, conv, seq, seq, id],
+      );
+      if (!rows.length) break;
+      const page = rows.map(nativeRow);
+      for (const row of page) {
+        const { nativeRaw: _raw, ...view } = row;
+        native.push(view);
+      }
+      seq = BigInt(page.at(-1)!.msgSeq);
+      id = page.at(-1)!.msgId;
+    }
+    const protocol: GapFetchedMessage[] = [];
+    seq = 0n;
+    id = '';
+    for (;;) {
+      const rows = await this.nt.executeSql(
+        this.dbPath,
+        `SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=?
+         ${kind === 'c2c' ? 'AND nt_seq_verified=1' : ''}
+         AND (msg_seq>? OR (msg_seq=? AND msg_id>?)) ORDER BY msg_seq,msg_id LIMIT 250`,
+        [kind, conv, seq, seq, id],
+      );
+      if (!rows.length) break;
+      const page = rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+      for (const { protocolRaw: _raw, ...view } of page) protocol.push(view);
+      seq = BigInt(page.at(-1)!.msgSeq);
+      id = page.at(-1)!.msgId;
+    }
+    return combineCache(legacy, native, protocol);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
   async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
     if (!msgId) return null;
     await this.ensureSchema();
+    const protocol = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE msg_id=? LIMIT 1`,
+      [msgId],
+    );
+    if (protocol[0]) return parseJson<GapFetchedMessage>(String(protocol[0][0]));
+    const native = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${NATIVE_TABLE} WHERE msg_id = ? AND accepted = 1 LIMIT 1`,
+      [msgId],
+    );
+    if (native[0]) return nativeRow(native[0]);
     const rows = await this.nt.executeSql(
       this.dbPath,
       `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
@@ -132,6 +259,11 @@ export class RoamMsgCacheDb {
 
   /** 把拉取到的消息全部写入缓存（幂等：同一 seq 覆盖为最新）。 */
   async store(messages: GapFetchedMessage[]): Promise<void> {
+    const protocol = messages.filter((message) => message.sourceFormat === 'protocol');
+    if (protocol.length) await this.storeProtocol(protocol);
+    const native = messages.filter((message) => message.sourceFormat === 'native');
+    if (native.length) await this.storeNative(native, true);
+    messages = messages.filter((message) => !message.sourceFormat);
     if (messages.length === 0) return;
     await this.ensureSchema();
     const run = async (): Promise<void> => {
@@ -168,6 +300,113 @@ export class RoamMsgCacheDb {
         this.nt.closeDb(this.dbPath);
       } catch {
         /* ignore */
+      }
+    };
+    const next = this.storeQueue.then(run, run);
+    this.storeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    await next;
+  }
+
+  async storeNative(messages: GapFetchedMessage[], accepted: boolean): Promise<void> {
+    if (!messages.length) return;
+    await this.ensureSchema();
+    const run = async () => {
+      try {
+        for (let i = 0; i < messages.length; i += 80) {
+          const batch = messages.slice(i, i + 80);
+          const params: SqlValue[] = [];
+          for (const message of batch) {
+            if (!message.nativeRaw || message.sourceFormat !== 'native')
+              throw Error('原生缓存缺少原始消息。');
+            const { elements: _elements, ...payload } = message;
+            params.push(
+              message.kind,
+              message.conv,
+              BigInt(message.msgSeq),
+              message.msgId,
+              accepted ? 1 : 0,
+              JSON.stringify(payload),
+            );
+          }
+          await this.nt.executeSqlWrite(
+            this.dbPath,
+            `INSERT OR REPLACE INTO ${NATIVE_TABLE} (kind,conv,msg_seq,msg_id,accepted,payload) VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')}`,
+            params,
+          );
+        }
+      } finally {
+        this.nt.closeDb(this.dbPath);
+      }
+    };
+    const next = this.storeQueue.then(run, run);
+    this.storeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    await next;
+  }
+
+  private async storeProtocol(messages: GapFetchedMessage[]): Promise<void> {
+    await this.ensureSchema();
+    const run = async () => {
+      try {
+        for (let i = 0; i < messages.length; i += 500) {
+          const batch = messages.slice(i, i + 500);
+          const params: SqlValue[] = [];
+          for (const message of batch)
+            params.push(
+              message.kind,
+              message.conv,
+              BigInt(message.msgSeq),
+              message.msgId,
+              message.ntSeqVerified ? 1 : 0,
+              serializeJson(message),
+            );
+          await this.nt.executeSqlWrite(
+            this.dbPath,
+            `INSERT OR REPLACE INTO ${PROTOCOL_TABLE}(kind,conv,msg_seq,msg_id,nt_seq_verified,payload)
+             VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')}`,
+            params,
+          );
+        }
+      } finally {
+        this.nt.closeDb(this.dbPath);
+      }
+    };
+    const next = this.storeQueue.then(run, run);
+    this.storeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    await next;
+  }
+
+  async storeProtocolObservations(rows: ProtocolHistoryObservation[]): Promise<void> {
+    if (!rows.length) return;
+    await this.ensureSchema();
+    const run = async () => {
+      try {
+        const params: SqlValue[] = [];
+        for (const row of rows)
+          params.push(
+            row.kind,
+            row.conv,
+            BigInt(row.msgSeq),
+            createHash('sha256').update(Buffer.from(row.protocolRaw, 'base64')).digest('hex'),
+            row.reason,
+            row.protocolRaw,
+          );
+        await this.nt.executeSqlWrite(
+          this.dbPath,
+          `INSERT OR IGNORE INTO ${OBSERVATION_TABLE}(kind,conv,msg_seq,raw_hash,reason,protocol_raw)
+           VALUES ${rows.map(() => '(?,?,?,?,?,?)').join(',')}`,
+          params,
+        );
+      } finally {
+        this.nt.closeDb(this.dbPath);
       }
     };
     const next = this.storeQueue.then(run, run);
@@ -218,6 +457,32 @@ export class RoamMsgCacheDb {
         nt_seq_verified INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (kind, conv, msg_seq)
       )`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE TABLE IF NOT EXISTS ${NATIVE_TABLE} (kind TEXT NOT NULL, conv TEXT NOT NULL, msg_seq INTEGER NOT NULL,
+       msg_id TEXT NOT NULL, accepted INTEGER NOT NULL, payload TEXT NOT NULL,
+       PRIMARY KEY(kind,conv,msg_seq,msg_id,accepted))`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE INDEX IF NOT EXISTS native_gap_seq ON ${NATIVE_TABLE}(kind,conv,accepted,msg_seq)`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE TABLE IF NOT EXISTS ${PROTOCOL_TABLE}(kind TEXT NOT NULL,conv TEXT NOT NULL,
+       msg_seq INTEGER NOT NULL,msg_id TEXT NOT NULL,nt_seq_verified INTEGER NOT NULL,payload TEXT NOT NULL,
+       PRIMARY KEY(kind,conv,msg_seq,msg_id))`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE TABLE IF NOT EXISTS ${OBSERVATION_TABLE}(kind TEXT NOT NULL,conv TEXT NOT NULL,
+       msg_seq INTEGER NOT NULL,raw_hash TEXT NOT NULL,reason TEXT NOT NULL,protocol_raw TEXT NOT NULL,
+       PRIMARY KEY(kind,conv,msg_seq,raw_hash))`,
       null,
     );
     const columns = await this.nt.executeSql(

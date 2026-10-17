@@ -15,6 +15,7 @@ import {
 } from 'react';
 import {
   AtSign,
+  Download,
   ChevronDown,
   Eye,
   ExternalLink,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
+import { QzoneExportLightbox } from './export/QzoneExportLightbox';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
@@ -370,6 +372,7 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
+  const [exportTarget, setExportTarget] = useState<{ uin: string; name: string } | null>(null);
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
   const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => {
@@ -431,6 +434,23 @@ export function QzoneView({
             </div>
           </div>
           <div className="weq-qzn-tools">
+            <button
+              type="button"
+              title="导出说说"
+              aria-label="导出说说"
+              onClick={() => {
+                const uin = tab === 'space' ? hostUin : selfUin;
+                setExportTarget({
+                  uin,
+                  name:
+                    uin === selfUin
+                      ? nickname
+                      : ownerNames[uin] || spaceNames[uin] || people.names[uin] || uin,
+                });
+              }}
+            >
+              <Download size={17} />
+            </button>
             <button
               type="button"
               title="刷新空间"
@@ -574,6 +594,9 @@ export function QzoneView({
             onOwnerNickname={rememberOwnerName}
           />
         ))}
+        {exportTarget && active ? (
+          <QzoneExportLightbox target={exportTarget} onClose={() => setExportTarget(null)} />
+        ) : null}
         {compose && active ? (
           <Composer
             selfUin={selfUin}

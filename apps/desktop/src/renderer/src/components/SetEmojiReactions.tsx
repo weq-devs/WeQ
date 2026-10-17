@@ -29,6 +29,11 @@ const CLOSE_DELAY_MS = 220;
 
 /** 弹出面板的状态。`x/y` 是鼠标位置（client 坐标）。 */
 type OpenState = { emojiId: string; setNum: number; x: number; y: number };
+export interface ReactionRemoval {
+  onRemove: (code: string) => void;
+  blockedReason?: string | null;
+  busy?: boolean;
+}
 
 /** 一枚表情回应本体：能认出是 QQ 表情就画表情，否则退化成原始 id 文本。 */
 function ReactionEmoji({ emojiId, label }: { emojiId: string; label?: string }) {
@@ -47,12 +52,14 @@ export function SetEmojiReactions({
   list,
   groupId,
   sequence,
+  removal,
 }: {
   list?: SetEmojiItem[];
   /** 群号；非群聊不传 —— 没有它就没有回应人名单可查。 */
   groupId?: string | number | null;
   /** 被回应消息的 msgSeq；0 / 缺省表示这条消息没有会话内序号。 */
   sequence?: number;
+  removal?: ReactionRemoval;
 }) {
   const [open, setOpen] = useState<OpenState | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,20 +114,45 @@ export function SetEmojiReactions({
       <div className={cn('msg-reactions')}>
         {list.map((item) => {
           const active = open?.emojiId === item.emojiId;
+          const removable = Boolean(
+            item.isSelfSet && removal && !removal.blockedReason && !removal.busy && canQuery,
+          );
           return (
-            <span
+            <button
+              type="button"
               key={item.emojiId}
               className={cn('msg-reaction', item.isSelfSet && 'is-self', active && 'is-open')}
-              title={canQuery ? `${item.emojiId} · 悬停查看谁贴了` : item.emojiId}
+              title={
+                removable
+                  ? `撤回自己的贴表情 ${item.emojiId}`
+                  : removal?.blockedReason ||
+                    (canQuery ? `${item.emojiId} · 悬停查看谁贴了` : item.emojiId)
+              }
+              disabled={!canQuery || Boolean(item.isSelfSet && removal?.busy)}
               // 只有能查名单时才是「可交互」的：给键盘用户同一份能力。
               {...(canQuery
                 ? {
                     tabIndex: 0,
                     role: 'button',
-                    'aria-label': `查看 ${item.emojiId} 的回应人`,
+                    'aria-label': removable
+                      ? `撤回贴表情 ${item.emojiId}`
+                      : `查看 ${item.emojiId} 的回应人`,
                   }
                 : {})}
               onPointerEnter={(event) => scheduleOpen(item, event)}
+              onClick={(event) => {
+                if (removable && removal) {
+                  clearTimers();
+                  setOpen(null);
+                  removal.onRemove(item.emojiId);
+                } else {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  scheduleOpen(
+                    item,
+                    event.detail === 0 ? { clientX: rect.left, clientY: rect.bottom } : event,
+                  );
+                }
+              }}
               onPointerLeave={scheduleClose}
               onFocus={(event) =>
                 scheduleOpen(item, {
@@ -135,7 +167,7 @@ export function SetEmojiReactions({
             >
               <ReactionEmoji emojiId={item.emojiId} label={item.emojiId} />
               <span className={cn('msg-reaction-count')}>{item.setNum}</span>
-            </span>
+            </button>
           );
         })}
       </div>

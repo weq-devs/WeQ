@@ -723,6 +723,14 @@ app.on('window-all-closed', () => {
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
 app.on('before-quit', () => {
   isQuitting = true;
+  try {
+    getAppContext().services?.roamingBackfill.dispose();
+  } catch (error) {
+    logger.warn('failed to save roaming pause on quit', {
+      event: 'roaming-quit-checkpoint',
+      error: String(error),
+    });
+  }
   if (tray) {
     try {
       tray.destroy();

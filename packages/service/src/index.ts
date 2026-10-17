@@ -22,6 +22,7 @@ export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 
 export { KeyService } from './bootstrap/key';
+export { loginDbPaths, readLoginAccounts } from './bootstrap/login_db';
 export type {
   KeyResult,
   KeyEvent,
@@ -103,6 +104,7 @@ export type {
   ClientKey,
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
+export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
   fetchClientKey,
@@ -311,6 +313,13 @@ export type {
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
+export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
+export type {
+  LoginAccountEntry,
+  LoginAccountSyncHooks,
+  LoginAccountToolDeps,
+  LoginAccountWriteResult,
+} from './account/login_account_tool';
 export type {
   AccountDbFile,
   DbDecryptItem,
@@ -566,6 +575,16 @@ export type {
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';
+export { RoamingBackfillManager } from './account/roaming_backfill';
+export type {
+  RoamingJobOptions,
+  RoamingTarget,
+  RoamingJob,
+  RoamingJobStatus,
+  RoamingAttempt,
+  RoamingTargetPlan,
+  RoamingInterval,
+} from './account/roaming_backfill';
 export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';

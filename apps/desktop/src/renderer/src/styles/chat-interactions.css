@@ -1,0 +1,17 @@
+.weq-message-sending { display: inline-flex; align-items: center; justify-content: center; align-self: center; flex: 0 0 16px; width: 16px; height: 16px; color: var(--weq-fg-secondary); }
+.weq-message-sending svg { animation: weq-message-send-spin 1s linear infinite; }
+@keyframes weq-message-send-spin { to { transform: rotate(360deg); } }
+html[data-theme="dark"] .weq-message-sending { color: var(--weq-fg-secondary); }
+.selection-mode:is(.message-line, .weq-graytip-band) { user-select: none; }
+.weq-graytip-band.selection-mode { cursor: pointer; }
+.weq-graytip-band.is-selected { outline: 1px dashed var(--weq-accent-effective); outline-offset: 2px; }
+.selection-bar-info { flex-shrink: 0; }
+.selection-bar-actions { min-width: 0; overflow-x: auto; }
+.selection-bar-actions > button { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 760px) {
+  .selection-bar { gap: 8px; }
+  .selection-bar-label, .selection-bar-actions .selection-action > span { display: none; }
+  .selection-bar-actions { display: grid; grid-template-columns: repeat(5, 32px); gap: 4px; overflow: visible; }
+  .selection-bar-actions .selection-action { width: 32px; padding: 0; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .weq-message-sending svg { animation: none; } }

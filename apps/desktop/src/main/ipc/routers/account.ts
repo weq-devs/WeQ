@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
   PROJECT_GROUP_CODE,
   PROJECT_GROUP_NAME,
@@ -27,6 +28,7 @@ import {
   closeSalvageConnections,
   dbEventBus,
   type AccountServices,
+  type RoamingCacheChange,
 } from '../../context/app_context';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
@@ -95,6 +97,7 @@ import {
   type OcrResultCache,
   type RenderC2cMsg,
   type RenderGroupMsg,
+  type GapFetchedMessage,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -536,32 +539,37 @@ export interface GroupFileExportResult {
   failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
-/** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
-async function withConfirmedC2cHistory(
+function roamingMsgToWire(row: GapFetchedMessage): ChatMsgWire {
+  const { nativeRaw: _nativeRaw, protocolRaw: _protocolRaw, ...wire } = row;
+  return { ...wire, source: 'roaming', msgRandom: row.msgRandom ?? '' };
+}
+
+/** Merge an offline cache page using the same cursor and ordering as the local page. */
+async function withRoamingHistory(
   services: AccountServices,
   kind: ChatKind,
   conv: string,
   rows: ChatMsgWire[],
   limit: number,
+  min = 1n,
+  max = 0xffffffffn,
+  descending = true,
 ): Promise<ChatMsgWire[]> {
-  if (kind !== 'c2c' || rows.length === 0) return rows;
-  const sequences = rows
-    .map((row) => Number(row.msgSeq))
-    .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
-  if (!sequences.length) return rows;
   try {
-    const cached = await services.gapHistory.cachedVerified(
-      'c2c',
+    const cached = await services.gapHistory.cachedTimeline(
+      kind,
       conv,
-      Math.min(...sequences),
-      Math.min(0xffffffff, Math.max(...sequences) + 30),
+      Number(min < 1n ? 1n : min),
+      Number(max > 0xffffffffn ? 0xffffffffn : max),
       limit,
+      descending,
     );
-    const known = new Set(rows.map((row) => `${row.msgSeq}:${row.msgRandom}`));
-    const extra: ChatMsgWire[] = cached
-      .filter((row) => !known.has(`${row.msgSeq}:${row.msgRandom}`))
-      .map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' }));
-    return [...rows, ...extra].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq)).slice(0, limit);
+    return mergeRoamingTimeline<ChatMsgWire>(kind, rows, cached.map(roamingMsgToWire), {
+      min,
+      max,
+      limit,
+      descending,
+    });
   } catch {
     // Cache failure must never prevent reading the original QQ history.
     return rows;
@@ -571,15 +579,11 @@ async function withConfirmedC2cHistory(
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
 async function fetchBefore(
@@ -588,10 +592,13 @@ async function fetchBefore(
   beforeSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
 async function fetchAfter(
@@ -600,10 +607,13 @@ async function fetchAfter(
   afterSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
 async function fetchFrom(
@@ -614,15 +624,11 @@ async function fetchFrom(
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
@@ -2240,6 +2246,24 @@ export const accountRouter = router({
     .input(convInput)
     .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
 
+  exportCalendar: procedure
+    .input(z.object({ targets: z.array(convInput) }))
+    .query(async ({ input }) => {
+      const days = new Map<string, number>();
+      const seen = new Set<string>();
+      const msgs = requireServices().msgs;
+      for (const target of input.targets) {
+        const key = `${target.kind}:${target.conv}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        for (const row of await msgs.calendar(target.kind, target.conv))
+          days.set(row.day, (days.get(row.day) ?? 0) + row.count);
+      }
+      return [...days]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([day, count]) => ({ day, count }));
+    }),
+
   conversationBoundary: procedure
     .input(
       convInput.extend({
@@ -3242,13 +3266,71 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().gapHistory.cached(
+      const rows = await requireServices().gapHistory.cached(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      return rows.map(roamingMsgToWire);
     }),
+
+  roamingBackfill: router({
+    list: procedure.query(() => {
+      const services = requireServices();
+      const access = albumAccessState(services);
+      return {
+        jobs: services.roamingBackfill.list(),
+        activeId: services.roamingBackfill.running(),
+        scanning: services.roamingBackfill.scanning(),
+        historyVersion: 2,
+        onlineAllowed: access.attachEnabled,
+        online: access.qqOnline && access.attachEnabled,
+      };
+    }),
+    plan: procedure
+      .input(
+        z.object({
+          transport: z.literal('sso').default('sso'),
+          targets: z
+            .array(
+              z.object({
+                kind: z.enum(['group', 'c2c']),
+                conv: z.string().min(1),
+                name: z.string().min(1).max(300),
+              }),
+            )
+            .min(1),
+          range: z
+            .object({
+              start: z.number().int().nonnegative().optional(),
+              end: z.number().int().nonnegative().optional(),
+            })
+            .optional(),
+          beforeOldest: z.boolean().default(false),
+          intervalMs: z.number().int().min(500).max(60000).default(500),
+        }),
+      )
+      .mutation(({ input }) => {
+        const services = requireServices();
+        return services.roamingBackfill.plan(input);
+      }),
+    start: procedure
+      .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))
+      .mutation(({ input }) =>
+        requireServices().roamingBackfill.start(input.id, input.retryRemaining),
+      ),
+    pause: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id)),
+    cancel: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id, true)),
+    remove: procedure.input(z.object({ id: z.string().uuid() })).mutation(({ input }) => {
+      requireServices().roamingBackfill.remove(input.id);
+      return true;
+    }),
+  }),
 
   /**
    * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。分页契约：
@@ -3269,12 +3351,13 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().gapHistory.fetch(
+      const result = await requireServices().gapHistory.fetch(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      return result.ok ? { ...result, messages: result.messages.map(roamingMsgToWire) } : result;
     }),
 
   /**
@@ -3584,12 +3667,27 @@ export const accountRouter = router({
       return { msgId: res.msgId.toString(), msgSeq: res.msgSeq.toString() };
     }),
 
-  /**
-   * Live "nt_msg.db changed" ping (debounced). Carries no payload beyond a
-   * timestamp — the renderer responds by re-reading the open conversation's
-   * loaded seq window. This is what makes group inserts, recalls and sticker
-   * reactions show up without the (unreliable for groups) msgId delta.
-   */
+  /** Committed cache rows, scoped to this exact account session; no unread writes. */
+  onRoamingMessages: procedure.subscription(() => {
+    requireServices();
+    const session = getAppContext().account;
+    return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>((emit) => {
+      const handler = (change: RoamingCacheChange) => {
+        if (change.session !== session || getAppContext().account !== session) return;
+        emit.next({
+          kind: change.kind,
+          conv: change.conv,
+          messages: change.messages.map(roamingMsgToWire),
+        });
+      };
+      dbEventBus.on('roaming', handler);
+      return () => {
+        dbEventBus.off('roaming', handler);
+      };
+    });
+  }),
+
+  /** Live DB-change ping; the renderer re-reads its original message window. */
   onDbChanged: procedure.subscription(() => {
     return observable<{ at: number }>((emit) => {
       const handler = (file: DbChange): void => {
@@ -4815,7 +4913,8 @@ export const accountRouter = router({
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
     // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
-    const contacts = (await services.recentContacts.getRecentContact(1000)).filter(
+    // SQLite 的 LIMIT -1 读取全部会话；计数分批，避免超过绑定参数上限。
+    const contacts = (await services.recentContacts.getRecentContact(-1)).filter(
       (c) => c.targetUid,
     );
 
@@ -4845,11 +4944,26 @@ export const accountRouter = router({
       .map((c) => c.targetUid);
 
     const account = getAppContext().account;
+    async function countBatches(
+      ids: string[],
+      fetch: (batch: string[]) => Promise<Record<string, number>>,
+    ) {
+      const counts: Record<string, number> = {};
+      for (let offset = 0; offset < ids.length; offset += 500) {
+        Object.assign(counts, await fetch(ids.slice(offset, offset + 500)));
+      }
+      return counts;
+    }
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
-      account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
-      account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
-      account?.datalineMsgs.countByUids(datalineUids) ??
-        Promise.resolve({} as Record<string, number>),
+      countBatches(
+        groupCodes,
+        (batch) => account?.groupMsgs.countByGroups(batch) ?? Promise.resolve({}),
+      ),
+      countBatches(c2cUids, (batch) => account?.c2cMsgs.countByUids(batch) ?? Promise.resolve({})),
+      countBatches(
+        datalineUids,
+        (batch) => account?.datalineMsgs.countByUids(batch) ?? Promise.resolve({}),
+      ),
     ]);
 
     return contacts.map((c) => {
@@ -5030,11 +5144,15 @@ export const accountRouter = router({
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
+        cids: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask({
-        collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
+        collection: {
+          ...(input.kinds?.length ? { kinds: input.kinds } : {}),
+          ...(input.cids ? { cids: input.cids } : {}),
+        },
         kind: 'c2c',
         conv: '',
         name: input.name,

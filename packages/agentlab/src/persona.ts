@@ -6,6 +6,7 @@ import type {
   AgentLabStoredPair,
   AgentLabTurn,
 } from './types';
+import { tokenizeText } from './segment';
 
 /** 同一人相邻消息间隔超过此值（秒）视为新一轮 */
 export const TURN_GAP_SECONDS = 3 * 60;
@@ -60,20 +61,12 @@ function isMeaningfulText(text: string): boolean {
   return !PLACEHOLDER_ONLY.test(trimmed);
 }
 
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9一-龥]+/i)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2);
-}
-
 function topTerms(turns: AgentLabTurn[], role: 'assistant', limit: number): string[] {
   const counts = new Map<string, number>();
   for (const turn of turns) {
     if (turn.role !== role) continue;
     for (const text of turn.texts) {
-      for (const word of tokenize(text)) counts.set(word, (counts.get(word) ?? 0) + 1);
+      for (const word of tokenizeText(text)) counts.set(word, (counts.get(word) ?? 0) + 1);
     }
   }
   return [...counts.entries()]
@@ -237,7 +230,10 @@ export function extractPairs(turns: AgentLabTurn[]): AgentLabStoredPair[] {
       prompt,
       reply: joined,
       replies,
-      keywords: Array.from(new Set([...tokenize(prompt), ...tokenize(joined)])).slice(0, 24),
+      keywords: Array.from(new Set([...tokenizeText(prompt), ...tokenizeText(joined)])).slice(
+        0,
+        24,
+      ),
     });
   }
   return out.slice(-MAX_PAIRS);

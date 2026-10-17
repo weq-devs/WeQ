@@ -64,6 +64,8 @@ function readInteraction(v: unknown): InteractionCounts {
 export namespace GetProfileLike {
   export const command = 0x7ed;
   export const subCommand = 12;
+  // 0x7ed_12 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = LIKE_REQ;
   export const respSchema = LIKE_RESP;
 

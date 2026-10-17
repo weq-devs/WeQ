@@ -29,10 +29,9 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { FaceEmoji } from './FaceEmoji';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import { useAnalyticsExport } from './useAnalyticsExport';
@@ -104,8 +103,6 @@ export function MemberAnalyticsDialog({
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍。 */
   initialData?: unknown;
 }) {
-  useEscapeToClose(onClose);
-
   const [data, setData] = useState<MemberAnalyticsData | null>(
     (initialData as MemberAnalyticsData) ?? null,
   );
@@ -313,18 +310,9 @@ export function MemberAnalyticsDialog({
   // 导出窗口里整页就是这张卡片：不需要遮挡层。
   if (exportMode) return card;
 
-  return createPortal(
-    <div
-      className="weq-profile-layer weq-mutual-layer"
-      role="presentation"
-      // portal 挂在 body 上，但 React 事件仍沿组件树冒泡 —— 不拦就会连带关掉下面的资料卡。
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-    >
+  return (
+    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
       {card}
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

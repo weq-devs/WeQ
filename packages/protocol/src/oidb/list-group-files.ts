@@ -44,6 +44,8 @@ function str(v: unknown): string {
 export namespace ListGroupFiles {
   export const command = 0x6d8;
   export const subCommand = 1;
+  // 0x6d8_1 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = OIDB_GROUP_FILE_LIST_VIEW_REQ;
   export const respSchema = OIDB_GROUP_FILE_LIST_VIEW_RESP;

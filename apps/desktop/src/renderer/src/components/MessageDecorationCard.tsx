@@ -6,8 +6,7 @@
 import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
 
@@ -172,8 +171,6 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
 export function MessageDecorationCard({ decoration, onClose }: MessageDecorationCardProps) {
   const cardRef = useRef<HTMLElement>(null);
 
-  useEscapeToClose(onClose);
-
   const hasDecoration =
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
   const items = [];
@@ -203,8 +200,8 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
     });
   }
 
-  return createPortal(
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+  return (
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         ref={cardRef}
         className="weq-profile-dialog weq-decoration-card weq-anim-pop"
@@ -251,7 +248,6 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
           </div>
         )}
       </section>
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

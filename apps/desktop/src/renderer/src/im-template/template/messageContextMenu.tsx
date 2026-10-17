@@ -12,6 +12,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
+import { FaceEmoji } from '../../components/FaceEmoji';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -41,12 +42,14 @@ export function MessageContextMenu({
   reactBlockedReason,
   onRecall,
   recallBlockedReason,
+  onRemoveReaction,
+  removeReactionBlockedReason,
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
-  onDelete: (message: Message) => void;
+  onDelete?: (message: Message) => void;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
   /** 引用：把这条消息挂到输入框上方（引用条）。 */
@@ -66,6 +69,8 @@ export function MessageContextMenu({
   onRecall?: (message: Message) => void;
   /** 非空 = 撤回按钮置灰（QQ 未在线 / 超过 2 分钟且无越级权限 / 缺 seq）。 */
   recallBlockedReason?: string | null;
+  onRemoveReaction?: (message: Message, code: string) => void;
+  removeReactionBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const decoration = (
@@ -160,6 +165,23 @@ export function MessageContextMenu({
           <span>撤回</span>
         </button>
       ) : null}
+      {onRemoveReaction
+        ? state.message.setEmojiList
+            ?.filter((item) => item.isSelfSet)
+            .map((item) => (
+              <button
+                type="button"
+                key={`remove-${item.emojiId}`}
+                aria-label={`撤回贴表情 ${item.emojiId}`}
+                title={removeReactionBlockedReason || `撤回自己的贴表情 ${item.emojiId}`}
+                disabled={Boolean(removeReactionBlockedReason)}
+                onClick={() => onRemoveReaction(state.message, item.emojiId)}
+              >
+                <FaceEmoji element={{ faceId: Number(item.emojiId) }} size={17} />
+                <span>撤回贴表情</span>
+              </button>
+            ))
+        : null}
       <button type="button" onClick={() => void onCopy(state.message)}>
         <Copy size={17} />
         <span>复制</span>
@@ -185,10 +207,12 @@ export function MessageContextMenu({
           <span>下载</span>
         </button>
       ) : null}
-      <button type="button" onClick={() => onDelete(state.message)}>
-        <Trash2 size={17} />
-        <span>删除</span>
-      </button>
+      {onDelete ? (
+        <button type="button" onClick={() => onDelete(state.message)}>
+          <Trash2 size={17} />
+          <span>删除</span>
+        </button>
+      ) : null}
     </div>
   );
 }

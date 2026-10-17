@@ -436,6 +436,44 @@ MCP **没有**开这条工具，要知道一条消息当前有哪些回应、各
   （`result=0`，但群里没有 seq/回显；私聊只留一条 `[空消息]`）。markdown 只有官方机器人身份
   （`@tencent-connect/qqbot-nodejs` 那条通道）才发得出去。
 
+## 五之二、引用回复的指针：两个 seq 空间（2026-10-17 真机对账）
+
+引用回复是「`elem.replyElement`（老 wire `srcMsg`）+ 正文」的组合，指针落在 `origSeqs[0]`。
+**这个格子群聊和私聊要填的不是同一套编号**，而这正是 WeQ 私聊引用一直定位不到原消息的原因：
+
+| 场景 | 填什么 | 列 | wire |
+| --- | --- | --- | --- |
+| 群聊 | 群内 seq | 40003 | `contentHead.sequence`（群消息这格就是群内 seq） |
+| 私聊 | **发送方本地 client sequence** | 40005 | `contentHead.sequence` tag 5 |
+
+私聊的「会话级 seq」（40003 / `contentHead.ntMsgSeq` tag 11）是**历史分页与回执**用的另一套编号，
+QQ 不拿它解析引用指针 —— 填了它，收端只会画一个定位不到原消息的空引用框（群聊两个空间同值，
+所以群聊这条一直是对的，也就一直没暴露问题）。同一条私聊引用里 `47416` 也镜像了原消息的另一份
+id（实测 = 原消息行的 `40006`，形如 `1<<56 | 40002`），同样不是 `40003`。
+
+判定依据（本地库对账，两条都是真实样本）：
+
+- 本机真 QQ 发的私聊引用：元素 `47402 = 12`，被引用行 `40005 = 12`（`40003 = 785`）——
+  引用元素与 40900 缓存里的源行逐字段对得上；
+- WeQ 发的私聊引用（`触发？`）：元素 `47402 = 821`，被引用行 `40003 = 821`、`40005 = 6851`
+  —— 填的是会话级那套，收端定位不到。
+
+实现上的三个落点：`origMsgSeq` 由调用方选定（`@weq/protocol` 的 `SendReplyElement` 有说明），
+`@weq/service` 的 `buildTextElements` 优先 `replyToClientSeq`、缺省退回 `replyToMsgSeq`，
+渲染端 `composerQuote.composerQuoteElement` 优先用行里的 `clientSeq`（列 40005，经
+`ChatMsgWire` / `Message.clientSeq` 透上来）。MCP 侧 `send_text_message` 因此多了
+`replyToClientSeq`，`get_messages(includeIds=true)` 会连带返回 `clientSeq`。
+
+**两个已知缺口**（都还没动）：
+
+- **自己发的消息**：私聊发送时 `clientSequence` 用 `send.ts` 的进程内自增游标（重启回 1），
+  而 QQ 客户端是几千几万的单调计数器。同一会话里两条 WeQ 消息可能共用同一个 client
+  sequence，引用其中一条时指针会歧义（收端可能指到另一条）。要彻底稳，得把游标改成
+  按会话持久化（或从库里的 `MAX(40005)+1` 续号）。
+- **漫游拉回来的消息**：`contentHead.sequence`(tag 5) 目前只在本地库里读得到 —— 漫游 / 缺口
+  补全链路存的还是解码时选定的 `sequence`（私聊 = tag 11），缓存里没有 client sequence，
+  所以引用一条「缺口补全」来的私聊消息仍会退化成填 `40003`。要支持得给漫游缓存加一列。
+
 ## 六、发送回执的对账键：用 `random`，不要用 msgId / seq
 
 前端发出去的消息不会立刻（私聊甚至永远不）回到本地库，所以必须**乐观渲染**一条临时气泡，
@@ -465,6 +503,8 @@ MCP **没有**开这条工具，要知道一条消息当前有哪些回应、各
   不当心插进中间会让后面所有列静默错位（`packages/db/test/msg_order.test.ts` 有一条测试钉这个）。
 
 ### 私聊的三套编号（2026-09-27 实测）
+
+2026-10-16 补充：须区分 wire `contentHead.sequence`（tag 5，发送方序号）与 `contentHead.ntMsgSeq`（tag 11，NT 会话序号）。当前 `decodeMessage` 在私聊优先 tag 11；已有近期私聊样本在 random、发送者、时间及本地 `40003` 上完成对账。下表是旧回执口径，不据其“服务端 seq 不同”推断当前 tag 11 也与本地不同，更不能直接拿 tag 5 判定漫游窗口。研究原件已移至仓库外，当前产品边界见 [统一 SSO 说明](unified-sso-history-20261017.md)。
 
 同一个私聊会话（对方 uid `u_LKt3Ad...` / `u_h3h1...`）里，同一个「序号」概念有三个来源：
 

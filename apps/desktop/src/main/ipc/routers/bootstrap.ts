@@ -44,6 +44,7 @@ import {
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
+import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -379,9 +380,9 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  // ---- version (设置 → 全局设置) ----
+  // ---- version (设置 → 版本) ----
 
-  /** WeQ app version + the runtime versions, for the 全局设置 page. */
+  /** WeQ app version + the runtime versions, for the 版本 page. */
   getVersionInfo: procedure.query(() => {
     const host = getHost();
     return {
@@ -392,6 +393,15 @@ export const bootstrapRouter = router({
       isDev: !host.isPackaged(),
     };
   }),
+
+  /**
+   * 内置 native 组件的构建信息（构建时间 / 过期时间 / 有效期长度）。
+   *
+   * 直接读 `.node` 自报的 `getBuildInfo()`，**不经过** native 加载校验 —— 构建
+   * 过期时 `loadNative` 会抛错，但版本页仍要能显示过期时间。老 `.node` 没有这个
+   * 函数、或读不到时返回 null（版本页显示「未知」）。
+   */
+  getNativeBuildInfo: procedure.query(() => readNativeBuildInfo()),
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
@@ -579,6 +589,17 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ linkPreview: input });
       return true;
     }),
+
+  /** 是否显示会话内消息序号。 */
+  setShowMessageSeq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageSeq: input.enabled });
+    return true;
+  }),
+
+  setShowMessageTime: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
+    return true;
+  }),
 
   /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
   setShowMsgDecoration: procedure

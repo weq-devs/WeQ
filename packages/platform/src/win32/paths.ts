@@ -145,6 +145,25 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
   return firstExistingUnder(home, overrideRoot, 'nt_qq', 'global', 'nt_db', 'login.db');
 }
 
+/**
+ * `<root>/nt_qq/global/nt_data/search/resource_jieba` — QQ's bundled jieba
+ * dictionary. It sits under the SHARED `global/` tree (same level as
+ * `login.db`), not a per-account `<uin>/nt_qq/nt_data`, so it resolves from
+ * the root list directly. Missing is a normal outcome — callers fall back to
+ * the built-in segmenter.
+ */
+export function findJiebaDictDir(home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(
+    home,
+    overrideRoot,
+    'nt_qq',
+    'global',
+    'nt_data',
+    'search',
+    'resource_jieba',
+  );
+}
+
 /** `<root>/<uin>` — the account's user-data directory — for the first root that has it. */
 export function findAccountDir(
   uin: string,

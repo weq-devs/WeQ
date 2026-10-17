@@ -33,6 +33,27 @@ export enum InitStatus {
   UnknownError = 99,
 }
 
+/**
+ * Build time / validity window reported by the binary itself. Mirrors
+ * `BuildInfo` in `nt_helper/src/lib.rs`.
+ *
+ * `expireTime` is `buildTime + validitySecs`. Local dev builds (no
+ * `BUILD_TIMESTAMP`) report `null` for both times and `isDev: true`.
+ */
+export interface NativeBuildInfo {
+  /**
+   * Unix seconds baked in at compile time. **Absent** (undefined) for dev builds —
+   * napi renders Rust's `Option<i64>` as an optional field, not `null`.
+   */
+  buildTime?: number;
+  /** Unix seconds at which the build stops being valid; absent for dev builds. */
+  expireTime?: number;
+  /** Length of the validity window in seconds. */
+  validitySecs: number;
+  /** True for local dev builds (no expiry check). */
+  isDev: boolean;
+}
+
 // ---------- QQ process / login detection ---------------------------------
 
 /**
@@ -529,6 +550,12 @@ export interface CaptureSupport {
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
+  /**
+   * Build time / validity window reported by the binary. Absent on older
+   * `.node` builds (added alongside the version page) — always probe with
+   * `typeof nt.getBuildInfo === 'function'`.
+   */
+  getBuildInfo?(): NativeBuildInfo;
   setLogPath(path: string): void;
   /**
    * 打开 / 关闭底层调试日志模式（运行时可调，无需重启）。**默认关闭**：不打印、
@@ -651,6 +678,22 @@ export interface NtHelperBinding {
    * 传 `null`/`undefined` 根路径时 native 抛错（调用方应先解析出根）。
    */
   readDeviceGuid(dataRoot: string): string | null;
+  /**
+   * 随机换一个设备 guid 并写回 QQ 数据目录，返回新 guid（32 位小写 hex）。
+   *
+   * 「让本机被服务端识别成一台新设备」就是这一步：三端各改写自己那份设备标识
+   * 来源（Linux `global/nt_data/msf/machine-info` 的 MAC、macOS
+   * `machineid-info` 的 machine_id、Windows `<msf>\Registry20` 或
+   * `All Users/{QQ,TIM}/Registry2.0.db`）。不联网、不碰进程、不需要权限。
+   *
+   * **注意**：调用前必须确认没有 QQ 实例在跑 —— 这些文件由 QQ 自己维护，QQ
+   * 在线时会被它覆盖回去。native 不做进程检查，由调用方（实例数探测）把关。
+   *
+   * 返回 `null` = 该根下没有可改写的来源（例如 Windows 三条路都没有缓存）。
+   * 与 {@link readDeviceGuid} 一样是**同步**的（只改文件，不 await 任何东西）。
+   * **可选**：老产物没有这个能力，调用方必须按"旧产物"处理。
+   */
+  writeDeviceGuid?(dataRoot: string): string | null;
 
   // --- 签名（qq 的 wrapper.node） ---
   /**

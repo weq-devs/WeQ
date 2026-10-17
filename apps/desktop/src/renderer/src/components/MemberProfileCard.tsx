@@ -11,6 +11,11 @@
  * 卡片底部是与「个性主页 / 互动标识」并列的入口行；从群成员列表进来时（带 groupCode）
  * 多一枚「查看聊天分析」，点开 {@link ./MemberAnalyticsDialog} —— 某人在**这个群**里的
  * 发言量 / 时段 / 常用语与表情。
+ *
+ * 浮层外壳（portal / 层级 / 拖拽打洞 / 点遮罩关闭）交给 {@link ./OverlayLayer}：
+ * 卡片是贴光标的 anchored popover，必须 portal 到 body，**不能**为了「统一挂载」而
+ * 改成 inline —— 祖先带 `backdrop-filter` / `transform` 会把 `position: fixed` 的包含块
+ * 换掉，贴屏坐标当场失效。
  */
 import {
   Award,
@@ -38,18 +43,17 @@ import {
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { User } from '../im-template/template/types';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
+import { OverlayLayer } from './OverlayLayer';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { displayUserName, displayGroupMemberName } from '../im-template/template/user';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
 import {
   ProfileRow,
   birthdayText,
@@ -111,8 +115,6 @@ export function MemberProfileCard({
   // getProfile 需要 uid，早先误传 identityValue(=uin) 会拉不到 profile_info_v6。
   const uid = member.id;
   const canAnalyze = Boolean(groupCode && uid);
-
-  useEscapeToClose(onClose);
 
   // 补全陌生人资料字段。
   useEffect(() => {
@@ -230,17 +232,11 @@ export function MemberProfileCard({
     }
   }
 
-  return createPortal(
-    <div
+  return (
+    <OverlayLayer
       className="weq-member-pop-scrim"
-      role="presentation"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 90,
-        display: dismissed ? 'none' : undefined,
-      }}
-      onMouseDown={onClose}
+      style={{ display: dismissed ? 'none' : undefined }}
+      onClose={onClose}
     >
       <section
         ref={cardRef}
@@ -504,7 +500,6 @@ export function MemberProfileCard({
           }}
         />
       ) : null}
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

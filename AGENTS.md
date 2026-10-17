@@ -22,13 +22,18 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 
 ## 1. 分支：一切以 dev 为基准
 
-- **所有开发都以 `dev` 为基准**：从最新的 `dev` 拉分支，PR 的 base 也是 `dev`。
-- `main` 是发布分支，只接受来自 `dev` 的合并，**不要**基于 `main` 开分支，也不要直接对 `main` 提 PR。
-- 分支名 `类型/简短描述`，小写短横线：`feat/linux-adaptation`、`fix/anti-recall-graytip`、`refactor/test-config-cleanup`。
+- **所有改动都以 `dev` 为基准**。落点是 `dev` 还是特性分支，看这次是**提 PR** 还是**直接 push**：
+  - **准备提 PR**（默认，尤其非维护者 / 大改动）：从最新的 `dev` 拉特性分支，在上面提交，PR 的 base 也是 `dev`。
+  - **直接 push**（维护者自己、小改动、懒得起 PR）：可以直接 commit 到 `dev` 然后 push，不用非开分支。
+- `main` 是发布分支，只接受来自 `dev` 的合并，**不要**基于 `main` 开分支，也不要直接对 `main` 提 PR 或提交。
+- 走 PR 时分支名 `类型/简短描述`，小写短横线：`feat/linux-adaptation`、`fix/anti-recall-graytip`、`refactor/test-config-cleanup`。
 
 ```bash
+# 走 PR
 git checkout dev && git pull
 git checkout -b feat/your-feature
+
+# 直接 push：跳过上面这步，在当前 dev 上改完直接 commit + push
 ```
 
 - Commit 用 [Conventional Commits](https://www.conventionalcommits.org/)：`feat` / `fix` / `refactor` / `docs` / `style` / `test` / `chore` / `perf`，描述可以用中文。
@@ -139,7 +144,7 @@ pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 
 ## 10. 收工前自检
 
-- [ ] 基于 `dev` 拉的分支，改动聚焦单一主题
+- [ ] 落点正确（提 PR 走特性分支、直接 push 落 `dev`），改动聚焦单一主题
 - [ ] `pnpm ci:local` 全绿
 - [ ] 新功能 / bug 修复已写进 `CHANGELOG.md` 的 `## Unreleased - 进行中`（没有这一节就先补上）
 - [ ] 该加的单测加了，且没碰真 QQ 数据 / 网络

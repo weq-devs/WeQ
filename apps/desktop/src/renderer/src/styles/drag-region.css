@@ -18,6 +18,9 @@
  */
 
 /* ---- 全屏遮罩 + 居中弹窗 / 灯箱 ---- */
+/* `.weq-overlay-layer` 是统一浮层外壳（components/OverlayLayer.tsx）的根类名：
+   凡是走那个外壳的浮层都在这里自动打洞，不必再逐个补。 */
+.weq-overlay-layer,
 .weq-dialog-layer,
 .weq-lightbox-layer,
 .weq-settings-layer,

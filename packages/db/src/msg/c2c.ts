@@ -47,12 +47,15 @@ import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './ca
 import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
-// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
-// this list positionally, so inserting it in the middle would silently shift
-// every column after it. It is the client-generated `random` we echo into the
-// send request — the one stable id shared by the DB, the send receipt, and the
-// server-fetched history (see C2cMsg.msgRandom).
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002"`;
+// 40002 (msgRandom) and 40005 (clientSeq) are appended LAST on purpose: every row
+// mapper below indexes this list positionally, so inserting a column in the
+// middle would silently shift every column after it.
+//   40002 = the client-generated `random` we echo into the send request — the one
+//           stable id shared by the DB, the send receipt, and the server-fetched
+//           history (see C2cMsg.msgRandom);
+//   40005 = the sender-local client sequence = the wire `contentHead.sequence`
+//           (tag 5) that a private-chat reply must quote (see C2cMsg.clientSeq).
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002","40005"`;
 
 /**
  * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
@@ -887,6 +890,7 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
     msgRandom: toBigint(row[11]),
+    clientSeq: toBigint(row[12]),
   };
 }
 
@@ -904,6 +908,8 @@ function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
     msgSeq: toBigint(row[8]),
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
+    decoration: decodeDress(row[11]),
     msgRandom: toBigint(row[12]),
+    clientSeq: toBigint(row[13]),
   };
 }

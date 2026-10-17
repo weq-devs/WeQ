@@ -56,6 +56,23 @@ export function previewNodes(
 ): PreviewNode[] {
   if (!preview || typeof preview !== 'object') return [];
   const el = preview as Rec;
+  if (Array.isArray(el.previewElements)) {
+    const elements = el.previewElements.filter((item): item is Rec =>
+      Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+    );
+    // Markdown 的兼容 TEXT 元素是同一份正文，不重复显示。
+    const hasText = elements.some(
+      (item) => item.kind === 'text' && hasVisibleText(str(item.textContent)),
+    );
+    return elements
+      .filter((item) => !(hasText && item.kind === 'markdown'))
+      .flatMap((item) => {
+        const { previewElements: _nested, ...single } = item;
+        if (single.kind === 'text' && typeof single.textContent === 'string')
+          return [{ t: 'text' as const, text: flashPreviewLabel(single.textContent) }];
+        return previewNodes(single, selfIdentities, displayNames);
+      });
+  }
   const kind = str(el.kind);
 
   // 表情消息：QQ 把正文塞进 textContent、表情单独放 faceId，displayText 只有
@@ -65,7 +82,8 @@ export function previewNodes(
     const body = str(el.textContent).trim();
     if (body) nodes.push({ t: 'text', text: body });
     const faceId = num(el.faceId);
-    if (faceId > 0) nodes.push({ t: 'face', faceId, label: str(el.displayText) || undefined });
+    if (el.faceId !== undefined && Number.isInteger(faceId) && faceId >= 0)
+      nodes.push({ t: 'face', faceId, label: str(el.displayText) || undefined });
     return nodes.length ? nodes : [{ t: 'text', text: '[表情]' }];
   }
 
