@@ -9711,11 +9711,20 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   padding: 20px 24px 24px;
 }
 
+.weq-decoration-card-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* 右上角是绝对定位的关闭按钮，别让「另存全部」钻到它下面。 */
+  padding-right: 34px;
+  margin-bottom: 20px;
+}
+
 .weq-decoration-card-title {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 20px;
   font-size: 18px;
   font-weight: 600;
   color: var(--weq-fg-primary);
@@ -9731,8 +9740,64 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   gap: 16px;
 }
 
+/* 资源卡 + 卡底的「另存为」：按钮贴在卡片边缘，不抢占预览高度。 */
+.weq-decoration-card-slot {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weq-decoration-card-save,
+.weq-decoration-card-save-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, var(--weq-fg-primary));
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.weq-decoration-card-save {
+  align-self: stretch;
+}
+
+.weq-decoration-card-save-all {
+  flex: none;
+}
+
+.weq-decoration-card-save:hover:not(:disabled),
+.weq-decoration-card-save-all:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-decoration-card-save:focus-visible,
+.weq-decoration-card-save-all:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.weq-decoration-card-save:disabled,
+.weq-decoration-card-save-all:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* 单个装扮项 */
 .weq-decoration-card-item {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 12px;

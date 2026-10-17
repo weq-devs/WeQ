@@ -16,9 +16,11 @@ export function insertComposerNode(editor: HTMLElement, node: Node, savedRange: 
   editor.focus();
 
   const range = getComposerRange(editor, savedRange);
+  const last = node instanceof DocumentFragment ? node.lastChild : node;
+  if (!last) return;
   range.deleteContents();
   range.insertNode(node);
-  range.setStartAfter(node);
+  range.setStartAfter(last);
   range.collapse(true);
 
   const selection = window.getSelection();
@@ -85,7 +87,7 @@ export function getActiveComposerMentionTrigger(
   beforeRange.selectNodeContents(editor);
   beforeRange.setEnd(range.startContainer, range.startOffset);
   const before = serializeComposerNode(beforeRange.cloneContents()).replace(/\u200b/g, '');
-  const match = /(^|[\s\n])@([^\s@\n]{0,40})$/u.exec(before);
+  const match = /(^|[^A-Za-z0-9_.+\-@])@([^\s@\n]{0,40})$/u.exec(before);
   if (!match) {
     return null;
   }
@@ -162,6 +164,8 @@ function appendElementChip(editor: HTMLElement, raw: string) {
     mention.className = cn('composer-mention-token');
     mention.contentEditable = 'false';
     mention.dataset.chatMention = label;
+    if (typeof element.atTargetUid === 'string') mention.dataset.weqAtUid = element.atTargetUid;
+    if (element.atTargetUin != null) mention.dataset.weqAtUin = String(element.atTargetUin);
     mention.dataset.chatToken = raw;
     mention.textContent = label;
     editor.append(mention);

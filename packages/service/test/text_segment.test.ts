@@ -31,6 +31,14 @@ const MAIN_DICT = [
   '链 250 n',
   '这 800000 r',
   '个 700000 q',
+  '今天 40000 t',
+  '和 90000 c',
+  '就是 5000 d',
+  '谢谢 1000 v',
+  '加油 2000 v',
+  '欢迎 3000 v',
+  '开始 8000 v',
+  '问题 9000 n',
 ].join('\n');
 
 const dirs: string[] = [];
@@ -96,5 +104,18 @@ describe('warmJiebaDict + segmentWords', () => {
     __resetJiebaForTest();
     await warmJiebaDict(fixtureDir(false));
     expect(segmentWords('的 我 个 12345')).toEqual([]);
+  });
+
+  it('扩充后的停用词能洗掉虚词，同时保留正常聊天词', async () => {
+    __resetJiebaForTest();
+    await warmJiebaDict(fixtureDir(false));
+    expect(segmentWords('今天 和 一下 密钥 就是 的')).toEqual(['今天', '密钥']);
+    expect(segmentWords('谢谢 加油 欢迎 开始 问题')).toEqual([
+      '谢谢',
+      '加油',
+      '欢迎',
+      '开始',
+      '问题',
+    ]);
   });
 });

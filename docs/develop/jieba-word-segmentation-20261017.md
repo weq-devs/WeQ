@@ -55,6 +55,12 @@ win32:          <Tencent Files>/nt_qq/global/nt_data/search/resource_jieba/
 这一步换成词典版本；词典加载由 `warmJiebaDict(dir)` 惰性完成（进程级单例，账号无关只加载一次），
 加载失败或目录缺失时静默跳过，`segmentWords()` 自动回落到 `Intl.Segmenter`。
 
+停用词与 token 归一化集中在 `@weq/agentlab/src/stopwords.ts` 的 `normalizeChatToken()`：
+词云 / 口头禅（`segmentWords`）与常用语 / 关键词（`tokenizeText`）共用同一套口径，避免
+「词云干净了、常用语还在数 的/了/我」的两套标准。词表参考常见中文 / 英文停用词表整理，
+但**刻意不整份照搬**：通用表里的「欢迎」「开始」「问题」「今天」「结果」等正常内容词会误杀
+词云，只保留虚词、代词、连词、介词、语气词、口语填充词与纯语法短语。
+
 `warmJiebaDict` 还会把同一份词典通过 `setDefaultSegmenter` 装给 `@weq/agentlab`，让
 `persona.ts` 的「常用语」(`topTerms`) 和 `http.ts` 的关键词提取共享同一套切法 —— 它们原先按
 「非中英数字符即分隔」切，整段中文会变成一个 token（`下载链接` 这种），装上词典后才按词切。

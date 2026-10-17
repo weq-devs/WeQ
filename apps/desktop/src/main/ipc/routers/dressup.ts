@@ -18,6 +18,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { getHost } from '@weq/service';
@@ -31,6 +32,7 @@ import {
 } from '../../context/app_context';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
+import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -360,6 +362,43 @@ export const dressupRouter = router({
     .query(async ({ input }) => {
       const services = requireServices();
       return services.msgDecoration.resolve(input);
+    }),
+
+  /**
+   * 把一条消息的装扮资源另存到用户选定位置。
+   *
+   * `kind` 省略 = 三项打成一个 zip；传 `kind` = 只存那一项（字体 / 静态图给
+   * 原生文件，多帧动画才是 zip）。保存框走 HostBridge，Web 版会落到服务端导出
+   * 目录并走 `/_download/:id`（前端据此触发浏览器下载）。
+   */
+  saveMsgDecoration: procedure
+    .input(
+      z.object({
+        bubbleId: z.number().int().min(0).default(0),
+        fontId: z.number().int().min(0).default(0),
+        widgetId: z.number().int().min(0).default(0),
+        kind: z.enum(['font', 'bubble', 'widget']).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const ids = { bubbleId: input.bubbleId, fontId: input.fontId, widgetId: input.widgetId };
+      const exportFile = input.kind
+        ? await buildDecorationFile(services, ids, input.kind)
+        : await buildDecorationBundle(services, ids);
+      const extension = exportFile.fileName.split('.').pop() ?? 'zip';
+      const target = await getHost().pickSaveTarget({
+        defaultName: exportFile.fileName,
+        extension,
+      });
+      if (!target) return { saved: false as const, canceled: true as const };
+      await writeFile(target.path, exportFile.bytes);
+      return {
+        saved: true as const,
+        path: target.path,
+        downloadId: target.downloadId,
+        name: exportFile.fileName,
+      };
     }),
 
   /**
