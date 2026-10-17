@@ -15,6 +15,8 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { copyExportSavePolicy, resolveExportSaveDirectory } from '@weq/service';
+import { exportSavePolicyInput } from './export_save';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -408,6 +410,46 @@ export const bootstrapRouter = router({
   /** Full, defaulted global settings (realtime / 自动读取 QQ 内存 / …). */
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
+  }),
+
+  setExportSaveMode: procedure
+    .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ exportSaveMode: input.mode })
+        .exportSaveMode;
+    }),
+
+  setExportSaveDefaults: procedure.input(exportSavePolicyInput).mutation(({ input }) => {
+    const config = requireBootstrap().userConfig;
+    if (input.mode !== 'preset') return config.setSettings({ exportSaveMode: input.mode });
+    const host = getHost();
+    const selected = input.directory ?? config.getSettings().defaultExportDir ?? host.exportRoot;
+    const policy = copyExportSavePolicy({
+      mode: 'preset',
+      directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
+    });
+    return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
+  }),
+
+  pickExportSaveDirectory: procedure.mutation(() =>
+    getHost().pickDirectory({ title: '选择导出保存位置' }),
+  ),
+
+  prepareExportSave: procedure.input(exportSavePolicyInput).mutation(async ({ input }) => {
+    if (input.mode === 'after') return { mode: 'after' as const };
+    const host = getHost();
+    const settings = requireBootstrap().userConfig.getSettings();
+    let directory: string | null | undefined = input.directory;
+    if (host.exportRoot) {
+      directory = resolveExportSaveDirectory(
+        host.exportRoot,
+        directory ?? (input.mode === 'preset' ? (settings.defaultExportDir ?? '') : ''),
+      );
+    } else if (input.mode === 'before') {
+      directory = await host.pickDirectory({ title: '选择本次导出保存位置' });
+      if (!directory) return null;
+    } else directory ??= settings.defaultExportDir;
+    return copyExportSavePolicy({ mode: input.mode, directory: directory ?? undefined });
   }),
 
   /**

@@ -79,6 +79,7 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
 }
 
 export interface LightboxResult {
+  saveAsDefault?: boolean;
   /** 灯箱里多选的导出格式（至少一种）。 */
   formats: ExportFormat[];
   options: ExportOptions;
@@ -302,7 +303,6 @@ export function ExportLightbox({
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   onPickPath,
-  autoSaveHint,
   onClose,
   onConfirm,
 }: {
@@ -338,6 +338,7 @@ export function ExportLightbox({
   });
   const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [path, setPath] = useState<string | null>(null);
   const [pickingPath, setPickingPath] = useState(false);
@@ -664,6 +665,7 @@ export function ExportLightbox({
   function confirm(): void {
     submittedRef.current = true;
     onConfirm({
+      saveAsDefault,
       formats,
       options: opts,
       schedule: isScheduled ? schedule : undefined,
@@ -712,6 +714,14 @@ export function ExportLightbox({
             <strong>{headline}</strong>
             <span title={summary}>{summary}</span>
           </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={saveAsDefault}
+              onChange={(event) => setSaveAsDefault(event.target.checked)}
+            />
+            设为此类内容的默认配置
+          </label>
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
           </button>
@@ -1148,23 +1158,6 @@ export function ExportLightbox({
                 {/* 扩展功能 */}
                 {isMessageFlow ? (
                   <Card title="扩展功能">
-                    {isScheduled || autoSaveHint ? (
-                      <p className="weq-exp-block-hint">
-                        {autoSaveHint ??
-                          '定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。'}
-                      </p>
-                    ) : (
-                      <Row
-                        label="导出后自动保存"
-                        desc="完成后弹出保存路径"
-                        control={
-                          <Toggle
-                            checked={opts.autoSave}
-                            onChange={(v) => patch({ autoSave: v })}
-                          />
-                        }
-                      />
-                    )}
                     <Row
                       label="语音转写"
                       desc={

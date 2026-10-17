@@ -79,8 +79,6 @@ import {
   fmtBytes,
   fmtCount,
   groupAvatarUrl,
-  isBackendFormat,
-  type BackendFormat,
   type ExportFormat,
   type ExportMode,
   type ExportOptions,
@@ -89,6 +87,10 @@ import {
 } from './export/types';
 import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
+import { ExportSaveControl } from './export/ExportSaveControl';
+import { SaveResultLocation } from './export/SaveResultLocation';
+import { IS_WEB } from '../lib/target';
+import type { ExportSavePolicy } from '@weq/service';
 import type { ContentSelection } from '../../../shared/content_selection';
 
 interface ModeDef {
@@ -309,6 +311,44 @@ export function ExportTool({
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const pushToast = useToast((s) => s.push);
+  const mounted = useRef(true);
+  const saveLocationPending = useRef<((directory: string | null) => void) | null>(null);
+  const [saveLocationTask, setSaveLocationTask] = useState<UiTask | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      saveLocationPending.current?.(null);
+    };
+  }, []);
+  const globalSettings = trpc.bootstrap.getSettings.useQuery();
+  const [saveOverride, setSaveOverride] = useState<ExportSavePolicy | null>(null);
+  const saveRequest: ExportSavePolicy = saveOverride ?? {
+    mode: globalSettings.data?.exportSaveMode ?? 'after',
+    directory: globalSettings.data?.defaultExportDir ?? undefined,
+  };
+  async function prepareSave(): Promise<ExportSavePolicy | null> {
+    if (!mounted.current) return null;
+    const policy = await client.bootstrap.prepareExportSave.mutate(saveRequest);
+    return mounted.current ? policy : null;
+  }
+  async function pickSaveDirectory(): Promise<void> {
+    try {
+      const directory = await client.bootstrap.pickExportSaveDirectory.mutate();
+      if (directory) setSaveOverride({ mode: saveRequest.mode, directory });
+    } catch (error) {
+      dialog.error('选择保存目录失败', error instanceof Error ? error.message : String(error));
+    }
+  }
+  async function setSaveDefault(): Promise<void> {
+    try {
+      await client.bootstrap.setExportSaveDefaults.mutate(saveRequest);
+      await utils.bootstrap.getSettings.invalidate();
+      pushToast({ tone: 'success', title: '默认保存方式已更新' });
+    } catch (error) {
+      dialog.error('更新默认保存方式失败', error instanceof Error ? error.message : String(error));
+    }
+  }
 
   const conversations = trpc.account.listConversationsWithCount.useQuery();
   /** 自己的账号资料 —— QQ 空间导出列表里「自己」这个选项用它取 uin / 昵称。 */
@@ -370,8 +410,6 @@ export function ExportTool({
   const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const collectionStartedRef = useRef(false);
-  /** 勾选「导出后自动保存」的任务 id：完成后自动弹保存路径。 */
-  const autoSaveIds = useRef<Set<string>>(new Set());
 
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
@@ -485,22 +523,10 @@ export function ExportTool({
   }, [mode]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 进度订阅只挂载一次，引用的 tasks.refetch / autoSaveCompleted 在生命周期内保持稳定
   useEffect(() => {
     const sub = client.account.onExportProgress.subscribe(undefined, {
       onData: (progress) => {
         void utils.account.listExportTasks.invalidate();
-        // 勾选「导出后自动保存」的任务完成后，自动弹保存路径（每份独立选择）。
-        if (progress.status === 'completed' && autoSaveIds.current.size > 0) {
-          void tasks.refetch().then((rows) => {
-            for (const t of (rows.data ?? []) as UiTask[]) {
-              if (t.status === 'completed' && autoSaveIds.current.has(t.id)) {
-                autoSaveIds.current.delete(t.id);
-                void autoSaveCompleted(t);
-              }
-            }
-          });
-        }
         if (progress.notice) {
           pushToast({ tone: 'warning', title: '消息补全', message: progress.notice, ttl: 5000 });
         }
@@ -679,6 +705,7 @@ export function ExportTool({
       bundleDir: t.bundleDir,
       canResume: t.canResume,
       reportPath: t.reportPath,
+      save: t.save,
       avatarCount: t.avatarCount,
       stages: t.stages,
       logs: (t as { logs?: UiLogLine[] }).logs ?? [],
@@ -717,32 +744,48 @@ export function ExportTool({
     void client.account.pauseExportTask.mutate({ taskId: t.id }).then(refetchTasks);
   const onCancel = (t: UiTask): void =>
     void client.account.cancelExportTask.mutate({ taskId: t.id }).then(refetchTasks);
-  const onDelete = (t: UiTask): void =>
-    void client.account.deleteExportTask.mutate({ taskId: t.id }).then(refetchTasks);
+  const onDelete = async (t: UiTask): Promise<void> => {
+    if (t.status === 'completed' && t.save?.status !== 'saved') {
+      const confirmed = await dialog.confirm(
+        '删除尚未保存的结果',
+        `「${t.name}」尚未保存到目标位置，删除会移除任务及其导出缓存。`,
+        { okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
+      );
+      if (!confirmed) return;
+    }
+    try {
+      const deleted = await client.account.deleteExportTask.mutate({ taskId: t.id });
+      if (!deleted) dialog.info('暂时无法删除', '任务仍在执行或保存，请等待当前步骤收尾。');
+      refetchTasks();
+    } catch (error) {
+      dialog.error('删除失败', error instanceof Error ? error.message : String(error));
+    }
+  };
 
   /** 把单个已完成任务保存到用户选择的位置（不再使用默认目录记忆，每次都弹路径）。 */
   async function saveTask(t: UiTask): Promise<boolean> {
     try {
-      let ok = false;
-      if (t.bundleDir) {
-        // Avatar bundle: copy the whole folder (message file + avatars/) out.
-        ok = await client.account.saveExportBundle.mutate({ taskId: t.id });
-      } else if (t.filePath) {
-        const fmt: BackendFormat = isBackendFormat(t.format as ExportFormat)
-          ? (t.format as BackendFormat)
-          : 'json';
-        ok = await client.account.saveExportFile.mutate({
-          sourcePath: t.filePath,
-          defaultName: `${t.name}.${t.format}`,
-          format: fmt,
+      let selected: string | null | undefined;
+      if (IS_WEB) {
+        selected = await new Promise<string | null>((resolve) => {
+          saveLocationPending.current?.(null);
+          saveLocationPending.current = resolve;
+          setSaveLocationTask(t);
         });
+        if (selected === null || !mounted.current) return false;
       }
-      if (ok) {
-        await client.account.deleteExportTask.mutate({ taskId: t.id });
-        refetchTasks();
-        return true;
-      }
-      return false;
+      const policy = await client.bootstrap.prepareExportSave.mutate({
+        mode: 'before',
+        directory: selected || undefined,
+      });
+      if (!mounted.current) return false;
+      if (!policy?.directory) return false;
+      await client.account.saveExportTaskOutput.mutate({
+        taskId: t.id,
+        directory: policy.directory,
+      });
+      refetchTasks();
+      return true;
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
       return false;
@@ -753,17 +796,18 @@ export function ExportTool({
     await saveTask(t);
   };
 
-  /** 「导出后自动保存」：任务完成时自动弹路径保存。 */
-  async function autoSaveCompleted(t: UiTask): Promise<void> {
-    pushToast({ tone: 'info', title: '导出完成', message: '正在选择保存路径…', ttl: 4000 });
-    const ok = await saveTask(t);
-    if (ok) {
-      pushToast({
-        tone: 'success',
-        title: '已保存',
-        message: `${t.name} 已保存到所选位置。`,
-        ttl: 5000,
-      });
+  async function downloadInBrowser(t: UiTask): Promise<void> {
+    try {
+      const download = await client.account.exportTaskDownload.mutate({ taskId: t.id });
+      if (!download || !mounted.current) return;
+      const anchor = document.createElement('a');
+      anchor.href = download.url;
+      anchor.download = '';
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (error) {
+      dialog.error('下载失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -834,10 +878,13 @@ export function ExportTool({
     const range = { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
       for (const t of targets) {
         if (!t.uin) continue;
         const fmt0 = qzoneFormatOf(formats[0] ?? 'json');
         await client.account.startQzoneExport.mutate({
+          savePolicy,
           targetUin: t.uin,
           name: t.name,
           format: fmt0,
@@ -865,10 +912,13 @@ export function ExportTool({
     const cfmts = formats as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
     setSubmitting(true);
     try {
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'friends') {
         const cats = [...catSelection];
         await client.account.startContactsExport.mutate({
+          savePolicy,
           scope: 'friends',
           name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
           format: cfmts[0] ?? 'csv',
@@ -880,6 +930,7 @@ export function ExportTool({
         const g = groupItems.find((it) => it.id === contactGroupId);
         if (!g) return;
         await client.account.startContactsExport.mutate({
+          savePolicy,
           scope: 'group',
           groupCode: g.id,
           name: `${g.name}_群成员`,
@@ -905,7 +956,10 @@ export function ExportTool({
     const kinds = [...collectionKinds];
     setSubmitting(true);
     try {
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
+        savePolicy,
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
         cids: collectionIds ?? filteredCollectionIds,
@@ -962,15 +1016,9 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const autoSaveTaskIds = await startChatExportTasks(
-        targets,
-        effectiveOptions,
-        formats,
-        format,
-      );
-      if (options.autoSave && autoSaveTaskIds.length > 0) {
-        autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
-      }
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
+      await startChatExportTasks(targets, effectiveOptions, formats, format, { savePolicy });
       setConvSelection(new Set());
       setLightbox(null);
       refetchTasks();
@@ -1005,11 +1053,13 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const autoSaveTaskIds: string[] = [];
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
       for (const t of targets) {
         // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
         const fmt0 = formats[0] ?? format;
-        const id = await client.account.guildDirectStartExport.mutate({
+        await client.account.guildDirectStartExport.mutate({
+          savePolicy,
           nodeId: t.id,
           name: t.name,
           format: fmt0 as Exclude<ExportFormat, 'vcard'>,
@@ -1022,10 +1072,6 @@ export function ExportTool({
           media,
           range,
         });
-        if (options.autoSave) autoSaveTaskIds.push(id);
-      }
-      if (autoSaveTaskIds.length > 0) {
-        autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
       }
       setGuildSelection(new Set());
       setLightbox(null);
@@ -1154,13 +1200,14 @@ export function ExportTool({
   }
 
   async function onLightboxConfirm(result: LightboxResult): Promise<void> {
-    // 先把这次确认的配置写进全局 user_config（失败不阻断导出，只影响下次回填）。
+    // 单次配置只留在工具草稿，用户明确勾选时才更新全局默认。
     if (
-      lightbox === 'full' ||
-      lightbox === 'guild' ||
-      lightbox === 'scheduled' ||
-      lightbox === 'qzone' ||
-      lightbox === 'contacts'
+      result.saveAsDefault &&
+      (lightbox === 'full' ||
+        lightbox === 'guild' ||
+        lightbox === 'scheduled' ||
+        lightbox === 'qzone' ||
+        lightbox === 'contacts')
     ) {
       // 频道私聊与完整消息同款灯箱，配置共享。
       rememberPreset(lightbox === 'guild' ? 'full' : lightbox, result);
@@ -1222,6 +1269,8 @@ export function ExportTool({
     }
     setSubmitting(true);
     try {
+      const savePolicy = await prepareSave();
+      if (!savePolicy) return;
       await client.account.createSchedule.mutate({
         name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
         // 主格式 = 第一份；多选的全部格式存进 formats，触发时媒体只带一份。
@@ -1236,6 +1285,7 @@ export function ExportTool({
         chatlab: result.options.chatlab,
         schedule: result.schedule,
         options: {
+          savePolicy,
           range: {
             preset: result.options.range.preset,
             start: result.options.range.start,
@@ -1379,6 +1429,31 @@ export function ExportTool({
 
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
+      {saveLocationTask ? (
+        <SaveResultLocation
+          key={saveLocationTask.id}
+          name={saveLocationTask.name}
+          onChoose={(directory) => {
+            saveLocationPending.current?.(directory);
+            saveLocationPending.current = null;
+            setSaveLocationTask(null);
+          }}
+          onCancel={() => {
+            saveLocationPending.current?.(null);
+            saveLocationPending.current = null;
+            setSaveLocationTask(null);
+          }}
+        />
+      ) : null}
+      {surface === 'export' ? (
+        <ExportSaveControl
+          value={saveRequest}
+          disabled={submitting || globalSettings.isLoading}
+          onChange={setSaveOverride}
+          onPickDirectory={() => void pickSaveDirectory()}
+          onSetDefault={() => void setSaveDefault()}
+        />
+      ) : null}
       {surface === 'export' && !lightbox ? (
         <div className="weq-exp-top">
           {/* 右侧选择面板 */}
@@ -1406,9 +1481,9 @@ export function ExportTool({
 
             <div className="weq-exp-pane-body">
               {mode === 'marketpack' ? (
-                <MarketEmojiDownloadPane onStarted={refetchTasks} />
+                <MarketEmojiDownloadPane onStarted={refetchTasks} prepareSave={prepareSave} />
               ) : mode === 'emojipack' ? (
-                <EmojiPackExportPane onStarted={refetchTasks} />
+                <EmojiPackExportPane onStarted={refetchTasks} prepareSave={prepareSave} />
               ) : mode === 'scheduled' ? (
                 <div className="weq-exp-sched">
                   <div className="weq-exp-sched-head">
@@ -1626,7 +1701,7 @@ export function ExportTool({
                 <button
                   type="button"
                   className="weq-exp-primary"
-                  disabled={primaryDisabled}
+                  disabled={primaryDisabled || submitting || globalSettings.isLoading}
                   onClick={onPrimary}
                 >
                   {primaryLabel}
@@ -1638,7 +1713,7 @@ export function ExportTool({
       ) : null}
 
       {/* 底部任务列表（可折叠覆盖层） */}
-      {surface === 'tasks' ? (
+      {surface === 'tasks' && !saveLocationTask ? (
         <TaskList
           tasks={uiTasks}
           onPause={onPause}
@@ -1658,6 +1733,7 @@ export function ExportTool({
           }}
           onCancel={onCancel}
           onDownload={(t) => void onDownload(t)}
+          onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
           onDelete={onDelete}
           onSaveAll={() => void onSaveAll()}
           onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}

@@ -86,6 +86,7 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
   reportPath?: string;
   id: string;
@@ -368,6 +369,7 @@ function TaskDetail({
   onReport,
   onCancel,
   onDownload,
+  onBrowserDownload,
   onDelete,
   onShowFailures,
 }: {
@@ -377,6 +379,7 @@ function TaskDetail({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
 }): ReactElement {
@@ -442,8 +445,19 @@ function TaskDetail({
           {t.status === 'completed' ? (
             <button
               type="button"
-              title={t.bundleDir ? '保存文件夹…' : '保存到…'}
+              title={t.save?.status === 'saved' ? '另存到其他位置' : '保存到…'}
+              disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
+            >
+              <Download size={15} />
+            </button>
+          ) : null}
+          {t.status === 'completed' && onBrowserDownload ? (
+            <button
+              type="button"
+              title="下载到浏览器"
+              aria-label="下载到浏览器"
+              onClick={() => onBrowserDownload(t)}
             >
               <Download size={15} />
             </button>
@@ -454,12 +468,29 @@ function TaskDetail({
             </button>
           ) : null}
           {t.status !== 'running' ? (
-            <button type="button" title="删除" className="is-danger" onClick={() => onDelete(t)}>
+            <button
+              type="button"
+              title="删除导出缓存"
+              disabled={t.save?.status === 'saving'}
+              className="is-danger"
+              onClick={() => onDelete(t)}
+            >
               <Trash2 size={15} />
             </button>
           ) : null}
         </div>
       </header>
+      {t.status === 'completed' ? (
+        <p className="weq-export-save-status" role="status">
+          {t.save?.status === 'saved'
+            ? `已保存：${t.save.path}`
+            : t.save?.status === 'saving'
+              ? '导出已完成，正在保存并校验结果…'
+              : t.save?.status === 'failed' || t.save?.status === 'interrupted'
+                ? `导出已完成，尚未保存：${t.save.error}`
+                : '导出已完成，结果保留在任务中，等待选择保存位置'}
+        </p>
+      ) : null}
 
       {t.status === 'failed' && t.error ? (
         <div className="weq-exp-detail-err" title={t.error}>
@@ -526,6 +557,7 @@ export function TaskList({
   onReport,
   onCancel,
   onDownload,
+  onBrowserDownload,
   onDelete,
   onShowFailures,
   onSaveAll,
@@ -539,6 +571,7 @@ export function TaskList({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
@@ -670,6 +703,7 @@ export function TaskList({
               onReport={onReport}
               onCancel={onCancel}
               onDownload={onDownload}
+              onBrowserDownload={onBrowserDownload}
               onDelete={onDelete}
               onShowFailures={onShowFailures}
             />

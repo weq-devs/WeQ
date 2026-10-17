@@ -41,6 +41,12 @@ import { MessageAudit, type MessageCoverage } from './message_audit';
 import { exportReport } from './export_report';
 import { exportOptionsHash, fileSha256, roamingDigest } from './resume';
 import { inspectDestination } from './storage_preflight';
+import {
+  copyExportSavePolicy,
+  saveExportOutput,
+  type ExportSavePolicy,
+  type ExportSaveState,
+} from './save_output';
 import { sequenceCoverage } from './sequence_coverage';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
@@ -271,6 +277,7 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  save?: ExportSaveState;
   resumeBinding?: { source: string; options: string; roaming?: string };
   formatCheckpoints?: Record<
     string,
@@ -351,6 +358,8 @@ export interface ExportTaskView extends ExportTask {
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
 export interface MediaDeps {
+  exportSavePolicy?: () => ExportSavePolicy;
+  resolveSaveDirectory?: (directory: string) => string;
   avatarCache?: AvatarCacheService;
   mediaDownload?: MediaDownloadService;
   /** OIDB-backed video / file download URL resolver (needs online QQ). */
@@ -444,6 +453,7 @@ export class ExportTaskManager extends EventEmitter {
    */
   private queue: Promise<void> = Promise.resolve();
   private persistPath: string;
+  private outputSaves = new Map<string, Promise<string>>();
 
   constructor(
     private msgs: MsgService,
@@ -454,6 +464,16 @@ export class ExportTaskManager extends EventEmitter {
     super();
     this.persistPath = join(cacheDir, 'export_tasks.json');
     this.loadTasks();
+    queueMicrotask(() => {
+      for (const task of this.tasks.values()) {
+        if (
+          task.status === 'completed' &&
+          task.save?.status === 'pending' &&
+          task.save.policy.mode !== 'after'
+        )
+          void this.saveTaskOutput(task.id).catch(() => undefined);
+      }
+    });
   }
 
   private loadTasks(): void {
@@ -468,6 +488,10 @@ export class ExportTaskManager extends EventEmitter {
       for (const t of data) {
         if (t.status === 'running' || t.status === 'pending') t.status = 'paused'; // crashed or queued tasks require explicit continuation
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
+        if (t.save?.status === 'saving') {
+          t.save.status = 'interrupted';
+          t.save.error = '上次保存被中断；导出结果仍保留，请明确重试保存。';
+        }
         this.tasks.set(t.id, t);
       }
     } catch (e) {
@@ -489,7 +513,9 @@ export class ExportTaskManager extends EventEmitter {
             : task.filePath
               ? `${task.filePath}.report.json`
               : join(this.cacheDir, `report-${task.id}.json`);
-          writeFileAtomicSync(path, JSON.stringify(exportReport(task), null, 2));
+          const report = JSON.stringify(exportReport(task), null, 2);
+          if (!existsSync(path) || readFileSync(path, 'utf8') !== report)
+            writeFileAtomicSync(path, report);
           task.reportPath = path;
         }
       }
@@ -505,7 +531,72 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   override emit(event: 'progress', data: TaskProgress): boolean {
-    return super.emit(event, data);
+    const emitted = super.emit(event, data);
+    const task = this.tasks.get(data.taskId);
+    if (
+      data.status === 'completed' &&
+      task?.save?.status === 'pending' &&
+      task.save.policy.mode !== 'after'
+    )
+      void this.saveTaskOutput(task.id).catch(() => undefined);
+    return emitted;
+  }
+
+  private registerTask(task: ExportTask, policy?: ExportSavePolicy): void {
+    const resolved = copyExportSavePolicy(
+      policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'after' },
+    );
+    if (resolved.directory && this.deps.resolveSaveDirectory)
+      resolved.directory = this.deps.resolveSaveDirectory(resolved.directory);
+    task.save = {
+      policy: resolved,
+      status: 'pending',
+    };
+    this.tasks.set(task.id, task);
+  }
+
+  /** 保存结果是独立状态；失败不抹掉已经完成的导出，也不清理唯一缓存结果。 */
+  async saveTaskOutput(taskId: string, directory?: string): Promise<string> {
+    const active = this.outputSaves.get(taskId);
+    if (active) return active;
+    const task = this.tasks.get(taskId);
+    if (task?.status !== 'completed')
+      return Promise.reject(new Error('只能保存已完成的导出任务。'));
+    const selected = directory ?? task.save?.policy.directory;
+    if (!selected) return Promise.reject(new Error('请先选择保存位置。'));
+    const target = this.deps.resolveSaveDirectory?.(selected) ?? selected;
+    const policy = copyExportSavePolicy({ mode: 'before', directory: target });
+    task.save = { policy: task.save?.policy ?? policy, status: 'saving' };
+    this.saveTasks();
+    const saving = saveExportOutput(task, target)
+      .then((path) => {
+        task.save = { policy: task.save?.policy ?? policy, status: 'saved', path };
+        return path;
+      })
+      .catch((error: unknown) => {
+        task.save = {
+          policy: task.save?.policy ?? policy,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      })
+      .finally(() => {
+        this.outputSaves.delete(taskId);
+        this.saveTasks();
+        super.emit('progress', {
+          taskId,
+          status: task.status,
+          progress: task.progress,
+          current: task.current,
+          message:
+            task.save?.status === 'saved'
+              ? '导出结果已保存'
+              : '导出已完成，保存失败，可重新选择位置',
+        });
+      });
+    this.outputSaves.set(taskId, saving);
+    return saving;
   }
 
   listTasks(): ExportTaskView[] {
@@ -580,6 +671,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    savePolicy?: ExportSavePolicy;
     kind: ConvKind;
     conv: string;
     name: string;
@@ -639,7 +731,7 @@ export class ExportTaskManager extends EventEmitter {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      this.tasks.set(id, colTask);
+      this.registerTask(colTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出收藏「${opts.name}」（${opts.format}）`);
       this.saveTasks();
       this.enqueue(() => this.runCollectionTask(id));
@@ -670,7 +762,7 @@ export class ExportTaskManager extends EventEmitter {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      this.tasks.set(id, cTask);
+      this.registerTask(cTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出联系人「${opts.name}」（${opts.format}）`);
       this.saveTasks();
       this.enqueue(() => this.runContactsTask(id));
@@ -703,7 +795,7 @@ export class ExportTaskManager extends EventEmitter {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      this.tasks.set(id, qTask);
+      this.registerTask(qTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出 QQ 空间「${opts.name}」（${opts.format}）`);
       this.saveTasks();
       this.enqueue(() => this.runQzoneTask(id));
@@ -819,7 +911,7 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.tasks.set(id, task);
+    this.registerTask(task, opts.savePolicy);
     this.log(id, 'task', `任务已创建：导出「${opts.name}」（${opts.format}）`);
     this.saveTasks();
     this.enqueue(() => this.runTask(id));
@@ -831,7 +923,10 @@ export class ExportTaskManager extends EventEmitter {
    * {@link runMarketPackTask} 并发解密下载。产物为 bundle 目录，每套一个以包名
    * 命名的子文件夹。返回 taskId。
    */
-  async startMarketPackDownload(packs: MarketPackDownloadItem[]): Promise<string> {
+  async startMarketPackDownload(
+    packs: MarketPackDownloadItem[],
+    savePolicy?: ExportSavePolicy,
+  ): Promise<string> {
     const id = `marketpack-${Date.now()}`;
     const task: ExportTask = {
       id,
@@ -848,7 +943,7 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.tasks.set(id, task);
+    this.registerTask(task, savePolicy);
     this.log(id, 'task', `任务已创建：商城表情下载 ${packs.length} 套`);
     this.saveTasks();
     this.enqueue(() => this.runMarketPackTask(id));
@@ -861,7 +956,10 @@ export class ExportTaskManager extends EventEmitter {
    * 表情 = 扫描本地 emoji-recv + 缩略图补全。走独立的 `emojiscan` /
    * `emojidownload` / `emojiwrite` 三段流水线，返回 taskId。
    */
-  async startEmojiPackExport(scopes: EmojiPackScope[]): Promise<string> {
+  async startEmojiPackExport(
+    scopes: EmojiPackScope[],
+    savePolicy?: ExportSavePolicy,
+  ): Promise<string> {
     const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
     const id = `emojipack-${Date.now()}`;
     const name = wanted.map((s) => scopeLabel(s)).join(' + ');
@@ -893,7 +991,7 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.tasks.set(id, task);
+    this.registerTask(task, savePolicy);
     this.log(id, 'task', `任务已创建：导出表情包（${name}）`);
     this.saveTasks();
     this.enqueue(() => this.runEmojiPackTask(id));
@@ -3783,7 +3881,8 @@ export class ExportTaskManager extends EventEmitter {
   deleteTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;
-    if (task.status === 'running' || this.abortControllers.has(id)) return false;
+    if (task.status === 'running' || this.abortControllers.has(id) || this.outputSaves.has(id))
+      return false;
     this.cleanupOutput(task);
     this.tasks.delete(id);
     this.taskLogs.delete(id);

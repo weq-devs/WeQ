@@ -48,7 +48,13 @@ const SCOPE_META: Record<
 /** 面板里的固定来源顺序。 */
 const SCOPES: EmojiExportScope[] = ['own', 'received'];
 
-export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): ReactElement {
+export function EmojiPackExportPane({
+  onStarted,
+  prepareSave,
+}: {
+  onStarted: () => void;
+  prepareSave?: () => Promise<import('@weq/service').ExportSavePolicy | null>;
+}): ReactElement {
   const dialog = useAppDialog();
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
   const [selected, setSelected] = useState<Set<EmojiExportScope>>(new Set(['own', 'received']));
@@ -76,12 +82,11 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
     if (selected.size === 0) return;
     setSubmitting(true);
     try {
-      await client.account.emojiPack.startExport.mutate({ scopes: [...selected] });
+      const savePolicy = await prepareSave?.();
+      if (savePolicy === null) return;
+      await client.account.emojiPack.startExport.mutate({ scopes: [...selected], savePolicy });
       onStarted();
-      dialog.info(
-        '已开始导出',
-        '导出任务已加入下方「导出任务列表」，完成后点任务上的「保存文件夹…」保存到本地。',
-      );
+      dialog.info('已开始导出', '已加入任务队列。');
     } catch (e) {
       dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
     } finally {

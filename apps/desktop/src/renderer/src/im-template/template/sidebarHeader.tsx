@@ -131,7 +131,13 @@ export function SidebarHeader({
           : displayUserName(user);
 
   return (
-    <div className={cn('sidebar-header', view === 'contacts' && 'sidebar-header-contacts')}>
+    <div
+      className={cn(
+        'sidebar-header',
+        !showSearch && 'sidebar-header-no-search',
+        view === 'contacts' && 'sidebar-header-contacts',
+      )}
+    >
       <div className={cn('mobile-sidebar-top')}>
         <button className={cn('mobile-sidebar-avatar')} type="button" onClick={onOpenProfile}>
           <Avatar

@@ -257,6 +257,7 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into a scheduled template. */
 export interface ScheduleOptions {
+  savePolicy?: import('@weq/service').ExportSavePolicy;
   range: ScheduleRange;
   exportMedia: boolean;
   mediaKinds?: MediaKinds;

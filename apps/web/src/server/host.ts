@@ -20,16 +20,42 @@ export interface WebHostOptions {
 }
 
 /** Pending downloads, keyed by the id handed to the client. */
-const downloads = new Map<string, { path: string; name: string }>();
+const downloads = new Map<
+  string,
+  { path: string; name: string; kind: 'file' | 'directory'; expiresAt: number }
+>();
+const DOWNLOAD_TTL_MS = 30 * 60 * 1000;
+const MAX_DOWNLOAD_HANDLES = 4096;
 
-export function lookupDownload(id: string): { path: string; name: string } | undefined {
-  return downloads.get(id);
+function registerDownload(path: string, name: string, kind: 'file' | 'directory'): string {
+  const now = Date.now();
+  for (const [id, entry] of downloads) if (entry.expiresAt <= now) downloads.delete(id);
+  while (downloads.size >= MAX_DOWNLOAD_HANDLES) {
+    const first = downloads.keys().next().value;
+    if (first !== undefined) downloads.delete(first);
+  }
+  const id = randomUUID();
+  downloads.set(id, { path, name, kind, expiresAt: now + DOWNLOAD_TTL_MS });
+  return id;
+}
+
+export function lookupDownload(id: string) {
+  const entry = downloads.get(id);
+  if (entry && entry.expiresAt <= Date.now()) {
+    downloads.delete(id);
+    return undefined;
+  }
+  return entry;
 }
 
 export function createWebHost({ exportDir, version }: WebHostOptions): HostBridge {
   mkdirSync(exportDir, { recursive: true });
 
   return {
+    exportRoot: exportDir,
+    registerDownload(path, name, kind) {
+      return { url: `/_download/${registerDownload(path, name, kind)}` };
+    },
     canReveal: false,
     // 浏览器版：整个服务由部署方用 systemd / 计划任务托管，自启动一律不参与
     // —— 既不注册 GUI（web 入口是 `node server.mjs`，需要参数 + 工作目录），
@@ -49,9 +75,8 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
     },
 
     async pickSaveTarget({ defaultName }): Promise<SaveTarget> {
-      const id = randomUUID();
-      const path = join(exportDir, `${id}-${defaultName}`);
-      downloads.set(id, { path, name: defaultName });
+      const path = join(exportDir, `${randomUUID()}-${defaultName}`);
+      const id = registerDownload(path, defaultName, 'file');
       return { path, downloadId: id };
     },
 
@@ -70,8 +95,7 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
     },
 
     async openHtmlReport(path) {
-      const id = randomUUID();
-      downloads.set(id, { path, name: 'report.html' });
+      const id = registerDownload(path, 'report.html', 'file');
       return { url: `/_download/${id}` };
     },
 

@@ -52,7 +52,13 @@ function packImageUrl(packId: string, hash: string): string {
   return mediaUrl('mface', { pack: packId, hash, enc: 'tea' });
 }
 
-export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }): ReactElement {
+export function MarketEmojiDownloadPane({
+  onStarted,
+  prepareSave,
+}: {
+  onStarted: () => void;
+  prepareSave?: () => Promise<import('@weq/service').ExportSavePolicy | null>;
+}): ReactElement {
   const dialog = useAppDialog();
 
   // 搜索状态：输入即时更新 input，防抖后落到 query 触发拉取。
@@ -200,15 +206,15 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
     if (selected.size === 0) return;
     setSubmitting(true);
     try {
+      const savePolicy = await prepareSave?.();
+      if (savePolicy === null) return;
       await client.account.marketEmoji.startDownload.mutate({
+        savePolicy,
         packs: [...selected.entries()].map(([id, name]) => ({ id, name })),
       });
       setSelected(new Map());
       onStarted();
-      dialog.info(
-        '已开始下载',
-        '下载任务已加入下方「导出任务列表」，完成后点任务上的「保存文件夹…」导出到本地。',
-      );
+      dialog.info('已开始下载', '已加入任务队列。');
     } catch (e) {
       dialog.error('启动下载失败', e instanceof Error ? e.message : String(e));
     } finally {

@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { exportSavePolicyInput } from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
   PROJECT_GROUP_CODE,
@@ -2412,6 +2413,7 @@ export const accountRouter = router({
   guildDirectStartExport: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         /** 会话 40027 node id（消息分页键）。 */
         nodeId: z.string().min(1),
         /** 任务显示名（对方昵称）。 */
@@ -2472,6 +2474,7 @@ export const accountRouter = router({
       return services.exportManager.startTask({
         kind: 'c2c',
         conv: guild.peerTinyId,
+        savePolicy: input.savePolicy,
         name: input.name,
         format: input.format,
         ...(input.formats?.length ? { formats: input.formats } : {}),
@@ -4986,6 +4989,7 @@ export const accountRouter = router({
   startExport: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         kind: z.enum(['group', 'c2c']),
         conv: z.string().min(1),
         name: z.string().min(1),
@@ -5061,6 +5065,7 @@ export const accountRouter = router({
   startQzoneExport: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         targetUin: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'txt', 'html']),
@@ -5077,6 +5082,7 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services); // 硬性要求：在线 QQ 实例
       return services.exportManager.startTask({
         qzone: true,
+        savePolicy: input.savePolicy,
         kind: 'c2c',
         conv: input.targetUin,
         name: input.name,
@@ -5105,6 +5111,7 @@ export const accountRouter = router({
   startContactsExport: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         scope: z.enum(['friends', 'group']),
         groupCode: z.string().optional(),
         name: z.string().min(1),
@@ -5130,6 +5137,7 @@ export const accountRouter = router({
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
         },
         kind: 'c2c',
+        savePolicy: input.savePolicy,
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
@@ -5146,6 +5154,7 @@ export const accountRouter = router({
   startCollectionExport: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
@@ -5159,6 +5168,7 @@ export const accountRouter = router({
           ...(input.cids ? { cids: input.cids } : {}),
         },
         kind: 'c2c',
+        savePolicy: input.savePolicy,
         conv: '',
         name: input.name,
         format: input.format,
@@ -5203,6 +5213,25 @@ export const accountRouter = router({
   listExportTasks: procedure.query(() => {
     return requireServices().exportManager.listTasks();
   }),
+
+  saveExportTaskOutput: procedure
+    .input(z.object({ taskId: z.string().min(1), directory: z.string().min(1) }))
+    .mutation(({ input }) =>
+      requireServices().exportManager.saveTaskOutput(input.taskId, input.directory),
+    ),
+
+  exportTaskDownload: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (task?.status !== 'completed') throw new Error('导出结果尚未完成。');
+      const path = task.bundleDir || task.filePath;
+      if (!path) throw new Error('导出结果不存在。');
+      const register = getHost().registerDownload;
+      if (!register) return null;
+      const name = `${sanitizePathSegment(task.name, task.id)}.${task.bundleDir ? 'zip' : task.format}`;
+      return register(path, name, task.bundleDir ? 'directory' : 'file');
+    }),
 
   /** Pause a running task. */
   pauseExportTask: procedure
@@ -5308,6 +5337,7 @@ export const accountRouter = router({
             .optional(),
           completeDress: z.boolean().optional(),
           autoSave: z.boolean().optional(),
+          savePolicy: exportSavePolicyInput.optional(),
         }),
         enabled: z.boolean().default(true),
       }),
@@ -5383,6 +5413,7 @@ export const accountRouter = router({
                 .optional(),
               completeDress: z.boolean().optional(),
               autoSave: z.boolean().optional(),
+              savePolicy: exportSavePolicyInput.optional(),
             })
             .optional(),
           enabled: z.boolean().optional(),

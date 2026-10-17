@@ -406,6 +406,7 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
    * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
@@ -662,6 +663,7 @@ export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  exportSaveMode: 'after',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
@@ -1154,6 +1156,10 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      exportSaveMode:
+        s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
+          ? s.exportSaveMode
+          : 'after',
       autoAttachQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
@@ -1236,6 +1242,7 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,

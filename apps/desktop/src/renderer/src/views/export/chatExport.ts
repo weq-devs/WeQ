@@ -15,6 +15,7 @@ import {
   preflightOnlineTranscribe,
 } from './preflight';
 import type { ExportFormat, ExportOptions } from './types';
+import type { ExportSavePolicy } from '@weq/service';
 
 /** 一个导出目标会话（导出中心的选择项 / 聊天页当前会话）。 */
 export interface ChatExportTarget {
@@ -125,7 +126,7 @@ export async function startChatExportTasks(
   options: ExportOptions,
   formats: readonly ExportFormat[],
   defaultFormat: ExportFormat,
-  opts: { messageCompletion?: boolean } = {},
+  opts: { messageCompletion?: boolean; savePolicy?: ExportSavePolicy } = {},
 ): Promise<string[]> {
   const fmt0 = formats[0] ?? defaultFormat;
   // 筛图模型的状态是**实时**的（不进持久化预设）：导出那一刻下好了就筛，没下好就跳过。
@@ -135,6 +136,7 @@ export async function startChatExportTasks(
   const ids: string[] = [];
   for (const t of targets) {
     const id = await client.account.startExport.mutate({
+      savePolicy: opts.savePolicy,
       kind: t.kind ?? 'c2c',
       conv: t.id,
       name: t.name,

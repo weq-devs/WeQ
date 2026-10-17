@@ -62,6 +62,8 @@ import {
   TtsService,
   getVoiceModel,
   MsgService,
+  getHost,
+  resolveExportSaveDirectory,
   RecentContactService,
   HiddenSessionService,
   DraftService,
@@ -1399,6 +1401,17 @@ export function initAppContext(): AppContext {
           new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            exportSavePolicy: () => ({
+              mode: userConfig.getSettings().exportSaveMode,
+              directory:
+                userConfig.getSettings().exportSaveMode === 'preset'
+                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                  : undefined,
+            }),
+            resolveSaveDirectory: (directory) => {
+              const root = getHost().exportRoot;
+              return root ? resolveExportSaveDirectory(root, directory) : directory;
+            },
             // Cache-first avatar resolution for the 导出头像 option.
             guildDirect,
             avatarCache: bootstrap.avatarCache,
@@ -2061,6 +2074,17 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,
+            exportSavePolicy: () => ({
+              mode: userConfig.getSettings().exportSaveMode,
+              directory:
+                userConfig.getSettings().exportSaveMode === 'preset'
+                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                  : undefined,
+            }),
+            resolveSaveDirectory: (directory) => {
+              const root = getHost().exportRoot;
+              return root ? resolveExportSaveDirectory(root, directory) : directory;
+            },
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,

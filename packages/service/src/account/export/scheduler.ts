@@ -48,6 +48,7 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into the schedule template. */
 export interface ScheduleOptions {
+  savePolicy?: import('./save_output').ExportSavePolicy;
   range: ScheduleRange;
   exportMedia: boolean;
   /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
@@ -380,6 +381,7 @@ export class ExportScheduler extends EventEmitter {
       const carryResources = true;
       try {
         const id = await this.deps.taskManager.startTask({
+          savePolicy: t.options.savePolicy ?? { mode: 'after' },
           kind: c.kind,
           conv: c.id,
           name: c.name,
@@ -445,8 +447,18 @@ export class ExportScheduler extends EventEmitter {
     const onProgress = (p: TaskProgress): void => {
       if (!expected.has(p.taskId)) return;
       if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled') {
+        const task = this.deps.taskManager.getTask(p.taskId);
+        if (
+          p.status === 'completed' &&
+          task?.save &&
+          task.save.policy.mode !== 'after' &&
+          (task.save.status === 'pending' || task.save.status === 'saving')
+        )
+          return;
+        const saveFailed = task?.save?.status === 'failed' || task?.save?.status === 'interrupted';
+        if (saveFailed && !firstError) firstError = task?.save?.error ?? '导出已完成，结果未保存';
         if (!states.has(p.taskId)) {
-          states.set(p.taskId, p.status);
+          states.set(p.taskId, saveFailed ? 'failed' : p.status);
           if (states.size === expected.size) {
             this.deps.taskManager.off('progress', onProgress);
             const allDone = [...states.values()].every((s) => s === 'completed');
@@ -474,7 +486,8 @@ export class ExportScheduler extends EventEmitter {
     if (!taskIds || taskIds.length === 0) return false;
     for (const id of taskIds) {
       const t = this.deps.taskManager.getTask(id);
-      if (t && t.status === 'running') return true;
+      if (t && (t.status === 'running' || t.status === 'pending' || t.save?.status === 'saving'))
+        return true;
     }
     return false;
   }

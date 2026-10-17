@@ -706,6 +706,16 @@ export type {
   FavEmojiRow,
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
+export {
+  normalizeExportSaveMode,
+  copyExportSavePolicy,
+  resolveExportSaveDirectory,
+} from './account/export/save_output';
+export type {
+  ExportSaveMode,
+  ExportSavePolicy,
+  ExportSaveState,
+} from './account/export/save_output';
 export { ExportScheduler } from './account/export/scheduler';
 export { assertDestinationCapacity } from './account/export/storage_preflight';
 export { inferOcrFailureKind } from './account/export';

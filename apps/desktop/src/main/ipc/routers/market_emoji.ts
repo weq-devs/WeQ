@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { exportSavePolicyInput } from './export_save';
 import { join } from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { getHost, sanitizeSegment, uniqueName } from '@weq/service';
@@ -158,6 +159,7 @@ export const marketEmojiRouter = router({
   startDownload: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
         packs: z
           .array(z.object({ id: z.string().min(1), name: z.string() }))
           .min(1)
@@ -165,6 +167,6 @@ export const marketEmojiRouter = router({
       }),
     )
     .mutation(({ input }) => {
-      return requireServices().exportManager.startMarketPackDownload(input.packs);
+      return requireServices().exportManager.startMarketPackDownload(input.packs, input.savePolicy);
     }),
 });

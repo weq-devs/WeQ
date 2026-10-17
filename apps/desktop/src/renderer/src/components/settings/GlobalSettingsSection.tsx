@@ -115,6 +115,7 @@ export function GlobalSettingsSection(): ReactElement {
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const pickExportDir = trpc.bootstrap.pickDefaultExportDir.useMutation();
   const setExportDir = trpc.bootstrap.setDefaultExportDir.useMutation();
+  const setExportMode = trpc.bootstrap.setExportSaveMode.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const setLogRetention = trpc.bootstrap.setLogRetentionDays.useMutation();
@@ -534,6 +535,28 @@ export function GlobalSettingsSection(): ReactElement {
       {/* Default export save directory */}
       <Card title="导出保存目录">
         <Row
+          label="默认保存方式"
+          control={
+            <select
+              aria-label="默认导出保存方式"
+              value={settings.data?.exportSaveMode ?? 'after'}
+              disabled={settings.isLoading || setExportMode.isLoading}
+              onChange={(event) => {
+                const mode = event.target.value;
+                if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
+                void setExportMode
+                  .mutateAsync({ mode })
+                  .then(() => settings.refetch())
+                  .catch((error: unknown) => showError('更新保存方式失败', errMsg(error)));
+              }}
+            >
+              <option value="preset">使用预设目录</option>
+              <option value="before">开始前选择</option>
+              <option value="after">完成后选择</option>
+            </select>
+          }
+        />
+        <Row
           label={
             <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
               <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
@@ -544,8 +567,8 @@ export function GlobalSettingsSection(): ReactElement {
           }
           desc={
             settings.data?.defaultExportDir
-              ? '导出任务保存时直接拷贝到该目录，不再逐个弹窗选择路径。'
-              : '未设置。导出完成后仍需对每个任务选择保存位置；设置后即可一键批量保存。'
+              ? '供「使用预设目录」模式使用，单次工具调整不修改默认目录。'
+              : '尚未设置预设目录。'
           }
           control={
             <div className="weq-set-btn-group">
