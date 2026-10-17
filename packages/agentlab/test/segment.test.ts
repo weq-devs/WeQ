@@ -150,6 +150,31 @@ describe('降级', () => {
   });
 });
 
+describe('cutForChat（词性白名单）', () => {
+  it('只保留有内容的词性，丢掉代词 / 副词 / 量词 / 时间词', () => {
+    const seg = build();
+    expect(seg.cutForChat?.('我想搜一下北京大学的录取通知书')).toEqual([
+      '想',
+      '搜',
+      '北京大学',
+      '录取',
+      '通知书',
+    ]);
+    expect(seg.cutForChat?.('今天加班到十一点好累啊')).toEqual(['加班']);
+  });
+
+  it('词典外生词（HMM 合成）按 unknown 保留', () => {
+    const seg = build();
+    expect(seg.cutForChat?.('跑路')).toEqual(['跑路']);
+  });
+
+  it('未实现 cutForChat 的切分器仍可被 tokenizeText 安全使用', () => {
+    setDefaultSegmenter({ cut: (text) => text.split(/\s+/) });
+    expect(tokenizeText('密钥 close')).toEqual(['密钥', 'close']);
+    setDefaultSegmenter(null);
+  });
+});
+
 describe('tokenizeText（常用语 / 关键词提取）', () => {
   it('未安装默认切分器时，退回正则切分且过滤短碎片', () => {
     setDefaultSegmenter(null);
@@ -164,7 +189,7 @@ describe('tokenizeText（常用语 / 关键词提取）', () => {
 
   it('常用语与词云共用停用词过滤，不把虚词算进高频词', () => {
     setDefaultSegmenter(build());
-    expect(tokenizeText('今天 和 一下 密钥 就是 的')).toEqual(['今天', '密钥']);
+    expect(tokenizeText('今天 和 一下 密钥 就是 的')).toEqual(['密钥']);
     setDefaultSegmenter(null);
   });
 });
@@ -180,6 +205,12 @@ describe('normalizeChatToken（停用词 / 噪声）', () => {
     expect(normalizeChatToken('The')).toBeNull();
     expect(normalizeChatToken("don't")).toBeNull();
     expect(normalizeChatToken('socket')).toBe('socket');
+  });
+
+  it('过滤没有话题信息的通用高频口语词', () => {
+    for (const word of ['看看', '看到', '意思', '东西', '小时', '变成', '不行', '有点', '发现']) {
+      expect(normalizeChatToken(word)).toBeNull();
+    }
   });
 
   it('不误杀可能真的是口头禅的聊天词', () => {
