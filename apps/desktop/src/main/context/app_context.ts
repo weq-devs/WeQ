@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
+import { createDbRouter } from '../db/router';
 import { AnnualReportIndexDb } from '@weq/db';
 import {
   createWin32Platform,
@@ -973,12 +974,18 @@ export function initAppContext(): AppContext {
   let readUidFromConfig: (uin: string) => string | null = () => null;
   const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
+  // 主进程固定 QQ layout；无 key 的标准 SQLite 调用由 router 转到独立子进程。
+  const bundle = {
+    ...result.bundle,
+    ntHelper: createDbRouter(result.bundle.ntHelper),
+  };
+
   const platform =
     process.platform === 'linux'
-      ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+      ? createLinuxPlatform(bundle, () => readDataRootOverride(), resolveUid)
       : process.platform === 'darwin'
-        ? createDarwinPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-        : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
+        ? createDarwinPlatform(bundle, () => readDataRootOverride(), resolveUid)
+        : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {

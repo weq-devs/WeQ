@@ -142,6 +142,9 @@ export class DbDecryptService {
             : algoFor(this.session.context, item.dbPath);
         if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
         await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
+        // Both fast and safe decrypt keep the QQ page numbering; make later
+        // executeSql* calls for this plaintext file use the QQ lane.
+        this.platform.native?.ntHelper?.markQqLayout?.(outPath);
         return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
       } catch (e) {
         return {
@@ -185,6 +188,9 @@ async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
   return files;
 }
 
+/** Decrypt one database in a worker thread.  Both modes preserve QQ's page
+ * numbering (the decrypted copy is still a QQ-layout database), so the caller
+ * marks the output for the QQ lane afterwards. */
 function decryptOneInWorker(
   ntHelperPath: string,
   dbPath: string,

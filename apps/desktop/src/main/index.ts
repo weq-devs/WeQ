@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
+import { disposeStandardDbWorker } from './db/router';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -752,4 +753,6 @@ app.on('will-quit', () => {
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
   // 自己收尾，这里只是不让它多活一拍）。
   disposeElevatedCaptures();
+  // 标准 SQLite 子进程：发 closeAllDb 后自行退出，这里是兜底收尸。
+  disposeStandardDbWorker();
 });
