@@ -26,6 +26,31 @@ export interface MailAttachmentSource {
 /** 仅账号服务持有远程 key/code/签名 URL，前端使用随机附件令牌。 */
 export class MailAttachmentRegistry {
   private readonly entries = new Map<string, MailAttachmentSource>();
+  private readonly images = new Map<string, URL>();
+
+  registerImage(url: URL): string {
+    if (
+      url.protocol !== 'https:' ||
+      !isMailDownloadHost(url.hostname) ||
+      url.username ||
+      url.password ||
+      url.port
+    )
+      throw new MailFailure('business', '邮箱图片地址无效。');
+    if (this.images.size >= 500) {
+      const first = this.images.keys().next().value;
+      if (first) this.images.delete(first);
+    }
+    const id = randomUUID();
+    this.images.set(id, url);
+    return id;
+  }
+
+  imageUrl(id: string): URL {
+    const url = this.images.get(id);
+    if (!url) throw new MailFailure('business', '邮箱图片已失效，请重新打开邮件。');
+    return new URL(url);
+  }
 
   register(source: MailAttachmentSource): MailAttachment {
     while (this.entries.size >= 2000) {
@@ -100,10 +125,12 @@ export class MailAttachmentRegistry {
       value.download || (value.big ? '/ftn/download' : '/attach/download'),
       MAIL_ORIGIN,
     );
+    if (url.protocol === 'http:' && isMailDownloadHost(url.hostname)) url.protocol = 'https:';
     if (
       url.protocol !== 'https:' ||
       url.username ||
       url.password ||
+      url.port ||
       !isMailDownloadHost(url.hostname)
     )
       throw new MailFailure('business', '附件下载地址不受信任。');
@@ -121,5 +148,6 @@ export class MailAttachmentRegistry {
 
   clear(): void {
     this.entries.clear();
+    this.images.clear();
   }
 }

@@ -17,6 +17,7 @@ export function ChatShell({
   mainOpen,
   messageBadgeCount,
   contactBadgeCount,
+  mailBadgeCount,
   showTools = true,
   railFooterContent,
   friendNoticeCount,
@@ -62,6 +63,7 @@ export function ChatShell({
   mainOpen: boolean;
   messageBadgeCount: number;
   contactBadgeCount: number;
+  mailBadgeCount?: number;
   showTools?: boolean;
   railFooterContent?: ReactNode;
   friendNoticeCount: number;
@@ -126,6 +128,7 @@ export function ChatShell({
           onOpenMergeForward={onOpenMergeForward}
           messageBadgeCount={messageBadgeCount}
           contactBadgeCount={contactBadgeCount}
+          mailBadgeCount={mailBadgeCount}
           showTools={showTools}
           footerContent={railFooterContent}
           hideAvatar={true}
@@ -137,6 +140,7 @@ export function ChatShell({
             view === 'agentlab' && 'is-agentlab-view',
             view === 'cache' && 'is-cache-view',
             view === 'qzone' && 'is-qzone-view',
+            view === 'mail' && 'is-mail-view',
             view === 'channel' && 'is-channel-view',
           )}
         >

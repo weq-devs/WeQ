@@ -42,6 +42,7 @@ export interface MailDetail extends MailSummary {
   html: string;
   replyTo: MailAddress | null;
   attachments: MailAttachment[];
+  thread?: MailSummary[];
 }
 
 export interface MailPage {
@@ -57,6 +58,7 @@ export interface MailListInput {
   page: number;
   pageSize?: number;
   unreadOnly?: boolean;
+  keyword?: string;
 }
 
 export interface MailComposeInput {
@@ -90,7 +92,7 @@ export interface MailNotice {
 }
 
 export interface MailEvent {
-  type: 'status' | 'changed' | 'new-mail';
+  type: 'status' | 'changed' | 'new-mail' | 'open';
   status?: MailStatus;
   notice?: MailNotice;
 }

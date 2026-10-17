@@ -80,6 +80,7 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
     "happy-dom": "^21.0.1",
+    "jsdom": "26.1.0",
     "lucide-react": "^0.469.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4.0.0",

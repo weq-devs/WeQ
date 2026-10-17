@@ -133,6 +133,7 @@ import { CacheView } from './cache/CacheView';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
 import { QzoneWorkspace } from './QzoneView';
+import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import {
   QzoneNavigationContext,
@@ -2187,6 +2188,7 @@ function isMobileShell(): boolean {
 }
 
 export function MainView(): ReactElement {
+  const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
   // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
@@ -3181,6 +3183,15 @@ export function MainView(): ReactElement {
     () => currentUser(openedUin, selfProfile.data),
     [openedUin, selfProfile.data],
   );
+  const mailPreference = trpc.mail.status.useQuery(
+    { selfUin: user.identityValue },
+    {
+      enabled: /^[1-9]\d{4,19}$/.test(user.identityValue),
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: false,
+    },
+  );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
   const {
@@ -3903,6 +3914,9 @@ export function MainView(): ReactElement {
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
+  const mailOpenRef = useRef(shell.switchView);
+  mailOpenRef.current = shell.switchView;
+  const openMailView = useCallback(() => mailOpenRef.current('mail'), []);
 
   // shell.activeConversation 只在主 conversations 列表里查找；隐藏会话和删除会话
   // 故意不进那份列表（见上方 conversations useMemo），所以查不到时兜底查
@@ -7063,6 +7077,7 @@ export function MainView(): ReactElement {
     shell.view === 'agentlab' ||
     shell.view === 'cache' ||
     shell.view === 'qzone' ||
+    shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
 
@@ -7145,9 +7160,14 @@ export function MainView(): ReactElement {
             contactTab={shell.contactTab}
             activeNotice={shell.contactNotice}
             sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
-            mainOpen={shell.mainOpen || (shell.view === 'messages' && Boolean(arkFeedState))}
+            mainOpen={
+              shell.mainOpen ||
+              shell.view === 'mail' ||
+              (shell.view === 'messages' && Boolean(arkFeedState))
+            }
             messageBadgeCount={0}
             contactBadgeCount={0}
+            mailBadgeCount={mailUnread}
             showTools={false}
             railFooterContent={
               <RailAccountFooter
@@ -7262,6 +7282,17 @@ export function MainView(): ReactElement {
             }
             mainContent={
               <>
+                <MailWorkspace
+                  key={`mail:${user.identityValue}`}
+                  active={shell.view === 'mail'}
+                  selfUin={user.identityValue}
+                  onUnreadChange={setMailUnread}
+                  enabled={
+                    mailPreference.isFetchedAfterMount &&
+                    Boolean(mailPreference.data?.notifications)
+                  }
+                  onOpenRequested={openMailView}
+                />
                 <QzoneWorkspace
                   key={user.identityValue}
                   active={shell.view === 'qzone' && !arkFeedState}
@@ -7296,7 +7327,8 @@ export function MainView(): ReactElement {
                     <AgentLabView />
                   ) : shell.view === 'cache' ? (
                     <CacheView />
-                  ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
+                  ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
+                    'channel' ? (
                     <ChannelView />
                   ) : shell.view === 'annual' ? (
                     <AnnualReportView />

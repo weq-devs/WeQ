@@ -16,7 +16,12 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
+import {
+  initAppContext,
+  setGroupKeywordNotifier,
+  setRecallNotifier,
+  setMailNotifier,
+} from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
@@ -31,6 +36,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
+import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
@@ -645,6 +651,7 @@ void app.whenReady().then(async () => {
   setGroupKeywordNotifier(handleGroupKeywordHit);
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
+  setMailNotifier(handleMailNotification);
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();

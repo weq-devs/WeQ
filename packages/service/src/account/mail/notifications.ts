@@ -46,6 +46,9 @@ export class MailNoticeCursor {
   sequence = 0;
   private readonly seen = new Set<string>();
   private initialized = false;
+  get primed(): boolean {
+    return this.initialized;
+  }
 
   prime(ids: readonly string[]): void {
     for (const id of ids) this.remember(id);

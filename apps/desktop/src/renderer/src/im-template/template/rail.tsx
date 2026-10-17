@@ -19,6 +19,7 @@ import {
   DatabaseZap,
   FileStack,
   ShieldCheck,
+  Mail,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -50,6 +51,7 @@ export function AppRail({
   onOpenMergeForward,
   messageBadgeCount = 0,
   contactBadgeCount = 0,
+  mailBadgeCount = 0,
   showTools = true,
   footerContent,
   hideAvatar = false,
@@ -75,6 +77,7 @@ export function AppRail({
   onOpenMergeForward: () => void;
   messageBadgeCount?: number;
   contactBadgeCount?: number;
+  mailBadgeCount?: number;
   showTools?: boolean;
   footerContent?: ReactNode;
   hideAvatar?: boolean;
@@ -241,6 +244,20 @@ export function AppRail({
               <Hash size={22} strokeWidth={1.5} />
             </span>
             <span className={cn('rail-label')}>QQ频道</span>
+          </button>
+          <button
+            type="button"
+            className={cn(railButtonClass(activeView === 'mail'), 'rail-tab rail-tab-mail')}
+            onClick={() => selectView('mail')}
+            title="QQ 邮箱"
+          >
+            <span className={cn('rail-tab-icon')}>
+              <Mail size={22} strokeWidth={1.5} />
+            </span>
+            <span className={cn('rail-label')}>QQ邮箱</span>
+            {mailBadgeCount > 0 ? (
+              <span className="rail-badge">{formatBadgeCount(mailBadgeCount)}</span>
+            ) : null}
           </button>
           <button
             className={cn(railButtonClass(activeView === 'export'), 'rail-tab rail-tab-export')}

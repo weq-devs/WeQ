@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import https from 'node:https';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 import { CookieJar } from 'tough-cookie';
 import {
   MailAuth,
@@ -8,12 +11,13 @@ import {
 } from '../src/account/mail/auth';
 import {
   mailRequestTarget,
+  MailHttp,
   type MailRequest,
   type MailResponse,
   type MailTransport,
 } from '../src/account/mail/http';
 import { MailFailure } from '../src/account/mail/types';
-import { QQMailService } from '../src/account/mail/client';
+import { QQMailService, type MailSocket } from '../src/account/mail/client';
 import { MailAttachmentRegistry } from '../src/account/mail/attachments';
 import { decodeMailSocketFrame, MailNoticeCursor } from '../src/account/mail/notifications';
 import {
@@ -151,6 +155,158 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it('销毁后晚到的 HTTP 响应不能重新写入 Cookie', async () => {
+    const request = Object.assign(new EventEmitter(), {
+      setTimeout: vi.fn(),
+      end: vi.fn(),
+    });
+    const mock = vi.spyOn(https, 'request').mockReturnValue(request as unknown as ClientRequest);
+    const transport = new MailHttp();
+    try {
+      const pending = transport.request('https://wx.mail.qq.com/login/checksid');
+      await vi.waitFor(() => expect(mock).toHaveBeenCalledOnce());
+      transport.dispose();
+      const response = Object.assign(new EventEmitter(), {
+        headers: { 'set-cookie': ['sid=late-fixture; Path=/; Secure'] },
+        statusCode: 200,
+      });
+      const callback = mock.mock.calls[0]![2];
+      expect(callback).toBeTypeOf('function');
+      callback?.(response as unknown as IncomingMessage);
+      response.emit('end');
+      await expect(pending).rejects.toThrow('取消');
+      expect(transport.jar.getCookiesSync('https://wx.mail.qq.com/')).toEqual([]);
+    } finally {
+      transport.dispose();
+      mock.mockRestore();
+    }
+  });
+  it('未读搜索使用搜索结果总数，不依赖列表专用 unread_num 分页', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/list/search'
+        ? transport.envelope({ list: [{ emailid: 'search-fixture' }], total_num: 65 })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    try {
+      expect(
+        await service.list({ folderId: 1, page: 0, unreadOnly: true, keyword: '课程' }),
+      ).toMatchObject({ total: 65, hasMore: true });
+    } finally {
+      service.dispose();
+    }
+  });
+  it('会话邮件先列出子邮件，不自动读取整个会话正文', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/list/collo_maillist'
+        ? transport.envelope({
+            colloinfo: { emailid: 'C1Tthread', subject: '会话' },
+            sublist: [{ emailid: 'child-fixture', subject: '子邮件' }],
+          })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    const detail = await service.read('C1Tthread');
+    expect(detail.thread?.[0]?.id).toBe('child-fixture');
+    expect(detail.html).toBe('');
+    expect(transport.calls.some((call) => call.url.pathname === '/read/readmail')).toBe(false);
+    service.dispose();
+  });
+  it('提醒开启后去重并调用系统适配，关闭与销毁清理连接和计时器', async () => {
+    vi.useFakeTimers();
+    class Socket extends EventEmitter implements MailSocket {
+      readonly send = vi.fn();
+      readonly terminate = vi.fn(() => this.emit('close'));
+      close(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      socket = new Socket(),
+      onNotice = vi.fn();
+    const factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+      socketFactory: factory,
+      onNotice,
+    });
+    try {
+      await service.setNotifications(true);
+      socket.emit('open');
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(socket.send).toHaveBeenCalledTimes(1);
+      const payload = JSON.stringify({
+        cmd: 1,
+        content: Buffer.from(
+          JSON.stringify({ cid: '148', z: 5, e: 'mail-fixture', u: '主题', sn: '发件人', d: '1' }),
+        ).toString('base64'),
+      });
+      socket.emit('message', Buffer.from(payload));
+      socket.emit('message', Buffer.from(payload));
+      expect(onNotice).toHaveBeenCalledTimes(1);
+      await service.setNotifications(false);
+      socket.emit('message', Buffer.from(payload));
+      expect(onNotice).toHaveBeenCalledTimes(1);
+      expect(socket.terminate).toHaveBeenCalledTimes(1);
+      service.dispose();
+      await vi.runAllTimersAsync();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('已启用提醒的账号先离线再恢复时，后台恢复连接并建立首轮基线', async () => {
+    vi.useFakeTimers();
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    let pid: number | null = null;
+    const transport = new FakeMailTransport(),
+      socket = new Socket(),
+      onNotice = vi.fn(),
+      factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => pid, {
+      authFactory: () => new MailAuth(native, '12345678', () => pid, transport),
+      socketFactory: factory,
+      onNotice,
+      notificationsEnabled: true,
+    });
+    try {
+      await expect(service.connect()).rejects.toThrow('请先登录');
+      pid = 42;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(service.status().state).toBe('ready');
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 1,
+            content: Buffer.from(
+              JSON.stringify({ cid: '148', z: 8, e: 'new-after-recovery', u: '主题' }),
+            ).toString('base64'),
+          }),
+        ),
+      );
+      expect(onNotice).toHaveBeenCalledTimes(1);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
   it('断开后晚到的列表不得恢复 ready 或污染新会话', async () => {
     const transport = new FakeMailTransport();
     const original = transport.request.bind(transport);

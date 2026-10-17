@@ -23,6 +23,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb } from '@weq/db';
+import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
   createLinuxPlatform,
@@ -268,6 +269,12 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
+export function setMailNotifier(
+  notifier: ((uin: string, notice: MailNotice) => void) | null,
+): void {
+  mailNotifier = notifier;
+}
 /** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
 let activeAntiRecall: AntiRecallService | null = null;
 
@@ -722,6 +729,7 @@ export interface AccountServices {
   resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
+  mail: import('@weq/service/mail').QQMailService;
   /** Group album media listing over the already-hooked online QQ process. */
   groupAlbumMedia: GroupAlbumMediaService;
   /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已读取 QQ 内存 进程。 */
@@ -1119,6 +1127,7 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1619,6 +1628,18 @@ export function initAppContext(): AppContext {
         composeImage: new ComposeImageService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
+        mail: new QQMailService(
+          platform.native.ntHelper,
+          String(session.context.uin),
+          () => {
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          },
+          {
+            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+          },
+        ),
         groupAlbumMedia: new GroupAlbumMediaService(
           platform.native.ntHelper,
           session,
@@ -1789,6 +1810,7 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -2202,6 +2224,18 @@ export function initAppContext(): AppContext {
         composeImage: new ComposeImageService(session, staticPlatform),
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
+        mail: new QQMailService(
+          platform.native.ntHelper,
+          String(session.context.uin),
+          () => {
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          },
+          {
+            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+          },
+        ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
@@ -2316,6 +2350,7 @@ export function initAppContext(): AppContext {
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
       this.account?.dispose();
       this.account = null;
       this.services = null;

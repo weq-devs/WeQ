@@ -28,9 +28,10 @@ import { useViewState } from '../state/view';
  * 丢掉所有账号级缓存条目（并取消在途请求 —— 否则它们会在清完之后落到新账号的 key 上）。
  */
 export function purgeAccountQueries(queryClient: QueryClient): void {
-  const accountKey = getQueryKey(trpc.account);
-  void queryClient.cancelQueries({ queryKey: accountKey });
-  queryClient.removeQueries({ queryKey: accountKey });
+  for (const accountKey of [getQueryKey(trpc.account), getQueryKey(trpc.mail)]) {
+    void queryClient.cancelQueries({ queryKey: accountKey });
+    queryClient.removeQueries({ queryKey: accountKey });
+  }
 }
 
 /** 关掉当前账号并回到首页（`openedUin` 清空 + 视图切到 bootstrap）。 */

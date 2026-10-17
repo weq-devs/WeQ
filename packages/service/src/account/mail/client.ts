@@ -3,10 +3,13 @@ import type { NtHelperBinding } from '@weq/native';
 import WebSocket from 'ws';
 import { MailAuth } from './auth';
 import { MailAttachmentRegistry } from './attachments';
+import { uploadMailFile, downloadMailFile, loadMailInlineImage } from './files';
+import { protectMailHtml } from './html';
 import { decodeMailSocketFrame, MailNoticeCursor } from './notifications';
 import {
   MailFailure,
   type MailAction,
+  type MailAttachment,
   type MailAddress,
   type MailComposeInput,
   type MailDetail,
@@ -15,6 +18,7 @@ import {
   type MailListInput,
   type MailPage,
   type MailStatus,
+  type MailNotice,
 } from './types';
 import {
   MAIL_PAGE_SIZE,
@@ -27,6 +31,17 @@ import {
   object,
   text,
 } from './wire';
+
+export interface MailSocket {
+  on(event: 'open', listener: () => void): this;
+  on(event: 'message', listener: (bytes: { toString(): string }) => void): this;
+  on(event: 'error', listener: () => void): this;
+  on(event: 'close', listener: () => void): this;
+  send(frame: string): void;
+  close(): void;
+  terminate(): void;
+  removeAllListeners(): this;
+}
 
 export class QQMailService {
   readonly events = new EventEmitter<{ change: [MailEvent] }>();
@@ -41,22 +56,34 @@ export class QQMailService {
     error: null,
   };
   private closed = false;
-  private socket: WebSocket | null = null;
+  private socket: MailSocket | null = null;
+  private readonly socketFactory: (options: WebSocket.ClientOptions) => MailSocket;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private cursor = new MailNoticeCursor();
   private sending = false;
   private readonly totals = new Map<string, number>();
+  private readonly transfers = new Set<AbortController>();
+  private readonly onNotice?: (notice: MailNotice) => void;
 
   constructor(
     nt: Pick<NtHelperBinding, 'probePtLoginPort'>,
     readonly uin: string,
     onlinePid: () => number | null,
-    options: { authFactory?: () => MailAuth } = {},
+    options: {
+      authFactory?: () => MailAuth;
+      notificationsEnabled?: boolean;
+      onNotice?: (notice: MailNotice) => void;
+      socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
+    } = {},
   ) {
     this.makeAuth = options.authFactory ?? (() => new MailAuth(nt, uin, onlinePid));
     this.auth = this.makeAuth();
+    this.state.notifications = options.notificationsEnabled ?? false;
+    this.onNotice = options.onNotice;
+    this.socketFactory =
+      options.socketFactory ?? ((options) => new WebSocket('wss://wx.mail.qq.com/socket', options));
   }
 
   status(): MailStatus {
@@ -84,7 +111,7 @@ export class QQMailService {
   }
 
   async connect(signal?: AbortSignal): Promise<MailStatus> {
-    if (this.auth.ready) return this.status();
+    if (this.auth.ready && this.state.state === 'ready') return this.status();
     this.update({ state: 'connecting', error: null });
     const auth = this.auth;
     try {
@@ -95,6 +122,8 @@ export class QQMailService {
       } catch {
         if (this.auth === auth) this.update({ error: '邮箱已连接，提醒同步暂不可用。' });
       }
+      if (this.state.notifications)
+        await this.openSocket().catch(() => this.scheduleNoticeRecovery());
       return this.status();
     } catch (error) {
       if (this.auth === auth)
@@ -102,6 +131,7 @@ export class QQMailService {
           state: 'error',
           error: error instanceof MailFailure ? error.message : '邮箱连接失败，请重试。',
         });
+      this.scheduleNoticeRecovery();
       throw error instanceof MailFailure
         ? error
         : new MailFailure('auth', '邮箱连接失败，请重试。');
@@ -127,18 +157,21 @@ export class QQMailService {
             : input.folderId === 2000
               ? 6
               : 1;
+    const keyword = input.keyword?.trim();
     const body = await this.scoped((auth) =>
       auth.cgi(
-        '/list/maillist',
+        keyword ? '/list/search' : '/list/maillist',
         {
-          func,
-          dir: input.folderId,
-          dirid: input.folderId,
+          func: keyword ? undefined : func,
+          dir: keyword ? undefined : input.folderId,
+          dirid: keyword ? undefined : input.folderId,
+          keyword,
           page_now: input.page,
           page_size: size,
           sort_type: 1,
           sort_direction: 1,
-          only_unread: input.unreadOnly || undefined,
+          only_unread: keyword ? undefined : input.unreadOnly || undefined,
+          unread_flag: keyword && input.unreadOnly ? 1 : undefined,
           enable_topmail: true,
         },
         { signal },
@@ -147,9 +180,16 @@ export class QQMailService {
     const rows = items(body.list)
       .map(mailSummary)
       .filter((entry) => entry.id);
-    const key = `${input.folderId}:${Boolean(input.unreadOnly)}`;
+    const key = `${keyword ?? input.folderId}:${Boolean(input.unreadOnly)}`;
     if (body.total_num !== undefined)
-      this.totals.set(key, count(input.unreadOnly ? body.unread_num : body.total_num));
+      this.totals.set(
+        key,
+        count(keyword ? body.total_num : input.unreadOnly ? body.unread_num : body.total_num),
+      );
+    if (this.totals.size > 100) {
+      const first = this.totals.keys().next().value;
+      if (first) this.totals.delete(first);
+    }
     const total = this.totals.get(key) ?? rows.length;
     this.update({ state: 'ready', error: null, lastSync: Date.now() });
     return {
@@ -166,8 +206,24 @@ export class QQMailService {
 
   async read(id: string, signal?: AbortSignal): Promise<MailDetail> {
     const group = id.startsWith('@');
-    if (id.startsWith('C') && !id.startsWith('CAD'))
-      throw new MailFailure('business', '请展开会话邮件后选择具体邮件。');
+    if (id.startsWith('C') && !id.startsWith('CAD')) {
+      const match = /^C(\d+)T(.+)$/.exec(id);
+      if (!match) throw new MailFailure('business', '会话邮件标识无效。');
+      const body = await this.scoped((auth) =>
+        auth.cgi('/list/collo_maillist', { dirid: Number(match[1]), tid: match[2] }, { signal }),
+      );
+      if (!body.colloinfo) throw new MailFailure('business', '会话邮件已删除或不可访问。');
+      return {
+        ...mailSummary(body.colloinfo),
+        id,
+        html: '',
+        replyTo: null,
+        attachments: [],
+        thread: items(body.sublist)
+          .map(mailSummary)
+          .filter((item) => item.id),
+      };
+    }
     const body = await this.scoped((auth) =>
       auth.cgi(
         group ? '/groupmail/readmail' : '/read/readmail',
@@ -179,9 +235,12 @@ export class QQMailService {
     if (text(entry.ret) !== '0')
       throw new MailFailure('business', '邮件已删除、不可访问或需要额外验证。', text(entry.ret));
     const summary = mailSummary(entry);
+    const html = await this.scoped((auth) =>
+      auth.redact(protectMailHtml(text(entry.content), this.attachments)),
+    );
     const detail: MailDetail = {
       ...summary,
-      html: text(entry.content),
+      html,
       replyTo: entry.replyto ? mailAddress(entry.replyto) : null,
       attachments: this.attachments.fromMessage(entry, id),
     };
@@ -237,6 +296,43 @@ export class QQMailService {
     }
   }
 
+  private async transfer<T>(
+    run: (auth: MailAuth, signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (this.transfers.size >= 4) throw new MailFailure('business', '请等待当前附件传输完成。');
+    const controller = new AbortController();
+    this.transfers.add(controller);
+    try {
+      return await this.scoped((auth) =>
+        run(auth, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal),
+      );
+    } finally {
+      this.transfers.delete(controller);
+    }
+  }
+
+  async upload(path: string, signal?: AbortSignal): Promise<MailAttachment> {
+    return this.transfer(
+      (auth, active) => uploadMailFile(auth, this.attachments, path, active),
+      signal,
+    );
+  }
+
+  async download(id: string, path: string, signal?: AbortSignal): Promise<void> {
+    await this.transfer(
+      (auth, active) => downloadMailFile(auth, this.attachments, id, path, active),
+      signal,
+    );
+  }
+
+  async image(id: string, signal?: AbortSignal): Promise<{ mime: string; base64: string }> {
+    return this.transfer(
+      (auth, active) => loadMailInlineImage(auth, this.attachments, id, active),
+      signal,
+    );
+  }
+
   async setNotifications(enabled: boolean): Promise<MailStatus> {
     this.update({ notifications: enabled });
     if (!enabled) this.stopNotifications();
@@ -246,6 +342,16 @@ export class QQMailService {
       await this.openSocket();
     }
     return this.status();
+  }
+
+  private announce(notice: MailNotice): void {
+    if (this.closed || !this.state.notifications) return;
+    this.events.emit('change', { type: 'new-mail', notice });
+    try {
+      this.onNotice?.(notice);
+    } catch {
+      /* 系统通知失败不影响同步。 */
+    }
   }
 
   private async syncNotice(prime: boolean, signal?: AbortSignal): Promise<void> {
@@ -260,11 +366,9 @@ export class QQMailService {
         folderId: count(entry.mailboxid ?? entry.mailbox_id) || 1,
       };
     });
-    if (prime) this.cursor.prime(notices.map((entry) => entry.id));
-    else
-      for (const notice of notices)
-        if (this.cursor.accept(notice.id)) this.events.emit('change', { type: 'new-mail', notice });
-    this.update({ unread: count(body.unread), lastSync: Date.now() });
+    if (prime || !this.cursor.primed) this.cursor.prime(notices.map((entry) => entry.id));
+    else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
+    this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
     if (this.state.notifications) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
       const seconds = Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
@@ -294,7 +398,7 @@ export class QQMailService {
       current.socketCredentials(this.cursor.sequence),
     );
     if (auth !== this.auth || !this.state.notifications || this.socket) return;
-    const socket = new WebSocket('wss://wx.mail.qq.com/socket', {
+    const socket = this.socketFactory({
       headers: { Cookie: credentials.cookie, Origin: 'https://wx.mail.qq.com' },
       handshakeTimeout: 10_000,
       maxPayload: 512 * 1024,
@@ -317,7 +421,7 @@ export class QQMailService {
         } else if (event.sequence === 0 || event.sequence > this.cursor.sequence) {
           this.cursor.sequence = Math.max(this.cursor.sequence, event.sequence);
           if (event.kind === 'mail' && this.cursor.accept(event.notice.id))
-            this.events.emit('change', { type: 'new-mail', notice: event.notice });
+            this.announce(event.notice);
           this.events.emit('change', { type: 'changed' });
           void this.syncNotice(false).catch(() => this.scheduleNoticeRecovery());
         }
@@ -357,6 +461,7 @@ export class QQMailService {
   disconnect(): void {
     if (this.closed) return;
     this.stopNotifications();
+    for (const transfer of this.transfers) transfer.abort();
     this.auth.dispose();
     this.auth = this.makeAuth();
     this.attachments.clear();
@@ -374,6 +479,7 @@ export class QQMailService {
   dispose(): void {
     this.closed = true;
     this.stopNotifications();
+    for (const transfer of this.transfers) transfer.abort();
     this.auth.dispose();
     this.attachments.clear();
     this.totals.clear();

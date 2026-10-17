@@ -74,6 +74,8 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 }
 
 export interface AccountConfig {
+  /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
+  mailNotifications?: boolean;
   /**
    * Stable record id derived from (uin, dataDir). Filename is
    * `<configId>.json`. Older configs written before this field existed fall
@@ -319,6 +321,10 @@ export class AccountConfigService {
   /** Read the current account's record from disk, or null if not yet written. */
   getRecord(): AccountConfig | null {
     return this.readRecord();
+  }
+
+  setMailNotifications(enabled: boolean): void {
+    this.patch({ mailNotifications: enabled });
   }
 
   /** Update the online flag + pid without disturbing the rest of the record. */

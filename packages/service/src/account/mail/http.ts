@@ -111,17 +111,19 @@ export class MailHttp implements MailTransport {
           });
           response.on('error', () => reject(new MailFailure('network', '邮箱连接中断，请重试。')));
           response.on('end', () => {
-            void (async () => {
-              for (const cookie of response.headers['set-cookie'] ?? []) {
-                await this.jar.setCookie(cookie, logical.href, { ignoreError: true });
-              }
+            try {
               signal.throwIfAborted();
+              for (const cookie of response.headers['set-cookie'] ?? []) {
+                this.jar.setCookieSync(cookie, logical.href, { ignoreError: true });
+              }
               resolve({
                 status: response.statusCode ?? 0,
                 location: response.headers.location,
                 body: Buffer.concat(chunks).toString('utf8'),
               });
-            })().catch(() => reject(new MailFailure('network', '邮箱请求已取消。')));
+            } catch {
+              reject(new MailFailure('network', '邮箱请求已取消。'));
+            }
           });
         },
       );

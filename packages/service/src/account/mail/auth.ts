@@ -283,6 +283,58 @@ export class MailAuth {
     );
   }
 
+  async downloadCredentials(
+    source: URL,
+    big: boolean,
+    signal?: AbortSignal,
+  ): Promise<{ url: URL; cookie: string }> {
+    await this.connect(signal);
+    let url = new URL(source);
+    if (url.origin !== MAIL_ORIGIN && url.origin !== 'https://mail.qq.com')
+      throw new MailFailure('business', '附件下载入口不受信任。');
+    url.searchParams.set('sid', this.sid);
+    if (big) {
+      const result = mailEnvelope(
+        json(await this.transport.request(url, { signal, form: { func: 2, sid: this.sid } })),
+      );
+      const target = text(result.url);
+      if (!target) throw new MailFailure('business', '超大附件未返回下载地址。');
+      url = new URL(target, url);
+    }
+    const cookie =
+      url.origin === MAIL_ORIGIN || url.origin === 'https://mail.qq.com'
+        ? await this.transport.jar.getCookieString(url.href)
+        : '';
+    return { url, cookie };
+  }
+
+  async redact(html: string): Promise<string> {
+    const cookies = [
+      ...(await this.transport.jar.getCookies(`${MAIL_ORIGIN}/`)),
+      ...(await this.transport.jar.getCookies('https://ssl.ptlogin2.qq.com/')),
+    ];
+    const keys = new Set([
+      'sid',
+      'skey',
+      'p_skey',
+      'clientkey',
+      'pt4_token',
+      'airkey',
+      'pt_login_sig',
+    ]);
+    const values = [
+      this.sid,
+      ...cookies.filter((cookie) => keys.has(cookie.key)).map((cookie) => cookie.value),
+    ];
+    let safe = html;
+    for (const value of new Set(values))
+      if (value.length >= 8) {
+        safe = safe.split(value).join('[redacted]');
+        safe = safe.split(encodeURIComponent(value)).join('[redacted]');
+      }
+    return safe;
+  }
+
   async socketCredentials(sequence = 0): Promise<{ cookie: string; frame: string }> {
     await this.cgi('/login/checksid');
     const cookie = await this.transport.jar.getCookieString(`${MAIL_ORIGIN}/socket`);
