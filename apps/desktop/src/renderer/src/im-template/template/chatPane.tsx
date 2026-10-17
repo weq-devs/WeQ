@@ -118,7 +118,7 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken } from './draftElements';
+import { elementToToken, elementsToComposerText } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import {
   ComposerResizeHandle,
@@ -148,6 +148,15 @@ import { ReactionPicker } from './reactionPicker';
 import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
+import { repeatTarget } from '../../lib/messageRepeat';
+import type { RepeatElement } from '../../lib/messageRepeat';
+import {
+  readMentionClipboard,
+  mentionClipboardHtml,
+  selectedMentionClipboard,
+  writeMentionClipboard,
+} from '../../lib/mentionClipboard';
+import '../../styles/message-repeat.css';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -316,6 +325,9 @@ export function ChatPane({
   profileLoading,
   sendAvailable = true,
   onSend,
+  onRepeatMessage,
+  onResolveMentions,
+  onSearchMentionMembers,
   onSendWindowShake,
   onSendArk,
   onSendFlash,
@@ -391,6 +403,12 @@ export function ChatPane({
    * 媒体本体再走 IPC。
    */
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
+  onResolveMentions?: (
+    elements: RepeatElement[],
+    conversation: Conversation,
+  ) => Promise<RepeatElement[]>;
+  onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /**
    * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
    * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
@@ -503,6 +521,18 @@ export function ChatPane({
   const tabActive = useTabActive();
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [repeating, setRepeating] = useState(false);
+  const repeatBusy = useRef(false);
+  const mentionConversation = useRef(conversation?.id);
+  mentionConversation.current = conversation?.id;
+  const mentionRequest = useRef(0);
+  useEffect(() => {
+    setMentionMenu((current) =>
+      current && !current.query
+        ? { ...current, members: filterMentionMembers(conversation, '', user.id) }
+        : current,
+    );
+  }, [conversation, user.id]);
   const [composerHeight, setComposerHeight] = useState(() =>
     loadLayoutNumber(
       composerHeightStorageKey,
@@ -1506,6 +1536,7 @@ export function ChatPane({
     token.className = cn('composer-mention-token');
     token.contentEditable = 'false';
     token.dataset.chatMention = label;
+    token.dataset.weqAtUid = member.id;
     // 真正的 @ 语义（uid/uin）靠元素 token 带走：序列化时原样取回，发送时还原成
     // `at` 元素。只留 label 的话发出去会退化成一串纯文本 `@昵称`，不会真的提醒对方。
     const mentionUin = /^\d+$/.test(member.identityValue)
@@ -1515,6 +1546,7 @@ export function ChatPane({
       kind: 'at',
       textContent: label,
       atTargetUid: member.id,
+      ...(member.id === 'all' ? { all: true } : {}),
       ...(mentionUin ? { atTargetUin: mentionUin } : {}),
     });
     token.textContent = label;
@@ -2474,6 +2506,45 @@ export function ChatPane({
       return;
     }
     event.preventDefault();
+    const structured = readMentionClipboard(event.clipboardData.getData('text/html'));
+    if (structured && onResolveMentions && conversation) {
+      const editor = event.currentTarget;
+      const savedRange = composerSelectionRef.current?.cloneRange() ?? null;
+      const currentConversation = conversation;
+      void onResolveMentions(structured, currentConversation)
+        .then((resolved) => {
+          if (
+            !editor.isConnected ||
+            currentComposerEditor() !== editor ||
+            mentionConversation.current !== currentConversation.id
+          )
+            return;
+          const holder = document.createElement('div');
+          restoreComposer(
+            holder,
+            elementsToComposerText(
+              resolved.map((element) => ({ ...element.data, kind: element.type })),
+            ),
+          );
+          const fragment = document.createDocumentFragment();
+          fragment.append(...holder.childNodes);
+          if (savedRange && editor.contains(savedRange.startContainer)) {
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(savedRange);
+          }
+          insertComposerNode(editor, fragment, savedRange);
+          syncComposerBody(editor);
+        })
+        .catch((error) =>
+          pushToast({
+            tone: 'error',
+            message: '粘贴提及失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      return;
+    }
     insertComposerText(event.clipboardData.getData('text/plain'));
   }
 
@@ -2656,6 +2727,7 @@ export function ChatPane({
   }
 
   function updateMentionMenu(editor = currentComposerEditor()) {
+    const request = ++mentionRequest.current;
     if (!editor || conversation?.type !== 'group') {
       setMentionMenu(null);
       return;
@@ -2668,17 +2740,31 @@ export function ChatPane({
     }
 
     const members = filterMentionMembers(conversation, trigger.query, user.id);
-    if (members.length === 0) {
-      setMentionMenu(null);
-      return;
-    }
-
     setMentionMenu((current) => ({
       query: trigger.query,
       members,
       activeIndex:
         current?.query === trigger.query ? Math.min(current.activeIndex, members.length - 1) : 0,
     }));
+    if (trigger.query && onSearchMentionMembers) {
+      const context = conversation;
+      void onSearchMentionMembers(trigger.query, context)
+        .then((found) => {
+          if (request !== mentionRequest.current || mentionConversation.current !== context.id)
+            return;
+          const merged = [
+            ...new Map([...members, ...found].map((member) => [member.id, member])).values(),
+          ];
+          setMentionMenu((current) =>
+            current?.query === trigger.query
+              ? { ...current, members: merged, activeIndex: 0 }
+              : current,
+          );
+        })
+        .catch(() => {
+          /* 本地已加载成员仍可选，远端失败不替换为猜测结果。 */
+        });
+    }
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
@@ -3191,7 +3277,11 @@ export function ChatPane({
     // Non-copyable messages (images/files/cards) render an empty body — fall
     // back to a `msgid=xxx` reference so there's always something on the clipboard.
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
-    await copyTextToClipboard(selectedText || body);
+    const rich = selectedText
+      ? selectedMentionClipboard()
+      : mentionClipboardHtml(message.qqElements ?? []);
+    if (!rich || !(await writeMentionClipboard(rich)))
+      await copyTextToClipboard(selectedText || body);
     setContextMenu(null);
   }
 
@@ -3325,6 +3415,25 @@ export function ChatPane({
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   const mediaSendDisabled = Boolean(sendGateReason);
+  const repeatMessage = repeatTarget(messages, atLatest);
+  async function repeatLatestMessage() {
+    if (!repeatMessage || !onRepeatMessage || repeatBusy.current || sendGateReason || sending)
+      return;
+    repeatBusy.current = true;
+    setRepeating(true);
+    try {
+      await onRepeatMessage(repeatMessage, conversation);
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        message: '重发失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      repeatBusy.current = false;
+      setRepeating(false);
+    }
+  }
   const composerActionContext: ComposerActionContext = {
     conversation,
     blocked: currentPreference.blocked,
@@ -3381,6 +3490,13 @@ export function ChatPane({
       onWheelCapture={handleReadGesture}
       onTouchMoveCapture={handleReadGesture}
       onKeyUpCapture={handleReadGesture}
+      onCopyCapture={(event) => {
+        const rich = selectedMentionClipboard();
+        if (!rich) return;
+        event.clipboardData.setData('text/plain', rich.text);
+        event.clipboardData.setData('text/html', rich.html);
+        event.preventDefault();
+      }}
     >
       <ChatBackdrop
         imageUrl={backdrop.imageUrl}
@@ -3655,6 +3771,27 @@ export function ChatPane({
                     onContextMenu={openMessageMenu}
                     onLongPress={openMobileMessageMenu}
                     onAction={onMessageAction}
+                    repeatAction={
+                      !selectionMode &&
+                      onRepeatMessage &&
+                      repeatMessage?.id === message.id &&
+                      (conversation.type === 'group' || conversation.type === 'direct') ? (
+                        <button
+                          type="button"
+                          className="weq-message-repeat"
+                          title={sendGateReason || '发送一条相同的消息'}
+                          aria-label="+1，发送相同消息"
+                          disabled={Boolean(sendGateReason) || sending || repeating}
+                          aria-busy={repeating}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void repeatLatestMessage();
+                          }}
+                        >
+                          +1
+                        </button>
+                      ) : undefined
+                    }
                     selectionMode={selectionMode}
                     selected={selectionMode && selectedIds.has(message.id)}
                     onToggleSelect={toggleSelectMessage}
@@ -4145,6 +4282,7 @@ export function ChatPane({
           <MentionMenu
             menu={mentionMenu}
             menuRef={mentionMenuRef}
+            onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
             onActiveIndexChange={(activeIndex) =>
               setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
             }
@@ -4246,6 +4384,7 @@ export function ChatPane({
               <MentionMenu
                 menu={mentionMenu}
                 menuRef={mentionMenuRef}
+                onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
                 onActiveIndexChange={(activeIndex) =>
                   setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
                 }
@@ -4534,24 +4673,37 @@ function MentionMenu({
   menuRef,
   onActiveIndexChange,
   onSelect,
+  onLoadMore,
 }: {
   menu: MentionMenuState;
   menuRef: RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (activeIndex: number) => void;
   onSelect: (member: GroupMember) => void;
+  onLoadMore?: () => void;
 }) {
   return (
-    <div className={cn('mention-menu')} ref={menuRef}>
+    <div
+      className={cn('mention-menu')}
+      ref={menuRef}
+      role="listbox"
+      aria-label="提及群成员"
+      onScroll={(event) => {
+        const node = event.currentTarget;
+        if (node.scrollHeight - node.scrollTop - node.clientHeight < 80) onLoadMore?.();
+      }}
+    >
       {menu.members.map((member, index) => (
         <button
           key={member.id}
+          role="option"
+          aria-selected={index === menu.activeIndex}
           type="button"
           className={cn(index === menu.activeIndex && 'active')}
           onMouseEnter={() => onActiveIndexChange(index)}
           onMouseDown={(event) => {
             event.preventDefault();
-            onSelect(member);
           }}
+          onClick={() => onSelect(member)}
         >
           <Avatar
             name={displayUserName(member)}
@@ -4581,6 +4733,7 @@ function MentionMenu({
           ) : null}
         </button>
       ))}
+      {!menu.members.length ? <span className="mention-member-empty">暂无匹配成员</span> : null}
     </div>
   );
 }

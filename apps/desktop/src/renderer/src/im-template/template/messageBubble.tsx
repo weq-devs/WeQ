@@ -90,6 +90,7 @@ export function MessageBubble({
   selectionMode,
   onToggleSelect,
   reactionRemoval,
+  repeatAction,
 }: {
   message: Message;
   conversation: Conversation;
@@ -141,6 +142,7 @@ export function MessageBubble({
   selectionMode?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
+  repeatAction?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -425,6 +427,7 @@ export function MessageBubble({
           },
           renderers,
         )}
+        {repeatAction}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions

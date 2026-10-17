@@ -369,6 +369,10 @@ function ElementNode({
     return (
       <span
         className="qq-at-element cursor-pointer hover:underline"
+        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
+        data-weq-at-uin={
+          element.data?.atTargetUin != null ? String(element.data.atTargetUin) : undefined
+        }
         title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
       >
         {text}
@@ -568,7 +572,14 @@ function ReplyPreviewNode({
   }
   if (element.type === 'at') {
     const text = String(element.data?.textContent ?? '');
-    return <span className="qq-at-element">{text}</span>;
+    return (
+      <span
+        className="qq-at-element"
+        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
+      >
+        {text}
+      </span>
+    );
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);

@@ -1196,7 +1196,7 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	padding: 4px 8px;
 	border-radius: 6px;
 	background: rgba(0, 0, 0, 0.08);
-	color: #5a5a5a;
+	color: inherit;
 	font-size: 12.5px;
 	line-height: 1.35;
 	border: 0;
@@ -1325,7 +1325,7 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 /* On my own (blue) bubbles the quote needs a light-on-dark treatment. */
 .message-line.mine .qq-reply-quote {
 	background: rgba(255, 255, 255, 0.22);
-	color: rgba(255, 255, 255, 0.92);
+	color: inherit;
 }
 
 .message-line.mine .qq-reply-quote:hover,

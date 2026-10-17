@@ -20,9 +20,27 @@ export function filterMentionMembers(
   }
 
   const normalizedQuery = normalizeMentionQuery(query);
-  const candidates = conversation.members.filter((member) => member.id !== currentUserId);
+  const self = conversation.members.find(
+    (member) => member.id === currentUserId || member.identityValue === currentUserId,
+  );
+  const everyone: GroupMember = {
+    id: 'all',
+    identityLabel: '',
+    identityValue: '',
+    username: '全体成员',
+    displayName: '全体成员',
+    avatarUrl: null,
+    role: 'member',
+    joinedAt: '',
+  };
+  const candidates = [
+    ...(self && (self.role === 'owner' || self.role === 'admin') ? [everyone] : []),
+    ...conversation.members.filter(
+      (member) => member.id !== currentUserId && member.identityValue !== currentUserId,
+    ),
+  ];
   if (!normalizedQuery) {
-    return candidates.slice(0, 8);
+    return candidates;
   }
 
   return candidates
@@ -33,8 +51,7 @@ export function filterMentionMembers(
     }))
     .filter((item) => item.rank < Number.POSITIVE_INFINITY)
     .sort((first, second) => first.rank - second.rank || first.index - second.index)
-    .map((item) => item.member)
-    .slice(0, 8);
+    .map((item) => item.member);
 }
 
 export function messageMentionsUser(body: string | null | undefined, user?: User) {
