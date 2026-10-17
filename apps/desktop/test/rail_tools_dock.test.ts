@@ -61,6 +61,45 @@ function pointer(button: Element, name: string, x: number, y: number) {
 }
 
 describe('左栏快捷控制与工具吸附', () => {
+  it('图标与提示区分自动折叠和固定展开', () => {
+    const f = mount();
+    try {
+      const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
+      expect(toggle.querySelector('.lucide-sliders-horizontal')).not.toBeNull();
+      expect(toggle.title).toContain('自动折叠');
+      act(() => toggle.click());
+      expect(toggle.querySelector('.lucide-pin')).not.toBeNull();
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(toggle.title).toContain('固定展开');
+      act(() => toggle.click());
+      expect(toggle.querySelector('.lucide-sliders-horizontal')).not.toBeNull();
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    } finally {
+      f.close();
+    }
+  });
+  it('固定展开不因窗口失焦、移出或外部点击丢失，只响应显式切换', () => {
+    const f = mount();
+    try {
+      const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
+      const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
+      act(() => toggle.click());
+      const child = utilities.querySelector<HTMLButtonElement>('.weq-rail-utility-actions button')!;
+      act(() => child.focus());
+      act(() =>
+        child.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })),
+      );
+      act(() => window.dispatchEvent(new Event('blur')));
+      pointer(utilities, 'pointerout', 300, 300);
+      pointer(document.body, 'pointerdown', 300, 300);
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      act(() => toggle.click());
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    } finally {
+      f.close();
+    }
+  });
   it.each([false, true])('设置打开时隐藏工具入口，关闭后恢复位置与停靠状态：%s', (docked) => {
     const f = mount(docked);
     try {

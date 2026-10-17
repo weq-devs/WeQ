@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { FloatingToolsBar } from '../src/renderer/src/components/FloatingToolsBar';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
-import { clampFloatingPosition, floatingToolbarLayout } from '../src/shared/floating_tools';
+import { clampFloatingPosition, floatingFanLayout } from '../src/shared/floating_tools';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
@@ -139,7 +139,17 @@ describe('原地悬浮工具条', () => {
     const view = mount(createElement(FloatingToolsBar, { items: [] }));
     try {
       const trigger = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
-      pointer(trigger, 'pointerdown', { clientX: 900, clientY: 600, button: 0 });
+      const down = new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        clientX: 900,
+        clientY: 600,
+        button: 0,
+      });
+      act(() => trigger.dispatchEvent(down));
+      expect(down.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(trigger);
       pointer(trigger, 'pointermove', { clientX: -1000, clientY: -1000 });
       pointer(trigger, 'pointerup', { clientX: -1000, clientY: -1000 });
       expect(window.localStorage.getItem('weq:tools-position')).toBe(
@@ -165,17 +175,28 @@ describe('原地悬浮工具条', () => {
     }
   });
 
-  it('各种窗口及拖动位置的工具条不越出横向边界', () => {
+  it('扇环在各种窗口与四边拖动位置不越界，每项有独立圆弧和命中区', () => {
     for (const width of [280, 375, 768, 1440]) {
-      for (let x = 8; x <= width - 52; x += 1) {
-        const point = clampFloatingPosition({ x, y: 400 }, { width, height: 800 });
-        const layout = floatingToolbarLayout(point, { width, height: 800 }, 8);
-        const barWidth = layout.columns * 40 + 14;
-        const left = layout.side === 'left' ? point.x - 6 - barWidth : point.x + 50;
-        expect(left).toBeGreaterThanOrEqual(8);
-        expect(left + barWidth).toBeLessThanOrEqual(width - 8);
+      for (const height of [360, 800]) {
+        for (const x of [8, width / 2 - 22, width - 52]) {
+          for (const y of [48, height / 2, height - 52]) {
+            const point = clampFloatingPosition({ x, y }, { width, height });
+            const layout = floatingFanLayout(point, { width, height }, 8);
+            expect(layout.sectors).toHaveLength(8);
+            for (const sector of layout.sectors) {
+              expect(point.x + sector.left).toBeGreaterThanOrEqual(8);
+              expect(point.x + sector.left + sector.width).toBeLessThanOrEqual(width - 8);
+              expect(point.y + sector.top).toBeGreaterThanOrEqual(48);
+              expect(point.y + sector.top + sector.height).toBeLessThanOrEqual(height - 8);
+              expect(sector.path).toContain(' A ');
+              expect(sector.clipPath).toMatch(/^polygon\(/);
+              expect(sector.iconSize).toBeGreaterThanOrEqual(16);
+            }
+          }
+        }
       }
     }
+    expect(floatingFanLayout({ x: 8, y: 48 }, { width: 375, height: 800 }, 0).sectors).toEqual([]);
     expect(
       clampFloatingPosition({ x: Number.NaN, y: Infinity }, { width: 375, height: 667 }),
     ).toEqual({ x: 323, y: 615 });

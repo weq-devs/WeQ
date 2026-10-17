@@ -1,5 +1,5 @@
 /**
- * GuildDirectDialog — 左栏「更多功能 → 频道私聊」查看器（大灯箱卡片）。
+ * GuildDirectDialog — QQ 频道内的本地私聊查看器。
  *
  * 左侧私聊列表只读 `direct_node_list_table`（guild_msg.db），绝不回扫
  * `guild_msg_table` 匹配特征补全会话。右侧按 40027 node id 查同库
@@ -18,7 +18,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { Hash, Inbox, MessageSquareText, X } from 'lucide-react';
+import { ArrowLeft, Hash, Inbox, MessageSquareText, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { client } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
@@ -30,6 +30,7 @@ import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from './QqMessageContent';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import '../styles/channel.css';
 
 const PAGE = 50;
 
@@ -306,7 +307,11 @@ export function GuildDirectDialog({
 
   const content = (
     <div
-      className="weq-guild-direct"
+      className={cn(
+        'weq-guild-direct',
+        selected && 'has-selected-session',
+        embedded && 'is-embedded',
+      )}
       role={embedded ? 'region' : undefined}
       aria-labelledby="weq-guild-direct-title"
     >
@@ -317,11 +322,15 @@ export function GuildDirectDialog({
           </span>
           <strong id="weq-guild-direct-title">频道私聊</strong>
         </span>
-        {!embedded ? (
-          <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
-            <X size={17} />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="weq-compose-x"
+          onClick={onClose}
+          title={embedded ? '返回 QQ 频道' : '关闭'}
+          aria-label={embedded ? '返回 QQ 频道' : '关闭'}
+        >
+          {embedded ? <ArrowLeft size={17} /> : <X size={17} />}
+        </button>
       </header>
 
       <div className="weq-guild-direct-body">
@@ -398,6 +407,15 @@ export function GuildDirectDialog({
           ) : (
             <>
               <div className="weq-guild-direct-chat-head">
+                <button
+                  type="button"
+                  className="weq-guild-direct-list-back"
+                  title="会话列表"
+                  aria-label="会话列表"
+                  onClick={() => setSelected(null)}
+                >
+                  <ArrowLeft size={18} />
+                </button>
                 <Avatar
                   name={peer.displayName}
                   avatarUrl={peer.avatarUrl}

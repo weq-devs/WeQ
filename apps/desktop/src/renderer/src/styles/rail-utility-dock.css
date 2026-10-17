@@ -46,6 +46,7 @@
   border-radius: 6px;
   color: var(--weq-fg-secondary);
 }
+.app-shell .rail-footer .weq-rail-utility-toggle[aria-pressed="true"] { color: var(--weq-accent-effective); border-color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
 
 .app-shell .rail-footer .weq-rail-utility-actions button:hover:not(:disabled),
 .app-shell .rail-footer .weq-rail-utility-actions button.is-on,
@@ -62,7 +63,7 @@
   left: 1px;
   width: 44px;
   height: 44px;
-  border-radius: 6px;
+  border-radius: 50%;
 }
 
 .weq-rail-tools-slot.is-drag-hint {
@@ -87,7 +88,7 @@
   color: var(--weq-fg-secondary);
   box-shadow: none;
 }
-.weq-floating-tools.is-docked .weq-tools-trigger { border-radius: 6px; border: 0; background: transparent; color: var(--weq-fg-secondary); box-shadow: none; }
+.weq-floating-tools.is-docked .weq-tools-trigger { border-radius: 50%; box-shadow: none; }
 .weq-floating-tools.is-docked .weq-tools-trigger:hover { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
 
 .app-shell .rail-footer .weq-tools-trigger:hover {

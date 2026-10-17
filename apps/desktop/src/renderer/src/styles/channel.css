@@ -1,0 +1,75 @@
+.weq-channel-workspace,
+.weq-channel-browser,
+.weq-channel-direct-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-channel-workspace [hidden] { display: none !important; }
+
+.weq-channel-direct-trigger {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 50%;
+  color: var(--weq-accent-effective);
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-soft);
+  cursor: pointer;
+}
+
+.weq-channel-direct-trigger:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
+}
+
+.weq-channel-direct-trigger:focus-visible,
+.weq-guild-direct-list-back:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-guild-direct.is-embedded {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-radius: 0;
+}
+
+.weq-guild-direct .weq-guild-direct-side {
+  flex-basis: var(--sidebar-width, var(--im-sidebar-width, 362px));
+  min-width: 0;
+}
+
+.weq-guild-direct-list-back { display: none; }
+
+html[data-theme="dark"] .weq-channel-direct-trigger {
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+
+@media (max-width: 720px) {
+  .weq-guild-direct .weq-guild-direct-side { flex: 1; border-right: 0; }
+  .weq-guild-direct:not(.has-selected-session) .weq-guild-direct-chat,
+  .weq-guild-direct.has-selected-session .weq-guild-direct-side { display: none; }
+  .weq-guild-direct-list-back {
+    display: grid;
+    place-items: center;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 4px;
+    color: var(--weq-fg-primary);
+    background: transparent;
+    cursor: pointer;
+  }
+}

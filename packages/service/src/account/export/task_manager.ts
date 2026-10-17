@@ -927,7 +927,7 @@ export class ExportTaskManager extends EventEmitter {
     packs: MarketPackDownloadItem[],
     savePolicy?: ExportSavePolicy,
   ): Promise<string> {
-    const id = `marketpack-${Date.now()}`;
+    const id = `marketpack-${Date.now()}-${randomUUID()}`;
     const task: ExportTask = {
       id,
       kind: 'c2c',
@@ -961,7 +961,7 @@ export class ExportTaskManager extends EventEmitter {
     savePolicy?: ExportSavePolicy,
   ): Promise<string> {
     const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
-    const id = `emojipack-${Date.now()}`;
+    const id = `emojipack-${Date.now()}-${randomUUID()}`;
     const name = wanted.map((s) => scopeLabel(s)).join(' + ');
     const stages: TaskStage[] = [
       { key: 'emojiscan', label: '扫描表情', status: 'pending', current: 0, total: 0 },

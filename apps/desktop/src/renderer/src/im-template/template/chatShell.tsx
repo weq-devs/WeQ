@@ -40,7 +40,6 @@ export function ChatShell({
   onOpenWonderfulTools,
   onOpenAntiRecall,
   onOpenDbRepair,
-  onOpenGuildDirect,
   onOpenQzoneAlbum,
   onOpenMergeForward,
   onQueryChange,
@@ -85,7 +84,6 @@ export function ChatShell({
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
   onOpenDbRepair: () => void;
-  onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
   onOpenMergeForward: () => void;
   onQueryChange: (query: string) => void;
@@ -134,7 +132,6 @@ export function ChatShell({
           onOpenWonderfulTools={onOpenWonderfulTools}
           onOpenAntiRecall={onOpenAntiRecall}
           onOpenDbRepair={onOpenDbRepair}
-          onOpenGuildDirect={onOpenGuildDirect}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
           onOpenMergeForward={onOpenMergeForward}
           messageBadgeCount={messageBadgeCount}

@@ -55,7 +55,6 @@ import {
   type MaintenanceTool,
 } from '../components/settings/DataMaintenanceSection';
 import { CollectionDialog } from '../components/CollectionDialog';
-import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
@@ -7300,7 +7299,6 @@ export function MainView(): ReactElement {
             }}
             onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
-            onOpenGuildDirect={() => shell.switchView('guild-direct')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
@@ -7440,16 +7438,13 @@ export function MainView(): ReactElement {
                     />
                   ) : shell.view === 'collections' ? (
                     <CollectionDialog open embedded onClose={() => shell.switchView('messages')} />
-                  ) : shell.view === 'guild-direct' ? (
-                    <GuildDirectDialog
-                      open
-                      embedded
-                      onClose={() => shell.switchView('messages')}
+                  ) : shell.view === 'qzone' ? null : shell.view === 'channel' ||
+                    shell.view === 'guild-direct' ? (
+                    <ChannelView
                       selfUser={user}
                       renderers={messageRenderers}
+                      initialDirectOpen={shell.view === 'guild-direct'}
                     />
-                  ) : shell.view === 'qzone' ? null : shell.view === 'channel' ? (
-                    <ChannelView />
                   ) : shell.view === 'annual' ? (
                     <AnnualReportView />
                   ) : shell.view === 'messages' && activeConversation?.type === 'merged' ? (

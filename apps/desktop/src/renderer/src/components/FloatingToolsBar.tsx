@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom';
 import { Wrench } from 'lucide-react';
 import {
   clampFloatingPosition,
-  floatingToolbarLayout,
+  floatingFanLayout,
   floatingDockHit,
   type FloatingPosition,
 } from '../../../shared/floating_tools';
@@ -95,11 +95,13 @@ export function FloatingToolsBar({
     setDragging(false);
     setDropTarget(false);
   }, [hidden]);
-  const layout = floatingToolbarLayout(
-    docked && slotVisible && !dragging ? dockPosition : position,
-    size,
-    items.length,
-  );
+  const layout = expanded
+    ? floatingFanLayout(
+        docked && slotVisible && !dragging ? dockPosition : position,
+        size,
+        items.length,
+      )
+    : null;
   useLayoutEffect(() => {
     const discover = () => setSlot(document.querySelector<HTMLElement>('[data-weq-tools-dock]'));
     discover();
@@ -151,8 +153,6 @@ export function FloatingToolsBar({
   const style = {
     left: docked && slotVisible && !dragging ? dockPosition.x : position.x,
     top: docked && slotVisible && !dragging ? dockPosition.y : position.y,
-    '--weq-tools-columns': 1,
-    '--weq-tools-max-height': `${layout.maxHeight}px`,
   } as CSSProperties;
   const content = (
     <div
@@ -199,6 +199,8 @@ export function FloatingToolsBar({
         aria-controls="weq-floating-tools-bar"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.focus({ preventScroll: true });
           skipPointerClick.current = false;
           drag.current = {
             id: event.pointerId,
@@ -278,27 +280,52 @@ export function FloatingToolsBar({
         </span>
         {running ? <span className="weq-tools-running">{running}</span> : null}
       </button>
-      {expanded ? (
+      {expanded && layout ? (
         <div
           id="weq-floating-tools-bar"
           role="toolbar"
           aria-label="全局工具"
-          className={`weq-floating-tools-bar opens-${layout.side} opens-${layout.vertical}`}
+          className="weq-floating-tools-bar weq-floating-tools-fan"
         >
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              title={item.label}
-              aria-label={item.label}
-              onClick={() => {
-                setExpanded(false);
-                item.action();
-              }}
-            >
-              {item.icon}
-            </button>
-          ))}
+          {items.map((item, index) => {
+            const sector = layout.sectors[index];
+            if (!sector) return null;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                title={item.label}
+                aria-label={item.label}
+                className="weq-tools-sector"
+                style={{
+                  left: sector.left,
+                  top: sector.top,
+                  width: sector.width,
+                  height: sector.height,
+                  clipPath: sector.clipPath,
+                }}
+                onClick={() => {
+                  setExpanded(false);
+                  item.action();
+                }}
+              >
+                <svg viewBox={`0 0 ${sector.width} ${sector.height}`} aria-hidden="true">
+                  <path d={sector.path} />
+                </svg>
+                <span
+                  className="weq-tools-sector-glyph"
+                  style={{
+                    left: sector.iconX,
+                    top: sector.iconY,
+                    width: sector.iconSize,
+                    height: sector.iconSize,
+                  }}
+                >
+                  {item.icon}
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </div>

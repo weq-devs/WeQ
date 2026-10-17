@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import { Pin, SlidersHorizontal } from 'lucide-react';
 import '../styles/rail-utility-dock.css';
 
 export function RailUtilityDock({ children }: { children: ReactNode }) {
@@ -35,7 +35,6 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || root.current?.contains(event.target)) return;
-      setPinned(false);
       setFocusWithin(false);
       setHovered(false);
     };
@@ -62,7 +61,6 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
         if (event.relatedTarget instanceof Node && root.current?.contains(event.relatedTarget))
           return;
         setFocusWithin(false);
-        setPinned(false);
       }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
@@ -81,7 +79,7 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
         ref={trigger}
         type="button"
         className="weq-rail-utility-toggle"
-        title="快捷控制"
+        title={pinned ? '快捷控制：固定展开，点击改为自动折叠' : '快捷控制：自动折叠，点击固定展开'}
         aria-label="快捷控制"
         aria-expanded={expanded}
         aria-controls={id}
@@ -92,7 +90,7 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
           setSuppressHover(pinned);
         }}
       >
-        <SlidersHorizontal size={18} />
+        {pinned ? <Pin size={18} aria-hidden /> : <SlidersHorizontal size={18} aria-hidden />}
       </button>
     </div>
   );

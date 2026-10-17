@@ -3,7 +3,6 @@ import {
   Bot,
   LayoutGrid,
   MessageCircle,
-  MessagesSquare,
   Settings,
   Hash,
   Bookmark,
@@ -34,8 +33,6 @@ export function AppRail({
   onOpenAbout: _onOpenAbout,
   onOpenHelp,
   onOpenInvite,
-  /** 防撤回面板（不是视图：弹窗，只有 onSelect）。 */
-  onOpenGuildDirect,
   onOpenMergeForward,
   messageBadgeCount = 0,
   contactBadgeCount = 0,
@@ -58,7 +55,6 @@ export function AppRail({
   onOpenAntiRecall: () => void;
   /** 妙妙工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
   onOpenDbRepair: () => void;
-  onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
   /** 「合成聊天记录」—— 合并转发的草稿箱（离线也能拼，存 weq 目录）。 */
   onOpenMergeForward: () => void;
@@ -84,7 +80,6 @@ export function AppRail({
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'mergeForward', label: '合成聊天记录', icon: FileStack, onSelect: onOpenMergeForward },
-    { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
     { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },
   ];
 
