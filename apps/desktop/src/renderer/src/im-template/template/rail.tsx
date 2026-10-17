@@ -10,12 +10,8 @@ import {
   Store,
   Palette,
   MoreHorizontal,
-  Wand2,
   HelpCircle,
-  Images,
-  DatabaseZap,
   FileStack,
-  ShieldCheck,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -38,12 +34,8 @@ export function AppRail({
   onOpenAbout: _onOpenAbout,
   onOpenHelp,
   onOpenInvite,
-  onOpenWonderfulTools,
   /** 防撤回面板（不是视图：弹窗，只有 onSelect）。 */
-  onOpenAntiRecall,
-  onOpenDbRepair,
   onOpenGuildDirect,
-  onOpenQzoneAlbum,
   onOpenMergeForward,
   messageBadgeCount = 0,
   contactBadgeCount = 0,
@@ -91,12 +83,8 @@ export function AppRail({
     { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
-    { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
-    { id: 'antiRecall', label: '防撤回', icon: ShieldCheck, onSelect: onOpenAntiRecall },
-    { id: 'dbRepair', label: '数据库修复', icon: DatabaseZap, onSelect: onOpenDbRepair },
     { id: 'mergeForward', label: '合成聊天记录', icon: FileStack, onSelect: onOpenMergeForward },
     { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
-    { id: 'qzoneAlbum', label: '空间相册', icon: Images, onSelect: onOpenQzoneAlbum },
     { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },
   ];
 

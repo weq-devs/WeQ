@@ -92,7 +92,64 @@ function entries(host: Element) {
 }
 
 describe('设置的数据与维护', () => {
-  it('四项按原顺序安置，点击只打开指定面板，不触发维护操作', () => {
+  it('高级诊断入口归设置，分别打开抓包与解析，不启动诊断动作', () => {
+    const open = vi.fn();
+    const f = mount(
+      createElement(SettingsDialog, {
+        open: true,
+        initialSection: 'diagnostics',
+        onClose: vi.fn(),
+        onOpenMaintenance: open,
+        onOpenRecalls: vi.fn(),
+      }),
+    );
+    try {
+      expect(entries(f.host).map((button) => button.textContent)).toEqual([
+        'ntqq 抓包',
+        'Protobuf / JCE 逆向',
+      ]);
+      for (const button of entries(f.host)) act(() => button.click());
+      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture', 'reverse']);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('模型使用统计在设置内展示，不要求进入克隆对话', () => {
+    const f = mount(
+      createElement(SettingsDialog, {
+        open: true,
+        initialSection: 'model-usage',
+        onClose: vi.fn(),
+        onOpenMaintenance: vi.fn(),
+        onOpenRecalls: vi.fn(),
+      }),
+    );
+    try {
+      expect(f.host.querySelector('.weq-settings-model-usage')).not.toBeNull();
+      expect(f.host.textContent).toContain('模型使用统计');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('防撤回作为设置分区嵌入，不再叠加独立遮罩', () => {
+    const f = mount(
+      createElement(SettingsDialog, {
+        open: true,
+        initialSection: 'anti-recall',
+        onClose: vi.fn(),
+        onOpenMaintenance: vi.fn(),
+        onOpenRecalls: vi.fn(),
+      }),
+    );
+    try {
+      expect(f.host.querySelector('[aria-label="防撤回设置"]')).not.toBeNull();
+      expect(f.host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(f.host.querySelector('.group-keyword-scrim')).toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('原四项保留顺序并收纳密钥工具，点击不触发维护操作', () => {
     const open = vi.fn();
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
@@ -101,6 +158,8 @@ describe('设置的数据与维护', () => {
         '存储占用',
         '清理缓存',
         '数据库修复',
+        '密钥扫描',
+        '其它设备密钥',
       ]);
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual([
@@ -108,6 +167,8 @@ describe('设置的数据与维护', () => {
         'storage',
         'cleanup',
         'db-repair',
+        'key-scan',
+        'other-device-key',
       ]);
     } finally {
       f.dispose();
@@ -117,7 +178,14 @@ describe('设置的数据与维护', () => {
     state.account = { static: true };
     const f = mount(createElement(DataMaintenanceSection, { onOpen: vi.fn() }));
     try {
-      expect(entries(f.host).map((button) => button.disabled)).toEqual([false, true, true, false]);
+      expect(entries(f.host).map((button) => button.disabled)).toEqual([
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+      ]);
       expect(f.host.textContent).toContain('静态账号不可用');
     } finally {
       f.dispose();
@@ -153,6 +221,7 @@ describe('设置的数据与维护', () => {
               setSettings(false);
               setActive(next);
             },
+            onOpenRecalls: vi.fn(),
           }),
           createElement(DataMaintenanceDialog, {
             tool: active,

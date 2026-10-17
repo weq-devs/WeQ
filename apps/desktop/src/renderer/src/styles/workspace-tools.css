@@ -79,6 +79,8 @@
   -webkit-app-region: no-drag;
 }
 
+.weq-floating-tools[hidden] { display: none !important; }
+
 .weq-tools-trigger {
   position: relative;
   display: grid;
@@ -98,12 +100,22 @@
   cursor: grabbing;
 }
 
+.weq-tools-glyph { display: grid; place-items: center; }
+.weq-tools-glyph svg { transition: transform 160ms ease; }
+.weq-floating-tools.is-expanded .weq-tools-glyph svg { transform: rotate(-22deg); }
+.weq-tools-glyph.has-click { animation: weq-tools-click 180ms ease; }
+@keyframes weq-tools-click { 0%, 100% { scale: 1; } 45% { scale: 0.78; } }
+@keyframes weq-tools-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
 .weq-floating-tools-bar {
+  animation: weq-tools-open 160ms ease;
   position: absolute;
   display: grid;
   grid-template-columns: repeat(var(--weq-tools-columns), 40px);
   max-height: var(--weq-tools-max-height);
-  padding: 6px;
+  box-sizing: border-box;
+  width: 44px;
+  padding: 1px;
   overflow-y: auto;
   border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
@@ -449,4 +461,6 @@ html[data-theme="dark"] .weq-tools-trigger {
 @media (prefers-reduced-motion: reduce) {
   .weq-titlebar-search,
   .weq-titlebar-search input { transition: none; }
+  .weq-tools-glyph.has-click, .weq-floating-tools-bar { animation: none; }
+  .weq-tools-glyph svg { transition: none; }
 }

@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { Wrench } from 'lucide-react';
 import {
   clampFloatingPosition,
   floatingToolbarLayout,
+  floatingDockHit,
   type FloatingPosition,
 } from '../../../shared/floating_tools';
 
@@ -13,6 +22,14 @@ export interface FloatingToolItem {
   action: () => void;
 }
 const POSITION_KEY = 'weq:tools-position';
+const DOCK_KEY = 'weq:tools-docked';
+function initialDocked() {
+  try {
+    return window.localStorage.getItem(DOCK_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 function viewport() {
   return typeof window === 'undefined'
     ? { width: 1024, height: 768 }
@@ -40,13 +57,21 @@ function initialPosition(): FloatingPosition {
 export function FloatingToolsBar({
   items,
   running = 0,
+  hidden = false,
 }: {
   items: FloatingToolItem[];
   running?: number;
+  hidden?: boolean;
 }) {
   const [position, setPosition] = useState(initialPosition);
   const [size, setSize] = useState(viewport);
   const [expanded, setExpanded] = useState(false);
+  const [docked, setDocked] = useState(initialDocked);
+  const [dragging, setDragging] = useState(false);
+  const [dropTarget, setDropTarget] = useState(false);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [dockPosition, setDockPosition] = useState(position);
+  const [clickSerial, setClickSerial] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     id: number;
@@ -57,7 +82,48 @@ export function FloatingToolsBar({
   } | null>(null);
   const skipPointerClick = useRef(false);
   const latest = useRef(position);
-  const layout = floatingToolbarLayout(position, size, items.length);
+  useEffect(() => {
+    if (!hidden) return;
+    setExpanded(false);
+    drag.current = null;
+    setDragging(false);
+    setDropTarget(false);
+  }, [hidden]);
+  const layout = floatingToolbarLayout(
+    docked && slot && !dragging ? dockPosition : position,
+    size,
+    items.length,
+  );
+  useLayoutEffect(() => {
+    const discover = () => setSlot(document.querySelector<HTMLElement>('[data-weq-tools-dock]'));
+    discover();
+    const observer = new MutationObserver(discover);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (!slot) return;
+    const measure = () => {
+      const rect = slot.getBoundingClientRect();
+      setDockPosition({ x: rect.left, y: rect.top });
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(slot.closest('.rail-footer') ?? slot);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [slot]);
+  useEffect(() => {
+    slot?.classList.toggle('is-drop-target', dropTarget);
+    slot?.classList.toggle('is-drag-hint', dragging);
+    return () => {
+      slot?.classList.remove('is-drop-target');
+      slot?.classList.remove('is-drag-hint');
+    };
+  }, [slot, dropTarget, dragging]);
   useEffect(() => {
     const resize = () => {
       const next = viewport();
@@ -78,13 +144,14 @@ export function FloatingToolsBar({
   const style = {
     left: position.x,
     top: position.y,
-    '--weq-tools-columns': layout.columns,
+    '--weq-tools-columns': 1,
     '--weq-tools-max-height': `${layout.maxHeight}px`,
   } as CSSProperties;
-  return (
+  const content = (
     <div
       ref={root}
-      className="weq-floating-tools"
+      hidden={hidden}
+      className={`weq-floating-tools${docked && slot ? ' is-docked' : ''}${dragging ? ' is-dragging' : ''}${expanded ? ' is-expanded' : ''}`}
       style={style}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
@@ -130,7 +197,13 @@ export function FloatingToolsBar({
             id: event.pointerId,
             x: event.clientX,
             y: event.clientY,
-            origin: position,
+            origin:
+              docked && slot
+                ? {
+                    x: event.currentTarget.getBoundingClientRect().left,
+                    y: event.currentTarget.getBoundingClientRect().top,
+                  }
+                : position,
             moved: false,
           };
           event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -142,6 +215,7 @@ export function FloatingToolsBar({
           const dy = event.clientY - current.y;
           if (!current.moved && Math.hypot(dx, dy) < 5) return;
           current.moved = true;
+          setDragging(true);
           setExpanded(false);
           const next = clampFloatingPosition(
             { x: current.origin.x + dx, y: current.origin.y + dy },
@@ -149,23 +223,39 @@ export function FloatingToolsBar({
           );
           latest.current = next;
           setPosition(next);
+          setDropTarget(
+            floatingDockHit(
+              { x: event.clientX, y: event.clientY },
+              slot?.getBoundingClientRect() ?? null,
+            ),
+          );
         }}
         onPointerUp={(event) => {
           const current = drag.current;
           if (!current || current.id !== event.pointerId) return;
           if (current.moved) {
             skipPointerClick.current = true;
+            const nextDocked = floatingDockHit(
+              { x: event.clientX, y: event.clientY },
+              slot?.getBoundingClientRect() ?? null,
+            );
+            setDocked(nextDocked);
             try {
               window.localStorage.setItem(POSITION_KEY, JSON.stringify(latest.current));
+              window.localStorage.setItem(DOCK_KEY, String(nextDocked));
             } catch {
               /* 布局不阻断工具。 */
             }
           }
           drag.current = null;
+          setDragging(false);
+          setDropTarget(false);
           event.currentTarget.releasePointerCapture?.(event.pointerId);
         }}
         onPointerCancel={() => {
           drag.current = null;
+          setDragging(false);
+          setDropTarget(false);
         }}
         onClick={(event) => {
           if (event.detail > 0 && skipPointerClick.current) {
@@ -173,9 +263,12 @@ export function FloatingToolsBar({
             return;
           }
           setExpanded((current) => !current);
+          setClickSerial((serial) => serial + 1);
         }}
       >
-        <Wrench size={22} />
+        <span key={clickSerial} className={`weq-tools-glyph${clickSerial ? ' has-click' : ''}`}>
+          <Wrench size={22} />
+        </span>
         {running ? <span className="weq-tools-running">{running}</span> : null}
       </button>
       {expanded ? (
@@ -203,4 +296,6 @@ export function FloatingToolsBar({
       ) : null}
     </div>
   );
+  // 浮动状态脱离业务页面的变换/裁剪容器；停靠时才进入左栏槽位。
+  return createPortal(content, docked && slot ? slot : document.body);
 }

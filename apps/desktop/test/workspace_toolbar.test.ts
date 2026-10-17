@@ -18,7 +18,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 
 describe('全局工具条范围', () => {
-  it('仅保留导出、任务、分析、助手，不混入数据库或缓存维护', () => {
+  it('仅保留全局工具并加入消息补全，不混入数据库或缓存维护', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -27,17 +27,18 @@ describe('全局工具条范围', () => {
     const analysis = vi.fn();
     try {
       act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: analysis })));
-      act(() => host.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      const buttons = [...host.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];
+      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
         '导出',
         '任务',
+        '消息补全',
         '分析与报告',
         'WeQ 助手',
       ]);
-      act(() => buttons[2]!.click());
+      act(() => buttons[3]!.click());
       expect(analysis).toHaveBeenCalledOnce();
-      expect(host.querySelector('[role="toolbar"]')).toBeNull();
+      expect(document.querySelector('[role="toolbar"]')).toBeNull();
     } finally {
       act(() => root.unmount());
       host.remove();

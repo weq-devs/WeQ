@@ -55,10 +55,6 @@ import {
   type MaintenanceTool,
 } from '../components/settings/DataMaintenanceSection';
 import { CollectionDialog } from '../components/CollectionDialog';
-import {
-  WonderfulToolsDialog,
-  type ToolId as WonderfulToolId,
-} from '../components/WonderfulToolsDialog';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
@@ -76,7 +72,6 @@ import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNot
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
-import { AntiRecallDialog } from '../components/AntiRecallDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
@@ -2523,13 +2518,9 @@ export function MainView(): ReactElement {
   const [maintenanceTool, setMaintenanceTool] = useState<MaintenanceTool | null>(null);
   function openMaintenance(tool: MaintenanceTool) {
     setSettingsOpen(false);
-    setWonderfulToolsOpen(false);
     setMaintenanceTool(tool);
   }
   const [helpOpen, setHelpOpen] = useState(false);
-  const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
-  /** 打开妙妙工具时先落到哪一页（损坏弹窗 → 数据库修复）。账号固定为当前登录的这一个。 */
-  const [wonderfulToolsTool, setWonderfulToolsTool] = useState<WonderfulToolId>('key-scan');
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [temporaryConversations, setTemporaryConversations] = useState<
     Record<string, { conversation: Conversation; appearedAt: number }>
@@ -2576,7 +2567,6 @@ export function MainView(): ReactElement {
     | null
   >(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
-  const [antiRecallOpen, setAntiRecallOpen] = useState(false);
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
   const [convSettings, setConvSettings] = useState<{
     kind: 'c2c' | 'group' | 'dataline';
@@ -2638,16 +2628,6 @@ export function MainView(): ReactElement {
   // translucent overlay in the chat. Loaded per conversation, updated
   // optimistically on delete/restore.
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
-
-  /** 打开妙妙工具，并指定先落到哪一页 —— 多个入口（左栏「更多功能」、「损坏」弹窗）都会直达某一页。 */
-  function openWonderfulToolsAt(tool: WonderfulToolId) {
-    if (tool === 'db-repair') {
-      openMaintenance('db-repair');
-      return;
-    }
-    setWonderfulToolsTool(tool);
-    setWonderfulToolsOpen(true);
-  }
 
   const handleEditRaw = useCallback(async (message: Message) => {
     if (message.source === 'roaming') return;
@@ -7133,12 +7113,19 @@ export function MainView(): ReactElement {
             }}
             onOpenSettings={() => {
               setMaintenanceTool(null);
+              setSettingsSection(undefined);
               setSettingsOpen(true);
             }}
             onOpenCollection={() => shell.switchView('collections')}
-            onOpenWonderfulTools={() => openWonderfulToolsAt('key-scan')}
-            onOpenAntiRecall={() => setAntiRecallOpen(true)}
-            onOpenDbRepair={() => openWonderfulToolsAt('db-repair')}
+            onOpenWonderfulTools={() => {
+              setSettingsSection('diagnostics');
+              setSettingsOpen(true);
+            }}
+            onOpenAntiRecall={() => {
+              setSettingsSection('anti-recall');
+              setSettingsOpen(true);
+            }}
+            onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenMergeForward={() => setMergeForwardLibraryOpen(true)}
             onOpenGuildDirect={() => shell.switchView('guild-direct')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
@@ -7383,7 +7370,6 @@ export function MainView(): ReactElement {
                           onOpenGapMessages={handleOpenGapMessages}
                           onSearchChatRecords={handleSearchChatRecords}
                           onExportConversation={handleExportConversation}
-                          onOpenRoamingBackfill={() => openWonderfulToolsAt('roaming-backfill')}
                           deletedIds={deletedIds}
                           onRestoreMessage={handleRestoreMessage}
                           unreadDock={unreadDock}
@@ -7459,6 +7445,7 @@ export function MainView(): ReactElement {
             onClose={() => setSettingsOpen(false)}
             initialSection={settingsSection}
             onOpenMaintenance={openMaintenance}
+            onOpenRecalls={handleOpenRecallsAt}
           />
           <DataMaintenanceDialog
             tool={maintenanceTool}
@@ -7469,34 +7456,21 @@ export function MainView(): ReactElement {
             }}
             onClose={() => {
               setMaintenanceTool(null);
-              setSettingsSection('maintenance');
+              setSettingsSection(
+                maintenanceTool === 'login-accounts'
+                  ? 'account'
+                  : maintenanceTool === 'capture' || maintenanceTool === 'reverse'
+                    ? 'diagnostics'
+                    : 'maintenance',
+              );
               setSettingsOpen(true);
             }}
           />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <WorkspaceTools
+            hidden={settingsOpen || maintenanceTool !== null}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={() => shell.switchView('annual')}
-          />
-          <WonderfulToolsDialog
-            open={wonderfulToolsOpen}
-            initialTool={wonderfulToolsTool}
-            currentUin={user.identityValue}
-            roamingTarget={
-              selectedConversation &&
-              (selectedConversation.type === 'group' ||
-                (selectedConversation.type === 'direct' &&
-                  !isDataline(selectedConversation.chatType ?? 1)))
-                ? {
-                    ...convFetchKey(selectedConversation),
-                    name:
-                      selectedConversation.type === 'group'
-                        ? selectedConversation.group.name
-                        : selectedConversation.otherUser.displayName,
-                  }
-                : undefined
-            }
-            onClose={() => setWonderfulToolsOpen(false)}
           />
           <QzoneAlbumDialog
             selfUin={user.identityValue}
@@ -7517,7 +7491,7 @@ export function MainView(): ReactElement {
               // 故障捷径复用数据与维护的修复面板，进度与回滚仍走原服务。
               // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
               setDamagedEvent(null);
-              openWonderfulToolsAt('db-repair');
+              openMaintenance('db-repair');
             }}
           />
           {marketBrowserOpen ? (
@@ -7600,12 +7574,6 @@ export function MainView(): ReactElement {
                 },
               )}
               onClose={() => setAnnouncementsDialog(null)}
-            />
-          ) : null}
-          {antiRecallOpen ? (
-            <AntiRecallDialog
-              onClose={() => setAntiRecallOpen(false)}
-              onOpenRecalls={handleOpenRecallsAt}
             />
           ) : null}
           {convSettings ? (

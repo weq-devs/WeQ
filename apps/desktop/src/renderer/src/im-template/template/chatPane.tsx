@@ -3111,6 +3111,12 @@ export function ChatPane({
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
+  function jumpToBottomAndRead() {
+    scrollMessagesToBottom();
+    // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
+    requestReadAtBottom();
+  }
+
   function isScrolledToBottom(tolerance = 48) {
     const scroll = messageScrollRef.current;
     if (!scroll) {
@@ -3828,7 +3834,7 @@ export function ChatPane({
       </div>
 
       {newMessagePill > 0 ? (
-        <button className={cn('new-message-pill')} type="button" onClick={scrollMessagesToBottom}>
+        <button className={cn('new-message-pill')} type="button" onClick={jumpToBottomAndRead}>
           <ChevronDown size={14} strokeWidth={2.8} />
           <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
         </button>

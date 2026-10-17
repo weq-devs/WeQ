@@ -107,9 +107,9 @@ describe('原地悬浮工具条', () => {
       }),
     );
     try {
-      const trigger = view.host.querySelector('button')!;
+      const trigger = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
       act(() => trigger.click());
-      const toolbar = view.host.querySelector('[role="toolbar"]')!;
+      const toolbar = document.querySelector('[role="toolbar"]')!;
       expect(view.host.querySelector('[role="dialog"]')).toBeNull();
       const buttons = toolbar.querySelectorAll('button');
       act(() => buttons[0]!.focus());
@@ -122,14 +122,14 @@ describe('原地悬浮工具条', () => {
       act(() =>
         buttons[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
       );
-      expect(view.host.querySelector('[role="toolbar"]')).toBeNull();
+      expect(document.querySelector('[role="toolbar"]')).toBeNull();
       act(() => trigger.click());
       pointer(document.body, 'pointerdown');
-      expect(view.host.querySelector('[role="toolbar"]')).toBeNull();
+      expect(document.querySelector('[role="toolbar"]')).toBeNull();
       act(() => trigger.click());
-      act(() => view.host.querySelector<HTMLButtonElement>('[role="toolbar"] button')!.click());
+      act(() => document.querySelector<HTMLButtonElement>('[role="toolbar"] button')!.click());
       expect(action).toHaveBeenCalledOnce();
-      expect(view.host.querySelector('[role="toolbar"]')).toBeNull();
+      expect(document.querySelector('[role="toolbar"]')).toBeNull();
     } finally {
       view.dispose();
     }
@@ -138,7 +138,7 @@ describe('原地悬浮工具条', () => {
   it('拖动保持边界与位置，松手后的指针点击不误展开，键盘仍可操作', () => {
     const view = mount(createElement(FloatingToolsBar, { items: [] }));
     try {
-      const trigger = view.host.querySelector('button')!;
+      const trigger = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
       pointer(trigger, 'pointerdown', { clientX: 900, clientY: 600, button: 0 });
       pointer(trigger, 'pointermove', { clientX: -1000, clientY: -1000 });
       pointer(trigger, 'pointerup', { clientX: -1000, clientY: -1000 });
@@ -158,8 +158,8 @@ describe('原地悬浮工具条', () => {
     }
     const restored = mount(createElement(FloatingToolsBar, { items: [] }));
     try {
-      expect((restored.host.firstElementChild as HTMLElement).style.left).toBe('8px');
-      expect((restored.host.firstElementChild as HTMLElement).style.top).toBe('48px');
+      expect(document.querySelector<HTMLElement>('.weq-floating-tools')?.style.left).toBe('8px');
+      expect(document.querySelector<HTMLElement>('.weq-floating-tools')?.style.top).toBe('48px');
     } finally {
       restored.dispose();
     }

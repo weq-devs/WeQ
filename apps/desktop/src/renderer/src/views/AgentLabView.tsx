@@ -36,7 +36,6 @@ import {
   getCloneTasks,
 } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
-import { UsagePanel } from './agentlab/UsagePanel';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
@@ -923,11 +922,7 @@ export function AgentLabView({
           </button>
         ) : null}
         {sel.kind === 'home' ? (
-          <UsagePanel
-            resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'}
-            hasPersona={(id) => id === '__assistant__' || personaList.some((p) => p.id === id)}
-            personaCount={personaList.length}
-          />
+          <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
         ) : sel.kind === 'assistant' ? (
           <AssistantPanel
             key={sel.navKey}

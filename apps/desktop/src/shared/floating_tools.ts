@@ -7,6 +7,21 @@ export interface ViewportSize {
   height: number;
 }
 
+export function floatingDockHit(
+  point: FloatingPosition,
+  slot: { left: number; top: number; width: number; height: number } | null,
+): boolean {
+  return Boolean(
+    slot &&
+      slot.width > 0 &&
+      slot.height > 0 &&
+      point.x >= slot.left - 18 &&
+      point.x <= slot.left + slot.width + 18 &&
+      point.y >= slot.top - 18 &&
+      point.y <= slot.top + slot.height + 18,
+  );
+}
+
 export function clampFloatingPosition(
   point: FloatingPosition,
   viewport: ViewportSize,

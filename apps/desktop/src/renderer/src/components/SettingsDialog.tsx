@@ -32,6 +32,8 @@ import {
   Radio,
   ScanText,
   Settings2,
+  ScanSearch,
+  ShieldCheck,
   Sun,
   User,
   X,
@@ -52,6 +54,8 @@ import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
+import { AntiRecallDialog } from './AntiRecallDialog';
+import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import {
   useThemeStore,
@@ -66,10 +70,13 @@ export type SectionId =
   | 'global'
   | 'appearance'
   | 'applock'
+  | 'anti-recall'
   | 'account'
   | 'qzone'
   | 'database'
   | 'maintenance'
+  | 'diagnostics'
+  | 'model-usage'
   | 'voice'
   | 'ocr'
   | 'agentlab'
@@ -114,8 +121,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'account',
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
-    render: () => <AccountBasicsSection />,
+    render: (onOpen) => (
+      <>
+        <AccountBasicsSection />
+        <button
+          type="button"
+          className="weq-maintenance-entry"
+          onClick={() => onOpen('login-accounts')}
+        >
+          <User size={18} />
+          <span>QQ 登录账号管理</span>
+        </button>
+      </>
+    ),
   },
+  { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
   {
     id: 'qzone',
     label: 'QQ 空间设置',
@@ -139,6 +159,30 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音配置',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'diagnostics',
+    label: '高级诊断',
+    icon: <ScanSearch size={16} />,
+    render: (onOpen) => (
+      <>
+        <SectionHeader title="高级诊断" />
+        <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
+          <Radio size={18} />
+          <span>ntqq 抓包</span>
+        </button>
+        <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('reverse')}>
+          <ScanSearch size={18} />
+          <span>Protobuf / JCE 逆向</span>
+        </button>
+      </>
+    ),
+  },
+  {
+    id: 'model-usage',
+    label: '模型使用统计',
+    icon: <Activity size={16} />,
+    render: () => <ModelUsageSection />,
   },
   {
     id: 'ocr',
@@ -198,6 +242,7 @@ export function SettingsDialog({
   onClose,
   initialSection,
   onOpenMaintenance,
+  onOpenRecalls,
 }: {
   open: boolean;
   onClose: () => void;
@@ -207,6 +252,7 @@ export function SettingsDialog({
    */
   initialSection?: SectionId;
   onOpenMaintenance: (tool: MaintenanceTool) => void;
+  onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>(() => initialSection ?? 'global');
   const navRef = useRef<HTMLElement | null>(null);
@@ -273,8 +319,36 @@ export function SettingsDialog({
             ))}
           </ul>
         </nav>
-        <div className="weq-settings-body">{active.render(onOpenMaintenance)}</div>
+        <div className="weq-settings-body">
+          {active.id === 'anti-recall' ? (
+            <AntiRecallDialog
+              embedded
+              onClose={onClose}
+              onOpenRecalls={(kind, conv) => {
+                onClose();
+                onOpenRecalls(kind, conv);
+              }}
+            />
+          ) : (
+            active.render(onOpenMaintenance)
+          )}
+        </div>
       </section>
+    </div>
+  );
+}
+
+function ModelUsageSection(): ReactElement {
+  const personas = trpc.account.listAgentLabPersonas.useQuery();
+  const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
+  return (
+    <div className="weq-settings-model-usage">
+      <SectionHeader title="模型使用统计" />
+      <UsagePanel
+        personaCount={names.size}
+        resolveName={(id) => names.get(id) ?? '已删除的克隆'}
+        hasPersona={(id) => id === '__assistant__' || names.has(id)}
+      />
     </div>
   );
 }

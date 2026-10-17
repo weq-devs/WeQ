@@ -1,5 +1,13 @@
 import type { ReactElement } from 'react';
-import { ArrowLeft, ChevronRight, Database, DatabaseZap, HardDrive, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Database,
+  DatabaseZap,
+  HardDrive,
+  KeyRound,
+  Trash2,
+} from 'lucide-react';
 import { Modal } from '../Dialog';
 import { DbRepairPanel, type DbRepairAccountOption } from '../DbRepairPanel';
 import { DbExplorer } from '../../views/cache/DbExplorer';
@@ -9,14 +17,26 @@ import { SectionHeader } from './controls';
 import { trpc } from '../../trpc/client';
 import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
+import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 
-export type MaintenanceTool = 'database' | 'storage' | 'cleanup' | 'db-repair';
+export type MaintenanceTool =
+  | 'database'
+  | 'storage'
+  | 'cleanup'
+  | 'db-repair'
+  | 'key-scan'
+  | 'other-device-key'
+  | 'login-accounts'
+  | 'capture'
+  | 'reverse';
 
 const TOOLS = [
   { id: 'database', label: '数据库管理', icon: Database, needsResources: false },
   { id: 'storage', label: '存储占用', icon: HardDrive, needsResources: true },
   { id: 'cleanup', label: '清理缓存', icon: Trash2, needsResources: true },
   { id: 'db-repair', label: '数据库修复', icon: DatabaseZap, needsResources: false },
+  { id: 'key-scan', label: '密钥扫描', icon: KeyRound, needsResources: false },
+  { id: 'other-device-key', label: '其它设备密钥', icon: KeyRound, needsResources: false },
 ] as const;
 
 export function DataMaintenanceSection({
@@ -81,6 +101,14 @@ export function DataMaintenanceDialog({
 }): ReactElement | null {
   const utils = trpc.useUtils();
   if (!tool) return null;
+  if (
+    tool === 'key-scan' ||
+    tool === 'other-device-key' ||
+    tool === 'login-accounts' ||
+    tool === 'capture' ||
+    tool === 'reverse'
+  )
+    return <WonderfulToolsDialog open initialTool={tool} tools={[tool]} onClose={onClose} />;
   if (tool === 'storage') return <ResourceAnalyticsDialog open onClose={onClose} />;
   if (tool === 'cleanup') return <ResourceCleanupDialog open onClose={onClose} />;
   return (

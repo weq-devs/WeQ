@@ -15,6 +15,7 @@ import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { OverlayLayer } from './OverlayLayer';
+import '../styles/contact-notices.css';
 
 /**
  * 好友通知灯箱。沿用 weq 设计：遮罩 + 居中卡片，固定标题 + 可滚动列表。
@@ -30,7 +31,7 @@ export function ContactNoticeDialog({
   onClose: () => void;
 }) {
   return (
-    <OverlayLayer className="weq-profile-layer" open={open} onClose={onClose}>
+    <OverlayLayer className="weq-profile-layer weq-notice-layer" open={open} onClose={onClose}>
       <section
         className="weq-notice-dialog weq-anim-pop"
         role="dialog"
@@ -158,7 +159,7 @@ export function GroupNoticeDialog({
   onClose: () => void;
 }) {
   return (
-    <OverlayLayer className="weq-profile-layer" open={open} onClose={onClose}>
+    <OverlayLayer className="weq-profile-layer weq-notice-layer" open={open} onClose={onClose}>
       <section
         className="weq-notice-dialog weq-anim-pop"
         role="dialog"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { GeneratedSearchHit } from './search/types';
-import { BarChart3, Bot, Download, ListTodo, X } from 'lucide-react';
+import { BarChart3, Bot, CloudDownload, Download, ListTodo, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { FloatingToolsBar, type FloatingToolItem } from './FloatingToolsBar';
 import { RetainedTabs } from './RetainedTabs';
@@ -9,20 +9,24 @@ import { AgentLabView } from '../views/AgentLabView';
 import { trpc } from '../trpc/client';
 import { useCurrentContentSelection } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
+import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 
-type Tool = 'export' | 'tasks' | 'assistant';
+type Tool = 'export' | 'tasks' | 'assistant' | 'backfill';
 const TITLES: Record<Tool, string> = {
   export: '导出',
   tasks: '任务',
   assistant: 'WeQ 助手',
+  backfill: '消息补全',
 };
 
 export function WorkspaceTools({
   onOpenAnalysis,
   assistantSearchTarget,
+  hidden = false,
 }: {
   onOpenAnalysis: () => void;
   assistantSearchTarget?: GeneratedSearchHit | null;
+  hidden?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('export');
@@ -50,6 +54,12 @@ export function WorkspaceTools({
     { id: 'export', label: '导出', icon: <Download size={20} />, action: () => select('export') },
     { id: 'tasks', label: '任务', icon: <ListTodo size={20} />, action: () => select('tasks') },
     {
+      id: 'backfill',
+      label: '消息补全',
+      icon: <CloudDownload size={20} />,
+      action: () => select('backfill'),
+    },
+    {
       id: 'analysis',
       label: '分析与报告',
       icon: <BarChart3 size={20} />,
@@ -64,7 +74,7 @@ export function WorkspaceTools({
   ];
   return (
     <>
-      <FloatingToolsBar items={items} running={running} />
+      <FloatingToolsBar items={items} running={running} hidden={hidden} />
       <Modal
         open={open}
         onClose={close}
@@ -86,6 +96,8 @@ export function WorkspaceTools({
               <ExportTool surface="tasks" />
             ) : tool === 'assistant' ? (
               <AgentLabView mode="assistant" searchTarget={assistantSearchTarget} />
+            ) : tool === 'backfill' ? (
+              <RoamingBackfillPanel />
             ) : null
           ) : null}
         </RetainedTabs>

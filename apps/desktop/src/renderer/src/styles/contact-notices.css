@@ -1,0 +1,157 @@
+.weq-notice-dialog[role="dialog"] {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 24px));
+  height: min(620px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 24px);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-card);
+  animation: weq-notice-enter 140ms ease;
+}
+
+.weq-notice-dialog .weq-notice-head h2 {
+  color: var(--weq-fg-primary);
+}
+
+.weq-notice-dialog .notice-card-request {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 76px;
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+
+.weq-notice-dialog .notice-card-request .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.weq-notice-dialog .notice-copy,
+.weq-notice-dialog .notice-meta {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-notice-dialog .notice-line-head,
+.weq-notice-dialog .notice-line-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog .notice-copy p > span.notice-who,
+.weq-notice-dialog .notice-group-name {
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog .notice-action-text,
+.weq-notice-dialog .notice-operator,
+.weq-notice-dialog .notice-sysremark {
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog .notice-fields {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.weq-notice-dialog .notice-field {
+  display: grid;
+  grid-template-columns: minmax(0, 42px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-notice-dialog .notice-field dt,
+.weq-notice-dialog .notice-field dd {
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog .notice-field dt,
+.weq-notice-dialog .notice-meta time {
+  color: var(--weq-fg-muted);
+}
+
+.weq-notice-dialog .notice-meta {
+  justify-items: end;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog .notice-state {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  font-size: 11px;
+  font-style: normal;
+}
+
+html[data-theme="dark"] .weq-notice-dialog[role="dialog"] {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme="dark"] .weq-notice-layer {
+  background: color-mix(in srgb, var(--background) 75%, transparent);
+}
+
+html[data-theme="dark"] .weq-notice-dialog .notice-state {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+@keyframes weq-notice-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-notice-dialog[role="dialog"] { animation: none; }
+}
+.weq-profile-layer.weq-notice-layer {
+  box-sizing: border-box;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  padding: 12px;
+  background: color-mix(in srgb, var(--background) 65%, transparent);
+}
+

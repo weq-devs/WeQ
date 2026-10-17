@@ -46,6 +46,7 @@ import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
+import { RailUtilityDock } from './RailUtilityDock';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -349,56 +350,58 @@ export function RailAccountFooter({
 
   return (
     <>
-      <DesktopOnly>
+      <RailUtilityDock>
+        <DesktopOnly>
+          <button
+            type="button"
+            className="weq-rail-capture-btn"
+            title="截图当前窗口（复制到剪贴板）"
+            aria-label="截图当前窗口"
+            onClick={() => void captureNow()}
+          >
+            <Camera size={18} strokeWidth={1.8} aria-hidden />
+          </button>
+        </DesktopOnly>
         <button
           type="button"
-          className="weq-rail-capture-btn"
-          title="截图当前窗口（复制到剪贴板）"
-          aria-label="截图当前窗口"
-          onClick={() => void captureNow()}
+          className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
+          title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+          aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+          aria-pressed={privacyEnabled}
+          onClick={togglePrivacy}
         >
-          <Camera size={18} strokeWidth={1.8} aria-hidden />
+          {privacyEnabled ? (
+            <EyeOff size={18} strokeWidth={1.8} aria-hidden />
+          ) : (
+            <Eye size={18} strokeWidth={1.8} aria-hidden />
+          )}
         </button>
-      </DesktopOnly>
-      <button
-        type="button"
-        className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
-        title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-        aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-        aria-pressed={privacyEnabled}
-        onClick={togglePrivacy}
-      >
-        {privacyEnabled ? (
-          <EyeOff size={18} strokeWidth={1.8} aria-hidden />
-        ) : (
-          <Eye size={18} strokeWidth={1.8} aria-hidden />
-        )}
-      </button>
-      <button
-        type="button"
-        className="weq-rail-theme-btn"
-        title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-        aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-        onClick={toggleTheme}
-      >
-        {resolvedTheme === 'dark' ? (
-          <Sun size={18} strokeWidth={1.8} aria-hidden />
-        ) : (
-          <Moon size={18} strokeWidth={1.8} aria-hidden />
-        )}
-      </button>
-      <DesktopOnly>
         <button
           type="button"
-          className="weq-rail-lock-btn"
-          title={lockBlockReason() ?? '锁定 WeQ'}
-          aria-label="锁定 WeQ"
-          onClick={() => void lockNow()}
-          disabled={busy || lockBlockReason() !== null}
+          className="weq-rail-theme-btn"
+          title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          onClick={toggleTheme}
         >
-          <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+          {resolvedTheme === 'dark' ? (
+            <Sun size={18} strokeWidth={1.8} aria-hidden />
+          ) : (
+            <Moon size={18} strokeWidth={1.8} aria-hidden />
+          )}
         </button>
-      </DesktopOnly>
+        <DesktopOnly>
+          <button
+            type="button"
+            className="weq-rail-lock-btn"
+            title={lockBlockReason() ?? '锁定 WeQ'}
+            aria-label="锁定 WeQ"
+            onClick={() => void lockNow()}
+            disabled={busy || lockBlockReason() !== null}
+          >
+            <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+          </button>
+        </DesktopOnly>
+      </RailUtilityDock>
       <div ref={wrapRef} className="weq-rail-account-footer">
         <button
           type="button"
