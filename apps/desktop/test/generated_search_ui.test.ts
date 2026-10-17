@@ -159,6 +159,17 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it('嵌入共享列表时不显示无会话的克隆占位文字', () => {
+    const f = mount();
+    try {
+      act(() => f.root.render(createElement(AgentLabView, { embedded: true })));
+      expect(f.host.textContent).not.toContain('暂无打开的克隆会话');
+      expect(f.host.querySelector('.weq-agentlab-workspace')).not.toBeNull();
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it.each(['persona', 'group', 'assistant'] as const)(
     '%s 搜索跳转等到新快照，不把旧缓存 seed 成最终历史',
     async (kind) => {

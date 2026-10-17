@@ -45,7 +45,7 @@
 }
 
 .weq-guild-direct .weq-guild-direct-side {
-  flex-basis: var(--sidebar-width, var(--im-sidebar-width, 362px));
+  flex-basis: var(--weq-channel-sidebar-width, var(--im-sidebar-width, 362px));
   min-width: 0;
 }
 

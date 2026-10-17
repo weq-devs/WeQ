@@ -1,4 +1,6 @@
-import { act, createElement } from 'react';
+import { act, createElement, type CSSProperties } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
@@ -67,6 +69,34 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 
 describe('QQ 频道内的私聊工作区', () => {
+  it('全宽页面的外层侧栏为零时，频道私聊仍保留正常会话列表宽度', async () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(
+      resolve(__dirname, '../src/renderer/src/styles/channel.css'),
+      'utf8',
+    );
+    document.head.append(style);
+    const f = mount(
+      createElement(
+        'div',
+        { style: { '--sidebar-width': '0px' } as CSSProperties },
+        createElement(ChannelView, {
+          selfUser: createTemplateDemoData().user,
+          initialDirectOpen: true,
+          sidebarWidth: 340,
+        }),
+      ),
+    );
+    try {
+      await act(async () => {});
+      expect(
+        window.getComputedStyle(f.host.querySelector('.weq-guild-direct-side')!).flexBasis,
+      ).toBe('340px');
+    } finally {
+      f.close();
+      style.remove();
+    }
+  });
   it('只在频道内部提供入口，按需读取，返回与重开保留两个阅读现场', async () => {
     const f = mount(createElement(ChannelView, { selfUser: createTemplateDemoData().user }));
     try {

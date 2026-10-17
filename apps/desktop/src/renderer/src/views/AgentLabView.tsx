@@ -942,7 +942,9 @@ export function AgentLabView({
           </button>
         ) : null}
         {sel.kind === 'home' ? (
-          <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
+          embedded ? null : (
+            <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
+          )
         ) : sel.kind === 'assistant' ? (
           <AssistantPanel
             key={sel.navKey}

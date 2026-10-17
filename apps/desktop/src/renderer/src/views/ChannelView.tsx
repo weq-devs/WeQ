@@ -3,7 +3,7 @@
  * （对方站点禁 iframe），改成开新标签（见 ExternalSiteView）。
  */
 
-import { useState, type ReactElement } from 'react';
+import { useState, type CSSProperties, type ReactElement } from 'react';
 import { Hash, MessagesSquare } from 'lucide-react';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import type { User } from '../im-template/template/types';
@@ -17,15 +17,21 @@ export function ChannelView({
   selfUser,
   renderers,
   initialDirectOpen = false,
+  sidebarWidth = 362,
 }: {
   selfUser: User;
   renderers?: MessageRenderer[];
   initialDirectOpen?: boolean;
+  sidebarWidth?: number;
 }): ReactElement {
   const [directOpen, setDirectOpen] = useState(initialDirectOpen);
   const [visited, setVisited] = useState(initialDirectOpen);
   return (
-    <section className="weq-channel-workspace" aria-label="QQ 频道">
+    <section
+      className="weq-channel-workspace"
+      aria-label="QQ 频道"
+      style={{ '--weq-channel-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+    >
       <div className="weq-channel-browser" hidden={directOpen}>
         {IS_WEB ? (
           <ExternalSiteView

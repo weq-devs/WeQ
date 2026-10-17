@@ -7442,6 +7442,7 @@ export function MainView(): ReactElement {
                     shell.view === 'guild-direct' ? (
                     <ChannelView
                       selfUser={user}
+                      sidebarWidth={shell.sidebarWidth}
                       renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
                     />
