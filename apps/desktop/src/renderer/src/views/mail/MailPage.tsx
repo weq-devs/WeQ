@@ -133,6 +133,8 @@ export function MailPage({
     setKeyword('');
     setQuery('');
     setShowCompose(false);
+    // 重选当前文件夹时查询参数不变，也必须显式重新读取列表。
+    setRevision((value) => value + 1);
   }, []);
 
   const connect = useCallback(async () => {
