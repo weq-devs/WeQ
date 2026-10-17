@@ -1094,6 +1094,46 @@ export class GroupMsgDb {
   }
 
   /**
+   * 每个群在时间窗内**按周**的消息数 —— 年度报告「我的主场」群聊卡片的 sparkline。
+   *
+   * 只扫发送时间与群号两列，一次 `GROUP BY 群号, 周序号`；周序号以 `startTime`
+   * 所在日期为 0（本地时区），与渲染层的周柱状图同一套口径。不解码任何正文。
+   */
+  async countWeeklyByGroups(
+    groupCodes: string[],
+    opts: { startTime: number; endTime: number },
+  ): Promise<Array<{ groupCode: string; week: number; count: number }>> {
+    if (groupCodes.length === 0) return [];
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions = [`"40027" IN (${placeholders})`];
+    const refStart = Math.max(0, opts.startTime);
+    const params: SqlValue[] = [BigInt(refStart), ...groupCodes];
+    if (opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40027",
+              CAST((julianday(date("40050", 'unixepoch', 'localtime')) -
+                    julianday(date(?, 'unixepoch', 'localtime'))) / 7 AS INTEGER) AS week,
+              COUNT(*)
+         FROM group_msg_table
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY "40027", week`,
+      params,
+    );
+    return rows.map((row) => ({
+      groupCode: String(row[0] ?? ''),
+      week: Number(row[1] ?? 0),
+      count: Number(row[2] ?? 0),
+    }));
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:

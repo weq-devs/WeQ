@@ -225,7 +225,7 @@ interface DbRepairCheckupView {
   /** 结构检查（`PRAGMA integrity_check`）。 */
   integrity:
     | { ran: true; healthy: boolean; corruptedTables: string[] }
-    | { ran: false; error: string };
+    | { ran: false; error: string; corrupt?: boolean };
   /** 页级检查（坏页地图）。`usedHmac === false` = 跑成了但**没法判**。 */
   pages: { ran: true; report: BadPageScanReportView } | { ran: false; error: string };
   verdict: 'healthy' | 'healthy-unverified' | 'pages-bad' | 'corrupted' | 'error';
@@ -1877,7 +1877,11 @@ export function DbRepairPanel({
                     <p>页级检查没跑起来：{currentCheckup.pages.error}</p>
                   )}
                   {!currentCheckup.integrity.ran ? (
-                    <p>结构检查没跑起来：{currentCheckup.integrity.error}</p>
+                    <p>
+                      {currentCheckup.integrity.corrupt
+                        ? `结构检查读到损坏错误：${currentCheckup.integrity.error}`
+                        : `结构检查没跑起来：${currentCheckup.integrity.error}`}
+                    </p>
                   ) : null}
                 </Disclosure>
               ) : null}

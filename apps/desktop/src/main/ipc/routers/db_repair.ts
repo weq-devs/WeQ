@@ -24,7 +24,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
-import { assertRecoverCapable } from '@weq/db';
+import { assertRecoverCapable, isLikelyCorruptionError } from '@weq/db';
 import type { DatabaseAlgorithms, RecoverOptions } from '@weq/native';
 import {
   ACCOUNT_HEALTH_DATABASES,
@@ -32,6 +32,7 @@ import {
   DbRepairService,
   getHost,
   getLogger,
+  classifyLock,
   concludeCheckup,
   resolveAccountDbDir,
   scanDatabaseBadPages,
@@ -389,7 +390,15 @@ function failedResult(error: unknown, closedAccount: boolean, event: string): Db
   return { ok: false, code, error: message, closedAccount };
 }
 
-/** 结构体检：`PRAGMA integrity_check`（native）。失败只当这一格没跑成。 */
+/**
+ * 结构体检：`PRAGMA integrity_check`（native）。
+ *
+ * 失败分两种，不能都算"这一格没跑成"：
+ *   - 没有密钥 / 产物缺方法 / 权限问题 → 没跑成，结论只能是未判定；
+ *   - `database disk image is malformed` 这类错误 → **integrity_check 读坏页时抛的，
+ *     抛错本身就是损坏结论**。早期这里统一按"没跑成"收，结果用户的坏库永远被判成
+ *     "未判定"，面板上只剩一句"结构检查没跑成"。
+ */
 async function runIntegrityCheck(target: DbRepairTarget): Promise<DbRepairCheckup['integrity']> {
   try {
     const health = await requirePlatform().native.ntHelper.checkDatabaseHealth(
@@ -399,7 +408,11 @@ async function runIntegrityCheck(target: DbRepairTarget): Promise<DbRepairChecku
     );
     return { ran: true, healthy: health.healthy, corruptedTables: health.corruptedTables };
   } catch (error) {
-    return { ran: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ran: false,
+      error: error instanceof Error ? error.message : String(error),
+      corrupt: isLikelyCorruptionError(error),
+    };
   }
 }
 
@@ -569,7 +582,21 @@ export const dbRepairRouter = router({
       for (;;) {
         const stillLocked = (() => {
           try {
-            return (platform.native.ntHelper.probeDbLock(dbPath).holders?.length ?? 0) > 0;
+            const probe = platform.native.ntHelper.probeDbLock(dbPath);
+            if (!probe.success) return false;
+            // 结束 QQ 之后，这个库上剩下的持有者里**通常有 WeQ 自己**（主进程 / 渲染
+            // 进程读消息时握着它）。那是我们自己的句柄，替换前 `releaseHandles()` 会关，
+            // 不能因此报"还有别的东西在用"。只把 QQ 与真正的第三方进程算作仍被占用，
+            // 命名口径与预检共用 `classifyLock`（weq / electron 一律归"自己"）。
+            const classification = classifyLock(
+              { success: true, holders: probe.holders ?? [] },
+              null,
+              process.pid,
+            );
+            return (
+              classification.readiness === 'blocked-by-qq' ||
+              classification.readiness === 'blocked-by-other'
+            );
           } catch {
             // 探测不到就当它已经释放：后面替换前还有一次复核。
             return false;

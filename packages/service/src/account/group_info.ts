@@ -26,6 +26,14 @@ import {
   type ConversationGraphEdge,
 } from './conversation_graph';
 import { segmentWords } from './text_segment';
+import {
+  buildWeekKeys,
+  dailyToWeekly,
+  localDateKey,
+  seriesForWeeks,
+  weekStartKey,
+  type WeeklyCount,
+} from './analytics_weeks';
 
 /** Message count ranking entry. */
 export interface GroupMessageRankingItem {
@@ -33,6 +41,11 @@ export interface GroupMessageRankingItem {
   uin: string;
   displayName: string;
   messageCount: number;
+  /**
+   * 所选区间内**每周发言数**（与 `GroupStatsReport.timeline` 的周口径一致）。
+   * 成员卡里的 sparkline 用它；其它调用方（成员排行）不传。
+   */
+  weekly?: number[];
 }
 
 /** Per-member analytics result. */
@@ -69,6 +82,22 @@ export interface GroupDailyActivityItem {
   count: number;
 }
 
+/** 全历史时间轴：不随所选区间变化（绿墙、GitHub 式周柱状图都吃它）。 */
+export interface GroupStatsTimeline {
+  firstMessageTime: number | null;
+  lastMessageTime: number | null;
+  daily: GroupDailyActivityItem[];
+  weekly: WeeklyCount[];
+}
+
+/** 本次统计实际覆盖的区间（unix 秒；无数据时为 null）。 */
+export interface GroupStatsRange {
+  startTime: number | null;
+  endTime: number | null;
+  /** true = 调用方没传区间，服务层按「最近一年」自动确定。 */
+  defaulted: boolean;
+}
+
 /** One of my groups plus my own member level in it. */
 export interface SelfGroupLevel {
   code: string;
@@ -102,8 +131,15 @@ export interface GroupStatsReport {
   };
   ranking: GroupMessageRankingItem[];
   timeDistribution: Record<number, number>;
+  /** 所选区间内每天的条数（随选择变化）。 */
   daily: GroupDailyActivityItem[];
   words: GroupWordCloudItem[];
+  /** 真正生效的统计区间。 */
+  range: GroupStatsRange;
+  /** 全历史时间轴（不随区间变化）。 */
+  timeline: GroupStatsTimeline;
+  /** 区间周序列（周一起点），成员卡 sparkline 与选中区间对齐。 */
+  weeks: string[];
 }
 
 /** 入群批次的类型与纯函数在 ./join_batches，这里只做转出。 */
@@ -864,7 +900,13 @@ export class GroupInfoService {
    */
   async getGroupConversationGraph(
     groupCode: bigint,
-    opts?: { windowSeconds?: number; maxEdges?: number },
+    opts?: {
+      windowSeconds?: number;
+      maxEdges?: number;
+      /** unix 秒；省略 = 全部历史。 */
+      startTime?: number;
+      endTime?: number;
+    },
   ): Promise<GroupConversationGraphReport> {
     const PAGE = 2000;
     const timeline: ConversationMessage[] = [];
@@ -876,7 +918,11 @@ export class GroupInfoService {
         PAGE,
       );
       if (batch.length === 0) break;
-      for (const row of batch) timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+      for (const row of batch) {
+        if (opts?.startTime && row.sendTime < opts.startTime) continue;
+        if (opts?.endTime && row.sendTime > opts.endTime) continue;
+        timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+      }
       afterSeq = batch[batch.length - 1]!.seq;
       if (batch.length < PAGE) break;
     }
@@ -971,16 +1017,55 @@ export class GroupInfoService {
    */
   async getGroupStatsReport(
     groupCode: bigint,
-    opts?: { rankingLimit?: number; wordLimit?: number },
+    opts?: {
+      rankingLimit?: number;
+      wordLimit?: number;
+      /** unix 秒。两者都省略且 `recentYear` 为真 = 最近一年（以最后一条消息为基准）。 */
+      startTime?: number;
+      endTime?: number;
+      /** 没传区间时是否默认「最近一年」；助手快照等旧调用方保持全历史。 */
+      recentYear?: boolean;
+      /**
+       * 不为全历史时间轴做统计（界面拖动区间时用：时间轴已经在首屏拿到，
+       * 再算一遍纯属浪费）。此时 SQL 只取区间内的行。
+       */
+      skipTimeline?: boolean;
+    },
   ): Promise<GroupStatsReport> {
     const db = this.session.groupMsgs;
+    const code = String(groupCode);
 
-    const counts = new Map<string, number>(); // uid → message count
+    // 默认窗口「最近一年」：以最后一条消息为基准，而不是 now —— 很多群早就
+    // 不活跃了，按 now 切会把整段历史排除在外、打开就是空图。
+    let startTime = opts?.startTime ?? 0;
+    let endTime = opts?.endTime ?? 0;
+    let defaulted = false;
+    if (!(startTime > 0) || !(endTime > 0)) {
+      const latest = opts?.recentYear ? await db.listLatest(code, 1) : [];
+      const newest = latest[0] ? Number(latest[0].sendTime) : 0;
+      if (newest > 0) {
+        defaulted = true;
+        endTime = newest;
+        startTime = newest - 365 * 86400;
+      } else {
+        startTime = 0;
+        endTime = 0;
+      }
+    }
+    if (endTime > 0 && startTime > endTime) startTime = endTime - 365 * 86400;
+    const hasRange = startTime > 0 && endTime > 0;
+    const trackTimeline = opts?.skipTimeline !== true;
+
+    const counts = new Map<string, number>(); // uid → message count (range)
     const uins = new Map<string, string>(); // uid → uin
     const hourly: Record<number, number> = {};
     for (let i = 0; i < 24; i++) hourly[i] = 0;
-    const daily = new Map<string, number>();
+    const daily = new Map<string, number>(); // range daily
+    const globalDaily = new Map<string, number>(); // all-time daily
+    const senderWeekly = new Map<string, Map<string, number>>();
     const wordCounts = new Map<string, number>();
+    let firstMessageTime: number | null = null;
+    let lastMessageTime: number | null = null;
 
     const totals = {
       totalMessages: 0,
@@ -998,9 +1083,29 @@ export class GroupInfoService {
 
     let afterSeq = 0n;
     while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500);
+      // `skipTimeline` 时把区间下推到 SQL，不再把整段历史都读出来再丢掉。
+      const batch = await db.listBatch(
+        code,
+        afterSeq,
+        500,
+        hasRange && !trackTimeline ? startTime : undefined,
+        hasRange && !trackTimeline ? endTime : undefined,
+      );
       if (batch.length === 0) break;
       for (const msg of batch) {
+        const sendTime = Number(msg.sendTime);
+
+        // 全历史时间轴：无论是否落在所选区间，都要记 —— 顶部周柱状图与
+        // 绿墙展示的是完整历史，拖动选择只改高亮。
+        if (trackTimeline && sendTime > 0) {
+          const d = new Date(sendTime * 1000);
+          const key = localDateKey(d);
+          globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
+          if (firstMessageTime === null || sendTime < firstMessageTime) firstMessageTime = sendTime;
+          if (lastMessageTime === null || sendTime > lastMessageTime) lastMessageTime = sendTime;
+        }
+
+        if (hasRange && (sendTime <= 0 || sendTime < startTime || sendTime > endTime)) continue;
         totals.totalMessages++;
 
         const uid = msg.senderUid || '';
@@ -1050,14 +1155,19 @@ export class GroupInfoService {
         if (hasEmoji) totals.emojiMessages++;
         if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
 
-        const sendTime = Number(msg.sendTime);
         if (sendTime > 0) {
           const d = new Date(sendTime * 1000);
           hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-            d.getDate(),
-          ).padStart(2, '0')}`;
-          daily.set(key, (daily.get(key) ?? 0) + 1);
+          daily.set(localDateKey(d), (daily.get(localDateKey(d)) ?? 0) + 1);
+          if (uid) {
+            const week = weekStartKey(d);
+            let byWeek = senderWeekly.get(uid);
+            if (!byWeek) {
+              byWeek = new Map();
+              senderWeekly.set(uid, byWeek);
+            }
+            byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+          }
           if (totals.firstMessageTime === null || sendTime < totals.firstMessageTime) {
             totals.firstMessageTime = sendTime;
           }
@@ -1072,6 +1182,16 @@ export class GroupInfoService {
 
     totals.activeDays = daily.size;
     totals.speakerCount = counts.size;
+
+    const timelineDaily = trackTimeline
+      ? [...globalDaily.entries()]
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => a.date.localeCompare(b.date))
+      : [];
+    const timelineWeekly = dailyToWeekly(timelineDaily);
+    const weeks = hasRange
+      ? buildWeekKeys(startTime, endTime)
+      : timelineWeekly.map((w) => w.weekStart);
 
     // Ranking: top N senders, display names resolved in one batched query.
     const rankingLimit = opts?.rankingLimit ?? 15;
@@ -1091,6 +1211,7 @@ export class GroupInfoService {
       uin: uins.get(uid) ?? '',
       displayName: nameByUid.get(uid) || uins.get(uid) || uid,
       messageCount,
+      weekly: seriesForWeeks(weeks, senderWeekly.get(uid) ?? new Map()),
     }));
 
     const words = [...wordCounts.entries()]
@@ -1102,7 +1223,25 @@ export class GroupInfoService {
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    return { totals, ranking, timeDistribution: hourly, daily: dailyArr, words };
+    return {
+      totals,
+      ranking,
+      timeDistribution: hourly,
+      daily: dailyArr,
+      words,
+      range: {
+        startTime: hasRange ? startTime : null,
+        endTime: hasRange ? endTime : null,
+        defaulted,
+      },
+      timeline: {
+        firstMessageTime,
+        lastMessageTime,
+        daily: timelineDaily,
+        weekly: timelineWeekly,
+      },
+      weeks,
+    };
   }
 
   /**

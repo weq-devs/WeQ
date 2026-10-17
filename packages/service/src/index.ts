@@ -193,6 +193,8 @@ export {
   type GroupMessageRankingItem,
   type GroupWordCloudItem,
   type GroupDailyActivityItem,
+  type GroupStatsTimeline,
+  type GroupStatsRange,
   type GroupJoinBatchMember,
   type GroupJoinBatch,
   type GroupJoinBatchReport,
@@ -203,6 +205,8 @@ export {
   BuddyAnalyticsService,
   type BuddyAnalytics,
   type BuddyReplyStats,
+  type BuddyAnalyticsRange,
+  type BuddyAnalyticsTimeline,
 } from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';

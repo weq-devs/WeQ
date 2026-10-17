@@ -247,6 +247,15 @@ export type ReportQueries = {
      */
     speechRows(groupCode: string, startTime: number, endTime: number): Promise<SentSpeechRow[]>;
     /**
+     * 多个群在时间窗内的**每周**消息数（`week` 以窗口起始日期为 0，本地时区）。
+     * 只读群号 + 发送时间，给「我的主场」的群聊卡片 sparkline 用。
+     */
+    weeklyCounts(
+      groupCodes: string[],
+      startTime: number,
+      endTime: number,
+    ): Promise<Array<{ groupCode: string; week: number; count: number }>>;
+    /**
      * 我在一个群里的成员身份：群角色 / 自定义头衔 / 群等级与等级名。
      *
      * 本地没有我的成员行或群元数据时返回 null，页面据此优雅降级（只画群名

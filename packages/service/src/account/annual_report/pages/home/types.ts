@@ -32,9 +32,30 @@ export type HomeGroupTop = {
   topics: HomeTopicWord[];
 };
 
+/**
+ * 「我的主场」轮盘里的一张群聊卡片。
+ *
+ * 与 `top` 的区别：`top` 是冠军群的完整签名（等级 / 头衔 / 话题），这里只放
+ * 轮盘需要的最小信息 —— 群号（头像）、群名、我在这个群说了多少、以及一年内的
+ * 周消息曲线（sparkline）。按「我发出的条数」降序取前 8。
+ */
+export type HomeGroupCard = {
+  groupCode: string;
+  groupName: string;
+  /** 口径内我自己在这个群发出的消息条数。 */
+  sentCount: number;
+  /** 口径内全群消息总数。 */
+  totalCount: number;
+  memberCount: number;
+  /** 每周消息数（最多 53 根柱子；历史以来取最后一年）。 */
+  weekly: number[];
+};
+
 export type HomePageData = {
   /** 报告口径年份。`ALL_TIME_YEAR`（0）= 历史以来。 */
   year: number;
+  /** 前 8 个「我说得最多」的群（轮盘卡片）；没有群聊时为空数组。 */
+  groups: HomeGroupCard[];
   /** 口径内自己发过至少一条消息的群数（排行榜的分母）。 */
   activeGroupCount: number;
   /** 口径内自己在所有群发出的消息总数。 */

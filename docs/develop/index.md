@@ -14,6 +14,7 @@ pnpm dev
 
 ## 章节
 
+- [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫
 - [引用、提及与 +1](./message-mentions-repeat-20261017.md)：唯一身份剪贴板、当前账号名称解析与相同消息重发
 - [SSO 历史路径统一](./unified-sso-history-20261017.md) — 单窗读取、物理请求计数、旧任务及缓存兼容
 - [消息显示、补全与导出更新](./message-display-export-20261017.md) — 紧凑元信息、隐私、共享日历、大列表与空间/收藏导出
