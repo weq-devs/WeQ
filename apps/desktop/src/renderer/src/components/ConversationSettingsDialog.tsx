@@ -19,6 +19,7 @@ import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { OverlayLayer } from './OverlayLayer';
+import { useEscapeToClose } from '../im-template/template/modalUtils';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
 function notifyKeyOf(kind: string, id: string): string {
