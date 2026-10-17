@@ -25,8 +25,7 @@
 - 服务端、desktop main/preload/renderer 类型检查及相关文件 Biome/diff 检查通过。
 - 未操作真实 QQ、未采集真实消息、未读聊天库外盘、未重启用户应用。合成组件测试不冒称完整账号端到端验收。
 
-QA 入口位于已有私有工作目录：
-`/Users/wata4me/Agents/2026-09-18-weQ大数据库解密修复/work/ntqq-view-export-20261015/roaming-timeline-qa.mjs`。
+QA 脚本保存在仓库外的私有本机工作目录，版本库不记录个人绝对路径。
 
 ## 生效方式
 

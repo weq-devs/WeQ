@@ -35,6 +35,7 @@ import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useAccountSwitch } from '../state/accountSwitch';
+import { confirmMailAccountLeave } from '../state/mailDraft';
 import { runAccountWarmup } from '../lib/accountWarmup';
 import {
   fetchSystemAuthStatus,
@@ -256,6 +257,10 @@ export function RailAccountFooter({
   async function signOut(): Promise<void> {
     if (busy) return;
     setBusy(true);
+    if (!(await confirmMailAccountLeave())) {
+      setBusy(false);
+      return;
+    }
     setOpen(false);
     try {
       await leaveAccountForBootstrap(queryClient);
@@ -282,6 +287,10 @@ export function RailAccountFooter({
     // 按 configId 判「点的是不是当前账号」—— 同 uin 的另一种账号必须能切过去。
     if (currentConfigId ? cfg.configId === currentConfigId : cfg.uin === currentUin) return;
     setBusy(true);
+    if (!(await confirmMailAccountLeave())) {
+      setBusy(false);
+      return;
+    }
     setOpen(false);
     // 从这一刻起 App 渲染载入页、不渲染 MainView（见 state/accountSwitch）。
     // 过渡期间 MainView 完全不挂载，所以下面 setOpenedUin(null) 不会再触发

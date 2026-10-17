@@ -131,11 +131,13 @@ describe('QQ 频道内的私聊工作区', () => {
     const collection = vi.fn();
     const market = vi.fn();
     const dress = vi.fn();
+    const changeView = vi.fn();
     const f = mount(
       createElement(AppRail, {
         user: createTemplateDemoData().user,
         view: 'channel',
-        onViewChange: noop,
+        onViewChange: changeView,
+        mailBadgeCount: 2,
         onOpenSettings: noop,
         onOpenCollection: collection,
         onOpenMarketBrowser: market,
@@ -157,6 +159,7 @@ describe('QQ 频道内的私聊工作区', () => {
         '联系人',
         'QQ 空间',
         'QQ 频道',
+        'QQ 邮箱',
         '我的收藏',
         '商城表情',
         '个性装扮',
@@ -169,6 +172,10 @@ describe('QQ 频道内的私聊工作区', () => {
       expect(collection).toHaveBeenCalledOnce();
       expect(market).toHaveBeenCalledOnce();
       expect(dress).toHaveBeenCalledOnce();
+      const mail = f.host.querySelector<HTMLButtonElement>('[title="QQ 邮箱"]')!;
+      expect(mail.querySelector('.rail-badge')?.textContent).toBe('2');
+      act(() => mail.click());
+      expect(changeView).toHaveBeenCalledWith('mail');
       expect(f.host.querySelector('[title="更多功能"]')).toBeNull();
       expect(f.host.querySelector('[title="克隆消息（模拟）"]')).toBeNull();
       expect(f.host.querySelector('[title="帮助"]')).toBeNull();

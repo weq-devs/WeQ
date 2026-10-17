@@ -427,6 +427,7 @@ export type MainView =
   | 'cache'
   | 'tools'
   | 'qzone'
+  | 'mail'
   | 'channel'
   | 'annual';
 export type ContactTab = 'friends' | 'groups';

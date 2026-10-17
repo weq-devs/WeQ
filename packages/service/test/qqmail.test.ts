@@ -1,0 +1,707 @@
+import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import https from 'node:https';
+import type { ClientRequest, IncomingMessage } from 'node:http';
+import { CookieJar } from 'tough-cookie';
+import {
+  MailAuth,
+  MAIL_LANDING,
+  localLoginArguments,
+  mailCheckSigTarget,
+} from '../src/account/mail/auth';
+import {
+  mailRequestTarget,
+  MailHttp,
+  type MailRequest,
+  type MailResponse,
+  type MailTransport,
+} from '../src/account/mail/http';
+import { MailFailure } from '../src/account/mail/types';
+import { QQMailService, type MailSocket } from '../src/account/mail/client';
+import { MailAttachmentRegistry } from '../src/account/mail/attachments';
+import { decodeMailSocketFrame, MailNoticeCursor } from '../src/account/mail/notifications';
+import {
+  addressHeader,
+  composeMailForm,
+  encodeMailForm,
+  mailEnvelope,
+  mailSummary,
+  object,
+  SYSTEM_MAIL_FOLDERS,
+  type MailObject,
+} from '../src/account/mail/wire';
+
+class FakeMailTransport implements MailTransport {
+  readonly jar = new CookieJar();
+  readonly calls: { url: URL; options: MailRequest }[] = [];
+  failReadOnce = false;
+  mismatch = false;
+  variableAccounts = false;
+  closed = false;
+  async request(raw: string | URL, options: MailRequest = {}): Promise<MailResponse> {
+    const url = new URL(raw);
+    this.calls.push({ url, options });
+    if (url.pathname === '/cgi-bin/xlogin')
+      await this.jar.setCookie(
+        'pt_local_token=fixture-local; Domain=ptlogin2.qq.com; Path=/; Secure',
+        url.href,
+      );
+    if (url.pathname === '/pt_get_uins' && this.variableAccounts)
+      return { status: 200, body: 'var uinlist=[{"uin":12345678}];ptui_getuins_CB(uinlist);' };
+    if (url.pathname === '/pt_get_uins')
+      return {
+        status: 200,
+        body: `ptui_getuins_CB([{uin:"${this.mismatch ? '87654321' : '12345678'}"}]);`,
+      };
+    if (url.pathname === '/pt_get_st') {
+      await this.jar.setCookie(
+        'clientkey=fixture-client; Domain=ptlogin2.qq.com; Path=/; Secure',
+        'https://localhost.ptlogin2.qq.com/',
+      );
+      return { status: 200, body: '__jp0({keyindex:19});' };
+    }
+    if (url.pathname === '/jump')
+      return {
+        status: 302,
+        location: 'https://ssl.ptlogin2.qq.com/check_sig?ticket=fixture',
+        body: '',
+      };
+    if (url.pathname === '/check_sig') {
+      await this.jar.setCookie(
+        'p_skey=fixture-mail; Domain=mail.qq.com; Path=/; Secure; HttpOnly',
+        url.href,
+      );
+      return { status: 302, location: MAIL_LANDING, body: '' };
+    }
+    if (url.pathname === '/login/login') return this.envelope({ sid: 'fixture-sid' });
+    if (url.pathname === '/list/maillist' && this.failReadOnce) {
+      this.failReadOnce = false;
+      return this.envelope({}, -20002);
+    }
+    return this.envelope({});
+  }
+  envelope(body: MailObject, ret = 0): MailResponse {
+    return { status: 200, body: JSON.stringify({ head: { ret }, body }) };
+  }
+  dispose(): void {
+    this.closed = true;
+    this.jar.removeAllCookiesSync();
+  }
+}
+
+const native = { probePtLoginPort: () => ({ success: true, port: 4301, msg: '' }) };
+const compose = {
+  subject: '测试',
+  content: '正文',
+  plainText: true,
+  to: [{ email: 'to@example.invalid', name: '' }],
+  cc: [],
+  bcc: [],
+  attachments: [],
+};
+
+describe('邮箱协议编码', () => {
+  it('数组使用重复键，对象使用 JSON，空值不落入表单', () => {
+    const form = new URLSearchParams(
+      encodeMailForm({
+        to: ['a', 'b'],
+        attachment: [{ name: 'a.txt', fileid: 'fixture' }],
+        absent: undefined,
+      }),
+    );
+    expect(form.getAll('to')).toEqual(['a', 'b']);
+    expect(JSON.parse(form.get('attachment')!)).toEqual({ name: 'a.txt', fileid: 'fixture' });
+    expect(form.has('absent')).toBe(false);
+  });
+  it('发信和草稿共用精确字段，拒绝地址头注入', () => {
+    const sender = { email: 'sender@example.invalid', name: '发件人' };
+    expect(composeMailForm({ ...compose, replyId: 'reply-fixture' }, sender, false)).toMatchObject({
+      func: 1,
+      re_mailid: 'reply-fixture',
+      is_text: true,
+      to: ['to@example.invalid'],
+      from: '"发件人"<sender@example.invalid>',
+    });
+    expect(composeMailForm({ ...compose, to: [] }, sender, true).func).toBe(2);
+    expect(() =>
+      addressHeader({ email: 'a@example.invalid\r\nBcc:evil@example.invalid', name: '' }),
+    ).toThrow(MailFailure);
+    expect(() => composeMailForm({ ...compose, to: [] }, sender, false)).toThrow('收件人');
+  });
+  it('正文 info 与列表字段统一投影，不把业务票据透传到 DTO', () => {
+    const dto = mailSummary({
+      emailid: 'mail-fixture',
+      subject: '主题',
+      info: { dirid: 1, unread: 1, star: 1 },
+      from: { email: 'sender@example.invalid', nick: '发件人' },
+      sid: 'never-expose',
+    });
+    expect(dto).toMatchObject({
+      id: 'mail-fixture',
+      folderId: 1,
+      unread: true,
+      starred: true,
+      sender: { name: '发件人' },
+    });
+    expect(JSON.stringify(dto)).not.toContain('never-expose');
+    expect(SYSTEM_MAIL_FOLDERS.map((folder) => folder.id)).toContain(1);
+  });
+  it('错误码不携带服务端原始响应或票据', () => {
+    expect(() => mailEnvelope({ head: { ret: -20002, msg: 'fixture-secret' } })).toThrow(
+      '登录已失效',
+    );
+    expect(() => mailEnvelope({ body: {} })).toThrow('无法识别');
+    expect(() => mailEnvelope({ head: { ret: -123, msg: 'fixture-secret' } })).toThrow('（-123）');
+  });
+});
+
+describe('邮箱生命周期和提醒', () => {
+  it('面板票据不能被带到其他路径、主机或注入请求头', async () => {
+    const transport = new MailHttp();
+    try {
+      for (const url of [
+        'https://wx.mail.qq.com/login/login',
+        'https://mail.qq.com/qs/list_notify',
+      ])
+        await expect(transport.request(url, { panelCookie: 'fixture' })).rejects.toThrow(
+          '提醒认证地址',
+        );
+      await expect(
+        transport.request('https://wx.mail.qq.com/qs/list_notify', {
+          panelCookie: 'fixture\r\nInjected: true',
+        }),
+      ).rejects.toThrow('提醒认证地址');
+    } finally {
+      transport.dispose();
+    }
+  });
+  it('网页登录清掉 p_skey 后，提醒仍使用独立保留的 QQ 面板票据', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (raw, options) => {
+      const path = new URL(raw).pathname;
+      if (path === '/qs/list_notify')
+        return object(options).panelCookie === 'p_uin=o12345678; p_skey=fixture-mail'
+          ? transport.envelope({ unread: 3, newmaillist: [] })
+          : transport.envelope({}, -90002);
+      const result = await original(raw, options);
+      if (path === '/login/login')
+        transport.jar.setCookieSync(
+          'p_skey=; Max-Age=0; Domain=mail.qq.com; Path=/; Secure',
+          'https://wx.mail.qq.com/',
+        );
+      return result;
+    };
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    try {
+      await expect(auth.notificationQuery()).resolves.toMatchObject({ unread: 3 });
+      expect(
+        transport.jar
+          .getCookiesSync('https://wx.mail.qq.com/')
+          .some((cookie) => cookie.key === 'p_skey'),
+      ).toBe(false);
+      expect(await auth.redact('fixture-mail')).toBe('[redacted]');
+    } finally {
+      auth.dispose();
+    }
+  });
+  it('提醒查询失败不阻止 WebSocket 建立基线和投递实时新邮件', async () => {
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      auth = new MailAuth(native, '12345678', () => 42, transport);
+    vi.spyOn(auth, 'notificationQuery').mockRejectedValue(new MailFailure('business', '查询失败'));
+    const socket = new Socket(),
+      onNotice = vi.fn(),
+      factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: factory,
+      onNotice,
+    });
+    try {
+      await service.connect();
+      await expect(service.setNotifications(true)).resolves.toMatchObject({ notifications: true });
+      expect(factory).toHaveBeenCalledOnce();
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 0,
+            content: JSON.stringify({ head: { ret: 0 }, body: { lastest_msg_seq: 10 } }),
+          }),
+        ),
+      );
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 1,
+            content: Buffer.from(
+              JSON.stringify({ cid: '148', z: 11, e: 'real-time-fixture' }),
+            ).toString('base64'),
+          }),
+        ),
+      );
+      expect(onNotice).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
+  it('WebSocket 的 cmd=0 版本变化也触发补查新邮件', async () => {
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      auth = new MailAuth(native, '12345678', () => 42, transport);
+    const query = vi
+      .spyOn(auth, 'notificationQuery')
+      .mockResolvedValueOnce({ unread: 0 })
+      .mockResolvedValue({ unread: 1, newmaillist: [{ mailid: 'version-fixture' }] });
+    const socket = new Socket(),
+      onNotice = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice,
+      notificationsEnabled: true,
+    });
+    const baseline = (sequence: number) =>
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 0,
+            content: JSON.stringify({ head: { ret: 0 }, body: { lastest_msg_seq: sequence } }),
+          }),
+        ),
+      );
+    try {
+      await service.connect();
+      baseline(10);
+      baseline(11);
+      await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(onNotice).toHaveBeenCalledOnce());
+    } finally {
+      service.dispose();
+    }
+  });
+  it('销毁后晚到的 HTTP 响应不能重新写入 Cookie', async () => {
+    const request = Object.assign(new EventEmitter(), {
+      setTimeout: vi.fn(),
+      end: vi.fn(),
+    });
+    const mock = vi.spyOn(https, 'request').mockReturnValue(request as unknown as ClientRequest);
+    const transport = new MailHttp();
+    try {
+      const pending = transport.request('https://wx.mail.qq.com/login/checksid');
+      await vi.waitFor(() => expect(mock).toHaveBeenCalledOnce());
+      transport.dispose();
+      const response = Object.assign(new EventEmitter(), {
+        headers: { 'set-cookie': ['sid=late-fixture; Path=/; Secure'] },
+        statusCode: 200,
+      });
+      const callback = mock.mock.calls[0]![2];
+      expect(callback).toBeTypeOf('function');
+      callback?.(response as unknown as IncomingMessage);
+      response.emit('end');
+      await expect(pending).rejects.toThrow('取消');
+      expect(transport.jar.getCookiesSync('https://wx.mail.qq.com/')).toEqual([]);
+    } finally {
+      transport.dispose();
+      mock.mockRestore();
+    }
+  });
+  it('未读搜索使用搜索结果总数，不依赖列表专用 unread_num 分页', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/list/search'
+        ? transport.envelope({ list: [{ emailid: 'search-fixture' }], total_num: 65 })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    try {
+      expect(
+        await service.list({ folderId: 1, page: 0, unreadOnly: true, keyword: '课程' }),
+      ).toMatchObject({ total: 65, hasMore: true });
+    } finally {
+      service.dispose();
+    }
+  });
+  it('会话邮件先列出子邮件，不自动读取整个会话正文', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/list/collo_maillist'
+        ? transport.envelope({
+            colloinfo: { emailid: 'C1Tthread', subject: '会话' },
+            sublist: [{ emailid: 'child-fixture', subject: '子邮件' }],
+          })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    const detail = await service.read('C1Tthread');
+    expect(detail.thread?.[0]?.id).toBe('child-fixture');
+    expect(detail.html).toBe('');
+    expect(transport.calls.some((call) => call.url.pathname === '/read/readmail')).toBe(false);
+    service.dispose();
+  });
+  it('提醒开启后去重并调用系统适配，关闭与销毁清理连接和计时器', async () => {
+    vi.useFakeTimers();
+    class Socket extends EventEmitter implements MailSocket {
+      readonly send = vi.fn();
+      readonly terminate = vi.fn(() => this.emit('close'));
+      close(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      socket = new Socket(),
+      onNotice = vi.fn();
+    const factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+      socketFactory: factory,
+      onNotice,
+    });
+    try {
+      await service.setNotifications(true);
+      socket.emit('open');
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(socket.send).toHaveBeenCalledTimes(1);
+      const payload = JSON.stringify({
+        cmd: 1,
+        content: Buffer.from(
+          JSON.stringify({ cid: '148', z: 5, e: 'mail-fixture', u: '主题', sn: '发件人', d: '1' }),
+        ).toString('base64'),
+      });
+      socket.emit('message', Buffer.from(payload));
+      socket.emit('message', Buffer.from(payload));
+      expect(onNotice).toHaveBeenCalledTimes(1);
+      await service.setNotifications(false);
+      socket.emit('message', Buffer.from(payload));
+      expect(onNotice).toHaveBeenCalledTimes(1);
+      expect(socket.terminate).toHaveBeenCalledTimes(1);
+      service.dispose();
+      await vi.runAllTimersAsync();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('已启用提醒的账号先离线再恢复时，后台恢复连接并建立首轮基线', async () => {
+    vi.useFakeTimers();
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    let pid: number | null = null;
+    const transport = new FakeMailTransport(),
+      socket = new Socket(),
+      onNotice = vi.fn(),
+      factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => pid, {
+      authFactory: () => new MailAuth(native, '12345678', () => pid, transport),
+      socketFactory: factory,
+      onNotice,
+      notificationsEnabled: true,
+    });
+    try {
+      await expect(service.connect()).rejects.toThrow('请先登录');
+      pid = 42;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(service.status().state).toBe('ready');
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 1,
+            content: Buffer.from(
+              JSON.stringify({ cid: '148', z: 8, e: 'new-after-recovery', u: '主题' }),
+            ).toString('base64'),
+          }),
+        ),
+      );
+      expect(onNotice).toHaveBeenCalledTimes(1);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('断开后晚到的列表不得恢复 ready 或污染新会话', async () => {
+    const transport = new FakeMailTransport();
+    const original = transport.request.bind(transport);
+    let release: ((response: MailResponse) => void) | undefined;
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/list/maillist'
+        ? new Promise<MailResponse>((resolve) => {
+            release = resolve;
+          })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    const pending = service.list({ folderId: 1, page: 0 });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    service.disconnect();
+    release!(transport.envelope({ list: [{ emailid: 'stale-mail' }], total_num: 1 }));
+    await expect(pending).rejects.toThrow('状态已变化');
+    expect(service.status().state).toBe('disconnected');
+    service.dispose();
+  });
+  it('发送网络中断明确返回状态未知，不能自动重发', async () => {
+    const transport = new FakeMailTransport();
+    const original = transport.request.bind(transport);
+    const sent = vi.fn();
+    transport.request = async (url, options) => {
+      if (new URL(url).pathname === '/send/sendmail') {
+        sent();
+        throw new MailFailure('network', '连接中断');
+      }
+      return original(url, options);
+    };
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    await expect(service.send(compose)).rejects.toMatchObject({ kind: 'unknown-send' });
+    expect(sent).toHaveBeenCalledTimes(1);
+    service.dispose();
+  });
+  it('发送后切换会话不能把服务端成功误报为可直接重试的认证错误', async () => {
+    const transport = new FakeMailTransport();
+    const original = transport.request.bind(transport);
+    let release: ((response: MailResponse) => void) | undefined;
+    transport.request = async (url, options) =>
+      new URL(url).pathname === '/send/sendmail'
+        ? new Promise<MailResponse>((resolve) => {
+            release = resolve;
+          })
+        : original(url, options);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    const pending = service.send(compose);
+    await vi.waitFor(() => expect(release).toBeDefined());
+    service.disconnect();
+    release!(transport.envelope({ mailid: 'accepted-fixture' }));
+    await expect(pending).rejects.toMatchObject({ kind: 'unknown-send' });
+    service.dispose();
+  });
+  it('推送基线和增量事件分别解析，不把票据或正文当作通知 DTO', () => {
+    expect(
+      decodeMailSocketFrame(
+        JSON.stringify({
+          cmd: 0,
+          content: JSON.stringify({
+            head: { ret: 0 },
+            body: { lastest_msg_seq: 2, lastest_msg_dirid: 1 },
+          }),
+        }),
+      ),
+    ).toEqual({ kind: 'baseline', sequence: 2, folderId: 1 });
+    const content = Buffer.from(
+      JSON.stringify({
+        cid: '148',
+        z: 3,
+        e: 'fixture',
+        u: '主题',
+        sn: '发件人',
+        d: '1',
+        sid: 'never-expose',
+      }),
+    ).toString('base64');
+    const event = decodeMailSocketFrame(JSON.stringify({ cmd: 1, content }));
+    expect(event).toEqual({
+      kind: 'mail',
+      sequence: 3,
+      notice: { id: 'fixture', subject: '主题', sender: '发件人', folderId: 1 },
+    });
+    expect(JSON.stringify(event)).not.toContain('never-expose');
+    expect(() => decodeMailSocketFrame('not-json')).toThrow(MailFailure);
+  });
+  it('首次只建立基线，两个提醒来源的同一封邮件只接收一次', () => {
+    const cursor = new MailNoticeCursor();
+    cursor.prime(['old']);
+    expect(cursor.accept('old')).toBe(false);
+    expect(cursor.accept('new')).toBe(true);
+    expect(cursor.accept('new')).toBe(false);
+  });
+  it('附件签名只留在注册表，过期状态和外部下载地址被拒绝', () => {
+    const registry = new MailAttachmentRegistry();
+    const [attachment] = registry.fromMessage(
+      {
+        big_attach: [
+          {
+            name: '测试.txt',
+            fileid: 'file',
+            key: 'private-key',
+            code: 'private-code',
+            size: 3,
+            download_url: 'https://evil.invalid/file',
+          },
+        ],
+      },
+      'mail-fixture',
+    );
+    expect(attachment).toBeDefined();
+    expect(JSON.stringify(attachment)).not.toContain('private');
+    expect(() => registry.downloadUrl(attachment!.id)).toThrow('不受信任');
+    const [expired] = registry.fromMessage(
+      { normal_attach: [{ name: '过期.txt', fileid: 'expired', status: -1 }] },
+      'mail-fixture',
+    );
+    expect(expired!.available).toBe(false);
+    expect(() => registry.get(expired!.id)).toThrow('已失效');
+    registry.clear();
+    expect(() => registry.get(attachment!.id)).toThrow('已失效');
+  });
+});
+
+describe('邮箱认证边界', () => {
+  it('QQ 先声明账号数组再执行回调时，仍只读取数组数据', async () => {
+    const transport = new FakeMailTransport();
+    transport.variableAccounts = true;
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    await expect(auth.connect()).resolves.toBeUndefined();
+  });
+  it('JSONP 只解析数据，不执行函数或后缀脚本', () => {
+    expect(localLoginArguments('cb({keyindex:19}, [{uin:"12345678"}]);')).toEqual([
+      { keyindex: 19 },
+      [{ uin: '12345678' }],
+    ]);
+    expect(() => localLoginArguments('cb(function(){throw new Error("executed")})')).toThrow(
+      MailFailure,
+    );
+  });
+  it('只有已探测的 loopback 端口能进入本机 TLS 例外', () => {
+    expect(mailRequestTarget(new URL('https://127.0.0.1:4301/pt_get_st'), 4301).hostname).toBe(
+      'localhost.ptlogin2.qq.com',
+    );
+    expect(() => mailRequestTarget(new URL('https://example.invalid:4301/'), 4301)).toThrow(
+      MailFailure,
+    );
+    expect(() => mailRequestTarget(new URL('https://127.0.0.1:4303/'), 4301)).toThrow(MailFailure);
+    expect(() => mailRequestTarget(new URL('http://wx.mail.qq.com/'))).toThrow(MailFailure);
+    expect(() => mailRequestTarget(new URL('https://wx.mail.qq.com.evil.invalid/'))).toThrow(
+      MailFailure,
+    );
+  });
+  it('check_sig 限定入口，不允许任意跳转被改写成可信主机', () => {
+    expect(
+      mailCheckSigTarget({
+        status: 302,
+        body: '',
+        location: 'https://ssl.ptlogin2.qq.com/check_sig?ticket=fixture',
+      }).hostname,
+    ).toBe('ptlogin2.mail.qq.com');
+    expect(() =>
+      mailCheckSigTarget({ status: 302, body: '', location: 'https://evil.invalid/check_sig' }),
+    ).toThrow(MailFailure);
+    expect(() =>
+      mailCheckSigTarget({
+        status: 302,
+        body: '',
+        location: 'https://ssl.ptlogin2.qq.com/not_check_sig',
+      }),
+    ).toThrow(MailFailure);
+  });
+  it('接受 QQ 返回的邮箱专用 SSL check_sig 主机', () => {
+    expect(
+      mailCheckSigTarget({
+        status: 302,
+        body: '',
+        location: 'https://ssl.ptlogin2.mail.qq.com/check_sig?ticket=fixture',
+      }).hostname,
+    ).toBe('ptlogin2.mail.qq.com');
+  });
+  it('标准 CookieJar 隔离域、路径、HttpOnly 与过期票据', async () => {
+    const jar = new CookieJar();
+    await jar.setCookie(
+      'p_skey=mail; Domain=mail.qq.com; Path=/; Secure; HttpOnly',
+      'https://wx.mail.qq.com/',
+    );
+    await jar.setCookie(
+      'p_skey=space; Domain=qzone.qq.com; Path=/; Secure',
+      'https://qzone.qq.com/',
+    );
+    expect(await jar.getCookieString('https://wx.mail.qq.com/')).toBe('p_skey=mail');
+    expect(await jar.getCookieString('https://qzone.qq.com/')).toBe('p_skey=space');
+    expect(await jar.getCookieString('https://wx.mail.qq.com/', { http: false })).toBe('');
+    await jar.setCookie(
+      'p_skey=gone; Domain=mail.qq.com; Path=/; Max-Age=0',
+      'https://wx.mail.qq.com/',
+    );
+    expect(await jar.getCookieString('https://wx.mail.qq.com/')).toBe('');
+  });
+  it('并发认证单飞，jump 复用通用构造器而不携带旧邮箱 appid', async () => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    await Promise.all([auth.connect(), auth.connect(), auth.connect()]);
+    const jumps = transport.calls.filter((call) => call.url.pathname === '/jump');
+    expect(jumps).toHaveLength(1);
+    expect(jumps[0]!.url.searchParams.get('u1')).toBe(MAIL_LANDING);
+    expect(jumps[0]!.url.searchParams.has('pt_aid')).toBe(false);
+    expect(
+      transport.calls.find((call) => call.url.pathname === '/login/login')!.options.form,
+    ).toMatchObject({ auth_type: 3, p_skey: 'fixture-mail' });
+    expect(auth.ready).toBe(true);
+  });
+  it('账号不匹配时不继续取票据，也不降级选择其他账号', async () => {
+    const transport = new FakeMailTransport();
+    transport.mismatch = true;
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    await expect(auth.connect()).rejects.toThrow('账号不一致');
+    expect(transport.calls.some((call) => call.url.pathname === '/pt_get_st')).toBe(false);
+  });
+  it('读取失效只重认证一次，销毁后不能重连', async () => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    transport.failReadOnce = true;
+    await auth.cgi('/list/maillist');
+    expect(transport.calls.filter((call) => call.url.pathname === '/list/maillist')).toHaveLength(
+      2,
+    );
+    auth.dispose();
+    expect(transport.closed).toBe(true);
+    await expect(auth.connect()).rejects.toThrow('会话已关闭');
+  });
+  it('写操作不因登录错误被隐式重发', async () => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    await auth.connect();
+    const original = transport.request.bind(transport);
+    const sent = vi.fn();
+    transport.request = async (url, options) => {
+      if (new URL(url).pathname === '/send/sendmail') {
+        sent();
+        return transport.envelope({}, -20002);
+      }
+      return original(url, options);
+    };
+    await expect(auth.cgi('/send/sendmail', {}, { write: true })).rejects.toThrow('登录已失效');
+    expect(sent).toHaveBeenCalledTimes(1);
+  });
+});
