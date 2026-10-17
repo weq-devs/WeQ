@@ -1,13 +1,16 @@
 ﻿// @ts-nocheck
 import type { Conversation, GroupMember, User } from './types';
 import { displayUserName } from './user';
+import { mentionName } from '../../lib/mentionIdentity';
 
 export function mentionLabel(user: Pick<User, 'displayName' | 'username'>) {
   return displayUserName(user).trim();
 }
 
-export function mentionText(user: Pick<User, 'displayName' | 'username'>) {
-  return `@${mentionLabel(user)}`;
+export function mentionText(user: Pick<User, 'id' | 'identityValue'> & { nick?: string }) {
+  return user.id === 'all'
+    ? '@全体成员'
+    : `@${mentionName({ uid: user.id, uin: user.identityValue, nick: user.nick })}`;
 }
 
 export function filterMentionMembers(
@@ -20,9 +23,27 @@ export function filterMentionMembers(
   }
 
   const normalizedQuery = normalizeMentionQuery(query);
-  const candidates = conversation.members.filter((member) => member.id !== currentUserId);
+  const self = conversation.members.find(
+    (member) => member.id === currentUserId || member.identityValue === currentUserId,
+  );
+  const everyone: GroupMember = {
+    id: 'all',
+    identityLabel: '',
+    identityValue: '',
+    username: '全体成员',
+    displayName: '全体成员',
+    avatarUrl: null,
+    role: 'member',
+    joinedAt: '',
+  };
+  const candidates = [
+    ...(self && (self.role === 'owner' || self.role === 'admin') ? [everyone] : []),
+    ...conversation.members.filter(
+      (member) => member.id !== currentUserId && member.identityValue !== currentUserId,
+    ),
+  ];
   if (!normalizedQuery) {
-    return candidates.slice(0, 8);
+    return candidates;
   }
 
   return candidates
@@ -33,8 +54,7 @@ export function filterMentionMembers(
     }))
     .filter((item) => item.rank < Number.POSITIVE_INFINITY)
     .sort((first, second) => first.rank - second.rank || first.index - second.index)
-    .map((item) => item.member)
-    .slice(0, 8);
+    .map((item) => item.member);
 }
 
 export function messageMentionsUser(body: string | null | undefined, user?: User) {

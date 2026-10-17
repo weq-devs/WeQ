@@ -180,14 +180,14 @@ function picRelFromLocalPath(localPath: unknown): string | null {
 /**
  * 草稿元素数组 → 输入框文本。
  *
- * 文本 / @ 直接铺成字面文本（@ 的提醒语义在元素里，文本只是给人看的）；
+ * 文本直接铺成字面文本；@ 必须保留目标身份，恢复为不可编辑的提及 token；
  * 其余元素一律编成元素 token，交给输入框渲染成 chip。
  */
 export function elementsToComposerText(elements: readonly unknown[]): string {
   const out: string[] = [];
   for (const element of elements ?? []) {
     const kind = (element as { kind?: string })?.kind;
-    if (kind === 'text' || kind === 'at') {
+    if (kind === 'text') {
       out.push(String((element as { textContent?: string }).textContent ?? ''));
       continue;
     }

@@ -7,6 +7,7 @@ import {
 } from './profilePanes';
 import { ChatPane } from './chatPane';
 import type { LocalMediaRef } from './composerSend';
+import type { RepeatElement } from '../../lib/messageRepeat';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
 import type { RedPacketDraft } from './redPacketPanel';
@@ -27,6 +28,7 @@ import type {
   MainView,
   Message,
   MessageAction,
+  GroupMember,
   UnreadDock,
   User,
 } from './types';
@@ -75,6 +77,9 @@ export function ChatMainContent({
   sendAvailable,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
+  onRepeatMessage,
+  onResolveMentions,
+  onSearchMentionMembers,
   onSendWindowShake,
   onSendArk,
   arkLocation,
@@ -168,6 +173,12 @@ export function ChatMainContent({
   sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
+  onResolveMentions?: (
+    elements: RepeatElement[],
+    conversation: Conversation,
+  ) => Promise<RepeatElement[]>;
+  onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
@@ -282,6 +293,9 @@ export function ChatMainContent({
       profileLoading={profileLoading}
       sendAvailable={sendAvailable}
       onSend={onSend}
+      onRepeatMessage={onRepeatMessage}
+      onResolveMentions={onResolveMentions}
+      onSearchMentionMembers={onSearchMentionMembers}
       onSendWindowShake={onSendWindowShake}
       onSendArk={onSendArk}
       arkLocation={arkLocation}

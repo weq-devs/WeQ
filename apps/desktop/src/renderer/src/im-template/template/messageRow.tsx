@@ -17,7 +17,7 @@
  * 决定「画成灰条还是画成气泡」。
  */
 
-import type { ReactElement, MouseEvent as ReactMouseEvent } from 'react';
+import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
@@ -186,6 +186,7 @@ export function MessageRow({
   selected = false,
   onToggleSelect,
   reactionRemoval,
+  repeatAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -211,6 +212,7 @@ export function MessageRow({
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
+  repeatAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -281,6 +283,7 @@ export function MessageRow({
       selected={selected}
       onToggleSelect={onToggleSelect}
       reactionRemoval={reactionRemoval}
+      repeatAction={repeatAction}
     />
   );
 }

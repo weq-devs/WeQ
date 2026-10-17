@@ -185,8 +185,19 @@ import {
   buildOptimisticRender,
   decodeRecordingToWav,
   type LocalMediaRef,
+  type ComposerSendPlan,
   type SuperStickerEntry as ComposerSuperSticker,
 } from '../im-template/template/composerSend';
+import {
+  repeatSendPlan,
+  repeatNeedsStickerCatalog,
+  type RepeatElement,
+} from '../lib/messageRepeat';
+import {
+  resolveMentionLabels,
+  resolveSendMentions,
+  type MentionIdentity,
+} from '../lib/mentionIdentity';
 import {
   qqMessageRenderer,
   ReplyJumpContext,
@@ -6180,7 +6191,113 @@ export function MainView(): ReactElement {
    * 失败一律**抛错**：composer 以「onSend 正常返回」为发送成功信号，返回成功会清空
    * 输入框；抛错路径会保留原文。服务端拒绝（result≠0）也不算成功。
    */
-  async function sendMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
+  const repeatContext = useRef<string | null>(selectedConversation?.id ?? null);
+  repeatContext.current = selectedConversation?.id ?? null;
+  useEffect(() => {
+    repeatContext.current = selectedConversation?.id ?? null;
+    return () => {
+      repeatContext.current = null;
+    };
+  }, [selectedConversation?.id]);
+
+  async function repeatMessage(message: Message, conversation: Conversation): Promise<void> {
+    const context = conversation.id;
+    if (repeatContext.current !== context) throw new Error('会话已切换，未发送。');
+    const elements = await resolveMentions(
+      (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? [],
+      conversation,
+    );
+    const stickers = new Map<string, ComposerSuperSticker>();
+    if (repeatNeedsStickerCatalog(elements))
+      collectSuperStickers(await client.account.emojiPanel.overview.query(), stickers);
+    const plan = repeatSendPlan(elements, stickers, conversation.type === 'group');
+    if (repeatContext.current !== context) throw new Error('会话已切换，未发送。');
+    await sendMessage(messageBody(elements), undefined, { plan, elements });
+  }
+
+  async function resolveMentions(
+    elements: RepeatElement[],
+    conversation: Conversation,
+  ): Promise<RepeatElement[]> {
+    const people: MentionIdentity[] = currentGroupMembers.map((member) => ({
+      uid: member.id,
+      uin: member.identityValue,
+      nick: member.nick,
+    }));
+    people.push({
+      uid: user.uid ?? user.id,
+      uin: user.identityValue,
+      nick: selfProfile.data?.nick,
+    });
+    for (const [uid, profile] of profileByUid)
+      if (!people.some((person) => person.uid === uid))
+        people.push({
+          uid,
+          uin: String(profile.uin ?? ''),
+          nick: profile.nick,
+        });
+    const uids = new Set<string>();
+    const uins = new Set<string>();
+    const groupUids = new Set(currentGroupMembers.map((member) => member.id));
+    const visit = (list: RepeatElement[]) => {
+      for (const element of list) {
+        const data = element.data ?? {};
+        if (element.type === 'at') {
+          const uid = String(data.atTargetUid ?? '');
+          const uin = String(data.atTargetUin ?? '');
+          if (
+            uid &&
+            uid !== 'all' &&
+            (conversation.type === 'group'
+              ? !groupUids.has(uid)
+              : !people.some((person) => person.uid === uid))
+          )
+            uids.add(uid);
+          else if (!uid && /^\d+$/.test(uin)) uins.add(uin);
+        }
+        if (Array.isArray(data.origElements)) visit(data.origElements);
+      }
+    };
+    visit(elements);
+    if (conversation.type === 'group') {
+      const ids = [...uids];
+      const numbers = [...uins];
+      for (let offset = 0; offset < Math.max(ids.length, numbers.length); offset += 200) {
+        if (repeatContext.current !== conversation.id)
+          throw new Error('会话已切换，未继续解析提及。');
+        const rows = [
+          ...(ids.slice(offset, offset + 200).length
+            ? await client.account.getGroupMembersByUids.query({
+                groupCode: conversation.id,
+                uids: ids.slice(offset, offset + 200),
+              })
+            : []),
+          ...(numbers.slice(offset, offset + 200).length
+            ? await client.account.getGroupMembersByUins.query({
+                groupCode: conversation.id,
+                uins: numbers.slice(offset, offset + 200),
+              })
+            : []),
+        ];
+        for (const row of rows) {
+          const member = mapGroupMemberWire(row);
+          people.unshift({
+            uid: member.id,
+            uin: member.identityValue,
+            nick: member.nick,
+          });
+        }
+      }
+    }
+    if (repeatContext.current !== conversation.id) throw new Error('会话已切换，未继续解析提及。');
+    return resolveMentionLabels(elements, people);
+  }
+
+  async function sendMessage(
+    body: string,
+    locals?: LocalMediaRef[],
+    repeated?: { plan: ComposerSendPlan; elements: RepeatElement[] },
+  ): Promise<void> {
     const conversation = selectedConversation;
     if (!conversation) {
       pushToast({ tone: 'warning', message: '没有选中的会话' });
@@ -6214,7 +6331,15 @@ export function MainView(): ReactElement {
       }
     }
 
-    const plan = buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+    const plan =
+      repeated?.plan ?? buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+
+    if (plan.kind === 'elements') {
+      // 发送前重解提及，防止旧草稿或复制来的 token 带出备注；媒体等其他字段原样保留。
+      plan.elements = await resolveSendMentions(plan.elements, (elements) =>
+        resolveMentions(elements, conversation),
+      );
+    }
 
     // ── 乐观渲染 ─────────────────────────────────────────────────────────
     // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来
@@ -6229,7 +6354,9 @@ export function MainView(): ReactElement {
     const optimistic = plan.kind !== 'aiVoice';
     const optimisticId = `optimistic-${mfId('msg')}`;
     if (optimistic) {
-      const render = buildOptimisticRender({ body, locals: locals ?? [], superStickers });
+      const render = repeated
+        ? { body, elements: repeated.elements }
+        : buildOptimisticRender({ body, locals: locals ?? [], superStickers });
       setOptimisticMessages((current) => [
         ...current,
         {
@@ -7234,6 +7361,17 @@ export function MainView(): ReactElement {
                           sendAvailable={sendAvailable}
                           onOpenNotificationSettings={noopAsync}
                           onSend={sendMessage}
+                          onRepeatMessage={repeatMessage}
+                          onResolveMentions={resolveMentions}
+                          onSearchMentionMembers={async (query, conversation) => {
+                            const result = await client.account.searchGroupMembers.query({
+                              groupCode: conversation.id,
+                              keyword: query,
+                              limit: 200,
+                              offset: 0,
+                            });
+                            return result.members.map(mapGroupMemberWire);
+                          }}
                           onSendWindowShake={sendWindowShake}
                           onSendArk={sendArkCard}
                           arkLocation={arkLocation}
