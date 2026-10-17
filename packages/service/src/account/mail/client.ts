@@ -62,6 +62,7 @@ export class QQMailService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private cursor = new MailNoticeCursor();
+  private noticeQueryPrimed = false;
   private sending = false;
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
@@ -338,8 +339,13 @@ export class QQMailService {
     if (!enabled) this.stopNotifications();
     else {
       await this.connect();
-      await this.syncNotice(true);
-      await this.openSocket();
+      try {
+        await this.syncNotice(true);
+      } catch {
+        this.update({ error: '提醒查询暂不可用，正在使用实时连接。' });
+        this.scheduleNoticeRecovery();
+      }
+      await this.openSocket().catch(() => this.scheduleNoticeRecovery());
     }
     return this.status();
   }
@@ -366,8 +372,10 @@ export class QQMailService {
         folderId: count(entry.mailboxid ?? entry.mailbox_id) || 1,
       };
     });
-    if (prime || !this.cursor.primed) this.cursor.prime(notices.map((entry) => entry.id));
-    else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
+    if (prime || !this.noticeQueryPrimed) {
+      this.cursor.prime(notices.map((entry) => entry.id));
+      this.noticeQueryPrimed = true;
+    } else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
     this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
     if (this.state.notifications) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
@@ -415,9 +423,12 @@ export class QQMailService {
         const event = decodeMailSocketFrame(bytes.toString());
         this.reconnectAttempt = 0;
         if (event.kind === 'baseline') {
-          if (this.cursor.sequence > 0 && event.sequence !== this.cursor.sequence)
+          if (this.cursor.sequence > 0 && event.sequence !== this.cursor.sequence) {
             this.events.emit('change', { type: 'changed' });
+            void this.syncNotice(false).catch(() => this.scheduleNoticeRecovery());
+          }
           this.cursor.sequence = event.sequence;
+          if (!this.cursor.primed) this.cursor.prime([]);
         } else if (event.sequence === 0 || event.sequence > this.cursor.sequence) {
           this.cursor.sequence = Math.max(this.cursor.sequence, event.sequence);
           if (event.kind === 'mail' && this.cursor.accept(event.notice.id))
@@ -467,6 +478,7 @@ export class QQMailService {
     this.attachments.clear();
     this.totals.clear();
     this.cursor = new MailNoticeCursor();
+    this.noticeQueryPrimed = false;
     this.update({
       state: 'disconnected',
       unread: 0,

@@ -81,6 +81,7 @@ function json(response: MailResponse): unknown {
 
 export class MailAuth {
   private sid = '';
+  private panelPskey = '';
   private pending: Promise<void> | null = null;
   private lastValidated = 0;
   private refreshing: Promise<void> | null = null;
@@ -216,6 +217,8 @@ export class MailAuth {
     if (this.disposed || this.onlinePid() !== pid)
       throw new MailFailure('auth', 'QQ 账号状态已变化，请重新连接邮箱。');
     this.sid = sid;
+    // 网页登录会删除 p_skey，但 QQ 面板提醒仍以它认证，不能依赖会话 CookieJar。
+    this.panelPskey = pskey;
     this.lastValidated = Date.now();
   }
 
@@ -279,7 +282,12 @@ export class MailAuth {
   async notificationQuery(signal?: AbortSignal): Promise<MailObject> {
     await this.connect(signal);
     return mailEnvelope(
-      json(await this.transport.request(`${MAIL_ORIGIN}/qs/list_notify?f=json`, { signal })),
+      json(
+        await this.transport.request(`${MAIL_ORIGIN}/qs/list_notify?f=json`, {
+          signal,
+          panelCookie: `p_uin=o${this.uin}; p_skey=${this.panelPskey}`,
+        }),
+      ),
     );
   }
 
@@ -324,6 +332,7 @@ export class MailAuth {
     ]);
     const values = [
       this.sid,
+      this.panelPskey,
       ...cookies.filter((cookie) => keys.has(cookie.key)).map((cookie) => cookie.value),
     ];
     let safe = html;
@@ -362,6 +371,7 @@ export class MailAuth {
   dispose(): void {
     this.disposed = true;
     this.sid = '';
+    this.panelPskey = '';
     this.transport.dispose();
   }
 }

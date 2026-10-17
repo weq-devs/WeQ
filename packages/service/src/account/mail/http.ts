@@ -25,6 +25,7 @@ export interface MailRequest {
   signal?: AbortSignal;
   form?: MailObject;
   localPort?: number;
+  panelCookie?: string;
 }
 
 export interface MailTransport {
@@ -67,6 +68,13 @@ export class MailHttp implements MailTransport {
   async request(raw: string | URL, options: MailRequest = {}): Promise<MailResponse> {
     const url = new URL(raw);
     const logical = mailRequestTarget(url, options.localPort);
+    if (
+      options.panelCookie !== undefined &&
+      (url.origin !== 'https://wx.mail.qq.com' ||
+        url.pathname !== '/qs/list_notify' ||
+        /[\r\n]/.test(options.panelCookie))
+    )
+      throw new MailFailure('business', '邮箱提醒认证地址无效。');
     const signal = options.signal
       ? AbortSignal.any([options.signal, this.controller.signal])
       : this.controller.signal;
@@ -76,7 +84,7 @@ export class MailHttp implements MailTransport {
       'User-Agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130 Safari/537.36',
       Referer: 'https://xui.ptlogin2.qq.com/cgi-bin/xlogin',
-      Cookie: await this.jar.getCookieString(logical.href),
+      Cookie: options.panelCookie ?? (await this.jar.getCookieString(logical.href)),
     };
     if (options.localPort !== undefined) {
       headers.Host = `${MAIL_LOCAL_HOST}:${options.localPort}`;

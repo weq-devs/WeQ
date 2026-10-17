@@ -26,6 +26,7 @@ import {
   encodeMailForm,
   mailEnvelope,
   mailSummary,
+  object,
   SYSTEM_MAIL_FOLDERS,
   type MailObject,
 } from '../src/account/mail/wire';
@@ -155,6 +156,149 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it('面板票据不能被带到其他路径、主机或注入请求头', async () => {
+    const transport = new MailHttp();
+    try {
+      for (const url of [
+        'https://wx.mail.qq.com/login/login',
+        'https://mail.qq.com/qs/list_notify',
+      ])
+        await expect(transport.request(url, { panelCookie: 'fixture' })).rejects.toThrow(
+          '提醒认证地址',
+        );
+      await expect(
+        transport.request('https://wx.mail.qq.com/qs/list_notify', {
+          panelCookie: 'fixture\r\nInjected: true',
+        }),
+      ).rejects.toThrow('提醒认证地址');
+    } finally {
+      transport.dispose();
+    }
+  });
+  it('网页登录清掉 p_skey 后，提醒仍使用独立保留的 QQ 面板票据', async () => {
+    const transport = new FakeMailTransport(),
+      original = transport.request.bind(transport);
+    transport.request = async (raw, options) => {
+      const path = new URL(raw).pathname;
+      if (path === '/qs/list_notify')
+        return object(options).panelCookie === 'p_uin=o12345678; p_skey=fixture-mail'
+          ? transport.envelope({ unread: 3, newmaillist: [] })
+          : transport.envelope({}, -90002);
+      const result = await original(raw, options);
+      if (path === '/login/login')
+        transport.jar.setCookieSync(
+          'p_skey=; Max-Age=0; Domain=mail.qq.com; Path=/; Secure',
+          'https://wx.mail.qq.com/',
+        );
+      return result;
+    };
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    try {
+      await expect(auth.notificationQuery()).resolves.toMatchObject({ unread: 3 });
+      expect(
+        transport.jar
+          .getCookiesSync('https://wx.mail.qq.com/')
+          .some((cookie) => cookie.key === 'p_skey'),
+      ).toBe(false);
+      expect(await auth.redact('fixture-mail')).toBe('[redacted]');
+    } finally {
+      auth.dispose();
+    }
+  });
+  it('提醒查询失败不阻止 WebSocket 建立基线和投递实时新邮件', async () => {
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      auth = new MailAuth(native, '12345678', () => 42, transport);
+    vi.spyOn(auth, 'notificationQuery').mockRejectedValue(new MailFailure('business', '查询失败'));
+    const socket = new Socket(),
+      onNotice = vi.fn(),
+      factory = vi.fn(() => socket);
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: factory,
+      onNotice,
+    });
+    try {
+      await service.connect();
+      await expect(service.setNotifications(true)).resolves.toMatchObject({ notifications: true });
+      expect(factory).toHaveBeenCalledOnce();
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 0,
+            content: JSON.stringify({ head: { ret: 0 }, body: { lastest_msg_seq: 10 } }),
+          }),
+        ),
+      );
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 1,
+            content: Buffer.from(
+              JSON.stringify({ cid: '148', z: 11, e: 'real-time-fixture' }),
+            ).toString('base64'),
+          }),
+        ),
+      );
+      expect(onNotice).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
+  it('WebSocket 的 cmd=0 版本变化也触发补查新邮件', async () => {
+    class Socket extends EventEmitter implements MailSocket {
+      send(): void {}
+      close(): void {
+        this.emit('close');
+      }
+      terminate(): void {
+        this.emit('close');
+      }
+    }
+    const transport = new FakeMailTransport(),
+      auth = new MailAuth(native, '12345678', () => 42, transport);
+    const query = vi
+      .spyOn(auth, 'notificationQuery')
+      .mockResolvedValueOnce({ unread: 0 })
+      .mockResolvedValue({ unread: 1, newmaillist: [{ mailid: 'version-fixture' }] });
+    const socket = new Socket(),
+      onNotice = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice,
+      notificationsEnabled: true,
+    });
+    const baseline = (sequence: number) =>
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 0,
+            content: JSON.stringify({ head: { ret: 0 }, body: { lastest_msg_seq: sequence } }),
+          }),
+        ),
+      );
+    try {
+      await service.connect();
+      baseline(10);
+      baseline(11);
+      await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(onNotice).toHaveBeenCalledOnce());
+    } finally {
+      service.dispose();
+    }
+  });
   it('销毁后晚到的 HTTP 响应不能重新写入 Cookie', async () => {
     const request = Object.assign(new EventEmitter(), {
       setTimeout: vi.fn(),
