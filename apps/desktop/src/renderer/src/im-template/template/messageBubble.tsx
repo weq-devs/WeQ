@@ -312,6 +312,8 @@ export function MessageBubble({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-weq-select-id={selectionMode ? message.id : undefined}
+      tabIndex={selectionMode ? 0 : undefined}
       onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {

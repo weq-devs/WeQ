@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, Database, FlipHorizontal2, Search, X } from 'lucide-react';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export interface DbPickItem {
   name: string;
@@ -37,12 +38,11 @@ export function DatabasePicker({
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.path));
   const selectedBytes = items.reduce((sum, it) => sum + (selected.has(it.path) ? it.bytes : 0), 0);
 
-  function toggle(path: string): void {
-    const next = new Set(selected);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    onChange(next);
-  }
+  const selection = useMultiSelection({
+    ids: filtered.map((item) => item.path),
+    selected,
+    onChange,
+  });
 
   function selectAll(): void {
     const next = new Set(selected);
@@ -61,7 +61,7 @@ export function DatabasePicker({
   }
 
   return (
-    <div className="weq-exp-picker">
+    <div className="weq-exp-picker" {...selection.rootProps}>
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
         <input
@@ -125,7 +125,7 @@ export function DatabasePicker({
                 key={it.path}
                 type="button"
                 className={`weq-exp-row${checked ? ' is-on' : ''}`}
-                onClick={() => toggle(it.path)}
+                {...selection.itemProps(it.path)}
               >
                 <span className="weq-exp-db-icon">
                   <Database size={16} />

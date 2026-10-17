@@ -29,6 +29,7 @@ import {
 } from '../../lib/conversationDirectory';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { WindowedList } from '../../components/WindowedList';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
@@ -190,6 +191,14 @@ export function ConversationList({
         Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
     );
   }, [conversations, preferences, directory?.virtual, directory?.real, keyword, scope]);
+  const multi = useMultiSelection({
+    ids: filtered.map((item) => item.id),
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    enabled: selectionMode,
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+  });
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
@@ -228,7 +237,14 @@ export function ConversationList({
   }, [scopeOpen]);
 
   return (
-    <div className="list-stack weq-conversation-directory" ref={listRef}>
+    <div
+      className="list-stack weq-conversation-directory"
+      {...multi.rootProps}
+      ref={(element) => {
+        listRef.current = element;
+        multi.rootProps.ref(element);
+      }}
+    >
       <DirectoryToolbar
         noun="会话"
         query={keyword}
@@ -299,8 +315,14 @@ export function ConversationList({
         height={listHeight}
         resetKey={`${scope}:${keyword}`}
         itemKey={(item) => item.id}
-        scrollToKey={scope === 'all' && !keyword ? locateId : null}
-        scrollRevision={locateRevision}
+        scrollToKey={
+          multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
+            ? multi.focusRequest.id
+            : scope === 'all' && !keyword
+              ? locateId
+              : null
+        }
+        scrollRevision={Math.max(multi.focusRequest?.revision ?? 0, locateRevision ?? 0)}
         onNearEnd={hasMore && !loadingMore ? onLoadMore : undefined}
         className="weq-conversation-window"
         renderItem={(conversation) => {
@@ -358,16 +380,8 @@ export function ConversationList({
                 selectionMode && selectedIds.has(conversation.id) && 'is-multiselected',
               )}
               aria-pressed={selectionMode ? selectedIds.has(conversation.id) : undefined}
+              {...multi.itemProps(conversation.id)}
               onClick={(e) => {
-                if (selectionMode) {
-                  setSelectedIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(conversation.id)) next.delete(conversation.id);
-                    else next.add(conversation.id);
-                    return next;
-                  });
-                  return;
-                }
                 const virtual = directory?.virtual.find((item) => item.id === conversation.id);
                 if (virtual) directory.onVirtual(virtual);
                 else onSelect(conversation.id, e);
@@ -612,12 +626,21 @@ export function GroupList({
     }),
     [searchable],
   );
+  const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
+  const multi = useMultiSelection({
+    ids: searchable.filter((item) => item.type === 'group').map((item) => item.id),
+    selected: groupSelection.selectedIds,
+    onChange: groupSelection.setSelectedIds,
+    enabled: groupSelection.selectionMode,
+    onStart: () => groupSelection.setSelectionMode(true),
+    onExit: () => groupSelection.setSelectionMode(false),
+  });
 
   if (loading) return <ListSkeleton rows={9} />;
   if (!categories.some((category) => category.items.length) && !historicalCategory.items.length)
     return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
   return (
-    <div className={cn('list-stack', 'contact-cat-list')}>
+    <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
       <label className="weq-group-list-basis">
         分组依据
         <select
@@ -642,20 +665,23 @@ export function GroupList({
           category={category}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
+          selection={groupSelection}
+          multi={multi}
         />
       ))}
       <GroupNotificationSection
         category={historicalCategory}
         activeConversationId={activeConversationId}
         onSelect={onSelect}
+        selection={groupSelection}
+        multi={multi}
       />
     </div>
   );
 }
 
-function GroupNotificationSection({ category, activeConversationId, onSelect }) {
+function GroupNotificationSection({ category, activeConversationId, onSelect, selection, multi }) {
   const directory = useContext(ContactDirectoryContext);
-  const selection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const containsActive = category.items.some(
     (conversation) => conversation.id === activeConversationId,
   );
@@ -696,16 +722,8 @@ function GroupNotificationSection({ category, activeConversationId, onSelect }) 
               aria-pressed={
                 selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
               }
-              onClick={(event) => {
-                if (selection.selectionMode)
-                  selection.setSelectedIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(conversation.id)) next.delete(conversation.id);
-                    else next.add(conversation.id);
-                    return next;
-                  });
-                else onSelect(conversation.id, event);
-              }}
+              {...multi.itemProps(conversation.id)}
+              onClick={(event) => onSelect(conversation.id, event)}
             >
               <Avatar
                 name={conversation.group.name}
@@ -792,6 +810,14 @@ export function ContactList({
 
   // 默认全部折叠。
   const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
+  const multi = useMultiSelection({
+    ids: [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
 
   if (loading) {
     return <ListSkeleton rows={9} />;
@@ -808,7 +834,7 @@ export function ContactList({
   }
 
   return (
-    <div className={cn('list-stack', 'contact-cat-list')}>
+    <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
       {categories.map((category) => {
         const open = Boolean(expanded[category.id]) || Boolean(needle) || selection.selectionMode;
         return (
@@ -862,16 +888,8 @@ export function ContactList({
                     aria-pressed={
                       selection.selectionMode ? selection.selectedIds.has(contact.id) : undefined
                     }
-                    onClick={() => {
-                      if (selection.selectionMode)
-                        selection.setSelectedIds((current) => {
-                          const next = new Set(current);
-                          if (next.has(contact.id)) next.delete(contact.id);
-                          else next.add(contact.id);
-                          return next;
-                        });
-                      else onSelect(contact);
-                    }}
+                    {...multi.itemProps(contact.id)}
+                    onClick={() => onSelect(contact)}
                   >
                     <Avatar
                       name={displayUserName(contact)}

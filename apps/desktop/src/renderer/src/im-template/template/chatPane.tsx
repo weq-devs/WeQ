@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import { useContentMultiSelect } from '../../state/contentSelection';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
 import {
   AudioLines,
@@ -115,7 +116,6 @@ import { copyTextToClipboard } from './clipboard';
 import {
   isLocalOutgoingMessage,
   outgoingActionBlockReason,
-  selectMessageIds,
   selectedMessagesText,
 } from '../../lib/messageSelection';
 import { cn } from './classNames';
@@ -829,6 +829,16 @@ export function ChatPane({
     () => visibleMessages.map((message) => message.id),
     [visibleMessages],
   );
+  const multi = useMultiSelection({
+    ids: selectionOrder,
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    enabled: selectionMode,
+    disabled: !tabActive,
+    onStart: () => setSelectionMode(true),
+    onExit: exitSelection,
+    anchorRef: selectionAnchor,
+  });
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
     try {
@@ -844,6 +854,18 @@ export function ChatPane({
       });
     }
   }, [conversation, selectedMessages, user, pushToast]);
+  const copySelectedMessagesRich = useCallback(async () => {
+    const value = messageRichClipboard(
+      selectedMessages.map((message) => ({
+        sender: displayUserName(resolveMessageSender(message, conversation, user)),
+        time: message.createdAt,
+        body: message.body,
+        elements: message.qqElements,
+      })),
+    );
+    if (!(await writeMentionClipboard(value)))
+      pushToast({ tone: 'error', message: '复制富文本失败' });
+  }, [conversation, selectedMessages, user, pushToast]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -855,14 +877,10 @@ export function ChatPane({
         target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
       )
         return;
-      if (event.key.toLowerCase() === 'a') {
+      if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
         event.preventDefault();
-        setContextMenu(null);
-        setSelectedIds(new Set(selectionOrder));
-        selectionAnchor.current ??= selectionOrder[0] ?? null;
-      } else if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
-        event.preventDefault();
-        void copySelectedMessagesText();
+        if (event.shiftKey) void copySelectedMessagesRich();
+        else void copySelectedMessagesText();
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -870,10 +888,9 @@ export function ChatPane({
   }, [
     tabActive,
     selectionMode,
-    selectionOrder,
     selectedMessages.length,
     copySelectedMessagesText,
-    setSelectedIds,
+    copySelectedMessagesRich,
   ]);
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
@@ -2891,13 +2908,8 @@ export function ChatPane({
   }
 
   function toggleSelectMessage(message: Message, event?: ReactMouseEvent) {
-    const anchor = selectionAnchor.current;
     window.getSelection()?.removeAllRanges();
-    setSelectedIds((current) =>
-      selectMessageIds(current, selectionOrder, message.id, anchor, event),
-    );
-    if (!event?.shiftKey || !anchor || !selectionOrder.includes(anchor))
-      selectionAnchor.current = message.id;
+    multi.toggle(message.id, event);
   }
 
   function exitSelection() {
@@ -2943,19 +2955,6 @@ export function ChatPane({
       };
     });
     void copyTextToClipboard(JSON.stringify(payload, null, 2));
-  }
-
-  async function copySelectedMessagesRich() {
-    const value = messageRichClipboard(
-      selectedMessages.map((message) => ({
-        sender: displayUserName(resolveMessageSender(message, conversation, user)),
-        time: message.createdAt,
-        body: message.body,
-        elements: message.qqElements,
-      })),
-    );
-    if (!(await writeMentionClipboard(value)))
-      pushToast({ tone: 'error', message: '复制富文本失败' });
   }
 
   function updateComposerHeight(height: number) {
@@ -3563,6 +3562,7 @@ export function ChatPane({
 
   return (
     <section
+      {...multi.rootProps}
       className={cn(
         'chat-pane',
         conversation.type === 'group' ? 'with-group-info' : '',
@@ -3573,7 +3573,10 @@ export function ChatPane({
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
       style={paneStyle}
-      onPointerDownCapture={handleReadGesture}
+      onPointerDownCapture={(event) => {
+        multi.rootProps.onPointerDownCapture();
+        handleReadGesture(event);
+      }}
       onClickCapture={handleReadGesture}
       onWheelCapture={handleReadGesture}
       onTouchMoveCapture={handleReadGesture}
@@ -4067,7 +4070,7 @@ export function ChatPane({
                 type="button"
                 className="selection-action"
                 aria-label="复制富文本"
-                title="复制富文本"
+                title="复制富文本 (Ctrl/Command+Shift+C)"
                 disabled={!selectedMessages.length}
                 onClick={() => void copySelectedMessagesRich()}
               >
@@ -4099,7 +4102,7 @@ export function ChatPane({
                 className={cn('selection-action')}
                 disabled={selectedMessages.length === 0}
                 onClick={() => void copySelectedMessagesText()}
-                title="复制为纯文本"
+                title="复制为纯文本 (Ctrl/Command+C)"
                 aria-label="复制纯文本"
               >
                 <FileText size={17} />

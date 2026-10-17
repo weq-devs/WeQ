@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
@@ -204,14 +205,12 @@ export function GlobalSettingsSection(): ReactElement {
     }
   }
 
-  function toggleCat(id: string): void {
-    setPickedCats((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const cacheMulti = useMultiSelection({
+    ids: cacheItems.map((item) => item.id),
+    selected: pickedCats,
+    onChange: setPickedCats,
+    disabled: clearWeqCache.isLoading,
+  });
 
   async function onClearWeqCache(): Promise<void> {
     const ids = [...pickedCats];
@@ -601,18 +600,22 @@ export function GlobalSettingsSection(): ReactElement {
           <Info size={12} strokeWidth={1.9} aria-hidden /> 以下缓存均可在需要时自动重新下载，
           删除不影响聊天记录、克隆体数据与导出产物。默认清理全部，也可勾选后单独清理。
         </p>
-        <div className="weq-set-cache-list">
+        <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
           {cacheUsage.isLoading ? (
             <div className="weq-set-empty">读取缓存占用中…</div>
           ) : cacheItems.length === 0 ? (
             <div className="weq-set-empty">暂无可清理的缓存</div>
           ) : (
             cacheItems.map((item) => (
-              <label key={item.id} className="weq-set-cache-item">
+              <label
+                key={item.id}
+                className="weq-set-cache-item"
+                {...cacheMulti.itemProps(item.id)}
+              >
                 <input
                   type="checkbox"
                   checked={pickedCats.has(item.id)}
-                  onChange={() => toggleCat(item.id)}
+                  readOnly
                   disabled={clearWeqCache.isLoading}
                 />
                 <HardDrive size={14} strokeWidth={1.8} aria-hidden />

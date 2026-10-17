@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { Search, X, Store, RefreshCw, Download, Check, Loader2 } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
+import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -177,15 +178,14 @@ export function MarketEmojiDownloadPane({
     return () => io.disconnect();
   }, [loadMore, done]);
 
-  const toggleFee = (id: MarketPackFeeType): void => {
-    setLatest(false);
-    setFeeSel((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const feeMulti = useMultiSelection({
+    ids: FEE_FILTERS.map((item) => item.id),
+    selected: feeSel,
+    onChange: (next) => {
+      setLatest(false);
+      setFeeSel(next);
+    },
+  });
 
   /** 「最新上架」：只看目录尾部（id 最大 = 上架最晚），与来源筛选互斥。 */
   const toggleLatest = (): void => {
@@ -193,14 +193,19 @@ export function MarketEmojiDownloadPane({
     setFeeSel(new Set());
   };
 
-  const toggleSelect = (entry: CatalogEntry): void => {
-    setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(entry.id)) next.delete(entry.id);
-      else next.set(entry.id, entry.name);
-      return next;
-    });
-  };
+  const packsMulti = useMultiSelection({
+    ids: entries.map((entry) => entry.id),
+    selected: new Set(selected.keys()),
+    disabled: submitting,
+    normalClick: 'passthrough',
+    onChange: (next) => {
+      const names = new Map([
+        ...selected,
+        ...entries.map((entry) => [entry.id, entry.name] as const),
+      ]);
+      setSelected(new Map([...next].map((id) => [id, names.get(id) ?? id])));
+    },
+  });
 
   async function startDownload(): Promise<void> {
     if (selected.size === 0) return;
@@ -239,7 +244,7 @@ export function MarketEmojiDownloadPane({
             </button>
           ) : null}
         </div>
-        <div className="weq-mpd-fees">
+        <div className="weq-mpd-fees" {...feeMulti.rootProps}>
           <button
             type="button"
             className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
@@ -263,7 +268,7 @@ export function MarketEmojiDownloadPane({
               key={f.id}
               type="button"
               className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
-              onClick={() => toggleFee(f.id)}
+              {...feeMulti.itemProps(f.id)}
             >
               {f.label}
             </button>
@@ -287,13 +292,14 @@ export function MarketEmojiDownloadPane({
         {entries.length === 0 && !loading ? (
           <div className="weq-mpd-empty">{error ? '搜索失败' : '没有匹配的表情包'}</div>
         ) : (
-          <div className="weq-mpd-grid">
+          <div className="weq-mpd-grid" {...packsMulti.rootProps}>
             {entries.map((entry) => (
               <PackCard
                 key={entry.id}
                 entry={entry}
                 checked={selected.has(entry.id)}
-                onToggle={() => toggleSelect(entry)}
+                onToggle={() => packsMulti.toggle(entry.id)}
+                selectionProps={packsMulti.itemProps(entry.id)}
                 onOpen={() => setPreview(entry)}
               />
             ))}
@@ -347,11 +353,13 @@ function PackCard({
   checked,
   onToggle,
   onOpen,
+  selectionProps,
 }: {
   entry: CatalogEntry;
   checked: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId: entry.id });
   const [broken, setBroken] = useState(false);
@@ -360,7 +368,7 @@ function PackCard({
   const summary = detail.data?.summary || entry.mark;
 
   return (
-    <div className={`weq-mpd-card${checked ? ' is-checked' : ''}`}>
+    <div className={`weq-mpd-card${checked ? ' is-checked' : ''}`} {...selectionProps}>
       <button
         type="button"
         className="weq-mpd-card-check"

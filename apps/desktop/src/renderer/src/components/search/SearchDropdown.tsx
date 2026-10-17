@@ -2,6 +2,7 @@
 
 import type { ReactElement } from 'react';
 import { RotateCw } from 'lucide-react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
@@ -72,10 +73,21 @@ export function SearchDropdown({
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
     !slowLoading &&
     slow?.indexStatus === 'building';
+  const scopeSelection = useMultiSelection({
+    ids: SEARCH_CATEGORY_ORDER,
+    selected: new Set(categories),
+    onChange: (next) =>
+      onCategoriesChange(SEARCH_CATEGORY_ORDER.filter((category) => next.has(category))),
+  });
 
   return (
     <div className="weq-search-dropdown">
-      <div className="weq-search-scope" role="group" aria-label="搜索范围">
+      <div
+        className="weq-search-scope"
+        role="group"
+        aria-label="搜索范围"
+        {...scopeSelection.rootProps}
+      >
         <label>
           <input
             type="checkbox"
@@ -93,18 +105,8 @@ export function SearchDropdown({
           全部
         </label>
         {SEARCH_CATEGORY_ORDER.map((category) => (
-          <label key={category}>
-            <input
-              type="checkbox"
-              checked={categories.includes(category)}
-              onChange={(event) =>
-                onCategoriesChange(
-                  SEARCH_CATEGORY_ORDER.filter((item) =>
-                    item === category ? event.target.checked : categories.includes(item),
-                  ),
-                )
-              }
-            />
+          <label key={category} {...scopeSelection.itemProps(category)}>
+            <input type="checkbox" checked={categories.includes(category)} readOnly />
             {CATEGORY_META[category].label}
           </label>
         ))}

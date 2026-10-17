@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 interface MessageChoice {
   msgId: string;
@@ -58,8 +59,14 @@ export function MessageScopePicker({
     };
   }, [kind, conv, keyword, cursor]);
   const ids = new Set(selected ?? []);
+  const multi = useMultiSelection({
+    ids: [...new Set([...rows.map((row) => row.msgId), ...(selected ?? [])])],
+    selected: ids,
+    onChange: (nextIds) => onChange([...nextIds]),
+    disabled: selected === undefined,
+  });
   return (
-    <section className="weq-message-scope" aria-label="消息选择">
+    <section className="weq-message-scope" aria-label="消息选择" {...multi.rootProps}>
       <label className="weq-message-scope-mode">
         <input
           type="checkbox"
@@ -88,17 +95,8 @@ export function MessageScopePicker({
           {error ? <p role="alert">{error}</p> : null}
           <div className="weq-message-scope-rows">
             {rows.map((row) => (
-              <label key={row.msgId}>
-                <input
-                  type="checkbox"
-                  checked={ids.has(row.msgId)}
-                  onChange={(event) => {
-                    const updated = new Set(ids);
-                    if (event.target.checked) updated.add(row.msgId);
-                    else updated.delete(row.msgId);
-                    onChange([...updated]);
-                  }}
-                />
+              <label key={row.msgId} {...multi.itemProps(row.msgId)}>
+                <input type="checkbox" checked={ids.has(row.msgId)} readOnly />
                 <span>
                   <strong>{row.senderName || '未知发送者'}</strong> {row.content || '[非文本消息]'}
                 </span>
@@ -119,12 +117,8 @@ export function MessageScopePicker({
               {selected
                 .filter((id) => !rows.some((row) => row.msgId === id))
                 .map((id) => (
-                  <label key={id}>
-                    <input
-                      type="checkbox"
-                      checked
-                      onChange={() => onChange(selected.filter((value) => value !== id))}
-                    />
+                  <label key={id} {...multi.itemProps(id)}>
+                    <input type="checkbox" checked readOnly />
                     <span>消息 {id}</span>
                   </label>
                 ))}

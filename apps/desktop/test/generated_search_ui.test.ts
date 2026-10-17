@@ -6,6 +6,7 @@ import { AgentLabView } from '../src/renderer/src/views/AgentLabView';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import type { GeneratedSearchHit } from '../src/renderer/src/components/search/types';
+import { isGeneratedSearchHit } from '../src/renderer/src/components/search/types';
 
 const fixture = vi.hoisted(() => ({
   query: vi.fn(),
@@ -108,6 +109,22 @@ function target(kind: GeneratedSearchHit['kind'], legacy = false): GeneratedSear
     ts: 1,
   };
 }
+
+it('生成内容按搜索类别区分，不把其它结果的 kind 字段误当生成来源', () => {
+  expect(isGeneratedSearchHit(target('persona'))).toBe(true);
+  expect(isGeneratedSearchHit(target('group'))).toBe(true);
+  expect(isGeneratedSearchHit(target('assistant'))).toBe(true);
+  const native = {
+    category: 'conversation' as const,
+    targetUid: 'u_native',
+    targetUin: '10000',
+    chatType: 1,
+    name: '合成私聊',
+    typeLabel: '私聊',
+    kind: 'native',
+  };
+  expect(isGeneratedSearchHit(native)).toBe(false);
+});
 
 afterEach(() => {
   fixture.missing = false;

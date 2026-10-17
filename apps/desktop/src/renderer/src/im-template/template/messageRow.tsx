@@ -232,6 +232,8 @@ export function MessageRow({
           .filter(Boolean)
           .join(' ')}
         data-message-id={message.id}
+        data-weq-select-id={selectionMode ? message.id : undefined}
+        tabIndex={selectionMode ? 0 : undefined}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
         onClickCapture={
           selectionMode && onToggleSelect

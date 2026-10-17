@@ -16,6 +16,7 @@ import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 
 /** cemoji 预览地址。 */
 function cemojiUrl(addr: EmojiPreviewAddress): string {
@@ -62,14 +63,12 @@ export function EmojiPackExportPane({
 
   const data = summary.data as { own: EmojiScopeSummary; received: EmojiScopeSummary } | undefined;
 
-  const toggle = (scope: EmojiExportScope): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(scope)) next.delete(scope);
-      else next.add(scope);
-      return next;
-    });
-  };
+  const selection = useMultiSelection({
+    ids: SCOPES,
+    selected,
+    onChange: setSelected,
+    disabled: submitting,
+  });
 
   const selectedTotal = useMemo(() => {
     if (!data) return 0;
@@ -95,7 +94,7 @@ export function EmojiPackExportPane({
   }
 
   return (
-    <div className="weq-epk">
+    <div className="weq-epk" {...selection.rootProps}>
       <div className="weq-epk-head">
         <Sparkles size={15} />
         <span>
@@ -112,7 +111,7 @@ export function EmojiPackExportPane({
               summary={data?.[scope]}
               loading={summary.isLoading}
               checked={selected.has(scope)}
-              onToggle={() => toggle(scope)}
+              selectionProps={selection.itemProps(scope)}
             />
           ))}
         </div>
@@ -144,13 +143,13 @@ function ScopeCard({
   summary,
   loading,
   checked,
-  onToggle,
+  selectionProps,
 }: {
   scope: EmojiExportScope;
   summary?: EmojiScopeSummary;
   loading: boolean;
   checked: boolean;
-  onToggle: () => void;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   const meta = SCOPE_META[scope];
   const sample = summary?.sample ?? [];
@@ -159,7 +158,7 @@ function ScopeCard({
       <button
         type="button"
         className="weq-epk-card-head"
-        onClick={onToggle}
+        {...selectionProps}
         aria-pressed={checked}
         title={checked ? '取消选择' : '选择'}
       >

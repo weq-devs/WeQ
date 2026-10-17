@@ -7,7 +7,9 @@
  *   - 勾选的文件导出时按 path 在输出目录里重建文件夹树。
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { groupFileSelectedKeys, resolveGroupFileSelection } from '../../lib/groupFileSelection';
 import { ArrowLeft, Check, ChevronRight, FolderOpen, Loader2, Minus, X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
@@ -51,14 +53,17 @@ const ROOT: Crumb = { id: '/', name: '全部文件' };
 async function collectSubtree(
   groupCode: string,
   folder: { id: string; path: string[] },
+  isCurrent = () => true,
 ): Promise<GroupFileEntry[]> {
   const out: GroupFileEntry[] = [];
   const queue: Array<{ dir: string; path: string[] }> = [{ dir: folder.id, path: folder.path }];
   const seen = new Set<string>([folder.id]);
 
   while (queue.length > 0) {
+    if (!isCurrent()) throw new Error('文件夹选择已停止');
     const { dir, path } = queue.shift()!;
     const listing = await client.account.listGroupFiles.query({ groupCode, folderId: dir });
+    if (!isCurrent()) throw new Error('文件夹选择已停止');
     for (const f of listing.files) {
       out.push({
         fileId: f.fileId,
@@ -115,6 +120,17 @@ export function GroupFileExportLightbox({
   /** 正在递归收集的文件夹（那一行的勾选框转圈）。 */
   const [loadingFolder, setLoadingFolder] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const selectionPending = useRef(false);
+  const selectionActive = useRef(true);
+  const selectionContext = useRef(groupCode);
+  selectionContext.current = groupCode;
+  useEffect(() => {
+    selectionActive.current = true;
+    return () => {
+      selectionActive.current = false;
+    };
+  }, []);
 
   const current = crumbs[crumbs.length - 1] ?? ROOT;
   /** 当前目录相对根目录的路径段（根为 []）。 */
@@ -150,109 +166,89 @@ export function GroupFileExportLightbox({
   );
 
   function toggleFile(file: GroupFileWire): void {
-    setSelection((sel) => {
-      const next = new Map(sel);
-      if (next.has(file.fileId)) {
-        next.delete(file.fileId);
-      } else {
-        next.set(file.fileId, {
-          fileId: file.fileId,
-          fileName: file.fileName,
-          fileSize: file.fileSize,
-          busId: file.busId,
-          uploaderName: file.uploaderName,
-          path: currentPath,
-        });
-      }
-      return next;
-    });
+    multi.toggle(`file:${file.fileId}`);
   }
 
   /** 勾选/取消一个文件夹（勾选 = 递归选中子树全部文件）。 */
-  async function toggleFolder(folder: GroupFolderWire): Promise<void> {
-    const folderPath = [...currentPath, folder.folderName || folder.folderId];
-    const cached = subtreeCache.get(folder.folderId);
-    const selectedUnder = [...selection.values()].filter((e) => pathStartsWith(e.path, folderPath));
-    const fully = Boolean(cached && cached.length > 0 && selectedUnder.length === cached.length);
-
-    if (fully) {
-      setSelection((sel) => {
-        const next = new Map(sel);
-        for (const [id, e] of next) {
-          if (pathStartsWith(e.path, folderPath)) next.delete(id);
-        }
-        return next;
-      });
-      return;
-    }
-
-    if (cached) {
-      setSelection((sel) => {
-        const next = new Map(sel);
-        for (const f of cached) next.set(f.fileId, f);
-        return next;
-      });
-      return;
-    }
-
-    setLoadingFolder(folder.folderId);
+  function toggleFolder(folder: GroupFolderWire): void {
+    multi.toggle(`folder:${folder.folderId}`);
+  }
+  const selectedKeys = groupFileSelectedKeys(selection, listing?.folders ?? [], subtreeCache);
+  const multi = useMultiSelection({
+    ids: [
+      ...(listing?.folders ?? []).map((folder) => `folder:${folder.folderId}`),
+      ...(listing?.files ?? []).map((file) => `file:${file.fileId}`),
+    ],
+    selected: selectedKeys,
+    disabled: Boolean(submitting || loading || selecting),
+    normalClick: 'passthrough',
+    onChange: (keys) => void applySelection(keys),
+  });
+  async function applySelection(keys: Set<string>): Promise<void> {
+    if (!listing || selectionPending.current) return;
+    selectionPending.current = true;
+    setSelecting(true);
+    const isCurrent = () => selectionActive.current && selectionContext.current === groupCode;
     try {
-      const files = await collectSubtree(groupCode, { id: folder.folderId, path: folderPath });
-      setSubtreeCache((m) => new Map(m).set(folder.folderId, files));
-      setSelection((sel) => {
-        const next = new Map(sel);
-        for (const f of files) next.set(f.fileId, f);
-        return next;
+      const next = await resolveGroupFileSelection({
+        keys,
+        selected: selection,
+        listing,
+        path: currentPath,
+        cache: subtreeCache,
+        load: async (folder) => {
+          if (!isCurrent()) throw new Error('文件夹选择已停止');
+          setLoadingFolder(folder.folderId);
+          const files = await collectSubtree(
+            groupCode,
+            { id: folder.folderId, path: [...currentPath, folder.folderName || folder.folderId] },
+            isCurrent,
+          );
+          if (isCurrent())
+            setSubtreeCache((current) => new Map(current).set(folder.folderId, files));
+          return files;
+        },
       });
+      if (isCurrent()) setSelection(next);
     } catch (e) {
-      pushToast({
-        tone: 'warning',
-        title: '读取文件夹失败',
-        ttl: 4000,
-        message: e instanceof Error ? e.message : String(e),
-      });
+      if (isCurrent())
+        pushToast({
+          tone: 'warning',
+          title: '读取文件夹失败',
+          ttl: 4000,
+          message: e instanceof Error ? e.message : String(e),
+        });
     } finally {
-      setLoadingFolder(null);
+      selectionPending.current = false;
+      if (selectionActive.current) {
+        setLoadingFolder(null);
+        setSelecting(false);
+      }
     }
   }
 
   function selectAllVisible(): void {
     if (!listing) return;
-    setSelection((sel) => {
-      const next = new Map(sel);
-      for (const f of listing.files) {
-        next.set(f.fileId, {
-          fileId: f.fileId,
-          fileName: f.fileName,
-          fileSize: f.fileSize,
-          busId: f.busId,
-          uploaderName: f.uploaderName,
-          path: currentPath,
-        });
-      }
-      return next;
-    });
+    void applySelection(
+      new Set([
+        ...selectedKeys,
+        ...listing.folders.map((folder) => `folder:${folder.folderId}`),
+        ...listing.files.map((file) => `file:${file.fileId}`),
+      ]),
+    );
   }
 
   function invertVisible(): void {
     if (!listing) return;
-    setSelection((sel) => {
-      const next = new Map(sel);
-      for (const f of listing.files) {
-        if (next.has(f.fileId)) next.delete(f.fileId);
-        else {
-          next.set(f.fileId, {
-            fileId: f.fileId,
-            fileName: f.fileName,
-            fileSize: f.fileSize,
-            busId: f.busId,
-            uploaderName: f.uploaderName,
-            path: currentPath,
-          });
-        }
-      }
-      return next;
-    });
+    const next = new Set(selectedKeys);
+    for (const id of [
+      ...listing.folders.map((folder) => `folder:${folder.folderId}`),
+      ...listing.files.map((file) => `file:${file.fileId}`),
+    ]) {
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+    }
+    void applySelection(next);
   }
 
   async function pickPath(): Promise<void> {
@@ -272,6 +268,7 @@ export function GroupFileExportLightbox({
     >
       <section
         className="weq-exp-dialog weq-exp-album-dialog"
+        {...multi.rootProps}
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
@@ -329,7 +326,13 @@ export function GroupFileExportLightbox({
             <button
               type="button"
               className="weq-exp-tool"
-              disabled={loading || !listing || listing.files.length === 0 || submitting}
+              disabled={
+                loading ||
+                selecting ||
+                !listing ||
+                listing.files.length + listing.folders.length === 0 ||
+                submitting
+              }
               onClick={selectAllVisible}
             >
               全选当前目录
@@ -337,7 +340,13 @@ export function GroupFileExportLightbox({
             <button
               type="button"
               className="weq-exp-tool"
-              disabled={loading || !listing || listing.files.length === 0 || submitting}
+              disabled={
+                loading ||
+                selecting ||
+                !listing ||
+                listing.files.length + listing.folders.length === 0 ||
+                submitting
+              }
               onClick={invertVisible}
             >
               反选当前目录
@@ -345,8 +354,8 @@ export function GroupFileExportLightbox({
             <button
               type="button"
               className="weq-exp-tool"
-              disabled={selection.size === 0 || submitting}
-              onClick={() => setSelection(new Map())}
+              disabled={selection.size === 0 || submitting || selecting}
+              onClick={() => void applySelection(new Set())}
             >
               清空已选
             </button>
@@ -383,11 +392,12 @@ export function GroupFileExportLightbox({
                     <div
                       key={folder.folderId}
                       className={`group-file-row is-folder weq-exp-file-row${fully ? ' is-on' : ''}`}
+                      {...multi.itemProps(`folder:${folder.folderId}`)}
                     >
                       <button
                         type="button"
                         className="weq-exp-file-nav"
-                        disabled={submitting}
+                        disabled={submitting || selecting}
                         onClick={() =>
                           setCrumbs((c) => [
                             ...c,
@@ -417,7 +427,7 @@ export function GroupFileExportLightbox({
                             ? '取消选择整个文件夹（含子文件夹）'
                             : '选择整个文件夹（含子文件夹）'
                         }
-                        disabled={busy || submitting}
+                        disabled={busy || submitting || selecting}
                         onClick={() => void toggleFolder(folder)}
                       >
                         {busy ? (
@@ -439,7 +449,8 @@ export function GroupFileExportLightbox({
                       key={`${file.fileId}:${file.uploadedTime}`}
                       type="button"
                       className={`group-file-row weq-exp-file-row${on ? ' is-on' : ''}`}
-                      disabled={submitting}
+                      disabled={submitting || selecting}
+                      {...multi.itemProps(`file:${file.fileId}`)}
                       onClick={() => toggleFile(file)}
                     >
                       <ShimmerImage
@@ -478,7 +489,12 @@ export function GroupFileExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             disabled={
-              submitting || loading || Boolean(error) || !outputDir || selectedFiles.length === 0
+              submitting ||
+              selecting ||
+              loading ||
+              Boolean(error) ||
+              !outputDir ||
+              selectedFiles.length === 0
             }
             onClick={() => outputDir && onConfirm({ outputDir, selectedFiles })}
           >

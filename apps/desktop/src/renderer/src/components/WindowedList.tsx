@@ -54,6 +54,7 @@ export function WindowedList<T>({
   return (
     <div
       ref={root}
+      data-weq-windowed-list=""
       className={className}
       aria-label={label}
       style={{ height: Math.min(height, items.length * rowHeight), overflowY: 'auto' }}

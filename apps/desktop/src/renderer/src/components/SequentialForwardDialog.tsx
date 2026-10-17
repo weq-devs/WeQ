@@ -96,18 +96,7 @@ export function SequentialForwardDialog({
           </button>
         </header>
         <fieldset disabled={running || completed}>
-          <MergeForwardTargets
-            targets={targets}
-            selected={selected}
-            onToggle={(id) =>
-              setSelected((current) => {
-                const next = new Set(current);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-          />
+          <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
           <div className="weq-forward-options">
             <label>
               间隔方式

@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 import {
   Bookmark,
   CalendarClock,
@@ -1871,14 +1872,9 @@ function CategoryChips({
   onChange: (next: Set<number>) => void;
 }): ReactElement {
   const allActive = selected.size === 0;
-  const toggle = (id: number): void => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange(next);
-  };
+  const multi = useMultiSelection({ ids: items.map((item) => item.id), selected, onChange });
   return (
-    <div className="weq-exp-cats">
+    <div className="weq-exp-cats" {...multi.rootProps}>
       <div className="weq-exp-cats-head">
         <strong>好友分组</strong>
         <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
@@ -1903,7 +1899,7 @@ function CategoryChips({
               key={c.id}
               type="button"
               className={`weq-exp-chip${selected.has(c.id) ? ' is-active' : ''}`}
-              onClick={() => toggle(c.id)}
+              {...multi.itemProps(c.id)}
             >
               {c.name} <b>{c.count}</b>
             </button>
@@ -2050,14 +2046,9 @@ function CollectionScope({
   const [query, setQuery] = useState('');
   const total = counts.all ?? 0;
   const allActive = selected.size === 0;
-  const toggle = (id: string): void => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange(next);
-  };
   // 只展示实际有内容的类型 chips。
   const kinds = COLLECTION_KIND_FILTERS.filter((k) => (counts[k.id] ?? 0) > 0);
+  const typesMulti = useMultiSelection({ ids: kinds.map((item) => item.id), selected, onChange });
 
   // 预览行 = 类型过滤 × 搜索（标题 / 摘要 / 来源）。
   const scoped = useMemo(
@@ -2069,13 +2060,18 @@ function CollectionScope({
     if (!q) return scoped;
     return scoped.filter((it) => `${it.title} ${it.sub} ${it.source}`.toLowerCase().includes(q));
   }, [scoped, query]);
+  const itemsMulti = useMultiSelection({
+    ids: filtered.map((item) => item.cid),
+    selected: new Set(selectedIds ?? filtered.map((item) => item.cid)),
+    onChange: (next) => onSelectedIdsChange([...next]),
+  });
   useEffect(() => {
     onFilteredIdsChange(filtered.map((item) => item.cid));
   }, [filtered, onFilteredIdsChange]);
 
   return (
     <div className="weq-exp-contacts">
-      <div className="weq-exp-cats">
+      <div className="weq-exp-cats" {...typesMulti.rootProps}>
         <div className="weq-exp-cats-head">
           <strong>收藏类型</strong>
           <small>
@@ -2106,7 +2102,7 @@ function CollectionScope({
                 key={k.id}
                 type="button"
                 className={`weq-exp-chip${selected.has(k.id) ? ' is-active' : ''}`}
-                onClick={() => toggle(k.id)}
+                {...typesMulti.itemProps(k.id)}
               >
                 {k.label} <b>{counts[k.id] ?? 0}</b>
               </button>
@@ -2115,7 +2111,7 @@ function CollectionScope({
         )}
       </div>
 
-      <div className="weq-exp-friends">
+      <div className="weq-exp-friends" {...itemsMulti.rootProps}>
         <div className="weq-exp-friends-head">
           <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
           <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
@@ -2156,17 +2152,12 @@ function CollectionScope({
             </div>
           ) : (
             filtered.map((it) => (
-              <div key={it.cid} className="weq-exp-row is-static">
+              <div key={it.cid} className="weq-exp-row is-static" {...itemsMulti.itemProps(it.cid)}>
                 <input
                   type="checkbox"
                   aria-label={`选择收藏 ${it.title}`}
                   checked={selectedIds === undefined || selectedIds.includes(it.cid)}
-                  onChange={(event) => {
-                    const next = new Set(selectedIds ?? filtered.map((item) => item.cid));
-                    if (event.target.checked) next.add(it.cid);
-                    else next.delete(it.cid);
-                    onSelectedIdsChange([...next]);
-                  }}
+                  readOnly
                 />
                 <span className="weq-exp-col-icon" data-kind={it.kind}>
                   {collectionKindIcon(it.kind)}

@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { Search, Store, X, RefreshCw, Loader2, SmilePlus, Download } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -289,15 +290,14 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
     return () => io.disconnect();
   }, [loadMore, done]);
 
-  const toggleFee = (id: MarketPackFeeType): void => {
-    setLatest(false);
-    setFeeSel((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const feeMulti = useMultiSelection({
+    ids: FEE_FILTERS.map((item) => item.id),
+    selected: feeSel,
+    onChange: (next) => {
+      setLatest(false);
+      setFeeSel(next);
+    },
+  });
 
   /** 「最新上架」：只看目录尾部（id 最大 = 上架最晚），与来源筛选互斥。 */
   const toggleLatest = (): void => {
@@ -348,7 +348,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
               </div>
             </div>
 
-            <div className="weq-emb-fee-row">
+            <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
               <button
                 type="button"
                 className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
@@ -372,7 +372,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
                   key={f.id}
                   type="button"
                   className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
-                  onClick={() => toggleFee(f.id)}
+                  {...feeMulti.itemProps(f.id)}
                 >
                   {f.label}
                 </button>

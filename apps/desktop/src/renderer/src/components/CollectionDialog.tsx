@@ -43,6 +43,7 @@ import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalU
 import { CollectionContent, collectionContentText } from './CollectionContent';
 import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../state/contentSelection';
 
 interface PicWire {
@@ -493,22 +494,24 @@ function CollectionCard({
   it,
   onOpen,
   selected,
-  onSelect,
+  selecting,
+  selectionProps,
 }: {
   it: CollectionItemWire;
   onOpen: (item: CollectionItemWire) => void;
   selected?: boolean;
-  onSelect?: (checked: boolean) => void;
+  selecting?: boolean;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   return (
-    <article className="weq-col-card">
+    <article className="weq-col-card" {...selectionProps}>
       <header className="weq-col-card-head">
-        {onSelect ? (
+        {selecting ? (
           <input
             type="checkbox"
             aria-label={`选择收藏 ${it.cid}`}
             checked={selected ?? false}
-            onChange={(event) => onSelect(event.target.checked)}
+            readOnly
           />
         ) : null}
         <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
@@ -869,6 +872,19 @@ export function CollectionDialog({
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const selection = useMultiSelection({
+    ids: filtered.map((item) => item.cid),
+    selected: multiSelect.selectedIds,
+    onChange: multiSelect.setSelectedIds,
+    enabled: multiSelect.selectionMode,
+    onStart: () => multiSelect.setSelectionMode(true),
+    onExit: () => multiSelect.setSelectionMode(false),
+  });
+  useEffect(() => {
+    if (!selection.focusRequest) return;
+    const index = filtered.findIndex((item) => item.cid === selection.focusRequest!.id);
+    if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
+  }, [selection.focusRequest, filtered]);
 
   if (!open) return null;
 
@@ -883,6 +899,7 @@ export function CollectionDialog({
         role={embedded ? 'region' : 'dialog'}
         aria-modal={embedded ? undefined : true}
         aria-labelledby="weq-collection-title"
+        {...selection.rootProps}
       >
         {!embedded ? (
           <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
@@ -1214,17 +1231,8 @@ export function CollectionDialog({
                   it={it}
                   onOpen={setSelected}
                   selected={multiSelect.selectedIds.has(it.cid)}
-                  onSelect={
-                    multiSelect.selectionMode
-                      ? (checked) =>
-                          multiSelect.setSelectedIds((current) => {
-                            const next = new Set(current);
-                            if (checked) next.add(it.cid);
-                            else next.delete(it.cid);
-                            return next;
-                          })
-                      : undefined
-                  }
+                  selecting={multiSelect.selectionMode}
+                  selectionProps={selection.itemProps(it.cid)}
                 />
               ))}
             </div>

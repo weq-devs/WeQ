@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
@@ -108,16 +109,22 @@ const COMPLETE_KINDS = [
 function KindChips({
   options,
   selected,
-  onToggle,
+  onChange,
   disabled,
 }: {
   options: Array<{ key: string; label: ReactNode }>;
   selected: ReadonlySet<string>;
-  onToggle: (key: string) => void;
+  onChange: (next: Set<string>) => void;
   disabled?: boolean;
 }): ReactElement {
+  const multi = useMultiSelection({
+    ids: options.map((option) => option.key),
+    selected,
+    onChange,
+    disabled,
+  });
   return (
-    <div className={`weq-exp-kinds${disabled ? ' is-disabled' : ''}`}>
+    <div className={`weq-exp-kinds${disabled ? ' is-disabled' : ''}`} {...multi.rootProps}>
       {options.map((opt) => {
         const on = selected.has(opt.key);
         return (
@@ -126,7 +133,7 @@ function KindChips({
             type="button"
             className={`weq-exp-kind${on ? ' is-on' : ''}`}
             disabled={disabled}
-            onClick={() => onToggle(opt.key)}
+            {...multi.itemProps(opt.key)}
             aria-pressed={on}
           >
             {on ? <Check size={12} /> : <span className="weq-exp-kind-dot" />}
@@ -586,34 +593,6 @@ export function ExportLightbox({
     setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
   }, [htmlForced]);
 
-  /** 切换某个导出格式（至少保留一种）。 */
-  function toggleFormat(f: ExportFormat): void {
-    setFormats((prev) => {
-      if (prev.includes(f)) {
-        if (prev.length === 1) {
-          pushToast({ tone: 'warning', title: '至少保留一种导出格式', ttl: 3200 });
-          return prev;
-        }
-        return prev.filter((x) => x !== f);
-      }
-      return [...prev, f];
-    });
-  }
-
-  /** 切换媒体子类；开启媒体大按钮时默认全选。 */
-  function toggleMediaKind(kind: keyof MediaKinds): void {
-    patch({
-      mediaKinds: {
-        ...opts.mediaKinds,
-        [kind]: !opts.mediaKinds[kind],
-      },
-    });
-  }
-
-  function toggleDressKind(kind: 'bubble' | 'font' | 'widget'): void {
-    patch({ dress: { ...opts.dress, [kind]: !opts.dress[kind] } });
-  }
-
   /**
    * 开关在线转录：开启前先 arm 抓包会话（Windows 缺 Npcap / 未提权 / 离线都会
    * 抛错，这里弹 toast 提示）。只有 arm 成功才置 true —— 保证后续导出可在线转写。
@@ -696,6 +675,22 @@ export function ExportLightbox({
       patch({ chatlab: false });
     }
   }
+  const formatSelection = useMultiSelection({
+    ids: formatOptions
+      .filter((format) => !opts.chatlab || format.value === 'json' || format.value === 'jsonl')
+      .map((format) => format.value),
+    selected: new Set(formats),
+    disabled: submitting,
+    onChange: (next) => {
+      if (!next.size) {
+        setFormats((current) => [...current]);
+        pushToast({ tone: 'warning', title: '至少保留一种导出格式', ttl: 3200 });
+        return;
+      }
+      setFormats(formatOptions.map((format) => format.value).filter((value) => next.has(value)));
+    },
+    onExit: onClose,
+  });
 
   return (
     <div
@@ -819,7 +814,14 @@ export function ExportLightbox({
                         <KindChips
                           options={COMPLETE_KINDS}
                           selected={selectedCompleteKinds}
-                          onToggle={(key) => patch({ [key]: !opts[key as keyof typeof opts] })}
+                          onChange={(next) =>
+                            patch({
+                              completeMedia: next.has('completeMedia'),
+                              downloadPtt: next.has('downloadPtt'),
+                              downloadVideo: next.has('downloadVideo'),
+                              downloadFile: next.has('downloadFile'),
+                            })
+                          }
                           disabled={!opts.exportMedia || !qqOnline}
                         />
                       }
@@ -987,7 +989,7 @@ export function ExportLightbox({
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
                   <Card title="导出格式">
-                    <div className="weq-exp-format-grid">
+                    <div className="weq-exp-format-grid" {...formatSelection.rootProps}>
                       {formatOptions.map((f) => {
                         const on = formats.includes(f.value);
                         const blocked = opts.chatlab && f.value !== 'json' && f.value !== 'jsonl';
@@ -996,17 +998,7 @@ export function ExportLightbox({
                             key={f.value}
                             type="button"
                             className={`weq-exp-format${on ? ' is-on' : ''}${blocked ? ' is-blocked' : ''}`}
-                            onClick={() => {
-                              if (blocked) {
-                                pushToast({
-                                  tone: 'warning',
-                                  title: 'ChatLab 仅支持 JSON / JSONL',
-                                  ttl: 3000,
-                                });
-                                return;
-                              }
-                              toggleFormat(f.value);
-                            }}
+                            {...formatSelection.itemProps(f.value, blocked)}
                             aria-pressed={on}
                             disabled={blocked}
                           >
@@ -1109,7 +1101,17 @@ export function ExportLightbox({
                                 ),
                               }))}
                               selected={selectedMediaKinds}
-                              onToggle={(key) => toggleMediaKind(key as keyof MediaKinds)}
+                              onChange={(next) =>
+                                patch({
+                                  mediaKinds: {
+                                    image: next.has('image'),
+                                    voice: next.has('voice'),
+                                    video: next.has('video'),
+                                    file: next.has('file'),
+                                    sysface: next.has('sysface'),
+                                  },
+                                })
+                              }
                             />
                           </div>
                         ) : null}
@@ -1144,8 +1146,14 @@ export function ExportLightbox({
                                 { key: 'widget', label: '挂件' },
                               ]}
                               selected={selectedDressKinds}
-                              onToggle={(key) =>
-                                toggleDressKind(key as 'bubble' | 'font' | 'widget')
+                              onChange={(next) =>
+                                patch({
+                                  dress: {
+                                    bubble: next.has('bubble'),
+                                    font: next.has('font'),
+                                    widget: next.has('widget'),
+                                  },
+                                })
                               }
                             />
                           </div>

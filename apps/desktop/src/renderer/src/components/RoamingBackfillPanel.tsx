@@ -5,6 +5,7 @@ import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { WindowedList } from './WindowedList';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 import '../styles/roaming-backfill.css';
 
 const targetKey = (target: RoamingTarget) => `${target.kind}:${target.conv}`;
@@ -101,6 +102,12 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
     () => new Map(targets.map((target) => [targetKey(target), target.name])),
     [targets],
   );
+  const multi = useMultiSelection({
+    ids: visible.map(targetKey),
+    selected,
+    onChange: setSelected,
+    disabled: plan.isLoading,
+  });
 
   function scan() {
     setError(null);
@@ -118,7 +125,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
   }
 
   return (
-    <div className="weq-roaming-panel">
+    <div className="weq-roaming-panel" {...multi.rootProps}>
       <header className="weq-wtools-pane-head">
         <div className="weq-wtools-pane-title">
           <CloudDownload size={17} />
@@ -221,22 +228,13 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
                 rowHeight={62}
                 height={300}
                 itemKey={targetKey}
+                scrollToKey={multi.focusRequest?.id}
+                scrollRevision={multi.focusRequest?.revision}
                 renderItem={(target) => {
                   const id = targetKey(target);
                   return (
-                    <label key={id} className="weq-roaming-target">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(id)}
-                        onChange={(e) =>
-                          setSelected((current) => {
-                            const next = new Set(current);
-                            if (e.target.checked) next.add(id);
-                            else next.delete(id);
-                            return next;
-                          })
-                        }
-                      />
+                    <label key={id} className="weq-roaming-target" {...multi.itemProps(id)}>
+                      <input type="checkbox" checked={selected.has(id)} readOnly />
                       <span>
                         <strong>{target.name}</strong>
                         <small>

@@ -6,7 +6,8 @@
  * switch but lives under its own `weq-set-*` classes so the two never couple.
  */
 
-import type { ReactElement, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactElement, ReactNode } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
@@ -113,20 +114,56 @@ export function Toggle({
   );
 }
 
+export function CheckPillGroup<T extends string>({
+  options,
+  selected,
+  onChange,
+  disabled = false,
+}: {
+  options: readonly { value: T; label: ReactNode }[];
+  selected: readonly T[];
+  onChange: (next: T[]) => void;
+  disabled?: boolean;
+}) {
+  const multi = useMultiSelection({
+    ids: options.map((option) => option.value),
+    selected: new Set(selected),
+    onChange: (next) => onChange([...next]),
+    disabled,
+  });
+  return (
+    <div className="weq-set-pill-group" {...multi.rootProps}>
+      {options.map((option) => (
+        <CheckPill
+          key={option.value}
+          checked={selected.includes(option.value)}
+          disabled={disabled}
+          onChange={() => multi.toggle(option.value)}
+          {...multi.itemProps(option.value)}
+        >
+          {option.label}
+        </CheckPill>
+      ))}
+    </div>
+  );
+}
+
 /** A single checkbox pill, used by the media-type picker. */
 export function CheckPill({
   checked,
   disabled,
   onChange,
   children,
+  ...buttonProps
 }: {
   checked: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
   children: ReactNode;
-}): ReactElement {
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onChange'>): ReactElement {
   return (
     <button
+      {...buttonProps}
       type="button"
       className={`weq-set-chk${checked ? ' is-on' : ''}`}
       role="checkbox"

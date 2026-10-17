@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
+import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { fmtBytes } from './CacheShared';
 
 /** One deletion instruction (target + how much). */
@@ -245,6 +246,18 @@ export function ResourceCleanupDialog({
     () => Object.entries(customSel).map(([id, variant]) => ({ id, variant })),
     [customSel],
   );
+  const multi = useMultiSelection({
+    ids: targets.filter((target) => target.present && target.files > 0).map((target) => target.id),
+    selected: new Set(Object.keys(customSel)),
+    enabled: customMode,
+    disabled: !open || !customMode || stage !== 'pick' || loading,
+    onChange: (next) => {
+      const updated: Record<string, CleanupVariant> = {};
+      for (const id of next) updated[id] = customSel[id] ?? 'all';
+      setCustomSel(updated);
+    },
+    onExit: () => setCustomMode(false),
+  });
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -292,15 +305,6 @@ export function ResourceCleanupDialog({
     }
   };
 
-  const toggleCustom = (t: CleanupTargetStat): void => {
-    setCustomSel((prev) => {
-      const next = { ...prev };
-      if (next[t.id]) delete next[t.id];
-      else next[t.id] = 'all';
-      return next;
-    });
-  };
-
   const setCustomVariant = (id: string, variant: CleanupVariant): void => {
     setCustomSel((prev) => ({ ...prev, [id]: variant }));
   };
@@ -314,6 +318,10 @@ export function ResourceCleanupDialog({
     >
       <div
         className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="清理本地资源"
+        {...multi.rootProps}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="weq-ra-head">
@@ -358,7 +366,7 @@ export function ResourceCleanupDialog({
                 setCustomMode(false);
                 setCustomSel({});
               }}
-              onToggleCustom={toggleCustom}
+              selectionBindings={multi.itemProps}
               onSetVariant={setCustomVariant}
               onPickPreset={pickPreset}
               onConfirmCustom={pickCustom}
@@ -414,7 +422,7 @@ function PickStage({
   customInstructions,
   onEnterCustom,
   onLeaveCustom,
-  onToggleCustom,
+  selectionBindings,
   onSetVariant,
   onPickPreset,
   onConfirmCustom,
@@ -426,7 +434,7 @@ function PickStage({
   customInstructions: Instruction[];
   onEnterCustom: () => void;
   onLeaveCustom: () => void;
-  onToggleCustom: (t: CleanupTargetStat) => void;
+  selectionBindings: (id: string, disabled?: boolean) => MultiSelectionItemProps;
   onSetVariant: (id: string, v: CleanupVariant) => void;
   onPickPreset: (p: Preset) => void;
   onConfirmCustom: () => void;
@@ -452,7 +460,7 @@ function PickStage({
                 <button
                   type="button"
                   className="weq-clean-target-main"
-                  onClick={() => !disabled && onToggleCustom(t)}
+                  {...selectionBindings(t.id, disabled)}
                   disabled={disabled}
                 >
                   <span className={`weq-clean-check${on ? ' is-on' : ''}`}>

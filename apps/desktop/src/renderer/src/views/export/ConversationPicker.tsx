@@ -12,6 +12,7 @@ import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
 import { WindowedList } from '../../components/WindowedList';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export function ConversationPicker({
   items,
@@ -35,13 +36,7 @@ export function ConversationPicker({
   }, [items, query]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.id));
-
-  function toggle(id: string): void {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange(next);
-  }
+  const selection = useMultiSelection({ ids: filtered.map((item) => item.id), selected, onChange });
 
   function selectAll(): void {
     const next = new Set(selected);
@@ -60,7 +55,7 @@ export function ConversationPicker({
   }
 
   return (
-    <div className="weq-exp-picker">
+    <div className="weq-exp-picker" {...selection.rootProps}>
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
         <input
@@ -118,6 +113,8 @@ export function ConversationPicker({
             rowHeight={64}
             height={480}
             itemKey={(it) => it.id}
+            scrollToKey={selection.focusRequest?.id}
+            scrollRevision={selection.focusRequest?.revision}
             renderItem={(it) => {
               const checked = selected.has(it.id);
               return (
@@ -127,7 +124,7 @@ export function ConversationPicker({
                   className={`weq-exp-row${checked ? ' is-on' : ''}`}
                   style={{ height: '100%', width: '100%' }}
                   aria-pressed={checked}
-                  onClick={() => toggle(it.id)}
+                  {...selection.itemProps(it.id)}
                 >
                   <Avatar url={it.avatarUrl} name={it.name} size={38} />
                   <span className="weq-exp-row-meta">

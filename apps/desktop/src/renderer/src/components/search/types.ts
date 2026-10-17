@@ -63,6 +63,10 @@ export type SearchHit =
   | FileSearchHit
   | GeneratedSearchHit;
 
+export function isGeneratedSearchHit(hit: SearchHit): hit is GeneratedSearchHit {
+  return hit.category === 'cloneMessage' || hit.category === 'assistantMessage';
+}
+
 export interface QuickSearchResult {
   conversations: ConversationSearchHit[];
   friends: FriendSearchHit[];

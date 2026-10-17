@@ -115,7 +115,7 @@ import { RecalledMessagesModal } from '../components/compose/RecalledMessagesMod
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
-import { SEARCH_CATEGORY_ORDER } from '../components/search/types';
+import { SEARCH_CATEGORY_ORDER, isGeneratedSearchHit } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
@@ -5588,12 +5588,13 @@ export function MainView(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
-      if ('kind' in hit) {
+      if (isGeneratedSearchHit(hit)) {
         setSearchDismissed(true);
         shell.setQuery('');
         if (hit.category === 'assistantMessage') setAssistantSearchTarget({ ...hit });
         else {
           setCloneSearchTarget({ ...hit });
+          setConversationLocate({ id: `virtual:${hit.kind}:${hit.ownerId}`, revision: Date.now() });
           shell.switchView('agentlab');
         }
         return;
@@ -7256,7 +7257,7 @@ export function MainView(): ReactElement {
             mainOpen={
               shell.mainOpen ||
               (shell.view === 'messages' && Boolean(arkFeedState)) ||
-              (shell.view === 'agentlab' && Boolean(virtualOpen))
+              (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget))
             }
             messageBadgeCount={0}
             contactBadgeCount={0}
@@ -7360,9 +7361,13 @@ export function MainView(): ReactElement {
                             : conversations
                       }
                       activeConversationId={
-                        shell.view === 'agentlab' && virtualOpen
-                          ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
-                          : shell.activeConversationId
+                        shell.view === 'agentlab' &&
+                        cloneSearchTarget &&
+                        cloneSearchTarget.kind !== 'assistant'
+                          ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+                          : shell.view === 'agentlab' && virtualOpen
+                            ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
+                            : shell.activeConversationId
                       }
                       selectedGroupConversationId={shell.selectedGroupConversationId}
                       selectedContactId={shell.selectedContactId}

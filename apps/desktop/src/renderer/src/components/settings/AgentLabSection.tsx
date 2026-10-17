@@ -14,7 +14,7 @@ import {
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
-import { Card, CheckPill, Row, SectionHeader } from './controls';
+import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -252,12 +252,6 @@ export function AgentLabSection(): ReactElement {
     }
   }
 
-  function toggleCheckedModel(id: string): void {
-    setCheckedModelIds((current) =>
-      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-    );
-  }
-
   /** 把勾选的拉取结果合并进模型列表（已有的同 id 跳过，不覆盖用户手配的能力）。 */
   function importFetchedModels(): void {
     if (!fetchedModels) return;
@@ -293,20 +287,6 @@ export function AgentLabSection(): ReactElement {
       models: c.models.map((m, i) => (i === index ? { ...m, ...patch } : m)),
     }));
   }
-  function toggleCap(index: number, cap: Capability): void {
-    setForm((c) => ({
-      ...c,
-      models: c.models.map((m, i) => {
-        if (i !== index) return m;
-        const has = m.capabilities.includes(cap);
-        return {
-          ...m,
-          capabilities: has ? m.capabilities.filter((x) => x !== cap) : [...m.capabilities, cap],
-        };
-      }),
-    }));
-  }
-
   async function onSave(): Promise<void> {
     // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
     // 新建时由系统从显示名称自动生成。
@@ -631,15 +611,11 @@ export function AgentLabSection(): ReactElement {
                       overflowY: 'auto',
                     }}
                   >
-                    {fetchedModels.map((m) => (
-                      <CheckPill
-                        key={m.id}
-                        checked={checkedModelIds.includes(m.id)}
-                        onChange={() => toggleCheckedModel(m.id)}
-                      >
-                        {m.id}
-                      </CheckPill>
-                    ))}
+                    <CheckPillGroup
+                      options={fetchedModels.map((model) => ({ value: model.id, label: model.id }))}
+                      selected={checkedModelIds}
+                      onChange={setCheckedModelIds}
+                    />
                   </div>
                 </div>
               ) : null}
@@ -672,15 +648,11 @@ export function AgentLabSection(): ReactElement {
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {CAPABILITIES.map((cap) => (
-                          <CheckPill
-                            key={cap.value}
-                            checked={model.capabilities.includes(cap.value)}
-                            onChange={() => toggleCap(index, cap.value)}
-                          >
-                            {cap.label}
-                          </CheckPill>
-                        ))}
+                        <CheckPillGroup
+                          options={CAPABILITIES}
+                          selected={model.capabilities}
+                          onChange={(capabilities) => updateModel(index, { capabilities })}
+                        />
                       </div>
                       <button
                         type="button"
