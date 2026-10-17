@@ -73,6 +73,17 @@ export interface Platform {
   ntDataDir(uin: string): string | null;
 
   /**
+   * Resolve QQ NT's bundled jieba dictionary directory
+   * (`<root>/global/nt_data/search/resource_jieba`, or win32's
+   * `<root>/nt_qq/global/nt_data/search/resource_jieba`). This lives in the
+   * SHARED `global/` tree, not a per-account directory, so it is intentionally
+   * uin-independent. Used to improve Chinese word segmentation for chat
+   * analytics (词云 / 常用语). Returns null when QQ never downloaded it —
+   * callers must fall back to their built-in segmenter.
+   */
+  jiebaDictDir(): string | null;
+
+  /**
    * Resolve `group_info.db` (group metadata and essence messages) for a
    * specific QQ account. Co-located with `nt_msg.db`.
    */
@@ -187,6 +198,9 @@ export interface Platform {
    * no port-probe / process-enumeration fallback any more.
    */
   resolveQqPid(uin: string): number | null;
+
+  /** Optional bounded, asynchronous online probe for routine account polling. */
+  resolveQqPidAsync?(uin: string): Promise<number | null>;
 
   /**
    * macOS only: is 系统完整性保护（SIP）still on? Reading another process's memory

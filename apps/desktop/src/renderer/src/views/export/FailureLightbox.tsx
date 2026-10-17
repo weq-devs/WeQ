@@ -16,6 +16,9 @@ const STAGE_LABEL: Record<string, string> = {
   ptt: '语音',
   media: '搬运',
   record: '语音',
+  transcribe: '语音转写',
+  ocrfilter: '预筛',
+  ocr: '图片识字',
   sticker: '表情',
   emoji: '表情',
 };

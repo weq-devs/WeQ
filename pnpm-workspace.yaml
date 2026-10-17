@@ -12,9 +12,9 @@ ignoreWorkspaceCycles: true
 allowBuilds:
   electron: true
   esbuild: true
-  # 意图感知本地引擎（@receptron/laya）运行时加载 onnxruntime-node；其预编译
-  # .node 在包内 bin/ 下，构建脚本只是校验兜底。
-  onnxruntime-node: true
+  # onnxruntime-node（本地 OCR / 意图感知推理引擎）默认的 postinstall 会照 install-metadata
+  # 给 linux/x64 拉 CUDA EP，我们优先使用已自带的 bin/ 二进制，显式设为 false 避免冗余下载。
+  onnxruntime-node: false
 
 # pnpm 12 起 `pnpm exec` / `pnpm run` 前会先校验 lockfile 与 package.json 是否
 # 一致，CI 下（frozen-lockfile）不一致就直接 ERR_PNPM_OUTDATED_LOCKFILE。

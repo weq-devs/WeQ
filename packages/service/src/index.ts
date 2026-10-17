@@ -22,6 +22,7 @@ export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 
 export { KeyService } from './bootstrap/key';
+export { loginDbPaths, readLoginAccounts } from './bootstrap/login_db';
 export type {
   KeyResult,
   KeyEvent,
@@ -43,6 +44,7 @@ export type {
   AppLockMethod,
   WindowCloseBehavior,
   VoiceTranscribeConfig,
+  OcrModelsConfig,
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
@@ -52,9 +54,6 @@ export type {
   ExternalRkeyServerConfig,
   SsePushConfig,
   SsePushServerConfig,
-  GroupKeywordConfig,
-  GroupKeywordEntryConfig,
-  GroupKeywordRuleConfig,
   ExportPresets,
   ExportPresetVariant,
   ExportLightboxPreset,
@@ -105,6 +104,7 @@ export type {
   ClientKey,
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
+export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
   fetchClientKey,
@@ -340,6 +340,13 @@ export type {
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
+export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
+export type {
+  LoginAccountEntry,
+  LoginAccountSyncHooks,
+  LoginAccountToolDeps,
+  LoginAccountWriteResult,
+} from './account/login_account_tool';
 export type {
   AccountDbFile,
   DbDecryptItem,
@@ -540,7 +547,11 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // 群关键词提醒：和 SSE 推送共用 createNtMsgDbHook，监听新插入的群消息，按用户
 // 为每个群配置的关键词匹配。命中结果交给上层弹通知 + 写 unread 2006 高亮。
-export { GroupKeywordService, matchesRule } from './account/group_keyword';
+export {
+  GroupKeywordService,
+  matchesRule,
+  normalizeGroupKeywordRules,
+} from './account/group_keyword';
 export type {
   GroupKeywordEntry,
   GroupKeywordRule,
@@ -591,6 +602,16 @@ export type {
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';
+export { RoamingBackfillManager } from './account/roaming_backfill';
+export type {
+  RoamingJobOptions,
+  RoamingTarget,
+  RoamingJob,
+  RoamingJobStatus,
+  RoamingAttempt,
+  RoamingTargetPlan,
+  RoamingInterval,
+} from './account/roaming_backfill';
 export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';
@@ -607,8 +628,14 @@ export type {
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { ChatImageOcrService } from './account/ocr_image';
+export type { ChatImageOcrParams, ChatImageOcrResult } from './account/ocr_image';
 export { InteractionService } from './account/interaction';
-export type { SendPokeParams, SendGroupSignupServiceParams } from './account/interaction';
+export type {
+  SendPokeParams,
+  SendGroupSignupServiceParams,
+  SendGroupJoinRequestServiceParams,
+} from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
 export type {
   RecallMessageParams,
@@ -707,6 +734,8 @@ export type {
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
+export { assertDestinationCapacity } from './account/export/storage_preflight';
+export { inferOcrFailureKind } from './account/export';
 export type {
   DressExportKinds,
   DressUsage,
@@ -753,6 +782,15 @@ export type {
   OnlineTranscribeFn,
   OnlineTranscribeRequest,
   OnlineTranscribeOutcome,
+  OcrImageFn,
+  OcrImageOutcome,
+  OcrFilterFn,
+  OcrFilterOutcome,
+  OcrOnlineImageFn,
+  OcrOnlineRequest,
+  OcrExportSummary,
+  OcrResultEntry,
+  OcrFailureKind,
   StageLog,
   StageProgress,
 } from './account/export';
@@ -789,6 +827,13 @@ export {
 } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
+export { ModelStore } from './common/model_store';
+export type {
+  ModelFile,
+  ModelEntry,
+  ModelDiskState,
+  ModelDownloadProgress,
+} from './common/model_store';
 export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
 export type {
   TranscribeModelInfo,
@@ -796,6 +841,34 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
+export {
+  OcrModelService,
+  OCR_MODELS,
+  ONNXRUNTIME_CPU_TARGETS,
+  getOcrModel,
+  localOcrBlocker,
+} from './common/ocr_models';
+export type {
+  OcrModelInfo,
+  OcrModelKind,
+  OcrModelStatus,
+  OcrDownloadProgress,
+} from './common/ocr_models';
+export {
+  OCR_CACHE_SCHEMA_VERSION,
+  OcrResultCache,
+  ocrCacheFor,
+  ocrCacheKey,
+} from './common/ocr_cache';
+export type {
+  OcrCacheFilterHit,
+  OcrCacheFrame,
+  OcrCacheFrameVariant,
+  OcrCacheIds,
+  OcrCachePrefer,
+  OcrCacheTextHit,
+  OcrCacheTextInput,
+} from './common/ocr_cache';
 export {
   getLogDir,
   getLogger,
@@ -810,11 +883,26 @@ export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {
+  GROUP_WPA_SUBCMD,
+  buildGroupWpaDeepLink,
+  encodeGroupWpaParam,
+  decodeGroupWpaParam,
+  parseGroupShareLocation,
+  resolveGroupShareAuthKey,
+} from './common/qq_group_join';
+export type {
+  GroupWpaParam,
+  GroupShareTarget,
+  GroupShareResolveOptions,
+} from './common/qq_group_join';
+export {
   sanitizeSegment,
   uniqueName,
   safeRelSegments,
   type SanitizeSegmentOpts,
 } from './common/path_sanitize';
+export { buildZip, extractFromZip, readZipEntries } from './common/zip';
+export type { ZipEntry, ZipWriteEntry } from './common/zip';
 export {
   TtsService,
   TTS_VENDOR_CATALOG,

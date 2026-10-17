@@ -19,23 +19,29 @@ import {
   Check,
   CloudDownload,
   DatabaseZap,
+  Globe,
   Lock,
   LockKeyhole,
   Monitor,
   Moon,
+  Package,
   Palette,
   Plug,
   Radio,
+  ScanText,
   Settings2,
   Sun,
   User,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { VersionSection } from './settings/VersionSection';
+import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
+import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
@@ -43,6 +49,7 @@ import { DaemonSection } from './settings/DaemonSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
+import '../styles/settings-responsive.css';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -52,12 +59,15 @@ import {
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 export type SectionId =
+  | 'version'
   | 'global'
   | 'appearance'
   | 'applock'
   | 'account'
+  | 'qzone'
   | 'database'
   | 'voice'
+  | 'ocr'
   | 'agentlab'
   | 'mcp'
   | 'rkey'
@@ -79,6 +89,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <GlobalSettingsSection />,
   },
   {
+    id: 'version',
+    label: '版本',
+    icon: <Package size={16} strokeWidth={1.8} />,
+    render: () => <VersionSection />,
+  },
+  {
     id: 'appearance',
     label: '个性显示',
     icon: <Palette size={16} strokeWidth={1.8} />,
@@ -97,6 +113,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <AccountBasicsSection />,
   },
   {
+    id: 'qzone',
+    label: 'QQ 空间设置',
+    icon: <Globe size={16} strokeWidth={1.8} />,
+    render: () => <QzoneSettingsSection />,
+  },
+  {
     id: 'database',
     label: '数据库宽容',
     icon: <DatabaseZap size={16} strokeWidth={1.8} />,
@@ -107,6 +129,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音配置',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'ocr',
+    label: '图片识别',
+    icon: <ScanText size={16} strokeWidth={1.8} />,
+    render: () => <OcrModelsSection />,
   },
   {
     id: 'agentlab',
@@ -252,6 +280,9 @@ function AppearanceSection(): ReactElement {
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
   const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
+  const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
+  const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
+  const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
   const [msgDecoration, setMsgDecoration] = useState(true);
@@ -415,6 +446,51 @@ function AppearanceSection(): ReactElement {
             disabled={settings.isLoading || setShowAvatarPendant.isLoading}
             onChange={(next) => void onSetPendant(next)}
             label="聊天头像挂件"
+          />
+        </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>显示消息序号（seq）</strong>
+          </div>
+          <Toggle
+            checked={settings.data?.showMessageSeq ?? false}
+            disabled={!settings.data || setShowMessageSeq.isLoading}
+            onChange={(enabled) => {
+              setSeqError(null);
+              setShowMessageSeq.mutate(
+                { enabled },
+                {
+                  onSuccess: () => {
+                    void settings.refetch();
+                  },
+                  onError: (error) => setSeqError(error.message),
+                },
+              );
+            }}
+            label="显示消息序号（seq）"
+          />
+        </div>
+        {seqError ? <p role="alert">{seqError}</p> : null}
+        <div className="weq-settings-appearance-head">
+          <strong>显示发送时间（精确到秒）</strong>
+          <Toggle
+            checked={settings.data?.showMessageTime ?? false}
+            disabled={!settings.data || setShowMessageTime.isLoading}
+            onChange={(enabled) => {
+              setSeqError(null);
+              setShowMessageTime.mutate(
+                { enabled },
+                {
+                  onSuccess: () => {
+                    void settings.refetch();
+                  },
+                  onError: (error) => setSeqError(error.message),
+                },
+              );
+            }}
+            label="显示发送时间（精确到秒）"
           />
         </div>
       </div>

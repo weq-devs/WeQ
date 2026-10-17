@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import type { PreviewNode } from '../../lib/conversationPreview';
+import type { SetEmojiItem } from '@weq/codec';
 
 export type User = {
   id: string;
@@ -323,6 +324,21 @@ export type Message = {
    * rejects); those fall to the end of the timeline.
    */
   msgSeq?: string;
+  /**
+   * Sender-local client sequence (column 40005, wire `contentHead.sequence`
+   * tag 5); c2c-only — group rows carry no such value. **A private-chat reply
+   * must quote this number instead of `msgSeq`** (QQ resolves a c2c reply
+   * pointer in the sender-local space); see `composerQuote.composerQuoteElement`.
+   */
+  clientSeq?: string;
+  source?: 'roaming';
+  sourceFormat?: 'native' | 'protocol';
+  optimistic?: 'sending' | 'sent' | 'failed';
+  optimisticError?: string;
+  optimisticRejected?: boolean;
+  msgRandom?: string;
+  setEmojiList?: SetEmojiItem[];
+  ntSeqVerified?: boolean;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';
   createdAt: string;

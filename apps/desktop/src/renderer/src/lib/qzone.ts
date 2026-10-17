@@ -1,7 +1,7 @@
 /** Native projection of feed HTML. Remote attributes, scripts and controls never render. */
 export function qzoneMediaSource(value: string): string | null {
   try {
-    const url = new URL(value);
+    const url = new URL(value.startsWith('//') ? `https:${value}` : value);
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port)
       return null;
     if (
@@ -14,6 +14,97 @@ export function qzoneMediaSource(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+export interface QzoneFeedVideo {
+  coverUrl: string;
+  videoUrl: string;
+  videoId: string;
+  duration: number;
+}
+
+export interface QzoneFeedLink {
+  href: string;
+  text: string;
+  cover?: string;
+  description?: string;
+  source?: string;
+  kind?: 'music' | 'link';
+}
+
+function shareKind(href: string, root?: Element): 'music' | 'link' {
+  const host = new URL(href).hostname;
+  return root?.matches('.f-music, .music-card, .qz-music') ||
+    ['y.qq.com', 'music.qq.com', 'kg.qq.com', 'music.163.com'].some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+    ? 'music'
+    : 'link';
+}
+
+function shareCover(root: Element): string | null {
+  for (const image of root.querySelectorAll('img')) {
+    const source = feedImageSource(image);
+    if (source) return source;
+  }
+  for (const node of [root, ...root.querySelectorAll('[style], [data-cover], [data-pic]')]) {
+    const explicit = qzoneMediaSource(
+      node.getAttribute('data-cover') || node.getAttribute('data-pic') || '',
+    );
+    if (explicit) return explicit;
+    const background = (node as HTMLElement).style?.backgroundImage;
+    const match = background?.match(/^url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)$/i);
+    const source = qzoneMediaSource(match?.[1] || match?.[2] || match?.[3]?.trim() || '');
+    if (source) return source;
+  }
+  return null;
+}
+
+/**
+ * Real target of an inline lazy image.
+ *
+ * Some feeds ship the placeholder `src="/ac/b.gif"` and hide the real URL inside
+ * the `onload` handler (`QZFL.media.reduceImage(1,w,h,{trueSrc:'https:\/\/…'})`).
+ * The value is a JS string literal, so `\/` and `\x..` escapes must be decoded
+ * before it is a usable URL. Returns null when no handler carries a target.
+ */
+function inlineLazyImageSource(image: Element): string | null {
+  const handler = image.getAttribute('onload') || '';
+  const raw = handler.match(/trueSrc\s*:\s*(['"])(.*?)\1/s)?.[2];
+  if (!raw) return null;
+  return raw
+    .replace(/\\x([0-9a-f]{2})/gi, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-f]{4})/gi, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\(['"\\/])/g, '$1');
+}
+
+/** A loader/spacer is UI, but a real lazy-image target must still be kept. */
+function feedImageSource(image: Element): string | null {
+  const lazy =
+    image.getAttribute('data-src') ||
+    image.getAttribute('data-original') ||
+    image.getAttribute('lz-src') ||
+    inlineLazyImageSource(image);
+  const source = qzoneMediaSource(lazy || image.getAttribute('src') || '');
+  if (!source) return null;
+  const url = new URL(source);
+  const uiHost = ['qzonestyle.gtimg.cn', 'qzs.qq.com', 'qzone.gtimg.cn'].includes(url.hostname);
+  if (
+    uiHost &&
+    (/^\/(?:ac\/|qzone_v\d+\/|qzone\/v\d+\/)/.test(url.pathname) ||
+      (image.classList.contains('load_img') && !lazy))
+  )
+    return null;
+  if (/qlogo|\/qzone\/em\/|\/qzone\/space\//.test(source) || url.hostname === 'user.qzone.qq.com')
+    return null;
+  if (image.getAttribute('width') === '1' && image.getAttribute('height') === '1' && !lazy)
+    return null;
+  return source;
+}
+
+function playableFeedVideo(value: string | null): string {
+  const source = qzoneMediaSource(value || '');
+  return source && !/\.(?:swf|html?)$/i.test(new URL(source).pathname) ? source : '';
 }
 
 /** Remote links remain data; only explicit web destinations are opened. */
@@ -63,9 +154,11 @@ export function projectQzoneFeed(
   allowRepost = true,
 ): {
   text: string;
+  contentTruncated: boolean;
   sourceName: string | null;
   images: string[];
-  links: { href: string; text: string; cover?: string }[];
+  videos: QzoneFeedVideo[];
+  links: QzoneFeedLink[];
   tid: string | null;
   likeCount: number | null;
   commentCount: number | null;
@@ -79,10 +172,15 @@ export function projectQzoneFeed(
     nickname: string;
     content: string;
     images: string[];
-    videos: [];
+    videos: QzoneFeedVideo[];
   } | null;
 } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  const contentTruncated =
+    Boolean(doc.querySelector('[data-has-more-con="1"]')) ||
+    [...doc.querySelectorAll('a')].some((anchor) =>
+      /^(?:全文|展开全文)$/.test(anchor.textContent?.trim() ?? ''),
+    );
   const unsupported = /功能内测中|内容暂不支持查看/.test(doc.body.textContent ?? '');
   for (const image of doc.querySelectorAll('img')) {
     const source =
@@ -134,7 +232,7 @@ export function projectQzoneFeed(
         nickname,
         content: body.text.replace(/^[：:\s]+/, ''),
         images: body.images,
-        videos: [],
+        videos: body.videos,
       };
       quote.remove();
     }
@@ -223,20 +321,105 @@ export function projectQzoneFeed(
     element.remove();
   const body =
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
-  const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
-  const cards = new Map<string, { href: string; text: string; cover?: string }>();
+  const videos: QzoneFeedVideo[] = [];
+  const videoRoots: Element[] = [];
+  for (const node of body.querySelectorAll(
+    '.f-video-wrap, a[data-v_vidiourl], a[data-v_vidioswfurl], a[data-v_itemid], video',
+  )) {
+    if (videoRoots.some((root) => root.contains(node))) continue;
+    const metadata = node.matches('a')
+      ? node
+      : (node.querySelector(
+          'a.img-item, a[data-v_itemid], a[data-v_vidiourl], a[data-v_vidioswfurl]',
+        ) ?? node);
+    const video = node.matches('video') ? node : node.querySelector('video');
+    const videoUrl =
+      [
+        node.getAttribute('url3'),
+        metadata.getAttribute('data-v_vidiourl'),
+        video?.getAttribute('src'),
+        video?.querySelector('source')?.getAttribute('src'),
+        metadata.getAttribute('data-v_vidioswfurl'),
+      ]
+        .map((value) => playableFeedVideo(value ?? null))
+        .find(Boolean) ?? '';
+    const coverUrl =
+      qzoneMediaSource(
+        metadata.getAttribute('data-v_picinfo_url') || video?.getAttribute('poster') || '',
+      ) ??
+      [...node.querySelectorAll('img')].map(feedImageSource).find(Boolean) ??
+      '';
+    const videoId =
+      metadata.getAttribute('data-v_itemid') || node.getAttribute('data-v_itemid') || '';
+    if (!videoUrl && !coverUrl && !videoId) continue;
+    videoRoots.push(node);
+    if (
+      !videos.some((item) =>
+        videoId
+          ? item.videoId === videoId
+          : videoUrl
+            ? item.videoUrl === videoUrl
+            : item.coverUrl === coverUrl,
+      )
+    )
+      videos.push({ coverUrl, videoUrl, videoId, duration: 0 });
+  }
+  const cards = new Map<string, QzoneFeedLink>();
   const cardImages = new Set<string>();
   const pictureLinks = new WeakSet<Element>();
+  const shareSelector =
+    '.fui-txtimg, .f-share, .f-link, .share-card, .music-card, .f-music, .qz-music, .f-ct-txtimg';
   for (const anchor of body.querySelectorAll('a[href]')) {
+    if (!body.contains(anchor) || videoRoots.some((root) => root.contains(anchor))) continue;
+    const root = anchor.closest(shareSelector);
+    if (!root || root === body || root.querySelector('.f-info, .qz_info_cut')) continue;
+    const heading = root.querySelector(
+      'h3 a[href], h4 a[href], .link-title a[href], .music-title a[href], a.f-title, a.link-title, a.music-title',
+    );
+    const titleLink = heading || anchor;
+    const href = qzoneLinkTarget(titleLink.getAttribute('href') || '');
+    if (!href || isQzoneFeedNavigation(titleLink, href)) continue;
+    const destination = new URL(href);
+    if (
+      destination.hostname === 'user.qzone.qq.com' ||
+      titleLink.matches('.img-item') ||
+      /\.(?:jpe?g|png|gif|webp)$/i.test(destination.pathname)
+    )
+      continue;
+    const text = (titleLink.getAttribute('title') || titleLink.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text || /^(?:查看详情|详情|全文|展开全文)$/.test(text)) continue;
+    const cover = shareCover(root);
+    const description = [
+      ...root.querySelectorAll('.description, .desc, .f-desc, .link-desc, .music-desc, .txt-box p'),
+    ]
+      .filter((node) => !node.contains(titleLink))
+      .map((node) =>
+        (node.getAttribute('title') || node.textContent || '').replace(/\s+/g, ' ').trim(),
+      )
+      .filter((value) => value && value !== text)
+      .join(' ');
+    const source = root
+      .querySelector('.link-source, .music-source, .source-name')
+      ?.textContent?.trim();
+    cards.set(href, {
+      href,
+      text,
+      ...(cover ? { cover } : {}),
+      ...(description ? { description } : {}),
+      source: source || destination.hostname,
+      kind: shareKind(href, root),
+    });
+    if (cover) cardImages.add(cover);
+    root.remove();
+  }
+  for (const anchor of body.querySelectorAll('a[href]')) {
+    if (videoRoots.some((root) => root.contains(anchor))) continue;
     const image = anchor.querySelector('img');
     if (!image) continue;
     const href = qzoneLinkTarget(anchor.getAttribute('href')!);
-    const cover = qzoneMediaSource(
-      image.getAttribute('data-src') ||
-        image.getAttribute('lz-src') ||
-        image.getAttribute('src') ||
-        '',
-    );
+    const cover = feedImageSource(image);
     // Qzone wraps ordinary photos in links to its own photo viewer, not just mood permalinks.
     // Keep those anchors as pictures even when the destination has no file extension.
     const destination = href ? new URL(href) : null;
@@ -257,18 +440,13 @@ export function projectQzoneFeed(
       anchor.textContent?.trim() ||
       image.getAttribute('alt')?.trim() ||
       new URL(href).hostname;
-    cards.set(href, { href, text, cover });
+    cards.set(href, { href, text, cover, source: new URL(href).hostname, kind: shareKind(href) });
     cardImages.add(cover);
     anchor.remove();
   }
   const images = new Set<string>();
   for (const image of body.querySelectorAll('img')) {
-    const source = qzoneMediaSource(
-      image.getAttribute('data-src') ||
-        image.getAttribute('lz-src') ||
-        image.getAttribute('src') ||
-        '',
-    );
+    const source = videoRoots.some((root) => root.contains(image)) ? null : feedImageSource(image);
     if (
       source &&
       !cardImages.has(source) &&
@@ -280,6 +458,7 @@ export function projectQzoneFeed(
   }
   const links = cards;
   for (const link of body.querySelectorAll('a[href]')) {
+    if (videoRoots.some((root) => root.contains(link))) continue;
     try {
       const href = qzoneLinkTarget(link.getAttribute('href')!);
       if (!href || pictureLinks.has(link) || isQzoneFeedNavigation(link, href)) continue;
@@ -292,11 +471,20 @@ export function projectQzoneFeed(
         link.remove();
         continue;
       }
-      links.set(href, { href, text });
+      if (!links.has(href))
+        links.set(href, {
+          href,
+          text: link.getAttribute('title')?.trim() || text,
+          source: new URL(href).hostname,
+          kind: shareKind(href),
+        });
     } catch {
       /* Invalid remote link is omitted. */
     }
   }
+  for (const root of videoRoots) root.remove();
+  const textBody = body.querySelector('.f-info') ?? body.querySelector('.txt-box') ?? body;
+  for (const element of textBody.querySelectorAll('video, source')) element.remove();
   for (const br of textBody.querySelectorAll('br')) br.replaceWith('\n');
   for (const block of textBody.querySelectorAll('p, div, li')) block.append('\n');
   return {
@@ -308,11 +496,13 @@ export function projectQzoneFeed(
       .replace(/\n{3,}/g, '\n\n')
       .trim(),
     images: [...images].filter((source) => !repost?.images.includes(source)),
+    videos,
     links: [...links.values()],
     tid,
     likeCount,
     commentCount,
     counterKey,
+    contentTruncated,
     forwardCount,
     advertisement,
     unsupported,

@@ -44,6 +44,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 type Rec = Record<string, unknown>;
+type DisplayNames = Pick<ReadonlyMap<string, string>, 'get'>;
 
 /** 没有「自己」身份上下文时的占位集合（如公会私信列表）。 */
 const NO_SELF: ReadonlySet<string> = new Set();
@@ -51,9 +52,27 @@ const NO_SELF: ReadonlySet<string> = new Set();
 export function previewNodes(
   preview: unknown,
   selfIdentities: ReadonlySet<string> = NO_SELF,
+  displayNames: DisplayNames = new Map(),
 ): PreviewNode[] {
   if (!preview || typeof preview !== 'object') return [];
   const el = preview as Rec;
+  if (Array.isArray(el.previewElements)) {
+    const elements = el.previewElements.filter((item): item is Rec =>
+      Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+    );
+    // Markdown 的兼容 TEXT 元素是同一份正文，不重复显示。
+    const hasText = elements.some(
+      (item) => item.kind === 'text' && hasVisibleText(str(item.textContent)),
+    );
+    return elements
+      .filter((item) => !(hasText && item.kind === 'markdown'))
+      .flatMap((item) => {
+        const { previewElements: _nested, ...single } = item;
+        if (single.kind === 'text' && typeof single.textContent === 'string')
+          return [{ t: 'text' as const, text: flashPreviewLabel(single.textContent) }];
+        return previewNodes(single, selfIdentities, displayNames);
+      });
+  }
   const kind = str(el.kind);
 
   // 表情消息：QQ 把正文塞进 textContent、表情单独放 faceId，displayText 只有
@@ -63,14 +82,15 @@ export function previewNodes(
     const body = str(el.textContent).trim();
     if (body) nodes.push({ t: 'text', text: body });
     const faceId = num(el.faceId);
-    if (faceId > 0) nodes.push({ t: 'face', faceId, label: str(el.displayText) || undefined });
+    if (el.faceId !== undefined && Number.isInteger(faceId) && faceId >= 0)
+      nodes.push({ t: 'face', faceId, label: str(el.displayText) || undefined });
     return nodes.length ? nodes : [{ t: 'text', text: '[表情]' }];
   }
 
   // 灰条优先读自带的 payload —— 它比 displayText 完整，且灰条常常根本没有
   // displayText（全库 400 条会话里 grayTipGroup/Poke/Xml 无一例外）。
   if (kind.startsWith('grayTip')) {
-    const nodes = grayTipNodes(el, kind, selfIdentities);
+    const nodes = grayTipNodes(el, kind, selfIdentities, displayNames);
     if (nodes?.length) return nodes;
   }
 
@@ -108,7 +128,12 @@ export function previewNodesToText(nodes: PreviewNode[]): string {
 
 // ---------- 灰条 ----------------------------------------------------------
 
-function grayTipNodes(el: Rec, kind: string, self: ReadonlySet<string>): PreviewNode[] | null {
+function grayTipNodes(
+  el: Rec,
+  kind: string,
+  self: ReadonlySet<string>,
+  displayNames: DisplayNames,
+): PreviewNode[] | null {
   if (kind === 'grayTipRevoke') {
     const text = str(el.recallDisplayText).trim();
     return text ? [{ t: 'text', text }] : null;
@@ -124,7 +149,7 @@ function grayTipNodes(el: Rec, kind: string, self: ReadonlySet<string>): Preview
   }
 
   // 戳一戳 / XML 类灰条（表情回应、入群邀请、…）：两种等价编码，XML 更常见。
-  const names = nameByUid(el, self);
+  const names = nameByUid(el, self, displayNames);
   const xml = str(el.grayTipXmlContent);
   if (xml) {
     const nodes = parseGtipXml(xml, names);
@@ -194,7 +219,8 @@ function parseGtipXml(xml: string, names: NameLookup): PreviewNode[] {
       case 'qq': {
         const uid = attr(node, 'uin');
         // `jp` 是该节点的 QQ 号（入群邀请类灰条会填），比裸 uid 可读。
-        const name = attr(node, 'nm') || names.resolve(uid, personIndex++, attr(node, 'jp'));
+        const label = attr(node, 'nm');
+        const name = names.resolve(uid, personIndex++, attr(node, 'jp'), label);
         if (name) pushText(nodes, name);
         break;
       }
@@ -230,13 +256,15 @@ function parseTipJson(raw: string, names: NameLookup): PreviewNode[] {
   } catch {
     return [];
   }
+  if (!Array.isArray(items)) return [];
 
   const nodes: PreviewNode[] = [];
   let personIndex = 0;
   for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
     if (item.type === 'qq' || item.type === 'url') {
-      const uid = item.uid || item.uin || '';
-      const name = item.nm || names.resolve(uid, personIndex++) || item.txt || '';
+      const uid = str(item.uid) || str(item.uin);
+      const name = names.resolve(uid, personIndex++, str(item.uin), str(item.nm)) || str(item.txt);
       if (name) pushText(nodes, name);
     } else {
       pushText(nodes, item.txt ?? '');
@@ -252,10 +280,10 @@ function parseTipJson(raw: string, names: NameLookup): PreviewNode[] {
  * 序平铺在这里），至少给出一个 QQ 号而不是一串 base64 uid。
  */
 interface NameLookup {
-  resolve(uid: string, personIndex: number, uinHint?: string): string;
+  resolve(uid: string, personIndex: number, uinHint?: string, label?: string): string;
 }
 
-function nameByUid(el: Rec, self: ReadonlySet<string>): NameLookup {
+function nameByUid(el: Rec, self: ReadonlySet<string>, displayNames: DisplayNames): NameLookup {
   const byUid = new Map<string, string>();
   for (const key of ['actionInitiator', 'actionTarget']) {
     const who = el[key] as Rec | undefined;
@@ -267,15 +295,20 @@ function nameByUid(el: Rec, self: ReadonlySet<string>): NameLookup {
 
   const attrs = Array.isArray(el.actionAttributes) ? (el.actionAttributes as Rec[]) : [];
   const attrValue = (key: string): string => {
-    const hit = attrs.find((a) => str(a.key) === key);
+    const hit = attrs.find((a) => a && str(a.key) === key);
     return hit ? str(hit.value).trim() : '';
   };
 
   return {
-    resolve(uid, personIndex, uinHint) {
+    resolve(uid, personIndex, uinHint, label) {
       if (self.has(uid)) return SELF_LABEL;
+      if (label && label !== uid && !/^\d+$/.test(label)) return label;
       const known = byUid.get(uid);
-      if (known) return known;
+      const uin = attrValue(`uin_str${personIndex + 1}`) || uinHint || label || uid;
+      if (known && known !== uid && known !== uin) return known;
+      if (self.has(uin)) return SELF_LABEL;
+      const resolved = displayNames.get(uid) || displayNames.get(uin);
+      if (resolved) return resolved;
       // nick_str1/uin_str1/… 与 <qq> 节点的出场序一一对应（1-based）。
       return (
         attrValue(`nick_str${personIndex + 1}`) ||
@@ -285,6 +318,38 @@ function nameByUid(el: Rec, self: ReadonlySet<string>): NameLookup {
       );
     },
   };
+}
+
+/** Exact identities embedded in a preview, for the existing local profile resolver. */
+export function previewIdentityIds(preview: unknown): string[] {
+  if (!preview || typeof preview !== 'object') return [];
+  const el = preview as Rec;
+  if (!str(el.kind).startsWith('grayTip')) return [];
+  const ids = new Set<string>();
+  for (const key of ['actionInitiator', 'actionTarget']) {
+    const who = el[key] as Rec | undefined;
+    if (who && str(who.uid)) ids.add(str(who.uid));
+  }
+  try {
+    if (str(el.grayTipXmlContent)) {
+      const doc = new DOMParser().parseFromString(str(el.grayTipXmlContent), 'text/xml');
+      for (const node of Array.from(doc.getElementsByTagName('qq'))) {
+        if (attr(node, 'uin')) ids.add(attr(node, 'uin'));
+      }
+    }
+    if (str(el.tipJson)) {
+      const items = (JSON.parse(str(el.tipJson)) as { items?: TipJsonItem[] }).items;
+      if (Array.isArray(items))
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const id = str(item.uid) || str(item.uin);
+          if (item.type === 'qq' && id) ids.add(id);
+        }
+    }
+  } catch {
+    /* Malformed preview still uses its existing text fallback. */
+  }
+  return [...ids];
 }
 
 // ---------- 工具 ----------------------------------------------------------

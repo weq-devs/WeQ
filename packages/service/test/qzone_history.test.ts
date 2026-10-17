@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, renameSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -167,5 +168,22 @@ describe('qzone history store', () => {
     expect(readFileSync(join(root, saved.interactionRawPages[0].file), 'utf8')).toBe(response);
     expect(() => store.writeSnapshot(snapshot)).not.toThrow();
     expect(new QzoneHistoryStore(root, '10001').resumeState()?.rows[0]?.content).toBe('before');
+  });
+  it('publishes structured comment raw pages as self-contained, hash-checked history', () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-comment-history-'));
+    roots.push(root);
+    const cache = join(root, 'cache');
+    const store = new QzoneHistoryStore(cache, '10001');
+    const response = '{"code":0,"data":{"comments":[]}}';
+    store.saveInteractionRaw({ kind: 'comments', tid: 'synthetic_tid', response });
+    const snapshot = join(root, 'bundle', 'qzone-history.json');
+    store.writeSnapshot(snapshot);
+    const ledger = JSON.parse(readFileSync(snapshot, 'utf8'));
+    expect(ledger.interactionRawPages[0]).toMatchObject({ kind: 'comments', tid: 'synthetic_tid' });
+    rmSync(cache, { recursive: true });
+    const entry = ledger.interactionRawPages[0];
+    const published = readFileSync(join(root, 'bundle', entry.file));
+    expect(published.toString('utf8')).toBe(response);
+    expect(createHash('sha256').update(published).digest('hex')).toBe(entry.sha256);
   });
 });

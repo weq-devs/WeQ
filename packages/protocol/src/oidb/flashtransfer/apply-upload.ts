@@ -31,6 +31,8 @@ export interface ApplyUploadParams {
 export namespace ApplyUpload {
   export const command = 0x12a9;
   export const subCommand = 103;
+  // 0x12a9_103 不在 LagrangeV2 签名白名单里（白名单只有 0x12a9_200），needSign = false。
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = FLASH_APPLY_UPLOAD_REQ;
   export const respSchema = FLASH_APPLY_UPLOAD_RESP;

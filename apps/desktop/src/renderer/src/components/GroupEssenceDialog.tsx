@@ -1,8 +1,8 @@
 // @ts-nocheck
 import type { ReactElement } from 'react';
 import { RefreshCw, Sparkles, X } from 'lucide-react';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { OverlayLayer } from './OverlayLayer';
 
 /** 显示用的群精华数据（已转换） */
 export interface GroupEssenceWire {
@@ -40,14 +40,8 @@ export function GroupEssenceDialog({
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-
   return (
-    <div
-      className="modal-scrim group-essence-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-essence-scrim" onClose={onClose}>
       <section
         className="group-essence-dialog"
         role="dialog"
@@ -142,7 +136,7 @@ export function GroupEssenceDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

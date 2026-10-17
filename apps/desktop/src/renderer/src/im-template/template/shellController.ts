@@ -61,7 +61,14 @@ export function useChatShellController({
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
   const [view, setView] = useState<MainView>(initialView);
-  const [query, setQuery] = useState('');
+  const [queries, setQueries] = useState<Partial<Record<MainView, string>>>({});
+  const query = queries[view] ?? '';
+  const setQuery = useCallback(
+    (value: string) => {
+      setQueries((current) => ({ ...current, [view]: value }));
+    },
+    [view],
+  );
   const [contactTab, setContactTab] = useState<ContactTab>('friends');
   const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -105,18 +112,19 @@ export function useChatShellController({
 
   useEffect(() => {
     function clearMobileDetailState(nextView: 'messages' | 'contacts') {
-      backStateRef.current = {
-        activeConversationId: null,
-        contactNotice: null,
-        selectedContactId: null,
-        selectedGroupConversationId: null,
-        view: nextView,
-      };
+      backStateRef.current = { ...backStateRef.current, view: nextView };
       setView(nextView);
-      setActiveConversationId(null);
-      setSelectedContactId(null);
-      setSelectedGroupConversationId(null);
-      setContactNotice(null);
+      if (nextView === 'messages') {
+        backStateRef.current.activeConversationId = null;
+        setActiveConversationId(null);
+      } else {
+        backStateRef.current.contactNotice = null;
+        backStateRef.current.selectedContactId = null;
+        backStateRef.current.selectedGroupConversationId = null;
+        setSelectedContactId(null);
+        setSelectedGroupConversationId(null);
+        setContactNotice(null);
+      }
     }
 
     function returnToParentPage() {
@@ -125,7 +133,7 @@ export function useChatShellController({
       }
 
       const current = backStateRef.current;
-      if (current.activeConversationId) {
+      if (current.view === 'messages' && current.activeConversationId) {
         clearMobileDetailState('messages');
         window.setTimeout(() => clearMobileDetailState('messages'), 0);
         history.replaceShell();
@@ -133,9 +141,8 @@ export function useChatShellController({
       }
 
       if (
-        current.contactNotice ||
-        current.selectedContactId ||
-        current.selectedGroupConversationId
+        current.view === 'contacts' &&
+        (current.contactNotice || current.selectedContactId || current.selectedGroupConversationId)
       ) {
         clearMobileDetailState('contacts');
         window.setTimeout(() => clearMobileDetailState('contacts'), 0);
@@ -167,39 +174,23 @@ export function useChatShellController({
     () => countVisibleUnreadConversations(conversations, conversationPrefs),
     [conversations, conversationPrefs],
   );
-  const mainOpen = Boolean(
-    activeConversation || selectedContact || selectedGroupConversation || contactNotice,
-  );
+  const mainOpen =
+    view === 'messages'
+      ? Boolean(activeConversation)
+      : view === 'contacts'
+        ? Boolean(selectedContact || selectedGroupConversation || contactNotice)
+        : false;
 
   const switchView = useCallback(
     (nextView: MainView) => {
       setView(nextView);
       history.replaceShell();
-      if (nextView === 'contacts') {
-        setActiveConversationId(null);
-        setSelectedGroupConversationId(null);
-        setContactNotice(null);
-        return;
-      }
-      if (nextView === 'tools' || nextView === 'home') {
-        setActiveConversationId(null);
-        setSelectedContactId(null);
-        setSelectedGroupConversationId(null);
-        setContactNotice(null);
-        return;
-      }
-      setSelectedContactId(null);
-      setSelectedGroupConversationId(null);
-      setContactNotice(null);
-      if (history.isMobileShell()) {
-        setActiveConversationId(null);
-        return;
-      }
-      setActiveConversationId(
-        (current) =>
-          current ??
-          (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
-      );
+      if (nextView === 'messages' && !history.isMobileShell())
+        setActiveConversationId(
+          (current) =>
+            current ??
+            (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
+        );
     },
     [conversations, history],
   );
@@ -215,7 +206,6 @@ export function useChatShellController({
     (kind: ContactNoticeView) => {
       backStateRef.current = {
         ...backStateRef.current,
-        activeConversationId: null,
         contactNotice: kind,
         selectedContactId: null,
         selectedGroupConversationId: null,
@@ -226,7 +216,6 @@ export function useChatShellController({
       setContactNotice(kind);
       setSelectedContactId(null);
       setSelectedGroupConversationId(null);
-      setActiveConversationId(null);
       onOpenContactNotice?.(kind);
     },
     [history, onOpenContactNotice],
@@ -235,7 +224,7 @@ export function useChatShellController({
   const selectConversation = useCallback(
     (conversationId: string) => {
       history.pushConversationDetail(conversationId);
-      setSelectedGroupConversationId(null);
+      setView('messages');
       setActiveConversationId(conversationId);
     },
     [history],
@@ -265,9 +254,6 @@ export function useChatShellController({
       if (conversationId) {
         history.pushConversationDetail(conversationId);
       }
-      setSelectedContactId(null);
-      setSelectedGroupConversationId(null);
-      setContactNotice(null);
       setView('messages');
       setActiveConversationId(conversationId);
     },

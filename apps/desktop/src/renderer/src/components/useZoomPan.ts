@@ -33,8 +33,18 @@ export interface ZoomPan {
   /** 展开到媒体元素上的 transform / cursor 样式。 */
   style: CSSProperties;
   onMouseDown(event: React.MouseEvent): void;
+  /**
+   * 以某个坐标点为中心缩放一档（滚轮步进）。
+   *
+   * 给「想让整块容器都能滚轮缩放」的调用方用 —— 灯箱把 wheel 转发到这里，
+   * 锚点仍然按**媒体元素**的包围盒算，所以光标下的那个点保持不动。
+   */
+  wheelAt(clientX: number, clientY: number, deltaY: number): void;
   /** 是否处于放大状态（供外层决定是否显示「重置」按钮等）。 */
   zoomed: boolean;
+  scale: number;
+  zoomIn(): void;
+  zoomOut(): void;
   reset(): void;
 }
 
@@ -52,11 +62,19 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
   // 事件处理里需要读到「当前」变换，用 ref 镜像 state 避免闭包旧值。
   const ref = useRef(t);
   ref.current = t;
+  const endDrag = useRef<(() => void) | null>(null);
 
-  const reset = useCallback(() => setT(IDENTITY), []);
+  const reset = useCallback(() => {
+    endDrag.current?.();
+    setDragging(false);
+    setT(IDENTITY);
+  }, []);
 
   // 切换媒体（或关闭再开）时复位。
-  useEffect(() => setT(IDENTITY), [resetKey]);
+  useEffect(() => {
+    reset();
+    return () => endDrag.current?.();
+  }, [resetKey, reset]);
 
   /** 以 (clientX, clientY) 为锚点缩放到 nextScale，锚点在屏幕上保持不动。 */
   const zoomAt = useCallback(
@@ -77,22 +95,32 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
     [],
   );
 
+  /** 滚轮一档：以 (clientX, clientY) 为锚点缩放。 */
+  const wheelAt = useCallback(
+    (clientX: number, clientY: number, deltaY: number): void => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const factor = deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+      zoomAt(clientX, clientY, ref.current.scale * factor, rect);
+    },
+    [el, zoomAt],
+  );
+
   // 滚轮缩放：用原生 non-passive 监听，才能 preventDefault 阻止页面滚动。
   useEffect(() => {
     if (!el) return;
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const factor = event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
-      zoomAt(event.clientX, event.clientY, ref.current.scale * factor, rect);
+      wheelAt(event.clientX, event.clientY, event.deltaY);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [el, zoomAt]);
+  }, [el, wheelAt]);
 
   const onMouseDown = useCallback(
     (event: React.MouseEvent) => {
       if (event.button !== 0) return;
+      endDrag.current?.();
       // 阻止冒泡到遮罩层（否则会触发关闭）。
       event.stopPropagation();
       const startX = event.clientX;
@@ -114,8 +142,7 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
         }
       };
       const onUp = (): void => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        endDrag.current?.();
         setDragging(false);
         // 没拖动过 = 单击：在 1× / CLICK_ZOOM 间切换。
         if (!moved && clickZoom) {
@@ -125,6 +152,11 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
+      endDrag.current = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        endDrag.current = null;
+      };
     },
     [clickZoom, zoomAt],
   );
@@ -136,5 +168,25 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
     willChange: 'transform',
   };
 
-  return { setEl, style, onMouseDown, zoomed: t.scale > 1, reset };
+  const step = (factor: number): void => {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    zoomAt(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+      ref.current.scale * factor,
+      rect,
+    );
+  };
+  return {
+    setEl,
+    style,
+    onMouseDown,
+    wheelAt,
+    zoomed: t.scale > 1,
+    scale: t.scale,
+    zoomIn: () => step(1.25),
+    zoomOut: () => step(1 / 1.25),
+    reset,
+  };
 }

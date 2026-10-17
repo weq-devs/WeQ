@@ -9,7 +9,8 @@
  *   - `content`  — a plain-text rendering: text runs verbatim, media as bracket
  *                  labels (`[图片]`, `[视频]`, `[文件: name]`). Voice carries its
  *                  file name (`[语音: name]`) so an external transcripts.json
- *                  (the 语音转写 stage) stays join-able by file name.
+ *                  (the 语音转写 stage) stays join-able by file name; images do
+ *                  the same (`[图片: name]`) for the 图片文字识别 stage's ocr.json.
  *
  * Members come *before* messages (the ChatLab JSON parser only scans the first
  * ~200 KB for the members block, and the JSONL parser wants them up front), so
@@ -23,6 +24,7 @@
  */
 
 import { statSync } from 'node:fs';
+import { MessageAudit } from './message_audit';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
@@ -107,7 +109,14 @@ function renderContent(elements: RenderElement[]): string {
         out += el.data.faceText ? `[${el.data.faceText}]` : '[表情]';
         break;
       case 'pic':
-        out += el.data.subType === 1 ? '[表情]' : '[图片]';
+        // 普通图片带文件名锚点，同语音：批量 OCR 跑完之后靠这个键把
+        // `[图片: 名字]` 换成 `[图片] 识别文字`（见 ocr_rewrite）。
+        out +=
+          el.data.subType === 1
+            ? '[表情]'
+            : el.data.fileName
+              ? `[图片: ${el.data.fileName}]`
+              : '[图片]';
         break;
       case 'video':
         out += '[视频]';
@@ -312,6 +321,7 @@ export async function exportToChatlab(
   const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
+  const audit = new MessageAudit();
   try {
     if (isJsonl) {
       // JSONL: header line, member lines, then one message per line.
@@ -324,6 +334,7 @@ export async function exportToChatlab(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
@@ -349,6 +360,7 @@ export async function exportToChatlab(
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
+        audit.observe(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
@@ -364,6 +376,7 @@ export async function exportToChatlab(
   }
 
   return {
+    coverage: audit.coverage,
     filePath: opts.outputPath,
     format: opts.format,
     messageCount: count,

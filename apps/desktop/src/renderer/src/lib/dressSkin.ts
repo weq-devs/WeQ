@@ -113,7 +113,8 @@ export interface FontSkinCss {
   /** 字体文件的 url(weq-media://dressfont?id=…&v=…)。 */
   fontUrl: string;
   /**
-   * 产出这份 ttf 的转换链版本（服务侧 DressSharedCache 的 DRESS_DERIVE_VERSION）。
+   * 产出这份 ttf 的**渲染戳**（服务侧把派生链版本与 native 字体链版本合成的一个数，
+   * 见 DressSharedCache.fontDerived）。
    * 升级后产物被就地重做时它跟着变：① 拼进 url 让浏览器重取；② {@link preloadFont}
    * 据此重新注册 face —— 否则 family 名没变，旧 face 会一直在 `document.fonts` 里赖到下次启动。
    */

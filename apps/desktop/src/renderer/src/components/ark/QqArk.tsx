@@ -459,7 +459,9 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
                 <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.label}</div>
               ) : null}
               {item.value ? (
-                <div style={{ fontSize: 14, color: '#000', fontWeight: 500 }}>{item.value}</div>
+                <div style={{ fontSize: 14, color: 'var(--weq-fg-primary)', fontWeight: 500 }}>
+                  {item.value}
+                </div>
               ) : null}
             </div>
           ))}
@@ -692,7 +694,7 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
                 style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}
               >
                 <span style={{ fontSize: 13, color: '#8c8c8c' }}>{label}</span>
-                <span style={{ fontSize: 13, color: '#000' }}>{text}</span>
+                <span style={{ fontSize: 13, color: 'var(--weq-fg-primary)' }}>{text}</span>
               </div>
             );
           })}

@@ -732,11 +732,41 @@ jobs:
             echo "tag ${TAG} is not on dev -> normal release"
           fi
 
+      # 内置 native 的构建 / 过期时间来自 native/pinned.json —— 那是本地
+      # `pnpm native:fetch` 装完 .node 后写回的（日期源头是二进制自报的
+      # getBuildInfo，天数只在 nt_helper 的 Rust 里定义一处）。这里只读不跑构建。
+      - name: 读取内置 native 构建信息
+        id: native
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const blank = () => {
+              console.log("builtAt=");
+              console.log("expiresAt=");
+              console.log("tag=");
+            };
+            let pin;
+            try {
+              pin = JSON.parse(fs.readFileSync("native/pinned.json", "utf8"));
+            } catch {
+              console.error("::warning::读不到 native/pinned.json，Release 说明省略内置组件日期");
+              blank();
+              process.exit(0);
+            }
+            console.log(`builtAt=${pin.builtAt ?? ""}`);
+            console.log(`expiresAt=${pin.expiresAt ?? ""}`);
+            console.log(`tag=${pin.tag ?? ""}`);
+          ' >> "$GITHUB_OUTPUT"
+
       - name: 生成并写入中文 Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          NATIVE_TAG: ${{ steps.native.outputs.tag }}
+          NATIVE_BUILT_AT: ${{ steps.native.outputs.builtAt }}
+          NATIVE_EXPIRES_AT: ${{ steps.native.outputs.expiresAt }}
         run: |
           set -euo pipefail
 
@@ -751,11 +781,23 @@ jobs:
             -f tag_name="${TAG}" \
             --jq '.body')
 
+          # 内置 native 组件的构建 / 过期时间（来自 native/pinned.json）。日期缺失时
+          # 整行省略，不硬编码任何天数。
+          if [ -n "${NATIVE_BUILT_AT}" ] || [ -n "${NATIVE_EXPIRES_AT}" ]; then
+            NATIVE_LINE=$(printf '%s\n' \
+              "- **内置 native 组件**（\`${NATIVE_TAG:-未知}\`）：构建于 ${NATIVE_BUILT_AT:-未知}，有效期至 ${NATIVE_EXPIRES_AT:-未知}")
+          else
+            NATIVE_LINE=""
+          fi
+
           NOTES=$(cat <<EOF
           ## weQ ${TAG} beta
 
           ### 更新内容
           ${SECTION}
+
+          ### 内置组件
+          ${NATIVE_LINE:-（未记录 native 构建时间）}
 
           ### 下载
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`

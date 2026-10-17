@@ -7,11 +7,10 @@
  * （彩色）、1 = 未点亮态（灰）；`size` 取 `big` 与卡片一致。已达成等级用彩色，
  * 未达成的压灰；无分级数据的标识只回退到当前图标一行。
  */
-import { createPortal } from 'react-dom';
 import { Award, X } from 'lucide-react';
 import type { FriendMark } from '@weq/service';
 import { cn } from '../im-template/template/classNames';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 
 /** 按 `iconFormat` 模板拼某等级的图标 URL；模板里没有占位（静态图）时原样返回。 */
 function levelIconUrl(format: string, level: number, style: number): string {
@@ -30,8 +29,6 @@ export function MutualMarkLevelDialog({
   mark: FriendMark;
   onClose: () => void;
 }) {
-  useEscapeToClose(onClose);
-
   const rows = mark.levels.length
     ? mark.levels.map((lv) => ({
         level: lv.level,
@@ -43,15 +40,8 @@ export function MutualMarkLevelDialog({
       ? [{ level: mark.level, name: mark.name, desc: '', icon: mark.iconUrl }]
       : [];
 
-  return createPortal(
-    <div
-      className="weq-profile-layer weq-mutual-layer"
-      role="presentation"
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-    >
+  return (
+    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
       <section
         className="weq-mutual-levels weq-anim-pop"
         role="dialog"
@@ -102,7 +92,6 @@ export function MutualMarkLevelDialog({
           })}
         </div>
       </section>
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

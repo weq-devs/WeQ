@@ -1,0 +1,271 @@
+/**
+ * 妙妙工具 → QQ 登陆账号管理。
+ *
+ * 颜色一律走 design token（`--weq-fg-*` / `--weq-border-*` / `--weq-accent-effective`），
+ * 不写死色值；深色是独立一套覆盖（钩 `html[data-theme="dark"]`，不用 Tailwind 的
+ * `dark:` —— 本项目的暗色钩子是 `data-theme`）。浮层跟着弹窗底色，不自己铺不透明底。
+ */
+
+.weq-login-acc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+}
+
+/* ---- 设备身份卡 ---- */
+.weq-login-acc-identity {
+  padding: 12px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+}
+.weq-login-acc-identity-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.weq-login-acc-identity-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--weq-accent-effective);
+}
+.weq-login-acc-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.weq-login-acc-identity-label {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+.weq-login-acc-identity-value {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+  letter-spacing: 0.4px;
+}
+.weq-login-acc-identity-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted);
+}
+/* 数据根路径：给排查用，平时只是安静的一行小字；太长就省略 + title 兜底。 */
+.weq-login-acc-root {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  color: var(--weq-fg-muted);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-login-acc-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-login-acc-icon-btn:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+/* ---- 写操作闸门 ---- */
+.weq-login-acc-gate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.weq-login-acc-gate svg {
+  flex: none;
+}
+.weq-login-acc-gate b {
+  font-weight: 650;
+}
+.weq-login-acc-gate.is-ready {
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-primary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-login-acc-gate.is-blocked {
+  color: var(--weq-fg-primary);
+  background: rgba(217, 119, 6, 0.12);
+}
+.weq-login-acc-gate.is-blocked svg {
+  color: #d97706;
+}
+
+/* ---- 工具条 ---- */
+.weq-login-acc-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.weq-login-acc-count {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+/* ---- 列表 ---- */
+.weq-login-acc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.weq-login-acc-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  transition: border-color 0.15s;
+}
+.weq-login-acc-card:hover {
+  border-color: var(--weq-border-strong);
+}
+.weq-login-acc-avatar {
+  flex: none;
+  border-radius: 50%;
+}
+.weq-login-acc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.weq-login-acc-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-login-acc-title strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-login-acc-uin {
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.weq-login-acc-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+.weq-login-acc-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+.weq-login-acc-meta-warn {
+  color: #d97706;
+}
+.weq-login-acc-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* ---- 状态 / 底部说明 ---- */
+.weq-login-acc-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  padding: 40px 0;
+  font-size: 12.5px;
+  color: var(--weq-fg-muted);
+}
+.weq-login-acc-state.is-error {
+  color: #a8443e;
+}
+.weq-login-acc-inline-error {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #a8443e;
+  background: rgba(168, 68, 62, 0.1);
+}
+.weq-login-acc-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding-top: 2px;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+.weq-login-acc-foot svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+/* ---- dark theme（独立一套值，不是浅色取反）---- */
+html[data-theme="dark"] .weq-login-acc-identity {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+html[data-theme="dark"] .weq-login-acc-card {
+  background: #1b2027;
+}
+html[data-theme="dark"] .weq-login-acc-gate.is-blocked {
+  background: rgba(234, 179, 8, 0.16);
+}
+html[data-theme="dark"] .weq-login-acc-gate.is-blocked svg {
+  color: #facc15;
+}
+html[data-theme="dark"] .weq-login-acc-meta-warn {
+  color: #facc15;
+}
+html[data-theme="dark"] .weq-login-acc-state.is-error,
+html[data-theme="dark"] .weq-login-acc-inline-error {
+  color: #e06c5f;
+}
+html[data-theme="dark"] .weq-login-acc-inline-error {
+  background: rgba(224, 108, 95, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-login-acc-card {
+    transition: none;
+  }
+}

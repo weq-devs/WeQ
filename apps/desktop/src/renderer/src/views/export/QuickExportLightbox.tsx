@@ -16,6 +16,7 @@ import { useToast } from '../../components/Toast';
 import { ExportLightbox, type LightboxResult } from './ExportLightbox';
 import { preflightChatExport, startChatExportTasks } from './chatExport';
 import { DEFAULT_OPTIONS, fmtCount } from './types';
+import { preflightExportEstimate } from './preflight';
 
 /** 快捷导出的目标会话（聊天顶栏当前会话）。 */
 export interface QuickExportTarget {
@@ -77,6 +78,14 @@ export function QuickExportLightbox({
   async function onConfirm(result: LightboxResult): Promise<void> {
     const ok = await preflightChatExport(dialog, result.options);
     if (!ok) return;
+    if (
+      !(await preflightExportEstimate(dialog, [{ ...target }], {
+        range: { start: result.options.range.start, end: result.options.range.end },
+        formats: result.formats,
+        exportMedia: result.options.exportMedia,
+      }))
+    )
+      return;
     setSubmitting(true);
     try {
       await startChatExportTasks(
@@ -108,6 +117,7 @@ export function QuickExportLightbox({
       variant="full"
       headline={`导出「${target.name}」`}
       summary={`${kindLabel} · ${fmtCount(total)} 条`}
+      calendarTargets={[{ kind: target.kind, conv: target.id }]}
       initialOptions={initialOptions}
       initialFormats={presets?.full?.formats}
       submitting={submitting}

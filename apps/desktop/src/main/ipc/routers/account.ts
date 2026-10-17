@@ -12,6 +12,12 @@
  */
 
 import { z } from 'zod';
+import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
+import {
+  PROJECT_GROUP_CODE,
+  PROJECT_GROUP_NAME,
+  PROJECT_GROUP_SHARE_URL,
+} from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
 import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -22,18 +28,25 @@ import {
   closeSalvageConnections,
   dbEventBus,
   type AccountServices,
+  type RoamingCacheChange,
 } from '../../context/app_context';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
-import { detectThumbType } from '@weq/protocol';
+import { detectThumbType, type OcrBlock } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
+import {
+  resolveLocalOcrModel,
+  resolveLocalOcrFilterModel,
+  runLocalOcr,
+  type LocalOcrModel,
+} from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
@@ -59,12 +72,15 @@ import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_grou
 import {
   clientKeyExpiryMs,
   buildPtlogin2JumpUrl,
+  buildGroupWpaDeepLink,
+  resolveGroupShareAuthKey,
   fetchClientKey,
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
+  assertDestinationCapacity,
   getVoiceModel,
   buildBotExport,
   probeBotWebUi,
@@ -73,12 +89,16 @@ import {
   collectDbDamageFeedback,
   findLatestDbHealthReport,
   writeDbHealthReport,
+  ocrCacheFor,
+  localOcrBlocker,
   type AlbumMedia,
   type AlbumMediaPage,
   type NewMessages,
   type DbChange,
+  type OcrResultCache,
   type RenderC2cMsg,
   type RenderGroupMsg,
+  type GapFetchedMessage,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -349,6 +369,38 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
   concurrency: z.number().int().min(1).max(8).optional(),
 });
 
+/** 加群引导弹窗的推荐动作（见 `getGroupJoinState`）。 */
+export type GroupJoinMode = 'inject' | 'deeplink' | 'browser';
+
+/** 加群引导弹窗的全部前置状态（`account.getGroupJoinState` 的返回）。 */
+export interface GroupJoinState {
+  groupCode: string;
+  groupName: string;
+  /** 分享短链（二维码内容 / 浏览器兜底打开的地址）。 */
+  shareUrl: string;
+  /**
+   * 本地群列表里是否已有这个群。**为真时渲染层直接不弹** —— 已在群里就没有引导的
+   * 余地了，只有不在群里才谈得上选哪种加群方式（所以此时 `mode` 无意义）。
+   */
+  inGroup: boolean;
+  /** 推荐动作，弹窗按钮照着它渲染。 */
+  mode: GroupJoinMode;
+  qqOnline: boolean;
+  attachEnabled: boolean;
+  hasA2: boolean;
+  hasD2: boolean;
+  hasD2Key: boolean;
+  hasGuid: boolean;
+}
+
+/** `account.joinProjectGroup` 的结果：实际走了哪条路 + 关键物料。 */
+export interface GroupJoinResult {
+  action: 'inject' | 'deeplink' | 'browser';
+  groupCode: string;
+  /** deeplink / browser 时实际打开的链接。 */
+  link?: string;
+}
+
 export interface GroupAlbumAccessState {
   qqOnline: boolean;
   qqPid: number | null;
@@ -366,6 +418,22 @@ export interface GroupAlbumAccessState {
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
+  /**
+   * 本地 OCR 识别模型的 id —— 已选且已下载时非空。在线那条腿不可用（QQ 离线 /
+   * 物料不全）时，灯箱的 OCR 按钮就靠它活着；两条腿都没有才置灰。
+   */
+  ocrLocalModelId: string | null;
+  /**
+   * 本地筛图模型（只判断「图里有没有文字」）的 id —— 已选且已下载时非空。
+   * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
+   */
+  ocrFilterModelId: string | null;
+  /**
+   * **本机能不能跑本地识别引擎**：能跑为 null，跑不了是给人看的原因（如 macOS Intel
+   * 上游没发 onnxruntime 二进制）。与那两个 id 的区别：这是平台能力，跟模型下没下好无关。
+   * 灯箱的置灰提示据此说人话（否则 Intel Mac 上会一直劝用户「去下个本地模型」）。
+   */
+  ocrLocalBlocker: string | null;
 }
 
 export interface AlbumMediaWire extends AlbumMedia {
@@ -472,32 +540,37 @@ export interface GroupFileExportResult {
   failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
-/** Overlay only server-confirmed NT rows from WeQ's cache; QQ's own DB stays untouched. */
-async function withConfirmedC2cHistory(
+function roamingMsgToWire(row: GapFetchedMessage): ChatMsgWire {
+  const { nativeRaw: _nativeRaw, protocolRaw: _protocolRaw, ...wire } = row;
+  return { ...wire, source: 'roaming', msgRandom: row.msgRandom ?? '' };
+}
+
+/** Merge an offline cache page using the same cursor and ordering as the local page. */
+async function withRoamingHistory(
   services: AccountServices,
   kind: ChatKind,
   conv: string,
   rows: ChatMsgWire[],
   limit: number,
+  min = 1n,
+  max = 0xffffffffn,
+  descending = true,
 ): Promise<ChatMsgWire[]> {
-  if (kind !== 'c2c' || rows.length === 0) return rows;
-  const sequences = rows
-    .map((row) => Number(row.msgSeq))
-    .filter((seq) => Number.isSafeInteger(seq) && seq > 0);
-  if (!sequences.length) return rows;
   try {
-    const cached = await services.gapHistory.cachedVerified(
-      'c2c',
+    const cached = await services.gapHistory.cachedTimeline(
+      kind,
       conv,
-      Math.min(...sequences),
-      Math.min(0xffffffff, Math.max(...sequences) + 30),
+      Number(min < 1n ? 1n : min),
+      Number(max > 0xffffffffn ? 0xffffffffn : max),
       limit,
+      descending,
     );
-    const known = new Set(rows.map((row) => `${row.msgSeq}:${row.msgRandom}`));
-    const extra: ChatMsgWire[] = cached
-      .filter((row) => !known.has(`${row.msgSeq}:${row.msgRandom}`))
-      .map((row) => ({ ...row, msgRandom: row.msgRandom ?? '' }));
-    return [...rows, ...extra].sort((a, b) => Number(b.msgSeq) - Number(a.msgSeq)).slice(0, limit);
+    return mergeRoamingTimeline<ChatMsgWire>(kind, rows, cached.map(roamingMsgToWire), {
+      min,
+      max,
+      limit,
+      descending,
+    });
   } catch {
     // Cache failure must never prevent reading the original QQ history.
     return rows;
@@ -507,15 +580,11 @@ async function withConfirmedC2cHistory(
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
 async function fetchBefore(
@@ -524,10 +593,13 @@ async function fetchBefore(
   beforeSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
 async function fetchAfter(
@@ -536,10 +608,13 @@ async function fetchAfter(
   afterSeq: bigint,
   limit: number,
 ): Promise<ChatMsgWire[]> {
-  const msgs = requireServices().msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
-    : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  const services = requireServices();
+  const msgs = services.msgs;
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
 async function fetchFrom(
@@ -550,15 +625,11 @@ async function fetchFrom(
 ): Promise<ChatMsgWire[]> {
   const services = requireServices();
   const msgs = services.msgs;
-  return kind === 'group'
-    ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-    : withConfirmedC2cHistory(
-        services,
-        kind,
-        conv,
-        (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire),
-        limit,
-      );
+  const rows =
+    kind === 'group'
+      ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
+      : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+  return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
 function albumAccessState(services = requireServices()): GroupAlbumAccessState {
@@ -577,6 +648,14 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,
+    // 本地 OCR 那条腿的可用性：设置里选了识别模型且文件下好了才有值。渲染层拿它决定
+    // OCR 按钮能不能点（在线那条腿不可用时，本地模型就是唯一的出路）。
+    ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
+    // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
+    ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
+    // 平台能力（与模型状态无关）：本机没有可用的推理引擎时两个 id 必然是 null，
+    // 渲染层用这句话代替「去下个本地模型」的提示。
+    ocrLocalBlocker: localOcrBlocker(),
   };
 }
 
@@ -588,6 +667,125 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   if (!state.attachEnabled) {
     throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
   }
+}
+
+/**
+ * 聊天图片文字识别的**在线那条腿**（OIDB 0xe07_0）能不能走，口径与渲染层的「发送键」
+ * 完全一致：QQ 在线 + 未开完全离线模式 + 发包凭据（a2 / d2 / d2key / guid）齐全 ——
+ * 这条链路既要借在线 QQ 的进程发包，又要现签一条媒体下载 rkey，缺任一项都跑不动。
+ *
+ * 能走返回 null；不能走返回**给人看的原因**（渲染层拿它当置灰提示，router 拿它当报错）。
+ */
+function ocrOnlineBlocker(services = requireServices()): string | null {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) return '需要先登录该账号的 QQ 客户端才能识别文字。';
+  if (!state.attachEnabled) {
+    return '已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。';
+  }
+  if (!state.hasA2 || !state.hasD2 || !state.hasD2Key || !state.hasGuid) {
+    return '本机账号物料不全（a2 / d2 / d2key / guid），暂时发不了包。';
+  }
+  return null;
+}
+
+/** 在线那条腿现在能不能走。 */
+function canOcrOnline(services = requireServices()): boolean {
+  return ocrOnlineBlocker(services) === null;
+}
+
+/**
+ * 识别结果缓存：与导出批量识别、MCP 工具共用同一份（内容寻址，`<缓存根>/ocr/`）。
+ * 灯箱里识别过的图，导出直接命中；反过来也一样。
+ */
+function ocrResultCache(): OcrResultCache {
+  return ocrCacheFor(getAppContext().bootstrap!.userConfig.cacheDir('ocr'));
+}
+
+/**
+ * 一次识别结果 → 缓存条目。缓存写失败**绝不能**影响这次调用，所以整条链吞错。
+ *
+ * `variant` 记的是「我们识别的是哪一份像素」：在线那条腿用的是元素里记的宽高（原图），
+ * 本地那条腿读的是媒体协议给的那张（可能是缩略图，尺寸按回包的自报值）。
+ */
+async function cacheOcrText(
+  md5: string | undefined,
+  producer: string,
+  result: {
+    text?: string;
+    blocks: OcrBlock[];
+    imageWidth: number;
+    imageHeight: number;
+    elapsedMs?: number;
+    modelId?: string;
+    lang?: string;
+    variant?: 'original' | 'thumb' | 'downloaded' | 'unknown';
+  },
+): Promise<void> {
+  if (!md5) return;
+  const cache = ocrResultCache();
+  const key = cache.keyFor(md5);
+  if (!key) return;
+  const text = (result.text ?? result.blocks.map((b) => b.text).join('\n')).trim();
+  await cache
+    .putText(key, producer, {
+      text,
+      ...(result.blocks.length > 0 ? { blocks: result.blocks } : {}),
+      frame: {
+        width: result.imageWidth,
+        height: result.imageHeight,
+        variant: result.variant ?? 'unknown',
+      },
+      ...(result.modelId ? { modelId: result.modelId } : {}),
+      ...(result.lang ? { lang: result.lang } : {}),
+      ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+      ids: { elementMd5: md5 },
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * 灯箱「识别文字」的返回形状（在线 / 本地 / 缓存三条路共用一套字段）。
+ *
+ * `blocks` 的坐标与 `imageWidth × imageHeight` 同系 —— 那是**被识别那张图**的像素尺寸
+ * （本地那条腿可能读到缩略图），渲染层必须按它换算，别用元素里记的宽高。
+ */
+export interface ChatOcrLightboxResult {
+  status: string;
+  srcLang: string;
+  blocks: OcrBlock[];
+  imageWidth: number;
+  imageHeight: number;
+  sessionId: string;
+  source: 'oidb' | 'local';
+  /** 本地那条腿用的模型 id。 */
+  modelId?: string;
+  /** 本地那条腿的推理耗时（缓存命中时是当初那次的时间）。 */
+  elapsedMs?: number;
+  /** 结果直接来自本机缓存：这次没有重新识别（在线 / 本地都不用跑）。 */
+  cached?: boolean;
+}
+
+/**
+ * 走本地模型识别灯箱里那张图。只解决「像素 → 文字」，取图复用媒体协议那条链
+ * （见 `main/ocr/local.ts`）；结果整成与在线版同构的 blocks，前端不用区分来源。
+ */
+async function recognizeOcrLocally(
+  input: { src?: string },
+  model: LocalOcrModel,
+): Promise<ChatOcrLightboxResult & { source: 'local'; modelId: string }> {
+  if (!input.src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
+  const result = await runLocalOcr(input.src, model);
+  return {
+    status: 'succ',
+    srcLang: 'local',
+    blocks: result.blocks,
+    imageWidth: result.imageWidth,
+    imageHeight: result.imageHeight,
+    sessionId: '',
+    source: 'local',
+    modelId: result.modelId,
+    elapsedMs: result.elapsedMs,
+  };
 }
 
 function requireFreshClientKeyForAlbum(services = requireServices()): void {
@@ -2047,6 +2245,85 @@ export const accountRouter = router({
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
+  conversationCalendar: procedure
+    .input(convInput)
+    .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
+
+  exportCalendar: procedure
+    .input(z.object({ targets: z.array(convInput) }))
+    .query(async ({ input }) => {
+      const days = new Map<string, number>();
+      const seen = new Set<string>();
+      const msgs = requireServices().msgs;
+      for (const target of input.targets) {
+        const key = `${target.kind}:${target.conv}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        for (const row of await msgs.calendar(target.kind, target.conv))
+          days.set(row.day, (days.get(row.day) ?? 0) + row.count);
+      }
+      return [...days]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([day, count]) => ({ day, count }));
+    }),
+
+  conversationBoundary: procedure
+    .input(
+      convInput.extend({
+        newest: z.boolean().default(false),
+        start: z.number().int().nonnegative().optional(),
+        end: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .query(({ input }) =>
+      requireServices().msgs.boundary(input.kind, input.conv, input.newest, {
+        start: input.start,
+        end: input.end,
+      }),
+    ),
+
+  browseConversation: procedure
+    .input(
+      convInput.extend({
+        filter: z.object({
+          start: z.number().int().nonnegative().optional(),
+          end: z.number().int().nonnegative().optional(),
+          sender: z.string().max(128).optional(),
+          keyword: z.string().max(512).optional(),
+          category: z
+            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+            .optional(),
+        }),
+        cursor: z.object({ time: z.number().int(), rowId: z.string().regex(/^-?\d+$/) }).optional(),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+    )
+    .query(async ({ input }) => {
+      if (
+        input.filter.start !== undefined &&
+        input.filter.end !== undefined &&
+        input.filter.start > input.filter.end
+      )
+        throw new Error('开始日期不能晚于结束日期。');
+      const result = await requireServices().msgs.browse(
+        input.kind,
+        input.conv,
+        input.filter,
+        input.cursor,
+        input.limit,
+      );
+      return {
+        ...result,
+        items: result.items.map((m) => ({
+          ...(input.kind === 'group'
+            ? groupMsgToWire(m as RenderGroupMsg)
+            : c2cMsgToWire(m as RenderC2cMsg)),
+          senderName: m.senderName,
+          content: m.content,
+        })),
+      };
+    }),
+
   listLatest: procedure
     .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))
     .query(({ input }) => fetchLatest(input.kind, input.conv, input.limit)),
@@ -2161,6 +2438,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -2984,13 +3269,71 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().gapHistory.cached(
+      const rows = await requireServices().gapHistory.cached(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      return rows.map(roamingMsgToWire);
     }),
+
+  roamingBackfill: router({
+    list: procedure.query(() => {
+      const services = requireServices();
+      const access = albumAccessState(services);
+      return {
+        jobs: services.roamingBackfill.list(),
+        activeId: services.roamingBackfill.running(),
+        scanning: services.roamingBackfill.scanning(),
+        historyVersion: 2,
+        onlineAllowed: access.attachEnabled,
+        online: access.qqOnline && access.attachEnabled,
+      };
+    }),
+    plan: procedure
+      .input(
+        z.object({
+          transport: z.literal('sso').default('sso'),
+          targets: z
+            .array(
+              z.object({
+                kind: z.enum(['group', 'c2c']),
+                conv: z.string().min(1),
+                name: z.string().min(1).max(300),
+              }),
+            )
+            .min(1),
+          range: z
+            .object({
+              start: z.number().int().nonnegative().optional(),
+              end: z.number().int().nonnegative().optional(),
+            })
+            .optional(),
+          beforeOldest: z.boolean().default(false),
+          intervalMs: z.number().int().min(500).max(60000).default(500),
+        }),
+      )
+      .mutation(({ input }) => {
+        const services = requireServices();
+        return services.roamingBackfill.plan(input);
+      }),
+    start: procedure
+      .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))
+      .mutation(({ input }) =>
+        requireServices().roamingBackfill.start(input.id, input.retryRemaining),
+      ),
+    pause: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id)),
+    cancel: procedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id, true)),
+    remove: procedure.input(z.object({ id: z.string().uuid() })).mutation(({ input }) => {
+      requireServices().roamingBackfill.remove(input.id);
+      return true;
+    }),
+  }),
 
   /**
    * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。分页契约：
@@ -3011,12 +3354,13 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().gapHistory.fetch(
+      const result = await requireServices().gapHistory.fetch(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      return result.ok ? { ...result, messages: result.messages.map(roamingMsgToWire) } : result;
     }),
 
   /**
@@ -3326,12 +3670,27 @@ export const accountRouter = router({
       return { msgId: res.msgId.toString(), msgSeq: res.msgSeq.toString() };
     }),
 
-  /**
-   * Live "nt_msg.db changed" ping (debounced). Carries no payload beyond a
-   * timestamp — the renderer responds by re-reading the open conversation's
-   * loaded seq window. This is what makes group inserts, recalls and sticker
-   * reactions show up without the (unreliable for groups) msgId delta.
-   */
+  /** Committed cache rows, scoped to this exact account session; no unread writes. */
+  onRoamingMessages: procedure.subscription(() => {
+    requireServices();
+    const session = getAppContext().account;
+    return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>((emit) => {
+      const handler = (change: RoamingCacheChange) => {
+        if (change.session !== session || getAppContext().account !== session) return;
+        emit.next({
+          kind: change.kind,
+          conv: change.conv,
+          messages: change.messages.map(roamingMsgToWire),
+        });
+      };
+      dbEventBus.on('roaming', handler);
+      return () => {
+        dbEventBus.off('roaming', handler);
+      };
+    });
+  }),
+
+  /** Live DB-change ping; the renderer re-reads its original message window. */
   onDbChanged: procedure.subscription(() => {
     return observable<{ at: number }>((emit) => {
       const handler = (file: DbChange): void => {
@@ -3370,6 +3729,223 @@ export const accountRouter = router({
   /** Live prerequisites for group album list/media/export. */
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
+  }),
+
+  /**
+   * 聊天图片文字识别 —— 识别聊天里出现过的图片上的文字。
+   *
+   * 两条腿，**在线优先**：
+   *
+   *   1. **在线**（OIDB 0xe07_0）：QQ 在线 + 未开完全离线 + a2/d2/d2key/guid 齐全时走它
+   *      （见 {@link ocrOnlineBlocker}）。入参就是图片元素自己的信息：`fileToken` 用来
+   *      现签一条 CDN 直链，宽高既是随行元数据、也是回包坐标系的基准。
+   *   2. **本地模型**：上面那些条件缺一项、或者在线那条路失败（图过期 / 服务端取不到），
+   *      就用设置里下好的本地识别模型跑（`onnxruntime` + PP-OCR，见 `main/ocr/`）。
+   *      它要的是**图本体**，所以 `src`（灯箱正在显示的那张图的地址）得一起传进来。
+   *
+   * 两条腿都不可用时按钮就该是灰的（渲染层按 `getGroupAlbumAccessState` 判定）；
+   * 真走到了这一步再报错。返回值带 `source`，前端据此在结果上标「在线 / 本地」。
+   */
+  ocrChatImage: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        fileToken: z.string().min(1),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        md5: z.string().optional(),
+        fileSize: z.number().int().nonnegative().optional(),
+        /** 灯箱正在显示的图片地址（本地模型那条腿取图用）。 */
+        src: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }): Promise<ChatOcrLightboxResult> => {
+      const services = requireServices();
+      const local = resolveLocalOcrModel();
+      const online = canOcrOnline(services);
+      // 缓存命中就一步都不用跑：灯箱连点、导出刚跑过、甚至过期图（服务端取不到、
+      // 本机也没本体）都能立刻出结果。键是图片 md5，和导出 / MCP 完全同一套。
+      const cacheKey = input.md5 ? ocrResultCache().keyFor(input.md5) : null;
+      if (cacheKey) {
+        const hit = await ocrResultCache()
+          .getText(cacheKey)
+          .catch(() => null);
+        if (hit) {
+          return {
+            status: 'succ',
+            srcLang: hit.lang ?? (hit.source === 'local' ? 'local' : 'zh'),
+            blocks: hit.blocks ?? [],
+            imageWidth: hit.frame.width,
+            imageHeight: hit.frame.height,
+            sessionId: '',
+            source: hit.source,
+            ...(hit.modelId ? { modelId: hit.modelId } : {}),
+            ...(hit.elapsedMs !== undefined ? { elapsedMs: hit.elapsedMs } : {}),
+            cached: true as const,
+          };
+        }
+      }
+      if (!online && !local) {
+        // 平台能力优先：没有引擎的机器（如 macOS Intel）只能走在线，别劝人家去下模型。
+        throw new Error(
+          localOcrBlocker() ?? '识别文字需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型。',
+        );
+      }
+
+      if (online) {
+        try {
+          const result = await services.chatImageOcr.recognize(input);
+          await cacheOcrText(input.md5, 'oidb', {
+            text: result.blocks.map((b) => b.text).join('\n'),
+            blocks: result.blocks,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            lang: result.srcLang,
+            variant: 'original',
+          });
+          return { ...result, source: 'oidb' as const };
+        } catch (error) {
+          // 服务层抛的都是给人看的中文短句；兜底再包一层，避免渲染层收到空 message。
+          const message =
+            error instanceof Error && error.message ? error.message : '文字识别失败，请稍后重试。';
+          if (!local) throw new Error(message);
+          try {
+            const localResult = await recognizeOcrLocally(input, local);
+            await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
+              text: localResult.blocks.map((b) => b.text).join('\n'),
+              blocks: localResult.blocks,
+              imageWidth: localResult.imageWidth,
+              imageHeight: localResult.imageHeight,
+              modelId: localResult.modelId,
+              elapsedMs: localResult.elapsedMs,
+            });
+            return localResult;
+          } catch (localError) {
+            // 两条腿都折了：主线是在线那条的报错（用户更可能因此有动作），本地这条附在后面。
+            const localMessage =
+              localError instanceof Error && localError.message
+                ? localError.message
+                : '本地模型也没识别成功';
+            throw new Error(`${message}（本地模型：${localMessage}）`);
+          }
+        }
+      }
+
+      // 在线不可用（QQ 离线 / 未开自动读取 / 物料不全）→ 本地模型兜底。
+      try {
+        const localResult = await recognizeOcrLocally(input, local!);
+        await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
+          text: localResult.blocks.map((b) => b.text).join('\n'),
+          blocks: localResult.blocks,
+          imageWidth: localResult.imageWidth,
+          imageHeight: localResult.imageHeight,
+          modelId: localResult.modelId,
+          elapsedMs: localResult.elapsedMs,
+        });
+        return localResult;
+      } catch (error) {
+        throw new Error(
+          error instanceof Error && error.message ? error.message : '本地识别失败，请稍后重试。',
+        );
+      }
+    }),
+
+  /**
+   * 结果缓存里有没有这张图（灯箱的 OCR 按钮门禁用）。
+   *
+   * 「QQ 离线 + 没下本地模型 + 服务端副本已过期」的图本来只能置灰，但只要**以前**识别过
+   * （灯箱、导出、MCP 哪一条都算），结果就还在本机 —— 这时按钮照样能点，直接给缓存。
+   */
+  ocrCacheLookup: procedure.input(z.object({ md5: z.string().min(1) })).query(async ({ input }) => {
+    const cache = ocrResultCache();
+    const key = cache.keyFor(input.md5);
+    if (!key)
+      return { hit: false, source: null as 'oidb' | 'local' | null, at: null as number | null };
+    const hit = await cache.getText(key).catch(() => null);
+    return hit
+      ? { hit: true, source: hit.source, at: hit.at }
+      : { hit: false, source: null as 'oidb' | 'local' | null, at: null as number | null };
+  }),
+
+  // ---- 加入交流群引导（分享码 → authKey → 入群申请 / 深链接 / 浏览器） ----
+
+  /**
+   * 加群引导弹窗的**全部前置状态**，一次查询拿齐：
+   *   - `inGroup`：本地群列表（`group_list`）里有没有这个群 → 决定是否还要引导加群；
+   *   - qqOnline / attachEnabled / 物料齐全度（a2 / d2 / d2key / guid）→ 决定走哪条路；
+   *   - 群名 / 头像 / 分享链接（常量，不查库）。
+   *
+   * `mode` 是给前端的**推荐动作**，同一份状态只在这里判一次，弹窗按钮照着它渲染：
+   *   - `inject`     —— 在线 + 物料齐 → 换 authKey 后直接发入群申请；
+   *   - `deeplink`   —— 在线但物料缺 → 拉起 QQ 深链接，让 QQ 客户端自己发；
+   *   - `browser`    —— QQ 不在线 → 浏览器打开分享页扫码加群。
+   *
+   * 注意 `inGroup`：为真时渲染层**整个弹窗都不显示**，`mode` 只是照常在算（不消费）。
+   */
+  getGroupJoinState: procedure.query(async (): Promise<GroupJoinState> => {
+    const state = albumAccessState();
+    let inGroup = false;
+    try {
+      const directory = await requireServices().groupInfo.listGroupDirectory();
+      inGroup = directory.some((entry) => entry.groupCode === PROJECT_GROUP_CODE);
+    } catch {
+      // 群列表读不出来（库损坏 / 权限）不该挡住引导 —— 当作「不在群里」。
+    }
+    const canInject =
+      state.qqOnline &&
+      state.attachEnabled &&
+      state.hasA2 &&
+      state.hasD2 &&
+      state.hasD2Key &&
+      state.hasGuid;
+    const mode: GroupJoinMode = !state.qqOnline ? 'browser' : canInject ? 'inject' : 'deeplink';
+    return {
+      groupCode: PROJECT_GROUP_CODE,
+      groupName: PROJECT_GROUP_NAME,
+      shareUrl: PROJECT_GROUP_SHARE_URL,
+      inGroup,
+      mode,
+      qqOnline: state.qqOnline,
+      attachEnabled: state.attachEnabled,
+      hasA2: state.hasA2,
+      hasD2: state.hasD2,
+      hasD2Key: state.hasD2Key,
+      hasGuid: state.hasGuid,
+    };
+  }),
+
+  /**
+   * 执行加群引导的**推荐动作**（按 `getGroupJoinState().mode`）：
+   *   - `inject`    ：换 authKey → 发入群申请（OIDB 0x11ec_1），成功即结束；
+   *   - `deeplink`  ：换 authKey → 拼 `tencent://groupwpa/` 深链接 → 交给系统拉起 QQ；
+   *   - `browser`   ：用系统浏览器打开分享页（手机 QQ 扫码加群）。
+   *
+   * 不处理「已在群里」：那种情况下渲染层根本不显示弹窗，也就不会调到这里。
+   *
+   * 返回 `action` 说明实际走了哪条路，前端据此给不同文案（「已发送申请」/「已唤起 QQ」…）。
+   * authKey 每次重新换（与分享者绑定、有实效），**不缓存**。
+   */
+  joinProjectGroup: procedure.mutation(async (): Promise<GroupJoinResult> => {
+    const state = albumAccessState();
+    if (state.qqOnline && state.attachEnabled) {
+      const target = await resolveGroupShareAuthKey(PROJECT_GROUP_SHARE_URL);
+      const canInject = state.hasA2 && state.hasD2 && state.hasD2Key && state.hasGuid;
+      if (canInject) {
+        await requireServices().interaction.sendGroupJoinRequest({
+          groupCode: target.groupCode,
+          authKey: target.authKey,
+        });
+        return { action: 'inject', groupCode: target.groupCode };
+      }
+      const deepLink = buildGroupWpaDeepLink({
+        groupUin: target.groupCode,
+        authKey: target.authKey,
+      });
+      await getHost().openExternal(deepLink);
+      return { action: 'deeplink', groupCode: target.groupCode, link: deepLink };
+    }
+    await getHost().openExternal(PROJECT_GROUP_SHARE_URL);
+    return { action: 'browser', groupCode: PROJECT_GROUP_CODE, link: PROJECT_GROUP_SHARE_URL };
   }),
 
   /**
@@ -4340,7 +4916,8 @@ export const accountRouter = router({
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
     // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
-    const contacts = (await services.recentContacts.getRecentContact(1000)).filter(
+    // SQLite 的 LIMIT -1 读取全部会话；计数分批，避免超过绑定参数上限。
+    const contacts = (await services.recentContacts.getRecentContact(-1)).filter(
       (c) => c.targetUid,
     );
 
@@ -4370,11 +4947,26 @@ export const accountRouter = router({
       .map((c) => c.targetUid);
 
     const account = getAppContext().account;
+    async function countBatches(
+      ids: string[],
+      fetch: (batch: string[]) => Promise<Record<string, number>>,
+    ) {
+      const counts: Record<string, number> = {};
+      for (let offset = 0; offset < ids.length; offset += 500) {
+        Object.assign(counts, await fetch(ids.slice(offset, offset + 500)));
+      }
+      return counts;
+    }
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
-      account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
-      account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
-      account?.datalineMsgs.countByUids(datalineUids) ??
-        Promise.resolve({} as Record<string, number>),
+      countBatches(
+        groupCodes,
+        (batch) => account?.groupMsgs.countByGroups(batch) ?? Promise.resolve({}),
+      ),
+      countBatches(c2cUids, (batch) => account?.c2cMsgs.countByUids(batch) ?? Promise.resolve({})),
+      countBatches(
+        datalineUids,
+        (batch) => account?.datalineMsgs.countByUids(batch) ?? Promise.resolve({}),
+      ),
     ]);
 
     return contacts.map((c) => {
@@ -4420,6 +5012,14 @@ export const accountRouter = router({
             onlineTranscribe: z.boolean().optional(),
             /** 在线转写并发请求数（默认 5）。 */
             onlineConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 图片文字识别（自动 OCR）：写 ocr.json + 回写消息文件。 */
+            ocrImages: z.boolean().optional(),
+            /** 在线识别（0xe07_0）；不开启就是纯本地识别。 */
+            onlineOcr: z.boolean().optional(),
+            /** 在线识别并发（默认 5）。 */
+            onlineOcrConcurrency: z.number().int().min(1).max(32).optional(),
+            /** 是否已下好筛图模型（渲染层判定；false 时跳过预筛选阶段）。 */
+            ocrPrefilter: z.boolean().optional(),
             /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
             mediaKinds: z
               .object({
@@ -4436,6 +5036,15 @@ export const accountRouter = router({
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+        filter: z
+          .object({
+            sender: z.string().max(128).optional(),
+            keyword: z.string().max(512).optional(),
+            category: z
+              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+              .optional(),
+          })
+          .optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -4538,11 +5147,15 @@ export const accountRouter = router({
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
+        cids: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask({
-        collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
+        collection: {
+          ...(input.kinds?.length ? { kinds: input.kinds } : {}),
+          ...(input.cids ? { cids: input.cids } : {}),
+        },
         kind: 'c2c',
         conv: '',
         name: input.name,
@@ -4561,6 +5174,29 @@ export const accountRouter = router({
   }),
 
   /** List all export tasks. */
+  exportPreflight: procedure
+    .input(
+      z.object({
+        kind: z.enum(['group', 'c2c']),
+        conv: z.string().min(1),
+        range: z
+          .object({ start: z.number().int().nullable(), end: z.number().int().nullable() })
+          .optional(),
+        filter: z
+          .object({
+            sender: z.string().max(128).optional(),
+            keyword: z.string().max(512).optional(),
+            category: z
+              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+              .optional(),
+          })
+          .optional(),
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        exportMedia: z.boolean().optional(),
+      }),
+    )
+    .query(({ input }) => requireServices().exportManager.preflight(input)),
+
   listExportTasks: procedure.query(() => {
     return requireServices().exportManager.listTasks();
   }),
@@ -4573,6 +5209,19 @@ export const accountRouter = router({
     }),
 
   /** Cancel a task. */
+  revealExportReport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (!task?.reportPath) throw new Error('完整性报告尚未生成。');
+      await getHost().revealPath(task.reportPath);
+      return true;
+    }),
+
+  resumeExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => requireServices().exportManager.resumeTask(input.taskId)),
+
   cancelExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
@@ -4770,13 +5419,19 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       // 不再使用默认导出目录记忆：每次都弹系统保存框，避免后续保存无法选择路径。
-      const { copyFileSync } = await import('node:fs');
+      const { copyFileSync, existsSync } = await import('node:fs');
       const target = await getHost().pickSaveTarget({
         defaultName: input.defaultName,
         extension: input.format,
       });
       if (!target) return false;
+      assertDestinationCapacity(target.path, input.sourcePath);
       copyFileSync(input.sourcePath, target.path);
+      const task = requireServices()
+        .exportManager.listTasks()
+        .find((t) => t.filePath === input.sourcePath);
+      if (task?.reportPath && existsSync(task.reportPath))
+        copyFileSync(task.reportPath, `${target.path}.report.json`);
       return true;
     }),
 
@@ -4796,6 +5451,7 @@ export const accountRouter = router({
       const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
       if (!picked) return false;
       const dest = join(picked, sanitizePathSegment(task.name, task.id));
+      assertDestinationCapacity(dest, task.bundleDir);
       cpSync(task.bundleDir, dest, { recursive: true });
       return true;
     }),
@@ -4830,6 +5486,7 @@ export const accountRouter = router({
         const picked = await host.pickDirectory({ title: '选择导出保存文件夹' });
         if (!picked) return false;
         const dest = join(picked, sanitizePathSegment(task.name, task.id));
+        assertDestinationCapacity(dest, task.bundleDir);
         cpSync(task.bundleDir, dest, { recursive: true });
         return true;
       }
@@ -4840,7 +5497,13 @@ export const accountRouter = router({
         extension: task.format,
       });
       if (!target) return false;
+      assertDestinationCapacity(target.path, task.filePath);
       copyFileSync(task.filePath, target.path);
+      if (task.reportPath) {
+        const { existsSync } = await import('node:fs');
+        if (existsSync(task.reportPath))
+          copyFileSync(task.reportPath, `${target.path}.report.json`);
+      }
       return true;
     }),
 

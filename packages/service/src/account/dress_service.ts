@@ -9,12 +9,7 @@
 
 import type { BubbleSkin } from './bubble_skin';
 import { DressConfigService, type DressScope, type DressBackgroundSource } from './dress_config';
-import {
-  DRESS_DERIVE_VERSION,
-  DressSharedCache,
-  type FontDerived,
-  type FontFx,
-} from './dress_shared_cache';
+import { DressSharedCache, type FontDerived, type FontFx } from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 
@@ -26,8 +21,9 @@ export interface InstalledFont {
   family: string;
   file: string;
   /**
-   * 产出这份产物的转换链版本（见 {@link DRESS_DERIVE_VERSION}）。渲染侧把它拼进字体
-   * URL：升级后产物被就地重做时 URL 跟着变，浏览器才会丢掉旧 face 重新取。
+   * 产出这份产物的**渲染戳**：宿主转换链版本与 native 字体链版本合成的一个数（见
+   * {@link DressSharedCache.fontDerived}）。渲染侧把它拼进字体 URL：升级后产物被就地
+   * 重做时 URL 跟着变，浏览器才会丢掉旧 face 重新取。
    */
   deriveVersion: number;
   /** `eimg` 炫彩帧（按画布尺寸分好组）；字体里没有 `eimg` 时为 null。 */
@@ -168,6 +164,17 @@ export class DressService {
   }
 
   /**
+   * 升级后的全量字体体检：把共享缓存 `fonts/` 里**所有**字体产物（不只是「已装」的款）
+   * 按当前转换链对一遍版本，落后的就地重解（离线优先）。每次 WeQ 发版后第一次开账号
+   * 跑一遍，靠 `fonts/.sweep.json` 去重；见 {@link DressSharedCache.refreshAllFonts}。
+   *
+   * @returns 真正重做了的款数（0 = 不用推前端）
+   */
+  async sweepFontCache(): Promise<number> {
+    return this.cache.refreshAllFonts();
+  }
+
+  /**
    * 升级后的自愈：把「已装」的那些字体产物重新派生一遍（转换链版本对不上的）。
    *
    * 账号打开时后台跑一次即可，**不阻塞启动**：缓存里还留着旧产物，用它渲染是正常的，
@@ -185,8 +192,9 @@ export class DressService {
     for (const itemId of ids) {
       if (this.cache.isFontDerived(itemId)) continue;
       try {
-        const derived = await this.cache.installFont(itemId, '');
-        if (derived.deriveVersion === DRESS_DERIVE_VERSION) refreshed += 1;
+        await this.cache.installFont(itemId, '');
+        // 看落地结果而不是返回值：渲染戳是合成数，比不了单个版本号。
+        if (this.cache.isFontDerived(itemId)) refreshed += 1;
       } catch {
         // 单款重做失败不打断其余款，也不影响启动。
       }

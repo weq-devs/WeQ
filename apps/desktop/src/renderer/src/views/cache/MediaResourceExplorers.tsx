@@ -146,7 +146,9 @@ function MonthCard({ kind, entry }: { kind: MonthKind; entry: MonthMediaEntry })
 
   const onOpen = (): void => {
     if (playable) {
-      openVideoLightbox(localMediaUrl(kind, entry.oriRel!), previewSrc ?? undefined);
+      // 默认文件名取 Ori 的文件名（entry 只有 rel 路径，没有单独的 name 字段）。
+      const fileName = entry.oriRel?.split('/').pop() ?? '';
+      openVideoLightbox(localMediaUrl(kind, entry.oriRel!), previewSrc ?? undefined, fileName);
     } else if (!isVideo) {
       // Image: prefer the original in the lightbox, fall back to the thumbnail.
       const full = entry.oriRel ?? entry.thumbRel;

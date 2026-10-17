@@ -1,4 +1,5 @@
 /** Shared bounded HTTP transport for QQ web cgis. */
+import { isQzonePageRequest, waitForQzonePage } from '../../common/qzone_pagination';
 
 export type WebRequestErrorKind =
   | 'cancelled'
@@ -47,6 +48,7 @@ export interface WebRetryPolicy {
 }
 
 export interface WebRequestInit {
+  redirect?: 'error';
   method?: 'GET' | 'POST';
   cookie: string;
   body?: string | Uint8Array;
@@ -54,7 +56,7 @@ export interface WebRequestInit {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxResponseBytes?: number;
-  /** Total elapsed budget, including retry waits; defaults to timeoutMs. */
+  /** Total work budget including retries, excluding pagination quota waits. */
   totalTimeoutMs?: number;
   /** Explicit retry budget. Omitted means one attempt and never replays a request. */
   retry?: WebRetryPolicy;
@@ -87,7 +89,7 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 function retryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status !== 501);
 }
 
 function validate(init: WebRequestInit): {
@@ -183,6 +185,7 @@ async function requestOnce(
   try {
     const fetched = fetch(url, {
       method,
+      redirect: init.redirect,
       headers: {
         Cookie: init.cookie,
         ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
@@ -285,10 +288,19 @@ async function requestOnce(
 /** Bounded binary HTTP; retries require an explicitly supplied read budget. */
 export async function webRequestBytes(url: string, init: WebRequestInit): Promise<Uint8Array> {
   const { timeoutMs, maxBytes, totalTimeoutMs, retry } = validate(init);
-  const deadline = Date.now() + totalTimeoutMs;
+  let deadline = Date.now() + totalTimeoutMs;
   let lastError: WebRequestError | null = null;
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
     try {
+      if (isQzonePageRequest(url)) {
+        const queuedAt = Date.now();
+        try {
+          await waitForQzonePage(init.signal);
+        } catch (cause) {
+          throw new WebRequestError('cancelled', '空间翻页等待已取消', { cause, attempt });
+        }
+        deadline += Date.now() - queuedAt;
+      }
       const remaining = deadline - Date.now();
       if (remaining <= 0)
         throw new WebRequestError('timeout', 'QQ Web 请求已超过总时限', { attempt });

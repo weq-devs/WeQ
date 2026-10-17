@@ -27,6 +27,8 @@ export interface PrepareUploadParams {
 export namespace PrepareUpload {
   export const command = 0x12a9;
   export const subCommand = 100;
+  // 0x12a9_100 不在 LagrangeV2 签名白名单里（白名单只有 0x12a9_200），needSign = false。
+  export const needSign = false;
   export const uinForm = true;
   export const reqSchema = FLASH_PREPARE_UPLOAD_REQ;
   export const respSchema = FLASH_PREPARE_UPLOAD_RESP;

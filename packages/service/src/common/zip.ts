@@ -11,7 +11,7 @@
  * 规范要求的正确读法。只支持 store(0) 与 deflate(8)，够用且没有加密分支。
  */
 
-import { inflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 /** zip 里的一个文件条目（已解压）。 */
 export interface ZipEntry {
@@ -20,14 +20,148 @@ export interface ZipEntry {
   data: Buffer;
 }
 
+/** {@link buildZip} 的入参条目。 */
+export interface ZipWriteEntry {
+  /** 条目路径，分隔符统一为 `/`。 */
+  name: string;
+  data: Buffer;
+}
+
 const SIG_EOCD = 0x06054b50;
 const SIG_CENTRAL = 0x02014b50;
+const SIG_LOCAL = 0x04034b50;
 const EOCD_MIN_SIZE = 22;
 /** EOCD 后面可跟最多 64KB 注释，只需回扫这么远。 */
 const EOCD_SEARCH_LIMIT = 0xffff + EOCD_MIN_SIZE;
 
 const METHOD_STORE = 0;
 const METHOD_DEFLATE = 8;
+/** 文件名按 UTF-8 编码（中文文件名必须置这一位）。 */
+const FLAG_UTF8 = 0x0800;
+
+let crcTable: Uint32Array | null = null;
+
+/** RFC 1952 CRC-32。首次调用时建表，后续复用。 */
+function crc32(data: Buffer): number {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function u16(value: number): Buffer {
+  const out = Buffer.alloc(2);
+  out.writeUInt16LE(value, 0);
+  return out;
+}
+
+function u32(value: number): Buffer {
+  const out = Buffer.alloc(4);
+  out.writeUInt32LE(value >>> 0, 0);
+  return out;
+}
+
+/** zip 条目的路径规范化 + 越界校验（防 `../` 解压逃逸）。 */
+function zipEntryName(name: string): string {
+  if (/^[/\\]/.test(name)) throw new Error(`非法的 zip 条目路径: ${name}`);
+  const normalized = name.replace(/\\/g, '/');
+  const segments = normalized.split('/');
+  // `C:/...` 这类盘符路径在 Windows 上也是绝对路径，不能只拦前导斜杠。
+  if (/^[A-Za-z]:\//.test(normalized)) throw new Error(`非法的 zip 条目路径: ${name}`);
+  if (!normalized || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error(`非法的 zip 条目路径: ${name}`);
+  }
+  return normalized;
+}
+
+/**
+ * 生成一个 zip（中央目录版）。默认对每项试 deflate，压不小就原样 store；
+ * 文件名一律按 UTF-8 写入，中文文件名在 Windows 资源管理器里也能正常显示。
+ */
+export function buildZip(
+  entries: readonly ZipWriteEntry[],
+  opts: { compress?: boolean } = {},
+): Buffer {
+  if (entries.length > 0xffff) throw new Error('zip 条目数超过 65535');
+  const compress = opts.compress ?? true;
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(zipEntryName(entry.name), 'utf-8');
+    const raw = entry.data;
+    const deflated = compress ? deflateRawSync(raw) : raw;
+    const useDeflate = compress && deflated.length < raw.length;
+    const stored = useDeflate ? deflated : raw;
+    const method = useDeflate ? METHOD_DEFLATE : METHOD_STORE;
+    const crc = crc32(raw);
+
+    const local = Buffer.concat([
+      u32(SIG_LOCAL),
+      u16(20), // version needed
+      u16(FLAG_UTF8),
+      u16(method),
+      u16(0), // mod time
+      u16(0), // mod date
+      u32(crc),
+      u32(stored.length),
+      u32(raw.length),
+      u16(name.length),
+      u16(0), // extra
+      name,
+      stored,
+    ]);
+    locals.push(local);
+
+    centrals.push(
+      Buffer.concat([
+        u32(SIG_CENTRAL),
+        u16(20), // version made by
+        u16(20), // version needed
+        u16(FLAG_UTF8),
+        u16(method),
+        u16(0), // mod time
+        u16(0), // mod date
+        u32(crc),
+        u32(stored.length),
+        u32(raw.length),
+        u16(name.length),
+        u16(0), // extra
+        u16(0), // comment
+        u16(0), // disk start
+        u16(0), // internal attrs
+        u32(0), // external attrs
+        u32(offset),
+        name,
+      ]),
+    );
+
+    offset += local.length;
+  }
+
+  const central = Buffer.concat(centrals);
+  const eocd = Buffer.concat([
+    u32(SIG_EOCD),
+    u16(0), // disk
+    u16(0), // central dir disk
+    u16(entries.length),
+    u16(entries.length),
+    u32(central.length),
+    u32(offset),
+    u16(0), // comment length
+  ]);
+  return Buffer.concat([...locals, central, eocd]);
+}
 
 /**
  * 解出 zip 里的全部文件条目。目录条目会被跳过；遇到不支持的压缩方法或越界偏移

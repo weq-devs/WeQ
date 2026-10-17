@@ -7,7 +7,6 @@ import {
   Download,
   Settings,
   Hash,
-  Star,
   Bookmark,
   HardDrive,
   Store,
@@ -22,6 +21,7 @@ import {
   ShieldCheck,
   BrainCircuit,
 } from 'lucide-react';
+import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
@@ -194,7 +194,11 @@ export function AppRail({
         />
       ) : null}
       <div className={cn('rail-groups')}>
-        <nav className={cn('rail-nav rail-nav-primary')} aria-label="Primary">
+        <nav
+          className={cn('rail-nav rail-nav-primary')}
+          aria-label="Primary"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <button
             className={cn(railButtonClass(activeView === 'messages'), 'rail-tab rail-tab-messages')}
             onClick={() => selectView('messages')}
@@ -228,7 +232,7 @@ export function AppRail({
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
-              <Star size={22} strokeWidth={1.5} />
+              <SiQzone size={22} />
             </span>
             <span className={cn('rail-label')}>QQ空间</span>
           </button>

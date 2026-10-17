@@ -24,7 +24,7 @@ import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { classifyChatType, datalineName } from '@weq/codec';
 import { Avatar } from '../im-template/template/primitives';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
 
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
@@ -138,8 +138,6 @@ export function AntiRecallDialog({
   const notifyEnabled = status.data?.notifyEnabled ?? false;
   const qqRunning = status.data?.qqRunning ?? false;
   const installedCount = status.data?.installed.length ?? 0;
-
-  useEscapeToClose(onClose);
 
   /** 写操作的返回值（期望状态）直接落进查询缓存：点击即生效。 */
   function applyStatus(next: Awaited<ReturnType<typeof setEnabled.mutateAsync>>): void {
@@ -315,11 +313,7 @@ export function AntiRecallDialog({
   }
 
   return (
-    <div
-      className="modal-scrim group-keyword-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
       <section
         className={cn('group-keyword-dialog', 'weq-ar-dialog')}
         role="dialog"
@@ -546,6 +540,6 @@ export function AntiRecallDialog({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

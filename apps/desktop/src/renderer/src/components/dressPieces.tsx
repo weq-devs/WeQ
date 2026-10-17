@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent } from 'react';
 import * as d3 from 'd3';
+import { cachedAvatarUrl, refreshAvatarUrl } from '../lib/avatarCache';
+import { useTabActive } from './RetainedTabs';
 
 // 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
 // 别让浏览器画裂图占位 —— 头像本体照常显示,只是没有这个装饰角标。
@@ -21,15 +23,75 @@ export function AvatarOrb({
   avatarUrl,
   nickname,
   widgetUrl,
+  refreshOnFocus = false,
 }: {
   avatarUrl: string | null;
   nickname: string;
   widgetUrl: string;
+  refreshOnFocus?: boolean;
 }) {
+  const active = useTabActive();
+  const [revision, setRevision] = useState(0);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const [freshAvatar, setFreshAvatar] = useState<{
+    source: string;
+    revision: number;
+    url: string;
+  } | null>(null);
+  const resolved = refreshAvatarUrl(cachedAvatarUrl(avatarUrl), revision);
+  const displayed =
+    freshAvatar?.source === resolved && freshAvatar.revision === revision
+      ? freshAvatar.url
+      : resolved;
+  useEffect(() => {
+    setFailedSource(null);
+  }, [resolved]);
+  useEffect(() => {
+    if (!refreshOnFocus || !active) return;
+    const refresh = () => {
+      if (document.visibilityState !== 'hidden') setRevision((value) => value + 1);
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [active, refreshOnFocus]);
+  useEffect(() => {
+    // CDN 直连模式也复核浏览器缓存；只刷新当前主页头像，不给上游 URL 加随机参数。
+    if (!refreshOnFocus || !active || !revision || !resolved || !/^https?:/.test(resolved)) return;
+    const controller = new AbortController();
+    let ownedUrl: string | undefined;
+    void fetch(resolved, { cache: 'reload', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const blob = await response.blob();
+        if (controller.signal.aborted || !blob.size) return;
+        ownedUrl = URL.createObjectURL(blob);
+        setFreshAvatar({ source: resolved, revision, url: ownedUrl });
+        setFailedSource(null);
+      })
+      .catch(() => {
+        /* 保留已有头像，聚焦后可重试。 */
+      });
+    return () => {
+      controller.abort();
+      if (ownedUrl) URL.revokeObjectURL(ownedUrl);
+    };
+  }, [active, refreshOnFocus, resolved, revision]);
   return (
     <span className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
-      {avatarUrl ? (
-        <img src={avatarUrl} alt={nickname} className="weq-orb-img is-round" draggable={false} />
+      {resolved && failedSource !== resolved ? (
+        <img
+          key={displayed}
+          src={displayed ?? undefined}
+          alt={nickname}
+          className="weq-orb-img is-round"
+          draggable={false}
+          onError={() => setFailedSource(resolved)}
+        />
       ) : (
         <span className="weq-orb-img is-round weq-orb-fallback">
           {(nickname || '?').slice(0, 1)}

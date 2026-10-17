@@ -55,6 +55,7 @@ import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
+import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
@@ -64,7 +65,7 @@ import {
   type GroupFileExportResult,
 } from './export/GroupFileExportLightbox';
 import { FailureLightbox } from './export/FailureLightbox';
-import { preflightQqOnline } from './export/preflight';
+import { ocrReadiness, preflightQqOnline } from './export/preflight';
 import {
   buildChatExportMedia,
   preflightChatExport,
@@ -641,6 +642,8 @@ export function ExportView(): ReactElement {
       error: t.error,
       filePath: t.filePath,
       bundleDir: t.bundleDir,
+      canResume: t.canResume,
+      reportPath: t.reportPath,
       avatarCount: t.avatarCount,
       stages: t.stages,
       logs: (t as { logs?: UiLogLine[] }).logs ?? [],
@@ -891,6 +894,18 @@ export function ExportView(): ReactElement {
     // 聊天页顶栏的快捷导出灯箱用的是同一套。
     const ok = await preflightChatExport(dialog, options);
     if (!ok) return;
+    if (
+      !(await preflightExportEstimate(
+        dialog,
+        targets.map((t) => ({ ...t, kind: t.kind ?? 'c2c' })),
+        {
+          range: { start: options.range.start, end: options.range.end },
+          formats,
+          exportMedia: options.exportMedia,
+        },
+      ))
+    )
+      return;
 
     setSubmitting(true);
     try {
@@ -922,7 +937,11 @@ export function ExportView(): ReactElement {
     const range = { start: options.range.start, end: options.range.end };
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     // 频道私聊没有漫游缓存可拉，补全消息恒关闭；其余检查与聊天消息同款。
-    const media = buildChatExportMedia(options, { messageCompletion: false });
+    const media = buildChatExportMedia(options, {
+      messageCompletion: false,
+      // 筛图模型当下下好没有（实时状态，不进持久化预设）。
+      ocrPrefilter: options.ocrImages ? (await ocrReadiness()).filterReady : false,
+    });
     const ok = await preflightChatExport(dialog, options, { messageCompletion: false });
     if (!ok) return;
 
@@ -1531,6 +1550,20 @@ export function ExportView(): ReactElement {
       <TaskList
         tasks={uiTasks}
         onPause={onPause}
+        onResume={(t) => {
+          void client.account.resumeExportTask
+            .mutate({ taskId: t.id })
+            .then((ok) => {
+              if (!ok) dialog.error('无法继续', '任务仍在收尾，或没有可验证的断点。');
+              refetchTasks();
+            })
+            .catch((e) => dialog.error('续作失败', String(e)));
+        }}
+        onReport={(t) => {
+          void client.account.revealExportReport
+            .mutate({ taskId: t.id })
+            .catch((e) => dialog.error('打开报告失败', String(e)));
+        }}
         onCancel={onCancel}
         onDownload={(t) => void onDownload(t)}
         onDelete={onDelete}
@@ -1555,6 +1588,16 @@ export function ExportView(): ReactElement {
           headline={lightboxHeadline}
           summary={lightboxSummary}
           contactScope={contactScope}
+          calendarTargets={
+            ['full', 'chatlab', 'scheduled'].includes(lightbox)
+              ? convItems
+                  .filter((item) => convSelection.has(item.id))
+                  .map((item) => ({
+                    kind: item.kind === 'group' ? 'group' : 'c2c',
+                    conv: item.id,
+                  }))
+              : undefined
+          }
           // 优先回填最近一次导出的配置；联系人导出默认不下载头像（大群头像量大）。
           initialOptions={
             lightbox !== 'album'

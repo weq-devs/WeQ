@@ -45,6 +45,20 @@ export interface C2cMsg {
    * select it (SELECT_COLUMNS).
    */
   msgRandom?: bigint;
+  /**
+   * Sender-local client sequence (column 40005) — the wire `contentHead.sequence`
+   * (tag 5) of whichever side sent this message: the sender mints it as the send
+   * request's `clientSequence`, and everyone who stores the row keeps it verbatim
+   * (QQ desktop's own counter runs in the thousands; ours restarts at 1 per
+   * process). **A private-chat reply must quote THIS value** — QQ resolves a c2c
+   * `srcMsg.origSeqs[0]` in the sender-local space, not in the
+   * conversation-wide `msgSeq` (40003 / `contentHead.ntMsgSeq`) space that
+   * history paging uses; quoting 40003 there is what left replies 定位不到原消息.
+   * Groups are unaffected: there `contentHead.sequence` IS the group seq, so
+   * 40003 is already the right pointer and this column stays 0.
+   * Optional: only the render read-paths select it (SELECT_COLUMNS).
+   */
+  clientSeq?: bigint;
   /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
   decoration?: MsgDecoration;
 }

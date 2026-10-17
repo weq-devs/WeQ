@@ -34,6 +34,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Platform } from '../types';
 import { readLauncherCount, readQqVersion } from '../qq_meta';
+import { createQqOnlineProbe } from './online_probe';
 import {
   candidateQqRoots,
   pickQqRoot,
@@ -41,6 +42,7 @@ import {
   findBuddyMsgFtsDb,
   findGroupMsgFtsDb,
   findEmojiResourceDir,
+  findJiebaDictDir,
   findLoginDb,
   findNtDbDir,
   findNtDataDir,
@@ -81,6 +83,7 @@ export function createDarwinPlatform(
   // Resolve uin→uid at call time; empty string ⇒ path helpers short-circuit
   // to null (no dir can be derived), matching a "not found on disk" outcome.
   const uid = (uin: string): string => getUidForUin(uin) ?? '';
+  const probeOnline = createQqOnlineProbe();
 
   const home = undefined; // let the helpers default to os.homedir()
 
@@ -141,6 +144,7 @@ export function createDarwinPlatform(
     accountDir: (u: string) => findAccountDir(uid(u), home, override()),
     ntDbDir: (u: string) => findNtDbDir(uid(u), home, override()),
     ntDataDir: (u: string) => findNtDataDir(uid(u), home, override()),
+    jiebaDictDir: () => findJiebaDictDir(home, override()),
     ntMsgDbPath: (u: string) => findNtMsgDb(uid(u), home, override()),
     groupInfoDbPath: (u: string) => findGroupInfoDb(uid(u), home, override()),
     profileInfoDbPath: (u: string) => findProfileInfoDb(uid(u), home, override()),
@@ -178,6 +182,10 @@ export function createDarwinPlatform(
     // same source as linux, under the container root.
     launcherCount: () => readLauncherCount(pickQqRoot(home, override())),
     resolveQqPid: (u: string) => resolveQqPid(u),
+    resolveQqPidAsync: (u: string) => {
+      const dbPath = findNtMsgDb(uid(u), home, override());
+      return dbPath ? probeOnline(dbPath) : Promise.resolve(null);
+    },
     // 读内存的硬门槛：SIP 开着时 `task_for_pid` 连 root 都拒（QQ 带强化运行时）。
     // 所以这一档必须能在**尝试之前**问出来 —— 见 `readSipEnabled`。
     sipEnabled: () => readSipEnabled(),

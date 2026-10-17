@@ -5,12 +5,11 @@
  * 这里只验证「资源文件能解析、id→封面映射正确、没记录的 id 返回 null」——
  * 正是 `weq-media://redbag` 回退链第 1 档依赖的行为。
  *
- * 跑法（apps/desktop 没有 test 脚本，不进 `pnpm -r test`）：
- *   cd apps/desktop && node --import tsx --test test/redpack_catalog.test.ts
+ * 跑法：`pnpm --filter @weq/desktop test`（也随 `pnpm -r test` 进 CI）。
  */
 
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { resourceSkinCover } from '../src/main/redpack_catalog.ts';
 
 test('离线目录命中：返回记录的封面 URL', () => {

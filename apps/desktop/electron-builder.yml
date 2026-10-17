@@ -15,6 +15,13 @@ files:
   # Workspace packages are removed from the release manifest before packaging.
   - "node_modules/**/*"
   - "!node_modules/@weq/**/*"
+  # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
+  # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包
+  # 因此直接翻倍）。运行时真正加载的是下面 extraResources 拷到 <resources>/node_modules/
+  # 的那份 —— fork 出去的 ocrWorker.mjs 从 <resources>/out/main/ 起跑，node 的模块解析
+  # 只会顺着目录往上撞到 <resources>/node_modules，永远拐不进 app.asar.unpacked。
+  # 所以整包从 asar 里剔掉。
+  - "!node_modules/onnxruntime-node/**"
 extraResources:
   - from: ../../LICENSE
     to: ../LICENSE
@@ -53,22 +60,23 @@ extraResources:
   - from: out/main/intentSenseWorker.mjs
     to: out/main/intentSenseWorker.mjs
 
-  # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。onnxruntime-node
-  # 1.22+ 的平台 .node 在包内 bin/ 下（无平台子包），连它的运行依赖（onnxruntime-common
-  # / adm-zip / global-agent）与 @huggingface/tokenizers（napi 预编译在包内）一起复制，
-  # 保证 worker 从 resources/node_modules/** 解析得到 —— 与 sherpa 同一套处理。
+  - from: out/main/ocrWorker.mjs
+    to: out/main/ocrWorker.mjs
+
+  # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。
   - from: node_modules/@receptron/laya
     to: node_modules/@receptron/laya
-  - from: node_modules/onnxruntime-node
-    to: node_modules/onnxruntime-node
-  - from: node_modules/onnxruntime-common
-    to: node_modules/onnxruntime-common
   - from: node_modules/adm-zip
     to: node_modules/adm-zip
   - from: node_modules/global-agent
     to: node_modules/global-agent
   - from: node_modules/@huggingface/tokenizers
     to: node_modules/@huggingface/tokenizers
+
+  # onnxruntime-common 是纯 JS（~1 MB）且三个平台一样，留在这里一份就够。
+  # onnxruntime-node 按平台架构在 win/mac/linux extraResources 分开拷贝。
+  - from: node_modules/onnxruntime-common
+    to: node_modules/onnxruntime-common
 
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
@@ -94,6 +102,17 @@ win:
   extraFiles:
     - from: ../../native/win32/x64
       to: native/win32/x64
+  # 本地 OCR 的推理引擎：只带本次构建的架构那一份（见顶部 extraResources 的说明）。
+  # `script/` 只在 postinstall 用得上，不带。
+  extraResources:
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/win32/${arch}/**
   target:
     - target: nsis
       arch:
@@ -127,6 +146,15 @@ linux:
   extraResources:
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
+    # 本地 OCR 的推理引擎：只带 linux/${arch} 那份（见顶部 extraResources 的说明）。
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/linux/${arch}/**
   extraFiles:
     - from: ../../native/linux/${arch}
       to: native/linux/${arch}
@@ -153,6 +181,18 @@ mac:
   extraResources:
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
+    # 本地 OCR 的推理引擎：只带 darwin/${arch} 那份（见顶部 extraResources 的说明）。
+    # ⚠️ 上游**没有** darwin/x64（Intel Mac）的二进制，所以 mac-x64 这个 filter 一个文件
+    # 都匹配不到 —— 那台机器上本地识别本来就跑不起来，`localOcrBlocker()` 会在
+    # 设置页 / 灯箱 / MCP 三处如实说明，不再引导用户去下一个用不了的模型。
+    - from: node_modules/onnxruntime-node
+      to: node_modules/onnxruntime-node
+      filter:
+        - package.json
+        - README.md
+        - dist/**
+        - lib/**
+        - bin/napi-v6/darwin/${arch}/**
   extraFiles:
     - from: ../../native/darwin/${arch}
       to: native/darwin/${arch}

@@ -45,6 +45,7 @@ export function GapMessagesModal({
   hasMore,
   moreFailed,
   totalCount,
+  notice,
   onLoadMore,
   onClose,
 }: {
@@ -64,6 +65,7 @@ export function GapMessagesModal({
   moreFailed: boolean;
   /** 缺口总条数（占位条估算），用于底部进度文案。 */
   totalCount: number;
+  notice?: string;
   onLoadMore: () => void;
   onClose: () => void;
 }): ReactElement {
@@ -111,6 +113,11 @@ export function GapMessagesModal({
               <X size={17} />
             </button>
           </header>
+          {notice ? (
+            <p role="status" style={{ color: 'var(--weq-fg-secondary)', padding: '0 16px' }}>
+              {notice}
+            </p>
+          ) : null}
 
           <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
             <ConvContext.Provider value={convKey}>

@@ -44,6 +44,7 @@ import {
 } from '../../context/app_context';
 import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
+import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
@@ -53,6 +54,7 @@ import {
   logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
+  type OcrDownloadProgress,
   type TtsProviderConfig,
   type DirSizeProgress,
   validateChatpicRoot,
@@ -61,6 +63,7 @@ import {
   testSsePushTarget,
   attachAndRegisterSsoSession,
   resolveDeviceGuid,
+  localOcrBlocker,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -105,6 +108,8 @@ const exportPresetOptionsSchema = z.object({
   downloadPtt: z.boolean(),
   completeDress: z.boolean(),
   transcribeVoice: z.boolean(),
+  /** 图片文字识别（自动 OCR）。旧客户端不传时读取端补 false。 */
+  ocrImages: z.boolean().default(false),
   dress: z.object({
     bubble: z.boolean(),
     font: z.boolean(),
@@ -375,9 +380,9 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  // ---- version (设置 → 全局设置) ----
+  // ---- version (设置 → 版本) ----
 
-  /** WeQ app version + the runtime versions, for the 全局设置 page. */
+  /** WeQ app version + the runtime versions, for the 版本 page. */
   getVersionInfo: procedure.query(() => {
     const host = getHost();
     return {
@@ -388,6 +393,15 @@ export const bootstrapRouter = router({
       isDev: !host.isPackaged(),
     };
   }),
+
+  /**
+   * 内置 native 组件的构建信息（构建时间 / 过期时间 / 有效期长度）。
+   *
+   * 直接读 `.node` 自报的 `getBuildInfo()`，**不经过** native 加载校验 —— 构建
+   * 过期时 `loadNative` 会抛错，但版本页仍要能显示过期时间。老 `.node` 没有这个
+   * 函数、或读不到时返回 null（版本页显示「未知」）。
+   */
+  getNativeBuildInfo: procedure.query(() => readNativeBuildInfo()),
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
@@ -554,6 +568,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setQzonePagination: procedure
+    .input(
+      z.object({
+        windowSeconds: z.number().int().min(1).max(3600),
+        maxPages: z.number().int().min(1).max(1000),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ qzonePagination: input }).qzonePagination;
+    }),
+
   /**
    * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
    * 决定页面没有 og:image 时要不要用离屏窗口截一张。纯持久化。
@@ -564,6 +589,17 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ linkPreview: input });
       return true;
     }),
+
+  /** 是否显示会话内消息序号。 */
+  setShowMessageSeq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageSeq: input.enabled });
+    return true;
+  }),
+
+  setShowMessageTime: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
+    return true;
+  }),
 
   /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
   setShowMsgDecoration: procedure
@@ -765,11 +801,14 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 群关键词提醒的规则。前端在会话设置里改完就整体写回（按群号 keyed），主进程
-   * 的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   * 群关键词提醒的规则（按账号存）。前端在会话设置里改完就整体写回（按群号
+   * keyed），主进程的匹配器立即生效（见 {@link getAppContext().applyGroupKeyword}）。
+   *
+   * 没有打开的账号时返回空表 —— 规则挂在账号记录上，读不到「当前账号」就没有规则。
    */
   getGroupKeywordRules: procedure.query(() => {
-    return requireBootstrap().userConfig.getSettings().groupKeyword.rules;
+    const accountConfig = getAppContext().services?.accountConfig;
+    return accountConfig?.getGroupKeywordRules() ?? {};
   }),
 
   setGroupKeywordRules: procedure
@@ -791,9 +830,12 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      userConfig.setSettings({ groupKeyword: { rules: input.rules } });
-      const next = userConfig.getSettings().groupKeyword.rules;
+      const accountConfig = getAppContext().services?.accountConfig;
+      if (!accountConfig) {
+        throw new Error('No account session open — call bootstrap.openAccount first.');
+      }
+      accountConfig.setGroupKeywordRules(input.rules);
+      const next = accountConfig.getGroupKeywordRules();
       await getAppContext().applyGroupKeyword(next);
       return next;
     }),
@@ -1070,6 +1112,22 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  // ---- 加入交流群引导（一次） ----
+
+  /** True once the user confirmed the 「加入交流群」 prompt (立即加群 / 不再提醒都会写)。 */
+  getJoinGroupPromptAcknowledged: procedure.query(() => {
+    return requireBootstrap().userConfig.isJoinGroupPromptAcknowledged();
+  }),
+
+  /**
+   * 确认「加入交流群」引导（persists to config.json）。点「立即加群」与「不再提醒」
+   * 共用这一条 —— 两者都代表「这条引导我看过了」，区别只在弹窗里要不要顺手加群。
+   */
+  acknowledgeJoinGroupPrompt: procedure.mutation(() => {
+    requireBootstrap().userConfig.acknowledgeJoinGroupPrompt();
+    return true;
+  }),
+
   // ---- voice transcription models (设置 → 语音转录) ----
 
   /** The model registry, each entry enriched with on-disk / in-flight state. */
@@ -1113,6 +1171,67 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
     return true;
   }),
+
+  // ---- local OCR models (设置 → 图片识别) ----
+  //
+  // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
+  // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。
+
+  /**
+   * The OCR model registry (识别 + 筛图两种用途)，各带落盘 / 下载中状态；
+   * 外加 `engineBlocker`：**本机能不能跑本地推理引擎** —— 能跑是 null，跑不了是
+   * 给人看的原因（如 macOS Intel 上游没发 onnxruntime 二进制）。渲染层据此收起
+   * 下载入口，别让用户下完 21 MB 才发现这台机器跑不起来。
+   */
+  ocrModels: procedure.query(() => {
+    return {
+      models: requireBootstrap().ocrModels.listModels(),
+      engineBlocker: localOcrBlocker(),
+    };
+  }),
+
+  /**
+   * Start downloading an OCR model (fire-and-forget). Progress is delivered via
+   * the `onOcrModelProgress` subscription; returns immediately.
+   */
+  downloadOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    // Don't await — the subscription drives the UI. Swallow rejections here;
+    // the terminal 'progress' event already carries the error.
+    void requireBootstrap()
+      .ocrModels.downloadModel(input.id)
+      .catch(() => {});
+    return true;
+  }),
+
+  /** Subscribe to OCR-model download progress (all models share one stream). */
+  onOcrModelProgress: procedure.subscription(() => {
+    return observable<OcrDownloadProgress>((emit) => {
+      const handler = (p: OcrDownloadProgress): void => emit.next(p);
+      const svc = requireBootstrap().ocrModels;
+      svc.on('progress', handler);
+      return () => {
+        svc.off('progress', handler);
+      };
+    });
+  }),
+
+  /** Delete a downloaded OCR model's files. No-op while a download is in flight. */
+  deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    return requireBootstrap().ocrModels.deleteModel(input.id);
+  }),
+
+  /**
+   * Set (or clear with '') the selected model for one purpose. `kind` picks the
+   * settings slot: `ocr` = 识别模型，`filter` = 筛图模型。
+   */
+  setOcrModel: procedure
+    .input(z.object({ kind: z.enum(['ocr', 'filter']), modelId: z.string() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        ocr: input.kind === 'ocr' ? { modelId: input.modelId } : { filterModelId: input.modelId },
+      });
+      return true;
+    }),
 
   // ---- agent lab provider config ----
 

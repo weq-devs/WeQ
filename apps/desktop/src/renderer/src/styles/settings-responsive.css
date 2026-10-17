@@ -1,0 +1,39 @@
+@media (max-width: 650px) {
+  .weq-settings-dialog {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    width: calc(100vw - 24px);
+    height: calc(100dvh - 32px);
+  }
+
+  .weq-settings-nav {
+    min-width: 0;
+    padding: 12px;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .weq-settings-nav-title {
+    margin: 0 36px 10px 4px;
+  }
+
+  .weq-settings-nav ul {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .weq-settings-nav li {
+    flex-shrink: 0;
+  }
+
+  .weq-settings-nav-item {
+    width: max-content;
+    white-space: nowrap;
+  }
+
+  .weq-settings-body {
+    padding: 18px 16px;
+  }
+}

@@ -9,6 +9,14 @@
  *     —— 与 `@weq/service` 的 `buildTextElements`（replyToMsgSeq 那一路）完全同形，
  *     所以走草稿里既有的「元素 token」通路即可。
  *
+ * **`origMsgSeq` 填哪个号，群聊和私聊不是一回事**（2026-10-17 真机对账）：
+ *   - 群聊：群内 seq（列 40003）—— 群消息的 `contentHead.sequence` 就是群内 seq；
+ *   - 私聊：被引用消息的**发送方本地 client sequence**（列 40005，wire
+ *     `contentHead.sequence` tag 5）。QQ 在私聊里按这套编号解析 `srcMsg.origSeqs[0]`，
+ *     会话级 seq（40003 / `ntMsgSeq`）那套是历史分页用的 —— 拿 40003 去引用，收端
+ *     只会显示一个定位不到原消息的引用框。
+ * 所以 {@link composerQuoteElement} 优先用 `clientSeq`，没有（群聊 / 老数据）才退回 `msgSeq`。
+ *
  * **允许嵌套引用**（引用的消息自己也是引用）：回复元素只带引用指针（seq / uin / 时间），
  * 不带被引消息的元素清单，所以「排除原消息引用的那个元素」天然成立 —— 原消息自带的
  * reply 元素永远不会被带到新引用里。摘要那一路同理：{@link quotePreview} 会把原消息自己的
@@ -28,8 +36,13 @@ import type { Message } from './types';
 
 /** 引用条 + 待发送的引用。 */
 export type ComposerQuote = {
-  /** 被引用消息的会话内序号（群 / 私聊都是 msgSeq）。 */
+  /** 被引用消息的会话内序号（列 40003）—— 群聊引用就发它。 */
   msgSeq: number;
+  /**
+   * 私聊要发的「发送方本地 client sequence」（列 40005）—— 缺省（群聊、老数据、
+   * 乐观条目）时回落到 {@link msgSeq}。
+   */
+  clientSeq?: number;
   /** 被引用消息发送者的 QQ 号（可选，带上更稳）。 */
   senderUin?: number;
   /** 被引用消息的发送时间（unix 秒，可选）。 */
@@ -91,7 +104,9 @@ function elementPreviewText(element: MessageElement): string {
  */
 export function quoteBlockReason(message: Message): string | null {
   const seq = Number((message as { msgSeq?: unknown }).msgSeq);
-  if (!Number.isSafeInteger(seq) || seq <= 0) {
+  const clientSeq = Number((message as { clientSeq?: unknown }).clientSeq);
+  const usable = (v: number): boolean => Number.isSafeInteger(v) && v > 0;
+  if (!usable(seq) && !usable(clientSeq)) {
     return '这条消息没有会话内序号，暂不支持引用';
   }
 
@@ -130,8 +145,10 @@ export function quoteFromMessage(message: Message): ComposerQuote | null {
 
   const senderUin = Number(message.sender?.identityValue ?? '');
   const seconds = Math.floor(Date.parse(message.createdAt ?? '') / 1000);
+  const clientSeq = Number((message as { clientSeq?: unknown }).clientSeq);
   return {
     msgSeq: Number((message as { msgSeq?: unknown }).msgSeq),
+    ...(Number.isSafeInteger(clientSeq) && clientSeq > 0 ? { clientSeq } : {}),
     ...(Number.isSafeInteger(senderUin) && senderUin > 0 ? { senderUin } : {}),
     ...(Number.isFinite(seconds) && seconds > 0 ? { msgTime: seconds } : {}),
     senderName: String(message.sender?.displayName ?? '').trim(),
@@ -148,7 +165,8 @@ export function quoteFromMessage(message: Message): ComposerQuote | null {
 export function composerQuoteElement(quote: ComposerQuote): Record<string, unknown> {
   return {
     kind: 'reply',
-    origMsgSeq: quote.msgSeq,
+    // 私聊发 client sequence，群聊发群内 seq —— 见文件头「填哪个号」那一段。
+    origMsgSeq: quote.clientSeq && quote.clientSeq > 0 ? quote.clientSeq : quote.msgSeq,
     ...(quote.senderUin !== undefined ? { origSenderUin: quote.senderUin } : {}),
     ...(quote.msgTime !== undefined ? { origMsgTime: quote.msgTime } : {}),
   };

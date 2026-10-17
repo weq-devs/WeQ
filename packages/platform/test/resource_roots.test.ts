@@ -56,6 +56,7 @@ function fakePlatform(): Platform {
     accountDir: local('accountDir'),
     ntDbDir: local('ntDbDir'),
     ntDataDir: local('ntDataDir'),
+    jiebaDictDir: () => 'local:jiebaDictDir',
     groupInfoDbPath: local('groupInfoDbPath'),
     profileInfoDbPath: local('profileInfoDbPath'),
     miscDbPath: local('miscDbPath'),
@@ -165,6 +166,9 @@ describe('passthrough', () => {
     expect(p.isQqLoggedIn('10001')).toBe(base.isQqLoggedIn('10001'));
     // nt_msg.db is the session's own resolved path, never redirected here.
     expect(p.ntMsgDbPath('10001')).toBe(base.ntMsgDbPath('10001'));
+    // 结巴词典是账号无关的通用资源（global/ 树，不含隐私）：静态账号继续用本机
+    // 那份即可，不该被 media='none' 拦掉 —— 拦了词云只会更差，不会更安全。
+    expect(p.jiebaDictDir()).toBe('local:jiebaDictDir');
   });
 });
 

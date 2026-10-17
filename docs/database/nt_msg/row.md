@@ -41,6 +41,7 @@ uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_ma
 | 列 | 字段名 | 类型 | 含义 | 置信度 |
 | -- | ------ | ---- | ---- | ------ |
 | 40001 | `msgId` | INTEGER (PK) | 消息 id，雪花 id | 已验证 |
+| 40005 | `clientSeq` | INTEGER | **发送方本地序号**（wire `contentHead.sequence` tag 5）：谁发的谁给号，随消息一路带到所有存它的人库里；**私聊引用回复要引的就是它**，群聊行恒为 0（群消息这一格就是群内 seq） | 已验证 |
 | 40002 | `msgRandom` | INTEGER | 消息随机数。与 40003 组成 `UNIQUE(40027,40003,40002)`；WeQ 用它当防撤回 trigger 的「允许修改」信号（见下文第五节） | 已验证 |
 | 40003 | `msgSeq` | INTEGER | 会话内递增序号。**不是全序**：灰条与它挂靠的消息共用同一 seq，排序需 `(40003, 40050, 40001)` 三键 | 已验证 |
 | 40010 | `chatType` | INTEGER | 聊天类型（1 私聊 / 2 群聊 / 8 数据线 / 100+ 临时会话…），全表见 [enums.ts](../../../packages/codec/src/domain/msg/enums.ts) 的 `ChatType` | 已验证 |

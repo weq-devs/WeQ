@@ -34,6 +34,13 @@ import { normalizeAccountConfig } from '../account/user_config';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
+import {
+  DEFAULT_QZONE_PAGINATION,
+  normalizeQzonePagination,
+  qzonePaginationLimiter,
+  type QzonePaginationSettings,
+} from '../common/qzone_pagination';
+import { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export interface AutoEnterTarget {
   configId: string;
@@ -120,6 +127,8 @@ export interface ExportPresetOptions {
   downloadPtt: boolean;
   completeDress: boolean;
   transcribeVoice: boolean;
+  /** 图片文字识别（自动 OCR）。旧数据缺省补 false。 */
+  ocrImages: boolean;
   dress: {
     bubble: boolean;
     font: boolean;
@@ -229,6 +238,7 @@ function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | und
     downloadPtt: o.downloadPtt,
     completeDress: o.completeDress,
     transcribeVoice: o.transcribeVoice,
+    ocrImages: typeof o.ocrImages === 'boolean' ? o.ocrImages : false,
     dress: {
       bubble: dress.bubble,
       font: dress.font,
@@ -324,6 +334,20 @@ export interface VoiceTranscribeConfig {
 }
 
 /**
+ * 本地图片文字识别（OCR）的模型选择。两个用途各自独立：
+ *
+ *   - `modelId`       识别模型（出文字 + 像素坐标框）：空 = 未选；
+ *   - `filterModelId` 筛图模型（只判断有没有文字，用于批量 OCR 前先筛掉无文字的图）：
+ *                     空 = 不过滤。
+ *
+ * 两个 id 都指向 `@weq/service` 的 OCR 模型注册表（`common/ocr_models.ts`）。
+ */
+export interface OcrModelsConfig {
+  modelId: string;
+  filterModelId: string;
+}
+
+/**
  * Local MCP server config. The server is account-bound — it only listens while
  * an account is open and stops when the account switches / logs out. Bound to
  * 127.0.0.1 and gated by a bearer `token` (generated on first enable).
@@ -402,6 +426,8 @@ export interface AppSettings {
   autoLockMinutes: number;
   appLock: AppLockConfig;
   voiceTranscribe: VoiceTranscribeConfig;
+  /** 本地图片文字识别（OCR）的模型选择。 */
+  ocr: OcrModelsConfig;
   mcp: McpServerConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
@@ -437,6 +463,10 @@ export interface AppSettings {
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
    */
   showMsgDecoration: boolean;
+  /** Show the original conversation sequence beside each message. */
+  showMessageSeq: boolean;
+  /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
+  showMessageTime: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -449,8 +479,6 @@ export interface AppSettings {
    */
   externalRkey: ExternalRkeyConfig;
   ssePush: SsePushConfig;
-  /** 群关键词提醒：每个群一组关键词 + 指定成员过滤。 */
-  groupKeyword: GroupKeywordConfig;
   /**
    * Linux 下是否不再弹「关闭 ptrace 保护」的引导弹窗。首次检测到直连注入被内核
    * 拒绝（EPERM/EACCES）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」
@@ -479,6 +507,8 @@ export interface AppSettings {
    * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
    */
   logRetentionDays: number;
+  /** App-wide online Qzone page request budget, shared across accounts and exports. */
+  qzonePagination: QzonePaginationSettings;
 }
 
 /** 日志保留天数的默认值（7 天）。 */
@@ -519,6 +549,17 @@ export const DB_DAMAGE_REMINDER_POLICY_VERSION = 2;
  * 会把低版本配置视为「未确认」。
  */
 export const WELCOME_POLICY_VERSION = 2;
+
+/**
+ * 「加入交流群」引导弹窗这条引导的**策略版本**。
+ *
+ * 版本 1 = 现在：首次使用（欢迎框确认之后）或老用户升级后弹一次，点「立即加群」
+ * 或「不再提醒」都算确认，之后不再出现。抬版本号会让所有人再看到一次（例如换群 /
+ * 想让存量用户重新留意下面的加群入口时）。
+ *
+ * 与欢迎框的区别：它**不参与迁移**，也不阻挡任何功能 —— 纯引导，随时可跳过。
+ */
+export const JOIN_GROUP_PROMPT_VERSION = 1;
 
 /**
  * 一次性的偏好迁移：把「扫描 QQ 内存」默认关掉，等改版欢迎框重新征得同意。
@@ -610,74 +651,15 @@ export interface SsePushConfig {
   massThreshold: number;
 }
 
-/** 一个关键词提醒条目：关键词 + 它自己的成员范围。 */
-export interface GroupKeywordEntryConfig {
-  /** 命中即提醒的关键词（大小写不敏感子串）。 */
-  keyword: string;
-  /** 只在这些人发言时提醒（uid）；空数组 = 不指定，即全部成员。 */
-  memberUids: string[];
-}
-
-/** 一个群的关键词提醒规则：该群下所有关键词条目。 */
-export interface GroupKeywordRuleConfig {
-  /** 关键词条目；空数组 = 该群不提醒。 */
-  keywords: GroupKeywordEntryConfig[];
-}
-
 /**
- * 设置 → 群关键词提醒。`rules` 以群号为 key，只存用户配置过的群（未配置 =
- * 不提醒）。全局一份，与当前账号无关；主进程的匹配器随账号打开按此生效。
- */
-export interface GroupKeywordConfig {
-  rules: Record<string, GroupKeywordRuleConfig>;
-}
-
-function normalizeMemberUids(raw: unknown): string[] {
-  return Array.isArray(raw)
-    ? [...new Set(raw.filter((u): u is string => typeof u === 'string' && u.trim() !== ''))]
-    : [];
-}
-
-/**
- * 归一化一份规则列表：丢弃空关键词 / 非字符串，去重，保留顺序。
+ * 群关键词提醒规则。类型与归一化实现都搬到了匹配内核
+ * （`account/group_keyword.ts`），这里重新导出以保持既有引用不破。
  *
- * 同时兼容**旧格式**：早期把 `memberUids` 存在群一级（`value.memberUids`），
- * 关键词只是字符串数组。遇到这种结构时，把那份群级范围套用到该群所有关键词上
- * 一次性迁移，之后一律按「每个关键词各自带范围」读写。
+ * 规则**按账号存**（`config/accounts/<configId>.json` 的 `groupKeyword`），不再
+ * 走全局 settings —— 关注哪些群天然跟账号绑定，全局一份会让两个号互相串。
  */
-export function normalizeGroupKeywordRules(raw: unknown): Record<string, GroupKeywordRuleConfig> {
-  if (!raw || typeof raw !== 'object') return {};
-  const out: Record<string, GroupKeywordRuleConfig> = {};
-  for (const [groupCode, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!/^\d+$/.test(groupCode)) continue;
-    if (!value || typeof value !== 'object') continue;
-    const v = value as { keywords?: unknown; memberUids?: unknown };
-    if (!Array.isArray(v.keywords)) continue;
-
-    const legacyMemberUids = normalizeMemberUids(v.memberUids);
-    const seen = new Set<string>();
-    const keywords: GroupKeywordEntryConfig[] = [];
-    for (const item of v.keywords) {
-      // 新格式：{ keyword, memberUids }；旧格式：裸字符串（沿用群级 memberUids）。
-      const keyword = typeof item === 'string' ? item : (item as { keyword?: unknown })?.keyword;
-      if (typeof keyword !== 'string') continue;
-      const trimmed = keyword.trim();
-      if (trimmed === '') continue;
-      const key = trimmed.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const memberUids =
-        typeof item === 'string'
-          ? legacyMemberUids
-          : normalizeMemberUids((item as { memberUids?: unknown }).memberUids);
-      keywords.push({ keyword: trimmed, memberUids });
-    }
-
-    if (keywords.length === 0) continue;
-    out[groupCode] = { keywords };
-  }
-  return out;
-}
+export type { GroupKeywordRules } from '../account/group_keyword';
+export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
@@ -687,6 +669,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
+  // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
+  ocr: { modelId: '', filterModelId: '' },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
@@ -699,14 +683,16 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   showMsgDecoration: true,
+  showMessageSeq: false,
+  showMessageTime: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
-  groupKeyword: { rules: {} },
   suppressAttachHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
 };
 
 export interface UserConfig {
@@ -721,6 +707,12 @@ export interface UserConfig {
    * 「未确认」，从而重新弹出一次新版引导。
    */
   welcomePolicyVersion?: number;
+  /**
+   * 已经确认过的「加入交流群」引导版本（缺省 = 0，见
+   * {@link JOIN_GROUP_PROMPT_VERSION}）。点「立即加群」或「不再提醒」都会写入，
+   * 之后同版本内不再弹出。
+   */
+  joinGroupPromptVersion?: number;
   /**
    * WeQ 验证器（应用锁，RFC 6238 TOTP）的 Base32 密钥。仅主进程读写，
    * 不通过 getSettings 暴露给渲染层，避免解锁凭证泄漏进 UI。
@@ -775,7 +767,11 @@ export class UserConfigService {
   constructor(platform: Platform) {
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
+    // 群关键词迁移先跑：它从 settings 里搬走旧键，而设置类迁移不保证原样保留
+    // settings（都用 `getSettings()` 重建），跑在后面有丢掉旧规则的风险。
+    this.migrateGroupKeywordToAccounts();
     this.runConfigMigrations();
+    qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
   }
 
   /**
@@ -819,6 +815,68 @@ export class UserConfigService {
   }
 
   /**
+   * 一次性迁移：把旧版「全局群关键词提醒」搬进按账号存的记录。
+   *
+   * 旧版把规则放在 `settings.groupKeyword.rules`（全机器一份，与账号无关），两个
+   * 号加同一个群时会互相串。现在规则按账号存（`config/accounts/<configId>.json`）。
+   *
+   * 迁移策略：把这批规则**复制给所有已存账号**记录（它们过去共享同一份，复制是
+   * 语义等价的），然后从 settings 里删掉旧键。只搬一次 —— 旧键没了就是标志。
+   *
+   * 不能依赖 `setSettings` 去顺带清理：那会把整份 settings 覆盖写回，其它偏好
+   * 只要没显式带上就会丢；这里只动 settings 里这一个键。
+   *
+   * best-effort：读写失败的账号跳过，绝不抛给调用方（迁移失败只是"下次再试"）。
+   */
+  private migrateGroupKeywordToAccounts(): void {
+    const cfg = this.read();
+    const legacy = (cfg.settings as { groupKeyword?: unknown } | undefined)?.groupKeyword;
+    if (legacy === undefined) return;
+    const rules = normalizeGroupKeywordRules(
+      (legacy as { rules?: unknown } | null | undefined)?.rules,
+    );
+
+    let written = 0;
+    if (Object.keys(rules).length > 0) {
+      const dir = join(this.root, 'config', 'accounts');
+      let files: string[];
+      try {
+        files = readdirSync(dir);
+      } catch {
+        files = []; // 还没有账号记录目录
+      }
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const filePath = join(dir, file);
+        try {
+          const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+          if (raw.groupKeyword !== undefined) continue; // 已经按账号配过了，不动它
+          const config = normalizeAccountConfig(raw);
+          if (!config.configId) config.configId = basename(file, '.json');
+          writeFileSync(filePath, JSON.stringify({ ...config, groupKeyword: rules }, null, 2));
+          written++;
+        } catch (error) {
+          this.logger.warn('skipped account config during group keyword migration', {
+            event: 'config-migration-group-keyword-skip',
+            file,
+            ...logErrorContext(error),
+          });
+        }
+      }
+    }
+
+    // 删掉 settings 里的旧键（只动这一个键，其余偏好原样保留）。
+    const settings = { ...(cfg.settings ?? {}) } as Record<string, unknown>;
+    delete settings.groupKeyword;
+    this.write({ settings });
+    this.logger.info('migrated global group keyword rules into per-account config', {
+      event: 'config-migration-group-keyword',
+      groupCount: Object.keys(rules).length,
+      accounts: written,
+    });
+  }
+
+  /**
    * 把 uid 补写进该 uin 的所有已存账号记录（`config/accounts/*.json`）。
    *
    * uid 是账号身份的一部分（linux 的账号目录由它派生），但解析出它的地方
@@ -859,6 +917,97 @@ export class UserConfigService {
     if (updated > 0) {
       this.logger.info('stored account uid into saved account records', {
         event: 'set-account-uid',
+        accountUin: uin,
+        files: updated,
+      });
+    }
+  }
+
+  /**
+   * 设备 guid 变了（妙妙工具 → QQ 登陆账号管理里换的）：把所有账号记录里那份
+   *「发包身份用的 guid」同步成新值，并作废按旧 guid 解出来的 A1 payload 缓存。
+   *
+   * 为什么必须一起改：`guid` 是服务端认设备的依据，WeQ 自己发包（快登 / 抓包 /
+   * 在线识别）读的就是这份配置；不同步的话，换完 guid 反而让旧缓存和磁盘不一致 ——
+   * 服务端会看到"同一份凭据来自两台设备"。A1 payload 是用 guid 当 AES 密钥解出来的，
+   * 新 guid 解不开旧 payload，所以一并作废（下次开会话会重新解密）。
+   *
+   * best-effort：读写失败的记录跳过，绝不抛给调用方。
+   */
+  rotateAccountGuids(guid: string): void {
+    if (!guid) return;
+    const dir = join(this.root, 'config', 'accounts');
+    let files: string[];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      return; // 还没有账号记录目录
+    }
+    let updated = 0;
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = join(dir, file);
+      try {
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+        if (raw.guid === guid && raw.a1Payload === undefined) continue;
+        const config = normalizeAccountConfig(raw);
+        if (!config.configId) config.configId = basename(file, '.json');
+        // 按旧 guid 解出来的 A1 payload 已经失效：删掉，让下次开会话重解。
+        const { a1Payload: _stale, ...rest } = config;
+        writeFileSync(filePath, JSON.stringify({ ...rest, guid }, null, 2), 'utf-8');
+        updated++;
+      } catch (error) {
+        this.logger.warn('skipped account config while rotating guid', {
+          event: 'set-account-guid-skip',
+          file,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    if (updated > 0) {
+      this.logger.info('synced account configs to the new device guid', {
+        event: 'set-account-guid',
+        files: updated,
+      });
+    }
+  }
+
+  /**
+   * 某账号的 A1 被清掉了（`login.db [1004]` 被写成 NULL）：把 WeQ 缓存的那份 A1
+   * payload 一并作废 —— 留着的话快速登录会拿一个 QQ 那边已经不认的凭据去换票据。
+   *
+   * best-effort。
+   */
+  clearAccountA1Payload(uin: string): void {
+    if (!uin) return;
+    const dir = join(this.root, 'config', 'accounts');
+    let files: string[];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      return;
+    }
+    let updated = 0;
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = join(dir, file);
+      try {
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+        if (raw.uin !== uin || raw.a1Payload === undefined) continue;
+        const { a1Payload: _dropped, ...rest } = raw;
+        writeFileSync(filePath, JSON.stringify(rest, null, 2), 'utf-8');
+        updated++;
+      } catch (error) {
+        this.logger.warn('skipped account config while clearing a1 payload', {
+          event: 'clear-account-a1-skip',
+          file,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    if (updated > 0) {
+      this.logger.info('cleared cached a1 payload for account', {
+        event: 'clear-account-a1',
         accountUin: uin,
         files: updated,
       });
@@ -1017,6 +1166,8 @@ export class UserConfigService {
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
+      showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1037,13 +1188,11 @@ export class UserConfigService {
             ? s.ssePush.massThreshold
             : d.ssePush.massThreshold,
       },
-      groupKeyword: {
-        rules: normalizeGroupKeywordRules(s?.groupKeyword?.rules),
-      },
       suppressAttachHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1052,6 +1201,10 @@ export class UserConfigService {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
+      },
+      ocr: {
+        modelId: s?.ocr?.modelId ?? d.ocr.modelId,
+        filterModelId: s?.ocr?.filterModelId ?? d.ocr.filterModelId,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -1096,6 +1249,8 @@ export class UserConfigService {
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
+      showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
@@ -1128,18 +1283,13 @@ export class UserConfigService {
             ? patch.ssePush.massThreshold
             : current.ssePush.massThreshold,
       },
-      groupKeyword: {
-        rules:
-          patch.groupKeyword?.rules !== undefined
-            ? normalizeGroupKeywordRules(patch.groupKeyword.rules)
-            : current.groupKeyword.rules,
-      },
       suppressAttachHint: patch.suppressAttachHint ?? current.suppressAttachHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
@@ -1150,6 +1300,10 @@ export class UserConfigService {
           patch.voiceTranscribe?.ttsProviders !== undefined
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
+      },
+      ocr: {
+        modelId: patch.ocr?.modelId ?? current.ocr.modelId,
+        filterModelId: patch.ocr?.filterModelId ?? current.ocr.filterModelId,
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
@@ -1168,6 +1322,7 @@ export class UserConfigService {
       },
     };
     this.write({ settings: next });
+    qzonePaginationLimiter.configure(next.qzonePagination);
     this.logger.info('updated app settings', {
       event: 'set-settings',
       patchKeys: Object.keys(patch),
@@ -1176,13 +1331,14 @@ export class UserConfigService {
       autoLockMinutes: next.autoLockMinutes,
       voiceModelId: next.voiceTranscribe.modelId,
       ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
+      ocrModelId: next.ocr.modelId,
+      ocrFilterModelId: next.ocr.filterModelId,
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,
       externalRkeyServerCount: next.externalRkey.servers.length,
       ssePushServerCount: next.ssePush.servers.length,
       ssePushEnabled: next.ssePush.enabledServerId !== null,
-      groupKeywordGroupCount: Object.keys(next.groupKeyword.rules).length,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
@@ -1253,6 +1409,26 @@ export class UserConfigService {
       event: 'welcome-ack',
       version: WELCOME_POLICY_VERSION,
       allowMemoryScan: options.allowMemoryScan,
+    });
+  }
+
+  /**
+   * 是否已经确认过**当前策略版本**的「加入交流群」引导弹窗。缺省（0）视为未确认，
+   * 于是首次使用与老用户升级各会看到一次。
+   */
+  isJoinGroupPromptAcknowledged(): boolean {
+    return (this.read().joinGroupPromptVersion ?? 0) >= JOIN_GROUP_PROMPT_VERSION;
+  }
+
+  /**
+   * 确认「加入交流群」引导（点「立即加群」或「不再提醒」都走这里）。写当前版本号，
+   * 之后同版本内不再弹出。
+   */
+  acknowledgeJoinGroupPrompt(): void {
+    this.write({ joinGroupPromptVersion: JOIN_GROUP_PROMPT_VERSION });
+    this.logger.info('join group prompt acknowledged', {
+      event: 'join-group-prompt-ack',
+      version: JOIN_GROUP_PROMPT_VERSION,
     });
   }
 

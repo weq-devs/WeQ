@@ -8,6 +8,8 @@ const CMD = 'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList';
 
 export namespace GetAlbumMediaList {
   export const cmd = CMD;
+  // 不在 LagrangeV2 签名白名单里，needSign = false。
+  export const needSign = false;
   export const reqSchema = GET_MEDIA_LIST_REQUEST;
   export const respSchema = GET_MEDIA_LIST_RESPONSE;
 

@@ -21,6 +21,7 @@ import type { AnnualReportPreferences } from './annual_report/types';
 import type { DatabaseAlgorithms } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { normalizeGroupKeywordRules, type GroupKeywordRules } from './group_keyword';
 
 /**
  * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
@@ -115,6 +116,15 @@ export interface AccountConfig {
   lastLoginAt: number;
   /** Per-account annual-report page collection and ordering preferences. */
   annualReport?: AnnualReportPreferences;
+
+  /**
+   * 群关键词提醒规则（按账号存）。设为要盯哪些群天然跟账号绑定：同一个群号在 A、
+   * B 两个号下是不同的会话，用一份全局规则会互相串。
+   *
+   * 缺省（`undefined`）= 从未写过（读出来是空表）。升级前存在旧版全局 settings 里的
+   * 规则会在启动时一次性搬进各账号记录（见 UserConfigService.migrateGroupKeywordToAccounts）。
+   */
+  groupKeyword?: GroupKeywordRules;
 
   /** True while a logged-in QQ.exe instance for this account is running. */
   qqOnline?: boolean;
@@ -427,12 +437,49 @@ export class AccountConfigService {
     });
   }
 
+  /** 读这个账号的群关键词提醒规则（未配置 = 空表，即不提醒任何群）。 */
+  getGroupKeywordRules(): GroupKeywordRules {
+    return normalizeGroupKeywordRules(this.readRecord()?.groupKeyword);
+  }
+
+  /** 写这个账号的群关键词提醒规则（空表 = 该账号不再提醒任何群）。 */
+  setGroupKeywordRules(rules: GroupKeywordRules): void {
+    const normalized = normalizeGroupKeywordRules(rules);
+    this.patch({ groupKeyword: normalized });
+    this.logger.info('stored group keyword rules', {
+      event: 'set-group-keyword-rules',
+      groupCount: Object.keys(normalized).length,
+    });
+  }
+
   /** Persist p_skey harvested during the login flow. */
   setLoginPskey(loginPskey: Record<string, string>): void {
     this.patch({ loginPskey });
     this.logger.info('stored login pskey', {
       event: 'set-login-pskey',
       domains: Object.keys(loginPskey),
+    });
+  }
+
+  /**
+   * Drop one domain's login-harvested p_skey once a cgi has rejected it.
+   *
+   * 落盘的 seed 票据只该在「还有效」时留着：它会在下次开账号时被重新 seed 进
+   * `WebCredentialProvider`，而过期的 seed 会短路掉活 hook 查询（见
+   * `credential.ts` 的 `seedPskey` / `invalidate`），结果是每个域每次请求都先白
+   * 失败一轮。所以失效即删除，等下次登录再收一份新的。
+   */
+  clearLoginPskey(domain: string): void {
+    const existing = this.readRecord()?.loginPskey;
+    if (!existing || !(domain in existing)) return;
+    const rest = { ...existing };
+    delete rest[domain];
+    // 空表就整字段撤掉（`undefined` 会被 JSON.stringify 丢掉），别留个 `{}`。
+    this.patch({ loginPskey: Object.keys(rest).length > 0 ? rest : undefined });
+    this.logger.info('dropped invalid login pskey', {
+      event: 'clear-login-pskey',
+      domain,
+      remaining: Object.keys(rest),
     });
   }
 

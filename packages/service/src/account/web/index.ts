@@ -16,6 +16,8 @@ import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import {
   getQzoneAlbumList,
+  getQzoneAlbumPage,
+  getQzoneAlbumDetail,
   getQzoneAlbumMedia,
   getQzoneAlbumVideoUrl,
   type QzoneAlbum,
@@ -46,9 +48,16 @@ import {
   type QzoneInteractionTarget,
   type QzoneLike,
 } from './qzone_interaction';
-import { readQzoneComments, supplementQzoneComments } from './qzone_comments';
+import {
+  readQzoneComments,
+  supplementQzoneComments,
+  inclusiveQzoneCommentCount,
+} from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
+import { fetchQzoneContentCounts } from './qzone_stats';
+import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
+import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -63,8 +72,21 @@ export class WebQueryService {
   private readonly creds: WebCredentialProvider;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
-  constructor(nt: WebNative, session: AccountSession, resolvePid: () => number) {
-    this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
+  /**
+   * @param loginPskey 登录时顺带收下的 p_skey（域 → p_skey）。seed 进来后第一次
+   *   cgi（如 qzone.qq.com 的说说/相册）就不必等一次 hook 往返。票据失效不影响
+   *   正确性：{@link withRetry} 会清掉它、走活 hook 重试。
+   * @param onSeedInvalidated seed 的票据被判失效时调用（落盘那份一起删掉）。
+   */
+  constructor(
+    nt: WebNative,
+    session: AccountSession,
+    resolvePid: () => number,
+    loginPskey?: Record<string, string>,
+    onSeedInvalidated?: (domain: string) => void,
+  ) {
+    this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid, onSeedInvalidated);
+    if (loginPskey) this.creds.seedPskey(loginPskey);
   }
 
   async getGroupNotice(groupCode: string): Promise<GroupNotice[]> {
@@ -147,9 +169,57 @@ export class WebQueryService {
     count = 10,
     signal?: AbortSignal,
     cursor?: string,
+    scope: 0 | 7 = 0,
   ): Promise<QzoneFeedsResult> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor),
+      getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count, signal, cursor, scope),
+    );
+  }
+
+  async getQzonePostDetail(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  async getQzonePostImages(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      fetchQzonePostImages(cred, targetUin, tid, signal, captureRaw),
+    );
+  }
+
+  async getQzoneRelated(offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => fetchQzoneRelated(cred, offset, signal));
+  }
+
+  async getQzoneMemories(year: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => fetchQzoneMemories(cred, year, signal));
+  }
+
+  async getQzoneAlbumPage(targetUin: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneAlbumPage(cred, targetUin, offset, 40, signal),
+    );
+  }
+
+  async getQzoneAlbumDetail(
+    targetUin: string,
+    albumId: string,
+    picKey: string,
+    signal?: AbortSignal,
+  ) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneAlbumDetail(cred, targetUin, albumId, picKey, signal),
     );
   }
 
@@ -157,6 +227,28 @@ export class WebQueryService {
    * Best-effort 读取某空间若干说说的评论 + 点赞（空间动态页 HTML 解析）。
    * 供好友空间导出「补全互动」使用；互动缺失不抛错(空桶)，拉取失败抛错。
    */
+  async getQzoneStructuredComments(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+  ): Promise<QzoneInteraction> {
+    const snapshot = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      readQzoneComments(cred, targetUin, tid, { signal }),
+    );
+    const inclusive = inclusiveQzoneCommentCount(snapshot);
+    return {
+      coverage: 'observed',
+      comments: [...snapshot.comments, ...snapshot.replies],
+      likes: [],
+      commentCountInclusive: inclusive,
+      fieldCoverage: {
+        comments: snapshot.countMatched ? 'complete' : 'observed',
+        replies: inclusive !== null ? 'complete' : 'observed',
+        likes: 'unobserved',
+      },
+    };
+  }
+
   async getQzoneInteractions(
     targetUin: string,
     targets: QzoneInteractionTarget[],
@@ -215,6 +307,20 @@ export class WebQueryService {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       fetchQzoneFeedCounts(cred, key, appid, signal),
     );
+  }
+
+  async getQzoneSpaceStats(targetUin: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    try {
+      const counts = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+        fetchQzoneContentCounts(cred, targetUin, signal),
+      );
+      signal?.throwIfAborted();
+      return counts;
+    } catch {
+      signal?.throwIfAborted();
+      return { postCount: null, photoCount: null };
+    }
   }
 
   async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {

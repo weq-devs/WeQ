@@ -11,6 +11,7 @@ import { Check, CheckCheck, FlipHorizontal2, Search, X } from 'lucide-react';
 import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
+import { WindowedList } from '../../components/WindowedList';
 
 export function ConversationPicker({
   items,
@@ -112,26 +113,34 @@ export function ConversationPicker({
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">{query ? '没有匹配的会话' : emptyText}</div>
         ) : (
-          filtered.map((it) => {
-            const checked = selected.has(it.id);
-            return (
-              <button
-                key={it.id}
-                type="button"
-                className={`weq-exp-row${checked ? ' is-on' : ''}`}
-                onClick={() => toggle(it.id)}
-              >
-                <Avatar url={it.avatarUrl} name={it.name} size={38} />
-                <span className="weq-exp-row-meta">
-                  <strong title={it.name}>{it.name}</strong>
-                  {it.meta ? <small>{it.meta}</small> : null}
-                </span>
-                <span className="weq-exp-row-check" aria-hidden>
-                  {checked ? <Check size={14} /> : null}
-                </span>
-              </button>
-            );
-          })
+          <WindowedList
+            items={filtered}
+            rowHeight={64}
+            height={480}
+            itemKey={(it) => it.id}
+            renderItem={(it) => {
+              const checked = selected.has(it.id);
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  className={`weq-exp-row${checked ? ' is-on' : ''}`}
+                  style={{ height: '100%', width: '100%' }}
+                  aria-pressed={checked}
+                  onClick={() => toggle(it.id)}
+                >
+                  <Avatar url={it.avatarUrl} name={it.name} size={38} />
+                  <span className="weq-exp-row-meta">
+                    <strong title={it.name}>{it.name}</strong>
+                    {it.meta ? <small>{it.meta}</small> : null}
+                  </span>
+                  <span className="weq-exp-row-check" aria-hidden>
+                    {checked ? <Check size={14} /> : null}
+                  </span>
+                </button>
+              );
+            }}
+          />
         )}
       </div>
     </div>

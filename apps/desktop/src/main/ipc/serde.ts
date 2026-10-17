@@ -243,6 +243,9 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
  * and `msgSeq` (column 40003) drives the renderer's seq-window model.
  */
 export interface ChatMsgWire {
+  sourceFormat?: 'native' | 'protocol';
+  source?: 'roaming';
+  ntSeqVerified?: boolean;
   kind: 'c2c' | 'group';
   msgId: string;
   msgSeq: string;
@@ -253,6 +256,14 @@ export interface ChatMsgWire {
    * msgSeq, which are server-assigned and differ per conversation kind).
    */
   msgRandom: string;
+  /**
+   * Column 40005 — the sender-local client sequence (`contentHead.sequence`,
+   * tag 5). c2c-only (group rows leave it 0 → omitted here). This is the value
+   * a private-chat reply must quote: QQ resolves a c2c reply pointer in this
+   * space, NOT in the conversation-wide `msgSeq` (40003) space — quoting 40003
+   * there leaves the quote 定位不到原消息. Groups quote `msgSeq` as before.
+   */
+  clientSeq?: string;
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: string;
   senderUid: string;
@@ -383,6 +394,7 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),
     msgRandom: (m.msgRandom ?? 0n).toString(),
+    ...(m.clientSeq !== undefined && m.clientSeq > 0n ? { clientSeq: m.clientSeq.toString() } : {}),
     conv: m.targetUid,
     senderUid: m.senderUid,
     senderUin: m.senderUin.toString(),

@@ -1,6 +1,7 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
 import { z } from 'zod';
 import { getHost } from '@weq/service';
+import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
@@ -31,20 +32,67 @@ async function request<T>(
   if ([...pending.values()].filter((entry) => entry.services === services).length >= 4)
     throw new Error('请等待当前空间内容加载完成。');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('空间加载超时，请重试。')), 60_000);
   pending.set(input.requestId, { services, controller });
   try {
-    const result = await run(services, controller.signal);
+    const result = await withQzonePaginationTimeout(controller, 60_000, () =>
+      run(services, controller.signal),
+    );
     controller.signal.throwIfAborted();
     if (getAppContext().services !== services) throw new Error('账号已切换，请重新打开空间。');
     return result;
   } finally {
-    clearTimeout(timer);
     pending.delete(input.requestId);
   }
 }
 
 export const qzoneRouter = router({
+  detail: procedure
+    .input(post)
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal),
+      ),
+    ),
+  images: procedure
+    .input(post)
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzonePostImages(input.hostUin, input.tid, signal),
+      ),
+    ),
+  related: procedure
+    .input(read.extend({ offset: z.number().int().min(0).max(100000) }))
+    .query(({ input }) =>
+      request(input, (services, signal) => services.webQuery.getQzoneRelated(input.offset, signal)),
+    ),
+  memories: procedure
+    .input(read.extend({ year: z.number().int().min(1995).max(2100) }))
+    .query(({ input }) =>
+      request(input, (services, signal) => services.webQuery.getQzoneMemories(input.year, signal)),
+    ),
+  albumPage: procedure
+    .input(target.extend({ offset: z.number().int().min(0).max(100000) }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneAlbumPage(input.hostUin, input.offset, signal),
+      ),
+    ),
+  albumDetail: procedure
+    .input(
+      target.extend({ topicId: z.string().min(1).max(1024), picKey: z.string().min(1).max(4096) }),
+    )
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneAlbumDetail(input.hostUin, input.topicId, input.picKey, signal),
+      ),
+    ),
+  stats: procedure
+    .input(target)
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneSpaceStats(input.hostUin, signal),
+      ),
+    ),
   posts: procedure
     .input(target.extend({ offset: z.number().int().min(0).max(100_000) }))
     .query(({ input }) =>
@@ -74,24 +122,39 @@ export const qzoneRouter = router({
       }),
     ),
   feeds: procedure
-    .input(read.extend({ cursor: z.string().min(1).max(16384).optional() }))
+    .input(
+      read.extend({
+        cursor: z.string().min(1).max(16384).optional(),
+        scope: z.union([z.literal(0), z.literal(7)]).default(0),
+      }),
+    )
     .query(({ input }) =>
       request(input, (services, signal) =>
-        services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal, input.cursor),
+        services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal, input.cursor, input.scope),
       ),
     ),
-  interactions: procedure.input(post.extend({ time: z.number().int().min(0) })).query(({ input }) =>
-    request(input, async (services, signal) => {
-      const interactions = await services.webQuery.getQzoneInteractions(
-        input.hostUin,
-        [{ tid: input.tid, time: input.time }],
-        signal,
-      );
-      return (
-        interactions.get(input.tid) ?? { comments: [], likes: [], coverage: 'unobserved' as const }
-      );
-    }),
-  ),
+  interactions: procedure
+    .input(
+      post.extend({ time: z.number().int().min(0), structuredOnly: z.boolean().default(false) }),
+    )
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        if (input.structuredOnly)
+          return services.webQuery.getQzoneStructuredComments(input.hostUin, input.tid, signal);
+        const interactions = await services.webQuery.getQzoneInteractions(
+          input.hostUin,
+          [{ tid: input.tid, time: input.time }],
+          signal,
+        );
+        return (
+          interactions.get(input.tid) ?? {
+            comments: [],
+            likes: [],
+            coverage: 'unobserved' as const,
+          }
+        );
+      }),
+    ),
   likes: procedure
     .input(post)
     .query(({ input }) =>

@@ -2,9 +2,11 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
+  net,
   protocol,
   shell,
   Tray,
@@ -395,6 +397,67 @@ function registerMediaIpc(): void {
   );
 }
 
+/** 文件名里剔掉路径分隔符等非法字符；空名字返回 ''。 */
+function sanitizeExportName(name: string | undefined): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+}
+
+/**
+ * 图片灯箱底部的「另存为 / 复制到剪贴板」。
+ *
+ * 入参是渲染层手上那个 `src`（`weq-media://` 代理、CDN 直链，或乐观渲染的 `blob:`）。
+ * 前两种主进程自己就能取：weq-media 是 `protocol.handle` 注册过的自定义 scheme
+ * （privileges 里开着 supportFetchAPI），`net.fetch` 一样走得通；`blob:` 只活在渲染层，
+ * 这里如实拒掉，让前端给一句人话提示。
+ */
+function registerMediaExportIpc(): void {
+  ipcMain.handle(
+    'media:export',
+    async (
+      event,
+      input: { url?: string; name?: string; mode?: 'save' | 'clipboard' },
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> => {
+      const url = input?.url ?? '';
+      if (!url) return { ok: false, error: '没有可导出的图片来源' };
+      if (!/^(https?:|weq-media:|weq-asset:)/i.test(url)) {
+        return { ok: false, error: '这张图还没有落盘，暂时导出不了' };
+      }
+      try {
+        const response = await net.fetch(url);
+        if (!response.ok) return { ok: false, error: `读取图片失败（HTTP ${response.status}）` };
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.length === 0) return { ok: false, error: '读到的图片是空的' };
+
+        if (input?.mode === 'clipboard') {
+          const image = nativeImage.createFromBuffer(bytes);
+          if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
+          clipboard.writeImage(image);
+          return { ok: true };
+        }
+
+        let suggested = sanitizeExportName(input?.name);
+        if (suggested && !/\.[a-z0-9]{2,5}$/i.test(suggested)) suggested += '.jpg';
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = win
+          ? await dialog.showSaveDialog(win, { defaultPath: suggested || undefined })
+          : await dialog.showSaveDialog({ defaultPath: suggested || undefined });
+        if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+        await fs.promises.writeFile(result.filePath, bytes);
+        logger.info('exported media from lightbox', {
+          event: 'media-export',
+          path: result.filePath,
+          bytes: bytes.length,
+        });
+        return { ok: true, path: result.filePath };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : '导出失败' };
+      }
+    },
+  );
+}
+
 function registerLogIpc(): void {
   ipcMain.handle('logs:open-dir', async () => {
     const dir = getLogDir();
@@ -598,6 +661,7 @@ void app.whenReady().then(async () => {
   registerMediaProtocol();
   registerWindowLayoutIpc();
   registerMediaIpc();
+  registerMediaExportIpc();
   registerLogIpc();
   registerSystemAuthIpc();
   registerTotpIpc();
@@ -668,6 +732,14 @@ app.on('window-all-closed', () => {
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
 app.on('before-quit', () => {
   isQuitting = true;
+  try {
+    getAppContext().services?.roamingBackfill.dispose();
+  } catch (error) {
+    logger.warn('failed to save roaming pause on quit', {
+      event: 'roaming-quit-checkpoint',
+      error: String(error),
+    });
+  }
   if (tray) {
     try {
       tray.destroy();

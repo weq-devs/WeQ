@@ -17,8 +17,8 @@
  *    默认用全身像替换「头像+挂件」，舞台底部的胶囊可一键切回。
  */
 
-import { useContext, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useContext, useState } from 'react';
+import { OverlayLayer } from './OverlayLayer';
 import { Heart, Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
@@ -129,14 +129,6 @@ export function PersonalityHomeDialog({
   const [qqShowFailed, setQqShowFailed] = useState(false);
   const qqShowUrlValue = qqShow.data?.hasShow ? qqShow.data.url : '';
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const widgetUrl = dressUrl(dress.data?.widgetUrl ?? '');
   const cardUrl = isBot ? botCardUrl : dressUrl(dress.data?.cardUrl ?? '');
   const cardVideoUrl = dressUrl(dress.data?.cardVideoUrl ?? '');
@@ -144,17 +136,8 @@ export function PersonalityHomeDialog({
   const hasBackdrop = Boolean(cardUrl || cardVideoUrl);
   const tags = profile.interests;
 
-  return createPortal(
-    <div
-      className="weq-profile-layer weq-perhome-layer"
-      role="presentation"
-      // 必须 stopPropagation：portal 挂在 body 上，但 React 事件仍沿**组件树**冒泡，
-      // 而调用方（好友资料灯箱）的遮罩也监听 mousedown 关闭自己 —— 不拦就是点一次关两层。
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-    >
+  return (
+    <OverlayLayer className="weq-profile-layer weq-perhome-layer" onClose={onClose}>
       <section
         className={`weq-perhome weq-anim-pop${hasBackdrop ? ' is-onphoto' : ''}`}
         role="dialog"
@@ -333,7 +316,6 @@ export function PersonalityHomeDialog({
           </div>
         </div>
       </section>
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }

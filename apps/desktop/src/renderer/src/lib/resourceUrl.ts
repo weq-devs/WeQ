@@ -86,7 +86,8 @@ export function dressUrl(src: string): string {
  * DressService.fontFile)。
  * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。
  *
- * `deriveVersion` 是**产物版本戳**（服务侧 DRESS_DERIVE_VERSION）：ttf 的文件名与
+ * `deriveVersion` 是**产物版本戳**（服务侧把派生链版本与 native 字体链版本合成的一个数，
+ * 见 DressSharedCache.fontDerived）：ttf 的文件名与
  * 路径都不随转换链变，升级后是「就地重写同一个文件」。自定义协议的回应对 Chromium
  * 是可缓存的，光靠重写文件浏览器不会主动重取，所以把版本拼进 query —— 换了版本就是
  * 换了个 URL，旧 face 与旧解码缓存自然作废（同 dressBackgroundUrl 用文件名当戳的思路）。

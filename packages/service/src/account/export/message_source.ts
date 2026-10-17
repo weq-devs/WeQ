@@ -48,6 +48,7 @@ import type { SalvageSkippedRange } from '@weq/native';
 import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
 import type { ExportedMessage, ExportTimeRange } from './types';
+import { matchesMessageFilter } from '../message_filter';
 
 /** 允许分块容错续读的最低宽容级别（跳过数据必须由用户授权）。 */
 const SALVAGE_MIN_LEVEL = 2;
@@ -239,7 +240,9 @@ export async function* iterateGroupMessages(
   }
   const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
   for await (const m of deduped) {
-    if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    msgs.exportSignal?.throwIfAborted();
+    if (withinRange(Number(m.sendTime), opts.range) && matchesMessageFilter(m, msgs.exportFilter))
+      yield m;
   }
 }
 
@@ -325,7 +328,9 @@ export async function* iterateC2cMessages(
   }
   const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
   for await (const m of deduped) {
-    if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    msgs.exportSignal?.throwIfAborted();
+    if (withinRange(Number(m.sendTime), opts.range) && matchesMessageFilter(m, msgs.exportFilter))
+      yield m;
   }
 }
 
@@ -465,7 +470,7 @@ async function* pageServiceBySeqlessRowId(
 
 /** Check if a message contains at least one ARK element. */
 function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
-  return m.elements.some((el) => 'elementType' in el && el.elementType === 'ark');
+  return m.elements.some((el) => el.type === 'ark');
 }
 
 /** Normalize a render message into the export record (bigints → strings). */

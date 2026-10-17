@@ -13,7 +13,7 @@
 import type { ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { Avatar, GroupMembersSkeleton } from '../im-template/template/primitives';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
 
 /** 一行已退群成员（MainView 从 `listGroupLeftMembers` 的 wire 映射过来）。 */
@@ -40,16 +40,10 @@ export function GroupLeftMembersDialog({
   error?: string | null;
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-
   const rows = members.filter((member) => String(member.id ?? '').trim() !== '');
 
   return (
-    <div
-      className={cn('modal-scrim', 'group-info-detail-scrim')}
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className={cn('modal-scrim', 'group-info-detail-scrim')} onClose={onClose}>
       <section
         className={cn('group-info-detail-dialog')}
         role="dialog"
@@ -95,6 +89,6 @@ export function GroupLeftMembersDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

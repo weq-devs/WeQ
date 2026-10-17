@@ -1,12 +1,17 @@
 /** Chat-record modal: left = matched conversations, right = their matching messages. */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Search, X } from 'lucide-react';
+import { CalendarDays, Download, Search, X } from 'lucide-react';
+import { ConversationCalendar } from './ConversationCalendar';
+import { TimeRangePicker } from '../../views/export/TimeRangePicker';
+import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
 import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
 import { client } from '../../trpc/client';
+import { preflightExportEstimate } from '../../views/export/preflight';
+import { useAppDialog } from '../../lib/dialogUtils';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
@@ -36,7 +41,48 @@ export function ChatRecordsModal({
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
+  const dialog = useAppDialog();
   const [keyword, setKeyword] = useState(initialKeyword);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
+  const [startDay, setStartDay] = useState('');
+  const [endDay, setEndDay] = useState('');
+  const [sender, setSender] = useState('');
+  const [ownUin, setOwnUin] = useState('');
+  const [category, setCategory] = useState<
+    'text' | 'image' | 'video' | 'voice' | 'file' | 'emoji' | 'system' | 'other' | ''
+  >('');
+  const [exportFormat, setExportFormat] = useState<
+    'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html'
+  >('jsonl');
+  const [exportBusy, setExportBusy] = useState(false);
+  const [includeMedia, setIncludeMedia] = useState(false);
+  const [msgError, setMsgError] = useState('');
+  const [browseHasMore, setBrowseHasMore] = useState(false);
+  const browseCursor = useRef<{ time: number; rowId: string } | null>(null);
+  const filter = useMemo(
+    () => ({
+      sender: sender.trim() || undefined,
+      keyword: keyword.trim() || undefined,
+      category: category || undefined,
+      start: startDay ? Math.floor(Date.parse(`${startDay}T00:00:00+08:00`) / 1000) : undefined,
+      end: endDay ? Math.floor(Date.parse(`${endDay}T23:59:59+08:00`) / 1000) : undefined,
+    }),
+    [sender, keyword, category, startDay, endDay],
+  );
+  useEffect(() => {
+    let active = true;
+    if (fixed)
+      void client.account.getSelfProfile
+        .query()
+        .then((p) => {
+          if (active && p) setOwnUin(p.uin);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [fixed]);
   const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
   const [convLoading, setConvLoading] = useState(false);
   // fixed 模式下不请求会话排名，selected 恒为当前会话的 hit。
@@ -83,70 +129,135 @@ export function ChatRecordsModal({
   // Fetch messages for the selected conversation.
   useEffect(() => {
     const trimmed = keyword.trim();
-    if (!trimmed || !selected) {
+    if ((!trimmed && !fixed) || !selected) {
       setMessages([]);
       setMsgTotal(0);
+      setMsgLoading(false);
+      setBrowseHasMore(false);
+      setMsgError('');
       return undefined;
     }
     const run = ++msgRunRef.current;
     setMsgLoading(true);
-    void client.account.searchConversationRecords
-      .query({
-        source: selected.source,
-        conv: selected.targetUid,
-        keyword: trimmed,
-        offset: 0,
-        limit: 30,
-      })
+    setMsgError('');
+    browseCursor.current = null;
+    const request = fixed
+      ? client.account.browseConversation.query({
+          kind: selected.source === 'group' ? 'group' : 'c2c',
+          conv: selected.targetUid,
+          filter,
+          limit: 30,
+        })
+      : client.account.searchConversationRecords.query({
+          source: selected.source,
+          conv: selected.targetUid,
+          keyword: trimmed,
+          offset: 0,
+          limit: 30,
+        });
+    void request
       .then((result) => {
         if (run !== msgRunRef.current) return;
         const r = result as { items: ConversationRecordHit[]; total: number };
         setMessages(r.items);
-        setMsgTotal(r.total);
+        if (fixed) {
+          const page = result as {
+            items: ConversationRecordHit[];
+            cursor: { time: number; rowId: string } | null;
+            hasMore: boolean;
+          };
+          browseCursor.current = page.cursor;
+          setBrowseHasMore(page.hasMore);
+          setMsgTotal(page.items.length);
+        } else setMsgTotal(r.total);
         // 拼音输入会产生大量无结果的中间态，不弹 Toast，界面上的空态提示已足够。
       })
-      .catch((err) => console.error('[chat-records] messages failed', err))
+      .catch((err) => {
+        if (run === msgRunRef.current) {
+          setMessages([]);
+          setBrowseHasMore(false);
+          setMsgError(String(err));
+        }
+      })
       .finally(() => {
         if (run === msgRunRef.current) setMsgLoading(false);
       });
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (run === msgRunRef.current) msgRunRef.current++;
     };
-  }, [selected, keyword, fixed]);
+  }, [selected, keyword, fixed, filter]);
 
   const loadMoreMessages = useCallback(() => {
     const trimmed = keyword.trim();
-    if (!trimmed || !selected || msgLoadingMore) return;
+    if ((!trimmed && !fixed) || !selected || msgLoadingMore || msgLoading) return;
+    const run = msgRunRef.current;
     setMsgLoadingMore(true);
-    void client.account.searchConversationRecords
-      .query({
-        source: selected.source,
-        conv: selected.targetUid,
-        keyword: trimmed,
-        offset: messages.length,
-        limit: 30,
-      })
+    const request = fixed
+      ? client.account.browseConversation.query({
+          kind: selected.source === 'group' ? 'group' : 'c2c',
+          conv: selected.targetUid,
+          filter,
+          cursor: browseCursor.current ?? undefined,
+          limit: 30,
+        })
+      : client.account.searchConversationRecords.query({
+          source: selected.source,
+          conv: selected.targetUid,
+          keyword: trimmed,
+          offset: messages.length,
+          limit: 30,
+        });
+    void request
       .then((result) => {
+        if (run !== msgRunRef.current) return;
         const r = result as { items: ConversationRecordHit[]; total: number };
         setMessages((prev) => [...prev, ...r.items]);
-        setMsgTotal(r.total);
+        if (fixed) {
+          const page = result as {
+            cursor: { time: number; rowId: string } | null;
+            hasMore: boolean;
+          };
+          browseCursor.current = page.cursor;
+          setBrowseHasMore(page.hasMore);
+          setMsgTotal(messages.length + r.items.length);
+        } else setMsgTotal(r.total);
       })
-      .catch((err) => console.error('[chat-records] load more failed', err))
+      .catch((err) => {
+        if (run === msgRunRef.current) setMsgError(String(err));
+      })
       .finally(() => setMsgLoadingMore(false));
-  }, [keyword, selected, messages.length, msgLoadingMore]);
+  }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter]);
 
   // Infinite scroll for the message list.
   const onMsgScroll = useCallback(() => {
     const el = msgScrollRef.current;
-    if (!el || msgLoading || msgLoadingMore || messages.length >= msgTotal) return;
+    if (
+      !el ||
+      msgLoading ||
+      msgLoadingMore ||
+      (fixed ? !browseHasMore : messages.length >= msgTotal)
+    )
+      return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
       void loadMoreMessages();
     }
-  }, [loadMoreMessages, msgLoading, msgLoadingMore, messages.length, msgTotal]);
+  }, [
+    loadMoreMessages,
+    msgLoading,
+    msgLoadingMore,
+    messages.length,
+    msgTotal,
+    fixed,
+    browseHasMore,
+  ]);
 
   const jumpTo = useCallback(
     (msg: ConversationRecordHit) => {
       if (!selected) return;
+      if (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) {
+        setMsgError('该消息没有可定位的原生序号。');
+        return;
+      }
       // 跳转进会话时自动关闭聊天记录模态。
       onJumpMessage({ source: selected.source, targetUid: selected.targetUid, msgSeq: msg.msgSeq });
       onClose();
@@ -158,7 +269,15 @@ export function ChatRecordsModal({
   const convKey = isGroup && selected ? selected.targetUid : '';
 
   return (
-    <Modal onClose={onClose} width={960} labelledBy="weq-chatrecords-title">
+    <Modal
+      onClose={() => {
+        if (rangeCalendarOpen) setRangeCalendarOpen(false);
+        else if (calendarOpen) setCalendarOpen(false);
+        else onClose();
+      }}
+      width={960}
+      labelledBy="weq-chatrecords-title"
+    >
       <div className="weq-chatrecords">
         <div className="weq-chatrecords-head">
           <div className="weq-chatrecords-title-wrap">
@@ -176,6 +295,21 @@ export function ChatRecordsModal({
             <X size={16} strokeWidth={1.9} aria-hidden />
           </button>
         </div>
+        {calendarOpen && selected ? (
+          <ConversationCalendar
+            kind={selected.source === 'group' ? 'group' : 'c2c'}
+            conv={selected.targetUid}
+            onClose={() => setCalendarOpen(false)}
+            onJump={(seq) => {
+              onJumpMessage({
+                source: selected.source,
+                targetUid: selected.targetUid,
+                msgSeq: seq,
+              });
+              onClose();
+            }}
+          />
+        ) : null}
         <input
           className="weq-search-more-input"
           value={keyword}
@@ -183,6 +317,198 @@ export function ChatRecordsModal({
           placeholder={fixed ? `搜索「${initialHit.name}」的聊天记录` : '搜索聊天记录'}
           autoFocus
         />
+        <div className="weq-record-calendar-actions">
+          {fixed ? (
+            <button type="button" onClick={() => setRangeCalendarOpen(true)}>
+              <CalendarDays size={15} />
+              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            title="按日期定位"
+            disabled={!selected}
+            onClick={() => setCalendarOpen(true)}
+          >
+            <CalendarDays size={15} />
+            跳转日期
+          </button>
+        </div>
+        {rangeCalendarOpen && selected ? (
+          <Modal
+            onClose={() => setRangeCalendarOpen(false)}
+            width={440}
+            labelledBy="weq-record-range-title"
+          >
+            <div className="weq-message-calendar">
+              <header>
+                <h3 id="weq-record-range-title">时间范围</h3>
+                <button
+                  type="button"
+                  className="weq-dialog-x"
+                  aria-label="关闭时间范围"
+                  onClick={() => setRangeCalendarOpen(false)}
+                >
+                  <X size={16} />
+                </button>
+              </header>
+              <TimeRangePicker
+                value={{
+                  preset: startDay || endDay ? 'custom' : 'all',
+                  start: startDay ? daySeconds(startDay) : null,
+                  end: endDay ? daySeconds(endDay) + 86399 : null,
+                }}
+                calendarTargets={[
+                  { kind: selected.source === 'group' ? 'group' : 'c2c', conv: selected.targetUid },
+                ]}
+                onChange={(range) => {
+                  setStartDay(range.start == null ? '' : beijingDay(new Date(range.start * 1000)));
+                  setEndDay(range.end == null ? '' : beijingDay(new Date(range.end * 1000)));
+                }}
+              />
+            </div>
+          </Modal>
+        ) : null}
+        {fixed ? (
+          <div className="weq-record-filters">
+            <label>
+              发送者
+              <input
+                placeholder="QQ 号或 UID"
+                list="weq-record-senders"
+                value={sender}
+                onChange={(e) => setSender(e.target.value)}
+              />
+              <datalist id="weq-record-senders">
+                {[
+                  ...new Map(
+                    messages.map((m) => [
+                      m.senderUin && m.senderUin !== '0' ? m.senderUin : m.senderUid,
+                      m.senderName,
+                    ]),
+                  ).entries(),
+                ]
+                  .filter(([id]) => !!id)
+                  .map(([id, name]) => (
+                    <option key={id} value={id} label={name} />
+                  ))}
+              </datalist>
+            </label>
+            <label className="weq-record-self">
+              <input
+                type="checkbox"
+                checked={!!ownUin && sender === ownUin}
+                disabled={!ownUin}
+                onChange={(e) => setSender(e.target.checked ? ownUin : '')}
+              />
+              我
+            </label>
+            <select
+              aria-label="消息类型"
+              value={category}
+              onChange={(e) => setCategory(e.target.value as typeof category)}
+            >
+              <option value="">全部类型</option>
+              {Object.entries({
+                text: '文字',
+                image: '图片',
+                video: '视频',
+                voice: '语音',
+                file: '文件',
+                emoji: '表情',
+                system: '系统',
+                other: '其他',
+              }).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="导出格式"
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
+            >
+              {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
+                <option key={f}>{f}</option>
+              ))}
+            </select>
+            <label className="weq-record-self">
+              <input
+                type="checkbox"
+                checked={includeMedia || exportFormat === 'html'}
+                disabled={exportFormat === 'html'}
+                onChange={(e) => setIncludeMedia(e.target.checked)}
+              />
+              附件
+            </label>
+            <button
+              className="weq-dialog-x"
+              aria-label="导出筛选结果"
+              title="导出筛选结果"
+              disabled={exportBusy || msgLoading || !!msgError || !selected}
+              onClick={() => {
+                if (!selected) return;
+                setExportBusy(true);
+                setMsgError('');
+                void (async () => {
+                  const range = { start: filter.start ?? null, end: filter.end ?? null };
+                  if (
+                    !(await preflightExportEstimate(
+                      dialog,
+                      [
+                        {
+                          kind: selected.source === 'group' ? 'group' : 'c2c',
+                          id: selected.targetUid,
+                          name: selected.name,
+                        },
+                      ],
+                      {
+                        range,
+                        formats: [exportFormat],
+                        exportMedia: includeMedia || exportFormat === 'html',
+                        filter,
+                      },
+                    ))
+                  )
+                    return;
+                  await client.account.startExport.mutate({
+                    kind: selected.source === 'group' ? 'group' : 'c2c',
+                    conv: selected.targetUid,
+                    name: selected.name,
+                    format: exportFormat,
+                    total: 0,
+                    media: {
+                      exportMedia: includeMedia || exportFormat === 'html',
+                      completeMessages: false,
+                      completeMedia: false,
+                      downloadVideo: false,
+                      downloadFile: false,
+                      downloadPtt: false,
+                      transcribeVoice: false,
+                    },
+                    filter: {
+                      sender: filter.sender,
+                      keyword: filter.keyword,
+                      category: filter.category,
+                    },
+                    range,
+                  });
+                  onClose();
+                })()
+                  .catch((e) => setMsgError(String(e)))
+                  .finally(() => setExportBusy(false));
+              }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        ) : null}
+        {msgError ? (
+          <p role="alert" className="weq-record-error">
+            {msgError}
+          </p>
+        ) : null}
         <div className={`weq-chatrecords-body${fixed ? ' is-fixed' : ''}`}>
           {fixed ? null : (
             <div className="weq-chatrecords-convs">
@@ -215,9 +541,7 @@ export function ChatRecordsModal({
                     <SearchListSkeleton rows={4} />
                   ) : messages.length === 0 ? (
                     <div className="weq-search-empty">
-                      {fixed && !keyword.trim()
-                        ? '输入关键词，搜索当前会话的聊天记录'
-                        : '没有找到相关消息'}
+                      {fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
                     </div>
                   ) : (
                     <>
@@ -291,11 +615,21 @@ export function ChatRecordsModal({
                         );
                       })}
                       {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
-                      {messages.length >= msgTotal && messages.length > 0 ? (
+                      {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
+                      messages.length > 0 ? (
                         <div className="weq-search-more-end">没有更多了</div>
                       ) : null}
                     </>
                   )}
+                  {fixed && browseHasMore ? (
+                    <button
+                      className="weq-action-soft"
+                      disabled={msgLoading || msgLoadingMore}
+                      onClick={() => void loadMoreMessages()}
+                    >
+                      {msgLoadingMore ? '加载中...' : '继续加载'}
+                    </button>
+                  ) : null}
                 </ReplyJumpContext.Provider>
               </ConvContext.Provider>
             </ForwardKindContext.Provider>
@@ -399,13 +733,15 @@ function formatTime(sendTimeSeconds: string): string {
   const secs = Number(sendTimeSeconds);
   if (!Number.isFinite(secs) || secs <= 0) return '';
   const d = new Date(secs * 1000);
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  if (!Number.isFinite(d.getTime())) return '时间未核验';
+  return `${new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(d)} +08`;
 }

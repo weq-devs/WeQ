@@ -14,6 +14,7 @@ import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
 import { WelcomeDialog } from './components/WelcomeDialog';
+import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { AttachHintDialog } from './components/AttachHintDialog';
 import { ElevationPasswordDialog } from './components/ElevationPasswordDialog';
@@ -40,6 +41,7 @@ import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
+import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -58,7 +60,11 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
         <MsgDecorationEnabledContext.Provider value={settings.data?.showMsgDecoration ?? true}>
-          {children}
+          <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
+            <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
+              {children}
+            </ShowMessageTimeContext.Provider>
+          </ShowMessageSeqContext.Provider>
         </MsgDecorationEnabledContext.Provider>
       </LinkPreviewContext.Provider>
     </TextMarkdownContext.Provider>
@@ -172,6 +178,9 @@ export default function App(): ReactElement {
             )}
             {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
             {view === 'main' ? <WelcomeDialog /> : null}
+            {/* 「加入交流群」引导 —— 与上面是接力关系：欢迎框确认后才轮到它，
+                自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
+            {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
             <ToastHost />
             <HoverTooltip />

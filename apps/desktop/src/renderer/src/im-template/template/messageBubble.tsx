@@ -1,17 +1,19 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, Check, Clock, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
+import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
-import { SetEmojiReactions } from '../../components/SetEmojiReactions';
+import { SetEmojiReactions, type ReactionRemoval } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
+import { MessageProvenance } from '../../components/MessageProvenance';
+import '../../styles/chat-interactions.css';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -88,6 +90,8 @@ export function MessageBubble({
   selected,
   selectionMode,
   onToggleSelect,
+  reactionRemoval,
+  repeatAction,
 }: {
   message: Message;
   conversation: Conversation;
@@ -137,7 +141,9 @@ export function MessageBubble({
   selected?: boolean;
   /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
   selectionMode?: boolean;
-  onToggleSelect?: (message: Message) => void;
+  onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
+  reactionRemoval?: ReactionRemoval;
+  repeatAction?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -175,29 +181,15 @@ export function MessageBubble({
   // its content is intact, so we DON'T veil it (unlike delete). We just show a
   // small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
   // author recalled their own message; otherwise an admin recalled someone else's.
-  // 乐观渲染的合并转发状态标识（发送中 / 已发送 / 发送失败）。该消息只活在前端
-  // state 里，等 QQ 同步回真消息后自然消失。
-  const optimistic = (
-    message as {
-      optimistic?: 'sending' | 'sent' | 'failed';
-      optimisticError?: string;
-      /** 回执 seq=0：服务端收下却没分配序号 = 大概率被静默丢弃（见 MainView）。 */
-      optimisticRejected?: boolean;
-    }
-  ).optimistic;
-  const optimisticRejected = (
-    message as { optimistic?: 'sending' | 'sent' | 'failed'; optimisticRejected?: boolean }
-  ).optimisticRejected;
+  // 未同步入库的发送消息：发送中仅显示旁侧圈圈，正常回执后隐藏，失败才显示下方提示。
+  const optimistic = message.optimistic;
+  const optimisticRejected = message.optimisticRejected;
   const optimisticText =
-    optimistic === 'sending'
-      ? '发送中…'
-      : optimistic === 'failed'
-        ? '发送失败'
-        : optimistic === 'sent' && optimisticRejected
-          ? '可能未送达'
-          : optimistic === 'sent'
-            ? '已发送'
-            : null;
+    optimistic === 'failed'
+      ? '发送失败'
+      : optimistic === 'sent' && optimisticRejected
+        ? '可能未送达'
+        : null;
   const recall = (
     message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }
   ).recall;
@@ -224,7 +216,7 @@ export function MessageBubble({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === 'mouse' || event.button !== 0) {
+    if (selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
     const startPoint = { x: event.clientX, y: event.clientY };
@@ -319,11 +311,12 @@ export function MessageBubble({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
-      onClick={
+      onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {
               event.stopPropagation();
-              onToggleSelect(message);
+              event.preventDefault();
+              onToggleSelect(message, event);
             }
           : undefined
       }
@@ -372,6 +365,11 @@ export function MessageBubble({
           </span>
         )
       ) : null}
+      {optimistic === 'sending' ? (
+        <span className="weq-message-sending" role="status" aria-label="发送中">
+          <LoaderCircle size={16} aria-hidden />
+        </span>
+      ) : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
@@ -383,41 +381,44 @@ export function MessageBubble({
         onPointerLeave={clearLongPress}
         onDragStart={(event) => event.preventDefault()}
       >
-        {showSenderName ? (
-          <span className={cn('message-name')}>
-            {senderName}
-            {(() => {
-              const role = (sender as any).role;
-              const isRoleBadge = role === 'owner' || role === 'admin';
-              // 群头衔优先级：群主/管理员 > 自定义头衔/群等级
-              const badgeText = isRoleBadge
-                ? role === 'owner'
-                  ? '群主'
-                  : '管理员'
-                : (sender as any).customTitle || (sender as any).levelName;
-              if (!badgeText) return null;
-              const levelBracket = (sender as any).levelBracket;
-              const memberLevel = (sender as any).memberLevel;
-              return (
-                <small
-                  className={cn(
-                    'member-badge',
-                    isRoleBadge ? role : '',
-                    !isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : '',
-                  )}
-                >
-                  {!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}
-                  {badgeText}
+        <div className="weq-message-heading">
+          {showSenderName ? (
+            <span className={cn('message-name')}>
+              {senderName}
+              {(() => {
+                const role = (sender as any).role;
+                const isRoleBadge = role === 'owner' || role === 'admin';
+                // 群头衔优先级：群主/管理员 > 自定义头衔/群等级
+                const badgeText = isRoleBadge
+                  ? role === 'owner'
+                    ? '群主'
+                    : '管理员'
+                  : (sender as any).customTitle || (sender as any).levelName;
+                if (!badgeText) return null;
+                const levelBracket = (sender as any).levelBracket;
+                const memberLevel = (sender as any).memberLevel;
+                return (
+                  <small
+                    className={cn(
+                      'member-badge',
+                      isRoleBadge ? role : '',
+                      !isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : '',
+                    )}
+                  >
+                    {!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}
+                    {badgeText}
+                  </small>
+                );
+              })()}
+              {senderKind === 'bot' ? (
+                <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                  <Bot size={12} strokeWidth={2.4} />
                 </small>
-              );
-            })()}
-            {senderKind === 'bot' ? (
-              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                <Bot size={12} strokeWidth={2.4} />
-              </small>
-            ) : null}
-          </span>
-        ) : null}
+              ) : null}
+            </span>
+          ) : null}
+          <MessageProvenance message={message} />
+        </div>
         {renderMessageWithRegistry(
           {
             message,
@@ -427,12 +428,14 @@ export function MessageBubble({
           },
           renderers,
         )}
+        {repeatAction}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions
           list={message.setEmojiList}
           groupId={conversation.type === 'group' ? conversation.group.identityValue : null}
           sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
+          removal={selectionMode ? undefined : reactionRemoval}
         />
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
@@ -461,13 +464,7 @@ export function MessageBubble({
                   : '这条消息还没同步回来，先乐观显示'
             }
           >
-            {optimistic === 'failed' ? (
-              <X size={12} />
-            ) : optimisticRejected ? (
-              <TriangleAlert size={12} />
-            ) : (
-              <Clock size={12} />
-            )}
+            {optimistic === 'failed' ? <X size={12} /> : <TriangleAlert size={12} />}
             <span>{optimisticText}</span>
           </div>
         ) : null}
