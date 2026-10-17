@@ -1,0 +1,64 @@
+.weq-agentlab-mobile-nav {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .weq-agentlab-shell.weq-agentlab-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    width: 100%;
+  }
+
+  .weq-agentlab-shell.is-conversation:not(.is-list-open) > .weq-agentlab-list,
+  .weq-agentlab-shell:not(.is-conversation) > .weq-agentlab-main,
+  .weq-agentlab-shell.is-list-open > .weq-agentlab-main {
+    display: none;
+  }
+
+  .weq-agentlab-shell > .weq-agentlab-main {
+    flex-direction: column;
+  }
+
+  .weq-agentlab-mobile-nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    margin: 4px 8px;
+    padding: 0;
+    border: 1px solid var(--weq-border-subtle);
+    border-radius: 4px;
+    color: var(--weq-fg-secondary);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .weq-agentlab-mobile-nav:hover {
+    background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  }
+
+  html[data-theme="dark"] .weq-agentlab-mobile-nav {
+    border-color: var(--weq-border-strong);
+  }
+
+  .weq-agentlab-workspace .weq-agentlab-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .weq-agentlab-head-left,
+  .weq-agentlab-head-left > div {
+    min-width: 0;
+  }
+
+  .weq-agentlab-head-left span {
+    overflow-wrap: anywhere;
+  }
+
+  .weq-agentlab-head-actions {
+    flex-wrap: wrap;
+  }
+}

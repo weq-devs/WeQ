@@ -26,8 +26,14 @@ import { MsgSearchIndexDb, type BuddyMsgFtsHit, type C2cMsg, type GroupMsg } fro
 import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
+import {
+  searchGeneratedMessages,
+  type GeneratedSearchHit,
+  type GeneratedSearchSources,
+} from './generated_search';
 
 export interface UnifiedSearchServiceOptions {
+  generatedSources?: () => GeneratedSearchSources | undefined;
   /**
    * Directory for the local trigram search index (one subdir per source db).
    * Omit to disable the index and fall back to plain LIKE scans.
@@ -43,6 +49,8 @@ export const SEARCH_CATEGORIES = [
   'groupMember',
   'chatRecord',
   'file',
+  'cloneMessage',
+  'assistantMessage',
 ] as const;
 export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
 export type FtsSource = 'buddy' | 'group';
@@ -174,6 +182,8 @@ export interface SearchHistoryHit {
 export interface SlowSearchResult {
   chatRecords: ChatRecordSearchHit[];
   files: FileSearchHit[];
+  cloneMessages: GeneratedSearchHit[];
+  assistantMessages: GeneratedSearchHit[];
   /** Local trigram index status — 'disabled' | 'building' | 'ready'. */
   indexStatus: 'disabled' | 'building' | 'ready';
 }
@@ -186,6 +196,7 @@ export interface MoreSearchResult {
     | GroupMemberSearchHit
     | ChatRecordSearchHit
     | FileSearchHit
+    | GeneratedSearchHit
   >;
   total: number;
   hasMore: boolean;
@@ -205,7 +216,7 @@ export class UnifiedSearchService {
 
   constructor(
     private readonly session: AccountSession,
-    options: UnifiedSearchServiceOptions = {},
+    private readonly options: UnifiedSearchServiceOptions = {},
   ) {
     if (!options.dataDir || !options.nt) return;
     const dataDir = options.dataDir;
@@ -401,11 +412,33 @@ export class UnifiedSearchService {
     categories?: readonly SearchCategory[],
   ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
-    if (!needle) return { chatRecords: [], files: [], indexStatus: this.indexStatus };
+    const sources = this.options.generatedSources?.();
+    const cloneMessages =
+      needle && sources && (categories === undefined || categories.includes('cloneMessage'))
+        ? searchGeneratedMessages(sources, 'cloneMessage', needle).slice(0, limit)
+        : [];
+    const assistantMessages =
+      needle && sources && (categories === undefined || categories.includes('assistantMessage'))
+        ? searchGeneratedMessages(sources, 'assistantMessage', needle).slice(0, limit)
+        : [];
+    if (!needle)
+      return {
+        chatRecords: [],
+        files: [],
+        cloneMessages,
+        assistantMessages,
+        indexStatus: this.indexStatus,
+      };
     const recordsEnabled = categories === undefined || categories.includes('chatRecord');
     const filesEnabled = categories === undefined || categories.includes('file');
     if (!recordsEnabled && !filesEnabled) {
-      return { chatRecords: [], files: [], indexStatus: this.indexStatus };
+      return {
+        chatRecords: [],
+        files: [],
+        cloneMessages,
+        assistantMessages,
+        indexStatus: this.indexStatus,
+      };
     }
 
     // Ensure the local trigram index is (or becomes) available. Fire-and-forget:
@@ -417,7 +450,7 @@ export class UnifiedSearchService {
       filesEnabled ? this.topFiles(needle, limit) : [],
     ]);
     // 排名缓存独立于范围和预览条数，避免同关键词切范围时串用截断结果。
-    return { chatRecords, files, indexStatus: this.indexStatus };
+    return { chatRecords, files, cloneMessages, assistantMessages, indexStatus: this.indexStatus };
   }
 
   /** Paginated full results for the "more" modal. */
@@ -434,6 +467,18 @@ export class UnifiedSearchService {
     const page = Math.max(1, limit);
 
     switch (category) {
+      case 'cloneMessage':
+      case 'assistantMessage': {
+        const sources = this.options.generatedSources?.();
+        const ranked = sources ? searchGeneratedMessages(sources, category, needle) : [];
+        const items = ranked.slice(offset, offset + page);
+        return {
+          category,
+          items,
+          total: ranked.length,
+          hasMore: offset + items.length < ranked.length,
+        };
+      }
       case 'conversation': {
         const r = await this.session.recentContacts.searchByName(needle, page, offset);
         return {

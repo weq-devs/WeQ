@@ -28,7 +28,13 @@ const quickResult: QuickSearchResult = {
   ],
   groupMembers: [],
 };
-const slowResult = { chatRecords: [], files: [], indexStatus: 'disabled' as const };
+const slowResult = {
+  chatRecords: [],
+  files: [],
+  cloneMessages: [],
+  assistantMessages: [],
+  indexStatus: 'disabled' as const,
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

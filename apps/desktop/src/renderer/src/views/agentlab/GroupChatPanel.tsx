@@ -8,15 +8,7 @@
  * M2 群骨架：还没有意愿 gate / 关系 / 连锁（M3–M6）。事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, AtSign, Send, Trash2, Users, UserMinus, UserPlus, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -26,6 +18,8 @@ import { QqAvatar } from '../../components/QqAvatar';
 import { ChatBubble, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
+import type { GeneratedSearchHit } from '../../components/search/types';
+import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 
 interface PersonaLite {
   id: string;
@@ -39,6 +33,7 @@ interface PersonaLite {
 export function GroupChatPanel({
   groupId,
   sessionId,
+  searchTarget,
   selfUin,
   personaList,
   profileByUid,
@@ -50,6 +45,7 @@ export function GroupChatPanel({
   groupId: string;
   /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
   sessionId: string | null;
+  searchTarget?: GeneratedSearchHit;
   selfUin?: string;
   personaList: PersonaLite[];
   profileByUid: Map<string, { uin: string; label: string; avatarUrl?: string }>;
@@ -66,11 +62,12 @@ export function GroupChatPanel({
   // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const sessionIdRef = useRef<string | null>(sessionId);
+  const legacy = Boolean(searchTarget && searchTarget.sessionId === null);
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(
     { groupId, sessionId: currentSessionId ?? undefined },
-    { refetchOnMount: 'always', staleTime: 0, enabled: !!currentSessionId },
+    { refetchOnMount: 'always', staleTime: 0, enabled: !!currentSessionId || legacy },
   );
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
@@ -86,6 +83,13 @@ export function GroupChatPanel({
   const seenIds = useRef<Set<string>>(new Set());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
+  const missingSearch = useGeneratedSearchJump(
+    transcriptRef,
+    searchMessageId,
+    conversation.isSuccess && !conversation.isFetching,
+    history,
+  );
 
   const members = detail.data?.members ?? [];
   const personaMembers = useMemo(() => members.filter((m) => m.kind === 'persona'), [members]);
@@ -110,14 +114,16 @@ export function GroupChatPanel({
   );
 
   const scrollToBottom = useCallback((): void => {
+    if (searchMessageId) return;
     const el = transcriptRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, []);
+  }, [searchMessageId]);
 
   // 把持久化群消息合并进本地历史：按 id 去重、只补不删（流式已在的不动）、按时间排序。
   // 这样切走再切回 / 漏事件时都能从磁盘补齐，不会像「只 seed 一次」那样卡在陈旧缓存上。
   useEffect(() => {
     const data = conversation.data;
+    if (searchTarget && conversation.isFetching) return;
     if (!data || data.length === 0) return;
     const missing = data.filter((m) => !seenIds.current.has(m.id));
     if (missing.length === 0) return;
@@ -125,7 +131,7 @@ export function GroupChatPanel({
       seenIds.current.add(m.id);
     });
     setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
-  }, [conversation.data]);
+  }, [conversation.data, conversation.isFetching, searchTarget]);
 
   // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
   // 每帧重建（unsubscribe + 重新 subscribe），事件恰好落在空窗期就丢了 → 用 ref 拿最新实现。
@@ -136,6 +142,7 @@ export function GroupChatPanel({
 
   // 群聊事件流：按 groupId 过滤，逐条追加（id 去重防重复事件）。
   useEffect(() => {
+    if (legacy) return undefined;
     const sub = client.account.onGroupChatEvent.subscribe(undefined, {
       onData: (ev) => {
         if (ev.groupId !== groupId) return;
@@ -162,7 +169,7 @@ export function GroupChatPanel({
     });
     return () => sub.unsubscribe();
     // 只按 groupId 过滤，其余状态全走 ref / 稳定 setter —— 订阅建一次即可，不随渲染重建。
-  }, [groupId]);
+  }, [groupId, legacy]);
 
   useEffect(() => {
     scrollToBottom();
@@ -186,8 +193,10 @@ export function GroupChatPanel({
   }
 
   async function onSend(): Promise<void> {
+    if (legacy) return;
     const text = input.trim();
     if (!text || busy) return;
+    setSearchMessageId(null);
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
     const mentions = personaMembers
       .filter((m) => text.includes(`@${m.displayName}`))
@@ -222,6 +231,7 @@ export function GroupChatPanel({
   }
 
   async function onClear(): Promise<void> {
+    if (legacy) return;
     const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', {
       okLabel: '清空',
       tone: 'warning',
@@ -307,6 +317,7 @@ export function GroupChatPanel({
             type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => void onClear()}
+            disabled={legacy}
           >
             清空
           </button>
@@ -322,7 +333,13 @@ export function GroupChatPanel({
       </header>
 
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
-        {history.length === 0 ? (
+        <GeneratedSearchNotice
+          missing={missingSearch}
+          error={Boolean(searchMessageId && conversation.isError)}
+        />
+        {searchMessageId && conversation.isFetching ? (
+          <div className="weq-agentlab-empty">加载记录中…</div>
+        ) : history.length === 0 ? (
           <div className="weq-agentlab-empty">
             这是一个群聊，有{' '}
             {personaMembers.map((m) => m.displayName).join('、') || '（暂无克隆体）'}。
@@ -333,7 +350,11 @@ export function GroupChatPanel({
             const meta = metaFor(m.senderId, m.senderKind, nameById.get(m.senderId) ?? '克隆体');
             const prevTs = index > 0 ? history[index - 1]?.ts : undefined;
             return (
-              <Fragment key={m.id || `${m.senderId}-${index}`}>
+              <div
+                key={m.id || `${m.senderId}-${index}`}
+                data-generated-message-id={m.id}
+                className={`weq-generated-message${m.id === searchMessageId ? ' is-search-hit' : ''}`}
+              >
                 {shouldShowChatTime(prevTs, m.ts) ? <ChatTimeDivider ts={m.ts} /> : null}
                 <ChatBubble
                   mine={m.senderKind === 'user'}
@@ -345,7 +366,7 @@ export function GroupChatPanel({
                   personaId={meta.personaId}
                   onMediaLoad={scrollToBottom}
                 />
-              </Fragment>
+              </div>
             );
           })
         )}
@@ -384,14 +405,18 @@ export function GroupChatPanel({
               void onSend();
             }
           }}
-          placeholder="在群里说点什么（@ 点名克隆体，Enter 发送，Shift+Enter 换行）"
-          disabled={busy}
+          placeholder={
+            legacy
+              ? '旧版对话（只读）'
+              : '在群里说点什么（@ 点名克隆体，Enter 发送，Shift+Enter 换行）'
+          }
+          disabled={legacy || busy}
         />
         <button
           type="button"
           className="weq-set-btn"
           onClick={() => void onSend()}
-          disabled={busy || !input.trim()}
+          disabled={legacy || busy || !input.trim()}
         >
           <Send size={14} />
           发送

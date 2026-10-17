@@ -125,7 +125,12 @@ import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
 import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
-import type { ChatRecordSearchHit, SearchCategory, SearchHit } from '../components/search/types';
+import type {
+  ChatRecordSearchHit,
+  GeneratedSearchHit,
+  SearchCategory,
+  SearchHit,
+} from '../components/search/types';
 import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { WorkspaceTools } from '../components/WorkspaceTools';
@@ -3144,6 +3149,10 @@ export function MainView(): ReactElement {
   const [searchCategories, setSearchCategories] = useState<SearchCategory[]>(() => [
     ...SEARCH_CATEGORY_ORDER,
   ]);
+  const [cloneSearchTarget, setCloneSearchTarget] = useState<GeneratedSearchHit | null>(null);
+  const [assistantSearchTarget, setAssistantSearchTarget] = useState<GeneratedSearchHit | null>(
+    null,
+  );
   // Temporary dismiss of the search dropdown — clicking outside it hides it
   // so the user can reach contact/group results underneath. Clicking the
   // search box or typing a new query restores the dropdown.
@@ -5593,6 +5602,16 @@ export function MainView(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
+      if ('kind' in hit) {
+        setSearchDismissed(true);
+        shell.setQuery('');
+        if (hit.category === 'assistantMessage') setAssistantSearchTarget({ ...hit });
+        else {
+          setCloneSearchTarget({ ...hit });
+          shell.switchView('agentlab');
+        }
+        return;
+      }
       if (hit.category === 'chatRecord') {
         // 聊天记录卡片 → 打开双栏模态（左会话 / 右消息），而不是直接跳会话。
         setChatRecordsTarget({ hit, keyword: searchQuery });
@@ -5622,7 +5641,7 @@ export function MainView(): ReactElement {
         jumpToConvSeq(kind, conv);
       }
     },
-    [jumpToConvSeq, searchQuery],
+    [jumpToConvSeq, searchQuery, shell],
   );
 
   // 「最近搜索」命中点击 → 直接开那个会话。文件命中只有 msgId、没有会话内 seq，
@@ -7240,7 +7259,7 @@ export function MainView(): ReactElement {
                   ) : shell.view === 'home' ? (
                     <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
                   ) : shell.view === 'agentlab' ? (
-                    <AgentLabView />
+                    <AgentLabView searchTarget={cloneSearchTarget} />
                   ) : shell.view === 'collections' ? (
                     <CollectionDialog open embedded onClose={() => shell.switchView('messages')} />
                   ) : shell.view === 'guild-direct' ? (
@@ -7455,7 +7474,10 @@ export function MainView(): ReactElement {
             }}
           />
           <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
-          <WorkspaceTools onOpenAnalysis={() => shell.switchView('annual')} />
+          <WorkspaceTools
+            assistantSearchTarget={assistantSearchTarget}
+            onOpenAnalysis={() => shell.switchView('annual')}
+          />
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             initialTool={wonderfulToolsTool}

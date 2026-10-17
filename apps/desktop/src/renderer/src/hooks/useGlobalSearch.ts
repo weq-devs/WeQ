@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { isSlowSearchCategory } from '../components/search/types';
 import type {
   QuickSearchResult,
   SearchCategory,
@@ -41,9 +42,7 @@ export function useGlobalSearch(
       query &&
       categories.some((c) => ['conversation', 'friend', 'groupMember'].includes(c)),
   );
-  const hasSlow = Boolean(
-    accountKey && query && categories.some((c) => c === 'chatRecord' || c === 'file'),
-  );
+  const hasSlow = Boolean(accountKey && query && categories.some(isSlowSearchCategory));
   const [state, setState] = useState<SearchState>(() => emptyState(key, hasQuick, hasSlow));
   const currentKey = useRef(key);
   currentKey.current = key;

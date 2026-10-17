@@ -2,6 +2,8 @@
 
 import type { SearchCategory } from '@weq/service';
 export type { SearchCategory } from '@weq/service';
+import type { GeneratedSearchHit } from '@weq/service';
+export type { GeneratedSearchHit } from '@weq/service';
 export type SearchFtsSource = 'buddy' | 'group';
 
 export interface ConversationSearchHit {
@@ -58,7 +60,8 @@ export type SearchHit =
   | FriendSearchHit
   | GroupMemberSearchHit
   | ChatRecordSearchHit
-  | FileSearchHit;
+  | FileSearchHit
+  | GeneratedSearchHit;
 
 export interface QuickSearchResult {
   conversations: ConversationSearchHit[];
@@ -69,6 +72,8 @@ export interface QuickSearchResult {
 export interface SlowSearchResult {
   chatRecords: ChatRecordSearchHit[];
   files: FileSearchHit[];
+  cloneMessages: GeneratedSearchHit[];
+  assistantMessages: GeneratedSearchHit[];
   /** 本地 trigram 索引状态 — disabled | building | ready */
   indexStatus: 'disabled' | 'building' | 'ready';
 }
@@ -110,6 +115,8 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   groupMember: { label: '群友', plural: '群友' },
   chatRecord: { label: '聊天记录', plural: '聊天记录' },
   file: { label: '文件', plural: '文件' },
+  cloneMessage: { label: '克隆消息', plural: '克隆消息' },
+  assistantMessage: { label: '助手对话', plural: '助手对话' },
 };
 
 export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
@@ -118,4 +125,33 @@ export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
   'groupMember',
   'chatRecord',
   'file',
+  'cloneMessage',
+  'assistantMessage',
 ];
+
+export function isSlowSearchCategory(category: SearchCategory): boolean {
+  return (
+    category === 'chatRecord' ||
+    category === 'file' ||
+    category === 'cloneMessage' ||
+    category === 'assistantMessage'
+  );
+}
+
+export function searchHitKey(hit: SearchHit): string {
+  switch (hit.category) {
+    case 'conversation':
+      return `conversation:${hit.targetUid}`;
+    case 'friend':
+      return `friend:${hit.uid}`;
+    case 'groupMember':
+      return `groupMember:${hit.groupCode}:${hit.memberUid}`;
+    case 'chatRecord':
+      return `chatRecord:${hit.source}:${hit.partition}`;
+    case 'file':
+      return `file:${hit.source}:${hit.targetUid}:${hit.fileName}`;
+    case 'cloneMessage':
+    case 'assistantMessage':
+      return JSON.stringify([hit.category, hit.kind, hit.ownerId, hit.sessionId, hit.messageId]);
+  }
+}

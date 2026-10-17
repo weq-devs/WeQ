@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { GeneratedSearchHit } from './search/types';
 import { BarChart3, Bot, Download, ListTodo, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { FloatingToolsBar, type FloatingToolItem } from './FloatingToolsBar';
@@ -16,9 +17,21 @@ const TITLES: Record<Tool, string> = {
   assistant: 'WeQ 助手',
 };
 
-export function WorkspaceTools({ onOpenAnalysis }: { onOpenAnalysis: () => void }) {
+export function WorkspaceTools({
+  onOpenAnalysis,
+  assistantSearchTarget,
+}: {
+  onOpenAnalysis: () => void;
+  assistantSearchTarget?: GeneratedSearchHit | null;
+}) {
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('export');
+  useEffect(() => {
+    if (assistantSearchTarget) {
+      setTool('assistant');
+      setOpen(true);
+    }
+  }, [assistantSearchTarget]);
   const selection = useCurrentContentSelection();
   const tasks = trpc.account.listExportTasks.useQuery(undefined, { refetchInterval: 5000 });
   const running =
@@ -72,7 +85,7 @@ export function WorkspaceTools({ onOpenAnalysis }: { onOpenAnalysis: () => void 
             ) : tool === 'tasks' ? (
               <ExportTool surface="tasks" />
             ) : tool === 'assistant' ? (
-              <AgentLabView mode="assistant" />
+              <AgentLabView mode="assistant" searchTarget={assistantSearchTarget} />
             ) : null
           ) : null}
         </RetainedTabs>

@@ -1,6 +1,7 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
 import { useEffect, useState, type ReactElement } from 'react';
+import { Bot, MessagesSquare } from 'lucide-react';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveAvatar } from '../../lib/avatarResolver';
@@ -138,6 +139,22 @@ export function SearchResultCard({
   let subtitle: ReactElement;
 
   switch (hit.category) {
+    case 'cloneMessage':
+    case 'assistantMessage': {
+      media = (
+        <span className="weq-search-avatar">
+          {hit.kind === 'assistant' ? <Bot size={22} /> : <MessagesSquare size={22} />}
+        </span>
+      );
+      title = `${hit.title} · ${hit.sessionTitle}`;
+      subtitle = (
+        <span className="weq-search-muted">
+          {hit.category === 'cloneMessage' ? '本地克隆对话' : '本地助手对话'} ·{' '}
+          {highlightText(hit.content, keyword)}
+        </span>
+      );
+      break;
+    }
     case 'conversation': {
       const isGroup = hit.chatType === 2;
       media = (

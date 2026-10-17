@@ -5,7 +5,13 @@ import { X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
-import { CATEGORY_META, type MoreSearchResult, type SearchCategory, type SearchHit } from './types';
+import {
+  CATEGORY_META,
+  searchHitKey,
+  type MoreSearchResult,
+  type SearchCategory,
+  type SearchHit,
+} from './types';
 import { client } from '../../trpc/client';
 
 export function UnifiedSearchModal({
@@ -106,7 +112,7 @@ export function UnifiedSearchModal({
               <div className="weq-search-more-total">共 {data.total} 条结果</div>
               {data.items.map((hit) => (
                 <SearchResultCard
-                  key={cardKey(hit)}
+                  key={searchHitKey(hit)}
                   hit={hit}
                   keyword={keyword.trim()}
                   onSelect={(selected) => {
@@ -127,19 +133,4 @@ export function UnifiedSearchModal({
       </div>
     </Modal>
   );
-}
-
-function cardKey(hit: SearchHit): string {
-  switch (hit.category) {
-    case 'conversation':
-      return `conversation:${hit.targetUid}`;
-    case 'friend':
-      return `friend:${hit.uid}`;
-    case 'groupMember':
-      return `groupMember:${hit.groupCode}:${hit.memberUid}`;
-    case 'chatRecord':
-      return `chatRecord:${hit.source}:${hit.partition}`;
-    case 'file':
-      return `file:${hit.source}:${hit.targetUid}:${hit.fileName}`;
-  }
 }

@@ -4,7 +4,9 @@
  *  - 草稿会话：点克隆体进来就是新草稿，发第一条消息才落库建会话（sessionId null → 真 id），
  *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
  */
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import type { GeneratedSearchHit } from '../../components/search/types';
+import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { ArrowLeft, Send, Settings, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -26,6 +28,7 @@ export interface ClonePersonaLite {
 }
 
 interface ChatTurn {
+  id?: string;
   role: 'user' | 'assistant';
   text: string;
   /** 该条消息的时间戳（持久化回合来自库里的 ts，本地回合取发送/生成时刻）。 */
@@ -36,6 +39,7 @@ export function CloneChatPanel({
   personaId,
   persona,
   sessionId,
+  searchTarget,
   selfUin,
   clonedUin,
   faces,
@@ -49,6 +53,7 @@ export function CloneChatPanel({
   persona: ClonePersonaLite;
   /** 真实会话 id；null = 草稿会话（首条消息才落库）。 */
   sessionId: string | null;
+  searchTarget?: GeneratedSearchHit;
   selfUin?: string;
   clonedUin?: string;
   faces?: FaceContext;
@@ -68,18 +73,35 @@ export function CloneChatPanel({
   // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
   const initialSessionId = useRef(sessionId).current;
   const sessionIdRef = useRef<string | null>(sessionId);
-  const conversation = trpc.account.getAgentLabPersonaSessionConversation.useQuery(
+  const legacy = Boolean(searchTarget && searchTarget.sessionId === null);
+  const sessionConversation = trpc.account.getAgentLabPersonaSessionConversation.useQuery(
     { personaId, sessionId: initialSessionId ?? '' },
-    { enabled: !!initialSessionId },
+    {
+      enabled: !!initialSessionId,
+      ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
+    },
   );
+  const legacyConversation = trpc.account.getAgentLabConversation.useQuery(
+    { personaId },
+    { enabled: legacy, staleTime: 0, refetchOnMount: 'always' },
+  );
+  const conversation = legacy ? legacyConversation : sessionConversation;
 
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
   const seeded = useRef(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
+  const missingSearch = useGeneratedSearchJump(
+    transcriptRef,
+    searchMessageId,
+    conversation.isSuccess && !conversation.isFetching,
+    history,
+  );
 
   const scrollTranscriptToBottom = useCallback((): void => {
+    if (searchMessageId) return;
     const el = transcriptRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
@@ -89,22 +111,25 @@ export function CloneChatPanel({
         el.scrollTop = el.scrollHeight;
       });
     });
-  }, []);
+  }, [searchMessageId]);
 
   // 首次加载持久化对话（真实会话）。
   useEffect(() => {
-    if (!seeded.current && conversation.data && conversation.data.length > 0) {
-      setHistory(conversation.data.map((t) => ({ role: t.role, text: t.text, ts: t.ts })));
+    if (!seeded.current && conversation.data && (!searchTarget || !conversation.isFetching)) {
+      setHistory(
+        conversation.data.map((t) => ({ id: t.id, role: t.role, text: t.text, ts: t.ts })),
+      );
       seeded.current = true;
     }
-  }, [conversation.data]);
+  }, [conversation.data, conversation.isFetching, searchTarget]);
 
   useEffect(() => {
     scrollTranscriptToBottom();
   }, [history, chat.isLoading, scrollTranscriptToBottom]);
 
   async function onSend(): Promise<void> {
-    if (!personaId || !input.trim() || chat.isLoading) return;
+    if (legacy || !personaId || !input.trim() || chat.isLoading) return;
+    setSearchMessageId(null);
     const text = input.trim();
     setInput('');
     if (composerRef.current) composerRef.current.style.height = 'auto';
@@ -208,7 +233,13 @@ export function CloneChatPanel({
       </header>
 
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
-        {history.length === 0 ? (
+        <GeneratedSearchNotice
+          missing={missingSearch}
+          error={Boolean(searchMessageId && conversation.isError)}
+        />
+        {searchMessageId && conversation.isFetching ? (
+          <div className="weq-agentlab-empty">加载记录中…</div>
+        ) : history.length === 0 ? (
           <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
         ) : (
           history.map((item, index) => {
@@ -229,11 +260,14 @@ export function CloneChatPanel({
                 />
               );
             return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <Fragment key={`${item.role}-${index}`}>
+              <div
+                key={item.id ?? `${item.role}-${index}`}
+                data-generated-message-id={item.id}
+                className={`weq-generated-message${item.id === searchMessageId ? ' is-search-hit' : ''}`}
+              >
                 {shouldShowChatTime(prevTs, item.ts) ? <ChatTimeDivider ts={item.ts} /> : null}
                 {bubble}
-              </Fragment>
+              </div>
             );
           })
         )}
@@ -253,14 +287,16 @@ export function CloneChatPanel({
               void onSend();
             }
           }}
-          placeholder="输入一句话测试克隆效果（Enter 发送，Shift+Enter 换行）"
-          disabled={chat.isLoading}
+          placeholder={
+            legacy ? '旧版对话（只读）' : '输入一句话测试克隆效果（Enter 发送，Shift+Enter 换行）'
+          }
+          disabled={legacy || chat.isLoading}
         />
         <button
           type="button"
           className="weq-set-btn"
           onClick={() => void onSend()}
-          disabled={chat.isLoading || !input.trim()}
+          disabled={legacy || chat.isLoading || !input.trim()}
         >
           <Send size={14} />
           发送

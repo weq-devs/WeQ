@@ -8,6 +8,8 @@ import { SearchSectionSkeleton } from './SearchSkeleton';
 import {
   CATEGORY_META,
   SEARCH_CATEGORY_ORDER,
+  searchHitKey,
+  isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
   type QuickSearchResult,
@@ -57,6 +59,14 @@ export function SearchDropdown({
     loading: slowLoading && !slow,
   });
   sections.set('file', { hits: slow ? slow.files : null, loading: slowLoading && !slow });
+  sections.set('cloneMessage', {
+    hits: slow ? slow.cloneMessages : null,
+    loading: slowLoading && !slow,
+  });
+  sections.set('assistantMessage', {
+    hits: slow ? slow.assistantMessages : null,
+    loading: slowLoading && !slow,
+  });
 
   const indexBuilding =
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
@@ -110,8 +120,7 @@ export function SearchDropdown({
           (category) => {
             const section = sections.get(category)!;
             const hits = section.hits;
-            const failed =
-              category === 'chatRecord' || category === 'file' ? slowError : quickError;
+            const failed = isSlowSearchCategory(category) ? slowError : quickError;
             return (
               <div className="weq-search-section" key={category}>
                 <div className="weq-search-section-header">
@@ -145,7 +154,7 @@ export function SearchDropdown({
                 ) : (
                   hits.map((hit) => (
                     <SearchResultCard
-                      key={cardKey(hit)}
+                      key={searchHitKey(hit)}
                       hit={hit}
                       keyword={keyword}
                       onSelect={onSelect}
@@ -159,19 +168,4 @@ export function SearchDropdown({
       </div>
     </div>
   );
-}
-
-function cardKey(hit: SearchHit): string {
-  switch (hit.category) {
-    case 'conversation':
-      return hit.targetUid;
-    case 'friend':
-      return hit.uid;
-    case 'groupMember':
-      return `${hit.groupCode}:${hit.memberUid}`;
-    case 'chatRecord':
-      return `${hit.source}:${hit.partition}`;
-    case 'file':
-      return `${hit.source}:${hit.targetUid}:${hit.fileName}`;
-  }
 }

@@ -47,8 +47,11 @@ import {
   AssistantCompactionMarker,
 } from './AssistantWorkspace';
 import type { FlatModels } from './NewCloneModal';
+import type { GeneratedSearchHit } from '../../components/search/types';
+import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 
 interface Turn {
+  id?: string;
   role: 'user' | 'assistant';
   text: string;
   steps?: AssistantStep[];
@@ -453,12 +456,14 @@ const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }):
 
 export function AssistantPanel({
   sessionId,
+  searchTarget,
   chatModels,
   onBack,
   onSessionCreated,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
+  searchTarget?: GeneratedSearchHit;
   chatModels: FlatModels['chat'];
   onBack: () => void;
   /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
@@ -473,7 +478,10 @@ export function AssistantPanel({
   const sessionIdRef = useRef<string | null>(sessionId);
   const conversation = trpc.account.getAssistantConversation.useQuery(
     { sessionId: initialSessionId ?? '' },
-    { enabled: !!initialSessionId },
+    {
+      enabled: !!initialSessionId,
+      ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
+    },
   );
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const assistantConfig = trpc.account.getAssistantConfig.useQuery();
@@ -497,6 +505,13 @@ export function AssistantPanel({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   /** 是否贴底跟随：用户往上翻阅历史时不抢滚动条，回到底部附近才恢复。 */
   const stickRef = useRef(true);
+  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
+  const missingSearch = useGeneratedSearchJump(
+    transcriptRef,
+    searchMessageId,
+    conversation.isSuccess && !conversation.isFetching,
+    turns,
+  );
 
   // 该会话是否有上次中断留下的断点任务（“继续回答”入口）。final/aborted 后失效刷新。
   const resumeQuery = trpc.account.getAssistantResumeState.useQuery(
@@ -541,9 +556,10 @@ export function AssistantPanel({
 
   // 首次加载持久化对话（含历史的折叠过程）。
   useEffect(() => {
-    if (!seeded.current && conversation.data) {
+    if (!seeded.current && conversation.data && (!searchTarget || !conversation.isFetching)) {
       setTurns(
         conversation.data.map((t) => ({
+          id: t.id,
           role: t.role,
           text: t.text,
           steps: t.steps,
@@ -551,7 +567,7 @@ export function AssistantPanel({
       );
       seeded.current = true;
     }
-  }, [conversation.data]);
+  }, [conversation.data, conversation.isFetching, searchTarget]);
 
   // 实时过程流：累积进"运行中"的最后一条助手回合。镜像 UpdateCard 的订阅范式。
   //
@@ -612,8 +628,8 @@ export function AssistantPanel({
   // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [turns]);
+    if (el && stickRef.current && !searchMessageId) el.scrollTop = el.scrollHeight;
+  }, [turns, searchMessageId]);
 
   function onTranscriptScroll(): void {
     const el = transcriptRef.current;
@@ -621,6 +637,7 @@ export function AssistantPanel({
   }
 
   async function onSend(preset?: string): Promise<void> {
+    setSearchMessageId(null);
     const raw = preset ?? input;
     if (!raw.trim() || busy) return;
     // 没配聊天模型时后端会直接抛错、且这条 rejection 被路由吞掉（不会 emit error
@@ -801,7 +818,13 @@ export function AssistantPanel({
       ) : null}
 
       <div className="weq-agentlab-transcript" ref={transcriptRef} onScroll={onTranscriptScroll}>
-        {turns.length === 0 ? (
+        <GeneratedSearchNotice
+          missing={missingSearch}
+          error={Boolean(searchMessageId && conversation.isError)}
+        />
+        {searchMessageId && conversation.isFetching ? (
+          <div className="weq-agentlab-empty">加载记录中…</div>
+        ) : turns.length === 0 ? (
           <div className="weq-agentlab-empty weq-asst-empty">
             <span className="weq-asst-empty-icon">
               <Sparkles size={26} strokeWidth={1.6} />
@@ -823,15 +846,19 @@ export function AssistantPanel({
             </div>
           </div>
         ) : (
-          turns.map((t, i) =>
-            t.role === 'user' ? (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <ChatBubble key={`u-${i}`} mine name="我" uin={selfProfile.data?.uin} text={t.text} />
-            ) : (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <AssistantBubble key={`a-${i}`} turn={t} />
-            ),
-          )
+          turns.map((t, i) => (
+            <div
+              key={t.id ?? `${t.role}-${i}`}
+              data-generated-message-id={t.id}
+              className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}`}
+            >
+              {t.role === 'user' ? (
+                <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
+              ) : (
+                <AssistantBubble turn={t} />
+              )}
+            </div>
+          ))
         )}
       </div>
 

@@ -87,6 +87,7 @@ import {
   EmojiService,
   MsgSearchService,
   UnifiedSearchService,
+  type GeneratedSearchSources,
   OnlineStatusService,
   AgentLabService,
   AssistantService,
@@ -1310,6 +1311,8 @@ export function initAppContext(): AppContext {
         msgs,
         gapHistory,
       );
+      // 只捕获本账号的服务，不在查询时读取可能已切号的 this.services。
+      let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
@@ -1347,6 +1350,7 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          generatedSources: () => generatedSources,
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
@@ -1658,6 +1662,7 @@ export function initAppContext(): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
       // export manager's isolation (see exportConfigId above). The online
@@ -1983,6 +1988,7 @@ export function initAppContext(): AppContext {
         msgs,
         gapHistory,
       );
+      let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
@@ -2021,6 +2027,7 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          generatedSources: () => generatedSources,
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
@@ -2240,6 +2247,7 @@ export function initAppContext(): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
       // works without re-selecting the folder. `static: true` is the marker

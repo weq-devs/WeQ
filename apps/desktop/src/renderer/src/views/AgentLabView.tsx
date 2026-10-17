@@ -13,6 +13,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Plus,
+  PanelLeft,
   Sparkles,
   Trash2,
   X,
@@ -41,6 +42,8 @@ import { buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
 import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal';
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
+import type { GeneratedSearchHit } from '../components/search/types';
+import '../styles/agentlab-workspace.css';
 
 /** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
 type AgentLabProfileWire = {
@@ -219,7 +222,7 @@ function PersonaParamsPanel({
   );
 }
 
-type Selection =
+type Selection = (
   | { kind: 'home' }
   // navKey 是右侧面板的稳定挂载 key：草稿(sessionId=null) 首次发消息
   // 升级为真会话时只改 sessionId、navKey 不变，故组件不重挂载、流式不中断。
@@ -227,7 +230,8 @@ type Selection =
   // 克隆体私聊：点克隆体开新草稿会话；会话下拉切换已有会话。
   | { kind: 'persona'; id: string; sessionId: string | null; navKey: number }
   // 克隆体群聊：同样支持多会话。
-  | { kind: 'group'; id: string; sessionId: string | null; navKey: number };
+  | { kind: 'group'; id: string; sessionId: string | null; navKey: number }
+) & { searchTarget?: GeneratedSearchHit };
 
 /** 每页展开显示的会话条数（超出点「查看更多」分页）。 */
 const SESSION_PAGE = 5;
@@ -358,7 +362,13 @@ function ExpandableSessionRow({
   );
 }
 
-export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant' }): ReactElement {
+export function AgentLabView({
+  mode = 'clones',
+  searchTarget,
+}: {
+  mode?: 'clones' | 'assistant';
+  searchTarget?: GeneratedSearchHit | null;
+}): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
@@ -433,9 +443,22 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  const [sel, setSel] = useState<Selection>(() =>
-    mode === 'assistant' ? { kind: 'assistant', sessionId: null, navKey: 0 } : { kind: 'home' },
-  );
+  const [sel, setSel] = useState<Selection>(() => {
+    if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
+      return searchTarget.kind === 'assistant'
+        ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
+        : {
+            kind: searchTarget.kind,
+            id: searchTarget.ownerId,
+            sessionId: searchTarget.sessionId,
+            navKey: 0,
+            searchTarget,
+          };
+    }
+    return mode === 'assistant'
+      ? { kind: 'assistant', sessionId: null, navKey: 0 }
+      : { kind: 'home' };
+  });
   // WeQ 助手会话列表：仅进入助手模式时拉取。
   const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: sel.kind === 'assistant',
@@ -447,8 +470,34 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  useEffect(() => setMobileListOpen(false), [sel]);
   // 递增序号，用来给每次「打开克隆体 / 群聊 / 会话」生成一个不重复的挂载 key（见 Selection.navKey）。
   const navSeq = useRef(0);
+  const appliedSearch = useRef({ target: searchTarget, mode });
+  useEffect(() => {
+    if (appliedSearch.current.target === searchTarget && appliedSearch.current.mode === mode)
+      return;
+    appliedSearch.current = { target: searchTarget, mode };
+    if (!searchTarget || (searchTarget.kind === 'assistant') !== (mode === 'assistant')) return;
+    navSeq.current += 1;
+    if (searchTarget.kind === 'assistant') {
+      setSel({
+        kind: 'assistant',
+        sessionId: searchTarget.sessionId,
+        navKey: navSeq.current,
+        searchTarget,
+      });
+    } else {
+      setSel({
+        kind: searchTarget.kind,
+        id: searchTarget.ownerId,
+        sessionId: searchTarget.sessionId,
+        navKey: navSeq.current,
+        searchTarget,
+      });
+    }
+  }, [searchTarget, mode]);
 
   const activePersona =
     sel.kind === 'persona' ? (personaList.find((item) => item.id === sel.id) ?? null) : null;
@@ -680,9 +729,22 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
   }, [activePersona, providers.data]);
 
   return (
-    <div className="weq-agentlab-shell">
+    <div
+      className={`weq-agentlab-shell weq-agentlab-workspace${sel.kind !== 'home' ? ' is-conversation' : ''}${mobileListOpen ? ' is-list-open' : ''}`}
+    >
       {/* 左侧 agent 列表 */}
       <aside className="weq-agentlab-list">
+        {sel.kind !== 'home' ? (
+          <button
+            type="button"
+            className="weq-agentlab-mobile-nav"
+            onClick={() => setMobileListOpen(false)}
+            title="返回对话"
+            aria-label="返回对话"
+          >
+            <PanelLeft size={18} />
+          </button>
+        ) : null}
         {sel.kind === 'assistant' ? (
           <>
             <div className="weq-agentlab-list-head weq-asst-list-head">
@@ -849,6 +911,17 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
 
       {/* 右侧主区 */}
       <section className="weq-agentlab-main">
+        {sel.kind !== 'home' ? (
+          <button
+            type="button"
+            className="weq-agentlab-mobile-nav"
+            onClick={() => setMobileListOpen(true)}
+            title="会话列表"
+            aria-label="会话列表"
+          >
+            <PanelLeft size={18} />
+          </button>
+        ) : null}
         {sel.kind === 'home' ? (
           <UsagePanel
             resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'}
@@ -859,6 +932,7 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
           <AssistantPanel
             key={sel.navKey}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
             chatModels={flatModels.chat}
             onBack={openAssistantDraft}
             onSessionCreated={(newId) =>
@@ -874,6 +948,7 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
             key={sel.navKey}
             groupId={sel.id}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
             selfUin={selfProfile.data?.uin}
             personaList={personaList}
             profileByUid={profileByUid}
@@ -888,6 +963,7 @@ export function AgentLabView({ mode = 'clones' }: { mode?: 'clones' | 'assistant
             personaId={sel.id}
             persona={activePersona}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
             selfUin={selfProfile.data?.uin}
             clonedUin={clonedProfile?.uin || activePersona.sourceUin}
             faces={cloneFaces}
