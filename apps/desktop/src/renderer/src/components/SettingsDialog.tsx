@@ -281,6 +281,7 @@ function AppearanceSection(): ReactElement {
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
   const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
+  const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
@@ -472,6 +473,26 @@ function AppearanceSection(): ReactElement {
           />
         </div>
         {seqError ? <p role="alert">{seqError}</p> : null}
+        <div className="weq-settings-appearance-head">
+          <strong>显示发送时间（精确到秒）</strong>
+          <Toggle
+            checked={settings.data?.showMessageTime ?? false}
+            disabled={!settings.data || setShowMessageTime.isLoading}
+            onChange={(enabled) => {
+              setSeqError(null);
+              setShowMessageTime.mutate(
+                { enabled },
+                {
+                  onSuccess: () => {
+                    void settings.refetch();
+                  },
+                  onError: (error) => setSeqError(error.message),
+                },
+              );
+            }}
+            label="显示发送时间（精确到秒）"
+          />
+        </div>
       </div>
       <div className="weq-settings-appearance-card">
         <div className="weq-settings-appearance-head">

@@ -297,7 +297,8 @@ function decodePreview(blob: SqlValue | undefined): RecentContact['preview'] {
     const elements = (decoded.preview ?? [])
       .map((wire) => (wire ? decodePreviewElement(wire) : null))
       .filter((el): el is PreviewElement => el !== null);
-    return pickPreviewElement(elements);
+    const primary = pickPreviewElement(elements);
+    return primary ? { ...primary, previewElements: elements } : null;
   } catch (e) {
     console.error(`[RecentContactDb] failed to decode 40051 preview:`, e);
     return null;

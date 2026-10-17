@@ -2,7 +2,7 @@
  * 聊天页门面（无选中会话时的落地页）——「个性装扮」版。
  *
  * 素材全部取自 `settings.homeDress`（bootstrap 阶段写入的快照，见 user_config.ts），
- * 首页只读、不实时拉取。四层自下而上（部件本体在 components/dressPieces，与他人的
+ * 装扮快照只读；头像走本地优先链路并在主页重新聚焦时复核。四层自下而上（部件本体在 components/dressPieces，与他人的
  * 个性主页共用）：
  *
  *   ① 背景：名片装扮。有视频就播视频、否则用静图；两者都无则整层不渲染，透出主题画布。
@@ -134,7 +134,12 @@ export function ChatHome({
       <div className="weq-chathome-inner">
         <div className="weq-chathome-hero">
           <div className="weq-chathome-stage">
-            <AvatarOrb avatarUrl={selfAvatarUrl} nickname={name} widgetUrl={widgetUrl} />
+            <AvatarOrb
+              avatarUrl={selfAvatarUrl}
+              nickname={name}
+              widgetUrl={widgetUrl}
+              refreshOnFocus
+            />
             <TagRing tags={tags} />
           </div>
           <h1 className="weq-chathome-greet">

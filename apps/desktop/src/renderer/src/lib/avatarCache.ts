@@ -56,3 +56,12 @@ export function cachedAvatarUrl(src: string | null | undefined): string | null {
   // 直连只会 403 / 被浏览器拦。该开关只管上面两个 QQ 头像端点。
   return avatarFetchUrl(fixed);
 }
+
+/** 只刷新本地头像桥的请求，不改上游 URL，避免制造重复的磁盘缓存。 */
+export function refreshAvatarUrl(src: string | null, revision: number): string | null {
+  if (!src || !revision || !/^(weq-media:|weq-avatar:|\/_media\/|\/_avatar\/)/.test(src))
+    return src;
+  const url = new URL(src, 'https://weq.invalid');
+  url.searchParams.set('_weq_avatar_refresh', String(revision));
+  return src.startsWith('/') ? `${url.pathname}${url.search}${url.hash}` : url.href;
+}

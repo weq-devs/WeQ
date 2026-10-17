@@ -39,6 +39,45 @@ function output() {
 }
 
 describe('collection export detail hydration', () => {
+  it('renders source timestamps in Beijing time without rewriting raw source fields', async () => {
+    const outputPath = output();
+    const source = rows(1);
+    source[0]!.createTime = Date.parse('2026-10-16T17:02:03Z');
+    await exportCollections(
+      { format: 'json', outputPath },
+      { listCollections: async () => source },
+    );
+    expect(JSON.parse(readFileSync(outputPath, 'utf8'))[0].createTime).toBe('2026-10-17 01:02');
+    expect(source[0]!.createTime).toBe(Date.parse('2026-10-16T17:02:03Z'));
+  });
+  it('exports only exact selected CIDs and never fetches unrelated details', async () => {
+    const outputPath = output();
+    const fetchDetails = vi.fn(async (cids: string[]) =>
+      cids.map((cid) => ({
+        cid,
+        contentStatus: 'cached' as const,
+        fullContent: `全文 ${cid}`,
+        fullContentFormat: 'text' as const,
+      })),
+    );
+    const result = await exportCollections(
+      { format: 'json', outputPath, cids: ['cid-1'] },
+      { listCollections: async () => rows(3), fetchDetails },
+    );
+    expect(result.count).toBe(1);
+    expect(fetchDetails).toHaveBeenCalledWith(['cid-1'], undefined);
+    expect(
+      JSON.parse(readFileSync(outputPath, 'utf8')).map((row: { cid: string }) => row.cid),
+    ).toEqual(['cid-1']);
+  });
+  it('does not turn a missing selected CID into an apparently successful empty export', async () => {
+    await expect(
+      exportCollections(
+        { format: 'json', outputPath: output(), cids: ['missing'] },
+        { listCollections: async () => rows(2) },
+      ),
+    ).rejects.toThrow('部分选中的收藏');
+  });
   it('fetches bounded batches and publishes full bodies ahead of summaries', async () => {
     const source = rows(45);
     const outputPath = output();

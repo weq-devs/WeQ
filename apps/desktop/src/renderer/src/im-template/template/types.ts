@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import type { PreviewNode } from '../../lib/conversationPreview';
+import type { SetEmojiItem } from '@weq/codec';
 
 export type User = {
   id: string;
@@ -332,6 +333,11 @@ export type Message = {
   clientSeq?: string;
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
+  optimistic?: 'sending' | 'sent' | 'failed';
+  optimisticError?: string;
+  optimisticRejected?: boolean;
+  msgRandom?: string;
+  setEmojiList?: SetEmojiItem[];
   ntSeqVerified?: boolean;
   actions?: MessageAction[];
   streamStatus?: 'complete' | 'streaming' | 'failed';

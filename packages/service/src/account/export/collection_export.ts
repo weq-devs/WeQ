@@ -233,9 +233,15 @@ const KIND_LABEL: Record<string, string> = {
 /** 毫秒级时间戳 → `YYYY-MM-DD HH:mm`（0/空留空）。 */
 function timeText(ms: number): string {
   if (!ms) return '';
-  const date = new Date(ms);
-  const p = (n: number): string => n.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(ms));
 }
 
 /** 秒 → `M:SS` / `S"`（0/空留空）。 */
@@ -388,6 +394,8 @@ export interface ExportCollectionsOpts {
   outputPath: string;
   /** 只导出这些 kind（空 / 省略 = 全部）。 */
   kinds?: string[];
+  /** 查看弹窗按准确 CID 导出当前收藏或筛选结果。 */
+  cids?: string[];
   onProgress?: (current: number, total: number, note: string) => void;
   signal?: AbortSignal;
 }
@@ -434,6 +442,12 @@ export async function exportCollections(
   if (opts.kinds && opts.kinds.length > 0) {
     const wanted = new Set(opts.kinds);
     rows = rows.filter((r) => wanted.has(r.kind));
+  }
+  if (opts.cids) {
+    const wanted = new Set(opts.cids);
+    rows = rows.filter((row) => wanted.has(row.cid));
+    if (rows.length !== wanted.size)
+      throw new Error('部分选中的收藏已不在当前列表中，请刷新后重试。');
   }
 
   if (deps.fetchDetails && (deps.canFetchDetails?.() ?? true)) {

@@ -7,7 +7,6 @@ import {
   Download,
   Settings,
   Hash,
-  Star,
   Bookmark,
   HardDrive,
   Store,
@@ -21,6 +20,7 @@ import {
   FileStack,
   ShieldCheck,
 } from 'lucide-react';
+import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
@@ -227,7 +227,7 @@ export function AppRail({
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
-              <Star size={22} strokeWidth={1.5} />
+              <SiQzone size={22} />
             </span>
             <span className={cn('rail-label')}>QQ空间</span>
           </button>

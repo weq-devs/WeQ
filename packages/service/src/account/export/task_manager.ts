@@ -308,7 +308,7 @@ export interface ExportTask {
    *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
   /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
-  collection?: { kinds?: string[] };
+  collection?: { kinds?: string[]; cids?: string[] };
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
   dress?: DressExportKinds;
   /** 商城表情批量下载（`conv` 占位为 'marketpack'；走独立的解密下载流水线）。
@@ -597,7 +597,7 @@ export class ExportTaskManager extends EventEmitter {
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
     contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
     /** 收藏导出（QQ 收藏；走独立流水线）。 */
-    collection?: { kinds?: string[] };
+    collection?: { kinds?: string[]; cids?: string[] };
     /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
     dress?: DressExportKinds;
     media?: MediaExportOptions;
@@ -2813,7 +2813,7 @@ export class ExportTaskManager extends EventEmitter {
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
       let historyError: string | null = null;
       let history = deps.historySummary?.() ?? null;
-      if (deps.syncHistory) {
+      if (deps.syncHistory && !task.collection?.cids) {
         try {
           history = await deps.syncHistory(abort.signal);
         } catch (error) {
@@ -2827,6 +2827,7 @@ export class ExportTaskManager extends EventEmitter {
           format: task.format as CollectionFormat,
           outputPath: outPath,
           kinds: task.collection?.kinds,
+          cids: task.collection?.cids,
           onProgress: (current, total, note) => {
             if (aborted()) return;
             this.touchStage(task, 'message', { current, total, note });
@@ -2843,7 +2844,7 @@ export class ExportTaskManager extends EventEmitter {
 
       // Original responses may include other CIDs from the same batch. Do not
       // add whole-account raw history to a deliberately kind-filtered export.
-      const includeRawHistory = !task.collection?.kinds?.length;
+      const includeRawHistory = !task.collection?.kinds?.length && !task.collection?.cids;
       if (includeRawHistory) {
         if (history && deps.writeHistorySnapshot)
           deps.writeHistorySnapshot(join(bundle.stageDir, 'collection-history.json'));

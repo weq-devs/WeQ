@@ -18,6 +18,56 @@ const preview = {
 const text = (p = preview, names = new Map<string, string>()) =>
   previewNodesToText(previewNodes(p, new Set(['u_self', '67890']), names));
 
+test('mixed message previews keep ordered text and every face, including face zero', () => {
+  assert.deepEqual(
+    previewNodes({
+      kind: 'text',
+      textContent: '你好',
+      previewElements: [
+        { kind: 'text', textContent: '你好' },
+        { kind: 'face', faceId: 0, displayText: '/惊讶' },
+        { kind: 'text', textContent: '！' },
+        { kind: 'face', faceId: 14, displayText: '/微笑' },
+      ],
+    }),
+    [
+      { t: 'text', text: '你好' },
+      { t: 'face', faceId: 0, label: '/惊讶' },
+      { t: 'text', text: '！' },
+      { t: 'face', faceId: 14, label: '/微笑' },
+    ],
+  );
+});
+
+test('markdown fallback text does not duplicate the same message in a preview', () => {
+  assert.equal(
+    previewNodesToText(
+      previewNodes({
+        previewElements: [
+          { kind: 'markdown', markdownContent49099: '正文' },
+          { kind: 'text', textContent: '正文' },
+        ],
+      }),
+    ),
+    '正文',
+  );
+});
+
+test('mixed preview preserves spaces around emoji', () => {
+  assert.equal(
+    previewNodesToText(
+      previewNodes({
+        previewElements: [
+          { kind: 'text', textContent: 'hello ' },
+          { kind: 'face', faceId: 14, displayText: '/微笑' },
+          { kind: 'text', textContent: ' world' },
+        ],
+      }),
+    ),
+    'hello /微笑 world',
+  );
+});
+
 test('poke resolves exact UID to a cached nickname', () => {
   assert.equal(text(preview, new Map([['u_alice', 'Alice']])), 'Alice戳了戳你');
 });

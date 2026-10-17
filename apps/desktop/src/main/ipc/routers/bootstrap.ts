@@ -596,6 +596,11 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  setShowMessageTime: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
+    return true;
+  }),
+
   /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
   setShowMsgDecoration: procedure
     .input(z.object({ enabled: z.boolean() }))

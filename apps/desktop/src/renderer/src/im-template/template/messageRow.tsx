@@ -17,7 +17,8 @@
  * 决定「画成灰条还是画成气泡」。
  */
 
-import type { ReactElement } from 'react';
+import type { ReactElement, MouseEvent as ReactMouseEvent } from 'react';
+import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
 import type { MessageRenderer } from './messageRenderers';
@@ -33,6 +34,7 @@ import {
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import type { ReactionRemoval } from '../../components/SetEmojiReactions';
 
 /**
  * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
@@ -120,6 +122,7 @@ export function GrayTipLine({
           element={gt.el as never}
           conversation={conversation as never}
           message={message as never}
+          user={user}
         />
       );
     case 'grayTipGroup':
@@ -182,6 +185,7 @@ export function MessageRow({
   selectionMode = false,
   selected = false,
   onToggleSelect,
+  reactionRemoval,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -205,7 +209,8 @@ export function MessageRow({
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
-  onToggleSelect?: (message: Message) => void;
+  onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
+  reactionRemoval?: ReactionRemoval;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -214,12 +219,35 @@ export function MessageRow({
       // 右鍵菜单与普通消息同一入口（聊天区靠它弹「复制 / 删除 / 多选」），
       // 所以这一层必须保留 data-message-id 与 onContextMenu。
       <div
-        className={grayTipClassName}
+        className={[
+          grayTipClassName,
+          'weq-system-message-row',
+          selectionMode ? 'selection-mode' : '',
+          selected ? 'is-selected' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         data-message-id={message.id}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
+        onClickCapture={
+          selectionMode && onToggleSelect
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleSelect(message, event);
+              }
+            : undefined
+        }
       >
-        <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
-        <MessageProvenance message={message} />
+        {selectionMode ? (
+          <span className="message-select-mark" aria-hidden>
+            {selected ? <Check size={13} /> : null}
+          </span>
+        ) : null}
+        <div className="weq-system-message-content">
+          <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
+          <MessageProvenance message={message} system />
+        </div>
       </div>
     );
   }
@@ -252,6 +280,7 @@ export function MessageRow({
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
+      reactionRemoval={reactionRemoval}
     />
   );
 }

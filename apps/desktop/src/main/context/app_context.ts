@@ -1469,6 +1469,10 @@ export function initAppContext(): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
             qzone: {
+              fetchPostDetail: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
+              fetchPostImages: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostImages(uin, tid, signal, captureRaw),
               fetchMsgList: (uin, pos, num, signal, captureRaw) =>
                 webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal, captureRaw) =>
@@ -1564,7 +1568,7 @@ export function initAppContext(): AppContext {
                   accountConfig.getRecord()?.qqOnline !== true
                 )
                   throw new Error('离线时不请求收藏附件。');
-                return collectionSvc.downloadOriginalFiles(cid, signal);
+                return collectionSvc.downloadExportMedia(cid, signal);
               },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),
@@ -2111,6 +2115,10 @@ export function initAppContext(): AppContext {
               },
             },
             qzone: {
+              fetchPostDetail: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostDetail(uin, tid, signal, captureRaw),
+              fetchPostImages: (uin, tid, signal, captureRaw) =>
+                webQuery.getQzonePostImages(uin, tid, signal, captureRaw),
               fetchMsgList: (uin, pos, num, signal, captureRaw) =>
                 webQuery.getQzoneMsgList(uin, pos, num, captureRaw, signal),
               fetchInteractions: (uin, targets, signal, captureRaw) =>
@@ -2152,7 +2160,7 @@ export function initAppContext(): AppContext {
                   accountConfig.getRecord()?.qqOnline !== true
                 )
                   throw new Error('离线时不请求收藏附件。');
-                return collectionSvc.downloadOriginalFiles(cid, signal);
+                return collectionSvc.downloadExportMedia(cid, signal);
               },
               exportCachedMedia: (cid, directory, signal) =>
                 collectionSvc.exportCachedMedia(cid, directory, signal),

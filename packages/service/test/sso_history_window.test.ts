@@ -302,20 +302,22 @@ describe('shared SSO physical windows', () => {
   });
   it('persists the physical request reservation before sending any bytes', async () => {
     const f = fixture();
-    f.sendPacket.mockImplementationOnce(async (_pid, _cmd, body) => {
+    f.sendPacket.mockImplementation(async (_pid, _cmd, body) => {
       const saved = JSON.parse(readFileSync(f.path, 'utf8')).jobs[0];
-      expect(saved).toMatchObject({
-        requests: 1,
-        checkedWindows: 0,
-        inFlight: { start: 471, end: 500 },
-      });
+      expect(saved.requests).toBe(saved.checkedWindows + 1);
+      expect(saved.inFlight).toMatchObject({ start: expect.any(Number), end: expect.any(Number) });
+      if (saved.requests === 1) expect(saved.inFlight).toMatchObject({ start: 471, end: 500 });
       return f.response(body);
     });
     const job = await f.plan(1);
     f.manager.start(job.id);
     await f.done();
-    expect(f.sendPacket).toHaveBeenCalledOnce();
-    expect(f.manager.list()[0]).toMatchObject({ requests: 1, checkedWindows: 1, status: 'paused' });
+    expect(f.sendPacket).toHaveBeenCalledTimes(job.estimatedWindows);
+    expect(f.manager.list()[0]).toMatchObject({
+      requests: job.estimatedWindows,
+      checkedWindows: job.estimatedWindows,
+      status: 'completed',
+    });
   });
   it('rejects process changes before accepting or persisting a response', async () => {
     const f = fixture();
@@ -363,17 +365,17 @@ describe('shared SSO physical windows', () => {
     expect(f.steps).toHaveLength(1);
     expect(await f.history.cachedForExport('group', group.conv)).toHaveLength(30);
   });
-  it('counts manager budgets and checkpoints per actual physical read', async () => {
+  it('counts and checkpoints every physical read without enforcing the legacy budget', async () => {
     const f = fixture();
     const job = await f.plan(2);
     f.manager.start(job.id);
     await f.done();
     expect(f.manager.list()[0]).toMatchObject({
-      status: 'paused',
-      requests: 2,
-      checkedWindows: 2,
+      status: 'completed',
+      requests: job.estimatedWindows,
+      checkedWindows: job.estimatedWindows,
     });
-    expect(f.sendPacket).toHaveBeenCalledTimes(2);
+    expect(f.sendPacket).toHaveBeenCalledTimes(job.estimatedWindows);
     expect(JSON.parse(readFileSync(f.path, 'utf8')).jobs[0].inFlight).toBeUndefined();
   });
   it('does not checkpoint or publish a physical response whose cache write fails', async () => {

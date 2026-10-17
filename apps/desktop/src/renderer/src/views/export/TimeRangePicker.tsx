@@ -7,9 +7,16 @@
  * 'all' 时两端都为 null（不限）。月历自带上/下月切换，选中端点高亮、区间淡染。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { ReactElement } from 'react';
 import type { RangePreset, TimeRange } from './types';
+import { MessageCalendar } from '../../components/MessageCalendar';
+import {
+  beijingDay,
+  daySeconds,
+  pickCalendarRange,
+  type CalendarTarget,
+} from '../../lib/messageCalendar';
+import { trpc } from '../../trpc/client';
 
 const PRESETS: Array<{ value: RangePreset; label: string }> = [
   { value: 'all', label: '全部时间' },
@@ -20,15 +27,11 @@ const PRESETS: Array<{ value: RangePreset; label: string }> = [
   { value: 'custom', label: '自定义' },
 ];
 
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-
 function startOfDay(d: Date): number {
-  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-  return Math.floor(x.getTime() / 1000);
+  return daySeconds(beijingDay(d));
 }
 function endOfDay(d: Date): number {
-  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-  return Math.floor(x.getTime() / 1000);
+  return startOfDay(d) + 86399;
 }
 
 /** Resolve a preset to a concrete range (custom is left to the caller). */
@@ -37,9 +40,7 @@ function rangeForPreset(preset: RangePreset): TimeRange {
   if (preset === 'all') return { preset, start: null, end: null };
   if (preset === 'today') return { preset, start: startOfDay(now), end: endOfDay(now) };
   const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 365;
-  const from = new Date(now);
-  from.setDate(from.getDate() - (days - 1));
-  return { preset, start: startOfDay(from), end: endOfDay(now) };
+  return { preset, start: startOfDay(now) - (days - 1) * 86400, end: endOfDay(now) };
 }
 
 /** Hint per preset. `single` (the default) describes the static window the
@@ -72,14 +73,14 @@ const PRESET_HINTS: Record<RangePreset, { single: string; scheduled: string }> =
 
 function fmtDay(secs: number | null): string {
   if (secs == null) return '不限';
-  const d = new Date(secs * 1000);
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  return beijingDay(new Date(secs * 1000));
 }
 
 export function TimeRangePicker({
   value,
   onChange,
   mode = 'single',
+  calendarTargets = [],
 }: {
   value: TimeRange;
   onChange: (next: TimeRange) => void;
@@ -87,13 +88,16 @@ export function TimeRangePicker({
    *  repeatedly; preset windows are re-resolved at fire-time. Drives the
    *  hint copy and the per-preset `title`. */
   mode?: 'single' | 'scheduled';
+  calendarTargets?: CalendarTarget[];
 }): ReactElement {
-  // The month the calendar is currently showing.
-  const initial = value.start ? new Date(value.start * 1000) : new Date();
-  const [viewY, setViewY] = useState(initial.getFullYear());
-  const [viewM, setViewM] = useState(initial.getMonth());
-
-  const weeks = useMemo(() => buildMonth(viewY, viewM), [viewY, viewM]);
+  const calendar = trpc.account.exportCalendar.useQuery(
+    { targets: calendarTargets },
+    {
+      enabled: calendarTargets.length > 0,
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  );
 
   function pickPreset(preset: RangePreset): void {
     if (preset === 'custom') {
@@ -105,33 +109,17 @@ export function TimeRangePicker({
     }
   }
 
-  function pickDay(dayStart: number): void {
-    const dayEnd = endOfDay(new Date(dayStart * 1000));
-    // No start, or a complete range already chosen → begin a fresh range.
-    if (value.start == null || (value.start != null && value.end != null)) {
-      onChange({ preset: 'custom', start: dayStart, end: null });
-      return;
-    }
-    // Second click closes the range (swap if the user went backwards).
-    if (dayStart < value.start) {
-      onChange({ preset: 'custom', start: dayStart, end: endOfDay(new Date(value.start * 1000)) });
-    } else {
-      onChange({ preset: 'custom', start: value.start, end: dayEnd });
-    }
-  }
-
-  function shiftMonth(delta: number): void {
-    let m = viewM + delta;
-    let y = viewY;
-    if (m < 0) {
-      m = 11;
-      y -= 1;
-    } else if (m > 11) {
-      m = 0;
-      y += 1;
-    }
-    setViewM(m);
-    setViewY(y);
+  function pickDay(day: string): void {
+    const range = pickCalendarRange(
+      value.start == null ? '' : fmtDay(value.start),
+      value.end == null ? '' : fmtDay(value.end),
+      day,
+    );
+    onChange({
+      preset: 'custom',
+      start: daySeconds(range.start),
+      end: range.end ? daySeconds(range.end) + 86399 : null,
+    });
   }
 
   /** 回到「全部时间」。 */
@@ -177,80 +165,15 @@ export function TimeRangePicker({
         )}
       </div>
 
-      <div className="weq-exp-cal">
-        <div className="weq-exp-cal-head">
-          <button type="button" onClick={() => shiftMonth(-1)} title="上个月">
-            <ChevronLeft size={15} />
-          </button>
-          <span className="weq-exp-cal-title">
-            {viewY} 年 {viewM + 1} 月
-          </span>
-          <button type="button" onClick={() => shiftMonth(1)} title="下个月">
-            <ChevronRight size={15} />
-          </button>
-        </div>
-        <div className="weq-exp-cal-grid">
-          {WEEKDAYS.map((w) => (
-            <span key={w} className="weq-exp-cal-wd">
-              {w}
-            </span>
-          ))}
-          {weeks.map((cell, i) => {
-            if (cell == null)
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              return <span key={`blank-${i}`} className="weq-exp-cal-cell is-blank" />;
-            const dayStart = cell.start;
-            const inRange =
-              value.start != null &&
-              value.end != null &&
-              dayStart >= value.start &&
-              dayStart <= value.end;
-            const isStart = dayStart === value.start;
-            const isEnd = value.end != null && dayStart === startOfDay(new Date(value.end * 1000));
-            return (
-              <button
-                key={dayStart}
-                type="button"
-                className={`weq-exp-cal-cell${inRange ? ' is-range' : ''}${
-                  isStart || isEnd ? ' is-end' : ''
-                }${cell.today ? ' is-today' : ''}`}
-                onClick={() => pickDay(dayStart)}
-                title={value.preset === 'all' ? '点选开始日期' : '点选切换为自定义区间'}
-              >
-                {cell.day}
-              </button>
-            );
-          })}
-        </div>
-        <p className="weq-exp-cal-hint">
-          点选两次：第一次为起始日，第二次为结束日。
-          {mode === 'scheduled' ? '（自定义起止日固定，每次触发都按相同区间导出）' : ''}
-        </p>
-      </div>
+      <MessageCalendar
+        days={calendar.data}
+        start={value.start == null ? '' : fmtDay(value.start)}
+        end={value.end == null ? '' : fmtDay(value.end)}
+        allowEmpty
+        onPick={pickDay}
+        loading={calendarTargets.length > 0 && calendar.isLoading}
+        error={calendar.error?.message}
+      />
     </div>
   );
-}
-
-interface DayCell {
-  day: number;
-  start: number;
-  today: boolean;
-}
-
-/** Build a month as a flat array of cells (null = leading/trailing blank). */
-function buildMonth(year: number, month: number): Array<DayCell | null> {
-  const first = new Date(year, month, 1);
-  const leading = first.getDay(); // 0 = Sunday
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayStart = startOfDay(new Date());
-
-  const cells: Array<DayCell | null> = [];
-  for (let i = 0; i < leading; i += 1) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d += 1) {
-    const start = startOfDay(new Date(year, month, d));
-    cells.push({ day: d, start, today: start === todayStart });
-  }
-  // Pad to a whole number of weeks for a stable grid height.
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
 }

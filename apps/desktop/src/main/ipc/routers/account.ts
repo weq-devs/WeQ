@@ -2246,6 +2246,24 @@ export const accountRouter = router({
     .input(convInput)
     .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
 
+  exportCalendar: procedure
+    .input(z.object({ targets: z.array(convInput) }))
+    .query(async ({ input }) => {
+      const days = new Map<string, number>();
+      const seen = new Set<string>();
+      const msgs = requireServices().msgs;
+      for (const target of input.targets) {
+        const key = `${target.kind}:${target.conv}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        for (const row of await msgs.calendar(target.kind, target.conv))
+          days.set(row.day, (days.get(row.day) ?? 0) + row.count);
+      }
+      return [...days]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([day, count]) => ({ day, count }));
+    }),
+
   conversationBoundary: procedure
     .input(
       convInput.extend({
@@ -3282,8 +3300,7 @@ export const accountRouter = router({
                 name: z.string().min(1).max(300),
               }),
             )
-            .min(1)
-            .max(100),
+            .min(1),
           range: z
             .object({
               start: z.number().int().nonnegative().optional(),
@@ -3292,7 +3309,6 @@ export const accountRouter = router({
             .optional(),
           beforeOldest: z.boolean().default(false),
           intervalMs: z.number().int().min(500).max(60000).default(500),
-          maxRequests: z.number().int().min(1).max(10000).default(200),
         }),
       )
       .mutation(({ input }) => {
@@ -4897,7 +4913,8 @@ export const accountRouter = router({
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
     // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
-    const contacts = (await services.recentContacts.getRecentContact(1000)).filter(
+    // SQLite 的 LIMIT -1 读取全部会话；计数分批，避免超过绑定参数上限。
+    const contacts = (await services.recentContacts.getRecentContact(-1)).filter(
       (c) => c.targetUid,
     );
 
@@ -4927,11 +4944,26 @@ export const accountRouter = router({
       .map((c) => c.targetUid);
 
     const account = getAppContext().account;
+    async function countBatches(
+      ids: string[],
+      fetch: (batch: string[]) => Promise<Record<string, number>>,
+    ) {
+      const counts: Record<string, number> = {};
+      for (let offset = 0; offset < ids.length; offset += 500) {
+        Object.assign(counts, await fetch(ids.slice(offset, offset + 500)));
+      }
+      return counts;
+    }
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
-      account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
-      account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
-      account?.datalineMsgs.countByUids(datalineUids) ??
-        Promise.resolve({} as Record<string, number>),
+      countBatches(
+        groupCodes,
+        (batch) => account?.groupMsgs.countByGroups(batch) ?? Promise.resolve({}),
+      ),
+      countBatches(c2cUids, (batch) => account?.c2cMsgs.countByUids(batch) ?? Promise.resolve({})),
+      countBatches(
+        datalineUids,
+        (batch) => account?.datalineMsgs.countByUids(batch) ?? Promise.resolve({}),
+      ),
     ]);
 
     return contacts.map((c) => {
@@ -5112,11 +5144,15 @@ export const accountRouter = router({
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
+        cids: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask({
-        collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
+        collection: {
+          ...(input.kinds?.length ? { kinds: input.kinds } : {}),
+          ...(input.cids ? { cids: input.cids } : {}),
+        },
         kind: 'c2c',
         conv: '',
         name: input.name,

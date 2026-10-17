@@ -276,29 +276,33 @@ describe('durable manual roaming jobs', () => {
       { start: 11, end: 19 },
     ]);
   });
-  it('persists the exact remaining queue at the request budget and resumes the same task', async () => {
+  it('finishes all windows even when a legacy task has a one-request budget', async () => {
     const f = setup();
     const job = await f.manager.plan(options({ maxRequests: 1 }));
     f.manager.start(job.id);
     await f.done();
     expect(f.manager.list()[0]).toMatchObject({
-      status: 'paused',
-      requests: 1,
-      remainingSeqs: 68,
-      pendingSeqs: 68,
+      status: 'completed',
+      requests: 4,
+      remainingSeqs: 0,
+      pendingSeqs: 0,
     });
     expect(f.fetch.mock.calls[0]?.slice(1, 3)).toEqual([70, 99]);
-    const resumed = f.make();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
-    resumed.start(job.id);
-    await f.done();
-    expect(resumed.list()[0]).toMatchObject({
-      id: job.id,
-      requests: 2,
-      remainingSeqs: 38,
-      pendingSeqs: 38,
-    });
+    expect(f.fetch).toHaveBeenCalledTimes(4);
     expect(f.fetch.mock.calls[1]?.slice(1, 3)).toEqual([40, 69]);
+  });
+  it('accepts more than one hundred conversations without a request budget', async () => {
+    const f = setup([2n, 1n]);
+    const { maxRequests: _legacyBudget, ...unlimited } = options();
+    const job = await f.manager.plan({
+      ...unlimited,
+      targets: Array.from({ length: 125 }, (_, i) => ({
+        kind: 'group' as const,
+        conv: String(i + 1),
+        name: `群 ${i + 1}`,
+      })),
+    });
+    expect(job.targets).toHaveLength(125);
   });
   it('does not turn empty responses into coverage and retries unresolved intervals only explicitly', async () => {
     const f = setup([5n, 1n]);

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { CalendarDays, Download, Search, X } from 'lucide-react';
 import { ConversationCalendar } from './ConversationCalendar';
+import { TimeRangePicker } from '../../views/export/TimeRangePicker';
+import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
@@ -42,6 +44,7 @@ export function ChatRecordsModal({
   const dialog = useAppDialog();
   const [keyword, setKeyword] = useState(initialKeyword);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
   const [startDay, setStartDay] = useState('');
   const [endDay, setEndDay] = useState('');
   const [sender, setSender] = useState('');
@@ -266,7 +269,15 @@ export function ChatRecordsModal({
   const convKey = isGroup && selected ? selected.targetUid : '';
 
   return (
-    <Modal onClose={onClose} width={960} labelledBy="weq-chatrecords-title">
+    <Modal
+      onClose={() => {
+        if (rangeCalendarOpen) setRangeCalendarOpen(false);
+        else if (calendarOpen) setCalendarOpen(false);
+        else onClose();
+      }}
+      width={960}
+      labelledBy="weq-chatrecords-title"
+    >
       <div className="weq-chatrecords">
         <div className="weq-chatrecords-head">
           <div className="weq-chatrecords-title-wrap">
@@ -280,15 +291,6 @@ export function ChatRecordsModal({
               </span>
             ) : null}
           </div>
-          <button
-            className="weq-dialog-x"
-            title="按日期定位"
-            aria-label="按日期定位"
-            disabled={!selected}
-            onClick={() => setCalendarOpen(true)}
-          >
-            <CalendarDays size={16} />
-          </button>
           <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
             <X size={16} strokeWidth={1.9} aria-hidden />
           </button>
@@ -315,16 +317,60 @@ export function ChatRecordsModal({
           placeholder={fixed ? `搜索「${initialHit.name}」的聊天记录` : '搜索聊天记录'}
           autoFocus
         />
+        <div className="weq-record-calendar-actions">
+          {fixed ? (
+            <button type="button" onClick={() => setRangeCalendarOpen(true)}>
+              <CalendarDays size={15} />
+              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            title="按日期定位"
+            disabled={!selected}
+            onClick={() => setCalendarOpen(true)}
+          >
+            <CalendarDays size={15} />
+            跳转日期
+          </button>
+        </div>
+        {rangeCalendarOpen && selected ? (
+          <Modal
+            onClose={() => setRangeCalendarOpen(false)}
+            width={440}
+            labelledBy="weq-record-range-title"
+          >
+            <div className="weq-message-calendar">
+              <header>
+                <h3 id="weq-record-range-title">时间范围</h3>
+                <button
+                  type="button"
+                  className="weq-dialog-x"
+                  aria-label="关闭时间范围"
+                  onClick={() => setRangeCalendarOpen(false)}
+                >
+                  <X size={16} />
+                </button>
+              </header>
+              <TimeRangePicker
+                value={{
+                  preset: startDay || endDay ? 'custom' : 'all',
+                  start: startDay ? daySeconds(startDay) : null,
+                  end: endDay ? daySeconds(endDay) + 86399 : null,
+                }}
+                calendarTargets={[
+                  { kind: selected.source === 'group' ? 'group' : 'c2c', conv: selected.targetUid },
+                ]}
+                onChange={(range) => {
+                  setStartDay(range.start == null ? '' : beijingDay(new Date(range.start * 1000)));
+                  setEndDay(range.end == null ? '' : beijingDay(new Date(range.end * 1000)));
+                }}
+              />
+            </div>
+          </Modal>
+        ) : null}
         {fixed ? (
           <div className="weq-record-filters">
-            <label>
-              开始日期
-              <input type="date" value={startDay} onChange={(e) => setStartDay(e.target.value)} />
-            </label>
-            <label>
-              结束日期
-              <input type="date" value={endDay} onChange={(e) => setEndDay(e.target.value)} />
-            </label>
             <label>
               发送者
               <input

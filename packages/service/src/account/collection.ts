@@ -334,10 +334,25 @@ export class CollectionService {
     cid: string,
     signal?: AbortSignal,
   ): Promise<{ failed: number; attempted: number; stopRequests: boolean }> {
+    return this.downloadExportAttachments(cid, signal, false);
+  }
+
+  /** 导出时获取所有已声明附件；缓存、原件/预览身份和失败退避沿用同一条链路。 */
+  async downloadExportMedia(cid: string, signal?: AbortSignal) {
+    return this.downloadExportAttachments(cid, signal, true);
+  }
+
+  private async downloadExportAttachments(
+    cid: string,
+    signal: AbortSignal | undefined,
+    includeReferenced: boolean,
+  ) {
     if (!this.media) throw new Error('收藏附件缓存未配置。');
     const content = await this.readCachedContent(cid);
     const item = await this.cachedListItem(cid);
-    const refs = collectionMediaReferences(cid, content, item).filter((ref) => ref.storedFile);
+    const refs = collectionMediaReferences(cid, content, item).filter(
+      (ref) => ref.storedFile || (includeReferenced && (ref.uri || ref.embeddedSha256)),
+    );
     if (refs.length > 1000) throw new Error('此收藏附件过多，请分批处理。');
     let failed = 0;
     let consecutiveFailures = 0;
@@ -345,14 +360,18 @@ export class CollectionService {
     let stopRequests = false;
     for (const ref of refs) {
       signal?.throwIfAborted();
+      if (!ref.storedFile && ref.uri && !(await this.media.cached(ref, signal))) attempted++;
       const receipt = await this.media.download(ref, {
         signal,
+        embeddedBytes: ref.embeddedSha256
+          ? (collectionEmbeddedAudio(content) ?? undefined)
+          : undefined,
         resolveDownload: (reference, requestSignal) => {
           attempted++;
           return this.resolveFileDownload(reference, requestSignal);
         },
       });
-      if (receipt.state !== 'downloaded' || receipt.role !== 'original') {
+      if (receipt.state !== 'downloaded' || (ref.storedFile && receipt.role !== 'original')) {
         failed++;
         stopRequests =
           /尚未验证|在线|认证|登录|p_skey|credential|过于频繁|代码 -10003|版本已变化/i.test(

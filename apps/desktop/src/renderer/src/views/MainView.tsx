@@ -1317,8 +1317,7 @@ function messageSender(
  * 乐观渲染的合并转发 → 模板层 Message。
  *
  * 渲染成一张同款「聊天记录」卡片（`multiMsg` 元素）——与真消息同步回来后的样子一致，
- * 因此同步到位后不会出现视觉跳变。状态标识（发送中 / 已发送 / 发送失败）通过额外
- * 的 `optimistic` 字段带到气泡上，由 MessageBubble 画一个小标签。
+ * 因此同步到位后不会出现视觉跳变。`optimistic` 字段驱动旁侧发送圈圈与失败提示。
  */
 function optimisticToTemplate(
   item: OptimisticForward,
@@ -1351,6 +1350,7 @@ function optimisticToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
@@ -1364,8 +1364,8 @@ function optimisticToTemplate(
  * 乐观渲染的 Ark 卡片 → 模板层 Message。
  *
  * 走与真消息**同一条渲染通路**：一个 `ark` 元素交给 `QqArk`，所以同步到位后卡片
- * 不会变样。状态标识（发送中 / 已发送 / 发送失败）通过额外的 `optimistic` 字段带到
- * 气泡上，由 MessageBubble 画一个小标签（和乐观合并转发同款）。
+ * 不会变样。旁侧发送圈圈与失败提示通过额外的 `optimistic` 字段带到
+ * 气泡上，由 MessageBubble 统一呈现。
  */
 function optimisticArkToTemplate(
   item: OptimisticArk,
@@ -1386,6 +1386,7 @@ function optimisticArkToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
@@ -1451,6 +1452,7 @@ function optimisticMessageToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
     msgId: string;
@@ -3903,6 +3905,8 @@ export function MainView(): ReactElement {
       ? deletedConversationsById.get(shell.activeConversationId)
       : undefined);
   const selectedUid = selectedConversation?.id ?? '';
+  const selectedUidRef = useRef(selectedUid);
+  selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState;
   const messagesTabActiveRef = useRef(messagesTabActive);
   messagesTabActiveRef.current = messagesTabActive;
@@ -5178,6 +5182,54 @@ export function MainView(): ReactElement {
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockConvRef = useRef<string | null>(null);
+  const unreadSnapshotPendingRef = useRef<string | null>(null);
+  const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
+  const markVisibleConversationRead = useCallback(
+    async (conv: Conversation) => {
+      const isCurrent = () =>
+        messagesTabActiveRef.current &&
+        selectedUidRef.current === conv.id &&
+        useViewState.getState().openedUin === openedUin;
+      if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
+      const key = `${openedUin}:${conv.type}:${conv.id}`;
+      const existing = readRequestsRef.current.get(key);
+      if (existing) {
+        existing.again = true;
+        return existing.promise;
+      }
+      const entry = { again: false, promise: Promise.resolve() };
+      entry.promise = (async () => {
+        do {
+          entry.again = false;
+          if (!isCurrent()) break;
+          try {
+            // 由现有服务读取最新本地水位，不把待发送消息或漫游编号写进已读表。
+            const changed = await client.account.markConversationRead.mutate({
+              chatType: conv.type === 'group' ? 2 : 1,
+              uid: conv.id,
+            });
+            if (changed && isCurrent()) {
+              setUnreadRevision((revision) => revision + 1);
+              setUnreadByConv((current) => ({ ...current, [conv.id]: 0 }));
+              setHighlightsByConv((current) => {
+                const next = { ...current };
+                delete next[conv.id];
+                return next;
+              });
+              void utils.account.listRecentContacts.invalidate();
+            }
+          } catch (error) {
+            console.error('[unread] markConversationRead failed', error);
+          }
+        } while (entry.again && isCurrent());
+      })().finally(() => {
+        readRequestsRef.current.delete(key);
+      });
+      readRequestsRef.current.set(key, entry);
+      return entry.promise;
+    },
+    [openedUin, utils],
+  );
   const unreadSelectionId =
     selectedConversation &&
     (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
@@ -5216,6 +5268,7 @@ export function MainView(): ReactElement {
       return unreadDockConvRef.current === convId;
     };
 
+    unreadSnapshotPendingRef.current = convId;
     (async () => {
       let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
       try {
@@ -5223,6 +5276,8 @@ export function MainView(): ReactElement {
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
         return;
+      } finally {
+        if (unreadSnapshotPendingRef.current === convId) unreadSnapshotPendingRef.current = null;
       }
       if (!stillCurrent()) return;
 
@@ -5242,31 +5297,19 @@ export function MainView(): ReactElement {
 
       // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
       // 这样下次进来不会再重复弹跳转、红点也即时消失。
-      const latestSeq = contact && latest > 0n ? contact.msgSeq : undefined;
-      try {
-        const changed = await client.account.markConversationRead.mutate({
-          chatType,
-          uid: convId,
-          latestSeq,
-        });
-        if (changed) {
-          setUnreadRevision((revision) => revision + 1);
-          setUnreadByConv((current) => ({ ...current, [convId]: 0 }));
-          setHighlightsByConv((current) => {
-            const next = { ...current };
-            delete next[convId];
-            return next;
-          });
-          void utils.account.listRecentContacts.invalidate();
-        }
-      } catch (err) {
-        console.error('[unread-dock] markConversationRead failed', err);
-      }
+      await markVisibleConversationRead(conv);
       if (!stillCurrent()) return;
       setUnreadDock(dock);
     })();
     return undefined;
-  }, [messagesTabActive, selectedConversation, messagesLoading, loaded, recentContactsData, utils]);
+  }, [
+    messagesTabActive,
+    selectedConversation,
+    messagesLoading,
+    loaded,
+    recentContactsData,
+    markVisibleConversationRead,
+  ]);
 
   useEffect(() => {
     if (contacts.isLoading) return;
@@ -7161,6 +7204,10 @@ export function MainView(): ReactElement {
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
                           atLatest={anchoredToLatest}
+                          onReadCurrentConversation={(conv) => {
+                            if (unreadSnapshotPendingRef.current !== conv.id)
+                              void markVisibleConversationRead(conv);
+                          }}
                           conversationPrefs={conversationPrefs}
                           drafts={drafts}
                           query={shell.query}

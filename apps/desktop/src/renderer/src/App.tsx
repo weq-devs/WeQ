@@ -41,7 +41,7 @@ import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
-import { ShowMessageSeqContext } from './components/MessageProvenance';
+import { ShowMessageSeqContext, ShowMessageTimeContext } from './components/MessageProvenance';
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -61,7 +61,9 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
         <MsgDecorationEnabledContext.Provider value={settings.data?.showMsgDecoration ?? true}>
           <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
-            {children}
+            <ShowMessageTimeContext.Provider value={settings.data?.showMessageTime ?? false}>
+              {children}
+            </ShowMessageTimeContext.Provider>
           </ShowMessageSeqContext.Provider>
         </MsgDecorationEnabledContext.Provider>
       </LinkPreviewContext.Provider>
