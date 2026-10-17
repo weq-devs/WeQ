@@ -296,7 +296,7 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
-export { UnifiedSearchService } from './account/unified_search';
+export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
 export type {
   SearchCategory,
   FtsSource,

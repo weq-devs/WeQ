@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { SEARCH_CATEGORIES } from '@weq/service';
 import { exportSavePolicyInput } from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
@@ -3066,10 +3067,15 @@ export const accountRouter = router({
       z.object({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
+        categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.quickSearch(input.keyword, input.limit);
+      return requireServices().unifiedSearch.quickSearch(
+        input.keyword,
+        input.limit,
+        input.categories,
+      );
     }),
 
   /** Unified sidebar search — slow categories (chat records / files). */
@@ -3078,10 +3084,15 @@ export const accountRouter = router({
       z.object({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
+        categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.slowSearch(input.keyword, input.limit);
+      return requireServices().unifiedSearch.slowSearch(
+        input.keyword,
+        input.limit,
+        input.categories,
+      );
     }),
 
   /**
@@ -3098,7 +3109,7 @@ export const accountRouter = router({
   searchMore: procedure
     .input(
       z.object({
-        category: z.enum(['conversation', 'friend', 'groupMember', 'chatRecord', 'file']),
+        category: z.enum(SEARCH_CATEGORIES),
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),

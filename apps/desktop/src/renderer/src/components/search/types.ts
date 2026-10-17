@@ -1,6 +1,7 @@
 /** Wire shapes for the unified sidebar search (mirror @weq/service UnifiedSearchService). */
 
-export type SearchCategory = 'conversation' | 'friend' | 'groupMember' | 'chatRecord' | 'file';
+import type { SearchCategory } from '@weq/service';
+export type { SearchCategory } from '@weq/service';
 export type SearchFtsSource = 'buddy' | 'group';
 
 export interface ConversationSearchHit {

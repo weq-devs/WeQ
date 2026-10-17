@@ -37,7 +37,14 @@ export interface UnifiedSearchServiceOptions {
   nt?: NtHelperBinding;
 }
 
-export type SearchCategory = 'conversation' | 'friend' | 'groupMember' | 'chatRecord' | 'file';
+export const SEARCH_CATEGORIES = [
+  'conversation',
+  'friend',
+  'groupMember',
+  'chatRecord',
+  'file',
+] as const;
+export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
 export type FtsSource = 'buddy' | 'group';
 
 export interface ConversationSearchHit {
@@ -185,8 +192,6 @@ export interface MoreSearchResult {
 }
 
 export class UnifiedSearchService {
-  /** Small keyword cache for the expensive FTS scans (chat records / files). */
-  private readonly slowCache = new Map<string, { at: number; value: SlowSearchResult }>();
   private readonly chatRecordCache = new Map<
     string,
     { at: number; value: ChatRecordSearchHit[] }
@@ -318,13 +323,23 @@ export class UnifiedSearchService {
   // ---------------------------------------------------------------- public
 
   /** Fast categories, in display order: conversations, friends, group members. */
-  async quickSearch(keyword: string, limit = 3): Promise<QuickSearchResult> {
+  async quickSearch(
+    keyword: string,
+    limit = 3,
+    categories?: readonly SearchCategory[],
+  ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
     const [convPage, friendPage, memberPage] = await Promise.all([
-      this.session.recentContacts.searchByName(needle, limit, 0),
-      this.session.profileInfo.searchFriends(needle, limit, 0),
-      this.session.groupMembers.searchMembers(needle, limit, 0),
+      categories === undefined || categories.includes('conversation')
+        ? this.session.recentContacts.searchByName(needle, limit, 0)
+        : { items: [] },
+      categories === undefined || categories.includes('friend')
+        ? this.session.profileInfo.searchFriends(needle, limit, 0)
+        : { items: [] },
+      categories === undefined || categories.includes('groupMember')
+        ? this.session.groupMembers.searchMembers(needle, limit, 0)
+        : { items: [] },
     ]);
 
     const memberHits = await this.decorateMembers(memberPage.items, needle);
@@ -380,23 +395,29 @@ export class UnifiedSearchService {
   }
 
   /** Slow categories: chat records + files. Cached per keyword (30s TTL). */
-  async slowSearch(keyword: string, _limit = 3): Promise<SlowSearchResult> {
+  async slowSearch(
+    keyword: string,
+    limit = 3,
+    categories?: readonly SearchCategory[],
+  ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { chatRecords: [], files: [], indexStatus: this.indexStatus };
-    const cached = this.slowCache.get(needle);
-    if (cached && Date.now() - cached.at < 30_000) return cached.value;
+    const recordsEnabled = categories === undefined || categories.includes('chatRecord');
+    const filesEnabled = categories === undefined || categories.includes('file');
+    if (!recordsEnabled && !filesEnabled) {
+      return { chatRecords: [], files: [], indexStatus: this.indexStatus };
+    }
 
     // Ensure the local trigram index is (or becomes) available. Fire-and-forget:
     // the first query still runs the LIKE fallback; later ones use the index.
     void this.ensureIndexes();
 
     const [chatRecords, files] = await Promise.all([
-      this.topChatRecordConversations(needle, 3),
-      this.topFiles(needle, 3),
+      recordsEnabled ? this.topChatRecordConversations(needle, limit) : [],
+      filesEnabled ? this.topFiles(needle, limit) : [],
     ]);
-    const value = { chatRecords, files, indexStatus: this.indexStatus };
-    this.slowCache.set(needle, { at: Date.now(), value });
-    return value;
+    // 排名缓存独立于范围和预览条数，避免同关键词切范围时串用截断结果。
+    return { chatRecords, files, indexStatus: this.indexStatus };
   }
 
   /** Paginated full results for the "more" modal. */

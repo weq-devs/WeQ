@@ -120,16 +120,12 @@ import { RecalledMessagesModal } from '../components/compose/RecalledMessagesMod
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
+import { SEARCH_CATEGORY_ORDER } from '../components/search/types';
+import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
 import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
-import type {
-  ChatRecordSearchHit,
-  QuickSearchResult,
-  SearchCategory,
-  SearchHit,
-  SlowSearchResult,
-} from '../components/search/types';
+import type { ChatRecordSearchHit, SearchCategory, SearchHit } from '../components/search/types';
 import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
 import { WorkspaceTools } from '../components/WorkspaceTools';
@@ -3145,13 +3141,9 @@ export function MainView(): ReactElement {
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
-  // Unified sidebar search (sidebar search box → multi-category dropdown).
-  // Fast categories (conversations / friends / group members) land first, then
-  // the slow FTS categories (chat records / files) fill in their skeletons.
-  const [searchQuick, setSearchQuick] = useState<QuickSearchResult | null>(null);
-  const [searchQuickLoading, setSearchQuickLoading] = useState(false);
-  const [searchSlow, setSearchSlow] = useState<SlowSearchResult | null>(null);
-  const [searchSlowLoading, setSearchSlowLoading] = useState(false);
+  const [searchCategories, setSearchCategories] = useState<SearchCategory[]>(() => [
+    ...SEARCH_CATEGORY_ORDER,
+  ]);
   // Temporary dismiss of the search dropdown — clicking outside it hides it
   // so the user can reach contact/group results underneath. Clicking the
   // search box or typing a new query restores the dropdown.
@@ -5539,50 +5531,10 @@ export function MainView(): ReactElement {
     [centerWindowOnSeq, scrollToMsgId, pushToast],
   );
 
-  // Debounced unified search: fast categories (conversation/friend/groupMember)
-  // land first, then the slow FTS categories (chat records/files). A run counter
-  // discards stale responses so only the last keystroke's results win.
   const searchQuery = shell.query.trim();
-  const searchRunRef = useRef(0);
+  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin);
   useEffect(() => {
-    const run = ++searchRunRef.current;
-    if (!searchQuery) {
-      setSearchQuick(null);
-      setSearchSlow(null);
-      setSearchQuickLoading(false);
-      setSearchSlowLoading(false);
-      return undefined;
-    }
-    setSearchQuickLoading(true);
-    setSearchSlowLoading(true);
-    setSearchDismissed(false);
-    const timer = window.setTimeout(() => {
-      client.account.searchQuick
-        .query({ keyword: searchQuery, limit: 3 })
-        .then((result) => {
-          if (searchRunRef.current !== run) return;
-          setSearchQuick(result as QuickSearchResult);
-          setSearchQuickLoading(false);
-        })
-        .catch((err) => {
-          if (searchRunRef.current !== run) return;
-          console.error('[search] searchQuick failed', err);
-          setSearchQuickLoading(false);
-        });
-      client.account.searchSlow
-        .query({ keyword: searchQuery, limit: 3 })
-        .then((result) => {
-          if (searchRunRef.current !== run) return;
-          setSearchSlow(result as SlowSearchResult);
-          setSearchSlowLoading(false);
-        })
-        .catch((err) => {
-          if (searchRunRef.current !== run) return;
-          console.error('[search] searchSlow failed', err);
-          setSearchSlowLoading(false);
-        });
-    }, 200);
-    return () => window.clearTimeout(timer);
+    if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
 
   // 搜索框刚点开、还什么都没输入 → 显示 QQ 自己的「最近搜索」（search_history 表，
@@ -7188,10 +7140,15 @@ export function MainView(): ReactElement {
               searchQuery && !searchDismissed ? (
                 <SearchDropdown
                   keyword={searchQuery}
-                  quick={searchQuick}
-                  quickLoading={searchQuickLoading}
-                  slow={searchSlow}
-                  slowLoading={searchSlowLoading}
+                  quick={globalSearch.quick}
+                  quickLoading={globalSearch.quickLoading}
+                  slow={globalSearch.slow}
+                  slowLoading={globalSearch.slowLoading}
+                  quickError={globalSearch.quickError}
+                  slowError={globalSearch.slowError}
+                  categories={searchCategories}
+                  onCategoriesChange={setSearchCategories}
+                  onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
                   onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
                 />
