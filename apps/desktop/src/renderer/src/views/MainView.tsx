@@ -193,8 +193,11 @@ import {
   repeatNeedsStickerCatalog,
   type RepeatElement,
 } from '../lib/messageRepeat';
-import { resolveMentionLabels, type MentionIdentity } from '../lib/mentionIdentity';
-import { displayUserName } from '../im-template/template/user';
+import {
+  resolveMentionLabels,
+  resolveSendMentions,
+  type MentionIdentity,
+} from '../lib/mentionIdentity';
 import {
   qqMessageRenderer,
   ReplyJumpContext,
@@ -6219,15 +6222,19 @@ export function MainView(): ReactElement {
     const people: MentionIdentity[] = currentGroupMembers.map((member) => ({
       uid: member.id,
       uin: member.identityValue,
-      name: displayUserName(member),
+      nick: member.nick,
     }));
-    people.push({ uid: user.uid ?? user.id, uin: user.identityValue, name: displayUserName(user) });
+    people.push({
+      uid: user.uid ?? user.id,
+      uin: user.identityValue,
+      nick: selfProfile.data?.nick,
+    });
     for (const [uid, profile] of profileByUid)
       if (!people.some((person) => person.uid === uid))
         people.push({
           uid,
           uin: String(profile.uin ?? ''),
-          name: profile.remark || profile.nick || uid,
+          nick: profile.nick,
         });
     const uids = new Set<string>();
     const uins = new Set<string>();
@@ -6277,7 +6284,7 @@ export function MainView(): ReactElement {
           people.unshift({
             uid: member.id,
             uin: member.identityValue,
-            name: displayUserName(member),
+            nick: member.nick,
           });
         }
       }
@@ -6326,6 +6333,13 @@ export function MainView(): ReactElement {
 
     const plan =
       repeated?.plan ?? buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+
+    if (plan.kind === 'elements') {
+      // 发送前重解提及，防止旧草稿或复制来的 token 带出备注；媒体等其他字段原样保留。
+      plan.elements = await resolveSendMentions(plan.elements, (elements) =>
+        resolveMentions(elements, conversation),
+      );
+    }
 
     // ── 乐观渲染 ─────────────────────────────────────────────────────────
     // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来

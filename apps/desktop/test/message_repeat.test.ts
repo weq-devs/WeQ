@@ -9,7 +9,7 @@ import {
   mentionClipboardHtml,
   readMentionClipboard,
 } from '../src/renderer/src/lib/mentionClipboard';
-import { resolveMentionLabels } from '../src/renderer/src/lib/mentionIdentity';
+import { resolveMentionLabels, resolveSendMentions } from '../src/renderer/src/lib/mentionIdentity';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
@@ -156,7 +156,7 @@ describe('最新连续消息 +1', () => {
 });
 
 describe('以唯一身份复制和重发提及', () => {
-  it('HTML 剪贴板 → 当前账号名称 → 输入框 token → 发出真 @，同名不同人不混淆', () => {
+  it('HTML 剪贴板 → 昵称 → 输入框 token → 发出真 @，同名不同人不混淆', () => {
     const source = [
       plain('你好 '),
       mention('u_one', '@别人给他的备注'),
@@ -166,8 +166,8 @@ describe('以唯一身份复制和重发提及', () => {
     const copied = mentionClipboardHtml(source)!;
     const parsed = readMentionClipboard(copied.html)!;
     const resolved = resolveMentionLabels(parsed, [
-      { uid: 'u_one', name: '我这边的备注' },
-      { uid: 'u_two', name: '另一位成员' },
+      { uid: 'u_one', nick: '公开昵称' },
+      { uid: 'u_two', nick: '另一位成员' },
     ]);
     const body = elementsToComposerText(
       resolved.map((element) => ({ kind: element.type, ...element.data })),
@@ -177,7 +177,7 @@ describe('以唯一身份复制和重发提及', () => {
       kind: 'elements',
       elements: [
         { kind: 'text', textContent: '你好 ' },
-        { kind: 'at', atTargetUid: 'u_one', textContent: '@我这边的备注' },
+        { kind: 'at', atTargetUid: 'u_one', textContent: '@公开昵称' },
         { kind: 'text', textContent: ' 和 ' },
         { kind: 'at', atTargetUid: 'u_two', textContent: '@另一位成员' },
       ],
@@ -187,7 +187,7 @@ describe('以唯一身份复制和重发提及', () => {
   it('全体成员与未知成员保留目标；不沿用来源备注，也不按名字猜 UID', () => {
     const resolved = resolveMentionLabels(
       [mention('all', '@everyone'), mention('u_missing', '@熟悉的名字')],
-      [{ uid: 'u_other', name: '熟悉的名字' }],
+      [{ uid: 'u_other', nick: '熟悉的名字' }],
     );
     expect(resolved[0]?.data?.textContent).toBe('@全体成员');
     expect(resolved[1]?.data?.textContent).toBe('@u_missing');
@@ -199,9 +199,55 @@ describe('以唯一身份复制和重发提及', () => {
     expect(
       resolveMentionLabels(
         [mention('u_one', '@旧名 '), plain('正文')],
-        [{ uid: 'u_one', name: '新名' }],
+        [{ uid: 'u_one', nick: '新名' }],
       )[0]?.data?.textContent,
     ).toBe('@新名 ');
+  });
+  it('旧草稿及引用中的提及按昵称重解，缺少昵称只使用号码且不改变目标', () => {
+    const people = [
+      { uid: 'u_one', uin: '12345', nick: '  公开昵称  ', remark: '私密备注' },
+      { uid: 'u_two', uin: '23456', nick: '', remark: '另一条备注' },
+    ];
+    const source = [
+      mention('u_one', '@私密备注 '),
+      {
+        type: 'reply',
+        data: { origMsgSeq: 42, origElements: [mention('u_two', '@另一条备注')] },
+      },
+      { type: 'at', data: { atTargetUin: 12345, textContent: '@旧备注' } },
+    ];
+    const resolved = resolveMentionLabels(source, people);
+    expect(resolved[0]?.data).toEqual({ atTargetUid: 'u_one', textContent: '@公开昵称 ' });
+    expect(resolved[1]?.data).toEqual({
+      origMsgSeq: 42,
+      origElements: [mention('u_two', '@23456')],
+    });
+    expect(resolved[2]?.data).toEqual({
+      atTargetUin: 12345,
+      atTargetUid: 'u_one',
+      textContent: '@公开昵称',
+    });
+    expect(source[0]?.data?.textContent).toBe('@私密备注 ');
+  });
+  it('发送计划中的旧提及和嵌套引用使用昵称，媒体字节和引用编号保持原样', async () => {
+    const image = { kind: 'image', source: new Uint8Array([1, 2, 3]) };
+    const oldMention = { kind: 'at', atTargetUid: 'u_one', textContent: '@私密备注 ' };
+    const elements = [
+      image,
+      oldMention,
+      { kind: 'reply', origMsgSeq: 42, origElements: [oldMention, image] },
+    ];
+    const resolved = await resolveSendMentions(elements, async (pending) =>
+      resolveMentionLabels(pending, [{ uid: 'u_one', nick: '公开昵称' }]),
+    );
+    const expectedMention = { ...oldMention, textContent: '@公开昵称 ' };
+    expect(resolved).toEqual([
+      image,
+      expectedMention,
+      { kind: 'reply', origMsgSeq: 42, origElements: [expectedMention, image] },
+    ]);
+    expect(resolved[0]).toBe(image);
+    expect(oldMention.textContent).toBe('@私密备注 ');
   });
   it('粘贴只恢复安全身份和文字，不执行 HTML、不加载资源', () => {
     const parsed = readMentionClipboard(

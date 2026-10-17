@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
+import { mentionText } from '../src/renderer/src/im-template/template/mentions';
 import {
   getActiveComposerMentionTrigger,
   focusComposerEnd,
@@ -13,6 +14,21 @@ afterEach(() => {
 });
 
 describe('提及输入与草稿往返', () => {
+  it('提及文本只用昵称，不用群名片或好友备注；无昵称时退回号码或 UID', () => {
+    const member = {
+      id: 'u_fixture',
+      username: 'u_fixture',
+      identityValue: '12345',
+      displayName: '私密备注',
+      card: '群名片',
+      remark: '私密备注',
+      nick: '公开昵称',
+    };
+    expect(mentionText(member)).toBe('@公开昵称');
+    expect(mentionText({ ...member, nick: '' })).toBe('@12345');
+    expect(mentionText({ ...member, nick: '', identityValue: '' })).toBe('@u_fixture');
+    expect(mentionText({ ...member, id: 'all' })).toBe('@全体成员');
+  });
   it('恢复普通提及与全体提及，不退化为纯文字，保留左右正文', () => {
     const elements = [
       { kind: 'text', textContent: '你好 ' },

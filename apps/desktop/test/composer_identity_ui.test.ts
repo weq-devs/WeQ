@@ -41,6 +41,7 @@ function fixture(type: 'group' | 'direct' = 'group') {
               id: 'u_member',
               username: '成员',
               displayName: '我的备注',
+              nick: '公开昵称',
               identityValue: '12345',
               role: 'member',
               joinedAt: '',
@@ -84,7 +85,7 @@ describe('真实输入区与 +1 操作', () => {
           createElement(ChatPane, {
             ...f.props,
             onResolveMentions: async (elements) =>
-              resolveMentionLabels(elements, [{ uid: 'u_member', name: '我的备注' }]),
+              resolveMentionLabels(elements, [{ uid: 'u_member', nick: '公开昵称' }]),
           }),
         ),
       );
@@ -96,7 +97,7 @@ describe('真实输入区与 +1 操作', () => {
       });
       expect(f.host.querySelector('[role="listbox"]')?.textContent).toContain('我的备注');
       act(() => f.host.querySelector<HTMLButtonElement>('[role="option"]')!.click());
-      expect(editor.querySelector('[data-weq-at-uid="u_member"]')?.textContent).toBe('@我的备注');
+      expect(editor.querySelector('[data-weq-at-uid="u_member"]')?.textContent).toBe('@公开昵称');
       const rich = mentionClipboardHtml([
         { type: 'at', data: { atTargetUid: 'u_member', textContent: '@原作者备注' } },
       ])!;
@@ -108,7 +109,7 @@ describe('真实输入区与 +1 操作', () => {
         focusComposerEnd(editor);
         editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }));
       });
-      expect(editor.querySelector('[data-weq-at-uid="u_member"]')?.textContent).toBe('@我的备注');
+      expect(editor.querySelector('[data-weq-at-uid="u_member"]')?.textContent).toBe('@公开昵称');
       expect(
         buildComposerSendPlan({
           body: serializeComposer(editor),
@@ -117,7 +118,7 @@ describe('真实输入区与 +1 操作', () => {
         }),
       ).toMatchObject({
         kind: 'elements',
-        elements: [{ kind: 'at', atTargetUid: 'u_member', textContent: '@我的备注' }],
+        elements: [{ kind: 'at', atTargetUid: 'u_member', textContent: '@公开昵称' }],
       });
     } finally {
       f.dispose();

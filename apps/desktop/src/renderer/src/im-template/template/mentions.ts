@@ -1,13 +1,16 @@
 ﻿// @ts-nocheck
 import type { Conversation, GroupMember, User } from './types';
 import { displayUserName } from './user';
+import { mentionName } from '../../lib/mentionIdentity';
 
 export function mentionLabel(user: Pick<User, 'displayName' | 'username'>) {
   return displayUserName(user).trim();
 }
 
-export function mentionText(user: Pick<User, 'displayName' | 'username'>) {
-  return `@${mentionLabel(user)}`;
+export function mentionText(user: Pick<User, 'id' | 'identityValue'> & { nick?: string }) {
+  return user.id === 'all'
+    ? '@全体成员'
+    : `@${mentionName({ uid: user.id, uin: user.identityValue, nick: user.nick })}`;
 }
 
 export function filterMentionMembers(
