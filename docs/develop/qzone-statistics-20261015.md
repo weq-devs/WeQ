@@ -28,7 +28,7 @@ These are implementation references, not proof that the current account's upstre
 - `electron-vite build` passes. Existing dynamic-import/chunk warnings remain; this is bundling, not a new `.app` package.
 - Actual QzoneView with a synthetic transport: 16 desktop/mobile (1280/390px), light/dark, normal/unknown/error/loading cases pass. Verified explicit zeros, failure/partial-data retry, owner switching, view counts, no page errors and no viewport/statistics overflow. No real media or account acceptance is claimed.
 
-QA sources/results: `/Users/wata4me/Agents/2026-09-18-weQ大数据库解密修复/work/ntqq-view-export-20261015/qzone-stats-qa*`.
+QA sources/results are kept outside the repository in a private local workspace.
 Screenshots: `apps/desktop/dist/qzone-stats-*.png` (ignored generated artifacts).
 
 No application install/replacement, authenticated QQ collection, archive-disk access, push or release performed for this change. The previous `2.0.2-local.27` App is unchanged and does not include this change.

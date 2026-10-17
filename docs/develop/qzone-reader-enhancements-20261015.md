@@ -44,7 +44,7 @@ GUI QA uses the actual QzoneView/album/lightbox components with synthetic API da
 - Changed TypeScript files pass Biome lint/format; whitespace check passes.
 - `electron-vite build` passes; existing unrelated dynamic-import warnings remain.
 - 16 desktop/mobile (1280/390px), light/dark, normal/failure/stalled-page/delayed-response cases pass: automatic R02/R04, original content retention, explicit retry, no automatic failed retry, scope isolation, exact R17 offsets, R18 year/partial state, more than 40 albums, duplicate-page stop, R22 original URL and dimensions, cancelled hidden-post completion, and no JS errors or viewport overflow.
-- QA sources/results: `/Users/wata4me/Agents/2026-09-18-weQ大数据库解密修复/work/ntqq-view-export-20261015/qzone-read-qa*`. Generated screenshots live in ignored `apps/desktop/dist/`.
+- QA sources/results are kept outside the repository in a private local workspace. Generated screenshots live in ignored `apps/desktop/dist/`.
 
 ## Development Reload
 
