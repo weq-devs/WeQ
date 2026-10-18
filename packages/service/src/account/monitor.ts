@@ -118,6 +118,7 @@ export class AccountMonitorService {
     private readonly shouldAutoAttach: () => boolean = () => true,
     private readonly attachHook: AttachHook = createDirectAttachHook(platform.native.ntHelper),
     private readonly onHomeDress?: (dress: HomeDressSnapshot) => Promise<void>,
+    private readonly onCredentialsReady?: () => void,
   ) {
     this.logger = getLogger().child({
       scope: 'account-monitor',
@@ -523,6 +524,7 @@ export class AccountMonitorService {
     this.ssoOwners.set(pid, owner);
     this.ssoState(pid).owner = owner;
     this.ssoRegistrations.set(pid, fingerprint);
+    this.onCredentialsReady?.();
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */

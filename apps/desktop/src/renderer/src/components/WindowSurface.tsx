@@ -9,7 +9,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { MoveDiagonal2 } from 'lucide-react';
-import { claimOverlayLayer, hasActiveModal } from '../lib/overlayStack';
+import { OverlayLayerContext, hasActiveModal, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useTabActive } from './RetainedTabs';
@@ -48,6 +49,8 @@ export function WindowSurface({
   const view = document.defaultView;
   const active = useTabActive() && open;
   const card = useRef<HTMLDivElement>(null);
+  const placement = useOverlayAnchor(card, active, false, anchor);
+  const origin = placement.anchor;
   const viewport = useCallback(
     () => ({
       width: Math.max(1, view?.innerWidth ?? 1024),
@@ -78,12 +81,23 @@ export function WindowSurface({
       mode === 'anchored' ? 540 : 680,
       size.height * (mode === 'anchored' ? 0.7 : 0.8),
     );
-    return fitViewport({ x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h });
-  }, [viewport, width, mode, fitViewport]);
+    return fitViewport({
+      x: origin?.rect.left ?? (size.width - w) / 2,
+      y: origin
+        ? origin.rect.bottom + h + margin <= size.height
+          ? origin.rect.bottom + margin
+          : origin.rect.top - h - margin
+        : (size.height - h) / 2,
+      width: w,
+      height: h,
+    });
+  }, [viewport, width, mode, fitViewport, origin]);
   const [box, setBox] = useState(initial);
   const latest = useRef(box);
   latest.current = box;
-  const [layer, setLayer] = useState(claimOverlayLayer);
+  const [layerRevision, setLayerRevision] = useState(0);
+  const layer = useOverlayLayer(active, layerRevision);
+  const raise = () => setLayerRevision((current) => current + 1);
   const gesture = useRef<{
     pointerId: number;
     x: number;
@@ -98,15 +112,14 @@ export function WindowSurface({
       card.current.releasePointerCapture(pointer);
   }, []);
   useEffect(() => {
-    if (active) setLayer(claimOverlayLayer());
-    else finish();
+    if (!active) finish();
     return finish;
   }, [active, finish]);
   const place = useCallback(() => {
     setBox((current) => {
       let next = fitViewport(current);
       if (mode === 'anchored') {
-        const target = anchor?.isConnected ? anchor : null;
+        const target = anchor?.isConnected ? anchor : origin?.element;
         const size = viewport();
         if (!target)
           next = fitViewport({
@@ -115,7 +128,9 @@ export function WindowSurface({
             y: size.height - next.height - 64,
           });
         else {
-          const rect = target.getBoundingClientRect();
+          const rect = target.getClientRects().length
+            ? target.getBoundingClientRect()
+            : (origin?.rect ?? target.getBoundingClientRect());
           const x =
             rect.right + next.width + 8 <= size.width ? rect.right + 8 : rect.left - next.width - 8;
           const y =
@@ -132,7 +147,7 @@ export function WindowSurface({
         ? current
         : next;
     });
-  }, [anchor, mode, fitViewport, viewport]);
+  }, [anchor, mode, fitViewport, viewport, origin]);
   useLayoutEffect(() => {
     if (!active) return;
     place();
@@ -140,7 +155,7 @@ export function WindowSurface({
     if (mode === 'anchored') document.addEventListener('scroll', place, true);
     const observer = mode === 'anchored' ? new MutationObserver(place) : null;
     for (
-      let element = anchor;
+      let element: HTMLElement | null | undefined = anchor ?? origin?.element;
       element && element !== document.body;
       element = element.parentElement
     )
@@ -150,7 +165,7 @@ export function WindowSurface({
       document.removeEventListener('scroll', place, true);
       observer?.disconnect();
     };
-  }, [active, place, view, mode, document, anchor]);
+  }, [active, place, view, mode, document, anchor, origin?.element]);
   useEffect(() => {
     if (!active || mode !== 'anchored' || !onClose) return;
     const outside = (event: globalThis.PointerEvent) => {
@@ -174,8 +189,9 @@ export function WindowSurface({
   }, [active, mode, onClose, anchor, document]);
   useSurfaceEscape(card, onClose, active, false);
   const start = (event: PointerEvent<HTMLDivElement>) => {
+    placement.capture(event);
     if (!active || !event.currentTarget.contains(event.target as Node)) return;
-    setLayer(claimOverlayLayer());
+    raise();
     if (mode !== 'floating' || event.button !== 0 || !(event.target instanceof Element)) return;
     const resize = Boolean(event.target.closest('[data-window-resize]'));
     const handle = event.target.closest('[data-window-drag-handle]');
@@ -224,6 +240,7 @@ export function WindowSurface({
         className={`weq-window-surface is-${mode}${className ? ` ${className}` : ''}`}
         style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
         onPointerDownCapture={start}
+        onClickCapture={placement.capture}
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
         onPointerMove={move}
@@ -231,7 +248,7 @@ export function WindowSurface({
         onPointerCancel={finish}
         onLostPointerCapture={finish}
         onFocusCapture={(event) => {
-          if (event.currentTarget.contains(event.target as Node)) setLayer(claimOverlayLayer());
+          if (event.currentTarget.contains(event.target as Node)) raise();
         }}
         onDoubleClick={(event) => {
           if (
@@ -243,7 +260,13 @@ export function WindowSurface({
             setBox(initial());
         }}
       >
-        <div className="weq-window-content">{children}</div>
+        <div className="weq-window-content">
+          <OverlayLayerContext.Provider value={layer}>
+            <OverlayAnchorContext.Provider value={placement.trigger}>
+              {children}
+            </OverlayAnchorContext.Provider>
+          </OverlayLayerContext.Provider>
+        </div>
         {mode === 'floating' ? (
           <button
             type="button"

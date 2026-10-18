@@ -17,6 +17,7 @@ import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
+import '../../styles/chat-records.css';
 
 const noop = (): void => {};
 

@@ -337,7 +337,16 @@ function mountDbWatch(session: AccountSession): void {
     createNtMsgDbHook(session, {
       onDbChanged: emitChanged,
       onNewMessages: (change: NewMessages) => {
+        const ctx = getAppContext();
+        if (ctx.account === session) {
+          try {
+            ctx.services?.unreadInfo.observeNewMessages(change);
+          } catch (error) {
+            console.error('[unread] 保存本地未读状态失败', error);
+          }
+        }
         dbEventBus.emit('new', change);
+        emitChanged(change.file);
       },
     }),
   );
@@ -1354,30 +1363,42 @@ export function initAppContext(): AppContext {
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session, {
-          nt: platform.native.ntHelper,
-          enabled: () => userConfig.getSettings().reportReadEnabled,
-          resolvePid: () => {
-            if (
-              this.account !== session ||
-              this.accountIsStatic ||
-              userConfig.getSettings().autoAttachQq === false
-            )
-              return null;
-            const record = accountConfig.getRecord();
-            if (
-              !record?.qqOnline ||
-              !record.qqPid ||
-              record.session?.pid !== record.qqPid ||
-              !record.session.a2 ||
-              !record.session.d2 ||
-              !record.session.d2Key ||
-              !record.guid
-            )
-              return null;
-            return record.qqPid;
+        unreadInfo: new UnreadInfoService(
+          session,
+          {
+            nt: platform.native.ntHelper,
+            enabled: () => userConfig.getSettings().reportReadEnabled,
+            resolvePid: () => {
+              if (
+                this.account !== session ||
+                this.accountIsStatic ||
+                userConfig.getSettings().autoAttachQq === false
+              )
+                return null;
+              const record = accountConfig.getRecord();
+              if (
+                !record?.qqOnline ||
+                !record.qqPid ||
+                record.session?.pid !== record.qqPid ||
+                !record.session.a2 ||
+                !record.session.d2 ||
+                !record.session.d2Key ||
+                !record.guid
+              )
+                return null;
+              return record.qqPid;
+            },
           },
-        }),
+          {
+            statePath: join(
+              platform.appDataRoot(),
+              'config',
+              'accounts',
+              exportConfigId,
+              'unread.json',
+            ),
+          },
+        ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -1772,6 +1793,11 @@ export function initAppContext(): AppContext {
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+      });
 
       // Start the background login/pid monitor for this account. Injection +
       // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
@@ -1790,6 +1816,7 @@ export function initAppContext(): AppContext {
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
           emitDressChanged();
         },
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
       logger.info('opened account session', {
@@ -2096,7 +2123,16 @@ export function initAppContext(): AppContext {
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session),
+        unreadInfo: new UnreadInfoService(session, undefined, {
+          statePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'unread.json',
+          ),
+          readOnly: !this.accountIsAndroidBackup,
+        }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -2396,6 +2432,11 @@ export function initAppContext(): AppContext {
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+      });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
         accountUin: session.context.uin,
@@ -2421,6 +2462,8 @@ export function initAppContext(): AppContext {
         accountConfig,
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
+        undefined,
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
 

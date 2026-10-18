@@ -5,6 +5,7 @@ export interface BrowseCursor {
   rowId: string;
 }
 export interface BrowseFilter {
+  messageIds?: string[];
   start?: number;
   end?: number;
   sender?: string;
@@ -22,6 +23,10 @@ export function browseConditions(
 ) {
   const where = [clause];
   const params: SqlValue[] = [value];
+  if (filter.messageIds !== undefined) {
+    where.push('"40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))');
+    params.push(JSON.stringify(filter.messageIds));
+  }
   if (filter.start !== undefined) {
     where.push('"40050">=?');
     params.push(BigInt(filter.start));

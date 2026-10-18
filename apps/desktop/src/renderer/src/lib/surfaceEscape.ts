@@ -32,6 +32,14 @@ export function useSurfaceEscape(
     if (!active || !element) return;
     const document = element.ownerDocument;
     const previous = document.activeElement;
+    if (
+      previous instanceof HTMLElement &&
+      previous.closest(
+        '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+      ) &&
+      compareLayerPaths(layerPath(previous), layerPath(element)) > 0
+    )
+      return;
     if (!element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
@@ -50,20 +58,30 @@ export function useSurfaceEscape(
     const document = element.ownerDocument;
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
-      const modals = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].filter(
-        (item) => !item.closest('[hidden], [inert]'),
-      );
-      let topModal: HTMLElement | undefined;
+      const surfaces = [
+        ...document.querySelectorAll<HTMLElement>(
+          '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+        ),
+      ].filter((item) => {
+        for (let parent: HTMLElement | null = item; parent; parent = parent.parentElement)
+          if (
+            parent.matches('[hidden], [inert]') ||
+            document.defaultView?.getComputedStyle(parent).display === 'none'
+          )
+            return false;
+        return true;
+      });
+      let topSurface: HTMLElement | undefined;
       let topPath: number[] = [];
-      for (const item of modals) {
+      for (const item of surfaces) {
         // 子层级只在所属窗口内比较，不能用内层的高值越过外层浮层。
         const path = layerPath(item);
-        if (!topModal || compareLayerPaths(path, topPath) >= 0) {
+        if (!topSurface || compareLayerPaths(path, topPath) >= 0) {
           topPath = path;
-          topModal = item;
+          topSurface = item;
         }
       }
-      if (topModal && !element.contains(topModal)) return;
+      if (topSurface && !element.contains(topSurface) && !topSurface.contains(element)) return;
       if (event.key === 'Tab') {
         if (!modal) return;
         const controls = [

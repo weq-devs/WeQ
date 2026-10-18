@@ -126,6 +126,16 @@ html .weq-workspace-page > :first-child {
   to { opacity: 1; transform: none; }
 }
 .weq-nonmodal-layer.is-popover > :first-child { height: auto; max-height: calc(100dvh - 72px); }
+.weq-dialog-layer.is-anchored-popover[tabindex] > :first-child,
+.weq-overlay-layer.is-anchored-popover[tabindex] > :first-child {
+  position: fixed;
+  left: var(--weq-popover-left);
+  top: var(--weq-popover-top);
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  height: auto;
+  margin: 0;
+}
 html[data-theme="dark"] .weq-overlay-layer.weq-nonmodal-layer,
 html[data-theme="dark"] .weq-dialog-layer.weq-nonmodal-layer {
   background: none;

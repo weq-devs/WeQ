@@ -19,7 +19,7 @@ vi.mock('../src/account/user_config', () => ({
 
 const material = { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16) };
 
-function fixture(stored = false) {
+function fixture(stored = false, onCredentialsReady?: () => void) {
   let pid: number | null = 42;
   let enabled = true;
   let registered = false;
@@ -83,6 +83,8 @@ function fixture(stored = false) {
     config as unknown as AccountConfigService,
     () => enabled,
     hook as AttachHook,
+    undefined,
+    onCredentialsReady,
   );
   return {
     monitor,
@@ -114,6 +116,20 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('凭据登记成功后立即通知后台服务，失败与停止后不通知', async () => {
+    const ready = vi.fn();
+    const f = fixture(false, ready);
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('合成登记失败'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ready).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    f.monitor.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ready).toHaveBeenCalledOnce();
+  });
   it('uses the asynchronous account probe instead of the blocking native probe', async () => {
     const f = fixture();
     f.platform.resolveQqPidAsync = vi.fn(async () => 42);

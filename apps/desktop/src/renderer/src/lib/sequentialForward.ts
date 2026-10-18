@@ -1,7 +1,10 @@
+import type { RepeatElement } from './messageRepeat';
+
 export interface ForwardOptions {
   mode: 'fixed' | 'text';
   intervalMs: number;
   msPerCharacter: number;
+  nonTextMs: number;
   jitterMs: number;
   maxAttempts: number;
   failure: 'skip' | 'abort';
@@ -9,15 +12,91 @@ export interface ForwardOptions {
 export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
   mode: 'fixed',
   intervalMs: 0,
-  msPerCharacter: 80,
+  msPerCharacter: 1000,
+  nonTextMs: 5000,
   jitterMs: 0,
   maxAttempts: 1,
   failure: 'abort',
 };
-export function forwardDelay(text: string, options: ForwardOptions, random = Math.random): number {
+export interface ForwardContent {
+  text: string;
+  nonText: boolean;
+}
+
+export function forwardMessageContent(message: {
+  body: string;
+  qqElements?: readonly RepeatElement[];
+}): ForwardContent {
+  // 引用指针不会随逐条转发发出，不把引用摘要当作额外内容或文字。
+  const elements = message.qqElements?.filter((element) => element.type !== 'reply') ?? [];
+  return {
+    text: elements.length
+      ? elements
+          .filter((element) => element.type === 'text')
+          .map((element) => String(element.data?.textContent ?? ''))
+          .join('')
+      : message.body,
+    nonText: elements.some((element) => element.type !== 'text'),
+  };
+}
+
+export function validateForwardOptions(options: ForwardOptions): void {
+  if (
+    !['fixed', 'text'].includes(options.mode) ||
+    !['skip', 'abort'].includes(options.failure) ||
+    !Number.isInteger(options.maxAttempts) ||
+    options.maxAttempts < 1 ||
+    options.maxAttempts > 20 ||
+    [options.intervalMs, options.msPerCharacter, options.nonTextMs, options.jitterMs].some(
+      (value) => !Number.isFinite(value) || value < 0 || value > 3_600_000,
+    )
+  )
+    throw new Error('转发参数无效');
+}
+
+export function forwardDelay(
+  content: string | ForwardContent,
+  options: ForwardOptions,
+  random = Math.random,
+): number {
+  const { text, nonText } =
+    typeof content === 'string' ? { text: content, nonText: false } : content;
   const base =
-    options.mode === 'text' ? Array.from(text).length * options.msPerCharacter : options.intervalMs;
+    options.mode === 'text'
+      ? nonText
+        ? options.nonTextMs
+        : Array.from(text).length * options.msPerCharacter
+      : options.intervalMs;
   return Math.max(0, Math.round(base + (random() * 2 - 1) * options.jitterMs));
+}
+
+/** 仅估算可控等待；服务端回执、上传与重试耗时无法预知。 */
+export function estimateForwardDuration(
+  rows: readonly (string | ForwardContent)[],
+  options: ForwardOptions,
+  targetCount: number,
+): { minMs: number; maxMs: number } {
+  validateForwardOptions(options);
+  if (!Number.isInteger(targetCount) || targetCount < 0) throw new Error('转发目标数量无效');
+  const waits = options.mode === 'text' ? rows : rows.slice(0, -1);
+  return {
+    minMs: waits.reduce((sum, row) => sum + forwardDelay(row, options, () => 0), 0) * targetCount,
+    maxMs: waits.reduce((sum, row) => sum + forwardDelay(row, options, () => 1), 0) * targetCount,
+  };
+}
+
+export function formatForwardDuration(ms: number): string {
+  if (ms < 1000) return `${Math.ceil(ms)} 毫秒`;
+  const seconds = Math.ceil(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return [
+    hours ? `${hours} 小时` : '',
+    minutes ? `${minutes} 分` : '',
+    seconds % 60 ? `${seconds % 60} 秒` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 export async function forwardSequentially<T>(
   rows: readonly T[],
@@ -25,20 +104,13 @@ export async function forwardSequentially<T>(
   deps: {
     send: (row: T, index: number, attempt: number) => Promise<void>;
     text: (row: T) => string;
+    nonText?: (row: T) => boolean;
     signal: AbortSignal;
     progress: (index: number, attempt: number, state: 'sending' | 'sent' | 'failed') => void;
     sleep?: (ms: number) => Promise<void>;
   },
 ): Promise<{ sent: number; failed: number }> {
-  if (
-    !Number.isInteger(options.maxAttempts) ||
-    options.maxAttempts < 1 ||
-    options.maxAttempts > 20 ||
-    [options.intervalMs, options.msPerCharacter, options.jitterMs].some(
-      (value) => !Number.isFinite(value) || value < 0 || value > 3_600_000,
-    )
-  )
-    throw new Error('转发参数无效');
+  validateForwardOptions(options);
   let sent = 0,
     failed = 0;
   const sleep =
@@ -50,14 +122,33 @@ export async function forwardSequentially<T>(
           clearTimeout(timer);
           reject(new Error('已停止转发'));
         };
-        const timer = setTimeout(() => {
-          deps.signal.removeEventListener('abort', abort);
-          resolve();
-        }, ms);
+        let timer: ReturnType<typeof setTimeout>;
+        let remaining = ms;
+        const wait = () => {
+          // 浏览器定时器使用有符号 32 位延时，长消息不能溢出成立即发送。
+          const chunk = Math.min(remaining, 2_147_483_647);
+          remaining -= chunk;
+          timer = setTimeout(() => {
+            if (remaining > 0) wait();
+            else {
+              deps.signal.removeEventListener('abort', abort);
+              resolve();
+            }
+          }, chunk);
+        };
         deps.signal.addEventListener('abort', abort, { once: true });
+        wait();
       }));
   for (const [index, row] of rows.entries()) {
     deps.signal.throwIfAborted();
+    if (options.mode === 'text') {
+      const delay = forwardDelay(
+        { text: deps.text(row), nonText: deps.nonText?.(row) ?? false },
+        options,
+      );
+      if (delay) await sleep(delay);
+      deps.signal.throwIfAborted();
+    }
     let error: unknown;
     let accepted = false;
     for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
@@ -79,7 +170,7 @@ export async function forwardSequentially<T>(
       deps.progress(index, options.maxAttempts, 'failed');
       if (options.failure === 'abort') throw error;
     }
-    if (index < rows.length - 1) {
+    if (options.mode === 'fixed' && index < rows.length - 1) {
       const delay = forwardDelay(deps.text(row), options);
       if (delay) await sleep(delay);
     }

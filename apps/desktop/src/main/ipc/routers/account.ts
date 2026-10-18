@@ -318,6 +318,7 @@ const groupPageInput = pageInput.extend({
 
 const analyticsRangeInput = z
   .object({
+    messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
     startTime: z.number().int().safe().nonnegative().optional(),
     endTime: z.number().int().safe().nonnegative().optional(),
     expectedAccountUin: z.string().min(1).optional(),
@@ -2260,6 +2261,8 @@ export const accountRouter = router({
         uid: row.uid,
         chatType: row.chatType,
         latestSeq: row.latestSeq,
+        unreadCount: row.unreadCount,
+        readSeq: row.readSeq,
         readError: row.readError ?? false,
         msgSeq: row.msgSeq?.toString(),
         highlights: row.highlights?.map((h) => ({
@@ -2297,7 +2300,7 @@ export const accountRouter = router({
   /**
    * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
    * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
-   * 写的是 QQ 的 nt_msg.db —— 与打开会话的读路径同一把 key。
+   * 同时持久化 WeQ 本地阅读位置；离线目录只更新本地位置。
    */
   markConversationRead: procedure
     .input(
@@ -2308,12 +2311,16 @@ export const accountRouter = router({
         expectedAccountUin: z.string().min(1).optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
       // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
       const ctx = getAppContext();
-      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
-        return { changed: false, report: { state: 'unavailable' as const } };
+      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
+        const changed = await requireExpectedAccount(
+          input.expectedAccountUin,
+        ).unreadInfo.markLocalRead(input.chatType, input.uid, input.latestSeq);
+        return { changed, report: { state: 'unavailable' as const } };
+      }
       return requireExpectedAccount(input.expectedAccountUin).unreadInfo.markReadAndReport(
         input.chatType,
         input.uid,
@@ -3176,6 +3183,7 @@ export const accountRouter = router({
         input.startTime,
         input.endTime,
         input.memberUin,
+        input.messageIds,
       );
     }),
 
@@ -3242,6 +3250,7 @@ export const accountRouter = router({
         endTime: input.endTime,
         recentYear: input.recentYear,
         skipTimeline: input.skipTimeline,
+        messageIds: input.messageIds,
       });
     }),
 
@@ -3279,6 +3288,7 @@ export const accountRouter = router({
       ).groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
         windowSeconds: input.windowSeconds,
         maxEdges: input.maxEdges,
+        messageIds: input.messageIds,
         startTime: input.startTime,
         endTime: input.endTime,
       });

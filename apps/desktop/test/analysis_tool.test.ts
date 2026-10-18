@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AnalysisTool } from '../src/renderer/src/views/analysis/AnalysisTool';
 import { analysisDateRange } from '../src/renderer/src/views/analysis/model';
+import type { AnalysisTarget } from '../src/renderer/src/views/analysis/model';
 import { useViewState } from '../src/renderer/src/state/view';
 
 const fixture = vi.hoisted(() => ({
@@ -70,12 +71,14 @@ function change(node: HTMLInputElement | HTMLSelectElement, value: string) {
     );
   });
 }
-function mount() {
+function mount(initialTarget?: AnalysisTarget, messageIds?: string[]) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),
     generate = vi.fn();
-  act(() => root.render(createElement(AnalysisTool, { onGenerate: generate })));
+  act(() =>
+    root.render(createElement(AnalysisTool, { onGenerate: generate, initialTarget, messageIds })),
+  );
   return {
     host,
     generate,
@@ -91,6 +94,29 @@ function mount() {
     },
   };
 }
+
+it('会话入口固定分析对象，多选入口固定消息 ID 且不显示范围选择器', async () => {
+  const ids = ['1', '4'];
+  const f = mount({ kind: 'group', groupCode: '777' }, ids);
+  try {
+    expect(f.host.querySelector('[aria-label="报告类型"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="搜索分析对象"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="分析时间范围"]')).toBeNull();
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'group',
+        groupCode: '777',
+        period: '已选 2 条消息',
+        scope: expect.objectContaining({ messageIds: ['1', '4'] }),
+      }),
+    );
+    ids.push('9');
+    expect(f.generate.mock.calls[0]![0].scope.messageIds).toEqual(['1', '4']);
+  } finally {
+    f.close();
+  }
+});
 
 it('年度与好友都创建真实配置，完整目录可检索末尾且 DOM 有界', async () => {
   vi.stubGlobal('crypto', {});

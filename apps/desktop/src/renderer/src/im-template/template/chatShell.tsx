@@ -18,6 +18,7 @@ export function ChatShell({
   sidebarWidth,
   mainOpen,
   messageBadgeCount,
+  onMessageBadgeClick,
   contactBadgeCount,
   mailBadgeCount,
   showTools = true,
@@ -52,6 +53,7 @@ export function ChatShell({
   refreshingContacts,
   onSidebarWidthChange,
   onGoHome,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
@@ -61,6 +63,7 @@ export function ChatShell({
   sidebarWidth: number;
   mainOpen: boolean;
   messageBadgeCount: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -96,6 +99,7 @@ export function ChatShell({
   refreshingContacts?: boolean;
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
+  activeRailItem?: 'settings' | 'market' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -122,6 +126,7 @@ export function ChatShell({
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
+          activeRailItem={activeRailItem}
           view={view}
           onViewChange={onViewChange}
           onOpenSettings={onOpenSettings}
@@ -136,6 +141,7 @@ export function ChatShell({
           onOpenDbRepair={onOpenDbRepair}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
           messageBadgeCount={messageBadgeCount}
+          onMessageBadgeClick={onMessageBadgeClick}
           contactBadgeCount={contactBadgeCount}
           mailBadgeCount={mailBadgeCount}
           showTools={showTools}

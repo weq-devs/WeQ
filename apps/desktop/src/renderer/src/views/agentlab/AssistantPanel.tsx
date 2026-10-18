@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../../lib/overlayStack';
 import {
   ArrowLeft,
   Brain,
@@ -199,6 +200,7 @@ function ComposerSelect({
   onChange: (value: string) => void;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const layer = useOverlayLayer(open);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; bottom: number; minWidth: number } | null>(null);
@@ -262,7 +264,7 @@ function ComposerSelect({
               ref={popRef}
               className="weq-asst-select-pop"
               role="listbox"
-              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth }}
+              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth, zIndex: layer }}
             >
               {groups.map((g, gi) => (
                 <div key={g.label || `g-${gi}`} className="weq-asst-select-group">

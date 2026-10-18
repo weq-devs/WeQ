@@ -15,12 +15,15 @@ import {
   type ContentSelection,
   copyContentScope,
 } from '../../../shared/content_selection';
+import type { AnalysisTarget, AnalysisToolRequest } from '../views/analysis/model';
 
 interface SelectionContextValue {
   selection: ContentSelection | null;
   setSelection: Dispatch<SetStateAction<ContentSelection | null>>;
   exportRequest: { selection: ContentSelection; revision: number } | null;
   requestExport: (selection: ContentSelection) => void;
+  analysisRequest: AnalysisToolRequest | null;
+  requestAnalysis: (target: AnalysisTarget, messageIds: string[]) => void;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -29,6 +32,14 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
 export function ContentSelectionProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<ContentSelection | null>(null);
   const [exportRequest, setExportRequest] = useState<SelectionContextValue['exportRequest']>(null);
+  const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
+  const requestAnalysis = useCallback((target: AnalysisTarget, messageIds: string[]) => {
+    setAnalysisRequest((previous) => ({
+      target: { ...target },
+      messageIds: [...messageIds],
+      revision: (previous?.revision ?? 0) + 1,
+    }));
+  }, []);
   const requestExport = useCallback(
     (next: ContentSelection) =>
       setExportRequest((previous) => ({
@@ -38,10 +49,25 @@ export function ContentSelectionProvider({ children }: { children: ReactNode }) 
     [],
   );
   const value = useMemo(
-    () => ({ selection, setSelection, exportRequest, requestExport }),
-    [selection, exportRequest, requestExport],
+    () => ({
+      selection,
+      setSelection,
+      exportRequest,
+      requestExport,
+      analysisRequest,
+      requestAnalysis,
+    }),
+    [selection, exportRequest, requestExport, analysisRequest, requestAnalysis],
   );
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
+}
+
+export function useContentAnalysisRequest() {
+  return useContext(SelectionContext)?.analysisRequest ?? null;
+}
+
+export function useRequestContentAnalysis() {
+  return useContext(SelectionContext)?.requestAnalysis ?? null;
 }
 
 export function useContentExportRequest() {

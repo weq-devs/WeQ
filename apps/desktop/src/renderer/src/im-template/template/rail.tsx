@@ -18,6 +18,7 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
+import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 
 export function AppRail({
   user,
@@ -31,11 +32,13 @@ export function AppRail({
   onOpenAbout: _onOpenAbout,
   onOpenInvite,
   messageBadgeCount = 0,
+  onMessageBadgeClick,
   contactBadgeCount = 0,
   mailBadgeCount = 0,
   showTools = true,
   footerContent,
   hideAvatar = false,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
@@ -53,20 +56,30 @@ export function AppRail({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
   footerContent?: ReactNode;
   hideAvatar?: boolean;
+  activeRailItem?: 'settings' | 'market' | 'dressup';
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingView, setPendingView] = useState<MainView | null>(null);
   const [, startViewTransition] = useTransition();
   const railRef = useRef<HTMLElement | null>(null);
-  const activeView = pendingView ?? view;
+  const activeTitle = useWorkspaceActiveTitle();
+  const activePage =
+    activeTitle === '商城表情'
+      ? 'market'
+      : activeTitle === '个性装扮'
+        ? 'dressup'
+        : activeTitle === '设置'
+          ? 'settings'
+          : undefined;
+  const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
 
-  // 灯箱与收藏入口不占用视图选中态，直接复用原有打开动作。
   const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
@@ -156,19 +169,37 @@ export function AppRail({
           aria-label="Primary"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button
-            className={cn(railButtonClass(activeView === 'messages'), 'rail-tab rail-tab-messages')}
-            onClick={() => selectView('messages')}
-            title="消息"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <MessageCircle size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>消息</span>
+          <div className="rail-message-entry">
+            <button
+              className={cn(
+                railButtonClass(activeView === 'messages'),
+                'rail-tab rail-tab-messages',
+              )}
+              onClick={() => selectView('messages')}
+              title="消息"
+            >
+              <span className={cn('rail-tab-icon')}>
+                <MessageCircle size={22} strokeWidth={1.5} />
+              </span>
+              <span className={cn('rail-label')}>消息</span>
+            </button>
             {messageBadgeCount > 0 ? (
-              <span className={cn('rail-badge')}>{formatBadgeCount(messageBadgeCount)}</span>
+              <button
+                type="button"
+                className={cn('rail-badge rail-message-badge')}
+                title="定位首条未读会话"
+                aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                onClick={() => {
+                  setProfileOpen(false);
+                  setPendingView('messages');
+                  if (onMessageBadgeClick) onMessageBadgeClick();
+                  else selectView('messages');
+                }}
+              >
+                {formatBadgeCount(messageBadgeCount)}
+              </button>
             ) : null}
-          </button>
+          </div>
           <button
             className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
             onClick={() => selectView('contacts')}
@@ -221,7 +252,18 @@ export function AppRail({
           {contentItems.map((item) => (
             <button
               key={item.id}
-              className={cn('rail-tab', `rail-tab-${item.id}`)}
+              className={cn(
+                railButtonClass(
+                  activeView === (item.id === 'collection' ? 'collections' : item.id),
+                ),
+                'rail-tab',
+                `rail-tab-${item.id}`,
+              )}
+              aria-current={
+                activeView === (item.id === 'collection' ? 'collections' : item.id)
+                  ? 'page'
+                  : undefined
+              }
               onClick={() => {
                 setProfileOpen(false);
                 item.onSelect();
@@ -236,7 +278,8 @@ export function AppRail({
             </button>
           ))}
           <button
-            className={cn('rail-tab rail-tab-settings')}
+            className={cn(railButtonClass(activeView === 'settings'), 'rail-tab rail-tab-settings')}
+            aria-current={activeView === 'settings' ? 'page' : undefined}
             onClick={() => {
               setProfileOpen(false);
               onOpenSettings();

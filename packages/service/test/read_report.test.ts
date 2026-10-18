@@ -113,11 +113,11 @@ describe('已读上报服务', () => {
     const f = setup();
     f.markRead.mockResolvedValue(false);
     expect(await f.service.markReadAndReport(2, '100', '50')).toMatchObject({
-      changed: false,
+      changed: true,
       report: { state: 'pending' },
     });
     await settled(f.service);
-    await f.service.markReadAndReport(2, '100', '50');
+    expect((await f.service.markReadAndReport(2, '100', '50')).changed).toBe(false);
     await settled(f.service);
     expect(f.nt.sendPacket).toHaveBeenCalledTimes(1);
   });

@@ -2,19 +2,13 @@
 import {
   Activity,
   Award,
-  Beer,
-  BookOpen,
   Bookmark,
   Cake,
   CalendarDays,
   Check,
   Copy,
-  Dumbbell,
   Fingerprint,
-  Flame,
-  Flower2,
   FolderClosed,
-  Gamepad2,
   GraduationCap,
   Heart,
   HelpCircle,
@@ -28,12 +22,11 @@ import {
   Tags,
   User,
   Users,
-  Utensils,
   Wand2,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useState } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useContext, useEffect, useState } from 'react';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
@@ -46,27 +39,9 @@ import { formatProfileDate } from './format';
 import { Avatar, EmptyState } from './primitives';
 import type { Contact, Conversation, ProfileExtInfo } from './types';
 import { displayUserName } from './user';
+import { relationMeta } from '../../lib/profileRelations';
 
-/**
- * 扩展（密友）关系映射。`intimate` 为真的是密友关系（情侣/死党/闺蜜/基友），
- * 在资料卡里用主题渐变填充的关系 pill 重点渲染；其余是「搭子」关系，用柔和描边 pill。
- * 未知 id 一律按游戏搭子处理。图标全部取自 lucide 图标库。
- */
-const RELATION_META: Record<number, { label: string; Icon: typeof Heart; intimate: boolean }> = {
-  1: { label: '情侣', Icon: Heart, intimate: true },
-  26: { label: '死党', Icon: Flame, intimate: true },
-  2: { label: '闺蜜', Icon: Flower2, intimate: true },
-  3: { label: '基友', Icon: Beer, intimate: true },
-  82: { label: '运动搭子', Icon: Dumbbell, intimate: false },
-  81: { label: '学习搭子', Icon: BookOpen, intimate: false },
-  101: { label: '饭搭子', Icon: Utensils, intimate: false },
-};
-
-const DEFAULT_RELATION = { label: '游戏搭子', Icon: Gamepad2, intimate: false };
-
-export function relationMeta(id: number) {
-  return RELATION_META[id] ?? DEFAULT_RELATION;
-}
+export { relationMeta } from '../../lib/profileRelations';
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
 export function constellationOf(month?: number, day?: number) {
@@ -234,7 +209,6 @@ export function ContactProfileDialog({
   contact: Contact | undefined;
   onClose: () => void;
 }) {
-  const tabActive = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -246,19 +220,6 @@ export function ContactProfileDialog({
     setHomeOpen(false);
     setMarkOpen(false);
   }, [contact?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !contact) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, contact, onClose]);
 
   if (!contact) {
     return null;
@@ -305,7 +266,7 @@ export function ContactProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
@@ -539,7 +500,7 @@ export function ContactProfileDialog({
           onClose={() => setMarkOpen(false)}
         />
       ) : null}
-    </div>
+    </OverlayLayer>
   );
 }
 
@@ -554,26 +515,12 @@ export function GroupProfileDialog({
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
 }) {
-  const tabActive = useTabActive();
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setCopied(false);
   }, [conversation?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !conversation) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, conversation, onClose]);
 
   if (!conversation) {
     return null;
@@ -590,7 +537,7 @@ export function GroupProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
@@ -709,7 +656,7 @@ export function GroupProfileDialog({
           ) : null}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

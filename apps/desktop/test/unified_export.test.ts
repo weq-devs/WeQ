@@ -156,16 +156,21 @@ vi.mock('../src/renderer/src/views/export/ExportLightbox', () => ({
     onClose,
     scopeSummary,
     summary,
+    onEditList,
+    hidden,
   }: {
     onConfirm: (result: LightboxResult) => void;
     onClose: () => void;
     scopeSummary?: string;
     summary?: string;
+    onEditList?: () => void;
+    hidden?: boolean;
   }) =>
     createElement(
       'div',
-      null,
+      { hidden, 'data-config': '' },
       createElement('span', { 'data-export-summary': '' }, scopeSummary || summary),
+      onEditList && createElement('button', { onClick: onEditList }, '编辑列表'),
       createElement(
         'button',
         { onClick: () => onConfirm({ formats: ['json'], options: DEFAULT_OPTIONS }) },
@@ -286,6 +291,54 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('多会话直接进入配置，编辑列表沿用选区且保留已打开的配置', async () => {
+    const f = mount({
+      fixedScope: true,
+      initialSelection: {
+        owner: { kind: 'conversations', container: 'recent' },
+        scope: { type: 'items', ids: ['u_fixture', 'u_other'] },
+      },
+    });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
+      expect(f.host.querySelector('[data-export-summary]')?.textContent).toBe('2 个会话');
+      const config = f.host.querySelector('[data-config]');
+      click(f.host, '编辑列表');
+      expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
+        'u_fixture,u_other',
+      );
+      expect(config?.hasAttribute('hidden')).toBe(true);
+      click(f.host, '夹具全选');
+      const primary = f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!;
+      act(() => primary.click());
+      expect(f.host.querySelector('[data-config]')).toBe(config);
+      expect(config?.hasAttribute('hidden')).toBe(false);
+      expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
+      expect(f.host.querySelector('[data-export-summary]')?.textContent).toBe('1 个会话');
+    } finally {
+      f.close();
+    }
+  });
+  it('单会话与多选消息入口直接打开配置，不展示会话或消息范围选择器', async () => {
+    const f = mount({
+      fixedScope: true,
+      initialSelection: {
+        owner: { kind: 'messages', container: 'direct:u_peer' },
+        scope: { type: 'items', ids: ['1', '3'] },
+      },
+    });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
+      expect(f.host.querySelector('[data-scope-seed]')).toBeNull();
+      expect(f.host.querySelector('[data-export-summary]')?.textContent).toContain(
+        '精确选中 2 条消息',
+      );
+    } finally {
+      f.close();
+    }
+  });
   it('普通群与频道节点数值相同，往返模式也不复用另一来源的范围读取现场', async () => {
     const original = fixture.conversations;
     fixture.conversations = [{ ...original[0]!, chatType: 2, targetUid: '100' }];

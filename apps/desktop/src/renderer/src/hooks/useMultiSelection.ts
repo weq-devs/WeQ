@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type FocusEvent,
 } from 'react';
 import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -44,6 +45,7 @@ export function useMultiSelection<K extends string | number>({
   const ElementClass = document.defaultView?.HTMLElement ?? HTMLElement;
   const InputClass = document.defaultView?.HTMLInputElement ?? HTMLInputElement;
   const groupId = useId();
+  const [inputMode, setInputMode] = useState<'keyboard' | 'pointer'>('keyboard');
   const root = useRef<HTMLElement | null>(null);
   // 合并 ref 的宿主重渲染时会先传 null，再传回节点，不能因此丢掉键盘归属。
   const ownedBeforeRef = useRef(false);
@@ -258,6 +260,7 @@ export function useMultiSelection<K extends string | number>({
   }, [enabled, locked, document, ElementClass]);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (locked) return;
+    if (!['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) setInputMode('keyboard');
     if (
       event.altKey ||
       !(event.target instanceof ElementClass) ||
@@ -309,6 +312,7 @@ export function useMultiSelection<K extends string | number>({
     focusRequest,
     rootProps: {
       'data-weq-multi-group': groupId,
+      'data-weq-selection-input': inputMode,
       tabIndex: -1,
       ref: setRoot,
       onKeyDown,
@@ -317,6 +321,10 @@ export function useMultiSelection<K extends string | number>({
       },
       onPointerDownCapture: () => {
         keyboardOwner = root.current;
+        setInputMode('pointer');
+      },
+      onBlurCapture: (event: FocusEvent<HTMLElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setInputMode('keyboard');
       },
     },
   };

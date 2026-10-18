@@ -20,6 +20,7 @@ import {
 } from 'react';
 import { ChevronDown, Database, Smartphone, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../../lib/overlayStack';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
 
@@ -47,6 +48,7 @@ export function AccountSelector({
 
   // Right-click context menu
   const [ctxMenu, setCtxMenu] = useState<{ acc: UiAccount; x: number; y: number } | null>(null);
+  const menuLayer = useOverlayLayer(!!ctxMenu);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
   useEffect(() => {
@@ -218,7 +220,7 @@ export function AccountSelector({
         createPortal(
           <div
             className="weq-acct-ctx-menu"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            style={{ left: ctxMenu.x, top: ctxMenu.y, zIndex: menuLayer }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button

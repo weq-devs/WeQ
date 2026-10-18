@@ -5,6 +5,7 @@ export interface AnalysisScope {
   expectedAccountConfigId: string;
   startTime?: number;
   endTime?: number;
+  messageIds?: string[];
 }
 type RequestBase = { id: string; scope: AnalysisScope; period: string };
 export type AnalysisReportRequest = RequestBase &
@@ -28,6 +29,7 @@ export type AnalysisTarget =
   | { kind: 'member'; groupCode: string; memberUid: string; memberUin?: string };
 export interface AnalysisToolRequest {
   target: AnalysisTarget;
+  messageIds?: string[];
   revision: number;
 }
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {

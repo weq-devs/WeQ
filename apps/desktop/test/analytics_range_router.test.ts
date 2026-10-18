@@ -53,7 +53,7 @@ it('历史对象目录检查打开时账号，仅号身份按原值进入分析�
     memberUin: '9007199254740993',
     ...range,
   });
-  expect(fixture.member).toHaveBeenCalledWith(777n, '', 100, 200, '9007199254740993');
+  expect(fixture.member).toHaveBeenCalledWith(777n, '', 100, 200, '9007199254740993', undefined);
   await expect(api.getGroupMemberAnalytics({ groupCode: '777', memberUid: '' })).rejects.toThrow(
     '身份不能为空',
   );
@@ -78,6 +78,30 @@ const range = {
   expectedAccountConfigId: 'synthetic',
 };
 
+it('精确消息集合贯穿好友、群、成员和附属图表，拒绝漫游占位 ID', async () => {
+  const api = accountRouter.createCaller({});
+  const scope = { ...range, messageIds: ['1', '4'] };
+  await api.getBuddyAnalytics({ peerUid: 'u_peer', ...scope });
+  expect(fixture.buddy).toHaveBeenCalledWith('u_peer', expect.objectContaining(scope));
+  await api.getGroupStatsReport({ groupCode: '777', ...scope });
+  expect(fixture.stats).toHaveBeenCalledWith(
+    777n,
+    expect.objectContaining({ messageIds: scope.messageIds }),
+  );
+  await api.getGroupConversationGraph({ groupCode: '777', ...scope });
+  expect(fixture.graph).toHaveBeenCalledWith(
+    777n,
+    expect.objectContaining({ messageIds: scope.messageIds }),
+  );
+  await api.getGroupJoinBatches({ groupCode: '777', ...scope });
+  expect(fixture.batches).toHaveBeenCalledWith(777n, expect.objectContaining(scope));
+  await api.getGroupMemberAnalytics({ groupCode: '777', memberUid: 'u_peer', ...scope });
+  expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200, undefined, ['1', '4']);
+  await expect(
+    api.getBuddyAnalytics({ peerUid: 'u_peer', messageIds: ['roaming:1:4'] }),
+  ).rejects.toThrow();
+});
+
 it('五类分析路由保留同一范围，旧调用仍可省略范围', async () => {
   const api = accountRouter.createCaller({});
   await api.getBuddyAnalytics({ peerUid: 'u_peer', ...range });
@@ -88,7 +112,7 @@ it('五类分析路由保留同一范围，旧调用仍可省略范围', async (
     expect.objectContaining({ startTime: 100, endTime: 200 }),
   );
   await api.getGroupMemberAnalytics({ groupCode: '777', memberUid: 'u_peer', ...range });
-  expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200, undefined);
+  expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200, undefined, undefined);
   await api.getGroupConversationGraph({ groupCode: '777', ...range });
   expect(fixture.graph).toHaveBeenCalledWith(
     777n,

@@ -91,7 +91,12 @@ describe('新增消息交互', () => {
           h(
             Modal,
             { presentation: 'sidecar', title: '群文件', onClose: () => setOpen(false) },
-            h('div', null, '合成资源'),
+            h(
+              'div',
+              null,
+              '合成资源',
+              h('button', { 'aria-label': '关闭群文件', onClick: () => setOpen(false) }, '关闭'),
+            ),
           ),
       );
     }
@@ -286,13 +291,14 @@ describe('新增消息交互', () => {
       const actions = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('.selection-bar-actions button'),
       ];
-      expect(actions.length).toBe(8);
+      expect(actions.length).toBe(5);
       for (const action of actions) {
         expect(action.textContent).toBe('');
         expect(action.getAttribute('title')).toBeTruthy();
         expect(action.getAttribute('aria-label')).toBeTruthy();
       }
-      act(() => button(fixture.host, '逐条转发').click());
+      act(() => button(fixture.host, '转发').click());
+      act(() => button(document.body, '逐条转发').click());
       expect(forward).toHaveBeenCalledTimes(2);
       act(() => button(fixture.host, '添加到素材库').click());
       expect(composition).toHaveBeenCalledTimes(2);

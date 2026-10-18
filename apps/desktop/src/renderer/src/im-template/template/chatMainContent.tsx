@@ -53,6 +53,9 @@ export function ChatMainContent({
   selectedToolId,
   loadingMessages,
   atLatest,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
@@ -139,6 +142,9 @@ export function ChatMainContent({
   loadingMessages: boolean;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
@@ -212,7 +218,10 @@ export function ChatMainContent({
   /** 群管理「踢出群聊」：应用层二次确认。 */
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
-  onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
+  onOpenConversationSettings?: (
+    conversation: GroupConversation | DirectConversation,
+    anchor?: HTMLElement,
+  ) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
   onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
@@ -278,6 +287,9 @@ export function ChatMainContent({
       messageRenderers={messageRenderers}
       loading={loadingMessages}
       atLatest={atLatest}
+      latestMessageSeq={latestMessageSeq}
+      onPreviewLatest={onPreviewLatest}
+      onJumpToLatest={onJumpToLatest}
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}

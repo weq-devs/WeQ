@@ -44,7 +44,8 @@ import {
   type ReactNode,
 } from 'react';
 import { cn } from '../im-template/template/classNames';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs';
@@ -52,6 +53,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 
 export type OverlayLayerProps = {
+  anchor?: HTMLElement | null;
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
   width?: number;
   title?: string;
@@ -111,10 +113,19 @@ function OpenOverlayLayer({
   role = 'presentation',
   children,
   presentation = 'modal',
+  anchor,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
   const ref = useRef<HTMLDivElement>(null);
+  const placement = useOverlayAnchor(
+    ref,
+    true,
+    presentation === 'popover' ||
+      presentation === 'panel' ||
+      (presentation === 'modal' && !!onClose),
+    anchor,
+  );
   // onClose 多半是每次渲染新写的箭头函数；用 ref 稳住，避免每帧重挂 keydown。
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -141,12 +152,19 @@ function OpenOverlayLayer({
         presentation !== 'modal' && 'weq-nonmodal-layer',
         presentation === 'panel' && 'weq-centered-panel',
         presentation === 'popover' && 'is-popover',
+        placement.position && 'is-anchored-popover',
       )}
       role={role}
-      style={{ position: 'fixed', inset: 0, zIndex: layer, ...style }}
+      style={{ position: 'fixed', inset: 0, zIndex: layer, ...style, ...placement.position }}
+      onPointerDownCapture={placement.capture}
+      onClickCapture={placement.capture}
       onMouseDown={handleScrimMouseDown}
     >
-      {children}
+      <OverlayLayerContext.Provider value={layer}>
+        <OverlayAnchorContext.Provider value={placement.trigger}>
+          {children}
+        </OverlayAnchorContext.Provider>
+      </OverlayLayerContext.Provider>
     </div>,
     document.body,
   );

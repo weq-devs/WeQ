@@ -1,5 +1,7 @@
 [data-weq-multi-group]:focus-visible, [data-weq-select-id]:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
 html[data-theme="dark"] [data-weq-multi-group]:focus-visible, html[data-theme="dark"] [data-weq-select-id]:focus-visible { outline-color: var(--weq-accent-effective); }
+.weq-conversation-directory[data-weq-selection-input="pointer"]:focus-visible,
+.weq-conversation-directory[data-weq-selection-input="pointer"] [data-weq-select-id]:focus-visible { outline: none; }
 .weq-set-pill-group { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; }
 .weq-set-pill-group .weq-set-chk { min-width: 0; max-width: 100%; }
 .weq-set-pill-group .weq-set-chk-box { flex-shrink: 0; }

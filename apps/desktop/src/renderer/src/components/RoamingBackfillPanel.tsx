@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CloudDownload,
+  ListFilter,
   Pause,
   Play,
   RotateCcw,
@@ -58,7 +59,8 @@ export function RoamingBackfillPanel({
       ]),
     ).values(),
   ]);
-  const fixed = targetMode === 'fixed';
+  const [editingTargets, setEditingTargets] = useState(false);
+  const fixed = targetMode === 'fixed' && !editingTargets;
   const singleTarget = fixedTargets.length === 1 ? fixedTargets[0] : undefined;
   const invalidFixedTargets =
     fixed && (!fixedTargets.length || fixedTargets.some((target) => !addressable(target)));
@@ -117,10 +119,9 @@ export function RoamingBackfillPanel({
       };
       if (addressable(target)) map.set(targetKey(target), target);
     }
-    for (const target of [...initialTargets, ...(initialTarget ? [initialTarget] : [])])
-      if (addressable(target)) map.set(targetKey(target), target);
+    for (const target of fixedTargets) if (addressable(target)) map.set(targetKey(target), target);
     return [...map.values()];
-  }, [contacts.data, initialTarget, initialTargets, fixed, fixedTargets]);
+  }, [contacts.data, fixed, fixedTargets]);
   const initialKey = initialTarget && addressable(initialTarget) ? targetKey(initialTarget) : null;
   useEffect(() => {
     if (!fixed && initialKey)
@@ -199,7 +200,20 @@ export function RoamingBackfillPanel({
         ) : null}
         {surface !== 'tasks' ? (
           <section aria-label="补全范围" className="weq-roaming-scope">
-            <h3>新建补全任务</h3>
+            <div className="weq-roaming-scope-head">
+              <h3>新建补全任务</h3>
+              {fixed ? (
+                <button
+                  type="button"
+                  aria-label="编辑列表"
+                  disabled={plan.isLoading}
+                  onClick={() => setEditingTargets(true)}
+                >
+                  <ListFilter size={15} />
+                  编辑列表
+                </button>
+              ) : null}
+            </div>
             {fixed ? (
               invalidFixedTargets ? (
                 <p role="alert" className="weq-roaming-error">

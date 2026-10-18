@@ -1,0 +1,25 @@
+.contact-relation-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.contact-relation-mark {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 50%;
+  background: var(--background);
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .contact-relation-mark {
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}

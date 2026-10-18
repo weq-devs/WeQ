@@ -1,5 +1,5 @@
 .weq-data-maintenance { min-width: 0; }
-.weq-maintenance-list { border-top: 1px solid var(--weq-border-subtle); }
+.weq-maintenance-list { min-width: 0; border-top: 1px solid var(--weq-border-subtle); }
 .weq-maintenance-entry {
   display: flex;
   align-items: center;
@@ -13,6 +13,8 @@
   color: var(--weq-fg-primary);
   text-align: left;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
 }
 .weq-maintenance-entry > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }

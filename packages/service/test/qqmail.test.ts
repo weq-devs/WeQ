@@ -449,6 +449,72 @@ describe('邮箱生命周期和提醒', () => {
       vi.useRealTimers();
     }
   });
+  it.each([
+    { notifications: true, showUnread: false },
+    { notifications: false, showUnread: true },
+  ])('后台偏好 %j 在启动与凭据就绪时连接，未读同步不强开提醒', async (preferences) => {
+    vi.useFakeTimers();
+    let pid: number | null = null;
+    const nt = mailNative();
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(nt, '12345678', () => pid, transport);
+    const query = vi.spyOn(auth, 'notificationQuery').mockResolvedValue({
+      unread: 3,
+      next_sync_time_interval_sec: 60,
+      newmaillist: [{ mailid: 'existing-fixture' }],
+    });
+    const socket = Object.assign(new EventEmitter(), {
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const onNotice = vi.fn();
+    const service = new QQMailService(nt, '12345678', () => pid, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice,
+    });
+    try {
+      service.startBackground(preferences);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(service.status().state).toBe('error');
+      pid = 42;
+      service.credentialsAvailable();
+      service.credentialsAvailable();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+      expect(service.status()).toMatchObject({
+        state: 'ready',
+        unread: 3,
+        notifications: preferences.notifications,
+      });
+      expect(onNotice).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(query).toHaveBeenCalledTimes(2);
+      service.disconnect();
+      service.credentialsAvailable();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(service.status().state).toBe('disconnected');
+    } finally {
+      service.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+    }
+  });
+  it('两个后台偏好均关闭时，启动与凭据刷新不连接邮箱', async () => {
+    const nt = mailNative();
+    const service = new QQMailService(nt, '12345678', () => 42);
+    try {
+      service.startBackground({ notifications: false, showUnread: false });
+      service.credentialsAvailable();
+      await Promise.resolve();
+      expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
+      expect(service.status().state).toBe('disconnected');
+    } finally {
+      service.dispose();
+    }
+  });
   it('已启用提醒的账号先离线再恢复时，后台恢复连接并建立首轮基线', async () => {
     vi.useFakeTimers();
     class Socket extends EventEmitter implements MailSocket {

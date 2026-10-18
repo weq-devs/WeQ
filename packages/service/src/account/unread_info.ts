@@ -2,12 +2,9 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
-import type {
-  UnreadHighlightInput,
-  UnreadInfoResult,
-  UnreadInfoTarget,
-  UnreadInfoSnapshot,
-} from '@weq/db';
+import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
+import { NEW_CONV_FRESH_SEC, type NewMessages } from './nt_msg_hook';
+import type { UnreadHighlightInput, UnreadInfoResult, UnreadInfoTarget } from '@weq/db';
 
 export type ReadReportState =
   | 'disabled'
@@ -36,6 +33,8 @@ interface PendingReport {
 }
 
 export class UnreadInfoService {
+  private readonly local: LocalUnreadStore;
+  private readonly openedAt = Date.now() / 1000;
   private disposed = false;
   private generation = 0;
   private readonly pending = new Map<string, PendingReport>();
@@ -48,7 +47,32 @@ export class UnreadInfoService {
   constructor(
     private readonly session: AccountSession,
     private readonly report?: ReadReportOptions,
-  ) {}
+    private readonly localOptions?: { statePath: string; readOnly?: boolean },
+  ) {
+    this.local = new LocalUnreadStore(localOptions?.statePath);
+  }
+
+  /** 仅接数据库实时差分；漫游缓存事件不走这里，旧消息导入不增加未读。 */
+  observeNewMessages(change: NewMessages): void {
+    if (this.disposed || this.localOptions?.readOnly) return;
+    const observedAt = change.file.at / 1000;
+    const live = (time: bigint) =>
+      Number(time) >= Math.max(this.openedAt, observedAt) - NEW_CONV_FRESH_SEC &&
+      Number(time) <= observedAt + NEW_CONV_FRESH_SEC;
+    for (const msg of change.c2c) {
+      if (live(msg.sendTime) && msg.senderUid === msg.targetUid)
+        this.local.recordLive(1, msg.targetUid, String(msg.msgSeq));
+    }
+    for (const msg of change.group) {
+      if (
+        live(msg.sendTime) &&
+        msg.senderUid !== this.session.selfUid &&
+        String(msg.senderUin) !== this.session.context.uin
+      )
+        this.local.recordLive(2, msg.targetGroupCode, String(msg.msgSeq));
+    }
+    this.local.flush();
+  }
 
   getReadReportStatus(): ReadReportStatus {
     return this.report?.enabled() ? this.lastReport : { state: 'disabled' };
@@ -70,8 +94,23 @@ export class UnreadInfoService {
     return this.session.unreadInfo.getUnreadInfo(chatType, uid);
   }
 
-  getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
-    return this.session.unreadInfo.getUnreadInfos(targets);
+  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<ResolvedUnreadInfo[]> {
+    const snapshots = await this.session.unreadInfo.getUnreadInfos(targets);
+    if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
+    const rows = snapshots.map((row) => this.local.resolve(row));
+    this.local.flush();
+    return rows;
+  }
+
+  async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    const snapshot =
+      latestSeq === undefined ? (await this.getUnreadInfos([{ chatType, uid }]))[0] : undefined;
+    if (this.disposed || snapshot?.readError) return false;
+    const sequence = latestSeq ?? snapshot?.latestSeq;
+    if (sequence === undefined || sequence === null) return false;
+    const changed = this.local.markRead(chatType, uid, sequence);
+    this.local.flush();
+    return changed;
   }
 
   /**
@@ -79,8 +118,11 @@ export class UnreadInfoService {
    * `latestSeq` is optional — the DB layer falls back to the conversation's
    * recent-contact watermark when omitted.
    */
-  markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
-    return this.session.unreadInfo.markRead(chatType, uid, latestSeq);
+  async markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    const local = await this.markLocalRead(chatType, uid, latestSeq);
+    if (this.disposed || this.localOptions?.readOnly) return local;
+    const changed = await this.session.unreadInfo.markRead(chatType, uid, latestSeq);
+    return changed || local;
   }
 
   async markReadAndReport(
@@ -94,7 +136,8 @@ export class UnreadInfoService {
     const initialOwner =
       initialPid === null ? undefined : ssoWorkState(this.report!.nt, initialPid).owner;
     const snapshot = (await this.getUnreadInfos([{ chatType, uid }]))[0];
-    if (this.disposed) return { changed: false, report: { state: 'unavailable' } };
+    if (this.disposed || snapshot?.readError)
+      return { changed: false, report: { state: 'unavailable' } };
     const sequence = latestSeq ?? snapshot?.latestSeq ?? '0';
     const changed = await this.markRead(chatType, uid, sequence);
     const finish = (status: ReadReportStatus) => {

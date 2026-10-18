@@ -67,8 +67,9 @@ export const mailRouter = router({
     };
   }),
   setShowUnread: procedure.input(account.extend({ enabled: z.boolean() })).mutation(({ input }) => {
-    service(input.selfUin);
+    const mail = service(input.selfUin);
     getAppContext().services?.accountConfig.setMailShowUnread(input.enabled);
+    mail.setShowUnread(input.enabled);
     return input.enabled;
   }),
   status: procedure.input(account).query(({ input }) => service(input.selfUin).status()),

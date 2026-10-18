@@ -1,4 +1,12 @@
-import { CirclePlus, CloudDownload, History, ListRestart, ListX, Loader2 } from 'lucide-react';
+import {
+  CirclePlus,
+  CloudDownload,
+  History,
+  ListRestart,
+  ListX,
+  Loader2,
+  Pause,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Conversation } from '../im-template/template/types';
 import { conversationRoamingTarget } from '../lib/conversationActions';
@@ -112,7 +120,13 @@ export function ConversationMessageActions({
         }}
       >
         {running ? <Loader2 size={18} /> : <History size={18} />}
-        {status ? <small>{status}</small> : null}
+        {job?.status === 'paused' || job?.status === 'pausing' ? (
+          <span className="weq-roaming-paused-indicator" aria-hidden="true">
+            <Pause size={9} strokeWidth={3} />
+          </span>
+        ) : running ? (
+          <small>{status}</small>
+        ) : null}
       </button>
       {menu ? (
         <ConversationActionsMenu

@@ -69,7 +69,9 @@ function requestSudoPasswordImpl(
       clearTimeout(timer);
       win.removeListener('closed', onClosed);
       if (pendingToken === token) pendingResolve = null;
-      if (!win.webContents.isDestroyed()) win.webContents.send('elev:cancel-password', { token });
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('elev:cancel-password', { token });
+      }
     };
   }, signal);
 }

@@ -18,6 +18,7 @@
  */
 
 import {
+  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -43,7 +44,8 @@ import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget } from '@weq/service';
 
 // ---- types & store -------------------------------------------------------
@@ -73,6 +75,7 @@ export interface ForwardRecordWire {
 }
 
 interface ForwardWindowState {
+  parentId?: number;
   id: number;
   /** Title shown in the header (parsed from the XML summary when available). */
   title: string;
@@ -113,6 +116,8 @@ interface ForwardStore {
   seq: number;
   zTop: number;
   open(opts: {
+    parentId?: number;
+    anchor?: DOMRect;
     title: string;
     kind: 'c2c' | 'group';
     conv: string;
@@ -136,15 +141,26 @@ const WINDOW_WIDTH = 460;
 const WINDOW_HEIGHT = 560;
 
 /** Centred top-left for a window of the configured size, plus a stagger nudge. */
-function spawnPosition(offset: number): { x: number; y: number } {
+function spawnPosition(offset: number, anchor?: DOMRect): { x: number; y: number } {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
   const baseX = Math.max(0, Math.round((vw - WINDOW_WIDTH) / 2));
   const baseY = Math.max(0, Math.round((vh - WINDOW_HEIGHT) / 2));
   const nudge = STAGGER * (offset % 8);
+  const width = Math.min(WINDOW_WIDTH, vw - 16);
+  const height = Math.min(WINDOW_HEIGHT, vh - 16);
+  if (anchor)
+    return {
+      x: clamp(anchor.left, 8, Math.max(8, vw - width - 8)),
+      y: clamp(
+        anchor.bottom + height + 8 <= vh ? anchor.bottom + 8 : anchor.top - height - 8,
+        8,
+        Math.max(8, vh - height - 8),
+      ),
+    };
   return {
-    x: clamp(baseX + nudge, 0, Math.max(0, vw - 80)),
-    y: clamp(baseY + nudge, 0, Math.max(0, vh - 32)),
+    x: clamp(baseX + nudge, 8, Math.max(8, vw - width - 8)),
+    y: clamp(baseY + nudge, 8, Math.max(8, vh - height - 8)),
   };
 }
 
@@ -156,7 +172,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
     const seq = get().seq + 1;
     const zTop = get().zTop + 1;
     const offset = get().windows.length;
-    const { x, y } = spawnPosition(offset);
+    const { x, y } = spawnPosition(offset, opts.anchor);
     set({
       seq,
       zTop,
@@ -164,6 +180,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
         ...get().windows,
         {
           id: seq,
+          parentId: opts.parentId,
           title: opts.title || '聊天记录',
           kind: opts.kind,
           conv: opts.conv,
@@ -184,10 +201,17 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
     set({ windows: get().windows.filter((w) => w.id !== id) });
   },
   bringToFront(id) {
-    const zTop = get().zTop + 1;
+    const windows = get().windows;
+    const raised = new Map([[id, get().zTop + 1]]);
+    // 父窗提升时连同全部后代一起提升，子记录仍在所属父窗上方。
+    for (const parent of raised.keys())
+      for (const child of windows)
+        if (child.parentId === parent && !raised.has(child.id))
+          raised.set(child.id, get().zTop + raised.size + 1);
+    const zTop = get().zTop + raised.size;
     set({
       zTop,
-      windows: get().windows.map((w) => (w.id === id ? { ...w, z: zTop } : w)),
+      windows: windows.map((w) => (raised.has(w.id) ? { ...w, z: raised.get(w.id)! } : w)),
     });
   },
   move(id, x, y) {
@@ -211,6 +235,8 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
 
 /** Imperatively open a forward window. */
 export function openForwardWindow(opts: {
+  parentId?: number;
+  anchor?: DOMRect;
   title: string;
   kind: 'c2c' | 'group';
   conv: string;
@@ -221,6 +247,8 @@ export function openForwardWindow(opts: {
 }): void {
   useForwardStore.getState().open(opts);
 }
+
+const ForwardParentContext = createContext<number | undefined>(undefined);
 
 // ---- helpers -------------------------------------------------------------
 
@@ -302,6 +330,8 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   const move = useForwardStore((s) => s.move);
   const setRecords = useForwardStore((s) => s.setRecords);
   const setError = useForwardStore((s) => s.setError);
+  const surface = useRef<HTMLElement>(null);
+  useSurfaceEscape(surface, () => close(win.id), true, false);
 
   // Initial fetch — only when no payload was injected up-front.
   useEffect(() => {
@@ -379,22 +409,6 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     }
   }, []);
 
-  // ESC closes the topmost window.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== 'Escape') return;
-      const wins = useForwardStore.getState().windows;
-      if (wins.length === 0) return;
-      const top = wins.reduce((a, b) => (a.z > b.z ? a : b));
-      if (top.id === win.id) {
-        event.stopPropagation();
-        useForwardStore.getState().close(top.id);
-      }
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [win.id]);
-
   // Position with left/top — NOT transform. The entrance animation
   // (`weq-anim-pop`) owns `transform`, and a running/filled CSS animation wins
   // over inline styles, so a transform-based position would be clobbered back to
@@ -406,6 +420,8 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
       zIndex: win.z,
       width: WINDOW_WIDTH,
       height: WINDOW_HEIGHT,
+      maxWidth: 'calc(100vw - 16px)',
+      maxHeight: 'calc(100dvh - 16px)',
     }),
     [win.x, win.y, win.z],
   );
@@ -419,6 +435,8 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
 
   return (
     <section
+      ref={surface}
+      tabIndex={-1}
       className="weq-forward-window weq-anim-pop"
       style={style}
       role="dialog"
@@ -445,15 +463,17 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <X size={16} strokeWidth={1.9} />
         </button>
       </header>
-      <ForwardKindContext.Provider value={win.kind}>
-        <ConvContext.Provider value={win.conv}>
-          <ForwardCarrierContext.Provider value={carrier}>
-            <ForwardSubRecordsProvider records={win.records ?? []}>
-              <ForwardScroll win={win} />
-            </ForwardSubRecordsProvider>
-          </ForwardCarrierContext.Provider>
-        </ConvContext.Provider>
-      </ForwardKindContext.Provider>
+      <ForwardParentContext.Provider value={win.id}>
+        <ForwardKindContext.Provider value={win.kind}>
+          <ConvContext.Provider value={win.conv}>
+            <ForwardCarrierContext.Provider value={carrier}>
+              <ForwardSubRecordsProvider records={win.records ?? []}>
+                <ForwardScroll win={win} />
+              </ForwardSubRecordsProvider>
+            </ForwardCarrierContext.Provider>
+          </ConvContext.Provider>
+        </ForwardKindContext.Provider>
+      </ForwardParentContext.Provider>
     </section>
   );
 }
@@ -903,21 +923,32 @@ export function ForwardMultiMsgPreview({
   const conv = useContext(ConvContext);
   // 已经在转发窗口里 → 保持指向最外层那条真实消息（只有它有 40900）。
   const carrier = useContext(ForwardCarrierContext);
+  const parentId = useContext(ForwardParentContext);
 
-  const open = useCallback(() => {
-    openForwardWindow({
-      title: parsed.source || parsed.mainTitle,
-      kind,
-      conv,
-      msgId,
-      rootMsgId: carrier?.msgId || msgId,
-      records: nestedRecords && nestedRecords.length > 0 ? nestedRecords : undefined,
-      ...(resId ? { resId } : {}),
-    });
-  }, [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source, resId]);
+  const open = useCallback(
+    (anchor: HTMLElement) => {
+      openForwardWindow({
+        parentId,
+        anchor: anchor.getBoundingClientRect(),
+        title: parsed.source || parsed.mainTitle,
+        kind,
+        conv,
+        msgId,
+        rootMsgId: carrier?.msgId || msgId,
+        records: nestedRecords && nestedRecords.length > 0 ? nestedRecords : undefined,
+        ...(resId ? { resId } : {}),
+      });
+    },
+    [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source, resId, parentId],
+  );
 
   return (
-    <button type="button" className="weq-forward-preview" onClick={open} title="查看合并转发">
+    <button
+      type="button"
+      className="weq-forward-preview"
+      onClick={(event) => open(event.currentTarget)}
+      title="查看合并转发"
+    >
       <div className="weq-forward-preview-title">{titleText}</div>
       {previewLines.length > 0 ? (
         <ul className="weq-forward-preview-lines">
@@ -942,17 +973,17 @@ export function ForwardMultiMsgPreview({
 /** Mount once near the root. Renders the floating window stack. */
 export function ForwardWindowHost(): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
-  // Claim a layer above every static overlay (modals included): a forward
-  // window opened from inside a dialog (e.g. the missing-messages window) must
-  // sit on top, otherwise the modal backdrop swallows it. Claimed while at
-  // least one window is open, released when the stack empties.
-  const layer = useOverlayLayer(windows.length > 0);
+  const revision = useForwardStore((s) => s.zTop);
+  // 复用宿主也要在每次打开或提升窗口时重新领层，子浮层随宿主一起提升。
+  const layer = useOverlayLayer(windows.length > 0, revision);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
-      {windows.map((w) => (
-        <ForwardWindowFrame key={w.id} win={w} />
-      ))}
+      <OverlayLayerContext.Provider value={layer}>
+        {windows.map((w) => (
+          <ForwardWindowFrame key={w.id} win={w} />
+        ))}
+      </OverlayLayerContext.Provider>
     </div>,
     document.body,
   );

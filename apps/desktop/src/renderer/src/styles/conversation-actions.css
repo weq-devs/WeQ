@@ -37,6 +37,8 @@
 .weq-conversation-actions-menu button:disabled { color: var(--weq-fg-muted); cursor: default; }
 .chat-actions .weq-conversation-message-actions { width: auto; gap: 5px; padding-inline: 8px; }
 .weq-conversation-message-actions small { font-size: 11px; color: var(--weq-accent-effective); white-space: nowrap; }
+.weq-conversation-message-actions { position: relative; }
+.weq-roaming-paused-indicator { position: absolute; right: 1px; bottom: 1px; display: grid; place-items: center; width: 13px; height: 13px; border: 1px solid var(--weq-border-subtle); border-radius: 50%; background: var(--weq-bg-surface); color: var(--weq-fg-secondary); }
 .weq-conversation-actions-menu button.has-separator { margin-top: 4px; border-top: 1px solid var(--weq-border-subtle); border-radius: 0 0 4px 4px; }
 html[data-theme="dark"] .weq-conversation-actions-menu { border-color: var(--weq-border-strong); }
 

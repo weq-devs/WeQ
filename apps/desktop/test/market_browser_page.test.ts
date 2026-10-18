@@ -54,9 +54,10 @@ it('商城表情使用无标签整页和整页标题栏，关闭后恢复原内�
     draft.value = '原会话草稿';
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="关闭商城表情"]')!.click());
     expect(host.querySelector('.weq-market-browser')).toBeNull();
-    expect(host.querySelector('[aria-label="内容页面"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="内容页面"]')).toBeNull();
     expect(host.querySelector('[aria-label="已有报告"]')).not.toBeNull();
-    expect(draft.closest('[hidden]')).toBeNull();
+    expect(host.querySelector('[aria-label="已有报告"]')?.closest('[hidden]')).toBeNull();
+    expect(draft.closest('[hidden]')).not.toBeNull();
     expect(draft.value).toBe('原会话草稿');
   } finally {
     act(() => root.unmount());

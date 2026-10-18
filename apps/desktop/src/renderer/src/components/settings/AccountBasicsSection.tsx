@@ -175,12 +175,6 @@ export function AccountBasicsSection({
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
-  const readReport = trpc.account.getReadReportStatus.useQuery(undefined, {
-    enabled: page === 'account' && settings.data?.reportReadEnabled === true,
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchInterval: page === 'account' && settings.data?.reportReadEnabled ? 3000 : false,
-  });
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -273,7 +267,6 @@ export function AccountBasicsSection({
       return;
     }
     void settings.refetch();
-    void readReport.refetch();
   }
 
   // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
@@ -612,23 +605,6 @@ export function AccountBasicsSection({
                 />
               }
             />
-            {reportRead && (
-              <p className="weq-set-note" role="status">
-                {!autoAttach
-                  ? '完全离线模式：暂停上报。'
-                  : isStatic
-                    ? '离线数据账号：不上报。'
-                    : {
-                        disabled: '尚未上报。',
-                        unavailable: '在线会话暂不可用，本地阅读不受影响。',
-                        skipped: '缺少可核实的消息位置，本次未上报。',
-                        pending: '正在上报已读位置。',
-                        acknowledged: '已收到上报应答，其他端实际同步仍由 QQ 决定。',
-                        unconfirmed: '已收到未知应答，暂不能确认上报结果。',
-                        failed: '上报失败，本地阅读不受影响。',
-                      }[readReport.data?.state ?? 'disabled']}
-              </p>
-            )}
           </Card>
 
           {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}

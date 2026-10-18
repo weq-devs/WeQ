@@ -6,13 +6,18 @@ const fixture = vi.hoisted(() => ({
   staticAccount: false,
   getUnreadInfos: vi.fn(),
   markRead: vi.fn(),
+  markLocalRead: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     account: { context: { uin: fixture.uin } },
     accountIsStatic: fixture.staticAccount,
     services: {
-      unreadInfo: { getUnreadInfos: fixture.getUnreadInfos, markReadAndReport: fixture.markRead },
+      unreadInfo: {
+        getUnreadInfos: fixture.getUnreadInfos,
+        markReadAndReport: fixture.markRead,
+        markLocalRead: fixture.markLocalRead,
+      },
     },
   }),
 }));
@@ -26,12 +31,15 @@ beforeEach(() => {
       ...targets[0],
       msgSeq: 10,
       latestSeq: '11',
+      unreadCount: 1,
+      readSeq: '10',
       highlights: [
         { kind: 'atMe', rawKind: 1000, msgSeq: 11, senderUid: 'u_fixture', sendTime: 1, text: '' },
       ],
     },
   ]);
   fixture.markRead.mockResolvedValue({ changed: true, report: { state: 'disabled' } });
+  fixture.markLocalRead.mockResolvedValue(true);
 });
 
 describe('未读 IPC', () => {
@@ -42,6 +50,8 @@ describe('未读 IPC', () => {
         uid: '777',
         msgSeq: '10',
         latestSeq: '11',
+        unreadCount: 1,
+        readSeq: '10',
         readError: false,
         highlights: [{ msgSeq: '11', sendTime: '1' }],
       },
@@ -69,7 +79,7 @@ describe('未读 IPC', () => {
     expect(fixture.markRead).not.toHaveBeenCalled();
   });
 
-  it('正常请求传递固定水位，静态账号不写入', async () => {
+  it('正常请求传递固定水位，静态账号只推进 WeQ 本地阅读位置', async () => {
     const api = accountRouter.createCaller({});
     await api.markConversationRead({
       expectedAccountUin: '10001',
@@ -79,9 +89,10 @@ describe('未读 IPC', () => {
     expect(fixture.markRead).toHaveBeenCalledWith(2, '777', '11');
     fixture.staticAccount = true;
     expect(await api.markConversationRead({ ...targets[0]! })).toEqual({
-      changed: false,
+      changed: true,
       report: { state: 'unavailable' },
     });
     expect(fixture.markRead).toHaveBeenCalledTimes(1);
+    expect(fixture.markLocalRead).toHaveBeenCalledWith(2, '777', undefined);
   });
 });

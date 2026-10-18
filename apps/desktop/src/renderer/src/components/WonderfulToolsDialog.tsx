@@ -516,7 +516,7 @@ export function WonderfulToolsDialog({
       onClose={onClose}
     >
       <div
-        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}`}
+        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${visibleTools.length === 1 ? ' has-single-tool' : ''}`}
         role="region"
         aria-labelledby="weq-wtools-title"
       >

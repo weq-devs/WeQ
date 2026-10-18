@@ -1,6 +1,16 @@
 ﻿// @ts-nocheck
-import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
-import { conversationExportSelection } from '../../lib/conversationActions';
+import {
+  useContentMultiSelect,
+  useRequestContentExport,
+  useRequestContentAnalysis,
+} from '../../state/contentSelection';
+import {
+  conversationExportSelection,
+  conversationAnalysisTarget,
+} from '../../lib/conversationActions';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { useMessageMarquee } from '../../hooks/useMessageMarquee';
+import '../../styles/message-selection-toolbar.css';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -8,6 +18,7 @@ import { hasActiveModal } from '../../lib/overlayStack';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import {
   AudioLines,
+  BarChart3,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -16,6 +27,7 @@ import {
   ChevronsUp,
   CirclePlus,
   Download,
+  Eye,
   Search,
   Trash2,
   ListPlus,
@@ -167,6 +179,7 @@ import {
   writeMentionClipboard,
 } from '../../lib/mentionClipboard';
 import '../../styles/message-repeat.css';
+import '../../styles/new-message-preview.css';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -347,6 +360,9 @@ export function ChatPane({
   messageRenderers,
   loading,
   atLatest = true,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
@@ -407,13 +423,11 @@ export function ChatPane({
   composerActions?: Partial<ComposerActionRegistry>;
   messageRenderers?: MessageRenderer[];
   loading: boolean;
-  /**
-   * Whether `messages` is the live latest-anchored window. False while the host
-   * shows a detached history window (reply-jump context / downward history
-   * paging); in that mode tail changes are programmatic, not live arrivals, so
-   * the "new message" pill and auto-scroll-to-bottom are suppressed.
-   */
+  /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
@@ -500,6 +514,7 @@ export function ChatPane({
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
   onOpenConversationSettings?: (
     conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
+    anchor?: HTMLElement,
   ) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
@@ -722,6 +737,30 @@ export function ChatPane({
     container: `${conversation?.type ?? 'none'}:${conversation?.id ?? ''}`,
   });
   const requestExport = useRequestContentExport();
+  const requestAnalysis = useRequestContentAnalysis();
+  const [selectionMenu, setSelectionMenu] = useState<{
+    kind: 'copy' | 'forward';
+    x: number;
+    y: number;
+  } | null>(null);
+  const selectionMenuTrigger = useRef<HTMLElement | null>(null);
+  const closeSelectionMenu = useCallback(() => {
+    setSelectionMenu(null);
+    selectionMenuTrigger.current?.focus({ preventScroll: true });
+  }, []);
+  const openSelectionMenu = (kind: 'copy' | 'forward', anchor: HTMLElement) => {
+    selectionMenuTrigger.current = anchor;
+    const rect = anchor.getBoundingClientRect();
+    setSelectionMenu({ kind, x: rect.left, y: rect.top });
+  };
+  const marquee = useMessageMarquee({
+    conversationKey: conversation?.id,
+    enabled: tabActive && Boolean(conversation),
+    selectionMode,
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    onStart: () => setSelectionMode(true),
+  });
   const exportMessageIds = (ids: string[]) => {
     const scope = conversationExportSelection(conversation);
     if (requestExport && scope && ids.length)
@@ -744,6 +783,11 @@ export function ChatPane({
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
+  const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
+    conversationId: undefined,
+    seq: undefined,
+  });
+  const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
@@ -761,13 +805,14 @@ export function ChatPane({
   // 切会话仅重置范围操作锚点；选择归属由账号级工作区保留。
   useEffect(() => {
     selectionAnchor.current = null;
+    setSelectionMenu(null);
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
-      if (hasActiveModal()) return;
+      if (hasActiveModal() || selectionMenu || event.defaultPrevented) return;
       if (event.key === 'Escape') {
         setSelectionMode(false);
         selectionAnchor.current = null;
@@ -775,7 +820,7 @@ export function ChatPane({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, selectionMode, setSelectionMode]);
+  }, [tabActive, selectionMode, setSelectionMode, selectionMenu]);
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -853,7 +898,7 @@ export function ChatPane({
     selected: selectedIds,
     onChange: setSelectedIds,
     enabled: selectionMode,
-    disabled: !tabActive,
+    disabled: !tabActive || Boolean(selectionMenu),
     onStart: () => setSelectionMode(true),
     onExit: exitSelection,
     anchorRef: selectionAnchor,
@@ -1017,6 +1062,24 @@ export function ChatPane({
     setNewMessagePill((current) => current + appended);
     return;
   }, [tabActive, visibleMessages, conversation?.id, loading, atLatest]);
+
+  // 分离的历史窗口不会追加实时消息，用会话水位识别新到记录，而非历史分页。
+  useEffect(() => {
+    const previous = latestSeqRef.current;
+    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq };
+    if (
+      atLatest ||
+      previous.conversationId !== conversation?.id ||
+      !previous.seq ||
+      !latestMessageSeq ||
+      !/^\d+$/.test(previous.seq) ||
+      !/^\d+$/.test(latestMessageSeq)
+    )
+      return;
+    const delta = BigInt(latestMessageSeq) - BigInt(previous.seq);
+    if (delta < 0n) latestSeqRef.current = previous;
+    if (delta > 0n) setNewMessagePill((count) => count + Number(delta > 100n ? 100n : delta));
+  }, [conversation?.id, latestMessageSeq, atLatest]);
 
   // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
   // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
@@ -3272,7 +3335,30 @@ export function ChatPane({
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
-  function jumpToBottomAndRead() {
+  async function jumpToBottomAndRead() {
+    if (jumpingToLatest) return;
+    if (!atLatest) {
+      if (!onJumpToLatest) return;
+      setJumpingToLatest(true);
+      try {
+        if (!(await onJumpToLatest())) return;
+        // 等最新窗口提交后再定位；失败时保留提示，供用户重试。
+        window.requestAnimationFrame(() => {
+          const current = readContextRef.current;
+          if (
+            current.conversation?.id !== conversation?.id ||
+            !current.atLatest ||
+            !current.tabActive
+          )
+            return;
+          scrollMessagesToBottomRef.current();
+          requestReadAtBottom();
+        });
+      } finally {
+        setJumpingToLatest(false);
+      }
+      return;
+    }
     scrollMessagesToBottom();
     // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
     requestReadAtBottom();
@@ -3318,7 +3404,7 @@ export function ChatPane({
     const bottom = isScrolledToBottom();
     atBottomRef.current = bottom;
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
-    if (bottom && newMessagePill > 0) {
+    if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
 
@@ -3776,7 +3862,7 @@ export function ChatPane({
               className={cn('icon-button', 'group-header-info-action')}
               type="button"
               title="会话设置"
-              onClick={() => onOpenConversationSettings?.(conversation)}
+              onClick={(event) => onOpenConversationSettings?.(conversation, event.currentTarget)}
             >
               <Settings2 size={18} />
             </button>
@@ -3784,7 +3870,15 @@ export function ChatPane({
         </div>
       </header>
 
-      <div className={cn('message-scroll')} ref={messageScrollRef} onScroll={handleMessageScroll}>
+      <div
+        className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
+        ref={messageScrollRef}
+        onScroll={handleMessageScroll}
+        {...marquee.handlers}
+      >
+        {marquee.box ? (
+          <div className="weq-message-marquee" aria-hidden style={marquee.box} />
+        ) : null}
         {loading ? (
           <ChatMessagesSkeleton />
         ) : visibleMessages.length === 0 ? (
@@ -3935,10 +4029,30 @@ export function ChatPane({
       </div>
 
       {newMessagePill > 0 ? (
-        <button className={cn('new-message-pill')} type="button" onClick={jumpToBottomAndRead}>
-          <ChevronDown size={14} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
-        </button>
+        <div className="new-message-pill" role="group" aria-label="新消息">
+          {onPreviewLatest ? (
+            <button
+              className="new-message-preview"
+              type="button"
+              title="预览新消息"
+              aria-label="预览新消息"
+              onClick={() => onPreviewLatest(conversation)}
+            >
+              <Eye size={15} />
+            </button>
+          ) : null}
+          <button
+            className="new-message-bottom"
+            type="button"
+            title="定位到底部"
+            aria-label="定位到底部"
+            disabled={jumpingToLatest}
+            onClick={() => void jumpToBottomAndRead()}
+          >
+            {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
+            <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+          </button>
+        </div>
       ) : null}
 
       {/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
@@ -4063,6 +4177,25 @@ export function ChatPane({
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
+              {requestAnalysis && conversationAnalysisTarget(conversation) ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="分析所选消息"
+                  title="分析所选消息"
+                  disabled={
+                    !selectedMessages.length ||
+                    selectedMessages.some(
+                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    )
+                  }
+                  onClick={() =>
+                    requestAnalysis(conversationAnalysisTarget(conversation), [...selectedIds])
+                  }
+                >
+                  <BarChart3 size={17} />
+                </button>
+              ) : null}
               {requestExport && conversationExportSelection(conversation) ? (
                 <button
                   type="button"
@@ -4095,30 +4228,24 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
-                aria-label="合并转发"
-                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '合并转发'}
+                aria-label="转发"
+                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '转发'}
+                aria-haspopup="menu"
+                aria-expanded={selectionMenu?.kind === 'forward'}
                 disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
-                onClick={mergeForwardSelected}
+                onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
               >
                 <Share2 size={17} />
               </button>
               <button
                 type="button"
                 className="selection-action"
-                aria-label="逐条转发"
-                title={sendGateReason || '逐条转发'}
-                disabled={Boolean(sendGateReason) || !selectedMessages.length || !onForwardMessages}
-                onClick={() => onForwardMessages?.([...selectedMessages], conversation)}
-              >
-                <Forward size={17} />
-              </button>
-              <button
-                type="button"
-                className="selection-action"
-                aria-label="复制富文本"
-                title="复制富文本 (Ctrl/Command+Shift+C)"
+                aria-label="复制"
+                title="复制"
+                aria-haspopup="menu"
+                aria-expanded={selectionMenu?.kind === 'copy'}
                 disabled={!selectedMessages.length}
-                onClick={() => void copySelectedMessagesRich()}
+                onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
               >
                 <Copy size={17} />
               </button>
@@ -4146,26 +4273,6 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
-                onClick={() => void copySelectedMessagesText()}
-                title="复制为纯文本 (Ctrl/Command+C)"
-                aria-label="复制纯文本"
-              >
-                <FileText size={17} />
-              </button>
-              <button
-                type="button"
-                className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
-                onClick={copySelectedMessagesJson}
-                title="复制 JSON"
-                aria-label="复制 JSON"
-              >
-                <ClipboardCopy size={17} />
-              </button>
-              <button
-                type="button"
-                className={cn('selection-action')}
                 onClick={exitSelection}
                 title="退出多选"
                 aria-label="退出多选"
@@ -4174,6 +4281,43 @@ export function ChatPane({
               </button>
             </div>
           </div>
+        ) : null}
+        {selectionMode && selectionMenu ? (
+          <ConversationActionsMenu
+            label={selectionMenu.kind === 'copy' ? '复制格式' : '转发方式'}
+            x={selectionMenu.x}
+            y={selectionMenu.y}
+            onClose={closeSelectionMenu}
+            actions={
+              selectionMenu.kind === 'copy'
+                ? [
+                    {
+                      label: '纯文本',
+                      icon: <FileText size={16} />,
+                      action: () => void copySelectedMessagesText(),
+                    },
+                    {
+                      label: '富文本',
+                      icon: <Copy size={16} />,
+                      action: () => void copySelectedMessagesRich(),
+                    },
+                    {
+                      label: 'JSON',
+                      icon: <ClipboardCopy size={16} />,
+                      action: copySelectedMessagesJson,
+                    },
+                  ]
+                : [
+                    { label: '合并转发', icon: <Share2 size={16} />, action: mergeForwardSelected },
+                    {
+                      label: '逐条转发',
+                      icon: <Forward size={16} />,
+                      disabled: !onForwardMessages,
+                      action: () => onForwardMessages?.([...selectedMessages], conversation),
+                    },
+                  ]
+            }
+          />
         ) : null}
         <ComposerResizeHandle
           height={composerHeight}

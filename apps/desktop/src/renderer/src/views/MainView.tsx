@@ -18,6 +18,7 @@ import React, {
 } from 'react';
 import { trpc } from '../trpc/client';
 import { findReplyPreview } from '../lib/replyPreview';
+import { intimateRelationOf } from '../lib/profileRelations';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
@@ -38,6 +39,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { createUnreadRefresh, retryConversationRead } from '../lib/unreadRefresh';
+import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
@@ -2307,6 +2309,10 @@ export function MainView(): ReactElement {
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
   // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
   // 「完全离线模式」（自动读取 QQ 内存 总闸开启）。状态未读到前按不可发送处理。
   const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
@@ -2644,6 +2650,7 @@ export function MainView(): ReactElement {
     kind: 'c2c' | 'group' | 'dataline';
     conv: string;
     title: string;
+    anchor?: HTMLElement;
   } | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
@@ -2879,7 +2886,7 @@ export function MainView(): ReactElement {
   }
 
   const handleOpenConversationSettings = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>) => {
+    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>, anchor?: HTMLElement) => {
       const { kind, conv } = convFetchKey(conversation);
       const title =
         conversation.type === 'group'
@@ -2895,6 +2902,7 @@ export function MainView(): ReactElement {
         kind: kind === 'group' ? 'group' : dataline ? 'dataline' : 'c2c',
         conv,
         title,
+        anchor,
       });
     },
     [convFetchKey],
@@ -3801,6 +3809,11 @@ export function MainView(): ReactElement {
               }
             : undefined,
       },
+      {
+        id: 'special:intimate',
+        name: '亲密关系',
+        items: buddyContacts.filter((contact) => intimateRelationOf(contact) !== null),
+      },
     ];
   }, [
     buddyContacts,
@@ -4447,7 +4460,6 @@ export function MainView(): ReactElement {
       const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
       const succeeded = new Set<string>();
-      const latestByUid = new Map(list.map((contact) => [contact.targetUid, contact.msgSeq]));
       let failed = false;
       const targets = list.flatMap((contact) => {
         const kind = chatTypeKind(contact.chatType);
@@ -4473,9 +4485,7 @@ export function MainView(): ReactElement {
               failed = true;
               continue;
             }
-            const latest = BigInt(info.latestSeq ?? latestByUid.get(info.uid) ?? '0');
-            const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-            counts[info.uid] = latest > read ? Number(latest - read) : 0;
+            counts[info.uid] = info.unreadCount ?? 0;
             succeeded.add(info.uid);
             if (info?.highlights?.length) {
               highlights[info.uid] = info.highlights as ConversationHighlight[];
@@ -5252,9 +5262,11 @@ export function MainView(): ReactElement {
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockConvRef = useRef<string | null>(null);
   const unreadSnapshotPendingRef = useRef<string | null>(null);
-  const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
+  const readRequestsRef = useRef(
+    new Map<string, { again: boolean; promise: Promise<void>; latestSeq: string | undefined }>(),
+  );
   const markVisibleConversationRead = useCallback(
-    async (conv: Conversation) => {
+    async (conv: Conversation, capturedLatestSeq?: string) => {
       const isCurrent = () =>
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
@@ -5262,25 +5274,27 @@ export function MainView(): ReactElement {
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
       const key = `${openedUin}:${conv.type}:${conv.id}`;
+      const latestSeq =
+        capturedLatestSeq ??
+        unreadContactsRef.current.find((contact) => contact.targetUid === conv.id)?.msgSeq;
       const existing = readRequestsRef.current.get(key);
       if (existing) {
         existing.again = true;
+        if (latestSeq !== undefined && BigInt(latestSeq) > BigInt(existing.latestSeq ?? '0'))
+          existing.latestSeq = latestSeq;
         return existing.promise;
       }
-      const entry = { again: false, promise: Promise.resolve() };
+      const entry = { again: false, promise: Promise.resolve(), latestSeq };
       entry.promise = (async () => {
         do {
           entry.again = false;
           if (!isCurrent()) break;
           try {
             // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
-            const latestSeq = unreadContactsRef.current.find(
-              (contact) => contact.targetUid === conv.id,
-            )?.msgSeq;
             const request = {
               chatType: conv.type === 'group' ? 2 : 1,
               uid: conv.id,
-              latestSeq,
+              latestSeq: entry.latestSeq,
               expectedAccountUin: openedUin ?? undefined,
             };
             const changed = await retryConversationRead(
@@ -5343,23 +5357,23 @@ export function MainView(): ReactElement {
 
     unreadSnapshotPendingRef.current = convId;
     (async () => {
-      let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
+      let info: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number] | undefined;
       try {
-        info = await client.account.getUnreadInfo.query({ chatType, uid: convId });
+        if (!openedUin) return;
+        [info] = await client.account.getUnreadInfos.query({
+          expectedAccountUin: openedUin,
+          targets: [{ chatType, uid: convId }],
+        });
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
         return;
       } finally {
         if (unreadSnapshotPendingRef.current === convId) unreadSnapshotPendingRef.current = null;
       }
-      if (!stillCurrent()) return;
+      if (!stillCurrent() || !info || info.readError) return;
 
-      const readSeq = info?.msgSeq ?? null;
-      // 未读总数用打开时的水位算：recent_contact 40003 − 41002。
-      const contact = recentContactsData.find((c) => c.targetUid === convId);
-      const latest = contact ? BigInt(contact.msgSeq || '0') : 0n;
-      const read = readSeq ? BigInt(readSeq) : 0n;
-      const unread = latest > read ? Number(latest - read) : 0;
+      const readSeq = info.readSeq ?? null;
+      const unread = info.unreadCount ?? 0;
 
       const dock = buildUnreadDock({
         highlights: info?.highlights ?? null,
@@ -5370,7 +5384,7 @@ export function MainView(): ReactElement {
 
       // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
       // 这样下次进来不会再重复弹跳转、红点也即时消失。
-      await markVisibleConversationRead(conv);
+      await markVisibleConversationRead(conv, info.latestSeq ?? undefined);
       if (!stillCurrent()) return;
       setUnreadDock(dock);
     })();
@@ -5382,6 +5396,7 @@ export function MainView(): ReactElement {
     loaded,
     recentContactsData,
     markVisibleConversationRead,
+    openedUin,
   ]);
 
   useEffect(() => {
@@ -6301,6 +6316,13 @@ export function MainView(): ReactElement {
   const [forwardBatch, setForwardBatch] = useState<{ account: string; messages: Message[] } | null>(
     null,
   );
+  const openForwardTarget = (target: MfTarget) => {
+    if (useViewState.getState().openedUin !== user.identityValue) {
+      pushToast({ tone: 'warning', message: '请先切回转发时的账号再打开对话' });
+      return;
+    }
+    shell.openConversation(target.id);
+  };
   repeatContext.current = selectedConversation?.id ?? null;
   useEffect(() => {
     repeatContext.current = selectedConversation?.id ?? null;
@@ -7349,6 +7371,7 @@ export function MainView(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
+    source: 'member' | 'latest';
     conversation: Conversation;
     rows: MessageWire[];
     loading: boolean;
@@ -7361,22 +7384,34 @@ export function MainView(): ReactElement {
     previewRequest.current++;
     setPrivatePreview(null);
   }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
+  useEffect(() => {
+    if (privatePreview?.source === 'latest' && privatePreview.conversation.id !== selectedUid) {
+      previewRequest.current++;
+      setPrivatePreview(null);
+    }
+  }, [privatePreview?.source, privatePreview?.conversation.id, selectedUid]);
   async function previewPrivateChat(peer: User) {
+    await previewConversation(
+      {
+        id: peer.id,
+        type: 'direct',
+        otherUser: peer,
+        group: null,
+        members: [],
+        updatedAt: new Date(0).toISOString(),
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: null,
+      },
+      'member',
+    );
+  }
+  async function previewConversation(conversation: Conversation, source: 'member' | 'latest') {
     const account = user.identityValue;
     const request = ++previewRequest.current;
-    let conversation: Conversation = {
-      id: peer.id,
-      type: 'direct',
-      otherUser: peer,
-      group: null,
-      members: [],
-      updatedAt: new Date(0).toISOString(),
-      preference: fallbackPreference,
-      unreadCount: 0,
-      lastMessage: null,
-    };
     setPrivatePreview({
       account,
+      source,
       conversation,
       rows: [],
       loading: true,
@@ -7385,19 +7420,34 @@ export function MainView(): ReactElement {
       hasMore: false,
     });
     try {
-      if (!peer.id && /^\d+$/.test(peer.identityValue)) {
-        const profile = await client.account.getProfileByUin.query({ uin: peer.identityValue });
-        if (profile?.uid) peer = { ...peer, id: profile.uid };
-        conversation = { ...conversation, id: peer.id, otherUser: peer };
+      if (
+        conversation.type === 'direct' &&
+        !conversation.id &&
+        /^\d+$/.test(conversation.otherUser.identityValue)
+      ) {
+        const profile = await client.account.getProfileByUin.query({
+          uin: conversation.otherUser.identityValue,
+        });
+        if (profile?.uid)
+          conversation = {
+            ...conversation,
+            id: profile.uid,
+            otherUser: { ...conversation.otherUser, id: profile.uid },
+          };
       }
-      if (!peer.id) throw new Error('缺少私聊身份');
+      if (!conversation.id) throw new Error('缺少会话身份');
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
-      const rows = await client.account.listLatest.query({ kind: 'c2c', conv: peer.id, limit: 50 });
+      const rows = await client.account.listLatest.query({
+        kind: conversation.type === 'group' ? 'group' : 'c2c',
+        conv: conversation.id,
+        limit: 50,
+      });
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
       setPrivatePreview({
         account,
+        source,
         conversation,
         rows: rows.map(toMessageWire).reverse(),
         loading: false,
@@ -7428,7 +7478,7 @@ export function MainView(): ReactElement {
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
       const rows = await client.account.listBefore.query({
-        kind: 'c2c',
+        kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
         conv: snapshot.conversation.id,
         beforeSeq: first.msgSeq,
         limit: 50,
@@ -7454,15 +7504,65 @@ export function MainView(): ReactElement {
     }
   }
 
-  const privatePreviewContent =
-    privatePreview && privatePreview.account === user.identityValue ? (
+  useEffect(() => {
+    if (privatePreview?.conversation.type !== 'group') return;
+    const group = privatePreview.conversation;
+    const account = privatePreview.account;
+    const known = new Set(
+      [...group.members, ...(selectedUid === group.id ? currentGroupMembers : [])].map(
+        (member) => member.id,
+      ),
+    );
+    resolvePreviewMembers(
+      group.id,
+      privatePreview.rows.flatMap((row) => [row.senderUid, ...extractGrayTipUids(row.elements)]),
+      known,
+      () => useViewState.getState().openedUin === account,
+    );
+  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers]);
+
+  const resolvedPreviewConversation = useMemo(() => {
+    const conversation = privatePreview?.conversation;
+    if (conversation?.type !== 'group') return conversation;
+    const members = new Map(
+      [
+        ...conversation.members,
+        ...(selectedUid === conversation.id ? currentGroupMembers : []),
+        ...Object.values(previewMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
+      ].map((member) => [member.id, member]),
+    );
+    return { ...conversation, members: [...members.values()] };
+  }, [
+    privatePreview?.conversation,
+    selectedUid,
+    currentGroupMembers,
+    previewMembers,
+    mapGroupMemberWire,
+  ]);
+
+  const previewMemberMap = useMemo(
+    () => new Map(resolvedPreviewConversation?.members.map((member) => [member.id, member]) ?? []),
+    [resolvedPreviewConversation?.members],
+  );
+  const conversationPreviewContent =
+    privatePreview &&
+    resolvedPreviewConversation &&
+    privatePreview.account === user.identityValue ? (
       <GapMessagesModal
         preview
-        embedded
-        conversation={privatePreview.conversation}
+        embedded={privatePreview.source === 'member'}
+        title={privatePreview.source === 'latest' ? '预览新消息' : undefined}
+        conversation={resolvedPreviewConversation}
         user={user}
         messages={privatePreview.rows.map((row) =>
-          messageToTemplate(row, privatePreview.conversation, user, undefined, botUids),
+          messageToTemplate(
+            row,
+            resolvedPreviewConversation,
+            user,
+            previewMemberMap,
+            botUids,
+            privatePreview.rows,
+          ),
         )}
         renderers={messageRenderers}
         loading={privatePreview.loading}
@@ -7472,13 +7572,7 @@ export function MainView(): ReactElement {
         moreFailed={Boolean(privatePreview.error)}
         totalCount={privatePreview.rows.length}
         onLoadMore={() => void loadPrivatePreview()}
-        onRetry={() =>
-          void previewPrivateChat(
-            privatePreview.conversation.type === 'direct'
-              ? privatePreview.conversation.otherUser
-              : user,
-          )
-        }
+        onRetry={() => void previewConversation(privatePreview.conversation, privatePreview.source)}
         onClose={() => {
           previewRequest.current++;
           setPrivatePreview(null);
@@ -7493,6 +7587,15 @@ export function MainView(): ReactElement {
           <ChatShell
             user={user}
             view={sidebarView}
+            activeRailItem={
+              settingsOpen || maintenanceTool
+                ? 'settings'
+                : dressUpOpen
+                  ? 'dressup'
+                  : marketBrowserOpen
+                    ? 'market'
+                    : undefined
+            }
             query={shell.query}
             contactTab={shell.contactTab}
             activeNotice={shell.contactNotice}
@@ -7503,8 +7606,27 @@ export function MainView(): ReactElement {
               (shell.view === 'messages' && Boolean(arkFeedState)) ||
               (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget))
             }
-            messageBadgeCount={0}
+            messageBadgeCount={
+              displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
+            }
             contactBadgeCount={0}
+            onMessageBadgeClick={() => {
+              const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
+              if (!target) return;
+              setSurfaceNavigation((value) => value + 1);
+              setSettingsOpen(false);
+              setMaintenanceTool(null);
+              setDressUpOpen(false);
+              setMarketBrowserOpen(false);
+              setArkFeedState(null);
+              shell.setQuery('');
+              shell.switchView('messages');
+              if (isMobileShell()) shell.backConversation();
+              setConversationLocate((previous) => ({
+                id: target.id,
+                revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+              }));
+            }}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={
@@ -7782,6 +7904,50 @@ export function MainView(): ReactElement {
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
                           atLatest={anchoredToLatest}
+                          latestMessageSeq={
+                            recentContactsData.find((contact) => contact.targetUid === selectedUid)
+                              ?.msgSeq
+                          }
+                          onPreviewLatest={(conversation) =>
+                            void previewConversation(conversation, 'latest')
+                          }
+                          onJumpToLatest={async () => {
+                            const selection = selectionRef.current;
+                            const previousWindow = windowRef.current;
+                            const account = user.identityValue;
+                            if (!selection) return false;
+                            try {
+                              const page = await client.account.listLatest.query({
+                                kind: selection.kind === 'group' ? 'group' : 'c2c',
+                                conv: selection.id,
+                                limit: PAGE_SIZE,
+                              });
+                              if (
+                                selectionRef.current !== selection ||
+                                windowRef.current !== previousWindow ||
+                                useViewState.getState().openedUin !== account
+                              )
+                                return false;
+                              const rows = page.map(toMessageWire).reverse();
+                              pendingScrollRestoreRef.current = null;
+                              windowRef.current = {
+                                minSeq: rows[0]?.msgSeq ?? null,
+                                anchored: true,
+                              };
+                              setLoaded(rows);
+                              setAnchoredToLatest(true);
+                              setHasNewer(false);
+                              setHasOlder(page.length >= PAGE_SIZE);
+                              return true;
+                            } catch (error) {
+                              pushToast({
+                                tone: 'error',
+                                message: '无法定位到最新消息',
+                                detail: error instanceof Error ? error.message : String(error),
+                              });
+                              return false;
+                            }
+                          }}
                           onReadCurrentConversation={(conv) => {
                             if (unreadSnapshotPendingRef.current !== conv.id)
                               void markVisibleConversationRead(conv);
@@ -8088,6 +8254,7 @@ export function MainView(): ReactElement {
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}
+              anchor={convSettings.anchor}
               members={currentGroupMembers.map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,
@@ -8213,7 +8380,9 @@ export function MainView(): ReactElement {
                 );
               }}
               onPreviewChat={() => void previewPrivateChat(memberCard.member)}
-              previewContent={privatePreviewContent}
+              previewContent={
+                privatePreview?.source === 'member' ? conversationPreviewContent : null
+              }
             />
           ) : null}
           {addMessageConv ? (
@@ -8247,6 +8416,7 @@ export function MainView(): ReactElement {
             sendAvailable={mergeForwardSendAvailable}
             onClose={compositionWindow.close}
             onForward={forwardMergeDraft}
+            onOpenTarget={openForwardTarget}
             onSend={(message, target, signal, binding) =>
               forwardMessage(
                 message,
@@ -8293,6 +8463,7 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
+          {privatePreview?.source === 'latest' ? conversationPreviewContent : null}
           {unplacedRoaming ? (
             <GapMessagesModal
               conversation={unplacedRoaming.conversation}
@@ -8317,6 +8488,7 @@ export function MainView(): ReactElement {
               messages={forwardBatch.messages}
               targets={mergeForwardTargets}
               onSend={forwardMessage}
+              onOpenTarget={openForwardTarget}
               onClose={() => setForwardBatch(null)}
             />
           ) : null}
@@ -8489,6 +8661,7 @@ export function MainView(): ReactElement {
                   navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
                   onNavigate={() => {
                     setSettingsOpen(false);
+                    setConvSettings(null);
                   }}
                 >
                   {chatContent}

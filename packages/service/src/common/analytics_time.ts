@@ -1,6 +1,7 @@
 export interface AnalyticsRange {
   startTime?: number;
   endTime?: number;
+  messageIds?: string[];
 }
 
 export function validateAnalyticsRange(range: AnalyticsRange = {}): AnalyticsRange {
@@ -14,12 +15,18 @@ export function validateAnalyticsRange(range: AnalyticsRange = {}): AnalyticsRan
     range.startTime > range.endTime
   )
     throw new Error('分析开始时间不能晚于结束时间。');
-  return { startTime: range.startTime, endTime: range.endTime };
+  if (range.messageIds?.some((id) => !/^-?\d+$/.test(id)))
+    throw new Error('分析消息 ID 必须是本地消息编号。');
+  return {
+    startTime: range.startTime,
+    endTime: range.endTime,
+    ...(range.messageIds !== undefined ? { messageIds: [...new Set(range.messageIds)] } : {}),
+  };
 }
 
 export function analyticsBrowseFilter(range: AnalyticsRange) {
   const valid = validateAnalyticsRange(range);
-  return { start: valid.startTime, end: valid.endTime };
+  return { start: valid.startTime, end: valid.endTime, messageIds: valid.messageIds };
 }
 
 export function analyticsDayParts(seconds: number) {
