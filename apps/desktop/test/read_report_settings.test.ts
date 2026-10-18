@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
     externalChatpic: { dir: '', enabled: false },
   },
   state: 'disabled',
+  readReportQuery: vi.fn(),
   mutate: vi.fn(),
   refetch: vi.fn(),
   error: vi.fn(),
@@ -20,17 +21,20 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     new Proxy(() => proxy(path), {
       get: (_target, key) =>
         key === 'useQuery'
-          ? () => ({
-              data: path.includes('getSettings')
-                ? fixture.settings
-                : path.includes('getReadReportStatus')
-                  ? { state: fixture.state }
-                  : path.includes('getAccountConfig')
-                    ? { static: false }
-                    : undefined,
-              isLoading: false,
-              refetch: fixture.refetch,
-            })
+          ? () => {
+              if (path.includes('getReadReportStatus')) fixture.readReportQuery();
+              return {
+                data: path.includes('getSettings')
+                  ? fixture.settings
+                  : path.includes('getReadReportStatus')
+                    ? { state: fixture.state }
+                    : path.includes('getAccountConfig')
+                      ? { static: false }
+                      : undefined,
+                isLoading: false,
+                refetch: fixture.refetch,
+              };
+            }
           : key === 'useMutation'
             ? () => ({ mutateAsync: fixture.mutate, isPending: false })
             : proxy([...path, String(key)]),
@@ -78,7 +82,7 @@ function mount() {
 }
 
 describe('设置中的已读上报开关', () => {
-  it('默认关闭，实际点击保存，重新打开恢复偏好，未知应答不显示成同步成功', async () => {
+  it('默认关闭，实际点击保存，重新打开恢复偏好', async () => {
     let f = mount();
     try {
       expect(f.toggle().getAttribute('aria-checked')).toBe('false');
@@ -87,9 +91,6 @@ describe('设置中的已读上报开关', () => {
       });
       expect(fixture.mutate).toHaveBeenCalledWith({ enabled: true });
       expect(f.toggle().getAttribute('aria-checked')).toBe('true');
-      fixture.state = 'unconfirmed';
-      f.render();
-      expect(f.host.textContent).toContain('暂不能确认上报结果');
       f.close();
       f = mount();
       expect(f.toggle().getAttribute('aria-checked')).toBe('true');
@@ -102,7 +103,7 @@ describe('设置中的已读上报开关', () => {
     }
   });
 
-  it('保存失败回滚开关；完全离线时保留偏好但显示暂停', async () => {
+  it('保存失败回滚开关；完全离线时保留偏好', async () => {
     const f = mount();
     try {
       fixture.mutate.mockRejectedValueOnce(new Error('保存失败'));
@@ -113,8 +114,30 @@ describe('设置中的已读上报开关', () => {
       expect(fixture.error).toHaveBeenCalled();
       fixture.settings = { ...fixture.settings, reportReadEnabled: true, autoAttachQq: false };
       f.render();
-      expect(f.host.textContent).toContain('完全离线模式：暂停上报');
       expect(f.toggle().getAttribute('aria-checked')).toBe('true');
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each([
+    'disabled',
+    'unavailable',
+    'skipped',
+    'pending',
+    'acknowledged',
+    'unconfirmed',
+    'failed',
+  ])('开启后不显示 %s 状态提示，也不查询上报状态', (state) => {
+    fixture.settings = { ...fixture.settings, reportReadEnabled: true };
+    fixture.state = state;
+    const f = mount();
+    try {
+      const card = f.toggle().closest('.weq-set-card');
+      expect(card).not.toBeNull();
+      expect(card?.querySelector('[role="status"]')).toBeNull();
+      expect(card?.textContent).toContain('向 QQ 上报在 WeQ 阅读的位置');
+      expect(fixture.readReportQuery).not.toHaveBeenCalled();
     } finally {
       f.close();
     }
