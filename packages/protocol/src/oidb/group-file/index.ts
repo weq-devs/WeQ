@@ -9,3 +9,27 @@ export {
 export type { GroupFileDownload } from './get-file-url';
 export { GetGroupPttUrl, GetPrivatePttUrl } from './get-ptt-url';
 export { GetGroupVideoUrl, GetPrivateVideoUrl } from './get-video-url';
+
+export {
+  DeleteGroupFile,
+  RenameGroupFile,
+  MoveGroupFile,
+  CreateGroupFolder,
+  DeleteGroupFolder,
+  RenameGroupFolder,
+  GetGroupFileCount,
+  GetGroupFileSpace,
+} from './file-ops';
+export type {
+  DeleteGroupFileParams,
+  RenameGroupFileParams,
+  MoveGroupFileParams,
+  CreateGroupFolderParams,
+  CreatedGroupFolder,
+  DeleteGroupFolderParams,
+  RenameGroupFolderParams,
+  GroupFileCount,
+  GetGroupFileCountParams,
+  GroupFileSpace,
+  GetGroupFileSpaceParams,
+} from './file-ops';

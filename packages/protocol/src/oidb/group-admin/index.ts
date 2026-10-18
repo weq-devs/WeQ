@@ -21,3 +21,27 @@ export { MuteGroupMember } from './mute-group-member';
 export type { MuteGroupMemberParams } from './mute-group-member';
 export { KickGroupMember } from './kick-group-member';
 export type { KickGroupMemberParams } from './kick-group-member';
+
+export {
+  LeaveGroup,
+  SetGroupAddOption,
+  isQuestionAddType,
+  wireAddType,
+  GetGroupAtAllRemain,
+  GetGroupCategoryTags,
+  AddGroupCategoryTag,
+  DeleteGroupCategoryTag,
+  FetchGroupMemberListPage,
+} from './group-settings';
+export type {
+  LeaveGroupParams,
+  SetGroupAddOptionParams,
+  AtAllRemain,
+  GetGroupAtAllRemainParams,
+  GroupCategoryTag,
+  GroupCategoryParams,
+  ChangeGroupCategoryTagParams,
+  GroupMemberListItem,
+  GroupMemberListPage,
+  FetchGroupMemberListParams,
+} from './group-settings';

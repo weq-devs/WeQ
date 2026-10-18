@@ -52,6 +52,8 @@ export type { MediaIndexNode } from './oidb/media-schemas';
 export * from './oidb/group-admin';
 export * from './oidb/group-file';
 export * from './oidb/group-album';
+export * from './oidb/group-todo';
+export * from './oidb/custom-face';
 export * from './oidb/interaction';
 export * from './oidb/request';
 export * from './oidb/profile';

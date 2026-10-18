@@ -18,7 +18,7 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { WEB_READ_RETRY, webRequestText } from './http';
+import { WEB_READ_RETRY, webRequestJson, webRequestText } from './http';
 
 /**
  * 判定「票据不对」的错误码 —— 与群相册同一套判据(见 group_album 的 AUTH_CODES)。
@@ -712,4 +712,132 @@ export async function getQzoneFeeds(
   }
 
   return mapFeeds(data);
+}
+
+// ───────────────────────── 写操作：点赞 / 取消 / 评论 ─────────────────────────
+
+/**
+ * 点赞 / 取消一条说说（mood / appid 311）。
+ *
+ * 搬运自 SnowLuma `protocol/src/web/qzone.ts` 的 `setQzoneLike`。
+ * 点赞走 `internal_dolike_app`；取消走 `internal_unlike_app`（SnowLuma 标注
+ * 该 CGI 未实测，若真机失败再按抓包调整）。
+ */
+export async function setQzoneLike(
+  cred: WebCredential,
+  targetUin: string,
+  tid: string,
+  like: boolean,
+  abstime = 0,
+): Promise<void> {
+  const topic = String(tid ?? '').trim();
+  if (!topic) throw new Error('tid 不能为空');
+  const bkn = computeBkn(cred.pskey || cred.skey);
+  const cgi = like ? 'internal_dolike_app' : 'internal_unlike_app';
+  const url = `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/${cgi}?g_tk=${bkn}`;
+  const unikey = `http://user.qzone.qq.com/${targetUin}/mood/${topic}`;
+  const body = new URLSearchParams({
+    qzreferrer: `https://user.qzone.qq.com/${cred.uin}`,
+    opuin: cred.uin,
+    unikey,
+    curkey: unikey,
+    appid: '311',
+    typeid: '0',
+    abstime: String(abstime),
+    fid: topic,
+    from: '1',
+    active: '0',
+    fupdate: '1',
+    format: 'json',
+  }).toString();
+
+  const ret = await webRequestJson<{ code?: number; subcode?: number; message?: string }>(url, {
+    method: 'POST',
+    cookie: cookieHeader(cred),
+    body,
+    headers: {
+      Referer: `https://user.qzone.qq.com/${cred.uin}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+  });
+  const code = ret.code ?? 0;
+  const subcode = ret.subcode ?? 0;
+  if (code !== 0 || subcode !== 0) {
+    throw new Error(
+      `${like ? '点赞' : '取消点赞'}失败：code=${code} subcode=${subcode} ${ret.message ?? ''}`.trim(),
+    );
+  }
+}
+
+export interface QzoneCommentResult {
+  commentId: string;
+}
+
+/**
+ * 评论一条说说 — `emotion_cgi_re_feeds`。
+ *
+ * 搬运自 SnowLuma `protocol/src/web/qzone.ts` 的 `commentQzoneMsg`。
+ * `richType` / `richval` 必须成对出现（带图评论）。
+ */
+export async function commentQzoneMsg(
+  cred: WebCredential,
+  hostUin: string,
+  tid: string,
+  content: string,
+  richType?: number,
+  richval?: string,
+): Promise<QzoneCommentResult> {
+  const topic = String(tid ?? '').trim();
+  if (!topic) throw new Error('tid 不能为空');
+  const text = String(content ?? '');
+  if (!text.trim()) throw new Error('评论内容不能为空');
+  if ((richType === undefined) !== (richval === undefined)) {
+    throw new Error('richType 与 richval 必须成对提供');
+  }
+
+  const bkn = computeBkn(cred.pskey || cred.skey);
+  const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds?g_tk=${bkn}`;
+  const params: Record<string, string> = {
+    qzreferrer: `https://user.qzone.qq.com/${cred.uin}`,
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    hostUin,
+    uin: cred.uin,
+    format: 'json',
+    ref: 'feeds',
+    topicId: `${hostUin}_${topic}__1`,
+    feedsType: '100',
+    content: text,
+    private: '0',
+    paramstr: '1',
+    plat: 'qzone',
+    source: 'ic',
+    platformid: '52',
+  };
+  if (richType !== undefined && richval !== undefined) {
+    params.richtype = String(richType);
+    params.richval = richval;
+  }
+
+  const ret = await webRequestJson<{
+    code?: number;
+    subcode?: number;
+    message?: string;
+    commentid?: string | number;
+    commentId?: string | number;
+  }>(url, {
+    method: 'POST',
+    cookie: cookieHeader(cred),
+    body: new URLSearchParams(params).toString(),
+    headers: {
+      Referer: `https://user.qzone.qq.com/${hostUin}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+  });
+  const code = ret.code ?? 0;
+  const subcode = ret.subcode ?? 0;
+  if (code !== 0 || subcode !== 0) {
+    throw new Error(`评论失败：code=${code} subcode=${subcode} ${ret.message ?? ''}`.trim());
+  }
+  return { commentId: String(ret.commentid ?? ret.commentId ?? '') };
 }

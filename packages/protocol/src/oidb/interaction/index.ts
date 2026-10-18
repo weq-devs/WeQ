@@ -9,3 +9,10 @@ export type {
   GetEmojiLikesResult,
   EmojiLikeUser,
 } from './get-emoji-likes';
+export { ClickInlineKeyboardButton } from './inline-button';
+export type {
+  ClickInlineButtonParams,
+  ClickInlineButtonResult,
+} from './inline-button';
+export { SendGroupSign } from './group-sign';
+export type { SendGroupSignParams } from './group-sign';
