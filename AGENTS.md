@@ -17,7 +17,7 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | `native` | nt_helper 原生产物与 pinned 清单（二进制不入库） |
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
 
-- Node ≥ 22；包管理器只能用 **pnpm**（锁定 `pnpm@12.8.1`），别用 npm / yarn，会污染 `pnpm-lock.yaml`。
+- Node ≥ 22.12.0；包管理器只能用 **pnpm**（锁定 `pnpm@12.8.1`），别用 npm / yarn，会污染 `pnpm-lock.yaml`。
 - 新克隆里没有原生产物，先 `pnpm native:fetch`，否则桌面端跑不起来。
 
 ## 1. 分支：一切以 dev 为基准

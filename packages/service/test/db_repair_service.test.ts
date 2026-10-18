@@ -294,6 +294,53 @@ describe('DbRepairService.repair 成功路径', () => {
     expect(record.strictPages).toBe(true);
     expect(readFileSync(record.reportPath!, 'utf8')).toContain('坏页清零，明确丢这些行');
   });
+
+  it('layoutMigration 把 standard 源布局透传给 native，并记成布局迁移', async () => {
+    const h = createHarness({
+      recover: async (recoverOptions, onProgress) => {
+        writeFileSync(recoverOptions.outPath, repairedBytes());
+        onProgress({ phase: 'Repair', percent: 100, message: '完成' });
+        return makeReport({ sourceLayout: 'standard', targetLayout: 'qq' });
+      },
+    });
+    const record = await h.service.repair(
+      { uin: REF, dbName: 'nt_msg.db', layoutMigration: true },
+      collect(h.progress),
+    );
+
+    expect(h.recoverArgs[0]?.sourceLayout).toBe('standard');
+    expect(h.recoverArgs[0]?.targetLayout).toBe('qq');
+    expect(record.kind).toBe('layout-migration');
+    expect(record.sourceLayout).toBe('standard');
+    expect(record.targetLayout).toBe('qq');
+    expect(readFileSync(record.reportPath!, 'utf8')).toContain('页布局迁移');
+  });
+
+  it('普通修复不传布局参数，记录类型是 repair', async () => {
+    const h = createHarness();
+    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+
+    expect(h.recoverArgs[0]?.sourceLayout).toBeUndefined();
+    expect(h.recoverArgs[0]?.targetLayout).toBeUndefined();
+    expect(record.kind).toBe('repair');
+  });
+
+  it('旧 native 产物没有回显布局 → 替换前中止，源库不动', async () => {
+    const h = createHarness();
+    await expect(
+      h.service.repair(
+        { uin: REF, dbName: 'nt_msg.db', layoutMigration: true },
+        collect(h.progress),
+      ),
+    ).rejects.toMatchObject({ code: 'recover-failed' });
+
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
+    const record = h.service.listRecords(REF)[0]!;
+    expect(record.state).toBe('apply-failed');
+    expect(record.kind).toBe('layout-migration');
+    expect(record.error).toContain('不支持页布局迁移');
+  });
 });
 
 // ────────────────────────── 中止与失败 ──────────────────────────
@@ -488,6 +535,13 @@ describe('DbRepairService.resolveTarget', () => {
     } catch (error) {
       expect((error as DbRepairError).code).toBe('no-credentials');
     }
+  });
+
+  it('布局检测只看文件，不要求密钥 / 算法', () => {
+    const h = createHarness({ credentials: null });
+    const probe = h.service.probeLayout(REF, 'nt_msg.db');
+    expect(probe.dbPath).toBe(h.dbPath);
+    expect(probe.layout).toBe('unknown');
   });
 
   it('账号完全解析不出来 → not-found，且提示"先打开一次该账号"', () => {

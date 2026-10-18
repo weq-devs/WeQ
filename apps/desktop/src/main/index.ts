@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -18,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
+import { disposeStandardDbWorker } from './db/router';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -58,7 +60,13 @@ import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
+import { resolveOzonePlatform } from './linux_window_backend';
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Must be set before the first BrowserWindow is created. See the module header
+// for why Wayland sessions use XWayland by default.
+const ozonePlatform = resolveOzonePlatform();
+if (ozonePlatform) app.commandLine.appendSwitch('ozone-platform', ozonePlatform);
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -83,6 +91,8 @@ const WINDOW_LAYOUTS = {
   home: { width: 1120, height: 580 },
   chat: { width: 1180, height: 760 },
 } as const;
+
+type WindowLayout = keyof typeof WINDOW_LAYOUTS;
 
 const logger = getLogger().child({ scope: 'desktop-main' });
 
@@ -166,14 +176,14 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
-  ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
+  ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
     // Don't fight a user who maximized/fullscreened the window.
     if (!win || win.isMaximized() || win.isFullScreen()) return;
-    const [w, h] = win.getSize();
+    const [w, h] = win.getContentSize();
     if (w === size.width && h === size.height) return;
-    win.setSize(size.width, size.height, true);
+    win.setContentSize(size.width, size.height, true);
   });
 
   ipcMain.on('window-minimize', (event) => {
@@ -427,7 +437,11 @@ function registerMediaExportIpc(): void {
         if (input?.mode === 'clipboard') {
           const image = nativeImage.createFromBuffer(bytes);
           if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          clipboard.writeImage(image);
+          await clipboard.write([
+            new ClipboardItem({
+              'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+            }),
+          ]);
           return { ok: true };
         }
 
@@ -520,7 +534,11 @@ function registerCaptureIpc(): void {
     try {
       const image = await win.webContents.capturePage();
       if (image.isEmpty()) return { ok: false, error: '截图为空' };
-      clipboard.writeImage(image);
+      await clipboard.write([
+        new ClipboardItem({
+          'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+        }),
+      ]);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -752,4 +770,6 @@ app.on('will-quit', () => {
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
   // 自己收尾，这里只是不让它多活一拍）。
   disposeElevatedCaptures();
+  // 标准 SQLite 子进程：发 closeAllDb 后自行退出，这里是兜底收尸。
+  disposeStandardDbWorker();
 });

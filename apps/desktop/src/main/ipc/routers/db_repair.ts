@@ -41,6 +41,7 @@ import {
   type DbRepairCheckup,
   type DbRepairDeps,
   type DbRepairErrorCode,
+  type DbRepairLayoutProbe,
   type DbRepairPreflight,
   type DbRepairProgress,
   type DbRepairRecord,
@@ -76,11 +77,15 @@ export interface DbRepairRecordSummary {
   at: string;
   dbName: string;
   state: DbRepairRecord['state'];
+  /** 这次是通用修复还是布局迁移；旧记录没有，按 `repair` 处理。 */
+  kind?: 'repair' | 'layout-migration';
   badPages: number[];
   durationMs: number;
   beforeBytes: number;
   afterBytes: number | null;
   strictPages: boolean;
+  sourceLayout?: 'qq' | 'standard';
+  targetLayout?: 'qq' | 'standard';
   /** 失败/中止原因（`applied` 时没有）。 */
   error?: string;
   reportPath: string | null;
@@ -331,11 +336,14 @@ function summarize(record: DbRepairRecord): DbRepairRecordSummary {
     at: record.at,
     dbName: record.dbName,
     state: record.state,
+    ...(record.kind ? { kind: record.kind } : {}),
     badPages: record.badPages,
     durationMs: record.durationMs,
     beforeBytes: record.beforeBytes,
     afterBytes: record.afterBytes,
     strictPages: record.strictPages,
+    ...(record.sourceLayout ? { sourceLayout: record.sourceLayout } : {}),
+    ...(record.targetLayout ? { targetLayout: record.targetLayout } : {}),
     ...(record.error ? { error: record.error } : {}),
     reportPath: record.reportPath,
     canRestore: record.backupPath !== null && record.purgedAt === undefined,
@@ -476,6 +484,21 @@ export const dbRepairRouter = router({
   preflight: procedure.input(targetRef).query(({ input }): DbRepairPreflight => {
     try {
       return service.preflight(input.uin, input.dbName);
+    } catch (error) {
+      rethrow(error);
+    }
+  }),
+
+  /**
+   * 只读检测旧版误修复留下的页布局。
+   *
+   * 只在用户进入修复页、选中某个库时由界面调用（**不在启动时自动跑**）。判据只有
+   * 两个：文件大于 1 GiB，以及第 262144 / 262145 页的状态 —— 不查修复记录，也不
+   * 用体检结论做旁证。
+   */
+  detectLayout: procedure.input(targetRef).query(({ input }): DbRepairLayoutProbe => {
+    try {
+      return service.probeLayout(input.uin, input.dbName);
     } catch (error) {
       rethrow(error);
     }
@@ -666,6 +689,8 @@ export const dbRepairRouter = router({
         backup: z.boolean().optional(),
         /** 坏页先清零（内容一定经过校验，代价是那些行明确丢失）。 */
         strictPages: z.boolean().optional(),
+        /** 走布局迁移：按 standard 源布局读、写回 QQ 布局。 */
+        layoutMigration: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }): Promise<DbRepairTaskResult> => {
@@ -679,6 +704,9 @@ export const dbRepairRouter = router({
             dbName: input.dbName,
             ...(input.backup === undefined ? {} : { backup: input.backup }),
             ...(input.strictPages === undefined ? {} : { strictPages: input.strictPages }),
+            ...(input.layoutMigration === undefined
+              ? {}
+              : { layoutMigration: input.layoutMigration }),
           },
           (progress) => {
             progressBus.emit('progress', {
