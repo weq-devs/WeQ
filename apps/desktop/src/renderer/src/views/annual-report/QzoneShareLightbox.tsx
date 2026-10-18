@@ -25,6 +25,7 @@ import { useToast } from '../../components/Toast';
 import { useSelfFace } from './useSelfFace';
 import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
+import { useOverlayLayer } from '../../lib/overlayStack';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
 const QZONE_MAX_IMAGES = 9;
@@ -75,6 +76,7 @@ export function QzoneShareLightbox({
   onClose: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const layer = useOverlayLayer(true);
   const updateToast = useToast((s) => s.update);
   const selfFace = useSelfFace();
   const { overlayHostRef } = useReportView();
@@ -195,6 +197,7 @@ export function QzoneShareLightbox({
   return createPortal(
     <div
       className="weq-qzshare-scrim"
+      style={{ zIndex: layer }}
       role="dialog"
       aria-modal="true"
       aria-label="分享到 QQ 空间"

@@ -25,8 +25,8 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useState } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useContext, useEffect, useState } from 'react';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
@@ -209,7 +209,6 @@ export function ContactProfileDialog({
   contact: Contact | undefined;
   onClose: () => void;
 }) {
-  const tabActive = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -221,19 +220,6 @@ export function ContactProfileDialog({
     setHomeOpen(false);
     setMarkOpen(false);
   }, [contact?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !contact) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, contact, onClose]);
 
   if (!contact) {
     return null;
@@ -280,7 +266,7 @@ export function ContactProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
@@ -514,7 +500,7 @@ export function ContactProfileDialog({
           onClose={() => setMarkOpen(false)}
         />
       ) : null}
-    </div>
+    </OverlayLayer>
   );
 }
 
@@ -529,26 +515,12 @@ export function GroupProfileDialog({
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
 }) {
-  const tabActive = useTabActive();
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setCopied(false);
   }, [conversation?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !conversation) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, conversation, onClose]);
 
   if (!conversation) {
     return null;
@@ -565,7 +537,7 @@ export function GroupProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
@@ -684,7 +656,7 @@ export function GroupProfileDialog({
           ) : null}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

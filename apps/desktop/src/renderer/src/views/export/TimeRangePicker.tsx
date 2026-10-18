@@ -17,6 +17,7 @@ import {
   type CalendarTarget,
 } from '../../lib/messageCalendar';
 import { trpc } from '../../trpc/client';
+import '../../styles/export.css';
 
 const PRESETS: Array<{ value: RangePreset; label: string }> = [
   { value: 'all', label: '全部时间' },

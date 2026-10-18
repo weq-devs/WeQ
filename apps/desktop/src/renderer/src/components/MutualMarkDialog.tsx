@@ -6,8 +6,7 @@
  * 图标是 QQ CDN 直链，点亮态与灰态由服务端给的 URL 区分（`…_0_0_big.png` 点亮、
  * `…_0_1_big.png` 未点亮），未点亮时再压一点透明度让灰态更明显。
  *
- * 盖在资料卡之上：好友资料灯箱遮罩 z-index 80、群成员卡 90，这里取 100（见
- * .weq-mutual-layer）。
+ * 在入口附近展开，层级由共用浮层机制保证始终高于资料卡。
  */
 import { useState } from 'react';
 import { Award, Loader2, WifiOff, X } from 'lucide-react';
@@ -84,7 +83,7 @@ export function MutualMarkDialog({
 
   return (
     <OverlayLayer
-      presentation="panel"
+      presentation="popover"
       className="weq-profile-layer weq-mutual-layer"
       onClose={onClose}
     >

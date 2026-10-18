@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LockKeyhole,
@@ -183,6 +184,7 @@ export function RailAccountFooter({
     x: number;
     y: number;
   } | null>(null);
+  const menuLayer = useOverlayLayer(!!ctxMenu);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
   useEffect(() => {
@@ -492,7 +494,7 @@ export function RailAccountFooter({
           createPortal(
             <div
               className="weq-rail-account-ctx-menu"
-              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              style={{ left: ctxMenu.x, top: ctxMenu.y, zIndex: menuLayer }}
               onMouseDown={(e) => e.stopPropagation()}
             >
               <button

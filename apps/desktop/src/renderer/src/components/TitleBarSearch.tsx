@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { ArrowLeft, Search } from 'lucide-react';
 
 export function TitleBarSearch({
@@ -31,6 +32,7 @@ export function TitleBarSearch({
   const panel = useRef<HTMLDivElement>(null);
   const returning = useRef(false);
   const expanded = pinned || (hovered && !suppressHover);
+  const layer = useOverlayLayer(expanded && !!results);
 
   useEffect(() => {
     if (pinned && !returning.current) input.current?.focus();
@@ -147,7 +149,7 @@ export function TitleBarSearch({
             <div
               ref={panel}
               className="weq-titlebar-search-results"
-              style={position}
+              style={{ ...position, zIndex: layer }}
               onPointerEnter={() => setHovered(true)}
               onPointerLeave={() => setHovered(false)}
             >

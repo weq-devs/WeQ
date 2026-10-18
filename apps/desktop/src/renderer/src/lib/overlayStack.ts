@@ -11,7 +11,10 @@
  * opted-in layer never falls below a layer that still uses static CSS.
  */
 
-import { useRef } from 'react';
+import { createContext, useContext, useRef } from 'react';
+
+/** Portal 保留 React 上下文：子浮层始终高于所属父窗的最新层级。 */
+export const OverlayLayerContext = createContext<number | undefined>(undefined);
 
 /** Above every static overlay in CSS (highest is .weq-ra-layer at 1200), but
  *  below the toast host (4000), which must stay on top of everything. */
@@ -39,9 +42,18 @@ export function hasActiveModal(
  * claims a fresh (higher) value. Returns undefined when inactive so callers can
  * fall back to their CSS value.
  */
-export function useOverlayLayer(active: boolean): number | undefined {
+export function useOverlayLayer(active: boolean, revision = 0): number | undefined {
+  const parentLayer = useContext(OverlayLayerContext);
   const claimed = useRef<number | undefined>(undefined);
-  if (active && claimed.current === undefined) claimed.current = claimOverlayLayer();
+  const previousRevision = useRef(revision);
+  if (
+    active &&
+    (claimed.current === undefined ||
+      revision !== previousRevision.current ||
+      (parentLayer !== undefined && claimed.current <= parentLayer))
+  )
+    claimed.current = claimOverlayLayer();
   else if (!active && claimed.current !== undefined) claimed.current = undefined;
+  previousRevision.current = revision;
   return claimed.current;
 }

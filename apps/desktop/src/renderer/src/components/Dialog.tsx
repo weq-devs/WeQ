@@ -15,7 +15,8 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
@@ -157,6 +158,14 @@ export function Modal({
   const windowed = presentation === 'floating' || presentation === 'anchored';
   const layer = useOverlayLayer(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
+  const placement = useOverlayAnchor(
+    ref,
+    active && !windowed,
+    presentation === 'popover' ||
+      presentation === 'panel' ||
+      (presentation === 'modal' && !!onClose),
+    anchor,
+  );
   useSurfaceEscape(
     ref,
     onClose,
@@ -200,10 +209,12 @@ export function Modal({
     <div
       ref={ref}
       tabIndex={-1}
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}`}
+      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
       hidden={!active}
       inert={!active}
-      style={{ zIndex: layer, display: active ? undefined : 'none' }}
+      style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
+      onPointerDownCapture={placement.capture}
+      onClickCapture={placement.capture}
       onMouseDown={presentation === 'modal' ? onClose : undefined}
     >
       <div
@@ -214,7 +225,11 @@ export function Modal({
         style={width ? { width } : undefined}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {children}
+        <OverlayLayerContext.Provider value={layer}>
+          <OverlayAnchorContext.Provider value={placement.trigger}>
+            {children}
+          </OverlayAnchorContext.Provider>
+        </OverlayLayerContext.Provider>
       </div>
     </div>,
     document.body,
