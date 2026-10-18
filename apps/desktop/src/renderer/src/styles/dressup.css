@@ -305,6 +305,13 @@
   padding: 14px 16px 16px;
 }
 
+/* 商城表情页签自带左右两栏滚动，外层不再整体滚动。 */
+.weq-dress-body.is-embedded-market {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .weq-dress-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

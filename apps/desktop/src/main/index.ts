@@ -1,4 +1,5 @@
 import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
+import { floatingWindowTypeOption } from './linux_window_backend';
 import {
   app,
   BrowserWindow,
@@ -573,8 +574,6 @@ function createWindow(): BrowserWindow {
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
-  const windowType =
-    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -585,7 +584,7 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
+    ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(moduleDir, '../preload/index.mjs'),

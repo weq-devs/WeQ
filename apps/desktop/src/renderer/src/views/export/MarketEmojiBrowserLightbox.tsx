@@ -197,10 +197,13 @@ export function MarketEmojiBrowserLightbox({
   onClose,
   initialPackId,
   initialPackName,
+  embedded = false,
 }: {
-  onClose: () => void;
+  onClose?: () => void;
   initialPackId?: string;
   initialPackName?: string;
+  /** 嵌在「个性装扮 → 表情」页签里：不套 WorkspacePage、不渲染标题与关闭按钮。 */
+  embedded?: boolean;
 }): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -380,14 +383,40 @@ export function MarketEmojiBrowserLightbox({
     setFeeSel(new Set());
   };
 
-  return (
-    <WorkspacePage title="商城表情" onClose={onClose} standalone>
-      <div
-        className={`weq-market-browser${selectedId ? ' has-detail' : ''}`}
-        role="region"
-        aria-labelledby="weq-market-title"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+  const body = (
+    <div
+      className={`weq-market-browser${selectedId ? ' has-detail' : ''}${embedded ? ' is-embedded' : ''}`}
+      role="region"
+      aria-labelledby={embedded ? undefined : 'weq-market-title'}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {embedded ? (
+        <div className="weq-market-head is-embedded">
+          {selectedId ? (
+            <button
+              type="button"
+              className="weq-market-back icon-button"
+              title="返回表情包列表"
+              aria-label="返回表情包列表"
+              onClick={() => setSelectedId(null)}
+            >
+              <ArrowLeft size={18} />
+            </button>
+          ) : (
+            <div className="weq-market-title">
+              <Store size={18} strokeWidth={1.9} />
+              <span className="weq-market-embedded-label">表情包</span>
+              {total > 0 ? (
+                <span className="weq-market-total">
+                  {loading && entries.length === 0
+                    ? '搜索中…'
+                    : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
+                </span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : (
         <header className="weq-market-head">
           {selectedId ? (
             <button
@@ -421,170 +450,177 @@ export function MarketEmojiBrowserLightbox({
             <X size={18} />
           </button>
         </header>
-        {saveOpen || selection.selectionMode ? (
-          <ExportSaveControl
-            value={save.policy}
-            onChange={save.setOverride}
-            onPickDirectory={() => void save.pickDirectory()}
-            onSetDefault={() => void save.setDefault()}
-            onReset={() => save.setOverride(null)}
-            overridden={save.hasOverride}
-            disabled={downloading || save.settings.isLoading}
-            picking={save.picking}
-          />
-        ) : null}
-        {queued ? (
-          <div className="weq-market-job-status" role="status">
-            已创建下载任务
-          </div>
-        ) : null}
+      )}
+      {saveOpen || selection.selectionMode ? (
+        <ExportSaveControl
+          value={save.policy}
+          onChange={save.setOverride}
+          onPickDirectory={() => void save.pickDirectory()}
+          onSetDefault={() => void save.setDefault()}
+          onReset={() => save.setOverride(null)}
+          overridden={save.hasOverride}
+          disabled={downloading || save.settings.isLoading}
+          picking={save.picking}
+        />
+      ) : null}
+      {queued ? (
+        <div className="weq-market-job-status" role="status">
+          已创建下载任务
+        </div>
+      ) : null}
 
-        <div className="weq-emb-body">
-          {/* 左栏：搜索 + 筛选 + 包列表 */}
-          <div className="weq-emb-left" {...packMulti.rootProps}>
-            <DirectoryToolbar
-              noun="表情包"
-              query={input}
-              onQuery={setInput}
-              selecting={selection.selectionMode}
-              onSelecting={selection.setSelectionMode}
-              count={selection.selectedIds.size}
-              onSelectAll={() =>
-                selection.setSelectedIds(
-                  (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
-                )
-              }
+      <div className="weq-emb-body">
+        {/* 左栏：搜索 + 筛选 + 包列表 */}
+        <div className="weq-emb-left" {...packMulti.rootProps}>
+          <DirectoryToolbar
+            noun="表情包"
+            query={input}
+            onQuery={setInput}
+            selecting={selection.selectionMode}
+            onSelecting={selection.setSelectionMode}
+            count={selection.selectedIds.size}
+            onSelectAll={() =>
+              selection.setSelectedIds(
+                (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
+              )
+            }
+          >
+            <button
+              type="button"
+              title="保存方式"
+              aria-label="保存方式"
+              aria-expanded={saveOpen}
+              onClick={() => setSaveOpen(!saveOpen)}
             >
+              <Settings2 size={16} />
+            </button>
+          </DirectoryToolbar>
+          {selection.selectionMode ? (
+            <div className="weq-market-selection-actions">
+              <span>
+                {selection.selectedIds.size} / {MARKET_DOWNLOAD_MAX_PACKS} 套
+              </span>
               <button
                 type="button"
-                title="保存方式"
-                aria-label="保存方式"
-                aria-expanded={saveOpen}
-                onClick={() => setSaveOpen(!saveOpen)}
+                className="weq-action-primary"
+                title={
+                  selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
+                    ? `单次最多 ${MARKET_DOWNLOAD_MAX_PACKS} 套`
+                    : '下载选中表情包'
+                }
+                disabled={
+                  downloading ||
+                  save.picking ||
+                  save.settings.isLoading ||
+                  !selection.selectedIds.size ||
+                  selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
+                }
+                onClick={downloadSelected}
               >
-                <Settings2 size={16} />
+                {downloading ? (
+                  <Loader2 size={15} className="weq-emb-spin" />
+                ) : (
+                  <Download size={15} />
+                )}
+                下载选中
               </button>
-            </DirectoryToolbar>
-            {selection.selectionMode ? (
-              <div className="weq-market-selection-actions">
-                <span>
-                  {selection.selectedIds.size} / {MARKET_DOWNLOAD_MAX_PACKS} 套
-                </span>
-                <button
-                  type="button"
-                  className="weq-action-primary"
-                  title={
-                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
-                      ? `单次最多 ${MARKET_DOWNLOAD_MAX_PACKS} 套`
-                      : '下载选中表情包'
-                  }
-                  disabled={
-                    downloading ||
-                    save.picking ||
-                    save.settings.isLoading ||
-                    !selection.selectedIds.size ||
-                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
-                  }
-                  onClick={downloadSelected}
-                >
-                  {downloading ? (
-                    <Loader2 size={15} className="weq-emb-spin" />
-                  ) : (
-                    <Download size={15} />
-                  )}
-                  下载选中
-                </button>
-              </div>
-            ) : null}
-
-            <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
-              <button
-                type="button"
-                className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
-                onClick={() => {
-                  setLatest(false);
-                  setFeeSel(new Set());
-                }}
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
-                onClick={toggleLatest}
-                title="只看最新上架的表情包（目录尾部）"
-              >
-                最新上架
-              </button>
-              {FEE_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
-                  {...feeMulti.itemProps(f.id)}
-                >
-                  {f.label}
-                </button>
-              ))}
             </div>
+          ) : null}
 
-            <div className="weq-emb-pack-list">
-              {loading && entries.length === 0 ? (
-                <div className="weq-emb-pack-list-state">
-                  <Loader2 size={16} className="weq-emb-spin" />
-                  搜索中…
-                </div>
-              ) : entries.length === 0 ? (
-                <div className="weq-emb-pack-list-state">没有匹配的表情包</div>
-              ) : (
-                <>
-                  {entries.map((entry) => (
-                    <PackListItem
-                      key={entry.id}
-                      entry={entry}
-                      selected={
-                        selection.selectionMode
-                          ? selection.selectedIds.has(entry.id)
-                          : selectedId === entry.id
-                      }
-                      selectionProps={packMulti.itemProps(entry.id)}
-                      onSelect={() => setSelectedId(entry.id)}
-                    />
-                  ))}
-                  {!done ? (
-                    <div ref={sentinelRef} className="weq-emb-sentinel">
-                      {loading ? <Loader2 size={14} className="weq-emb-spin" /> : '加载更多…'}
-                    </div>
-                  ) : (
-                    <div className="weq-emb-sentinel">已全部加载（{entries.length}）</div>
-                  )}
-                </>
-              )}
-            </div>
+          <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
+            <button
+              type="button"
+              className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
+              onClick={() => {
+                setLatest(false);
+                setFeeSel(new Set());
+              }}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
+              onClick={toggleLatest}
+              title="只看最新上架的表情包（目录尾部）"
+            >
+              最新上架
+            </button>
+            {FEE_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
+                {...feeMulti.itemProps(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
-          {/* 右栏：选中包的表情网格 */}
-          <div className="weq-emb-right">
-            {selectedId ? (
-              <PackDetailPane
-                packId={selectedId}
-                name={
-                  entries.find((e) => e.id === selectedId)?.name ??
-                  (selectedId === initialPackId ? (initialPackName ?? '') : '')
-                }
-                description={entries.find((entry) => entry.id === selectedId)?.mark ?? ''}
-                busy={downloading || save.picking}
-                onDownload={download}
-              />
-            ) : (
-              <div className="weq-emb-empty">
-                <SmilePlus size={36} strokeWidth={1.3} />
-                <span>点击左侧表情包查看全部表情</span>
+          <div className="weq-emb-pack-list">
+            {loading && entries.length === 0 ? (
+              <div className="weq-emb-pack-list-state">
+                <Loader2 size={16} className="weq-emb-spin" />
+                搜索中…
               </div>
+            ) : entries.length === 0 ? (
+              <div className="weq-emb-pack-list-state">没有匹配的表情包</div>
+            ) : (
+              <>
+                {entries.map((entry) => (
+                  <PackListItem
+                    key={entry.id}
+                    entry={entry}
+                    selected={
+                      selection.selectionMode
+                        ? selection.selectedIds.has(entry.id)
+                        : selectedId === entry.id
+                    }
+                    selectionProps={packMulti.itemProps(entry.id)}
+                    onSelect={() => setSelectedId(entry.id)}
+                  />
+                ))}
+                {!done ? (
+                  <div ref={sentinelRef} className="weq-emb-sentinel">
+                    {loading ? <Loader2 size={14} className="weq-emb-spin" /> : '加载更多…'}
+                  </div>
+                ) : (
+                  <div className="weq-emb-sentinel">已全部加载（{entries.length}）</div>
+                )}
+              </>
             )}
           </div>
         </div>
+
+        {/* 右栏：选中包的表情网格 */}
+        <div className="weq-emb-right">
+          {selectedId ? (
+            <PackDetailPane
+              packId={selectedId}
+              name={
+                entries.find((e) => e.id === selectedId)?.name ??
+                (selectedId === initialPackId ? (initialPackName ?? '') : '')
+              }
+              description={entries.find((entry) => entry.id === selectedId)?.mark ?? ''}
+              busy={downloading || save.picking}
+              onDownload={download}
+            />
+          ) : (
+            <div className="weq-emb-empty">
+              <SmilePlus size={36} strokeWidth={1.3} />
+              <span>点击左侧表情包查看全部表情</span>
+            </div>
+          )}
+        </div>
       </div>
+    </div>
+  );
+
+  if (embedded) return body;
+  return (
+    <WorkspacePage title="商城表情" onClose={onClose} standalone>
+      {body}
     </WorkspacePage>
   );
 }

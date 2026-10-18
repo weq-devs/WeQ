@@ -415,6 +415,23 @@ export function ConversationList({
                 <Bot size={16} />
                 新建好友克隆
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                onKeyDown={(event) => {
+                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                    event.preventDefault();
+                  if (event.key === 'Tab') setCreateOpen(false);
+                }}
+                onClick={() => {
+                  setCreateOpen(false);
+                  if (directory?.onCreateGroup) directory.onCreateGroup();
+                }}
+                disabled={!directory?.onCreateGroup}
+              >
+                <Users size={16} />
+                新建克隆体群聊
+              </button>
             </div>
           ) : null}
         </div>

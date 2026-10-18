@@ -465,7 +465,7 @@ export function ContactProfileDialog({
             ) : null}
             <button className="weq-profile-perhome" type="button" onClick={() => setHomeOpen(true)}>
               <Wand2 size={13} />
-              查看个性主页
+              个性主页
             </button>
             <button className="weq-profile-perhome" type="button" onClick={() => setMarkOpen(true)}>
               <Award size={13} />

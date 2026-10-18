@@ -40,6 +40,7 @@ import {
   Upload,
   Trophy,
   X,
+  Store,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
@@ -49,18 +50,20 @@ import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
+import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import '../styles/dressup.css';
 
-type DressKind = 'bubble' | 'font' | 'widget' | 'background';
+type DressKind = 'bubble' | 'font' | 'widget' | 'background' | 'emoji';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
   { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
   { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
   { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
+  { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
 ];
 
-/** 商城那三类共用一套列表 UI;背景是另一套形状,单列出来判。 */
+/** 商城那三类共用一套列表 UI;背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
@@ -180,11 +183,22 @@ function DressListSkeleton(): ReactElement {
   );
 }
 
-export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElement {
+export function DressUpDialog({
+  onClose,
+  initialKind = 'bubble',
+  initialEmojiPackId,
+  initialEmojiPackName,
+}: {
+  onClose: () => void;
+  /** 从全局搜索等入口直达某个页签（表情页签会带上要定位的表情包）。 */
+  initialKind?: DressKind;
+  initialEmojiPackId?: string;
+  initialEmojiPackName?: string;
+}): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
 
-  const [kind, setKind] = useState<DressKind>('bubble');
+  const [kind, setKind] = useState<DressKind>(initialKind);
   /** 输入框里的草稿。提交(回车 / 失焦)后才变成 keyword,避免每敲一个字打一次接口。 */
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -203,9 +217,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   const manifest = state.data?.manifest;
   const scope = manifest?.scope ?? 'mine';
 
-  // 背景那栏不走商城,列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
+  // 背景和表情包都不走装扮商城,装扮列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
+  const isMall = kind === 'bubble' || kind === 'font' || kind === 'widget';
   const mallKind: MallKind = kind === 'font' ? 'font' : kind === 'widget' ? 'widget' : 'bubble';
-  const isMall = kind !== 'background';
 
   // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
   const searching = keyword.length > 0;
@@ -692,6 +706,14 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
 
   function renderList(): ReactElement {
     if (kind === 'background') return renderBackground();
+    if (kind === 'emoji')
+      return (
+        <MarketEmojiBrowserLightbox
+          embedded
+          initialPackId={initialEmojiPackId}
+          initialPackName={initialEmojiPackName}
+        />
+      );
 
     if (mineOnly) {
       if (mine.length === 0) {
@@ -930,7 +952,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
         ) : null}
 
-        <div className="weq-dress-body">{renderList()}</div>
+        <div className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}>
+          {renderList()}
+        </div>
 
         {/* 换装期间盖住整个对话框:样式注入会重排下面的消息列表,期间点别的只会
             叠加更多重排。用 aria-live 让读屏也能知道正在应用。 */}

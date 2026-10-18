@@ -17,7 +17,7 @@ vi.mock('../src/renderer/src/im-template/template/sidebar', () => ({
 }));
 
 describe('主内容页的会话列表可见性', () => {
-  it.each(['设置', '商城表情'])('%s 收起列表与拖拽条，关闭后恢复列表现场与宽度', (title) => {
+  it.each(['设置', '个性装扮'])('%s 收起列表与拖拽条，关闭后恢复列表现场与宽度', (title) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);

@@ -1,7 +1,8 @@
 .weq-composition-window-body { margin: 0; min-width: 320px; height: 100vh; overflow: hidden; background: var(--background); }
-.weq-composition-workspace { display: flex; flex-direction: column; width: 100%; height: 100vh; min-width: 0; color: var(--weq-fg-primary); background: var(--weq-chat-bg, var(--weq-bg-surface)); }
+.weq-composition-workspace { display: flex; flex-direction: column; width: 100%; height: 100vh; min-width: 0; color: var(--weq-fg-primary); background: var(--weq-chat-bg, var(--weq-bg-surface)); font-size: 13px; }
 .weq-composition-workspace.is-fallback { position: fixed; z-index: 1195; inset: 40px 0 0 auto; width: min(1040px, calc(100vw - 72px)); height: auto; border-left: 1px solid var(--weq-border-strong); box-shadow: var(--weq-shadow-card); }
 .weq-composition-head { display: flex; align-items: center; gap: 8px; flex: 0 0 42px; padding: 0 10px; border-bottom: 1px solid var(--weq-border-subtle); background: var(--weq-bg-surface); -webkit-app-region: drag; user-select: none; }
+.weq-composition-head > strong { font-size: 13px; font-weight: 600; }
 .weq-composition-head button { -webkit-app-region: no-drag; }
 .weq-composition-head > span:not(.weq-composition-spacer) { font-size: 12px; color: var(--weq-fg-muted); }
 .weq-composition-spacer { flex: 1; }
@@ -26,7 +27,7 @@
 .weq-composition-entry > span { font-size: 12px; color: var(--weq-fg-muted); margin-top: 4px; }
 .weq-composition-entry > p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; font-size: 13px; margin: 10px 0; color: var(--weq-fg-secondary); }
 .weq-composition-entry-actions { display: flex; flex-wrap: wrap; gap: 2px; }
-.weq-composition-title { width: calc(100% - 24px); margin: 8px 12px; min-height: 32px; padding: 4px 8px; background: transparent; color: var(--weq-fg-primary); border: 1px solid var(--weq-border-subtle); border-radius: 4px; }
+.weq-composition-title { width: calc(100% - 24px); margin: 8px 12px; min-height: 32px; padding: 4px 8px; background: transparent; color: var(--weq-fg-primary); border: 1px solid var(--weq-border-subtle); border-radius: 4px; font-size: 13px; }
 .weq-composition-canvas { flex: 1; min-height: 0; overflow: auto; }
 .weq-composition-canvas .weq-mf-composer { min-height: 100%; }
 .weq-composition-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--weq-border-subtle); }

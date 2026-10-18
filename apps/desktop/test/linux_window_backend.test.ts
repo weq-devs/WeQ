@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { ozonePlatformArgs, resolveOzonePlatform } from '../src/main/linux_window_backend.ts';
+import {
+  floatingWindowType,
+  floatingWindowTypeOption,
+  ozonePlatformArgs,
+  resolveOzonePlatform,
+} from '../src/main/linux_window_backend.ts';
 
 test('Wayland sessions use XWayland when an X display is available', () => {
   assert.equal(
@@ -70,4 +75,14 @@ test('ozonePlatformArgs turns the resolved backend into an Electron CLI flag', (
     [],
   );
   assert.deepEqual(ozonePlatformArgs('darwin', {}), []);
+});
+
+test('Linux windows advertise a floating window type, overridable per environment', () => {
+  assert.equal(floatingWindowType('linux', {}), 'toolbar');
+  assert.deepEqual(floatingWindowTypeOption('linux', {}), { type: 'toolbar' });
+  assert.equal(floatingWindowType('linux', { WEQ_WINDOW_TYPE: 'normal' }), undefined);
+  assert.deepEqual(floatingWindowTypeOption('linux', { WEQ_WINDOW_TYPE: 'normal' }), {});
+  assert.equal(floatingWindowType('linux', { WEQ_WINDOW_TYPE: 'splash' }), 'splash');
+  assert.equal(floatingWindowType('darwin', {}), undefined);
+  assert.deepEqual(floatingWindowTypeOption('win32', {}), {});
 });

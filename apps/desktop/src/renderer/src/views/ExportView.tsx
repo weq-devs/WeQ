@@ -293,12 +293,15 @@ export function ExportTool({
   initialMode,
   onClose,
   fixedScope = false,
+  lockMode = false,
 }: {
   surface?: 'export' | 'tasks';
   initialSelection?: ContentSelection;
   initialMode?: ExportMode;
   onClose?: () => void;
   fixedScope?: boolean;
+  /** 由入口（如维护工具）锁死导出类型：不渲染「内容种类」切换器，模式不可更改。 */
+  lockMode?: boolean;
 }): ReactElement {
   const utils = trpc.useUtils();
   const accountUin = useViewState((state) => state.openedUin);
@@ -1478,23 +1481,32 @@ export function ExportTool({
           <section className="weq-exp-pane">
             <header className="weq-exp-pane-head">
               <div className="weq-exp-pane-title">
-                <label htmlFor="weq-export-content-kind">内容种类</label>
-                <select
-                  id="weq-export-content-kind"
-                  value={mode}
-                  disabled={submitting || editingList}
-                  onChange={(event) => {
-                    const selected = MODES.find((item) => item.id === event.target.value);
-                    if (selected) setMode(selected.id);
-                  }}
-                >
-                  {MODES.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <span>{activeMode.desc}</span>
+                {lockMode ? (
+                  <>
+                    <strong>{activeMode.label}</strong>
+                    <span>{activeMode.desc}</span>
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor="weq-export-content-kind">内容种类</label>
+                    <select
+                      id="weq-export-content-kind"
+                      value={mode}
+                      disabled={submitting || editingList}
+                      onChange={(event) => {
+                        const selected = MODES.find((item) => item.id === event.target.value);
+                        if (selected) setMode(selected.id);
+                      }}
+                    >
+                      {MODES.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span>{activeMode.desc}</span>
+                  </>
+                )}
               </div>
             </header>
 

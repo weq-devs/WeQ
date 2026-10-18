@@ -191,7 +191,9 @@ export function WindowSurface({
   const start = (event: PointerEvent<HTMLDivElement>) => {
     placement.capture(event);
     if (!active || !event.currentTarget.contains(event.target as Node)) return;
-    raise();
+    // 模态确认框打开期间不再抢层：它和本窗是两个互不相关的 body portal，
+    // 这里每 pointerdown 一次都抬高的话，会把确认框压到任务窗下面。
+    if (!hasActiveModal(document)) raise();
     if (mode !== 'floating' || event.button !== 0 || !(event.target instanceof Element)) return;
     const resize = Boolean(event.target.closest('[data-window-resize]'));
     const handle = event.target.closest('[data-window-drag-handle]');
@@ -248,7 +250,8 @@ export function WindowSurface({
         onPointerCancel={finish}
         onLostPointerCapture={finish}
         onFocusCapture={(event) => {
-          if (event.currentTarget.contains(event.target as Node)) raise();
+          if (!hasActiveModal(document) && event.currentTarget.contains(event.target as Node))
+            raise();
         }}
         onDoubleClick={(event) => {
           if (

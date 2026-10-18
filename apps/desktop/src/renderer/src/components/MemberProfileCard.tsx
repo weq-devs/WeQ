@@ -460,7 +460,7 @@ export function MemberProfileCard({
                       }}
                     >
                       <Wand2 size={13} />
-                      查看个性主页
+                      个性主页
                     </button>
                     <button
                       className="weq-profile-perhome"

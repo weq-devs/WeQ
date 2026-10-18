@@ -17,6 +17,7 @@ type WindowBackendEnv = {
   WAYLAND_DISPLAY?: string;
   XDG_SESSION_TYPE?: string;
   WEQ_OZONE_PLATFORM?: string;
+  WEQ_WINDOW_TYPE?: string;
 };
 
 export function resolveOzonePlatform(
@@ -37,6 +38,28 @@ export function resolveOzonePlatform(
   const isWayland =
     env.XDG_SESSION_TYPE?.toLowerCase() === 'wayland' || Boolean(env.WAYLAND_DISPLAY);
   return isWayland && env.DISPLAY ? 'x11' : null;
+}
+
+/**
+ * 平铺 Wayland 合成器（Hyprland/sway）默认把新顶层窗平铺，需要靠非 `normal` 的窗口类型
+ * 让 WM 当浮动窗处理。`toolbar` 是侵入性最小的一种（与 `splash` 不同，它保留任务栏入口）。
+ * `WEQ_WINDOW_TYPE=normal` 或其它值可覆盖/关闭。
+ */
+export function floatingWindowType(
+  platform: NodeJS.Platform = process.platform,
+  env: { WEQ_WINDOW_TYPE?: string } = { WEQ_WINDOW_TYPE: process.env.WEQ_WINDOW_TYPE },
+): string | undefined {
+  const type = env.WEQ_WINDOW_TYPE ?? (platform === 'linux' ? 'toolbar' : undefined);
+  return type && type !== 'normal' ? type : undefined;
+}
+
+/** 可直接展开进 `BrowserWindowConstructorOptions` 的窗口类型字段。 */
+export function floatingWindowTypeOption(
+  platform: NodeJS.Platform = process.platform,
+  env: { WEQ_WINDOW_TYPE?: string } = { WEQ_WINDOW_TYPE: process.env.WEQ_WINDOW_TYPE },
+): { type?: string } {
+  const type = floatingWindowType(platform, env);
+  return type ? { type } : {};
 }
 
 /**

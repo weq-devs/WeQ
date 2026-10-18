@@ -28,6 +28,25 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   }),
 }));
 
+it('内嵌模式不套整页、不渲染关闭按钮，可直接放进个性装扮页签', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(h(MarketEmojiBrowserLightbox, { embedded: true })));
+    const page = host.querySelector('.weq-market-browser')!;
+    expect(page.classList.contains('is-embedded')).toBe(true);
+    expect(page.closest('[aria-label="商城表情"]')).toBeNull();
+    expect(host.querySelector('.weq-workspace-page')).toBeNull();
+    expect(host.querySelector('[aria-label="关闭商城表情"]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('商城表情使用无标签整页和整页标题栏，关闭后恢复原内容并保留报告', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
