@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { VoiceTagDisplay } from './tags';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Locate the bundled `transcribeWorker.mjs`. electron-vite emits it at
@@ -27,8 +27,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  */
 function resolveWorkerPath(): string {
   const candidates = [
-    join(__dirname, 'transcribeWorker.mjs'),
-    join(__dirname, '..', 'transcribeWorker.mjs'),
+    join(moduleDir, 'transcribeWorker.mjs'),
+    join(moduleDir, '..', 'transcribeWorker.mjs'),
   ];
   return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
 }

@@ -35,7 +35,7 @@ import { requestSudoPassword } from './sudo_prompt';
 
 const logger = getLogger().child({ scope: 'key-scan-elevation' });
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Locate the bundled `keyScanWorker.mjs`. electron-vite emits it next to the main
@@ -44,8 +44,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  */
 function resolveWorkerPath(): string {
   const candidates = [
-    join(__dirname, 'keyScanWorker.mjs'),
-    join(__dirname, '..', 'keyScanWorker.mjs'),
+    join(moduleDir, 'keyScanWorker.mjs'),
+    join(moduleDir, '..', 'keyScanWorker.mjs'),
   ];
   return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
 }

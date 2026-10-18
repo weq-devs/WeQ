@@ -67,7 +67,7 @@ import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 // Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
 // `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
@@ -586,7 +586,7 @@ function createWindow(): BrowserWindow {
     ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(moduleDir, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
@@ -660,7 +660,7 @@ function createWindow(): BrowserWindow {
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void win.loadFile(join(moduleDir, '../renderer/index.html'));
   }
   return win;
 }
