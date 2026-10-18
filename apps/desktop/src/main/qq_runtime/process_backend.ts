@@ -69,6 +69,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     delete env.DYLD_INSERT_LIBRARIES;
     this.child = fork(workerPath, [], {
       execPath,
+      execArgv: [],
       env,
       cwd: options.dataRoot,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],

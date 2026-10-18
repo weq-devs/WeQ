@@ -8,7 +8,10 @@ process.on('message', (message) => {
     options = message.options;
     emit({ type: 'initialized', exportCount: 4 }, 'stale-instance');
     emit({ type: 'initialized', exportCount: 4 }, options.instanceId, process.pid + 100);
-    if (options.device.hostName === 'fail-boot') {
+    if (
+      options.device.hostName === 'fail-boot' ||
+      (options.device.hostName === 'reject-parent-flags' && process.execArgv.length > 0)
+    ) {
       emit(
         { type: 'error', code: 'worker-command', message: 'fixture unsupported', retryable: false },
         options.instanceId,

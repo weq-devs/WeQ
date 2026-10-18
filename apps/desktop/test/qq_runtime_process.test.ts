@@ -41,6 +41,18 @@ async function fixture(hostName = 'fixture') {
 }
 
 describe('独立进程监督（仅本地测试子进程）', () => {
+  it('不继承父进程的调试或内联脚本参数', async () => {
+    const original = [...process.execArgv];
+    try {
+      process.execArgv.push('--input-type=module');
+      const f = await fixture('reject-parent-flags');
+      await f.backend.initialize(new AbortController().signal);
+      await f.backend.close();
+      expect(f.events.at(-1)).toMatchObject({ type: 'exit', code: 0 });
+    } finally {
+      process.execArgv.splice(0, process.execArgv.length, ...original);
+    }
+  });
   it('绑定真实 PID/实例，忽略旧帧，内核就绪不冒充业务能力', async () => {
     const f = await fixture();
     expect(f.backend.pid).toBeGreaterThan(0);
