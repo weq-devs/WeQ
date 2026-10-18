@@ -30,7 +30,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
@@ -47,6 +47,13 @@ import {
 import { GroupJoinBatches, type JoinBatchReport } from './GroupJoinBatches';
 import { GroupConversationGraph, type ConversationGraphReport } from './GroupConversationGraph';
 import { useAnalyticsExport } from './useAnalyticsExport';
+import {
+  GitHubTimeline,
+  PersonWeekCard,
+  RangeTimeline,
+  type RangeSelection,
+} from './conversationTimeline';
+import '../styles/conversation-analytics.css';
 
 /** 排行榜只取前几名 —— 长榜单在这里没人看完，前 10 已经够用。 */
 const RANKING_LIMIT = 10;
@@ -60,6 +67,8 @@ interface RankingItem {
   uin: string;
   displayName: string;
   messageCount: number;
+  /** 所选区间内每周发言数（与 StatsReport.weeks 对齐）。 */
+  weekly?: number[];
 }
 
 interface StatsReport {
@@ -74,6 +83,14 @@ interface StatsReport {
   timeDistribution: Record<number, number>;
   daily: DailyActivityItem[];
   words: WordCloudItem[];
+  range: { startTime: number | null; endTime: number | null; defaulted: boolean };
+  timeline: {
+    firstMessageTime: number | null;
+    lastMessageTime: number | null;
+    daily: DailyActivityItem[];
+    weekly: Array<{ weekStart: string; count: number }>;
+  };
+  weeks: string[];
 }
 
 function avatarUrlOf(uin: string | undefined | null): string | null {
@@ -117,6 +134,25 @@ export function GroupAnalyticsDialog({
   const [report, setReport] = useState<StatsReport | null>(
     (initialData?.report as StatsReport) ?? null,
   );
+  /** 当前时间轴选择；后端首次返回的「最近一年」会回填到这里。 */
+  const [range, setRange] = useState<RangeSelection | null>(() => {
+    const seeded = initialData?.report as StatsReport | undefined;
+    return seeded?.range?.startTime && seeded.range.endTime
+      ? { start: seeded.range.startTime, end: seeded.range.endTime }
+      : null;
+  });
+  /** 区间重算中：只压暗依赖区间的区块，时间轴 / 绿墙保持稳定。 */
+  const [refreshing, setRefreshing] = useState(false);
+  const lastFetchedRangeRef = useRef(
+    (() => {
+      const seeded = initialData?.report as StatsReport | undefined;
+      return seeded?.range?.startTime && seeded.range.endTime
+        ? `${seeded.range.startTime}:${seeded.range.endTime}`
+        : '';
+    })(),
+  );
+  const reportSeqRef = useRef(0);
+  const loadedOnceRef = useRef(Boolean(initialData?.report));
   const [reportError, setReportError] = useState<string | null>(null);
 
   const [batches, setBatches] = useState<JoinBatchReport | null>(
@@ -133,23 +169,46 @@ export function GroupAnalyticsDialog({
   const [batchesLoading, setBatchesLoading] = useState(!initialData?.batches);
   const [graphLoading, setGraphLoading] = useState(!initialData?.graph);
 
-  // 群画像（排行 / 时段 / 热力图 / 词云）：一次扫描的聚合，进卡片只拉这一次。
-  const loadReport = useCallback(async () => {
-    setLoading(true);
-    setReportError(null);
-    try {
-      const r = await client.account.getGroupStatsReport.query({
-        groupCode,
-        rankingLimit: RANKING_LIMIT,
-        wordLimit: WORD_LIMIT,
-      });
-      setReport(r as StatsReport);
-    } catch (e) {
-      setReportError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [groupCode]);
+  // 群画像（排行 / 时段 / 热力图 / 词云 / 时间轴）：一次扫描的聚合。
+  // 不传区间时服务层默认「最近一年」，并把实际区间回传；之后拖动时间轴只传
+  // 新区间重扫，时间轴本身（全历史）每次都会随响应回来，但不会改变。
+  const loadReport = useCallback(
+    async (nextRange: RangeSelection | null) => {
+      const seq = ++reportSeqRef.current;
+      if (!loadedOnceRef.current) setLoading(true);
+      else setRefreshing(true);
+      setReportError(null);
+      try {
+        const r = (await client.account.getGroupStatsReport.query({
+          groupCode,
+          rankingLimit: RANKING_LIMIT,
+          wordLimit: WORD_LIMIT,
+          ...(nextRange
+            ? { startTime: nextRange.start, endTime: nextRange.end, skipTimeline: true }
+            : { recentYear: true }),
+        })) as StatsReport;
+        if (seq !== reportSeqRef.current) return;
+        loadedOnceRef.current = true;
+        // 时间轴 / 绿墙是全历史口径，重算区间时保持**同一份引用**：
+        // 既省一次重绘，也确保它们不会被区间选择带着闪一下。
+        setReport((prev) => (prev ? { ...r, timeline: prev.timeline } : r));
+        lastFetchedRangeRef.current =
+          r.range.startTime && r.range.endTime ? `${r.range.startTime}:${r.range.endTime}` : '';
+        if (!nextRange && r.range.startTime && r.range.endTime) {
+          setRange({ start: r.range.startTime, end: r.range.endTime });
+        }
+      } catch (e) {
+        if (seq !== reportSeqRef.current) return;
+        setReportError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (seq === reportSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [groupCode],
+  );
 
   // 入群批次：只读成员表 + 一条聚合 SQL，很快。
   const loadBatches = useCallback(async () => {
@@ -167,33 +226,57 @@ export function GroupAnalyticsDialog({
   }, [groupCode]);
 
   // 小团体：翻一遍消息时间线（只读发送者 + 时间），比正文扫描便宜。
-  const loadGraph = useCallback(async () => {
-    setGraphLoading(true);
-    setGraphError(null);
-    try {
-      const r = await client.account.getGroupConversationGraph.query({ groupCode });
-      setGraph(r as ConversationGraphReport);
-    } catch (e) {
-      setGraphError(e instanceof Error ? e.message : String(e));
-      setGraph(null);
-    } finally {
-      setGraphLoading(false);
-    }
-  }, [groupCode]);
+  const loadGraph = useCallback(
+    async (nextRange: RangeSelection | null) => {
+      setGraphLoading(true);
+      setGraphError(null);
+      try {
+        const r = await client.account.getGroupConversationGraph.query({
+          groupCode,
+          ...(nextRange ? { startTime: nextRange.start, endTime: nextRange.end } : {}),
+        });
+        setGraph(r as ConversationGraphReport);
+      } catch (e) {
+        setGraphError(e instanceof Error ? e.message : String(e));
+        setGraph(null);
+      } finally {
+        setGraphLoading(false);
+      }
+    },
+    [groupCode],
+  );
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再扫一遍群历史。
   const seeded = Boolean(initialData);
   useEffect(() => {
     if (seeded) return;
-    void loadReport();
+    void loadReport(null);
     void loadBatches();
-    void loadGraph();
-  }, [seeded, loadReport, loadBatches, loadGraph]);
+  }, [seeded, loadReport, loadBatches]);
+
+  // 小团体随区间重算；首次要等 stats 回来、知道默认「最近一年」的区间后再拉。
+  // 空群（没有任何带时间的消息）拿不到区间，这时退回全历史，别让力图永远转圈。
+  const graphRangeRef = useRef('');
+  useEffect(() => {
+    if (seeded) return;
+    const key = range ? `${range.start}:${range.end}` : report ? 'all' : '';
+    if (!key || key === graphRangeRef.current) return;
+    graphRangeRef.current = key;
+    void loadGraph(range);
+  }, [seeded, range, report, loadGraph]);
+
+  // 拖动结束后按新区间重算统计（热力图 / 时间轴不在其中，数据来自全历史）。
+  useEffect(() => {
+    if (seeded || !range) return;
+    const key = `${range.start}:${range.end}`;
+    if (key === lastFetchedRangeRef.current) return;
+    void loadReport(range);
+  }, [seeded, range, loadReport]);
 
   // 首屏：排行/批次先落地就替换骨架屏；会话力图要扫全群历史，单独再等它一会儿。
   const booting = loading || (batchesLoading && !batches);
   // 数据没齐时别导出 —— 舞台上会只剩骨架屏 / 转圈。
-  const busy = booting || graphLoading;
+  const busy = booting || graphLoading || refreshing;
 
   const overview = useMemo(() => {
     if (!report) return null;
@@ -207,10 +290,10 @@ export function GroupAnalyticsDialog({
     };
   }, [report]);
 
-  const range = useMemo(() => {
-    const totals = report?.totals;
-    if (!totals?.firstMessageTime || !totals.lastMessageTime) return null;
-    return { from: formatDate(totals.firstMessageTime), to: formatDate(totals.lastMessageTime) };
+  const dateRange = useMemo(() => {
+    const span = report?.range;
+    if (!span?.startTime || !span.endTime) return null;
+    return { from: formatDate(span.startTime), to: formatDate(span.endTime) };
   }, [report]);
 
   const ranking = report?.ranking ?? null;
@@ -245,7 +328,7 @@ export function GroupAnalyticsDialog({
         <div className="ga-ov-hero-info">
           <strong>{groupName}</strong>
           <span>
-            {range ? `${range.from} — ${range.to}` : '暂无聊天记录'}
+            {dateRange ? `${dateRange.from} — ${dateRange.to}` : '暂无聊天记录'}
             {overview ? ` · 共 ${formatNumber(overview.total)} 条消息` : ''}
           </span>
           <div className="ga-ov-hero-chips">
@@ -270,6 +353,28 @@ export function GroupAnalyticsDialog({
           </div>
         </div>
       </div>
+
+      {/* 时间轴：所选区间周柱状图 + 可拖动的消息曲线（默认最近一年） */}
+      {report ? (
+        <section className="ga-ov-section ca-block">
+          <div className="ca-block-head">
+            <h3>
+              <CalendarDays size={15} />
+              活跃时间轴
+            </h3>
+            <small>所选区间每周一根 · 拖动下方曲线重排</small>
+          </div>
+          <GitHubTimeline weeks={report.timeline.weekly} range={range} />
+          <RangeTimeline
+            weeks={report.timeline.weekly}
+            daily={report.timeline.daily}
+            firstTime={report.timeline.firstMessageTime}
+            lastTime={report.timeline.lastMessageTime}
+            range={range}
+            onChange={setRange}
+          />
+        </section>
+      ) : null}
 
       {/* 概览四个数 */}
       {overview ? (
@@ -317,8 +422,8 @@ export function GroupAnalyticsDialog({
         )}
       </section>
 
-      {/* 小团体：会话拉力力图 */}
-      <section className="ga-ov-section">
+      {/* 小团体：会话拉力力图（随所选区间重算） */}
+      <section className={`ga-ov-section${refreshing || graphLoading ? ' ca-refreshing' : ''}`}>
         <h3>
           <Network size={15} />
           小团体
@@ -333,12 +438,12 @@ export function GroupAnalyticsDialog({
         )}
       </section>
 
-      {/* 发言排行（前 N） */}
-      <section className="ga-ov-section">
+      {/* 发言排行：前 10 名，每人一张周卡（头像 / 昵称 / 每周发言） */}
+      <section className={`ga-ov-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <Medal size={15} />
           发言排行
-          <small>按发言条数 · 前 {RANKING_LIMIT} 名</small>
+          <small>所选区间 · 前 {RANKING_LIMIT} 名 · 每周发言</small>
         </h3>
         {reportError ? (
           <div className="ga-error">{reportError}</div>
@@ -349,37 +454,27 @@ export function GroupAnalyticsDialog({
         ) : ranking.length === 0 ? (
           <p className="ga-placeholder">暂无发言数据</p>
         ) : (
-          <div className="ga-ranking-list">
+          <div className="ca-people">
             {ranking.map((item, idx) => (
-              <div
-                className={`ga-ranking-item${idx === 0 ? ' rank-1' : idx === 1 ? ' rank-2' : idx === 2 ? ' rank-3' : ''}`}
+              <PersonWeekCard
                 key={item.uid}
-              >
-                <span className={`ga-rank-num${idx < 3 ? ' top' : ''}`}>
-                  {idx < 3 ? <Medal size={14} /> : idx + 1}
-                </span>
-                <Avatar name={item.displayName} avatarUrl={avatarUrlOf(item.uin)} seed={item.uid} />
-                <div className="ga-rank-body">
-                  <span className="ga-rank-name" title={item.displayName}>
-                    {item.displayName}
-                  </span>
-                  <span className="ga-rank-track" aria-hidden="true">
-                    <span
-                      className="ga-rank-fill"
-                      style={{
-                        width: `${maxRankCount > 0 ? Math.max((item.messageCount / maxRankCount) * 100, 3) : 0}%`,
-                      }}
-                    />
-                  </span>
-                </div>
-                <span className="ga-rank-count">{formatNumber(item.messageCount)} 条</span>
-              </div>
+                name={item.displayName}
+                avatarUrl={avatarUrlOf(item.uin)}
+                count={item.messageCount}
+                weekly={item.weekly ?? []}
+                rank={idx + 1}
+                subtitle={
+                  maxRankCount > 0
+                    ? `占最高 ${Math.round((item.messageCount / maxRankCount) * 100)}%`
+                    : undefined
+                }
+              />
             ))}
           </div>
         )}
       </section>
 
-      {/* 活跃时段 + 每日热力图 */}
+      {/* 活跃时段（随区间）+ 每日热力图（全历史，不随区间） */}
       <section className="ga-ov-section">
         <h3>
           <Clock size={15} />
@@ -398,18 +493,19 @@ export function GroupAnalyticsDialog({
           </div>
         ) : (
           <>
-            <div className="ga-ov-card">
+            <div className={`ga-ov-card${refreshing ? ' ca-refreshing' : ''}`}>
               <HourlyBarChart data={report.timeDistribution} />
             </div>
+            {/* 绿墙（每日热力图）用**全历史**数据：它不随区间选择变，保持稳定。 */}
             <div className="ga-ov-card">
-              <ContributionHeatmap data={report.daily ?? []} />
+              <ContributionHeatmap data={report.timeline.daily ?? []} />
             </div>
           </>
         )}
       </section>
 
       {/* 群词云 */}
-      <section className="ga-ov-section">
+      <section className={`ga-ov-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <Cloud size={15} />
           群词云

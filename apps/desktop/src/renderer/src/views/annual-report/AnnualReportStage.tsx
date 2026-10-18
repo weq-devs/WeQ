@@ -26,8 +26,8 @@ const WHEEL_IDLE_MS = 220;
  * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
  * 负责滚轮、触摸、键盘三种翻页输入。
  *
- * `guard` 让当前页在翻页发生前截住一次手势（目前没有页面注册，机制为后续需要
- * 「先展开内层、再翻页」的交互页保留）。三种输入都经过 `move`，所以只需问一次。
+ * `guard` 让当前页在翻页发生前截住一次手势（「我的主场」用它转轮盘：转到边界
+ * 才放行翻页）。三种输入都经过 `move`，所以只需问一次。
  */
 export function AnnualReportStage({
   index,
@@ -89,6 +89,45 @@ export function AnnualReportStage({
     return () => observer.disconnect();
   }, []);
 
+  /**
+   * 原生 `wheel` 监听设为 `passive: false` 才能合法 `preventDefault`。React 的
+   * `onWheel` 委托到 passive listener，调用 preventDefault 只会让控制台刷警告，
+   * 也拦不住页面滚动。滚轮翻页本来就是我们自己判定的手势，所以直接接管宿主。
+   */
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    function onWheel(event: WheelEvent): void {
+      event.preventDefault();
+      const now = performance.now();
+      const wheel = wheelRef.current;
+
+      // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
+      if (now - wheel.lastAt > WHEEL_IDLE_MS) {
+        wheel.acc = 0;
+        wheel.fired = false;
+      }
+      wheel.lastAt = now;
+
+      // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
+      if (wheel.fired) return;
+
+      // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
+      if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
+      wheel.acc += event.deltaY;
+
+      if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
+
+      // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
+      const direction = wheel.acc > 0 ? 1 : -1;
+      wheel.acc = 0;
+      wheel.fired = true;
+      move(direction);
+    }
+    host.addEventListener('wheel', onWheel, { passive: false });
+    return () => host.removeEventListener('wheel', onWheel);
+  }, [move]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
@@ -108,34 +147,6 @@ export function AnnualReportStage({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [count, move, onIndexChange]);
-
-  function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
-    event.preventDefault();
-    const now = performance.now();
-    const wheel = wheelRef.current;
-
-    // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
-    if (now - wheel.lastAt > WHEEL_IDLE_MS) {
-      wheel.acc = 0;
-      wheel.fired = false;
-    }
-    wheel.lastAt = now;
-
-    // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
-    if (wheel.fired) return;
-
-    // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
-    if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
-    wheel.acc += event.deltaY;
-
-    if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
-
-    // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
-    const direction = wheel.acc > 0 ? 1 : -1;
-    wheel.acc = 0;
-    wheel.fired = true;
-    move(direction);
-  }
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
     // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
@@ -179,7 +190,6 @@ export function AnnualReportStage({
       ref={hostRef}
       className="weq-report-stage-host"
       tabIndex={0}
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

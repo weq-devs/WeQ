@@ -24,6 +24,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Binary,
   Braces,
@@ -44,6 +45,7 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { DbRepairPanel } from './DbRepairPanel';
@@ -315,6 +317,12 @@ export function WonderfulToolsDialog({
   roamingTarget?: RoamingTarget;
 }): ReactElement | null {
   const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
+  /**
+   * 与 `<Modal>` 共用同一套叠层分配：妙妙工具可能从**别的弹窗里**打开
+   * （数据库损坏提示的「尝试修复」），它不能再用 CSS 里写死的 `z-index: 80`，
+   * 否则会被刚关掉/仍挂着的弹窗层压住，看起来像"窗口被盖在下面"。
+   */
+  const layer = useOverlayLayer(open);
   const toolNavRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (open && activeTool === 'roaming-backfill')
@@ -538,8 +546,13 @@ export function WonderfulToolsDialog({
 
   if (!open) return null;
 
-  return (
-    <div className="weq-wtools-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+  return createPortal(
+    <div
+      className="weq-wtools-layer"
+      role="presentation"
+      style={{ zIndex: layer }}
+      onMouseDown={closeFromScrim(onClose)}
+    >
       <div
         className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${activeTool === 'roaming-backfill' ? ' is-roaming' : ''}`}
         role="dialog"
@@ -1008,6 +1021,7 @@ export function WonderfulToolsDialog({
           </section>
         </div>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }

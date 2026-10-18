@@ -50,7 +50,12 @@ export type {
   VoiceFaceFavorite,
   VoicePicFavorite,
 } from './pages/voice/types';
-export type { HomePageData, HomeGroupTop, HomeTopicWord } from './pages/home/types';
+export type {
+  HomePageData,
+  HomeGroupCard,
+  HomeGroupTop,
+  HomeTopicWord,
+} from './pages/home/types';
 export type {
   InteractionsPerson,
   InteractionsGroupTop,

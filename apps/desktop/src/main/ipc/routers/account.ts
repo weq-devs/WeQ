@@ -3000,12 +3000,20 @@ export const accountRouter = router({
         groupCode: z.string().min(1),
         rankingLimit: z.number().int().min(1).max(100).optional(),
         wordLimit: z.number().int().min(1).max(400).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+        recentYear: z.boolean().optional(),
+        skipTimeline: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
       return requireServices().groupInfo.getGroupStatsReport(BigInt(input.groupCode), {
         rankingLimit: input.rankingLimit,
         wordLimit: input.wordLimit,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        recentYear: input.recentYear,
+        skipTimeline: input.skipTimeline,
       });
     }),
 
@@ -3029,20 +3037,35 @@ export const accountRouter = router({
         groupCode: z.string().min(1),
         windowSeconds: z.number().int().min(30).max(3600).optional(),
         maxEdges: z.number().int().min(20).max(2000).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
       }),
     )
     .query(async ({ input }) => {
       return requireServices().groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
         windowSeconds: input.windowSeconds,
         maxEdges: input.maxEdges,
+        startTime: input.startTime,
+        endTime: input.endTime,
       });
     }),
 
   /** Full one-on-one (private chat) analytics for a single peer. */
   getBuddyAnalytics: procedure
-    .input(z.object({ peerUid: z.string().min(1) }))
+    .input(
+      z.object({
+        peerUid: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+        recentYear: z.boolean().optional(),
+      }),
+    )
     .query(async ({ input }) => {
-      return requireServices().buddyAnalytics.getBuddyAnalytics(input.peerUid);
+      return requireServices().buddyAnalytics.getBuddyAnalytics(input.peerUid, {
+        startTime: input.startTime,
+        endTime: input.endTime,
+        recentYear: input.recentYear,
+      });
     }),
 
   /** Get formatted online status for a user. */

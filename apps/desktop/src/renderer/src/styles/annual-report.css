@@ -4809,6 +4809,335 @@ html[data-theme="dark"] .weq-report-root {
   text-align: center;
 }
 
+/* ── 群聊卡片轮盘（前 8 个群）────────────────────────────────────────
+ * 没有轮盘边界：卡片直接铺在纸面上，靠左右裁切进出。当前卡放大、变实，
+ * 两侧是压低透明度的相邻卡；再远的卡隐藏但仍在轨道上，可以转回来。 */
+
+.weq-home.is-wheel {
+  justify-content: center;
+  gap: 8px;
+}
+
+.weq-home.is-wheel .weq-home-lede {
+  margin-top: 10px;
+}
+
+.weq-home-wheel-viewport {
+  position: relative;
+  width: 100%;
+  height: 288px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.weq-home-wheel-track {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: flex;
+  gap: 18px;
+  padding: 10px 0;
+  transform: translateX(
+    calc(
+      var(--wheel-card-width) / -2 - var(--wheel-index, 0) * var(--wheel-step)
+    )
+  );
+  transition: transform 680ms var(--rp-ease-drop);
+  will-change: transform;
+}
+
+/* 一页只有一张卡时，不参与轮盘定位：交给 flex 中心，避免 fixed 宽度在
+   窄窗口下越界。多卡仍走轮盘轨道。 */
+.weq-home-wheel-track[data-count="1"] {
+  position: relative;
+  left: auto;
+  justify-content: center;
+  transform: none;
+}
+
+.weq-home-wheel-track[data-count="1"] .weq-home-wheel-card {
+  flex-basis: min(336px, 100%);
+  width: min(336px, 100%);
+}
+
+.weq-home-wheel-card {
+  position: relative;
+  display: flex;
+  flex: 0 0 336px;
+  width: 336px;
+  height: 260px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 17px 20px 14px;
+  border: 1px solid var(--rp-hair);
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 90% at 85% -10%, rgba(var(--rp-accent-rgb), 0.12), transparent 58%),
+    color-mix(in srgb, var(--rp-paper) 88%, var(--rp-ink) 4%);
+  box-shadow: 0 10px 26px rgba(var(--rp-accent-rgb), 0.07);
+  opacity: 0.4;
+  transform: scale(0.9);
+  transform-origin: center center;
+  cursor: pointer;
+  transition:
+    opacity 520ms var(--rp-ease-drop),
+    transform 620ms var(--rp-ease-drop),
+    border-color 420ms ease,
+    box-shadow 520ms ease;
+}
+
+.weq-home-wheel-card[data-active="yes"] {
+  z-index: 2;
+  opacity: 1;
+  transform: scale(1.015);
+  border-color: rgba(var(--rp-accent-rgb), 0.36);
+  box-shadow: 0 24px 54px rgba(var(--rp-accent-rgb), 0.16);
+}
+
+.weq-home-wheel-card[data-active="no"]:hover {
+  opacity: 0.66;
+}
+
+.weq-home-wheel-card[data-hidden="yes"] {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.82);
+}
+
+.weq-home-wheel-card[data-champion="yes"][data-active="yes"] {
+  border-color: color-mix(in srgb, var(--rp-warm) 46%, transparent);
+  box-shadow:
+    0 26px 58px rgba(var(--rp-accent-rgb), 0.14),
+    0 0 0 1px color-mix(in srgb, var(--rp-warm) 18%, transparent) inset;
+}
+
+.weq-home-wheel-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.weq-home-wheel-avatar {
+  position: relative;
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--rp-accent) 14%, transparent);
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.weq-home-wheel-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-home-wheel-rank {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif-base);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-home-wheel-card[data-active="yes"] .weq-home-wheel-rank {
+  color: color-mix(in srgb, var(--rp-warm) 72%, var(--rp-ink-faint));
+}
+
+.weq-home-wheel-name {
+  flex: 0 0 auto;
+  min-height: 1.16em;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  position: relative;
+  z-index: 2;
+}
+
+.weq-home-wheel-count {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  height: 58px;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0;
+}
+
+.weq-home-wheel-number {
+  color: var(--rp-warm);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 50px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.weq-home-wheel-count.is-long .weq-home-wheel-number {
+  font-size: 43px;
+}
+
+.weq-home-wheel-count.is-xl .weq-home-wheel-number {
+  font-size: 36px;
+}
+
+.weq-home-wheel-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  line-height: 1;
+}
+
+.weq-home-wheel-unit b {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.weq-home-wheel-unit i {
+  color: var(--rp-ink-faint);
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: 0.24em;
+}
+
+.weq-home-wheel-share {
+  margin-left: auto;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.weq-home-wheel-spark {
+  display: flex;
+  flex: 0 1 48px;
+  min-height: 32px;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 0 1px;
+}
+
+.weq-home-wheel-spark > span {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--rp-accent) 52%, transparent);
+}
+
+.weq-home-wheel-card[data-active="yes"] .weq-home-wheel-spark > span {
+  background: color-mix(in srgb, var(--rp-accent) 74%, transparent);
+}
+
+.weq-home-wheel-spark > span[data-empty="yes"] {
+  background: var(--rp-hair);
+}
+
+.weq-home-wheel-spark-empty {
+  flex: 1;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.weq-home-wheel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.weq-home-wheel-foot b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-home-wheel-sig {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.weq-home-wheel-sig i {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--rp-warm) 26%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--rp-warm) 80%, var(--rp-ink-soft));
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+.weq-home-wheel-caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 8px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.weq-home-wheel-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.weq-home-wheel-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--rp-hair);
+  transition:
+    width 360ms var(--rp-ease-drop),
+    background 240ms ease;
+}
+
+.weq-home-wheel-dots i[data-on="yes"] {
+  width: 18px;
+  background: var(--rp-warm);
+}
+
+.weq-home-wheel-hint {
+  color: var(--rp-ink-faint);
+  letter-spacing: 0.06em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-home-wheel-track,
+  .weq-home-wheel-card,
+  .weq-home-wheel-dots i {
+    transition: none;
+  }
+}
+
 /* 窄画幅：群名与巨数各收一档，让主体仍然有冲击力。 */
 @media (max-width: 1000px) {
   .weq-home-name {
