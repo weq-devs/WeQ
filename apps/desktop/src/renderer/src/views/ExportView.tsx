@@ -829,7 +829,7 @@ export function ExportTool({
         `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
       );
     } else {
-      await dialog.info('批量保存完成', `已保存 ${okCount} 个导出任务。`);
+      dialog.success('批量保存完成', `已保存 ${okCount} 个导出任务。`);
     }
   };
 
@@ -1154,7 +1154,7 @@ export function ExportTool({
       if (exported.failed.length === 0) {
         setAlbumGroupId(null);
         setAlbumExport(null);
-        dialog.info('群相册导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
+        dialog.success('群相册导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
       } else {
         dialog.error(
           '部分相册媒体导出失败',
@@ -1186,7 +1186,7 @@ export function ExportTool({
       if (exported.failed.length === 0) {
         setFileGroupId(null);
         setFileExport(null);
-        dialog.info('群文件导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
+        dialog.success('群文件导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
       } else {
         dialog.error(
           '部分群文件导出失败',
@@ -1347,7 +1347,7 @@ export function ExportTool({
       await client.account.runScheduleNow.mutate({ id: s.id });
       void utils.account.listExportTasks.invalidate();
       void utils.account.listSchedules.invalidate();
-      dialog.info('已触发', '本次导出任务已加入队列，状态在下方任务列表查看。');
+      dialog.success('已触发', '本次导出任务已加入队列，状态在下方任务列表查看。');
     } catch (e) {
       dialog.error('立即运行失败', e instanceof Error ? e.message : String(e));
     }

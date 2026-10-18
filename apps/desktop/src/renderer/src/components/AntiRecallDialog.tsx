@@ -319,7 +319,6 @@ export function AntiRecallDialog({
       className={cn('group-keyword-dialog', 'weq-ar-dialog', embedded && 'is-embedded')}
       role={embedded ? 'region' : 'dialog'}
       aria-label={embedded ? '防撤回设置' : undefined}
-      aria-modal={embedded ? undefined : true}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <header>
@@ -549,7 +548,11 @@ export function AntiRecallDialog({
   return embedded ? (
     content
   ) : (
-    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="panel"
+      className="modal-scrim group-keyword-scrim"
+      onClose={onClose}
+    >
       {content}
     </OverlayLayer>
   );

@@ -250,7 +250,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
   }
 
   return (
-    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
+    <OverlayLayer presentation="popover" className="weq-profile-layer" onClose={onClose}>
       <section
         ref={cardRef}
         className="weq-profile-dialog weq-decoration-card weq-anim-pop"
@@ -259,7 +259,6 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
           width: '90%',
         }}
         role="dialog"
-        aria-modal="true"
         aria-label="消息装扮"
         onMouseDown={(e) => e.stopPropagation()}
       >

@@ -113,6 +113,8 @@ export function DataMaintenanceDialog({
   if (tool === 'cleanup') return <ResourceCleanupDialog open onClose={onClose} />;
   return (
     <Modal
+      presentation="page"
+      title={TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护'}
       onClose={onClose}
       width={1100}
       className="weq-maintenance-dialog"

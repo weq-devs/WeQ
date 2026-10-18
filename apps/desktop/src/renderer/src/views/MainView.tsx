@@ -134,6 +134,7 @@ import {
 import { displayUserName } from '../im-template/template/user';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
+import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
 import { QzoneWorkspace } from './QzoneView';
@@ -2517,6 +2518,7 @@ export function MainView(): ReactElement {
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
     undefined,
@@ -4240,6 +4242,7 @@ export function MainView(): ReactElement {
       // 进入」这些不走本函数的路径也能覆盖到。
       syncDraftsFromPending();
       setArkFeedState(null);
+      setSurfaceNavigation((value) => value + 1);
       shell.selectConversation(conversationId);
     },
     [conversations, shell, syncDraftsFromPending],
@@ -5932,7 +5935,13 @@ export function MainView(): ReactElement {
   useEffect(() => {
     if (!searchQuery && !searchFocused) return undefined;
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
+      if (
+        event.key === 'Escape' &&
+        !event.defaultPrevented &&
+        document.activeElement?.closest(
+          '.weq-titlebar-search, .weq-search-dropdown, .weq-search-history',
+        )
+      ) {
         setSearchDismissed(true);
         setSearchFocused(false);
       }
@@ -7286,6 +7295,7 @@ export function MainView(): ReactElement {
             friendNoticeCount={contactRequests.length}
             groupNoticeCount={groupRequests.length}
             onViewChange={(view) => {
+              setSurfaceNavigation((value) => value + 1);
               // 离开消息页 —— 另一个草稿落库时机。
               if (shell.view === 'messages' && view !== 'messages') {
                 flushAllDirtyDrafts();
@@ -7293,6 +7303,7 @@ export function MainView(): ReactElement {
               shell.switchView(view);
             }}
             onGoHome={() => {
+              setSurfaceNavigation((value) => value + 1);
               if (shell.view === 'messages') {
                 flushAllDirtyDrafts();
               }
@@ -7394,8 +7405,14 @@ export function MainView(): ReactElement {
                       conversationsLoadingMore={contactsLoadingMore}
                       query={shell.query}
                       onSelectConversation={handleSelectConversation}
-                      onSelectContact={shell.selectContact}
-                      onSelectGroup={shell.selectGroup}
+                      onSelectContact={(id) => {
+                        setSurfaceNavigation((value) => value + 1);
+                        shell.selectContact(id);
+                      }}
+                      onSelectGroup={(id) => {
+                        setSurfaceNavigation((value) => value + 1);
+                        shell.selectGroup(id);
+                      }}
                       activateToolsOnSelect={false}
                     />
                     <OverlayScrollbar
@@ -7408,7 +7425,7 @@ export function MainView(): ReactElement {
               </RetainedTabs>
             }
             mainContent={
-              <>
+              <WorkspaceContent>
                 <MailWorkspace
                   key={`mail:${user.identityValue}`}
                   active={shell.view === 'mail'}
@@ -7606,7 +7623,7 @@ export function MainView(): ReactElement {
                     </div>
                   )}
                 </RetainedTabs>
-              </>
+              </WorkspaceContent>
             }
           >
             {mergedPanel && (
@@ -7685,7 +7702,6 @@ export function MainView(): ReactElement {
           />
           <WorkspaceTools
             onOpenComposition={() => setMergeForwardLibraryOpen(true)}
-            hidden={settingsOpen || maintenanceTool !== null}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={() => shell.switchView('annual')}
           />
@@ -8187,7 +8203,14 @@ export function MainView(): ReactElement {
                           .map((conversation) => conversation.id),
                 }}
               >
-                {chatContent}
+                <WorkspacePages
+                  navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
+                  onNavigate={() => {
+                    setSettingsOpen(false);
+                  }}
+                >
+                  {chatContent}
+                </WorkspacePages>
               </ContactDirectoryContext.Provider>
             </ConversationDirectoryContext.Provider>
           </QzoneCardNavigationContext.Provider>

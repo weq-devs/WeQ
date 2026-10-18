@@ -115,11 +115,16 @@ export function GroupAlbumDialog({
   }
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群相册"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       <section
         className="group-album-dialog"
-        role="dialog"
-        aria-modal="true"
+        role="region"
+        aria-label={`${groupName}的群相册`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>

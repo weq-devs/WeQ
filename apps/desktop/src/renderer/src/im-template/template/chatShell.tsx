@@ -1,6 +1,7 @@
 ﻿// @ts-nocheck
 import type { CSSProperties, ReactNode } from 'react';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
+import { useWorkspacePageOpen } from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -97,6 +98,7 @@ export function ChatShell({
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
   } as CSSProperties;
+  const pageOpen = useWorkspacePageOpen();
 
   return (
     <div className={cn('app-shell-root', IS_MAC && 'is-mac')}>
@@ -173,7 +175,9 @@ export function ChatShell({
           </div>
         </aside>
         <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
-        <main className={cn('chat-main', mainOpen && 'chat-main-open')}>{mainContent}</main>
+        <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
+          {mainContent}
+        </main>
       </div>
       {children}
     </div>

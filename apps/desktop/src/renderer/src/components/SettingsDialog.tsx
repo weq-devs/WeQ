@@ -57,6 +57,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { AntiRecallDialog } from './AntiRecallDialog';
+import { WorkspacePage } from './WorkspacePages';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
@@ -338,25 +339,15 @@ export function SettingsDialog({
     }
   }, [open, activeId]);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
-    <div className="weq-settings-layer" role="presentation" onMouseDown={onClose}>
+    <WorkspacePage title="设置" onClose={onClose}>
       <section
         className="weq-settings-dialog"
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-labelledby="weq-settings-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -424,7 +415,7 @@ export function SettingsDialog({
           </div>
         </div>
       </section>
-    </div>
+    </WorkspacePage>
   );
 }
 

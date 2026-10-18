@@ -191,7 +191,7 @@ export function RecalledMessagesModal({
   };
 
   return (
-    <Modal onClose={onClose} width={560} labelledBy="weq-msglist-title">
+    <Modal presentation="panel" onClose={onClose} width={560} labelledBy="weq-msglist-title">
       <div className={cn('weq-deleted', 'weq-recalled')}>
         <header className="weq-compose-head">
           <div className="weq-compose-titlewrap">

@@ -41,7 +41,8 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
-import { closeFromScrim } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
+import { WorkspacePage } from './WorkspacePages';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
@@ -372,20 +373,6 @@ export function WonderfulToolsDialog({
     setScanProgress(null);
   }, []);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onKey(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return;
-      if (scanTarget) {
-        closeResult();
-      } else {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, scanTarget, closeResult, onClose]);
-
   const loadAccounts = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -524,11 +511,13 @@ export function WonderfulToolsDialog({
   if (!open) return null;
 
   return (
-    <div className="weq-wtools-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <WorkspacePage
+      title={TOOLS.find((item) => item.id === activeTool)?.label ?? '诊断工具'}
+      onClose={onClose}
+    >
       <div
         className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}`}
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-labelledby="weq-wtools-title"
       >
         <button className="weq-wtools-close" onClick={onClose} title="关闭" type="button">
@@ -885,15 +874,14 @@ export function WonderfulToolsDialog({
 
       {/* 扫描结果模态窗口：头像 / 昵称 / QQ 号 / PID + 密钥（复制） */}
       {scanTarget ? (
-        <div
+        <OverlayLayer
+          presentation="popover"
           className="weq-wtools-result-layer"
-          role="presentation"
-          onMouseDown={closeFromScrim(closeResult)}
+          onClose={closeResult}
         >
           <section
             className="weq-wtools-result-modal"
             role="dialog"
-            aria-modal="true"
             aria-labelledby="weq-wtools-result-title"
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -975,8 +963,8 @@ export function WonderfulToolsDialog({
               ) : null}
             </div>
           </section>
-        </div>
+        </OverlayLayer>
       ) : null}
-    </div>
+    </WorkspacePage>
   );
 }

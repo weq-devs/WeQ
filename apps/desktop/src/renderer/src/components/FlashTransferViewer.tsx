@@ -351,7 +351,7 @@ export function FlashTransferViewer({
 
   return (
     <>
-      <Modal onClose={onClose} width={520}>
+      <Modal presentation="panel" onClose={onClose} width={520}>
         <div className="weq-ft" {...multi.rootProps}>
           <header className="weq-ft-head">
             <span className="weq-ft-title" title={crumbs[0]?.name}>

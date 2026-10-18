@@ -178,7 +178,7 @@ export function FlashTransferTasksDialog({ onClose }: { onClose: () => void }): 
   const hasFinished = tasks.some((t) => !isActive(t.status));
 
   return (
-    <Modal onClose={onClose} width={560}>
+    <Modal presentation="panel" onClose={onClose} width={560}>
       <div className="weq-ft weq-ft-tasks">
         <header className="weq-ft-head">
           <span className="weq-ft-title">闪传下载任务</span>

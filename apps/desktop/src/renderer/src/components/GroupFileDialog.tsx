@@ -97,11 +97,16 @@ export function GroupFileDialog({
   }, [listing]);
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群文件"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       <section
         className="group-album-dialog group-file-dialog"
-        role="dialog"
-        aria-modal="true"
+        role="region"
+        aria-label={`${groupName}的群文件`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>

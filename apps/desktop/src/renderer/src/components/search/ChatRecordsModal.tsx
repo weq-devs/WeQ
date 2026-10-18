@@ -270,6 +270,7 @@ export function ChatRecordsModal({
 
   return (
     <Modal
+      presentation="panel"
       onClose={() => {
         if (rangeCalendarOpen) setRangeCalendarOpen(false);
         else if (calendarOpen) setCalendarOpen(false);
@@ -336,6 +337,7 @@ export function ChatRecordsModal({
         </div>
         {rangeCalendarOpen && selected ? (
           <Modal
+            presentation="popover"
             onClose={() => setRangeCalendarOpen(false)}
             width={440}
             labelledBy="weq-record-range-title"

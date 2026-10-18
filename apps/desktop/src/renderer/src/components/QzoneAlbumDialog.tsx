@@ -19,6 +19,7 @@
 import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
+import { useToast } from './Toast';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
@@ -637,7 +638,13 @@ export function QzoneAlbumDialog({
   return embedded ? (
     body
   ) : (
-    <Modal onClose={onClose} width={1080} labelledBy="weq-qzone-album-title">
+    <Modal
+      presentation="page"
+      title="空间相册"
+      onClose={onClose}
+      width={1080}
+      labelledBy="weq-qzone-album-title"
+    >
       {body}
     </Modal>
   );
@@ -668,7 +675,7 @@ function AlbumGridView({
   const locked = useRef(false);
   const cancelled = useRef(false);
   const active = useRef(true);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   useEffect(() => {
     active.current = true;
@@ -788,10 +795,11 @@ function AlbumGridView({
       if (failures.length)
         showError('部分相册导出失败', `已保存 ${saved} 个文件。${failures.slice(0, 5).join('；')}`);
       else
-        showInfo(
-          cancelled.current ? '导出已停止' : '导出完成',
-          `已保存 ${saved} 个文件到：${batchRoot}`,
-        );
+        pushToast({
+          tone: cancelled.current ? 'info' : 'success',
+          title: cancelled.current ? '导出已停止' : '导出完成',
+          message: `已保存 ${saved} 个文件到：${batchRoot}`,
+        });
     } catch (error) {
       if (active.current)
         showError('相册导出失败', error instanceof Error ? error.message : String(error));
@@ -933,7 +941,7 @@ function MediaView({
   onLoadMore: () => Promise<boolean>;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
   const [downloading, setDownloading] = useState(false);
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
@@ -1089,7 +1097,11 @@ function MediaView({
       });
       if (res.failed.length === 0) {
         setSelected(new Set());
-        showInfo('下载完成', `已保存 ${res.ok} 个文件到：${res.outputDir}`);
+        pushToast({
+          tone: 'success',
+          title: '下载完成',
+          message: `已保存 ${res.ok} 个文件到：${res.outputDir}`,
+        });
       } else {
         setSelected(new Set());
         showError(

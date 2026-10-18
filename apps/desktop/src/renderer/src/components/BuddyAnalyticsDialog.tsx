@@ -381,8 +381,7 @@ export function BuddyAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ba-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <header>
@@ -426,7 +425,12 @@ export function BuddyAnalyticsDialog({
   if (exportMode) return card;
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="好友分析"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

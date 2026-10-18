@@ -35,10 +35,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
+vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({ DbExplorer: () => '数据库面板' }));
 vi.mock('../src/renderer/src/components/settings/HelpSection', () => ({
   HelpSection: () => '帮助子页面',
 }));
-vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({ DbExplorer: () => '数据库面板' }));
 vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
   DbRepairPanel: ({ currentUin }: { currentUin: string }) => {
     state.repairAccount = currentUin;
@@ -47,11 +47,12 @@ vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
 }));
 vi.mock('../src/renderer/src/views/cache/ResourceAnalyticsDialog', async () => {
   const { createElement } = await import('react');
+  const { WorkspacePage } = await import('../src/renderer/src/components/WorkspacePages');
   return {
     ResourceAnalyticsDialog: ({ onClose }: { onClose: () => void }) =>
       createElement(
-        'div',
-        { role: 'dialog' },
+        WorkspacePage,
+        { title: '存储占用', onClose },
         '存储面板',
         createElement('button', { onClick: onClose }, '返回数据与维护'),
       ),
@@ -59,11 +60,12 @@ vi.mock('../src/renderer/src/views/cache/ResourceAnalyticsDialog', async () => {
 });
 vi.mock('../src/renderer/src/views/cache/ResourceCleanupDialog', async () => {
   const { createElement } = await import('react');
+  const { WorkspacePage } = await import('../src/renderer/src/components/WorkspacePages');
   return {
     ResourceCleanupDialog: ({ onClose }: { onClose: () => void }) =>
       createElement(
-        'div',
-        { role: 'dialog' },
+        WorkspacePage,
+        { title: '清理缓存', onClose },
         '清理面板',
         createElement('button', { onClick: onClose }, '返回数据与维护'),
       ),
@@ -112,7 +114,8 @@ describe('设置的数据与维护', () => {
       expect(help).toBeDefined();
       act(() => help!.click());
       expect(f.host.querySelector('.weq-settings-body')?.textContent).toBe('帮助子页面');
-      expect(f.host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+      expect(f.host.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);
     } finally {
       f.dispose();
     }
@@ -168,7 +171,8 @@ describe('设置的数据与维护', () => {
     );
     try {
       expect(f.host.querySelector('[aria-label="防撤回设置"]')).not.toBeNull();
-      expect(f.host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+      expect(f.host.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);
       expect(f.host.querySelector('.group-keyword-scrim')).toBeNull();
     } finally {
       f.dispose();
@@ -230,7 +234,7 @@ describe('设置的数据与维护', () => {
     }
   });
   it.each(['database', 'storage', 'cleanup', 'db-repair'] as const)(
-    '%s 从设置进入工具后只有一层对话框，关闭返回原设置分区',
+    '%s 从设置进入工具后只有一个内容页且不遮罩，关闭返回原设置分区',
     (tool) => {
       function Harness() {
         const [settings, setSettings] = useState(true);
@@ -263,8 +267,16 @@ describe('设置的数据与维护', () => {
         const index = ['database', 'storage', 'cleanup', 'db-repair'].indexOf(tool);
         act(() => entries(f.host)[index]!.click());
         expect(f.host.querySelector('.weq-settings-dialog')).toBeNull();
-        expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+        if (tool === 'storage' || tool === 'cleanup') {
+          expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+        } else {
+          expect(
+            document.querySelectorAll('.weq-workspace-page .weq-maintenance-dialog'),
+          ).toHaveLength(1);
+          expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+        }
         if (tool === 'db-repair') expect(state.repairAccount).toBe('10001');
+        expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
         const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
           (button) =>
             button.getAttribute('aria-label') === '返回数据与维护' ||
@@ -274,7 +286,8 @@ describe('设置的数据与维护', () => {
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
           '数据与存储',
         );
-        expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+        expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+        expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);
       } finally {
         f.dispose();
       }

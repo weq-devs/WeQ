@@ -169,7 +169,7 @@ export function DeletedMessagesModal({
   }
 
   return (
-    <Modal onClose={onClose} width={560} labelledBy="weq-deleted-title">
+    <Modal presentation="panel" onClose={onClose} width={560} labelledBy="weq-deleted-title">
       <div className="weq-deleted">
         <header className="weq-compose-head">
           <div className="weq-compose-titlewrap">

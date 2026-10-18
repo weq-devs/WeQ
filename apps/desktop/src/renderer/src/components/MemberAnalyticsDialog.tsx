@@ -263,8 +263,7 @@ export function MemberAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ma-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       aria-label={`${member.name} 在 ${groupName} 的聊天分析`}
       onMouseDown={(event) => event.stopPropagation()}
     >
@@ -311,7 +310,12 @@ export function MemberAnalyticsDialog({
   if (exportMode) return card;
 
   return (
-    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="成员分析"
+      className="weq-profile-layer weq-mutual-layer"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

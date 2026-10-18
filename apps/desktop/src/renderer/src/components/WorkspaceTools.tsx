@@ -103,9 +103,10 @@ export function WorkspaceTools({
         expandKey={selection ? `${selection.owner.kind}:${selection.owner.container}` : undefined}
       />
       <Modal
+        presentation="modal"
         open={open}
         onClose={close}
-        width={1000}
+        width={tool === 'tasks' ? 560 : 1000}
         className="weq-tools-modal"
         labelledBy="weq-tools-title"
       >

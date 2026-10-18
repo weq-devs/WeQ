@@ -1,4 +1,4 @@
-.weq-notice-dialog[role="dialog"] {
+.weq-notice-dialog {
   box-sizing: border-box;
   width: min(560px, calc(100vw - 24px));
   height: min(620px, calc(100dvh - 48px));

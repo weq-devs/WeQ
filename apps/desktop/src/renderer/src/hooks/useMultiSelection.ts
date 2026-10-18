@@ -9,7 +9,6 @@ import {
   type PointerEvent,
 } from 'react';
 import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
-import { hasActiveModal } from '../lib/overlayStack';
 import '../styles/multi-selection.css';
 
 let keyboardOwner: HTMLElement | null = null;
@@ -243,8 +242,8 @@ export function useMultiSelection<K extends string | number>({
         target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')
       )
         return;
-      const ownDialog = element.closest('[role="dialog"]');
-      if (target.closest('[role="dialog"]') !== ownDialog && hasActiveModal()) return;
+      const surfaceSelector = '[role="dialog"], [role="tabpanel"]';
+      if (target.closest(surfaceSelector) !== element.closest(surfaceSelector)) return;
       latestCommand.current(event);
     };
     document.addEventListener('keydown', listener);

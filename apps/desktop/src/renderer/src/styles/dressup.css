@@ -148,6 +148,34 @@
   background: rgba(0, 0, 0, 0.07);
 }
 
+.weq-nonmodal-layer .weq-dress-head,
+.weq-nonmodal-layer .weq-dress-kinds,
+.weq-nonmodal-layer .weq-dress-toolbar,
+.weq-nonmodal-layer .weq-dress-toolbar-right {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weq-nonmodal-layer .weq-dress-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.weq-nonmodal-layer .weq-dress-kinds {
+  flex: 1 1 100%;
+}
+
+.weq-nonmodal-layer .weq-dress-search input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+
+.weq-nonmodal-layer .weq-dress-toolbar-right {
+  margin-left: 0;
+}
+
 /* ===== 工具栏：已装筛选 + 渲染范围 + 取消当前 ===== */
 .weq-dress-toolbar {
   display: flex;

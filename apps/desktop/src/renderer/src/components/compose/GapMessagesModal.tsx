@@ -154,7 +154,7 @@ export function GapMessagesModal({
   }, [sentinelVisible, loadMore]);
 
   return (
-    <Modal onClose={onClose} width={520} labelledBy="weq-gap-messages-title">
+    <Modal presentation="panel" onClose={onClose} width={520} labelledBy="weq-gap-messages-title">
       {/* 缺失消息窗口不允许回复引用的点击跳转（状态太乱），用 noop 盖掉宿主的
           jumpToSeq，ReplyQuote 拿到后点了也不动。 */}
       <ReplyJumpContext.Provider value={noop}>

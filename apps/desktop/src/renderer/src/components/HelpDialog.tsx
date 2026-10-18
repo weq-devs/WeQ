@@ -6,7 +6,7 @@
 import type { ReactElement } from 'react';
 import { HelpCircle, X } from 'lucide-react';
 import { HelpSection } from './settings/HelpSection';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { WorkspacePage } from './WorkspacePages';
 
 export function HelpDialog({
   open,
@@ -15,16 +15,13 @@ export function HelpDialog({
   open: boolean;
   onClose: () => void;
 }): ReactElement | null {
-  useEscapeToClose(onClose);
-
   if (!open) return null;
 
   return (
-    <div className="weq-help-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <WorkspacePage title="帮助" onClose={onClose}>
       <section
         className="weq-help-dialog"
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-labelledby="weq-help-dialog-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -47,6 +44,6 @@ export function HelpDialog({
           <HelpSection />
         </div>
       </section>
-    </div>
+    </WorkspacePage>
   );
 }

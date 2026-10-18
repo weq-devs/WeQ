@@ -23,6 +23,7 @@ import { X, Copy, Save, Binary, Braces } from 'lucide-react';
 import { buildEditTree, encodeEditTree, PbEncodeError, type PbNode } from '@weq/codec/raw';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobProtoTree } from './BlobProtoTree';
+import { OverlayLayer } from '../../components/OverlayLayer';
 
 /** Bytes beyond this render as read-only spans (too many inputs to be usable). */
 const MAX_EDIT_BYTES = 2048;
@@ -147,7 +148,7 @@ export function BlobHexModal({
   }
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer presentation="panel" className="weq-blob-overlay" onClose={onClose}>
       <div
         className={`weq-blob-dialog${isProto ? ' is-proto' : ''}`}
         role="dialog"
@@ -310,7 +311,7 @@ export function BlobHexModal({
           ) : null}
         </footer>
       </div>
-    </div>
+    </OverlayLayer>
   );
 }
 

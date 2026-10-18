@@ -551,7 +551,7 @@ export function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={() => setOpen(false)} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">

@@ -24,7 +24,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
+import { WorkspacePage } from '../../components/WorkspacePages';
 import {
   X,
   Loader2,
@@ -229,16 +229,6 @@ export function ResourceCleanupDialog({
     }
   }, [open, scan, resetState]);
 
-  // ESC to close (except mid-run — don't lose a delete in flight).
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && stage !== 'running') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose, stage]);
-
   const totalBytes = useMemo(() => targets.reduce((s, t) => s + t.bytes, 0), [targets]);
 
   // Custom selection → instruction list.
@@ -309,17 +299,16 @@ export function ResourceCleanupDialog({
     setCustomSel((prev) => ({ ...prev, [id]: variant }));
   };
 
-  return createPortal(
-    <div
-      className="weq-ra-layer weq-anim-fade"
-      onMouseDown={() => {
+  return (
+    <WorkspacePage
+      title="清理缓存"
+      onClose={() => {
         if (stage !== 'running') onClose();
       }}
     >
       <div
         className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
         role="dialog"
-        aria-modal="true"
         aria-label="清理本地资源"
         {...multi.rootProps}
         onMouseDown={(e) => e.stopPropagation()}
@@ -407,8 +396,7 @@ export function ResourceCleanupDialog({
           ) : null}
         </div>
       </div>
-    </div>,
-    document.body,
+    </WorkspacePage>
   );
 }
 

@@ -434,8 +434,7 @@ export function GroupAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ga-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       aria-label={`${groupName} 的群聊分析`}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -472,7 +471,12 @@ export function GroupAnalyticsDialog({
   if (exportMode) return card;
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群聊分析"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

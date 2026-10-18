@@ -9,19 +9,14 @@
  * resolve their Promise with the user's choice so call sites can `await`.
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { WorkspacePage } from './WorkspacePages';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -136,6 +131,8 @@ export function Modal({
   className,
   layerClassName,
   open = true,
+  presentation = 'modal',
+  title,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -147,34 +144,51 @@ export function Modal({
   layerClassName?: string;
   /** 关闭时保留子树，后台任务和工具内会话不因遮罩收起而销毁。 */
   open?: boolean;
+  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar';
+  title?: string;
 }): ReactElement | null {
   const tabActive = useTabActive();
   const active = tabActive && open;
   const layer = useOverlayLayer(active);
-
-  useLayoutEffect(() => {
-    if (!active || typeof document === 'undefined' || !onClose) return;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose?.();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [active, onClose]);
+  const ref = useRef<HTMLDivElement>(null);
+  useSurfaceEscape(
+    ref,
+    onClose,
+    active && presentation !== 'page' && presentation !== 'sidecar',
+    presentation === 'modal',
+  );
 
   if (typeof document === 'undefined') return null;
+  if (presentation === 'page' || presentation === 'sidecar')
+    return active ? (
+      <WorkspacePage
+        title={title ?? '详情'}
+        onClose={onClose}
+        placement={presentation === 'sidecar' ? 'sidecar' : 'main'}
+      >
+        <div
+          className={`weq-modal${className ? ` ${className}` : ''}`}
+          aria-labelledby={labelledBy}
+        >
+          {children}
+        </div>
+      </WorkspacePage>
+    ) : null;
 
   return createPortal(
     <div
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}`}
+      ref={ref}
+      tabIndex={-1}
+      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}`}
       hidden={!active}
       inert={!active}
       style={{ zIndex: layer, display: active ? undefined : 'none' }}
-      onMouseDown={onClose}
+      onMouseDown={presentation === 'modal' ? onClose : undefined}
     >
       <div
         className={`weq-modal weq-anim-pop${className ? ` ${className}` : ''}`}
         role="dialog"
-        aria-modal="true"
+        aria-modal={presentation === 'modal' ? true : undefined}
         {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}
         style={width ? { width } : undefined}
         onMouseDown={(event) => event.stopPropagation()}
@@ -205,6 +219,9 @@ export function DialogHost(): ReactElement | null {
 
   return (
     <Modal
+      presentation={
+        current.confirm || current.password || !current.dismissible ? 'modal' : 'popover'
+      }
       onClose={handleClose}
       labelledBy="weq-dialog-title"
       width={368}

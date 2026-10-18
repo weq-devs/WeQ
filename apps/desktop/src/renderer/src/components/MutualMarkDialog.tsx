@@ -83,11 +83,14 @@ export function MutualMarkDialog({
   const categories = (data?.categories ?? []).filter((cat) => cat.marks.length > 0);
 
   return (
-    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="panel"
+      className="weq-profile-layer weq-mutual-layer"
+      onClose={onClose}
+    >
       <section
         className="weq-mutual-dialog weq-anim-pop"
         role="dialog"
-        aria-modal="true"
         aria-label={`${name} 的互动标识`}
         onMouseDown={(event) => event.stopPropagation()}
       >

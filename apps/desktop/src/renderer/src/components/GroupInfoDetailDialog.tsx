@@ -41,11 +41,15 @@ export function GroupInfoDetailDialog({
   ].filter(Boolean) as string[][];
 
   return (
-    <OverlayLayer className="modal-scrim group-info-detail-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群资料"
+      className="modal-scrim group-info-detail-scrim"
+      onClose={onClose}
+    >
       <section
         className={cn('group-info-detail-dialog')}
         role="dialog"
-        aria-modal="true"
         aria-label={groupInfoDetailTitle(detail)}
         onMouseDown={(event) => event.stopPropagation()}
       >

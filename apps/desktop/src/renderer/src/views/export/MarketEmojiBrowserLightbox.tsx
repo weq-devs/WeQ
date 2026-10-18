@@ -15,6 +15,7 @@ import { Search, Store, X, RefreshCw, Loader2, SmilePlus, Download } from 'lucid
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { WorkspacePage } from '../../components/WorkspacePages';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -193,15 +194,6 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // ESC 关闭。
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   // 防抖：输入停 300ms 落到 query。
   useEffect(() => {
     const t = setTimeout(() => setQuery(input.trim()), 300);
@@ -306,10 +298,10 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   };
 
   return (
-    <div className="weq-blob-overlay weq-anim-fade" role="presentation" onMouseDown={onClose}>
+    <WorkspacePage title="商城表情" onClose={onClose}>
       <div
         className="weq-blob-dialog weq-emb-dialog"
-        role="dialog"
+        role="region"
         aria-label="商城表情浏览"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -425,6 +417,6 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
           </div>
         </div>
       </div>
-    </div>
+    </WorkspacePage>
   );
 }

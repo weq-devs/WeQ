@@ -85,7 +85,13 @@ export function UnifiedSearchModal({
   }, [data, keyword, loading, loadingMore, fetchPage]);
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-search-more-title" width={760}>
+    <Modal
+      presentation="page"
+      title="搜索结果"
+      onClose={onClose}
+      labelledBy="weq-search-more-title"
+      width={760}
+    >
       <div className="weq-search-more-modal">
         <div className="weq-search-more-head">
           <h3 id="weq-search-more-title" className="weq-search-more-title">

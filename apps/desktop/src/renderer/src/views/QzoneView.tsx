@@ -658,6 +658,7 @@ export function QzoneView({
       {workspace}
       {settingsOpen && active ? (
         <Modal
+          presentation="panel"
           onClose={() => setSettingsOpen(false)}
           width={760}
           labelledBy="weq-qzone-settings-title"

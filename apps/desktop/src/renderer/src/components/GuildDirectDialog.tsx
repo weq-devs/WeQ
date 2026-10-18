@@ -498,7 +498,13 @@ export function GuildDirectDialog({
   return embedded ? (
     content
   ) : (
-    <Modal onClose={onClose} width={1120} labelledBy="weq-guild-direct-title">
+    <Modal
+      presentation="page"
+      title="频道私聊"
+      onClose={onClose}
+      width={1120}
+      labelledBy="weq-guild-direct-title"
+    >
       {content}
     </Modal>
   );

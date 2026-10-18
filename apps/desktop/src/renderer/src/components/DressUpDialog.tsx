@@ -48,7 +48,7 @@ import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '.
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
 import '../styles/dressup.css';
 
 type DressKind = 'bubble' | 'font' | 'widget' | 'background';
@@ -183,7 +183,6 @@ function DressListSkeleton(): ReactElement {
 export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
-  useEscapeToClose(onClose);
 
   const [kind, setKind] = useState<DressKind>('bubble');
   /** 输入框里的草稿。提交(回车 / 失焦)后才变成 keyword,避免每敲一个字打一次接口。 */
@@ -793,13 +792,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   }
 
   return (
-    <div className="weq-dress-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <div
-        className="weq-dress-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="weq-dress-title"
-      >
+    <OverlayLayer presentation="panel" className="weq-dress-layer" onClose={onClose}>
+      <div className="weq-dress-dialog" role="dialog" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
         </button>
@@ -949,6 +943,6 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
         ) : null}
       </div>
-    </div>
+    </OverlayLayer>
   );
 }

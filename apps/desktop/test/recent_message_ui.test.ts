@@ -18,6 +18,8 @@ import { QqArk } from '../src/renderer/src/components/ark/QqArk';
 import { QqDynamic } from '../src/renderer/src/components/QqDynamic';
 import { QzoneCardNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
+import { Modal } from '../src/renderer/src/components/Dialog';
+import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -60,6 +62,54 @@ function button(host: ParentNode, name: string) {
   return value;
 }
 describe('新增消息交互', () => {
+  it('会话资源占用右侧时临时收起旧群资料栏，关闭后恢复且不重建聊天', () => {
+    const fixture = mount();
+    const demo = createTemplateDemoData();
+    localStorage.setItem('chat-template.layout.groupInfoCollapsed', '0');
+    function View() {
+      const [open, setOpen] = useState(true);
+      return h(
+        WorkspacePages,
+        { navigationKey: 'conversation' },
+        h(
+          WorkspaceContent,
+          null,
+          h(ChatPane, {
+            user: demo.user,
+            conversation: demo.conversations.find((item) => item.type === 'group'),
+            messages: [],
+            loading: false,
+            draft: '保留正文',
+            onSend: vi.fn(),
+            onDraftChange: vi.fn(),
+            onDraftClear: vi.fn(),
+            onBack: vi.fn(),
+          }),
+        ),
+        open &&
+          h(
+            Modal,
+            { presentation: 'sidecar', title: '群文件', onClose: () => setOpen(false) },
+            h('div', null, '合成资源'),
+          ),
+      );
+    }
+    try {
+      fixture.render(h(View));
+      const chat = fixture.host.querySelector('.chat-pane')!;
+      expect(chat.classList.contains('group-info-collapsed')).toBe(true);
+      expect(chat.querySelector('.group-info-panel')).toBeNull();
+      expect(localStorage.getItem('chat-template.layout.groupInfoCollapsed')).toBe('0');
+      act(() =>
+        fixture.host.querySelector<HTMLButtonElement>('[aria-label="关闭群文件"]')!.click(),
+      );
+      expect(fixture.host.querySelector('.chat-pane')).toBe(chat);
+      expect(chat.classList.contains('group-info-collapsed')).toBe(false);
+      expect(chat.querySelector('.group-info-panel')).not.toBeNull();
+    } finally {
+      fixture.close();
+    }
+  });
   it('会话四按钮、默认真实和虚拟、范围切换、搜索、添加和多选复用普通行', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();

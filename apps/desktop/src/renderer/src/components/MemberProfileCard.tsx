@@ -236,6 +236,7 @@ export function MemberProfileCard({
 
   return (
     <OverlayLayer
+      presentation="popover"
       className="weq-member-pop-scrim"
       style={{ display: dismissed ? 'none' : undefined }}
       onClose={onClose}
@@ -250,7 +251,6 @@ export function MemberProfileCard({
           opacity: pos.ready ? 1 : 0,
         }}
         role="dialog"
-        aria-modal="true"
         aria-label="用户资料"
         onMouseDown={(event) => event.stopPropagation()}
       >

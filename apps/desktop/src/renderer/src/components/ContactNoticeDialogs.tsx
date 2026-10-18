@@ -31,11 +31,16 @@ export function ContactNoticeDialog({
   onClose: () => void;
 }) {
   return (
-    <OverlayLayer className="weq-profile-layer weq-notice-layer" open={open} onClose={onClose}>
+    <OverlayLayer
+      presentation="page"
+      title="好友通知"
+      className="weq-profile-layer weq-notice-layer"
+      open={open}
+      onClose={onClose}
+    >
       <section
         className="weq-notice-dialog weq-anim-pop"
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-label="好友通知"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -159,11 +164,16 @@ export function GroupNoticeDialog({
   onClose: () => void;
 }) {
   return (
-    <OverlayLayer className="weq-profile-layer weq-notice-layer" open={open} onClose={onClose}>
+    <OverlayLayer
+      presentation="page"
+      title="群通知"
+      className="weq-profile-layer weq-notice-layer"
+      open={open}
+      onClose={onClose}
+    >
       <section
         className="weq-notice-dialog weq-anim-pop"
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-label="群通知"
         onMouseDown={(event) => event.stopPropagation()}
       >

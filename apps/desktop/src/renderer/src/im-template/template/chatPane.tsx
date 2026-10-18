@@ -2,6 +2,7 @@
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
+import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import {
   AudioLines,
   BarChart3,
@@ -575,6 +576,7 @@ export function ChatPane({
     ),
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
+  const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -3566,7 +3568,9 @@ export function ChatPane({
       className={cn(
         'chat-pane',
         conversation.type === 'group' ? 'with-group-info' : '',
-        conversation.type === 'group' && groupInfoCollapsed ? 'group-info-collapsed' : '',
+        conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
+          ? 'group-info-collapsed'
+          : '',
         composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
         selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
@@ -3977,17 +3981,19 @@ export function ChatPane({
 
       {conversation.type === 'group' ? (
         <>
-          <button
-            className={cn('group-info-toggle')}
-            type="button"
-            title={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
-            aria-label={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
-            aria-expanded={!groupInfoCollapsed}
-            onClick={toggleGroupInfoCollapsed}
-          >
-            {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-          </button>
-          {!groupInfoCollapsed ? (
+          {!sidecarOpen ? (
+            <button
+              className={cn('group-info-toggle')}
+              type="button"
+              title={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
+              aria-label={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
+              aria-expanded={!groupInfoCollapsed}
+              onClick={toggleGroupInfoCollapsed}
+            >
+              {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+            </button>
+          ) : null}
+          {!groupInfoCollapsed && !sidecarOpen ? (
             <GroupInfoPanel
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}

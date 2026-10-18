@@ -43,11 +43,15 @@ export function GroupLeftMembersDialog({
   const rows = members.filter((member) => String(member.id ?? '').trim() !== '');
 
   return (
-    <OverlayLayer className={cn('modal-scrim', 'group-info-detail-scrim')} onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="已退群成员"
+      className={cn('modal-scrim', 'group-info-detail-scrim')}
+      onClose={onClose}
+    >
       <section
         className={cn('group-info-detail-dialog')}
         role="dialog"
-        aria-modal="true"
         aria-label="已退群成员"
         onMouseDown={(event) => event.stopPropagation()}
       >

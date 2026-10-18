@@ -108,11 +108,15 @@ export function ConversationSettingsDialog({
   }
 
   return (
-    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="会话设置"
+      className="modal-scrim group-keyword-scrim"
+      onClose={onClose}
+    >
       <section
         className="weq-cvs-dialog"
         role="dialog"
-        aria-modal="true"
         aria-label="会话设置"
         onMouseDown={(e) => e.stopPropagation()}
       >
