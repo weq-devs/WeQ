@@ -4,17 +4,14 @@
 
 ## 1. 范围与结论
 
-本文汇总本轮实际查到的腾讯公开前端请求模块、WeQ 源码，以及 QZoneExport、QzonePhoto、onebot-qzone、qq_zone_api、QZoneKit 的接口定义、调用参数和研究笔记。
+本文保留腾讯前端模块和固定版本第三方实现中的请求线索。实际产品接入查 `packages/service/src/account/web/qzone*.ts` 与[读取边界](qzone-reader-enhancements-20261015.md)，不在此重复维护易过时的“已接入/开发中”清单。
 
 按用途及请求变体编排了 **53 条读取配方、24 条写入配方、9 条旧版/移动端备选、15 条仅登记的接口线索和 2 条地图辅助接口**。这是 103 条研究索引，不是 103 个相互独立且已经验证可用的服务端接口。同一个 URL 的不同对象、参数和用途会分列；同一能力也可能存在不同域名或版本。
 
-- “已接入”仅表示调查时 WeQ 有对应源码调用，不替代当前版本、真实账号、完整性或 GUI 验收。
-- “开发中”指主线程正在修改的空间统计和浏览量代码，本文件不认定它们已经完成、提交、构建或上线。
-- “未接入”指未在调查范围内找到 WeQ 对应的空间 Web 调用；不代表 QQ 本地数据库或其他模块没有相近能力。
 - “源码调用”表示找到了具体构造请求的代码；“仅登记”表示只有接口名或路由线索，参数不足，不能据此生成可执行请求。
-- 本轮只读源码和文档，**没有调用真实 QQ 账号、没有读取聊天库、没有探测私人空间或执行写入接口**。
+- 来源版本与端点可用性分开：固定源码只能证明当时有调用，不能保证现网成功；[Live Photo 调查](qzone-live-photo-investigation-20261015.md)另有有限实测结论。
 - 不声称穷尽 QQ 空间所有内部接口。网页登录、二维码、腾讯登录平台、遥测广告、静态资源和第三方 SDK 的全部接口不属于本业务清单；已发现的媒体备用上传和地图辅助路径仍列在附录。
-- 接口清单不等于开发授权。WeQ 仍可只选只读能力；删除、编辑、点赞、发布等列出来是为了识别边界，不建议默认加入查看/导出工具。
+- 写接口清单仅用于辨认副作用，不表示产品提供这些操作。
 
 ### 1.1 来源版本
 
@@ -26,7 +23,7 @@
 | H | [HuanXinToolkit/qq_zone_api](https://github.com/HuanXinToolkit/qq_zone_api/tree/32e008355eef634530089bd9fcc2efd914093e66)，`32e008355eef634530089bd9fcc2efd914093e66` | [api_zone.py](https://github.com/HuanXinToolkit/qq_zone_api/blob/32e008355eef634530089bd9fcc2efd914093e66/qzone_api/api/api_zone.py)、[api_feed.py](https://github.com/HuanXinToolkit/qq_zone_api/blob/32e008355eef634530089bd9fcc2efd914093e66/qzone_api/api/api_feed.py)、[api_parms.py](https://github.com/HuanXinToolkit/qq_zone_api/blob/32e008355eef634530089bd9fcc2efd914093e66/qzone_api/api/api_parms.py)、[api_base.py](https://github.com/HuanXinToolkit/qq_zone_api/blob/32e008355eef634530089bd9fcc2efd914093e66/qzone_api/api/api_base.py) |
 | K | [ainiaidaochediwangji/QZoneKit](https://github.com/ainiaidaochediwangji/QZoneKit/tree/e3a3d7baeac5a3a8c401deee4604665ad0409ebc)，`e3a3d7baeac5a3a8c401deee4604665ad0409ebc` | [API_NOTES.md](https://github.com/ainiaidaochediwangji/QZoneKit/blob/e3a3d7baeac5a3a8c401deee4604665ad0409ebc/API_NOTES.md)、[visitors.py](https://github.com/ainiaidaochediwangji/QZoneKit/blob/e3a3d7baeac5a3a8c401deee4604665ad0409ebc/qzone/visitors.py) |
 | T | 腾讯公开静态脚本，无 Git 版本；本轮下载成功并记录下方正文哈希 | [MoodRequest 3.0](https://qzs.qq.com/qzone/app/requests/moodRequest/moodRequest_3.0.js)、[RetweetListViewModel 3.0](https://qzs.qq.com/qzone/app/controls/retweetList/retweetListViewModel/retweetListViewModel_3.0.js)、[Mood 模型 3.0](https://qzs.qq.com/qzone/app/models/mood/mood_3.0.js) |
-| W | 本机 WeQ，调查初次读取时 Git HEAD 为 `24ebe80df17102b2bbc5548f1f62dc2c516ae6f4`，当时另有主线程未提交修改；是观察快照，不是持续状态监控 | `packages/service/src/account/web/`、`apps/desktop/src/main/ipc/routers/qzone.ts`、`apps/desktop/src/renderer/src/views/QzoneView.tsx` |
+| W | WeQ 调查时源码快照 `24ebe80d`；仅作配方来源，不代表当前接入状态 | `packages/service/src/account/web/`、`apps/desktop/src/main/ipc/routers/qzone.ts`、`apps/desktop/src/renderer/src/views/QzoneView.tsx` |
 
 腾讯脚本的 SHA-256（对本轮取得的文本进行 UTF-8 编码后计算，不是压缩 HTTP 传输字节）：
 
@@ -92,86 +89,86 @@ https://h5.qzone.qq.com/proxy/domain/<domain><path>
 
 ### 3.1 说说、详情、媒体与互动
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R01 | 说说列表：`U(taotao.qq.com, /cgi-bin/emotion_cgi_msglist_v6)` | `uin=T, ftype=0, sort=0, pos=0, num=20, code_version=1, format=json`；E 还传 `replynum, need_private_comment, qzonetoken` | `msglist, total, usrinfo`；正文/媒体可能截断，内嵌评论不等于全量；`msglist=null` 要另核身份，不能一律为空空间 | E/P/H/W；已接入 |
-| R02 | 完整说说：`U(taotao.qq.com, /cgi-bin/emotion_cgi_msgdetail_v6)` | E `messageFullContent`：`tid, uin=T, hostuin=L, t1_source=1, not_trunc_con=1, code_version=1, format=jsonp` | 目标是完整正文/详情；需要核原响应的完整性标记，不能把列表回退结果当全文 | E；未接入 |
-| R03 | 旧详情变体：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_getdetailv6)`，GET/POST | O 以 `uin=T, tid, hostuin=L, format=json` 请求，部分变体加 `qzonetoken, qzreferrer` | O 有失败冷却及列表/动态回退；与 R02 是不同路径，不能据函数名当同一已验证服务 | O；未接入 |
-| R04 | 说说附图补全：`U(taotao.qq.com, /cgi-bin/emotion_cgi_get_pics_v6)` | `uin=T, tid, t1_source=1, g_tk, qzonetoken`，E `messageImageInfos` | 用于追加图片定位信息；需对照已知 `pictotal`、顺序、重复和本体/预览差别 | E；未接入 |
-| R05 | 语音地址解析：`U(snsapp.qzone.qq.com, /cgi-bin/sound/GetVoice)` | E 将原始 `voice.url` 的查询参数解析后传入；不从 tid 猜参数 | 真实参数依赖原始语音引用；文档未取得可承诺的统一返回 schema；播放/原件可得性未验证 | E；未接入，W 只保留部分语音原字段 |
-| R06 | 转发名单：`U(taotao.qq.com, /cgi-bin/emotion_cgi_get_fullrelay_v6)` | `uin=T, tid, t1_source=1, pos, count, show=1, code_version=1` | `post[].owner, t2_tid, content, createTime, total, total4show`；原文 `rtlist` 不是转发者名单，两个总数分别保留 | T/W；已接入 |
-| R07 | 结构化说说评论/回复：`H5(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_getcmtreply_v6)`；P/E 用 U 网关 | W `uin=L, hostUin=T, topicId=T_tid, start, num=50, order=0, need_private_comment=1, format=jsonp` | 根评论和回复字段分别核验；根评数、回复数、界面总评论数口径不同；`need_private_comment=1` 不授予额外权限 | E/P/W；已接入 |
-| R08 | 动态内评论 HTML：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_ic_getcomments)`，POST 读取 | P `topicId` 取动态 HTML 的 `data-topicid`（可含 `__1`），`hostUin=T, uin=L, feedsType=8, start, num, sort, source=ic, format=fs, paramstr=1, isfakereq=1` | `ret, needVerify, result.feeds` 等，返回评论 HTML；不能把 HTML 的 `data-feedstype=100` 直接填成 `feedsType`，也不能靠 POST 推断为写评论 | P；未直接接入 |
-| R09 | 点赞/评论/浏览等计数：`U(r.qzone.qq.com, /cgi-bin/user/qz_opcnt2)` | W 单条说说使用两份 mood URL 以 `<.>` 连接的 `unikey`，带 `face=0, fupdate=1`；普通动态应沿用自己的 `curkey` | `data[].current.newdata` 中 `LIKE, CS, CP, PRD, ZS` 为各类计数线索；`likedata.cnt/list` 为名单证据；字段缺失不补零，需核对象 key | E/O/W；计数及名单已接入，浏览量开发中 |
-| R10 | 可分页点赞名单：`U(users.qzone.qq.com, /cgi-bin/likes/get_like_list_app)` | `uin=L, unikey, begin_uin=0, query_count<=60, if_first_page=1`；后续以实际末尾 UIN/服务端信息继续 | P 解析 `data.like_uin_info, total_number, has_more` 等；不能以单页名单长度冒称总数 | E/P；未接入此名单路径，W 现用 R09 |
+| R01 | 说说列表：`U(taotao.qq.com, /cgi-bin/emotion_cgi_msglist_v6)` | `uin=T, ftype=0, sort=0, pos=0, num=20, code_version=1, format=json`；E 还传 `replynum, need_private_comment, qzonetoken` | `msglist, total, usrinfo`；正文/媒体可能截断，内嵌评论不等于全量；`msglist=null` 要另核身份，不能一律为空空间 | E/P/H/W |
+| R02 | 完整说说：`U(taotao.qq.com, /cgi-bin/emotion_cgi_msgdetail_v6)` | E `messageFullContent`：`tid, uin=T, hostuin=L, t1_source=1, not_trunc_con=1, code_version=1, format=jsonp` | 目标是完整正文/详情；需要核原响应的完整性标记，不能把列表回退结果当全文 | E |
+| R03 | 旧详情变体：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_getdetailv6)`，GET/POST | O 以 `uin=T, tid, hostuin=L, format=json` 请求，部分变体加 `qzonetoken, qzreferrer` | O 有失败冷却及列表/动态回退；与 R02 是不同路径，不能据函数名当同一已验证服务 | O |
+| R04 | 说说附图补全：`U(taotao.qq.com, /cgi-bin/emotion_cgi_get_pics_v6)` | `uin=T, tid, t1_source=1, g_tk, qzonetoken`，E `messageImageInfos` | 用于追加图片定位信息；需对照已知 `pictotal`、顺序、重复和本体/预览差别 | E |
+| R05 | 语音地址解析：`U(snsapp.qzone.qq.com, /cgi-bin/sound/GetVoice)` | E 将原始 `voice.url` 的查询参数解析后传入；不从 tid 猜参数 | 真实参数依赖原始语音引用；文档未取得可承诺的统一返回 schema；播放/原件可得性未验证 | E |
+| R06 | 转发名单：`U(taotao.qq.com, /cgi-bin/emotion_cgi_get_fullrelay_v6)` | `uin=T, tid, t1_source=1, pos, count, show=1, code_version=1` | `post[].owner, t2_tid, content, createTime, total, total4show`；原文 `rtlist` 不是转发者名单，两个总数分别保留 | T/W |
+| R07 | 结构化说说评论/回复：`H5(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_getcmtreply_v6)`；P/E 用 U 网关 | W `uin=L, hostUin=T, topicId=T_tid, start, num=50, order=0, need_private_comment=1, format=jsonp` | 根评论和回复字段分别核验；根评数、回复数、界面总评论数口径不同；`need_private_comment=1` 不授予额外权限 | E/P/W |
+| R08 | 动态内评论 HTML：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_ic_getcomments)`，POST 读取 | P `topicId` 取动态 HTML 的 `data-topicid`（可含 `__1`），`hostUin=T, uin=L, feedsType=8, start, num, sort, source=ic, format=fs, paramstr=1, isfakereq=1` | `ret, needVerify, result.feeds` 等，返回评论 HTML；不能把 HTML 的 `data-feedstype=100` 直接填成 `feedsType`，也不能靠 POST 推断为写评论 | P |
+| R09 | 点赞/评论/浏览等计数：`U(r.qzone.qq.com, /cgi-bin/user/qz_opcnt2)` | W 单条说说使用两份 mood URL 以 `<.>` 连接的 `unikey`，带 `face=0, fupdate=1`；普通动态应沿用自己的 `curkey` | `data[].current.newdata` 中 `LIKE, CS, CP, PRD, ZS` 为各类计数线索；`likedata.cnt/list` 为名单证据；字段缺失不补零，需核对象 key | E/O/W |
+| R10 | 可分页点赞名单：`U(users.qzone.qq.com, /cgi-bin/likes/get_like_list_app)` | `uin=L, unikey, begin_uin=0, query_count<=60, if_first_page=1`；后续以实际末尾 UIN/服务端信息继续 | P 解析 `data.like_uin_info, total_number, has_more` 等；不能以单页名单长度冒称总数 | E/P |
 
 ### 3.2 动态流、回顾与通知计数
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R11 | 好友动态：`H5(ic2.qzone.qq.com, /cgi-bin/feeds/feeds3_html_more)`；P/H 使用 U | `uin=L, scope=0, view=1, filter=all, flag=1, applist=all, pagenum, count, begintime, externparam` | `data.data[]`、`data.main.externparam/hasMoreFeeds`；混合 HTML 和结构化字段；不是任意好友的全部历史 | P/H/O/W；已接入 |
-| R12 | 特别关心动态：同 R11，P 的 `scope=7` 分支 | 只替换来源明确的 `scope`，沿用好友流游标协议 | 不等于特别关心名单接口，也不保证返回全部历史 | P；未接入专门视图 |
-| R13 | 用户主页首屏混合流：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds_html_module)` | P `i_uin=T, i_login_uin=L, mode=4, version=8, previewV8=1, showcount, refer=2` 等 | HTML 中的数据载荷，P 有专门抽取函数；不能执行页面 JS；目标权限照常生效 | P；未作为完整主页流接入 |
-| R14 | 用户主页续页/互动观察：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds_html_act_all)` | W `uin=T, hostuin=T, scope=1, start, count, refresh=0, outputhtmlfeed=1, refer=2` 等 | 需读 `host_data/about_data/friend_data/firstpage_data`，不是只读 `data.data`；HTML 只证明已观察互动 | P/O/W；已用于补互动，未做完整主页浏览 |
-| R15 | QQ 面板照片/动态流：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_picfeed_qqtab)` | P `uin=L, hostUin=T, fuin`（未给时取 T），`appid=4, begintime, inCharset/outCharset=utf-8` | 与 R11 不是同一动态分页协议，不应把不同流的 key、游标或总数合并猜测 | P；未接入 |
-| R16 | 好友照片动态：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_picfeed)` | `uin=L, start, count, begintime, view=1, filter=4, applist=4, json_esc=1` | 照片动态入口，不等于好友相册全量列表 | P；未接入 |
-| R17 | 与我相关：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_pav_all)` | `uin=L, scope=1, offset, count, begin_time, end_time, getappnotification=1, getnotifi=1, outputhtmlfeed=1` | 动态/互动 HTML，P 使用 `main.offset/hasMoreFeeds`；不是恢复所有已删除说说的接口 | P；未接入 |
-| R18 | 那年今日：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_today_lastyear)` | `login_uin=L, year, mode=1, count, refer=qzone, useutf8=1` | 回顾候选内容；可能混在多个 data 分组；空结果与完整日历覆盖不是同一概念 | P；未接入 |
-| R19 | 动态未读计数/部分项目保活：`U(ic2.qzone.qq.com, /cgi-bin/feeds/cgi_get_feeds_count.cgi)` | `uin=L, rd, g_tk` | P 保留 `data` 中 `myFeeds/friendFeeds/specialCareFeeds/aboutHostFeeds/replyHostFeeds` 对应 `_new_cnt`；E 把它用于保活，不证明定期调用必然延长会话 | E/P；未接入此空间入口 |
+| R11 | 好友动态：`H5(ic2.qzone.qq.com, /cgi-bin/feeds/feeds3_html_more)`；P/H 使用 U | `uin=L, scope=0, view=1, filter=all, flag=1, applist=all, pagenum, count, begintime, externparam` | `data.data[]`、`data.main.externparam/hasMoreFeeds`；混合 HTML 和结构化字段；不是任意好友的全部历史 | P/H/O/W |
+| R12 | 特别关心动态：同 R11，P 的 `scope=7` 分支 | 只替换来源明确的 `scope`，沿用好友流游标协议 | 不等于特别关心名单接口，也不保证返回全部历史 | P |
+| R13 | 用户主页首屏混合流：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds_html_module)` | P `i_uin=T, i_login_uin=L, mode=4, version=8, previewV8=1, showcount, refer=2` 等 | HTML 中的数据载荷，P 有专门抽取函数；不能执行页面 JS；目标权限照常生效 | P |
+| R14 | 用户主页续页/互动观察：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds_html_act_all)` | W `uin=T, hostuin=T, scope=1, start, count, refresh=0, outputhtmlfeed=1, refer=2` 等 | 需读 `host_data/about_data/friend_data/firstpage_data`，不是只读 `data.data`；HTML 只证明已观察互动 | P/O/W |
+| R15 | QQ 面板照片/动态流：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_picfeed_qqtab)` | P `uin=L, hostUin=T, fuin`（未给时取 T），`appid=4, begintime, inCharset/outCharset=utf-8` | 与 R11 不是同一动态分页协议，不应把不同流的 key、游标或总数合并猜测 | P |
+| R16 | 好友照片动态：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_picfeed)` | `uin=L, start, count, begintime, view=1, filter=4, applist=4, json_esc=1` | 照片动态入口，不等于好友相册全量列表 | P |
+| R17 | 与我相关：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_pav_all)` | `uin=L, scope=1, offset, count, begin_time, end_time, getappnotification=1, getnotifi=1, outputhtmlfeed=1` | 动态/互动 HTML，P 使用 `main.offset/hasMoreFeeds`；不是恢复所有已删除说说的接口 | P |
+| R18 | 那年今日：`U(ic2.qzone.qq.com, /cgi-bin/feeds/feeds2_html_today_lastyear)` | `login_uin=L, year, mode=1, count, refer=qzone, useutf8=1` | 回顾候选内容；可能混在多个 data 分组；空结果与完整日历覆盖不是同一概念 | P |
+| R19 | 动态未读计数/部分项目保活：`U(ic2.qzone.qq.com, /cgi-bin/feeds/cgi_get_feeds_count.cgi)` | `uin=L, rd, g_tk` | P 保留 `data` 中 `myFeeds/friendFeeds/specialCareFeeds/aboutHostFeeds/replyHostFeeds` 对应 `_new_cnt`；E 把它用于保活，不证明定期调用必然延长会话 | E/P |
 
 ### 3.3 相册、照片与视频
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R20 | 相册列表：`U(photo.qzone.qq.com, /fcgi-bin/fcg_list_album_v3)` | `hostUin=T, uin=L, appid=4, needUserInfo=1, idcNum, format=jsonp`；W 使用 `pageNumModeSort=40`，E/P 另有 `pageStart/pageNum/mode` 分支 | `albumListModeSort` 或旧数组；`albumsInUser` 也可能只是数值。不要把前 40 个相册当全部；E 的 3000 页大小不应直接照搬 | E/P/H/W；列表已接入，深翻页策略需另核 |
-| R21 | 相册内媒体：`H5(photo.qzone.qq.com, /fcgi-bin/cgi_list_photo)` | `hostUin=T, uin=L, topicId=albumId, pageStart, pageNum, mode=0, appid=4, json_esc=1` | `photoList, totalInAlbum`，含 `lloc/sloc, pre/url, is_video, uploadtime`；访问受限相册需正常权限，不能猜答案 | E/P/H/W；已接入 |
-| R22 | 照片详情/视频地址：`U(photo.qzone.qq.com, /fcgi-bin/cgi_floatview_photo_list_v2)` | `hostUin=T, uin=L, topicId, picKey, cmtNum, likeNum, number, prevNum/postNum` | `data.photos`，视频的 `video_info.download_url/url3` 等；W 已用于视频换链，但未表示所有扩展字段都展示 | E/P/W；部分接入 |
-| R23 | 相册评论：`U(app.photo.qzone.qq.com, /cgi-bin/app/cgi_pcomment_xml_v2)` | E `uin=L, hostUin=T, topicId=albumId, start, num, order=1, cmtType=1, plat/source=qzone` | 相册层评论；不能与某张照片的评论串在一起；返回封套/完整字段待实测 | E；未接入 |
-| R24 | 照片评论：同 R23 的照片参数分支 | E `topicId=albumId_picKey, albumId, start, num, order=1, ref=photo, need_private_comment=1` | 照片层评论；键要取实际相册、照片定位关系，不能从显示文件名拼造 | E；未接入 |
-| R25 | 相册详情/权限与问答字段：`U(photo.qzone.qq.com, /cgi-bin/common/cgi_get_albuminfo_v2)` | P `albumId, hostUin=T, appid=4, source/plat=qzone`，其实现 `uin` 也取目标；应与登录凭据身份分开 | P 描述 `question, answer, priv, name` 等；答案仅主人可获取是来源声明，本轮未验；不是绕过访问控制入口 | P；未接入 |
-| R26 | 相册存储路由：`U(route.store.qq.com, /GetRoute)` | `UIN=T, type=json, version=2, json_esc=1` | 路由信息供 `idcNum` 等使用；不是媒体下载地址或授权 | E；未接入 |
-| R27 | 独立视频列表：`U(taotao.qq.com, /cgi-bin/video_get_data)` | `uin=L, hostUin=T, appid=4, getMethod=2, start, count, need_old, getUserInfo`；E/P 默认值不同 | 视频条目列表；`need_old` 等可改变范围，不能把说说内视频与视频模块数强行相等 | E/P；未接入独立列表 |
+| R20 | 相册列表：`U(photo.qzone.qq.com, /fcgi-bin/fcg_list_album_v3)` | `hostUin=T, uin=L, appid=4, needUserInfo=1, idcNum, format=jsonp`；W 使用 `pageNumModeSort=40`，E/P 另有 `pageStart/pageNum/mode` 分支 | `albumListModeSort` 或旧数组；`albumsInUser` 也可能只是数值。不要把前 40 个相册当全部；E 的 3000 页大小不应直接照搬 | E/P/H/W |
+| R21 | 相册内媒体：`H5(photo.qzone.qq.com, /fcgi-bin/cgi_list_photo)` | `hostUin=T, uin=L, topicId=albumId, pageStart, pageNum, mode=0, appid=4, json_esc=1` | `photoList, totalInAlbum`，含 `lloc/sloc, pre/url, is_video, uploadtime`；访问受限相册需正常权限，不能猜答案 | E/P/H/W |
+| R22 | 照片详情/视频地址：`U(photo.qzone.qq.com, /fcgi-bin/cgi_floatview_photo_list_v2)` | `hostUin=T, uin=L, topicId, picKey, cmtNum, likeNum, number, prevNum/postNum` | `data.photos`，视频的 `video_info.download_url/url3` 等；W 已用于视频换链，但未表示所有扩展字段都展示 | E/P/W |
+| R23 | 相册评论：`U(app.photo.qzone.qq.com, /cgi-bin/app/cgi_pcomment_xml_v2)` | E `uin=L, hostUin=T, topicId=albumId, start, num, order=1, cmtType=1, plat/source=qzone` | 相册层评论；不能与某张照片的评论串在一起；返回封套/完整字段待实测 | E |
+| R24 | 照片评论：同 R23 的照片参数分支 | E `topicId=albumId_picKey, albumId, start, num, order=1, ref=photo, need_private_comment=1` | 照片层评论；键要取实际相册、照片定位关系，不能从显示文件名拼造 | E |
+| R25 | 相册详情/权限与问答字段：`U(photo.qzone.qq.com, /cgi-bin/common/cgi_get_albuminfo_v2)` | P `albumId, hostUin=T, appid=4, source/plat=qzone`，其实现 `uin` 也取目标；应与登录凭据身份分开 | P 描述 `question, answer, priv, name` 等；答案仅主人可获取是来源声明，本轮未验；不是绕过访问控制入口 | P |
+| R26 | 相册存储路由：`U(route.store.qq.com, /GetRoute)` | `UIN=T, type=json, version=2, json_esc=1` | 路由信息供 `idcNum` 等使用；不是媒体下载地址或授权 | E |
+| R27 | 独立视频列表：`U(taotao.qq.com, /cgi-bin/video_get_data)` | `uin=L, hostUin=T, appid=4, getMethod=2, start, count, need_old, getUserInfo`；E/P 默认值不同 | 视频条目列表；`need_old` 等可改变范围，不能把说说内视频与视频模块数强行相等 | E/P |
 
 ### 3.4 访客与空间总数
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R28 | 空间访问总人次：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_simple)` | W 在途实现 `uin=T, mask=1` | `data.modvisitcount[].totalcount/todaycount`；累计人次不等于去重人数、最近访客条数或说说浏览量 | W；开发中 |
-| R29 | 相册访客与近期趋势：同 R28 的相册分支 | P/E `uin=T, mask=2, mod=2, contentid=albumId, fupdate=1` | P 注释列出 `modvisitcount, items, calvisitcount`；数组长度/日期位置/统计时区需要核验，不能直接标成完整 30 天历史 | E/P/H；未接入此分支 |
-| R30 | 说说/日志/相册/分享单项最近访客：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_single)`；K 使用 H5 网关 | E `uin=T, appid, param, beginNum, num, needFriend=1`；说说 `appid=311,param=tid`，日志/日记 `2`，分享 `202`，相册另有 `4,param=2;albumId`；K 的说说请求还带 `blogid/ref` | `totalNum` 与最近条目不是同一规模；K 曾测到只给最近 6 条且翻页无效，此为特定环境观察，不是通用硬上限；主人权限适用 | E/K；未接入 |
-| R31 | 空间访问记录：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_more)` | E 主人分支 `uin=T, mask=7, page, fupdate=1`；源码还加 `clear=1, sd` | **不是可无脑归类的纯读取**：`clear` 可能清提醒状态；接入只读工具前应核是否可省略及实际影响 | E；未接入 |
-| R32 | 另一访客路径：`U(g.qzone.qq.com, /cgi-bin/cgi_right_get_visitor_more)` | O `uin=T, mask=7, format=json` | 与 R31 不同路径；O 只透传结果，不构成完整分页/计数语义验证 | O；未接入 |
-| R33 | 说说/照片等概况总数：`U(r.qzone.qq.com, /cgi-bin/main_page_cgi)` | W 在途实现 `uin=T, param=16` | `data.module_16.data.SS/XC`；逐模块核状态；不能用已加载条目数补造总量 | W；开发中 |
-| R34 | 访客状态模块：同 R33，P 的另一参数分支 | `uin=L, param=3_L_0` | P 的 `getVisitorStatus` 原样返回，用于访客状态线索；本轮未取得完整 schema，不把它当 R28 的别名 | P；未接入 |
+| R28 | 空间访问总人次：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_simple)` | W 历史实现 `uin=T, mask=1` | `data.modvisitcount[].totalcount/todaycount`；累计人次不等于去重人数、最近访客条数或说说浏览量 | W |
+| R29 | 相册访客与近期趋势：同 R28 的相册分支 | P/E `uin=T, mask=2, mod=2, contentid=albumId, fupdate=1` | P 注释列出 `modvisitcount, items, calvisitcount`；数组长度/日期位置/统计时区需要核验，不能直接标成完整 30 天历史 | E/P/H |
+| R30 | 说说/日志/相册/分享单项最近访客：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_single)`；K 使用 H5 网关 | E `uin=T, appid, param, beginNum, num, needFriend=1`；说说 `appid=311,param=tid`，日志/日记 `2`，分享 `202`，相册另有 `4,param=2;albumId`；K 的说说请求还带 `blogid/ref` | `totalNum` 与最近条目不是同一规模；K 曾测到只给最近 6 条且翻页无效，此为特定环境观察，不是通用硬上限；主人权限适用 | E/K |
+| R31 | 空间访问记录：`U(g.qzone.qq.com, /cgi-bin/friendshow/cgi_get_visitor_more)` | E 主人分支 `uin=T, mask=7, page, fupdate=1`；源码还加 `clear=1, sd` | **不是可无脑归类的纯读取**：`clear` 可能清提醒状态；接入只读工具前应核是否可省略及实际影响 | E |
+| R32 | 另一访客路径：`U(g.qzone.qq.com, /cgi-bin/cgi_right_get_visitor_more)` | O `uin=T, mask=7, format=json` | 与 R31 不同路径；O 只透传结果，不构成完整分页/计数语义验证 | O |
+| R33 | 说说/照片等概况总数：`U(r.qzone.qq.com, /cgi-bin/main_page_cgi)` | W 历史实现 `uin=T, param=16` | `data.module_16.data.SS/XC`；逐模块核状态；不能用已加载条目数补造总量 | W |
+| R34 | 访客状态模块：同 R33，P 的另一参数分支 | `uin=L, param=3_L_0` | P 的 `getVisitorStatus` 原样返回，用于访客状态线索；本轮未取得完整 schema，不把它当 R28 的别名 | P |
 
 ### 3.5 日志、私密日记、留言板、收藏与分享
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R35 | 日志列表：`U(b.qzone.qq.com, /cgi-bin/blognew/get_abs)`；H 使用 RC | `hostUin=T, uin=L, pos, num, blogType=0, reqInfo, statYear, cateName/cateHex, absType` | `data.list`、总数、分类、月份统计等视变体而定；E 默认当前年份可能限范围，P 传空年份；摘要不等于全文 | E/P/H；未接入独立列表 |
-| R36 | 日志正文：`U(b.qzone.qq.com, /cgi-bin/blognew/blog_output_data)` | E `uin=T, blogid, mode=2, numperpage=50, page=1, styledm/imgdm/bdm`，`inCharset/outCharset=gb2312` | 正文载体可能是 HTML；必须按响应字节编码解码并清理主动内容，不能 UTF-8 强解或执行页面脚本 | E；未接入 |
-| R37 | 批量日志阅读数：`U(b.qzone.qq.com, /cgi-bin/blognew/get_count)` | `type=1, uinList=T, idList=blogIds` 以 `_` 连接，另带编码/格式字段 | 批量计数要按响应 ID 关系绑定，不能只按数组位置猜配 | E；未接入 |
-| R38 | 日志评论：`U(b.qzone.qq.com, /cgi-bin/blognew/get_comment_list)` | `uin=L, topicId=T_blogid, start, num, format=jsonp` | 与日志正文独立分页；不保证回复树完整，需要分别记录观察范围 | E；未接入 |
-| R39 | 私密日记标题列表：`U(b.qzone.qq.com, /cgi-bin/privateblog/privateblog_get_titlelist)` | E `uin=L, vuin=L, pos, numperpage, pwd2sig, fupdate=1` | 只按本人正常授权访问；`pwd2sig`/二次验证不能绕过，失败不当空列表 | E；未接入 |
-| R40 | 私密日记正文：`U(b.qzone.qq.com, /cgi-bin/privateblog/privateblog_output_data)` | `uin=L, blogid, pwd2sig, private=1`，带正文环境字段 | 敏感正文和票据分离，不把票据写进导出；既有授权不自动涵盖日记采集 | E；未接入 |
-| R41 | 日记评论/阅读数/最近访客 | E `diaryComments -> R38`、`diaryReadCount -> R37`、`diaryVisitors -> R30(appid=2)` | **复用接口配方，不是额外的新端点**；仍服从日记本人权限及对象 ID | E；未接入 |
-| R42 | 留言板：`U(m.qzone.qq.com, /cgi-bin/new/get_msgb)` | `hostUin=T, uin=L, start, num, format=jsonp`；P 还传 `hostword=0, essence=1, iNotice=0` | `data.commentList, total, auditNum/auditON, authorInfo`；本轮不承诺 `essence` 的筛选语义，需核是否影响全量 | E/P/H；未接入 |
-| R43 | 空间收藏：`U(fav.qzone.qq.com, /cgi-bin/get_fav_list)` | `uin=L, type, start, num, need_nick=1, need_cnt` 等；P 类型筛选 `0全部/1日志/2照片/3说说/4分享/5文字/6网页` | `total_num, fav_list`；筛选参数与条目自身 `type` 不是同一枚举；与 QQ 客户端收藏分离 | E/P；未接入 |
-| R44 | 分享列表：`https://user.qzone.qq.com/p/h5/pc/api/sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzsharegetmylistbytype` | E `uin=T, spaceuin=T, page, num, isfriend=0, ttype=0` | 该代理路径不使用 U/H5 模板；`page` 起点与实际返回范围需核，不从说说页号规则推断 | E；未接入 |
-| R45 | 分享评论：`https://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzshareget_comment` | `uin=L, hostUin=T, topicId=T_shareId, start, num, order=1, fupdate=2` | 分享评论与说说评论不同对象链；编码/JSONP、权限和总数另核 | E；未接入 |
+| R35 | 日志列表：`U(b.qzone.qq.com, /cgi-bin/blognew/get_abs)`；H 使用 RC | `hostUin=T, uin=L, pos, num, blogType=0, reqInfo, statYear, cateName/cateHex, absType` | `data.list`、总数、分类、月份统计等视变体而定；E 默认当前年份可能限范围，P 传空年份；摘要不等于全文 | E/P/H |
+| R36 | 日志正文：`U(b.qzone.qq.com, /cgi-bin/blognew/blog_output_data)` | E `uin=T, blogid, mode=2, numperpage=50, page=1, styledm/imgdm/bdm`，`inCharset/outCharset=gb2312` | 正文载体可能是 HTML；必须按响应字节编码解码并清理主动内容，不能 UTF-8 强解或执行页面脚本 | E |
+| R37 | 批量日志阅读数：`U(b.qzone.qq.com, /cgi-bin/blognew/get_count)` | `type=1, uinList=T, idList=blogIds` 以 `_` 连接，另带编码/格式字段 | 批量计数要按响应 ID 关系绑定，不能只按数组位置猜配 | E |
+| R38 | 日志评论：`U(b.qzone.qq.com, /cgi-bin/blognew/get_comment_list)` | `uin=L, topicId=T_blogid, start, num, format=jsonp` | 与日志正文独立分页；不保证回复树完整，需要分别记录观察范围 | E |
+| R39 | 私密日记标题列表：`U(b.qzone.qq.com, /cgi-bin/privateblog/privateblog_get_titlelist)` | E `uin=L, vuin=L, pos, numperpage, pwd2sig, fupdate=1` | 只按本人正常授权访问；`pwd2sig`/二次验证不能绕过，失败不当空列表 | E |
+| R40 | 私密日记正文：`U(b.qzone.qq.com, /cgi-bin/privateblog/privateblog_output_data)` | `uin=L, blogid, pwd2sig, private=1`，带正文环境字段 | 敏感正文和票据分离，不把票据写进导出；既有授权不自动涵盖日记采集 | E |
+| R41 | 日记评论/阅读数/最近访客 | E `diaryComments -> R38`、`diaryReadCount -> R37`、`diaryVisitors -> R30(appid=2)` | **复用接口配方，不是额外的新端点**；仍服从日记本人权限及对象 ID | E |
+| R42 | 留言板：`U(m.qzone.qq.com, /cgi-bin/new/get_msgb)` | `hostUin=T, uin=L, start, num, format=jsonp`；P 还传 `hostword=0, essence=1, iNotice=0` | `data.commentList, total, auditNum/auditON, authorInfo`；本轮不承诺 `essence` 的筛选语义，需核是否影响全量 | E/P/H |
+| R43 | 空间收藏：`U(fav.qzone.qq.com, /cgi-bin/get_fav_list)` | `uin=L, type, start, num, need_nick=1, need_cnt` 等；P 类型筛选 `0全部/1日志/2照片/3说说/4分享/5文字/6网页` | `total_num, fav_list`；筛选参数与条目自身 `type` 不是同一枚举；与 QQ 客户端收藏分离 | E/P |
+| R44 | 分享列表：`https://user.qzone.qq.com/p/h5/pc/api/sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzsharegetmylistbytype` | E `uin=T, spaceuin=T, page, num, isfriend=0, ttype=0` | 该代理路径不使用 U/H5 模板；`page` 起点与实际返回范围需核，不从说说页号规则推断 | E |
+| R45 | 分享评论：`https://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzshareget_comment` | `uin=L, hostUin=T, topicId=T_shareId, start, num, order=1, fupdate=2` | 分享评论与说说评论不同对象链；编码/JSONP、权限和总数另核 | E |
 
 ### 3.6 用户、好友与关系
 
-| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 / WeQ |
+| ID | 用途、方法与路径 | 关键用法 | 返回与限制 | 来源 |
 | --- | --- | --- | --- | --- |
-| R46 | 空间资料/访问权限线索：`U(base.qzone.qq.com, /cgi-bin/user/cgi_userinfo_get_all)` | `uin=T, vuin=L, fupdate=1`，E 加 `qzonetoken` | E 用业务错误判断访问受限；不能把缺资料字段当拒绝访问的唯一依据；其注释认为 `main_page_cgi` 不够稳定，这不是本轮实测结论 | E；未接入此路径 |
-| R47 | 空间用户名片：`U(r.qzone.qq.com, /cgi-bin/user/cgi_personal_card)`；E 用 H5 | `uin=T, g_tk`，可带 `fupdate, rd` | 资料卡字段按实际可见返回；可能与本地 QQ 资料不同，不将“隐藏信息”宣传为可越权获取 | E/P/O；未接入此空间路径 |
-| R48 | 批量昵称/头像资料：`https://r.qzone.qq.com/fcg-bin/cgi_get_portrait.fcg` | W 按实际请求 `uins` 列表和 `g_tk`；具体键格式参照 `qzone_people.ts` | 常见按 UIN 为键的返回；公开昵称、好友备注不能混用，不按相似名称认人 | O/W；昵称读取已接入 |
-| R49 | 空间好友清单：`U(r.qzone.qq.com, /cgi-bin/tfriend/friend_show_qqfriends.cgi)` | `uin=L, follow_flag=0, groupface_flag=0, fupdate=1` | 权限/字段语义以返回为准；与 WeQ 本地好友表是不同来源，不据此覆盖本地名单 | E；未接入此路径 |
-| R50 | 移动端排序好友清单：`https://mobile.qzone.qq.com/friend/mfriend_list` | E `res_uin=L, res_type=normal, count_per_page=10, page_index=0, page_type=0, format=jsonp` | E 此封装只固定首页，不构成完整翻页实现；排序不等于亲密度的确定量化 | E；未接入 |
-| R51 | 好友互动/关系时间线索：`U(r.qzone.qq.com, /cgi-bin/friendship/cgi_friendship)` | `activeuin=L, passiveuin=T, situation=1, isCalendar=1` | E 用于关系时间；响应字段和时间语义本轮未实测，不能把推测日期称确切加好友日期 | E；未接入 |
-| R52 | 特别关心名单：`https://r.qzone.qq.com/cgi-bin/tfriend/specialcare_get.cgi`，E 走 U | `uin=L, do=3, fupdate=1` | 特别关心名单/相关计数字段；不等于 R12 动态流，不推断被关心者身份 | E/W；已有独立服务接入 |
-| R53 | 本人黄钻等会员资料：`H5(vip.qzone.qq.com, /fcg-bin/fcg_get_vipinfo_mobile)` | P `get_all=1, g_tk, inCharset/outCharset=utf-8`，身份来自 cookie | P 原样返回；与 WeQ 已有装扮接口不同，不保证所有会员字段含义/时效可用 | P；未接入此路径 |
+| R46 | 空间资料/访问权限线索：`U(base.qzone.qq.com, /cgi-bin/user/cgi_userinfo_get_all)` | `uin=T, vuin=L, fupdate=1`，E 加 `qzonetoken` | E 用业务错误判断访问受限；不能把缺资料字段当拒绝访问的唯一依据；其注释认为 `main_page_cgi` 不够稳定，这不是本轮实测结论 | E |
+| R47 | 空间用户名片：`U(r.qzone.qq.com, /cgi-bin/user/cgi_personal_card)`；E 用 H5 | `uin=T, g_tk`，可带 `fupdate, rd` | 资料卡字段按实际可见返回；可能与本地 QQ 资料不同，不将“隐藏信息”宣传为可越权获取 | E/P/O |
+| R48 | 批量昵称/头像资料：`https://r.qzone.qq.com/fcg-bin/cgi_get_portrait.fcg` | W 按实际请求 `uins` 列表和 `g_tk`；具体键格式参照 `qzone_people.ts` | 常见按 UIN 为键的返回；公开昵称、好友备注不能混用，不按相似名称认人 | O/W |
+| R49 | 空间好友清单：`U(r.qzone.qq.com, /cgi-bin/tfriend/friend_show_qqfriends.cgi)` | `uin=L, follow_flag=0, groupface_flag=0, fupdate=1` | 权限/字段语义以返回为准；与 WeQ 本地好友表是不同来源，不据此覆盖本地名单 | E |
+| R50 | 移动端排序好友清单：`https://mobile.qzone.qq.com/friend/mfriend_list` | E `res_uin=L, res_type=normal, count_per_page=10, page_index=0, page_type=0, format=jsonp` | E 此封装只固定首页，不构成完整翻页实现；排序不等于亲密度的确定量化 | E |
+| R51 | 好友互动/关系时间线索：`U(r.qzone.qq.com, /cgi-bin/friendship/cgi_friendship)` | `activeuin=L, passiveuin=T, situation=1, isCalendar=1` | E 用于关系时间；响应字段和时间语义本轮未实测，不能把推测日期称确切加好友日期 | E |
+| R52 | 特别关心名单：`https://r.qzone.qq.com/cgi-bin/tfriend/specialcare_get.cgi`，E 走 U | `uin=L, do=3, fupdate=1` | 特别关心名单/相关计数字段；不等于 R12 动态流，不推断被关心者身份 | E/W |
+| R53 | 本人黄钻等会员资料：`H5(vip.qzone.qq.com, /fcg-bin/fcg_get_vipinfo_mobile)` | P `get_all=1, g_tk, inCharset/outCharset=utf-8`，身份来自 cookie | P 原样返回；与 WeQ 已有装扮接口不同，不保证所有会员字段含义/时效可用 | P |
 
 ## 4. 写入接口：只作研究，不执行
 
@@ -181,37 +178,37 @@ https://h5.qzone.qq.com/proxy/domain/<domain><path>
 
 ### 4.1 说说与互动写入
 
-| ID | 用途与路径 | 关键用法与成功证据 | 限制与来源 / WeQ |
+| ID | 用途与路径 | 关键用法与成功证据 | 限制与来源 |
 | --- | --- | --- | --- |
-| W01 | 发表文本/图文：`H5(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_publish_v6)`；H/O 使用 U | W/H `hostuin=L, con, syn_tweet_verson=1, feedversion=1, ver=1, ugc_right`；图文用上传结果构造 `richtype/richval`；需明确返回新 `tid` | 公开/好友/自己 W 已支持；H 还有指定名单分支，不能据此称 W 已实现。H/O/W；已接入手动发表 |
-| W02 | 上传图片：`https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image` | W `uin/p_uin/zzpaneluin=L, skey/p_skey, picfile=base64, base64=1, uploadtype=1, albumtype=7, refer=shuoshuo` 等；结果需有可用于发表的图片定位信息 | **上传本身已有副作用**，并非只有最终发表才写入。签名 URL/票据不展示给不必要的调用方。H/O/W；已接入 |
-| W03 | 编辑说说/改可见范围：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_update)` | `tid, hostuin=L, con, ugcright_id, ugc_right`，H 对部分名单加 `allow_uins`；图片需保留/重组原 `richval/pic_bo` | 仅改权限也不能把正文、图片字段清空；优先先读原对象再精确更新。H/O；未接入 |
-| W04 | 转发说说：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_forward_v6)` | O `tid, ouin=T, opuin=L, hostUin=T, topicId=T_tid, con`；H 有 `t1_uin/t1_source/hostuin` 版本 | 两套配方不混拼；转发源、操作者、原帖 ID 必须明确。H/O；未接入 |
-| W05 | 评论/转发的旧链路：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_re_feeds)`，O 另有 H5 | O 评论用 `hostUin=T, topicId=T_tid, content`；回复附 `commentId/replyUin`；转发分支附 `forward=1`；H5 变体 topicId 有 `__1` | 同一路径可能评论或转发；不能把它当只读评论接口，未知结果不自动 fallback。H/O；未接入 |
-| W06 | 删除说说：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delete_v6)` | H `uin, topicId, feedsKey, feedsAppid=311, feedsTime, feedsType, feedsFlag`；O 另有 `tid/topicId` 方案 | 必须取真实 feed 句柄/发布时间，不能从展示文字或数组下标推导；删除不可由本工具保证恢复。H/O；未接入 |
-| W07 | 点赞/取消赞：`U(w.qzone.qq.com, /cgi-bin/likes/internal_dolike_app)` | `opuin=L, unikey, curkey, appid, typeid, fid, abstime, active, fupdate` | **O 的 like/unlike 主分支都传 `active=0`，不能直接照抄为可靠取消赞**；真实语义需单独验证。H/O；未接入写操作 |
-| W08 | 另一点赞链路：`U(taotao.qzone.qq.com, /cgi-bin/like_cgi_likev6)` | O `opuin=L, ouin=T, fid=tid, abstime, appid, typeid`；取消分支 `optype=1` | 不能用跨端或旧版本参数盲目补救 W07；需核目标实际赞状态。O；未接入 |
-| W09 | 发表评论（含图片）：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addcomment_ugc)` | H `uin=L, hostUin=T, topicId=T_tid, commentUin=L, content, private=0, format=fs`；图片 `richtype=1, richval` 取上传结果 | 明确成功返回的评论 `data.id` 才能继续回复；原图上传亦有副作用。H；未接入 |
-| W10 | 回复评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addreply_ugc)` | H `uin=L, hostUin=T, topicId, commentId, commentUin, content`，可带图文 `richval` | 根评论 ID、回复 ID、被回复者和操作者要分开，按实际封套核身份。H；未接入 |
-| W11 | 删除评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delcomment_ugc)` | H `uin, hostUin, topicId, commentId, commentUin`；O 另用 `hostuin/uin/tid/comment_id` | 不同源码变体存在字段差异，不能自行统一；管理员/作者权限由服务端决定。H/O；未接入 |
-| W12 | 删除回复：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delreply_ugc)` | H `uin, hostUin, topicId, commentId, replyId, commentUin` | 不把删除回复退化成删除根评论；只认实际目标句柄。H；未接入 |
-| W13 | SNS 删除评论：`https://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzsharedeletecomment` | O `hostUin=T, topicId=T_tid, commentId, commentUin, feedsType=100, format=fs, paramstr=2` 等 | 可能以 `frameElement.callback` 返回 `ret/code`；不能执行回调或在 unknown 后重复删除。O；未接入 |
-| W14 | 评论点赞：复用 W07，但对象为评论 | H `curkey/unikey=T_tid_commentId, appid=311, opuin=L, fid=tid` | **是同一个端点的评论对象配方，不是新接口**；O 旧功能表曾称未实现，H 源码有构造不等于现网验收。H；未接入 |
-| W15 | 删除动态：`U(w.qzone.qq.com, /cgi-bin/feeds/feeds_delete_cgi)` | P body `uin=L, hostUin=T, appid=4, key, type, flag, time, plat/source=qzone`；函数的 `skey` 参数实际写入 `key`，不是登录 skey | P 固定 `appid=4`，不能把它当泛用删除说说接口，删除时间线与删除原件也不一定等价。P；未接入 |
+| W01 | 发表文本/图文：`H5(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_publish_v6)`；H/O 使用 U | W/H `hostuin=L, con, syn_tweet_verson=1, feedversion=1, ver=1, ugc_right`；图文用上传结果构造 `richtype/richval`；需明确返回新 `tid` | 公开/好友/自己 W 已支持；H 还有指定名单分支，不能据此称 W 已实现。H/O/W |
+| W02 | 上传图片：`https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image` | W `uin/p_uin/zzpaneluin=L, skey/p_skey, picfile=base64, base64=1, uploadtype=1, albumtype=7, refer=shuoshuo` 等；结果需有可用于发表的图片定位信息 | **上传本身已有副作用**，并非只有最终发表才写入。签名 URL/票据不展示给不必要的调用方。H/O/W |
+| W03 | 编辑说说/改可见范围：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_update)` | `tid, hostuin=L, con, ugcright_id, ugc_right`，H 对部分名单加 `allow_uins`；图片需保留/重组原 `richval/pic_bo` | 仅改权限也不能把正文、图片字段清空；优先先读原对象再精确更新。H/O |
+| W04 | 转发说说：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_forward_v6)` | O `tid, ouin=T, opuin=L, hostUin=T, topicId=T_tid, con`；H 有 `t1_uin/t1_source/hostuin` 版本 | 两套配方不混拼；转发源、操作者、原帖 ID 必须明确。H/O |
+| W05 | 评论/转发的旧链路：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_re_feeds)`，O 另有 H5 | O 评论用 `hostUin=T, topicId=T_tid, content`；回复附 `commentId/replyUin`；转发分支附 `forward=1`；H5 变体 topicId 有 `__1` | 同一路径可能评论或转发；不能把它当只读评论接口，未知结果不自动 fallback。H/O |
+| W06 | 删除说说：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delete_v6)` | H `uin, topicId, feedsKey, feedsAppid=311, feedsTime, feedsType, feedsFlag`；O 另有 `tid/topicId` 方案 | 必须取真实 feed 句柄/发布时间，不能从展示文字或数组下标推导；删除不可由本工具保证恢复。H/O |
+| W07 | 点赞/取消赞：`U(w.qzone.qq.com, /cgi-bin/likes/internal_dolike_app)` | `opuin=L, unikey, curkey, appid, typeid, fid, abstime, active, fupdate` | **O 的 like/unlike 主分支都传 `active=0`，不能直接照抄为可靠取消赞**；真实语义需单独验证。H/O |
+| W08 | 另一点赞链路：`U(taotao.qzone.qq.com, /cgi-bin/like_cgi_likev6)` | O `opuin=L, ouin=T, fid=tid, abstime, appid, typeid`；取消分支 `optype=1` | 不能用跨端或旧版本参数盲目补救 W07；需核目标实际赞状态。O |
+| W09 | 发表评论（含图片）：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addcomment_ugc)` | H `uin=L, hostUin=T, topicId=T_tid, commentUin=L, content, private=0, format=fs`；图片 `richtype=1, richval` 取上传结果 | 明确成功返回的评论 `data.id` 才能继续回复；原图上传亦有副作用。H |
+| W10 | 回复评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_addreply_ugc)` | H `uin=L, hostUin=T, topicId, commentId, commentUin, content`，可带图文 `richval` | 根评论 ID、回复 ID、被回复者和操作者要分开，按实际封套核身份。H |
+| W11 | 删除评论：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delcomment_ugc)` | H `uin, hostUin, topicId, commentId, commentUin`；O 另用 `hostuin/uin/tid/comment_id` | 不同源码变体存在字段差异，不能自行统一；管理员/作者权限由服务端决定。H/O |
+| W12 | 删除回复：`U(taotao.qzone.qq.com, /cgi-bin/emotion_cgi_delreply_ugc)` | H `uin, hostUin, topicId, commentId, replyId, commentUin` | 不把删除回复退化成删除根评论；只认实际目标句柄。H |
+| W13 | SNS 删除评论：`https://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzsharedeletecomment` | O `hostUin=T, topicId=T_tid, commentId, commentUin, feedsType=100, format=fs, paramstr=2` 等 | 可能以 `frameElement.callback` 返回 `ret/code`；不能执行回调或在 unknown 后重复删除。O |
+| W14 | 评论点赞：复用 W07，但对象为评论 | H `curkey/unikey=T_tid_commentId, appid=311, opuin=L, fid=tid` | **是同一个端点的评论对象配方，不是新接口**；O 旧功能表曾称未实现，H 源码有构造不等于现网验收。H |
+| W15 | 删除动态：`U(w.qzone.qq.com, /cgi-bin/feeds/feeds_delete_cgi)` | P body `uin=L, hostUin=T, appid=4, key, type, flag, time, plat/source=qzone`；函数的 `skey` 参数实际写入 `key`，不是登录 skey | P 固定 `appid=4`，不能把它当泛用删除说说接口，删除时间线与删除原件也不一定等价。P |
 
 ### 4.2 相册、留言与日志写入
 
-| ID | 用途与路径 | 关键用法与成功证据 | 限制与来源 / WeQ |
+| ID | 用途与路径 | 关键用法与成功证据 | 限制与来源 |
 | --- | --- | --- | --- |
-| W16 | 创建相册：`U(photo.qzone.qq.com, /cgi-bin/cgi_create_album)` | O `hostUin=L, albumname, albumdesc, priv, format=json` | 旧相册接口族有失败记录；权限枚举不照搬说说的 `ugc_right`。O；未接入 |
-| W17 | 删除相册：`U(photo.qzone.qq.com, /cgi-bin/cgi_del_album)` | O `hostUin=L, topicId=albumId, format=json` | 破坏性；不能因为读相册接口可用就称删除接口可用。O；未接入 |
-| W18 | 旧删除照片：`U(photo.qzone.qq.com, /cgi-bin/cgi_del_photo)` | O `hostUin, topicId=albumId, lloc=photoId` | 旧路径，权限由服务端核；不与批量删除拼接混用。O；未接入 |
-| W19 | 单张/批量删照片：`U(photo.qzone.qq.com, /cgi-bin/common/cgi_delpic_multi_v2)` | H/P `albumid, hostUin, uin, priv, codelist, ismultiup, resetcover`；H 单张定位包含 `lloc/sloc/priv` | 必须取原相册权限和原定位字段，不能固定写默认权限；可能连带影响封面。H/P；未接入 |
-| W20 | 发表留言：`U(m.qzone.qq.com, /cgi-bin/new/add_msgb)` | H `uin=L, hostUin=T, content, signin, format=fs, json=1` | 与读取留言板分开授权；成功后核真实新增留言身份。H；未接入 |
-| W21 | 删除留言：`H5(m.qzone.qq.com, /cgi-bin/new/del_msgb)` | H `hostUin=T, idList=messageId, uinList=authorUin, format=fs, json=1` | ID 列表和作者列表必须对应，不用操作者代替留言者。H；未接入 |
-| W22 | 发表日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/add_blog)` | H `uin=hostUin=L, title, html, cate, rightType, blogType=0, format=fs, json=1` | 正文是 HTML，需净化；日志 `rightType` 和说说权限枚举不同；新 `blogid` 是关键结果。H；未接入 |
-| W23 | 编辑日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/mod_blog)` | H 基于发表参数追加 `blogid`；标题、正文、分类、权限要保全 | 先读原件且保留历史；不能为了改标题覆盖正文。H；未接入 |
-| W24 | 删除日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/del_blog)` | H `uin, hostUin, idList=blogId, blogType, format=fs, json=1` | 破坏性、权限受限；不承诺存在回收/恢复 API。H；未接入 |
+| W16 | 创建相册：`U(photo.qzone.qq.com, /cgi-bin/cgi_create_album)` | O `hostUin=L, albumname, albumdesc, priv, format=json` | 旧相册接口族有失败记录；权限枚举不照搬说说的 `ugc_right`。O |
+| W17 | 删除相册：`U(photo.qzone.qq.com, /cgi-bin/cgi_del_album)` | O `hostUin=L, topicId=albumId, format=json` | 破坏性；不能因为读相册接口可用就称删除接口可用。O |
+| W18 | 旧删除照片：`U(photo.qzone.qq.com, /cgi-bin/cgi_del_photo)` | O `hostUin, topicId=albumId, lloc=photoId` | 旧路径，权限由服务端核；不与批量删除拼接混用。O |
+| W19 | 单张/批量删照片：`U(photo.qzone.qq.com, /cgi-bin/common/cgi_delpic_multi_v2)` | H/P `albumid, hostUin, uin, priv, codelist, ismultiup, resetcover`；H 单张定位包含 `lloc/sloc/priv` | 必须取原相册权限和原定位字段，不能固定写默认权限；可能连带影响封面。H/P |
+| W20 | 发表留言：`U(m.qzone.qq.com, /cgi-bin/new/add_msgb)` | H `uin=L, hostUin=T, content, signin, format=fs, json=1` | 与读取留言板分开授权；成功后核真实新增留言身份。H |
+| W21 | 删除留言：`H5(m.qzone.qq.com, /cgi-bin/new/del_msgb)` | H `hostUin=T, idList=messageId, uinList=authorUin, format=fs, json=1` | ID 列表和作者列表必须对应，不用操作者代替留言者。H |
+| W22 | 发表日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/add_blog)` | H `uin=hostUin=L, title, html, cate, rightType, blogType=0, format=fs, json=1` | 正文是 HTML，需净化；日志 `rightType` 和说说权限枚举不同；新 `blogid` 是关键结果。H |
+| W23 | 编辑日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/mod_blog)` | H 基于发表参数追加 `blogid`；标题、正文、分类、权限要保全 | 先读原件且保留历史；不能为了改标题覆盖正文。H |
+| W24 | 删除日志：`RC(b.qzone.qq.com, /cgi-bin/blognew/del_blog)` | H `uin, hostUin, idList=blogId, blogType, format=fs, json=1` | 破坏性、权限受限；不承诺存在回收/恢复 API。H |
 
 ### 4.3 不可跨模块混用的权限值
 
@@ -369,8 +366,4 @@ url.search = query.toString();
 | `apps/desktop/src/main/ipc/routers/qzone.ts` | 原生页面 RPC、身份校验、取消 |
 | `apps/desktop/src/renderer/src/views/QzoneView.tsx` | 原生空间展示 |
 
-主线程在途的 `qzone_stats.ts`、`reportedViewCount` 等以其后续实际修复和验证记录为准，本文不改动它们。
-
-若只扩展查看/导出，优先研究 R02/R04（正文和图片完整性）、R23/R24（照片讨论）、R05（语音），其次 R18/R17（回顾与互动入口）。日志、留言板和空间收藏按独立栏目规划。写入目录和仅登记目录默认不进入实施范围。
-
-本文只新增文档；没有提交或推送主线程的未提交功能修改，没有构建、安装、发布或进行真实账号接口验收。
+不要从本表推断产品入口或施工优先级：当前 R02/R04 等读取已使用，R18 与转发名单没有界面入口，空间访客展示已移除。未接入候选集中在 [TODO](qzone-todo.md)，维护时先核当前源码。

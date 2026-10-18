@@ -1,6 +1,6 @@
 # 空间精确导出
 
-日期：2026-10-18（北京时间）。本批处理单个空间说说列表的选择与导出，不代替跨空间动态、相册及全内容检索的剩余工作。
+范围为单个空间的说说；不包括跨作者动态或离散照片。用法见[空间导出](../guide/export.md#4-qq-空间导出)。
 
 ## 身份与交接
 
@@ -26,4 +26,4 @@
 - desktop `qzone_selection_ui.test.ts`：正文共享多选、统一请求、独立快照、按需范围读取和未加载身份。
 - desktop `unified_export.test.ts`、`workspace_toolbar.test.ts`、`export_scope.test.ts`：非好友空间、确认冻结、统一工具宿主及空集合保护。
 
-最终门禁和真实浏览器证据在[完整交付清单](./content-tools-completion-matrix-20261018.md)执行后登记。测试使用合成数据，不触达真实账号或网络。
+实现入口为 `account/export/qzone_export.ts`、`task_manager.ts` 和 `views/export/QzoneScopePicker.tsx`。测试使用合成数据，不证明真实账号全部云端历史均可取得。

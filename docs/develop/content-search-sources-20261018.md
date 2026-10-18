@@ -1,10 +1,10 @@
 # 全局搜索新增来源
 
-日期：2026-10-18（北京时间）。属于完整内容工具目标中的搜索接入批次，最终结果以完整清单验收记录为准。
+本页记录来源、覆盖与稳定定位；使用方式见[全局搜索](../guide/chat-view.md#全局搜索)。
 
 ## 来源契约
 
-`UnifiedSearchService` 新增七类：qzonePost、qzoneAlbum、groupAlbum、groupFile、mailMessage、marketEmoji、guildMessage。预览与更多复用同一个分类读取函数，失败按类别隔离，不启动未选类别的读取；空范围、换词和账号切换沿用原有旧响应隔离。
+`UnifiedSearchService` 的空间、相册、群文件、邮件、商城和频道来源与普通消息、收藏、生成对话并列。精确类别与 DTO 以 `account/unified_search.ts` 为准；预览与更多复用读取契约，失败按类别隔离，不启动未选类别的读取。
 
 空间、相册、群文件、邮件使用每账号 configId 独立的 `ContentSearchStore`。只投影正文文字、名称、源身份和可用原始数值时间；没有可核验数值时间的群相册等记录按观察顺序排序，不猜格式化时间的时区。不保存原始 HTML、图片签名 URL、Cookie、下载令牌或原始响应。邮件 HTML 复用已有 parse5 正文提取，不执行脚本或请求资源；空间动态只采用查看器已有的 data-fkey/data-tid/data-key 契约，不猜 feed.key，不索引广告、操作栏或评论控件。
 
@@ -37,6 +37,6 @@ service `content_search.test.ts` 覆盖持久化、账号路径隔离、回收�
 
 搜索返回现场使用 `useSearchReturn`，按账号、全局关键词与类别集合绑定，条件变化后丢弃，避免条件改回时复活旧现场。点击命中不清空全局查询；下拉记录滚动和稳定命中 key，更多页额外保存实际关键词、已加载结果、原始 nextOffset 与分页失败状态。返回只恢复内存快照，不重新拉第一页；重新搜索显式读取最新结果。更多页在工作区激活后的下一帧恢复滚动与焦点，避免隐藏页面聚焦失败或工作区默认聚焦覆盖命中。StrictMode 的模拟重挂载不重复执行恢复查询。
 
-`search_return.test.ts` 挂载实际标题栏、下拉、工作区与更多页，验证返回、账号隔离和 StrictMode；`search_more.test.ts` 验证恢复后的原始分页游标与修改后的词。没有将普通内容页自身的完整导航历史纳入这份快照，D15 的其它页面现场仍需独立验收。
+`search_return.test.ts` 挂载实际标题栏、下拉、工作区与更多页，验证返回、账号隔离和 StrictMode；`search_more.test.ts` 验证恢复后的原始分页游标与修改后的词。普通内容页自身的完整导航历史不在这份快照内。
 
-真实浏览器、完整门禁与剩余范围见[完整交付清单](./content-tools-completion-matrix-20261018.md)。本批不替代其余离散导出、统一分析和全来源任务的要求。
+剩余内容层级与任务整合见[能力盘点](content-capability-census-20261018.md)，不要把父级命中当作全部子资源已索引。

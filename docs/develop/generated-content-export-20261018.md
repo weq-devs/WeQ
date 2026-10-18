@@ -1,6 +1,6 @@
 # 生成内容精确导出
 
-日期：2026-10-18（北京时间）。属于内容工具完整目标的一批施工，不代表全内容搜索或统一任务最终完成。
+本页说明已持久化的克隆与助手记录如何形成独立导出快照；用户操作见[统一导出](../guide/export.md#克隆与助手对话)。
 
 ## 身份与来源
 
@@ -29,7 +29,7 @@
 
 暂停或重启后先校验已保存资源，不调用模型或回读已变化的原件掩盖快照问题；旧任务恢复时补齐资源阶段。成功后只清理已经持久化并发布的重复私有副本；清理失败不把已发布结果改为失败，删除任务时清理该任务的缓存和独立报告，不删除已另存的结果。
 
-本批完整性契约限定为 `known-generated-assets`，HTML/Markdown 附件内部的外链和脚本保持原文，不自动抓取或承诺完全离线。这项更广的离线化能力仍保留在完整能力矩阵中，不能由资源复制成功推断。
+完整性契约限定为 `known-generated-assets`，HTML/Markdown 附件内部的外链和脚本保持原文，不自动抓取或承诺完全离线。剩余离线化工作见[能力盘点](content-capability-census-20261018.md)。
 
 ## 回归入口
 
@@ -40,4 +40,4 @@
 - desktop `generated_export_ui.test.ts`：结构化身份、草稿隔离、确认冻结、切号停止及不可用范围禁用。
 - desktop `generated_search_ui.test.ts`：三类正文共享多选及新持久快照身份更新，保留原搜索定位回归。
 
-真实浏览器使用合成 RPC，不连接真实 QQ、不生成内容、不执行真实发送。最终门禁证据记录于[完整交付清单](./content-tools-completion-matrix-20261018.md)。
+服务实现位于 `account/generated_content.ts`、`account/export/generated_export.ts` 和 `generated_resources.ts`；测试均使用合成数据，不替代真实来源的资源可用性检查。
