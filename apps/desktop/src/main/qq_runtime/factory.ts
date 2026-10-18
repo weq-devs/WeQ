@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hostname, release } from 'node:os';
 import type { Platform } from '@weq/platform';
-import { QQRuntimeManager, type QQRuntimeDependencies } from '@weq/service';
+import { resolveNtHelperPath } from '@weq/native';
+import { ManagedQQSsoSession, QQRuntimeManager, type QQRuntimeDependencies } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 import { discoverManagedQQInstallation } from './installation';
 import { createQQKernelProcessBackend } from './process_backend';
@@ -29,12 +30,19 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
         options.moduleDir,
         options.resourcesPath,
       );
+      let session: ManagedQQSsoSession | null = null;
+      const releaseSession = async () => {
+        const previous = session;
+        await previous?.close();
+        if (session === previous) session = null;
+      };
       return createQQKernelProcessBackend(
         {
           instanceId,
           nonce: randomBytes(32).toString('hex'),
           wrapperPath: installation.wrapperPath,
           dataRoot: options.dataRoot,
+          ntHelperPath: resolveNtHelperPath(),
           client: installation.client,
           device: { hostName: hostname(), osVersion: release() },
           ...(expectedUin ? { expectedUin } : {}),
@@ -42,6 +50,26 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
         worker,
         options.execPath,
         signal,
+        {
+          release: releaseSession,
+          accept: async ({ pid, uin, uid, guid, material }, current) => {
+            await releaseSession();
+            if (current.aborted) return false;
+            session = new ManagedQQSsoSession(options.platform.native.ntHelper, {
+              pid,
+              wrapperPath: installation.wrapperPath,
+              majorPath: installation.majorPath,
+              identity: {
+                uin,
+                uid,
+                guid,
+                subAppId: Number(installation.client.appId),
+                clientVersion: installation.client.version,
+              },
+            });
+            return session.register(material, current);
+          },
+        },
       );
     },
   });

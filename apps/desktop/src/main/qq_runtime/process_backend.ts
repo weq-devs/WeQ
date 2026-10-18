@@ -8,17 +8,31 @@ import type {
 import type { QQKernelCommand, QQKernelEvent, QQKernelOptions } from './kernel_protocol';
 
 type Waiter = { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void };
+export interface QQKernelSessionHooks {
+  accept(
+    input: {
+      pid: number;
+      uin: string;
+      uid: string;
+      guid: string;
+      material: { a2: string; d2: string; d2Key: string };
+    },
+    signal: AbortSignal,
+  ): Promise<boolean>;
+  release(): Promise<void>;
+}
 
 export async function createQQKernelProcessBackend(
   options: QQKernelOptions,
   workerPath: string,
   execPath = process.execPath,
   signal?: AbortSignal,
+  sessionHooks?: QQKernelSessionHooks,
 ): Promise<QQKernelProcessBackend> {
   if (signal?.aborted) throw new Error('托管启动已取消');
   await mkdir(options.dataRoot, { recursive: true, mode: 0o700 });
   if (signal?.aborted) throw new Error('托管启动已取消');
-  const backend = new QQKernelProcessBackend(options, workerPath, execPath);
+  const backend = new QQKernelProcessBackend(options, workerPath, execPath, sessionHooks);
   if (backend.pid <= 0) {
     await backend.close();
     throw new Error('QQ 托管进程未创建');
@@ -51,6 +65,12 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
   private initialized = false;
   private bootSent = false;
   private fatal = false;
+  private connected = false;
+  private sessionIdentity: { uin: string; uid: string; guid: string } | null = null;
+  private sessionAbort: AbortController | null = null;
+  private sessionCleanup: Promise<void> = Promise.resolve();
+  private sessionRequest = 0;
+  private sessionRequestId: string | null = null;
   private state: QQRuntimeObservation = {
     phase: 'starting',
     account: null,
@@ -63,6 +83,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     private readonly options: QQKernelOptions,
     workerPath: string,
     execPath = process.execPath,
+    private readonly sessionHooks?: QQKernelSessionHooks,
   ) {
     const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
     delete env.NODE_OPTIONS;
@@ -83,6 +104,8 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     const finish = (code: number | null, signal: string | null) => {
       if (this.exited) return;
       this.exited = true;
+      this.connected = false;
+      void this.revokeSession().catch(() => {});
       if (this.startupTimer) clearTimeout(this.startupTimer);
       this.startupTimer = null;
       this.boot.reject(new Error('QQ 托管 Worker 在就绪前退出'));
@@ -105,7 +128,12 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     for (const listener of this.listeners)
       listener({
         type: 'observation',
-        value: { ...this.state, capabilities: { ...this.state.capabilities } },
+        value: {
+          ...this.state,
+          capabilities: { ...this.state.capabilities },
+          account: this.state.account ? { ...this.state.account } : null,
+          qr: this.state.qr ? { ...this.state.qr } : null,
+        },
       });
   }
   private receive(value: unknown): void {
@@ -131,9 +159,13 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
         this.publish({ phase: 'connecting', qr: null });
         break;
       case 'connected':
+        this.connected = true;
         this.publish({ phase: this.state.account ? 'initializing-session' : 'awaiting-login' });
+        this.requestSession();
         break;
       case 'disconnected':
+        this.connected = false;
+        void this.revokeSession().catch(() => {});
         this.publish({
           phase: 'recovering',
           qr: null,
@@ -161,29 +193,66 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
         this.publish({ phase: 'awaiting-login', qr: null, error: '二维码已过期，请重新获取' });
         break;
       case 'login':
-        if (typeof event.uin !== 'string' || typeof event.uid !== 'string') return;
+        if (
+          typeof event.uin !== 'string' ||
+          !/^[1-9]\d*$/.test(event.uin) ||
+          typeof event.uid !== 'string' ||
+          !/^u_[A-Za-z0-9_-]+$/.test(event.uid) ||
+          (this.options.expectedUin && event.uin !== this.options.expectedUin)
+        )
+          return;
         this.publish({
           phase: 'initializing-session',
           account: { uin: event.uin, uid: event.uid },
           qr: null,
         });
         break;
-      case 'session-initialized':
+      case 'session-initialized': {
+        const account = this.state.account;
+        if (
+          !account ||
+          event.uin !== account.uin ||
+          event.uid !== account.uid ||
+          event.dataRoot !== this.options.dataRoot ||
+          typeof event.guid !== 'string' ||
+          !/^[a-f0-9]{32}$/.test(event.guid)
+        )
+          return;
+        this.sessionIdentity = { uin: event.uin, uid: event.uid, guid: event.guid };
         // 内核会话初始化不等于凭据和数据库已验证，能力仍由后续真实接入发布。
         this.publish({ phase: 'initializing-session' });
+        this.requestSession();
+        break;
+      }
+      case 'session-material':
+        this.acceptSession(event);
+        break;
+      case 'session-material-error':
+        if (!this.sessionRequestId || event.requestId !== this.sessionRequestId) return;
+        void this.revokeSession().catch(() => {});
+        this.publish({
+          phase: 'initializing-session',
+          error: 'QQ 登录票据尚未就绪，请重新连接',
+          capabilities: { ...this.state.capabilities, sso: false },
+        });
         break;
       case 'health':
         this.healthWait?.resolve();
         this.healthWait = null;
-        if (!event.connected)
+        if (!event.connected) {
+          this.connected = false;
+          void this.revokeSession().catch(() => {});
           this.publish({
             phase: 'recovering',
             capabilities: { ...this.state.capabilities, sso: false, push: false },
           });
+        }
         break;
       case 'error':
         if (typeof event.message !== 'string') return;
         if (!this.initialized || event.code === 'account-mismatch') this.fatal = true;
+        this.connected = false;
+        void this.revokeSession().catch(() => {});
         this.boot.reject(new Error(event.message.slice(0, 1024)));
         this.publish({
           phase: 'failed',
@@ -196,9 +265,89 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
         this.publish({ phase: 'awaiting-login', qr: null, error: '需要完成 QQ 官方验证' });
         break;
       case 'stopped':
-        if (!this.closed) void this.close();
+        if (!this.closed) void this.close().catch(() => {});
         break;
     }
+  }
+
+  private requestSession(): void {
+    if (
+      !this.sessionHooks ||
+      !this.sessionIdentity ||
+      !this.connected ||
+      this.exited ||
+      this.closed
+    )
+      return;
+    const requestId = String(++this.sessionRequest);
+    this.sessionRequestId = requestId;
+    void this.send({
+      type: 'collect-session',
+      instanceId: this.options.instanceId,
+      nonce: this.options.nonce,
+      requestId,
+    }).catch(() => {});
+  }
+
+  private revokeSession(): Promise<void> {
+    this.sessionRequestId = null;
+    this.sessionAbort?.abort();
+    this.sessionAbort = null;
+    this.sessionCleanup = this.sessionCleanup
+      .catch(() => {})
+      .then(() => this.sessionHooks?.release());
+    return this.sessionCleanup;
+  }
+
+  private acceptSession(event: Extract<QQKernelEvent, { type: 'session-material' }>): void {
+    const identity = this.sessionIdentity;
+    if (
+      !this.sessionHooks ||
+      !identity ||
+      !this.connected ||
+      this.closed ||
+      !this.sessionRequestId ||
+      event.requestId !== this.sessionRequestId ||
+      event.uin !== identity.uin ||
+      event.uid !== identity.uid ||
+      event.guid !== identity.guid ||
+      !event.material ||
+      typeof event.material !== 'object'
+    )
+      return;
+    const { a2, d2, d2Key } = event.material;
+    if ([a2, d2, d2Key].some((field) => typeof field !== 'string' || field.length > 16384)) return;
+    this.sessionRequestId = null;
+    this.sessionAbort?.abort();
+    const controller = new AbortController();
+    this.sessionAbort = controller;
+    const hooks = this.sessionHooks;
+    void (async () => {
+      await this.sessionCleanup;
+      if (controller.signal.aborted) return;
+      const ready = await hooks.accept(
+        { pid: this.pid, ...identity, material: { a2, d2, d2Key } },
+        controller.signal,
+      );
+      if (
+        !controller.signal.aborted &&
+        !this.exited &&
+        !this.closed &&
+        this.sessionAbort === controller
+      ) {
+        this.publish({
+          phase: 'initializing-session',
+          error: ready ? null : 'QQ 登录票据尚未完成登记',
+          capabilities: { ...this.state.capabilities, sso: ready === true },
+        });
+      }
+    })().catch(() => {
+      if (!controller.signal.aborted && !this.exited && !this.closed)
+        this.publish({
+          error: 'QQ 登录票据登记失败，请重新连接',
+          capabilities: { ...this.state.capabilities, sso: false },
+        });
+    });
   }
 
   private send(command: QQKernelCommand): Promise<void> {
@@ -214,7 +363,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     if (!Number.isSafeInteger(this.pid) || this.pid <= 0) throw new Error('QQ 托管进程未创建');
     const cancel = () => {
       this.boot.reject(new Error('托管启动已取消'));
-      void this.close();
+      void this.close().catch(() => {});
     };
     signal.addEventListener('abort', cancel, { once: true });
     try {
@@ -225,7 +374,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
       this.startupTimer = setTimeout(() => {
         this.fatal = true;
         this.boot.reject(new Error('QQ 内核初始化超时'));
-        void this.close();
+        void this.close().catch(() => {});
       }, 15_000);
       this.startupTimer.unref?.();
       this.bootSent = true;
@@ -258,7 +407,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     this.healthWait = pending;
     const timer = setTimeout(() => {
       pending.reject(new Error('QQ 托管 Worker 无响应'));
-      void this.close();
+      void this.close().catch(() => {});
     }, 5000);
     timer.unref?.();
     try {
@@ -275,7 +424,12 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
   }
   close(): Promise<void> {
     this.closed ??= (async () => {
-      if (this.exited) return;
+      const cleanup = this.revokeSession();
+      void cleanup.catch(() => {});
+      if (this.exited) {
+        await cleanup;
+        return;
+      }
       const term = setTimeout(() => this.child.kill('SIGTERM'), 5000);
       const kill = setTimeout(() => this.child.kill('SIGKILL'), 7000);
       term.unref?.();
@@ -289,11 +443,16 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
             nonce: this.options.nonce,
           }).catch(() => {});
         await this.exit.promise;
+        await this.sessionCleanup;
       } finally {
         clearTimeout(term);
         clearTimeout(kill);
       }
     })();
+    const closing = this.closed;
+    void closing.catch(() => {
+      if (this.closed === closing) this.closed = null;
+    });
     return this.closed;
   }
 }

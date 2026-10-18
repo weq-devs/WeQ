@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createQQKernelProcessBackend,
   type QQKernelProcessBackend,
+  type QQKernelSessionHooks,
 } from '../src/main/qq_runtime/process_backend';
 import type { QQRuntimeBackendEvent } from '@weq/service';
 
@@ -18,7 +19,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0))
     await rm(directory, { recursive: true, force: true });
 });
-async function fixture(hostName = 'fixture') {
+async function fixture(hostName = 'fixture', hooks?: QQKernelSessionHooks) {
   const root = await mkdtemp(join(tmpdir(), 'weq-runtime-ipc-'));
   directories.push(root);
   const options = {
@@ -33,6 +34,9 @@ async function fixture(hostName = 'fixture') {
   const backend = await createQQKernelProcessBackend(
     options,
     fileURLToPath(new URL('./fixtures/qq_runtime_child.cjs', import.meta.url)),
+    process.execPath,
+    undefined,
+    hooks,
   );
   backends.push(backend);
   const events: QQRuntimeBackendEvent[] = [];
@@ -41,6 +45,97 @@ async function fixture(hostName = 'fixture') {
 }
 
 describe('独立进程监督（仅本地测试子进程）', () => {
+  it('私有票据只交给登记器，登记确认后才发布 SSO，数据库仍未就绪', async () => {
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+    };
+    const f = await fixture('fixture', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() =>
+      expect(
+        f.events.some((event) => event.type === 'observation' && event.value.capabilities.sso),
+      ).toBe(true),
+    );
+    expect(hooks.accept).toHaveBeenCalledOnce();
+    expect(hooks.accept.mock.calls[0]?.[0]).toEqual({
+      pid: f.backend.pid,
+      uin: '10001',
+      uid: 'u_fixture',
+      guid: '11'.repeat(16),
+      material: { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16) },
+    });
+    const publicEvents = JSON.stringify(f.events);
+    expect(publicEvents).not.toContain('d2Key');
+    expect(publicEvents).not.toContain('never-publish');
+    for (const event of f.events)
+      if (event.type === 'observation') expect(event.value.capabilities.database).toBe(false);
+    await f.backend.close();
+    expect(hooks.release).toHaveBeenCalled();
+  });
+
+  it('断线后迟到的私有票据不能重新登记', async () => {
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+    };
+    const f = await fixture('disconnect-before-material', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() =>
+      expect(
+        f.events.some(
+          (event) => event.type === 'observation' && event.value.phase === 'recovering',
+        ),
+      ).toBe(true),
+    );
+    expect(hooks.accept).not.toHaveBeenCalled();
+    await f.backend.close();
+  });
+
+  it('同账号重连后也拒绝上一轮读取的票据与错误回包', async () => {
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+    };
+    const f = await fixture('reconnect-stale-material', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() =>
+      expect(
+        f.events.some((event) => event.type === 'observation' && event.value.capabilities.sso),
+      ).toBe(true),
+    );
+    expect(hooks.accept).toHaveBeenCalledOnce();
+    expect(hooks.accept.mock.calls[0]?.[0].material.a2).toBe('aa');
+    await f.backend.close();
+  });
+
+  it('停止会取消在途登记，迟到成功不发布在线能力', async () => {
+    let finish: (value: boolean) => void = () => {};
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+      release: vi.fn(async () => {}),
+    };
+    const f = await fixture('fixture', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() => expect(hooks.accept).toHaveBeenCalledOnce());
+    await f.backend.close();
+    expect(hooks.accept.mock.calls[0]?.[1].aborted).toBe(true);
+    finish(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      f.events.some((event) => event.type === 'observation' && event.value.capabilities.sso),
+    ).toBe(false);
+  });
   it('不继承父进程的调试或内联脚本参数', async () => {
     const original = [...process.execArgv];
     try {

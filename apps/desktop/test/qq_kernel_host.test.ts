@@ -75,6 +75,24 @@ async function fixture() {
 }
 
 describe('托管 QQ 内核宿主（不加载真实 QQ）', () => {
+  it('未连接、未完成初始化、断线和停止时均不给出发包身份', async () => {
+    const f = await fixture();
+    expect(f.host.sessionForTransport()).toBeNull();
+    f.listener().onLoginConnected!();
+    f.listener().onQRCodeLoginSucceed!({ uin: '10001', uid: 'u_self' });
+    await vi.waitFor(() => expect(f.session.init).toHaveBeenCalled());
+    expect(f.host.sessionForTransport()).toBeNull();
+    f.sessionListener().onSessionInitComplete!({});
+    expect(f.host.sessionForTransport()).toEqual({
+      uin: '10001',
+      uid: 'u_self',
+      guid: 'ab'.repeat(16),
+    });
+    f.listener().onLoginDisConnected!();
+    expect(f.host.sessionForTransport()).toBeNull();
+    await f.host.stop();
+    expect(f.host.sessionForTransport()).toBeNull();
+  });
   it('初始化只配置内核，不发起登录，身份来自实际安装版本输入', async () => {
     const f = await fixture();
     expect(f.engine.initWithDeskTopConfig.mock.calls[0]?.[0]).toMatchObject({

@@ -153,6 +153,7 @@ export {
   PC_SUB_APP_ID,
 } from './account/sso_session';
 export type { SsoIdentity, StoredSsoMaterial } from './account/sso_session';
+export { ManagedQQSsoSession } from './qq_runtime_session';
 export {
   MediaDownloadService,
   PRIVATE_IMAGE_RKEY_TYPE,

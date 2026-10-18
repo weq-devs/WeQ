@@ -7,14 +7,21 @@ import {
   qqKernelErrorText,
 } from './kernel_host';
 import type { QQKernelEvent } from './kernel_protocol';
+import {
+  loadOwnSessionReader,
+  readOwnSessionMaterial,
+  OwnQQSessionCollector,
+} from './session_material';
 
 let host: QQKernelHost | null = null;
 let booting = false;
 let instanceId = '';
 let stopping: Promise<void> | null = null;
+let collector: OwnQQSessionCollector | null = null;
+let sessionReader: ReturnType<typeof loadOwnSessionReader> | null = null;
 
 function send(event: QQKernelEvent): void {
-  if (process.connected) process.send?.(event);
+  if (process.connected) process.send?.(event, () => {});
 }
 function stop(code = 0): Promise<void> {
   stopping ??= (async () => {
@@ -39,6 +46,16 @@ process.on('message', (value: unknown) => {
         join(dirname(fileURLToPath(import.meta.url)), 'qqKernelRegistration.node'),
       );
       host = new QQKernelHost(api, options, send);
+      const ntHelperPath = options.ntHelperPath;
+      if (ntHelperPath)
+        collector = new OwnQQSessionCollector(
+          () => (stopping ? null : (host?.sessionForTransport() ?? null)),
+          async () => {
+            sessionReader ??= loadOwnSessionReader(ntHelperPath);
+            return readOwnSessionMaterial(sessionReader);
+          },
+          (result) => send({ type: 'session-material', instanceId, pid: process.pid, ...result }),
+        );
       await host.initialize();
       booting = false;
       return;
@@ -54,6 +71,18 @@ process.on('message', (value: unknown) => {
       await host.startLogin(typeof command.uin === 'string' ? command.uin : undefined);
     else if (command.type === 'refresh-qr') host.refreshQr();
     else if (command.type === 'health') host.health();
+    else if (
+      command.type === 'collect-session' &&
+      typeof command.requestId === 'string' &&
+      command.requestId.length <= 128
+    ) {
+      const requestId = command.requestId;
+      await collector
+        ?.collect(requestId)
+        .catch(() =>
+          send({ type: 'session-material-error', requestId, instanceId, pid: process.pid }),
+        );
+    }
   })().catch((error: unknown) => {
     send({
       type: 'error',

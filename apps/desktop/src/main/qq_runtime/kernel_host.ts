@@ -95,6 +95,13 @@ export function validateQQKernelOptions(value: unknown): QQKernelOptions {
     (typeof input.expectedUin !== 'string' || !/^[1-9]\d*$/.test(input.expectedUin))
   )
     throw new Error('期望账号无效');
+  if (
+    input.ntHelperPath !== undefined &&
+    (typeof input.ntHelperPath !== 'string' ||
+      input.ntHelperPath.length > 4096 ||
+      !isAbsolute(input.ntHelperPath))
+  )
+    throw new Error('原生会话读取器路径无效');
   return {
     instanceId: String(input.instanceId),
     nonce: String(input.nonce),
@@ -107,6 +114,7 @@ export function validateQQKernelOptions(value: unknown): QQKernelOptions {
     },
     device: { hostName: String(device.hostName), osVersion: String(device.osVersion) },
     ...(typeof input.expectedUin === 'string' ? { expectedUin: input.expectedUin } : {}),
+    ...(typeof input.ntHelperPath === 'string' ? { ntHelperPath: input.ntHelperPath } : {}),
   };
 }
 
@@ -122,6 +130,7 @@ export class QQKernelHost {
   private loginRequested = false;
   private requestedUin: string | undefined;
   private account: { uin: string; uid: string } | null = null;
+  private accountGuid: string | null = null;
   private sessionReady = false;
   private startupStarted = false;
   private authenticationRequested = false;
@@ -354,6 +363,7 @@ export class QQKernelHost {
     if (!this.login || !this.session || !this.startup) throw new Error('QQ 会话实例未创建');
     const guidRaw = String(call(this.login, 'getMachineGuid')).replace(/-/g, '').toLowerCase();
     if (!/^[0-9a-f]{32}$/.test(guidRaw)) throw new Error('QQ 设备 GUID 无效');
+    this.accountGuid = guidRaw;
     const guid = [
       guidRaw.slice(0, 8),
       guidRaw.slice(8, 12),
@@ -442,6 +452,12 @@ export class QQKernelHost {
     );
     this.startupStarted = true;
     call(this.startup, 'start');
+  }
+
+  sessionForTransport(): { uin: string; uid: string; guid: string } | null {
+    if (this.stopped || !this.connected || !this.sessionReady || !this.account || !this.accountGuid)
+      return null;
+    return { ...this.account, guid: this.accountGuid };
   }
 
   health(): void {
