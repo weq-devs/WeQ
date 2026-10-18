@@ -69,7 +69,7 @@ export class QQMailService {
   private readonly onNotice?: (notice: MailNotice) => void;
 
   constructor(
-    nt: Pick<NtHelperBinding, 'probePtLoginPort'>,
+    nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
     readonly uin: string,
     onlinePid: () => number | null,
     options: {

@@ -438,9 +438,6 @@ export type {
 } from './qzone_publish';
 
 export {
-  PT_LOGIN_DOMAINS,
-  fetchSkeyViaPtLogin,
-  fetchPskeyViaPtLogin,
   fetchWebTokens,
   computeBkn,
   cookieHeader,

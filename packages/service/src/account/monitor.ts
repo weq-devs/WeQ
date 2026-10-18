@@ -566,7 +566,7 @@ export class AccountMonitorService {
           count: rkeys.length,
         });
       }
-      const key = await fetchClientKey(this.nt, pid);
+      const key = await fetchClientKey(this.nt, pid, this.uin);
       this.assertCurrent(generation, pid);
       this.accountConfig.setClientKey({ ...key, fetchedAt: Date.now() });
       this.harvestRetry = null;

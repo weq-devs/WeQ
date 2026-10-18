@@ -29,7 +29,16 @@ afterEach(async () => {
 });
 function auth(): MailAuth {
   return new MailAuth(
-    { probePtLoginPort: () => ({ success: false, port: 0, msg: '' }) },
+    {
+      ptFetchMailSession: async () => ({
+        success: false,
+        msg: '离线',
+        sid: '',
+        panelPskey: '',
+        cookie: '',
+        errorKind: 'offline',
+      }),
+    },
     '12345678',
     () => null,
   );

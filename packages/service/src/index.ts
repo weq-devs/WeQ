@@ -584,12 +584,8 @@ export {
   WebQueryService,
   HonorType,
   computeBkn,
-  PT_LOGIN_DOMAINS,
   fetchWebTokens,
-  fetchSkeyViaPtLogin,
-  fetchPskeyViaPtLogin,
 } from './account/web';
-export { buildPtlogin2JumpUrl } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,

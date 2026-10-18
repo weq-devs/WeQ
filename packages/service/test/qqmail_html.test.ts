@@ -29,7 +29,16 @@ describe('邮箱 HTML 凭据边界', () => {
   });
   it('票据文本和百分号编码值也会在跨IPC前脱敏', async () => {
     const auth = new MailAuth(
-      { probePtLoginPort: () => ({ success: false, port: 0, msg: '' }) },
+      {
+        ptFetchMailSession: async () => ({
+          success: false,
+          msg: '离线',
+          sid: '',
+          panelPskey: '',
+          cookie: '',
+          errorKind: 'offline',
+        }),
+      },
       '12345678',
       () => null,
     );

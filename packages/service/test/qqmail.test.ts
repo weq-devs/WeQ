@@ -3,12 +3,7 @@ import { EventEmitter } from 'node:events';
 import https from 'node:https';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import { CookieJar } from 'tough-cookie';
-import {
-  MailAuth,
-  MAIL_LANDING,
-  localLoginArguments,
-  mailCheckSigTarget,
-} from '../src/account/mail/auth';
+import { MailAuth } from '../src/account/mail/auth';
 import {
   mailRequestTarget,
   MailHttp,
@@ -35,44 +30,10 @@ class FakeMailTransport implements MailTransport {
   readonly jar = new CookieJar();
   readonly calls: { url: URL; options: MailRequest }[] = [];
   failReadOnce = false;
-  mismatch = false;
-  variableAccounts = false;
   closed = false;
   async request(raw: string | URL, options: MailRequest = {}): Promise<MailResponse> {
     const url = new URL(raw);
     this.calls.push({ url, options });
-    if (url.pathname === '/cgi-bin/xlogin')
-      await this.jar.setCookie(
-        'pt_local_token=fixture-local; Domain=ptlogin2.qq.com; Path=/; Secure',
-        url.href,
-      );
-    if (url.pathname === '/pt_get_uins' && this.variableAccounts)
-      return { status: 200, body: 'var uinlist=[{"uin":12345678}];ptui_getuins_CB(uinlist);' };
-    if (url.pathname === '/pt_get_uins')
-      return {
-        status: 200,
-        body: `ptui_getuins_CB([{uin:"${this.mismatch ? '87654321' : '12345678'}"}]);`,
-      };
-    if (url.pathname === '/pt_get_st') {
-      await this.jar.setCookie(
-        'clientkey=fixture-client; Domain=ptlogin2.qq.com; Path=/; Secure',
-        'https://localhost.ptlogin2.qq.com/',
-      );
-      return { status: 200, body: '__jp0({keyindex:19});' };
-    }
-    if (url.pathname === '/jump')
-      return {
-        status: 302,
-        location: 'https://ssl.ptlogin2.qq.com/check_sig?ticket=fixture',
-        body: '',
-      };
-    if (url.pathname === '/check_sig') {
-      await this.jar.setCookie(
-        'p_skey=fixture-mail; Domain=mail.qq.com; Path=/; Secure; HttpOnly',
-        url.href,
-      );
-      return { status: 302, location: MAIL_LANDING, body: '' };
-    }
     if (url.pathname === '/login/login') return this.envelope({ sid: 'fixture-sid' });
     if (url.pathname === '/list/maillist' && this.failReadOnce) {
       this.failReadOnce = false;
@@ -89,7 +50,26 @@ class FakeMailTransport implements MailTransport {
   }
 }
 
-const native = { probePtLoginPort: () => ({ success: true, port: 4301, msg: '' }) };
+function mailNative(result: Partial<Awaited<ReturnType<typeof okMailSession>>> = {}): {
+  ptFetchMailSession: ReturnType<typeof vi.fn>;
+} {
+  return {
+    ptFetchMailSession: vi.fn(async () => ({ ...okMailSession(), ...result })),
+  };
+}
+
+function okMailSession() {
+  return {
+    success: true,
+    msg: 'ok',
+    sid: 'fixture-sid',
+    panelPskey: 'fixture-mail',
+    cookie: 'sid=fixture-sid; p_skey=fixture-mail',
+    errorKind: '',
+  };
+}
+
+const native = mailNative();
 const compose = {
   subject: '测试',
   content: '正文',
@@ -184,22 +164,21 @@ describe('邮箱生命周期和提醒', () => {
         return object(options).panelCookie === 'p_uin=o12345678; p_skey=fixture-mail'
           ? transport.envelope({ unread: 3, newmaillist: [] })
           : transport.envelope({}, -90002);
-      const result = await original(raw, options);
-      if (path === '/login/login')
-        transport.jar.setCookieSync(
-          'p_skey=; Max-Age=0; Domain=mail.qq.com; Path=/; Secure',
-          'https://wx.mail.qq.com/',
-        );
-      return result;
+      return original(raw, options);
     };
     const auth = new MailAuth(native, '12345678', () => 42, transport);
     try {
-      await expect(auth.notificationQuery()).resolves.toMatchObject({ unread: 3 });
+      await auth.connect();
+      transport.jar.setCookieSync(
+        'p_skey=; Max-Age=0; Domain=wx.mail.qq.com; Path=/; Secure',
+        'https://wx.mail.qq.com/',
+      );
       expect(
         transport.jar
           .getCookiesSync('https://wx.mail.qq.com/')
           .some((cookie) => cookie.key === 'p_skey'),
       ).toBe(false);
+      await expect(auth.notificationQuery()).resolves.toMatchObject({ unread: 3 });
       expect(await auth.redact('fixture-mail')).toBe('[redacted]');
     } finally {
       auth.dispose();
@@ -581,21 +560,6 @@ describe('邮箱生命周期和提醒', () => {
 });
 
 describe('邮箱认证边界', () => {
-  it('QQ 先声明账号数组再执行回调时，仍只读取数组数据', async () => {
-    const transport = new FakeMailTransport();
-    transport.variableAccounts = true;
-    const auth = new MailAuth(native, '12345678', () => 42, transport);
-    await expect(auth.connect()).resolves.toBeUndefined();
-  });
-  it('JSONP 只解析数据，不执行函数或后缀脚本', () => {
-    expect(localLoginArguments('cb({keyindex:19}, [{uin:"12345678"}]);')).toEqual([
-      { keyindex: 19 },
-      [{ uin: '12345678' }],
-    ]);
-    expect(() => localLoginArguments('cb(function(){throw new Error("executed")})')).toThrow(
-      MailFailure,
-    );
-  });
   it('只有已探测的 loopback 端口能进入本机 TLS 例外', () => {
     expect(mailRequestTarget(new URL('https://127.0.0.1:4301/pt_get_st'), 4301).hostname).toBe(
       'localhost.ptlogin2.qq.com',
@@ -608,34 +572,6 @@ describe('邮箱认证边界', () => {
     expect(() => mailRequestTarget(new URL('https://wx.mail.qq.com.evil.invalid/'))).toThrow(
       MailFailure,
     );
-  });
-  it('check_sig 限定入口，不允许任意跳转被改写成可信主机', () => {
-    expect(
-      mailCheckSigTarget({
-        status: 302,
-        body: '',
-        location: 'https://ssl.ptlogin2.qq.com/check_sig?ticket=fixture',
-      }).hostname,
-    ).toBe('ptlogin2.mail.qq.com');
-    expect(() =>
-      mailCheckSigTarget({ status: 302, body: '', location: 'https://evil.invalid/check_sig' }),
-    ).toThrow(MailFailure);
-    expect(() =>
-      mailCheckSigTarget({
-        status: 302,
-        body: '',
-        location: 'https://ssl.ptlogin2.qq.com/not_check_sig',
-      }),
-    ).toThrow(MailFailure);
-  });
-  it('接受 QQ 返回的邮箱专用 SSL check_sig 主机', () => {
-    expect(
-      mailCheckSigTarget({
-        status: 302,
-        body: '',
-        location: 'https://ssl.ptlogin2.mail.qq.com/check_sig?ticket=fixture',
-      }).hostname,
-    ).toBe('ptlogin2.mail.qq.com');
   });
   it('标准 CookieJar 隔离域、路径、HttpOnly 与过期票据', async () => {
     const jar = new CookieJar();
@@ -656,25 +592,49 @@ describe('邮箱认证边界', () => {
     );
     expect(await jar.getCookieString('https://wx.mail.qq.com/')).toBe('');
   });
-  it('并发认证单飞，jump 复用通用构造器而不携带旧邮箱 appid', async () => {
+  it('并发认证单飞，native 会话票据灌入 CookieJar 供后续请求复用', async () => {
     const transport = new FakeMailTransport();
-    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    const nt = mailNative();
+    const auth = new MailAuth(nt, '12345678', () => 42, transport);
     await Promise.all([auth.connect(), auth.connect(), auth.connect()]);
-    const jumps = transport.calls.filter((call) => call.url.pathname === '/jump');
-    expect(jumps).toHaveLength(1);
-    expect(jumps[0]!.url.searchParams.get('u1')).toBe(MAIL_LANDING);
-    expect(jumps[0]!.url.searchParams.has('pt_aid')).toBe(false);
-    expect(
-      transport.calls.find((call) => call.url.pathname === '/login/login')!.options.form,
-    ).toMatchObject({ auth_type: 3, p_skey: 'fixture-mail' });
+    expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+    expect(nt.ptFetchMailSession).toHaveBeenCalledWith(42, '12345678');
+    expect(await transport.jar.getCookieString('https://wx.mail.qq.com/')).toContain(
+      'sid=fixture-sid',
+    );
+    expect(await transport.jar.getCookieString('https://wx.mail.qq.com/')).toContain(
+      'p_skey=fixture-mail',
+    );
     expect(auth.ready).toBe(true);
   });
-  it('账号不匹配时不继续取票据，也不降级选择其他账号', async () => {
+  it('native 返回失败时透传用户可读错误，不继续请求邮箱', async () => {
     const transport = new FakeMailTransport();
-    transport.mismatch = true;
-    const auth = new MailAuth(native, '12345678', () => 42, transport);
-    await expect(auth.connect()).rejects.toThrow('账号不一致');
-    expect(transport.calls.some((call) => call.url.pathname === '/pt_get_st')).toBe(false);
+    const nt = mailNative({
+      success: false,
+      msg: '本地 QQ 返回的账号列表不包含指定 QQ 号',
+      sid: '',
+      panelPskey: '',
+      cookie: '',
+      errorKind: 'auth',
+    });
+    const auth = new MailAuth(nt, '12345678', () => 42, transport);
+    await expect(auth.connect()).rejects.toMatchObject({
+      kind: 'auth',
+      message: '本地 QQ 返回的账号列表不包含指定 QQ 号',
+    });
+    expect(transport.calls).toEqual([]);
+  });
+  it('native 报告离线时映射成 offline，便于上层提示先登录 QQ', async () => {
+    const nt = mailNative({
+      success: false,
+      msg: 'QQ 未在线',
+      sid: '',
+      panelPskey: '',
+      cookie: '',
+      errorKind: 'offline',
+    });
+    const auth = new MailAuth(nt, '12345678', () => 42, new FakeMailTransport());
+    await expect(auth.connect()).rejects.toMatchObject({ kind: 'offline', message: 'QQ 未在线' });
   });
   it('读取失效只重认证一次，销毁后不能重连', async () => {
     const transport = new FakeMailTransport();
