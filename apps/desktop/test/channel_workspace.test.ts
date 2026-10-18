@@ -334,7 +334,7 @@ describe('QQ 频道内的私聊工作区', () => {
     );
     try {
       expect(
-        [...f.host.querySelectorAll('.rail-nav > button')].map((b) => b.getAttribute('title')),
+        [...f.host.querySelectorAll('.rail-nav .rail-tab')].map((b) => b.getAttribute('title')),
       ).toEqual([
         '消息',
         '联系人',

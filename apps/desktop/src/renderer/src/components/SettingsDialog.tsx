@@ -464,6 +464,9 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
+  const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const utils = trpc.useUtils();
+  const [badgeError, setBadgeError] = useState<string | null>(null);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
@@ -600,6 +603,27 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
       )}
       {page === 'messages' && (
         <>
+          <div className="weq-settings-appearance-card">
+            <div className="weq-settings-appearance-head">
+              <strong>显示消息汇总红点</strong>
+              <Toggle
+                checked={settings.data?.showMessageUnreadBadge ?? true}
+                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
+                onChange={(enabled) => {
+                  setBadgeError(null);
+                  setShowMessageUnreadBadge.mutate(
+                    { enabled },
+                    {
+                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                      onError: (error) => setBadgeError(error.message),
+                    },
+                  );
+                }}
+                label="显示消息汇总红点"
+              />
+            </div>
+            {badgeError ? <p role="alert">{badgeError}</p> : null}
+          </div>
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <div>

@@ -470,6 +470,8 @@ export interface AppSettings {
   showMessageSeq: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
   showMessageTime: boolean;
+  /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
+  showMessageUnreadBadge: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -690,6 +692,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMsgDecoration: true,
   showMessageSeq: false,
   showMessageTime: false,
+  showMessageUnreadBadge: true,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1178,6 +1181,7 @@ export class UserConfigService {
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
+      showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1263,6 +1267,7 @@ export class UserConfigService {
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
+      showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,

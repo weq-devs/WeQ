@@ -32,6 +32,7 @@ export function AppRail({
   onOpenAbout: _onOpenAbout,
   onOpenInvite,
   messageBadgeCount = 0,
+  onMessageBadgeClick,
   contactBadgeCount = 0,
   mailBadgeCount = 0,
   showTools = true,
@@ -55,6 +56,7 @@ export function AppRail({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -167,19 +169,37 @@ export function AppRail({
           aria-label="Primary"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button
-            className={cn(railButtonClass(activeView === 'messages'), 'rail-tab rail-tab-messages')}
-            onClick={() => selectView('messages')}
-            title="消息"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <MessageCircle size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>消息</span>
+          <div className="rail-message-entry">
+            <button
+              className={cn(
+                railButtonClass(activeView === 'messages'),
+                'rail-tab rail-tab-messages',
+              )}
+              onClick={() => selectView('messages')}
+              title="消息"
+            >
+              <span className={cn('rail-tab-icon')}>
+                <MessageCircle size={22} strokeWidth={1.5} />
+              </span>
+              <span className={cn('rail-label')}>消息</span>
+            </button>
             {messageBadgeCount > 0 ? (
-              <span className={cn('rail-badge')}>{formatBadgeCount(messageBadgeCount)}</span>
+              <button
+                type="button"
+                className={cn('rail-badge rail-message-badge')}
+                title="定位首条未读会话"
+                aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                onClick={() => {
+                  setProfileOpen(false);
+                  setPendingView('messages');
+                  if (onMessageBadgeClick) onMessageBadgeClick();
+                  else selectView('messages');
+                }}
+              >
+                {formatBadgeCount(messageBadgeCount)}
+              </button>
             ) : null}
-          </button>
+          </div>
           <button
             className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
             onClick={() => selectView('contacts')}

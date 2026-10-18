@@ -39,6 +39,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { createUnreadRefresh, retryConversationRead } from '../lib/unreadRefresh';
+import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
@@ -2308,6 +2309,10 @@ export function MainView(): ReactElement {
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
   // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
   // 「完全离线模式」（自动读取 QQ 内存 总闸开启）。状态未读到前按不可发送处理。
   const sendAccess = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
@@ -7601,8 +7606,27 @@ export function MainView(): ReactElement {
               (shell.view === 'messages' && Boolean(arkFeedState)) ||
               (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget))
             }
-            messageBadgeCount={shell.messageUnreadCount}
+            messageBadgeCount={
+              displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
+            }
             contactBadgeCount={0}
+            onMessageBadgeClick={() => {
+              const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
+              if (!target) return;
+              setSurfaceNavigation((value) => value + 1);
+              setSettingsOpen(false);
+              setMaintenanceTool(null);
+              setDressUpOpen(false);
+              setMarketBrowserOpen(false);
+              setArkFeedState(null);
+              shell.setQuery('');
+              shell.switchView('messages');
+              if (isMobileShell()) shell.backConversation();
+              setConversationLocate((previous) => ({
+                id: target.id,
+                revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+              }));
+            }}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={

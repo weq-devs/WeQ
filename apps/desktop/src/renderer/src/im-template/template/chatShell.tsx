@@ -18,6 +18,7 @@ export function ChatShell({
   sidebarWidth,
   mainOpen,
   messageBadgeCount,
+  onMessageBadgeClick,
   contactBadgeCount,
   mailBadgeCount,
   showTools = true,
@@ -62,6 +63,7 @@ export function ChatShell({
   sidebarWidth: number;
   mainOpen: boolean;
   messageBadgeCount: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -139,6 +141,7 @@ export function ChatShell({
           onOpenDbRepair={onOpenDbRepair}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
           messageBadgeCount={messageBadgeCount}
+          onMessageBadgeClick={onMessageBadgeClick}
           contactBadgeCount={contactBadgeCount}
           mailBadgeCount={mailBadgeCount}
           showTools={showTools}
