@@ -777,18 +777,25 @@ export function ChatPane({
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
   );
-  // 意图感知：会话定位（c2c = uid，group = 群号）+ 最新一条对方消息（跳过灰条，
-  // 常驻意图/情绪胶囊只挂在它下面）。
+  // 意图感知：会话定位（c2c = uid，group = 群号；跳过数据线与内置助手）+ 最新一条
+  // 对方消息（跳过灰条/已撤回/已删除，常驻意图/情绪胶囊只挂在它下面）。
+  const intentSupported = Boolean(
+    conversation &&
+      conversation.chatType !== 8 &&
+      !conversation.id.startsWith('dataline:') &&
+      conversation.id !== 'weq-assistant',
+  );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
-  const intentConv = conversation?.id ?? '';
+  const intentConv = intentSupported ? (conversation?.id ?? '') : '';
   const latestPeerMsgId = useMemo(() => {
+    if (!intentSupported) return null;
     for (let i = visibleMessages.length - 1; i >= 0; i--) {
       const m = visibleMessages[i];
-      if (grayTipOf(m)) continue;
+      if (!m || grayTipOf(m) || m.recalled || m.deleted) continue;
       if (m.senderId !== user?.id) return m.id;
     }
     return null;
-  }, [visibleMessages, user?.id]);
+  }, [intentSupported, visibleMessages, user?.id]);
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectedMessages = useMemo(
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
@@ -3547,7 +3554,10 @@ export function ChatPane({
           {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
         </div>
         <div className={cn('chat-actions')} role="toolbar" aria-label="会话工具栏">
-          {conversation.type === 'direct' && conversation.otherUser ? (
+          {intentSupported &&
+          conversation.type === 'direct' &&
+          conversation.otherUser &&
+          !isBotConversation(conversation) ? (
             <AffinityPill
               peerUid={conversation.otherUser.id}
               onOpenProfile={() => onOpenIntentProfile?.(conversation)}
@@ -3937,14 +3947,18 @@ export function ChatPane({
         {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
       </button>
 
-      {/* 意图感知的回复建议：开启 + api 引擎时出现在输入框上方，点击填入草稿。 */}
-      {!composerCollapsed && conversation?.type !== undefined ? (
+      {/* 意图感知的回复建议：开启时出现在输入框上方，点击填入编辑器草稿。 */}
+      {intentSupported &&
+      !composerCollapsed &&
+      !selectionMode &&
+      conversation?.type !== undefined ? (
         <IntentSuggestionBar
           kind={intentKind}
           conv={intentConv}
           onInsert={(text) => {
-            const current = draftRef.current ?? '';
-            onDraftChange?.(conversation.id, current ? `${current} ${text}` : text);
+            const prefix = body.trim().length > 0 ? ' ' : '';
+            insertComposerText(`${prefix}${text}`);
+            window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
           }}
         />
       ) : null}

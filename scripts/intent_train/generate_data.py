@@ -90,9 +90,30 @@ def generate_base_dataset():
         ("目瞪口呆，瞳孔地震！", "praise", "shock", 85, 80)
     ]
 
-    for ctx in achievement_contexts:
-        for rx, it, em, inten, sent in awe_reactions:
+    for ctx in achievement_contexts[:4]:
+        for rx, it, em, inten, sent in awe_reactions[:10]:
             # 正常新鲜时间窗口（30秒 - 3分钟内） -> 判定为夸赞/吹捧 + 赞叹
+            samples.append(format_sample(
+                rx,
+                [{"mine": False, "text": ctx, "gap_sec": random.randint(15, 180)}],
+                intent=it, emotion=em, intensity=inten, sentiment=sent
+            ))
+
+    # 1b. 【关键平衡】上文是成果/日常分享，但下文是普通追问/普通闲聊/收到确认（绝不能因为有上文就盲目判成夸赞！）
+    normal_followups = [
+        ("是用哪个分支编译的？", "question", "curiosity", 45, 10),
+        ("耗时大概多少毫秒？", "question", "curiosity", 45, 5),
+        ("好的，知道了。", "chat", "neutral", 25, 5),
+        ("收到，我一会儿拉下来跑一下。", "info", "neutral", 35, 15),
+        ("嗯嗯，看到群里通知了。", "chat", "neutral", 30, 5),
+        ("顺便帮我把配置文件也发一下吧。", "request", "neutral", 45, 10),
+        ("那今天下午三点我们一起测一下。", "plan", "neutral", 50, 30),
+        ("我这边还在编译，稍微等我两分钟。", "info", "neutral", 35, 0),
+        ("原来是改了这里啊，明白了。", "chat", "neutral", 35, 10),
+        ("行，先这样吧。", "chat", "neutral", 25, 0),
+    ]
+    for ctx in achievement_contexts[:6]:
+        for rx, it, em, inten, sent in normal_followups:
             samples.append(format_sample(
                 rx,
                 [{"mine": False, "text": ctx, "gap_sec": random.randint(15, 180)}],
@@ -137,6 +158,18 @@ def generate_base_dataset():
             intent="chat", emotion="anxiety", intensity=80, sentiment=-65
         ))
 
+    daily_contexts = [
+        {"mine": False, "text": "你现在在干嘛呢？", "gap_sec": 30},
+        {"mine": True, "text": "刚吃完午饭，准备休息一会儿。", "gap_sec": 45},
+        {"mine": False, "text": "今天群里的消息你看了吗？", "gap_sec": 60},
+        {"mine": True, "text": "下午有个需求评审会别忘了。", "gap_sec": 120},
+    ]
+
+    def append_with_contexts(text, intent, emotion, intensity, sentiment):
+        samples.append(format_sample(text, intent=intent, emotion=emotion, intensity=intensity, sentiment=sentiment))
+        ctx = random.choice(daily_contexts)
+        samples.append(format_sample(text, [ctx], intent=intent, emotion=emotion, intensity=intensity, sentiment=sentiment))
+
     # 4. 【炫耀 boast】
     boast_texts = [
         ("终于抽到满命专武了，看看我的神级面板！", 85, 80),
@@ -151,13 +184,7 @@ def generate_base_dataset():
         ("今天打卡深渊12层满星，顺便带公会萌新过了全本！", 80, 75)
     ]
     for text, inten, sent in boast_texts:
-        samples.append(format_sample(text, intent="boast", emotion="excitement", intensity=inten, sentiment=sent))
-        # 加上前序互动
-        samples.append(format_sample(
-            text,
-            [{"mine": True, "text": "你最近在忙啥呢？", "gap_sec": 60}],
-            intent="boast", emotion="excitement", intensity=inten, sentiment=sent
-        ))
+        append_with_contexts(text, "boast", "excitement", inten, sent)
 
     # 5. 【吹捧 flattery】
     flattery_texts = [
@@ -171,7 +198,7 @@ def generate_base_dataset():
         ("无脑吹爆！世界上怎么会有这么完美的方案！", 88, 85)
     ]
     for text, inten, sent in flattery_texts:
-        samples.append(format_sample(text, intent="flattery", emotion="admiration", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "flattery", "admiration", inten, sent)
 
     # 6. 【调侃 / 互怼 banter】
     banter_texts = [
@@ -185,7 +212,7 @@ def generate_base_dataset():
         ("差不多得了，再装逼雷公都要劈你了！", 75, 50)
     ]
     for text, inten, sent in banter_texts:
-        samples.append(format_sample(text, intent="banter", emotion="joy", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "banter", "joy", inten, sent)
 
     # 7. 【敷衍 / 反讽 perfunctory + irony】
     perfunctory_texts = [
@@ -199,7 +226,7 @@ def generate_base_dataset():
         ("好的好的，敷衍一下，不用再说了。", 65, -35)
     ]
     for text, inten, sent in perfunctory_texts:
-        samples.append(format_sample(text, intent="perfunctory", emotion="irony", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "perfunctory", "irony", inten, sent)
 
     # 8. 【吃瓜 gossip + curiosity】
     gossip_texts = [
@@ -213,7 +240,7 @@ def generate_base_dataset():
         ("展开讲讲，不要逼我求你！", 75, 35)
     ]
     for text, inten, sent in gossip_texts:
-        samples.append(format_sample(text, intent="gossip", emotion="curiosity", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "gossip", "curiosity", inten, sent)
 
     # 9. 【撒娇 coquetry + affection】
     coquetry_texts = [
@@ -226,18 +253,22 @@ def generate_base_dataset():
         ("哼，不理你了，除非你给我买冰淇淋！", 75, 65)
     ]
     for text, inten, sent in coquetry_texts:
-        samples.append(format_sample(text, intent="coquetry", emotion="affection", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "coquetry", "affection", inten, sent)
 
-    # 10. 【委屈 aggrieved】
+    # 10. 【委屈 aggrieved / 低落 sadness / 生气 anger】
     aggrieved_texts = [
-        ("太欺负人了，好委屈，凭什么每次背锅的都是我！", 85, -70),
-        ("心里好难受，明明不是我的问题还被骂了一顿呜呜！", 82, -68),
-        ("委屈巴拉，心态真的搞崩了，好想哭！", 85, -72),
-        ("凭什么啊，我辛辛苦苦做完了方案结果功劳被别人抢了！", 88, -75),
-        ("今天被搞了，莫名其妙扣绩效，太委屈了！", 82, -70)
+        ("太欺负人了，好委屈，凭什么每次背锅的都是我！", "vent", "aggrieved", 85, -70),
+        ("心里好难受，明明不是我的问题还被骂了一顿呜呜！", "vent", "aggrieved", 82, -68),
+        ("委屈巴拉，心态真的搞崩了，好想哭！", "vent", "aggrieved", 85, -72),
+        ("凭什么啊，我辛辛苦苦做完了方案结果功劳被别人抢了！", "vent", "aggrieved", 88, -75),
+        ("今天被搞了，莫名其妙扣绩效，太委屈了！", "vent", "aggrieved", 82, -70),
+        ("唉，今天心情真的好低落，什么都不想干。", "vent", "sadness", 65, -55),
+        ("难受，准备了这么久的考试还是差了两分没过。", "vent", "sadness", 72, -60),
+        ("气死我了！这破接口文档全是错的，白白浪费我一下午！", "vent", "anger", 85, -75),
+        ("真的火大，明明说好不改需求的又临时推翻重来！", "vent", "anger", 82, -70),
     ]
-    for text, inten, sent in aggrieved_texts:
-        samples.append(format_sample(text, intent="vent", emotion="aggrieved", intensity=inten, sentiment=sent))
+    for text, it, em, inten, sent in aggrieved_texts:
+        append_with_contexts(text, it, em, inten, sent)
 
     # 11. 【期待 anticipation】
     anticipation_texts = [
@@ -248,7 +279,7 @@ def generate_base_dataset():
         ("好期待明天的春游，晚上兴奋得睡不着觉！", 78, 75)
     ]
     for text, inten, sent in anticipation_texts:
-        samples.append(format_sample(text, intent="chat", emotion="anticipation", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "chat", "anticipation", inten, sent)
 
     # 12. 【尴尬 embarrassed】
     embarrassed_texts = [
@@ -259,7 +290,7 @@ def generate_base_dataset():
         ("窒息，当着暗恋对象的面摔了个大马趴，社死瞬间！", 85, -50)
     ]
     for text, inten, sent in embarrassed_texts:
-        samples.append(format_sample(text, intent="vent", emotion="embarrassed", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "vent", "embarrassed", inten, sent)
 
     # 13. 【狂喜玩梗 joke + joy】
     joke_texts = [
@@ -267,10 +298,12 @@ def generate_base_dataset():
         ("哈哈哈哈哈哈笑发财了，夺笋呐！", 85, 82),
         ("给我整笑了，233333333333！", 78, 75),
         ("笑裂开了，这一段直接封神，笑得我肚子疼！", 82, 80),
-        ("笑得在床上打滚，笑死人不偿命！", 80, 78)
+        ("笑得在床上打滚，笑死人不偿命！", 80, 78),
+        ("哈哈哈这图太逗了，我存表情包了！", 72, 75),
+        ("哈哈哈哈笑哭，怎么会有这么离谱的操作", 75, 72)
     ]
     for text, inten, sent in joke_texts:
-        samples.append(format_sample(text, intent="joke", emotion="joy", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "joke", "joy", inten, sent)
 
     # 14. 【疲惫吐槽 vent + fatigue】
     fatigue_texts = [
@@ -281,7 +314,7 @@ def generate_base_dataset():
         ("燃尽了，考完四级脑浆都摇匀了，毁灭吧。", 76, -58)
     ]
     for text, inten, sent in fatigue_texts:
-        samples.append(format_sample(text, intent="vent", emotion="fatigue", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "vent", "fatigue", inten, sent)
 
     # 15. 【温情示好 chat + affection】
     affection_texts = [
@@ -292,7 +325,7 @@ def generate_base_dataset():
         ("乖，不要难过了，有我在呢，随时听你倾诉。", 72, 80)
     ]
     for text, inten, sent in affection_texts:
-        samples.append(format_sample(text, intent="chat", emotion="affection", intensity=inten, sentiment=sent))
+        append_with_contexts(text, "chat", "affection", inten, sent)
 
     # 16. 【提问与请求 question / request】
     question_texts = [
@@ -304,6 +337,9 @@ def generate_base_dataset():
         ("请问这次版本升级会影响现有的历史数据吗？", "question", "neutral", 50, 0),
         ("大家平时都用什么工具画架构图啊？求推荐！", "question", "curiosity", 55, 20),
         ("有没有懂前端的大佬？这个CSS水平居中怎么搞？", "question", "curiosity", 55, 10),
+        ("你那个脚本跑完了吗？结果怎么样？", "question", "curiosity", 45, 5),
+        ("中午去哪吃饭？去不去三楼食堂？", "question", "neutral", 40, 10),
+        ("这个配置项应该填什么地址？", "question", "neutral", 40, 0),
         ("大佬能帮忙看下这个SQL慢查询怎么优化吗？", "request", "curiosity", 60, 20),
         ("麻烦顺路帮我带一份食堂的盖浇饭可以吗，谢谢！", "request", "neutral", 50, 30),
         ("你有空帮我 Review 一下这个分支的代码吗？", "request", "neutral", 50, 20),
@@ -314,7 +350,7 @@ def generate_base_dataset():
         ("帮我点个拼多多砍一刀吧，还差最后0.01元！", "request", "joy", 60, 40)
     ]
     for text, it, em, inten, sent in question_texts:
-        samples.append(format_sample(text, intent=it, emotion=em, intensity=inten, sentiment=sent))
+        append_with_contexts(text, it, em, inten, sent)
 
     # 17. 【约定与约定响应 plan + excitement/neutral】
     plan_texts = [
@@ -328,26 +364,40 @@ def generate_base_dataset():
         ("走起走起！今天下班必须打几把游戏放松一下！", "plan", "excitement", 80, 75)
     ]
     for text, it, em, inten, sent in plan_texts:
-        samples.append(format_sample(text, intent=it, emotion=em, intensity=inten, sentiment=sent))
+        append_with_contexts(text, it, em, inten, sent)
 
-    # 18. 【日常问候与通知 greeting / info / share / other】
+    # 18. 【日常问候与通知 greeting / info / share / chat / other】
     greeting_info_texts = [
         ("早安呀！新的一天元气满满！", "greeting", "joy", 60, 70),
         ("哈喽哈喽，晚上好！吃过晚饭了吗？", "greeting", "neutral", 45, 40),
         ("中午好，午休时间到，大家注意劳逸结合！", "greeting", "neutral", 45, 50),
         ("大家周末愉快呀！", "greeting", "joy", 60, 75),
+        ("嗨，在吗？", "greeting", "neutral", 35, 15),
+        ("早上好！", "greeting", "joy", 50, 55),
         ("通知：今晚12点机房例行维护，预计停机半小时。", "info", "neutral", 30, 0),
         ("各位同事，本周周报请在下午五点前提交完毕。", "info", "neutral", 35, 0),
         ("HR通知：下周一开始全员实行冬令时作息时间。", "info", "neutral", 40, 10),
         ("班车时刻表更新了，最新班次已上传到群文件。", "info", "neutral", 35, 0),
+        ("我已经把代码推到 dev 分支了，测试通过。", "info", "neutral", 35, 15),
+        ("刚才那个小问题已经修好了，重启一下就能生效。", "info", "neutral", 35, 20),
+        ("文件我已经发你邮箱了，注意查收一下。", "info", "neutral", 35, 15),
         ("分享一个最近发现的超实用VS Code插件，提效神器！", "share", "joy", 65, 60),
         ("推荐一部最近看的科幻电影，剧情反转太精彩了！", "share", "excitement", 70, 75),
         ("我把今天踩坑排错的完整笔记发在博客上了，供大家参考。", "share", "neutral", 50, 40),
+        ("给你看张今天路边拍到的晚霞，超好看。", "share", "joy", 60, 65),
+        ("把这个开源仓库链接发群里，大家平时可能用得上。", "share", "neutral", 45, 35),
         ("今天天气真好，蓝天白云让人心情舒畅。", "chat", "joy", 50, 65),
         ("原来是这样啊，明白了。", "chat", "neutral", 30, 10),
-        ("好的，收到。", "chat", "neutral", 25, 0),
-        ("嗯嗯。", "chat", "neutral", 20, 0),
-        ("好的收到", "chat", "neutral", 20, 0),
+        ("好的，收到。", "chat", "neutral", 25, 10),
+        ("嗯嗯，没问题。", "chat", "neutral", 25, 10),
+        ("好的收到", "chat", "neutral", 20, 5),
+        ("我正在看这个文件呢。", "chat", "neutral", 30, 5),
+        ("刚才去拿了个快递，刚回工位。", "chat", "neutral", 30, 5),
+        ("今天中午食堂的红烧肉还挺好吃的。", "chat", "joy", 45, 40),
+        ("好像确实是这么回事。", "chat", "neutral", 30, 5),
+        ("我先试一下看看效果。", "chat", "neutral", 35, 10),
+        ("平时我也差不多是这个时间睡。", "chat", "neutral", 30, 5),
+        ("哈哈是的，我也发现了。", "chat", "joy", 45, 35),
         ("1", "other", "neutral", 10, 0),
         ("？", "other", "curiosity", 30, 0),
         ("...", "other", "neutral", 20, -10),
@@ -355,7 +405,7 @@ def generate_base_dataset():
         ("[表情]", "other", "joy", 30, 20)
     ]
     for text, it, em, inten, sent in greeting_info_texts:
-        samples.append(format_sample(text, intent=it, emotion=em, intensity=inten, sentiment=sent))
+        append_with_contexts(text, it, em, inten, sent)
 
     return samples
 

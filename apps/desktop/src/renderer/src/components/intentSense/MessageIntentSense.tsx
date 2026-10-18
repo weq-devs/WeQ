@@ -119,8 +119,10 @@ export function IntentChips({ result }: { result: IntentAnalysis }) {
   );
 }
 
-const HOVER_OPEN_MS = 250;
-const HOVER_CLOSE_MS = 140;
+const HOVER_OPEN_MS = 260;
+const HOVER_CLOSE_MS = 120;
+const POPOVER_EST_WIDTH = 220;
+const POPOVER_EST_HEIGHT = 112;
 
 /**
  * 挂进 MessageBubble 的集成点。`bubbleRef` 是气泡本体 —— 悬停监听挂在它上面
@@ -134,53 +136,127 @@ export function MessageIntentSense({
   bubbleRef: React.RefObject<HTMLElement | null>;
 }) {
   const ctx = useIntentSenseContext();
-  const [anchor, setAnchor] = useState<{ top: number; left: number; alignRight: boolean } | null>(
-    null,
-  );
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 消费 version：新结果到达时重读本条。
   const version = ctx?.version ?? 0;
-  const result = ctx?.getAnalysis(msgId);
+  const active = ctx?.active ?? false;
+  const getAnalysis = ctx?.getAnalysis;
+  const isUnavailable = ctx?.isUnavailable;
+  const requestAnalysis = ctx?.requestAnalysis;
+  const result = getAnalysis?.(msgId);
+  const unavailable = isUnavailable?.(msgId) ?? false;
   const isLatestPeer = ctx?.latestPeerMsgId === msgId;
   void version;
 
   useEffect(() => {
     const bubble = bubbleRef.current;
-    if (!bubble || !ctx?.active) return;
-    const open = (): void => {
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-      if (openTimer.current) clearTimeout(openTimer.current);
+    if (!bubble || !active || !getAnalysis || !requestAnalysis) return;
+
+    const shouldSuppress = (target: EventTarget | null): boolean => {
+      if (bubble.classList.contains('context-active')) return true;
+      if (bubble.closest('.message-line.selection-mode')) return true;
+      const el = target instanceof Element ? target : null;
+      if (el?.closest('.msg-reactions, .message-actions, .weq-msg-restore')) return true;
+      return false;
+    };
+
+    const hasAnalyzableText = (): boolean => {
+      if (getAnalysis(msgId)) return true;
+      if (isUnavailable?.(msgId)) return false;
+      const textEl = bubble.querySelector('.message-text');
+      if (!textEl) return false;
+      return (textEl.textContent ?? '').trim().length > 0 || textEl.querySelector('img') !== null;
+    };
+
+    const clearTimers = (): void => {
+      if (openTimer.current) {
+        clearTimeout(openTimer.current);
+        openTimer.current = null;
+      }
+      if (closeTimer.current) {
+        clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
+    };
+
+    const open = (e: PointerEvent): void => {
+      if (shouldSuppress(e.target) || !hasAnalyzableText()) return;
+      clearTimers();
       openTimer.current = setTimeout(() => {
+        if (shouldSuppress(null) || !hasAnalyzableText()) return;
         const rect = bubble.getBoundingClientRect();
-        setAnchor({ top: rect.bottom + 6, left: rect.left, alignRight: false });
-        if (!ctx.getAnalysis(msgId)) ctx.requestAnalysis(msgId);
+        const vw = window.innerWidth || 1024;
+        const vh = window.innerHeight || 768;
+        const isMine = bubble.classList.contains('mine');
+        const rawLeft = isMine ? rect.right - POPOVER_EST_WIDTH : rect.left;
+        const left = Math.max(12, Math.min(rawLeft, vw - POPOVER_EST_WIDTH - 12));
+        const belowTop = rect.bottom + 6;
+        const top =
+          belowTop + POPOVER_EST_HEIGHT > vh - 72
+            ? Math.max(12, rect.top - POPOVER_EST_HEIGHT - 6)
+            : belowTop;
+        setAnchor({ top, left });
+        if (!getAnalysis(msgId)) requestAnalysis(msgId);
       }, HOVER_OPEN_MS);
     };
+
     const close = (): void => {
-      if (openTimer.current) clearTimeout(openTimer.current);
-      openTimer.current = null;
+      if (openTimer.current) {
+        clearTimeout(openTimer.current);
+        openTimer.current = null;
+      }
       if (closeTimer.current) clearTimeout(closeTimer.current);
       closeTimer.current = setTimeout(() => setAnchor(null), HOVER_CLOSE_MS);
     };
+
+    const closeImmediate = (): void => {
+      clearTimers();
+      setAnchor(null);
+    };
+
+    const onMove = (e: PointerEvent): void => {
+      if (shouldSuppress(e.target)) {
+        closeImmediate();
+      }
+    };
+
     bubble.addEventListener('pointerenter', open);
     bubble.addEventListener('pointerleave', close);
+    bubble.addEventListener('pointermove', onMove);
+    bubble.addEventListener('contextmenu', closeImmediate);
     return () => {
       bubble.removeEventListener('pointerenter', open);
       bubble.removeEventListener('pointerleave', close);
-      if (openTimer.current) clearTimeout(openTimer.current);
-      if (closeTimer.current) clearTimeout(closeTimer.current);
+      bubble.removeEventListener('pointermove', onMove);
+      bubble.removeEventListener('contextmenu', closeImmediate);
+      clearTimers();
     };
-  }, [bubbleRef, ctx?.active, ctx, msgId]);
+  }, [bubbleRef, active, getAnalysis, isUnavailable, requestAnalysis, msgId]);
+
+  // 列表滚动或窗口失焦时立即收起 fixed 浮层，防止浮层悬空残留。
+  useEffect(() => {
+    if (!anchor) return;
+    const dismiss = (): void => setAnchor(null);
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('blur', dismiss);
+    return () => {
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('blur', dismiss);
+    };
+  }, [anchor]);
 
   if (!ctx?.active) return null;
+
+  const showPopover = anchor !== null && (!!result || !unavailable);
 
   return (
     <>
       {/* 常驻行：只挂最新一条对方消息；本轮分析结束后仍无结果则静默
           （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
-      {isLatestPeer && !result && !ctx.settled ? (
+      {isLatestPeer && !result && !ctx.settled && !unavailable ? (
         <span className="weq-intent-chips">
           <IntentPillLoading width={52} />
           <IntentPillLoading width={40} />
@@ -193,7 +269,7 @@ export function MessageIntentSense({
       ) : null}
 
       {/* 悬停弹层。 */}
-      {anchor ? (
+      {showPopover && anchor ? (
         <div
           className="weq-intent-popover"
           style={{ top: anchor.top, left: anchor.left }}

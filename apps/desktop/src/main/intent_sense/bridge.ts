@@ -114,15 +114,58 @@ const LOAD_TIMEOUT_MS = 120_000;
 class LocalEngineBridge implements IntentLocalEnginePort {
   private worker: ReturnType<typeof fork> | null = null;
   private readyFlag = false;
+  private starting: Promise<void> | null = null;
+  private startFailed = false;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
 
+  /**
+   * 对 service 层暴露的就绪态：worker 已就绪，或本地模型文件齐全且未发生启动失败（调用 analyze 时按需拉起 worker）。
+   */
   get ready(): boolean {
+    if (this.readyFlag && this.worker !== null) return true;
+    if (this.startFailed) return false;
+    return isAnyModelReady(findAvailableModelDir());
+  }
+
+  get workerRunning(): boolean {
     return this.readyFlag && this.worker !== null;
   }
 
   async start(modelDir: string): Promise<void> {
-    if (this.ready) return;
+    if (this.workerRunning) return;
+    if (this.starting) return this.starting;
+    this.startFailed = false;
+    const task = this.doStart(modelDir)
+      .catch((error) => {
+        this.startFailed = true;
+        throw error;
+      })
+      .finally(() => {
+        this.starting = null;
+      });
+    this.starting = task;
+    return task;
+  }
+
+  private async ensureWorkerStarted(): Promise<boolean> {
+    if (this.workerRunning) return true;
+    if (this.startFailed) return false;
+    const dir = findAvailableModelDir();
+    if (!isAnyModelReady(dir)) return false;
+    try {
+      await this.start(dir);
+      return this.workerRunning;
+    } catch (error) {
+      logger.warn('intent-sense local worker auto-start failed', {
+        event: 'intent-sense-worker-autostart-failed',
+        error: String(error),
+      });
+      return false;
+    }
+  }
+
+  private async doStart(modelDir: string): Promise<void> {
     await this.stop();
     const workerPath = this.resolveWorkerPath();
     const worker = fork(workerPath, [], {
@@ -199,7 +242,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     sentiment: number;
     confidence: number;
   } | null> {
-    if (!this.ready) return null;
+    if (!(await this.ensureWorkerStarted())) return null;
     try {
       const msg = (await this.request({
         type: 'analyze',
@@ -222,7 +265,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   async inferMbti(samples: string[]): Promise<MbtiDim[] | null> {
-    if (!this.ready || samples.length === 0) return null;
+    if (samples.length === 0 || !(await this.ensureWorkerStarted())) return null;
     try {
       const msg = (await this.request({ type: 'mbti', samples })) as WorkerMessage;
       if (msg?.type !== 'mbti-result' || !Array.isArray(msg.dims)) return null;

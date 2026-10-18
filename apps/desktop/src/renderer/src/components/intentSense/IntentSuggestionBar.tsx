@@ -28,12 +28,10 @@ export function IntentSuggestionBar({
   const [busy, setBusy] = useState(false);
   const status = useIntentSenseStatus();
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
+  const engineOk =
+    status.data?.engine === 'local' ? !!status.data.localReady : !!status.data?.apiConfigured;
   const active =
-    !!status.data?.enabled &&
-    overridden !== false &&
-    status.data?.engine === 'api' &&
-    !!status.data?.apiConfigured &&
-    !!status.data?.suggestionsEnabled;
+    !!status.data?.enabled && overridden !== false && engineOk && !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
     { kind, conv },
     {

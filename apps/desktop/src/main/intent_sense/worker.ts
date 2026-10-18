@@ -243,7 +243,7 @@ async function createQWeQ(modelDir: string): Promise<CommonEngine> {
     graphOptimizationLevel: 'all',
   });
 
-  const analyze: CommonEngine['analyze'] = async (id, text, _mine, context, pragmaticHint) => {
+  const analyze: CommonEngine['analyze'] = async (id, text, _mine, context, _pragmaticHint) => {
     const parts: string[] = [];
     if (Array.isArray(context) && context.length > 0) {
       for (const turn of context.slice(-4)) {
@@ -259,10 +259,7 @@ async function createQWeQ(modelDir: string): Promise<CommonEngine> {
       }
     }
     const ctxStr = parts.join(' | ');
-    let formatted = ctxStr ? `${ctxStr} [SEP] 消息: ${text.trim()}` : `消息: ${text.trim()}`;
-    if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
-      formatted += ` (语境: ${pragmaticHint.trim()})`;
-    }
+    const formatted = ctxStr ? `${ctxStr} [SEP] 消息: ${text.trim()}` : `消息: ${text.trim()}`;
 
     const maxLen = cfg.max_length ?? 128;
     const encoded = tok.encode(formatted, { add_special_tokens: true });

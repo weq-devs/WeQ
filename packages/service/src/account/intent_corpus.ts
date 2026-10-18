@@ -26,6 +26,8 @@ export interface IntentContextTurn {
   text: string;
   /** 发送时间戳（秒，可选）。 */
   sendTime?: number;
+  /** 与目标消息的时间间隔（秒，可选，供本地模型时序特征使用）。 */
+  gap_sec?: number;
   /** 新鲜度权重 0..1（越靠近当前消息越接近 1，过期衰减至 0）。 */
   freshness?: number;
 }
@@ -62,7 +64,7 @@ export interface PragmaticAnalysis {
 
 /** 上文提到「很牛逼的东西 / 做出了很牛逼的成果 / 秀操作 / 喜报」的强信号。 */
 const UPSTREAM_ACHIEVEMENT_RE =
-  /牛逼|牛[哇啊批bB]|太牛|太强|强无敌|逆天|炸裂|神作|神级|封神|天花板|王炸|黑科技|大招|绝活|硬核|大佬|巨佬|大神|天才|神仙|做出来|做出了|搞定了|写完了|开发完|手搓|自研|重构|开源|上线|发版|跑通|优化了|提升了|提速|倍|毫秒|零延迟|满分|第一名?|冠军|金奖|一等奖|特等奖|拿下了|上岸|录取|录了|过了|通关|全成就|无伤|单刷|速通|破纪录|世界纪录|中奖|欧皇|出金|双黄|满命|毕业了|发paper|顶会|中了|录用|涨薪|加薪|拿到\s*offer|offer\s*到手|mvp|五杀|超神|全连|完美|成果|作品|战绩|业绩|突破|搞出|整出|弄出|研究出|训出|训练出/i;
+  /牛逼|牛[哇啊批bB]|太牛|太强|强无敌|炸裂|神作|神级|封神|天花板|王炸|黑科技|大招|绝活|硬核|大佬|巨佬|大神|天才|神仙|做出来|做出了|搞定了|写完了|开发完|手搓|自研|重构完|开源了|上线了|发版了|跑通|优化了|提升了|提速|\d+\s*倍|翻倍|毫秒|零延迟|满分|第一名|拿了第一|冠军|金奖|一等奖|特等奖|拿下了|上岸|被录取|拿到录取|考过了|通过了|通关|全成就|无伤|单刷|速通|破纪录|世界纪录|中奖|欧皇|出金|双黄|满命|毕业了|发\s*paper|顶会|录用|涨薪|加薪|拿到\s*offer|offer\s*到手|mvp|五杀|超神|全连|牛逼的成果|神仙作品|战绩|业绩|技术突破|重大突破|新突破|研究出|训出|训练出/i;
 
 /** 上文为真实恐怖、虫蛇惊吓、险情或倒霉事故（此时「吓哭了/吓死」是真害怕）。 */
 const UPSTREAM_DANGER_HORROR_RE =
@@ -117,8 +119,11 @@ export function detectUpstreamSignal(
     const t = turn.text.trim();
     if (!t) continue;
     if (UPSTREAM_DANGER_HORROR_RE.test(t)) return 'danger_or_horror';
-    if (UPSTREAM_ACHIEVEMENT_RE.test(t)) return 'achievement';
-    if (UPSTREAM_TROUBLE_VENT_RE.test(t)) return 'trouble_or_vent';
+    const hasTrouble = UPSTREAM_TROUBLE_VENT_RE.test(t);
+    const hasAchieve = UPSTREAM_ACHIEVEMENT_RE.test(t);
+    if (hasTrouble && !hasAchieve) return 'trouble_or_vent';
+    if (hasAchieve && !/没跑通|没做出来|没搞定|失败了|报错了|崩了/.test(t)) return 'achievement';
+    if (hasTrouble) return 'trouble_or_vent';
     if (UPSTREAM_AFFECTION_RE.test(t)) return 'affection_or_care';
     if (UPSTREAM_HUMOR_RE.test(t)) return 'humor_or_meme';
     if (UPSTREAM_QUESTION_INVITE_RE.test(t)) return 'question_or_invite';
@@ -389,11 +394,17 @@ const CORPUS_RULES: readonly CorpusRule[] = [
   // 10. 炫耀成果、晒抽卡、凡尔赛（boast）
   {
     id: 'boast_flex_achievement',
-    match: (text, norm) =>
-      /^(看看我的|秀一下|晒一下|凡尔赛|全服前|国服前|手气还行|随便抽抽)$/.test(norm) ||
-      /(终于|总算|一发|十连)?(抽到|出金|出货|满命|专武|全成就|全通|破纪录|提车|过审|大厂\s*offer|百万\s*qps|免单)/i.test(
+    match: (text, norm) => {
+      if (/^(看看我的|秀一下|晒一下|凡尔赛|全服前|国服前|手气还行|随便抽抽)$/.test(norm)) {
+        return true;
+      }
+      if (/没|未|不|别|怎么|啥时候|什么时候|能不能|吗|[？?]/.test(text)) {
+        return false;
+      }
+      return /(终于|总算|一发|十连|刚)?(抽到|出金|出货|满命|专武|全成就|全通|破纪录|提车了|过审了|拿到.*offer|百万\s*qps|免单了)/i.test(
         text,
-      ),
+      );
+    },
     gloss:
       '「秀战绩/晒抽卡/自研上线/破纪录/一发入魂」属于炫耀成果与高光时刻，应判为炫耀(boast)与兴奋(excitement)。',
     intent: 'boast',
@@ -538,7 +549,7 @@ export interface RawEngineSenseOutput {
  * - 若命中强规则（`hard: true`，如「吓哭了」「给跪了」「恐怖如斯」「啊对对对」），
  *   修正字面误判的 intent / emotion，并保证 sentiment 与 intensity 符号及量级一致。
  * - 若命中软规则（`hard: false`，如「笑死」「泪目」「麻了」），当模型因字面词根
- *   （如「死/哭」）误判到相反情感极性时予以纠正，否则保留模型细粒度判断并微调情感分。
+ *   （如「死/哭」）误判到相反情感极性、或置信度不足/落入泛化分类时予以纠正，否则保留模型细粒度判断。
  */
 export function calibrateIntentSense(
   raw: RawEngineSenseOutput,
@@ -572,10 +583,7 @@ export function calibrateIntentSense(
     return {
       intent: ov.intent,
       emotion: ov.emotion,
-      intensity:
-        ov.sentiment >= 0
-          ? Math.max(raw.intensity, ov.intensity)
-          : Math.max(raw.intensity, ov.intensity),
+      intensity: Math.max(raw.intensity, ov.intensity),
       sentiment:
         ov.sentiment >= 0
           ? Math.max(raw.sentiment, ov.sentiment)
@@ -584,14 +592,18 @@ export function calibrateIntentSense(
     };
   }
 
-  // 软规则：当模型极性跑偏，或未识别出该网络黑话对应的细分意图/情绪类别时予以校准
+  // 软规则：当模型极性跑偏、置信度偏低或落入泛化兜底类别（chat/other/neutral）时校准
   const modelWentNegativeOnPositive =
     ov.sentiment > 0 && (NEGATIVE_EMOTIONS.has(raw.emotion) || raw.sentiment < 0);
   const modelWentPositiveOnNegative =
     ov.sentiment < 0 && (POSITIVE_EMOTIONS.has(raw.emotion) || raw.sentiment > 15);
-  const categoryMissed = raw.emotion !== ov.emotion || raw.intent !== ov.intent;
+  const genericOrLowConfidence =
+    raw.confidence < 0.78 ||
+    raw.intent === 'other' ||
+    raw.intent === 'chat' ||
+    raw.emotion === 'neutral';
 
-  if (modelWentNegativeOnPositive || modelWentPositiveOnNegative || categoryMissed) {
+  if (modelWentNegativeOnPositive || modelWentPositiveOnNegative || genericOrLowConfidence) {
     return {
       intent: ov.intent,
       emotion: ov.emotion,

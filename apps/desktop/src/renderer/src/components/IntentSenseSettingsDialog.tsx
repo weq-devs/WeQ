@@ -12,7 +12,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { BrainCircuit, Download, Play, X } from 'lucide-react';
+import { BrainCircuit, Download, Play, RotateCcw, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
@@ -39,6 +39,8 @@ interface StatusWire {
   hfMirror: boolean;
   apiConfigured: boolean;
   localAvailable: boolean;
+  localReady?: boolean;
+  lastApiError?: string | null;
 }
 
 interface LocalEngineWire {
@@ -81,6 +83,7 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
     // 引擎状态会因下载/启动变化，订阅进度时顺手刷新。
   });
   const [progress, setProgress] = useState<DownloadProgressWire | null>(null);
+  const [clearedHint, setClearedHint] = useState<string | null>(null);
 
   trpc.account.intentSense.onModelDownloadProgress.useSubscription(undefined, {
     onData: (p) => {
@@ -93,6 +96,7 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
   });
 
   const setConfig = trpc.account.intentSense.setConfig.useMutation();
+  const clearCache = trpc.account.intentSense.clearCache.useMutation();
   const downloadModel = trpc.account.intentSense.downloadLocalModel.useMutation();
   const startEngine = trpc.account.intentSense.startLocalEngine.useMutation();
 
@@ -110,9 +114,25 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
     try {
       const next = await setConfig.mutateAsync(input);
       utils.account.intentSense.getStatus.setData(undefined, next);
+      void utils.account.intentSense.listMessageAnalyses.invalidate();
+      void utils.account.intentSense.getSuggestions.invalidate();
+      void utils.account.intentSense.getProfile.invalidate();
     } catch (e) {
       showError('意图感知设置失败', e instanceof Error ? e.message : String(e));
       void status.refetch();
+    }
+  }
+
+  async function onClearCache(): Promise<void> {
+    try {
+      const res = await clearCache.mutateAsync();
+      setClearedHint(`已清除 (${res.clearedFiles} 个会话)`);
+      void utils.account.intentSense.getStatus.invalidate();
+      void utils.account.intentSense.listMessageAnalyses.invalidate();
+      void utils.account.intentSense.getSuggestions.invalidate();
+      void utils.account.intentSense.getProfile.invalidate();
+    } catch (e) {
+      showError('清空缓存失败', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -187,18 +207,35 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
               label="回复建议"
               desc={
                 s?.engine === 'api'
-                  ? '在输入框上方生成 3 条候选回复（需 API 引擎）。'
-                  : '仅 API 引擎支持（本地 Laya 模型不生成文本）。'
+                  ? '在输入框上方生成 3 条候选回复（API 生成，离线时自动回落本地意图候选）。'
+                  : '基于对方最新消息的意图与情绪，在输入框上方推荐 3 条候选回复。'
               }
               control={
                 <Toggle
                   checked={!!s?.suggestionsEnabled}
                   disabled={
-                    status.isLoading || s?.engine !== 'api' || !s?.apiConfigured || !s?.enabled
+                    status.isLoading ||
+                    !s?.enabled ||
+                    (s?.engine === 'api' ? !s?.apiConfigured : !local?.modelDownloaded)
                   }
                   onChange={(next) => void patch({ suggestionsEnabled: next })}
                   label="回复建议"
                 />
+              }
+            />
+            <Row
+              label="分析缓存"
+              desc={clearedHint ?? '切换引擎或更新模型后，可一键清空历史分析缓存并重新识别。'}
+              control={
+                <button
+                  type="button"
+                  className="weq-int-download-btn"
+                  disabled={clearCache.isLoading}
+                  onClick={() => void onClearCache()}
+                >
+                  <RotateCcw size={13} />
+                  <span>清空并重算</span>
+                </button>
               }
             />
           </Card>
@@ -222,9 +259,11 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
                 desc={
                   providers.length === 0
                     ? '尚未配置任何 provider —— 先到「克隆工厂 → 模型服务」添加。'
-                    : s.apiConfigured
-                      ? undefined
-                      : '当前选择不可用。'
+                    : s.lastApiError
+                      ? `最近一次 API 调用失败：${s.lastApiError}（请检查接口地址或网络连通性）`
+                      : s.apiConfigured
+                        ? undefined
+                        : '当前选择不可用。'
                 }
                 control={
                   <select
@@ -255,12 +294,16 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
               />
             ) : null}
             <Row
-              label="本地模型（Laya 多语言 ONNX）"
+              label={
+                local?.modelDir?.includes('QWeQ-NineBird')
+                  ? '本地模型（QWeQ-NineBird 自研微调 ONNX）'
+                  : '本地模型（Laya 多语言 ONNX）'
+              }
               desc={
                 local?.available === false
                   ? '仅桌面版可用。'
                   : local?.engineReady
-                    ? '引擎运行中。'
+                    ? '本地模型已就绪（按需后台运行）。'
                     : local?.modelDownloaded
                       ? '模型已就绪，点击启动引擎。'
                       : '约 600MB，下载到用户数据目录，之后完全离线。'

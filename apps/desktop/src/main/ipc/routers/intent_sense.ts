@@ -50,12 +50,28 @@ const configPatch = z.object({
 
 export const intentSenseRouter = router({
   /** 当前配置 + 引擎可用性（apiConfigured / localAvailable）。 */
-  getStatus: procedure.query(() => requireServices().intentSense.getStatus()),
+  getStatus: procedure.query(() => {
+    const status = requireServices().intentSense.getStatus();
+    if (status.enabled && status.engine === 'local') {
+      const engine = getActiveIntentSenseLocalEngine();
+      if (engine?.isModelDownloaded()) {
+        void engine.start().catch(() => {});
+      }
+    }
+    return status;
+  }),
 
   /** 更新全局配置（缺省字段保持原值）。 */
-  setConfig: procedure
-    .input(configPatch)
-    .mutation(({ input }) => requireServices().intentSense.setConfig(input)),
+  setConfig: procedure.input(configPatch).mutation(async ({ input }) => {
+    const status = await requireServices().intentSense.setConfig(input);
+    if (status.enabled && status.engine === 'local') {
+      const engine = getActiveIntentSenseLocalEngine();
+      if (engine?.isModelDownloaded()) {
+        void engine.start().catch(() => {});
+      }
+    }
+    return status;
+  }),
 
   /** 单会话开关；enabled=null 清除覆盖、恢复跟随全局。 */
   setConversationOverride: procedure
@@ -69,6 +85,9 @@ export const intentSenseRouter = router({
     .mutation(({ input }) =>
       requireServices().intentSense.setConversationOverride(input.kind, input.id, input.enabled),
     ),
+
+  /** 清空当前账号下所有会话的意图分析缓存与建议缓存。 */
+  clearCache: procedure.mutation(() => requireServices().intentSense.clearCache()),
 
   /**
    * 增量补齐会话分析（打开会话时调用一次；新消息由渲染层再次调用，缓存保证

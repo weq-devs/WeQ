@@ -21,10 +21,17 @@
  * getMessageAnalyses / analyzeMessage / getProfile / getSuggestions / onAnalyzed）。
  */
 
+import { existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
 import type { Element } from '@weq/codec';
-import type { AgentLabEndpoint, AgentLabModelRef } from '@weq/agentlab';
+import {
+  pickMessageText,
+  reportUsage,
+  type AgentLabEndpoint,
+  type AgentLabModelRef,
+} from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore } from '../common/json_store';
 import { segmentWords } from './text_segment';
@@ -119,6 +126,8 @@ export interface IntentSenseStatus extends IntentSenseConfig {
   localAvailable: boolean;
   /** local 引擎 worker 已启动且模型加载完成（分析真正可跑）。 */
   localReady: boolean;
+  /** 最近一次 API 引擎调用失败原因（成功或切换配置后置 null）。 */
+  lastApiError?: string | null;
 }
 
 const DEFAULT_CONFIG: IntentSenseConfig = {
@@ -217,7 +226,7 @@ export interface IntentAnalyzedEvent {
 /** 单会话缓存上限（按 sendTime 裁最旧）。 */
 const CACHE_MAX_ENTRIES = 2000;
 /** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 /** ensureAnalysis 默认回看窗口。 */
 const DEFAULT_WINDOW = 300;
 /** 单条消息回看前序上下文的最大轮数。 */
@@ -226,8 +235,8 @@ const CONTEXT_MAX_TURNS = 4;
 const CONTEXT_MAX_ADJACENT_GAP_SEC = 8 * 60;
 /** 上下文最大追溯总跨度（秒）：超过 15 分钟的陈旧消息不再作为当前句的因果背景。 */
 const CONTEXT_MAX_TOTAL_SPAN_SEC = 15 * 60;
-/** api 引擎每批消息数（一次结构化调用）。 */
-const API_BATCH = 20;
+/** api 引擎每批消息数（一次结构化调用，控制在 12 条以内以降低推理模型超时率）。 */
+const API_BATCH = 12;
 /** 画像聚合最多扫描的消息数。 */
 const PROFILE_WINDOW = 800;
 /** 回复建议的上下文条数。 */
@@ -319,6 +328,8 @@ function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): I
         break;
       }
     }
+    const gapSec =
+      target.sendTime > 0 && prev.sendTime > 0 ? Math.max(0, target.sendTime - prev.sendTime) : 30;
     const freshness =
       target.sendTime > 0 && prev.sendTime > 0
         ? Math.max(
@@ -326,7 +337,13 @@ function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): I
             Math.min(1, 1 - (target.sendTime - prev.sendTime) / CONTEXT_MAX_TOTAL_SPAN_SEC),
           )
         : 1;
-    picked.push({ mine: prev.mine, text: prev.text, sendTime: prev.sendTime, freshness });
+    picked.push({
+      mine: prev.mine,
+      text: prev.text,
+      sendTime: prev.sendTime,
+      gap_sec: gapSec,
+      freshness,
+    });
     nextTime = prev.sendTime;
   }
   return picked.reverse();
@@ -381,6 +398,11 @@ export interface EnsureStats {
   error?: string;
 }
 
+/** API 连续失败后的熔断冷却时间（毫秒），避免网络不通时连发 15 批请求刷屏报错。 */
+const API_COOLDOWN_MS = 30_000;
+/** API 单次请求超时（毫秒）。 */
+const API_TIMEOUT_MS = 30_000;
+
 export class IntentSenseService {
   private readonly configStore: JsonStore<IntentSenseConfig>;
   private readonly analysisStores = new Map<string, JsonStore<CacheFile>>();
@@ -392,6 +414,10 @@ export class IntentSenseService {
     string,
     { lastMsgId: string; at: number; suggestions: ReplySuggestion[] }
   >();
+  /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
+  private apiCooldownUntil = 0;
+  /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
+  private lastApiError: string | null = null;
 
   constructor(
     private readonly session: AccountSession,
@@ -436,6 +462,7 @@ export class IntentSenseService {
       apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
       localAvailable: !!this.opts.localEngine,
       localReady: !!this.opts.localEngine?.ready,
+      lastApiError: this.lastApiError,
     };
   }
 
@@ -453,9 +480,42 @@ export class IntentSenseService {
       next.suggestionsEnabled = patch.suggestionsEnabled;
     }
     if (typeof patch.hfMirror === 'boolean') next.hfMirror = patch.hfMirror;
+    this.apiCooldownUntil = 0;
+    this.lastApiError = null;
     this.configStore.data = next;
     this.configStore.save();
     return this.getStatus();
+  }
+
+  /** 清空当前账号下所有会话的意图分析缓存与回复建议缓存，重置 API 熔断状态。 */
+  clearCache(): { clearedFiles: number } {
+    let clearedFiles = 0;
+    for (const store of this.analysisStores.values()) {
+      store.data = { version: CACHE_SCHEMA_VERSION, results: [] };
+      store.save();
+    }
+    this.analysisStores.clear();
+    this.suggestionCache.clear();
+    this.apiCooldownUntil = 0;
+    this.lastApiError = null;
+    const analysisDir = join(this.storeDir, 'analysis');
+    if (existsSync(analysisDir)) {
+      try {
+        for (const name of readdirSync(analysisDir)) {
+          if (name.endsWith('.json')) {
+            try {
+              unlinkSync(join(analysisDir, name));
+              clearedFiles++;
+            } catch {
+              /* ignore single file unlink error */
+            }
+          }
+        }
+      } catch {
+        /* ignore dir read error */
+      }
+    }
+    return { clearedFiles };
   }
 
   /** 单会话开关（null = 清除覆盖、跟随全局）。 */
@@ -545,7 +605,13 @@ export class IntentSenseService {
   ): Promise<IntentSenseResult | null> {
     if (!this.effectiveFor(kind, conv)) return null;
     const cache = this.cacheFor(kind, conv);
-    const hit = cache.data.results.find((r) => r.msgId === msgId);
+    const hit = cache.data.results.find(
+      (r) =>
+        r.msgId === msgId &&
+        (this.config.engine === 'local' ||
+          r.engine === 'api' ||
+          Date.now() < this.apiCooldownUntil),
+    );
     if (hit) return hit;
 
     // 优先从最近窗口定位该消息，以便一并拿到前序对话上下文；若不在近期窗口则回退按 ID 单查。
@@ -567,7 +633,11 @@ export class IntentSenseService {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
     } else {
       const batchOut = await this.analyzeBatchViaApi([{ ...row, context }], context);
-      result = batchOut[0] ?? null;
+      if (batchOut !== null) {
+        result = batchOut[0] ?? null;
+      } else if (this.opts.localEngine?.ready) {
+        result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
+      }
     }
     if (result) {
       this.storeResults(kind, conv, [result]);
@@ -597,7 +667,17 @@ export class IntentSenseService {
     limit: number,
   ): Promise<EnsureStats> {
     const cache = this.cacheFor(kind, conv);
-    const known = new Set(cache.data.results.map((r) => r.msgId));
+    // 当用户切换到 api 引擎且未处于熔断期时，之前由 local 引擎产生的缓存不视为最终命中，允许升级重算为 api 结果
+    const known = new Set(
+      cache.data.results
+        .filter(
+          (r) =>
+            this.config.engine === 'local' ||
+            r.engine === 'api' ||
+            Date.now() < this.apiCooldownUntil,
+        )
+        .map((r) => r.msgId),
+    );
     const rows = await this.loadMessages(kind, conv, limit);
     const pending: Array<{ row: SenseRow; context: IntentContextTurn[] }> = [];
     for (let idx = 0; idx < rows.length; idx++) {
@@ -609,8 +689,18 @@ export class IntentSenseService {
     let analyzed = 0;
     let failed = 0;
     if (pending.length > 0) {
-      if (this.config.engine === 'local') {
-        for (const { row, context } of pending) {
+      // 按最新分块优先处理（块内保持时间升序），确保用户首屏看到的最新消息最先点亮
+      const chunks: Array<Array<{ row: SenseRow; context: IntentContextTurn[] }>> = [];
+      for (let end = pending.length; end > 0; end -= API_BATCH) {
+        const start = Math.max(0, end - API_BATCH);
+        chunks.push(pending.slice(start, end));
+      }
+
+      const runChunkLocal = async (
+        slice: Array<{ row: SenseRow; context: IntentContextTurn[] }>,
+      ): Promise<void> => {
+        const chunkResults: IntentSenseResult[] = [];
+        for (const { row, context } of slice) {
           const result = await this.analyzeOne(
             row.mine,
             row.sendTime,
@@ -619,16 +709,25 @@ export class IntentSenseService {
             context,
           );
           if (result) {
-            this.storeResults(kind, conv, [result]);
-            this.emitAnalyzed({ kind, conv, results: [result] });
+            chunkResults.push(result);
             analyzed++;
           } else {
             failed++;
           }
         }
+        if (chunkResults.length > 0) {
+          this.storeResults(kind, conv, chunkResults);
+          this.emitAnalyzed({ kind, conv, results: chunkResults });
+        }
+      };
+
+      if (this.config.engine === 'local') {
+        for (const slice of chunks) {
+          await runChunkLocal(slice);
+        }
       } else {
-        for (let i = 0; i < pending.length; i += API_BATCH) {
-          const slice = pending.slice(i, i + API_BATCH);
+        for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+          const slice = chunks[cIdx]!;
           const leadingContext = slice[0]?.context ?? [];
           const batchInput = slice.map(({ row, context }) => ({
             msgId: row.msgId,
@@ -638,6 +737,16 @@ export class IntentSenseService {
             context,
           }));
           const results = await this.analyzeBatchViaApi(batchInput, leadingContext);
+          if (results === null) {
+            // API 发生网络故障或处于熔断冷却：若本地引擎就绪则无缝降级本地引擎，否则立即中止后续批次避免刷屏报错
+            if (this.opts.localEngine?.ready) {
+              await runChunkLocal(slice);
+              continue;
+            }
+            const remaining = chunks.slice(cIdx).reduce((acc, s) => acc + s.length, 0);
+            failed += remaining;
+            break;
+          }
           if (results.length > 0) {
             this.storeResults(kind, conv, results);
             this.emitAnalyzed({ kind, conv, results });
@@ -715,7 +824,10 @@ export class IntentSenseService {
     }
   }
 
-  /** 一次 OpenAI 兼容调用分析一批消息（带前序上下文 + 语用提示 + 后置校准）。 */
+  /**
+   * 一次 OpenAI 兼容调用分析一批消息（带前序上下文 + 语用提示 + 后置校准）。
+   * 返回 `null` 表示端点未就绪、处于熔断冷却或网络/HTTP 失败（调用方应熔断或降级本地引擎）。
+   */
   private async analyzeBatchViaApi(
     batch: Array<{
       msgId: string;
@@ -725,9 +837,11 @@ export class IntentSenseService {
       context?: IntentContextTurn[];
     }>,
     leadingContext: IntentContextTurn[] = [],
-  ): Promise<IntentSenseResult[]> {
+  ): Promise<IntentSenseResult[] | null> {
     const endpoint = this.endpoint();
-    if (!endpoint) return [];
+    if (!endpoint) return null;
+    if (Date.now() < this.apiCooldownUntil) return null;
+    const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
     const contextHeader =
       leadingContext.length > 0
         ? [
@@ -746,17 +860,18 @@ export class IntentSenseService {
     const system =
       '你是精通中文互联网语境、反语、夸张修辞与网络黑话的聊天消息意图/情绪分析专家。' +
       '请结合上下文语境，对【待分析消息】中的每条消息输出 intent/emotion/intensity/sentiment/confidence。\n' +
-      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（含 boast=炫耀, flattery=吹捧, banter=调侃, perfunctory=敷衍, gossip=吃瓜, coquetry=撒娇, praise=夸赞, joke=玩梗, vent=吐槽）；\n` +
-      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（含 admiration=赞叹, shock=震惊, aggrieved=委屈, irony=反讽, anticipation=期待, embarrassed=尴尬, affection=亲昵, excitement=兴奋）；\n` +
+      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（chat=闲聊, info=通知, question=提问, request=请求, greeting=问候, share=分享, plan=约定, praise=夸赞, vent=吐槽, joke=玩梗, boast=炫耀, flattery=吹捧, banter=调侃, perfunctory=敷衍, gossip=吃瓜, coquetry=撒娇, other=其他）；\n` +
+      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（neutral=平静, joy=开心, curiosity=好奇, excitement=兴奋, admiration=赞叹, affection=亲昵, sadness=低落, anger=生气, anxiety=焦虑, fatigue=疲惫, shock=震惊, aggrieved=委屈, irony=反讽, anticipation=期待, embarrassed=尴尬）；\n` +
       '重要语用准则：\n' +
+      '0. 基线原则（最重要）：日常普通对话、客观陈述、简单应答（如「好的」「收到」「在干嘛」「原来如此」）优先判为 intent="chat" 或 "info" 或 "question"，emotion="neutral"（平静），intensity 20~45，sentiment -10~+30。切勿将普通对话过度解读为 boast（炫耀）、flattery（吹捧）或 admiration（赞叹）！只有措辞或语境确实强烈时才使用高强度标签。\n' +
       '1. 夸张式赞叹：若上文提到厉害的成果、作品、战绩或牛逼操作（且上下文新鲜有效），下文回复「吓哭了」「看傻了」「给跪了」「头皮发麻」「恐怖如斯」「太变态了」「怪物吧」「这是人能做出来的？」「卧槽」「逆天」「？？？」等，绝非恐惧/焦虑/悲伤，而是极度惊叹与佩服，必须判为 intent="praise", emotion="admiration", sentiment 为高正值（+75~+95）！\n' +
       '2. 程度副词化的「死/哭」：「笑死/笑哭/蚌埠住了」是玩梗+开心(joy)；「羡慕哭了/馋哭了」是夸赞+赞叹(admiration)；「感动哭了/泪目/awsl」是亲昵(affection)。\n' +
       '3. 反语、敷衍与阴阳怪气：「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」判为 intent="perfunctory" 或 "vent", emotion="irony" 或 "anger", sentiment<0。\n' +
-      '4. 炫耀、吹捧、吃瓜、撒娇：秀操作/晒抽卡/晒跑分判为 boast；狂吹大佬/捧哏判为 flattery；尊嘟假嘟/求细说/蹲后续判为 gossip；求带/呜呜呜/贴贴判为 coquetry。\n' +
+      '4. 炫耀、吹捧、吃瓜、撒娇：明确秀战绩/晒抽卡/凡尔赛才判为 boast；狂吹大佬/捧哏才判为 flattery；尊嘟假嘟/求细说/蹲后续判为 gossip；求带/呜呜呜/贴贴判为 coquetry。\n' +
       'intensity 0-100（情绪强度），sentiment -100..100（消极到积极），confidence 0..1。' +
       '只输出 JSON：{"results":[{"i":序号,"intent":"...","emotion":"...","intensity":0,"sentiment":0,"confidence":0}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -767,14 +882,19 @@ export class IntentSenseService {
             { role: 'user', content: userContent },
           ],
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
-        throw new Error(`intent-sense api ${res.status}: ${detail.slice(0, 200)}`);
+        throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
       }
-      const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const content = body.choices?.[0]?.message?.content ?? '';
+      this.apiCooldownUntil = 0;
+      this.lastApiError = null;
+      const body = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      };
+      reportUsage(endpoint, body);
+      const content = pickMessageText(body.choices?.[0]?.message);
       const parsed = extractJsonBlock(content) as { results?: unknown[] } | null;
       if (!parsed || !Array.isArray(parsed.results)) return [];
       const out: IntentSenseResult[] = [];
@@ -811,18 +931,23 @@ export class IntentSenseService {
       }
       return out;
     } catch (error) {
+      this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const causeMsg =
+        error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : '';
+      this.lastApiError = `${errMsg}${causeMsg}`;
       logger.warn('intent-sense api batch failed', {
         event: 'intent-sense-api-failed',
         ...logErrorContext(error),
       });
-      return [];
+      return null;
     }
   }
 
   /** 引擎侧画像提示（api：一次结构化推断；local：inferMbti）。 */
   private async inferHints(peerTexts: string[]): Promise<ProfileHints | null> {
     if (peerTexts.length === 0) return null;
-    if (this.config.engine === 'local') {
+    const tryLocalHints = async (): Promise<ProfileHints | null> => {
       const port = this.opts.localEngine;
       if (!port?.ready) return null;
       try {
@@ -831,9 +956,15 @@ export class IntentSenseService {
       } catch {
         return null;
       }
+    };
+    if (this.config.engine === 'local') {
+      return tryLocalHints();
     }
     const endpoint = this.endpoint();
-    if (!endpoint) return null;
+    if (!endpoint || Date.now() < this.apiCooldownUntil) {
+      return tryLocalHints();
+    }
+    const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
     const sample = peerTexts
       .slice(-120)
       .map((t, i) => `${i}. ${t}`)
@@ -845,7 +976,7 @@ export class IntentSenseService {
       '"topics":["话题词"]}（topics 最多 8 个）。' +
       'leftPct 是左侧极（E/S/T/J）占比 0-100；radar value 0-100。不要输出其它内容。';
     try {
-      const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -856,12 +987,18 @@ export class IntentSenseService {
             { role: 'user', content: sample },
           ],
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) return null;
-      const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      if (!res.ok) {
+        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+        return tryLocalHints();
+      }
+      const body = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      };
+      reportUsage(endpoint, body);
       const parsed = extractJsonBlock(
-        body.choices?.[0]?.message?.content ?? '',
+        pickMessageText(body.choices?.[0]?.message),
       ) as ProfileHints | null;
       if (!parsed || typeof parsed !== 'object') return null;
       const hints: ProfileHints = {};
@@ -892,7 +1029,8 @@ export class IntentSenseService {
       }
       return hints;
     } catch {
-      return null;
+      this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+      return tryLocalHints();
     }
   }
 
@@ -1104,12 +1242,10 @@ export class IntentSenseService {
     };
   }
 
-  // ── 回复建议（api 引擎）─────────────────────────────────────────────────
+  // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
   async getSuggestions(kind: IntentConversationKind, conv: string): Promise<ReplySuggestion[]> {
     if (!this.effectiveFor(kind, conv) || !this.config.suggestionsEnabled) return [];
-    const endpoint = this.endpoint();
-    if (!endpoint) return [];
     const key = conversationKey(kind, conv);
     const rows = await this.loadMessages(kind, conv, SUGGESTION_CONTEXT);
     if (rows.length === 0) return [];
@@ -1126,13 +1262,33 @@ export class IntentSenseService {
     ) {
       return cachedHit.suggestions;
     }
+
+    const fallbackLocal = (): ReplySuggestion[] => {
+      const cache = this.cacheFor(kind, conv);
+      const analyzedLast = cache.data.results.find((r) => r.msgId === last.msgId);
+      const context = extractContextBefore(rows, rows.length - 1);
+      const suggestions = buildLocalSuggestions(last.text, analyzedLast, context, last.sendTime);
+      this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
+      return suggestions;
+    };
+
+    if (this.config.engine === 'local') {
+      return fallbackLocal();
+    }
+
+    const endpoint = this.endpoint();
+    if (!endpoint || Date.now() < this.apiCooldownUntil) {
+      return fallbackLocal();
+    }
+    const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
+
     const lines = rows.map((r) => `${r.mine ? '我' : '对方'}: ${r.text || '[媒体消息]'}`);
     const system =
       '根据聊天上下文，以「我」的口吻生成 3 条候选回复。要求：贴合语境、语气自然、' +
       '长度接近日常聊天（一般不超过 40 字）、三条风格要有差异（如 共情/幽默/简短）。' +
       '只输出 JSON：{"replies":[{"text":"...","tone":"共情"}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -1143,11 +1299,17 @@ export class IntentSenseService {
             { role: 'user', content: lines.join('\n') },
           ],
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) return [];
-      const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const parsed = extractJsonBlock(body.choices?.[0]?.message?.content ?? '') as {
+      if (!res.ok) {
+        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+        return fallbackLocal();
+      }
+      const body = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      };
+      reportUsage(endpoint, body);
+      const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
         replies?: unknown[];
       } | null;
       const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
@@ -1159,14 +1321,16 @@ export class IntentSenseService {
         })
         .filter((r): r is ReplySuggestion => r !== null)
         .slice(0, 3);
+      if (suggestions.length === 0) return fallbackLocal();
       this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
       return suggestions;
     } catch (error) {
+      this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
       logger.debug('intent-sense suggestions failed', {
         event: 'intent-sense-suggestions-failed',
         ...logErrorContext(error),
       });
-      return [];
+      return fallbackLocal();
     }
   }
 
@@ -1288,4 +1452,120 @@ function mergeRadar(
     const v = byAxis.get(h.axis);
     return v === undefined ? h : { axis: h.axis, value: Math.round(h.value * 0.35 + v * 0.65) };
   });
+}
+
+/**
+ * 基于最新对方消息的意图与情绪（本地模型分析结果或语料库预分析）生成 3 条差异化回复候选。
+ * 供本地引擎模式或 API 故障熔断时作为即时回复建议。
+ */
+function buildLocalSuggestions(
+  text: string,
+  analyzed: IntentSenseResult | undefined,
+  context: IntentContextTurn[],
+  sendTime: number,
+): ReplySuggestion[] {
+  const prag = analyzePragmatics(text, context, sendTime);
+  const intent: IntentKind =
+    analyzed?.intent ??
+    prag.override?.intent ??
+    (/[？?]|吗$|呢$|怎么|为什么|为啥|多少|哪/.test(text) ? 'question' : 'chat');
+  const emotion: EmotionKind = analyzed?.emotion ?? prag.override?.emotion ?? 'neutral';
+
+  switch (intent) {
+    case 'question':
+      return [
+        { text: '稍等我确认一下跟你说~', tone: '稳妥' },
+        { text: '这个我还真知道，展开跟你讲讲', tone: '热心' },
+        { text: '哈哈怎么突然问起这个？', tone: '反问' },
+      ];
+    case 'request':
+      return [
+        { text: '没问题，包在我身上！', tone: '爽快' },
+        { text: '好嘞，我这就去弄，弄好叫你', tone: '靠谱' },
+        { text: '手头稍微有点事，晚几分钟帮你看可以吗？', tone: '委婉' },
+      ];
+    case 'plan':
+      return [
+        { text: '包的！直接冲，几点集合？', tone: '积极' },
+        { text: '可以呀，算我一个~', tone: '随和' },
+        { text: '我先看下时间安排，待会给你准信', tone: '稳妥' },
+      ];
+    case 'greeting':
+      return [
+        { text: '在的在的，刚忙完~', tone: '热情' },
+        { text: '哈哈早呀，今天心情不错嘛', tone: '轻松' },
+        { text: '咋啦，有什么好玩的事？', tone: '好奇' },
+      ];
+    case 'praise':
+    case 'flattery':
+      return [
+        { text: '哈哈低调低调，还得靠大家捧场~', tone: '谦虚' },
+        { text: '被你夸得我都要飘了哈哈哈', tone: '幽默' },
+        { text: '还得是你懂行！下次带你一起整', tone: '互动' },
+      ];
+    case 'boast':
+      return [
+        { text: '卧槽太强了吧！给大佬跪了', tone: '捧场' },
+        { text: '羡慕哭了，分我一点欧气！', tone: '玩梗' },
+        { text: '牛哇，这波必须请客庆祝一下', tone: '调侃' },
+      ];
+    case 'vent':
+      if (emotion === 'aggrieved' || emotion === 'sadness') {
+        return [
+          { text: '抱抱你，别太往心里去，真的辛苦了', tone: '安慰' },
+          { text: '这也太欺负人了吧，换我也得气死！', tone: '共情' },
+          { text: '不气不气，待会吃点好的转换下心情', tone: '暖心' },
+        ];
+      }
+      if (emotion === 'fatigue') {
+        return [
+          { text: '辛苦啦！赶紧歇一歇回回血', tone: '关心' },
+          { text: '打工人太难了，今晚必须早点睡', tone: '共情' },
+          { text: '走，搞杯奶茶续命！', tone: '轻松' },
+        ];
+      }
+      return [
+        { text: '懂你，这事换谁遇到都得血压飙升', tone: '共情' },
+        { text: '太离谱了吧，后来怎么解决的？', tone: '追问' },
+        { text: '摸摸头，消消气，别拿别人的错误惩罚自己', tone: '安慰' },
+      ];
+    case 'joke':
+    case 'banter':
+      return [
+        { text: '哈哈哈哈笑死我了，你真是个人才', tone: '接梗' },
+        { text: '你小子夺笋啊，等着瞧！', tone: '互怼' },
+        { text: '蚌埠住了，今天功德又被你笑没了', tone: '玩梗' },
+      ];
+    case 'gossip':
+      return [
+        { text: '搬好小板凳了，快展开讲讲！', tone: '吃瓜' },
+        { text: '尊嘟假嘟？还有这种操作？', tone: '好奇' },
+        { text: '这瓜保熟吗哈哈，细说后续', tone: '调侃' },
+      ];
+    case 'coquetry':
+      return [
+        { text: '好啦好啦，都依你行了吧~', tone: '宠溺' },
+        { text: '摸摸头，拿你没办法，走起！', tone: '温柔' },
+        { text: '哈哈少来这套，说吧想要啥？', tone: '打趣' },
+      ];
+    case 'perfunctory':
+      return [
+        { text: '哈哈看破不说破，先不打扰你忙啦', tone: '体贴' },
+        { text: '好家伙，这敷衍得也太明显了吧😂', tone: '调侃' },
+        { text: '行嘞，有空再聊~', tone: '简短' },
+      ];
+    case 'share':
+    case 'info':
+      return [
+        { text: '收到！太及时了，多谢分享~', tone: '感谢' },
+        { text: '哇看着很不错诶，回头我也试试', tone: '感兴趣' },
+        { text: '了解，我记一下！', tone: '简短' },
+      ];
+    default:
+      return [
+        { text: '哈哈确实，我也这么觉得', tone: '赞同' },
+        { text: '展开说说？后来呢', tone: '好奇' },
+        { text: '好的呀，没问题~', tone: '简短' },
+      ];
+  }
 }

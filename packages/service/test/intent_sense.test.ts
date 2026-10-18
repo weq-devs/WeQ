@@ -433,5 +433,144 @@ describe('IntentSenseService', () => {
     const aggrieved = analyzePragmatics('太欺负人了，好委屈，凭什么啊');
     expect(aggrieved.override?.intent).toBe('vent');
     expect(aggrieved.override?.emotion).toBe('aggrieved');
+
+    // 否定句与疑问句不应误触发炫耀（boast）
+    expect(analyzePragmatics('还没过审').override).toBeNull();
+    expect(analyzePragmatics('什么时候提车？').override).toBeNull();
+  });
+
+  it('API 故障熔断与本地引擎降级：多批次请求首轮失败后立即熔断或降级本地引擎，不刷屏重试', async () => {
+    // 构造 45 条消息（超过 API_BATCH=20，分 3 批）
+    const msgs = Array.from({ length: 45 }, (_, i) =>
+      textMsg(BigInt(i + 1), 'u_peer', `测试消息 ${i + 1}`, 1000 + i * 10),
+    );
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // 1. 无本地引擎时：第 1 批失败即熔断中止，fetch 只调用 1 次而非 3 次
+    const svcNoLocal = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://dead-endpoint',
+        apiKey: 'k',
+        model: ref.model,
+      }),
+    });
+    await svcNoLocal.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'p', model: 'm' },
+    });
+    const statsNoLocal = await svcNoLocal.ensureAnalysis('c2c', 'u_peer');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(statsNoLocal.analyzed).toBe(0);
+    expect(statsNoLocal.failed).toBe(45);
+
+    // 2. 有本地引擎就绪时：API 失败后自动降级到本地引擎完成全部分析，且传递 gap_sec
+    fetchMock.mockClear();
+    let capturedGapSec: number | undefined;
+    const localAnalyze = vi.fn(
+      async (_text: string, opts?: { context?: Array<{ gap_sec?: number }> }) => {
+        if (opts?.context && opts.context.length > 0 && capturedGapSec === undefined) {
+          capturedGapSec = opts.context[opts.context.length - 1]?.gap_sec;
+        }
+        return {
+          intent: 'chat' as const,
+          emotion: 'joy' as const,
+          intensity: 60,
+          sentiment: 30,
+          confidence: 0.85,
+        };
+      },
+    );
+    const svcWithLocal = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://dead-endpoint',
+        apiKey: 'k',
+        model: ref.model,
+      }),
+      localEngine: makeLocalPort(localAnalyze),
+    });
+    await svcWithLocal.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'p', model: 'm' },
+    });
+    const statsWithLocal = await svcWithLocal.ensureAnalysis('c2c', 'u_peer');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(statsWithLocal.analyzed).toBe(45);
+    expect(capturedGapSec).toBe(10);
+  });
+
+  it('getSuggestions 支持本地引擎及 API 失败兜底生成候选回复', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '尊嘟假嘟？快展开讲讲！', 1000)];
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(async () => ({
+        intent: 'gossip',
+        emotion: 'curiosity',
+        intensity: 75,
+        sentiment: 30,
+        confidence: 0.9,
+      })),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
+    await svc.ensureAnalysis('c2c', 'u_peer');
+
+    const suggestions = await svc.getSuggestions('c2c', 'u_peer');
+    expect(suggestions.length).toBe(3);
+    expect(suggestions[0]?.text.length).toBeGreaterThan(0);
+  });
+
+  it('切换到 API 或 API 恢复后，自动将旧 local 降级缓存重刷为 api 结果，且支持 clearCache 清空缓存', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '今天去哪吃', 1000)];
+    const localAnalyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 40,
+      sentiment: 0,
+      confidence: 0.6,
+    }));
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({ baseUrl: 'http://ok-endpoint', apiKey: 'k', model: ref.model }),
+      localEngine: makeLocalPort(localAnalyze),
+    });
+
+    // 先用 local 跑一遍，落入缓存（engine: 'local'）
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0]?.engine).toBe('local');
+
+    // 切换到 api 引擎：旧 local 缓存不应阻挡 API 重算
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                '{"results":[{"i":0,"intent":"question","emotion":"curiosity","intensity":65,"sentiment":15,"confidence":0.92}]}',
+            },
+          },
+        ],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await svc.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'p', model: 'm' },
+    });
+
+    const upgraded = await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(upgraded.analyzed).toBe(1);
+    const afterApi = svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0];
+    expect(afterApi?.engine).toBe('api');
+    expect(afterApi?.intent).toBe('question');
+
+    // clearCache 清空内存与磁盘缓存
+    const cleared = await svc.clearCache();
+    expect(cleared.clearedFiles).toBe(1);
+    expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1']).length).toBe(0);
   });
 });
