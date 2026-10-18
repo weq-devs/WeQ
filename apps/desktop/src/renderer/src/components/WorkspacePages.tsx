@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { TabActivity } from './RetainedTabs';
 import '../styles/workspace-surfaces.css';
+import '../styles/page-chrome.css';
 
 type Placement = 'main' | 'sidecar';
 type Page = {

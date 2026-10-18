@@ -18,6 +18,7 @@ import {
   AudioLines,
   Bot,
   Check,
+  ChevronRight,
   CloudDownload,
   DatabaseZap,
   Globe,
@@ -176,17 +177,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '高级诊断',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
-      <>
+      <div className="weq-set">
         <SectionHeader title="高级诊断" />
-        <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
-          <Radio size={18} />
-          <span>ntqq 抓包</span>
-        </button>
-        <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('reverse')}>
-          <ScanSearch size={18} />
-          <span>Protobuf / JCE 逆向</span>
-        </button>
-      </>
+        <div className="weq-maintenance-list">
+          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
+            <Radio size={18} aria-hidden />
+            <span>ntqq 抓包</span>
+            <ChevronRight size={16} aria-hidden />
+          </button>
+          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('reverse')}>
+            <ScanSearch size={18} aria-hidden />
+            <span>Protobuf / JCE 逆向</span>
+            <ChevronRight size={16} aria-hidden />
+          </button>
+        </div>
+      </div>
     ),
   },
   {

@@ -9,6 +9,7 @@ import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
 import { displayUserName } from './user';
+import '../../styles/contact-navigation.css';
 
 export function SidebarHeader({
   user,
@@ -210,9 +211,11 @@ export function SidebarHeader({
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'friend'))}
+            aria-current={activeNotice === 'friend' ? 'page' : undefined}
             onClick={onOpenFriendNotices}
           >
             <span className={cn('notice-entry-label')}>
+              <UserPlus size={17} aria-hidden />
               <span className={cn('desktop-notice-label')}>好友通知</span>
               <span className={cn('mobile-notice-label')}>新朋友</span>
             </span>
@@ -221,9 +224,13 @@ export function SidebarHeader({
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'group'))}
+            aria-current={activeNotice === 'group' ? 'page' : undefined}
             onClick={onOpenGroupNotices}
           >
-            <span className={cn('notice-entry-label')}>群通知</span>
+            <span className={cn('notice-entry-label')}>
+              <UsersRound size={17} aria-hidden />
+              群通知
+            </span>
             <ChevronRight size={20} />
           </button>
           <div className="contact-list-controls">
@@ -251,7 +258,7 @@ export function SidebarHeader({
 }
 
 function contactToolButtonClass(active: boolean) {
-  return cn(active && 'active');
+  return cn('weq-contact-notice-entry', active && 'active');
 }
 
 function contactTabButtonClass(active: boolean) {
