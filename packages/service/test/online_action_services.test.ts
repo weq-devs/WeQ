@@ -12,6 +12,7 @@ import {
   DeleteGroupFolder,
   FetchGroupMemberListPage,
   FetchGroupRequests,
+  ReadedReport,
   MoveGroupFile,
   RenameGroupFile,
   RenameGroupFolder,
@@ -235,5 +236,59 @@ describe('GroupInfoService 禁言列表', () => {
     expect(second).toEqual(first);
     // 第二次命中 60s 缓存，不再发包。
     expect(nt.calls).toHaveLength(1);
+  });
+});
+
+describe('MessageSendService 标记已读', () => {
+  it('两段式：先探测，再只推进落后会话', async () => {
+    const { MessageSendService } = await import('../src/account/message_send');
+    const calls: { cmd: string; body: Uint8Array; needSign?: boolean }[] = [];
+    let round = 0;
+    const nt = {
+      sendOidbPacket: async (): Promise<Buffer> => Buffer.alloc(0),
+      sendPacket: async (
+        _pid: number,
+        cmd: string,
+        body: Buffer,
+        needSign?: boolean,
+      ): Promise<Buffer> => {
+        calls.push({ cmd, body: new Uint8Array(body), needSign });
+        round += 1;
+        // 第一包回「落后」，第二包回「已追上」。
+        const behind = round % 2 === 1;
+        return Buffer.from(
+          encode(ReadedReport.respSchema, {
+            groupList: [{ groupUin: 123, readSeq: 1, latestSeq: behind ? 5 : 1, resultCode: 0 }],
+          }),
+        );
+      },
+    };
+    const session = {
+      context: { uin: '10001' },
+      uidMap: { uidByUin: (uin: bigint) => (uin === 20002n ? 'uid-20002' : undefined) },
+    };
+    const svc = new MessageSendService(nt as never, session as never, () => 1);
+
+    await svc.markGroupsRead([123]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({
+      cmd: 'trpc.msg.msg_svc.MsgService.SsoReadedReport',
+      needSign: true,
+    });
+    // 探测阶段水位 0 按 proto3 省略，只在 wire 上留 groupUin。
+    expect(decode(ReadedReport.reqSchema, calls[0]!.body)).toMatchObject({
+      groupList: [{ groupUin: 123n }],
+    });
+    expect(decode(ReadedReport.reqSchema, calls[1]!.body)).toMatchObject({
+      groupList: [{ groupUin: 123n, lastReadSeq: 5n }],
+    });
+
+    calls.length = 0;
+    await svc.markPrivateRead(['20002']);
+    expect(decode(ReadedReport.reqSchema, calls[0]!.body)).toMatchObject({
+      c2cList: [{ uid: 'uid-20002' }],
+    });
+
+    await expect(svc.markPrivateRead(['99999'])).rejects.toThrow('本地 uid 目录');
   });
 });

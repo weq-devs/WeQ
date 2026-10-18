@@ -26,6 +26,13 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  READ_REPORT_BATCH_SIZE,
+  ReadedReport,
+  type C2cReadTarget,
+  type GroupReadTarget,
+  type ReadReportResult,
+} from '@weq/protocol';
+import {
   sendContactArk,
   sendForward as protocolSendForward,
   sendGroupFile,
@@ -1066,6 +1073,103 @@ export class MessageSendService {
         ? `聊天记录已发送（resId=${upload.resId}，共 ${upload.levels.length} 层）。`
         : '聊天记录内容已上传成功，但承载它的卡片没发出去 —— 内容在服务端，收端看不到，重发即可。',
     };
+  }
+
+  // ───────────────────────── 标记已读 ─────────────────────────
+
+  /** 把一批群会话全部标为已读。 */
+  async markGroupsRead(groupIds: readonly number[]): Promise<void> {
+    if (groupIds.length === 0) return;
+    await this.reportRead({
+      groups: groupIds.map((groupId) => ({ groupId })),
+    });
+  }
+
+  /**
+   * 把一批私聊标为已读。
+   *
+   * `targets` 传 QQ 号或 uid；QQ 号会经本地 uid 目录解析成 uid（协议要求 uid）。
+   */
+  async markPrivateRead(targets: readonly string[]): Promise<void> {
+    if (targets.length === 0) return;
+    const c2c: C2cReadTarget[] = [];
+    for (const target of targets) {
+      const text = String(target ?? '').trim();
+      if (!text) continue;
+      const uid = /^\d+$/.test(text) ? this.session.uidMap.uidByUin(BigInt(text)) : text;
+      if (!uid) {
+        throw new Error(`本地 uid 目录里没有「${text}」，无法标记私聊已读。`);
+      }
+      c2c.push({ uid });
+    }
+    if (c2c.length === 0) return;
+    await this.reportRead({ c2c });
+  }
+
+  /**
+   * 两段式上报（与官方客户端一致）：
+   *   1. 先只报 0 水位，读回服务端当前的 readSeq/latestSeq；
+   *   2. 再只推进落后于 latestSeq 的会话。
+   *
+   * 单包最多 100 个群 + 100 个私聊，等回包再发下一页。
+   */
+  private async reportRead(targets: {
+    groups?: GroupReadTarget[];
+    c2c?: C2cReadTarget[];
+  }): Promise<void> {
+    const groups = targets.groups ?? [];
+    const c2c = targets.c2c ?? [];
+    const batches = Math.max(
+      Math.ceil(groups.length / READ_REPORT_BATCH_SIZE),
+      Math.ceil(c2c.length / READ_REPORT_BATCH_SIZE),
+    );
+    for (let index = 0; index < batches; index += 1) {
+      const start = index * READ_REPORT_BATCH_SIZE;
+      const groupSlice = groups
+        .slice(start, start + READ_REPORT_BATCH_SIZE)
+        .map((g) => ({ ...g, lastReadSeq: 0 }));
+      const c2cSlice = c2c
+        .slice(start, start + READ_REPORT_BATCH_SIZE)
+        .map((c) => ({ ...c, lastReadTime: 0, lastReadSeq: 0 }));
+
+      const probe = await this.invokeReadReport({
+        ...(groupSlice.length > 0 ? { groups: groupSlice } : {}),
+        ...(c2cSlice.length > 0 ? { c2c: c2cSlice } : {}),
+      });
+
+      // 第二条只推进「落后」的会话；已经追上就不必重发。
+      const nextGroups: GroupReadTarget[] = [];
+      for (const item of probe.groups) {
+        if (item.resultCode !== 0) continue;
+        if (item.readSeq < item.latestSeq) {
+          nextGroups.push({ groupId: item.groupId, lastReadSeq: item.latestSeq });
+        }
+      }
+      const nextC2c: C2cReadTarget[] = [];
+      for (const item of probe.c2c) {
+        if (item.resultCode !== 0) continue;
+        if (item.readSeq < item.latestSeq && item.uid) {
+          nextC2c.push({
+            uid: item.uid,
+            lastReadTime: item.lastMsgTime,
+            lastReadSeq: item.latestSeq,
+          });
+        }
+      }
+      if (nextGroups.length === 0 && nextC2c.length === 0) continue;
+
+      await this.invokeReadReport({
+        ...(nextGroups.length > 0 ? { groups: nextGroups } : {}),
+        ...(nextC2c.length > 0 ? { c2c: nextC2c } : {}),
+      });
+    }
+  }
+
+  private invokeReadReport(params: {
+    groups?: GroupReadTarget[];
+    c2c?: C2cReadTarget[];
+  }): Promise<ReadReportResult> {
+    return ReadedReport.invoke(this.nt, this.resolvePid(), params);
   }
 }
 
