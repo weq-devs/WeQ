@@ -299,3 +299,4 @@
 - 修复 1GiB 以上 QQ 数据库可能被误判为损坏的问题；标准 SQLite 改在独立进程中打开，与 QQ 加密库的保留页互不影响
 - **数据库修复新增「布局迁移」**：识别旧版误修复在 1GiB 以上 QQ 库留下的 standard 页布局，按 standard 页号读出后迁回 QQ 布局；进入修复页选中库时才检测，迁移同样先备份、可回滚
 - 桌面端升级至 Electron 44（Chromium 152、Node 24），提升运行时安全性与新版系统兼容性；macOS 最低支持版本提升至 13
+- 修复 Linux Wayland 下主窗口默认平铺、内容放大且高度不足的问题，恢复浮动窗口与原有宽高比；可用 `WEQ_OZONE_PLATFORM=wayland` 切回原生 Wayland
