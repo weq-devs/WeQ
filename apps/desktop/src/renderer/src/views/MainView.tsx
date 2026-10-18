@@ -7588,7 +7588,7 @@ export function MainView(): ReactElement {
             user={user}
             view={sidebarView}
             activeRailItem={
-              settingsOpen
+              settingsOpen || maintenanceTool
                 ? 'settings'
                 : dressUpOpen
                   ? 'dressup'
