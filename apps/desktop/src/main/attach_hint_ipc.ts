@@ -72,7 +72,9 @@ function promptImpl(signal?: AbortSignal): Promise<AttachHintAnswer> {
       clearTimeout(timer);
       win.removeListener('closed', cancel);
       if (pendingToken === token) pendingResolve = null;
-      if (!win.webContents.isDestroyed()) win.webContents.send('attach:cancel-hint', { token });
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('attach:cancel-hint', { token });
+      }
     };
   }, signal);
 }
