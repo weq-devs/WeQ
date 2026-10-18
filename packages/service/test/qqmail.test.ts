@@ -624,6 +624,78 @@ describe('邮箱生命周期和提醒', () => {
 });
 
 describe('邮箱认证边界', () => {
+  it.each(['mail.qq.com', 'wx.mail.qq.com'])('%s 的普通附件复用原生会话 Cookie', async (host) => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(mailNative(), '12345678', () => 42, transport);
+    try {
+      const source = new URL(`https://${host}/attach/download?fileid=fixture`);
+      const result = await auth.downloadCredentials(source, false);
+      expect(result.cookie).toContain('sid=fixture-sid');
+      expect(result.cookie).toContain('p_skey=fixture-mail');
+      expect(result.url.searchParams.get('sid')).toBe('fixture-sid');
+      expect(source.searchParams.has('sid')).toBe(false);
+    } finally {
+      auth.dispose();
+    }
+  });
+  it.each(['mail.qq.com', 'wx.mail.qq.com'])(
+    '%s 的超大附件换票据携带 Cookie，外部下载地址不携带',
+    async (host) => {
+      const transport = new FakeMailTransport();
+      const auth = new MailAuth(mailNative(), '12345678', () => 42, transport);
+      const cookies: string[] = [];
+      transport.request = async (raw) => {
+        const url = new URL(raw);
+        expect(url.origin).toBe(`https://${host}`);
+        cookies.push(await transport.jar.getCookieString(url.href));
+        return transport.envelope({ url: 'https://download.qq.com/fixture' });
+      };
+      try {
+        const result = await auth.downloadCredentials(
+          new URL(`https://${host}/ftn/download`),
+          true,
+        );
+        expect(cookies).toHaveLength(1);
+        expect(cookies[0]).toContain('sid=fixture-sid');
+        expect(result.url.href).toBe('https://download.qq.com/fixture');
+        expect(result.cookie).toBe('');
+      } finally {
+        auth.dispose();
+      }
+    },
+  );
+  it('导入的 Cookie 限于两个 HTTPS 主机，不扩散到兄弟或下级域', async () => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(mailNative(), '12345678', () => 42, transport);
+    try {
+      await auth.connect();
+      for (const url of [
+        'http://mail.qq.com/',
+        'http://wx.mail.qq.com/',
+        'https://other.mail.qq.com/',
+        'https://child.wx.mail.qq.com/',
+        'https://qzone.qq.com/',
+        'https://qq.com/',
+      ])
+        expect(await transport.jar.getCookieString(url)).toBe('');
+    } finally {
+      auth.dispose();
+    }
+  });
+  it('主域响应更新的敏感 Cookie 也会从正文中脱敏', async () => {
+    const transport = new FakeMailTransport();
+    const auth = new MailAuth(mailNative(), '12345678', () => 42, transport);
+    try {
+      await auth.connect();
+      await transport.jar.setCookie(
+        'pt4_token=fixture-main-secret; Path=/; Secure',
+        'https://mail.qq.com/',
+      );
+      expect(await auth.redact('<p>fixture-main-secret</p>')).toBe('<p>[redacted]</p>');
+    } finally {
+      auth.dispose();
+    }
+  });
   it('只有已探测的 loopback 端口能进入本机 TLS 例外', () => {
     expect(mailRequestTarget(new URL('https://127.0.0.1:4301/pt_get_st'), 4301).hostname).toBe(
       'localhost.ptlogin2.qq.com',

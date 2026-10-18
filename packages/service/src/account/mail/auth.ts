@@ -1,9 +1,11 @@
 import type { NtHelperBinding } from '@weq/native';
+import { Cookie } from 'tough-cookie';
 import { MailHttp, type MailResponse, type MailTransport } from './http';
 import { MailFailure } from './types';
 import { MAIL_ORIGIN, mailEnvelope, text, type MailObject } from './wire';
 
 type MailNative = Pick<NtHelperBinding, 'ptFetchMailSession'>;
+const MAIL_SESSION_ORIGINS = new Set([MAIL_ORIGIN, 'https://mail.qq.com']);
 
 function json(response: MailResponse): unknown {
   if (response.status !== 200) throw new MailFailure('network', '邮箱服务暂时不可用。');
@@ -71,16 +73,15 @@ export class MailAuth {
   /** 把 native 返回的 Cookie 头灌进本地 jar，供附件下载 / WebSocket 复用。 */
   private async seedCookies(header: string): Promise<void> {
     for (const part of header.split(';')) {
-      const eq = part.indexOf('=');
-      if (eq <= 0) continue;
-      const name = part.slice(0, eq).trim();
-      const value = part.slice(eq + 1).trim();
-      if (!name || !value) continue;
-      await this.transport.jar.setCookie(
-        `${name}=${value}; Domain=wx.mail.qq.com; Path=/`,
-        MAIL_ORIGIN,
-        { ignoreError: true },
-      );
+      const cookie = Cookie.parse(part.trim());
+      if (!cookie?.key || !cookie.value) continue;
+      // native 只返回 Cookie 头，没有域属性；为两个受信任入口分别建立 host-only Cookie。
+      for (const origin of MAIL_SESSION_ORIGINS)
+        await this.transport.jar.setCookie(
+          new Cookie({ key: cookie.key, value: cookie.value, path: '/', secure: true }),
+          origin,
+          { ignoreError: true },
+        );
     }
   }
 
@@ -160,7 +161,7 @@ export class MailAuth {
   ): Promise<{ url: URL; cookie: string }> {
     await this.connect(signal);
     let url = new URL(source);
-    if (url.origin !== MAIL_ORIGIN && url.origin !== 'https://mail.qq.com')
+    if (!MAIL_SESSION_ORIGINS.has(url.origin))
       throw new MailFailure('business', '附件下载入口不受信任。');
     url.searchParams.set('sid', this.sid);
     if (big) {
@@ -171,16 +172,16 @@ export class MailAuth {
       if (!target) throw new MailFailure('business', '超大附件未返回下载地址。');
       url = new URL(target, url);
     }
-    const cookie =
-      url.origin === MAIL_ORIGIN || url.origin === 'https://mail.qq.com'
-        ? await this.transport.jar.getCookieString(url.href)
-        : '';
+    const cookie = MAIL_SESSION_ORIGINS.has(url.origin)
+      ? await this.transport.jar.getCookieString(url.href)
+      : '';
     return { url, cookie };
   }
 
   async redact(html: string): Promise<string> {
     const cookies = [
       ...(await this.transport.jar.getCookies(`${MAIL_ORIGIN}/`)),
+      ...(await this.transport.jar.getCookies('https://mail.qq.com/')),
       ...(await this.transport.jar.getCookies('https://ssl.ptlogin2.qq.com/')),
     ];
     const keys = new Set([
