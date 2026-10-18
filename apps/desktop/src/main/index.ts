@@ -12,6 +12,7 @@ import {
   protocol,
   shell,
   Tray,
+  type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -27,6 +28,7 @@ import {
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { disposeStandardDbWorker } from './db/router';
 import { appRouter } from './ipc/router';
+import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
 import { AVATAR_PRIVILEGED_SCHEME } from './avatar_protocol';
@@ -727,7 +729,15 @@ void app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(win);
   });
 
-  mainIpcHandler = createIPCHandler({ router: appRouter, windows: [] });
+  mainIpcHandler = createIPCHandler({
+    router: appRouter,
+    windows: [],
+    createContext: async ({ event }) => {
+      // electron-trpc 实际使用 ipcMain.on，但类型误声明为 InvokeEvent。
+      guardTrpcReply(event as IpcMainEvent);
+      return {};
+    },
+  });
   openMainWindow();
   logger.info('main window created', { event: 'create-window' });
   buildTray();
