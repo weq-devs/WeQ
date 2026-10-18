@@ -52,6 +52,7 @@ export function ChatShell({
   refreshingContacts,
   onSidebarWidthChange,
   onGoHome,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
@@ -96,6 +97,7 @@ export function ChatShell({
   refreshingContacts?: boolean;
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
+  activeRailItem?: 'settings' | 'market' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -122,6 +124,7 @@ export function ChatShell({
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
+          activeRailItem={activeRailItem}
           view={view}
           onViewChange={onViewChange}
           onOpenSettings={onOpenSettings}

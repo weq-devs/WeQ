@@ -18,6 +18,35 @@ afterEach(() => {
 const start = Date.parse('2026-10-18T00:00:00+08:00') / 1000;
 const rows = 2502;
 const hugeRows = 2001;
+
+it('所选消息按精确 ID 分析，同秒未选消息与其他会话不能混入统计', async () => {
+  const { buddy, group } = fixture();
+  const scope = { messageIds: ['1', '4', '7000'] };
+  const privateReport = await buddy.getBuddyAnalytics('u_peer', scope);
+  expect(privateReport.statistics.totalMessages).toBe(2);
+  expect(privateReport.timeline.daily).toEqual([{ date: '2026-10-18', count: 2 }]);
+  const report = await group.getGroupStatsReport(777n, scope);
+  expect(report.totals.totalMessages).toBe(2);
+  expect(report.timeline.daily).toEqual([{ date: '2026-10-18', count: 2 }]);
+  expect((await group.getGroupConversationGraph(777n, scope)).messageCount).toBe(2);
+  expect(
+    (
+      await group.getGroupMemberAnalytics(
+        777n,
+        'u_peer',
+        undefined,
+        undefined,
+        undefined,
+        scope.messageIds,
+      )
+    ).statistics.totalMessages,
+  ).toBe(1);
+  expect((await group.getGroupJoinBatches(777n, scope)).groupMessageTotal).toBe(2);
+  expect(
+    (await buddy.getBuddyAnalytics('u_peer', { messageIds: [] })).statistics.totalMessages,
+  ).toBe(0);
+  expect((await group.getGroupStatsReport(777n, { messageIds: [] })).totals.totalMessages).toBe(0);
+});
 function fixture() {
   root = mkdtempSync(join(tmpdir(), 'weq-analytics-'));
   const path = join(root, 'msg.db'),

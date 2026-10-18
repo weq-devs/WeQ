@@ -2644,6 +2644,7 @@ export function MainView(): ReactElement {
     kind: 'c2c' | 'group' | 'dataline';
     conv: string;
     title: string;
+    anchor?: HTMLElement;
   } | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
@@ -2879,7 +2880,7 @@ export function MainView(): ReactElement {
   }
 
   const handleOpenConversationSettings = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>) => {
+    (conversation: Extract<Conversation, { type: 'group' | 'direct' }>, anchor?: HTMLElement) => {
       const { kind, conv } = convFetchKey(conversation);
       const title =
         conversation.type === 'group'
@@ -2895,6 +2896,7 @@ export function MainView(): ReactElement {
         kind: kind === 'group' ? 'group' : dataline ? 'dataline' : 'c2c',
         conv,
         title,
+        anchor,
       });
     },
     [convFetchKey],
@@ -7493,6 +7495,15 @@ export function MainView(): ReactElement {
           <ChatShell
             user={user}
             view={sidebarView}
+            activeRailItem={
+              settingsOpen
+                ? 'settings'
+                : dressUpOpen
+                  ? 'dressup'
+                  : marketBrowserOpen
+                    ? 'market'
+                    : undefined
+            }
             query={shell.query}
             contactTab={shell.contactTab}
             activeNotice={shell.contactNotice}
@@ -8088,6 +8099,7 @@ export function MainView(): ReactElement {
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}
+              anchor={convSettings.anchor}
               members={currentGroupMembers.map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,
@@ -8489,6 +8501,7 @@ export function MainView(): ReactElement {
                   navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
                   onNavigate={() => {
                     setSettingsOpen(false);
+                    setConvSettings(null);
                   }}
                 >
                   {chatContent}

@@ -318,6 +318,7 @@ const groupPageInput = pageInput.extend({
 
 const analyticsRangeInput = z
   .object({
+    messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
     startTime: z.number().int().safe().nonnegative().optional(),
     endTime: z.number().int().safe().nonnegative().optional(),
     expectedAccountUin: z.string().min(1).optional(),
@@ -3176,6 +3177,7 @@ export const accountRouter = router({
         input.startTime,
         input.endTime,
         input.memberUin,
+        input.messageIds,
       );
     }),
 
@@ -3242,6 +3244,7 @@ export const accountRouter = router({
         endTime: input.endTime,
         recentYear: input.recentYear,
         skipTimeline: input.skipTimeline,
+        messageIds: input.messageIds,
       });
     }),
 
@@ -3279,6 +3282,7 @@ export const accountRouter = router({
       ).groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
         windowSeconds: input.windowSeconds,
         maxEdges: input.maxEdges,
+        messageIds: input.messageIds,
         startTime: input.startTime,
         endTime: input.endTime,
       });

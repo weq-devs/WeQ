@@ -1,0 +1,107 @@
+import { act, createElement as h, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, expect, it, vi } from 'vitest';
+import { marqueeMessageIds, useMessageMarquee } from '../src/renderer/src/hooks/useMessageMarquee';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it('框选只按竖直交集命中，支持反向、边界、追加及缩小范围', () => {
+  const rows = [
+    { id: 'a', top: 10, bottom: 40 },
+    { id: 'b', top: 60, bottom: 90 },
+    { id: 'c', top: 100, bottom: 130 },
+  ];
+  expect([...marqueeMessageIds(rows, 40, 100)]).toEqual(['a', 'b', 'c']);
+  expect([...marqueeMessageIds(rows, 100, 40)]).toEqual(['a', 'b', 'c']);
+  expect([...marqueeMessageIds(rows, 50, 70, new Set(['c']))]).toEqual(['c', 'b']);
+  expect([...marqueeMessageIds(rows, 50, 55)]).toEqual([]);
+});
+
+it('空白起拖进入多选，气泡正文不触发框选，结束和切会话清理手势', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const frames = new Map<number, FrameRequestCallback>();
+  let serial = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function View({ conversationKey }: { conversationKey: string }) {
+    const [mode, setMode] = useState(false),
+      [selected, setSelected] = useState(new Set<string>());
+    const marquee = useMessageMarquee({
+      conversationKey,
+      enabled: true,
+      selectionMode: mode,
+      selected,
+      onChange: setSelected,
+      onStart: () => setMode(true),
+    });
+    return h(
+      'div',
+      { ...marquee.handlers, 'data-scroll': true },
+      h('output', null, [...selected].join(',')),
+      ...['a', 'b', 'c'].map((id) =>
+        h(
+          'div',
+          { key: id, 'data-message-id': id },
+          h('span', { className: 'message-bubble' }, id),
+        ),
+      ),
+      marquee.box && h('div', { 'data-marquee': true }),
+    );
+  }
+  const pointer = (target: Element, type: string, x: number, y: number, ctrlKey = false) =>
+    act(() =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 1,
+          clientX: x,
+          clientY: y,
+          ctrlKey,
+        }),
+      ),
+    );
+  try {
+    act(() => root.render(h(View, { conversationKey: 'one' })));
+    const scroll = host.querySelector<HTMLElement>('[data-scroll]')!;
+    vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 500, 300));
+    Object.defineProperty(scroll, 'clientWidth', { value: 500 });
+    Object.defineProperty(scroll, 'clientHeight', { value: 300 });
+    [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].forEach((row, i) => {
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(200, 40 + i * 60, 100, 40),
+      );
+    });
+    pointer(scroll.querySelector('.message-bubble')!, 'pointerdown', 220, 50);
+    pointer(scroll, 'pointermove', 240, 150);
+    expect(host.querySelector('[data-marquee]')).toBeNull();
+    pointer(scroll, 'pointerdown', 10, 35);
+    pointer(scroll, 'pointermove', 15, 120);
+    expect(host.querySelector('output')?.textContent).toBe('a,b');
+    expect(host.querySelector('[data-marquee]')).not.toBeNull();
+    pointer(scroll, 'pointermove', 15, 85);
+    expect(host.querySelector('output')?.textContent).toBe('a');
+    pointer(scroll, 'pointerup', 15, 85);
+    expect(host.querySelector('[data-marquee]')).toBeNull();
+    expect(frames.size).toBe(0);
+    pointer(scroll, 'pointerdown', 10, 155, true);
+    pointer(scroll, 'pointermove', 15, 190, true);
+    expect(host.querySelector('output')?.textContent).toBe('a,c');
+    act(() => root.render(h(View, { conversationKey: 'two' })));
+    expect(host.querySelector('[data-marquee]')).toBeNull();
+    expect(frames.size).toBe(0);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});

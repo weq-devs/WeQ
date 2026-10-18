@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { TabActivity } from './RetainedTabs';
 import '../styles/workspace-surfaces.css';
@@ -37,6 +36,11 @@ const PagesContext = createContext<{
   selectSidecar: (id: string) => void;
   register: (page: Page) => () => void;
 } | null>(null);
+
+export function useWorkspaceActiveTitle(): string | undefined {
+  const context = useContext(PagesContext);
+  return context?.pages.find((page) => page.id === context.active)?.title;
+}
 
 export function useWorkspacePageOpen(): boolean {
   const context = useContext(PagesContext);
@@ -92,7 +96,13 @@ export function WorkspacePages({
     selectPage(page.id);
     return () => {
       setPages((current) => current.filter((item) => item.id !== page.id));
-      selectPage((current) => (current === page.id ? null : current));
+      selectPage((current) =>
+        current === page.id
+          ? (pagesRef.current
+              .filter((item) => item.id !== page.id && item.placement === page.placement)
+              .at(-1)?.id ?? null)
+          : current,
+      );
     };
   }, []);
   return (
@@ -115,105 +125,13 @@ export function WorkspacePages({
   );
 }
 
-function WorkspaceTabs({
-  pages,
-  selected,
-  onSelect,
-  label,
-}: {
-  pages: Page[];
-  selected: string | undefined;
-  onSelect: (id: string) => void;
-  label: string;
-}) {
-  const tabsRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    tabsRef.current
-      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-      ?.closest('.weq-workspace-tab')
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [selected]);
-  if (!pages.length) return null;
-  return (
-    <div ref={tabsRef} className="weq-workspace-tabs" role="tablist" aria-label={label}>
-      {pages.map((page) => (
-        <div className="weq-workspace-tab" key={page.id}>
-          <button
-            type="button"
-            role="tab"
-            id={`${page.id}-tab`}
-            aria-selected={selected === page.id}
-            tabIndex={selected === page.id ? 0 : -1}
-            aria-controls={`${page.id}-page`}
-            onClick={() => onSelect(page.id)}
-            onKeyDown={(event) => {
-              const index = pages.findIndex((item) => item.id === page.id);
-              const last = pages.length - 1;
-              const next =
-                event.key === 'ArrowRight'
-                  ? (index + 1) % (last + 1)
-                  : event.key === 'ArrowLeft'
-                    ? (index + last) % (last + 1)
-                    : event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? last
-                        : null;
-              if (next === null) return;
-              event.preventDefault();
-              const target = pages[next];
-              if (!target) return;
-              onSelect(target.id);
-              event.currentTarget.ownerDocument.getElementById(`${target.id}-tab`)?.focus();
-            }}
-          >
-            {page.title}
-          </button>
-          {page.closable !== false && (
-            <button
-              type="button"
-              title={`关闭${page.title}`}
-              aria-label={`关闭${page.title}`}
-              onClick={page.close}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function WorkspaceContent({ children }: { children: ReactNode }) {
   const context = useContext(PagesContext);
   const mainPages = context?.pages.filter((page) => page.placement === 'main') ?? [];
-  const pages = mainPages.filter((page) => !page.standalone);
   const sidecars = context?.pages.filter((page) => page.placement === 'sidecar') ?? [];
   const mainOpen = mainPages.some((page) => page.id === context?.active);
-  const standaloneOpen = mainPages.some((page) => page.id === context?.active && page.standalone);
-  const tabs = pages.some((page) => page.retainOnNavigate)
-    ? [
-        {
-          id: 'workspace-base',
-          title: '当前内容',
-          placement: 'main' as const,
-          close: () => {},
-          closable: false,
-        },
-        ...pages,
-      ]
-    : pages;
   return (
     <div className="weq-workspace-content">
-      {context && !standaloneOpen && (
-        <WorkspaceTabs
-          pages={tabs}
-          selected={context.active ?? 'workspace-base'}
-          onSelect={(id) => context.select(id === 'workspace-base' ? null : id)}
-          label="内容页面"
-        />
-      )}
       <div className="weq-workspace-split">
         <div className="weq-workspace-primary">
           <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!mainOpen} />
@@ -226,14 +144,6 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
           hidden={!sidecars.length || mainOpen}
           aria-label="会话附属内容"
         >
-          {context && (
-            <WorkspaceTabs
-              pages={sidecars}
-              selected={context.activeSidecar ?? sidecars.at(-1)?.id}
-              onSelect={context.selectSidecar}
-              label="会话内容"
-            />
-          )}
           <div className="weq-workspace-sidecar-host" ref={context?.setSidecarHost} />
         </aside>
       </div>
@@ -290,9 +200,8 @@ export function WorkspacePage({
       ref={ref}
       id={`${id}-page`}
       className={`weq-workspace-page${placement === 'sidecar' ? ' weq-workspace-sidecar-page' : ''}${context ? '' : ' weq-workspace-page-fallback'}`}
-      role={standalone ? 'region' : 'tabpanel'}
+      role="region"
       aria-label={title}
-      aria-labelledby={context && !standalone ? `${id}-tab` : undefined}
       hidden={!active}
       tabIndex={-1}
     >

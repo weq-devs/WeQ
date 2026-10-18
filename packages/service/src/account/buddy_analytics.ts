@@ -191,7 +191,7 @@ export class BuddyAnalyticsService {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);
     const range = validateAnalyticsRange(opts);
-    const filter = analyticsBrowseFilter({});
+    const filter = analyticsBrowseFilter({ messageIds: range.messageIds });
     const selfUin = String(this.session.context.uin ?? '');
 
     // 默认「最近一年」：以最后一条消息为基准（不是 now），否则早就不聊的

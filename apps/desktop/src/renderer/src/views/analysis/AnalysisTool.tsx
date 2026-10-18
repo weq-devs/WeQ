@@ -72,9 +72,11 @@ function ObjectPicker({
 export function AnalysisTool({
   onGenerate,
   initialTarget,
+  messageIds,
 }: {
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
+  messageIds?: string[];
 }) {
   const account = useViewState((state) => state.openedUin);
   return (
@@ -83,6 +85,7 @@ export function AnalysisTool({
       account={account}
       onGenerate={onGenerate}
       initialTarget={initialTarget}
+      messageIds={messageIds}
     />
   );
 }
@@ -91,10 +94,12 @@ function AnalysisToolForm({
   account,
   onGenerate,
   initialTarget,
+  messageIds,
 }: {
   account: string | null;
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
+  messageIds?: string[];
 }) {
   const active = useTabActive() && Boolean(account);
   const [kind, setKind] = useState<AnalysisKind>(initialTarget?.kind ?? 'annual');
@@ -187,7 +192,8 @@ function AnalysisToolForm({
     setError(null);
     let range = {};
     try {
-      if (kind !== 'annual' && timeMode === 'dates') range = analysisDateRange(start, end);
+      if (kind !== 'annual' && timeMode === 'dates' && messageIds === undefined)
+        range = analysisDateRange(start, end);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
       return;
@@ -208,13 +214,15 @@ function AnalysisToolForm({
                 name: pickedMember!.name,
               };
     const period =
-      kind === 'annual'
-        ? year === 0
-          ? '历史以来'
-          : `${year} 年`
-        : timeMode === 'all'
-          ? '全部本地历史'
-          : `${start} 至 ${end} · 北京时间`;
+      messageIds !== undefined
+        ? `已选 ${messageIds.length} 条消息`
+        : kind === 'annual'
+          ? year === 0
+            ? '历史以来'
+            : `${year} 年`
+          : timeMode === 'all'
+            ? '全部本地历史'
+            : `${start} 至 ${end} · 北京时间`;
     const run = generation.current;
     pending.current = true;
     setBusy(true);
@@ -227,6 +235,7 @@ function AnalysisToolForm({
         expectedAccountUin: account,
         expectedAccountConfigId: config.configId,
         ...range,
+        ...(messageIds !== undefined ? { messageIds: [...messageIds] } : {}),
       };
       onGenerate({ id: createMediaId('analysis-report'), scope, period, ...target });
     } catch (error) {
@@ -243,23 +252,30 @@ function AnalysisToolForm({
     <div className="weq-analysis-tool">
       <fieldset disabled={busy} className="weq-analysis-fields">
         <div className="weq-analysis-config">
-          <label>
-            报告类型
-            <select
-              aria-label="报告类型"
-              value={kind}
-              onChange={(event) => {
-                setKind(event.target.value as AnalysisKind);
-                setError(null);
-              }}
-            >
-              {Object.entries(ANALYSIS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!initialTarget ? (
+            <label>
+              报告类型
+              <select
+                aria-label="报告类型"
+                value={kind}
+                onChange={(event) => {
+                  setKind(event.target.value as AnalysisKind);
+                  setError(null);
+                }}
+              >
+                {Object.entries(ANALYSIS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <strong>
+              {ANALYSIS_LABELS[initialTarget.kind]} ·{' '}
+              {pickedFriend?.name ?? pickedGroup?.groupName ?? ''}
+            </strong>
+          )}
           {kind === 'annual' ? (
             <label>
               时间
@@ -275,6 +291,8 @@ function AnalysisToolForm({
                 ))}
               </select>
             </label>
+          ) : messageIds !== undefined ? (
+            <span>已选 {messageIds.length} 条消息</span>
           ) : (
             <>
               <label>
@@ -330,6 +348,16 @@ function AnalysisToolForm({
                 {years.data?.length ? `当前账号 · ${account}` : '当前账号暂无可用报告年份'}
               </p>
             )
+          ) : initialTarget &&
+            validObject &&
+            (initialTarget.kind !== 'member' || pickedMember) &&
+            !source.isLoading &&
+            !source.isError ? (
+            <p className="weq-analysis-state">
+              {initialTarget.kind === 'member'
+                ? pickedMember?.name
+                : (pickedFriend?.name ?? pickedGroup?.groupName)}
+            </p>
           ) : (
             <>
               {kind === 'member' && !chooseGroup && pickedGroup ? (
@@ -351,6 +379,8 @@ function AnalysisToolForm({
                   <RotateCw size={16} />
                   重试读取对象
                 </button>
+              ) : initialTarget && initialTarget.kind !== 'member' ? (
+                <p role="alert">本地目录中未找到此分析对象。</p>
               ) : (
                 <ObjectPicker
                   key={`${kind}:${kind === 'member' && !chooseGroup ? group : 'groups'}`}

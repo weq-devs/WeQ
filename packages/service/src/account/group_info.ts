@@ -792,12 +792,13 @@ export class GroupInfoService {
     startTime?: number,
     endTime?: number,
     memberUin?: string,
+    messageIds?: string[],
   ): Promise<GroupMemberAnalytics> {
     if (!memberUid && !memberUin) throw new Error('成员身份不能为空。');
     if (memberUin && !/^[1-9]\d*$/.test(memberUin)) throw new Error('成员 QQ 号无效。');
     const db = this.session.groupMsgs;
     const filter = {
-      ...analyticsBrowseFilter({ startTime, endTime }),
+      ...analyticsBrowseFilter({ startTime, endTime, messageIds }),
       sender: memberUid,
       senderUin: memberUin,
     };
@@ -1195,7 +1196,10 @@ export class GroupInfoService {
     }
     const hasRange = startTime !== undefined || endTime !== undefined;
     const trackTimeline = opts?.skipTimeline !== true;
-    const filter = analyticsBrowseFilter(trackTimeline ? {} : { startTime, endTime });
+    const filter = analyticsBrowseFilter({
+      ...(trackTimeline ? {} : { startTime, endTime }),
+      messageIds: range.messageIds,
+    });
 
     const counts = new Map<string, number>(); // uid → message count (range)
     const uins = new Map<string, string>(); // uid → uin

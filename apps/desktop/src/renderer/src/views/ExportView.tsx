@@ -291,10 +291,14 @@ export function ExportTool({
   surface = 'export',
   initialSelection,
   initialMode,
+  onClose,
+  fixedScope = false,
 }: {
   surface?: 'export' | 'tasks';
   initialSelection?: ContentSelection;
   initialMode?: ExportMode;
+  onClose?: () => void;
+  fixedScope?: boolean;
 }): ReactElement {
   const utils = trpc.useUtils();
   const accountUin = useViewState((state) => state.openedUin);
@@ -455,7 +459,11 @@ export function ExportTool({
   const [fileExport, setFileExport] = useState<{ group: PickItem } | null>(null);
   const [fileGroupId, setFileGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
-  const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
+  const fixedMessages =
+    fixedScope &&
+    (initialSelection?.owner.kind === 'messages' ||
+      initialSelection?.owner.kind === 'conversations');
+  const [lightbox, setLightbox] = useState<LightboxVariant | null>(fixedMessages ? 'full' : null);
   const [submitting, setSubmitting] = useState(false);
   /** 各模式最近一次导出的灯箱配置快照，打开面板时自动回填。 */
   const [exportPresets, setExportPresets] = useState<ExportPresets | null>(null);
@@ -1003,6 +1011,7 @@ export function ExportTool({
           : {}),
       }));
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
+    if (!targets.length || targets.some((target) => target.messageIds?.length === 0)) return;
     const precise = targets.some((target) => target.messageIds !== undefined);
     const effectiveOptions: ExportOptions = precise
       ? {
@@ -1033,8 +1042,11 @@ export function ExportTool({
       const savePolicy = await prepareSave();
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, { savePolicy });
-      setConvSelection(new Set());
-      setLightbox(null);
+      if (fixedMessages) onClose?.();
+      else {
+        setConvSelection(new Set());
+        setLightbox(null);
+      }
       refetchTasks();
     } catch (e) {
       dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
@@ -1455,7 +1467,7 @@ export function ExportTool({
           overridden={saveOverridden}
         />
       ) : null}
-      {surface === 'export' && !lightbox ? (
+      {surface === 'export' && !lightbox && !fixedMessages ? (
         <div className="weq-exp-top">
           {/* 右侧选择面板 */}
           <section className="weq-exp-pane">
@@ -2029,11 +2041,16 @@ export function ExportTool({
           }
           initialSchedule={exportPresets?.scheduled?.schedule}
           submitting={submitting}
+          disabled={
+            fixedMessages &&
+            (!convItems.some((item) => convSelection.has(item.id)) ||
+              Object.values(messageSelections).some((ids) => ids?.length === 0))
+          }
           onPickPath={async () => {
             dialog.info('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');
             return null;
           }}
-          onClose={() => setLightbox(null)}
+          onClose={() => (fixedMessages ? onClose?.() : setLightbox(null))}
           onConfirm={onLightboxConfirm}
         />
       ) : null}

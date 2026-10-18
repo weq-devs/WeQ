@@ -7,7 +7,11 @@ import { RetainedTabs } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
 import { AgentLabView } from '../views/AgentLabView';
 import { trpc } from '../trpc/client';
-import { useContentExportRequest, useCurrentContentSelection } from '../state/contentSelection';
+import {
+  useContentExportRequest,
+  useContentAnalysisRequest,
+  useCurrentContentSelection,
+} from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 import { DaemonSection } from './settings/DaemonSection';
@@ -56,6 +60,7 @@ export function WorkspaceTools({
   const [tool, setTool] = useState<Tool>('export');
   const [assistantSettings, setAssistantSettings] = useState(false);
   const [analysisTarget, setAnalysisTarget] = useState<AnalysisTarget | undefined>();
+  const [analysisMessageIds, setAnalysisMessageIds] = useState<string[] | undefined>();
   const [roamingTargets, setRoamingTargets] = useState<RoamingTarget[]>([]);
   const [analysisSeed, setAnalysisSeed] = useState(0);
   const [roamingSeed, setRoamingSeed] = useState(0);
@@ -65,12 +70,31 @@ export function WorkspaceTools({
   const exportRequest = useContentExportRequest();
   const handledExportRequest = useRef<typeof exportRequest>(null);
   const handledAnalysisRequest = useRef<typeof analysisRequest>(null);
+  const contentAnalysisRequest = useContentAnalysisRequest();
+  const handledContentAnalysis = useRef<typeof contentAnalysisRequest>(null);
+  useEffect(() => {
+    if (
+      !accountKey ||
+      !contentAnalysisRequest ||
+      handledContentAnalysis.current === contentAnalysisRequest
+    )
+      return;
+    handledContentAnalysis.current = contentAnalysisRequest;
+    setAnalysisTarget({ ...contentAnalysisRequest.target });
+    setAnalysisMessageIds(
+      contentAnalysisRequest.messageIds ? [...contentAnalysisRequest.messageIds] : undefined,
+    );
+    setAnalysisSeed((previous) => previous + 1);
+    setTool('analysis');
+    setOpen(true);
+  }, [accountKey, contentAnalysisRequest]);
   const handledRoamingRequest = useRef<typeof roamingRequest>(null);
   useEffect(() => {
     if (!accountKey || !analysisRequest || handledAnalysisRequest.current === analysisRequest)
       return;
     handledAnalysisRequest.current = analysisRequest;
     setAnalysisTarget({ ...analysisRequest.target });
+    setAnalysisMessageIds(undefined);
     setAnalysisSeed((previous) => previous + 1);
     setTool('analysis');
     setAssistantSettings(false);
@@ -122,6 +146,7 @@ export function WorkspaceTools({
     }
     if (next === 'analysis') {
       setAnalysisTarget(conversationAnalysisTarget(currentConversation) ?? undefined);
+      setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
     }
     setTool(next);
@@ -201,6 +226,13 @@ export function WorkspaceTools({
                     ? exportDraft.draft.selection
                     : undefined
                 }
+                onClose={close}
+                fixedScope={
+                  exportDraft?.draft.selection.owner.kind === 'messages' ||
+                  (exportDraft?.draft.selection.owner.kind === 'conversations' &&
+                    exportDraft.draft.selection.scope.type === 'items' &&
+                    exportDraft.draft.selection.scope.ids.length === 1)
+                }
               />
             ) : tool === 'assistant' ? (
               <>
@@ -217,6 +249,7 @@ export function WorkspaceTools({
               <AnalysisTool
                 key={JSON.stringify([accountKey, analysisSeed])}
                 initialTarget={analysisTarget}
+                messageIds={analysisMessageIds}
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
             ) : null

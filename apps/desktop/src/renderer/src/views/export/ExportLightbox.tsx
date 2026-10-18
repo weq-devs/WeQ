@@ -309,6 +309,7 @@ export function ExportLightbox({
   initialFormats,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
+  disabled = false,
   onPickPath,
   onClose,
   onConfirm,
@@ -330,6 +331,7 @@ export function ExportLightbox({
   initialFormats?: ExportFormat[];
   initialSchedule?: Schedule;
   submitting?: boolean;
+  disabled?: boolean;
   /** Optional async directory picker; returns the chosen path or null. */
   onPickPath?: () => Promise<string | null>;
   /**
@@ -1328,7 +1330,7 @@ export function ExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             onClick={confirm}
-            disabled={submitting}
+            disabled={submitting || disabled}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             {isScheduled ? '创建定时任务' : '开始导出'}

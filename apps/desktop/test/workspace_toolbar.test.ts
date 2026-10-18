@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
   useCurrentContentSelection: () => fixture.selection,
   useContentExportRequest: () => fixture.exportRequest,
+  useContentAnalysisRequest: () => null,
 }));
 
 vi.mock('../src/renderer/src/views/ExportView', () => ({

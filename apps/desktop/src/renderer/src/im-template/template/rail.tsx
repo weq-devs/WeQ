@@ -18,6 +18,7 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
+import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 
 export function AppRail({
   user,
@@ -36,6 +37,7 @@ export function AppRail({
   showTools = true,
   footerContent,
   hideAvatar = false,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
@@ -58,15 +60,24 @@ export function AppRail({
   showTools?: boolean;
   footerContent?: ReactNode;
   hideAvatar?: boolean;
+  activeRailItem?: 'settings' | 'market' | 'dressup';
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingView, setPendingView] = useState<MainView | null>(null);
   const [, startViewTransition] = useTransition();
   const railRef = useRef<HTMLElement | null>(null);
-  const activeView = pendingView ?? view;
+  const activeTitle = useWorkspaceActiveTitle();
+  const activePage =
+    activeTitle === '商城表情'
+      ? 'market'
+      : activeTitle === '个性装扮'
+        ? 'dressup'
+        : activeTitle === '设置'
+          ? 'settings'
+          : undefined;
+  const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
 
-  // 灯箱与收藏入口不占用视图选中态，直接复用原有打开动作。
   const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
@@ -221,7 +232,18 @@ export function AppRail({
           {contentItems.map((item) => (
             <button
               key={item.id}
-              className={cn('rail-tab', `rail-tab-${item.id}`)}
+              className={cn(
+                railButtonClass(
+                  activeView === (item.id === 'collection' ? 'collections' : item.id),
+                ),
+                'rail-tab',
+                `rail-tab-${item.id}`,
+              )}
+              aria-current={
+                activeView === (item.id === 'collection' ? 'collections' : item.id)
+                  ? 'page'
+                  : undefined
+              }
               onClick={() => {
                 setProfileOpen(false);
                 item.onSelect();
@@ -236,7 +258,8 @@ export function AppRail({
             </button>
           ))}
           <button
-            className={cn('rail-tab rail-tab-settings')}
+            className={cn(railButtonClass(activeView === 'settings'), 'rail-tab rail-tab-settings')}
+            aria-current={activeView === 'settings' ? 'page' : undefined}
             onClick={() => {
               setProfileOpen(false);
               onOpenSettings();

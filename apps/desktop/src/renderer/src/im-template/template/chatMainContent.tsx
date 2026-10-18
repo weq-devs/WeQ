@@ -212,7 +212,10 @@ export function ChatMainContent({
   /** 群管理「踢出群聊」：应用层二次确认。 */
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
-  onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
+  onOpenConversationSettings?: (
+    conversation: GroupConversation | DirectConversation,
+    anchor?: HTMLElement,
+  ) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
   onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;

@@ -32,7 +32,7 @@ function fixture() {
 }
 
 describe('非模态内容工作区', () => {
-  it('独立整页不生成标签，覆盖报告标签栏但保留报告现场，关闭后恢复', () => {
+  it('整页均不生成标签，叠加设置保留报告现场，关闭后恢复', () => {
     const app = fixture();
     let open = () => {};
     let close = () => {};
@@ -68,13 +68,13 @@ describe('非模态内容工作区', () => {
       );
       expect(app.host.querySelector('[data-report]')).toBe(report);
       act(() => close());
-      expect(app.host.querySelector('[aria-label="内容页面"]')).not.toBeNull();
-      expect(app.host.querySelector('[data-chat]')?.closest('[hidden]')).toBeNull();
+      expect(app.host.querySelector('[aria-label="内容页面"]')).toBeNull();
+      expect(report?.closest('[hidden]')).toBeNull();
     } finally {
       app.close();
     }
   });
-  it('报告标签保留到显式关闭，普通导航返回内容但不销毁报告现场', () => {
+  it('无标签报告在普通导航时关闭并返回当前内容', () => {
     const app = fixture();
     let navigate = () => {};
     function View() {
@@ -88,7 +88,7 @@ describe('非模态内容工作区', () => {
         report &&
           h(
             WorkspacePage,
-            { title: '合成报告', retainOnNavigate: true, onClose: () => setReport(false) },
+            { title: '合成报告', onClose: () => setReport(false) },
             h('input', { 'data-report-draft': true }),
           ),
       );
@@ -100,15 +100,7 @@ describe('非模态内容工作区', () => {
       act(() => navigate());
       expect(app.host.querySelector('[data-base]')!.closest('[hidden]')).toBeNull();
       expect(app.host.querySelector('[data-base]')?.textContent).toBe('chat-b');
-      expect(app.host.querySelector('[data-report-draft]')).toBe(input);
-      act(() =>
-        [...app.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-          .find((node) => node.textContent === '合成报告')!
-          .click(),
-      );
-      expect(input.closest('[hidden]')).toBeNull();
-      expect(input.value).toBe('报告现场');
-      act(() => app.host.querySelector<HTMLButtonElement>('[aria-label="关闭合成报告"]')!.click());
+      expect(app.host.querySelectorAll('[role="tab"]')).toHaveLength(0);
       expect(app.host.querySelector('[data-report-draft]')).toBeNull();
       expect(app.host.querySelector('[data-base]')!.closest('[hidden]')).toBeNull();
     } finally {
@@ -134,7 +126,7 @@ describe('非模态内容工作区', () => {
           h(
             Modal,
             { presentation: 'page', title: '设置', onClose: () => setSettings(false) },
-            h('div', null, '全局设置'),
+            h('button', { 'aria-label': '关闭设置', onClick: () => setSettings(false) }, '关闭'),
           ),
       );
     }
@@ -172,7 +164,12 @@ describe('非模态内容工作区', () => {
           h(
             Modal,
             { presentation: 'sidecar', title: '群文件', onClose: () => setOpen(false) },
-            h('div', { 'data-conversation-files': true }, '资源列表'),
+            h(
+              'div',
+              { 'data-conversation-files': true },
+              '资源列表',
+              h('button', { 'aria-label': '关闭群文件', onClick: () => setOpen(false) }, '关闭'),
+            ),
           ),
       );
     }
@@ -262,7 +259,7 @@ describe('非模态内容工作区', () => {
       app.close();
     }
   });
-  it('切换标签保留输入现场，隐藏页浮层停止命中，切换账号销毁旧页', () => {
+  it('无标签页面叠加保留输入现场，关闭上层恢复下层，切号销毁旧页', () => {
     const app = fixture();
     let openSecond = () => {};
     function Content() {
@@ -284,6 +281,7 @@ describe('非模态内容工作区', () => {
             h(
               'div',
               null,
+              h('button', { 'aria-label': '关闭第二页', onClick: () => setSecond(false) }, '关闭'),
               h(
                 Modal,
                 { presentation: 'panel' },
@@ -303,20 +301,14 @@ describe('非模态内容工作区', () => {
       input.value = '编辑后的草稿';
       act(() => openSecond());
       const tabs = [...app.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-      expect(tabs).toHaveLength(2);
-      act(() => tabs[0]!.click());
+      expect(tabs).toHaveLength(0);
       expect(input.value).toBe('编辑后的草稿');
-      expect(document.querySelector('[data-second-panel]')?.closest('[hidden]')).not.toBeNull();
-      act(() =>
-        tabs[0]!.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
-        ),
-      );
-      expect(tabs[1]!.getAttribute('aria-selected')).toBe('true');
-      expect(document.activeElement).toBe(tabs[1]);
+      expect(input.closest('[hidden]')).not.toBeNull();
+      expect(document.querySelector('[data-second-panel]')?.closest('[hidden]')).toBeNull();
       act(() => app.host.querySelector<HTMLButtonElement>('[aria-label="关闭第二页"]')!.click());
-      expect(app.host.querySelectorAll('[role="tab"]')).toHaveLength(1);
+      expect(app.host.querySelectorAll('[role="tab"]')).toHaveLength(0);
       expect(app.host.querySelector('[data-first-input]')).toBe(input);
+      expect(input.closest('[hidden]')).toBeNull();
       render('account-b');
       expect(app.host.querySelector('[data-first-input]')).not.toBe(input);
       expect(app.host.querySelector<HTMLInputElement>('[data-first-input]')?.value).toBe('原值');
