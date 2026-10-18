@@ -54,6 +54,34 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe('QQ 运行时生命周期', () => {
+  it('外部 QQ 能力可刷新，同一实例保持 ID，失联时清空旧能力', async () => {
+    const f = fixture();
+    let sequence = 0;
+    f.deps.createId = () => `external-${++sequence}`;
+    f.deps.inspectExternal = async () => ({
+      pid: 123,
+      ...observed({
+        phase: 'online',
+        account: { uin: '10001', uid: 'u_self' },
+        capabilities: { login: false, sso: true, database: true, push: false },
+      }),
+    });
+    await f.manager.connectExternal('10001');
+    const id = f.manager.snapshot().instanceId;
+    await f.manager.refreshExternal();
+    expect(f.manager.snapshot()).toMatchObject({ instanceId: id, phase: 'online' });
+    f.deps.inspectExternal = async () => {
+      throw new Error('fixture-offline');
+    };
+    await f.manager.refreshExternal();
+    expect(f.manager.snapshot()).toMatchObject({
+      phase: 'failed',
+      pid: null,
+      account: null,
+      capabilities: { sso: false, database: false },
+    });
+    await f.manager.stop();
+  });
   it('真实进程、账号和能力分别发布；仅登录不能冒充完整在线', async () => {
     const f = fixture();
     await f.manager.startManaged('10001');

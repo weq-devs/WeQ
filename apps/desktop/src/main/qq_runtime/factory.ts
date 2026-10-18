@@ -1,11 +1,14 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hostname, release } from 'node:os';
-import type { Platform } from '@weq/platform';
+import { realpath } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+import { darwinAccountDirName, type Platform } from '@weq/platform';
 import { resolveNtHelperPath } from '@weq/native';
 import { ManagedQQSsoSession, QQRuntimeManager, type QQRuntimeDependencies } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 import { discoverManagedQQInstallation } from './installation';
 import { createQQKernelProcessBackend } from './process_backend';
+import type { ManagedQQAccountSource } from './managed_account';
 
 export interface DesktopQQRuntimeOptions {
   platform: Platform;
@@ -15,6 +18,7 @@ export interface DesktopQQRuntimeOptions {
   execPath?: string;
   inspectExternal: QQRuntimeDependencies['inspectExternal'];
   onObserverError?: QQRuntimeDependencies['onObserverError'];
+  openAccount?(source: ManagedQQAccountSource): Promise<{ database: boolean; push: boolean }>;
 }
 
 /** 路径由主进程提供；渲染进程不能指定要载入的原生模块或启动程序。 */
@@ -69,6 +73,55 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
             });
             return session.register(material, current);
           },
+          ...(options.openAccount
+            ? {
+                openDatabase: async ({ pid, uin, uid, guid, dbPath, dbKey }, current) => {
+                  if (current.aborted || !session?.isReady())
+                    return { database: false, push: false };
+                  const [root, database] = await Promise.all([
+                    realpath(options.dataRoot),
+                    realpath(dbPath),
+                  ]);
+                  const path = relative(root, database);
+                  if (
+                    path !== join('nt_db', 'nt_msg.db') &&
+                    path !== join(darwinAccountDirName(uid), 'nt_db', 'nt_msg.db')
+                  )
+                    throw new Error('托管数据库归属不匹配');
+                  const verified = await options.platform.native.ntHelper.testDatabaseKey(
+                    database,
+                    dbKey,
+                  );
+                  if (current.aborted || !session?.isReady())
+                    return { database: false, push: false };
+                  if (
+                    !verified.success ||
+                    !verified.pageHmacAlgorithm ||
+                    !verified.kdfHmacAlgorithm
+                  )
+                    throw new Error('托管数据库密钥验证失败');
+                  return options.openAccount!({
+                    instanceId,
+                    pid,
+                    uin,
+                    uid,
+                    guid,
+                    dataRoot: root,
+                    dbPath: database,
+                    dbKey,
+                    algo: {
+                      pageHmacAlgorithm: verified.pageHmacAlgorithm,
+                      kdfHmacAlgorithm: verified.kdfHmacAlgorithm,
+                    },
+                    wrapperPath: installation.wrapperPath,
+                    majorPath: installation.majorPath,
+                    version: installation.client.version,
+                    signal: current,
+                    isSsoReady: () => session?.isReady() === true,
+                  });
+                },
+              }
+            : {}),
         },
       );
     },

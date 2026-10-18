@@ -4,13 +4,14 @@ import type { NtHelperBinding } from '@weq/native';
 import { setTimeout as delay } from 'node:timers/promises';
 
 type OwnSessionReader = Pick<NtHelperBinding, 'getInitStatus' | 'scanSessionMaterial'>;
+type OwnKernelReader = OwnSessionReader & Pick<NtHelperBinding, 'scanKeyFromDatabase'>;
 type SessionIdentity = { uin: string; uid: string; guid: string };
 type SessionTickets = { a2: string; d2: string; d2Key: string };
 
 /** 必须在 QQ wrapper 载入之后调用，避免 nt_helper 的同名注册符号遮住桥。 */
-export function loadOwnSessionReader(path: string): OwnSessionReader {
+export function loadOwnSessionReader(path: string): OwnKernelReader {
   if (!isAbsolute(path)) throw new Error('原生会话读取器路径无效');
-  const nt = createRequire(import.meta.url)(path) as OwnSessionReader;
+  const nt = createRequire(import.meta.url)(path) as OwnKernelReader;
   if (nt.getInitStatus() !== 0 || typeof nt.scanSessionMaterial !== 'function')
     throw new Error('原生会话读取器不可用');
   return nt;

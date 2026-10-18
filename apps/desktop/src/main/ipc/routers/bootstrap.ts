@@ -513,11 +513,15 @@ export const bootstrapRouter = router({
    * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
    * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
    */
-  setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
-    if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
-    return true;
-  }),
+  setAutoAttachQq: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      if (!input.enabled && getAppContext().qqRuntime?.snapshot().mode === 'managed')
+        await getAppContext().qqRuntime?.stop();
+      return true;
+    }),
 
   setReportReadEnabled: procedure
     .input(z.object({ enabled: z.boolean() }))
@@ -1163,10 +1167,12 @@ export const bootstrapRouter = router({
    */
   acknowledgeWelcome: procedure
     .input(z.object({ allowMemoryScan: z.boolean() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       requireBootstrap().userConfig.acknowledgeWelcome({
         allowMemoryScan: input.allowMemoryScan,
       });
+      if (!input.allowMemoryScan && getAppContext().qqRuntime?.snapshot().mode === 'managed')
+        await getAppContext().qqRuntime?.stop();
       return true;
     }),
 

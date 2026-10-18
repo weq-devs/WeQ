@@ -13,7 +13,14 @@ export type QQKernelCommand =
   | { type: 'boot'; options: QQKernelOptions }
   | { type: 'login'; instanceId: string; nonce: string; uin?: string }
   | { type: 'refresh-qr' | 'stop' | 'health'; instanceId: string; nonce: string }
-  | { type: 'collect-session'; instanceId: string; nonce: string; requestId: string };
+  | { type: 'collect-session'; instanceId: string; nonce: string; requestId: string }
+  | {
+      type: 'collect-database';
+      instanceId: string;
+      nonce: string;
+      requestId: string;
+      paths: string[];
+    };
 
 export type QQKernelEvent = {
   instanceId: string;
@@ -34,6 +41,16 @@ export type QQKernelEvent = {
       material: { a2: string; d2: string; d2Key: string };
     }
   | { type: 'session-material-error'; requestId: string }
+  | {
+      type: 'database-key';
+      requestId: string;
+      uin: string;
+      uid: string;
+      guid: string;
+      dbPath: string;
+      dbKey: string;
+    }
+  | { type: 'database-key-error'; requestId: string }
   | { type: 'network'; status: number }
   | { type: 'health'; connected: boolean; loggedIn: boolean }
   | { type: 'verification'; url: string | null }

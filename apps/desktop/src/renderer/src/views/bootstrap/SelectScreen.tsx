@@ -18,6 +18,7 @@ import type { GlobalInstallInfo } from '@weq/service';
 import { LoginPanel } from './LoginPanel';
 import { StatsPanel } from './StatsPanel';
 import type { UiAccount } from './types';
+import { IS_MAC } from '../../lib/target';
 
 export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
   const mode = useViewState((s) => s.selectMode);
@@ -80,6 +81,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         lastLoginAt: cfg.lastLoginAt,
         ...(cfg.static ? { static: true } : {}),
         ...(cfg.mobile ? { mobile: true } : {}),
+        ...(cfg.managed ? { managed: true } : {}),
       }));
     }
     return (historical.data ?? []).map((a) => ({
@@ -150,7 +152,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           <span className="weq-select-head-tag">
             {mode === 'existing' ? '现有账号配置' : '新的开始'}
           </span>
-          <h2 className="weq-display weq-select-head-h">选择账号 · 验证密钥</h2>
+          <h2 className="weq-display weq-select-head-h">
+            {mode === 'new' ? '账号登录' : '选择账号 · 验证密钥'}
+          </h2>
         </div>
         {/* Drag handle is a dedicated spacer so the title + back button remain
             normal hit targets; the popover's outside-click handler then fires
@@ -170,7 +174,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               />
               <span>正在准备账号…</span>
             </div>
-          ) : accounts.length === 0 ? (
+          ) : accounts.length === 0 && !(mode === 'new' && IS_MAC) ? (
             <div className="weq-select-empty">
               {mode === 'existing' ? '暂无保存的账号配置' : '未发现可用账号'}
             </div>

@@ -74,6 +74,8 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 }
 
 export interface AccountConfig {
+  /** 由 WeQ 托管 QQ 创建的数据源；重开时先恢复该运行时。 */
+  managed?: boolean;
   /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
@@ -223,6 +225,7 @@ export interface AccountConfig {
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
 export interface AccountConfigMetadata {
+  managed?: boolean;
   displayName?: string;
   avatarUrl?: string;
   dataDir?: string;
@@ -305,6 +308,8 @@ export class AccountConfigService {
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),
       ...(metadata.mobile === true ? { mobile: true } : {}),
+      ...(metadata.managed !== undefined ? { managed: metadata.managed } : {}),
+      ...(metadata.managed === true ? { static: false, mobile: false } : {}),
       // Always overwrite (not merge): the probe re-runs on every open, and a
       // stale path left over from a since-changed data-dir override would show
       // the user a directory we are no longer reading from.

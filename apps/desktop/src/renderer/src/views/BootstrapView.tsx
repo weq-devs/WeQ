@@ -112,6 +112,10 @@ export function BootstrapView(): ReactElement {
 
     void (async () => {
       try {
+        if (cfg.managed) {
+          enterSelect('existing');
+          return;
+        }
         if (cfg.static) {
           // Static (offline) account — no live key gate; re-open from its
           // saved decrypted-db directory.
@@ -174,6 +178,7 @@ export function BootstrapView(): ReactElement {
     configs.isFetched,
     configs.data,
     setHomeStage,
+    enterSelect,
     setOpenedUin,
     goTo,
     showError,

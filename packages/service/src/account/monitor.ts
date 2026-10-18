@@ -50,6 +50,10 @@ const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
  * （用户重开会话 / 手动「立即重新获取」）或下次 `start()`。
  */
 const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
+export interface AccountRuntimeSession {
+  isReady(pid: number): boolean;
+  guid(): string | null;
+}
 
 export class AccountMonitorService {
   private running = false;
@@ -96,9 +100,14 @@ export class AccountMonitorService {
   private readonly ssoRegistrations = new Map<number, string>();
   private readonly ssoInflight = new Map<number, Promise<void>>();
   private readonly logger;
+  private runtimeReadyPid: number | null = null;
 
   /** 仅确认本监测器登记的当前会话租约，不把同 PID 的其他账号物料当成本账号。 */
   hasSsoSessionLease(pid: number): boolean {
+    if (this.runtimeSession)
+      return (
+        this.running && !this.stopped && this.shouldAutoAttach() && this.runtimeSession.isReady(pid)
+      );
     const owner = this.ssoOwners.get(pid);
     return (
       this.running &&
@@ -132,6 +141,7 @@ export class AccountMonitorService {
     private readonly attachHook: AttachHook = createDirectAttachHook(platform.native.ntHelper),
     private readonly onHomeDress?: (dress: HomeDressSnapshot) => Promise<void>,
     private readonly onCredentialsReady?: () => void,
+    private readonly runtimeSession?: AccountRuntimeSession,
   ) {
     this.logger = getLogger().child({
       scope: 'account-monitor',
@@ -164,7 +174,7 @@ export class AccountMonitorService {
     // 不碰进程），且大概率不变 —— 但网络上偶尔会变，所以每次启动都刷新一次。
     this.refreshDeviceGuid();
     // 老版本存下的会话物料没有 pid，补一个（见方法说明）。
-    this.backfillStoredSessionPid();
+    if (!this.runtimeSession) this.backfillStoredSessionPid();
     this.scheduleLoginPoll(0);
   }
 
@@ -176,6 +186,11 @@ export class AccountMonitorService {
    */
   private refreshDeviceGuid(): void {
     try {
+      if (this.runtimeSession) {
+        const guid = this.runtimeSession.guid();
+        if (guid) this.accountConfig.setGuid(guid);
+        return;
+      }
       const root = this.platform.qqDataRoot();
       if (!root) return;
       const guid = this.nt.readDeviceGuid(root);
@@ -246,6 +261,7 @@ export class AccountMonitorService {
     this.lastPid = undefined;
     this.homeDressSynced = false;
     this.harvestRetry = null;
+    this.runtimeReadyPid = null;
     this.ssoRegistrations.clear();
     this.logger.info('stopped account monitor', { event: 'monitor-stop' });
   }
@@ -408,6 +424,19 @@ export class AccountMonitorService {
    */
   private async ensureAttached(pid: number, generation = this.generation): Promise<void> {
     this.assertCurrent(generation, pid);
+    if (this.runtimeSession) {
+      const present = this.runtimeSession.isReady(pid) && (await this.nt.hasSsoSession(pid));
+      this.assertCurrent(generation, pid);
+      if (!present || !this.runtimeSession.isReady(pid)) {
+        this.runtimeReadyPid = null;
+        throw new Error('托管 QQ 的发包会话尚未就绪');
+      }
+      if (this.runtimeReadyPid !== pid) {
+        this.runtimeReadyPid = pid;
+        this.onCredentialsReady?.();
+      }
+      return;
+    }
     const existing = this.ssoInflight.get(pid);
     if (existing) return existing;
     const task = this.ensureSsoSession(pid, generation);
@@ -545,6 +574,10 @@ export class AccountMonitorService {
     this.ssoRegistrations.delete(pid);
     const owner = this.ssoOwners.get(pid);
     this.ssoOwners.delete(pid);
+    if (this.runtimeSession) {
+      this.runtimeReadyPid = null;
+      return;
+    }
     void this.queueSso(pid, async () => {
       const state = this.ssoState(pid);
       // A closing monitor must not clear a replacement monitor's registration.

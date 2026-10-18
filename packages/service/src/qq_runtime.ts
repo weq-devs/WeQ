@@ -245,46 +245,71 @@ export class QQRuntimeManager {
         return this.snapshot();
       }
       if (generation !== this.generation) return this.snapshot();
-      let observed: Awaited<ReturnType<QQRuntimeDependencies['inspectExternal']>>;
-      try {
-        observed = await this.deps.inspectExternal(uin, controller.signal);
-      } catch (error) {
-        if (generation === this.generation)
-          this.publish({
-            phase: 'failed',
-            error: error instanceof Error ? error.message : String(error),
-            pid: null,
-            owned: false,
-          });
-        return this.snapshot();
-      }
-      if (generation !== this.generation) return this.snapshot();
-      if (!observed) {
-        this.publish({ ...empty(), mode: 'external', phase: 'awaiting-login' });
-        return this.snapshot();
-      }
-      if (
-        !Number.isSafeInteger(observed.pid) ||
-        observed.pid <= 0 ||
-        observed.account?.uin !== uin
-      ) {
+      return this.inspectExternal(uin, generation, controller.signal);
+    });
+  }
+
+  refreshExternal(): Promise<QQRuntimeSnapshot> {
+    const generation = this.generation,
+      uin = this.expectedUin,
+      signal = this.abort?.signal;
+    if (this.value.mode !== 'external' || !uin || !signal) return Promise.resolve(this.snapshot());
+    return this.serial(async () =>
+      generation === this.generation
+        ? this.inspectExternal(uin, generation, signal)
+        : this.snapshot(),
+    );
+  }
+
+  private async inspectExternal(
+    uin: string,
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<QQRuntimeSnapshot> {
+    let observed: Awaited<ReturnType<QQRuntimeDependencies['inspectExternal']>>;
+    try {
+      observed = await this.deps.inspectExternal(uin, signal);
+    } catch (error) {
+      if (generation === this.generation)
         this.publish({
           phase: 'failed',
-          error: '外部 QQ 账号或进程不匹配',
+          error: error instanceof Error ? error.message : String(error),
           pid: null,
           owned: false,
+          account: null,
+          capabilities: noCapabilities(),
+          qr: null,
         });
-        return this.snapshot();
-      }
-      this.publish({
-        instanceId: this.deps.createId(),
-        mode: 'external',
-        pid: observed.pid,
-        owned: false,
-      });
-      this.observe(generation, observed);
       return this.snapshot();
+    }
+    if (generation !== this.generation) return this.snapshot();
+    if (!observed) {
+      this.publish({ ...empty(), mode: 'external', phase: 'awaiting-login' });
+      return this.snapshot();
+    }
+    if (!Number.isSafeInteger(observed.pid) || observed.pid <= 0 || observed.account?.uin !== uin) {
+      this.publish({
+        phase: 'failed',
+        error: '外部 QQ 账号或进程不匹配',
+        pid: null,
+        owned: false,
+        account: null,
+        capabilities: noCapabilities(),
+        qr: null,
+      });
+      return this.snapshot();
+    }
+    this.publish({
+      instanceId:
+        this.value.pid === observed.pid && this.value.instanceId
+          ? this.value.instanceId
+          : this.deps.createId(),
+      mode: 'external',
+      pid: observed.pid,
+      owned: false,
     });
+    this.observe(generation, observed);
+    return this.snapshot();
   }
 
   private observe(generation: number, observed: QQRuntimeObservation): void {

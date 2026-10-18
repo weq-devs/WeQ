@@ -24,6 +24,8 @@ import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import type { UiAccount } from './types';
+import { ManagedQQPanel } from './ManagedQQPanel';
+import { IS_MAC } from '../../lib/target';
 
 type Sub = { unsubscribe: () => void };
 
@@ -68,7 +70,9 @@ export function LoginPanel({
   const [status, setStatus] = useState('');
   const [autoEnter, setAutoEnter] = useState(false);
   /** new mode only: which source to drive the wizard from. */
-  const [source, setSource] = useState<'online' | 'backup'>('online');
+  const [source, setSource] = useState<'online' | 'backup' | 'managed'>(() =>
+    IS_MAC && mode === 'new' && accounts.length === 0 ? 'managed' : 'online',
+  );
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
@@ -90,7 +94,7 @@ export function LoginPanel({
     pskeyRef.current = null;
     setStatus('');
     setAutoEnter(sameTarget(autoTarget, selected));
-    setSource('online');
+    setSource((current) => (current === 'managed' ? current : 'online'));
   }, [selected?.key, mode, selected?.dbKey, autoTarget, selected]);
 
   // Tear down any live subscription on unmount.
@@ -314,7 +318,11 @@ export function LoginPanel({
   return (
     <div className="weq-login-panel">
       {mode === 'new' && (
-        <nav className="weq-source-tabs" role="tablist" aria-label="账号来源">
+        <nav
+          className="weq-source-tabs weq-runtime-source-tabs"
+          role="tablist"
+          aria-label="账号来源"
+        >
           <button
             type="button"
             role="tab"
@@ -333,10 +341,27 @@ export function LoginPanel({
           >
             本地备份
           </button>
+          {IS_MAC && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === 'managed'}
+              className={`weq-source-tab ${source === 'managed' ? 'is-active' : ''}`}
+              onClick={() => setSource('managed')}
+            >
+              托管 QQ
+            </button>
+          )}
         </nav>
       )}
 
-      {mode === 'new' && source === 'backup' ? (
+      {(mode === 'new' && source === 'managed') || selected?.managed ? (
+        <ManagedQQPanel
+          key={selected?.managed ? selected.key : 'new-managed'}
+          expectedUin={selected?.managed ? selected.uin : undefined}
+          onEntered={onEntered}
+        />
+      ) : mode === 'new' && source === 'backup' ? (
         <StaticBackupPanel onEntered={onEntered} />
       ) : (
         <>

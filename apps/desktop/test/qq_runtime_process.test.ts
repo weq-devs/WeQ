@@ -45,6 +45,62 @@ async function fixture(hostName = 'fixture', hooks?: QQKernelSessionHooks) {
 }
 
 describe('独立进程监督（仅本地测试子进程）', () => {
+  it('数据库只在主进程确认打开后就绪，密钥不进入观察事件', async () => {
+    let finish: (result: { database: boolean; push: boolean }) => void = () => {};
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+      openDatabase: vi.fn<NonNullable<QQKernelSessionHooks['openDatabase']>>(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    };
+    const f = await fixture('fixture', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() => expect(hooks.openDatabase).toHaveBeenCalledOnce());
+    expect(
+      f.events.some((event) => event.type === 'observation' && event.value.capabilities.database),
+    ).toBe(false);
+    finish({ database: true, push: true });
+    await vi.waitFor(() =>
+      expect(
+        f.events.some((event) => event.type === 'observation' && event.value.phase === 'online'),
+      ).toBe(true),
+    );
+    expect(JSON.stringify(f.events)).not.toContain('FixtureKey123456');
+    expect(JSON.stringify(f.events)).not.toContain('dbKey');
+    expect(JSON.stringify(f.events)).not.toContain('never-publish-db');
+    await f.backend.close();
+  });
+
+  it('停止期间迟到的数据库打开结果不能重新发布就绪', async () => {
+    let finish: (result: { database: boolean; push: boolean }) => void = () => {};
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+      openDatabase: vi.fn<NonNullable<QQKernelSessionHooks['openDatabase']>>(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    };
+    const f = await fixture('fixture', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() => expect(hooks.openDatabase).toHaveBeenCalledOnce());
+    await f.backend.close();
+    expect(hooks.openDatabase.mock.calls[0]?.[1].aborted).toBe(true);
+    finish({ database: true, push: true });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      f.events.some((event) => event.type === 'observation' && event.value.capabilities.database),
+    ).toBe(false);
+  });
   it('私有票据只交给登记器，登记确认后才发布 SSO，数据库仍未就绪', async () => {
     const hooks = {
       accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),

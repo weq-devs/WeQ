@@ -19,9 +19,12 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
+import { createDesktopQQRuntime } from '../qq_runtime/factory';
+import { managedAccountPlatform, type ManagedQQAccountSource } from '../qq_runtime/managed_account';
 import { createDbRouter } from '../db/router';
 import { AnnualReportIndexDb } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
@@ -80,6 +83,8 @@ import {
   UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
+  createExternalQQRuntimeProbe,
+  type QQRuntimeManager,
   MediaDownloadService,
   ExternalRkeyService,
   MediaUrlService,
@@ -810,6 +815,9 @@ export interface TranscribeSilkResult {
 }
 
 export interface AppContext {
+  qqRuntime: QQRuntimeManager | null;
+  /** 私有托管数据源，不通过 IPC 序列化。 */
+  managedQQ: ManagedQQAccountSource | null;
   /** null when native failed to load — check `nativeError` first. */
   platform: Platform | null;
   /** null when native failed to load. */
@@ -860,7 +868,11 @@ export interface AppContext {
    *  literal can be fully constructed before this field is assigned. */
   scheduler: import('@weq/service').ExportScheduler | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
-  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
+  setAccount(
+    ctx: AccountContext,
+    metadata?: AccountConfigMetadata,
+    managed?: ManagedQQAccountSource,
+  ): Promise<void>;
   /**
    * Open a static (offline) account from a directory of locally-stored
    * databases. Pass `selfPreview` (from `peekStaticSelfUin`) so we don't
@@ -940,6 +952,8 @@ export function initAppContext(): AppContext {
   if (!result.ok) {
     // Degraded context: keep the app alive so the renderer can show a dialog.
     cached = {
+      qqRuntime: null,
+      managedQQ: null,
       platform: null,
       bootstrap: null,
       nativeError: { kind: result.kind, status: result.status, message: result.message },
@@ -1126,6 +1140,8 @@ export function initAppContext(): AppContext {
   });
 
   const ctx: AppContext = {
+    qqRuntime: null,
+    managedQQ: null,
     platform,
     bootstrap,
     nativeError: null,
@@ -1140,7 +1156,14 @@ export function initAppContext(): AppContext {
     async setAccount(
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
+      managed?: ManagedQQAccountSource,
     ): Promise<void> {
+      if (managed?.signal.aborted) throw new Error('托管账号打开已取消');
+      if (!managed && this.qqRuntime?.snapshot().mode === 'managed') await this.qqRuntime.stop();
+      const base = this.platform;
+      if (!base) throw new Error('原生组件尚未就绪');
+      this.managedQQ = managed ?? null;
+      const platform = managed ? managedAccountPlatform(base, managed, () => this.managedQQ) : base;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       this.scheduler?.stop();
@@ -1151,6 +1174,7 @@ export function initAppContext(): AppContext {
         dataDir: metadata.dataDir ?? null,
       });
       dbHealthCheckSeq += 1;
+      const openGeneration = dbHealthCheckSeq;
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
@@ -1200,6 +1224,21 @@ export function initAppContext(): AppContext {
           onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
         },
       );
+      if (
+        managed &&
+        (managed.signal.aborted ||
+          openGeneration !== dbHealthCheckSeq ||
+          session.selfUid !== managed.uid)
+      ) {
+        session.dispose();
+        if (this.managedQQ === managed) {
+          this.managedQQ = null;
+          this.account = null;
+          this.services = null;
+          this.resourcePlatform = null;
+        }
+        throw new Error('托管账号身份尚未完成同步或打开已取消');
+      }
       this.account = session;
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
@@ -1832,8 +1871,25 @@ export function initAppContext(): AppContext {
           emitDressChanged();
         },
         () => mail.credentialsAvailable(),
+        managed
+          ? {
+              isReady: (pid) => {
+                const source = this.managedQQ;
+                return (
+                  this.account === session &&
+                  source?.uin === session.context.uin &&
+                  source.dbPath === session.msgDbPath &&
+                  source.pid === pid &&
+                  !source.signal.aborted &&
+                  source.isSsoReady()
+                );
+              },
+              guid: () => this.managedQQ?.guid ?? null,
+            }
+          : undefined,
       );
       accountMonitor.start();
+      if (!managed) void this.qqRuntime?.connectExternal(session.context.uin);
       logger.info('opened account session', {
         event: 'open-account-success',
         accountUin: session.context.uin,
@@ -1925,6 +1981,8 @@ export function initAppContext(): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
+      await this.qqRuntime?.stop();
+      this.managedQQ = null;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2525,6 +2583,8 @@ export function initAppContext(): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      this.managedQQ = null;
+      void this.qqRuntime?.stop().catch(() => {});
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('clearing account session', {
@@ -2757,6 +2817,62 @@ export function initAppContext(): AppContext {
     },
   };
 
+  ctx.qqRuntime = createDesktopQQRuntime({
+    platform,
+    dataRoot: join(platform.appDataRoot(), 'managed-qq'),
+    moduleDir: dirname(fileURLToPath(import.meta.url)),
+    inspectExternal: async (uin, signal) => {
+      const session = ctx.account,
+        monitor = accountMonitor;
+      if (
+        !session ||
+        !monitor ||
+        ctx.accountIsStatic ||
+        ctx.managedQQ ||
+        session.context.uin !== uin
+      )
+        return null;
+      return createExternalQQRuntimeProbe({
+        uin,
+        uid: () => session.selfUid || null,
+        resolvePid: async () =>
+          platform.resolveQqPidAsync ? platform.resolveQqPidAsync(uin) : platform.resolveQqPid(uin),
+        hasLease: (pid) => monitor.hasSsoSessionLease(pid),
+        hasNativeSession: (pid) => platform.native.ntHelper.hasSsoSession(pid),
+        isCurrent: () => ctx.account === session && accountMonitor === monitor && !ctx.managedQQ,
+        databaseReady: () => ctx.account === session,
+        pushReady: () => dbWatchHandle !== null,
+      })(uin, signal);
+    },
+    openAccount: async (source) => {
+      if (source.signal.aborted) return { database: false, push: false };
+      const current = ctx.managedQQ;
+      if (
+        current?.uin === source.uin &&
+        current.uid === source.uid &&
+        current.dbPath === source.dbPath &&
+        ctx.account?.context.dbKey === source.dbKey &&
+        ctx.account.selfUid === source.uid
+      ) {
+        ctx.managedQQ = source;
+        ctx.services?.accountConfig.setOnline(true, source.pid);
+      } else {
+        await ctx.setAccount(
+          { uin: source.uin, dbKey: source.dbKey, algos: { 'nt_msg.db': source.algo } },
+          { uid: source.uid, managed: true, dataDir: dirname(dirname(source.dbPath)) },
+          source,
+        );
+      }
+      return {
+        database:
+          !source.signal.aborted && ctx.managedQQ === source && ctx.account?.selfUid === source.uid,
+        push: dbWatchHandle !== null,
+      };
+    },
+    onObserverError: () =>
+      logger.warn('QQ 运行时状态订阅失败', { event: 'qq-runtime-observer-failed' }),
+  });
+
   cached = ctx;
   return ctx;
 }
@@ -2799,5 +2915,5 @@ export function requirePlatform(): Platform {
   if (!ctx.platform) {
     throw new Error('Native bundle unavailable — QQ helper failed to initialize.');
   }
-  return ctx.platform;
+  return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
 }

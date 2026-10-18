@@ -60,6 +60,20 @@ process.on('message', (message) => {
     emit({ ...value, guid: '22'.repeat(16) });
     emit(value);
   }
+  if (message.type === 'collect-database') {
+    const value = {
+      type: 'database-key',
+      requestId: message.requestId,
+      uin: options.expectedUin,
+      uid: 'u_fixture',
+      guid: '11'.repeat(16),
+      dbPath: message.paths[0],
+      dbKey: 'FixtureKey123456',
+      nearbyMemory: 'never-publish-db',
+    };
+    emit({ ...value, requestId: 'stale-database-request' });
+    emit(value);
+  }
   if (message.type === 'health') emit({ type: 'health', connected: true, loggedIn: true });
   if (message.type === 'stop') {
     emit({ type: 'stopped' });

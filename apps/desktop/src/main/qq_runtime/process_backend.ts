@@ -1,5 +1,7 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { darwinAccountDirName } from '@weq/platform';
 import type {
   ManagedQQRuntimeBackend,
   QQRuntimeBackendEvent,
@@ -20,6 +22,10 @@ export interface QQKernelSessionHooks {
     signal: AbortSignal,
   ): Promise<boolean>;
   release(): Promise<void>;
+  openDatabase?(
+    input: { pid: number; uin: string; uid: string; guid: string; dbPath: string; dbKey: string },
+    signal: AbortSignal,
+  ): Promise<{ database: boolean; push: boolean }>;
 }
 
 export async function createQQKernelProcessBackend(
@@ -71,6 +77,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
   private sessionCleanup: Promise<void> = Promise.resolve();
   private sessionRequest = 0;
   private sessionRequestId: string | null = null;
+  private databaseRequestId: string | null = null;
   private state: QQRuntimeObservation = {
     phase: 'starting',
     account: null,
@@ -236,6 +243,14 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
           capabilities: { ...this.state.capabilities, sso: false },
         });
         break;
+      case 'database-key':
+        this.acceptDatabase(event);
+        break;
+      case 'database-key-error':
+        if (!this.databaseRequestId || event.requestId !== this.databaseRequestId) return;
+        this.databaseRequestId = null;
+        this.publish({ phase: 'initializing-session', error: '托管数据库尚未就绪，请重新连接' });
+        break;
       case 'health':
         this.healthWait?.resolve();
         this.healthWait = null;
@@ -291,6 +306,7 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
 
   private revokeSession(): Promise<void> {
     this.sessionRequestId = null;
+    this.databaseRequestId = null;
     this.sessionAbort?.abort();
     this.sessionAbort = null;
     this.sessionCleanup = this.sessionCleanup
@@ -340,6 +356,20 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
           error: ready ? null : 'QQ 登录票据尚未完成登记',
           capabilities: { ...this.state.capabilities, sso: ready === true },
         });
+        if (ready && hooks.openDatabase) {
+          const requestId = `db-${++this.sessionRequest}`;
+          this.databaseRequestId = requestId;
+          await this.send({
+            type: 'collect-database',
+            instanceId: this.options.instanceId,
+            nonce: this.options.nonce,
+            requestId,
+            paths: [
+              join(this.options.dataRoot, darwinAccountDirName(identity.uid), 'nt_db', 'nt_msg.db'),
+              join(this.options.dataRoot, 'nt_db', 'nt_msg.db'),
+            ],
+          });
+        }
       }
     })().catch(() => {
       if (!controller.signal.aborted && !this.exited && !this.closed)
@@ -348,6 +378,57 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
           capabilities: { ...this.state.capabilities, sso: false },
         });
     });
+  }
+
+  private acceptDatabase(event: Extract<QQKernelEvent, { type: 'database-key' }>): void {
+    const identity = this.sessionIdentity,
+      controller = this.sessionAbort,
+      open = this.sessionHooks?.openDatabase;
+    if (
+      !open ||
+      !identity ||
+      !controller ||
+      controller.signal.aborted ||
+      !this.connected ||
+      this.closed ||
+      !this.databaseRequestId ||
+      event.requestId !== this.databaseRequestId ||
+      event.uin !== identity.uin ||
+      event.uid !== identity.uid ||
+      event.guid !== identity.guid ||
+      typeof event.dbPath !== 'string' ||
+      event.dbPath.length > 4096 ||
+      typeof event.dbKey !== 'string' ||
+      !/^[\x20-\x7e]{16}$/.test(event.dbKey)
+    )
+      return;
+    this.databaseRequestId = null;
+    void open(
+      { pid: this.pid, ...identity, dbPath: event.dbPath, dbKey: event.dbKey },
+      controller.signal,
+    )
+      .then((ready) => {
+        if (
+          controller.signal.aborted ||
+          this.exited ||
+          this.closed ||
+          this.sessionAbort !== controller
+        )
+          return;
+        this.publish({
+          phase: ready.database && this.state.capabilities.sso ? 'online' : 'initializing-session',
+          error: ready.database ? null : '托管数据库尚未完成打开',
+          capabilities: {
+            ...this.state.capabilities,
+            database: ready.database === true,
+            push: ready.database === true && ready.push === true,
+          },
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted && !this.exited && !this.closed)
+          this.publish({ error: '托管数据库验证或打开失败，请重新连接' });
+      });
   }
 
   private send(command: QQKernelCommand): Promise<void> {
