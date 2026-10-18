@@ -1141,6 +1141,7 @@ export function initAppContext(): AppContext {
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1346,7 +1347,30 @@ export function initAppContext(): AppContext {
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session),
+        unreadInfo: new UnreadInfoService(session, {
+          nt: platform.native.ntHelper,
+          enabled: () => userConfig.getSettings().reportReadEnabled,
+          resolvePid: () => {
+            if (
+              this.account !== session ||
+              this.accountIsStatic ||
+              userConfig.getSettings().autoAttachQq === false
+            )
+              return null;
+            const record = accountConfig.getRecord();
+            if (
+              !record?.qqOnline ||
+              !record.qqPid ||
+              record.session?.pid !== record.qqPid ||
+              !record.session.a2 ||
+              !record.session.d2 ||
+              !record.session.d2Key ||
+              !record.guid
+            )
+              return null;
+            return record.qqPid;
+          },
+        }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -1859,6 +1883,7 @@ export function initAppContext(): AppContext {
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -2433,6 +2458,7 @@ export function initAppContext(): AppContext {
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       this.account?.dispose();

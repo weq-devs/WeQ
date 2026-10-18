@@ -85,6 +85,16 @@ export interface UnreadInfoResult {
   highlights?: UnreadHighlight[];
 }
 
+export interface UnreadInfoTarget {
+  chatType: number;
+  uid: string;
+}
+
+export interface UnreadInfoSnapshot extends UnreadInfoResult {
+  latestSeq: string | null;
+  readError?: true;
+}
+
 /**
  * One hit to write back into the `48902` notify-highlight extension
  * (`50005 → 50060`). Kept as a raw kind code (not the mapped enum) so callers
@@ -135,6 +145,44 @@ export class UnreadInfoDb {
     };
   }
 
+  /** 每批在同一条 SQL 内读取最新序号与已读水位，避免逐会话 IPC 和交错快照。 */
+  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+    const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
+    const result: UnreadInfoSnapshot[] = [];
+    for (let offset = 0; offset < unique.length; offset += 256) {
+      const batch = unique.slice(offset, offset + 256);
+      const rows = await this.qq.query(
+        `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
+         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"
+         FROM targets t
+         LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
+         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
+        batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
+      );
+      for (const row of rows) {
+        const bytes = row[3];
+        const identity = {
+          chatType: Number(row[0]),
+          uid: String(row[1]),
+          peer: String(row[2]),
+          latestSeq: row[4] === null ? null : String(row[4]),
+        };
+        try {
+          const decoded = bytes instanceof Uint8Array ? this.proto.decode(bytes) : {};
+          const highlights = extractHighlights(decoded.info?.ext);
+          result.push({
+            ...identity,
+            msgSeq: decoded.info?.msgSeq,
+            highlights: highlights.length ? highlights : undefined,
+          });
+        } catch {
+          result.push({ ...identity, readError: true });
+        }
+      }
+    }
+    return result;
+  }
+
   /**
    * Mark one conversation as read: raise `41002` (last-read seq) to the
    * conversation's newest seq and drop the `50060` notify-highlight groups, so
@@ -156,6 +204,21 @@ export class UnreadInfoDb {
     uid: string,
     latestSeq?: number | bigint | string,
   ): Promise<boolean> {
+    const target = latestSeq === undefined ? await this.latestSeqOf(uid) : BigInt(latestSeq);
+    if (target === null || target <= 0n) return false;
+    // 重试不得跟随新消息抬高目标，否则会把尚未展示的消息也标成已读。
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const changed = await this.markReadAttempt(chatType, uid, target);
+      if (changed !== null) return changed;
+    }
+    throw new Error('已读状态更新冲突，请稍后重试。');
+  }
+
+  private async markReadAttempt(
+    chatType: number,
+    uid: string,
+    target: bigint,
+  ): Promise<boolean | null> {
     const peer = `${chatType}_${uid}`;
     const rows = await this.qq.query(
       `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
@@ -163,17 +226,6 @@ export class UnreadInfoDb {
     );
     const row = rows[0];
     if (!row) return false;
-
-    let target: bigint;
-    if (latestSeq === undefined) {
-      const latest = await this.latestSeqOf(uid);
-      if (latest === null) return false;
-      target = latest;
-    } else {
-      target = BigInt(latestSeq);
-    }
-    // 0 不是合法水位（41002 缺失才会是 0）—— 拿它去写只会把已读位置倒退。
-    if (target <= 0n) return false;
 
     const bytes = row[0] as Uint8Array | null;
     if (!bytes || bytes.length === 0) return false;
@@ -183,15 +235,22 @@ export class UnreadInfoDb {
     if (!info?.children) return false;
 
     const readNode = info.children.find((node) => node.tag === 41002);
-    // 50060 lives nested inside 50005 (ext), not directly under the info node —
-    // walk the whole subtree so a multi-group blob drops every one of them.
+    // 50060 在 50005 内，遍历整棵树处理所有提醒组。
     const highlightNodes = findAll(info, 50060);
-    const highlightNode = highlightNodes[0];
-    // Never regress the watermark: QQ may have advanced 41002 between our read
-    // and this write, so take the higher of (stored, requested).
+    // 只清理确认范围内的提醒；保留并发新到或无法识别序号的条目。
+    const removable: PbNode[] = [];
+    for (const group of highlightNodes) {
+      const items = findAll(group, 50040);
+      const readItems = items.filter((item) => {
+        const seq = readVarintChild(item, 50020);
+        return seq !== null && BigInt(seq) <= target;
+      });
+      if (items.length === 0 || readItems.length === items.length) removable.push(group);
+      else removable.push(...readItems);
+    }
     const storedRead = readNode ? readVarintText(readNode) : 0n;
     if (storedRead > target) target = storedRead;
-    const alreadyRead = !highlightNode && readNode && storedRead >= target;
+    const alreadyRead = removable.length === 0 && readNode && storedRead >= target;
     if (alreadyRead) return false;
 
     let next = tree;
@@ -207,16 +266,16 @@ export class UnreadInfoDb {
       appended.value = { kind: 'varint', text: target.toString() };
       next = appendNode(next, info.id, appended);
     }
-    for (const node of highlightNodes) {
+    for (const node of removable) {
       next = removeNode(next, node.id);
     }
 
     const encoded = encodeEditTree(next, bytes);
     const changed = await this.qq.write(
-      `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ?`,
-      [encoded, peer],
+      `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" = ?`,
+      [encoded, peer, bytes],
     );
-    return changed > 0;
+    return changed > 0 ? true : null;
   }
 
   /**
@@ -238,6 +297,18 @@ export class UnreadInfoDb {
     uid: string,
     highlight: UnreadHighlightInput,
   ): Promise<boolean> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const changed = await this.addHighlightAttempt(chatType, uid, highlight);
+      if (changed !== null) return changed;
+    }
+    throw new Error('提醒状态更新冲突，请稍后重试。');
+  }
+
+  private async addHighlightAttempt(
+    chatType: number,
+    uid: string,
+    highlight: UnreadHighlightInput,
+  ): Promise<boolean | null> {
     const peer = `${chatType}_${uid}`;
     const rows = await this.qq.query(
       `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
@@ -259,6 +330,8 @@ export class UnreadInfoDb {
       tree = buildEditTree(bytes);
       const info = tree.find((node) => node.tag === 48902);
       if (!info?.children) return false;
+      const read = info.children.find((node) => node.tag === 41002);
+      if (read && readVarintText(read) >= BigInt(highlight.msgSeq)) return false;
 
       // Reuse the existing group of the same kind when there is one — QQ's
       // shape is one 50060 per category with many 50040 items under it.
@@ -293,18 +366,18 @@ export class UnreadInfoDb {
     }
 
     const encoded = encodeEditTree(tree, bytes ?? new Uint8Array(0));
-    if (bytes) {
+    if (rows.length > 0) {
       const changed = await this.qq.write(
-        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ?`,
-        [encoded, peer],
+        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" IS ?`,
+        [encoded, peer, existing ?? null],
       );
-      return changed > 0;
+      return changed > 0 ? true : null;
     }
-    await this.qq.write(`INSERT INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`, [
-      peer,
-      encoded,
-    ]);
-    return true;
+    const changed = await this.qq.write(
+      `INSERT OR IGNORE INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`,
+      [peer, encoded],
+    );
+    return changed > 0 ? true : null;
   }
 
   /** Conversation watermark (`recent_contact_v3_table.40003`) or null when absent. */

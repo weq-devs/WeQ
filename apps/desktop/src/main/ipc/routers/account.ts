@@ -2243,6 +2243,38 @@ export const accountRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(160).default(80) }).optional())
     .query(({ input }) => sampleHomeChatLines(input?.limit ?? 80)),
 
+  getUnreadInfos: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        targets: z
+          .array(
+            z.object({ chatType: z.union([z.literal(1), z.literal(2)]), uid: z.string().min(1) }),
+          )
+          .max(256),
+      }),
+    )
+    .query(async ({ input }) => {
+      const rows = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.getUnreadInfos(
+        input.targets,
+      );
+      return rows.map((row) => ({
+        uid: row.uid,
+        chatType: row.chatType,
+        latestSeq: row.latestSeq,
+        readError: row.readError ?? false,
+        msgSeq: row.msgSeq?.toString(),
+        highlights: row.highlights?.map((h) => ({
+          kind: h.kind,
+          rawKind: h.rawKind,
+          msgSeq: h.msgSeq.toString(),
+          senderUid: h.senderUid,
+          sendTime: h.sendTime.toString(),
+          text: h.text,
+        })),
+      }));
+    }),
+
   /** Get unread message count for a conversation. */
   getUnreadInfo: procedure
     .input(z.object({ chatType: z.number().int(), uid: z.string().min(1) }))
@@ -2275,15 +2307,23 @@ export const accountRouter = router({
         chatType: z.number().int(),
         uid: z.string().min(1),
         latestSeq: z.string().optional(),
+        expectedAccountUin: z.string().min(1).optional(),
       }),
     )
     .mutation(({ input }) => {
       // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
       // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
       const ctx = getAppContext();
-      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) return false;
-      return requireServices().unreadInfo.markRead(input.chatType, input.uid, input.latestSeq);
+      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
+        return { changed: false, report: { state: 'unavailable' as const } };
+      return requireExpectedAccount(input.expectedAccountUin).unreadInfo.markReadAndReport(
+        input.chatType,
+        input.uid,
+        input.latestSeq,
+      );
     }),
+
+  getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
   conversationCalendar: procedure

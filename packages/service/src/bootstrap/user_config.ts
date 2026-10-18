@@ -420,6 +420,8 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
+  reportReadEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -668,6 +670,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  reportReadEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
@@ -1161,6 +1164,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : 'after',
       autoAttachQq,
+      reportReadEnabled: s?.reportReadEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1245,6 +1249,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,

@@ -36,6 +36,7 @@ import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
+import { createUnreadRefresh, retryConversationRead } from '../lib/unreadRefresh';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
@@ -4402,95 +4403,96 @@ export function MainView(): ReactElement {
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
-    let running = false;
-    let pending = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const isCurrent = () => !disposed && useViewState.getState().openedUin === openedUin;
+    setUnreadByConv({});
+    setHighlightsByConv({});
 
-    const schedule = (): void => {
-      pending = true;
-      if (disposed || running || timer !== undefined) return;
-      // Fixed window: a busy group cannot continuously postpone the refresh.
-      timer = setTimeout(() => {
-        timer = undefined;
-        void loadUnread();
-      }, 1000);
-    };
-
-    async function loadUnread(): Promise<void> {
-      if (disposed) return;
-      running = true;
-      pending = false;
+    async function loadUnread(): Promise<boolean> {
+      if (!isCurrent() || !openedUin) return true;
       const list = unreadContactsRef.current;
       const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
       const succeeded = new Set<string>();
-      try {
-        const batchSize = 12;
-        for (let index = 0; index < list.length && !disposed; index += batchSize) {
-          // Give opening a conversation priority over background badge reads.
-          while (!disposed && initialMessagesPendingRef.current) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 100));
-          }
-          if (disposed) return;
-          await Promise.all(
-            list.slice(index, index + batchSize).map(async (contact) => {
-              const kind = chatTypeKind(contact.chatType);
-              if (kind === null) return;
-              try {
-                const info = await client.account.getUnreadInfo.query({
-                  chatType: kind === 'group' ? 2 : 1,
-                  uid: contact.targetUid,
-                });
-                const latest = BigInt(contact.msgSeq || '0');
-                const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-                counts[contact.targetUid] = latest > read ? Number(latest - read) : 0;
-                succeeded.add(contact.targetUid);
-                if (info?.highlights?.length) {
-                  highlights[contact.targetUid] = info.highlights as ConversationHighlight[];
-                }
-              } catch {
-                // Preserve the last known value when an individual read fails.
-              }
-            }),
-          );
-          // Yield between batches so IPC and user input can be handled.
-          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const latestByUid = new Map(list.map((contact) => [contact.targetUid, contact.msgSeq]));
+      let failed = false;
+      const targets = list.flatMap((contact) => {
+        const kind = chatTypeKind(contact.chatType);
+        return kind === null
+          ? []
+          : [{ chatType: kind === 'group' ? (2 as const) : (1 as const), uid: contact.targetUid }];
+      });
+      const batchSize = 256;
+      for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
+        // Give opening a conversation priority over background badge reads.
+        while (isCurrent() && initialMessagesPendingRef.current) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
         }
-        if (disposed) return;
-        const ids = new Set(list.map((contact) => contact.targetUid));
-        setUnreadByConv((current) => {
-          const next: Record<string, number> = {};
-          for (const id of ids) {
-            const value = succeeded.has(id) ? counts[id] : current[id];
-            if (value !== undefined) next[id] = value;
+        if (!isCurrent()) return true;
+        try {
+          const rows = await client.account.getUnreadInfos.query({
+            expectedAccountUin: openedUin,
+            targets: targets.slice(index, index + batchSize),
+          });
+          if (!isCurrent()) return true;
+          for (const info of rows) {
+            if (info.readError) {
+              failed = true;
+              continue;
+            }
+            const latest = BigInt(info.latestSeq ?? latestByUid.get(info.uid) ?? '0');
+            const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
+            counts[info.uid] = latest > read ? Number(latest - read) : 0;
+            succeeded.add(info.uid);
+            if (info?.highlights?.length) {
+              highlights[info.uid] = info.highlights as ConversationHighlight[];
+            }
           }
-          return Object.keys(next).length === Object.keys(current).length &&
-            Object.keys(next).every((id) => next[id] === current[id])
-            ? current
-            : next;
-        });
-        setHighlightsByConv((current) => {
-          const next: Record<string, ConversationHighlight[]> = {};
-          for (const id of ids) {
-            const value = succeeded.has(id) ? highlights[id] : current[id];
-            if (value?.length) next[id] = value;
-          }
-          return JSON.stringify(next) === JSON.stringify(current) ? current : next;
-        });
-      } finally {
-        running = false;
-        if (pending && !disposed) schedule();
+        } catch {
+          failed = true;
+        }
+        // Yield between batches so IPC and user input can be handled.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
+      if (!isCurrent()) return true;
+      const ids = new Set(list.map((contact) => contact.targetUid));
+      setUnreadByConv((current) => {
+        const next: Record<string, number> = {};
+        for (const id of ids) {
+          const value = succeeded.has(id) ? counts[id] : current[id];
+          if (value !== undefined) next[id] = value;
+        }
+        return Object.keys(next).length === Object.keys(current).length &&
+          Object.keys(next).every((id) => next[id] === current[id])
+          ? current
+          : next;
+      });
+      setHighlightsByConv((current) => {
+        const next: Record<string, ConversationHighlight[]> = {};
+        for (const id of ids) {
+          const value = succeeded.has(id) ? highlights[id] : current[id];
+          if (value?.length) next[id] = value;
+        }
+        return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+      });
+      return !failed;
     }
 
-    requestUnreadRefreshRef.current = schedule;
-    schedule();
+    const refresh = createUnreadRefresh(loadUnread);
+    requestUnreadRefreshRef.current = refresh.request;
+    const onVisible = () => {
+      if (document.visibilityState !== 'hidden') refresh.request();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    refresh.request();
     return () => {
       disposed = true;
-      if (timer !== undefined) clearTimeout(timer);
+      refresh.dispose();
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
     };
-  }, []);
+  }, [openedUin]);
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
   }, [recentContactsData, unreadRevision]);
@@ -5246,6 +5248,7 @@ export function MainView(): ReactElement {
     async (conv: Conversation) => {
       const isCurrent = () =>
         messagesTabActiveRef.current &&
+        document.visibilityState !== 'hidden' &&
         selectedUidRef.current === conv.id &&
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
@@ -5261,20 +5264,23 @@ export function MainView(): ReactElement {
           entry.again = false;
           if (!isCurrent()) break;
           try {
-            // 由现有服务读取最新本地水位，不把待发送消息或漫游编号写进已读表。
-            const changed = await client.account.markConversationRead.mutate({
+            // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
+            const latestSeq = unreadContactsRef.current.find(
+              (contact) => contact.targetUid === conv.id,
+            )?.msgSeq;
+            const request = {
               chatType: conv.type === 'group' ? 2 : 1,
               uid: conv.id,
-            });
-            if (changed && isCurrent()) {
+              latestSeq,
+              expectedAccountUin: openedUin ?? undefined,
+            };
+            const changed = await retryConversationRead(
+              () => client.account.markConversationRead.mutate(request),
+              isCurrent,
+            );
+            if (changed !== null && isCurrent()) {
               setUnreadRevision((revision) => revision + 1);
-              setUnreadByConv((current) => ({ ...current, [conv.id]: 0 }));
-              setHighlightsByConv((current) => {
-                const next = { ...current };
-                delete next[conv.id];
-                return next;
-              });
-              void utils.account.listRecentContacts.invalidate();
+              if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
             console.error('[unread] markConversationRead failed', error);

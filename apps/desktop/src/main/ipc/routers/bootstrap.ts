@@ -515,8 +515,17 @@ export const bootstrapRouter = router({
    */
   setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
+    if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
     return true;
   }),
+
+  setReportReadEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay

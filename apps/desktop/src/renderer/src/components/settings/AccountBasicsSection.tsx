@@ -20,6 +20,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import {
   Check,
+  CheckCheck,
   ChevronDown,
   Copy,
   Database,
@@ -173,6 +174,13 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
+  const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
+  const readReport = trpc.account.getReadReportStatus.useQuery(undefined, {
+    enabled: page === 'account' && settings.data?.reportReadEnabled === true,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: page === 'account' && settings.data?.reportReadEnabled ? 3000 : false,
+  });
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -183,6 +191,7 @@ export function AccountBasicsSection({
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(true);
+  const [reportRead, setReportRead] = useState(false);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -196,6 +205,7 @@ export function AccountBasicsSection({
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
+    setReportRead(d.reportReadEnabled);
   }, [settings.data]);
 
   useEffect(() => {
@@ -250,6 +260,20 @@ export function AccountBasicsSection({
       await settings.refetch();
       showError('保存失败', errMsg(e));
     }
+  }
+
+  async function toggleReportRead(enabled: boolean): Promise<void> {
+    const previous = reportRead;
+    setReportRead(enabled);
+    try {
+      await setReportReadEnabled.mutateAsync({ enabled });
+    } catch (error) {
+      setReportRead(previous);
+      showError('保存失败', errMsg(error));
+      return;
+    }
+    void settings.refetch();
+    void readReport.refetch();
   }
 
   // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
@@ -567,6 +591,44 @@ export function AccountBasicsSection({
                 />
               }
             />
+          </Card>
+
+          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
+          <Card>
+            <Row
+              label={
+                <span className="weq-set-row-icon">
+                  <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
+                  同步已读状态到 QQ
+                </span>
+              }
+              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效。"
+              control={
+                <Toggle
+                  checked={reportRead}
+                  disabled={settingsLoading || setReportReadEnabled.isPending}
+                  onChange={(v) => void toggleReportRead(v)}
+                  label="同步已读状态到 QQ"
+                />
+              }
+            />
+            {reportRead && (
+              <p className="weq-set-note" role="status">
+                {!autoAttach
+                  ? '完全离线模式：暂停上报。'
+                  : isStatic
+                    ? '离线数据账号：不上报。'
+                    : {
+                        disabled: '尚未上报。',
+                        unavailable: '在线会话暂不可用，本地阅读不受影响。',
+                        skipped: '缺少可核实的消息位置，本次未上报。',
+                        pending: '正在上报已读位置。',
+                        acknowledged: '已收到上报应答，其他端实际同步仍由 QQ 决定。',
+                        unconfirmed: '已收到未知应答，暂不能确认上报结果。',
+                        failed: '上报失败，本地阅读不受影响。',
+                      }[readReport.data?.state ?? 'disabled']}
+              </p>
+            )}
           </Card>
 
           {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
