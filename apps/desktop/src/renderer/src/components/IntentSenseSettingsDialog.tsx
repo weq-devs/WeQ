@@ -159,178 +159,184 @@ export function IntentSenseSettingsDialog({ onClose }: { onClose: () => void }):
               <span>本地分析消息意图与情绪，推断对方互动画像（仅供娱乐）</span>
             </div>
           </div>
-          <button className="icon-button" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={onClose}
+          >
             <X size={18} />
           </button>
         </header>
         <div className="group-keyword-body">
           <Card title="基础">
-              <Row
-                label="启用意图感知"
-                desc="分析在本机完成（本地模型）或发送给你配置的 API（云端引擎）。"
-                control={
-                  <Toggle
-                    checked={!!s?.enabled}
-                    disabled={status.isLoading || setConfig.isLoading}
-                    onChange={(next) => void patch({ enabled: next })}
-                    label="启用意图感知"
-                  />
-                }
-              />
-              <Row
-                label="回复建议"
-                desc={
-                  s?.engine === 'api'
-                    ? '在输入框上方生成 3 条候选回复（需 API 引擎）。'
-                    : '仅 API 引擎支持（本地 Laya 模型不生成文本）。'
-                }
-                control={
-                  <Toggle
-                    checked={!!s?.suggestionsEnabled}
-                    disabled={
-                      status.isLoading || s?.engine !== 'api' || !s?.apiConfigured || !s?.enabled
-                    }
-                    onChange={(next) => void patch({ suggestionsEnabled: next })}
-                    label="回复建议"
-                  />
-                }
-              />
-            </Card>
-
-            <Card title="引擎">
-              <Row
-                label="API（OpenAI 兼容）"
-                desc="复用「克隆工厂」里配置的 provider；一次调用分析一批消息。"
-                control={
-                  <Toggle
-                    checked={s?.engine === 'api'}
-                    disabled={status.isLoading}
-                    onChange={() => void patch({ engine: 'api' })}
-                    label="使用 API 引擎"
-                  />
-                }
-              />
-              {s?.engine === 'api' ? (
-                <Row
-                  label="Provider / 模型"
-                  desc={
-                    providers.length === 0
-                      ? '尚未配置任何 provider —— 先到「克隆工厂 → 模型服务」添加。'
-                      : s.apiConfigured
-                        ? undefined
-                        : '当前选择不可用。'
-                  }
-                  control={
-                    <select
-                      className="weq-int-select"
-                      value={
-                        s.providerRef ? `${s.providerRef.providerId}::${s.providerRef.model}` : ''
-                      }
-                      disabled={providers.length === 0}
-                      onChange={(e) => {
-                        const [providerId, model] = e.target.value.split('::');
-                        if (!providerId || !model) {
-                          void patch({ providerRef: null });
-                        } else {
-                          void patch({ providerRef: { providerId, model } });
-                        }
-                      }}
-                    >
-                      <option value="">未选择</option>
-                      {providers.map((p) =>
-                        p.models.map((m) => (
-                          <option key={`${p.id}::${m.id}`} value={`${p.id}::${m.id}`}>
-                            {p.name} · {m.label ?? m.id}
-                          </option>
-                        )),
-                      )}
-                    </select>
-                  }
+            <Row
+              label="启用意图感知"
+              desc="分析在本机完成（本地模型）或发送给你配置的 API（云端引擎）。"
+              control={
+                <Toggle
+                  checked={!!s?.enabled}
+                  disabled={status.isLoading || setConfig.isLoading}
+                  onChange={(next) => void patch({ enabled: next })}
+                  label="启用意图感知"
                 />
-              ) : null}
+              }
+            />
+            <Row
+              label="回复建议"
+              desc={
+                s?.engine === 'api'
+                  ? '在输入框上方生成 3 条候选回复（需 API 引擎）。'
+                  : '仅 API 引擎支持（本地 Laya 模型不生成文本）。'
+              }
+              control={
+                <Toggle
+                  checked={!!s?.suggestionsEnabled}
+                  disabled={
+                    status.isLoading || s?.engine !== 'api' || !s?.apiConfigured || !s?.enabled
+                  }
+                  onChange={(next) => void patch({ suggestionsEnabled: next })}
+                  label="回复建议"
+                />
+              }
+            />
+          </Card>
+
+          <Card title="引擎">
+            <Row
+              label="API（OpenAI 兼容）"
+              desc="复用「克隆工厂」里配置的 provider；一次调用分析一批消息。"
+              control={
+                <Toggle
+                  checked={s?.engine === 'api'}
+                  disabled={status.isLoading}
+                  onChange={() => void patch({ engine: 'api' })}
+                  label="使用 API 引擎"
+                />
+              }
+            />
+            {s?.engine === 'api' ? (
               <Row
-                label="本地模型（Laya 多语言 ONNX）"
+                label="Provider / 模型"
                 desc={
-                  local?.available === false
-                    ? '仅桌面版可用。'
-                    : local?.engineReady
-                      ? '引擎运行中。'
-                      : local?.modelDownloaded
-                        ? '模型已就绪，点击启动引擎。'
-                        : '约 600MB，下载到用户数据目录，之后完全离线。'
+                  providers.length === 0
+                    ? '尚未配置任何 provider —— 先到「克隆工厂 → 模型服务」添加。'
+                    : s.apiConfigured
+                      ? undefined
+                      : '当前选择不可用。'
                 }
                 control={
-                  <Toggle
-                    checked={s?.engine === 'local'}
-                    disabled={status.isLoading || !local?.available || !local?.modelDownloaded}
-                    onChange={() => void patch({ engine: 'local' })}
-                    label="使用本地引擎"
-                  />
-                }
-                indent
-              />
-              {local?.available && !local.modelDownloaded ? (
-                <div className="weq-int-download">
-                  <button
-                    type="button"
-                    className="weq-int-download-btn"
-                    disabled={downloading}
-                    onClick={() => void onDownload()}
+                  <select
+                    className="weq-int-select"
+                    value={
+                      s.providerRef ? `${s.providerRef.providerId}::${s.providerRef.model}` : ''
+                    }
+                    disabled={providers.length === 0}
+                    onChange={(e) => {
+                      const [providerId, model] = e.target.value.split('::');
+                      if (!providerId || !model) {
+                        void patch({ providerRef: null });
+                      } else {
+                        void patch({ providerRef: { providerId, model } });
+                      }
+                    }}
                   >
-                    {downloading ? (
-                      <Download size={14} className="weq-spin" />
-                    ) : (
-                      <Download size={14} />
+                    <option value="">未选择</option>
+                    {providers.map((p) =>
+                      p.models.map((m) => (
+                        <option key={`${p.id}::${m.id}`} value={`${p.id}::${m.id}`}>
+                          {p.name} · {m.label ?? m.id}
+                        </option>
+                      )),
                     )}
-                    <span>{downloading ? '下载中…' : '下载模型'}</span>
-                  </button>
-                  <label className="weq-int-mirror">
-                    <input
-                      type="checkbox"
-                      checked={s?.hfMirror !== false}
-                      onChange={(e) => void patch({ hfMirror: e.target.checked })}
+                  </select>
+                }
+              />
+            ) : null}
+            <Row
+              label="本地模型（Laya 多语言 ONNX）"
+              desc={
+                local?.available === false
+                  ? '仅桌面版可用。'
+                  : local?.engineReady
+                    ? '引擎运行中。'
+                    : local?.modelDownloaded
+                      ? '模型已就绪，点击启动引擎。'
+                      : '约 600MB，下载到用户数据目录，之后完全离线。'
+              }
+              control={
+                <Toggle
+                  checked={s?.engine === 'local'}
+                  disabled={status.isLoading || !local?.available || !local?.modelDownloaded}
+                  onChange={() => void patch({ engine: 'local' })}
+                  label="使用本地引擎"
+                />
+              }
+              indent
+            />
+            {local?.available && !local.modelDownloaded ? (
+              <div className="weq-int-download">
+                <button
+                  type="button"
+                  className="weq-int-download-btn"
+                  disabled={downloading}
+                  onClick={() => void onDownload()}
+                >
+                  {downloading ? (
+                    <Download size={14} className="weq-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  <span>{downloading ? '下载中…' : '下载模型'}</span>
+                </button>
+                <label className="weq-int-mirror">
+                  <input
+                    type="checkbox"
+                    checked={s?.hfMirror !== false}
+                    onChange={(e) => void patch({ hfMirror: e.target.checked })}
+                  />
+                  使用 hf-mirror.com 镜像（国内网络建议开启）
+                </label>
+                {progress && !progress.done ? (
+                  <div className="weq-int-progress" title={progress.currentFile ?? ''}>
+                    <span
+                      className="weq-int-progress-bar"
+                      style={{
+                        width:
+                          progress.total > 0
+                            ? `${Math.min(100, (progress.received / progress.total) * 100)}%`
+                            : '0%',
+                      }}
                     />
-                    使用 hf-mirror.com 镜像（国内网络建议开启）
-                  </label>
-                  {progress && !progress.done ? (
-                    <div className="weq-int-progress" title={progress.currentFile ?? ''}>
-                      <span
-                        className="weq-int-progress-bar"
-                        style={{
-                          width:
-                            progress.total > 0
-                              ? `${Math.min(100, (progress.received / progress.total) * 100)}%`
-                              : '0%',
-                        }}
-                      />
-                      <em>
-                        {fmtMB(progress.received)}
-                        {progress.total > 0 ? ` / ${fmtMB(progress.total)}` : ''} ·{' '}
-                        {progress.filesDone}/{progress.filesTotal} 个文件
-                      </em>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {local?.available && local.modelDownloaded && !local.engineReady ? (
-                <div className="weq-int-download">
-                  <button
-                    type="button"
-                    className="weq-int-download-btn"
-                    disabled={startEngine.isLoading}
-                    onClick={() => void onStart()}
-                  >
-                    <Play size={14} />
-                    <span>启动本地引擎</span>
-                  </button>
-                </div>
-              ) : null}
-            </Card>
+                    <em>
+                      {fmtMB(progress.received)}
+                      {progress.total > 0 ? ` / ${fmtMB(progress.total)}` : ''} ·{' '}
+                      {progress.filesDone}/{progress.filesTotal} 个文件
+                    </em>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {local?.available && local.modelDownloaded && !local.engineReady ? (
+              <div className="weq-int-download">
+                <button
+                  type="button"
+                  className="weq-int-download-btn"
+                  disabled={startEngine.isLoading}
+                  onClick={() => void onStart()}
+                >
+                  <Play size={14} />
+                  <span>启动本地引擎</span>
+                </button>
+              </div>
+            ) : null}
+          </Card>
 
-            <p className="weq-set-note">
-              意图与画像均为模型推断， 好感度/MBTI 仅供娱乐参考；API
-              引擎会把消息文本发送给你配置的服务商。
-            </p>
+          <p className="weq-set-note">
+            意图与画像均为模型推断， 好感度/MBTI 仅供娱乐参考；API
+            引擎会把消息文本发送给你配置的服务商。
+          </p>
         </div>
       </section>
     </div>

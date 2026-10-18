@@ -555,7 +555,7 @@ function createWindow(): BrowserWindow {
     height: 580,
     minWidth: 940,
     minHeight: 520,
-    show: false,
+    show: true,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -573,15 +573,23 @@ function createWindow(): BrowserWindow {
   });
 
   const reveal = () => {
-    if (win.isDestroyed() || win.isVisible()) return;
+    if (win.isDestroyed()) return;
     win.show();
+    win.restore();
     win.focus();
+    try {
+      win.setAlwaysOnTop(true);
+      win.setAlwaysOnTop(false);
+    } catch {
+      /* ignore */
+    }
   };
 
   win.on('ready-to-show', reveal);
   // Fallback: in some environments `ready-to-show` can be delayed or missed
   // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
   win.webContents.on('did-finish-load', reveal);
+  setTimeout(reveal, 1000);
 
   // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
   //   'quit' → quit the app on every platform;
