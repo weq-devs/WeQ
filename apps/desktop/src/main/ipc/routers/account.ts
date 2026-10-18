@@ -1365,14 +1365,17 @@ const PICK_SEND_FILE_SPEC: Record<
 };
 
 export const accountRouter = router({
-  qqWrite: createQQWriteRouter((input) => {
-    const services = requireExpectedAccount(
-      input.expectedAccountUin,
-      input.expectedAccountConfigId,
-    );
-    requireQqOnlineForAlbum(services);
-    return services;
-  }),
+  qqWrite: createQQWriteRouter(
+    (input) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services;
+    },
+    (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
   // ---- 年度报告（manifest-first, account-scoped）----

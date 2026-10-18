@@ -51,6 +51,7 @@ import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { MutualMarkDialog } from './MutualMarkDialog';
+import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
@@ -407,6 +408,10 @@ export function MemberProfileCard({
                   ))}
                 </ul>
               </div>
+            ) : null}
+
+            {groupCode && uid ? (
+              <QQGroupMemberControls key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />
             ) : null}
 
             {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。

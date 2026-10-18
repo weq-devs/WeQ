@@ -12,6 +12,7 @@ import { ConversationActionsMenu } from '../../components/ConversationActionsMen
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import '../../styles/message-selection-toolbar.css';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
+import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
@@ -4829,6 +4830,16 @@ export function ChatPane({
       ) : null}
       {contextMenu ? (
         <MessageContextMenu
+          extraActions={
+            conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
+              <QQMessageEssenceAction
+                key={contextMenu.message.id}
+                conversation={conversation}
+                message={contextMenu.message}
+                onClose={() => setContextMenu(null)}
+              />
+            ) : undefined
+          }
           onAddToComposition={
             onAddToComposition
               ? (message) => {

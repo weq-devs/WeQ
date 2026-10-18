@@ -1,0 +1,152 @@
+import { act, createElement as h } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SelfQQControls } from '../src/renderer/src/components/settings/SelfQQControls';
+import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+
+const state = vi.hoisted(() => ({
+  configId: 'source-a',
+  profilePresent: true,
+  mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
+    available: true,
+    busy: false,
+    result: null,
+    run: async (action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>) => {
+      await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
+      return true;
+    },
+  }),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      qqWrite: {
+        selfState: {
+          useQuery: () => ({
+            data: {
+              profile: state.profilePresent
+                ? {
+                    uid: 'u_self',
+                    uin: '10001',
+                    nick: '原昵称',
+                    signature: '原签名',
+                    gender: 2,
+                  }
+                : null,
+              status: { type: 10, subType: 0 },
+              statusOptions: [{ value: 10, label: '在线' }],
+            },
+            isLoading: false,
+            isFetching: false,
+            refetch: async () => ({ error: null }),
+          }),
+        },
+        selfProfile: { useMutation: () => ({ mutateAsync: state.mutate }) },
+        selfAvatar: { useMutation: () => ({ mutateAsync: state.mutate }) },
+        onlineStatus: { useMutation: () => ({ mutateAsync: state.mutate }) },
+      },
+      pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
+      getSystemFaces: { useQuery: () => ({ data: [{ id: 0, desc: '[微笑]', emojiType: 1 }] }) },
+    },
+  },
+}));
+
+const cleanup: Array<() => void> = [];
+function fixture() {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () => act(() => root.render(h(SelfQQControls)));
+  cleanup.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  render();
+  return { host, render };
+}
+function input(host: HTMLElement, name: string, value: string) {
+  const field = host.querySelector<HTMLInputElement>(`[aria-label="${name}"]`)!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  state.configId = 'source-a';
+  state.profilePresent = true;
+  state.mutate.mockClear();
+});
+afterEach(() => {
+  for (const close of cleanup.splice(0)) close();
+  vi.unstubAllGlobals();
+});
+
+describe('个人资料编辑入口', () => {
+  it('修改昵称只提交昵称，不带旧签名和性别', async () => {
+    const f = fixture();
+    input(f.host, 'QQ 昵称', '新昵称');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      patch: { nickname: '新昵称' },
+    });
+  });
+  it('状态表情使用本机目录的 QSid，并保留 0 号表情', async () => {
+    const f = fixture();
+    input(f.host, '自定义状态文字', '测试状态');
+    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="状态表情"]')!;
+    act(() => {
+      select.value = '0';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存自定义状态"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 10,
+      extStatus: 2000,
+      custom: { faceId: 0, faceType: 1, wording: '测试状态' },
+    });
+  });
+  it('同号切换数据源不携带上一个现场的未提交状态', () => {
+    const f = fixture();
+    input(f.host, '自定义状态文字', '不能串到下一数据源');
+    state.configId = 'source-b';
+    f.render();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe('');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+
+  it('资料缓存未填充时仍可明确修改昵称或清空签名', async () => {
+    state.profilePresent = false;
+    const f = fixture();
+    input(f.host, 'QQ 昵称', '首次设置昵称');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    );
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="清空个性签名"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenNthCalledWith(1, {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      patch: { nickname: '首次设置昵称' },
+    });
+    expect(state.mutate).toHaveBeenNthCalledWith(2, {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      patch: { signature: '' },
+    });
+  });
+});

@@ -15,6 +15,10 @@ export class ProfileService {
     return this.session.buddies.listBuddies(limit, offset);
   }
 
+  getBuddy(uid: string): Promise<Buddy | null> {
+    return this.session.buddies.getBuddy(uid);
+  }
+
   /** 导出选择器读取完整好友目录，不截断为亲密度榜前若干名。 */
   async listExportFriends() {
     const buddies = await this.listBuddies();

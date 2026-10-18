@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { encode, SetFriendRemark, SetGroupMessagePolicy } from '@weq/protocol';
 import { AccountWriteService, type AccountWriteIdentity } from '../src/account/account_write';
+import { OnlineStatusService, OnlineType, ONLINE_TYPE_NAMES } from '../src/account/online_status';
 
 function fixture() {
   const calls: Array<{ command: number; sub: number; body: Buffer }> = [];
@@ -45,6 +46,18 @@ function fixture() {
 }
 
 describe('账号写操作编排', () => {
+  it('可编辑状态沿用读取侧的枚举，不把离线混成状态设置', () => {
+    const options = OnlineStatusService.prototype.editableStatuses();
+    expect(options).not.toContainEqual({
+      value: OnlineType.OFFLINE,
+      label: ONLINE_TYPE_NAMES[OnlineType.OFFLINE],
+    });
+    expect(options).toEqual(
+      Object.entries(ONLINE_TYPE_NAMES)
+        .filter(([value]) => Number(value) !== OnlineType.OFFLINE)
+        .map(([value, label]) => ({ value: Number(value), label })),
+    );
+  });
   it('非好友不能修改备注、置顶、免打扰或分组', async () => {
     const f = fixture();
     await expect(f.service.friendRemark('u_stranger', '同学')).rejects.toThrow(/不是/);

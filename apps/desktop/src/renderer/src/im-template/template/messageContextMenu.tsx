@@ -11,7 +11,7 @@
   Forward,
   ListPlus,
 } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { FaceEmoji } from '../../components/FaceEmoji';
@@ -52,6 +52,7 @@ export function MessageContextMenu({
   recallBlockedReason,
   onRemoveReaction,
   removeReactionBlockedReason,
+  extraActions,
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
@@ -84,6 +85,7 @@ export function MessageContextMenu({
   recallBlockedReason?: string | null;
   onRemoveReaction?: (message: Message, code: string) => void;
   removeReactionBlockedReason?: string | null;
+  extraActions?: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const decoration = (
@@ -139,6 +141,7 @@ export function MessageContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
+      {extraActions}
       {onMultiSelect ? (
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />

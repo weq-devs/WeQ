@@ -39,6 +39,7 @@ import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { SelfQQControls } from './SelfQQControls';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -353,6 +354,8 @@ export function AccountBasicsSection({
           )}
         </Card>
       )}
+
+      {page === 'account' && <SelfQQControls />}
 
       {/* Database key */}
       {page === 'credentials' && (

@@ -32,6 +32,10 @@ export class RecentContactService {
     return this.session.recentContactTops.getTopContacts();
   }
 
+  getByTargetUids(ids: readonly string[]): Promise<RecentContact[]> {
+    return this.session.recentContacts.getByTargetUids(ids);
+  }
+
   /**
    * 有草稿的会话 → 草稿时间（targetUid -> unix 秒）。读的是
    * `recent_contact_v3_table."41108"`（草稿表 `40050` 的跨表镜像），只返回

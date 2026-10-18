@@ -13,12 +13,13 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { BellRing, ShieldCheck, X } from 'lucide-react';
+import { BellRing, Settings2, ShieldCheck, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { WindowSurface } from './WindowSurface';
+import { QQConversationControls } from './QQConversationControls';
 import '../styles/conversation-settings.css';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
@@ -31,7 +32,7 @@ function errMsg(e: unknown): string {
 }
 
 /** 左侧分类。只有群聊才有关键词那一页。 */
-type SectionId = 'antirecall' | 'keyword';
+type SectionId = 'qq' | 'antirecall' | 'keyword';
 
 export function ConversationSettingsDialog({
   kind,
@@ -136,6 +137,20 @@ export function ConversationSettingsDialog({
             <span title={title}>{title}</span>
           </div>
           <ul>
+            {kind !== 'dataline' && (
+              <li>
+                <button
+                  type="button"
+                  className={`weq-cvs-nav-item${section === 'qq' ? ' is-on' : ''}`}
+                  onClick={() => setSection('qq')}
+                >
+                  <span className="weq-cvs-nav-icon">
+                    <Settings2 size={16} strokeWidth={1.8} />
+                  </span>
+                  <span>QQ 设置</span>
+                </button>
+              </li>
+            )}
             <li>
               <button
                 type="button"
@@ -166,7 +181,16 @@ export function ConversationSettingsDialog({
         </nav>
 
         <div className="weq-cvs-body">
-          {groupKeywords && section === 'keyword' ? (
+          {section === 'qq' && kind !== 'dataline' ? (
+            <>
+              <div className="weq-cvs-body-head">
+                <strong>QQ 设置</strong>
+              </div>
+              <div className="weq-cvs-body-scroll">
+                <QQConversationControls key={`${kind}:${conv}`} kind={kind} conv={conv} />
+              </div>
+            </>
+          ) : groupKeywords && section === 'keyword' ? (
             <>
               <div className="weq-cvs-body-head">
                 <strong>群关键词</strong>

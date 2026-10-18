@@ -14,9 +14,119 @@ const source = z.string().min(1);
 
 export type QQWriteBinding = z.infer<typeof binding>;
 
+export interface QQWriteServices {
+  accountWrite: Pick<
+    AccountServices['accountWrite'],
+    | 'friendRemark'
+    | 'groupRemark'
+    | 'pin'
+    | 'friendDisturb'
+    | 'groupMessagePolicy'
+    | 'friendCategory'
+    | 'selfProfile'
+    | 'onlineStatus'
+    | 'selfAvatar'
+    | 'groupAvatar'
+    | 'selfIdentity'
+  >;
+  groupModeration: Pick<
+    AccountServices['groupModeration'],
+    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
+  >;
+  profile: Pick<AccountServices['profile'], 'getProfile' | 'getBuddy' | 'getSelfProfile'>;
+  groupInfo: Pick<
+    AccountServices['groupInfo'],
+    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo'
+  >;
+  recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
+  onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
+}
+
 /** 身份绑定和在线检查由账号路由共用入口提供，所有 mutation 都必须通过。 */
-export function createQQWriteRouter(resolve: (input: QQWriteBinding) => AccountServices) {
+export function createQQWriteRouter(
+  resolve: (input: QQWriteBinding) => QQWriteServices,
+  read: (input: QQWriteBinding) => QQWriteServices,
+) {
   return router({
+    memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
+      const services = read(input);
+      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      return member ? { uid: member.uid, card: member.card, title: member.customTitle } : null;
+    }),
+    selfState: procedure.input(binding).query(async ({ input }) => {
+      const services = read(input);
+      const identity = services.accountWrite.selfIdentity();
+      const profile = await services.profile.getSelfProfile();
+      if (profile && profile.uin.toString() !== identity.uin)
+        throw new Error('资料缓存与当前账号不匹配');
+      const status = identity.uid
+        ? await services.onlineStatus.getOnlineStatus(identity.uid)
+        : null;
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
+      return {
+        profile: profile
+          ? {
+              uid: profile.uid,
+              uin: profile.uin.toString(),
+              nick: profile.nick,
+              signature: profile.signature,
+              gender: profile.gender,
+            }
+          : null,
+        status,
+        statusOptions: services.onlineStatus.editableStatuses(),
+        source: 'qq-local-cache' as const,
+        identity,
+      };
+    }),
+    peerState: procedure
+      .input(
+        binding.extend({
+          target: z.discriminatedUnion('kind', [
+            z.object({ kind: z.literal('c2c'), uid }),
+            z.object({ kind: z.literal('group'), groupId }),
+          ]),
+        }),
+      )
+      .query(async ({ input }) => {
+        const services = read(input);
+        const target = input.target;
+        const conv = target.kind === 'c2c' ? target.uid : String(target.groupId);
+        const identity = services.accountWrite.selfIdentity();
+        const [tops, rows, profile, buddy, group, directory] = await Promise.all([
+          services.recentContacts.getTopContacts(),
+          services.recentContacts.getByTargetUids([conv]),
+          target.kind === 'c2c' ? services.profile.getProfile(target.uid) : null,
+          target.kind === 'c2c' ? services.profile.getBuddy(target.uid) : null,
+          target.kind === 'group'
+            ? services.groupInfo.getGroupDetail(BigInt(target.groupId))
+            : null,
+          target.kind === 'group' ? services.groupInfo.listGroupDirectory() : [],
+        ]);
+        const member =
+          target.kind === 'group' && identity.uid
+            ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
+            : null;
+        if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');
+        const entry = directory.find((item) => item.groupCode === conv);
+        const notifyLevel = entry?.notifyLevel ?? rows[0]?.notifyLevel ?? null;
+        return {
+          source: 'qq-local-cache' as const,
+          pinned: tops.some((item) => item.targetId === conv),
+          notifyLevel,
+          friend: Boolean(buddy),
+          categoryId: buddy?.categoryId ?? null,
+          remark: profile?.remark ?? group?.remark ?? null,
+          groupName: group?.groupName ?? null,
+          selfUid: identity.uid,
+          selfCard: member?.card ?? null,
+          selfTitle: member?.customTitle ?? null,
+          role:
+            entry?.role ??
+            (group?.ownerUid && identity.uid && group.ownerUid === identity.uid ? 'owner' : null),
+        };
+      }),
     friendRemark: procedure
       .input(binding.extend({ uid, remark }))
       .mutation(({ input }) => resolve(input).accountWrite.friendRemark(input.uid, input.remark)),

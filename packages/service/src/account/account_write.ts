@@ -38,6 +38,10 @@ export class AccountWriteService {
     private readonly resolvePid: () => number,
   ) {}
 
+  selfIdentity(): { uin: string; uid: string } {
+    return { uin: this.identity.uin, uid: this.identity.selfUid };
+  }
+
   private async friend(uid: string): Promise<Buddy> {
     const buddy = await this.identity.getBuddy(uid);
     if (!buddy) throw new Error('目标不是当前账号的好友');

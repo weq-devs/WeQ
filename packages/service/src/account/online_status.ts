@@ -80,6 +80,12 @@ export interface FormattedOnlineStatus {
 export class OnlineStatusService {
   constructor(private readonly session: AccountSession) {}
 
+  editableStatuses(): Array<{ value: number; label: string }> {
+    return Object.entries(ONLINE_TYPE_NAMES)
+      .filter(([value]) => Number(value) !== OnlineType.OFFLINE)
+      .map(([value, label]) => ({ value: Number(value), label }));
+  }
+
   /**
    * Get formatted online status for a user.
    */
