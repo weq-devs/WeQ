@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Wrench } from 'lucide-react';
+import { useHoverTimers } from '../hooks/useHoverTimers';
 import {
   clampFloatingPosition,
   floatingFanLayout,
@@ -85,16 +86,23 @@ export function FloatingToolsBar({
   } | null>(null);
   const skipPointerClick = useRef(false);
   const latest = useRef(position);
+  const { startOpen, cancelOpen, startClose, cancelClose, cancel } = useHoverTimers(
+    () => {
+      if (!drag.current) setExpanded(true);
+    },
+    () => setExpanded(false),
+  );
   useEffect(() => {
     if (expandKey && !hidden) setExpanded(true);
   }, [expandKey, hidden]);
   useEffect(() => {
     if (!hidden) return;
+    cancel();
     setExpanded(false);
     drag.current = null;
     setDragging(false);
     setDropTarget(false);
-  }, [hidden]);
+  }, [hidden, cancel]);
   const layout = expanded
     ? floatingFanLayout(
         docked && slotVisible && !dragging ? dockPosition : position,
@@ -145,11 +153,14 @@ export function FloatingToolsBar({
   useEffect(() => {
     if (!expanded || expandKey) return;
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setExpanded(false);
+      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+        cancel();
+        setExpanded(false);
+      }
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded, expandKey]);
+  }, [expanded, expandKey, cancel]);
   const style = {
     left: docked && slotVisible && !dragging ? dockPosition.x : position.x,
     top: docked && slotVisible && !dragging ? dockPosition.y : position.y,
@@ -160,9 +171,15 @@ export function FloatingToolsBar({
       hidden={hidden}
       className={`weq-floating-tools${docked && slotVisible && !dragging ? ' is-docked' : ''}${dragging ? ' is-dragging' : ''}${expanded ? ' is-expanded' : ''}`}
       style={style}
+      onPointerEnter={cancelClose}
+      onPointerLeave={() => {
+        cancelOpen();
+        if (expanded && !drag.current) startClose();
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.stopPropagation();
+          cancel();
           setExpanded(false);
           return;
         }
@@ -197,8 +214,14 @@ export function FloatingToolsBar({
         aria-label={running ? `工具，${running} 个任务运行中` : '工具'}
         aria-expanded={expanded}
         aria-controls="weq-floating-tools-bar"
+        onPointerEnter={(event) => {
+          if (hidden || drag.current || event.pointerType === 'touch') return;
+          if (!expanded) startOpen();
+        }}
+        onPointerLeave={cancelOpen}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          cancel();
           event.preventDefault();
           event.currentTarget.focus({ preventScroll: true });
           skipPointerClick.current = false;
@@ -262,11 +285,13 @@ export function FloatingToolsBar({
           event.currentTarget.releasePointerCapture?.(event.pointerId);
         }}
         onPointerCancel={() => {
+          cancel();
           drag.current = null;
           setDragging(false);
           setDropTarget(false);
         }}
         onClick={(event) => {
+          cancel();
           if (event.detail > 0 && skipPointerClick.current) {
             skipPointerClick.current = false;
             return;
@@ -305,6 +330,7 @@ export function FloatingToolsBar({
                   clipPath: sector.clipPath,
                 }}
                 onClick={() => {
+                  cancel();
                   setExpanded(false);
                   item.action();
                 }}

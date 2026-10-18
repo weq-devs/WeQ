@@ -151,22 +151,28 @@ describe('web request bounds', () => {
 
 describe('uncooperative transports and total retry budgets', () => {
   it('returns on timeout and cancels a response which arrives after the caller has left', async () => {
-    let finish!: (response: Response) => void;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        () =>
-          new Promise<Response>((resolve) => {
-            finish = resolve;
-          }),
-      ),
-    );
-    await expect(
-      webRequestBytes('https://fixture.invalid/read', { cookie: '', timeoutMs: 5 }),
-    ).rejects.toMatchObject({ kind: 'timeout' });
-    const cancel = vi.fn();
-    finish(new Response(new ReadableStream({ cancel })));
-    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    vi.useFakeTimers();
+    try {
+      let finish!: (response: Response) => void;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      );
+      const pending = webRequestBytes('https://fixture.invalid/read', { cookie: '', timeoutMs: 5 });
+      const rejected = expect(pending).rejects.toMatchObject({ kind: 'timeout' });
+      await vi.advanceTimersByTimeAsync(5);
+      await rejected;
+      const cancel = vi.fn();
+      finish(new Response(new ReadableStream({ cancel })));
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('times out a stalled response stream without waiting for its uncooperative cancel handler', async () => {

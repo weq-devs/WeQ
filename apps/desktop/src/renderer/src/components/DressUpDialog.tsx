@@ -1,5 +1,5 @@
 /**
- * 个性装扮 —— 灯箱(与收藏 / 商城表情同一层级,不占左栏视图位)。
+ * 个性装扮整页，保留分类与商城浏览现场。
  *
  * 布局是「一栏到底」:头部一行放类别切换 + 搜索框 + 作用范围开关,下面直接是卡片
  * 网格。搜索**不单独分页** —— 输入即过滤当前列表来源:有关键词时打商城搜索接口,清空
@@ -48,7 +48,7 @@ import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '.
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
-import { OverlayLayer } from './OverlayLayer';
+import { WorkspacePage } from './WorkspacePages';
 import '../styles/dressup.css';
 
 type DressKind = 'bubble' | 'font' | 'widget' | 'background';
@@ -792,8 +792,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   }
 
   return (
-    <OverlayLayer presentation="panel" className="weq-dress-layer" onClose={onClose}>
-      <div className="weq-dress-dialog" role="dialog" aria-labelledby="weq-dress-title">
+    <WorkspacePage title="个性装扮" onClose={onClose} standalone>
+      <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
         </button>
@@ -943,6 +943,6 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
         ) : null}
       </div>
-    </OverlayLayer>
+    </WorkspacePage>
   );
 }

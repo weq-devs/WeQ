@@ -2560,7 +2560,10 @@ export function MainView(): ReactElement {
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
   const [dressUpOpen, setDressUpOpen] = useState(false);
-  // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
+  useEffect(() => {
+    if (settingsOpen) setDressUpOpen(false);
+  }, [settingsOpen]);
+  // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮页。
   useDressSkin();
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -7456,6 +7459,7 @@ export function MainView(): ReactElement {
               shell.switchView('home');
             }}
             onOpenSettings={() => {
+              setDressUpOpen(false);
               setMaintenanceTool(null);
               setSettingsSection(undefined);
               setSettingsOpen(true);
@@ -7472,7 +7476,10 @@ export function MainView(): ReactElement {
             onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
-            onOpenDressUp={() => setDressUpOpen(true)}
+            onOpenDressUp={() => {
+              setSettingsOpen(false);
+              setDressUpOpen(true);
+            }}
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
             onOpenInvite={noopAsync}

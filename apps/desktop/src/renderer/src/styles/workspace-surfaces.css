@@ -58,7 +58,7 @@ html[data-theme="dark"] .weq-workspace-sidecar {
 .weq-workspace-tab [aria-selected="true"] { color: var(--weq-accent-effective); box-shadow: inset 0 -2px var(--weq-accent-effective); }
 .weq-workspace-tab button:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -3px; }
 
-html .weq-workspace-page[role="tabpanel"] > :first-child {
+html .weq-workspace-page > :first-child {
   position: relative;
   inset: auto;
   flex: 1;

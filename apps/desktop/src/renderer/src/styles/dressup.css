@@ -1,18 +1,8 @@
 /* ──────────────────────────────────────────────────────────────────────────
- * 个性装扮灯箱样式。与收藏灯箱同一套壳(fixed 层 + 居中面板 + 右上关闭),内容区沿用
+ * 个性装扮整页样式，内容区沿用
  * weq 设计语言：主题色描边、小圆角、轻量留白。所有类名以 weq-dress- 前缀。
  * 注意与 dressSkin.ts 注入的 `#weq-dress-skin` 无关 —— 那个作用在聊天气泡上。
  * ────────────────────────────────────────────────────────────────────────── */
-
-.weq-dress-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  background: rgba(246, 247, 248, 0.55);
-  backdrop-filter: blur(4px);
-}
 
 .weq-dress-dialog {
   position: relative;
@@ -22,10 +12,10 @@
   height: min(660px, calc(100vh - 72px));
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.99);
+  background: var(--weq-bg-surface);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
   overflow: hidden;
-  color: #161616;
+  color: var(--weq-fg-primary);
   font-size: 13px;
 }
 
@@ -148,31 +138,31 @@
   background: rgba(0, 0, 0, 0.07);
 }
 
-.weq-nonmodal-layer .weq-dress-head,
-.weq-nonmodal-layer .weq-dress-kinds,
-.weq-nonmodal-layer .weq-dress-toolbar,
-.weq-nonmodal-layer .weq-dress-toolbar-right {
+.weq-workspace-page .weq-dress-head,
+.weq-workspace-page .weq-dress-kinds,
+.weq-workspace-page .weq-dress-toolbar,
+.weq-workspace-page .weq-dress-toolbar-right {
   flex-wrap: wrap;
   min-width: 0;
 }
 
-.weq-nonmodal-layer .weq-dress-search {
+.weq-workspace-page .weq-dress-search {
   flex: 1 1 220px;
   min-width: 0;
   margin-left: 0;
 }
 
-.weq-nonmodal-layer .weq-dress-kinds {
+.weq-workspace-page .weq-dress-kinds {
   flex: 1 1 100%;
 }
 
-.weq-nonmodal-layer .weq-dress-search input {
+.weq-workspace-page .weq-dress-search input {
   flex: 1;
   min-width: 0;
   width: 0;
 }
 
-.weq-nonmodal-layer .weq-dress-toolbar-right {
+.weq-workspace-page .weq-dress-toolbar-right {
   margin-left: 0;
 }
 
@@ -835,15 +825,11 @@
 }
 
 /* ===== 深色 ===== */
-html[data-theme="dark"] .weq-dress-layer {
-  background: rgba(10, 12, 16, 0.42);
-}
-
 html[data-theme="dark"] .weq-dress-dialog {
   border-color: rgba(255, 255, 255, 0.08);
-  background: #161a20;
+  background: var(--weq-bg-surface);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
-  color: #edf2f7;
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme="dark"] .weq-dress-close {

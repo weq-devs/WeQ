@@ -1831,6 +1831,7 @@ html[data-theme="dark"] .weq-exp-card-skeleton {
 
 .weq-exp-detail-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 6px 2px;
@@ -1849,6 +1850,7 @@ html[data-theme="dark"] .weq-exp-card-skeleton {
 }
 
 .weq-exp-detail-title {
+  flex: 1 1 160px;
   min-width: 0;
   display: grid;
   gap: 1px;
@@ -1999,6 +2001,16 @@ button.weq-exp-detail-complete.is-clickable:hover {
   align-items: center;
   gap: 8px;
   min-height: 26px;
+}
+
+.weq-exp-detail-stage-head:has(.weq-exp-detail-stage-failures) {
+  grid-template-columns: minmax(72px, 116px) auto minmax(20px, 1fr) 40px 24px;
+}
+
+.weq-exp-detail-complete[role="alert"] {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .weq-exp-detail-stage-label {

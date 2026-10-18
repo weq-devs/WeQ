@@ -140,7 +140,7 @@ describe('新增消息交互', () => {
         ),
       );
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(3);
-      for (const name of ['搜索会话', '多选会话', '显示范围', '添加会话克隆'])
+      for (const name of ['搜索会话', '多选会话', '显示范围', '添加会话'])
         expect(button(fixture.host, name).textContent).toBe('');
       const clone = fixture.host.querySelector<HTMLButtonElement>(
         '[data-conversation-id="virtual:persona:test"]',
@@ -148,7 +148,29 @@ describe('新增消息交互', () => {
       expect(clone.querySelector('[aria-label="虚拟会话"]')).not.toBeNull();
       act(() => clone.click());
       expect(open).toHaveBeenCalledWith(virtual);
-      act(() => button(fixture.host, '添加会话克隆').click());
+      act(() => button(fixture.host, '添加会话').click());
+      expect(create).not.toHaveBeenCalled();
+      expect(button(fixture.host, '添加会话').getAttribute('aria-expanded')).toBe('true');
+      const createItem = fixture.host.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+      expect(createItem.textContent).toContain('新建好友克隆');
+      act(() => createItem.click());
+      expect(create).toHaveBeenCalledOnce();
+      expect(fixture.host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
+      const add = button(fixture.host, '添加会话');
+      act(() =>
+        add.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+      );
+      expect(document.activeElement?.getAttribute('role')).toBe('menuitem');
+      act(() =>
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        ),
+      );
+      expect(document.activeElement).toBe(add);
+      expect(add.getAttribute('aria-expanded')).toBe('false');
+      act(() => add.click());
+      act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      expect(add.getAttribute('aria-expanded')).toBe('false');
       expect(create).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '显示范围').click());
       expect(fixture.host.querySelector('select')).toBeNull();

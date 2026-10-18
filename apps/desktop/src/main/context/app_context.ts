@@ -66,6 +66,7 @@ import {
   MsgService,
   getHost,
   resolveExportSaveDirectory,
+  resolveGeneratedResource,
   RecentContactService,
   HiddenSessionService,
   DraftService,
@@ -1425,6 +1426,16 @@ export function initAppContext(): AppContext {
           new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            generatedResource: (ref) => {
+              const services = this.services;
+              if (
+                this.account !== session ||
+                !services ||
+                services.accountConfig.getRecord()?.configId !== exportConfigId
+              )
+                throw new Error('生成资源所属账号已关闭。');
+              return resolveGeneratedResource(ref, services);
+            },
             exportSavePolicy: () => ({
               mode: userConfig.getSettings().exportSaveMode,
               directory:
@@ -2122,6 +2133,16 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,
+            generatedResource: (ref) => {
+              const services = this.services;
+              if (
+                this.account !== session ||
+                !services ||
+                services.accountConfig.getRecord()?.configId !== exportConfigId
+              )
+                throw new Error('生成资源所属账号已关闭。');
+              return resolveGeneratedResource(ref, services);
+            },
             exportSavePolicy: () => ({
               mode: userConfig.getSettings().exportSaveMode,
               directory:

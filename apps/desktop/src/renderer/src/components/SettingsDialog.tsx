@@ -1,5 +1,5 @@
 /**
- * 设置弹窗。
+ * 设置整页。
  *
  * 左侧是分类导航，右侧是分类内容。外观能力单独收敛到“个性显示”页：
  * 基础模式、主题色（色相条 + 预设 + Hex）、界面背景、组件风格（占位）。
@@ -344,7 +344,7 @@ export function SettingsDialog({
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
-    <WorkspacePage title="设置" onClose={onClose}>
+    <WorkspacePage title="设置" onClose={onClose} standalone>
       <section
         className="weq-settings-dialog"
         role="region"

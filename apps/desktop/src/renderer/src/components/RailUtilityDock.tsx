@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Pin, SlidersHorizontal } from 'lucide-react';
+import { useHoverTimers } from '../hooks/useHoverTimers';
 import '../styles/rail-utility-dock.css';
 
 export function RailUtilityDock({ children }: { children: ReactNode }) {
@@ -9,50 +10,34 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
   const [suppressHover, setSuppressHover] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const { startOpen, cancelOpen, startClose, cancelClose, cancel } = useHoverTimers(
+    () => setHovered(true),
+    () => {
+      setHovered(false);
+      setFocusWithin(false);
+      setSuppressHover(false);
+    },
+  );
   const id = useId();
   const expanded = pinned || focusWithin || (hovered && !suppressHover);
-  const containsPointer = useCallback((x: number, y: number) => {
-    const rect = root.current?.getBoundingClientRect();
-    if (!rect?.width || !rect.height) return false;
-    const tool = document
-      .querySelector<HTMLElement>('.weq-floating-tools.is-docked')
-      ?.getBoundingClientRect();
-    const left = Math.min(rect.left, tool?.left ?? rect.left) - 8;
-    const right = Math.max(rect.right, tool?.right ?? rect.right) + 8;
-    const top = Math.min(rect.top, tool?.top ?? rect.top) - 8;
-    return x >= left && x <= right && y >= top && y <= rect.bottom + 8;
-  }, []);
-  useEffect(() => {
-    if (!hovered) return;
-    const move = (event: PointerEvent) => {
-      if (containsPointer(event.clientX, event.clientY)) return;
-      setHovered(false);
-      setSuppressHover(false);
-    };
-    document.addEventListener('pointermove', move);
-    return () => document.removeEventListener('pointermove', move);
-  }, [hovered, containsPointer]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || root.current?.contains(event.target)) return;
       setFocusWithin(false);
+      cancel();
       setHovered(false);
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, []);
+  }, [cancel]);
   return (
     <div
       ref={root}
       className={`weq-rail-utilities${expanded ? ' is-expanded' : ''}`}
-      onPointerEnter={() => {
-        setHovered(true);
-        setSuppressHover(false);
-      }}
-      onPointerLeave={(event) => {
-        if (containsPointer(event.clientX, event.clientY)) return;
-        setHovered(false);
-        setSuppressHover(false);
+      onPointerEnter={cancelClose}
+      onPointerLeave={() => {
+        cancelOpen();
+        if (expanded && !pinned) startClose();
       }}
       onFocusCapture={(event) => {
         if (!trigger.current?.contains(event.target)) setFocusWithin(true);
@@ -65,6 +50,7 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
         event.stopPropagation();
+        cancel();
         setPinned(false);
         setFocusWithin(false);
         setSuppressHover(true);
@@ -84,7 +70,14 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
         aria-expanded={expanded}
         aria-controls={id}
         aria-pressed={pinned}
+        onPointerEnter={(event) => {
+          if (event.pointerType === 'touch') return;
+          setSuppressHover(false);
+          if (!expanded) startOpen();
+        }}
+        onPointerLeave={cancelOpen}
         onClick={() => {
+          cancel();
           setPinned((current) => !current);
           setFocusWithin(false);
           setSuppressHover(pinned);

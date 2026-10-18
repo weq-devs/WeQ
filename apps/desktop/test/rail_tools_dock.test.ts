@@ -7,6 +7,7 @@ import { RailUtilityDock } from '../src/renderer/src/components/RailUtilityDock'
 import { floatingDockHit } from '../src/shared/floating_tools';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -133,15 +134,22 @@ describe('左栏快捷控制与工具吸附', () => {
     }
   });
   it('四个操作默认不可聚焦，悬停临时展开，点击固定，再次点击或 Escape 收起', () => {
+    vi.useFakeTimers();
     const f = mount();
     try {
       const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
       const actions = f.host.querySelector<HTMLElement>('.weq-rail-utility-actions')!;
       const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
       expect(actions.hasAttribute('inert')).toBe(true);
-      pointer(utilities, 'pointerover', 20, 650);
+      pointer(toggle, 'pointerover', 20, 650);
+      act(() => vi.advanceTimersByTime(499));
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      act(() => vi.advanceTimersByTime(1));
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       pointer(utilities, 'pointerout', 120, 650);
+      act(() => vi.advanceTimersByTime(999));
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      act(() => vi.advanceTimersByTime(1));
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       act(() => toggle.click());
       expect(toggle.getAttribute('aria-pressed')).toBe('true');
@@ -165,21 +173,148 @@ describe('左栏快捷控制与工具吸附', () => {
     expect(floatingDockHit({ x: 32, y: 610 }, null)).toBe(false);
   });
 
-  it('经过快捷控制上方空隙仍保持展开，真正移出连续悬停区域才收起', () => {
+  it('快捷控制移出后等待 1s，途中进入菜单会取消收起并重新计算连续离开时间', () => {
+    vi.useFakeTimers();
     const f = mount();
     try {
       const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
+      const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
+      const menu = f.host.querySelector<HTMLElement>('.weq-rail-utility-actions')!;
       vi.spyOn(utilities, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 500, 46, 160));
-      pointer(utilities, 'pointerover', 32, 620);
+      pointer(toggle, 'pointerover', 32, 620);
+      act(() => vi.advanceTimersByTime(500));
       pointer(utilities, 'pointerout', 32, 496);
+      act(() => vi.advanceTimersByTime(700));
       expect(utilities.classList.contains('is-expanded')).toBe(true);
-      pointer(document.body, 'pointermove', 32, 494);
+      pointer(menu, 'pointerover', 32, 520);
+      act(() => vi.advanceTimersByTime(700));
       expect(utilities.classList.contains('is-expanded')).toBe(true);
-      pointer(document.body, 'pointermove', 160, 494);
+      pointer(menu, 'pointerout', 160, 494);
+      act(() => vi.advanceTimersByTime(999));
+      expect(utilities.classList.contains('is-expanded')).toBe(true);
+      act(() => vi.advanceTimersByTime(1));
       expect(utilities.classList.contains('is-expanded')).toBe(false);
     } finally {
       f.close();
     }
+  });
+
+  it('短暂经过快捷控制不展开，重新进入需重新等待 500ms', () => {
+    vi.useFakeTimers();
+    const f = mount();
+    try {
+      const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
+      const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
+      pointer(toggle, 'pointerover', 20, 650);
+      act(() => vi.advanceTimersByTime(300));
+      pointer(toggle, 'pointerout', 300, 300);
+      act(() => vi.advanceTimersByTime(500));
+      expect(utilities.classList.contains('is-expanded')).toBe(false);
+      pointer(toggle, 'pointerover', 20, 650);
+      act(() => vi.advanceTimersByTime(499));
+      expect(utilities.classList.contains('is-expanded')).toBe(false);
+      act(() => vi.advanceTimersByTime(1));
+      expect(utilities.classList.contains('is-expanded')).toBe(true);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('快捷控制在 500ms 内从按钮移到同一容器空白处也会取消展开', () => {
+    vi.useFakeTimers();
+    const f = mount();
+    try {
+      const toggle = f.host.querySelector<HTMLButtonElement>('[aria-label="快捷控制"]')!;
+      const utilities = f.host.querySelector<HTMLElement>('.weq-rail-utilities')!;
+      pointer(toggle, 'pointerover', 20, 650);
+      act(() => vi.advanceTimersByTime(300));
+      act(() =>
+        toggle.dispatchEvent(
+          new PointerEvent('pointerout', { bubbles: true, relatedTarget: utilities }),
+        ),
+      );
+      act(() => vi.advanceTimersByTime(1000));
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      f.close();
+    }
+  });
+
+  it('工具菜单连续移出 1s 后收起，进入按钮或菜单均重新计算离开时间', () => {
+    vi.useFakeTimers();
+    const f = mount();
+    try {
+      const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
+      pointer(button, 'pointerover', 900, 600);
+      act(() => vi.advanceTimersByTime(500));
+      pointer(button, 'pointerout', 500, 300);
+      act(() => vi.advanceTimersByTime(700));
+      const menu = document.querySelector('[role="toolbar"]')!;
+      pointer(menu, 'pointerover', 850, 550);
+      act(() => vi.advanceTimersByTime(700));
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      pointer(menu, 'pointerout', 500, 300);
+      act(() => vi.advanceTimersByTime(700));
+      pointer(button, 'pointerover', 900, 600);
+      act(() => vi.advanceTimersByTime(700));
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      pointer(button, 'pointerout', 500, 300);
+      act(() => vi.advanceTimersByTime(999));
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      act(() => vi.advanceTimersByTime(1));
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each([false, true])('工具悬停 500ms 展开，拖拽中取消等待并收起：%s', (docked) => {
+    vi.useFakeTimers();
+    const f = mount(docked);
+    try {
+      const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
+      pointer(button, 'pointerover', 900, 600);
+      act(() => vi.advanceTimersByTime(499));
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      act(() => vi.advanceTimersByTime(1));
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      pointer(button, 'pointerdown', 900, 600);
+      pointer(button, 'pointermove', 430, 300);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      pointer(button, 'pointerup', 430, 300);
+      pointer(button, 'pointerout', 300, 300);
+      pointer(button, 'pointerover', 430, 300);
+      act(() => vi.advanceTimersByTime(300));
+      pointer(button, 'pointerdown', 430, 300);
+      pointer(button, 'pointermove', 450, 300);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      f.close();
+    }
+  });
+
+  it('工具短暂悬停或等待期间隐藏时不展开，卸载时清理等待', () => {
+    vi.useFakeTimers();
+    const f = mount();
+    try {
+      const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
+      pointer(button, 'pointerover', 900, 600);
+      act(() => vi.advanceTimersByTime(300));
+      pointer(button, 'pointerout', 500, 300);
+      act(() => vi.advanceTimersByTime(500));
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      pointer(button, 'pointerover', 900, 600);
+      act(() => f.root.render(createElement(FloatingToolsBar, { items: [], hidden: true })));
+      act(() => vi.advanceTimersByTime(500));
+      expect(document.querySelector('[role="toolbar"]')).toBeNull();
+      act(() => f.root.render(createElement(FloatingToolsBar, { items: [] })));
+      pointer(document.querySelector('.weq-tools-trigger')!, 'pointerover', 900, 600);
+    } finally {
+      f.close();
+    }
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('拖至槽位后按槽位坐标停靠，保留顶层 DOM 并持久化，不误打开工具条', () => {

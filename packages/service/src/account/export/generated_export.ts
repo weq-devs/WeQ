@@ -1,27 +1,46 @@
 import type { GeneratedContentSnapshot } from '../generated_content';
 import { writeFileStream, writeTable, type Col, type TableFormat } from './table_writer';
+import type { GeneratedResourceManifest } from './generated_resources';
 
 export const GENERATED_EXPORT_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
 export type GeneratedExportFormat = (typeof GENERATED_EXPORT_FORMATS)[number];
 type Row = GeneratedContentSnapshot['messages'][number];
+
+function messageResources(
+  resources: GeneratedResourceManifest,
+  id: string,
+): GeneratedResourceManifest {
+  const entries = resources.entries.filter((entry) => entry.messageIds.includes(id));
+  return { ...resources, complete: entries.every((entry) => entry.status === 'copied'), entries };
+}
 
 /** 本地生成记录使用独立 schema，绝不伪装成 QQ/ChatLab 服务器消息。 */
 export async function writeGeneratedContent(
   snapshot: GeneratedContentSnapshot,
   format: TableFormat,
   path: string,
+  resources?: GeneratedResourceManifest,
 ): Promise<void> {
   const { messages, ...source } = snapshot;
   if (format === 'json') {
     await writeFileStream(
       path,
-      JSON.stringify({ schema: 'weq-generated-content/1', ...snapshot }, null, 2),
+      JSON.stringify(
+        { schema: 'weq-generated-content/1', ...snapshot, ...(resources ? { resources } : {}) },
+        null,
+        2,
+      ),
     );
     return;
   }
   if (format === 'jsonl') {
     const lines = messages.map((message) =>
-      JSON.stringify({ schema: 'weq-generated-message/1', ...source, message }),
+      JSON.stringify({
+        schema: 'weq-generated-message/1',
+        ...source,
+        message,
+        ...(resources ? { resources: messageResources(resources, message.id) } : {}),
+      }),
     );
     await writeFileStream(path, lines.length ? `${lines.join('\n')}\n` : '');
     return;
@@ -42,6 +61,18 @@ export async function writeGeneratedContent(
     { key: 'senderId', header: '发言者身份', get: (row) => row.senderId ?? '' },
     { key: 'ts', header: '原始时间戳（毫秒）', get: (row) => row.ts },
     { key: 'text', header: '正文', get: (row) => row.text },
+    ...(resources
+      ? [
+          {
+            key: 'resources',
+            header: '资源（包内相对路径及状态）',
+            get: (row: Row) =>
+              JSON.stringify(
+                resources.entries.filter((entry) => entry.messageIds.includes(row.id)),
+              ),
+          },
+        ]
+      : []),
     { key: 'details', header: '完整记录（JSON）', get: (row) => JSON.stringify(row) },
   ];
   await writeTable(format, cols, messages, path, '本地生成对话');
