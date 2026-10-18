@@ -58,8 +58,8 @@ export type ReportManifest = {
   /**
    * Selectable periods, ascending, with `ALL_TIME_YEAR` (0) first when the
    * account has any data at all. Years in which the c2c/group tables hold any
-   * message row are listed (sender-agnostic, derived from the indexed 40058
-   * column); whether a chosen year actually yields pages is decided per page
+   * message row are listed (sender-agnostic, derived from sendTime in Beijing
+   * calendar days); whether a chosen year actually yields pages is decided per page
    * by availability probing.
    */
   availableYears: number[];
@@ -310,10 +310,9 @@ export type ReportQueries = {
      */
     oldestMessageTime(): Promise<number | null>;
     /**
-     * The local-time years in which the account has any c2c or group message,
-     * ascending. Deliberately sender-agnostic so the report entry page can
-     * derive it from the indexed day column 40058 without scanning message
-     * rows. A year shown here can still yield an empty deck when the account
+     * The Beijing calendar years in which the account has any c2c or group message,
+     * ascending, derived from sendTime without decoding bodies.
+     * A year shown here can still yield an empty deck when the account
      * only *received* messages in it — page availability is probed separately.
      */
     yearsWithMessages(): Promise<number[]>;
@@ -334,7 +333,7 @@ export type ReportQueries = {
    */
   c2c: {
     /**
-     * 一个时间窗内按「会话 × 本地自然日」聚合的条数（含我发/合计），
+     * 一个时间窗内按「会话 × 北京自然日」聚合的条数（含我发/合计），
      * 一次扫描、不读消息体。自然年窗口由调用方从 `reportYearUnixRange` 拿。
      *
      * 按时间窗记忆化：多个页面（私聊火花 / 好友榜）问同一个窗口时共享同一次
@@ -366,7 +365,7 @@ export type ReportQueries = {
    */
   rhythm: {
     /**
-     * 我在 [startTime, endTime)（unix 秒）内发出的消息按「星期 × 本地小时」聚合，
+     * 我在 [startTime, endTime)（unix 秒）内发出的消息按「星期 × 北京小时」聚合，
      * 返回 7×24 矩阵（0 行 = 周日）。私聊方向由行内数据自证，群聊用与 overview
      * 同一个 self marker（uid 优先、uin 兜底）。两次单列扫描后合并，不解码消息体。
      */

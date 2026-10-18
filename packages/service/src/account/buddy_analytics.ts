@@ -110,6 +110,47 @@ export class BuddyAnalyticsService {
     return sortNo !== undefined ? { sortNo } : { uid: peerUid };
   }
 
+  async listAnalysisPeers() {
+    const peers = new Map<
+      string,
+      { uid: string; uin: string; name: string; source: 'directory' | 'messages' }
+    >();
+    const [history, buddies] = await Promise.all([
+      this.session.c2cMsgs.listPeerIdentities(),
+      (async () => {
+        const rows = [];
+        for (let offset = 0; ; offset += 500) {
+          const page = await this.session.buddies.listBuddies(500, offset);
+          rows.push(...page);
+          if (page.length < 500) return rows;
+        }
+      })(),
+    ]);
+    for (const row of history) peers.set(row.uid, { ...row, name: '', source: 'messages' });
+    for (const row of buddies) {
+      if (!row.uid) continue;
+      peers.set(row.uid, {
+        uid: row.uid,
+        uin: row.uin > 0n ? String(row.uin) : peers.get(row.uid)?.uin || '',
+        name: '',
+        source: 'directory',
+      });
+    }
+    const items = [...peers.values()];
+    for (let i = 0; i < items.length; i += 500) {
+      const profiles = await this.session.profileInfo.profilesByUids(
+        items.slice(i, i + 500).map((row) => row.uid),
+      );
+      for (const profile of profiles) {
+        const row = peers.get(profile.uid);
+        if (!row) continue;
+        row.name = profile.remark || profile.nick;
+        if (profile.uin > 0n) row.uin = String(profile.uin);
+      }
+    }
+    return items.map((row) => ({ ...row, name: row.name || row.uin || row.uid }));
+  }
+
   async getBuddyAnalytics(peerUid: string, range: AnalyticsRange = {}): Promise<BuddyAnalytics> {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);

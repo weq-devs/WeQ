@@ -11,15 +11,20 @@ const fixture = vi.hoisted(() => ({
   batches: vi.fn(),
   manifest: vi.fn(),
   page: vi.fn(),
+  peers: vi.fn(),
+  groups: vi.fn(),
+  members: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     account: { context: { uin: fixture.uin } },
     services: {
       accountConfig: { getRecord: () => ({ configId: fixture.configId }) },
-      buddyAnalytics: { getBuddyAnalytics: fixture.buddy },
+      buddyAnalytics: { getBuddyAnalytics: fixture.buddy, listAnalysisPeers: fixture.peers },
       annualReport: { getManifest: fixture.manifest, getPageData: fixture.page },
       groupInfo: {
+        listAnalysisGroups: fixture.groups,
+        listAnalysisMembers: fixture.members,
         getGroupStatsReport: fixture.stats,
         getGroupMemberAnalytics: fixture.member,
         getGroupConversationGraph: fixture.graph,
@@ -32,6 +37,39 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.uin = '10001';
   fixture.configId = 'synthetic';
+});
+
+it('历史对象目录检查打开时账号，仅号身份按原值进入分析且空身份不扩大范围', async () => {
+  const api = accountRouter.createCaller({});
+  await api.analysisPeerDirectory({ expectedAccountUin: '10001' });
+  await api.analysisGroupDirectory({ expectedAccountUin: '10001' });
+  await api.analysisMemberDirectory({ groupCode: '777', expectedAccountUin: '10001' });
+  expect(fixture.peers).toHaveBeenCalledOnce();
+  expect(fixture.groups).toHaveBeenCalledOnce();
+  expect(fixture.members).toHaveBeenCalledWith(777n);
+  await api.getGroupMemberAnalytics({
+    groupCode: '777',
+    memberUid: '',
+    memberUin: '9007199254740993',
+    ...range,
+  });
+  expect(fixture.member).toHaveBeenCalledWith(777n, '', 100, 200, '9007199254740993');
+  await expect(api.getGroupMemberAnalytics({ groupCode: '777', memberUid: '' })).rejects.toThrow(
+    '身份不能为空',
+  );
+  fixture.uin = '10002';
+  await expect(api.analysisPeerDirectory({ expectedAccountUin: '10001' })).rejects.toThrow(
+    '账号已切换',
+  );
+  await expect(api.analysisGroupDirectory({ expectedAccountUin: '10001' })).rejects.toThrow(
+    '账号已切换',
+  );
+  await expect(
+    api.analysisMemberDirectory({ groupCode: '777', expectedAccountUin: '10001' }),
+  ).rejects.toThrow('账号已切换');
+  expect(fixture.peers).toHaveBeenCalledOnce();
+  expect(fixture.groups).toHaveBeenCalledOnce();
+  expect(fixture.members).toHaveBeenCalledOnce();
 });
 const range = {
   startTime: 100,
@@ -50,7 +88,7 @@ it('五类分析路由保留同一范围，旧调用仍可省略范围', async (
     expect.objectContaining({ startTime: 100, endTime: 200 }),
   );
   await api.getGroupMemberAnalytics({ groupCode: '777', memberUid: 'u_peer', ...range });
-  expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200);
+  expect(fixture.member).toHaveBeenCalledWith(777n, 'u_peer', 100, 200, undefined);
   await api.getGroupConversationGraph({ groupCode: '777', ...range });
   expect(fixture.graph).toHaveBeenCalledWith(
     777n,

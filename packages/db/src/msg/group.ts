@@ -546,36 +546,47 @@ export class GroupMsgDb {
     return value == null ? null : toBigint(value);
   }
 
+  /** 无需正文解码，保留不在当前群资料缓存中的历史群。 */
+  async listGroupCodes(): Promise<string[]> {
+    const rows = await this.qq.query(`SELECT DISTINCT "40027" FROM group_msg_table`);
+    return rows
+      .map((row) => String(row[0] ?? ''))
+      .filter((code) => /^\d+$/.test(code) && BigInt(code) > 0n);
+  }
+
+  /** 包括退群与无名册发言人；UID 缺失时仍保留原始 QQ 号。 */
+  async listSenderIdentities(groupCode: string): Promise<Array<{ uid: string; uin: string }>> {
+    const rows = await this.qq.query(
+      `SELECT COALESCE("40020",''),COALESCE("40033",0) FROM group_msg_table
+       WHERE "40027" = ? AND (COALESCE("40020",'') != '' OR "40033" > 0)
+       GROUP BY COALESCE("40020",''),COALESCE("40033",0)`,
+      [groupCode],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0]),
+      uin: BigInt(String(row[1])) > 0n ? String(row[1]) : '',
+    }));
+  }
+
   /**
-   * The distinct local-time years in which the table holds at least one
-   * message. Deliberately does NOT filter by sender/own marker: this is the
-   * cheap year-eligibility probe for the report entry page, and it runs on the
-   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
-   * SQLite resolves it as a covering index scan without touching message rows.
-   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
-   * with `"40058" > 0`.
-   *
-   * The year is derived with `'localtime'` so buckets line up with the
-   * report's local-midnight year boundaries.
-   *
-   * 先对 `40058` 做 DISTINCT 再转年份，而不是直接 `DISTINCT strftime(...)`：
-   * 后者逐行算 `strftime`（大库上 1s 级），前者只在真正互异的日期上算。`strftime`
-   * 是 `40058` 的纯函数，结果集严格相同。
+   * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
+   * 先按整数北京日去重，再转换年份；不筛方向，调用方按数据修订缓存。
    */
   async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', d, 'unixepoch', 'localtime') AS INTEGER) AS y
-       FROM (SELECT DISTINCT "40058" AS d FROM group_msg_table WHERE "40058" > 0)`,
+      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
+       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
+             FROM group_msg_table WHERE "40050" > 0)`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
 
   /**
-   * 一个时间窗内**自己发出的**群聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   * 一个时间窗内**自己发出的**群聊按「星期 × 北京小时」聚合，返回 7×24 矩阵。
    *
    * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回全零矩阵 ——
    * 分不清哪些群消息是自己的时候，全群算给自己会把别人的作息也算进来。
-   * 小时/星期用 `'localtime'` 与报告口径对齐。
+   * 小时/星期用显式八小时偏移与报告口径对齐，不读取主机时区。
    */
   async sentWeekdayHourlyTallies(
     opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
@@ -598,8 +609,8 @@ export class GroupMsgDb {
       params.push(BigInt(opts.endTime));
     }
     const rows = await this.qq.query(
-      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
-              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','+8 hours') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','+8 hours') AS INTEGER) AS hour,
               COUNT(*) AS n
        FROM group_msg_table
        WHERE ${conditions.join(' AND ')}

@@ -124,6 +124,7 @@ export function MemberAnalyticsDialog({
       const result = await client.account.getGroupMemberAnalytics.query({
         groupCode,
         memberUid: member.uid,
+        ...(member.uin && /^[1-9]\d*$/.test(member.uin) ? { memberUin: member.uin } : {}),
         ...scope,
       });
       setData(result as MemberAnalyticsData);
@@ -132,7 +133,7 @@ export function MemberAnalyticsDialog({
     } finally {
       setLoading(false);
     }
-  }, [groupCode, member.uid, scope]);
+  }, [groupCode, member.uid, member.uin, scope]);
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再扫一遍。
   const seeded = Boolean(initialData);

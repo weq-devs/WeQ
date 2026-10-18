@@ -1,5 +1,5 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
-import { currentReportYear, isAllTimeYear, reportYearUnixRange } from '../../time';
+import { reportCalendarParts, isAllTimeYear, reportYearUnixRange } from '../../time';
 import type { MonthCompanionCell, MonthsPageData, CarryoverMonth } from './types';
 
 /**
@@ -63,7 +63,8 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
      * 「走过的月份」：当年只画到当前月为止 —— 未来的月份还没有资格。
      * 剩下的月份由滚动补足用去年同月填满（见下），日历永远铺满 12 格。
      */
-    const currentYearMonths = year === currentReportYear() ? new Date().getMonth() + 1 : 12;
+    const today = reportCalendarParts();
+    const currentYearMonths = year === today.year ? today.month : 12;
 
     type PeerMonth = { total: number; mine: number };
     const monthBuckets: Array<Map<string, PeerMonth>> = Array.from(

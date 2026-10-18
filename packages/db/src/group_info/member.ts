@@ -150,6 +150,22 @@ export class GroupMemberDb {
     }));
   }
 
+  /** 分析可选名册包含在群与退群记录，不套用当前成员过滤或分页上限。 */
+  async listAnalysisMembers(
+    groupCode: bigint,
+  ): Promise<Array<{ uid: string; uin: string; nick: string; card: string }>> {
+    const rows = await this.qq.query(
+      `SELECT "1000","1002","20002","64003" FROM group_member3 WHERE "60001" = ?`,
+      [groupCode],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: row[1] == null || String(row[1]) === '0' ? '' : String(row[1]),
+      nick: String(row[2] ?? ''),
+      card: String(row[3] ?? ''),
+    }));
+  }
+
   /**
    * 全群成员的「入群时间快照」—— 小团体分析的原料：谁的入群时间挨得近，谁就是一伙的。
    *

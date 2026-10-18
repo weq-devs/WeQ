@@ -16,27 +16,26 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     trpc: {
       account: {
         annualReport: { getAvailableYears: { useQuery: () => result([2025, 0]) } },
-        exportGroupDirectory: {
+        analysisGroupDirectory: {
           useQuery: () =>
             result([
               { groupCode: '777', groupName: '合成群 A' },
               { groupCode: '888', groupName: '合成群 B' },
             ]),
         },
-        contactsExportPreview: {
-          useQuery: (input: { scope: string; groupCode?: string }) =>
-            result(
-              input.scope === 'friends'
-                ? fixture.friends
-                : [
-                    {
-                      uid: `u_${input.groupCode}`,
-                      uin: '10003',
-                      name: `合成成员 ${input.groupCode}`,
-                      categoryId: 0,
-                    },
-                  ],
-            ),
+        analysisPeerDirectory: { useQuery: () => result(fixture.friends) },
+        analysisMemberDirectory: {
+          useQuery: (input: { groupCode?: string }) =>
+            result([
+              {
+                id: `uid:u_${input.groupCode}`,
+                uid: `u_${input.groupCode}`,
+                uin: '10003',
+                name: `合成成员 ${input.groupCode}`,
+                categoryId: 0,
+              },
+              { id: 'uin:10009', uid: '', uin: '10009', name: '历史仅号成员', source: 'messages' },
+            ]),
         },
       },
     },
@@ -190,4 +189,24 @@ it('日期解析拒绝溢出的自然日期，闭区间按北京时间而非默�
     startTime: 1792252800,
     endTime: 1792339199,
   });
+});
+
+it('历史仅号成员以真实 QQ 号生成请求，不将选择器键伪造为 UID', async () => {
+  const f = mount();
+  try {
+    f.select('报告类型', 'member');
+    act(() => f.button('合成群 A').click());
+    act(() => f.button('历史仅号成员').click());
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'member',
+        groupCode: '777',
+        memberUid: '',
+        memberUin: '10009',
+      }),
+    );
+  } finally {
+    f.close();
+  }
 });

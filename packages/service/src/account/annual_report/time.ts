@@ -19,8 +19,30 @@ export function isAllTimeYear(year: number): boolean {
   return year === ALL_TIME_YEAR;
 }
 
+const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
+const DAY_MS = 86_400_000;
+
+/** 报告固定采用北京时间，不跟随服务端或浏览器的时区。 */
+export function reportCalendarParts(date = new Date()): {
+  year: number;
+  month: number;
+  day: number;
+} {
+  const shifted = new Date(date.getTime() + BEIJING_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+/** 北京日历日期对应的午夜；允许 day 溢出以构造下一日边界。 */
+export function reportCalendarStart(year: number, month = 1, day = 1): Date {
+  return new Date(Date.UTC(year, month - 1, day) - BEIJING_OFFSET_MS);
+}
+
 export function currentReportYear(now = new Date()): number {
-  return now.getFullYear();
+  return reportCalendarParts(now).year;
 }
 
 export function normalizeReportYear(year: number | undefined, now = new Date()): number {
@@ -33,14 +55,14 @@ export function normalizeReportYear(year: number | undefined, now = new Date()):
 }
 
 /**
- * Local-time half-open range: [Jan 1 of year, Jan 1 of next year).
+ * 北京时间半开区间：[当年 1 月 1 日午夜，次年 1 月 1 日午夜)。
  * `null` for {@link ALL_TIME_YEAR} —— 全部时间没有边界。
  */
 export function reportYearRange(year: number): { from: Date; to: Date } | null {
   if (isAllTimeYear(year)) return null;
   return {
-    from: new Date(year, 0, 1, 0, 0, 0, 0),
-    to: new Date(year + 1, 0, 1, 0, 0, 0, 0),
+    from: reportCalendarStart(year),
+    to: reportCalendarStart(year + 1),
   };
 }
 
@@ -81,16 +103,13 @@ export function reportEraLabel(year: number): string {
  */
 export function reportSinceLabel(year: number, firstMessageTime: number | null): string {
   if (!isAllTimeYear(year) || firstMessageTime == null || firstMessageTime <= 0) return '';
-  const date = new Date(firstMessageTime * 1000);
-  return `自 ${date.getFullYear()} 年 ${date.getMonth() + 1} 月起`;
+  const { year: firstYear, month } = reportCalendarParts(new Date(firstMessageTime * 1000));
+  return `自 ${firstYear} 年 ${month} 月起`;
 }
 
 export function localDateKey(timestampSeconds: number): string {
-  const date = new Date(timestampSeconds * 1000);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const { year, month, day } = reportCalendarParts(new Date(timestampSeconds * 1000));
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /**
@@ -103,13 +122,14 @@ export function localDateKey(timestampSeconds: number): string {
 export function reportSpanDays(year: number, oldestSec: number | null, now = new Date()): number {
   if (isAllTimeYear(year)) {
     if (oldestSec == null || oldestSec <= 0) return 1;
-    const days = (now.getTime() - oldestSec * 1000) / 86_400_000;
-    return Math.max(1, Math.ceil(days));
+    const firstDay = Math.floor((oldestSec * 1000 + BEIJING_OFFSET_MS) / DAY_MS);
+    const today = Math.floor((now.getTime() + BEIJING_OFFSET_MS) / DAY_MS);
+    return Math.max(1, today - firstDay + 1);
   }
   if (year !== currentReportYear(now)) {
     const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
     return isLeap ? 366 : 365;
   }
-  const days = (now.getTime() - new Date(year, 0, 1).getTime()) / 86_400_000;
-  return Math.max(1, Math.ceil(days));
+  const days = Math.floor((now.getTime() - reportCalendarStart(year).getTime()) / DAY_MS);
+  return Math.max(1, days + 1);
 }
