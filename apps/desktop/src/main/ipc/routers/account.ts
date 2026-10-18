@@ -79,10 +79,8 @@ import {
   captureGeneratedContent,
   listGeneratedConversations,
   GENERATED_EXPORT_FORMATS,
-  buildPtlogin2JumpUrl,
   buildGroupWpaDeepLink,
   resolveGroupShareAuthKey,
-  fetchClientKey,
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
@@ -4698,9 +4696,9 @@ export const accountRouter = router({
         return { url: landing, autoLogin: false };
       }
       try {
-        const ck = await fetchClientKey(nt, record.qqPid);
-        if (!ck.clientKey) return { url: landing, autoLogin: false };
-        return { url: buildPtlogin2JumpUrl(ck, String(uin), landing), autoLogin: true };
+        const result = await nt.ptFetchJumpUrl(record.qqPid, String(uin), landing);
+        if (!result.success || !result.url) return { url: landing, autoLogin: false };
+        return { url: result.url, autoLogin: true };
       } catch {
         return { url: landing, autoLogin: false };
       }

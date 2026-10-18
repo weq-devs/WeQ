@@ -9,9 +9,8 @@
  * OIDB 往返、猜晚留过期窗口。凭证提供方只负责「拿一次、留着用」，失效交给服务端
  * 自己报 —— 调用方收到业务错误时 `invalidate('tenpay.com')` 再取一次即可。
  *
- * 注意：`tenpay.com` **不在** `PT_LOGIN_DOMAINS` 里（ptlogin2 本地快速登录没有这个
- * 域的抓包配置），所以缓存未命中时只有 OIDB `0x102A_0` 一条路 —— 也正因为如此，
- * 缓存命中能省下的就是每一次 OIDB 往返。
+ * 注意：`tenpay.com` 不在 native 的 ptlogin2 固定域里，所以缓存未命中时由 native
+ * 走 OIDB `0x102A_0` 兜底 —— 缓存命中能省下的就是每一次 OIDB 往返。
  *
  * 另外这条链路天生要求「在线且已注入的 QQ」：红包包走的是 hook 上的 `sendPacket`，
  * 光有 p_skey 也发不出去。
@@ -38,7 +37,8 @@ import { WebCredentialProvider } from './web/credential';
 import type { WebNative } from './web/credential';
 
 /** 查详情所需的 native 面：OIDB 取 p_skey + SSO 发包 + 红包签名。 */
-export type RedBagNative = WebNative & Pick<NtHelperBinding, 'sendPacket' | 'signRedBagRequest'>;
+export type RedBagNative = WebNative &
+  Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket' | 'signRedBagRequest'>;
 
 /** 一次查询的输入 —— 全部来自消息里的 wallet 元素。 */
 export interface RedBagDetailQuery {

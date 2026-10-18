@@ -3752,7 +3752,7 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({}),
     run: async () => {
       onlinePid(); // 只要求在线；clientKey 由 hook 提供
-      const ck = await fetchClientKey(ntHelper(), onlinePid());
+      const ck = await fetchClientKey(ntHelper(), onlinePid(), currentUin());
       if (!ck.clientKey) {
         return {
           ok: false,
@@ -3813,21 +3813,20 @@ export const AI_TOOLS: AiTool[] = [
         site === 'qzone'
           ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
           : 'https://pd.qq.com/';
-      const ck = await fetchClientKey(ntHelper(), pid);
-      if (!ck.clientKey) {
+      const result = await ntHelper().ptFetchJumpUrl(pid, uin, landing);
+      if (!result.success || !result.url) {
         return {
           ok: false,
           site,
           url: landing,
           autoLogin: false,
-          hint: 'clientKey 不可用，退回裸地址（需手动登录）。',
+          hint: result.msg || 'clientKey 不可用，退回裸地址（需手动登录）。',
         };
       }
-      const { buildPtlogin2JumpUrl } = await import('@weq/service');
       return {
         ok: true,
         site,
-        url: buildPtlogin2JumpUrl(ck, uin, landing),
+        url: result.url,
         autoLogin: true,
         hint: 'URL 含一次性凭据，仅在本次会话使用，不要转发。',
       };

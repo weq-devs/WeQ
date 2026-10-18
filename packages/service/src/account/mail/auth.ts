@@ -1,74 +1,9 @@
 import type { NtHelperBinding } from '@weq/native';
-import { buildPtlogin2JumpUrl } from '../web/ptlogin';
-import { parseJsLiteral } from '../web/qzone';
 import { MailHttp, type MailResponse, type MailTransport } from './http';
 import { MailFailure } from './types';
-import { MAIL_ORIGIN, mailEnvelope, object, text, type MailObject } from './wire';
+import { MAIL_ORIGIN, mailEnvelope, text, type MailObject } from './wire';
 
-export const MAIL_LOGIN_APP_ID = '522005705';
-export const MAIL_LOGIN_DAID = '4';
-export const MAIL_LANDING = `${MAIL_ORIGIN}/list/readtemplate?name=login_jump.html&scene=1&login_type=qq&from=qq_panel`;
-const CALLBACK = `${MAIL_ORIGIN}/list/readtemplate?name=common_callback.html&login_type=qqPTLogin&origin=${encodeURIComponent(MAIL_ORIGIN)}`;
-type MailNative = Pick<NtHelperBinding, 'probePtLoginPort'>;
-
-function query(base: string, params: Record<string, string | number>): URL {
-  const url = new URL(base);
-  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
-  return url;
-}
-
-export function localLoginArguments(body: string): unknown[] {
-  const start = body.indexOf('('),
-    end = body.lastIndexOf(')');
-  if (start < 0 || end <= start) throw new MailFailure('auth', 'QQ 本机认证响应无效。');
-  try {
-    const args: unknown = parseJsLiteral(`[${body.slice(start + 1, end)}]`);
-    if (!Array.isArray(args)) throw new Error('arguments');
-    return args;
-  } catch {
-    throw new MailFailure('auth', 'QQ 本机认证响应无效。');
-  }
-}
-
-export function localLoginAccounts(body: string): unknown[] {
-  const start = body.indexOf('[');
-  if (start < 0) throw new MailFailure('auth', 'QQ 未返回账号列表。');
-  try {
-    const value: unknown = parseJsLiteral(body.slice(start));
-    if (!Array.isArray(value)) throw new Error('accounts');
-    return value;
-  } catch {
-    throw new MailFailure('auth', 'QQ 本机账号列表无效。');
-  }
-}
-
-export function mailCheckSigTarget(response: MailResponse): URL {
-  let raw = response.location;
-  if (!raw && response.status === 200) {
-    const args = localLoginArguments(response.body);
-    if (text(args[0]) !== '0')
-      throw new MailFailure('auth', 'QQ 拒绝了邮箱快速登录，请重新登录 QQ。');
-    raw = args.map(text).find((value) => value.startsWith('https://'));
-  }
-  if (!raw) throw new MailFailure('auth', 'QQ 未返回邮箱登录跳转。');
-  const url = new URL(raw, 'https://ssl.ptlogin2.qq.com');
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.pathname !== '/check_sig' ||
-    !new Set([
-      'ssl.ptlogin2.qq.com',
-      'ptlogin2.qq.com',
-      'ptlogin2.mail.qq.com',
-      'ssl.ptlogin2.mail.qq.com',
-    ]).has(url.hostname)
-  )
-    throw new MailFailure('auth', '邮箱登录跳转地址无效。');
-  url.hostname = 'ptlogin2.mail.qq.com';
-  return url;
-}
+type MailNative = Pick<NtHelperBinding, 'ptFetchMailSession'>;
 
 function json(response: MailResponse): unknown {
   if (response.status !== 200) throw new MailFailure('network', '邮箱服务暂时不可用。');
@@ -117,109 +52,36 @@ export class MailAuth {
     if (!/^[1-9]\d{4,19}$/.test(this.uin)) throw new MailFailure('auth', 'QQ 账号无效。');
     const pid = this.onlinePid();
     if (!pid) throw new MailFailure('offline', '请先登录当前账号的 QQ。');
-    const port = this.nt.probePtLoginPort(pid);
-    if (!port.success)
-      throw new MailFailure('offline', '无法连接 QQ 本机登录服务，请确认 QQ 已登录。');
-    const params = {
-      appid: MAIL_LOGIN_APP_ID,
-      daid: MAIL_LOGIN_DAID,
-      pt_3rd_aid: '0',
-      u1: CALLBACK,
-    };
-    await this.transport.request(
-      query('https://xui.ptlogin2.qq.com/cgi-bin/xlogin', {
-        ...params,
-        s_url: CALLBACK,
-        style: '25',
-        target: 'self',
-        low_login: '1',
-        enable_qlogin: '0',
-      }),
-      { signal },
-    );
-    const token = (await this.transport.jar.getCookies('https://xui.ptlogin2.qq.com/')).find(
-      (cookie) => cookie.key === 'pt_local_token',
-    )?.value;
-    if (!token) throw new MailFailure('auth', 'QQ 快速登录未返回认证信息。');
-    const local = `${port.port % 2 ? 'https' : 'http'}://127.0.0.1:${port.port}`;
-    const localParams = {
-      pt_aid: MAIL_LOGIN_APP_ID,
-      daid: MAIL_LOGIN_DAID,
-      pt_3rd_aid: '0',
-      u1: CALLBACK,
-      pt_local_tk: token,
-      r: Math.random(),
-    };
-    const accounts = await this.transport.request(
-      query(`${local}/pt_get_uins`, { ...localParams, callback: 'ptui_getuins_CB' }),
-      { signal, localPort: port.port },
-    );
-    const listed = localLoginAccounts(accounts.body);
-    if (
-      !listed?.some(
-        (entry: unknown) => text(object(entry).uin ?? object(entry).account) === this.uin,
-      )
-    )
-      throw new MailFailure('auth', 'QQ 本机登录账号与当前 WeQ 账号不一致。');
-    const ticket = await this.transport.request(
-      query(`${local}/pt_get_st`, { ...localParams, clientuin: this.uin, callback: '__jp0' }),
-      { signal, localPort: port.port },
-    );
-    const objectStart = ticket.body.indexOf('{');
-    let metadata: MailObject = {};
-    if (objectStart >= 0) {
-      try {
-        metadata = object(parseJsLiteral(ticket.body.slice(objectStart)));
-      } catch {
-        throw new MailFailure('auth', 'QQ 本机票据响应无效。');
-      }
-    }
-    const keyIndex = text(metadata.keyindex ?? metadata.keyIndex) || '19';
-    const clientKey = (await this.transport.jar.getCookies('https://ssl.ptlogin2.qq.com/')).find(
-      (cookie) => cookie.key === 'clientkey',
-    )?.value;
-    if (!clientKey) throw new MailFailure('auth', '请在 QQ 中确认快速登录后重试。');
-    const jumped = await this.transport.request(
-      buildPtlogin2JumpUrl({ clientKey, keyIndex }, this.uin, MAIL_LANDING),
-      { signal },
-    );
-    let target: URL | null = mailCheckSigTarget(jumped);
-    for (let hops = 0; target && hops < 4; hops++) {
-      const response = await this.transport.request(target, { signal });
-      target =
-        response.location && [301, 302, 303, 307, 308].includes(response.status)
-          ? new URL(response.location, target)
-          : null;
-    }
-    if (target) throw new MailFailure('auth', '邮箱登录跳转次数过多。');
-    const mailCookies = await this.transport.jar.getCookies(`${MAIL_ORIGIN}/`);
-    const pskey = mailCookies.findLast(
-      (cookie) =>
-        cookie.key === 'p_skey' &&
-        (cookie.domain === 'mail.qq.com' || cookie.domain === 'wx.mail.qq.com'),
-    )?.value;
-    if (!pskey) throw new MailFailure('auth', 'QQ 未返回邮箱登录票据。');
-    const result = json(
-      await this.transport.request(
-        `${MAIL_ORIGIN}/login/login?scene=1&login_type=qq&from=qq_panel&ss=0`,
-        {
-          signal,
-          form: { auth_type: 3, p_uin: `o${this.uin}`, p_skey: pskey, scene: 1, from: 'qq_panel' },
-        },
-      ),
-    );
-    const data = mailEnvelope(result);
-    if (text(object(object(result).head).location).includes('proxy_spwd'))
-      throw new MailFailure('auth', '邮箱需要二次验证，请先在 QQ 邮箱完成验证后重试。');
-    const sid = text(data.sid);
-    if (!sid) throw new MailFailure('auth', '邮箱尚未开通或需要完成额外验证。');
+    const result = await this.nt.ptFetchMailSession(pid, this.uin);
     signal?.throwIfAborted();
     if (this.disposed || this.onlinePid() !== pid)
       throw new MailFailure('auth', 'QQ 账号状态已变化，请重新连接邮箱。');
-    this.sid = sid;
+    if (!result.success || !result.sid)
+      throw new MailFailure(
+        result.errorKind === 'offline' ? 'offline' : 'auth',
+        result.msg || '邮箱登录失败，请重试。',
+      );
+    this.sid = result.sid;
     // 网页登录会删除 p_skey，但 QQ 面板提醒仍以它认证，不能依赖会话 CookieJar。
-    this.panelPskey = pskey;
+    this.panelPskey = result.panelPskey;
+    await this.seedCookies(result.cookie);
     this.lastValidated = Date.now();
+  }
+
+  /** 把 native 返回的 Cookie 头灌进本地 jar，供附件下载 / WebSocket 复用。 */
+  private async seedCookies(header: string): Promise<void> {
+    for (const part of header.split(';')) {
+      const eq = part.indexOf('=');
+      if (eq <= 0) continue;
+      const name = part.slice(0, eq).trim();
+      const value = part.slice(eq + 1).trim();
+      if (!name || !value) continue;
+      await this.transport.jar.setCookie(
+        `${name}=${value}; Domain=wx.mail.qq.com; Path=/`,
+        MAIL_ORIGIN,
+        { ignoreError: true },
+      );
+    }
   }
 
   async cgi(

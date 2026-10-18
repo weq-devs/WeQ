@@ -99,9 +99,7 @@ describe('detail-embedded collection audio', () => {
       bytes = silk();
     const native = {
       sendOidbPacket: vi.fn(),
-      probePtLoginPort: vi.fn(),
-      ptFetchSkey: vi.fn(),
-      ptFetchPskey: vi.fn(),
+      ptFetchCredentials: vi.fn(),
     };
     const session = {
       context: { uin: '10001' },
@@ -124,7 +122,7 @@ describe('detail-embedded collection audio', () => {
     expect(entries[0]?.receipt).toMatchObject({ state: 'downloaded', role: 'unverified' });
     expect(readFileSync(join(output, entries[0]!.file!))).toEqual(bytes);
     expect(native.sendOidbPacket).not.toHaveBeenCalled();
-    expect(native.probePtLoginPort).not.toHaveBeenCalled();
+    expect(native.ptFetchCredentials).not.toHaveBeenCalled();
   });
   it('honors cancellation before creating a media cache', async () => {
     const path = join(root(), 'cache'),
