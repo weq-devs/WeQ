@@ -21,10 +21,14 @@ import {
   uploadHighwayHttp,
 } from '../highway/highway-client';
 import { cleanNtLocalPath } from './shared';
+import { requireUin } from './write-validation';
+import { detectImageFormat } from '../highway/image-format';
 import type { TrpcNative } from '../transport';
 
 /** group avatar 的 highway 命令号。 */
 export const GROUP_AVATAR_HIGHWAY_CMD = 3000;
+export const SELF_AVATAR_HIGHWAY_CMD = 90;
+export const AVATAR_MAX_BYTES = 16 * 1024 * 1024;
 
 /** `GroupAvatarExtra`（作为 highway 的 extend）。 */
 const GROUP_AVATAR_EXTRA = message([
@@ -54,11 +58,15 @@ export interface SetGroupAvatarParams {
 async function readSource(source: string | Uint8Array): Promise<Uint8Array> {
   if (source instanceof Uint8Array) {
     if (source.length === 0) throw new Error('群头像图片为空');
+    if (source.length > AVATAR_MAX_BYTES) throw new Error('头像图片不能超过 16 MiB');
     return source;
   }
   const path = cleanNtLocalPath(source);
+  const stat = await fsp.stat(path);
+  if (!stat.isFile() || stat.size > AVATAR_MAX_BYTES) throw new Error('头像文件无效或超过 16 MiB');
   const bytes = new Uint8Array(await fsp.readFile(path));
   if (bytes.length === 0) throw new Error(`群头像图片为空：${path}`);
+  if (bytes.length > AVATAR_MAX_BYTES) throw new Error('头像图片不能超过 16 MiB');
   return bytes;
 }
 
@@ -84,14 +92,43 @@ export async function setGroupAvatar(
   if (!Number.isSafeInteger(params.groupId) || params.groupId <= 0) {
     throw new Error(`groupId 必须是正整数，收到 ${String(params.groupId)}`);
   }
+  await uploadAvatar(
+    nt,
+    pid,
+    params,
+    GROUP_AVATAR_HIGHWAY_CMD,
+    encodeGroupAvatarExtra(params.groupId),
+  );
+}
+
+export type SetSelfAvatarParams = Omit<SetGroupAvatarParams, 'groupId'>;
+
+export async function setSelfAvatar(
+  nt: TrpcNative,
+  pid: number,
+  params: SetSelfAvatarParams,
+): Promise<void> {
+  await uploadAvatar(nt, pid, params, SELF_AVATAR_HIGHWAY_CMD, new Uint8Array());
+}
+
+async function uploadAvatar(
+  nt: TrpcNative,
+  pid: number,
+  params: SetSelfAvatarParams,
+  commandId: number,
+  extend: Uint8Array,
+): Promise<void> {
+  requireUin(String(params.uin));
   const bytes = await readSource(params.source);
+  const image = detectImageFormat(bytes);
+  if (image.width <= 0 || image.height <= 0 || image.width > 16384 || image.height > 16384)
+    throw new Error('无法识别头像图片或像素尺寸过大');
   const hashes = computeHashes(bytes);
   const session = await fetchHighwaySession(nt, pid);
-  const extend = encodeGroupAvatarExtra(params.groupId);
   await uploadHighwayHttp({
     session,
     uin: String(params.uin),
-    commandId: GROUP_AVATAR_HIGHWAY_CMD,
+    commandId,
     source: new BufferChunkSource(bytes),
     fileMd5: hashes.md5,
     extend,

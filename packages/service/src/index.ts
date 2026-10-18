@@ -642,6 +642,8 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { AccountWriteService } from './account/account_write';
+export type { AccountWriteIdentity, AccountWriteOutcome } from './account/account_write';
 export type {
   RecallMessageParams,
   SetMemberCardServiceParams,

@@ -134,6 +134,7 @@ import {
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
+  AccountWriteService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -768,6 +769,7 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
   groupModeration: GroupModerationService;
+  accountWrite: AccountWriteService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
@@ -1769,6 +1771,19 @@ export function initAppContext(): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        accountWrite: new AccountWriteService(
+          platform.native.ntHelper,
+          {
+            uin: session.context.uin,
+            selfUid: session.selfUid,
+            getBuddy: (uid) => session.buddies.getBuddy(uid),
+            listCategories: () => session.categories.listCategories(),
+          },
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新打开操作');
+            return resolveOnlinePid();
+          },
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
@@ -2415,6 +2430,19 @@ export function initAppContext(): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        accountWrite: new AccountWriteService(
+          platform.native.ntHelper,
+          {
+            uin: session.context.uin,
+            selfUid: session.selfUid,
+            getBuddy: (uid) => session.buddies.getBuddy(uid),
+            listCategories: () => session.categories.listCategories(),
+          },
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新打开操作');
+            return livePid();
+          },
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };

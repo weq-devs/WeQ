@@ -19,6 +19,14 @@ import {
   RecallPrivate,
   SetGroupAdmin,
   SetGroupMemberCard,
+  SetGroupName,
+  SetGroupSpecialTitle,
+  SetGroupEssence,
+  setGroupAvatar,
+  type SetGroupNameParams,
+  type SetGroupSpecialTitleParams,
+  type SetGroupEssenceParams,
+  type SetGroupAvatarParams,
 } from '@weq/protocol';
 
 /** 撤回一条消息的定位参数。 */
@@ -116,6 +124,22 @@ export class GroupModerationService {
       targetUid: requireTargetUid(params.targetUid),
       card: params.card,
     });
+  }
+
+  async setName(params: SetGroupNameParams): Promise<void> {
+    await SetGroupName.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setSpecialTitle(params: SetGroupSpecialTitleParams): Promise<void> {
+    await SetGroupSpecialTitle.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setEssence(params: SetGroupEssenceParams): Promise<void> {
+    await SetGroupEssence.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setAvatar(params: SetGroupAvatarParams): Promise<void> {
+    await setGroupAvatar(this.nt, this.resolvePid(), params);
   }
 
   /** 踢出单个群成员（OIDB 0x8A0_1，群主 / 管理员）。 */

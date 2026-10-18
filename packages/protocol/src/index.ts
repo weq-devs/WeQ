@@ -160,10 +160,13 @@ export { SetGroupEssence } from './oidb/set-group-essence';
 export type { SetGroupEssenceParams } from './oidb/set-group-essence';
 export {
   GROUP_AVATAR_HIGHWAY_CMD,
+  SELF_AVATAR_HIGHWAY_CMD,
+  AVATAR_MAX_BYTES,
   encodeGroupAvatarExtra,
   setGroupAvatar,
+  setSelfAvatar,
 } from './oidb/set-group-avatar';
-export type { SetGroupAvatarParams } from './oidb/set-group-avatar';
+export type { SetGroupAvatarParams, SetSelfAvatarParams } from './oidb/set-group-avatar';
 export { FetchClientKey } from './oidb/fetch-client-key';
 export type { ClientKeyInfo } from './oidb/fetch-client-key';
 export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
@@ -258,3 +261,37 @@ export {
 } from './ptt-trans';
 export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';
 export { ReportRead, type ReadReportParams } from './msg/report-read';
+export { SetFriendRemark, ClearFriendRemark } from './oidb/set-friend-remark';
+export type { SetFriendRemarkParams } from './oidb/set-friend-remark';
+export { SetGroupRemark } from './oidb/set-group-remark';
+export type { SetGroupRemarkParams } from './oidb/set-group-remark';
+export { SetFriendCategory } from './oidb/set-friend-category';
+export type { SetFriendCategoryParams } from './oidb/set-friend-category';
+export {
+  SetPeerPin,
+  SetFriendDisturb,
+  SetGroupMessagePolicy,
+  GROUP_MESSAGE_POLICIES,
+  SNS_FRIEND_PIN,
+  SNS_GROUP_PIN,
+  SNS_FRIEND_DISTURB,
+} from './oidb/set-peer-preference';
+export type {
+  PeerPreferenceTarget,
+  SetPeerPinParams,
+  SetFriendDisturbParams,
+  GroupMessagePolicy,
+  SetGroupMessagePolicyParams,
+} from './oidb/set-peer-preference';
+export {
+  SetSelfProfile,
+  SetOnlineStatus,
+  PROFILE_NICKNAME,
+  PROFILE_SIGNATURE,
+  PROFILE_GENDER,
+} from './oidb/set-self-profile';
+export type {
+  SelfProfilePatch,
+  SetSelfProfileParams,
+  SetOnlineStatusParams,
+} from './oidb/set-self-profile';

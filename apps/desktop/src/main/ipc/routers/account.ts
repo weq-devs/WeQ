@@ -51,6 +51,7 @@ import {
 } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
+import { createQQWriteRouter } from './qq_write';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
 import { antiRecallRouter } from './anti_recall';
@@ -1364,6 +1365,14 @@ const PICK_SEND_FILE_SPEC: Record<
 };
 
 export const accountRouter = router({
+  qqWrite: createQQWriteRouter((input) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    requireQqOnlineForAlbum(services);
+    return services;
+  }),
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
   // ---- 年度报告（manifest-first, account-scoped）----
