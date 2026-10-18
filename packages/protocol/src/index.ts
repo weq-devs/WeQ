@@ -4,33 +4,26 @@
  *
  *   protobuf.ts           — runtime, schema-driven protobuf encode/decode (no build step).
  *   transport.ts          — sendOidb / sendPacket wrappers around the native addon.
+ *   sign/whitelist.ts     — 签名策略：按 LagrangeV2 WhiteListCommand 推导 needSign。
  *   oidb/invoke.ts        — invokeOidb / invokeTrpc dispatchers + spec shapes.
  *   oidb/shared.ts        — toInt / ensureRetCodeZero / hex utils.
  *   oidb/media-schemas.ts — NTV2 + file + album proto schemas + MediaIndexNode.
  *   oidb/ntv2.ts          — buildNtv2DownloadReq / parseNtv2DownloadUrl.
- *   oidb/get-ptt-url.ts   — GetGroupPttUrl / GetPrivatePttUrl namespaces.
- *   oidb/get-video-url.ts — GetGroupVideoUrl / GetPrivateVideoUrl namespaces.
- *   oidb/get-file-url.ts  — GetGroupFileUrl / GetPrivateFileUrl namespaces.
- *   oidb/list-group-files.ts     — ListGroupFiles (0x6D8_1, 群文件/文件夹分页列表)。
- *   oidb/get-album-media-list.ts — GetAlbumMediaList trpc namespace.
- *   oidb/get-red-pack-skin.ts    — GetRedPackSkin (trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo) trpc namespace.
- *   oidb/get-user-qq-level.ts    — GetUserQqLevel (0xFE1_2, 只查 QQ 等级)。
- *   oidb/get-qq-show-url.ts      — GetQqShowUrl (0xFE1_3, QQ 秀 URL)。
- *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
- *   oidb/send-tuwen-ark.ts       — SendTuwenArk (0xdc2_34, 图文 Ark 卡片发送)。
- *   oidb/send-contact-ark.ts     — 推荐好友 / 推荐群 Ark 卡片（0x12b6_0 取卡 + 0x8b7_5 取卡 → PbSendMsg 直接发送）。
- *   oidb/send-location-ark.ts    — SendLocationArk (trpc LocationArk.SsoSendMessage, 位置卡片发送)。
- *   oidb/send-ai-voice.ts        — SendAiVoice (0x929b_0, AI 声聊语音生成, 仅群聊)。
- *   oidb/send-group-signup.ts    — SendGroupSignup (0x921b_0, 群报名/收集表卡片)。
- *   oidb/send-group-join-request.ts — SendGroupJoinRequest (0x11ec_1, 入群申请)。
- *   oidb/send-poke.ts            — SendPoke (0xED3_1, 戳一戳：群聊 / 私聊)。
- *   oidb/set-reaction.ts         — SetReaction (0x9082_1/2, 群消息贴 / 撤表情回应)。
- *   oidb/get-emoji-likes.ts      — GetEmojiLikes (0x9083_1, 某表情的回应人列表, 可分页)。
- *   oidb/ocr-image.ts            — OcrImage (0xe07_0, 图片 OCR: 上行 url+md5+尺寸, 下行文本 + 文字框坐标)。
- *   redbag/              — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
- *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
- *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
- *   oidb/flashtransfer/  — 闪传 fileset OIDB 服务 + 上传编排。
+ *
+ * 业务 spec 按域分目录，每个目录的 `index.ts` 显式 re-export：
+ *   oidb/group-admin/   — 改名 / 管理员 / 群名片 / 头衔 / 精华 / 头像 / 禁言 / 踢人
+ *   oidb/group-file/    — 群文件列表 / 下载地址 / 文件与文件夹操作
+ *   oidb/group-album/   — 群相册媒体列表与写操作
+ *   oidb/interaction/   — 戳一戳 / 贴表情 / 表情回应人
+ *   oidb/request/       — 加群 / 好友 / 可疑好友申请
+ *   oidb/profile/       — QQ 等级 / QQ 秀 / 资料卡赞 / 在线与输入状态 / 资料
+ *   oidb/custom-face/   — 收藏表情（Faceroam）
+ *   oidb/group-todo/    — 群待办
+ *   oidb/misc/          — OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI 语音 / 群报名
+ *   redbag/             — QQ 红包：口令池 (SsoGetToken) + hb_pc_pre_pack（sso_handle 加密壳 + 二维码/领取 token）。
+ *   scupdate/           — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
+ *   highway/            — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
+ *   oidb/flashtransfer/ — 闪传 fileset OIDB 服务 + 上传编排。
  */
 
 export { encode, decode, message } from './protobuf';
@@ -41,6 +34,7 @@ export type { PacketNative, OidbNative, TrpcNative, OidbRequest } from './transp
 
 export { invokeOidb, invokeTrpc } from './oidb/invoke';
 export type { OidbSpec, TrpcSpec } from './oidb/invoke';
+export { commandNeedsSign, oidbNeedsSign, oidbWireCommand } from './sign/whitelist';
 
 export {
   toInt,
@@ -53,122 +47,15 @@ export {
 export { normalizeMediaNode } from './oidb/media-schemas';
 export type { MediaIndexNode } from './oidb/media-schemas';
 
-export { GetGroupPttUrl, GetPrivatePttUrl } from './oidb/get-ptt-url';
-export { GetGroupVideoUrl, GetPrivateVideoUrl } from './oidb/get-video-url';
-export {
-  GetGroupFileUrl,
-  GetPrivateFileUrl,
-  composeGroupFileDownloadUrl,
-} from './oidb/get-file-url';
-export type { GroupFileDownload } from './oidb/get-file-url';
-export { ListGroupFiles } from './oidb/list-group-files';
-export type { GroupFileItem, GroupFolderItem, GroupFilePage } from './oidb/list-group-files';
-export { GetAlbumMediaList } from './oidb/get-album-media-list';
-export { GetRedPackSkin, RED_PACK_SKIN_TRACE_ID } from './oidb/get-red-pack-skin';
-export type {
-  RedPackSkinInfo,
-  RedPackSkinCover,
-  RedPackSkinJump,
-  RedPackSkinImage,
-  RedPackSkinResponse,
-} from './oidb/get-red-pack-skin';
-export { GetUserQqLevel } from './oidb/get-user-qq-level';
-export type { QqLevelInfo } from './oidb/get-user-qq-level';
-export { GetQqShowUrl } from './oidb/get-qq-show-url';
-export type { QqShowInfo } from './oidb/get-qq-show-url';
-export { GetProfileLike } from './oidb/get-profile-like';
-export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
-export {
-  OcrImage,
-  OCR_CLIENT_TAG,
-  OCR_TASK_TYPE,
-  quadToRect,
-  rectToQuad,
-  scaleOcrPoints,
-  scaleOcrRect,
-} from './oidb/ocr-image';
-export type { OcrBlock, OcrLanguage, OcrPoint, OcrRect, OcrResult } from './oidb/ocr-image';
-export { SendTuwenArk } from './oidb/send-tuwen-ark';
-export type { SendTuwenArkParams, SendTuwenArkResult } from './oidb/send-tuwen-ark';
-export {
-  GetBuddyRecommendArk,
-  GetGroupRecommendArk,
-  getContactArk,
-  sendBuddyContactArk,
-  sendContactArk,
-  sendGroupContactArk,
-} from './oidb/send-contact-ark';
-export type {
-  BuddyRecommendArkParams,
-  ContactArkKind,
-  ContactArkNative,
-  ContactArkPeerType,
-  GroupRecommendArkParams,
-  SendContactArkParams,
-  SendContactArkResult,
-} from './oidb/send-contact-ark';
-export { SendLocationArk, LOCATION_ARK_CMD } from './oidb/send-location-ark';
-export type { SendLocationArkParams } from './oidb/send-location-ark';
-export { SendAiVoice } from './oidb/send-ai-voice';
-export type {
-  SendAiVoiceParams,
-  SendAiVoiceResult,
-  AiVoiceFileInfo,
-} from './oidb/send-ai-voice';
-export {
-  SendGroupSignup,
-  SIGNUP_METHOD_DIRECT,
-  SIGNUP_METHOD_IMAGE,
-  SIGNUP_MAX_COUNT_DEFAULT,
-  SIGNUP_FIELD10_DEFAULT,
-} from './oidb/send-group-signup';
-export type {
-  SendGroupSignupParams,
-  SendGroupSignupImage,
-} from './oidb/send-group-signup';
-export {
-  SendGroupJoinRequest,
-  JOIN_REQUEST_FIELD1,
-  JOIN_REQUEST_SOURCE_ID,
-} from './oidb/send-group-join-request';
-export type { SendGroupJoinRequestParams } from './oidb/send-group-join-request';
-export { SendPoke } from './oidb/send-poke';
-export type { SendPokeParams } from './oidb/send-poke';
-export { SetReaction } from './oidb/set-reaction';
-export type { SetReactionParams } from './oidb/set-reaction';
-export { GetEmojiLikes } from './oidb/get-emoji-likes';
-export type {
-  GetEmojiLikesParams,
-  GetEmojiLikesResult,
-  EmojiLikeUser,
-} from './oidb/get-emoji-likes';
-export { SetGroupName } from './oidb/set-group-name';
-export type { SetGroupNameParams } from './oidb/set-group-name';
-export { MuteGroupAll, MUTE_ALL_PERMANENT } from './oidb/mute-group-all';
-export type { MuteGroupAllParams } from './oidb/mute-group-all';
-export { MuteGroupMember } from './oidb/mute-group-member';
-export type { MuteGroupMemberParams } from './oidb/mute-group-member';
-export { KickGroupMember } from './oidb/kick-group-member';
-export type { KickGroupMemberParams } from './oidb/kick-group-member';
-export { SetGroupAdmin } from './oidb/set-group-admin';
-export type { SetGroupAdminParams } from './oidb/set-group-admin';
-export { SetGroupMemberCard } from './oidb/set-group-member-card';
-export type { SetGroupMemberCardParams } from './oidb/set-group-member-card';
-export { SetGroupSpecialTitle, SPECIAL_TITLE_PERMANENT } from './oidb/set-group-special-title';
-export type { SetGroupSpecialTitleParams } from './oidb/set-group-special-title';
-export { SetGroupEssence } from './oidb/set-group-essence';
-export type { SetGroupEssenceParams } from './oidb/set-group-essence';
-export {
-  GROUP_AVATAR_HIGHWAY_CMD,
-  encodeGroupAvatarExtra,
-  setGroupAvatar,
-} from './oidb/set-group-avatar';
-export type { SetGroupAvatarParams } from './oidb/set-group-avatar';
-export { FetchClientKey } from './oidb/fetch-client-key';
-export type { ClientKeyInfo } from './oidb/fetch-client-key';
-export { FetchDownloadRkeys } from './oidb/fetch-download-rkeys';
-export type { DownloadRkey } from './oidb/fetch-download-rkeys';
-export { FetchPskeyOidb } from './oidb/fetch-pskey';
+// ───────────────────── OIDB / trpc 业务 spec（按域分组） ─────────────────────
+
+export * from './oidb/group-admin';
+export * from './oidb/group-file';
+export * from './oidb/group-album';
+export * from './oidb/interaction';
+export * from './oidb/request';
+export * from './oidb/profile';
+export * from './oidb/misc';
 export {
   RedBagDetail,
   RedBagGrab,
@@ -228,7 +115,6 @@ export {
   RED_BAG_SPLIT,
   RED_BAG_SSO_HANDLE_CMD,
 } from './redbag/schemas';
-export { RequestDecryptKey } from './oidb/request-decrypt-key';
 
 export * from './scupdate';
 export * from './highway';
