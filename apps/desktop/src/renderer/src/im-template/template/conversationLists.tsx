@@ -62,6 +62,8 @@ import type {
 } from './types';
 import { GROUP_NOTIFICATION_SECTIONS, groupNotificationMode } from '../../lib/groupNotifications';
 import { displayUserName } from './user';
+import { intimateRelationOf } from '../../lib/profileRelations';
+import '../../styles/contact-relations.css';
 
 /**
  * Progressive rendering for large lists:
@@ -1110,58 +1112,74 @@ export function ContactList({
               </div>
             ) : null}
             {open
-              ? category.items.map((contact) => (
-                  <button
-                    key={contact.id}
-                    className={cn(
-                      listRowClass(
-                        !selection.selectionMode && contact.id === activeContactId,
-                        'contact-row',
-                      ),
-                      'contact-cat-row',
-                      selection.selectionMode &&
-                        selection.selectedIds.has(contact.id) &&
-                        'is-multiselected',
-                    )}
-                    aria-pressed={
-                      selection.selectionMode ? selection.selectedIds.has(contact.id) : undefined
-                    }
-                    {...multi.itemProps(contact.id)}
-                    onClick={() => onSelect(contact)}
-                  >
-                    <Avatar
-                      name={displayUserName(contact)}
-                      avatarUrl={contact.avatarUrl}
-                      seed={contact.identityValue}
-                    />
-                    <span className={cn('row-main', 'contact-card-main')}>
-                      <span className={cn('contact-card-nickname')}>
-                        {displayUserName(contact)}
-                        {contact.kind === 'bot' ? (
-                          <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                            <Bot size={12} strokeWidth={2.4} />
-                          </small>
-                        ) : null}
-                      </span>
-                      <span className={cn('contact-card-bottom')}>
-                        {contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
-                          <span className={cn('contact-card-status')}>
-                            <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                            <span>[{contact.onlineStatusObj.displayStatus}]</span>
-                          </span>
-                        ) : null}
-                        {contact.kind !== 'bot' &&
-                        contact.identityLabel !== '设备' &&
-                        category.id !== 'special:devices' &&
-                        category.id !== 'special:bots' ? (
-                          <span className={cn('contact-card-signature')}>
-                            {contact.signature || '这个人很懒，什么都没留下'}
+              ? category.items.map((contact) => {
+                  const relation = intimateRelationOf(contact);
+                  return (
+                    <button
+                      key={contact.id}
+                      className={cn(
+                        listRowClass(
+                          !selection.selectionMode && contact.id === activeContactId,
+                          'contact-row',
+                        ),
+                        'contact-cat-row',
+                        selection.selectionMode &&
+                          selection.selectedIds.has(contact.id) &&
+                          'is-multiselected',
+                      )}
+                      aria-pressed={
+                        selection.selectionMode ? selection.selectedIds.has(contact.id) : undefined
+                      }
+                      {...multi.itemProps(contact.id)}
+                      onClick={() => onSelect(contact)}
+                    >
+                      <span className="contact-relation-avatar">
+                        <Avatar
+                          name={displayUserName(contact)}
+                          avatarUrl={contact.avatarUrl}
+                          seed={contact.identityValue}
+                        />
+                        {relation ? (
+                          <span
+                            className="contact-relation-mark"
+                            role="img"
+                            aria-label={`亲密关系：${relation.label}`}
+                            title={relation.label}
+                          >
+                            <relation.Icon size={13} aria-hidden="true" />
                           </span>
                         ) : null}
                       </span>
-                    </span>
-                  </button>
-                ))
+                      <span className={cn('row-main', 'contact-card-main')}>
+                        <span className={cn('contact-card-nickname')}>
+                          {displayUserName(contact)}
+                          {contact.kind === 'bot' ? (
+                            <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                              <Bot size={12} strokeWidth={2.4} />
+                            </small>
+                          ) : null}
+                        </span>
+                        <span className={cn('contact-card-bottom')}>
+                          {contact.onlineStatusObj &&
+                          contact.onlineStatusObj.typeName !== '未知' ? (
+                            <span className={cn('contact-card-status')}>
+                              <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                              <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                            </span>
+                          ) : null}
+                          {contact.kind !== 'bot' &&
+                          contact.identityLabel !== '设备' &&
+                          category.id !== 'special:devices' &&
+                          category.id !== 'special:bots' ? (
+                            <span className={cn('contact-card-signature')}>
+                              {contact.signature || '这个人很懒，什么都没留下'}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })
               : null}
           </div>
         );

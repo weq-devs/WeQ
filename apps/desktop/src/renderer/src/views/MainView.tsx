@@ -18,6 +18,7 @@ import React, {
 } from 'react';
 import { trpc } from '../trpc/client';
 import { findReplyPreview } from '../lib/replyPreview';
+import { intimateRelationOf } from '../lib/profileRelations';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
@@ -3802,6 +3803,11 @@ export function MainView(): ReactElement {
                 void specialCare.refetch();
               }
             : undefined,
+      },
+      {
+        id: 'special:intimate',
+        name: '亲密关系',
+        items: buddyContacts.filter((contact) => intimateRelationOf(contact) !== null),
       },
     ];
   }, [
