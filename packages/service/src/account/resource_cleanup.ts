@@ -20,7 +20,7 @@
  * paths) is deliberately NOT a target, so no cleanup mode can ever touch it.
  */
 
-import { rmSync, mkdirSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { rmSync, mkdirSync, existsSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
@@ -235,7 +235,15 @@ export class ResourceCleanupService {
       });
       return null;
     }
-    return abs;
+    try {
+      const realBase = realpathSync(base);
+      const realDir = realpathSync(abs);
+      if (realDir === realBase || !realDir.startsWith(realBase + sep)) return null;
+      // Use the canonical path so a linked parent cannot redirect later I/O.
+      return realDir;
+    } catch {
+      return null;
+    }
   }
 
   // ── listing (size scan) ──────────────────────────────────────────────────────

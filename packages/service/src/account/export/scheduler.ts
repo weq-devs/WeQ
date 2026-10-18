@@ -85,7 +85,13 @@ export interface ScheduleConversation {
   total: number;
 }
 
-export type ScheduleOutcome = 'completed' | 'partial' | 'failed' | 'skipped' | 'cancelled';
+export type ScheduleOutcome =
+  | 'running'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled';
 
 /** One firing of a schedule — written into the history ring. */
 export interface ScheduleTrigger {
@@ -170,6 +176,10 @@ export class ExportScheduler extends EventEmitter {
   /** Set while a fire is mid-flight; new fires triggered by a tick that races
    *  with a still-running one bail out instead of stacking. */
   private firing = false;
+  private stopped = false;
+  private startingBatches = new Set<string>();
+  private activeBatches = new Map<string, string[]>();
+  private outcomeListeners = new Set<() => void>();
 
   constructor(
     cacheDir: string,
@@ -293,14 +303,18 @@ export class ExportScheduler extends EventEmitter {
 
   /** Release the timer; called from `AppContext.clearAccount`. */
   stop(): void {
+    this.stopped = true;
     if (this.wakeHandle) clearTimeout(this.wakeHandle);
     this.wakeHandle = null;
+    for (const unsubscribe of this.outcomeListeners) unsubscribe();
+    this.outcomeListeners.clear();
   }
 
   // ---- wake loop ----
 
   private scheduleNextWake(): void {
     if (this.wakeHandle) clearTimeout(this.wakeHandle);
+    if (this.stopped) return;
     let soonest: number | null = null;
     for (const t of this.tasks.values()) {
       if (!t.enabled || t.nextRunAt == null) continue;
@@ -310,7 +324,8 @@ export class ExportScheduler extends EventEmitter {
       this.wakeHandle = null;
       return;
     }
-    const delayMs = Math.max(0, soonest * 1000 - Date.now());
+    // An offline/conflicting due run must not spin a zero-delay retry loop.
+    const delayMs = Math.max(1000, soonest * 1000 - Date.now());
     // Cap delay so a long sleep eventually re-checks the clock (recompute path
     // catches any triggers that piled up in the gap).
     const capped = Math.min(delayMs, 60 * 60 * 1000);
@@ -326,7 +341,7 @@ export class ExportScheduler extends EventEmitter {
 
   /** Walk every schedule; fire each whose `nextRunAt <= now`. */
   private async tick(): Promise<void> {
-    if (this.firing) return;
+    if (this.stopped || this.firing) return;
     const now = Math.floor(Date.now() / 1000);
     const due: ScheduledTask[] = [];
     for (const t of this.tasks.values()) {
@@ -339,6 +354,7 @@ export class ExportScheduler extends EventEmitter {
       // Sequential: avoid hammering ExportTaskManager / QQ for many schedules
       // firing simultaneously (midnight = many "daily" tasks at once).
       for (const t of due) {
+        if (this.stopped) break;
         await this.fire(t, 'scheduled');
       }
     } finally {
@@ -351,13 +367,18 @@ export class ExportScheduler extends EventEmitter {
   private async fire(t: ScheduledTask, reason: 'scheduled' | 'manual'): Promise<ScheduleTrigger> {
     const at = Math.floor(Date.now() / 1000);
     const taskIds: string[] = [];
+    if (this.stopped) return { at, taskIds, outcome: 'cancelled' };
 
     // --- guards (record skip in history, don't throw) ---
     if (t.enabled === false && reason === 'scheduled') {
       return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '已暂停' });
     }
     // Conflict: a previous run for this same schedule still has live tasks.
-    if (this.hasRunning(t.history[0]?.taskIds)) {
+    if (
+      this.startingBatches.has(t.id) ||
+      this.hasRunning(this.activeBatches.get(t.id)) ||
+      t.history.some((trigger) => this.hasRunning(trigger.taskIds))
+    ) {
       return this.recordOutcome(t, {
         at,
         taskIds,
@@ -372,11 +393,27 @@ export class ExportScheduler extends EventEmitter {
       return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '未选择会话' });
     }
 
+    this.startingBatches.add(t.id);
+    try {
+      return await this.startBatch(t, reason, at);
+    } finally {
+      this.startingBatches.delete(t.id);
+    }
+  }
+
+  private async startBatch(
+    t: ScheduledTask,
+    reason: 'scheduled' | 'manual',
+    at: number,
+  ): Promise<ScheduleTrigger> {
+    const taskIds: string[] = [];
+
     // --- run the template via ExportTaskManager.startTask ---
     const range = resolveRange(t.options.range, at);
     const formats = t.formats?.length ? t.formats : [t.format];
     let firstError: string | null = null;
     for (const c of t.conversations) {
+      if (this.stopped) break;
       // 多格式在同一个任务里完成（同一 bundle，媒体 / 头像 / 装扮只带一份）。
       const carryResources = true;
       try {
@@ -426,24 +463,43 @@ export class ExportScheduler extends EventEmitter {
     }
 
     if (taskIds.length === 0) {
-      return this.recordOutcome(t, {
-        at,
-        taskIds,
-        outcome: 'failed',
-        note: firstError ?? '启动失败',
-      });
+      return this.recordOutcome(
+        t,
+        {
+          at,
+          taskIds,
+          outcome: 'failed',
+          note: firstError ?? '启动失败',
+        },
+        reason === 'scheduled',
+      );
     }
 
-    // Watch the batch and aggregate an outcome into history once they settle.
-    this.watchOutcome(t, taskIds, firstError);
-    return { at, taskIds, outcome: 'partial' };
+    // Persist the running batch and book the next cadence before yielding to the wake loop.
+    this.activeBatches.set(t.id, taskIds);
+    const trigger = this.recordOutcome(
+      t,
+      { at, taskIds, outcome: 'running' },
+      reason === 'scheduled',
+    );
+    if (!this.stopped) this.watchOutcome(t, trigger, firstError);
+    return trigger;
   }
 
   /** Subscribe to ExportTaskManager progress; on every task terminal event,
    *  record an aggregate outcome into the schedule's history (once). */
-  private watchOutcome(t: ScheduledTask, taskIds: string[], firstError: string | null): void {
+  private watchOutcome(
+    t: ScheduledTask,
+    trigger: ScheduleTrigger,
+    firstError: string | null,
+  ): void {
+    const taskIds = trigger.taskIds;
     const expected = new Set(taskIds);
     const states = new Map<string, 'completed' | 'failed' | 'cancelled'>();
+    const unsubscribe = (): void => {
+      this.deps.taskManager.off('progress', onProgress);
+      this.outcomeListeners.delete(unsubscribe);
+    };
     const onProgress = (p: TaskProgress): void => {
       if (!expected.has(p.taskId)) return;
       if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled') {
@@ -460,25 +516,35 @@ export class ExportScheduler extends EventEmitter {
         if (!states.has(p.taskId)) {
           states.set(p.taskId, saveFailed ? 'failed' : p.status);
           if (states.size === expected.size) {
-            this.deps.taskManager.off('progress', onProgress);
+            unsubscribe();
+            if (this.activeBatches.get(t.id) === taskIds) this.activeBatches.delete(t.id);
             const allDone = [...states.values()].every((s) => s === 'completed');
-            const anyFailed = [...states.values()].some((s) => s === 'failed' || s === 'cancelled');
-            const outcome: ScheduleOutcome = allDone
-              ? 'completed'
-              : anyFailed
-                ? 'partial'
-                : 'partial';
-            this.recordOutcome(t, {
-              at: Math.floor(Date.now() / 1000),
-              taskIds: [...expected],
+            const outcome: ScheduleOutcome = allDone && !firstError ? 'completed' : 'partial';
+            Object.assign(trigger, {
               outcome,
               ...(firstError && outcome !== 'completed' ? { note: firstError } : {}),
             });
+            t.updatedAt = Math.floor(Date.now() / 1000);
+            this.save();
+            this.notify();
           }
         }
       }
     };
     this.deps.taskManager.on('progress', onProgress);
+    this.outcomeListeners.add(unsubscribe);
+    // A very small export may finish before its startup promise resolves.
+    for (const taskId of taskIds) {
+      const task = this.deps.taskManager.getTask(taskId);
+      if (task)
+        onProgress({
+          taskId,
+          status: task.status,
+          progress: task.progress,
+          current: task.current,
+          message: '',
+        });
+    }
   }
 
   /** Conflict check: are any of `taskIds` still 'running' in the task manager? */
@@ -486,7 +552,15 @@ export class ExportScheduler extends EventEmitter {
     if (!taskIds || taskIds.length === 0) return false;
     for (const id of taskIds) {
       const t = this.deps.taskManager.getTask(id);
-      if (t && (t.status === 'running' || t.status === 'pending' || t.save?.status === 'saving'))
+      if (
+        t &&
+        (t.status === 'running' ||
+          t.status === 'pending' ||
+          t.save?.status === 'saving' ||
+          (t.status === 'completed' &&
+            t.save?.policy.mode !== 'after' &&
+            t.save?.status === 'pending'))
+      )
         return true;
     }
     return false;
@@ -495,11 +569,15 @@ export class ExportScheduler extends EventEmitter {
   /** Record a trigger into history (capped), reschedule, persist.
    *  Skips never advance `nextRunAt` — the schedule still owes the same run;
    *  the next tick will re-check the same instant. Other outcomes (success,
-   *  partial, failed, manual) advance normally. */
-  private recordOutcome(t: ScheduledTask, trigger: ScheduleTrigger): ScheduleTrigger {
+   *  partial, failed) advance at startup; manual runs preserve the cadence. */
+  private recordOutcome(
+    t: ScheduledTask,
+    trigger: ScheduleTrigger,
+    advance = true,
+  ): ScheduleTrigger {
     t.history.unshift(trigger);
     if (t.history.length > MAX_HISTORY) t.history.length = MAX_HISTORY;
-    if (trigger.outcome !== 'skipped') {
+    if (advance && trigger.outcome !== 'skipped') {
       t.nextRunAt = computeNextRun(t.schedule, trigger.at);
     }
     t.updatedAt = trigger.at;

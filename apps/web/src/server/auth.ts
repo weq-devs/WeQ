@@ -39,6 +39,8 @@ export interface AuthConfig {
 
 interface Session {
   expiresAt: number;
+  listeners?: Set<() => void>;
+  timer?: NodeJS.Timeout;
 }
 
 interface FailRecord {
@@ -122,18 +124,55 @@ export class AuthGate {
     if (!sid) return false;
     const session = this.sessions.get(sid);
     if (!session) return false;
-    if (session.expiresAt < Date.now()) {
-      this.sessions.delete(sid);
+    if (session.expiresAt <= Date.now()) {
+      this.revoke(sid);
       return false;
     }
     session.expiresAt = Date.now() + SESSION_TTL_MS;
+    this.scheduleExpiry(sid, session);
     return true;
+  }
+
+  /** Long-lived transports must be disconnected on logout and idle expiry. */
+  watchSession(req: IncomingMessage, onRevoke: () => void): () => void {
+    const sid = readCookie(req.headers.cookie, SESSION_COOKIE);
+    const session = sid ? this.sessions.get(sid) : undefined;
+    if (!sid || !session || session.expiresAt <= Date.now()) {
+      if (sid) this.revoke(sid);
+      onRevoke();
+      return () => {};
+    }
+    session.listeners ??= new Set();
+    session.listeners.add(onRevoke);
+    this.scheduleExpiry(sid, session);
+    return () => {
+      session.listeners?.delete(onRevoke);
+      if (!session.listeners?.size && session.timer) {
+        clearTimeout(session.timer);
+        session.timer = undefined;
+      }
+    };
+  }
+
+  private scheduleExpiry(sid: string, session: Session): void {
+    if (!session.listeners?.size) return;
+    if (session.timer) clearTimeout(session.timer);
+    session.timer = setTimeout(() => this.revoke(sid), Math.max(0, session.expiresAt - Date.now()));
+    session.timer.unref();
+  }
+
+  private revoke(sid: string): void {
+    const session = this.sessions.get(sid);
+    this.sessions.delete(sid);
+    if (session?.timer) clearTimeout(session.timer);
+    for (const listener of session?.listeners ?? []) listener();
+    session?.listeners?.clear();
   }
 
   /** Drop the caller's session and clear the cookie. */
   logout(req: IncomingMessage, res: ServerResponse): void {
     const sid = readCookie(req.headers.cookie, SESSION_COOKIE);
-    if (sid) this.sessions.delete(sid);
+    if (sid) this.revoke(sid);
     res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
   }
 }

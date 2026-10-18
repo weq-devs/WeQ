@@ -67,7 +67,11 @@ import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
 import { qzoneRouter } from './qzone';
 import { mutualMarkRouter } from './mutual_mark';
-import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
+import {
+  assistantBus,
+  activeAssistantRuns,
+  type AssistantStreamEvent,
+} from '../../mcp/assistant_bus';
 import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -275,11 +279,7 @@ const agentLabModels = z.object({
   voiceClone: agentLabModelRef.optional(),
 });
 
-/**
- * 进行中的助手任务：runId → AbortController。chatWithAssistant 建、结束时清；
- * abortAssistantRun 据此掐断（用户点「停止」）。模块级单例，与 assistantBus 同层。
- */
-const activeAssistantRuns = new Map<string, AbortController>();
+/** In-flight collection detail syncs, cancelled by their explicit stop endpoint. */
 const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */

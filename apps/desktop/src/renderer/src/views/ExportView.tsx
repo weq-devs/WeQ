@@ -2372,6 +2372,8 @@ function fmtRel(sec: number | null): string {
 
 function outcomeLabel(t: { outcome: string; skipReason?: string }): string {
   switch (t.outcome) {
+    case 'running':
+      return '运行中';
     case 'completed':
       return '完成';
     case 'partial':
