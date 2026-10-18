@@ -292,6 +292,9 @@ export function createReportQueries(
       /**
        * 冠军群的全体正文（解码后）。同群同窗口只扫一次，返回共享只读数组。
        */
+      async weeklyCounts(groupCodes: string[], startTime: number, endTime: number) {
+        return session.groupMsgs.countWeeklyByGroups(groupCodes, { startTime, endTime });
+      },
       async speechRows(groupCode: string, startTime: number, endTime: number) {
         const key = `${groupCode}:${startTime}:${endTime}`;
         let running = groupSpeechCache.get(key);

@@ -17,7 +17,7 @@
 
 ## 开发环境
 
-- **Node.js** ≥ 22
+- **Node.js** ≥ 22.12.0
 - **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@12.8.1`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
 
 ```bash

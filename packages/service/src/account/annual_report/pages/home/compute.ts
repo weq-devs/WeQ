@@ -1,7 +1,8 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
 import { isAllTimeYear, reportYearUnixRange } from '../../time';
 import { segmentWords } from '../../../text_segment';
-import type { HomeGroupTop, HomePageData, HomeTopicWord } from './types';
+import { weekStartKey } from '../../../analytics_weeks';
+import type { HomeGroupCard, HomeGroupTop, HomePageData, HomeTopicWord } from './types';
 
 /** 词云与话题行共用的素材上限：太多颗词会让背景抢走群名的视线。 */
 const TOPIC_KEEP = 24;
@@ -26,7 +27,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
     title: '我的主场',
     description: '这一年，你把哪个群聊成了自己的主场。',
     order: 8,
-    version: '0.1.0',
+    version: '0.2.1',
     apiVersion: 1,
     category: '群聊',
     enabledByDefault: true,
@@ -52,11 +53,48 @@ export const homePage: ReportPageDefinition<HomePageData> = {
     if (ranked.length === 0) {
       return {
         year,
+        groups: [],
         activeGroupCount: 0,
         groupSentTotal,
         top: null,
       };
     }
+
+    // 轮盘卡片：前 8 个群 + 一年内的周消息曲线（只扫群号 / 发送时间）。
+    const cardLeads = ranked.slice(0, 8);
+    let weeklyRows: Array<{ groupCode: string; week: number; count: number }> = [];
+    try {
+      weeklyRows = await q.group.weeklyCounts(
+        cardLeads.map((row) => row.groupCode),
+        startSec,
+        endSec,
+      );
+    } catch {
+      // sparkline 只是装饰：查询失败不能把整页弄没，卡片仍显示数字。
+      weeklyRows = [];
+    }
+    const spanWeeks = reportWeekSpan(startSec, endSec, weeklyRows);
+    const keepWeeks = Math.min(53, spanWeeks);
+    const weekBase = spanWeeks - keepWeeks;
+    const weeklyByCode = new Map<string, number[]>();
+    for (const row of weeklyRows) {
+      const index = row.week - weekBase;
+      if (index < 0 || index >= keepWeeks) continue;
+      let series = weeklyByCode.get(row.groupCode);
+      if (!series) {
+        series = new Array<number>(keepWeeks).fill(0);
+        weeklyByCode.set(row.groupCode, series);
+      }
+      series[index] = (series[index] ?? 0) + row.count;
+    }
+    const groups: HomeGroupCard[] = cardLeads.map((row) => ({
+      groupCode: row.groupCode,
+      groupName: row.groupName,
+      sentCount: row.sentCount,
+      totalCount: row.totalCount,
+      memberCount: row.memberCount,
+      weekly: weeklyByCode.get(row.groupCode) ?? new Array<number>(keepWeeks).fill(0),
+    }));
 
     const lead = ranked[0]!;
     const [rows, standing] = await Promise.all([
@@ -94,6 +132,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
 
     return {
       year,
+      groups,
       activeGroupCount: ranked.length,
       groupSentTotal,
       top,
@@ -104,4 +143,23 @@ export const homePage: ReportPageDefinition<HomePageData> = {
 /** 次数降序、同次数字典序 —— 稳定，不给随机性留空间。 */
 function rankTopics(a: HomeTopicWord, b: HomeTopicWord): number {
   return b.count - a.count || a.word.localeCompare(b.word, 'zh');
+}
+
+/** 报告窗口覆盖多少个「周一起点」——必须与 countWeeklyByGroups 的 SQL 同口径。 */
+export function reportWeekSpan(
+  startSec: number,
+  endSec: number,
+  weeklyRows: ReadonlyArray<{ week: number }> = [],
+): number {
+  if (startSec > 0 && endSec > startSec) {
+    const first = localDaySeconds(weekStartKey(new Date(startSec * 1000)));
+    const last = localDaySeconds(weekStartKey(new Date((endSec - 1) * 1000)));
+    return Math.max(1, Math.round((last - first) / (7 * 86400)) + 1);
+  }
+  return Math.max(1, weeklyRows.reduce((max, row) => Math.max(max, row.week), 0) + 1);
+}
+
+function localDaySeconds(key: string): number {
+  const [year, month, day] = key.split('-').map(Number);
+  return Math.floor(new Date(year!, month! - 1, day!, 0, 0, 0, 0).getTime() / 1000);
 }

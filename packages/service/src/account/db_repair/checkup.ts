@@ -32,7 +32,19 @@ export type DbRepairCheckupVerdict =
 /** 结构体检那一格。 */
 export type DbRepairCheckupIntegrity =
   | { ran: true; healthy: boolean; corruptedTables: string[] }
-  | { ran: false; error: string };
+  | {
+      ran: false;
+      error: string;
+      /**
+       * 检查**没跑成，但错误本身就是损坏信号**（SQLITE_CORRUPT / NOTADB、
+       * `database disk image is malformed` 等）。
+       *
+       * 这时不能只说"结构检查没跑成"：`PRAGMA integrity_check` 会在读到坏页时
+       * 直接抛错，抛错本身就是它给出的结论 —— 这正是用户看到的那句
+       * "结构检查没跑成 (database disk image is malformed)" 却没被判成损坏的原因。
+       */
+      corrupt?: boolean;
+    };
 
 /**
  * 页级体检那一格。
@@ -71,7 +83,22 @@ export function concludeCheckup(
   pages: DbRepairCheckupPages,
 ): { verdict: DbRepairCheckupVerdict; summary: string } {
   if (!integrity.ran && !pages.ran) {
+    if (integrity.corrupt) {
+      return {
+        verdict: 'corrupted',
+        summary: `结构检查报告数据库损坏（${integrity.error}）。修复会重建这个库，把还能读出来的内容搬过去。`,
+      };
+    }
     return { verdict: 'error', summary: `检查没跑起来：${integrity.error}` };
+  }
+
+  // 结构检查自己抛了损坏错误：它没跑完，但**已经给出了损坏结论**。
+  // 与"两格都没跑成"分开处理：页级即使干净，也不能把损坏压成"未判定"。
+  if (!integrity.ran && integrity.corrupt) {
+    return {
+      verdict: 'corrupted',
+      summary: `结构检查报告数据库损坏（${integrity.error}）。修复会重建这个库，把还能读出来的内容搬过去。`,
+    };
   }
 
   if (integrity.ran && !integrity.healthy) {

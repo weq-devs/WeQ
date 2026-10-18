@@ -1,0 +1,387 @@
+/* ===========================================================================
+   会话分析（私聊 / 群聊）—— 时间轴、成员周卡、区间选择。
+
+   与既有的 `ga-*` / `ba-*` 样式并存；这里只加新的 `ca-*` 组件。所有颜色走
+   design token，深浅色各写一份，强调色用 --weq-accent-effective。
+   =========================================================================== */
+
+.ca-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: 14px;
+  background: var(--weq-bg-surface, #fff);
+  box-shadow: var(--weq-shadow-soft, 0 6px 20px rgba(0, 0, 0, 0.04));
+}
+
+.ca-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ca-block-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--weq-fg-primary, #161616);
+}
+
+.ca-block-head small {
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 11px;
+}
+
+.ca-empty {
+  margin: 0;
+  padding: 14px 0;
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ── GitHub 式周柱状图 ──────────────────────────────────────────────── */
+
+.ca-github {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ca-github-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1px, 0.35vw, 4px);
+  height: 82px;
+  overflow: hidden;
+  padding: 4px 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+.ca-github-bar {
+  display: block;
+  min-height: 3px;
+  border-radius: 3px 3px 1px 1px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+  transition:
+    opacity 220ms ease,
+    background 220ms ease,
+    transform 220ms ease;
+}
+
+.ca-github-bar[data-level='1'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+}
+.ca-github-bar[data-level='2'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+.ca-github-bar[data-level='3'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 74%, transparent);
+}
+.ca-github-bar[data-level='4'] {
+  background: var(--weq-accent-effective);
+}
+
+.ca-github-axis,
+.ca-range-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* ── 曲线 + 区间选择 ────────────────────────────────────────────────── */
+
+.ca-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ca-range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ca-range-labels {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-fg-secondary, #52606c);
+  font-size: 12px;
+}
+
+.ca-range-labels strong {
+  color: var(--weq-fg-primary, #161616);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-range-labels span {
+  color: var(--weq-fg-muted, #8a919a);
+}
+
+.ca-range-hint {
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 10px;
+}
+
+.ca-range-svg {
+  width: 100%;
+  height: 96px;
+  overflow: visible;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.ca-range-area {
+  pointer-events: none;
+}
+
+.ca-range-line {
+  fill: none;
+  stroke: var(--weq-accent-effective);
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ca-range-baseline {
+  stroke: var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ca-range-selection-bg {
+  fill: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  cursor: grab;
+}
+
+.ca-range-selection-bg:active {
+  cursor: grabbing;
+}
+
+.ca-range-selection-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ca-range-handle {
+  fill: var(--weq-accent-effective);
+  opacity: 0.9;
+  cursor: ew-resize;
+}
+
+.ca-range-handle:hover {
+  opacity: 1;
+}
+
+/* ── 发言人周卡 ──────────────────────────────────────────────────────── */
+
+.ca-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 10px;
+}
+
+.ca-person {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--ca-person-accent, var(--weq-accent-effective)) 7%, transparent),
+      transparent 64%
+    ),
+    var(--weq-bg-surface, #fff);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.ca-person:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  box-shadow: var(--weq-shadow-card, 0 10px 26px rgba(0, 0, 0, 0.08));
+}
+
+.ca-person-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ca-person-avatar {
+  display: grid;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-secondary, #52606c);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ca-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ca-person-meta {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ca-person-meta strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary, #161616);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-person-meta em {
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.ca-person-rank {
+  display: grid;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ca-person-count {
+  color: var(--weq-fg-muted, #8a919a);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ca-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  width: 100%;
+  height: 34px;
+  padding: 0 1px;
+}
+
+.ca-spark.is-empty {
+  height: 34px;
+  border-radius: 6px;
+  background: var(--weq-border-subtle, rgba(0, 0, 0, 0.05));
+}
+
+.ca-spark-bar {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(
+    in srgb,
+    var(--ca-spark-accent, var(--weq-accent-effective)) 62%,
+    transparent
+  );
+}
+
+.ca-spark-bar[data-empty='yes'] {
+  background: var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+/* 私聊：两侧卡片用不同强调色（我 = 主题色，对方 = 紫）。 */
+.ca-people.is-buddy {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* 刷新中的淡化：只给依赖区间的区块，时间轴 / 绿墙保持稳定。 */
+.ca-refreshing {
+  opacity: 0.55;
+  transition: opacity 180ms ease;
+}
+
+/* 深色模式：卡片描边与底噪都要重新给值，不能靠浅色翻色。 */
+html[data-theme='dark'] .ca-block {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(24, 28, 34, 0.86);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+}
+
+html[data-theme='dark'] .ca-github-bars {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+html[data-theme='dark'] .ca-person {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--ca-person-accent, var(--weq-accent-effective)) 14%, transparent),
+      transparent 64%
+    ),
+    rgba(28, 33, 40, 0.9);
+}
+
+html[data-theme='dark'] .ca-person:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.46);
+}
+
+html[data-theme='dark'] .ca-range-baseline {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='dark'] .ca-spark.is-empty,
+html[data-theme='dark'] .ca-spark-bar[data-empty='yes'] {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-person,
+  .ca-github-bar,
+  .ca-refreshing {
+    transition: none;
+  }
+}

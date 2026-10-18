@@ -107,6 +107,12 @@ it('好友统计按北京时间与闭区间读取全部同序号记录，不将�
     lastMessageTime: start,
   });
   expect(result.daily).toEqual([{ date: '2026-10-18', count: rows }]);
+  expect(result.timeline.daily).toEqual([
+    { date: '2026-10-17', count: 1 },
+    { date: '2026-10-18', count: rows },
+    { date: '2026-10-19', count: 1 },
+  ]);
+  expect(result.weeklySelf.reduce((sum, count) => sum + count, 0)).toBe(rows / 2);
   expect(result.hourlySelf[0]).toBe(rows / 2);
   expect(result.initiation).toEqual({ self: 1, peer: 0, total: 1 });
   expect(result.reply.peer?.count).toBe(rows / 2);
@@ -132,6 +138,8 @@ it('群画像、成员、入群批次与会话力图沿用同一精确时间窗�
   const report = await group.getGroupStatsReport(777n, range);
   expect(report.totals).toMatchObject({ totalMessages: rows, speakerCount: 2, activeDays: 1 });
   expect(report.daily).toEqual([{ date: '2026-10-18', count: rows }]);
+  expect(report.timeline.daily.reduce((sum, day) => sum + day.count, 0)).toBe(rows + 2);
+  expect(report.ranking[0]?.weekly.reduce((sum, count) => sum + count, 0)).toBe(rows / 2);
   expect(report.timeDistribution[0]).toBe(rows);
   expect(report.ranking.map((row) => row.messageCount)).toEqual([rows / 2, rows / 2]);
   const member = await group.getGroupMemberAnalytics(777n, 'u_peer', start, start);

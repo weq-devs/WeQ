@@ -16,9 +16,45 @@
 
 import { normalizeChatToken } from './stopwords';
 
+/**
+ * 词云 / 常用语 / 口头禅只保留「有内容」的词性：
+ *
+ *   n    名词            v     动词          vn    动名词
+ *   ns   地名            nr    人名 / 称谓   nz    其他专名
+ *   nrt  音译人名        nrfg  姓名          nt    机构 / 团体
+ *   i    成语 / 习语     j     简称 / 略语   z     状态词
+ *   o    拟声词          e     叹词          unknown 词典外生词
+ *
+ * 代词、副词、连词、介词、时间词、量词、语气词等语法词不进词云 —— 它们既
+ * 不说明话题，也容易被个人说话习惯带偏。QQ 词典里查不到的生词保留，否则
+ * 新词 / 网络用语会被误杀。
+ */
+export const CHAT_POS_WHITELIST: ReadonlySet<string> = new Set([
+  'n',
+  'v',
+  'vn',
+  'ns',
+  'nr',
+  'nz',
+  'nrt',
+  'nrfg',
+  'nt',
+  'i',
+  'j',
+  'z',
+  'o',
+  'e',
+  'unknown',
+]);
+
 /** 一个把文本切成词的切分器。 */
 export interface Segmenter {
   cut(text: string): string[];
+  /**
+   * 词云 / 常用语用的切词：在 `cut` 的基础上只保留
+   * {@link CHAT_POS_WHITELIST} 里的词性。未实现时调用方回退到 `cut`。
+   */
+  cutForChat?(text: string): string[];
 }
 
 /**
@@ -41,7 +77,9 @@ export function setDefaultSegmenter(segmenter: Segmenter | null): void {
  */
 export function tokenizeText(text: string): string[] {
   const seg = defaultSegmenter;
-  const raw = seg ? seg.cut(text) : text.split(/[^a-z0-9\u4e00-\u9fa5]+/i);
+  const raw = seg
+    ? (seg.cutForChat?.(text) ?? seg.cut(text))
+    : text.split(/[^a-z0-9\u4e00-\u9fa5]+/i);
   const out: string[] = [];
   for (const item of raw) {
     const w = normalizeChatToken(item);
@@ -71,6 +109,8 @@ const NEG_INF = -3.14e100;
 interface DictState {
   /** 词 → 词频（含用户词典的强制词）。 */
   freq: Map<string, number>;
+  /** 词 → 词性（主词典 / 用户词典里带词性的条目）。 */
+  pos: Map<string, string>;
   /** 词频总和。 */
   total: number;
   /** 最长词条长度（截到 MAX_WORD_LEN）。 */
@@ -97,13 +137,15 @@ function parseDictText(dict: DictState, text: string, forced: boolean): void {
       // 无词频的用户词：先记 0，待全程扫完再用 maxFreq 抬到最高。
       dict.freq.set(word, 0);
     }
+    const pos = hasFreq ? parts[2] : parts[1];
+    if (pos && pos !== '') dict.pos.set(word, pos);
     const len = Math.min(word.length, MAX_WORD_LEN);
     if (len > dict.maxLen) dict.maxLen = len;
   }
 }
 
 function buildDict(text: JiebaDictText): DictState {
-  const dict: DictState = { freq: new Map(), total: 0, maxLen: 1, maxFreq: 1 };
+  const dict: DictState = { freq: new Map(), pos: new Map(), total: 0, maxLen: 1, maxFreq: 1 };
   if (text.jiebaDict) parseDictText(dict, text.jiebaDict, false);
   // 用户词记 0，扫完再统一抬升；这样它们一定胜过主词典里的细分路径。
   if (text.userDict) parseDictText(dict, text.userDict, true);
@@ -296,53 +338,60 @@ export function createJiebaSegmenter(text: JiebaDictText): Segmenter {
   const logTotal = Math.log(dict.total);
   const hmm = parseHmm(text.hmmModel);
 
-  return {
-    cut(input: string): string[] {
-      if (!input) return [];
-      const out: string[] = [];
-      let i = 0;
-      while (i < input.length) {
-        const ch = input[i]!;
-        if (!CJK_RE.test(ch)) {
-          const rest = input.slice(i);
-          const ascii = ASCII_WORD_RE.exec(rest);
-          if (ascii) {
-            out.push(ascii[0].toLowerCase());
-            i += ascii[0].length;
-            continue;
-          }
-          const digits = DIGIT_RE.exec(rest);
-          if (digits) {
-            out.push(digits[0]);
-            i += digits[0].length;
-            continue;
-          }
-          i += 1;
+  const posOf = (word: string): string => dict.pos.get(word) ?? 'unknown';
+
+  const cutWords = (input: string): string[] => {
+    if (!input) return [];
+    const out: string[] = [];
+    let i = 0;
+    while (i < input.length) {
+      const ch = input[i]!;
+      if (!CJK_RE.test(ch)) {
+        const rest = input.slice(i);
+        const ascii = ASCII_WORD_RE.exec(rest);
+        if (ascii) {
+          out.push(ascii[0].toLowerCase());
+          i += ascii[0].length;
           continue;
         }
-        let j = i;
-        while (j < input.length && CJK_RE.test(input[j]!)) j++;
-        const run = input.slice(i, j);
-        // 词典 DP 出来的「未知单字」要攒起来一起交给 HMM 猜边界，单独一个字
-        // 丢给 HMM 等于没兜底（生词会被切成单字）。
-        let unknown: string[] = [];
-        const flushUnknown = (): void => {
-          if (unknown.length === 0) return;
-          out.push(...(hmm ? hmmCut(unknown, hmm) : unknown));
-          unknown = [];
-        };
-        for (const piece of dictCut(run, dict, logTotal)) {
-          if (piece.length === 1 && dict.freq.get(piece) === undefined) {
-            unknown.push(piece);
-          } else {
-            flushUnknown();
-            out.push(piece);
-          }
+        const digits = DIGIT_RE.exec(rest);
+        if (digits) {
+          out.push(digits[0]);
+          i += digits[0].length;
+          continue;
         }
-        flushUnknown();
-        i = j;
+        i += 1;
+        continue;
       }
-      return out;
+      let j = i;
+      while (j < input.length && CJK_RE.test(input[j]!)) j++;
+      const run = input.slice(i, j);
+      // 词典 DP 出来的「未知单字」要攒起来一起交给 HMM 猜边界，单独一个字
+      // 丢给 HMM 等于没兜底（生词会被切成单字）。
+      let unknown: string[] = [];
+      const flushUnknown = (): void => {
+        if (unknown.length === 0) return;
+        out.push(...(hmm ? hmmCut(unknown, hmm) : unknown));
+        unknown = [];
+      };
+      for (const piece of dictCut(run, dict, logTotal)) {
+        if (piece.length === 1 && dict.freq.get(piece) === undefined) {
+          unknown.push(piece);
+        } else {
+          flushUnknown();
+          out.push(piece);
+        }
+      }
+      flushUnknown();
+      i = j;
+    }
+    return out;
+  };
+
+  return {
+    cut: cutWords,
+    cutForChat(input: string): string[] {
+      return cutWords(input).filter((word) => CHAT_POS_WHITELIST.has(posOf(word)));
     },
   };
 }

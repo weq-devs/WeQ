@@ -30,12 +30,12 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import {
-  SALVAGE_AGGREGATE_CAVEAT,
-  SALVAGE_EXPERIMENTAL_NOTE,
-  SALVAGE_EXPERIMENTAL_TAG,
-  SALVAGE_SKIPPED_SPAN_CAVEAT,
-} from '@weq/service/db-tolerance-copy';
+// import {
+//   SALVAGE_AGGREGATE_CAVEAT,
+//   SALVAGE_EXPERIMENTAL_NOTE,
+//   SALVAGE_EXPERIMENTAL_TAG,
+//   SALVAGE_SKIPPED_SPAN_CAVEAT,
+// } from '@weq/service/db-tolerance-copy';
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
@@ -180,26 +180,12 @@ export function DatabaseDamagedDialog({
           <section className="weq-db-damaged-section">
             <h4>发生了什么</h4>
             <p>{isCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
-            <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+            <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致（大概？）。</p>
             {!isCheckError ? (
               <p>
                 真正恢复数据靠<strong>数据库修复</strong>：它会把能读出来的内容重建到一份新库
                 上（先备份、修完可回滚），在 <strong>妙妙工具 → 数据库修复</strong> 里，
                 下面的主按钮可以直接过去。
-              </p>
-            ) : null}
-            <p>
-              另一种办法是到 <strong>设置 → 数据库宽容</strong> 自己选容错级别
-              <span className="weq-set-exp-badge">{SALVAGE_EXPERIMENTAL_TAG}</span>
-              —— 它只保证"少读一点也能用"（例如让导出能跑完），{' '}
-              <strong>不负责把坏掉的内容找回来</strong>，对年报这类整表聚合大概率没用。
-              能开到哪一级、会付出什么代价，需要你在设置页里看清楚再决定。
-              {SALVAGE_EXPERIMENTAL_NOTE}
-            </p>
-            {!isCheckError ? (
-              <p>
-                {SALVAGE_AGGREGATE_CAVEAT} 具体跳过/降级过什么，都会记在 设置 → 数据库宽容
-                的账本里；{SALVAGE_SKIPPED_SPAN_CAVEAT}
               </p>
             ) : null}
           </section>
