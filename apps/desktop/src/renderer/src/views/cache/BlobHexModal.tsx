@@ -148,13 +148,19 @@ export function BlobHexModal({
   }
 
   return (
-    <OverlayLayer presentation="panel" className="weq-blob-overlay" onClose={onClose}>
+    <OverlayLayer
+      presentation="floating"
+      title="二进制数据"
+      width={780}
+      className="weq-blob-overlay"
+      onClose={onClose}
+    >
       <div
         className={`weq-blob-dialog${isProto ? ' is-proto' : ''}`}
         role="dialog"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="weq-blob-head">
+        <header className="weq-blob-head" data-window-drag-handle>
           <div className="weq-blob-title">
             <h3>二进制数据{columnName ? ` · ${columnName}` : ''}</h3>
             <code>

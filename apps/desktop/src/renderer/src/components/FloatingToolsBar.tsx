@@ -20,7 +20,7 @@ export interface FloatingToolItem {
   id: string;
   label: string;
   icon: ReactNode;
-  action: () => void;
+  action: (anchor?: HTMLElement) => void;
 }
 const POSITION_KEY = 'weq:tools-position';
 const DOCK_KEY = 'weq:tools-docked';
@@ -332,7 +332,10 @@ export function FloatingToolsBar({
                 onClick={() => {
                   cancel();
                   setExpanded(false);
-                  item.action();
+                  item.action(
+                    root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger') ??
+                      undefined,
+                  );
                 }}
               >
                 <svg viewBox={`0 0 ${sector.width} ${sector.height}`} aria-hidden="true">

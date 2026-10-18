@@ -58,10 +58,8 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
-import { QuickExportLightbox, type QuickExportTarget } from './export/QuickExportLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
-import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
@@ -79,7 +77,6 @@ import {
   GroupMemberRenameDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
-import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
@@ -123,7 +120,9 @@ import {
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { AnalysisReportPage } from './analysis/AnalysisReportPage';
-import type { AnalysisReportRequest } from './analysis/model';
+import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
+import type { RoamingTarget } from '@weq/service';
+import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import {
@@ -2578,16 +2577,6 @@ export function MainView(): ReactElement {
     initialFileId?: string;
     searchRevision?: string;
   } | null>(null);
-  const [analyticsDialog, setAnalyticsDialog] = useState<{
-    groupCode: string;
-    groupName: string;
-    memberCount?: number;
-    avatarUrl?: string | null;
-  } | null>(null);
-  const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
-    peerUid: string;
-    peerName: string;
-  } | null>(null);
   const [announcementsDialog, setAnnouncementsDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -2878,18 +2867,6 @@ export function MainView(): ReactElement {
     [],
   );
 
-  const handleOpenGroupAnalytics = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setAnalyticsDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-        memberCount: conversation.group.memberCount,
-        avatarUrl: conversation.group.avatarUrl,
-      });
-    },
-    [],
-  );
-
   const handleOpenGroupBug = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setGroupBugDialog({
@@ -3070,20 +3047,6 @@ export function MainView(): ReactElement {
     setMemberCard({ member, anchor });
   }, []);
 
-  const handleOpenBuddyAnalytics = useCallback(
-    (conversation: Extract<Conversation, { type: 'direct' }>) => {
-      setBuddyAnalyticsDialog({
-        peerUid: conversation.otherUser.id,
-        peerName:
-          conversation.otherUser.displayName ||
-          conversation.otherUser.username ||
-          conversation.otherUser.identityValue ||
-          'TA',
-      });
-    },
-    [],
-  );
-
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
   const handleSearchChatRecords = useCallback((conversation: Conversation) => {
     if (conversation.type === 'group') {
@@ -3122,27 +3085,17 @@ export function MainView(): ReactElement {
     }
   }, []);
 
-  // 聊天顶栏「导出聊天记录」：目标固定为当前会话，灯箱与导出中心的
-  // 「聊天消息导出」完全一致；开始导出后 toast 提示去任务栏看进度。
-  const handleExportConversation = useCallback((conversation: Conversation) => {
-    if (conversation.type === 'group') {
-      const code = conversation.group.id;
-      setQuickExportTarget({
-        id: code,
-        name: conversation.group.name || code,
-        kind: 'group',
-      });
-      return;
-    }
-    if (conversation.type === 'direct') {
-      const { otherUser } = conversation;
-      const uin = otherUser.username || otherUser.identityValue || '';
-      setQuickExportTarget({
-        id: otherUser.id,
-        name: otherUser.displayName || uin || otherUser.id,
-        kind: 'c2c',
-      });
-    }
+  const handleAnalyzeConversation = useCallback((conversation: Conversation) => {
+    const target = conversationAnalysisTarget(conversation);
+    if (target)
+      setAnalysisRequest((previous) => ({ target, revision: (previous?.revision ?? 0) + 1 }));
+  }, []);
+  const handleRoamingTargets = useCallback((targets: RoamingTarget[]) => {
+    if (targets.length)
+      setRoamingRequest((previous) => ({
+        targets: targets.map((target) => ({ ...target })),
+        revision: (previous?.revision ?? 0) + 1,
+      }));
   }, []);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
@@ -3170,6 +3123,11 @@ export function MainView(): ReactElement {
     ...SEARCH_CATEGORY_ORDER,
   ]);
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
+  const [roamingRequest, setRoamingRequest] = useState<{
+    targets: RoamingTarget[];
+    revision: number;
+  } | null>(null);
   const [cloneSearchTarget, setCloneSearchTarget] = useState<GeneratedSearchHit | null>(null);
   const [collectionSearchTarget, setCollectionSearchTarget] = useState<{
     cid: string;
@@ -3204,8 +3162,6 @@ export function MainView(): ReactElement {
     /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
     fixed?: boolean;
   } | null>(null);
-  /** 顶栏「导出聊天记录」打开的目标会话（快捷导出灯箱）。 */
-  const [quickExportTarget, setQuickExportTarget] = useState<QuickExportTarget | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
@@ -7774,11 +7730,9 @@ export function MainView(): ReactElement {
                           onRenameGroupMember={handleRenameGroupMember}
                           onKickGroupMember={handleKickGroupMember}
                           onOpenConversationSettings={handleOpenConversationSettings}
-                          onOpenGroupAnalytics={handleOpenGroupAnalytics}
                           onOpenGroupBug={handleOpenGroupBug}
                           onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
                           groupBugOnline={groupBugStatus.data?.online ?? false}
-                          onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                           onOpenGroupMember={handleOpenGroupMember}
                           onAddMessage={handleAddMessage}
                           onMergeForward={handleMergeForward}
@@ -7793,7 +7747,10 @@ export function MainView(): ReactElement {
                           onViewRecalled={handleViewRecalled}
                           onOpenGapMessages={handleOpenGapMessages}
                           onSearchChatRecords={handleSearchChatRecords}
-                          onExportConversation={handleExportConversation}
+                          onOpenRoamingBackfill={(conversation) => {
+                            const target = conversationRoamingTarget(conversation);
+                            if (target) handleRoamingTargets([target]);
+                          }}
                           deletedIds={deletedIds}
                           onRestoreMessage={handleRestoreMessage}
                           unreadDock={unreadDock}
@@ -7891,6 +7848,9 @@ export function MainView(): ReactElement {
             }}
           />
           <WorkspaceTools
+            currentConversation={shell.view === 'messages' ? activeConversation : null}
+            analysisRequest={analysisRequest}
+            roamingRequest={roamingRequest}
             onOpenComposition={compositionWindow.open}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={(request) => setAnalysisReports((previous) => [...previous, request])}
@@ -7967,22 +7927,6 @@ export function MainView(): ReactElement {
               initialFolderId={groupFileDialog.initialFolderId}
               initialFileId={groupFileDialog.initialFileId}
               onClose={() => setGroupFileDialog(null)}
-            />
-          ) : null}
-          {analyticsDialog ? (
-            <GroupAnalyticsDialog
-              groupCode={analyticsDialog.groupCode}
-              groupName={analyticsDialog.groupName}
-              memberCount={analyticsDialog.memberCount}
-              avatarUrl={analyticsDialog.avatarUrl}
-              onClose={() => setAnalyticsDialog(null)}
-            />
-          ) : null}
-          {buddyAnalyticsDialog ? (
-            <BuddyAnalyticsDialog
-              peerUid={buddyAnalyticsDialog.peerUid}
-              peerName={buddyAnalyticsDialog.peerName}
-              onClose={() => setBuddyAnalyticsDialog(null)}
             />
           ) : null}
           {announcementsDialog ? (
@@ -8129,6 +8073,13 @@ export function MainView(): ReactElement {
                   : undefined
               }
               onClose={() => setMemberCard(null)}
+              onAnalyze={(target) => {
+                setMemberCard(null);
+                setAnalysisRequest((previous) => ({
+                  target,
+                  revision: (previous?.revision ?? 0) + 1,
+                }));
+              }}
               onOpenChat={() => {
                 void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
                   pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
@@ -8296,12 +8247,6 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
-          {quickExportTarget ? (
-            <QuickExportLightbox
-              target={quickExportTarget}
-              onClose={() => setQuickExportTarget(null)}
-            />
-          ) : null}
           {chatRecordsTarget ? (
             <ChatRecordsModal
               initialHit={chatRecordsTarget.hit}
@@ -8383,6 +8328,19 @@ export function MainView(): ReactElement {
                 real: conversations,
                 virtual: virtualRows,
                 locate: conversationLocate,
+                onAnalyze: handleAnalyzeConversation,
+                onAnalyzeMember: (conversation, member) => {
+                  setAnalysisRequest((previous) => ({
+                    target: {
+                      kind: 'member',
+                      groupCode: conversation.group.id,
+                      memberUid: member.id.startsWith('u_') ? member.id : '',
+                      memberUin: member.identityValue || undefined,
+                    },
+                    revision: (previous?.revision ?? 0) + 1,
+                  }));
+                },
+                onRoaming: handleRoamingTargets,
                 onVirtual: (item) => {
                   flushAllDirtyDrafts();
                   setCloneSearchTarget(null);

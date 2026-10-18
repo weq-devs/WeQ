@@ -1,5 +1,6 @@
 import { createContext } from 'react';
-import type { Conversation } from '../im-template/template/types';
+import type { Conversation, User } from '../im-template/template/types';
+import type { RoamingTarget } from '@weq/service';
 
 export interface VirtualConversation {
   id: string;
@@ -15,6 +16,9 @@ export const ConversationDirectoryContext = createContext<{
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
   onCreate: () => void;
+  onAnalyze?: (conversation: Conversation) => void;
+  onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
+  onRoaming?: (targets: RoamingTarget[]) => void;
 } | null>(null);
 
 export const ContactDirectoryContext = createContext<{

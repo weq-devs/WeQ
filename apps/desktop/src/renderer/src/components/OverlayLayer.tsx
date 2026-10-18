@@ -49,9 +49,11 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs';
 import { useRenderDocument } from '../lib/renderDocument';
+import { WindowSurface } from './WindowSurface';
 
 export type OverlayLayerProps = {
-  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar';
+  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
+  width?: number;
   title?: string;
   /** 是否激活。为假时整层不渲染，也不占层级。 */
   open?: boolean;
@@ -73,6 +75,19 @@ export type OverlayLayerProps = {
 export function OverlayLayer({ open = true, ...rest }: OverlayLayerProps): ReactElement | null {
   const active = useTabActive();
   if (!open || !active) return null;
+  if (rest.presentation === 'floating')
+    return (
+      <WindowSurface
+        mode="floating"
+        role="presentation"
+        width={rest.width}
+        title={rest.title}
+        onClose={rest.onClose}
+        className={rest.className}
+      >
+        {rest.children}
+      </WindowSurface>
+    );
   if (rest.presentation === 'page' || rest.presentation === 'sidecar')
     return (
       <WorkspacePage

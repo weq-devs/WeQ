@@ -162,14 +162,14 @@ export function UnifiedSearchModal({
 
   return (
     <Modal
-      presentation="page"
+      presentation="floating"
       title="搜索结果"
       onClose={onClose}
       labelledBy="weq-search-more-title"
       width={760}
     >
       <div className="weq-search-more-modal">
-        <div className="weq-search-more-head">
+        <div className="weq-search-more-head" data-window-drag-handle>
           <h3 id="weq-search-more-title" className="weq-search-more-title">
             {CATEGORY_META[category].label}搜索
           </h3>

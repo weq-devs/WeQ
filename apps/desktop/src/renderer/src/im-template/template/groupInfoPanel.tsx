@@ -1,5 +1,14 @@
 // @ts-nocheck
-import { Bot, Search, UserMinus, X } from 'lucide-react';
+import {
+  Bot,
+  ChevronRight,
+  FolderOpen,
+  Images,
+  Search,
+  Sparkles,
+  UserMinus,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -7,6 +16,7 @@ import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
+import '../../styles/conversation-actions.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
 
@@ -22,6 +32,11 @@ export function GroupInfoPanel({
   onOpenDetail,
   onOpenMember,
   onOpenLeftMembers,
+  onOpenAnnouncements,
+  onOpenEssence,
+  onOpenAlbums,
+  onOpenFiles,
+  onClose,
 }: {
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
@@ -48,9 +63,16 @@ export function GroupInfoPanel({
    * 模板层只递一个「用户点了我」的信号。
    */
   onOpenLeftMembers?: () => void;
+  onOpenAnnouncements?: () => void;
+  onOpenEssence?: () => void;
+  onOpenAlbums?: () => void;
+  onOpenFiles?: () => void;
+  onClose?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
+  const announcement =
+    group.announcement?.trim() || group.bulletins?.find((item) => item.text?.trim())?.text || '';
   const metaRows = [
     group.description ? ['群简介', group.description] : null,
     group.remark ? ['群备注', group.remark] : null,
@@ -104,7 +126,16 @@ export function GroupInfoPanel({
   }, [rows.length, searching, requestMoreNearBottom]);
 
   return (
-    <aside className={cn('group-info-panel')} aria-label="群聊资料">
+    <aside
+      className={cn('group-info-panel')}
+      aria-label="群聊资料"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && onClose) {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <section className={cn('group-info-section', 'group-info-overview')}>
         <header className={cn('group-info-heading')}>
           <button
@@ -115,6 +146,17 @@ export function GroupInfoPanel({
           >
             <strong>群资料</strong>
           </button>
+          {onClose ? (
+            <button
+              type="button"
+              className="weq-group-info-close"
+              title="关闭群资料"
+              aria-label="关闭群资料"
+              onClick={onClose}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
         </header>
         <div className={cn('group-info-meta-list')}>
           {metaRows.length > 0 ? (
@@ -136,6 +178,40 @@ export function GroupInfoPanel({
           )}
         </div>
       </section>
+
+      {onOpenAnnouncements ? (
+        <section className="weq-group-announcement" aria-label="群公告">
+          <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
+            <span>
+              <strong>群公告</strong>
+              <ChevronRight size={14} />
+            </span>
+            <p>{announcement || '暂无公告内容，点击查看'}</p>
+          </button>
+        </section>
+      ) : null}
+      {onOpenEssence || onOpenAlbums || onOpenFiles ? (
+        <nav className="weq-group-content-actions" aria-label="群内容">
+          {onOpenEssence ? (
+            <button type="button" onClick={onOpenEssence}>
+              <Sparkles size={17} />
+              <span>精华</span>
+            </button>
+          ) : null}
+          {onOpenAlbums ? (
+            <button type="button" onClick={onOpenAlbums}>
+              <Images size={17} />
+              <span>相册</span>
+            </button>
+          ) : null}
+          {onOpenFiles ? (
+            <button type="button" onClick={onOpenFiles}>
+              <FolderOpen size={17} />
+              <span>文件</span>
+            </button>
+          ) : null}
+        </nav>
+      ) : null}
 
       <section className={cn('group-info-section', 'member-list-section')}>
         <header className={cn('group-info-heading group-info-title-row')}>

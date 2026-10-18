@@ -18,6 +18,7 @@ import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
+import { WindowSurface } from './WindowSurface';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -134,6 +135,7 @@ export function Modal({
   open = true,
   presentation = 'modal',
   title,
+  anchor,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -145,22 +147,39 @@ export function Modal({
   layerClassName?: string;
   /** 关闭时保留子树，后台任务和工具内会话不因遮罩收起而销毁。 */
   open?: boolean;
-  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar';
+  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating' | 'anchored';
   title?: string;
+  anchor?: HTMLElement | null;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
   const active = tabActive && open;
-  const layer = useOverlayLayer(active);
+  const windowed = presentation === 'floating' || presentation === 'anchored';
+  const layer = useOverlayLayer(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
   useSurfaceEscape(
     ref,
     onClose,
-    active && presentation !== 'page' && presentation !== 'sidecar',
+    active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
     presentation === 'modal',
   );
 
   if (typeof document === 'undefined') return null;
+  if (windowed)
+    return (
+      <WindowSurface
+        mode={presentation}
+        open={open}
+        anchor={anchor}
+        width={width}
+        labelledBy={labelledBy}
+        title={title}
+        className={className}
+        onClose={onClose}
+      >
+        {children}
+      </WindowSurface>
+    );
   if (presentation === 'page' || presentation === 'sidecar')
     return active ? (
       <WorkspacePage

@@ -43,6 +43,7 @@ import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
+import { RoamingBackfillPanel } from '../components/RoamingBackfillPanel';
 import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
@@ -340,7 +341,7 @@ export function ExportTool({
   const [execution, setExecution] = useState<'now' | 'scheduled'>(
     initialMode === 'scheduled' ? 'scheduled' : 'now',
   );
-  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
+  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules' | 'roaming'>('tasks');
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
@@ -1877,15 +1878,18 @@ export function ExportTool({
       {/* 底部任务列表（可折叠覆盖层） */}
       {surface === 'tasks' && !saveLocationTask ? (
         <>
-          <Segmented<'tasks' | 'schedules'>
+          <Segmented<'tasks' | 'schedules' | 'roaming'>
             value={taskTab}
             onChange={setTaskTab}
             options={[
               { value: 'tasks', label: '执行任务' },
+              { value: 'roaming', label: '漫游拉取' },
               { value: 'schedules', label: '定时计划' },
             ]}
           />
-          {taskTab === 'schedules' ? (
+          {taskTab === 'roaming' ? (
+            <RoamingBackfillPanel surface="tasks" />
+          ) : taskTab === 'schedules' ? (
             <div className="weq-exp-sched-list">
               {schedules.isLoading ? (
                 <ScheduleListSkeleton />

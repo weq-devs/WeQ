@@ -9,6 +9,7 @@ import {
   ANALYSIS_LABELS,
   analysisDateRange,
   type AnalysisKind,
+  type AnalysisTarget,
   type AnalysisReportRequest,
 } from './model';
 import '../../styles/analysis-tool.css';
@@ -70,29 +71,42 @@ function ObjectPicker({
 
 export function AnalysisTool({
   onGenerate,
+  initialTarget,
 }: {
   onGenerate: (request: AnalysisReportRequest) => void;
+  initialTarget?: AnalysisTarget;
 }) {
   const account = useViewState((state) => state.openedUin);
   return (
-    <AnalysisToolForm key={account ?? 'no-account'} account={account} onGenerate={onGenerate} />
+    <AnalysisToolForm
+      key={JSON.stringify([account, initialTarget])}
+      account={account}
+      onGenerate={onGenerate}
+      initialTarget={initialTarget}
+    />
   );
 }
 
 function AnalysisToolForm({
   account,
   onGenerate,
+  initialTarget,
 }: {
   account: string | null;
   onGenerate: (request: AnalysisReportRequest) => void;
+  initialTarget?: AnalysisTarget;
 }) {
   const active = useTabActive() && Boolean(account);
-  const [kind, setKind] = useState<AnalysisKind>('annual');
+  const [kind, setKind] = useState<AnalysisKind>(initialTarget?.kind ?? 'annual');
   const [year, setYear] = useState(0);
-  const [peer, setPeer] = useState<string | null>(null);
-  const [group, setGroup] = useState<string | null>(null);
+  const [peer, setPeer] = useState<string | null>(
+    initialTarget?.kind === 'buddy' ? initialTarget.peerUid : null,
+  );
+  const [group, setGroup] = useState<string | null>(
+    initialTarget && initialTarget.kind !== 'buddy' ? initialTarget.groupCode : null,
+  );
   const [members, setMembers] = useState<Record<string, string>>({});
-  const [chooseGroup, setChooseGroup] = useState(true);
+  const [chooseGroup, setChooseGroup] = useState(initialTarget?.kind !== 'member');
   const [timeMode, setTimeMode] = useState<'all' | 'dates'>('all');
   const [start, setStart] = useState(''),
     [end, setEnd] = useState('');
@@ -128,7 +142,16 @@ function AnalysisToolForm({
     memberRows = memberList.data ?? [];
   const pickedGroup = groupRows.find((row) => row.groupCode === group);
   const pickedFriend = friendRows.find((row) => row.uid === peer);
-  const pickedMember = memberRows.find((row) => row.id === (group ? members[group] : null));
+  const initialMember =
+    initialTarget?.kind === 'member' && group === initialTarget.groupCode
+      ? memberRows.find((row) =>
+          initialTarget.memberUid
+            ? row.uid === initialTarget.memberUid
+            : row.uin === initialTarget.memberUin,
+        )
+      : undefined;
+  const selectedMemberId = group ? (members[group] ?? initialMember?.id ?? null) : null;
+  const pickedMember = memberRows.find((row) => row.id === selectedMemberId);
   const source =
     kind === 'buddy' ? friends : kind === 'member' && !chooseGroup && group ? memberList : groups;
   const items: Choice[] =
@@ -150,11 +173,7 @@ function AnalysisToolForm({
             detail: `${row.groupCode} · ${row.source === 'directory' ? '缓存群资料' : '仅有本地记录'}`,
           }));
   const selected =
-    kind === 'buddy'
-      ? peer
-      : kind === 'member' && !chooseGroup && group
-        ? (members[group] ?? null)
-        : group;
+    kind === 'buddy' ? peer : kind === 'member' && !chooseGroup && group ? selectedMemberId : group;
   const validObject =
     kind === 'annual'
       ? years.data?.includes(year)

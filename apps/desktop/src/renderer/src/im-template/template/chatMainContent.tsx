@@ -101,11 +101,9 @@ export function ChatMainContent({
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
-  onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
   groupBugOnline,
-  onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
   onMergeForward,
@@ -115,7 +113,6 @@ export function ChatMainContent({
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
-  onExportConversation,
   onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
@@ -216,13 +213,11 @@ export function ChatMainContent({
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
   onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
-  onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
   onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
-  onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
@@ -235,8 +230,6 @@ export function ChatMainContent({
   }) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
-  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
-  onExportConversation?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
@@ -321,11 +314,9 @@ export function ChatMainContent({
       onRenameGroupMember={onRenameGroupMember}
       onKickGroupMember={onKickGroupMember}
       onOpenConversationSettings={onOpenConversationSettings}
-      onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
-      onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
       onMergeForward={onMergeForward}
@@ -335,7 +326,6 @@ export function ChatMainContent({
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}
       onSearchChatRecords={onSearchChatRecords}
-      onExportConversation={onExportConversation}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}

@@ -48,6 +48,7 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
+import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { Avatar } from '../im-template/template/primitives';
@@ -87,6 +88,7 @@ export function MemberProfileCard({
   groupName,
   onOpenChat,
   onPreviewChat,
+  onAnalyze,
 }: {
   member: User;
   anchor: { x: number; y: number };
@@ -95,6 +97,7 @@ export function MemberProfileCard({
   groupName?: string;
   onOpenChat?: () => void;
   onPreviewChat?: () => void;
+  onAnalyze?: (target: AnalysisTarget) => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
@@ -464,6 +467,15 @@ export function MemberProfileCard({
                 className="weq-profile-perhome is-analytics"
                 type="button"
                 onClick={() => {
+                  if (onAnalyze && groupCode) {
+                    onAnalyze({
+                      kind: 'member',
+                      groupCode,
+                      memberUid: uid,
+                      memberUin: uin || undefined,
+                    });
+                    return;
+                  }
                   setDismissed(true);
                   setAnalyticsOpen(true);
                 }}

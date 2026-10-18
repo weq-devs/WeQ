@@ -7,7 +7,7 @@
  *
  * 布局：竖屏弹窗（同原 webview 尺寸比例），文件用横排小卡片按宽度自适应列数。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, Check, Download, FolderOpen, Loader2, Share2, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -141,6 +141,7 @@ export function FlashTransferViewer({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const taskAnchor = useRef<HTMLButtonElement>(null);
   const [starting, setStarting] = useState(false);
 
   const current = crumbs[crumbs.length - 1] ?? crumbs[0]!;
@@ -351,9 +352,9 @@ export function FlashTransferViewer({
 
   return (
     <>
-      <Modal presentation="panel" onClose={onClose} width={520}>
+      <Modal presentation="floating" onClose={onClose} width={520} title="闪传文件">
         <div className="weq-ft" {...multi.rootProps}>
-          <header className="weq-ft-head">
+          <header className="weq-ft-head" data-window-drag-handle>
             <span className="weq-ft-title" title={crumbs[0]?.name}>
               {crumbs[0]?.name || 'QQ闪传'}
             </span>
@@ -363,6 +364,7 @@ export function FlashTransferViewer({
                 className="weq-ft-btn"
                 onClick={() => setTasksOpen(true)}
                 title="下载任务"
+                ref={taskAnchor}
               >
                 <Download size={15} strokeWidth={1.9} aria-hidden />
                 <span>下载任务</span>
@@ -538,7 +540,9 @@ export function FlashTransferViewer({
           onClose={() => setShareUrl(null)}
         />
       ) : null}
-      {tasksOpen ? <FlashTransferTasksDialog onClose={() => setTasksOpen(false)} /> : null}
+      {tasksOpen ? (
+        <FlashTransferTasksDialog anchor={taskAnchor.current} onClose={() => setTasksOpen(false)} />
+      ) : null}
     </>
   );
 }

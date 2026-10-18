@@ -22,6 +22,14 @@ export type AnalysisReportRequest = RequestBase &
       }
   );
 export type AnalysisKind = AnalysisReportRequest['kind'];
+export type AnalysisTarget =
+  | { kind: 'buddy'; peerUid: string }
+  | { kind: 'group'; groupCode: string }
+  | { kind: 'member'; groupCode: string; memberUid: string; memberUin?: string };
+export interface AnalysisToolRequest {
+  target: AnalysisTarget;
+  revision: number;
+}
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {
   annual: '年度报告',
   buddy: '好友分析',
