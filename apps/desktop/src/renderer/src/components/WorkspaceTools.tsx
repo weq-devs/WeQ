@@ -231,7 +231,7 @@ export function WorkspaceTools({
                   exportDraft?.draft.selection.owner.kind === 'messages' ||
                   (exportDraft?.draft.selection.owner.kind === 'conversations' &&
                     exportDraft.draft.selection.scope.type === 'items' &&
-                    exportDraft.draft.selection.scope.ids.length === 1)
+                    exportDraft.draft.selection.scope.ids.length > 0)
                 }
               />
             ) : tool === 'assistant' ? (

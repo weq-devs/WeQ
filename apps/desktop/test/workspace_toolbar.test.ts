@@ -22,9 +22,11 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
   ExportTool: ({
     initialSelection,
     surface,
+    fixedScope,
   }: {
     initialSelection?: ContentSelection;
     surface?: 'tasks';
+    fixedScope?: boolean;
   }) => {
     const [seed] = useState(initialSelection);
     const [progress, setProgress] = useState(0);
@@ -36,7 +38,10 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
     );
     return createElement(
       'div',
-      { 'data-export-ids': seed?.scope.type === 'items' ? seed.scope.ids.join(',') : '' },
+      {
+        'data-export-ids': seed?.scope.type === 'items' ? seed.scope.ids.join(',') : '',
+        'data-fixed-scope': fixedScope,
+      },
       '合成导出夹具',
       createElement('input', { 'aria-label': '合成导出草稿', defaultValue: '' }),
       surface === 'tasks' &&
@@ -214,7 +219,7 @@ describe('全局工具条范围', () => {
     };
     try {
       fixture.selection = {
-        owner: { kind: 'messages', container: 'c2c:u_fixture' },
+        owner: { kind: 'conversations', container: 'recent' },
         scope: { type: 'items', ids: ['1'] },
       };
       render();
@@ -228,6 +233,9 @@ describe('全局工具条范围', () => {
       open();
       expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
         '3,7',
+      );
+      expect(document.querySelector('[data-fixed-scope]')?.getAttribute('data-fixed-scope')).toBe(
+        'true',
       );
       expect(fixture.selection.scope).toEqual({ type: 'items', ids: ['3', '7'] });
     } finally {

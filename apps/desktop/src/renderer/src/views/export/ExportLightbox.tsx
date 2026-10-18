@@ -30,6 +30,7 @@ import {
   Heart,
   Image as ImageIcon,
   Loader2,
+  ListFilter,
   MessageSquare,
   Mic,
   RefreshCw,
@@ -37,6 +38,7 @@ import {
   Smile,
   Sparkles,
   UserRound,
+  Undo2,
   X,
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
@@ -299,6 +301,8 @@ interface OcrModelProgress {
 
 export function ExportLightbox({
   embedded = false,
+  hidden = false,
+  onEditList,
   scopeSummary,
   variant,
   headline,
@@ -315,6 +319,8 @@ export function ExportLightbox({
   onConfirm,
 }: {
   embedded?: boolean;
+  hidden?: boolean;
+  onEditList?: () => void;
   scopeSummary?: string;
   variant: LightboxVariant;
   headline: string;
@@ -343,7 +349,7 @@ export function ExportLightbox({
   onConfirm: (result: LightboxResult) => void;
 }): ReactElement {
   useEscapeToClose(() => {
-    if (!embedded) onClose();
+    if (!embedded && !hidden) onClose();
   });
   const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
@@ -678,6 +684,7 @@ export function ExportLightbox({
     }
   }
   const formatSelection = useMultiSelection({
+    enabled: !hidden,
     ids: formatOptions
       .filter((format) => !opts.chatlab || format.value === 'json' || format.value === 'jsonl')
       .map((format) => format.value),
@@ -697,6 +704,8 @@ export function ExportLightbox({
   return (
     <div
       className={embedded ? 'weq-export-options' : 'modal-scrim weq-exp-modal-scrim'}
+      hidden={hidden}
+      style={hidden ? { display: 'none' } : undefined}
       role="presentation"
       onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
     >
@@ -711,14 +720,41 @@ export function ExportLightbox({
             <strong>{headline}</strong>
             <span title={summary}>{summary}</span>
           </div>
-          <label>
-            <input
-              type="checkbox"
-              checked={saveAsDefault}
-              onChange={(event) => setSaveAsDefault(event.target.checked)}
-            />
-            设为此类内容的默认配置
-          </label>
+          {onEditList ? (
+            <button
+              type="button"
+              className="weq-exp-edit-list"
+              onClick={onEditList}
+              disabled={submitting}
+            >
+              <ListFilter size={15} />
+              编辑列表
+            </button>
+          ) : null}
+          <div className="weq-exp-default-actions">
+            <button
+              type="button"
+              className="weq-exp-edit-list"
+              aria-pressed={saveAsDefault}
+              disabled={submitting || saveAsDefault}
+              title="导出时将当前配置设为此类内容的默认配置"
+              onClick={() => setSaveAsDefault(true)}
+            >
+              {saveAsDefault ? <Check size={15} /> : null}
+              设为默认
+            </button>
+            {saveAsDefault ? (
+              <button
+                type="button"
+                className="weq-exp-edit-list"
+                disabled={submitting}
+                onClick={() => setSaveAsDefault(false)}
+              >
+                <Undo2 size={15} />
+                撤销
+              </button>
+            ) : null}
+          </div>
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
           </button>

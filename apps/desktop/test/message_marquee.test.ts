@@ -20,7 +20,7 @@ it('框选只按竖直交集命中，支持反向、边界、追加及缩小范�
   expect([...marqueeMessageIds(rows, 50, 55)]).toEqual([]);
 });
 
-it('空白起拖进入多选，气泡正文不触发框选，结束和切会话清理手势', () => {
+it('空白框选松开后才提交多选，正文不触发，取消和切会话不提交', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const frames = new Map<number, FrameRequestCallback>();
   let serial = 0;
@@ -46,7 +46,7 @@ it('空白起拖进入多选，气泡正文不触发框选，结束和切会话�
     return h(
       'div',
       { ...marquee.handlers, 'data-scroll': true },
-      h('output', null, [...selected].join(',')),
+      h('output', { 'data-mode': mode }, [...selected].join(',')),
       ...['a', 'b', 'c'].map((id) =>
         h(
           'div',
@@ -87,17 +87,29 @@ it('空白起拖进入多选，气泡正文不触发框选，结束和切会话�
     expect(host.querySelector('[data-marquee]')).toBeNull();
     pointer(scroll, 'pointerdown', 10, 35);
     pointer(scroll, 'pointermove', 15, 120);
-    expect(host.querySelector('output')?.textContent).toBe('a,b');
+    expect(host.querySelector('output')?.textContent).toBe('');
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('false');
     expect(host.querySelector('[data-marquee]')).not.toBeNull();
     pointer(scroll, 'pointermove', 15, 85);
-    expect(host.querySelector('output')?.textContent).toBe('a');
+    expect(host.querySelector('output')?.textContent).toBe('');
     pointer(scroll, 'pointerup', 15, 85);
+    expect(host.querySelector('output')?.textContent).toBe('a');
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('true');
     expect(host.querySelector('[data-marquee]')).toBeNull();
     expect(frames.size).toBe(0);
     pointer(scroll, 'pointerdown', 10, 155, true);
     pointer(scroll, 'pointermove', 15, 190, true);
+    expect(host.querySelector('output')?.textContent).toBe('a');
+    pointer(scroll, 'pointercancel', 15, 190, true);
+    expect(host.querySelector('output')?.textContent).toBe('a');
+    pointer(scroll, 'pointerdown', 10, 155, true);
+    pointer(scroll, 'pointermove', 15, 190, true);
+    pointer(scroll, 'pointerup', 15, 190, true);
     expect(host.querySelector('output')?.textContent).toBe('a,c');
+    pointer(scroll, 'pointerdown', 10, 95);
+    pointer(scroll, 'pointermove', 15, 150);
     act(() => root.render(h(View, { conversationKey: 'two' })));
+    expect(host.querySelector('output')?.textContent).toBe('a,c');
     expect(host.querySelector('[data-marquee]')).toBeNull();
     expect(frames.size).toBe(0);
   } finally {

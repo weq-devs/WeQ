@@ -44,8 +44,8 @@ export function useMessageMarquee({
     width: number;
     height: number;
   } | null>(null);
-  const current = useRef({ selected, onChange, onStart });
-  current.current = { selected, onChange, onStart };
+  const current = useRef({ onChange, onStart });
+  current.current = { onChange, onStart };
   const gesture = useRef<{
     element: HTMLDivElement;
     pointer: number;
@@ -55,6 +55,8 @@ export function useMessageMarquee({
     clientY: number;
     moved: boolean;
     base: Set<string>;
+    pending: Set<string>;
+    selectionMode: boolean;
   } | null>(null);
   const frame = useRef<number | null>(null);
   const suppressClick = useRef(false);
@@ -72,7 +74,7 @@ export function useMessageMarquee({
     return finish;
   }, [conversationKey, enabled, finish]);
   useEffect(() => {
-    if (!selectionMode && gesture.current?.moved) finish();
+    if (!selectionMode && gesture.current?.selectionMode) finish();
   }, [selectionMode, finish]);
   const update = () => {
     const drag = gesture.current;
@@ -92,10 +94,7 @@ export function useMessageMarquee({
         bottom: rect.bottom - bounds.top + drag.element.scrollTop,
       };
     });
-    const next = marqueeMessageIds(rows, drag.y, y, drag.base);
-    const previous = current.current.selected;
-    if (next.size !== previous.size || [...next].some((id) => !previous.has(id)))
-      current.current.onChange(next);
+    drag.pending = marqueeMessageIds(rows, drag.y, y, drag.base);
     const nextBox = {
       left: Math.min(drag.x, x),
       top: Math.min(drag.y, y),
@@ -156,6 +155,8 @@ export function useMessageMarquee({
           clientY: event.clientY,
           moved: false,
           base: new Set(event.ctrlKey || event.metaKey || event.shiftKey ? selected : []),
+          pending: new Set(),
+          selectionMode,
         };
         element.setPointerCapture?.(event.pointerId);
       },
@@ -173,15 +174,21 @@ export function useMessageMarquee({
           drag.moved = true;
           drag.element.ownerDocument.getSelection()?.removeAllRanges();
           suppressClick.current = true;
-          current.current.onStart();
           frame.current = requestAnimationFrame(tick);
         }
         event.preventDefault();
         update();
       },
       onPointerUp: (event: PointerEvent<HTMLDivElement>) => {
-        if (gesture.current?.pointer !== event.pointerId) return;
+        const drag = gesture.current;
+        if (!drag || drag.pointer !== event.pointerId) return;
+        drag.clientX = event.clientX;
+        drag.clientY = event.clientY;
         update();
+        if (drag.moved) {
+          current.current.onStart();
+          current.current.onChange(drag.pending);
+        }
         finish();
       },
       onPointerCancel: finish,

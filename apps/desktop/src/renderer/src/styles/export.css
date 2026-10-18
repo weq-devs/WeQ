@@ -628,12 +628,34 @@
 
 .weq-exp-dialog-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 15px 18px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
+
+.weq-exp-edit-list {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-exp-edit-list:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-exp-default-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.weq-exp-default-actions [aria-pressed="true"] { color: var(--weq-accent-effective); }
+.weq-exp-edit-list:disabled { opacity: 0.6; cursor: default; }
 
 .weq-exp-dialog-title {
   display: flex;

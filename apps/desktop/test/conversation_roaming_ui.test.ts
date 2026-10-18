@@ -54,6 +54,42 @@ const button = (host: HTMLElement, label: string) =>
   host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe('会话底部多选栏', () => {
+  it('修饰键鼠标多选不显示键盘焦点框，实际键盘操作恢复焦点提示', () => {
+    const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const f = mount(
+      h(ConversationList, {
+        conversations: [group],
+        activeConversationId: null,
+        preferences: {},
+        drafts: {},
+        onSelect: vi.fn(),
+      }),
+    );
+    try {
+      const row = f.host.querySelector<HTMLElement>('[data-conversation-id]')!;
+      act(() =>
+        row.dispatchEvent(
+          new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            ctrlKey: true,
+          }),
+        ),
+      );
+      const directory = f.host.querySelector<HTMLElement>('.weq-conversation-directory')!;
+      expect(directory.dataset.weqSelectionInput).toBe('pointer');
+      expect(f.host.querySelector('.is-multiselected')).not.toBeNull();
+      act(() => row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', bubbles: true })));
+      expect(directory.dataset.weqSelectionInput).toBe('pointer');
+      act(() =>
+        row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+      );
+      expect(directory.dataset.weqSelectionInput).toBe('keyboard');
+    } finally {
+      f.close();
+    }
+  });
   it('保留顶部搜索，空选禁用操作，混选不静默过滤，操作后保留选区', () => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const group = { ...base, id: '10001', group: { ...base.group, id: '10001', name: '合成群聊' } };
@@ -128,6 +164,29 @@ describe('会话底部多选栏', () => {
 });
 
 describe('漫游目标范围', () => {
+  it('编辑列表后保留入口选择，增减目标只影响本次任务', () => {
+    const targets = [
+      { kind: 'c2c' as const, conv: 'u_fixture', name: '合成好友' },
+      { kind: 'group' as const, conv: '10001', name: '合成群聊' },
+    ];
+    const f = mount(h(RoamingBackfillPanel, { initialTargets: targets, targetMode: 'fixed' }));
+    try {
+      act(() => button(f.host, '编辑列表').click());
+      expect(f.host.querySelector('[aria-label="搜索补全会话"]')).not.toBeNull();
+      const inputs = f.host.querySelectorAll<HTMLInputElement>('.weq-roaming-target input');
+      expect([...inputs].map((input) => input.checked)).toEqual([true, true]);
+      act(() => inputs[0]!.click());
+      act(() =>
+        [...f.host.querySelectorAll('button')]
+          .find((node) => node.textContent?.includes('扫描候选缺口'))!
+          .click(),
+      );
+      expect(fixture.plan).toHaveBeenCalledWith(expect.objectContaining({ targets: [targets[1]] }));
+      expect(targets).toHaveLength(2);
+    } finally {
+      f.close();
+    }
+  });
   it.each([
     [{ kind: 'c2c' as const, conv: 'u_fixture', name: '合成好友' }],
     [
