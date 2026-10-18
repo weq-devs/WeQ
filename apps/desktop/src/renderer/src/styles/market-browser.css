@@ -1,7 +1,17 @@
 .weq-market-back { display: none; }
-.weq-market-browser { min-width: 0; }
+.weq-market-browser { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--weq-bg-surface); color: var(--weq-fg-primary); font-size: 13px; }
+.weq-market-head { display: flex; flex: none; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-market-title { display: flex; flex: 1; flex-wrap: wrap; align-items: center; min-width: 0; gap: 8px; color: var(--weq-accent-effective); }
+.weq-market-title h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.weq-market-total { color: var(--weq-fg-muted); font-size: 12px; overflow-wrap: anywhere; }
+.weq-market-close { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--weq-fg-secondary); cursor: pointer; }
+.weq-market-close:hover { background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent); color: var(--weq-fg-primary); }
+.weq-market-close:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+html[data-theme="dark"] .weq-market-browser { background: var(--weq-bg-surface); color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-market-head { border-color: var(--weq-border-subtle); }
 .weq-market-browser .weq-emb-left { min-width: 0; }
 .weq-market-browser .weq-directory-toolbar { width: 100%; box-sizing: border-box; }
+.weq-market-browser .weq-emb-fee-row .weq-mpd-fee-chip.is-active { border-color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-accent-effective); }
 .weq-market-selection-actions { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 8px; padding: 8px 12px; color: var(--weq-fg-secondary); font-size: 12px; }
 .weq-market-selection-actions button { display: flex; align-items: center; gap: 6px; }
 .weq-market-job-status { padding: 6px 16px; color: var(--weq-fg-secondary); font-size: 12px; }

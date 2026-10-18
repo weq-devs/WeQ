@@ -45,6 +45,13 @@ export function useWorkspacePageOpen(): boolean {
   );
 }
 
+export function useWorkspaceMainPageOpen(): boolean {
+  const context = useContext(PagesContext);
+  return Boolean(
+    context?.pages.some((page) => page.placement === 'main' && page.id === context.active),
+  );
+}
+
 export function useWorkspaceSidecarOpen(): boolean {
   const context = useContext(PagesContext);
   return (

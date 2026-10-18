@@ -4,6 +4,7 @@ import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
@@ -186,7 +187,12 @@ export function SidebarHeader({
             selecting={selection.selectionMode}
             onSelecting={selection.setSelectionMode}
             count={selection.selectedIds.size}
-            onSelectAll={() => selection.setSelectedIds(new Set(directory?.ids ?? []))}
+            allSelected={allSelectionIdsSelected(directory?.ids ?? [], selection.selectedIds)}
+            onSelectAll={() =>
+              selection.setSelectedIds(
+                toggleAllSelectionIds(directory?.ids ?? [], selection.selectedIds),
+              )
+            }
           >
             {onRefreshContacts ? (
               <button

@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import type { CSSProperties, ReactNode } from 'react';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
-import { useWorkspacePageOpen } from '../../components/WorkspacePages';
+import { useWorkspaceMainPageOpen, useWorkspacePageOpen } from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -97,10 +97,11 @@ export function ChatShell({
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
 }) {
-  const shellStyle = {
-    '--sidebar-width': `${sidebarWidth}px`,
-  } as CSSProperties;
   const pageOpen = useWorkspacePageOpen();
+  const mainPageOpen = useWorkspaceMainPageOpen();
+  const shellStyle = {
+    '--sidebar-width': `${mainPageOpen ? 0 : sidebarWidth}px`,
+  } as CSSProperties;
 
   return (
     <div className={cn('app-shell-root', IS_MAC && 'is-mac')}>
@@ -142,6 +143,7 @@ export function ChatShell({
           hideAvatar={true}
         />
         <aside
+          hidden={mainPageOpen}
           className={cn(
             'sidebar',
             view === 'home' && 'is-home-view',
@@ -177,7 +179,9 @@ export function ChatShell({
             {sidebarContent}
           </div>
         </aside>
-        <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
+        {!mainPageOpen && (
+          <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
+        )}
         <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
           {mainContent}
         </main>

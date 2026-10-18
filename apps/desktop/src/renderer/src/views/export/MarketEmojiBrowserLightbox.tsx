@@ -1,5 +1,5 @@
 /**
- * 商城表情浏览器灯箱。
+ * 商城表情整页浏览器。
  *
  * 两栏布局：
  *   左栏  搜索框 + 来源筛选 chips + 无限滚动包列表（名称 / 描述 / 付费徽章）
@@ -381,14 +381,14 @@ export function MarketEmojiBrowserLightbox({
   };
 
   return (
-    <WorkspacePage title="商城表情" onClose={onClose}>
+    <WorkspacePage title="商城表情" onClose={onClose} standalone>
       <div
-        className={`weq-blob-dialog weq-emb-dialog weq-market-browser${selectedId ? ' has-detail' : ''}`}
+        className={`weq-market-browser${selectedId ? ' has-detail' : ''}`}
         role="region"
-        aria-label="商城表情"
+        aria-labelledby="weq-market-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="weq-blob-head">
+        <header className="weq-market-head">
           {selectedId ? (
             <button
               type="button"
@@ -400,17 +400,24 @@ export function MarketEmojiBrowserLightbox({
               <ArrowLeft size={18} />
             </button>
           ) : null}
-          <div className="weq-blob-title">
-            <h3>商城表情</h3>
+          <div className="weq-market-title">
+            <Store size={18} strokeWidth={1.9} />
+            <h2 id="weq-market-title">商城表情</h2>
             {total > 0 ? (
-              <code>
+              <span className="weq-market-total">
                 {loading && entries.length === 0
                   ? '搜索中…'
                   : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
-              </code>
+              </span>
             ) : null}
           </div>
-          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
+          <button
+            type="button"
+            className="weq-market-close"
+            onClick={onClose}
+            title="关闭商城表情"
+            aria-label="关闭商城表情"
+          >
             <X size={18} />
           </button>
         </header>

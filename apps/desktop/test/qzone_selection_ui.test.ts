@@ -29,6 +29,19 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qzone: {
         posts: { query: fixture.posts },
+        detail: {
+          query: async () => ({
+            post: {
+              tid: 'linked',
+              content: 'fixture-linked',
+              time: 1,
+              images: [],
+              videos: [],
+              isPrivate: false,
+              commentNum: 0,
+            },
+          }),
+        },
         stats: { query: async () => ({ postCount: 3, photoCount: 0 }) },
         people: { query: async () => ({}) },
         cancel: { mutate: async () => {} },
@@ -57,7 +70,7 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
-it('空间正文多选交出离散 tid，旧导出按钮使用统一请求且不修改正文选择', async () => {
+it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出交出离散 tid', async () => {
   function Probe() {
     return createElement(
       'output',
@@ -83,9 +96,15 @@ it('空间正文多选交出离散 tid，旧导出按钮使用统一请求且不
   );
   try {
     await act(async () => {});
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选说说"]')!.click());
+    expect(f.host.querySelector('[aria-label="多选说说"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="导出说说范围"]')).toBeNull();
+    expect(f.host.querySelectorAll('[aria-label="导出说说"]')).toHaveLength(1);
     act(() => {
-      f.host.querySelector<HTMLElement>('[data-qzone-tid="a"]')!.click();
+      f.host
+        .querySelector<HTMLElement>('[data-qzone-tid="a"]')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    });
+    act(() => {
       f.host.querySelector<HTMLElement>('[data-qzone-tid="c"]')!.click();
     });
     expect(f.host.querySelectorAll('.weq-qzn-post.is-selected')).toHaveLength(2);
@@ -101,6 +120,32 @@ it('空间正文多选交出离散 tid，旧导出按钮使用统一请求且不
       JSON.parse(f.host.querySelector('output')!.textContent!).request.selection.scope.ids,
     ).toEqual(['a', 'c']);
     expect(f.host.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+  } finally {
+    f.close();
+  }
+});
+it('跳转说说详情和普通动态共用一列阅读布局，不嵌套两层时间线边距', async () => {
+  const f = mount(
+    createElement(QzoneView, {
+      selfUin: '10001',
+      nickname: '合成自己',
+      active: true,
+      spaceRequest: {
+        accountUin: '10001',
+        uin: '10002',
+        revision: 'fixture-linked',
+        target: { kind: 'post', tid: 'linked' },
+      },
+    }),
+  );
+  try {
+    await act(async () => {});
+    const linked = f.host.querySelector('.weq-qzn-linked-post');
+    expect(linked?.textContent).toContain('fixture-linked');
+    const timeline = linked?.closest('.weq-qzn-timeline');
+    expect(timeline).not.toBeNull();
+    expect(timeline?.querySelector('[data-qzone-tid="a"]')).not.toBeNull();
+    expect(timeline?.querySelector('.weq-qzn-timeline')).toBeNull();
   } finally {
     f.close();
   }

@@ -1,3 +1,7 @@
+.app-shell > .sidebar[hidden] {
+  display: none;
+}
+
 .weq-workspace-content,
 .weq-workspace-base,
 .weq-workspace-page-host,

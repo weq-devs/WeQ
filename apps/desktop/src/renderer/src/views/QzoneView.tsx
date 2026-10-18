@@ -15,7 +15,6 @@ import {
 } from 'react';
 import {
   AtSign,
-  CheckSquare,
   Download,
   ChevronDown,
   Eye,
@@ -772,7 +771,7 @@ function SpaceContent({
         ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
-        <div>
+        <div className="weq-qzn-timeline">
           {postRequest ? (
             <LinkedPost
               key={postRequest.revision}
@@ -1022,7 +1021,6 @@ function Posts({
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
-  const requestExport = useRequestContentExport();
   const multi = useMultiSelection({
     ids: posts.map((post) => post.tid),
     selected: selection.selectedIds,
@@ -1125,36 +1123,8 @@ function Posts({
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
-    <div className="weq-qzn-timeline" {...multi.rootProps}>
+    <div {...multi.rootProps}>
       <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
-      <div className="weq-qzn-selection-controls">
-        <button
-          type="button"
-          aria-label={selection.selectionMode ? '退出说说多选' : '多选说说'}
-          title={selection.selectionMode ? '退出说说多选' : '多选说说'}
-          aria-pressed={selection.selectionMode}
-          onClick={() => selection.setSelectionMode(!selection.selectionMode)}
-        >
-          {selection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
-        </button>
-        {selection.selectionMode ? <span>已选 {selection.selectedIds.size} 条说说</span> : null}
-        <button
-          type="button"
-          title="导出说说范围"
-          aria-label="导出说说范围"
-          disabled={!requestExport || (selection.selectionMode && !selection.selectedIds.size)}
-          onClick={() =>
-            requestExport?.({
-              owner: { kind: 'qzone-posts', container: hostUin },
-              scope: selection.selectionMode
-                ? { type: 'items', ids: [...selection.selectedIds] }
-                : { type: 'all' },
-            })
-          }
-        >
-          <Download size={16} />
-        </button>
-      </div>
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}
