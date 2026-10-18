@@ -17922,6 +17922,62 @@ html[data-theme="dark"] .weq-rp-body {
 }
 
 /* ── 结果卡：修完 / 失败之后留在原地的结论 ────────────────────────── */
+.weq-rp-migrate {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-migrate-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-migrate-main {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-rp-migrate-main strong {
+  color: var(--weq-warn-fg);
+  font-size: 12.5px;
+  font-weight: 640;
+}
+
+.weq-rp-migrate-main p {
+  margin: 0;
+  color: var(--weq-warn-fg);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.weq-rp-migrate-main p.weq-rp-hint {
+  color: color-mix(in srgb, var(--weq-warn-fg) 78%, transparent);
+}
+
+.weq-rp-migrate > .weq-set-btn {
+  flex: none;
+  align-self: center;
+}
+
+@media (max-width: 520px) {
+  .weq-rp-migrate {
+    flex-wrap: wrap;
+  }
+
+  .weq-rp-migrate > .weq-set-btn {
+    margin-left: 25px;
+  }
+}
+
 .weq-rp-outcome {
   display: flex;
   align-items: flex-start;

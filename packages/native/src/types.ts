@@ -365,6 +365,15 @@ export interface RecoverOptions {
   lostAndFoundName?: string;
   /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
   slowIndexes?: boolean;
+  /**
+   * 源库逻辑页布局（`qq` / `standard`，默认 `qq`）。
+   *
+   * 旧版修复把 standard SQLite 的页布局写进了带 QQ 头的库；迁移时传 `standard`，
+   * recover 会按显式页号读取源页，不再受当前进程 pager 布局影响。
+   */
+  sourceLayout?: 'qq' | 'standard';
+  /** 目标库逻辑页布局（默认 `qq`；迁移固定为 `qq`）。 */
+  targetLayout?: 'qq' | 'standard';
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -417,6 +426,10 @@ export interface RecoverReport {
   scannedCells: number;
   phases: RecoverPhaseTiming[];
   verification: RecoverVerification;
+  /** 源库逻辑页布局（`qq` / `standard`）。 */
+  sourceLayout: 'qq' | 'standard';
+  /** 产物逻辑页布局（迁移后应为 `qq`）。 */
+  targetLayout: 'qq' | 'standard';
 }
 
 // ---------- nt_helper.node — full surface --------------------------------

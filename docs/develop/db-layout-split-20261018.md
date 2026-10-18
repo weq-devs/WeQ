@@ -78,4 +78,46 @@ nt_helper 暴露 `setDbLayout('qq' | 'standard')` / `getDbLayout()`；
 实测过锁字节。Windows / macOS 需要在真机上再验一次，尤其是存在运行中 QQ
 实例时的锁冲突。
 
-迁移界面（识别被旧标准 SQLite 改过的库并引导迁移）不在本次范围内，另行评估。
+## 旧版误修复库的布局迁移（2026-10-18 追加）
+
+旧版修复在 1 GiB 以上的 QQ 库上可能把 standard 页布局写进带 QQ 头的产物。为了把这种
+库迁回 QQ 布局，`recoverDatabase` 增加了两个可选参数：
+
+- `sourceLayout: 'qq' | 'standard'`（默认 `qq`）；
+- `targetLayout: 'qq' | 'standard'`（目前只接受 `qq`）。
+
+迁移的判据只有两个，且只在用户进入「妙妙工具 → 数据库修复」并选中库时执行：
+
+1. 文件大于 1 GiB；
+2. 第 `262144` / `262145` 页的状态：`262144` 有数据且 `262145` 全零 → standard，
+   需要迁移；反之为 QQ，不迁移；其它组合不提示。
+
+检测读原始字节，不经过 SQLite，也不查旧修复记录。服务层实现在
+`packages/service/src/account/db_repair/layout_migration.ts`。
+
+### native 侧如何做到
+
+迁移不能靠切换进程级 `pending_byte`（同一进程禁止切换），也不能让 recover 用
+`PRAGMA page_count` 去猜。nt_helper 在明文中间件上做了三件事：
+
+1. **显式页数**：`sqlite3_recover_config` 新增 op `790`，把扫描得到的页数直接交给
+   recover，覆盖 `recoverPageCount()`；
+2. **按逻辑页号取页**：recover 的取页函数 `nt_recover_page(pgno)` 由调用方注册，
+   物理偏移 = `base_offset + (pgno - 1) * page_size`。明文中间件 `base_offset = 0`，
+   所以 standard 源的逻辑页号就是它在明文文件里的页号；
+3. **目标布局固定 QQ**：重建后的明文仍由 QQ 布局进程加密并补回源库的 1024 字节头，
+   产物保留页因此回到 `262144`。
+
+`sourceLayout` 与 `targetLayout` 会回显在 `RecoverReport` 里。WeQ 服务层在替换前核对
+`standard → qq`；旧 native 产物会静默忽略未知参数、不回显这两个字段，因此会被拦下，
+源库不会被替换。
+
+### 验证
+
+- nt_helper 单测 `standard_source_migrates_to_qq_layout`：standard 源迁移后自检通过、
+  行数一致、QQ 头原样保留。
+- 真实 1.1 GiB 样本：用旧二进制「修坏」后，standard 布局在 QQ 布局下报
+  `layout_padding` 损坏；迁移后 `PRAGMA integrity_check = ok`，跨 `262144` 页的数据
+  可读。
+- WeQ 单测覆盖检测判据、迁移参数透传、记录类型与旧产物拦截；界面只在修复页选中库时
+  发起检测，不在启动时自动跑。
