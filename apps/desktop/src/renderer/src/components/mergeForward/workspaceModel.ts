@@ -23,6 +23,18 @@ export interface CompositionRequest {
 }
 export const COMPOSITION_DRAG_TYPE = 'application/x-weq-composition-entry';
 
+/** 落点是移动前的消息间隙；向后移动时扣除原节点占据的位置。 */
+export function moveCompositionNode(nodes: MfNode[], id: string, at: number): MfNode[] {
+  const from = nodes.findIndex((node) => node.id === id);
+  if (from < 0 || !Number.isInteger(at)) return nodes;
+  const slot = Math.max(0, Math.min(at, nodes.length));
+  const to = slot > from ? slot - 1 : slot;
+  if (to === from) return nodes;
+  const next = [...nodes];
+  next.splice(to, 0, ...next.splice(from, 1));
+  return next;
+}
+
 export function compositionInsertionError(
   draft: MfDraft,
   entry: MfDraft,

@@ -325,11 +325,15 @@ export function CompositionWorkspace({
     progressRef.current = null;
     setProgress(null);
     setEditorVersion((current) => current + 1);
-    change(
-      duplicate
-        ? { ...structuredClone(value), id: mfId('draft'), createdAt: Math.floor(Date.now() / 1000) }
-        : structuredClone(value),
-    );
+    const next = duplicate
+      ? { ...structuredClone(value), id: mfId('draft'), createdAt: Math.floor(Date.now() / 1000) }
+      : structuredClone(value);
+    if (next.title || next.nodes.length) change(next);
+    else {
+      setDraft(next);
+      dirtyRef.current = false;
+      setDirty(false);
+    }
     setPersisted(false);
     setKind('history');
   };
@@ -386,7 +390,7 @@ export function CompositionWorkspace({
     setStatus('已发送');
   };
   const records = compositionRecords(
-    [working],
+    dirty || persisted ? [working] : [],
     recoveries,
     (saved.data?.current ?? []).map(coerceDraft),
     (saved.data?.legacy ?? []).map(coerceDraft),

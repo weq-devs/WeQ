@@ -28,6 +28,7 @@ import {
   useState,
   type ReactElement,
   type ReactNode,
+  type DragEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useRenderDocument } from '../../lib/renderDocument';
@@ -37,6 +38,7 @@ import {
   FileText,
   Film,
   Forward,
+  GripVertical,
   Image as ImageIcon,
   Layers,
   Mic,
@@ -68,6 +70,8 @@ import { trpc } from '../../trpc/client';
 import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
+import { moveCompositionNode } from './workspaceModel';
+import '../../styles/composition-sort.css';
 import {
   blankNestedRecordSeg,
   blankSeg,
@@ -129,6 +133,8 @@ const SEG_ORDER: MfSegKind[] = [
   'card',
   'node',
 ];
+
+const NODE_DRAG_TYPE = 'application/x-weq-composition-node';
 
 /**
  * 一条消息里能**叠加**的段：真实 QQ 消息能共存的就这几类。
@@ -194,6 +200,8 @@ export function MergeForwardComposer({
   const [error, setError] = useState<string | null>(null);
   /** 正在编辑装扮的节点 id（null = 没开卡片）。 */
   const [dressFor, setDressFor] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [sortAt, setSortAt] = useState<number | null>(null);
 
   const nodes = draft.nodes;
   const progressIdentity = useRef<{ id: string; time: number } | null>(null);
@@ -201,6 +209,19 @@ export function MergeForwardComposer({
     if (!onProgress) return;
     if (!editor) {
       progressIdentity.current = null;
+      onProgress(null);
+      return;
+    }
+    if (
+      (!editor.nodeId && editor.segs.length === 0) ||
+      (editor.nodeId &&
+        nodes.some(
+          (node) =>
+            node.id === editor.nodeId &&
+            JSON.stringify(node.sender) === JSON.stringify(editor.sender) &&
+            JSON.stringify(node.segs) === JSON.stringify(editor.segs),
+        ))
+    ) {
       onProgress(null);
       return;
     }
@@ -226,6 +247,15 @@ export function MergeForwardComposer({
 
   function commit(nextNodes: MfNode[]): void {
     onChange({ ...draft, nodes: nextNodes, updatedAt: Math.floor(Date.now() / 1000) });
+  }
+
+  function sortSlot(event: DragEvent<HTMLDivElement>): number {
+    const slot = (event.target as HTMLElement).closest<HTMLElement>('[data-composition-index]');
+    if (!slot || !event.currentTarget.contains(slot)) return nodes.length;
+    const rect = slot.getBoundingClientRect();
+    return (
+      Number(slot.dataset.compositionIndex) + (event.clientY > rect.top + rect.height / 2 ? 1 : 0)
+    );
   }
 
   function startInsert(at: number): void {
@@ -311,7 +341,29 @@ export function MergeForwardComposer({
 
   return (
     <div className="weq-mf-composer">
-      <div className="weq-mf-preview">
+      <div
+        className="weq-mf-preview"
+        onDragOver={(event) => {
+          if (!dragging || editor || !event.dataTransfer.types.includes(NODE_DRAG_TYPE)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          setSortAt(sortSlot(event));
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSortAt(null);
+        }}
+        onDrop={(event) => {
+          if (!dragging || editor || event.dataTransfer.getData(NODE_DRAG_TYPE) !== dragging)
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          const next = moveCompositionNode(nodes, dragging, sortSlot(event));
+          if (next !== nodes) commit(next);
+          setDragging(null);
+          setSortAt(null);
+        }}
+      >
         {nodes.length === 0 && !editor ? (
           <div className="weq-mf-preview-empty">
             <ImageIcon size={26} strokeWidth={1.5} />
@@ -320,8 +372,12 @@ export function MergeForwardComposer({
         ) : null}
 
         {nodes.map((node, index) => (
-          <div key={node.id} className="weq-mf-slot" data-composition-index={index}>
-            {dropAt === index ? <div className="weq-composition-drop-line" /> : null}
+          <div
+            key={node.id}
+            className={cn('weq-mf-slot', dragging === node.id && 'is-sorting')}
+            data-composition-index={index}
+          >
+            {(sortAt ?? dropAt) === index ? <div className="weq-composition-drop-line" /> : null}
             {!editor && index === 0 ? <InsertButton onClick={() => startInsert(0)} /> : null}
 
             {/* 新消息插在这一行前面：只有「插到末尾」时才会走列表外的那个编辑器，
@@ -365,6 +421,39 @@ export function MergeForwardComposer({
             ) : (
               <PreviewRow
                 node={node}
+                dragHandle={
+                  <button
+                    type="button"
+                    className="weq-mf-sort-handle"
+                    title="拖拽排序；方向键上移或下移"
+                    aria-label="拖拽消息排序"
+                    disabled={Boolean(editor)}
+                    draggable={!editor}
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      event.dataTransfer.setData(NODE_DRAG_TYPE, node.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                      setDragging(node.id);
+                      setMenu(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragging(null);
+                      setSortAt(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                      event.preventDefault();
+                      const next = moveCompositionNode(
+                        nodes,
+                        node.id,
+                        event.key === 'ArrowUp' ? index - 1 : index + 2,
+                      );
+                      if (next !== nodes) commit(next);
+                    }}
+                  >
+                    <GripVertical size={14} />
+                  </button>
+                }
                 onOpen={() => startEdit(node, index)}
                 onEditDress={() => setDressFor(node.id)}
                 onAvatar={() => setPickerFor({ kind: 'node', id: node.id })}
@@ -377,7 +466,7 @@ export function MergeForwardComposer({
             ) : null}
           </div>
         ))}
-        {dropAt === nodes.length ? <div className="weq-composition-drop-line" /> : null}
+        {(sortAt ?? dropAt) === nodes.length ? <div className="weq-composition-drop-line" /> : null}
 
         {editor && editor.nodeId === null && editor.at >= nodes.length ? (
           <NodeEditor
@@ -456,12 +545,14 @@ function PreviewRow({
   onEditDress,
   onAvatar,
   onContextMenu,
+  dragHandle,
 }: {
   node: MfNode;
   onOpen: () => void;
   onEditDress: () => void;
   onAvatar: () => void;
   onContextMenu: (x: number, y: number) => void;
+  dragHandle?: ReactNode;
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const msgDec = useMsgDecoration(node.decoration);
@@ -496,6 +587,7 @@ function PreviewRow({
       </button>
       <div className="weq-forward-row-main weq-mf-row-main">
         <div className="weq-forward-row-meta weq-mf-row-meta">
+          {dragHandle}
           <span className="weq-forward-row-name weq-mf-row-name">{name}</span>
           <span className="weq-forward-row-time weq-mf-row-time">{formatNodeTime(node.time)}</span>
           <button type="button" className="weq-mf-row-edit" onClick={onOpen}>

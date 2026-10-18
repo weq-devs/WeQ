@@ -15,6 +15,7 @@ import {
   compositionMessages,
   insertCompositionEntry,
   compositionRecords,
+  moveCompositionNode,
 } from '../src/renderer/src/components/mergeForward/workspaceModel';
 import {
   coerceDraft,
@@ -176,10 +177,129 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it('消息按插入落点移动，保留身份和内容，不复制节点', () => {
+    const nodes = ['a', 'b', 'c'].map((id) => ({ ...initial.nodes[0]!, id }));
+    expect(moveCompositionNode(nodes, 'a', 3).map((node) => node.id)).toEqual(['b', 'c', 'a']);
+    expect(moveCompositionNode(nodes, 'c', 0).map((node) => node.id)).toEqual(['c', 'a', 'b']);
+    expect(moveCompositionNode(nodes, 'b', 2)).toBe(nodes);
+    expect(moveCompositionNode(nodes, 'missing', 0)).toBe(nodes);
+    expect(moveCompositionNode(nodes, 'a', 3)[2]).toBe(nodes[0]);
+    expect(nodes.map((node) => node.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('打开、新建和仅展开编辑器不显示或保存空记录，输入后才出现', async () => {
+    vi.useFakeTimers();
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+      }),
+    );
+    try {
+      expect(f.host.querySelectorAll('.weq-composition-entry')).toHaveLength(0);
+      await act(async () => button(f.host, '新建合成记录').click());
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-mf-add')!.click());
+      await act(async () => vi.advanceTimersByTimeAsync(301));
+      expect(f.host.querySelectorAll('.weq-composition-entry')).toHaveLength(0);
+      expect(fixture.writes).toHaveLength(0);
+      const input = f.host.querySelector<HTMLInputElement>('[aria-label="聊天记录标题"]')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          '新标题',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(f.host.querySelector('.weq-composition-entry-title')?.textContent).toBe('新标题');
+      await act(async () => vi.advanceTimersByTimeAsync(301));
+      expect(fixture.current).toHaveLength(1);
+    } finally {
+      f.close();
+    }
+  });
   it('恢复副本优先于同身份旧历史，按最近编辑时间排列', () => {
     const newer = { ...initial, title: '恢复中的记录', updatedAt: 20 };
     const other = { ...initial, id: 'other', updatedAt: 30 };
     expect(compositionRecords([newer], [initial, other])).toEqual([other, newer]);
+  });
+
+  it('拖拽消息到首尾后自动保存新顺序，取消拖拽不改顺序', async () => {
+    vi.useFakeTimers();
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+        incoming: [
+          {
+            id: 'ordered',
+            draft: {
+              ...initial,
+              nodes: ['甲', '乙', '丙'].map((text, index) => ({
+                ...initial.nodes[0]!,
+                id: `node-${index}`,
+                segs: [{ t: 'text', id: `seg-${index}`, text }],
+              })),
+            },
+          },
+        ],
+      }),
+    );
+    const slots = () => [...f.host.querySelectorAll<HTMLElement>('[data-composition-index]')];
+    const drag = (from: number, to: number, after: boolean, cancel = false) => {
+      const handle = slots()[from]!.querySelector<HTMLButtonElement>(
+        '[aria-label="拖拽消息排序"]',
+      )!;
+      const target = slots()[to]!;
+      const transfer = new DataTransfer();
+      const dispatch = (element: Element, name: string) => {
+        const event = new MouseEvent(name, {
+          bubbles: true,
+          cancelable: true,
+          clientY: after ? 10 : 0,
+        });
+        Object.defineProperty(event, 'dataTransfer', { value: transfer });
+        act(() => element.dispatchEvent(event));
+      };
+      dispatch(handle, 'dragstart');
+      dispatch(target, 'dragover');
+      expect(f.host.querySelector('.weq-composition-drop-line')).not.toBeNull();
+      if (!cancel) dispatch(target, 'drop');
+      dispatch(handle, 'dragend');
+    };
+    try {
+      drag(0, 2, true);
+      expect(slots().map((slot) => slot.textContent)).toEqual([
+        expect.stringContaining('乙'),
+        expect.stringContaining('丙'),
+        expect.stringContaining('甲'),
+      ]);
+      drag(2, 0, false);
+      drag(0, 2, true, true);
+      await act(async () => vi.advanceTimersByTimeAsync(301));
+      expect(fixture.current[0]?.nodes.map((node) => node.segs[0])).toMatchObject([
+        { text: '甲' },
+        { text: '乙' },
+        { text: '丙' },
+      ]);
+      expect(new Set(fixture.current[0]?.nodes.map((node) => node.id)).size).toBe(3);
+      expect(f.host.querySelector('.weq-composition-drop-line')).toBeNull();
+    } finally {
+      f.close();
+    }
   });
 
   it('逐条发送中的嵌套记录仍走合并转发，不退成聊天记录占位文字', async () => {
@@ -307,6 +427,13 @@ describe('合成工作窗口', () => {
       fixture.configId = 'fixture-account';
       act(() => f.root.render(createElement(CompositionWorkspace, { ...props })));
       await act(async () => button(f.host, '新建合成记录').click());
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-mf-add')!.click());
+      act(() => button(f.host, '给这条消息添加一段内容').click());
+      act(() =>
+        [...document.querySelectorAll<HTMLButtonElement>('.weq-mf-add-item')]
+          .find((item) => item.textContent === '文本')!
+          .click(),
+      );
       await act(async () => button(f.host, '关闭合成窗口').click());
       expect(
         (fixture.writes.at(-1) as { input: { expectedAccountConfigId: string } }).input
