@@ -40,6 +40,7 @@ export function CloneChatPanel({
   persona,
   sessionId,
   searchTarget,
+  readOnlyLegacy = false,
   selfUin,
   clonedUin,
   faces,
@@ -54,6 +55,7 @@ export function CloneChatPanel({
   /** 真实会话 id；null = 草稿会话（首条消息才落库）。 */
   sessionId: string | null;
   searchTarget?: GeneratedSearchHit;
+  readOnlyLegacy?: boolean;
   selfUin?: string;
   clonedUin?: string;
   faces?: FaceContext;
@@ -73,12 +75,13 @@ export function CloneChatPanel({
   // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
   const initialSessionId = useRef(sessionId).current;
   const sessionIdRef = useRef<string | null>(sessionId);
-  const legacy = Boolean(searchTarget && searchTarget.sessionId === null);
+  const legacy = readOnlyLegacy || Boolean(searchTarget && searchTarget.sessionId === null);
   const sessionConversation = trpc.account.getAgentLabPersonaSessionConversation.useQuery(
     { personaId, sessionId: initialSessionId ?? '' },
     {
       enabled: !!initialSessionId,
-      ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
+      staleTime: 0,
+      refetchOnMount: 'always',
     },
   );
   const legacyConversation = trpc.account.getAgentLabConversation.useQuery(
@@ -115,7 +118,7 @@ export function CloneChatPanel({
 
   // 首次加载持久化对话（真实会话）。
   useEffect(() => {
-    if (!seeded.current && conversation.data && (!searchTarget || !conversation.isFetching)) {
+    if (!seeded.current && conversation.data && !conversation.isFetching) {
       setHistory(
         conversation.data.map((t) => ({ id: t.id, role: t.role, text: t.text, ts: t.ts })),
       );

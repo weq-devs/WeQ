@@ -51,6 +51,28 @@
 
 .weq-guild-direct-list-back { display: none; }
 
+.weq-guild-direct-msg.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  outline-offset: -1px;
+}
+
+.weq-guild-direct-msg:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-guild-direct-topbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+html[data-theme="dark"] .weq-guild-direct-msg.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  outline-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
 html[data-theme="dark"] .weq-channel-direct-trigger {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);

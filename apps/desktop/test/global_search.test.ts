@@ -33,6 +33,7 @@ const slowResult = {
   files: [],
   cloneMessages: [],
   assistantMessages: [],
+  collections: [],
   indexStatus: 'disabled' as const,
 };
 

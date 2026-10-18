@@ -16,6 +16,7 @@
  */
 
 import { JsonStore } from '../common/json_store';
+import { writeFileAtomicSync } from '../common/atomic_write';
 
 /** 一条预览消息的发送者。uin 是头像来源；uid 可能为空（手工输入时只有 uin）。 */
 export interface MergeForwardSender {
@@ -52,6 +53,7 @@ export interface MergeForwardNode {
   };
   /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
+  sourceCompositionId?: string;
 }
 
 /** 一份「合成聊天记录」草稿。 */
@@ -138,6 +140,9 @@ function normalizeNode(raw: unknown, index: number): MergeForwardNode | null {
       ? { decoration: normalizeDecoration(raw.decoration) }
       : {}),
     ...(asString(raw.sourceMsgId) ? { sourceMsgId: asString(raw.sourceMsgId) } : {}),
+    ...(asString(raw.sourceCompositionId)
+      ? { sourceCompositionId: asString(raw.sourceCompositionId) }
+      : {}),
   };
 }
 
@@ -163,7 +168,10 @@ export function normalizeMergeForwardDraft(
 export class MergeForwardDraftStore {
   private readonly store: JsonStore<Record<string, MergeForwardDraft>>;
 
-  constructor(filePath: string) {
+  constructor(
+    private readonly filePath: string,
+    private readonly options: { strict?: boolean } = {},
+  ) {
     this.store = new JsonStore(filePath, () => ({}), {
       pretty: true,
       normalize: (raw) => {
@@ -187,6 +195,12 @@ export class MergeForwardDraftStore {
     return this.store.data[id];
   }
 
+  private persist(next: Record<string, MergeForwardDraft>): void {
+    if (this.options.strict) writeFileAtomicSync(this.filePath, JSON.stringify(next));
+    this.store.data = next;
+    if (!this.options.strict) this.store.save();
+  }
+
   /** 新建或覆盖一份草稿，返回落盘后的副本。 */
   save(input: MergeForwardDraftInput): MergeForwardDraft {
     const now = Math.floor(Date.now() / 1000);
@@ -201,15 +215,15 @@ export class MergeForwardDraftStore {
       updatedAt: now,
       nodes,
     };
-    this.store.data[draft.id] = draft;
-    this.store.save();
+    this.persist({ ...this.store.data, [draft.id]: draft });
     return draft;
   }
 
   remove(id: string): boolean {
     if (this.store.data[id] === undefined) return false;
-    delete this.store.data[id];
-    this.store.save();
+    const next = { ...this.store.data };
+    delete next[id];
+    this.persist(next);
     return true;
   }
 }

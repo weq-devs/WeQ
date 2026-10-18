@@ -178,7 +178,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it('原四项保留顺序并收纳密钥工具，点击不触发维护操作', () => {
+  it('原四项保留顺序并收纳明文导出与密钥工具，点击不触发维护操作', () => {
     const open = vi.fn();
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
@@ -187,6 +187,7 @@ describe('设置的数据与维护', () => {
         '存储占用',
         '清理缓存',
         '数据库修复',
+        '导出明文数据库',
         '密钥扫描',
         '其它设备密钥',
       ]);
@@ -196,6 +197,7 @@ describe('设置的数据与维护', () => {
         'storage',
         'cleanup',
         'db-repair',
+        'db-decrypt',
         'key-scan',
         'other-device-key',
       ]);
@@ -211,6 +213,7 @@ describe('设置的数据与维护', () => {
         false,
         true,
         true,
+        false,
         false,
         false,
         false,
@@ -233,7 +236,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it.each(['database', 'storage', 'cleanup', 'db-repair'] as const)(
+  it.each(['database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
     '%s 从设置进入工具后只有一个内容页且不遮罩，关闭返回原设置分区',
     (tool) => {
       function Harness() {
@@ -264,7 +267,7 @@ describe('设置的数据与维护', () => {
       }
       const f = mount(createElement(Harness));
       try {
-        const index = ['database', 'storage', 'cleanup', 'db-repair'].indexOf(tool);
+        const index = ['database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'].indexOf(tool);
         act(() => entries(f.host)[index]!.click());
         expect(f.host.querySelector('.weq-settings-dialog')).toBeNull();
         if (tool === 'storage' || tool === 'cleanup') {

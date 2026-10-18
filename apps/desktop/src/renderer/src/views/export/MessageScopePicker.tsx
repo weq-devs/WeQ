@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 
 interface MessageChoice {
   msgId: string;
@@ -16,7 +17,7 @@ export function MessageScopePicker({
   selected,
   onChange,
 }: {
-  kind: 'group' | 'c2c';
+  kind: 'group' | 'c2c' | 'guild';
   conv: string;
   selected: readonly string[] | undefined;
   onChange: (ids: string[] | undefined) => void;
@@ -27,18 +28,47 @@ export function MessageScopePicker({
   const [rows, setRows] = useState<MessageChoice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const exact = selected !== undefined;
   useEffect(() => {
+    if (!exact) {
+      setRows([]);
+      setCursor(undefined);
+      setNext(null);
+      setBusy(false);
+      setError('');
+      return;
+    }
     let cancelled = false;
     setBusy(true);
     setError('');
-    void client.account.browseConversation
-      .query({
-        kind,
-        conv,
-        filter: { keyword: keyword.trim() || undefined },
-        cursor,
-        limit: 50,
-      })
+    const query =
+      kind === 'guild'
+        ? (cursor
+            ? client.account.guildDirectBefore.query({
+                nodeId: conv,
+                beforeSeq: cursor.rowId,
+                limit: 50,
+              })
+            : client.account.guildDirectLatest.query({ nodeId: conv, limit: 50 })
+          ).then((items) => ({
+            items: items.map((row) => ({
+              msgId: row.msgId,
+              content: row.elements
+                .map((element) => previewNodesToText(previewNodes(element)))
+                .filter(Boolean)
+                .join(' '),
+              senderName: row.sendType === '0' ? '对方' : '我',
+            })),
+            cursor: items.length >= 50 ? { time: 0, rowId: items.at(-1)!.msgSeq } : null,
+          }))
+        : client.account.browseConversation.query({
+            kind,
+            conv,
+            filter: { keyword: keyword.trim() || undefined },
+            cursor,
+            limit: 50,
+          });
+    void query
       .then((result) => {
         if (cancelled) return;
         setRows((current) => {
@@ -57,7 +87,7 @@ export function MessageScopePicker({
     return () => {
       cancelled = true;
     };
-  }, [kind, conv, keyword, cursor]);
+  }, [kind, conv, keyword, cursor, exact]);
   const ids = new Set(selected ?? []);
   const multi = useMultiSelection({
     ids: [...new Set([...rows.map((row) => row.msgId), ...(selected ?? [])])],
@@ -79,19 +109,21 @@ export function MessageScopePicker({
       </label>
       {selected !== undefined ? (
         <>
-          <label className="weq-message-scope-search">
-            <Search size={15} />
-            <input
-              aria-label="筛选可选消息"
-              value={keyword}
-              placeholder="查找消息"
-              onChange={(event) => {
-                setKeyword(event.target.value);
-                setCursor(undefined);
-                setRows([]);
-              }}
-            />
-          </label>
+          {kind !== 'guild' ? (
+            <label className="weq-message-scope-search">
+              <Search size={15} />
+              <input
+                aria-label="筛选可选消息"
+                value={keyword}
+                placeholder="查找消息"
+                onChange={(event) => {
+                  setKeyword(event.target.value);
+                  setCursor(undefined);
+                  setRows([]);
+                }}
+              />
+            </label>
+          ) : null}
           {error ? <p role="alert">{error}</p> : null}
           <div className="weq-message-scope-rows">
             {rows.map((row) => (

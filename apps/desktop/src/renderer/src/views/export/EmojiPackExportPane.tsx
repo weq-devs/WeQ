@@ -52,9 +52,11 @@ const SCOPES: EmojiExportScope[] = ['own', 'received'];
 export function EmojiPackExportPane({
   onStarted,
   prepareSave,
+  disabled = false,
 }: {
   onStarted: () => void;
   prepareSave?: () => Promise<import('@weq/service').ExportSavePolicy | null>;
+  disabled?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
@@ -78,14 +80,14 @@ export function EmojiPackExportPane({
   }, [data, selected]);
 
   async function start(): Promise<void> {
-    if (selected.size === 0) return;
+    if (selected.size === 0 || disabled || submitting) return;
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave?.();
       if (savePolicy === null) return;
       await client.account.emojiPack.startExport.mutate({ scopes: [...selected], savePolicy });
       onStarted();
-      dialog.info('已开始导出', '已加入任务队列。');
+      dialog.success('已开始导出', '已加入任务队列。');
     } catch (e) {
       dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -126,7 +128,7 @@ export function EmojiPackExportPane({
         <button
           type="button"
           className="weq-epk-start"
-          disabled={selected.size === 0 || submitting || summary.isLoading}
+          disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
           onClick={() => void start()}
         >
           {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}

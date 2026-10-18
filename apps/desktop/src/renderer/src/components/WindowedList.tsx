@@ -45,7 +45,8 @@ export function WindowedList<T>({
     if (!scrollToKey || applied.current === request) return;
     const index = items.findIndex((item) => itemKey(item) === scrollToKey);
     if (index < 0 || !root.current) return;
-    const next = Math.max(0, index * rowHeight - height / 2 + rowHeight / 2);
+    const viewportHeight = root.current.clientHeight || height;
+    const next = Math.max(0, index * rowHeight - viewportHeight / 2 + rowHeight / 2);
     root.current.scrollTop = next;
     setTop(next);
     applied.current = request;

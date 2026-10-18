@@ -19,10 +19,12 @@ const BASE = 1200;
 let counter = BASE;
 
 /** 底层页面快捷键不能穿透工具遮罩；保留但隐藏的工具不算活动对话框。 */
-export function hasActiveModal(): boolean {
+export function hasActiveModal(
+  ownerDocument: Document | undefined = typeof document === 'undefined' ? undefined : document,
+): boolean {
   return (
-    typeof document !== 'undefined' &&
-    [...document.querySelectorAll('[aria-modal="true"]')].some(
+    Boolean(ownerDocument) &&
+    [...(ownerDocument?.querySelectorAll('[aria-modal="true"]') ?? [])].some(
       (element) => !element.closest('[hidden], [inert]'),
     )
   );

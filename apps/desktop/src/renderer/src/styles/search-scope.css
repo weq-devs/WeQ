@@ -47,6 +47,21 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
+.weq-search-source-icon {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-search-dropdown .weq-search-hl,
+.weq-search-dropdown .weq-search-strong,
+.weq-search-more-modal .weq-search-hl,
+.weq-search-more-modal .weq-search-strong,
+html[data-theme="dark"] .weq-search-dropdown .weq-search-hl,
+html[data-theme="dark"] .weq-search-dropdown .weq-search-strong,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-hl,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-strong {
+  color: var(--weq-accent-effective);
+}
+
 html[data-theme="dark"] .weq-search-scope,
 html[data-theme="dark"] .weq-search-failure button {
   border-color: var(--weq-border-strong);

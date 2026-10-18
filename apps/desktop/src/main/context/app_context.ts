@@ -1359,6 +1359,8 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchCollections: (keyword, limit, offset) =>
+            collectionSvc.searchLocal(keyword, limit, offset),
           generatedSources: () => generatedSources,
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
@@ -2048,6 +2050,8 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchCollections: (keyword, limit, offset) =>
+            collectionSvc.searchLocal(keyword, limit, offset),
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
           generatedSources: () => generatedSources,
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。

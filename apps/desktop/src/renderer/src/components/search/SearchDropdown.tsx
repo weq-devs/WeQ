@@ -60,6 +60,10 @@ export function SearchDropdown({
     loading: slowLoading && !slow,
   });
   sections.set('file', { hits: slow ? slow.files : null, loading: slowLoading && !slow });
+  sections.set('collection', {
+    hits: slow ? slow.collections : null,
+    loading: slowLoading && !slow,
+  });
   sections.set('cloneMessage', {
     hits: slow ? slow.cloneMessages : null,
     loading: slowLoading && !slow,
@@ -111,6 +115,7 @@ export function SearchDropdown({
           </label>
         ))}
       </div>
+      <div className="weq-search-index-hint">来源：当前账号 · 本地可检索记录</div>
       {indexBuilding ? (
         <div className="weq-search-index-hint">
           正在建立本地搜索索引，聊天记录/文件首次查询较慢…
@@ -122,7 +127,9 @@ export function SearchDropdown({
           (category) => {
             const section = sections.get(category)!;
             const hits = section.hits;
-            const failed = isSlowSearchCategory(category) ? slowError : quickError;
+            const failed = isSlowSearchCategory(category)
+              ? slowError || slow?.failedCategories?.includes(category)
+              : quickError;
             return (
               <div className="weq-search-section" key={category}>
                 <div className="weq-search-section-header">

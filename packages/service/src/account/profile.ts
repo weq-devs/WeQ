@@ -15,6 +15,24 @@ export class ProfileService {
     return this.session.buddies.listBuddies(limit, offset);
   }
 
+  /** 导出选择器读取完整好友目录，不截断为亲密度榜前若干名。 */
+  async listExportFriends() {
+    const buddies = await this.listBuddies();
+    const names = new Map<string, string>();
+    for (let offset = 0; ; offset += 1000) {
+      const page = await this.listFriendsByIntimacy(1000, offset);
+      for (const profile of page)
+        names.set(profile.uid, profile.remark?.trim() || profile.nick?.trim() || '');
+      if (page.length < 1000) break;
+    }
+    return buddies.map((buddy) => ({
+      uid: buddy.uid,
+      uin: buddy.uin.toString(),
+      name: names.get(buddy.uid) || (buddy.uin > 0n ? buddy.uin.toString() : buddy.uid),
+      categoryId: buddy.categoryId,
+    }));
+  }
+
   /**
    * List all buddy categories (groups).
    */

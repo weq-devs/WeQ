@@ -15,6 +15,7 @@
 import type { Element, MsgDecoration } from '@weq/codec';
 import type { GuildDirectService, RenderGuildDirectMsg } from '../guild_direct';
 import type { RenderC2cMsg } from '../msg';
+import type { MessageFilter } from '../message_filter';
 
 /** 频道私聊导出任务的身份快照（全部 JSON 可序列化，随任务持久化）。 */
 export interface GuildExportTaskMeta {
@@ -72,7 +73,14 @@ export class GuildMsgSource {
   constructor(
     private readonly svc: GuildDirectService,
     private readonly meta: GuildExportTaskMeta,
+    readonly exportFilter?: MessageFilter,
+    readonly exportSignal?: AbortSignal,
   ) {}
+
+  /** 频道源不做主聊天库的损坏降级，仍需满足通用报告的取账契约。 */
+  takeSalvageSkips(): [] {
+    return [];
+  }
 
   /** 比 afterSeq 更新的一页（seq 升序）——与 iterateC2cMessages 的游标契约一致。 */
   async getC2cAfter(_peerUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {

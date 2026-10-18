@@ -19,6 +19,7 @@ import {
   Trash2,
   ListX,
   ListRestart,
+  ListPlus,
   FileText,
   Images,
   FolderOpen,
@@ -398,6 +399,7 @@ export function ChatPane({
   deletedIds,
   onRestoreMessage,
   onMergeForward,
+  onAddToComposition,
   onForwardMessages,
   unreadDock,
   missingJumpSeq,
@@ -534,6 +536,7 @@ export function ChatPane({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onAddToComposition?: (messages: Message[]) => void;
   onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /**
    * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
@@ -4052,6 +4055,18 @@ export function ChatPane({
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
+              {onAddToComposition ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="添加到素材库"
+                  title="添加到素材库"
+                  disabled={!selectedMessages.length}
+                  onClick={() => onAddToComposition([...selectedMessages])}
+                >
+                  <ListPlus size={17} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
@@ -4643,6 +4658,14 @@ export function ChatPane({
       ) : null}
       {contextMenu ? (
         <MessageContextMenu
+          onAddToComposition={
+            onAddToComposition
+              ? (message) => {
+                  setContextMenu(null);
+                  onAddToComposition([message]);
+                }
+              : undefined
+          }
           state={contextMenu}
           onCopy={copyMessage}
           onForward={

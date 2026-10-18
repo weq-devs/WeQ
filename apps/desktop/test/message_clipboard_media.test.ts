@@ -8,6 +8,53 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('消息富文本及图片', () => {
+  it('归档图片优先走受控本地媒体代理，QQ 图片缓存已清理也能取得字节', async () => {
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('localfile')
+        ? new Response(new Uint8Array([137, 80, 78, 71]))
+        : new Response(null, { status: 404 }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const element = {
+      type: 'pic',
+      data: { localPath: '/synthetic/archive/image.png', fileName: 'image.png' },
+    };
+    const images = await repeatImageSources([element], 1);
+    expect(images.get(element)).toEqual(new Uint8Array([137, 80, 78, 71]));
+    expect(fetcher.mock.calls[0]?.[0]).toContain('localfile');
+  });
+
+  it.each(['ptt', 'video', 'file'] as const)('素材 %s 的本地路径能转换成真实发送计划', (type) => {
+    const plan = repeatSendPlan(
+      [
+        {
+          type,
+          data: {
+            localPath: '/synthetic/archive/media',
+            thumbLocalPath: '/synthetic/archive/cover.png',
+            fileName: 'fixture',
+            videoWidth: 32,
+            videoHeight: 64,
+          },
+        },
+      ],
+      new Map(),
+      true,
+    );
+    if (type === 'file')
+      expect(plan).toMatchObject({ kind: 'file', path: '/synthetic/archive/media' });
+    else
+      expect(plan).toMatchObject({
+        kind: 'elements',
+        elements: [
+          {
+            kind: type === 'ptt' ? 'record' : 'video',
+            source: '/synthetic/archive/media',
+            ...(type === 'video' ? { thumb: '/synthetic/archive/cover.png' } : {}),
+          },
+        ],
+      });
+  });
   it('发送者、时间、正文与引用保持轻量结构，HTML 输入不能注入元素', () => {
     const result = messageRichClipboard([
       {

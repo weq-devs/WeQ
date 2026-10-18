@@ -48,6 +48,7 @@ import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs';
+import { useRenderDocument } from '../lib/renderDocument';
 
 export type OverlayLayerProps = {
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar';
@@ -96,6 +97,7 @@ function OpenOverlayLayer({
   children,
   presentation = 'modal',
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(true);
   const ref = useRef<HTMLDivElement>(null);
   // onClose 多半是每次渲染新写的箭头函数；用 ref 稳住，避免每帧重挂 keydown。

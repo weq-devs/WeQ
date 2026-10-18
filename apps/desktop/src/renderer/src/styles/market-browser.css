@@ -1,0 +1,10 @@
+.weq-market-back { display: none; }
+.weq-market-browser { min-width: 0; }
+.weq-market-browser .weq-emb-left { min-width: 0; }
+.weq-market-browser .weq-directory-toolbar { width: 100%; box-sizing: border-box; }
+.weq-market-selection-actions { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 8px; padding: 8px 12px; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-market-selection-actions button { display: flex; align-items: center; gap: 6px; }
+.weq-market-job-status { padding: 6px 16px; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-market-description { margin: 0; padding: 8px 14px; font-size: 12px; color: var(--weq-fg-secondary); overflow-wrap: anywhere; }
+html[data-theme="dark"] .weq-market-job-status, html[data-theme="dark"] .weq-market-selection-actions { color: var(--weq-fg-secondary); }
+@media (max-width: 700px) { .weq-market-browser .weq-emb-left { width: 100%; border-right: 0; }.weq-market-browser .weq-emb-right { display: none; }.weq-market-browser.has-detail .weq-emb-left { display: none; }.weq-market-browser.has-detail .weq-emb-right { display: flex; width: 100%; min-width: 0; }.weq-market-browser.has-detail .weq-market-back { display: grid; flex: none; }.weq-market-browser .weq-emb-detail-head { flex-wrap: wrap; }.weq-market-browser .weq-export-save-control { gap: 8px; padding: 8px; } }

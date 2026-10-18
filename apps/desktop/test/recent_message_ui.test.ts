@@ -219,6 +219,7 @@ describe('新增消息交互', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const forward = vi.fn();
+    const composition = vi.fn();
     const conversation = demo.conversations.find((item) => item.type === 'group')!;
     const message = {
       ...demo.messages[0]!,
@@ -239,6 +240,7 @@ describe('新增消息交互', () => {
           onDraftClear: vi.fn(),
           onBack: vi.fn(),
           onForwardMessages: forward,
+          onAddToComposition: composition,
           sendAvailable: true,
         }),
       );
@@ -251,6 +253,9 @@ describe('新增消息交互', () => {
             ),
         );
       openMenu();
+      act(() => button(fixture.host, '添加到素材库').click());
+      expect(composition).toHaveBeenCalledWith([message]);
+      openMenu();
       act(() => button(fixture.host, '转发').click());
       expect(forward).toHaveBeenCalledWith([message], conversation);
       openMenu();
@@ -258,7 +263,7 @@ describe('新增消息交互', () => {
       const actions = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('.selection-bar-actions button'),
       ];
-      expect(actions.length).toBe(7);
+      expect(actions.length).toBe(8);
       for (const action of actions) {
         expect(action.textContent).toBe('');
         expect(action.getAttribute('title')).toBeTruthy();
@@ -266,6 +271,8 @@ describe('新增消息交互', () => {
       }
       act(() => button(fixture.host, '逐条转发').click());
       expect(forward).toHaveBeenCalledTimes(2);
+      act(() => button(fixture.host, '添加到素材库').click());
+      expect(composition).toHaveBeenCalledTimes(2);
     } finally {
       fixture.close();
     }

@@ -1,22 +1,33 @@
-import { FolderOpen, Save } from 'lucide-react';
+import { FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { IS_WEB } from '../../lib/target';
+import '../../styles/export-save-control.css';
 
 export function ExportSaveControl({
   value,
   onChange,
   onPickDirectory,
   onSetDefault,
+  onReset,
+  overridden = false,
   disabled = false,
+  picking = false,
 }: {
   value: ExportSavePolicy;
   onChange: (policy: ExportSavePolicy) => void;
   onPickDirectory: () => void;
   onSetDefault?: () => void;
+  onReset?: () => void;
+  overridden?: boolean;
   disabled?: boolean;
+  picking?: boolean;
 }) {
   return (
-    <fieldset className="weq-export-save-control" disabled={disabled}>
+    <fieldset
+      className="weq-export-save-control"
+      disabled={disabled || picking}
+      aria-busy={picking}
+    >
       <legend>保存位置</legend>
       <label>
         <span>保存方式</span>
@@ -28,7 +39,9 @@ export function ExportSaveControl({
             if (mode === 'preset' || mode === 'before' || mode === 'after')
               onChange({
                 mode,
-                ...(mode === 'preset' && value.directory ? { directory: value.directory } : {}),
+                ...(mode === 'preset' && value.mode === 'preset' && value.directory
+                  ? { directory: value.directory }
+                  : {}),
               });
           }}
         >
@@ -48,7 +61,7 @@ export function ExportSaveControl({
             aria-label="选择保存目录"
             onClick={onPickDirectory}
           >
-            <FolderOpen size={16} />
+            {picking ? <Loader2 size={16} /> : <FolderOpen size={16} />}
           </button>
         </div>
       ) : value.mode === 'before' && IS_WEB ? (
@@ -69,11 +82,31 @@ export function ExportSaveControl({
           文件保存至服务器，浏览器下载位置由浏览器决定
         </span>
       ) : null}
-      {onSetDefault ? (
-        <button type="button" onClick={onSetDefault}>
-          <Save size={15} />
-          设为默认
-        </button>
+      {onSetDefault || onReset ? (
+        <div className="weq-export-save-actions">
+          {onSetDefault ? (
+            <button
+              type="button"
+              title="设为默认保存方式"
+              aria-label="设为默认保存方式"
+              onClick={onSetDefault}
+            >
+              <Save size={15} />
+              <span>设为默认</span>
+            </button>
+          ) : null}
+          {onReset ? (
+            <button
+              type="button"
+              title="恢复默认保存设置"
+              aria-label="恢复默认保存设置"
+              disabled={!overridden}
+              onClick={onReset}
+            >
+              <RotateCcw size={15} />
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </fieldset>
   );

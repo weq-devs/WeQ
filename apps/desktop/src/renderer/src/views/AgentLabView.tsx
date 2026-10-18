@@ -226,11 +226,11 @@ type Selection = (
   // navKey 是右侧面板的稳定挂载 key：草稿(sessionId=null) 首次发消息
   // 升级为真会话时只改 sessionId、navKey 不变，故组件不重挂载、流式不中断。
   | { kind: 'assistant'; sessionId: string | null; navKey: number }
-  // 克隆体私聊：点克隆体开新草稿会话；会话下拉切换已有会话。
+  // 共享列表恢复最近会话；显式新建才打开空草稿。
   | { kind: 'persona'; id: string; sessionId: string | null; navKey: number }
   // 克隆体群聊：同样支持多会话。
   | { kind: 'group'; id: string; sessionId: string | null; navKey: number }
-) & { searchTarget?: GeneratedSearchHit };
+) & { searchTarget?: GeneratedSearchHit; readOnlyLegacy?: boolean };
 
 /** 每页展开显示的会话条数（超出点「查看更多」分页）。 */
 const SESSION_PAGE = 5;
@@ -475,11 +475,79 @@ export function AgentLabView({
   useEffect(() => {
     if (createRequest) setCloneOpen(true);
   }, [createRequest]);
+  const openPersonaSessions = trpc.account.listAgentLabPersonaSessions.useQuery(
+    { personaId: openTarget?.kind === 'persona' ? openTarget.id : '' },
+    {
+      enabled: !searchTarget && openTarget?.kind === 'persona',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openGroupSessions = trpc.account.listAgentLabGroupSessions.useQuery(
+    { groupId: openTarget?.kind === 'group' ? openTarget.id : '' },
+    {
+      enabled: !searchTarget && openTarget?.kind === 'group',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openingSessions = openTarget?.kind === 'persona' ? openPersonaSessions : openGroupSessions;
+  const needsLegacy = Boolean(
+    openTarget &&
+      !searchTarget &&
+      openingSessions.data?.length === 0 &&
+      !openingSessions.isFetching,
+  );
+  const openPersonaLegacy = trpc.account.getAgentLabConversation.useQuery(
+    { personaId: openTarget?.kind === 'persona' ? openTarget.id : '' },
+    {
+      enabled: needsLegacy && openTarget?.kind === 'persona',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openGroupLegacy = trpc.account.getAgentLabGroupConversation.useQuery(
+    { groupId: openTarget?.kind === 'group' ? openTarget.id : '' },
+    {
+      enabled: needsLegacy && openTarget?.kind === 'group',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openingLegacy = openTarget?.kind === 'persona' ? openPersonaLegacy : openGroupLegacy;
+  const appliedOpenTarget = useRef<typeof openTarget>(null);
+  const openingSavedConversation = Boolean(
+    openTarget && !searchTarget && appliedOpenTarget.current !== openTarget,
+  );
   useEffect(() => {
-    if (!openTarget) return;
+    if (
+      searchTarget ||
+      !openTarget ||
+      appliedOpenTarget.current === openTarget ||
+      !openingSessions.data ||
+      openingSessions.isFetching
+    )
+      return;
+    if (needsLegacy && (!openingLegacy.isSuccess || openingLegacy.isFetching)) return;
+    appliedOpenTarget.current = openTarget;
     navSeq.current += 1;
-    setSel({ kind: openTarget.kind, id: openTarget.id, sessionId: null, navKey: navSeq.current });
-  }, [openTarget]);
+    setSel({
+      kind: openTarget.kind,
+      id: openTarget.id,
+      sessionId: openingSessions.data[0]?.id ?? null,
+      readOnlyLegacy: needsLegacy && Boolean(openingLegacy.data?.length),
+      navKey: navSeq.current,
+    });
+  }, [
+    openTarget,
+    openingSessions.data,
+    openingSessions.isFetching,
+    searchTarget,
+    needsLegacy,
+    openingLegacy.data,
+    openingLegacy.isSuccess,
+    openingLegacy.isFetching,
+  ]);
   const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
@@ -941,7 +1009,23 @@ export function AgentLabView({
             <PanelLeft size={18} />
           </button>
         ) : null}
-        {sel.kind === 'home' ? (
+        {openingSavedConversation ? (
+          <div className="weq-agentlab-empty" role="status">
+            {openingSessions.isError || (needsLegacy && openingLegacy.isError) ? (
+              <>
+                <span>读取克隆会话失败</span>
+                <button
+                  type="button"
+                  onClick={() => void (needsLegacy ? openingLegacy : openingSessions).refetch()}
+                >
+                  重试
+                </button>
+              </>
+            ) : (
+              '加载已保存的克隆会话…'
+            )}
+          </div>
+        ) : sel.kind === 'home' ? (
           embedded ? null : (
             <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
           )
@@ -966,6 +1050,7 @@ export function AgentLabView({
             groupId={sel.id}
             sessionId={sel.sessionId}
             searchTarget={sel.searchTarget}
+            readOnlyLegacy={sel.readOnlyLegacy}
             selfUin={selfProfile.data?.uin}
             personaList={personaList}
             profileByUid={profileByUid}
@@ -984,6 +1069,7 @@ export function AgentLabView({
             persona={activePersona}
             sessionId={sel.sessionId}
             searchTarget={sel.searchTarget}
+            readOnlyLegacy={sel.readOnlyLegacy}
             selfUin={selfProfile.data?.uin}
             clonedUin={clonedProfile?.uin || activePersona.sourceUin}
             faces={cloneFaces}

@@ -1,16 +1,4 @@
-/**
- * 导出中心（单页）。
- *
- * 布局：左侧窄栏为导出模式；右侧为该模式的选择面板 + 操作条；下方为任务列表。
- *
- *   1. 完整消息格式  — 选会话 → 选格式(json/jsonl/xlsx/csv/txt) → 灯箱细项 → 导出
- *   2. 解密数据库    — 选库 → 选导出路径 → 解出原始 sqlite
- *   3. 定时导出任务  — 同 1，灯箱多一个定时设置
- *   4. 群相册导出    — 选群 → 灯箱选目录/相册/时间
- *
- * 后端目前仅 `account.startExport`（json/jsonl/txt 纯消息流）就绪；其余流程在
- * 前端把配置收集齐后给出「后端待接入」提示，待后端补齐后改为真实调用即可。
- */
+/** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -18,7 +6,7 @@ import {
   Bookmark,
   CalendarClock,
   Contact,
-  DatabaseZap,
+  Database,
   FileText,
   Film,
   Globe,
@@ -33,9 +21,9 @@ import {
   Pause,
   Play,
   Radio,
+  RotateCw,
   Search,
   Smile,
-  Sticker,
   Trash2,
   Users,
   UserRound,
@@ -49,17 +37,14 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
-import { Avatar, Segmented } from './export/widgets';
+import { Segmented } from './export/widgets';
 import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
-import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
-import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
-import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
 import {
   GroupFileExportLightbox,
@@ -77,7 +62,6 @@ import {
   DEFAULT_OPTIONS,
   chatKind,
   convAvatarUrl,
-  fmtBytes,
   fmtCount,
   groupAvatarUrl,
   type ExportFormat,
@@ -91,8 +75,20 @@ import { MessageScopePicker } from './export/MessageScopePicker';
 import { ExportSaveControl } from './export/ExportSaveControl';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
-import type { ExportSavePolicy } from '@weq/service';
 import type { ContentSelection } from '../../../shared/content_selection';
+import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
+import { DatabasePlainExport } from './export/DatabasePlainExport';
+import { useViewState } from '../state/view';
+import { useExportCollections } from '../hooks/useExportCollections';
+import {
+  initialContactScope,
+  initialConversationIds,
+  initialExportMode,
+  initialGuildScope,
+} from './export/exportScope';
+import { ContactScopePicker } from './export/ContactScopePicker';
+import '../styles/unified-export.css';
+import { useTabActive } from '../components/RetainedTabs';
 
 interface ModeDef {
   id: ExportMode;
@@ -102,6 +98,12 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
+  {
+    id: 'database',
+    label: '明文数据库',
+    desc: '原始 SQLite 数据库副本',
+    icon: <Database size={18} />,
+  },
   {
     id: 'full',
     label: '聊天消息导出',
@@ -113,12 +115,6 @@ const MODES: ModeDef[] = [
     label: '频道私聊数据',
     desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
     icon: <Radio size={18} />,
-  },
-  {
-    id: 'decrypt',
-    label: '解密数据库',
-    desc: '导出原始 SQLite 供研究',
-    icon: <DatabaseZap size={18} />,
   },
   {
     id: 'qzone',
@@ -133,20 +129,8 @@ const MODES: ModeDef[] = [
     icon: <Contact size={18} />,
   },
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
-  {
-    id: 'scheduled',
-    label: '定时导出任务',
-    desc: '按计划自动导出',
-    icon: <CalendarClock size={18} />,
-  },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
   { id: 'groupfile', label: '群文件导出', desc: '批量下载群文件', icon: <FolderOpen size={18} /> },
-  {
-    id: 'marketpack',
-    label: '商城表情下载',
-    desc: '搜索并批量下载商城表情包',
-    icon: <Sticker size={18} />,
-  },
   {
     id: 'emojipack',
     label: '导出表情包',
@@ -186,15 +170,6 @@ interface GuildSessionWire {
   peerNick: string;
   peerAvatarUrl: string | null;
   messageCount?: number;
-}
-
-/** A friend row rendered in the 导出联系人 · 好友 preview list. */
-interface FriendPreviewItem {
-  uid: string;
-  uin: string;
-  name: string;
-  avatarUrl: string | null;
-  categoryId: number;
 }
 
 /** 导出收藏预览行：从 `CollectionItemWire` 投影出展示用的标题/摘要/来源。 */
@@ -305,11 +280,15 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 export function ExportTool({
   surface = 'export',
   initialSelection,
+  initialMode,
 }: {
   surface?: 'export' | 'tasks';
   initialSelection?: ContentSelection;
+  initialMode?: ExportMode;
 }): ReactElement {
   const utils = trpc.useUtils();
+  const accountUin = useViewState((state) => state.openedUin);
+  const active = useTabActive();
   const dialog = useAppDialog();
   const pushToast = useToast((s) => s.push);
   const mounted = useRef(true);
@@ -322,62 +301,44 @@ export function ExportTool({
       saveLocationPending.current?.(null);
     };
   }, []);
-  const globalSettings = trpc.bootstrap.getSettings.useQuery();
-  const [saveOverride, setSaveOverride] = useState<ExportSavePolicy | null>(null);
-  const saveRequest: ExportSavePolicy = saveOverride ?? {
-    mode: globalSettings.data?.exportSaveMode ?? 'after',
-    directory: globalSettings.data?.defaultExportDir ?? undefined,
-  };
-  async function prepareSave(): Promise<ExportSavePolicy | null> {
-    if (!mounted.current) return null;
-    const policy = await client.bootstrap.prepareExportSave.mutate(saveRequest);
-    return mounted.current ? policy : null;
-  }
-  async function pickSaveDirectory(): Promise<void> {
-    try {
-      const directory = await client.bootstrap.pickExportSaveDirectory.mutate();
-      if (directory) setSaveOverride({ mode: saveRequest.mode, directory });
-    } catch (error) {
-      dialog.error('选择保存目录失败', error instanceof Error ? error.message : String(error));
-    }
-  }
-  async function setSaveDefault(): Promise<void> {
-    try {
-      await client.bootstrap.setExportSaveDefaults.mutate(saveRequest);
-      await utils.bootstrap.getSettings.invalidate();
-      pushToast({ tone: 'success', title: '默认保存方式已更新' });
-    } catch (error) {
-      dialog.error('更新默认保存方式失败', error instanceof Error ? error.message : String(error));
-    }
-  }
+  const {
+    settings: globalSettings,
+    policy: saveRequest,
+    setOverride: setSaveOverride,
+    hasOverride: saveOverridden,
+    picking: pickingSaveDirectory,
+    prepareSave,
+    pickDirectory: pickSaveDirectory,
+    setDefault: setSaveDefault,
+    isCurrent,
+  } = useExportSavePolicy();
 
-  const conversations = trpc.account.listConversationsWithCount.useQuery();
-  /** 自己的账号资料 —— QQ 空间导出列表里「自己」这个选项用它取 uin / 昵称。 */
-  const selfProfile = trpc.account.getSelfProfile.useQuery();
-  const databases = trpc.account.listDatabases.useQuery();
-  const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
 
   const [mode, setMode] = useState<ExportMode>(
-    initialSelection?.owner.kind === 'collections' ? 'collection' : 'full',
+    initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
+  const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
+    enabled: active && surface === 'export' && (mode === 'full' || mode === 'qzone'),
+  });
+  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, {
+    enabled: active && surface === 'export' && mode === 'qzone',
+  });
+  const [execution, setExecution] = useState<'now' | 'scheduled'>(
+    initialMode === 'scheduled' ? 'scheduled' : 'now',
+  );
+  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
-    enabled: mode === 'guild',
+    enabled: active && surface === 'export' && mode === 'guild',
   });
-  const [convSelection, setConvSelection] = useState<Set<string>>(
-    () =>
-      new Set(
-        initialSelection?.owner.kind === 'messages'
-          ? [
-              initialSelection.owner.container.slice(
-                initialSelection.owner.container.indexOf(':') + 1,
-              ),
-            ]
-          : [],
-      ),
+  const [chatSelection, setChatSelection] = useState<Set<string>>(
+    () => new Set(initialConversationIds(initialSelection)),
   );
+  const [spaceSelection, setSpaceSelection] = useState<Set<string>>(new Set());
+  const convSelection = mode === 'qzone' ? spaceSelection : chatSelection;
+  const setConvSelection = mode === 'qzone' ? setSpaceSelection : setChatSelection;
   const [messageSelections, setMessageSelections] = useState<Record<string, string[]>>(() => {
     if (initialSelection?.owner.kind !== 'messages' || initialSelection.scope.type !== 'items')
       return {};
@@ -386,19 +347,46 @@ export function ExportTool({
     );
     return { [conv]: [...initialSelection.scope.ids] };
   });
+  const [scopeConversationId, setScopeConversationId] = useState<string | null>(() =>
+    initialSelection?.owner.kind === 'messages' && initialSelection.scope.type === 'items'
+      ? (initialConversationIds(initialSelection)[0] ?? null)
+      : null,
+  );
   /** 频道私聊多选：id = nodeId（与普通会话 uid 空间不同，分开存。） */
-  const [guildSelection, setGuildSelection] = useState<Set<string>>(new Set());
+  const [guildInitial] = useState(() => initialGuildScope(initialSelection));
+  const [guildSelection, setGuildSelection] = useState<Set<string>>(
+    () => new Set(guildInitial.nodeIds),
+  );
+  const [guildMessageSelections, setGuildMessageSelections] = useState(guildInitial.messageIds);
+  const [guildScopeId, setGuildScopeId] = useState<string | null>(
+    () => guildInitial.nodeIds[0] ?? null,
+  );
   /** 任务面板展开/收起（默认收起）。 */
   const [taskPanelExpanded, setTaskPanelExpanded] = useState(true);
   /** 新任务到达时，强制选中该任务。 */
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
-  const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
   /** 导出联系人：好友 or 群成员。 */
-  const [contactScope, setContactScope] = useState<'friends' | 'group'>('friends');
+  const [contactInitial] = useState(() => initialContactScope(initialSelection));
+  const [contactScope, setContactScope] = useState<'friends' | 'group'>(contactInitial.scope);
+  const [friendUids, setFriendUids] = useState<string[] | undefined>(contactInitial.friendUids);
   /** 好友导出：选中的分组 id（空 = 全部好友）。 */
   const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
   /** 群成员导出：选中的群号。 */
-  const [contactGroupId, setContactGroupId] = useState<string | null>(null);
+  const [contactGroupIds, setContactGroupIds] = useState<Set<string>>(
+    () => new Set(contactInitial.groupIds),
+  );
+  const [memberUids, setMemberUids] = useState<Record<string, string[]>>(contactInitial.memberUids);
+  const [memberScopeGroupId, setMemberScopeGroupId] = useState<string | null>(
+    () => Object.keys(contactInitial.memberUids)[0] ?? null,
+  );
+  const groups = trpc.account.exportGroupDirectory.useQuery(undefined, {
+    enabled:
+      active &&
+      surface === 'export' &&
+      ((mode === 'contacts' && contactScope === 'group') ||
+        mode === 'album' ||
+        mode === 'groupfile'),
+  });
   /** 导出收藏：选中的收藏类型（空 = 全部）。 */
   const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
   const [collectionIds, setCollectionIds] = useState<string[] | undefined>(() =>
@@ -408,25 +396,34 @@ export function ExportTool({
   );
   const [filteredCollectionIds, setFilteredCollectionIds] = useState<string[]>([]);
   /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
-  const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
-  const [collectionLoading, setCollectionLoading] = useState(false);
-  const collectionStartedRef = useRef(false);
+  const collectionSource = useExportCollections(
+    active && mode === 'collection' && surface === 'export',
+    accountUin,
+  );
+  const collectionItems = useMemo(
+    () => collectionSource.items.map(collectionPreview),
+    [collectionSource.items],
+  );
+  const collectionLoading = collectionSource.loading;
 
-  const categories = trpc.account.listCategories.useQuery(undefined, {
-    enabled: mode === 'contacts' && contactScope === 'friends',
-  });
-  // 好友预览（导出联系人 · 好友）：buddies 给分组归属，intimacy 列表补昵称。
-  const friendsEnabled = mode === 'contacts' && contactScope === 'friends';
-  const buddies = trpc.account.listBuddies.useQuery(
-    { limit: 2000, offset: 0 },
+  const friendsEnabled =
+    active && surface === 'export' && mode === 'contacts' && contactScope === 'friends';
+  const categories = trpc.account.listCategories.useQuery(undefined, { enabled: friendsEnabled });
+  const friendDirectory = trpc.account.contactsExportPreview.useQuery(
+    { scope: 'friends' },
     { enabled: friendsEnabled },
   );
-  const friendNames = trpc.account.listFriendsByIntimacy.useQuery(
-    { limit: 2000, offset: 0 },
-    { enabled: friendsEnabled },
+  const memberDirectory = trpc.account.contactsExportPreview.useQuery(
+    { scope: 'group', groupCode: memberScopeGroupId ?? '1' },
+    {
+      enabled:
+        active &&
+        surface === 'export' &&
+        mode === 'contacts' &&
+        contactScope === 'group' &&
+        Boolean(memberScopeGroupId && contactGroupIds.has(memberScopeGroupId)),
+    },
   );
-  const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
-  const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
@@ -475,53 +472,6 @@ export function ExportTool({
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
   }, [mode, contactScope, format]);
-
-  // 进入收藏模式时加载一次全部收藏（分页拉全，收藏集通常不大），用于类型计数与预览。
-  // 与收藏灯箱同策略：先出本地 collection.db（秒开），再用微云 collector 的结果替换。
-  // 「已启动」闸门必须是 ref：本体在两段之间 setState，若依赖 state 会中途重跑，
-  // cleanup 置 cancelled 后网络段的 setState 全被跳过，补充结果永远丢失。
-  useEffect(() => {
-    if (mode !== 'collection' || collectionStartedRef.current) return;
-    collectionStartedRef.current = true;
-    let cancelled = false;
-    setCollectionLoading(true);
-    const fetchAll = async (source: 'db' | 'network'): Promise<CollectionPreviewItem[] | null> => {
-      const all: CollectionPreviewItem[] = [];
-      let offset = 0;
-      for (;;) {
-        const res = (await client.account.listCollections.query({
-          limit: 100,
-          offset,
-          source,
-        })) as { items: CollectionItemWire[]; hasMore: boolean } | null;
-        if (!res) return null;
-        all.push(...res.items.map(collectionPreview));
-        if (!res.hasMore || res.items.length === 0) break;
-        offset += res.items.length;
-      }
-      return all;
-    };
-    (async () => {
-      try {
-        const local = await fetchAll('db');
-        if (cancelled) return;
-        setCollectionItems(local ?? []);
-      } catch {
-        if (!cancelled) setCollectionItems([]);
-      } finally {
-        setCollectionLoading(false);
-      }
-      try {
-        const fresh = await fetchAll('network');
-        if (!cancelled && fresh) setCollectionItems(fresh);
-      } catch {
-        /* 网络补充失败：保留本地结果 */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -640,7 +590,7 @@ export function ExportTool({
     );
   }, [categories.data]);
 
-  const friendTotal = useMemo(() => catItems.reduce((sum, c) => sum + c.count, 0), [catItems]);
+  const friendTotal = friendDirectory.data?.length ?? catItems.reduce((sum, c) => sum + c.count, 0);
 
   // 收藏类型计数（导出收藏）：全部 + 每种 kind。
   const collectionCounts = useMemo(() => {
@@ -650,42 +600,20 @@ export function ExportTool({
     return c;
   }, [collectionItems]);
 
-  // 好友预览行：join buddies（分组）× intimacy 列表（昵称）。空选分组 = 全部好友。
-  const friendPreview = useMemo<FriendPreviewItem[]>(() => {
-    const nameByUid = new Map<string, string>();
-    for (const f of friendNames.data ?? []) {
-      const nm = f.remark?.trim() || f.nick?.trim() || '';
-      if (nm) nameByUid.set(f.uid, nm);
-    }
-    const rows = (buddies.data ?? []).map((b) => ({
-      uid: b.uid,
-      uin: b.uin,
-      name: nameByUid.get(b.uid) || (b.uin && b.uin !== '0' ? `QQ ${b.uin}` : b.uid),
-      avatarUrl: convAvatarUrl('c2c', b.uid, b.uin),
-      categoryId: b.categoryId,
-    }));
-    const wanted = catSelection.size > 0 ? catSelection : null;
-    const filtered = wanted ? rows.filter((r) => wanted.has(r.categoryId)) : rows;
-    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
-  }, [buddies.data, friendNames.data, catSelection]);
-
-  const dbItems = useMemo<DbPickItem[]>(() => {
-    return ((databases.data ?? []) as DbPickItem[]).map((db) => ({
-      name: db.name,
-      path: db.path,
-      bytes: Number(db.bytes ?? 0),
-    }));
-  }, [databases.data]);
-
-  const selectedDbs = useMemo(
-    () => dbItems.filter((it) => dbSelection.has(it.path)),
-    [dbItems, dbSelection],
-  );
-
-  const selectedDbBytes = useMemo(
-    () => selectedDbs.reduce((sum, it) => sum + it.bytes, 0),
-    [selectedDbs],
-  );
+  const friendPreview = useMemo(() => {
+    const rows = friendDirectory.data ?? [];
+    return (
+      catSelection.size ? rows.filter((row) => catSelection.has(row.categoryId)) : [...rows]
+    ).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  }, [friendDirectory.data, catSelection]);
+  const memberScopeGroup =
+    memberScopeGroupId && contactGroupIds.has(memberScopeGroupId)
+      ? {
+          id: memberScopeGroupId,
+          name:
+            groupItems.find((item) => item.id === memberScopeGroupId)?.name ?? memberScopeGroupId,
+        }
+      : null;
 
   const uiTasks = useMemo<UiTask[]>(() => {
     // Defensive: the IPC payload can momentarily be a non-array during a main
@@ -705,6 +633,7 @@ export function ExportTool({
       filePath: t.filePath,
       bundleDir: t.bundleDir,
       canResume: t.canResume,
+      resumeMode: t.resumeMode,
       reportPath: t.reportPath,
       save: t.save,
       avatarCount: t.avatarCount,
@@ -714,7 +643,7 @@ export function ExportTool({
       isContacts: Boolean((t as { contacts?: unknown }).contacts),
       isCollection: Boolean((t as { collection?: unknown }).collection),
       isGuild: Boolean((t as { guild?: unknown }).guild),
-      // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
+      // 沿用既有任务的商城表情内容标记，历史下载结果仍可读取。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
       // conv === 'emojipack' 是导出表情包任务的 sentinel（task_manager 内设定）。
       isEmojiPack: (t as unknown as { conv?: string }).conv === 'emojipack',
@@ -835,11 +764,6 @@ export function ExportTool({
 
   // ---- primary action per mode ----
   function onPrimary(): void {
-    if (mode === 'decrypt') {
-      if (dbSelection.size === 0) return;
-      setDecryptLightboxOpen(true);
-      return;
-    }
     if (mode === 'album') {
       if (!albumGroupId) return;
       openAlbumExport();
@@ -852,7 +776,12 @@ export function ExportTool({
       return;
     }
     if (mode === 'contacts') {
-      if (contactScope === 'group' && !contactGroupId) return;
+      if (
+        contactScope === 'group' &&
+        (!contactGroupIds.size || [...contactGroupIds].some((id) => memberUids[id]?.length === 0))
+      )
+        return;
+      if (contactScope === 'friends' && friendUids?.length === 0) return;
       setLightbox('contacts');
       return;
     }
@@ -866,7 +795,19 @@ export function ExportTool({
       return;
     }
     if (convSelection.size === 0) return;
-    setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'qzone' ? 'qzone' : 'full');
+    if (
+      mode === 'full' &&
+      execution === 'scheduled' &&
+      [...convSelection].some((id) => messageSelections[id] !== undefined)
+    )
+      return;
+    setLightbox(
+      mode === 'full' && execution === 'scheduled'
+        ? 'scheduled'
+        : mode === 'qzone'
+          ? 'qzone'
+          : 'full',
+    );
   }
 
   /** QQ 空间导出：每个选中目标（好友 / 自己）起一个说说导出任务（json/txt/html 多选 + 配图）。 */
@@ -910,39 +851,53 @@ export function ExportTool({
   /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
   async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
     // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
-    const cfmts = formats as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
+    const cfmts = [...formats] as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
+    const cats = [...catSelection];
+    const selectedFriends = friendUids === undefined ? undefined : [...friendUids];
+    const selectedGroups = [...contactGroupIds].map((id) => ({
+      id,
+      name: groupItems.find((item) => item.id === id)?.name ?? id,
+      uids: memberUids[id] === undefined ? undefined : [...memberUids[id]!],
+    }));
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave();
       if (!savePolicy) return;
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'friends') {
-        const cats = [...catSelection];
         await client.account.startContactsExport.mutate({
           savePolicy,
           scope: 'friends',
-          name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
+          name: selectedFriends
+            ? `好友_精确${selectedFriends.length}人`
+            : cats.length
+              ? `好友_${cats.length}个分组`
+              : '全部好友',
           format: cfmts[0] ?? 'csv',
           formats: cfmts,
           exportAvatar: options.exportAvatar,
-          ...(cats.length ? { categoryIds: cats } : {}),
+          ...(selectedFriends
+            ? { uids: selectedFriends }
+            : cats.length
+              ? { categoryIds: cats }
+              : {}),
         });
       } else {
-        const g = groupItems.find((it) => it.id === contactGroupId);
-        if (!g) return;
-        await client.account.startContactsExport.mutate({
-          savePolicy,
-          scope: 'group',
-          groupCode: g.id,
-          name: `${g.name}_群成员`,
-          format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
-          formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
-          exportAvatar: options.exportAvatar,
-        });
+        for (const g of selectedGroups) {
+          if (!isCurrent()) return;
+          await client.account.startContactsExport.mutate({
+            savePolicy,
+            scope: 'group',
+            groupCode: g.id,
+            name: `${g.name}_群成员`,
+            format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
+            formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
+            exportAvatar: options.exportAvatar,
+            ...(g.uids ? { uids: g.uids } : {}),
+          });
+        }
       }
       setLightbox(null);
-      setCatSelection(new Set());
-      setContactGroupId(null);
       refetchTasks();
     } catch (e) {
       dialog.error('启动联系人导出失败', e instanceof Error ? e.message : String(e));
@@ -955,6 +910,8 @@ export function ExportTool({
   async function runCollectionExport(): Promise<void> {
     const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
     const kinds = [...collectionKinds];
+    const cids = [...(collectionIds ?? filteredCollectionIds)];
+    if (cids.length === 0) return;
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave();
@@ -963,7 +920,7 @@ export function ExportTool({
         savePolicy,
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
-        cids: collectionIds ?? filteredCollectionIds,
+        cids,
       });
       setCollectionKinds(new Set());
       refetchTasks();
@@ -1039,7 +996,16 @@ export function ExportTool({
     options: ExportOptions,
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
-    const targets = guildItems.filter((it) => guildSelection.has(it.id));
+    const targets = guildItems
+      .filter((it) => guildSelection.has(it.id))
+      .map((item) => ({
+        ...item,
+        messageIds:
+          guildMessageSelections[item.id] === undefined
+            ? undefined
+            : [...guildMessageSelections[item.id]!],
+      }));
+    if (!targets.length || targets.some((target) => target.messageIds?.length === 0)) return;
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
@@ -1058,10 +1024,12 @@ export function ExportTool({
       if (!savePolicy) return;
       for (const t of targets) {
         // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
+        if (!isCurrent()) return;
         const fmt0 = formats[0] ?? format;
         await client.account.guildDirectStartExport.mutate({
           savePolicy,
           nodeId: t.id,
+          messageIds: t.messageIds,
           name: t.name,
           format: fmt0 as Exclude<ExportFormat, 'vcard'>,
           formats: formats as Exclude<ExportFormat, 'vcard'>[],
@@ -1071,7 +1039,7 @@ export function ExportTool({
             : {}),
           ...(options.chatlab ? { chatlab: true } : {}),
           media,
-          range,
+          range: t.messageIds === undefined ? range : undefined,
         });
       }
       setGuildSelection(new Set());
@@ -1079,56 +1047,6 @@ export function ExportTool({
       refetchTasks();
     } catch (e) {
       dialog.error('启动频道私聊导出失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function runDecryptExport(result: DecryptLightboxResult): Promise<void> {
-    const targets = selectedDbs;
-    if (targets.length === 0) return;
-
-    if (result.mode === 'fast') {
-      let loggedIn = false;
-      try {
-        loggedIn = await client.account.isQqLoggedIn.query();
-      } catch (e) {
-        dialog.error('检查登录状态失败', e instanceof Error ? e.message : String(e));
-        return;
-      }
-      if (loggedIn) {
-        const ok = await dialog.confirm(
-          '快速解密风险',
-          '检测到当前 QQ 账号仍处于登录状态。快速解密可能导致导出的数据库损坏；安全保存更适合 QQ 在线时使用。是否仍继续快速解密？',
-          { okLabel: '继续快速解密', cancelLabel: '返回修改', tone: 'warning' },
-        );
-        if (!ok) return;
-      }
-    }
-
-    setSubmitting(true);
-    try {
-      const decrypted = await client.account.decryptDatabases.mutate({
-        mode: result.mode,
-        outputDir: result.outputDir,
-        concurrency: 3,
-        items: targets.map((db) => ({ dbPath: db.path, name: db.name })),
-      });
-      const okCount = decrypted.filter((r) => r.ok).length;
-      const failed = decrypted.filter((r) => !r.ok);
-      setDecryptOutputDir(result.outputDir);
-      if (failed.length === 0) {
-        setDbSelection(new Set());
-        setDecryptLightboxOpen(false);
-        dialog.info('解密完成', `已解密 ${okCount} 个数据库到：${result.outputDir}`);
-      } else {
-        dialog.error(
-          '部分数据库解密失败',
-          `成功 ${okCount} 个，失败 ${failed.length} 个。${failed[0]?.name ?? ''}${failed[0]?.error ? `：${failed[0].error}` : ''}`,
-        );
-      }
-    } catch (e) {
-      dialog.error('解密失败', e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
@@ -1360,40 +1278,56 @@ export function ExportTool({
   const formatOptions = COLLECTION_FORMATS;
   // QQ空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
+  const scopeConversation =
+    mode === 'full' &&
+    execution === 'now' &&
+    scopeConversationId &&
+    convSelection.has(scopeConversationId)
+      ? convItems.find((item) => item.id === scopeConversationId)
+      : undefined;
 
   const primaryLabel =
-    mode === 'scheduled'
+    mode === 'full' && execution === 'scheduled'
       ? '新建定时任务'
       : mode === 'album'
         ? '导出相册'
         : mode === 'groupfile'
           ? '导出群文件'
-          : mode === 'decrypt'
-            ? '解密并导出'
-            : mode === 'qzone'
-              ? '导出空间'
-              : mode === 'contacts'
-                ? '导出联系人'
-                : mode === 'collection'
-                  ? '导出收藏'
-                  : '导出';
+          : mode === 'qzone'
+            ? '导出空间'
+            : mode === 'contacts'
+              ? '导出联系人'
+              : mode === 'collection'
+                ? '导出收藏'
+                : '导出';
 
   const primaryDisabled =
-    mode === 'decrypt'
-      ? dbSelection.size === 0
-      : mode === 'album'
-        ? !albumGroupId
-        : mode === 'groupfile'
-          ? !fileGroupId
-          : mode === 'contacts'
-            ? contactScope === 'group' && !contactGroupId
-            : mode === 'collection'
-              ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
-              : mode === 'guild'
-                ? guildSelection.size === 0
-                : convSelection.size === 0 ||
-                  (mode === 'full' &&
-                    [...convSelection].some((id) => messageSelections[id]?.length === 0));
+    mode === 'album'
+      ? !albumGroupId
+      : mode === 'groupfile'
+        ? !fileGroupId
+        : mode === 'contacts'
+          ? contactScope === 'group'
+            ? !contactGroupIds.size ||
+              [...contactGroupIds].some((id) => memberUids[id]?.length === 0)
+            : friendUids?.length === 0
+          : mode === 'collection'
+            ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
+            : mode === 'guild'
+              ? guildSelection.size === 0 ||
+                [...guildSelection].some((id) => guildMessageSelections[id]?.length === 0)
+              : convSelection.size === 0 ||
+                (mode === 'full' &&
+                  [...convSelection].some((id) =>
+                    execution === 'scheduled'
+                      ? messageSelections[id] !== undefined
+                      : messageSelections[id]?.length === 0,
+                  ));
+
+  const preciseMemberGroups = [...contactGroupIds].filter((id) => memberUids[id] !== undefined);
+  const memberScopeSummary = preciseMemberGroups.length
+    ? `${preciseMemberGroups.length} 个群使用精确成员集合，共 ${preciseMemberGroups.reduce((total, id) => total + memberUids[id]!.length, 0)} 位已选成员；其余 ${contactGroupIds.size - preciseMemberGroups.length} 个群导出整群成员。`
+    : undefined;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -1403,9 +1337,9 @@ export function ExportTool({
     }
     if (lightbox === 'contacts') {
       if (contactScope === 'group') {
-        const g = groupItems.find((it) => it.id === contactGroupId);
-        return g?.name ?? '群成员';
+        return `${contactGroupIds.size} 个群`;
       }
+      if (friendUids !== undefined) return `精确选中 ${friendUids.length} 位好友`;
       const n = catSelection.size;
       return n ? `${n} 个分组` : '全部好友';
     }
@@ -1446,13 +1380,16 @@ export function ExportTool({
           }}
         />
       ) : null}
-      {surface === 'export' ? (
+      {surface === 'export' && mode !== 'database' ? (
         <ExportSaveControl
           value={saveRequest}
           disabled={submitting || globalSettings.isLoading}
+          picking={pickingSaveDirectory}
           onChange={setSaveOverride}
           onPickDirectory={() => void pickSaveDirectory()}
           onSetDefault={() => void setSaveDefault()}
+          onReset={() => setSaveOverride(null)}
+          overridden={saveOverridden}
         />
       ) : null}
       {surface === 'export' && !lightbox ? (
@@ -1465,6 +1402,7 @@ export function ExportTool({
                 <select
                   id="weq-export-content-kind"
                   value={mode}
+                  disabled={submitting}
                   onChange={(event) => {
                     const selected = MODES.find((item) => item.id === event.target.value);
                     if (selected) setMode(selected.id);
@@ -1480,94 +1418,140 @@ export function ExportTool({
               </div>
             </header>
 
+            {mode === 'full' ? (
+              <div className="weq-export-execution">
+                <Segmented<'now' | 'scheduled'>
+                  value={execution}
+                  onChange={setExecution}
+                  options={[
+                    { value: 'now', label: '立即导出', icon: <Play size={13} /> },
+                    { value: 'scheduled', label: '定时执行', icon: <CalendarClock size={13} /> },
+                  ]}
+                />
+                {execution === 'scheduled' &&
+                [...convSelection].some((id) => messageSelections[id] !== undefined) ? (
+                  <span role="status">精确消息集合不能转换为定时范围，请使用立即导出。</span>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="weq-exp-pane-body">
-              {mode === 'marketpack' ? (
-                <MarketEmojiDownloadPane onStarted={refetchTasks} prepareSave={prepareSave} />
+              {mode === 'database' ? (
+                accountUin ? (
+                  <DatabasePlainExport key={accountUin} accountUin={accountUin} />
+                ) : (
+                  <div role="status">请先进入账号</div>
+                )
               ) : mode === 'emojipack' ? (
-                <EmojiPackExportPane onStarted={refetchTasks} prepareSave={prepareSave} />
-              ) : mode === 'scheduled' ? (
-                <div className="weq-exp-sched">
-                  <div className="weq-exp-sched-head">
-                    <div className="weq-exp-sched-head-text">
-                      <strong>定时导出任务</strong>
-                      <small>
-                        选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。
-                      </small>
-                    </div>
-                  </div>
-                  <ConversationPicker
-                    items={convItems}
-                    loading={conversations.isLoading}
-                    selected={convSelection}
-                    onChange={setConvSelection}
-                  />
-                  <div className="weq-exp-sched-list">
-                    {schedules.isLoading ? (
-                      <ScheduleListSkeleton />
-                    ) : (schedules.data ?? []).length === 0 ? (
-                      <div className="weq-exp-sched-empty">
-                        <strong>暂无定时任务</strong>
-                        <small>选好会话和格式后，点击下方「新建定时任务」开始创建。</small>
-                      </div>
-                    ) : (
-                      (schedules.data as ScheduledTask[]).map((s) => (
-                        <ScheduleRow
-                          key={s.id}
-                          schedule={s}
-                          onToggle={() => void onToggleSchedule(s)}
-                          onDelete={() => void onDeleteSchedule(s)}
-                          onRunNow={() => void onRunScheduleNow(s)}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
+                <EmojiPackExportPane
+                  onStarted={refetchTasks}
+                  prepareSave={prepareSave}
+                  disabled={pickingSaveDirectory || globalSettings.isLoading}
+                />
               ) : mode === 'full' || mode === 'qzone' ? (
-                <>
+                <div
+                  className={`weq-export-message-layout${scopeConversation ? ' has-scope' : ''}`}
+                >
                   <ConversationPicker
                     items={pickerItems}
                     loading={conversations.isLoading}
                     selected={convSelection}
                     onChange={setConvSelection}
+                    scopeSelections={mode === 'full' ? messageSelections : undefined}
+                    onEditScope={
+                      mode === 'full' && execution === 'now'
+                        ? (item) => {
+                            setConvSelection(new Set([...convSelection, item.id]));
+                            setScopeConversationId(item.id);
+                          }
+                        : undefined
+                    }
                     emptyText={
                       mode === 'qzone' ? '暂无好友（仅私聊会话可作为导出目标）' : undefined
                     }
                   />
-                  {mode === 'full'
-                    ? convItems
-                        .filter((item) => convSelection.has(item.id))
-                        .map((item) => (
-                          <details
-                            key={item.id}
-                            open={messageSelections[item.id] !== undefined}
-                            className="weq-message-scope-conversation"
-                          >
-                            <summary>{item.name} · 消息范围</summary>
-                            <MessageScopePicker
-                              kind={item.kind ?? 'c2c'}
-                              conv={item.id}
-                              selected={messageSelections[item.id]}
-                              onChange={(ids) =>
-                                setMessageSelections((current) => {
-                                  const next = { ...current };
-                                  if (ids === undefined) delete next[item.id];
-                                  else next[item.id] = [...ids];
-                                  return next;
-                                })
-                              }
-                            />
-                          </details>
-                        ))
-                    : null}
-                </>
+                  {scopeConversation ? (
+                    <section className="weq-export-scope-panel" aria-label="当前会话消息范围">
+                      <header>
+                        <strong title={`${scopeConversation.name} · 消息范围`}>
+                          {scopeConversation.name} · 消息范围
+                        </strong>
+                        <button
+                          type="button"
+                          aria-label="关闭消息范围"
+                          title="关闭消息范围"
+                          onClick={() => setScopeConversationId(null)}
+                        >
+                          <X size={15} />
+                        </button>
+                      </header>
+                      <MessageScopePicker
+                        key={scopeConversation.id}
+                        kind={scopeConversation.kind ?? 'c2c'}
+                        conv={scopeConversation.id}
+                        selected={messageSelections[scopeConversation.id]}
+                        onChange={(ids) =>
+                          setMessageSelections((current) => {
+                            const next = { ...current };
+                            if (ids === undefined) delete next[scopeConversation.id];
+                            else next[scopeConversation.id] = [...ids];
+                            return next;
+                          })
+                        }
+                      />
+                    </section>
+                  ) : null}
+                </div>
               ) : mode === 'guild' ? (
-                <ConversationPicker
-                  items={guildItems}
-                  loading={guildSessions.isLoading}
-                  selected={guildSelection}
-                  onChange={setGuildSelection}
-                  emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
-                />
+                <div
+                  className={`weq-export-message-layout${guildScopeId && guildSelection.has(guildScopeId) ? ' has-scope' : ''}`}
+                >
+                  <ConversationPicker
+                    items={guildItems}
+                    loading={guildSessions.isLoading}
+                    selected={guildSelection}
+                    onChange={setGuildSelection}
+                    scopeSelections={guildMessageSelections}
+                    onEditScope={(item) => {
+                      setGuildSelection(new Set([...guildSelection, item.id]));
+                      setGuildScopeId(item.id);
+                    }}
+                    emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
+                  />
+                  {guildScopeId && guildSelection.has(guildScopeId) ? (
+                    <section className="weq-export-scope-panel" aria-label="频道私聊消息范围">
+                      <header>
+                        <strong>
+                          {guildItems.find((item) => item.id === guildScopeId)?.name ??
+                            guildScopeId}{' '}
+                          · 消息范围
+                        </strong>
+                        <button
+                          type="button"
+                          title="关闭消息范围"
+                          aria-label="关闭消息范围"
+                          onClick={() => setGuildScopeId(null)}
+                        >
+                          <X size={15} />
+                        </button>
+                      </header>
+                      <MessageScopePicker
+                        key={guildScopeId}
+                        kind="guild"
+                        conv={guildScopeId}
+                        selected={guildMessageSelections[guildScopeId]}
+                        onChange={(ids) =>
+                          setGuildMessageSelections((current) => {
+                            const next = { ...current };
+                            if (ids === undefined) delete next[guildScopeId];
+                            else next[guildScopeId] = [...ids];
+                            return next;
+                          })
+                        }
+                      />
+                    </section>
+                  ) : null}
+                </div>
               ) : mode === 'contacts' ? (
                 <div className="weq-exp-contacts">
                   <div className="weq-exp-contacts-switch">
@@ -1580,43 +1564,130 @@ export function ExportTool({
                       ]}
                     />
                   </div>
+                  {contactScope === 'group' && groups.isError ? (
+                    <div className="weq-search-failure" role="status">
+                      <span>群目录读取失败</span>
+                      <button
+                        type="button"
+                        title="重试读取群目录"
+                        aria-label="重试读取群目录"
+                        onClick={() => void groups.refetch()}
+                      >
+                        <RotateCw size={14} />
+                      </button>
+                    </div>
+                  ) : null}
                   {contactScope === 'friends' ? (
                     <>
-                      <CategoryChips
-                        items={catItems}
-                        total={friendTotal}
-                        loading={categories.isLoading}
-                        selected={catSelection}
-                        onChange={setCatSelection}
-                      />
-                      <FriendPreview
+                      <details className="weq-export-contact-categories">
+                        <summary>
+                          好友分组 ·{' '}
+                          {catSelection.size ? `已选 ${catSelection.size} 个分组` : '全部好友'}
+                        </summary>
+                        <CategoryChips
+                          items={catItems}
+                          total={friendTotal}
+                          loading={categories.isLoading}
+                          selected={catSelection}
+                          onChange={setCatSelection}
+                        />
+                      </details>
+                      <ContactScopePicker
                         items={friendPreview}
-                        loading={buddies.isLoading || friendNames.isLoading}
-                        scoped={catSelection.size > 0}
+                        loading={friendDirectory.isLoading}
+                        error={friendDirectory.isError}
+                        onRetry={() => void friendDirectory.refetch()}
+                        selected={friendUids}
+                        onChange={setFriendUids}
+                        conditionLabel={
+                          catSelection.size ? `所选 ${catSelection.size} 个好友分组` : '全部好友'
+                        }
                       />
                     </>
                   ) : (
-                    <SingleSelectPicker
-                      items={groupItems}
-                      loading={groups.isLoading}
-                      selectedId={contactGroupId}
-                      onSelect={setContactGroupId}
-                      searchPlaceholder="搜索群名称或群号"
-                      emptyText="暂无群聊"
-                    />
+                    <div
+                      className={`weq-export-message-layout${memberScopeGroup ? ' has-scope' : ''}`}
+                    >
+                      <ConversationPicker
+                        items={groupItems}
+                        loading={groups.isLoading}
+                        selected={contactGroupIds}
+                        onChange={setContactGroupIds}
+                        scopeSelections={memberUids}
+                        scopeLabel="群成员范围"
+                        scopeUnit="位成员"
+                        onEditScope={(item) => {
+                          setContactGroupIds(new Set([...contactGroupIds, item.id]));
+                          setMemberScopeGroupId(item.id);
+                        }}
+                        emptyText="暂无群聊"
+                      />
+                      {memberScopeGroup ? (
+                        <section
+                          className="weq-export-scope-panel weq-export-contact-panel"
+                          aria-label="当前群成员范围"
+                        >
+                          <header>
+                            <strong title={`${memberScopeGroup.name} · 群成员范围`}>
+                              {memberScopeGroup.name} · 群成员范围
+                            </strong>
+                            <button
+                              type="button"
+                              title="关闭群成员范围"
+                              aria-label="关闭群成员范围"
+                              onClick={() => setMemberScopeGroupId(null)}
+                            >
+                              <X size={15} />
+                            </button>
+                          </header>
+                          <ContactScopePicker
+                            key={memberScopeGroup.id}
+                            items={memberDirectory.data ?? []}
+                            loading={memberDirectory.isLoading}
+                            error={memberDirectory.isError}
+                            onRetry={() => void memberDirectory.refetch()}
+                            selected={memberUids[memberScopeGroup.id]}
+                            onChange={(ids) =>
+                              setMemberUids((previous) => {
+                                const next = { ...previous };
+                                if (ids === undefined) delete next[memberScopeGroup.id];
+                                else next[memberScopeGroup.id] = [...ids];
+                                return next;
+                              })
+                            }
+                            conditionLabel="整群成员"
+                          />
+                        </section>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               ) : mode === 'collection' ? (
-                <CollectionScope
-                  items={collectionItems ?? []}
-                  counts={collectionCounts}
-                  loading={collectionLoading}
-                  selected={collectionKinds}
-                  onChange={setCollectionKinds}
-                  selectedIds={collectionIds}
-                  onSelectedIdsChange={setCollectionIds}
-                  onFilteredIdsChange={setFilteredCollectionIds}
-                />
+                <>
+                  {collectionSource.error ? (
+                    <div role="status" className="weq-search-failure">
+                      <span>收藏加载失败</span>
+                      <button
+                        type="button"
+                        aria-label="重试加载收藏"
+                        title="重试加载收藏"
+                        onClick={collectionSource.retry}
+                      >
+                        <RotateCw size={14} />
+                      </button>
+                    </div>
+                  ) : null}
+                  <CollectionScope
+                    items={collectionItems ?? []}
+                    counts={collectionCounts}
+                    loading={collectionLoading}
+                    selected={collectionKinds}
+                    onChange={setCollectionKinds}
+                    selectedIds={collectionIds}
+                    onSelectedIdsChange={setCollectionIds}
+                    onFilteredIdsChange={setFilteredCollectionIds}
+                  />
+                </>
               ) : mode === 'album' ? (
                 <SingleSelectPicker
                   items={groupItems}
@@ -1635,23 +1706,16 @@ export function ExportTool({
                   searchPlaceholder="搜索群名称或群号"
                   emptyText="暂无群聊"
                 />
-              ) : (
-                <DatabasePicker
-                  items={dbItems}
-                  loading={databases.isLoading}
-                  selected={dbSelection}
-                  onChange={setDbSelection}
-                />
-              )}
+              ) : null}
             </div>
 
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
-            {mode !== 'marketpack' && mode !== 'emojipack' ? (
+            {mode !== 'emojipack' && mode !== 'database' ? (
               <footer className="weq-exp-pane-foot">
-                {mode === 'scheduled' ? (
+                {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
                     {convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个会话 · 灯箱内多选格式 · 点击新建定时任务`
+                      ? `已选 ${convSelection.size} 个会话`
                       : '请先选择至少一个会话'}
                   </span>
                 ) : showFormatChips ? (
@@ -1681,11 +1745,13 @@ export function ExportTool({
                 ) : mode === 'contacts' ? (
                   <span className="weq-exp-foot-hint">
                     {contactScope === 'friends'
-                      ? catSelection.size > 0
-                        ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
-                        : '全部好友 · 灯箱内选择格式与头像'
-                      : contactGroupId
-                        ? '已选择群 · 灯箱内选择格式与头像'
+                      ? friendUids !== undefined
+                        ? `精确选中 ${friendUids.length} 位好友`
+                        : catSelection.size > 0
+                          ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
+                          : '全部好友 · 灯箱内选择格式与头像'
+                      : contactGroupIds.size
+                        ? `已选 ${contactGroupIds.size} 个群`
                         : '请先选择群'}
                   </span>
                 ) : (
@@ -1694,15 +1760,18 @@ export function ExportTool({
                       ? '选择一个群，下一步选择相册与时间范围'
                       : mode === 'groupfile'
                         ? '选择一个群，下一步选择要下载的文件'
-                        : dbSelection.size > 0
-                          ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
-                          : '选择数据库后导出解密副本'}
+                        : ''}
                   </span>
                 )}
                 <button
                   type="button"
                   className="weq-exp-primary"
-                  disabled={primaryDisabled || submitting || globalSettings.isLoading}
+                  disabled={
+                    primaryDisabled ||
+                    submitting ||
+                    globalSettings.isLoading ||
+                    pickingSaveDirectory
+                  }
                   onClick={onPrimary}
                 >
                   {primaryLabel}
@@ -1715,33 +1784,83 @@ export function ExportTool({
 
       {/* 底部任务列表（可折叠覆盖层） */}
       {surface === 'tasks' && !saveLocationTask ? (
-        <TaskList
-          tasks={uiTasks}
-          onPause={onPause}
-          onResume={(t) => {
-            void client.account.resumeExportTask
-              .mutate({ taskId: t.id })
-              .then((ok) => {
-                if (!ok) dialog.error('无法继续', '任务仍在收尾，或没有可验证的断点。');
-                refetchTasks();
-              })
-              .catch((e) => dialog.error('续作失败', String(e)));
-          }}
-          onReport={(t) => {
-            void client.account.revealExportReport
-              .mutate({ taskId: t.id })
-              .catch((e) => dialog.error('打开报告失败', String(e)));
-          }}
-          onCancel={onCancel}
-          onDownload={(t) => void onDownload(t)}
-          onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
-          onDelete={onDelete}
-          onSaveAll={() => void onSaveAll()}
-          onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
-          autoSelectId={autoSelectTaskId}
-          isExpanded={taskPanelExpanded}
-          onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
-        />
+        <>
+          <Segmented<'tasks' | 'schedules'>
+            value={taskTab}
+            onChange={setTaskTab}
+            options={[
+              { value: 'tasks', label: '执行任务' },
+              { value: 'schedules', label: '定时计划' },
+            ]}
+          />
+          {taskTab === 'schedules' ? (
+            <div className="weq-exp-sched-list">
+              {schedules.isLoading ? (
+                <ScheduleListSkeleton />
+              ) : schedules.isError ? (
+                <div role="status">
+                  定时计划加载失败
+                  <button
+                    type="button"
+                    title="重试加载计划"
+                    aria-label="重试加载计划"
+                    onClick={() => void schedules.refetch()}
+                  >
+                    <RotateCw size={14} />
+                  </button>
+                </div>
+              ) : (schedules.data ?? []).length === 0 ? (
+                <div className="weq-exp-sched-empty">
+                  <strong>暂无定时计划</strong>
+                </div>
+              ) : (
+                (schedules.data as ScheduledTask[]).map((s) => (
+                  <ScheduleRow
+                    key={s.id}
+                    schedule={s}
+                    onToggle={() => void onToggleSchedule(s)}
+                    onDelete={() => void onDeleteSchedule(s)}
+                    onRunNow={() => void onRunScheduleNow(s)}
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            <TaskList
+              tasks={uiTasks}
+              onPause={onPause}
+              onResume={(t) => {
+                void client.account.resumeExportTask
+                  .mutate({ taskId: t.id })
+                  .then((ok) => {
+                    if (!ok)
+                      dialog.error(
+                        t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
+                        t.resumeMode === 'restart'
+                          ? '任务仍在收尾，请稍后重试。'
+                          : '任务仍在收尾，或没有可验证的断点。',
+                      );
+                    refetchTasks();
+                  })
+                  .catch((e) => dialog.error('续作失败', String(e)));
+              }}
+              onReport={(t) => {
+                void client.account.revealExportReport
+                  .mutate({ taskId: t.id })
+                  .catch((e) => dialog.error('打开报告失败', String(e)));
+              }}
+              onCancel={onCancel}
+              onDownload={(t) => void onDownload(t)}
+              onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
+              onDelete={onDelete}
+              onSaveAll={() => void onSaveAll()}
+              onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+              autoSelectId={autoSelectTaskId}
+              isExpanded={taskPanelExpanded}
+              onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
+            />
+          )}
+        </>
       ) : null}
 
       {failureView ? (
@@ -1756,15 +1875,25 @@ export function ExportTool({
         <ExportLightbox
           embedded
           scopeSummary={
-            lightbox === 'full' &&
-            [...convSelection].some((id) => messageSelections[id] !== undefined)
-              ? [...convSelection]
+            lightbox === 'guild' &&
+            [...guildSelection].some((id) => guildMessageSelections[id] !== undefined)
+              ? [...guildSelection]
                   .map(
                     (id) =>
-                      `${convItems.find((item) => item.id === id)?.name ?? id}：${messageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${messageSelections[id]!.length} 条消息`}`,
+                      `${guildItems.find((item) => item.id === id)?.name ?? id}：${guildMessageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${guildMessageSelections[id]!.length} 条消息`}`,
                   )
                   .join('；')
-              : undefined
+              : lightbox === 'contacts' && contactScope === 'group'
+                ? memberScopeSummary
+                : lightbox === 'full' &&
+                    [...convSelection].some((id) => messageSelections[id] !== undefined)
+                  ? [...convSelection]
+                      .map(
+                        (id) =>
+                          `${convItems.find((item) => item.id === id)?.name ?? id}：${messageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${messageSelections[id]!.length} 条消息`}`,
+                      )
+                      .join('；')
+                  : undefined
           }
           variant={lightbox}
           headline={lightboxHeadline}
@@ -1802,23 +1931,6 @@ export function ExportTool({
           }}
           onClose={() => setLightbox(null)}
           onConfirm={onLightboxConfirm}
-        />
-      ) : null}
-
-      {decryptLightboxOpen ? (
-        <DecryptLightbox
-          count={selectedDbs.length}
-          totalBytes={selectedDbBytes}
-          outputDir={decryptOutputDir}
-          submitting={submitting}
-          formatBytes={fmtBytes}
-          onPickPath={async () => {
-            const picked = await client.account.pickDecryptOutputDir.mutate();
-            if (picked) setDecryptOutputDir(picked);
-            return picked;
-          }}
-          onClose={() => setDecryptLightboxOpen(false)}
-          onConfirm={(result) => void runDecryptExport(result)}
         />
       ) : null}
 
@@ -1884,6 +1996,17 @@ function CategoryChips({
       ) : items.length === 0 ? (
         <div className="weq-exp-cats-empty">
           <small>暂无分组数据</small>
+          {selected.size ? (
+            <button
+              type="button"
+              className="weq-exp-tool"
+              title="清空分组筛选"
+              aria-label="清空分组筛选"
+              onClick={() => onChange(new Set())}
+            >
+              <X size={14} />
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="weq-exp-cats-list">
@@ -1906,69 +2029,6 @@ function CategoryChips({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * 好友预览列表（导出联系人 · 好友）。跟随上方分组 chips：未选分组显示全部好友，
- * 选了分组则只显示这些分组下的好友。只读，仅用于让用户「心里有数」——避免选完
- * 分组下方一片空白。可搜索昵称 / QQ 号。
- */
-function FriendPreview({
-  items,
-  loading,
-  scoped,
-}: {
-  items: FriendPreviewItem[];
-  loading: boolean;
-  scoped: boolean;
-}): ReactElement {
-  const [query, setQuery] = useState('');
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => it.name.toLowerCase().includes(q) || it.uin.includes(q));
-  }, [items, query]);
-
-  return (
-    <div className="weq-exp-friends">
-      <div className="weq-exp-friends-head">
-        <strong>{scoped ? '分组好友预览' : '全部好友预览'}</strong>
-        <small>{loading ? '加载中…' : `${fmtCount(items.length)} 人`}</small>
-      </div>
-      <div className="weq-exp-search">
-        <Search size={15} aria-hidden />
-        <input
-          placeholder="搜索昵称或 QQ 号"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query ? (
-          <button type="button" title="清空" onClick={() => setQuery('')}>
-            <X size={14} />
-          </button>
-        ) : null}
-      </div>
-      <div className="weq-exp-list">
-        {loading ? (
-          <PickerListSkeleton rows={6} />
-        ) : filtered.length === 0 ? (
-          <div className="weq-exp-list-state">
-            <span>{query ? '没有匹配的好友' : scoped ? '该分组下暂无好友' : '暂无好友'}</span>
-          </div>
-        ) : (
-          filtered.map((it) => (
-            <div key={it.uid} className="weq-exp-row is-static">
-              <Avatar url={it.avatarUrl} name={it.name} size={34} />
-              <span className="weq-exp-row-meta">
-                <strong title={it.name}>{it.name}</strong>
-                {it.uin && it.uin !== '0' ? <small>{it.uin}</small> : null}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

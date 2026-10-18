@@ -79,5 +79,33 @@ export function useContentMultiSelect(owner: ContentOwner) {
     },
     [update, kind, container],
   );
-  return { selectionMode: active, selectedIds, setSelectedIds, setSelectionMode };
+  const removeSelectedIds = useCallback(
+    (ids: readonly string[]) => {
+      const removed = new Set(ids);
+      update((previous) => {
+        if (
+          !previous ||
+          !sameContentOwner(previous.owner, { kind, container }) ||
+          previous.scope.type !== 'items'
+        )
+          return previous;
+        const remaining = previous.scope.ids.filter((id) => !removed.has(id));
+        return remaining.length === previous.scope.ids.length
+          ? previous
+          : reduceContentSelection(previous, {
+              type: 'select',
+              owner: { kind, container },
+              ids: remaining,
+            });
+      });
+    },
+    [update, kind, container],
+  );
+  return {
+    selectionMode: active,
+    selectedIds,
+    setSelectedIds,
+    setSelectionMode,
+    removeSelectedIds,
+  };
 }

@@ -109,6 +109,7 @@ export function ChatMainContent({
   onOpenGroupMember,
   onAddMessage,
   onMergeForward,
+  onAddToComposition,
   onForwardMessages,
   onViewDeleted,
   onViewRecalled,
@@ -243,6 +244,7 @@ export function ChatMainContent({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onAddToComposition?: (messages: Message[]) => void;
   onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
   unreadDock?: UnreadDock | null;
@@ -327,6 +329,7 @@ export function ChatMainContent({
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
       onMergeForward={onMergeForward}
+      onAddToComposition={onAddToComposition}
       onForwardMessages={onForwardMessages}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}

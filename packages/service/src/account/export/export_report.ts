@@ -16,6 +16,12 @@ export function exportReport(task: ExportTask) {
     formats: task.formats ?? [task.format],
     range: task.range ?? null,
     filter: task.filter ?? null,
+    contacts: task.contacts
+      ? {
+          ...structuredClone(task.contacts),
+          ...(task.contacts.scope === 'group' ? { groupCode: task.conv } : {}),
+        }
+      : null,
     contentStatus:
       task.error ||
       task.stages.some((stage) => (stage.failed ?? 0) > 0) ||
@@ -44,7 +50,9 @@ export function exportReport(task: ExportTask) {
     source: {
       binding: task.resumeBinding ?? null,
       changedDuringExport: task.sourceChanged ?? null,
-      proof: 'database-and-WAL file identity/size/mtime/ctime; not a historical snapshot',
+      proof: task.contacts
+        ? 'local cached contact reads collected once per execution; not a database transaction snapshot'
+        : 'database-and-WAL file identity/size/mtime/ctime; not a historical snapshot',
     },
     roaming: {
       requested: !!task.media?.completeMessages,

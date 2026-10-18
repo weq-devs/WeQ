@@ -11,6 +11,7 @@ import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
+import { USER_ACTIVITY_EVENT } from '../lib/renderDocument';
 import {
   fetchSystemAuthStatus,
   fetchTotpStatus,
@@ -20,7 +21,14 @@ import {
 import { TotpDigits } from './TotpDigits';
 
 /** Reset the idle timer on any of these. */
-const IDLE_EVENTS = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'] as const;
+const IDLE_EVENTS = [
+  'mousemove',
+  'mousedown',
+  'keydown',
+  'wheel',
+  'touchstart',
+  USER_ACTIVITY_EVENT,
+] as const;
 const TOTP_STEP_SECONDS = 30;
 
 export function AppLockOverlay(): ReactElement | null {

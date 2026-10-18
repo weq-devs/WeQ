@@ -9,6 +9,7 @@
   Quote,
   SmilePlus,
   Forward,
+  ListPlus,
 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
@@ -34,6 +35,7 @@ export function MessageContextMenu({
   state,
   onCopy,
   onForward,
+  onAddToComposition,
   onDownloadImage,
   onDelete,
   onEditRaw,
@@ -51,6 +53,7 @@ export function MessageContextMenu({
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
+  onAddToComposition?: (message: Message) => void;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
   onDelete?: (message: Message) => void;
@@ -134,6 +137,16 @@ export function MessageContextMenu({
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />
           <span>多选</span>
+        </button>
+      ) : null}
+      {onAddToComposition ? (
+        <button
+          type="button"
+          title="添加到素材库"
+          onClick={() => onAddToComposition(state.message)}
+        >
+          <ListPlus size={17} />
+          <span>添加到素材库</span>
         </button>
       ) : null}
       {onForward ? (

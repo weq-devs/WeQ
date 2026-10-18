@@ -25,6 +25,7 @@ import {
   Loader2,
   Pause,
   Play,
+  RotateCw,
   FileCheck,
   Sticker,
   Trash2,
@@ -88,6 +89,7 @@ function completionSummary(stages: UiStage[] | undefined): {
 export interface UiTask {
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
+  resumeMode?: 'checkpoint' | 'restart';
   reportPath?: string;
   id: string;
   kind: 'group' | 'c2c';
@@ -407,24 +409,26 @@ function TaskDetail({
             {' · '}
             {fmtCount(t.current)}
             {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
-            {t.isMarketPack || t.isEmojiPack ? '张' : '条'}
+            {t.isMarketPack || t.isEmojiPack ? '张' : t.isContacts ? '位' : '条'}
             {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
           </span>
         </div>
         <span className={`weq-exp-detail-status is-${t.status}`}>
           <StatusIcon status={t.status} />
-          {STATUS_LABEL[t.status]}
+          {t.status === 'paused' && t.isContacts && !t.canResume
+            ? '暂停收尾中'
+            : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
           {t.canResume && onResume ? (
             <button
               type="button"
-              title="继续导出"
-              aria-label="继续导出"
+              title={t.resumeMode === 'restart' ? '按原范围重新执行' : '继续导出'}
+              aria-label={t.resumeMode === 'restart' ? '重新执行导出' : '继续导出'}
               onClick={() => onResume(t)}
             >
-              <Play size={15} />
+              {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
             </button>
           ) : null}
           {t.reportPath && onReport ? (

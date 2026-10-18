@@ -18,12 +18,14 @@ import { trpc } from '../../trpc/client';
 import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
 import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
+import { ExportTool } from '../../views/ExportView';
 
 export type MaintenanceTool =
   | 'database'
   | 'storage'
   | 'cleanup'
   | 'db-repair'
+  | 'db-decrypt'
   | 'key-scan'
   | 'other-device-key'
   | 'login-accounts'
@@ -35,6 +37,7 @@ const TOOLS = [
   { id: 'storage', label: '存储占用', icon: HardDrive, needsResources: true },
   { id: 'cleanup', label: '清理缓存', icon: Trash2, needsResources: true },
   { id: 'db-repair', label: '数据库修复', icon: DatabaseZap, needsResources: false },
+  { id: 'db-decrypt', label: '导出明文数据库', icon: Database, needsResources: false },
   { id: 'key-scan', label: '密钥扫描', icon: KeyRound, needsResources: false },
   { id: 'other-device-key', label: '其它设备密钥', icon: KeyRound, needsResources: false },
 ] as const;
@@ -130,6 +133,8 @@ export function DataMaintenanceDialog({
       <div className={`weq-maintenance-body${tool === 'database' ? ' is-database' : ''}`}>
         {tool === 'database' ? (
           <DbExplorer />
+        ) : tool === 'db-decrypt' ? (
+          <ExportTool initialMode="database" />
         ) : (
           <DbRepairPanel
             currentUin={account.uin}

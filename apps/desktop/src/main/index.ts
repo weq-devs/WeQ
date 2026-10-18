@@ -1,3 +1,4 @@
+import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
 import {
   app,
   BrowserWindow,
@@ -94,6 +95,7 @@ const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
 let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
+const compositionWindows = new Map<number, BrowserWindow>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
@@ -172,6 +174,10 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  ipcMain.on('composition:control', (event, action: unknown) => {
+    const child = compositionWindows.get(event.sender.id);
+    if (child) controlCompositionWindow(child, action);
+  });
   ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
@@ -604,9 +610,34 @@ function createWindow(): BrowserWindow {
     win.webContents.send('window:confirm-close', { canMinimizeToTray: Boolean(tray) });
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const options = compositionPopupOptions(url, frameName);
+    if (options) return { action: 'allow', overrideBrowserWindowOptions: options };
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child, details) => {
+    if (details.frameName !== 'weq-compose' || details.url !== 'about:blank') return;
+    const owner = win.webContents.id;
+    compositionWindows.set(owner, child);
+    const reportState = () => {
+      if (!win.isDestroyed() && !child.isDestroyed())
+        win.webContents.send('composition:state', { maximized: child.isMaximized() });
+    };
+    child.on('maximize', reportState);
+    child.on('unmaximize', reportState);
+    reportState();
+    child.on('closed', () => {
+      if (compositionWindows.get(owner) === child) compositionWindows.delete(owner);
+    });
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    child.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault();
+      if (url !== 'about:blank') void shell.openExternal(url);
+    });
   });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {

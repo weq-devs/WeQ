@@ -34,6 +34,7 @@ export function GroupChatPanel({
   groupId,
   sessionId,
   searchTarget,
+  readOnlyLegacy = false,
   selfUin,
   personaList,
   profileByUid,
@@ -46,6 +47,7 @@ export function GroupChatPanel({
   /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
   sessionId: string | null;
   searchTarget?: GeneratedSearchHit;
+  readOnlyLegacy?: boolean;
   selfUin?: string;
   personaList: PersonaLite[];
   profileByUid: Map<string, { uin: string; label: string; avatarUrl?: string }>;
@@ -62,7 +64,7 @@ export function GroupChatPanel({
   // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const sessionIdRef = useRef<string | null>(sessionId);
-  const legacy = Boolean(searchTarget && searchTarget.sessionId === null);
+  const legacy = readOnlyLegacy || Boolean(searchTarget && searchTarget.sessionId === null);
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(

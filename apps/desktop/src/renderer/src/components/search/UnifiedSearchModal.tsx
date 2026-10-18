@@ -1,7 +1,7 @@
 /** Large horizontal "more" modal: full paginated results for one search category. */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { RotateCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
@@ -31,12 +31,16 @@ export function UnifiedSearchModal({
   const [data, setData] = useState<MoreSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<'initial' | 'more' | null>(null);
   const runRef = useRef(0);
+  const pending = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchPage = useCallback(
     async (pageKeyword: string, offset: number, append: boolean) => {
       const run = ++runRef.current;
+      pending.current = true;
+      setError(null);
       if (!append) setLoading(true);
       else setLoadingMore(true);
       try {
@@ -52,9 +56,12 @@ export function UnifiedSearchModal({
           return { ...result, items: [...prev.items, ...result.items] };
         });
       } catch (err) {
+        if (run !== runRef.current) return;
+        setError(append ? 'more' : 'initial');
         console.error('[search-more] failed', err);
       } finally {
         if (run === runRef.current) {
+          pending.current = false;
           setLoading(false);
           setLoadingMore(false);
         }
@@ -65,24 +72,54 @@ export function UnifiedSearchModal({
 
   // Reset + fetch first page when the keyword settles.
   useEffect(() => {
+    ++runRef.current;
+    pending.current = false;
     setData(null);
+    setError(null);
+    setLoadingMore(false);
+    scrollRef.current?.scrollTo(0, 0);
     const trimmed = keyword.trim();
     if (!trimmed) {
       setLoading(false);
       return undefined;
     }
+    setLoading(true);
     const timer = window.setTimeout(() => void fetchPage(trimmed, 0, false), 250);
-    return () => window.clearTimeout(timer);
+    return () => {
+      ++runRef.current;
+      pending.current = false;
+      window.clearTimeout(timer);
+    };
   }, [keyword, fetchPage]);
 
   // Infinite scroll: fetch the next page near the bottom.
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el || loading || loadingMore || !data?.hasMore) return;
+    if (!el || pending.current || error || loading || loadingMore || !data?.hasMore) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
       void fetchPage(keyword.trim(), data.items.length, true);
     }
-  }, [data, keyword, loading, loadingMore, fetchPage]);
+  }, [data, keyword, error, loading, loadingMore, fetchPage]);
+
+  const retry = (
+    <div className="weq-search-failure" role="status">
+      <span>{error === 'more' ? '加载更多失败' : '搜索失败'}</span>
+      <button
+        type="button"
+        title="重试搜索"
+        aria-label="重试搜索"
+        onClick={() =>
+          void fetchPage(
+            keyword.trim(),
+            error === 'more' ? (data?.items.length ?? 0) : 0,
+            error === 'more',
+          )
+        }
+      >
+        <RotateCw size={14} />
+      </button>
+    </div>
+  );
 
   return (
     <Modal
@@ -109,13 +146,19 @@ export function UnifiedSearchModal({
           autoFocus
         />
         <div className="weq-search-more-body" ref={scrollRef} onScroll={onScroll}>
-          {loading ? (
+          {error === 'initial' ? (
+            retry
+          ) : loading ? (
             <SearchListSkeleton rows={5} />
           ) : data && data.items.length === 0 ? (
             <div className="weq-search-empty">无结果</div>
           ) : data ? (
             <>
-              <div className="weq-search-more-total">共 {data.total} 条结果</div>
+              <div className="weq-search-more-total">
+                {data.limited
+                  ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
+                  : `共 ${data.total} 条结果`}
+              </div>
               {data.items.map((hit) => (
                 <SearchResultCard
                   key={searchHitKey(hit)}
@@ -130,8 +173,11 @@ export function UnifiedSearchModal({
                 />
               ))}
               {loadingMore ? <SearchListSkeleton rows={2} /> : null}
+              {error === 'more' ? retry : null}
               {!data.hasMore && data.items.length > 0 ? (
-                <div className="weq-search-more-end">没有更多了</div>
+                <div className="weq-search-more-end">
+                  {data.limited ? '本轮候选已显示完' : '没有更多了'}
+                </div>
               ) : null}
             </>
           ) : null}

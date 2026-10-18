@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
@@ -147,6 +148,7 @@ export function Modal({
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar';
   title?: string;
 }): ReactElement | null {
+  const document = useRenderDocument();
   const tabActive = useTabActive();
   const active = tabActive && open;
   const layer = useOverlayLayer(active);

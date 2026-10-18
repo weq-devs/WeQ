@@ -45,6 +45,7 @@ import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../state/contentSelection';
+import '../styles/collection-search.css';
 
 interface PicWire {
   uri: string;
@@ -542,10 +543,12 @@ export function CollectionDialog({
   open,
   onClose,
   embedded = false,
+  searchTarget,
 }: {
   open: boolean;
   onClose: () => void;
   embedded?: boolean;
+  searchTarget?: { cid: string; revision: number } | null;
 }): ReactElement | null {
   const [items, setItems] = useState<CollectionItemWire[]>([]);
   const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
@@ -558,6 +561,37 @@ export function CollectionDialog({
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  useEffect(() => {
+    if (!open || !searchTarget) return;
+    let active = true;
+    setSearchError(null);
+    setSelected(null);
+    setSearchLoading(true);
+    void client.account.localCollectionItem
+      .query({ cid: searchTarget.cid })
+      .then(
+        (item) => {
+          if (!active) return;
+          if (!item) {
+            setSearchError('这条收藏已不在当前账号的本地缓存中。');
+            return;
+          }
+          setSelected(item);
+        },
+        () => {
+          if (active) setSearchError('读取收藏失败，请重试。');
+        },
+      )
+      .finally(() => {
+        if (active) setSearchLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, searchTarget, searchRetry]);
   const [exportSelection, setExportSelection] = useState<{ cids?: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -901,6 +935,21 @@ export function CollectionDialog({
         aria-labelledby="weq-collection-title"
         {...selection.rootProps}
       >
+        {searchLoading || searchError ? (
+          <div className="weq-col-search-status" role="status">
+            <span>{searchLoading ? '正在定位收藏…' : searchError}</span>
+            {searchError ? (
+              <button
+                type="button"
+                title="重试定位收藏"
+                aria-label="重试定位收藏"
+                onClick={() => setSearchRetry((value) => value + 1)}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {!embedded ? (
           <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
             <X size={18} strokeWidth={2} />

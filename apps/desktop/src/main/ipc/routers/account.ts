@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import { SEARCH_CATEGORIES } from '@weq/service';
-import { exportSavePolicyInput } from './export_save';
+import { exportDownloadName, exportSavePolicyInput } from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
   PROJECT_GROUP_CODE,
@@ -150,10 +150,12 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
-function requireSendAccount(expected?: string): AccountServices {
+function requireExpectedAccount(expected?: string, expectedConfigId?: string): AccountServices {
   const ctx = getAppContext();
   if (expected && String(ctx.account?.context.uin ?? '') !== expected)
-    throw new Error('账号已切换，已停止发送');
+    throw new Error('账号已切换，已停止操作');
+  if (expectedConfigId && ctx.services?.accountConfig.getRecord()?.configId !== expectedConfigId)
+    throw new Error('账号数据源已切换，已停止操作');
   return requireServices();
 }
 
@@ -315,6 +317,7 @@ const decryptDbInput = z.object({
   outputDir: z.string().min(1),
   mode: z.enum(['fast', 'safe']),
   concurrency: z.number().int().min(1).max(6).optional(),
+  expectedAccountUin: z.string().min(1).optional(),
 });
 
 const groupAlbumInput = z.object({
@@ -2424,6 +2427,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         /** 会话 40027 node id（消息分页键）。 */
         nodeId: z.string().min(1),
+        messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
         /** 任务显示名（对方昵称）。 */
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
@@ -2478,7 +2482,9 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const services = requireServices();
       const guild = await services.guildDirect.buildExportMeta(input.nodeId);
-      const total = await services.guildDirect.countMessages(input.nodeId);
+      const messageIds =
+        input.messageIds === undefined ? undefined : [...new Set(input.messageIds)];
+      const total = messageIds?.length ?? (await services.guildDirect.countMessages(input.nodeId));
       return services.exportManager.startTask({
         kind: 'c2c',
         conv: guild.peerTinyId,
@@ -2487,12 +2493,13 @@ export const accountRouter = router({
         format: input.format,
         ...(input.formats?.length ? { formats: input.formats } : {}),
         total,
+        ...(messageIds !== undefined ? { filter: { messageIds } } : {}),
         ...(input.exportAvatar ? { exportAvatar: true } : {}),
         ...(input.chatlab ? { chatlab: true } : {}),
         ...(input.dress ? { dress: input.dress } : {}),
         // 频道私聊不支持漫游消息：不论前端怎么勾，补全始终关闭。
         ...(input.media ? { media: { ...input.media, completeMessages: false } } : {}),
-        ...(input.range ? { range: input.range } : {}),
+        ...(input.range && messageIds === undefined ? { range: input.range } : {}),
         guild,
       });
     }),
@@ -3452,14 +3459,20 @@ export const accountRouter = router({
   sendForward: procedure
     .input(
       z.object({
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
         nodes: z.array(z.any()).min(1),
       }),
     )
     .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendForward({
+      return services.messageSend.sendForward({
         peerType: input.peerType,
         targetId: input.targetId,
         nodes: input.nodes as never,
@@ -4036,14 +4049,19 @@ export const accountRouter = router({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
         expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireSendAccount(input.expectedAccountUin).messageSend.sendElements({
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services.messageSend.sendElements({
         peerType: input.peerType,
         targetId: input.targetId,
         ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
@@ -4062,14 +4080,19 @@ export const accountRouter = router({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
         expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         path: z.string().min(1),
         fileName: z.string().min(1).optional(),
         folderId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireSendAccount(input.expectedAccountUin).messageSend.sendFile({
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services.messageSend.sendFile({
         peerType: input.peerType,
         targetId: input.targetId,
         path: input.path,
@@ -4441,7 +4464,16 @@ export const accountRouter = router({
 
   /** Bulk decrypt selected databases into the chosen folder. */
   decryptDatabases: procedure.input(decryptDbInput).mutation(async ({ input }) => {
-    return requireServices().dbDecrypt.decryptDatabases(input);
+    const results = await requireExpectedAccount(
+      input.expectedAccountUin,
+    ).dbDecrypt.decryptDatabases(input);
+    const host = getHost();
+    return results.map((result) => {
+      const download = result.ok
+        ? host.registerDownload?.(result.outPath, result.name, 'file')
+        : undefined;
+      return { ...result, ...(download ? { downloadUrl: download.url } : {}) };
+    });
   }),
 
   // ---- 外部站点跳转（QQ 空间 / QQ 频道，网页版用） ----
@@ -4846,6 +4878,13 @@ export const accountRouter = router({
       return item ? collectionItemToWire(item) : null;
     }),
 
+  localCollectionItem: procedure
+    .input(z.object({ cid: z.string().min(1).max(512) }))
+    .query(async ({ input }) => {
+      const item = await requireServices().collection.readLocalItem(input.cid);
+      return item ? collectionItemToWire(item) : null;
+    }),
+
   /** Pull one bounded operation-20001 batch and persist it in the account cache. */
   syncCollectionDetails: procedure
     .input(
@@ -5140,6 +5179,7 @@ export const accountRouter = router({
         formats: z.array(z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'])).optional(),
         exportAvatar: z.boolean().optional(),
         categoryIds: z.array(z.number().int()).optional(),
+        uids: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -5155,6 +5195,7 @@ export const accountRouter = router({
         contacts: {
           scope: input.scope,
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
+          ...(input.uids ? { uids: input.uids } : {}),
         },
         kind: 'c2c',
         savePolicy: input.savePolicy,
@@ -5166,6 +5207,21 @@ export const accountRouter = router({
         exportAvatar: input.exportAvatar ?? false,
       });
     }),
+
+  contactsExportPreview: procedure
+    .input(
+      z.discriminatedUnion('scope', [
+        z.object({ scope: z.literal('friends') }),
+        z.object({ scope: z.literal('group'), groupCode: z.string().min(1) }),
+      ]),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      if (input.scope === 'friends') return services.profile.listExportFriends();
+      return services.groupInfo.listExportMembers(BigInt(input.groupCode));
+    }),
+
+  exportGroupDirectory: procedure.query(() => requireServices().groupInfo.listExportGroups()),
 
   /**
    * Start a collection (收藏) export — 走本地收藏库，无需在线 QQ。全部或按类型
@@ -5249,7 +5305,7 @@ export const accountRouter = router({
       if (!path) throw new Error('导出结果不存在。');
       const register = getHost().registerDownload;
       if (!register) return null;
-      const name = `${sanitizePathSegment(task.name, task.id)}.${task.bundleDir ? 'zip' : task.format}`;
+      const name = exportDownloadName(task);
       return register(path, name, task.bundleDir ? 'directory' : 'file');
     }),
 

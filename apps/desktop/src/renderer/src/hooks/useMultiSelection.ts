@@ -9,6 +9,7 @@ import {
   type PointerEvent,
 } from 'react';
 import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
+import { useRenderDocument } from '../lib/renderDocument';
 import '../styles/multi-selection.css';
 
 let keyboardOwner: HTMLElement | null = null;
@@ -39,6 +40,9 @@ export function useMultiSelection<K extends string | number>({
   onExit?: () => void;
   anchorRef?: { current: string | null };
 }) {
+  const document = useRenderDocument();
+  const ElementClass = document.defaultView?.HTMLElement ?? HTMLElement;
+  const InputClass = document.defaultView?.HTMLInputElement ?? HTMLInputElement;
   const groupId = useId();
   const root = useRef<HTMLElement | null>(null);
   // 合并 ref 的宿主重渲染时会先传 null，再传回节点，不能因此丢掉键盘归属。
@@ -73,7 +77,7 @@ export function useMultiSelection<K extends string | number>({
       return (
         rect.height > 0 &&
         rect.bottom > Math.max(0, bounds.top) &&
-        rect.top < Math.min(window.innerHeight, bounds.bottom)
+        rect.top < Math.min(document.defaultView?.innerHeight ?? window.innerHeight, bounds.bottom)
       );
     });
     const candidates = visible.length ? visible : items;
@@ -83,7 +87,7 @@ export function useMultiSelection<K extends string | number>({
       candidates[0] ??
       element;
     choice.focus({ preventScroll: true });
-  }, []);
+  }, [document]);
   const pointer = useRef<string | null>(null);
   const refocusAfterUpdate = useRef(false);
   useEffect(() => {
@@ -112,7 +116,7 @@ export function useMultiSelection<K extends string | number>({
       if (!root.current.contains(document.activeElement)) focusChoice();
     }
     wasEnabled.current = enabled;
-  }, [enabled, locked, focusChoice]);
+  }, [enabled, locked, focusChoice, document]);
   const [focusRequest, setFocusRequest] = useState<{ id: string; revision: number } | null>(null);
   const keys = ids.map(String);
   const values = new Map(ids.map((id) => [String(id), id]));
@@ -186,7 +190,7 @@ export function useMultiSelection<K extends string | number>({
       if (!handledPointer && (!enabled || normalClick === 'passthrough') && !modified(event))
         return;
       if (
-        !(event.target instanceof HTMLInputElement && event.target.type === 'checkbox') ||
+        !(event.target instanceof InputClass && event.target.type === 'checkbox') ||
         handledPointer
       )
         event.preventDefault();
@@ -235,7 +239,7 @@ export function useMultiSelection<K extends string | number>({
         event.defaultPrevented ||
         event.altKey ||
         element.closest('[hidden], [inert], fieldset:disabled') ||
-        !(target instanceof HTMLElement)
+        !(target instanceof ElementClass)
       )
         return;
       if (
@@ -251,12 +255,12 @@ export function useMultiSelection<K extends string | number>({
       document.removeEventListener('keydown', listener);
       if (keyboardOwner === mounted) keyboardOwner = null;
     };
-  }, [enabled, locked]);
+  }, [enabled, locked, document, ElementClass]);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (locked) return;
     if (
       event.altKey ||
-      !(event.target instanceof HTMLElement) ||
+      !(event.target instanceof ElementClass) ||
       event.target.closest('[hidden], [inert], fieldset:disabled')
     )
       return;

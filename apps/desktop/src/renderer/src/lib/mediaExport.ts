@@ -21,12 +21,23 @@ export interface MediaExportResult {
 export async function exportMedia(
   source: { url: string; name?: string },
   mode: MediaExportMode,
+  ownerDocument: Document = document,
 ): Promise<MediaExportResult> {
   const invoke = window.electron?.ipcRenderer?.invoke;
   if (!invoke || source.url.startsWith('blob:')) {
     if (mode !== 'clipboard') return { ok: false, error: '当前环境不支持另存为' };
     try {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined')
+      const clipboard =
+        ownerDocument === document
+          ? navigator.clipboard
+          : ownerDocument.defaultView?.navigator.clipboard;
+      const Item =
+        ownerDocument === document
+          ? typeof ClipboardItem === 'undefined'
+            ? undefined
+            : ClipboardItem
+          : ownerDocument.defaultView?.ClipboardItem;
+      if (!clipboard?.write || !Item)
         throw new Error('当前浏览器不支持图片剪贴板，请使用 HTTPS 或桌面端');
       // 把异步取图交给 ClipboardItem，保留点击时的用户激活。
       const png = (async () => {
@@ -36,7 +47,7 @@ export async function exportMedia(
         if (blob.type === 'image/png') return blob;
         const image = await createImageBitmap(blob);
         try {
-          const canvas = document.createElement('canvas');
+          const canvas = ownerDocument.createElement('canvas');
           canvas.width = image.width;
           canvas.height = image.height;
           const context = canvas.getContext('2d');
@@ -54,7 +65,7 @@ export async function exportMedia(
       })();
       // 剪贴板权限先被拒绝时，取图仍可能稍后失败；避免留下未处理的拒绝。
       void png.catch(() => {});
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      await clipboard.write([new Item({ 'image/png': png })]);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : '复制图片失败' };

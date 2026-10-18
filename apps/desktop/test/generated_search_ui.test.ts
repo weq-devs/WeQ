@@ -14,6 +14,7 @@ const fixture = vi.hoisted(() => ({
   mutate: vi.fn(),
   missing: false,
   fetching: false,
+  sessionless: false,
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: vi.fn(), confirm: vi.fn(), prompt: vi.fn() }),
@@ -57,9 +58,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       case 'getSelfProfile':
         return { uid: 'u_self', uin: '10000', nick: '我' };
       case 'listAgentLabPersonaSessions':
-        return [{ id: 'ps', title: '合成会话', createdAt: 1, updatedAt: 1 }];
+        return fixture.sessionless
+          ? []
+          : [{ id: 'ps', title: '合成会话', createdAt: 1, updatedAt: 1 }];
       case 'listAgentLabGroupSessions':
-        return [{ id: 'gs', title: '合成群会话', createdAt: 1, updatedAt: 1 }];
+        return fixture.sessionless
+          ? []
+          : [{ id: 'gs', title: '合成群会话', createdAt: 1, updatedAt: 1 }];
       case 'getAgentLabTokenStats':
         return { total: {}, byDay: [], byPersona: [], byModel: [], records: [] };
       default:
@@ -77,7 +82,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             const name = path.at(-1)!;
             fixture.options(name, options);
             if (options?.enabled !== false) fixture.query(name, input);
-            const key = JSON.stringify([name, input, fixture.missing, fixture.fetching]);
+            const key = JSON.stringify([
+              name,
+              input,
+              fixture.missing,
+              fixture.fetching,
+              fixture.sessionless,
+            ]);
             if (!cache.has(key)) cache.set(key, data(name));
             return {
               data: options?.enabled === false ? undefined : cache.get(key),
@@ -129,6 +140,7 @@ it('生成内容按搜索类别区分，不把其它结果的 kind 字段误当�
 afterEach(() => {
   fixture.missing = false;
   fixture.fetching = false;
+  fixture.sessionless = false;
   vi.clearAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -159,6 +171,99 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it.each(['persona', 'group'] as const)('%s 没有新会话时恢复旧版记录并保持只读', async (kind) => {
+    fixture.sessionless = true;
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(
+          createElement(AgentLabView, {
+            embedded: true,
+            openTarget: { kind, id: kind === 'persona' ? 'p' : 'g', revision: 2 },
+          }),
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(f.host.textContent).toContain('合成搜索命中');
+      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(true);
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('没有任何历史的克隆仍可进入新草稿，不因兼容读取而变成只读', async () => {
+    fixture.sessionless = true;
+    fixture.missing = true;
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(
+          createElement(AgentLabView, {
+            embedded: true,
+            openTarget: { kind: 'persona', id: 'p', revision: 3 },
+          }),
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(f.host.querySelector<HTMLTextAreaElement>('textarea')?.disabled).toBe(false);
+    } finally {
+      f.close();
+    }
+  });
+  it('搜索目标优先于保留的共享列表打开目标', async () => {
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(
+          createElement(AgentLabView, {
+            embedded: true,
+            openTarget: { kind: 'group', id: 'g', revision: 3 },
+            searchTarget: target('persona'),
+          }),
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
+      expect(f.host.querySelector('.weq-agentlab-head strong')?.textContent).toBe('合成克隆');
+    } finally {
+      f.close();
+    }
+  });
+  it.each(['persona', 'group'] as const)(
+    '%s 从共享会话列表打开时恢复已保存会话，不打开空草稿',
+    async (kind) => {
+      const f = mount();
+      try {
+        act(() =>
+          f.root.render(
+            createElement(AgentLabView, {
+              embedded: true,
+              openTarget: { kind, id: kind === 'persona' ? 'p' : 'g', revision: 1 },
+            }),
+          ),
+        );
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(f.host.textContent).toContain('合成搜索命中');
+        expect(fixture.query).toHaveBeenCalledWith(
+          kind === 'persona'
+            ? 'getAgentLabPersonaSessionConversation'
+            : 'getAgentLabGroupConversation',
+          expect.objectContaining({ sessionId: kind === 'persona' ? 'ps' : 'gs' }),
+        );
+        expect(fixture.mutate).not.toHaveBeenCalled();
+      } finally {
+        f.close();
+      }
+    },
+  );
   it('嵌入共享列表时不显示无会话的克隆占位文字', () => {
     const f = mount();
     try {
@@ -220,6 +325,7 @@ describe('生成内容搜索定位', () => {
               files: [],
               cloneMessages: [hit],
               assistantMessages: [],
+              collections: [],
               indexStatus: 'disabled',
             },
             slowLoading: false,

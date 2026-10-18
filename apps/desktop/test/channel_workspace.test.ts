@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import {
+  ContentSelectionProvider,
+  useCurrentContentSelection,
+} from '../src/renderer/src/state/contentSelection';
 
 const rpc = vi.hoisted(() => ({
   sessions: vi.fn(async () => [
@@ -69,6 +73,90 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 
 describe('QQ 频道内的私聊工作区', () => {
+  it('消息读取失败保留重试入口，不将失败当作已成功读取', async () => {
+    rpc.latest.mockRejectedValueOnce(new Error('合成读取失败'));
+    const f = mount(
+      createElement(ChannelView, {
+        selfUser: createTemplateDemoData().user,
+        initialDirectOpen: true,
+      }),
+    );
+    try {
+      await act(async () => {});
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
+      );
+      expect(f.host.textContent).toContain('消息读取失败');
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="重试读取消息"]')!.click(),
+      );
+      expect(f.host.querySelector('[aria-label="重试读取消息"]')).toBeNull();
+      expect(f.host.querySelectorAll('.weq-guild-direct-msg')).toHaveLength(1);
+    } finally {
+      f.close();
+    }
+  });
+  it('频道消息多选使用账号共享身份，支持间断选择和键盘全选', async () => {
+    rpc.latest.mockResolvedValueOnce(
+      ['3', '2', '1'].map((id) => ({
+        msgId: id,
+        msgSeq: id,
+        senderTinyId: '42',
+        sendType: '0',
+        sendTime: '1700000000',
+        elements: [],
+      })),
+    );
+    function Probe() {
+      return createElement(
+        'output',
+        { 'data-selection': true },
+        JSON.stringify(useCurrentContentSelection()),
+      );
+    }
+    const f = mount(
+      createElement(
+        ContentSelectionProvider,
+        null,
+        createElement(ChannelView, {
+          selfUser: createTemplateDemoData().user,
+          initialDirectOpen: true,
+        }),
+        createElement(Probe),
+      ),
+    );
+    try {
+      await act(async () => {});
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
+      );
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
+      const rows = f.host.querySelectorAll<HTMLElement>('.weq-guild-direct-msg');
+      act(() => {
+        rows[0]!.click();
+        rows[2]!.click();
+      });
+      expect(JSON.parse(f.host.querySelector('output')!.textContent!)).toEqual({
+        owner: { kind: 'guild-direct', container: 'synthetic-node' },
+        scope: { type: 'items', ids: ['1', '3'] },
+      });
+      expect(f.host.querySelectorAll('.weq-guild-direct-msg.is-selected')).toHaveLength(2);
+      act(() =>
+        rows[0]!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true }),
+        ),
+      );
+      expect(JSON.parse(f.host.querySelector('output')!.textContent!).scope.ids).toEqual([
+        '1',
+        '3',
+        '2',
+      ]);
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出消息多选"]')!.click());
+      expect(f.host.querySelector('output')!.textContent).toBe('null');
+    } finally {
+      f.close();
+    }
+  });
   it('全宽页面的外层侧栏为零时，频道私聊仍保留正常会话列表宽度', async () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(

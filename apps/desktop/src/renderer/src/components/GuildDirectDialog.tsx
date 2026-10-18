@@ -18,7 +18,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { ArrowLeft, Hash, Inbox, MessageSquareText, X } from 'lucide-react';
+import { ArrowLeft, CheckSquare, Hash, Inbox, MessageSquareText, RotateCw, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { client } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
@@ -30,6 +30,8 @@ import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from './QqMessageContent';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 import '../styles/channel.css';
 
 const PAGE = 50;
@@ -187,8 +189,21 @@ export function GuildDirectDialog({
   const [latestLoading, setLatestLoading] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const runRef = useRef(0);
+  const selection = useContentMultiSelect({
+    kind: 'guild-direct',
+    container: selected?.nodeId ?? '',
+  });
+  const multi = useMultiSelection({
+    ids: messages.map((message) => message.msgId),
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
 
   // 打开时拉一遍会话列表（列表小，一次性加载）。
   useEffect(() => {
@@ -217,6 +232,7 @@ export function GuildDirectDialog({
       });
     return () => {
       cancelled = true;
+      runRef.current++;
     };
   }, [open]);
 
@@ -227,6 +243,8 @@ export function GuildDirectDialog({
     setMessages([]);
     setHasMore(false);
     setLatestLoading(true);
+    setOlderLoading(false);
+    setMessageError(null);
     void client.account.guildDirectLatest
       .query({ nodeId: session.nodeId, limit: PAGE })
       .then((rows) => {
@@ -235,8 +253,9 @@ export function GuildDirectDialog({
         setMessages(asc);
         setHasMore(asc.length >= PAGE);
       })
-      .catch(() => {
-        // 单会话失败保持空态，不让错误顶掉整个面板。
+      .catch((error: unknown) => {
+        if (run !== runRef.current) return;
+        setMessageError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (run !== runRef.current) return;
@@ -260,6 +279,7 @@ export function GuildDirectDialog({
     const run = runRef.current;
     const prevHeight = el.scrollHeight;
     setOlderLoading(true);
+    setMessageError(null);
     try {
       const rows = (await client.account.guildDirectBefore.query({
         nodeId: selected.nodeId,
@@ -272,12 +292,14 @@ export function GuildDirectDialog({
       setHasMore(asc.length >= PAGE);
       // 保持视口锚点：新页插在顶部，把滚动条往下推回原内容处。
       requestAnimationFrame(() => {
+        if (run !== runRef.current) return;
         const now = scrollRef.current;
         if (!now) return;
         now.scrollTop = Math.max(0, now.scrollHeight - prevHeight);
       });
-    } catch {
-      // 失败静默，滚动条仍在顶部可再触发。
+    } catch (error) {
+      if (run === runRef.current)
+        setMessageError(error instanceof Error ? error.message : String(error));
     } finally {
       if (run === runRef.current) setOlderLoading(false);
     }
@@ -434,9 +456,22 @@ export function GuildDirectDialog({
                     ) : null}
                   </span>
                 </span>
+                <button
+                  type="button"
+                  className={cn('weq-compose-x', selection.selectionMode && 'active')}
+                  title={selection.selectionMode ? '退出消息多选' : '多选消息'}
+                  aria-label={selection.selectionMode ? '退出消息多选' : '多选消息'}
+                  aria-pressed={selection.selectionMode}
+                  onClick={() => selection.setSelectionMode(!selection.selectionMode)}
+                >
+                  {selection.selectionMode ? <X size={17} /> : <CheckSquare size={17} />}
+                </button>
               </div>
 
               <div className="weq-guild-direct-topbar" aria-live="polite">
+                {selection.selectionMode ? (
+                  <span>已选 {selection.selectedIds.size} 条消息</span>
+                ) : null}
                 {olderLoading ? (
                   <span>加载更早消息…</span>
                 ) : hasMore ? (
@@ -445,13 +480,33 @@ export function GuildDirectDialog({
                   <span>已是最早的本地消息</span>
                 ) : null}
               </div>
+              {messageError ? (
+                <div className="weq-search-failure" role="status">
+                  <span title={messageError}>消息读取失败</span>
+                  <button
+                    type="button"
+                    title="重试读取消息"
+                    aria-label="重试读取消息"
+                    onClick={() => {
+                      if (messages.length) void loadOlder();
+                      else openSession(selected);
+                    }}
+                  >
+                    <RotateCw size={14} />
+                  </button>
+                </div>
+              ) : null}
 
               <ForwardKindContext.Provider value="c2c">
                 <ConvContext.Provider value="">
                   <ReplyJumpContext.Provider value={noop}>
                     <div
                       className={cn('message-scroll', 'weq-guild-direct-msgs')}
-                      ref={scrollRef}
+                      {...multi.rootProps}
+                      ref={(element) => {
+                        scrollRef.current = element;
+                        multi.rootProps.ref(element);
+                      }}
                       onScroll={handleMsgScroll}
                     >
                       {latestLoading ? (
@@ -463,7 +518,19 @@ export function GuildDirectDialog({
                         </div>
                       ) : (
                         rows.map(({ row, previous }) => (
-                          <div key={row.message.id} className="weq-guild-direct-msg">
+                          <div
+                            key={row.message.id}
+                            {...multi.itemProps(row.message.id)}
+                            className={cn(
+                              'weq-guild-direct-msg',
+                              selection.selectedIds.has(row.message.id) && 'is-selected',
+                            )}
+                            aria-selected={
+                              selection.selectionMode
+                                ? selection.selectedIds.has(row.message.id)
+                                : undefined
+                            }
+                          >
                             {shouldShowMessageTime(previous, row.message) ? (
                               <MessageTimeDivider value={row.message.createdAt} />
                             ) : null}

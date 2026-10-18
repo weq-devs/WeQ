@@ -302,6 +302,7 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
 export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
+export type { CollectionSearchHit } from './account/collection_search';
 export type { GeneratedSearchHit, GeneratedSearchSources } from './account/generated_search';
 export type {
   SearchCategory,

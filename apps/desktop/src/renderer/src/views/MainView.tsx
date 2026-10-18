@@ -88,7 +88,9 @@ import {
 } from '../components/GroupLeftMembersDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
-import { MergeForwardLibraryDialog } from '../components/mergeForward/MergeForwardLibraryDialog';
+import { CompositionWorkspace } from '../components/mergeForward/CompositionWorkspace';
+import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
+import { useCompositionWindow } from '../hooks/useCompositionWindow';
 import {
   cleanNtPath,
   codecElementsToSegs,
@@ -2602,13 +2604,13 @@ export function MainView(): ReactElement {
   } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // 合并转发：从聊天多选进入时带着一份草稿 + 会话成员候选；
-  // 「合成聊天记录」列表则走 MergeForwardLibraryDialog。
+  // 全局合成使用独立工作窗口，本地多选的合并转发仍复用原编辑器。
   const [mergeForwardDraft, setMergeForwardDraft] = useState<{
     draft: MfDraft;
     senderMode: 'conversation' | 'global';
     members: MfPerson[];
   } | null>(null);
-  const [mergeForwardLibraryOpen, setMergeForwardLibraryOpen] = useState(false);
+  const compositionWindow = useCompositionWindow();
   // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
   // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
@@ -3137,6 +3139,10 @@ export function MainView(): ReactElement {
     ...SEARCH_CATEGORY_ORDER,
   ]);
   const [cloneSearchTarget, setCloneSearchTarget] = useState<GeneratedSearchHit | null>(null);
+  const [collectionSearchTarget, setCollectionSearchTarget] = useState<{
+    cid: string;
+    revision: number;
+  } | null>(null);
   const [assistantSearchTarget, setAssistantSearchTarget] = useState<GeneratedSearchHit | null>(
     null,
   );
@@ -4100,6 +4106,41 @@ export function MainView(): ReactElement {
     [client, hydrateMergeForwardMedia],
   );
 
+  const handleAddToComposition = useCallback(
+    (messages: Message[]) => {
+      if (!messages.length) return;
+      void (async () => {
+        const config = await client.account.getAccountConfig.query();
+        if (config?.uin !== user.identityValue || !config.configId)
+          throw new Error('账号已切换，请重新选择消息');
+        const draft = await buildMergeForwardDraft(messages);
+        if (useViewState.getState().openedUin !== user.identityValue) return;
+        if (draft.nodes.length !== messages.length)
+          throw new Error('部分消息无法导入，原选择已保留');
+        await client.mergeForward.archiveAppend.mutate({
+          expectedAccountUin: user.identityValue,
+          expectedAccountConfigId: config.configId,
+          kind: 'material',
+          draft,
+        });
+        await utils.mergeForward.archiveList.invalidate();
+        pushToast({
+          tone: 'success',
+          title: '已添加到素材库',
+          detail: `${draft.nodes.length} 条消息`,
+        });
+      })().catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        pushToast({
+          tone: 'error',
+          title: '添加到素材库失败',
+          detail,
+        });
+      });
+    },
+    [buildMergeForwardDraft, user.identityValue, pushToast, utils],
+  );
+
   const handleMergeForward = useCallback(
     (messages: Message[], c: Conversation) => {
       if (messages.length === 0) return;
@@ -4139,7 +4180,7 @@ export function MainView(): ReactElement {
    * 已发送 / 发送失败」标识。
    */
   const forwardMergeDraft = useCallback(
-    async (draft: MfDraft, target: MfTarget) => {
+    async (draft: MfDraft, target: MfTarget, binding?: CompositionBinding) => {
       const problem = validateDraft(draft);
       if (problem) throw new Error(problem);
       const nodes = draftToSendNodes(draft);
@@ -4165,6 +4206,8 @@ export function MainView(): ReactElement {
         );
       try {
         const outcome = await client.account.sendForward.mutate({
+          expectedAccountUin: user.identityValue,
+          ...binding,
           peerType,
           targetId: target.conv,
           nodes,
@@ -4206,7 +4249,7 @@ export function MainView(): ReactElement {
         throw error;
       }
     },
-    [client, pushToast],
+    [client, pushToast, user.identityValue],
   );
 
   /**
@@ -5602,6 +5645,13 @@ export function MainView(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
+      if (hit.category === 'collection') {
+        setSearchDismissed(true);
+        shell.setQuery('');
+        setCollectionSearchTarget({ cid: hit.cid, revision: Date.now() });
+        shell.switchView('collections');
+        return;
+      }
       if (isGeneratedSearchHit(hit)) {
         setSearchDismissed(true);
         shell.setQuery('');
@@ -6277,8 +6327,13 @@ export function MainView(): ReactElement {
     return resolveMentionLabels(elements, people);
   }
 
-  async function forwardMessage(message: Message, target: MfTarget, signal: AbortSignal) {
-    const account = forwardBatch?.account;
+  async function forwardMessage(
+    message: Message,
+    target: MfTarget,
+    signal: AbortSignal,
+    account = forwardBatch?.account,
+    expectedAccountConfigId?: string,
+  ) {
     const isCurrent = () => !signal.aborted && account === useViewState.getState().openedUin;
     if (!isCurrent()) throw new Error('账号已切换或转发已停止');
     const destination = conversations.find((item) => item.id === target.id);
@@ -6291,10 +6346,17 @@ export function MainView(): ReactElement {
     const stickers = new Map<string, ComposerSuperSticker>();
     if (repeatNeedsStickerCatalog(elements))
       collectSuperStickers(await client.account.emojiPanel.overview.query(), stickers);
-    const images = await repeatImageSources(elements, Date.parse(message.createdAt));
+    const images = await repeatImageSources(elements, Date.parse(message.createdAt), signal);
     const plan = repeatSendPlan(elements, stickers, destination.type === 'group', images);
     if (!isCurrent()) throw new Error('账号已切换或转发已停止');
-    await sendMessage(messageBody(elements), undefined, { plan, elements }, destination, isCurrent);
+    await sendMessage(
+      messageBody(elements),
+      undefined,
+      { plan, elements },
+      destination,
+      isCurrent,
+      expectedAccountConfigId,
+    );
   }
 
   async function sendMessage(
@@ -6303,6 +6365,7 @@ export function MainView(): ReactElement {
     repeated?: { plan: ComposerSendPlan; elements: RepeatElement[] },
     destination?: Conversation,
     isCurrent = () => repeatContext.current === selectedConversation?.id,
+    expectedAccountConfigId?: string,
   ): Promise<void> {
     const conversation = destination ?? selectedConversation;
     if (!conversation) {
@@ -6406,6 +6469,7 @@ export function MainView(): ReactElement {
         }
         outcome = await client.account.sendFile.mutate({
           expectedAccountUin: user.identityValue,
+          ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
           peerType: target.peerType,
           targetId: target.targetId,
           path: plan.path,
@@ -6440,6 +6504,7 @@ export function MainView(): ReactElement {
       } else {
         outcome = await client.account.sendElements.mutate({
           expectedAccountUin: user.identityValue,
+          ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
           peerType: target.peerType,
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
@@ -7478,7 +7543,12 @@ export function MainView(): ReactElement {
                       }}
                     />
                   ) : shell.view === 'collections' ? (
-                    <CollectionDialog open embedded onClose={() => shell.switchView('messages')} />
+                    <CollectionDialog
+                      open
+                      embedded
+                      searchTarget={collectionSearchTarget}
+                      onClose={() => shell.switchView('messages')}
+                    />
                   ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
                       'channel' || shell.view === 'guild-direct' ? (
                     <ChannelView
@@ -7593,6 +7663,7 @@ export function MainView(): ReactElement {
                           onOpenGroupMember={handleOpenGroupMember}
                           onAddMessage={handleAddMessage}
                           onMergeForward={handleMergeForward}
+                          onAddToComposition={handleAddToComposition}
                           onForwardMessages={(messages) =>
                             setForwardBatch({
                               account: user.identityValue,
@@ -7701,7 +7772,7 @@ export function MainView(): ReactElement {
             }}
           />
           <WorkspaceTools
-            onOpenComposition={() => setMergeForwardLibraryOpen(true)}
+            onOpenComposition={compositionWindow.open}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={() => shell.switchView('annual')}
           />
@@ -7956,15 +8027,25 @@ export function MainView(): ReactElement {
               onForward={forwardMergeDraft}
             />
           ) : null}
-          {mergeForwardLibraryOpen ? (
-            <MergeForwardLibraryDialog
-              self={mergeForwardSelf}
-              targets={mergeForwardTargets}
-              sendAvailable={mergeForwardSendAvailable}
-              onClose={() => setMergeForwardLibraryOpen(false)}
-              onForward={forwardMergeDraft}
-            />
-          ) : null}
+          <CompositionWorkspace
+            popup={compositionWindow.popup}
+            fallback={compositionWindow.fallback}
+            onPopOut={compositionWindow.open}
+            self={mergeForwardSelf}
+            targets={mergeForwardTargets}
+            sendAvailable={mergeForwardSendAvailable}
+            onClose={compositionWindow.close}
+            onForward={forwardMergeDraft}
+            onSend={(message, target, signal, binding) =>
+              forwardMessage(
+                message,
+                target,
+                signal,
+                user.identityValue,
+                binding.expectedAccountConfigId,
+              )
+            }
+          />
           {deletedConv ? (
             <DeletedMessagesModal
               conversation={deletedConv}

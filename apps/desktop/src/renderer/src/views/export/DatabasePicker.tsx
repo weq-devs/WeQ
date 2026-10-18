@@ -19,11 +19,13 @@ export function DatabasePicker({
   loading,
   selected,
   onChange,
+  disabled = false,
 }: {
   items: DbPickItem[];
   loading: boolean;
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  disabled?: boolean;
 }): ReactElement {
   const [query, setQuery] = useState('');
 
@@ -42,6 +44,7 @@ export function DatabasePicker({
     ids: filtered.map((item) => item.path),
     selected,
     onChange,
+    disabled,
   });
 
   function selectAll(): void {
@@ -76,33 +79,36 @@ export function DatabasePicker({
         ) : null}
       </div>
 
-      <div className="weq-exp-tools">
+      <div className="weq-exp-tools weq-exp-selection-tools">
         <button
           type="button"
           className="weq-exp-tool"
           onClick={selectAll}
-          disabled={filtered.length === 0}
+          disabled={disabled || filtered.length === 0}
+          title={allFilteredSelected ? '取消全选' : '全选 (Ctrl/Command+A)'}
+          aria-label={allFilteredSelected ? '取消全选' : '全选'}
         >
           <CheckCheck size={14} />
-          {allFilteredSelected ? '取消全选' : '全选'}
         </button>
         <button
           type="button"
           className="weq-exp-tool"
           onClick={invert}
-          disabled={filtered.length === 0}
+          disabled={disabled || filtered.length === 0}
+          title="反选"
+          aria-label="反选"
         >
           <FlipHorizontal2 size={14} />
-          反选
         </button>
         <button
           type="button"
           className="weq-exp-tool"
           onClick={() => onChange(new Set())}
-          disabled={selected.size === 0}
+          disabled={disabled || selected.size === 0}
+          title="清空 (Ctrl/Command+Shift+A)"
+          aria-label="清空"
         >
           <X size={14} />
-          清空
         </button>
         <span className="weq-exp-tools-spacer" />
         <span className="weq-exp-tools-count">
@@ -125,6 +131,7 @@ export function DatabasePicker({
                 key={it.path}
                 type="button"
                 className={`weq-exp-row${checked ? ' is-on' : ''}`}
+                disabled={disabled}
                 {...selection.itemProps(it.path)}
               >
                 <span className="weq-exp-db-icon">

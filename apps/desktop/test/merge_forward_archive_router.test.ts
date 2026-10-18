@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mergeForwardRouter } from '../src/main/ipc/routers/merge_forward';
+import { accountRouter } from '../src/main/ipc/routers/account';
 
 const state = vi.hoisted(() => ({
   root: '',
@@ -52,6 +53,57 @@ function caller() {
 }
 
 describe('合成归档路由账号边界', () => {
+  it('旧历史直接续编保持身份，删除记录同时清理旧入口而不重新出现', async () => {
+    const api = caller();
+    const old = await api.archiveAppend({ ...binding, kind: 'history', draft });
+    await api.workspaceSave({ ...binding, draft: { ...old, title: '继续编辑' } });
+    expect((await api.workspaceDrafts(binding)).current[0]?.id).toBe(old.id);
+    await api.workspaceRemove({ ...binding, id: old.id });
+    expect((await api.workspaceDrafts(binding)).current).toEqual([]);
+    expect(await api.archiveList({ ...binding, kind: 'history' })).toEqual([]);
+    await api.save(draft);
+    await api.workspaceRemove({ ...binding, id: draft.id });
+    expect((await api.workspaceDrafts(binding)).legacy).toEqual([]);
+    state.configId = 'another-source';
+    await expect(api.workspaceRemove({ ...binding, id: draft.id })).rejects.toThrow(
+      '所属账号已切换',
+    );
+  });
+  it('逐条、文件与合并转发都在同号数据源变化时拒绝进入真实发送', async () => {
+    caller();
+    const api = accountRouter.createCaller({});
+    const identity = {
+      expectedAccountUin: state.uin,
+      expectedAccountConfigId: 'another-source',
+      peerType: 'c2c' as const,
+      targetId: 'u_fixture',
+    };
+    await expect(
+      api.sendElements({ ...identity, elements: [{ kind: 'text', textContent: '合成样本' }] }),
+    ).rejects.toThrow('账号数据源已切换');
+    await expect(api.sendFile({ ...identity, path: '/synthetic/file' })).rejects.toThrow(
+      '账号数据源已切换',
+    );
+    await expect(api.sendForward({ ...identity, nodes: [{ elements: [] }] })).rejects.toThrow(
+      '账号数据源已切换',
+    );
+  });
+  it('工作区草稿独立于缓存，切号不允许写入，未授权媒体不扩大信任', async () => {
+    const api = caller();
+    await api.workspaceSave({ ...binding, draft });
+    expect((await api.workspaceDrafts(binding)).current).toHaveLength(1);
+    await expect(
+      api.workspaceSave({
+        ...binding,
+        draft: {
+          ...draft,
+          nodes: [{ ...draft.nodes[0]!, segs: [{ t: 'image', path: '/synthetic/private' }] }],
+        },
+      }),
+    ).rejects.toThrow('媒体访问未授权');
+    state.configId = 'another-data-source';
+    await expect(api.workspaceSave({ ...binding, draft })).rejects.toThrow('所属账号已切换');
+  });
   it('绑定创建账号和配置，切号或切到同号不同来源后不读写其它归档', async () => {
     const api = caller();
     await expect(

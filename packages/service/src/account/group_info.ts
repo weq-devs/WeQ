@@ -456,6 +456,41 @@ export class GroupInfoService {
     return this.session.groupDetail.listAll(limit, offset);
   }
 
+  async listExportGroups() {
+    const groups = new Map<string, { groupCode: string; groupName: string; memberCount: number }>();
+    for (let offset = 0; ; offset += 1000) {
+      const page = await this.listAllGroups(1000, offset);
+      for (const group of page)
+        groups.set(group.groupCode.toString(), {
+          groupCode: group.groupCode.toString(),
+          groupName: group.groupName || group.remark,
+          memberCount: group.memberCount,
+        });
+      if (page.length < 1000) break;
+    }
+    return [...groups.values()];
+  }
+
+  async listExportMembers(groupCode: bigint) {
+    const members = new Map<
+      string,
+      { uid: string; uin: string; name: string; categoryId: number }
+    >();
+    for (let offset = 0; ; offset += 300) {
+      const page = await this.listMembersInGroup(groupCode, 300, offset);
+      for (const member of page)
+        members.set(member.uid, {
+          uid: member.uid,
+          uin: member.uin.toString(),
+          name:
+            member.card || member.nick || (member.uin > 0n ? member.uin.toString() : member.uid),
+          categoryId: 0,
+        });
+      if (page.length < 300) break;
+    }
+    return [...members.values()];
+  }
+
   /**
    * List ext metadata for all groups (活跃度排行等场景).
    */

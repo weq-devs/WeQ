@@ -3,10 +3,27 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
+import type { ContentSelection } from '../src/shared/content_selection';
+import { useViewState } from '../src/renderer/src/state/view';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
-const fixture = vi.hoisted(() => ({ taskUnmounted: vi.fn() }));
+
+const fixture = vi.hoisted(() => ({
+  selection: null as ContentSelection | null,
+  taskUnmounted: vi.fn(),
+}));
+vi.mock('../src/renderer/src/state/contentSelection', () => ({
+  useCurrentContentSelection: () => fixture.selection,
+}));
+
 vi.mock('../src/renderer/src/views/ExportView', () => ({
-  ExportTool: ({ surface }: { surface?: 'tasks' }) => {
+  ExportTool: ({
+    initialSelection,
+    surface,
+  }: {
+    initialSelection?: ContentSelection;
+    surface?: 'tasks';
+  }) => {
+    const [seed] = useState(initialSelection);
     const [progress, setProgress] = useState(0);
     useEffect(
       () => () => {
@@ -16,7 +33,8 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
     );
     return createElement(
       'div',
-      null,
+      { 'data-export-ids': seed?.scope.type === 'items' ? seed.scope.ids.join(',') : '' },
+      '合成导出夹具',
       surface === 'tasks' &&
         createElement(
           'button',
@@ -29,12 +47,6 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
         ),
     );
   },
-}));
-vi.mock('../src/renderer/src/views/AgentLabView', () => ({
-  AgentLabView: () => createElement('div', null, '合成助手夹具'),
-}));
-vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
-  RoamingBackfillPanel: () => createElement('div', null, '合成补全夹具'),
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -49,8 +61,57 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
+vi.mock('../src/renderer/src/views/AgentLabView', () => ({
+  AgentLabView: () => createElement('div', null, '合成助手夹具'),
+}));
+vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
+  RoamingBackfillPanel: () => createElement('div', null, '合成补全夹具'),
+}));
 
 describe('全局工具条范围', () => {
+  it('已经打开过导出后，新一轮内容多选仍会交接为独立草稿', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = () =>
+      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
+    const open = () => {
+      if (!document.querySelector('[role="toolbar"]'))
+        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      act(() =>
+        document.querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="导出"]')!.click(),
+      );
+    };
+    try {
+      fixture.selection = {
+        owner: { kind: 'messages', container: 'c2c:u_fixture' },
+        scope: { type: 'items', ids: ['1'] },
+      };
+      render();
+      open();
+      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
+        '1',
+      );
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      fixture.selection = { ...fixture.selection, scope: { type: 'items', ids: ['3', '7'] } };
+      render();
+      open();
+      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
+        '3,7',
+      );
+      expect(fixture.selection.scope).toEqual({ type: 'items', ids: ['3', '7'] });
+    } finally {
+      fixture.selection = null;
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(['导出', '任务', '消息补全', 'WeQ 助手'])('%s 继续保留居中遮罩', (label) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
@@ -117,7 +178,6 @@ describe('全局工具条范围', () => {
       vi.unstubAllGlobals();
     }
   });
-
   it('仅保留全局工具并加入消息补全，不混入数据库或缓存维护', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

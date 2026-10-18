@@ -1,4 +1,5 @@
 import type { AccountSession } from '@weq/account';
+import type { BuddyMsgFtsHit } from '@weq/db';
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedSearchService, type SearchCategory } from '../src/account/unified_search';
 
@@ -10,7 +11,9 @@ function fixture() {
   const buddyRecords = vi.fn(async () => []);
   const groupRecords = vi.fn(async (): Promise<Array<{ partition: bigint; count: number }>> => []);
   const buddyFiles = vi.fn(emptyPage);
-  const groupFiles = vi.fn(emptyPage);
+  const groupFiles = vi.fn(
+    async (): Promise<{ items: BuddyMsgFtsHit[]; total: number }> => ({ items: [], total: 0 }),
+  );
   const session = {
     recentContacts: { searchByName: recent },
     profileInfo: { searchFriends: friends },
@@ -38,6 +41,40 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('同名文件保留不同会话和不同消息，重复索引行只出现一次并按时间排序', async () => {
+    const f = fixture();
+    const hit = (id: bigint, targetUid: string, sendTime: bigint): BuddyMsgFtsHit => ({
+      msgId: id,
+      msgSeq: id,
+      targetUid,
+      senderUid: 'u_fixture',
+      chatType: 2,
+      fileName: '同名报告.pdf',
+      content: '',
+      sendTime,
+    });
+    f.groupFiles.mockResolvedValue({
+      items: [
+        hit(1n, '10001', 10n),
+        hit(2n, '10002', 30n),
+        hit(3n, '10001', 20n),
+        hit(2n, '10002', 30n),
+      ],
+      total: 4,
+    });
+    const result = await f.service.moreSearch('file', '报告', 0, 20);
+    expect(result.total).toBe(3);
+    expect(result.items.map((item) => ('msgSeq' in item ? item.msgSeq : ''))).toEqual([
+      '2',
+      '3',
+      '1',
+    ]);
+  });
+  it('文件候选池未覆盖全部命中时显式标记，不将有限候选数冒称完整总数', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({ items: [], total: 500 });
+    expect(await f.service.moreSearch('file', '报告', 0, 20)).toMatchObject({ limited: true });
+  });
   it('未传范围兼容默认全选，快速类别继续并行查询', async () => {
     const f = fixture();
     await f.service.quickSearch('合成内容', 5);

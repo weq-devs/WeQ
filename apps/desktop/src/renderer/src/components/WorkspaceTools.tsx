@@ -20,6 +20,8 @@ import { useCurrentContentSelection } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 import { DaemonSection } from './settings/DaemonSection';
+import { useViewState } from '../state/view';
+import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 
 type Tool = 'export' | 'tasks' | 'assistant' | 'backfill';
 const TITLES: Record<Tool, string> = {
@@ -43,6 +45,8 @@ export function WorkspaceTools({
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('export');
   const [assistantSettings, setAssistantSettings] = useState(false);
+  const accountKey = useViewState((state) => state.openedUin);
+  const [exportDraft, setExportDraft] = useState<{ key: string; draft: ToolDraft } | null>(null);
   useEffect(() => {
     if (assistantSearchTarget) {
       setTool('assistant');
@@ -57,6 +61,12 @@ export function WorkspaceTools({
       .length ?? 0;
   const close = () => setOpen(false);
   const select = (next: Tool) => {
+    if (next === 'export' && selection && accountKey) {
+      const key = JSON.stringify([accountKey, selection]);
+      setExportDraft((previous) =>
+        previous?.key === key ? previous : { key, draft: createToolDraft(accountKey, selection) },
+      );
+    }
     setTool(next);
     setAssistantSettings(false);
     setOpen(true);
@@ -127,10 +137,17 @@ export function WorkspaceTools({
             <X size={18} />
           </button>
         </header>
-        <RetainedTabs activeKey={open ? tool : 'closed'}>
+        <RetainedTabs key={accountKey ?? 'no-account'} activeKey={open ? tool : 'closed'}>
           {open ? (
             tool === 'export' ? (
-              <ExportTool initialSelection={selection ?? undefined} />
+              <ExportTool
+                key={exportDraft?.draft.accountId === accountKey ? exportDraft.key : 'empty'}
+                initialSelection={
+                  exportDraft?.draft.accountId === accountKey
+                    ? exportDraft.draft.selection
+                    : undefined
+                }
+              />
             ) : tool === 'tasks' ? (
               <ExportTool surface="tasks" />
             ) : tool === 'assistant' ? (

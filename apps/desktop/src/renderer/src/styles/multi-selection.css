@@ -4,3 +4,4 @@ html[data-theme="dark"] [data-weq-multi-group]:focus-visible, html[data-theme="d
 .weq-set-pill-group .weq-set-chk { min-width: 0; max-width: 100%; }
 .weq-set-pill-group .weq-set-chk-box { flex-shrink: 0; }
 .weq-set-pill-group .weq-set-chk-label { min-width: 0; overflow-wrap: anywhere; }
+.weq-exp-selection-tools .weq-exp-tool { width: 30px; height: 30px; padding: 0; justify-content: center; }

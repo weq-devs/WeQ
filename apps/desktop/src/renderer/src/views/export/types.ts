@@ -13,14 +13,13 @@ import { classifyChatType } from '@weq/codec';
 export type ExportMode =
   | 'full'
   | 'guild'
-  | 'decrypt'
   | 'qzone'
   | 'contacts'
   | 'collection'
+  | 'database'
   | 'scheduled'
   | 'album'
   | 'groupfile'
-  | 'marketpack'
   | 'emojipack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the

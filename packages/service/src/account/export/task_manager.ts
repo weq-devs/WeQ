@@ -50,10 +50,12 @@ import {
 import { sequenceCoverage } from './sequence_coverage';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
-  exportFriends,
-  exportGroupMembers,
+  collectFriends,
+  collectGroupMembers,
+  writeFriends,
+  writeGroupMembers,
+  normaliseContactsFormats,
   type ContactsExportDeps,
-  type ContactsFormat,
 } from './contacts_export';
 import {
   exportCollections,
@@ -313,7 +315,7 @@ export interface ExportTask {
   qzoneInteractions?: boolean;
   /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
    *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
-  contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+  contacts?: { scope: 'friends' | 'group'; categoryIds?: number[]; uids?: string[] };
   /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
   collection?: { kinds?: string[]; cids?: string[] };
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
@@ -354,6 +356,8 @@ export interface TaskProgress {
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
 export interface ExportTaskView extends ExportTask {
   logs: TaskLogLine[];
+  canResume: boolean;
+  resumeMode?: 'checkpoint' | 'restart';
 }
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
@@ -602,7 +606,15 @@ export class ExportTaskManager extends EventEmitter {
   listTasks(): ExportTaskView[] {
     return [...this.tasks.values()]
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((t) => ({ ...t, canResume: this.canResume(t), logs: this.taskLogs.get(t.id) ?? [] }));
+      .map((task): ExportTaskView => {
+        const canResume = this.canResume(task);
+        return {
+          ...task,
+          canResume,
+          ...(canResume ? { resumeMode: task.contacts ? 'restart' : 'checkpoint' } : {}),
+          logs: this.taskLogs.get(task.id) ?? [],
+        };
+      });
   }
 
   getTask(id: string): ExportTask | null {
@@ -687,7 +699,7 @@ export class ExportTaskManager extends EventEmitter {
     /** 好友空间导出：按 tid 补全评论 / 点赞（需在线 QQ；deps.qzone.fetchInteractions）。 */
     qzoneInteractions?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
-    contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+    contacts?: { scope: 'friends' | 'group'; categoryIds?: number[]; uids?: string[] };
     /** 收藏导出（QQ 收藏；走独立流水线）。 */
     collection?: { kinds?: string[]; cids?: string[] };
     /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
@@ -740,6 +752,10 @@ export class ExportTaskManager extends EventEmitter {
 
     // 联系人导出（好友 / 群成员）是独立流水线（写表 + 可选头像），不复用消息流水线。
     if (opts.contacts) {
+      const formats = normaliseContactsFormats(
+        opts.formats?.length ? opts.formats : [opts.format],
+        opts.contacts.scope === 'group',
+      );
       const cStages: TaskStage[] = [
         { key: 'message', label: '导出联系人', status: 'pending', current: 0, total: opts.total },
       ];
@@ -750,13 +766,13 @@ export class ExportTaskManager extends EventEmitter {
         kind: opts.kind,
         conv: opts.conv,
         name: opts.name,
-        format: opts.format,
-        ...(opts.formats?.length ? { formats: opts.formats } : {}),
+        format: formats[0]!,
+        formats,
         status: 'pending',
         progress: 0,
         current: 0,
         total: opts.total,
-        contacts: opts.contacts,
+        contacts: structuredClone(opts.contacts),
         exportAvatar: wantAvatars,
         stages: cStages,
         createdAt: Date.now(),
@@ -1023,7 +1039,12 @@ export class ExportTaskManager extends EventEmitter {
     if (!src) {
       const svc = this.deps.guildDirect;
       if (!svc) throw new Error('频道私聊导出需要注入 guildDirect 服务');
-      src = new GuildMsgSource(svc, task.guild);
+      src = new GuildMsgSource(
+        svc,
+        task.guild,
+        task.filter,
+        this.abortControllers.get(task.id)?.signal,
+      );
       this.guildSources.set(task.id, src);
     }
     // 适配源只实现 c2c 分支用到的成员子集；按 kind='c2c' 的调用契约使用。
@@ -1187,6 +1208,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     this.filteredSources.delete(id);
+    this.guildSources.delete(id);
     const aborted = (): boolean => abort.signal.aborted;
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
@@ -1916,6 +1938,7 @@ export class ExportTaskManager extends EventEmitter {
             { persist: true },
           );
           const r = await exportGuildAvatars(avatarCache, usable, outDir, {
+            signal: abort.signal,
             onProgress: (done, total) => {
               if (aborted()) return;
               this.touchStage(task, 'avatar', {
@@ -1967,6 +1990,7 @@ export class ExportTaskManager extends EventEmitter {
             { persist: true },
           );
           const r = await exportAvatars(avatarCache, senders, outDir, {
+            signal: abort.signal,
             onProgress: (done, total) => {
               if (aborted()) return;
               this.touchStage(task, 'avatar', {
@@ -2725,6 +2749,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    const paused = (): boolean => task.status === 'paused';
 
     try {
       const deps = this.deps.contacts;
@@ -2732,11 +2757,17 @@ export class ExportTaskManager extends EventEmitter {
       const avatarCache = this.deps.avatarCache;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
 
-      const formats = task.formats?.length ? task.formats : [task.format];
+      const formats = normaliseContactsFormats(
+        task.formats?.length ? task.formats : [task.format],
+        task.contacts?.scope === 'group',
+      );
+      task.format = formats[0]!;
+      task.formats = formats;
       // 有头像或多格式 → 产物为 bundle 目录（表文件 + avatars/），否则单文件。
       const isBundle = wantAvatars || formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
+      if (isBundle) task.bundleDir = outDir;
       const uins = wantAvatars ? new Set<string>() : undefined;
 
       if (task.exportAvatar && !avatarCache) {
@@ -2754,73 +2785,83 @@ export class ExportTaskManager extends EventEmitter {
         { status: 'running', note: formats.length > 1 ? '开始导出多格式…' : '开始导出' },
         { persist: true },
       );
-      let totalCount = 0;
-      let firstFilePath = '';
+      const onReadProgress = (_current: number, _total: number, note: string): void => {
+        if (aborted()) return;
+        this.touchStage(task, 'message', { note });
+        this.log(id, 'message', note);
+      };
+      const common = {
+        uids: task.contacts?.uids,
+        collectUins: uins,
+        onProgress: onReadProgress,
+        signal: abort.signal,
+      };
+      const snapshot =
+        task.contacts?.scope === 'group'
+          ? {
+              scope: 'group' as const,
+              rows: await collectGroupMembers({ ...common, groupCode: task.conv }, deps),
+            }
+          : {
+              scope: 'friends' as const,
+              rows: await collectFriends(
+                { ...common, categoryIds: task.contacts?.categoryIds },
+                deps,
+              ),
+            };
+      task.total = snapshot.rows.length;
+      task.current = 0;
+      task.formatCounts = {};
       for (let i = 0; i < formats.length; i += 1) {
+        abort.signal.throwIfAborted();
         const format = formats[i]!;
         const ext = format === 'vcard' ? 'vcf' : format;
-        const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${ext}`);
-        if (i === 0) firstFilePath = outPath;
-        const base = totalCount;
-        const onProgress = (current: number, total: number, note: string): void => {
-          if (aborted()) return;
-          const prefix =
-            formats.length > 1 ? `[${i + 1}/${formats.length} ${format.toUpperCase()}] ` : '';
-          this.touchStage(task, 'message', {
-            current: base + current,
-            total: base + (total || current),
-            note: `${prefix}${note}`,
-          });
-          this.log(id, 'message', `${prefix}${note}`);
-        };
-        const result =
-          task.contacts?.scope === 'group'
-            ? await exportGroupMembers(
-                {
-                  groupCode: task.conv,
-                  format: (format === 'vcard' ? 'txt' : format) as Exclude<ContactsFormat, 'vcard'>,
-                  outputPath: outPath,
-                  collectUins: uins,
-                  onProgress,
-                  signal: abort.signal,
-                },
-                deps,
-              )
-            : await exportFriends(
-                {
-                  format: format as ContactsFormat,
-                  outputPath: outPath,
-                  categoryIds: task.contacts?.categoryIds,
-                  collectUins: uins,
-                  onProgress,
-                  signal: abort.signal,
-                },
-                deps,
-              );
+        const outPath = join(
+          outDir,
+          `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${ext}`,
+        );
+        if (i === 0) {
+          task.filePath = outPath;
+        }
+        this.touchStage(
+          task,
+          'message',
+          {
+            current: i,
+            total: formats.length,
+            note: `正在写入 ${format.toUpperCase()} · ${snapshot.rows.length} 位联系人`,
+          },
+          { persist: true },
+        );
+        abort.signal.throwIfAborted();
+        if (snapshot.scope === 'group')
+          await writeGroupMembers(snapshot.rows, format === 'vcard' ? 'csv' : format, outPath);
+        else await writeFriends(snapshot.rows, format, outPath);
         if (aborted()) {
-          task.status = 'cancelled';
+          if (!paused()) task.status = 'cancelled';
           return;
         }
-        totalCount += result.count;
-        if (formats.length > 1) {
-          this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${result.count} 位`);
-        }
+        task.current = snapshot.rows.length;
+        task.formatCounts[format] = snapshot.rows.length;
+        this.touchStage(task, 'message', {
+          current: i + 1,
+          total: formats.length,
+          note: `已写入 ${format.toUpperCase()} · ${snapshot.rows.length} 位联系人`,
+        });
+        this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${snapshot.rows.length} 位`);
       }
 
-      task.filePath = firstFilePath;
-      task.current = totalCount;
-      if (isBundle) task.bundleDir = outDir;
       this.touchStage(
         task,
         'message',
         {
           status: 'completed',
-          current: totalCount,
-          total: totalCount,
+          current: formats.length,
+          total: formats.length,
           note:
             formats.length > 1
-              ? `${totalCount} 位 × ${formats.length} 种格式`
-              : `${totalCount} 位联系人`,
+              ? `${snapshot.rows.length} 位 × ${formats.length} 种格式`
+              : `${snapshot.rows.length} 位联系人`,
         },
         { persist: true },
       );
@@ -2834,6 +2875,7 @@ export class ExportTaskManager extends EventEmitter {
           { persist: true },
         );
         const r = await exportAvatars(avatarCache, uins, outDir, {
+          signal: abort.signal,
           onProgress: (done, total) => {
             if (aborted()) return;
             this.touchStage(task, 'avatar', {
@@ -2862,13 +2904,14 @@ export class ExportTaskManager extends EventEmitter {
         );
       }
       if (aborted()) {
-        task.status = 'cancelled';
+        if (!paused()) task.status = 'cancelled';
         return;
       }
 
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
+      if (aborted()) return;
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
@@ -2878,6 +2921,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      if (aborted() && !paused()) task.status = 'cancelled';
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
       this.saveTasks();
@@ -2886,7 +2930,10 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
+        message:
+          task.status === 'completed'
+            ? '导出完成'
+            : (task.error ?? (paused() ? '已暂停' : '已取消')),
       });
     }
   }
@@ -3824,6 +3871,8 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private canResume(task: ExportTask): boolean {
+    if (task.contacts)
+      return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
       ['paused', 'failed'].includes(task.status) &&
       !!task.resumeBinding &&
@@ -3844,8 +3893,21 @@ export class ExportTaskManager extends EventEmitter {
     task.error = undefined;
     task.updatedAt = Date.now();
     task.reportVersion = 1;
+    if (task.contacts) {
+      task.current = 0;
+      task.progress = 0;
+      task.formatCounts = {};
+      for (const stage of task.stages) {
+        stage.status = 'pending';
+        stage.current = 0;
+        stage.total = 0;
+        stage.failed = 0;
+        delete stage.note;
+        delete stage.failures;
+      }
+    }
     this.saveTasks();
-    this.enqueue(() => this.runTask(id));
+    this.enqueue(() => (task.contacts ? this.runContactsTask(id) : this.runTask(id)));
     return true;
   }
 
@@ -3857,6 +3919,11 @@ export class ExportTaskManager extends EventEmitter {
       } else if (task.filePath && existsSync(task.filePath)) {
         unlinkSync(task.filePath);
       }
+      const contactReportPath = task.filePath
+        ? `${task.filePath}.report.json`
+        : join(this.cacheDir, `report-${task.id}.json`);
+      if (task.contacts && task.reportPath === contactReportPath && existsSync(contactReportPath))
+        unlinkSync(contactReportPath);
     } catch {}
   }
 

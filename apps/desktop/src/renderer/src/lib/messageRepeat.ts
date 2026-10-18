@@ -1,13 +1,14 @@
 import type { SendElement } from '@weq/protocol';
 import { FaceSubType } from '@weq/codec';
-import { codecElementToSeg, segToSendElement } from '../components/mergeForward/model';
+import { cleanNtPath, codecElementToSeg, segToSendElement } from '../components/mergeForward/model';
 import type { ComposerSendPlan, SuperStickerEntry } from '../im-template/template/composerSend';
-import { mediaUrl } from './resourceUrl';
+import { localFileUrl, mediaUrl } from './resourceUrl';
 
-/** 使用与图片查看器相同的账号媒体代理，不信任消息里可能已经失效的本地路径。 */
+/** 本地路径经账号代理验证；路径失效时回退消息图片代理，不直接读取路径字符串。 */
 export async function repeatImageSources(
   elements: RepeatElement[],
   time: number,
+  signal?: AbortSignal,
 ): Promise<Map<RepeatElement, Uint8Array>> {
   const result = new Map<RepeatElement, Uint8Array>();
   for (const element of elements) {
@@ -21,14 +22,25 @@ export async function repeatImageSources(
       md5: digest(data),
       recv: data.subType === 1 ? 1 : 0,
     });
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('图片原文件不可用，未发送。');
-    if (Number(response.headers.get('content-length')) > 50 * 1024 * 1024)
-      throw new Error('图片超过 50 MiB，未发送。');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.length || bytes.length > 50 * 1024 * 1024)
-      throw new Error('图片为空或超过 50 MiB，未发送。');
-    result.set(element, bytes);
+    const path = cleanNtPath(text(data.localPath) || text(data.filePath));
+    for (const candidate of [...(path ? [localFileUrl(path)] : []), url]) {
+      let response: Response;
+      try {
+        response = signal ? await fetch(candidate, { signal }) : await fetch(candidate);
+      } catch (cause) {
+        if (signal?.aborted) throw cause;
+        continue;
+      }
+      if (!response.ok) continue;
+      if (Number(response.headers.get('content-length')) > 50 * 1024 * 1024)
+        throw new Error('图片超过 50 MiB，未发送。');
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length > 50 * 1024 * 1024) throw new Error('图片超过 50 MiB，未发送。');
+      if (!bytes.length) continue;
+      result.set(element, bytes);
+      break;
+    }
+    if (!result.has(element)) throw new Error('图片原文件不可用，未发送。');
   }
   return result;
 }
@@ -200,12 +212,17 @@ function sendElement(
   }
   const raw = {
     ...data,
+    ...(['ptt', 'video', 'file'].includes(element.type ?? '') && text(data.localPath)
+      ? { filePath: cleanNtPath(text(data.localPath)) }
+      : {}),
     kind: element.type,
     ...(element.type === 'mface' ? { marketEmoticonId: data.marketEmoticonIdHex } : {}),
   };
   const segment = codecElementToSeg(raw, element);
   if (!segment || segment.t === 'opaque' || segment.t === 'node')
     throw new Error(`此类内容尚不能等价重发：${element.type ?? '未知元素'}`);
+  if (segment.t === 'video' && text(data.thumbLocalPath))
+    segment.thumbPath = cleanNtPath(text(data.thumbLocalPath));
   return segToSendElement(segment);
 }
 
