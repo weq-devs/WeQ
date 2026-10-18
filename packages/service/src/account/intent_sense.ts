@@ -28,11 +28,7 @@ import type { AgentLabEndpoint, AgentLabModelRef } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore } from '../common/json_store';
 import { segmentWords } from './text_segment';
-import {
-  analyzePragmatics,
-  calibrateIntentSense,
-  type IntentContextTurn,
-} from './intent_corpus';
+import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
@@ -50,6 +46,12 @@ export const INTENT_LABELS = {
   plan: '约定',
   info: '通知',
   chat: '闲聊',
+  boast: '炫耀',
+  flattery: '吹捧',
+  banter: '调侃',
+  perfunctory: '敷衍',
+  gossip: '吃瓜',
+  coquetry: '撒娇',
   other: '其他',
 } as const;
 export type IntentKind = keyof typeof INTENT_LABELS;
@@ -65,6 +67,11 @@ export const EMOTION_LABELS = {
   affection: '亲昵',
   fatigue: '疲惫',
   curiosity: '好奇',
+  shock: '震惊',
+  aggrieved: '委屈',
+  irony: '反讽',
+  anticipation: '期待',
+  embarrassed: '尴尬',
 } as const;
 export type EmotionKind = keyof typeof EMOTION_LABELS;
 
@@ -210,12 +217,15 @@ export interface IntentAnalyzedEvent {
 /** 单会话缓存上限（按 sendTime 裁最旧）。 */
 const CACHE_MAX_ENTRIES = 2000;
 /** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
 /** ensureAnalysis 默认回看窗口。 */
 const DEFAULT_WINDOW = 300;
-/** 单条消息回看前序上下文的最大轮数与时间间隔（2 小时内视为同一段对话）。 */
+/** 单条消息回看前序上下文的最大轮数。 */
 const CONTEXT_MAX_TURNS = 4;
-const CONTEXT_MAX_GAP_SEC = 2 * 3600;
+/** 单次相邻消息最大允许间隔（秒）：超过 8 分钟视为对话暂停/断档，切断前序上下文。 */
+const CONTEXT_MAX_ADJACENT_GAP_SEC = 8 * 60;
+/** 上下文最大追溯总跨度（秒）：超过 15 分钟的陈旧消息不再作为当前句的因果背景。 */
+const CONTEXT_MAX_TOTAL_SPAN_SEC = 15 * 60;
 /** api 引擎每批消息数（一次结构化调用）。 */
 const API_BATCH = 20;
 /** 画像聚合最多扫描的消息数。 */
@@ -288,7 +298,7 @@ function extractJsonBlock(text: string): unknown {
   }
 }
 
-/** 提取 rows[targetIndex] 之前紧邻的对话上下文（最多 CONTEXT_MAX_TURNS 条，跨度不超过 2h）。 */
+/** 提取 rows[targetIndex] 之前紧邻的对话上下文（最多 CONTEXT_MAX_TURNS 条，且严格遵守时效性窗口）。 */
 function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): IntentContextTurn[] {
   const target = rows[targetIndex];
   if (!target || targetIndex <= 0) return [];
@@ -296,11 +306,27 @@ function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): I
   let nextTime = target.sendTime;
   for (let i = targetIndex - 1; i >= 0 && picked.length < CONTEXT_MAX_TURNS; i--) {
     const prev = rows[i];
-    if (!prev || !prev.text) continue;
-    if (nextTime > 0 && prev.sendTime > 0 && nextTime - prev.sendTime > CONTEXT_MAX_GAP_SEC) {
-      break;
+    if (!prev?.text) continue;
+    // 时效性检查：相邻消息间隔不能超过 8 分钟，且距离目标消息总跨度不能超过 15 分钟
+    if (nextTime > 0 && prev.sendTime > 0) {
+      const stepGap = nextTime - prev.sendTime;
+      const totalSpan = target.sendTime - prev.sendTime;
+      if (
+        stepGap > CONTEXT_MAX_ADJACENT_GAP_SEC ||
+        totalSpan > CONTEXT_MAX_TOTAL_SPAN_SEC ||
+        stepGap < 0
+      ) {
+        break;
+      }
     }
-    picked.push({ mine: prev.mine, text: prev.text, sendTime: prev.sendTime });
+    const freshness =
+      target.sendTime > 0 && prev.sendTime > 0
+        ? Math.max(
+            0,
+            Math.min(1, 1 - (target.sendTime - prev.sendTime) / CONTEXT_MAX_TOTAL_SPAN_SEC),
+          )
+        : 1;
+    picked.push({ mine: prev.mine, text: prev.text, sendTime: prev.sendTime, freshness });
     nextTime = prev.sendTime;
   }
   return picked.reverse();
@@ -534,7 +560,7 @@ export class IntentSenseService {
       const rows = await this.loadMessages(kind, conv, 1, [msgId]);
       row = rows[0];
     }
-    if (!row || !row.text) return null;
+    if (!row?.text) return null;
 
     let result: IntentSenseResult | null = null;
     if (this.config.engine === 'local') {
@@ -638,7 +664,7 @@ export class IntentSenseService {
     const port = this.opts.localEngine;
     if (!port?.ready) return null;
     try {
-      const prag = analyzePragmatics(text, context);
+      const prag = analyzePragmatics(text, context, sendTime);
       const out = await port.analyze(text, {
         mine,
         context,
@@ -655,6 +681,7 @@ export class IntentSenseService {
         },
         text,
         context,
+        sendTime,
       );
       return {
         msgId,
@@ -711,7 +738,7 @@ export class IntentSenseService {
           ]
         : [];
     const lines = batch.map((b, i) => {
-      const prag = analyzePragmatics(b.text, b.context ?? leadingContext);
+      const prag = analyzePragmatics(b.text, b.context ?? leadingContext, b.sendTime);
       const hint = prag.promptHint ? ` （语用提示：${prag.promptHint}）` : '';
       return `${i}. ${b.mine ? '我' : '对方'}: ${b.text}${hint}`;
     });
@@ -719,12 +746,13 @@ export class IntentSenseService {
     const system =
       '你是精通中文互联网语境、反语、夸张修辞与网络黑话的聊天消息意图/情绪分析专家。' +
       '请结合上下文语境，对【待分析消息】中的每条消息输出 intent/emotion/intensity/sentiment/confidence。\n' +
-      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（其中 praise=夸赞/佩服/捧场，joke=玩梗/调侃，vent=吐槽/抱怨）；\n` +
-      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（其中 admiration=赞叹/惊叹/佩服/觉得太牛逼，affection=亲昵/暖心/感动，excitement=兴奋/激动）。\n` +
+      `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（含 boast=炫耀, flattery=吹捧, banter=调侃, perfunctory=敷衍, gossip=吃瓜, coquetry=撒娇, praise=夸赞, joke=玩梗, vent=吐槽）；\n` +
+      `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（含 admiration=赞叹, shock=震惊, aggrieved=委屈, irony=反讽, anticipation=期待, embarrassed=尴尬, affection=亲昵, excitement=兴奋）；\n` +
       '重要语用准则：\n' +
-      '1. 夸张式赞叹：若上文提到厉害的成果、作品、战绩或牛逼操作，下文回复「吓哭了」「看傻了」「给跪了」「头皮发麻」「恐怖如斯」「太变态了」「怪物吧」「这是人能做出来的？」「卧槽」「逆天」「？？？」等，绝非恐惧/焦虑/悲伤，而是极度惊叹与佩服，必须判为 intent="praise", emotion="admiration", sentiment 为高正值（+75~+95）！\n' +
+      '1. 夸张式赞叹：若上文提到厉害的成果、作品、战绩或牛逼操作（且上下文新鲜有效），下文回复「吓哭了」「看傻了」「给跪了」「头皮发麻」「恐怖如斯」「太变态了」「怪物吧」「这是人能做出来的？」「卧槽」「逆天」「？？？」等，绝非恐惧/焦虑/悲伤，而是极度惊叹与佩服，必须判为 intent="praise", emotion="admiration", sentiment 为高正值（+75~+95）！\n' +
       '2. 程度副词化的「死/哭」：「笑死/笑哭/蚌埠住了」是玩梗+开心(joy)；「羡慕哭了/馋哭了」是夸赞+赞叹(admiration)；「感动哭了/泪目/awsl」是亲昵(affection)。\n' +
-      '3. 反语与阴阳怪气：「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」是敷衍或不满，判为 intent="vent", emotion="anger", sentiment<0。\n' +
+      '3. 反语、敷衍与阴阳怪气：「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」判为 intent="perfunctory" 或 "vent", emotion="irony" 或 "anger", sentiment<0。\n' +
+      '4. 炫耀、吹捧、吃瓜、撒娇：秀操作/晒抽卡/晒跑分判为 boast；狂吹大佬/捧哏判为 flattery；尊嘟假嘟/求细说/蹲后续判为 gossip；求带/呜呜呜/贴贴判为 coquetry。\n' +
       'intensity 0-100（情绪强度），sentiment -100..100（消极到积极），confidence 0..1。' +
       '只输出 JSON：{"results":[{"i":序号,"intent":"...","emotion":"...","intensity":0,"sentiment":0,"confidence":0}]}，不要输出其它内容。';
     try {
@@ -766,6 +794,7 @@ export class IntentSenseService {
           },
           src.text,
           src.context ?? leadingContext,
+          src.sendTime,
         );
         out.push({
           msgId: src.msgId,

@@ -16,7 +16,7 @@
  *   → { type:'close' }
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
@@ -35,6 +35,14 @@ const INTENT_CRITERIA: Record<string, string> = {
   plan: '商量、约定或爽快答应要做的事（时间地点安排、包的、冲冲冲）',
   info: '通知、告知事实、同步进展',
   chat: '没有明确目的的日常闲聊、温情互动',
+  boast: '炫耀成果、晒抽卡、秀战绩、凡尔赛高光（如：看看我的、自研上线、百万QPS、出金了、满命）',
+  flattery:
+    '极力吹捧、疯狂打call、捧哏拍马（如：大佬受我一拜、太权威了、仙品细糠、神仙下凡、永远的神）',
+  banter:
+    '损友调侃、互怼打趣、戏谑开涮（如：就这啊、你小子、损不损啊、差不多得了、典中典、很难评）',
+  perfunctory: '敷衍应付、已读乱回、表面顺从反讽（如：啊对对对、行行行、好好好、哦哦、你开心就好）',
+  gossip: '围观吃瓜、八卦追问、求料蹲坑（如：尊嘟假嘟、求细说、前排吃瓜、蹲后续、啥情况）',
+  coquetry: '软萌撒娇、求助示弱、亲昵讨好（如：呜呜呜好哥哥、带带我嘛、求求你了、要抱抱、嘤嘤嘤）',
   other: '以上都不符合',
 };
 
@@ -50,6 +58,11 @@ const EMOTION_CRITERIA: Record<string, string> = {
   affection: '亲昵、撒娇、关心、感动暖心（如：贴贴、抱抱、感动哭了、泪目、awsl）',
   fatigue: '疲惫、倦怠、心累、没精力（如：麻了、燃尽了、累死、困死、躺平）',
   curiosity: '好奇、感兴趣、吃瓜追问（如：尊嘟假嘟、细说、真的假的）',
+  shock: '极度震惊、目瞪口呆、瞳孔地震、被深深震撼（如：看傻了、卧槽我人傻了、头皮发麻）',
+  aggrieved: '委屈难过、心态受挫、觉得不公（如：太欺负人了、凭什么啊、好委屈、心态崩了）',
+  irony: '反讽、阴阳怪气、正话反说、冷嘲（如：呵呵、真是谢谢你、啊对对对、典中典）',
+  anticipation: '急切期待、迫不及待、摩拳擦掌（如：急急急、等不及了、坐等更新、什么时候出）',
+  embarrassed: '尴尬、社死、脚趾抠地、无地自容（如：尬住了、社死现场、太尴尬了）',
 };
 
 const INTENSITY_LEVELS = ['几乎没有情绪', '轻微', '中等', '强烈', '极其强烈'];
@@ -114,9 +127,6 @@ interface LayaLike {
   close: () => Promise<void>;
 }
 
-let laya: LayaLike | null = null;
-let loading: Promise<LayaLike> | null = null;
-
 /** score 档位（0..n-1）→ 0..100 百分比。 */
 function levelToPct(score: number, levels: number): number {
   const max = Math.max(1, levels - 1);
@@ -160,23 +170,14 @@ function f16ToF32(h: Uint16Array): Float32Array {
  *   3. 多语言导出把 `act_probs` 改名成了 `act_logits`（原始 logit）—— 改名
  *      回来并补 sigmoid 对齐 act_probability 语义。
  */
-async function createLaya(modelDir: string): Promise<LayaLike> {
-  // @receptron/laya 是纯 ESM 包：Node 22+ 的 require(esm) 能吃，但 Electron 34
-  // 内置 Node 20 会 ERR_REQUIRE_ESM —— worker 本身是 ESM（.mjs），直接
-  // dynamic import（external 裸标识符，产物原样保留）。
-  const layaMod = (await import('@receptron/laya')) as unknown as {
-    Laya: abstract new (...args: unknown[]) => LayaLike;
-  };
-  const { Laya } = layaMod;
-  // onnxruntime / tokenizers 是 CJS，必须解析到 @receptron/laya 同层的实例
-  // （desktop 没直接依赖它们，pnpm 严格布局下只有 laya 的依赖树里有）。
+function getDependencies() {
   const entry = requireFn.resolve('@receptron/laya') as string;
   const sibling = createRequire(entry.replace(/[/\\]index\.js$/, '/laya.js')) as NodeRequire;
   const ort = sibling('onnxruntime-node') as {
     InferenceSession: {
       create: (
         path: string,
-        opts: Record<string, unknown>,
+        opts?: Record<string, unknown>,
       ) => Promise<{
         run: (feeds: Record<string, unknown>) => Promise<Record<string, unknown>>;
       }>;
@@ -192,10 +193,197 @@ async function createLaya(modelDir: string): Promise<LayaLike> {
       encode(text: string, opts: { add_special_tokens: boolean }): { ids: number[] };
     };
   };
+  return { ort, Tokenizer };
+}
+
+interface WorkerContextTurn {
+  mine?: boolean;
+  text?: string;
+  gap_sec?: number;
+}
+
+interface CommonEngine {
+  analyze(
+    id: number,
+    text: string,
+    mine?: boolean,
+    context?: WorkerContextTurn[],
+    pragmaticHint?: string | null,
+  ): Promise<AnalyzeResultMessage>;
+  inferMbti(id: number, samples: string[]): Promise<Array<{ key: string; leftPct: number }>>;
+  close(): Promise<void>;
+}
+
+interface QWeQConfig {
+  model_name: string;
+  max_length?: number;
+  intent_labels: string[];
+  emotion_labels: string[];
+}
+
+async function createQWeQ(modelDir: string): Promise<CommonEngine> {
+  const { ort, Tokenizer } = getDependencies();
+  const cfgPath = join(modelDir, 'model_config.json');
+  const cfg: QWeQConfig = JSON.parse(readFileSync(cfgPath, 'utf8'));
+
+  const tokJsonPath = existsSync(join(modelDir, 'tokenizer', 'tokenizer.json'))
+    ? join(modelDir, 'tokenizer', 'tokenizer.json')
+    : join(modelDir, 'tokenizer.json');
+  const tokConfigPath = existsSync(join(modelDir, 'tokenizer', 'tokenizer_config.json'))
+    ? join(modelDir, 'tokenizer', 'tokenizer_config.json')
+    : join(modelDir, 'tokenizer_config.json');
+
+  const tok = new Tokenizer(
+    JSON.parse(readFileSync(tokJsonPath, 'utf8')),
+    JSON.parse(readFileSync(tokConfigPath, 'utf8')),
+  );
+
+  const session = await ort.InferenceSession.create(join(modelDir, 'model.onnx'), {
+    executionProviders: ['cpu'],
+    graphOptimizationLevel: 'all',
+  });
+
+  const analyze: CommonEngine['analyze'] = async (id, text, _mine, context, pragmaticHint) => {
+    const parts: string[] = [];
+    if (Array.isArray(context) && context.length > 0) {
+      for (const turn of context.slice(-4)) {
+        if (!turn?.text?.trim()) continue;
+        const speaker = turn.mine ? '我' : '对方';
+        const gap = typeof turn.gap_sec === 'number' ? turn.gap_sec : 30;
+        let tag = '刚刚';
+        if (gap <= 60) tag = '刚刚';
+        else if (gap <= 300) tag = '几分钟前';
+        else if (gap <= 600) tag = '十分钟内';
+        else tag = '久远';
+        parts.push(`上文[${tag}]: ${speaker}: ${turn.text.trim().slice(0, 120)}`);
+      }
+    }
+    const ctxStr = parts.join(' | ');
+    let formatted = ctxStr ? `${ctxStr} [SEP] 消息: ${text.trim()}` : `消息: ${text.trim()}`;
+    if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
+      formatted += ` (语境: ${pragmaticHint.trim()})`;
+    }
+
+    const maxLen = cfg.max_length ?? 128;
+    const encoded = tok.encode(formatted, { add_special_tokens: true });
+    const ids = encoded.ids.slice(0, maxLen);
+    const mask = new Array(ids.length).fill(1);
+    const typeIds = new Array(ids.length).fill(0);
+    while (ids.length < maxLen) {
+      ids.push(0);
+      mask.push(0);
+      typeIds.push(0);
+    }
+
+    const feeds = {
+      input_ids: new ort.Tensor('int64', new BigInt64Array(ids.map(BigInt)), [1, maxLen]),
+      attention_mask: new ort.Tensor('int64', new BigInt64Array(mask.map(BigInt)), [1, maxLen]),
+      token_type_ids: new ort.Tensor('int64', new BigInt64Array(typeIds.map(BigInt)), [1, maxLen]),
+    };
+
+    const out = await session.run(feeds);
+    const intentLogits = Array.from((out.intent_logits as { data: Float32Array }).data);
+    const emotionLogits = Array.from((out.emotion_logits as { data: Float32Array }).data);
+
+    const maxIntent = Math.max(...intentLogits);
+    const expIntent = intentLogits.map((v) => Math.exp(v - maxIntent));
+    const sumIntent = expIntent.reduce((a, b) => a + b, 0);
+    const intentProb = (expIntent[intentLogits.indexOf(maxIntent)] ?? 1) / (sumIntent || 1);
+
+    const maxEmotion = Math.max(...emotionLogits);
+    const expEmotion = emotionLogits.map((v) => Math.exp(v - maxEmotion));
+    const sumEmotion = expEmotion.reduce((a, b) => a + b, 0);
+    const emotionProb = (expEmotion[emotionLogits.indexOf(maxEmotion)] ?? 1) / (sumEmotion || 1);
+
+    const bestIntentIdx = intentLogits.indexOf(maxIntent);
+    const bestEmotionIdx = emotionLogits.indexOf(maxEmotion);
+
+    const intent = cfg.intent_labels[bestIntentIdx] ?? 'other';
+    const emotion = cfg.emotion_labels[bestEmotionIdx] ?? 'neutral';
+    const rawIntensity = Number(
+      Array.from((out.intensity as { data: Float32Array }).data)[0] ?? 50,
+    );
+    const rawSentiment = Number(Array.from((out.sentiment as { data: Float32Array }).data)[0] ?? 0);
+
+    return {
+      type: 'result',
+      id,
+      intent: intent in INTENT_CRITERIA ? intent : 'other',
+      emotion: emotion in EMOTION_CRITERIA ? emotion : 'neutral',
+      intensity: Math.min(100, Math.max(0, Math.round(rawIntensity))),
+      sentiment: Math.min(100, Math.max(-100, Math.round(rawSentiment))),
+      confidence: Math.round(((intentProb + emotionProb) / 2) * 100) / 100,
+    };
+  };
+
+  const inferMbti: CommonEngine['inferMbti'] = async (_id, samples) => {
+    const subset = samples.slice(-30);
+    let extrovertScore = 0;
+    let intuitionScore = 0;
+    let feelingScore = 0;
+    let perceivingScore = 0;
+
+    for (const s of subset) {
+      if (!s.trim()) continue;
+      const res = await analyze(0, s);
+      if (['greeting', 'joke', 'gossip', 'share', 'flattery', 'boast'].includes(res.intent)) {
+        extrovertScore += 1;
+      } else if (['info', 'perfunctory', 'other'].includes(res.intent)) {
+        extrovertScore -= 0.5;
+      }
+
+      if (['chat', 'joke', 'gossip'].includes(res.intent)) {
+        intuitionScore += 1;
+      } else if (['plan', 'info', 'request'].includes(res.intent)) {
+        intuitionScore -= 1;
+      }
+
+      if (['admiration', 'joy', 'affection', 'aggrieved', 'anxiety'].includes(res.emotion)) {
+        feelingScore += 1;
+      } else if (['neutral'].includes(res.emotion) || ['info', 'plan'].includes(res.intent)) {
+        feelingScore -= 1;
+      }
+
+      if (['plan', 'request'].includes(res.intent)) {
+        perceivingScore -= 1;
+      } else if (['joke', 'banter', 'gossip', 'chat'].includes(res.intent)) {
+        perceivingScore += 1;
+      }
+    }
+
+    const n = Math.max(1, subset.length);
+    const toPct = (score: number) => Math.min(95, Math.max(5, Math.round(50 + (score / n) * 40)));
+
+    return [
+      { key: 'EI', leftPct: toPct(extrovertScore) },
+      { key: 'SN', leftPct: 100 - toPct(intuitionScore) },
+      { key: 'TF', leftPct: 100 - toPct(feelingScore) },
+      { key: 'JP', leftPct: 100 - toPct(perceivingScore) },
+    ];
+  };
+
+  return {
+    analyze,
+    inferMbti,
+    async close() {
+      // ONNX session cleaned up on process exit
+    },
+  };
+}
+
+async function createLaya(modelDir: string): Promise<LayaLike> {
+  const layaMod = (await import('@receptron/laya')) as unknown as {
+    Laya: abstract new (...args: unknown[]) => LayaLike;
+  };
+  const { Laya } = layaMod;
+  const { ort, Tokenizer } = getDependencies();
 
   const read = (f: string): unknown => JSON.parse(readFileSync(join(modelDir, f), 'utf8'));
   const config = read('laya_config.json');
-  const tok = new Tokenizer(read('tokenizer/tokenizer.json'), read('tokenizer/tokenizer_config.json'));
+  const tok = new Tokenizer(
+    read('tokenizer/tokenizer.json'),
+    read('tokenizer/tokenizer_config.json'),
+  );
   const idOf = (t: string): number => {
     const v = tok.token_to_id(t);
     if (v === undefined) throw new Error(`special token ${t} missing from tokenizer`);
@@ -217,7 +405,9 @@ async function createLaya(modelDir: string): Promise<LayaLike> {
   session.run = async (feeds: Record<string, unknown>) => {
     const out = await rawRun(feeds);
     const fix = (t: unknown, sigmoid: boolean): unknown => {
-      const tensor = t as { type?: string; data?: Uint16Array; dims?: readonly number[] } | undefined;
+      const tensor = t as
+        | { type?: string; data?: Uint16Array; dims?: readonly number[] }
+        | undefined;
       if (tensor?.type !== 'float16' || !(tensor.data instanceof Uint16Array)) return t;
       const f = f16ToF32(tensor.data);
       if (sigmoid) for (let i = 0; i < f.length; i++) f[i] = 1 / (1 + Math.exp(-(f[i] ?? 0)));
@@ -230,29 +420,126 @@ async function createLaya(modelDir: string): Promise<LayaLike> {
     };
   };
 
-  // Laya 的构造器在 d.ts 里标 private（类型层面），运行时组装是官方 load 之外
-  // 唯一能带自定义 ids/patch 的入口 —— Reflect.construct 绕过类型限制。
   return Reflect.construct(Laya, [session, tok, config, ids, modelDir]) as LayaLike;
 }
 
-async function loadLaya(modelDir: string): Promise<LayaLike> {
-  if (laya) return laya;
-  if (loading) return loading;
-  loading = createLaya(modelDir)
-    .then((instance) => {
-      laya = instance;
-      return instance;
-    })
-    .finally(() => {
-      loading = null;
-    });
-  return loading;
+async function createLayaEngine(modelDir: string): Promise<CommonEngine> {
+  const layaInstance = await createLaya(modelDir);
+  return {
+    async analyze(id, text, mine, context, pragmaticHint) {
+      const parts: string[] = [];
+      if (Array.isArray(context) && context.length > 0) {
+        const lines = context
+          .filter((c) => c && typeof c.text === 'string' && c.text.trim().length > 0)
+          .slice(-4)
+          .map((c) => `${c.mine ? '我' : '对方'}：「${c.text!.trim().slice(0, 160)}」`);
+        if (lines.length > 0) {
+          parts.push(`上文对话：\n${lines.join('\n')}`);
+        }
+      }
+      const speaker = mine === true ? '我' : '对方';
+      parts.push(`当前待分析消息（${speaker}）：「${text}」`);
+      if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
+        parts.push(`语境与网络用语提示：${pragmaticHint.trim()}`);
+      }
+      const state = parts.join('\n');
+      const res = await layaInstance.systemOne(state, {
+        intent: {
+          type: 'choice',
+          instructions: '结合上下文语境，发送当前这条消息的人的真实沟通意图是什么？',
+          criteria: INTENT_CRITERIA,
+        },
+        emotion: {
+          type: 'choice',
+          instructions:
+            '结合上下文语境与中文网络用语习惯（注意区分字面恐惧/哭泣与夸张式赞叹/笑哭），发送者当前真实的情绪状态最接近哪一种？',
+          criteria: EMOTION_CRITERIA,
+        },
+        intensity: {
+          type: 'score',
+          instructions: '这条消息情绪的强烈程度？',
+          criteria: INTENSITY_LEVELS,
+        },
+        sentiment: {
+          type: 'score',
+          instructions: '结合语境，这条消息的真实整体情感倾向？（夸赞/惊叹/玩梗大笑为积极）',
+          criteria: SENTIMENT_LEVELS,
+        },
+      });
+      const intentAns = res.answers.intent;
+      const emotionAns = res.answers.emotion;
+      const intensityAns = res.answers.intensity;
+      const sentimentAns = res.answers.sentiment;
+      if (intentAns?.type !== 'choice' || emotionAns?.type !== 'choice') {
+        throw new Error('laya answers shape mismatch');
+      }
+      return {
+        type: 'result',
+        id,
+        intent: intentAns.choice in INTENT_CRITERIA ? intentAns.choice : 'other',
+        emotion: emotionAns.choice in EMOTION_CRITERIA ? emotionAns.choice : 'neutral',
+        intensity:
+          intensityAns?.type === 'score'
+            ? levelToPct(intensityAns.score, INTENSITY_LEVELS.length)
+            : 50,
+        sentiment:
+          sentimentAns?.type === 'score'
+            ? levelToSentiment(sentimentAns.score, SENTIMENT_LEVELS.length)
+            : 0,
+        confidence: Math.round(((intentAns.confidence + emotionAns.confidence) / 2) * 100) / 100,
+      };
+    },
+
+    async inferMbti(_id, samples) {
+      const joined = samples
+        .slice(-120)
+        .map((s) => `「${s}」`)
+        .join('\n')
+        .slice(0, 8000);
+      const res = await layaInstance.systemOne(
+        `以下是某人在私聊里的消息样本：\n${joined}`,
+        MBTI_QUESTIONS,
+      );
+      const dims: Array<{ key: string; leftPct: number }> = [];
+      for (const key of ['EI', 'SN', 'TF', 'JP'] as const) {
+        const ans = res.answers[key];
+        if (ans?.type !== 'score') continue;
+        dims.push({ key, leftPct: levelToPct(ans.score, MBTI_QUESTIONS[key].criteria.length) });
+      }
+      return dims;
+    },
+
+    async close() {
+      await layaInstance.close();
+    },
+  };
 }
 
-interface WorkerContextTurn {
-  mine?: boolean;
-  text?: string;
+let activeEngine: CommonEngine | null = null;
+let loadingEngine: Promise<CommonEngine> | null = null;
+
+async function loadEngine(modelDir: string): Promise<CommonEngine> {
+  if (activeEngine) return activeEngine;
+  if (loadingEngine) return loadingEngine;
+  loadingEngine = (async () => {
+    if (
+      existsSync(join(modelDir, 'model.onnx')) &&
+      existsSync(join(modelDir, 'model_config.json'))
+    ) {
+      const engine = await createQWeQ(modelDir);
+      activeEngine = engine;
+      return engine;
+    }
+    const engine = await createLayaEngine(modelDir);
+    activeEngine = engine;
+    return engine;
+  })().finally(() => {
+    loadingEngine = null;
+  });
+  return loadingEngine;
 }
+
+let currentModelDir: string | null = null;
 
 async function handleAnalyze(
   id: number,
@@ -261,87 +548,16 @@ async function handleAnalyze(
   context?: WorkerContextTurn[],
   pragmaticHint?: string | null,
 ): Promise<void> {
-  const engine = await loadLaya(layaModelDir!);
-  const parts: string[] = [];
-  if (Array.isArray(context) && context.length > 0) {
-    const lines = context
-      .filter((c) => c && typeof c.text === 'string' && c.text.trim().length > 0)
-      .slice(-4)
-      .map((c) => `${c.mine ? '我' : '对方'}：「${c.text!.trim().slice(0, 160)}」`);
-    if (lines.length > 0) {
-      parts.push(`上文对话：\n${lines.join('\n')}`);
-    }
-  }
-  const speaker = mine === true ? '我' : '对方';
-  parts.push(`当前待分析消息（${speaker}）：「${text}」`);
-  if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
-    parts.push(`语境与网络用语提示：${pragmaticHint.trim()}`);
-  }
-  const state = parts.join('\n');
-  const res = await engine.systemOne(state, {
-    intent: {
-      type: 'choice',
-      instructions: '结合上下文语境，发送当前这条消息的人的真实沟通意图是什么？',
-      criteria: INTENT_CRITERIA,
-    },
-    emotion: {
-      type: 'choice',
-      instructions:
-        '结合上下文语境与中文网络用语习惯（注意区分字面恐惧/哭泣与夸张式赞叹/笑哭），发送者当前真实的情绪状态最接近哪一种？',
-      criteria: EMOTION_CRITERIA,
-    },
-    intensity: {
-      type: 'score',
-      instructions: '这条消息情绪的强烈程度？',
-      criteria: INTENSITY_LEVELS,
-    },
-    sentiment: {
-      type: 'score',
-      instructions: '结合语境，这条消息的真实整体情感倾向？（夸赞/惊叹/玩梗大笑为积极）',
-      criteria: SENTIMENT_LEVELS,
-    },
-  });
-  const intentAns = res.answers.intent;
-  const emotionAns = res.answers.emotion;
-  const intensityAns = res.answers.intensity;
-  const sentimentAns = res.answers.sentiment;
-  if (intentAns?.type !== 'choice' || emotionAns?.type !== 'choice') {
-    throw new Error('laya answers shape mismatch');
-  }
-  const out: AnalyzeResultMessage = {
-    type: 'result',
-    id,
-    intent: intentAns.choice in INTENT_CRITERIA ? intentAns.choice : 'other',
-    emotion: emotionAns.choice in EMOTION_CRITERIA ? emotionAns.choice : 'neutral',
-    intensity:
-      intensityAns?.type === 'score' ? levelToPct(intensityAns.score, INTENSITY_LEVELS.length) : 50,
-    sentiment:
-      sentimentAns?.type === 'score'
-        ? levelToSentiment(sentimentAns.score, SENTIMENT_LEVELS.length)
-        : 0,
-    confidence: Math.round(((intentAns.confidence + emotionAns.confidence) / 2) * 100) / 100,
-  };
+  const engine = await loadEngine(currentModelDir!);
+  const out = await engine.analyze(id, text, mine, context, pragmaticHint);
   emit(out);
 }
 
 async function handleMbti(id: number, samples: string[]): Promise<void> {
-  const engine = await loadLaya(layaModelDir!);
-  const joined = samples
-    .slice(-120)
-    .map((s) => `「${s}」`)
-    .join('\n')
-    .slice(0, 8000);
-  const res = await engine.systemOne(`以下是某人在私聊里的消息样本：\n${joined}`, MBTI_QUESTIONS);
-  const dims: Array<{ key: string; leftPct: number }> = [];
-  for (const key of ['EI', 'SN', 'TF', 'JP'] as const) {
-    const ans = res.answers[key];
-    if (ans?.type !== 'score') continue;
-    dims.push({ key, leftPct: levelToPct(ans.score, MBTI_QUESTIONS[key].criteria.length) });
-  }
+  const engine = await loadEngine(currentModelDir!);
+  const dims = await engine.inferMbti(id, samples);
   emit({ type: 'mbti-result', id, dims });
 }
-
-let layaModelDir: string | null = null;
 
 process.on(
   'message',
@@ -359,8 +575,8 @@ process.on(
     const m = msg as Record<string, unknown>;
     switch (m.type) {
       case 'load': {
-        layaModelDir = m.modelDir as string;
-        loadLaya(layaModelDir)
+        currentModelDir = m.modelDir as string;
+        loadEngine(currentModelDir)
           .then(() => emit({ type: 'ready' }))
           .catch((e) => emit({ type: 'load-error', error: String(e) }));
         break;
@@ -382,7 +598,7 @@ process.on(
         break;
       }
       case 'close': {
-        void laya?.close().finally(() => process.exit(0));
+        void activeEngine?.close().finally(() => process.exit(0));
         break;
       }
       default:
@@ -392,5 +608,5 @@ process.on(
 );
 
 process.once('disconnect', () => {
-  void laya?.close().finally(() => process.exit(0));
+  void activeEngine?.close().finally(() => process.exit(0));
 });

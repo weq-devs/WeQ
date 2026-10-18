@@ -172,7 +172,13 @@ export function IntentProfileDialog({
             >
               <RefreshCw size={16} className={refreshing ? 'weq-spin' : undefined} />
             </button>
-            <button className="icon-button" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+            <button
+              className="icon-button"
+              type="button"
+              title="关闭"
+              aria-label="关闭"
+              onClick={onClose}
+            >
               <X size={18} />
             </button>
           </span>

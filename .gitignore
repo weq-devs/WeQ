@@ -97,3 +97,8 @@ resources/ninebird-runtime/
 /docs/develop/native-history-without-napcat-research-20261016.md
 /docs/develop/protocol-history-500-20261016.md
 /docs/develop/native-history-500-20261016.md
+
+# Local ML models and scratch reverse artifacts
+models/
+tmp_reverse/
+.zcode/

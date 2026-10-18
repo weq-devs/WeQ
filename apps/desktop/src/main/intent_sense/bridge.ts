@@ -60,6 +60,36 @@ export function layaModelDir(): string {
   return join(weqAppDataRoot(), 'models', 'laya-multilingual');
 }
 
+/** QWeQ-NineBird 本地模型候选目录（自研微调模型优先）。 */
+export function qweqModelCandidates(): string[] {
+  const dirs = [
+    join(weqAppDataRoot(), 'models', 'QWeQ-NineBird-v1'),
+    join(process.cwd(), 'models', 'QWeQ-NineBird-v1'),
+  ];
+  if (process.resourcesPath) {
+    dirs.push(join(process.resourcesPath, 'models', 'QWeQ-NineBird-v1'));
+  }
+  return dirs;
+}
+
+/** 探测优先可用的本地模型目录：优先使用自研微调模型 QWeQ-NineBird-v1，未就绪则回落到 Laya。 */
+export function findAvailableModelDir(): string {
+  for (const dir of qweqModelCandidates()) {
+    if (existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json'))) {
+      return dir;
+    }
+  }
+  return layaModelDir();
+}
+
+/** 判断模型是否已准备好（自研微调模型或 Laya bundle 均可）。 */
+export function isAnyModelReady(dir: string): boolean {
+  if (existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json'))) {
+    return true;
+  }
+  return isLayaBundleReady(dir);
+}
+
 interface WorkerMessage {
   type: 'ready' | 'load-error' | 'result' | 'mbti-result' | 'analyze-error';
   id?: number;
@@ -248,7 +278,10 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     // 不用裸 __dirname（Electron 主进程 ESM 下该 banner 依赖 import.meta.dirname，
     // 不可靠 —— captureWorker 的同款函数也是 fileURLToPath 写法）。
     const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [join(here, 'intentSenseWorker.mjs'), join(here, '..', 'intentSenseWorker.mjs')];
+    const candidates = [
+      join(here, 'intentSenseWorker.mjs'),
+      join(here, '..', 'intentSenseWorker.mjs'),
+    ];
     return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
   }
 }
@@ -264,6 +297,12 @@ const INTENT_KEYS: readonly IntentKind[] = [
   'plan',
   'info',
   'chat',
+  'boast',
+  'flattery',
+  'banter',
+  'perfunctory',
+  'gossip',
+  'coquetry',
   'other',
 ];
 
@@ -278,6 +317,11 @@ const EMOTION_KEYS: readonly EmotionKind[] = [
   'affection',
   'fatigue',
   'curiosity',
+  'shock',
+  'aggrieved',
+  'irony',
+  'anticipation',
+  'embarrassed',
 ];
 
 function normalizeIntent(v: unknown): IntentKind {
@@ -315,8 +359,8 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     },
     analyze: (text: string, options?: IntentLocalAnalyzeOptions) => impl.analyze(text, options),
     inferMbti: (samples: string[]) => impl.inferMbti(samples),
-    modelDir: () => layaModelDir(),
-    isModelDownloaded: () => isLayaBundleReady(layaModelDir()),
+    modelDir: () => findAvailableModelDir(),
+    isModelDownloaded: () => isAnyModelReady(findAvailableModelDir()),
     download: (options) =>
       downloadLayaBundle({
         destDir: layaModelDir(),
@@ -324,9 +368,9 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
         onProgress: options.onProgress,
       }),
     start: async () => {
-      const dir = layaModelDir();
-      if (!isLayaBundleReady(dir)) {
-        throw new Error('本地模型尚未下载完整');
+      const dir = findAvailableModelDir();
+      if (!isAnyModelReady(dir)) {
+        throw new Error('本地模型尚未就绪');
       }
       await impl.start(dir);
     },

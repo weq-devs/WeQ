@@ -12,8 +12,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AccountSession } from '@weq/account';
 import { IntentSenseService, type IntentLocalEnginePort } from '../src/account/intent_sense';
+import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
 
 interface StubMsg {
   msgId: bigint;
@@ -330,8 +330,8 @@ describe('IntentSenseService', () => {
     expect(byId.get('3')?.emotion).toBe('affection');
     expect(byId.get('3')?.sentiment).toBeGreaterThan(0);
 
-    expect(byId.get('4')?.intent).toBe('vent');
-    expect(byId.get('4')?.emotion).toBe('anger');
+    expect(byId.get('4')?.intent).toBe('perfunctory');
+    expect(byId.get('4')?.emotion).toBe('irony');
     expect(byId.get('4')?.sentiment).toBeLessThan(0);
 
     expect(byId.get('5')?.intent).toBe('vent');
@@ -379,5 +379,59 @@ describe('IntentSenseService', () => {
     expect(res?.intent).toBe('praise');
     expect(res?.emotion).toBe('admiration');
     expect(res?.sentiment).toBeGreaterThanOrEqual(80);
+  });
+
+  it('detectUpstreamSignal 严格遵守时效性推断窗口（时隔超过10分钟不计入因果上下文）', () => {
+    // 1. 紧邻发生（1分钟内）：判定为 achievement 上文
+    const freshContext = [
+      { mine: false, text: '我这自研核心算法重构完跑通了，性能提升100倍！', sendTime: 1000 },
+    ];
+    const freshSignal = detectUpstreamSignal(freshContext, 1060);
+    expect(freshSignal).toBe('achievement');
+    const freshPrag = analyzePragmatics('吓哭了', freshContext, 1060);
+    expect(freshPrag.override?.intent).toBe('praise');
+    expect(freshPrag.override?.emotion).toBe('admiration');
+
+    // 2. 时隔过长（例如 2 小时后才发「吓哭了」）：时效已过，不得关联上文成果
+    const staleContext = [
+      { mine: false, text: '我这自研核心算法重构完跑通了，性能提升100倍！', sendTime: 1000 },
+    ];
+    const staleSignal = detectUpstreamSignal(staleContext, 1000 + 7200);
+    expect(staleSignal).toBe('neutral');
+    const stalePrag = analyzePragmatics('吓哭了', staleContext, 1000 + 7200);
+    expect(stalePrag.upstreamSignal).toBe('neutral');
+    expect(stalePrag.override).toBeNull();
+  });
+
+  it('细分意图与情感语料识别：炫耀 / 吹捧 / 调侃 / 撒娇 / 吃瓜 / 委屈', () => {
+    // 炫耀
+    const boast = analyzePragmatics('终于抽到满命专武了，看看我的神级面板！');
+    expect(boast.override?.intent).toBe('boast');
+    expect(boast.override?.emotion).toBe('excitement');
+
+    // 吹捧
+    const flattery = analyzePragmatics('大佬受我一拜，代码写得太权威了，仙品细糠！');
+    expect(flattery.override?.intent).toBe('flattery');
+    expect(flattery.override?.emotion).toBe('admiration');
+
+    // 调侃
+    const banter = analyzePragmatics('就这啊？你小子差不多得了，夺笋啊');
+    expect(banter.override?.intent).toBe('banter');
+    expect(banter.override?.emotion).toBe('joy');
+
+    // 吃瓜
+    const gossip = analyzePragmatics('尊嘟假嘟？快求细说，蹲一个后续');
+    expect(gossip.override?.intent).toBe('gossip');
+    expect(gossip.override?.emotion).toBe('curiosity');
+
+    // 撒娇
+    const coquetry = analyzePragmatics('好哥哥带带我嘛呜呜呜，求求你了');
+    expect(coquetry.override?.intent).toBe('coquetry');
+    expect(coquetry.override?.emotion).toBe('affection');
+
+    // 委屈
+    const aggrieved = analyzePragmatics('太欺负人了，好委屈，凭什么啊');
+    expect(aggrieved.override?.intent).toBe('vent');
+    expect(aggrieved.override?.emotion).toBe('aggrieved');
   });
 });

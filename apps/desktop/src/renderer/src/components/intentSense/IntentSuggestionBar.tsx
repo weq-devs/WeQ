@@ -76,13 +76,8 @@ export function IntentSuggestionBar({
         }}
       >
         {loading && list.length === 0
-          ? Array.from({ length: 3 }, (_, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 固定三条占位骨架，顺序恒定。
-              <span
-                key={`skeleton-${i}`}
-                className="weq-int-suggest-pill is-skeleton"
-                style={{ minWidth: 88 }}
-              >
+          ? ['skeleton-0', 'skeleton-1', 'skeleton-2'].map((key) => (
+              <span key={key} className="weq-int-suggest-pill is-skeleton" style={{ minWidth: 88 }}>
                 <span>…</span>
               </span>
             ))

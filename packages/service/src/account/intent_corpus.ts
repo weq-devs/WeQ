@@ -26,6 +26,8 @@ export interface IntentContextTurn {
   text: string;
   /** 发送时间戳（秒，可选）。 */
   sendTime?: number;
+  /** 新鲜度权重 0..1（越靠近当前消息越接近 1，过期衰减至 0）。 */
+  freshness?: number;
 }
 
 export type UpstreamContextSignal =
@@ -85,13 +87,34 @@ const UPSTREAM_QUESTION_INVITE_RE =
 /**
  * 分析前序对话，提取最显著的上文语境信号。
  * 越靠近当前消息的轮次权重越高（优先看最近 1~3 条）。
+ * 同时进行严格时效性把关：若上文距离当前消息超过 10 分钟或 freshness <= 0.05，则该上文不再作为当前消息的因果语境！
  */
-export function detectUpstreamSignal(context: readonly IntentContextTurn[]): UpstreamContextSignal {
+export function detectUpstreamSignal(
+  context: readonly IntentContextTurn[],
+  targetSendTime?: number,
+): UpstreamContextSignal {
   if (!context || context.length === 0) return 'neutral';
   const recent = context.slice(-4);
   // 倒序扫描：紧邻的上一条消息优先级最高
   for (let i = recent.length - 1; i >= 0; i--) {
-    const t = recent[i]?.text.trim() ?? '';
+    const turn = recent[i];
+    if (!turn) continue;
+    // 时效性核验：若提供了当前消息的时间戳，时差超过 10 分钟或来自未来，视为时效已过
+    if (
+      typeof targetSendTime === 'number' &&
+      targetSendTime > 0 &&
+      typeof turn.sendTime === 'number' &&
+      turn.sendTime > 0
+    ) {
+      const diffSec = targetSendTime - turn.sendTime;
+      if (diffSec > 10 * 60 || diffSec < 0) {
+        continue;
+      }
+    }
+    if (typeof turn.freshness === 'number' && turn.freshness <= 0.05) {
+      continue;
+    }
+    const t = turn.text.trim();
     if (!t) continue;
     if (UPSTREAM_DANGER_HORROR_RE.test(t)) return 'danger_or_horror';
     if (UPSTREAM_ACHIEVEMENT_RE.test(t)) return 'achievement';
@@ -123,7 +146,10 @@ interface CorpusRule {
 function normalizeText(text: string): string {
   return text
     .trim()
-    .replace(/^[\s~～!！.。,，、?？"“”'‘’（）()【】\[\]]+|[\s~～!！.。,，、?？"“”'‘’（）()【】\[\]]+$/g, '')
+    .replace(
+      /^[\s~～!！.。,，、?？"“”'‘’（）()【】[\]]+|[\s~～!！.。,，、?？"“”'‘’（）()【】[\]]+$/g,
+      '',
+    )
     .toLowerCase();
 }
 
@@ -136,11 +162,27 @@ function hasSelfDangerContext(text: string): boolean {
  * 核心语料规则表（按优先级从高到低匹配）。
  */
 const CORPUS_RULES: readonly CorpusRule[] = [
-  // 1. 夸张惊叹/恐惧化赞叹（如「吓哭了」「给跪了」「看傻了」「恐怖如斯」「这是人能做出来的」）
+  // 0. 吹捧与无脑打call（flattery）—— 优先于通用夸赞
+  {
+    id: 'flattery_acclaim_praise',
+    match: (text) =>
+      /大佬受我一拜|膜拜大佬|膜拜巨佬|太权威了|无脑吹|疯狂打call|不愧是神|神仙下凡|仙品细糠|永远的神|求带飞|巨佬牛逼/i.test(
+        text,
+      ),
+    gloss:
+      '「大佬受我一拜/太权威了/疯狂打call/仙品细糠」表达极尽夸奖与捧哏，应判为吹捧(flattery)与赞叹(admiration)。',
+    intent: 'flattery',
+    emotion: 'admiration',
+    intensity: 88,
+    sentiment: 85,
+    minConfidence: 0.9,
+    hard: true,
+  },
+  // 1. 夸张惊叹/恐惧化赞叹（如「给跪了」「恐怖如斯」「这是人能做出来的」）
   {
     id: 'hyperbolic_awe_kneel',
     match: (text, norm) =>
-      /给?跪了|给.*跪了|滑跪|五体投地|膝盖给你|献上膝盖|妈妈问我为什么跪着|大佬受我一拜|膜拜大佬|顶礼膜拜|神乎其技|恐怖如斯|这是人能做出来的|碳基生物能|什么神仙|人形外挂|开了[吧？?]?$|绝对开了/.test(
+      /给?跪了|给.*跪了|滑跪|五体投地|膝盖给你|献上膝盖|妈妈问我为什么跪着|顶礼膜拜|神乎其技|恐怖如斯|这是人能做出来的|碳基生物能|什么神仙|人形外挂|开了[吧？?]?$|绝对开了/.test(
         text,
       ) || /^(跪了|给跪了|膜拜|orz|sto|otz|恐怖如斯)$/.test(norm),
     gloss:
@@ -154,7 +196,7 @@ const CORPUS_RULES: readonly CorpusRule[] = [
   },
   {
     id: 'hyperbolic_awe_cry_shock',
-    match: (text, norm, upstream) => {
+    match: (text, _norm, upstream) => {
       if (upstream === 'danger_or_horror' || hasSelfDangerContext(text)) return false;
       // 明确带正面形容词的「X哭了 / X到窒息 / 救命太X了」
       if (
@@ -165,12 +207,13 @@ const CORPUS_RULES: readonly CorpusRule[] = [
         return true;
       }
       // 「吓哭了 / 看哭了 / 看傻了 / 惊呆了 / 头皮发麻 / 太变态了 / 太残暴了 / 怪物吧」
+      // 必须伴随明确新鲜的 achievement 上文，或者消息自身带「太强/牛逼/大佬/神/绝了」强正面特征！
+      // 若没有 achievement 上文（如没有上文或时效性已过），不能直接假定为反语赞叹。
       const isShockCry =
-        /^(吓哭了?|看哭了?|听哭了?|给我看哭了|直接看哭|看傻了?|人看傻了|看呆了?|惊呆了?|头皮发麻|起鸡皮疙瘩|汗毛倒立|太变态了[吧啊]?|太残暴了[吧啊]?|太凶残了[吧啊]?|怪物吧|纯纯怪物|非人类[吧啊]?|太恐怖了[吧啊]?|吓死我了.*太强)$/.test(
-          norm,
-        ) ||
-        (/吓哭了|看哭了|看傻了|头皮发麻|太变态了|太残暴了|怪物吧/.test(text) &&
-          (upstream === 'achievement' || /太强|牛逼|大佬|神|离谱|逆天|绝了|卧槽|wc/i.test(text)));
+        /吓哭了|看哭了|看傻了|看呆了|惊呆了|头皮发麻|起鸡皮疙瘩|汗毛倒立|太变态了|太残暴了|太凶残了|怪物吧|纯纯怪物|非人类|太恐怖了|吓死我了/i.test(
+          text,
+        ) &&
+        (upstream === 'achievement' || /太强|牛逼|大佬|神|离谱|逆天|绝了|卧槽|wc/i.test(text));
       if (!isShockCry) return false;
       // 若上文是倒霉/诉苦且非成果，则不走赞叹
       if (upstream === 'trouble_or_vent' && !/太强|牛|神|大佬/.test(text)) return false;
@@ -203,8 +246,7 @@ const CORPUS_RULES: readonly CorpusRule[] = [
     match: (text, norm) =>
       /^(牛逼|nb|牛哇|牛啊|牛的|牛批|太牛了[吧啊]?|6+|666+|6啊|太6了|yyds|永远的神|tql|太强了[吧啊]?|强啊|强无敌|巨强|超强|绝了|太绝了|绝绝子|神中神|顶中顶|太顶了|天花板|封神|原地封神|泰裤辣|太酷了|好厉害|太厉害了|还得是你|不愧是你|瑞思拜|respect|仙品|细糠|太权威了|权威|夯|夯爆了|真神|好活|好活当赏|大佬牛逼|大佬666|大佬太强了)$/i.test(
         norm,
-      ) ||
-      /牛逼plus|牛逼克拉斯|永远的神|原地封神|神中神|顶中顶|不愧是你|还得是你/i.test(text),
+      ) || /牛逼plus|牛逼克拉斯|永远的神|原地封神|神中神|顶中顶|不愧是你|还得是你/i.test(text),
     gloss:
       '典型的中文网络直接夸赞与捧场用语（「牛逼/666/yyds/绝了/神中神/不愧是你/权威/夯」），表达强烈的夸赞(praise)与赞叹(admiration)。',
     intent: 'praise',
@@ -272,9 +314,9 @@ const CORPUS_RULES: readonly CorpusRule[] = [
       ) ||
       (/我真的会谢|那你很棒棒哦|啊对对对/.test(text) && upstream !== 'achievement'),
     gloss:
-      '「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」属于中文网络典型的反语与敷衍式吐槽，表面用正面词，实则表达无奈、不满或调侃，应判为吐槽(vent)与生气(anger)或负面倾向。',
-    intent: 'vent',
-    emotion: 'anger',
+      '「好好好/行行行/啊对对对/你开心就好/我真的会谢/栓Q」属于中文网络典型的敷衍式反语，表面顺从实则无奈或反讽，应判为敷衍(perfunctory)与反讽(irony)。',
+    intent: 'perfunctory',
+    emotion: 'irony',
     intensity: 62,
     sentiment: -50,
     minConfidence: 0.82,
@@ -322,13 +364,13 @@ const CORPUS_RULES: readonly CorpusRule[] = [
         text,
       ) || /^(尊嘟假嘟|细说|蹲|吃瓜|真的假的[？?]*)$/.test(norm),
     gloss:
-      '「尊嘟假嘟/细说/展开讲讲/蹲一个」表达强烈的好奇心与追问意图，应判为提问(question)与好奇(curiosity)。',
-    intent: 'question',
+      '「尊嘟假嘟/细说/展开讲讲/蹲一个」表达强烈的围观吃瓜与好奇追问，应判为吃瓜(gossip)与好奇(curiosity)。',
+    intent: 'gossip',
     emotion: 'curiosity',
-    intensity: 64,
-    sentiment: 20,
-    minConfidence: 0.84,
-    hard: false,
+    intensity: 75,
+    sentiment: 30,
+    minConfidence: 0.88,
+    hard: true,
   },
   // 9. 「包的 / 冲冲冲 / 安排 / 搞起」爽快约定与响应
   {
@@ -344,15 +386,79 @@ const CORPUS_RULES: readonly CorpusRule[] = [
     minConfidence: 0.82,
     hard: false,
   },
+  // 10. 炫耀成果、晒抽卡、凡尔赛（boast）
+  {
+    id: 'boast_flex_achievement',
+    match: (text, norm) =>
+      /^(看看我的|秀一下|晒一下|凡尔赛|全服前|国服前|手气还行|随便抽抽)$/.test(norm) ||
+      /(终于|总算|一发|十连)?(抽到|出金|出货|满命|专武|全成就|全通|破纪录|提车|过审|大厂\s*offer|百万\s*qps|免单)/i.test(
+        text,
+      ),
+    gloss:
+      '「秀战绩/晒抽卡/自研上线/破纪录/一发入魂」属于炫耀成果与高光时刻，应判为炫耀(boast)与兴奋(excitement)。',
+    intent: 'boast',
+    emotion: 'excitement',
+    intensity: 85,
+    sentiment: 80,
+    minConfidence: 0.88,
+    hard: false,
+  },
+  // 11. 损友调侃与打趣（banter）
+  {
+    id: 'banter_irony_tease',
+    match: (text, norm) =>
+      /^(就这[啊呀吧？?]*|你小子|损不损啊|差不多得了|典中典|很难评|夺笋啊|太损了|小丑竟是我|原来是个弟中弟)$/.test(
+        norm,
+      ) || /你小子|就这啊|损不损|夺笋/i.test(text),
+    gloss:
+      '「就这啊/你小子/损不损啊/差不多得了/典中典/很难评」属于损友之间的互怼与戏谑，应判为调侃(banter)与开心(joy)。',
+    intent: 'banter',
+    emotion: 'joy',
+    intensity: 75,
+    sentiment: 50,
+    minConfidence: 0.85,
+    hard: false,
+  },
+  // 13. 软萌示弱与撒娇（coquetry）
+  {
+    id: 'coquetry_flirt_plea',
+    match: (text, norm) =>
+      /^(呜呜呜+|嘤嘤嘤+|好哥哥|求求你了|带带我嘛|要抱抱|给颗糖嘛|帮帮人家嘛)$/i.test(norm) ||
+      /好哥哥|带带我嘛|帮帮人家|给颗糖嘛|求求你了呜呜|嘤嘤嘤/i.test(text),
+    gloss:
+      '「好哥哥/带带我嘛/呜呜呜求求了/嘤嘤嘤/要抱抱」属于示弱撒娇与亲昵求助，应判为撒娇(coquetry)与亲昵(affection)。',
+    intent: 'coquetry',
+    emotion: 'affection',
+    intensity: 82,
+    sentiment: 75,
+    minConfidence: 0.88,
+    hard: true,
+  },
+  // 14. 委屈难过与心态受挫（aggrieved）
+  {
+    id: 'aggrieved_wronged_vent',
+    match: (text) =>
+      /好委屈|委屈巴拉|太欺负人了|凭什么啊|被搞了|心态搞崩了|心里难受|呜呜呜好难过/i.test(text),
+    gloss:
+      '「好委屈/太欺负人了/凭什么啊/被搞了」表达遭受不公或被欺负时的难受委屈，应判为吐槽(vent)与委屈(aggrieved)。',
+    intent: 'vent',
+    emotion: 'aggrieved',
+    intensity: 78,
+    sentiment: -65,
+    minConfidence: 0.86,
+    hard: true,
+  },
 ];
 
 const UPSTREAM_SIGNAL_DESC: Record<UpstreamContextSignal, string | null> = {
   achievement:
     '上文刚提到非常厉害的成果、技术突破、高分战绩或作品展示；下文若是「吓哭了/看傻了/跪了/恐怖如斯/太变态了/卧槽/逆天/？？？」等字面惊恐或反常词汇，均属中文语境下的夸张式赞叹（intent=praise, emotion=admiration, sentiment>0），切勿误判为恐惧/焦虑/低落！',
-  danger_or_horror: '上文涉及真实惊吓、恐怖事物或险情，下文的害怕/担心属于真实的焦虑紧张(anxiety)。',
+  danger_or_horror:
+    '上文涉及真实惊吓、恐怖事物或险情，下文的害怕/担心属于真实的焦虑紧张(anxiety)。',
   trouble_or_vent: '上文正在诉苦、抱怨报错或倒霉经历，下文多为共情安慰、追问原因或跟着吐槽。',
   humor_or_meme: '上文在整活搞笑或讲段子，下文的夸张反应多为玩梗(joke)与开心(joy)。',
-  affection_or_care: '上文表达了关心、照顾或温情示好，下文回应通常带有暖心、亲昵(affection)或开心(joy)。',
+  affection_or_care:
+    '上文表达了关心、照顾或温情示好，下文回应通常带有暖心、亲昵(affection)或开心(joy)。',
   question_or_invite: '上文提出了问题或邀约，下文通常是回答告知(info)或约定响应(plan)。',
   neutral: null,
 };
@@ -363,12 +469,13 @@ const UPSTREAM_SIGNAL_DESC: Record<UpstreamContextSignal, string | null> = {
 export function analyzePragmatics(
   text: string,
   context: readonly IntentContextTurn[] = [],
+  targetSendTime?: number,
 ): PragmaticAnalysis {
   const trimmed = text.trim();
   if (!trimmed) {
     return { upstreamSignal: 'neutral', ruleId: null, promptHint: null, override: null };
   }
-  const upstream = detectUpstreamSignal(context);
+  const upstream = detectUpstreamSignal(context, targetSendTime);
   const norm = normalizeText(trimmed);
 
   for (const rule of CORPUS_RULES) {
@@ -404,6 +511,8 @@ const NEGATIVE_EMOTIONS: ReadonlySet<EmotionKind> = new Set([
   'anger',
   'anxiety',
   'fatigue',
+  'aggrieved',
+  'embarrassed',
 ]);
 
 /** 正面情绪集合（用于检测字面分类器是否把阴阳怪气反语误判成了正面情绪）。 */
@@ -412,6 +521,7 @@ const POSITIVE_EMOTIONS: ReadonlySet<EmotionKind> = new Set([
   'excitement',
   'admiration',
   'affection',
+  'anticipation',
 ]);
 
 export interface RawEngineSenseOutput {
@@ -434,8 +544,9 @@ export function calibrateIntentSense(
   raw: RawEngineSenseOutput,
   text: string,
   context: readonly IntentContextTurn[] = [],
+  targetSendTime?: number,
 ): RawEngineSenseOutput {
-  const prag = analyzePragmatics(text, context);
+  const prag = analyzePragmatics(text, context, targetSendTime);
   const ov = prag.override;
   if (!ov) {
     // 即使未命中特定黑话词条，若上文是显著牛逼成果且当前消息很短、含感叹号/问号，
@@ -461,7 +572,10 @@ export function calibrateIntentSense(
     return {
       intent: ov.intent,
       emotion: ov.emotion,
-      intensity: ov.sentiment >= 0 ? Math.max(raw.intensity, ov.intensity) : Math.max(raw.intensity, ov.intensity),
+      intensity:
+        ov.sentiment >= 0
+          ? Math.max(raw.intensity, ov.intensity)
+          : Math.max(raw.intensity, ov.intensity),
       sentiment:
         ov.sentiment >= 0
           ? Math.max(raw.sentiment, ov.sentiment)

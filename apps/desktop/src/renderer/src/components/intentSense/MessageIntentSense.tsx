@@ -14,15 +14,21 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Award,
   CalendarCheck,
   CircleDot,
   CloudLightning,
+  CornerDownRight,
+  Crown,
+  Eye,
   Hand,
+  Heart,
   HelpCircle,
   Info,
   Laugh,
   MessageCircle,
   Share2,
+  Smile,
   Sparkles,
   Sun,
   Loader2,
@@ -40,6 +46,12 @@ const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = 
   plan: { label: '约定', icon: CalendarCheck },
   info: { label: '通知', icon: Info },
   chat: { label: '闲聊', icon: MessageCircle },
+  boast: { label: '炫耀', icon: Crown },
+  flattery: { label: '吹捧', icon: Award },
+  banter: { label: '调侃', icon: Smile },
+  perfunctory: { label: '敷衍', icon: CornerDownRight },
+  gossip: { label: '吃瓜', icon: Eye },
+  coquetry: { label: '撒娇', icon: Heart },
   other: { label: '其他', icon: CircleDot },
 };
 
@@ -54,6 +66,11 @@ const EMOTION_LABELS: Record<string, string> = {
   affection: '亲昵',
   fatigue: '疲惫',
   curiosity: '好奇',
+  shock: '震惊',
+  aggrieved: '委屈',
+  irony: '反讽',
+  anticipation: '期待',
+  embarrassed: '尴尬',
 };
 
 function intentMeta(kind: string): { label: string; icon: typeof HelpCircle } {

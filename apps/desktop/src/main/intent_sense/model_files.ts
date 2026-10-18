@@ -213,9 +213,7 @@ export async function downloadLayaBundle(opts: DownloadBundleOptions): Promise<v
     await pipeline(source, createWriteStream(tmp, { flags: 'a' }));
     const appended = fileReceived - startOffset;
     if (partialExpected > 0 && appended !== partialExpected) {
-      throw new Error(
-        `下载 ${file} 不完整（${appended}/${partialExpected} 字节，重试将续传）`,
-      );
+      throw new Error(`下载 ${file} 不完整（${appended}/${partialExpected} 字节，重试将续传）`);
     }
     await rename(tmp, target);
     filesDone++;
