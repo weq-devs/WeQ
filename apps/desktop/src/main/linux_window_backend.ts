@@ -38,3 +38,24 @@ export function resolveOzonePlatform(
     env.XDG_SESSION_TYPE?.toLowerCase() === 'wayland' || Boolean(env.WAYLAND_DISPLAY);
   return isWayland && env.DISPLAY ? 'x11' : null;
 }
+
+/**
+ * Electron 启动参数里的 ozone 开关（不需要切换时返回空数组）。
+ *
+ * **必须走启动参数，不能 `app.commandLine.appendSwitch`**：Chromium 的 Ozone 平台在
+ * 应用 JS 跑起来之前就已初始化，ready 之前 append 也来不及。Electron 44 + Hyprland
+ * 实测：append 之后 `isVisible()` 为 true，但 X server 里没有顶层窗口，GPU 进程还会
+ * 反复 SIGSEGV(exit_code=139)。同一个开关放到命令行上则一切正常。
+ */
+export function ozonePlatformArgs(
+  platform: NodeJS.Platform = process.platform,
+  env: WindowBackendEnv = {
+    DISPLAY: process.env.DISPLAY,
+    WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY,
+    XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE,
+    WEQ_OZONE_PLATFORM: process.env.WEQ_OZONE_PLATFORM,
+  },
+): string[] {
+  const ozone = resolveOzonePlatform(platform, env);
+  return ozone ? [`--ozone-platform=${ozone}`] : [];
+}

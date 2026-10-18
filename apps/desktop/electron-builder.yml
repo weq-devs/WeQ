@@ -143,6 +143,13 @@ nsis:
 # Cannot find module '@resvg/resvg-js-linux-x64-gnu'。
 linux:
   icon: ../../resources/brand/logo.png
+  # Wayland 会话默认走 XWayland：平铺合成器（Hyprland/sway）会把 `type: 'toolbar'`
+  # 当成普通平铺窗口，且可能忽略程序化改尺寸。这个开关必须出现在 Electron 启动参数里
+  # ——`app.commandLine.appendSwitch` 在 ready 前调用也来不及（详见
+  # apps/desktop/src/main/linux_window_backend.ts）。用户可用 WEQ_OZONE_PLATFORM=wayland
+  # 显式退回原生 Wayland；纯 X11 桌面上多传这个参数无害。
+  executableArgs:
+    - --ozone-platform=x11
   # 打包字体（见顶部 extraResources 的说明）：Linux 发行版未必装 Noto CJK。
   extraResources:
     - from: ../../resources/assistant/fonts

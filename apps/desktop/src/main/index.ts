@@ -67,13 +67,12 @@ import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
-import { resolveOzonePlatform } from './linux_window_backend';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Must be set before the first BrowserWindow is created. See the module header
-// for why Wayland sessions use XWayland by default.
-const ozonePlatform = resolveOzonePlatform();
-if (ozonePlatform) app.commandLine.appendSwitch('ozone-platform', ozonePlatform);
+// Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
+// `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
+// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`，打包版由 electron-builder 的
+// `linux.executableArgs` 注入。
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom

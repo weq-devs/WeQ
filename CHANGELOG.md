@@ -382,3 +382,4 @@
 - 修复大量群聊或私聊消息同时入库时，实时监听最多只报告前 500 条的问题。
 - 修复全文搜索增量索引在超大 rowid 下的整数精度丢失和去重异常。
 - 修复原生邮箱登录后部分附件入口缺少会话 Cookie 的问题；凭据仅用于两个受信任的 HTTPS 邮箱主机。
+- 修复 Linux 下 `pnpm dev` 启动后主窗口不出现、并伴随 GPU 进程反复崩溃的问题：XWayland 改用 Electron 启动参数指定（打包版同样生效），Wayland 会话仍默认走 XWayland 以保留浮动窗口，`WEQ_OZONE_PLATFORM=wayland` 可退回原生 Wayland。
