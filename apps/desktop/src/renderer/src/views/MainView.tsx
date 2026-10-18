@@ -18,6 +18,11 @@ import React, {
 } from 'react';
 import { trpc } from '../trpc/client';
 import {
+  loadGroupAssistantPins,
+  saveGroupAssistantPins,
+  sidebarConversationsWithoutAssistant,
+} from '../lib/groupAssistant';
+import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
   timelineRowKey,
@@ -31,6 +36,7 @@ import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
+import { createUnreadRefresh, retryConversationRead } from '../lib/unreadRefresh';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
@@ -58,10 +64,8 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
-import { QuickExportLightbox, type QuickExportTarget } from './export/QuickExportLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
-import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
@@ -79,7 +83,6 @@ import {
   GroupMemberRenameDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
-import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { GroupBugDialog } from '../components/GroupBugDialog';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import {
@@ -123,7 +126,9 @@ import {
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { AnalysisReportPage } from './analysis/AnalysisReportPage';
-import type { AnalysisReportRequest } from './analysis/model';
+import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
+import type { RoamingTarget } from '@weq/service';
+import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import {
@@ -2514,6 +2519,9 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  const [groupAssistantPins, setGroupAssistantPins] = useState(() =>
+    loadGroupAssistantPins(openedUin ?? ''),
+  );
   // 草稿直接读写 QQ 自己的 draft_storage_table_v1 —— WeQ 不再另存一份缓存。
   // 这里的内存副本只用来即时回显（边打边显示 / 会话列表的草稿标记），真正落库
   // 只在「离开会话 / 离开消息页 / 应用退出」时做，见 flushDrafts。
@@ -2577,16 +2585,6 @@ export function MainView(): ReactElement {
     initialFolderId?: string;
     initialFileId?: string;
     searchRevision?: string;
-  } | null>(null);
-  const [analyticsDialog, setAnalyticsDialog] = useState<{
-    groupCode: string;
-    groupName: string;
-    memberCount?: number;
-    avatarUrl?: string | null;
-  } | null>(null);
-  const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
-    peerUid: string;
-    peerName: string;
   } | null>(null);
   const [announcementsDialog, setAnnouncementsDialog] = useState<{
     groupCode: string;
@@ -2878,18 +2876,6 @@ export function MainView(): ReactElement {
     [],
   );
 
-  const handleOpenGroupAnalytics = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setAnalyticsDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-        memberCount: conversation.group.memberCount,
-        avatarUrl: conversation.group.avatarUrl,
-      });
-    },
-    [],
-  );
-
   const handleOpenGroupBug = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setGroupBugDialog({
@@ -3070,20 +3056,6 @@ export function MainView(): ReactElement {
     setMemberCard({ member, anchor });
   }, []);
 
-  const handleOpenBuddyAnalytics = useCallback(
-    (conversation: Extract<Conversation, { type: 'direct' }>) => {
-      setBuddyAnalyticsDialog({
-        peerUid: conversation.otherUser.id,
-        peerName:
-          conversation.otherUser.displayName ||
-          conversation.otherUser.username ||
-          conversation.otherUser.identityValue ||
-          'TA',
-      });
-    },
-    [],
-  );
-
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
   const handleSearchChatRecords = useCallback((conversation: Conversation) => {
     if (conversation.type === 'group') {
@@ -3122,27 +3094,17 @@ export function MainView(): ReactElement {
     }
   }, []);
 
-  // 聊天顶栏「导出聊天记录」：目标固定为当前会话，灯箱与导出中心的
-  // 「聊天消息导出」完全一致；开始导出后 toast 提示去任务栏看进度。
-  const handleExportConversation = useCallback((conversation: Conversation) => {
-    if (conversation.type === 'group') {
-      const code = conversation.group.id;
-      setQuickExportTarget({
-        id: code,
-        name: conversation.group.name || code,
-        kind: 'group',
-      });
-      return;
-    }
-    if (conversation.type === 'direct') {
-      const { otherUser } = conversation;
-      const uin = otherUser.username || otherUser.identityValue || '';
-      setQuickExportTarget({
-        id: otherUser.id,
-        name: otherUser.displayName || uin || otherUser.id,
-        kind: 'c2c',
-      });
-    }
+  const handleAnalyzeConversation = useCallback((conversation: Conversation) => {
+    const target = conversationAnalysisTarget(conversation);
+    if (target)
+      setAnalysisRequest((previous) => ({ target, revision: (previous?.revision ?? 0) + 1 }));
+  }, []);
+  const handleRoamingTargets = useCallback((targets: RoamingTarget[]) => {
+    if (targets.length)
+      setRoamingRequest((previous) => ({
+        targets: targets.map((target) => ({ ...target })),
+        revision: (previous?.revision ?? 0) + 1,
+      }));
   }, []);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
@@ -3170,6 +3132,11 @@ export function MainView(): ReactElement {
     ...SEARCH_CATEGORY_ORDER,
   ]);
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
+  const [roamingRequest, setRoamingRequest] = useState<{
+    targets: RoamingTarget[];
+    revision: number;
+  } | null>(null);
   const [cloneSearchTarget, setCloneSearchTarget] = useState<GeneratedSearchHit | null>(null);
   const [collectionSearchTarget, setCollectionSearchTarget] = useState<{
     cid: string;
@@ -3204,8 +3171,6 @@ export function MainView(): ReactElement {
     /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
     fixed?: boolean;
   } | null>(null);
-  /** 顶栏「导出聊天记录」打开的目标会话（快捷导出灯箱）。 */
-  const [quickExportTarget, setQuickExportTarget] = useState<QuickExportTarget | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
@@ -3662,6 +3627,10 @@ export function MainView(): ReactElement {
 
     for (const [id, entry] of Object.entries(temporaryConversations)) {
       const current = byId.get(id) ?? entry.conversation;
+      if (current.type === 'group' && groupAssistantIds.has(id)) {
+        byId.set(id, current);
+        continue;
+      }
       byId.set(id, {
         ...current,
         hidden: false,
@@ -3731,14 +3700,8 @@ export function MainView(): ReactElement {
     botUids,
   ]);
   const sidebarConversations = useMemo(
-    () =>
-      conversations.filter(
-        (conversation) =>
-          conversation.type !== 'group' ||
-          !groupAssistantIds.has(conversation.id) ||
-          Boolean(temporaryConversations[conversation.id]),
-      ),
-    [conversations, groupAssistantIds, temporaryConversations],
+    () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
+    [conversations, groupAssistantIds],
   );
 
   const specialContactSections = useMemo(() => {
@@ -4440,95 +4403,96 @@ export function MainView(): ReactElement {
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
-    let running = false;
-    let pending = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const isCurrent = () => !disposed && useViewState.getState().openedUin === openedUin;
+    setUnreadByConv({});
+    setHighlightsByConv({});
 
-    const schedule = (): void => {
-      pending = true;
-      if (disposed || running || timer !== undefined) return;
-      // Fixed window: a busy group cannot continuously postpone the refresh.
-      timer = setTimeout(() => {
-        timer = undefined;
-        void loadUnread();
-      }, 1000);
-    };
-
-    async function loadUnread(): Promise<void> {
-      if (disposed) return;
-      running = true;
-      pending = false;
+    async function loadUnread(): Promise<boolean> {
+      if (!isCurrent() || !openedUin) return true;
       const list = unreadContactsRef.current;
       const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
       const succeeded = new Set<string>();
-      try {
-        const batchSize = 12;
-        for (let index = 0; index < list.length && !disposed; index += batchSize) {
-          // Give opening a conversation priority over background badge reads.
-          while (!disposed && initialMessagesPendingRef.current) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 100));
-          }
-          if (disposed) return;
-          await Promise.all(
-            list.slice(index, index + batchSize).map(async (contact) => {
-              const kind = chatTypeKind(contact.chatType);
-              if (kind === null) return;
-              try {
-                const info = await client.account.getUnreadInfo.query({
-                  chatType: kind === 'group' ? 2 : 1,
-                  uid: contact.targetUid,
-                });
-                const latest = BigInt(contact.msgSeq || '0');
-                const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-                counts[contact.targetUid] = latest > read ? Number(latest - read) : 0;
-                succeeded.add(contact.targetUid);
-                if (info?.highlights?.length) {
-                  highlights[contact.targetUid] = info.highlights as ConversationHighlight[];
-                }
-              } catch {
-                // Preserve the last known value when an individual read fails.
-              }
-            }),
-          );
-          // Yield between batches so IPC and user input can be handled.
-          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const latestByUid = new Map(list.map((contact) => [contact.targetUid, contact.msgSeq]));
+      let failed = false;
+      const targets = list.flatMap((contact) => {
+        const kind = chatTypeKind(contact.chatType);
+        return kind === null
+          ? []
+          : [{ chatType: kind === 'group' ? (2 as const) : (1 as const), uid: contact.targetUid }];
+      });
+      const batchSize = 256;
+      for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
+        // Give opening a conversation priority over background badge reads.
+        while (isCurrent() && initialMessagesPendingRef.current) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
         }
-        if (disposed) return;
-        const ids = new Set(list.map((contact) => contact.targetUid));
-        setUnreadByConv((current) => {
-          const next: Record<string, number> = {};
-          for (const id of ids) {
-            const value = succeeded.has(id) ? counts[id] : current[id];
-            if (value !== undefined) next[id] = value;
+        if (!isCurrent()) return true;
+        try {
+          const rows = await client.account.getUnreadInfos.query({
+            expectedAccountUin: openedUin,
+            targets: targets.slice(index, index + batchSize),
+          });
+          if (!isCurrent()) return true;
+          for (const info of rows) {
+            if (info.readError) {
+              failed = true;
+              continue;
+            }
+            const latest = BigInt(info.latestSeq ?? latestByUid.get(info.uid) ?? '0');
+            const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
+            counts[info.uid] = latest > read ? Number(latest - read) : 0;
+            succeeded.add(info.uid);
+            if (info?.highlights?.length) {
+              highlights[info.uid] = info.highlights as ConversationHighlight[];
+            }
           }
-          return Object.keys(next).length === Object.keys(current).length &&
-            Object.keys(next).every((id) => next[id] === current[id])
-            ? current
-            : next;
-        });
-        setHighlightsByConv((current) => {
-          const next: Record<string, ConversationHighlight[]> = {};
-          for (const id of ids) {
-            const value = succeeded.has(id) ? highlights[id] : current[id];
-            if (value?.length) next[id] = value;
-          }
-          return JSON.stringify(next) === JSON.stringify(current) ? current : next;
-        });
-      } finally {
-        running = false;
-        if (pending && !disposed) schedule();
+        } catch {
+          failed = true;
+        }
+        // Yield between batches so IPC and user input can be handled.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
+      if (!isCurrent()) return true;
+      const ids = new Set(list.map((contact) => contact.targetUid));
+      setUnreadByConv((current) => {
+        const next: Record<string, number> = {};
+        for (const id of ids) {
+          const value = succeeded.has(id) ? counts[id] : current[id];
+          if (value !== undefined) next[id] = value;
+        }
+        return Object.keys(next).length === Object.keys(current).length &&
+          Object.keys(next).every((id) => next[id] === current[id])
+          ? current
+          : next;
+      });
+      setHighlightsByConv((current) => {
+        const next: Record<string, ConversationHighlight[]> = {};
+        for (const id of ids) {
+          const value = succeeded.has(id) ? highlights[id] : current[id];
+          if (value?.length) next[id] = value;
+        }
+        return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+      });
+      return !failed;
     }
 
-    requestUnreadRefreshRef.current = schedule;
-    schedule();
+    const refresh = createUnreadRefresh(loadUnread);
+    requestUnreadRefreshRef.current = refresh.request;
+    const onVisible = () => {
+      if (document.visibilityState !== 'hidden') refresh.request();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    refresh.request();
     return () => {
       disposed = true;
-      if (timer !== undefined) clearTimeout(timer);
+      refresh.dispose();
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
     };
-  }, []);
+  }, [openedUin]);
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
   }, [recentContactsData, unreadRevision]);
@@ -5284,6 +5248,7 @@ export function MainView(): ReactElement {
     async (conv: Conversation) => {
       const isCurrent = () =>
         messagesTabActiveRef.current &&
+        document.visibilityState !== 'hidden' &&
         selectedUidRef.current === conv.id &&
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
@@ -5299,20 +5264,23 @@ export function MainView(): ReactElement {
           entry.again = false;
           if (!isCurrent()) break;
           try {
-            // 由现有服务读取最新本地水位，不把待发送消息或漫游编号写进已读表。
-            const changed = await client.account.markConversationRead.mutate({
+            // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
+            const latestSeq = unreadContactsRef.current.find(
+              (contact) => contact.targetUid === conv.id,
+            )?.msgSeq;
+            const request = {
               chatType: conv.type === 'group' ? 2 : 1,
               uid: conv.id,
-            });
-            if (changed && isCurrent()) {
+              latestSeq,
+              expectedAccountUin: openedUin ?? undefined,
+            };
+            const changed = await retryConversationRead(
+              () => client.account.markConversationRead.mutate(request),
+              isCurrent,
+            );
+            if (changed !== null && isCurrent()) {
               setUnreadRevision((revision) => revision + 1);
-              setUnreadByConv((current) => ({ ...current, [conv.id]: 0 }));
-              setHighlightsByConv((current) => {
-                const next = { ...current };
-                delete next[conv.id];
-                return next;
-              });
-              void utils.account.listRecentContacts.invalidate();
+              if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
             console.error('[unread] markConversationRead failed', error);
@@ -7293,9 +7261,7 @@ export function MainView(): ReactElement {
       deletedConversationsById.get(id) ??
       candidate;
     const needsAppearance =
-      !recentContactsData.some((contact) => contact.targetUid === id) ||
-      hiddenUidSet.has(id) ||
-      groupAssistantIds.has(id);
+      !recentContactsData.some((contact) => contact.targetUid === id) || hiddenUidSet.has(id);
     if (needsAppearance)
       setTemporaryConversations((current) =>
         current[id]
@@ -7774,11 +7740,9 @@ export function MainView(): ReactElement {
                           onRenameGroupMember={handleRenameGroupMember}
                           onKickGroupMember={handleKickGroupMember}
                           onOpenConversationSettings={handleOpenConversationSettings}
-                          onOpenGroupAnalytics={handleOpenGroupAnalytics}
                           onOpenGroupBug={handleOpenGroupBug}
                           onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
                           groupBugOnline={groupBugStatus.data?.online ?? false}
-                          onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                           onOpenGroupMember={handleOpenGroupMember}
                           onAddMessage={handleAddMessage}
                           onMergeForward={handleMergeForward}
@@ -7793,7 +7757,10 @@ export function MainView(): ReactElement {
                           onViewRecalled={handleViewRecalled}
                           onOpenGapMessages={handleOpenGapMessages}
                           onSearchChatRecords={handleSearchChatRecords}
-                          onExportConversation={handleExportConversation}
+                          onOpenRoamingBackfill={(conversation) => {
+                            const target = conversationRoamingTarget(conversation);
+                            if (target) handleRoamingTargets([target]);
+                          }}
                           deletedIds={deletedIds}
                           onRestoreMessage={handleRestoreMessage}
                           unreadDock={unreadDock}
@@ -7821,6 +7788,16 @@ export function MainView(): ReactElement {
                 kind={mergedPanel.kind}
                 conversations={conversations}
                 groupAssistantIds={groupAssistantIds}
+                groupAssistantPins={groupAssistantPins}
+                onGroupAssistantPin={(id, pinned) => {
+                  const next = { ...groupAssistantPins, [id]: pinned };
+                  try {
+                    saveGroupAssistantPins(user.identityValue, next);
+                    setGroupAssistantPins(next);
+                  } catch {
+                    pushToast({ tone: 'info', title: '群助手置顶保存失败，请重试' });
+                  }
+                }}
                 groupAssistantLoading={contacts.isFetching}
                 groupAssistantHasMore={Boolean(contacts.hasNextPage)}
                 onLoadMoreGroupAssistant={loadMoreContacts}
@@ -7891,6 +7868,9 @@ export function MainView(): ReactElement {
             }}
           />
           <WorkspaceTools
+            currentConversation={shell.view === 'messages' ? activeConversation : null}
+            analysisRequest={analysisRequest}
+            roamingRequest={roamingRequest}
             onOpenComposition={compositionWindow.open}
             assistantSearchTarget={assistantSearchTarget}
             onOpenAnalysis={(request) => setAnalysisReports((previous) => [...previous, request])}
@@ -7967,22 +7947,6 @@ export function MainView(): ReactElement {
               initialFolderId={groupFileDialog.initialFolderId}
               initialFileId={groupFileDialog.initialFileId}
               onClose={() => setGroupFileDialog(null)}
-            />
-          ) : null}
-          {analyticsDialog ? (
-            <GroupAnalyticsDialog
-              groupCode={analyticsDialog.groupCode}
-              groupName={analyticsDialog.groupName}
-              memberCount={analyticsDialog.memberCount}
-              avatarUrl={analyticsDialog.avatarUrl}
-              onClose={() => setAnalyticsDialog(null)}
-            />
-          ) : null}
-          {buddyAnalyticsDialog ? (
-            <BuddyAnalyticsDialog
-              peerUid={buddyAnalyticsDialog.peerUid}
-              peerName={buddyAnalyticsDialog.peerName}
-              onClose={() => setBuddyAnalyticsDialog(null)}
             />
           ) : null}
           {announcementsDialog ? (
@@ -8129,6 +8093,13 @@ export function MainView(): ReactElement {
                   : undefined
               }
               onClose={() => setMemberCard(null)}
+              onAnalyze={(target) => {
+                setMemberCard(null);
+                setAnalysisRequest((previous) => ({
+                  target,
+                  revision: (previous?.revision ?? 0) + 1,
+                }));
+              }}
               onOpenChat={() => {
                 void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
                   pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
@@ -8296,12 +8267,6 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
-          {quickExportTarget ? (
-            <QuickExportLightbox
-              target={quickExportTarget}
-              onClose={() => setQuickExportTarget(null)}
-            />
-          ) : null}
           {chatRecordsTarget ? (
             <ChatRecordsModal
               initialHit={chatRecordsTarget.hit}
@@ -8383,6 +8348,19 @@ export function MainView(): ReactElement {
                 real: conversations,
                 virtual: virtualRows,
                 locate: conversationLocate,
+                onAnalyze: handleAnalyzeConversation,
+                onAnalyzeMember: (conversation, member) => {
+                  setAnalysisRequest((previous) => ({
+                    target: {
+                      kind: 'member',
+                      groupCode: conversation.group.id,
+                      memberUid: member.id.startsWith('u_') ? member.id : '',
+                      memberUin: member.identityValue || undefined,
+                    },
+                    revision: (previous?.revision ?? 0) + 1,
+                  }));
+                },
+                onRoaming: handleRoamingTargets,
                 onVirtual: (item) => {
                   flushAllDirtyDrafts();
                   setCloneSearchTarget(null);

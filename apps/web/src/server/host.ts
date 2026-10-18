@@ -75,6 +75,15 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
     },
 
     async pickSaveTarget({ defaultName }): Promise<SaveTarget> {
+      if (
+        !defaultName ||
+        defaultName === '.' ||
+        defaultName === '..' ||
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: Reject filename control characters.
+        /[/\\\x00-\x1f:]/.test(defaultName)
+      ) {
+        throw new Error('保存文件名必须是单个文件名，不能包含路径或控制字符。');
+      }
       const path = join(exportDir, `${randomUUID()}-${defaultName}`);
       const id = registerDownload(path, defaultName, 'file');
       return { path, downloadId: id };

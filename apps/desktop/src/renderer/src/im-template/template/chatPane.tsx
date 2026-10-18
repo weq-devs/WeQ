@@ -1,11 +1,13 @@
 ﻿// @ts-nocheck
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import { conversationExportSelection } from '../../lib/conversationActions';
+import { ConversationMessageActions } from '../../components/ConversationMessageActions';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import {
   AudioLines,
-  BarChart3,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -13,16 +15,13 @@ import {
   ChevronUp,
   ChevronsUp,
   CirclePlus,
-  CloudDownload,
   Download,
   Search,
   Trash2,
-  ListX,
-  ListRestart,
   ListPlus,
   FileText,
-  Images,
   FolderOpen,
+  UsersRound,
   Bug,
   Hand,
   Image as ImageIcon,
@@ -383,18 +382,15 @@ export function ChatPane({
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
-  onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
   groupBugOnline,
-  onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
-  onExportConversation,
   onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
@@ -504,7 +500,6 @@ export function ChatPane({
   onOpenConversationSettings?: (
     conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
   ) => void;
-  onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
    * 群资料面板「已退群」入口：把信号交给应用层，由它拉本地 group_member3 并弹出灯箱
@@ -513,15 +508,12 @@ export function ChatPane({
   onOpenGroupLeftMembers?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
-  onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: 'direct' }>) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
   onViewRecalled?: (conversation: Conversation) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
-  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
-  onExportConversation?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (gap: {
@@ -556,6 +548,7 @@ export function ChatPane({
   const jumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
   const tabActive = useTabActive();
+  const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [repeating, setRepeating] = useState(false);
@@ -579,6 +572,16 @@ export function ChatPane({
     ),
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
+  const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px)');
+    const update = () => {
+      if (!query.matches) setMobileGroupInfoOpen(false);
+    };
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
   const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -714,6 +717,13 @@ export function ChatPane({
     kind: 'messages',
     container: `${conversation?.type ?? 'none'}:${conversation?.id ?? ''}`,
   });
+  const requestExport = useRequestContentExport();
+  const exportMessageIds = (ids: string[]) => {
+    const scope = conversationExportSelection(conversation);
+    if (requestExport && scope && ids.length)
+      requestExport({ ...scope, scope: { type: 'items', ids: [...ids] } });
+    setContextMenu(null);
+  };
   const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
@@ -2844,12 +2854,6 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
-    // 多选模式下右键 = 切换选中，不再弹菜单。
-    if (selectionMode) {
-      event.preventDefault();
-      toggleSelectMessage(message, event);
-      return;
-    }
     if (window.matchMedia('(max-width: 760px)').matches) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
@@ -3574,6 +3578,7 @@ export function ChatPane({
         conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
           ? 'group-info-collapsed'
           : '',
+        mobileGroupInfoOpen && 'is-mobile-group-info-open',
         composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
         selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
@@ -3638,114 +3643,29 @@ export function ChatPane({
               <Search size={18} />
             </button>
           ) : null}
-          {onExportConversation &&
-          (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="导出聊天记录"
-              onClick={() => onExportConversation(conversation)}
-            >
-              <Download size={18} />
-            </button>
-          ) : null}
-          {onOpenRoamingBackfill &&
-          (conversation.type === 'group' ||
-            (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))) ? (
-            <button
-              className={cn(
-                'icon-button',
-                'group-header-info-action',
-                'chat-header-roaming-action',
-              )}
-              type="button"
-              title="批量补全缺失消息"
-              aria-label="批量补全缺失消息"
-              onClick={() => onOpenRoamingBackfill(conversation)}
-            >
-              <CloudDownload size={18} />
-            </button>
-          ) : null}
-          {onAddMessage && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="插入本地消息（不会发送给对方）"
-              onClick={() => onAddMessage(conversation)}
-            >
-              <CirclePlus size={18} />
-            </button>
-          ) : null}
-          {onViewDeleted && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="删除列表"
-              onClick={() => onViewDeleted(conversation)}
-            >
-              <ListX size={18} />
-            </button>
-          ) : null}
-          {onViewRecalled && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="撤回列表"
-              onClick={() => onViewRecalled(conversation)}
-            >
-              <ListRestart size={18} />
-            </button>
+          {conversation.type === 'group' || conversation.type === 'direct' ? (
+            <ConversationMessageActions
+              conversation={conversation}
+              onRoaming={onOpenRoamingBackfill}
+              onAdd={onAddMessage}
+              onDeleted={onViewDeleted}
+              onRecalled={onViewRecalled}
+            />
           ) : null}
           {conversation.type === 'group' ? (
             <>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group announcements"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupAnnouncements?.(conversation);
-                  }
-                }}
-              >
-                <FileText size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group highlights"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupEssence?.(conversation);
-                  }
-                }}
-              >
-                <Sparkles size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group albums"
-                onClick={() => onOpenGroupAlbums?.(conversation)}
-              >
-                <Images size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group files"
-                onClick={() => onOpenGroupFiles?.(conversation)}
-              >
-                <FolderOpen size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group analytics"
-                onClick={() => onOpenGroupAnalytics?.(conversation)}
-              >
-                <BarChart3 size={18} />
-              </button>
+              {!sidecarOpen ? (
+                <button
+                  className="icon-button group-header-info-action weq-mobile-group-info-trigger"
+                  type="button"
+                  title="群资料"
+                  aria-label="群资料"
+                  aria-expanded={mobileGroupInfoOpen}
+                  onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
+                >
+                  <UsersRound size={18} />
+                </button>
+              ) : null}
               {onOpenGroupBug && PROJECT_GROUP_IDS.includes(conversation.id) ? (
                 <button
                   className={cn(
@@ -3762,15 +3682,6 @@ export function ChatPane({
                 </button>
               ) : null}
             </>
-          ) : conversation.type === 'direct' ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="私聊分析"
-              onClick={() => onOpenBuddyAnalytics?.(conversation)}
-            >
-              <BarChart3 size={18} />
-            </button>
           ) : null}
           {onOpenConversationSettings &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
@@ -3996,10 +3907,19 @@ export function ChatPane({
               {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
             </button>
           ) : null}
-          {!groupInfoCollapsed && !sidecarOpen ? (
+          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !sidecarOpen ? (
             <GroupInfoPanel
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}
+              onOpenAnnouncements={
+                onOpenGroupAnnouncements ? () => onOpenGroupAnnouncements(conversation) : undefined
+              }
+              onOpenEssence={
+                onOpenGroupEssence ? () => onOpenGroupEssence(conversation) : undefined
+              }
+              onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
+              onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
+              onClose={mobileGroupInfoOpen ? () => setMobileGroupInfoOpen(false) : undefined}
               onOpenMember={onOpenGroupMember}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               loadingMoreMembers={groupMembersLoading}
@@ -4055,6 +3975,23 @@ export function ChatPane({
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
+              {requestExport && conversationExportSelection(conversation) ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="导出所选消息"
+                  title="导出所选消息"
+                  disabled={
+                    !selectedIds.size ||
+                    selectedMessages.some(
+                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    )
+                  }
+                  onClick={() => exportMessageIds([...selectedIds])}
+                >
+                  <Download size={17} />
+                </button>
+              ) : null}
               {onAddToComposition ? (
                 <button
                   type="button"
@@ -4667,6 +4604,31 @@ export function ChatPane({
               : undefined
           }
           state={contextMenu}
+          onExport={
+            requestExport &&
+            conversationExportSelection(conversation) &&
+            contextMenu.message.source !== 'roaming' &&
+            !isLocalOutgoingMessage(contextMenu.message)
+              ? (message) =>
+                  exportMessageIds(
+                    selectionMode && selectedIds.has(message.id) ? [...selectedIds] : [message.id],
+                  )
+              : undefined
+          }
+          exportLabel={
+            selectionMode && selectedIds.has(contextMenu.message.id) && selectedIds.size > 1
+              ? '导出所选消息'
+              : '导出'
+          }
+          exportBlockedReason={
+            selectionMode &&
+            selectedIds.has(contextMenu.message.id) &&
+            selectedMessages.some(
+              (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+            )
+              ? '所选消息包含未入库记录，暂不能精确导出'
+              : undefined
+          }
           onCopy={copyMessage}
           onForward={
             onForwardMessages
@@ -4720,6 +4682,14 @@ export function ChatPane({
       {avatarMenu ? (
         <AvatarContextMenu
           state={avatarMenu}
+          onAnalyze={
+            conversation?.type === 'group' && directory?.onAnalyzeMember
+              ? (member) => {
+                  setAvatarMenu(null);
+                  directory.onAnalyzeMember(conversation, member);
+                }
+              : undefined
+          }
           onMention={mentionAvatar}
           onPoke={pokeAvatar}
           pokeBlockedReason={pokeBlockedReason}

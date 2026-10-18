@@ -29,6 +29,8 @@ export { UnreadInfoDb } from './unread_info';
 export type {
   UnreadInfoDbOptions,
   UnreadInfoResult,
+  UnreadInfoTarget,
+  UnreadInfoSnapshot,
   UnreadHighlight,
   UnreadHighlightInput,
   HighlightKind,

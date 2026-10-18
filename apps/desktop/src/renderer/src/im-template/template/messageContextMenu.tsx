@@ -34,6 +34,9 @@ export type MessageContextMenuState = {
 export function MessageContextMenu({
   state,
   onCopy,
+  onExport,
+  exportLabel = '导出',
+  exportBlockedReason,
   onForward,
   onAddToComposition,
   onDownloadImage,
@@ -52,6 +55,9 @@ export function MessageContextMenu({
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
+  onExport?: (message: Message) => void;
+  exportLabel?: string;
+  exportBlockedReason?: string;
   onForward?: (message: Message) => void;
   onAddToComposition?: (message: Message) => void;
   onDownloadImage?: (url: string, message: Message) => void;
@@ -137,6 +143,17 @@ export function MessageContextMenu({
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />
           <span>多选</span>
+        </button>
+      ) : null}
+      {onExport ? (
+        <button
+          type="button"
+          title={exportBlockedReason ?? exportLabel}
+          disabled={Boolean(exportBlockedReason)}
+          onClick={() => onExport(state.message)}
+        >
+          <Download size={17} />
+          <span>{exportLabel}</span>
         </button>
       ) : null}
       {onAddToComposition ? (

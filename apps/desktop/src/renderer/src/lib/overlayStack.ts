@@ -18,6 +18,10 @@ import { useRef } from 'react';
 const BASE = 1200;
 let counter = BASE;
 
+export function claimOverlayLayer(): number {
+  return ++counter;
+}
+
 /** 底层页面快捷键不能穿透工具遮罩；保留但隐藏的工具不算活动对话框。 */
 export function hasActiveModal(
   ownerDocument: Document | undefined = typeof document === 'undefined' ? undefined : document,
@@ -37,7 +41,7 @@ export function hasActiveModal(
  */
 export function useOverlayLayer(active: boolean): number | undefined {
   const claimed = useRef<number | undefined>(undefined);
-  if (active && claimed.current === undefined) claimed.current = ++counter;
+  if (active && claimed.current === undefined) claimed.current = claimOverlayLayer();
   else if (!active && claimed.current !== undefined) claimed.current = undefined;
   return claimed.current;
 }

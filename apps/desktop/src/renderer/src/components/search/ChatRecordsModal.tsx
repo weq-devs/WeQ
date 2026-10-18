@@ -270,7 +270,7 @@ export function ChatRecordsModal({
 
   return (
     <Modal
-      presentation="panel"
+      presentation="floating"
       onClose={() => {
         if (rangeCalendarOpen) setRangeCalendarOpen(false);
         else if (calendarOpen) setCalendarOpen(false);
@@ -280,7 +280,7 @@ export function ChatRecordsModal({
       labelledBy="weq-chatrecords-title"
     >
       <div className="weq-chatrecords">
-        <div className="weq-chatrecords-head">
+        <div className="weq-chatrecords-head" data-window-drag-handle>
           <div className="weq-chatrecords-title-wrap">
             <h3 id="weq-chatrecords-title" className="weq-search-more-title">
               聊天记录

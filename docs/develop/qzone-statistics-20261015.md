@@ -1,34 +1,12 @@
-# QQ space statistics, 2026-10-15
+# 空间统计口径
 
-## Change
+当前展示空间说说/照片内容总数及单条说说阅读数，**不展示或查询空间访客总人次**。访客展示已撤回，不能根据旧实现重新加回。
 
-- Replace the loaded-post/total pagination fraction with space visit occurrences, post count and photo count on each owner's post timeline.
-- Display post reads alongside likes/comments. Reuse `qz_opcnt2`'s `newdata.PRD` in the existing lazy interaction request; do not count liker identities as reads.
-- Read space visit occurrences using `friendshow/cgi_get_visitor_simple`, `mask=1`, `data.modvisitcount[0].totalcount`. Do not substitute today's count, recent visitor list size, or a sum across modules.
-- Read content totals using `main_page_cgi`, `param=16`, `data.module_16.data.SS/XC`. Do not sum the first page's album media counts or use the loaded post count as the total.
-- Preserve explicit zero. Missing, unsafe, malformed or denied counters stay unknown and can be retried. Content/visitor requests fail independently; cancellation and account-session checks remain mandatory.
-- Keep statistics separate for each open space, refresh with the existing page refresh, and use existing theme tokens and wrapping layout.
+| 数据 | 来源与边界 |
+| --- | --- |
+| 说说/照片总数 | `main_page_cgi` 的 `param=16`、`module_16.data.SS/XC`；不是已加载行数或首批相册媒体数 |
+| 说说阅读数 | 已有懒加载互动请求中 `qz_opcnt2` 的 `newdata.PRD`；不是点赞人数 |
 
-## Sources and Acceptance Boundary
+明确零保留；缺失、不安全数值、权限拒绝和失败显示未知，不补零。统计按所开空间隔离，沿用刷新、取消与失败重试。
 
-The response paths are based on original API-reader implementations, not invented counts:
-
-- [Post PRD reader](https://github.com/Gu-Heping/onebot-qzone/blob/main/src/qzone/client.ts), `getTrafficData`.
-- [Space visitor total reader](https://github.com/netcccyun/qqapi/blob/master/includes/lib/QQTool.php), `getvisitcount`.
-- [Space content total reader](https://github.com/wwwpf/QzoneExporter/blob/master/exporter.py), `_get_main_page_data`, and its photo-count mapping.
-
-These are implementation references, not proof that the current account's upstream responses still have the same schema or that the current server's `XC` matches its displayed photo-count semantics. No authenticated live QQ requests were made in this change. Real-account comparison against QQ's own view remains unverified; permissions may leave counters unknown.
-
-## Verified
-
-- Service tests: 830/830 pass, including 9 new statistics/read-count cases.
-- Desktop Qzone boundary: 11/11 pass. Updated two existing stale fixtures for the current nickname DTO and HostBridge image validation; no production behavior changes for those fixture repairs.
-- Service typecheck and desktop main/preload + renderer typechecks pass.
-- Changed TypeScript files pass Biome lint/format; `git diff --check` passes.
-- `electron-vite build` passes. Existing dynamic-import/chunk warnings remain; this is bundling, not a new `.app` package.
-- Actual QzoneView with a synthetic transport: 16 desktop/mobile (1280/390px), light/dark, normal/unknown/error/loading cases pass. Verified explicit zeros, failure/partial-data retry, owner switching, view counts, no page errors and no viewport/statistics overflow. No real media or account acceptance is claimed.
-
-QA sources/results are kept outside the repository in a private local workspace.
-Screenshots: `apps/desktop/dist/qzone-stats-*.png` (ignored generated artifacts).
-
-No application install/replacement, authenticated QQ collection, archive-disk access, push or release performed for this change. The previous `2.0.2-local.27` App is unchanged and does not include this change.
+解析入口：`packages/service/src/account/web/qzone_stats.ts`、`qzone_interaction.ts`。字段基于第三方读取实现及匿名夹具，不能视为腾讯稳定协议；当前账号响应及照片总数语义仍需独立比对，不因字段名相同就承诺一致。

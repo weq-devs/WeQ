@@ -1,40 +1,26 @@
-# Live Photo Read-API Investigation, 2026-10-15
+# Live Photo 分类证据
 
-## Scope
+结论：2026-10-15 的已知样本能区分静态媒体与携带视频的媒体，**不能可靠区分普通视频和 Live Photo**。没有新增自动 Live Photo 分类。
 
-The user authorized exploring the other interfaces in the local API reference to distinguish the newest post's three labeled media items: ordinary video, Live Photo, static photo. This follows the R01/R02 mixed-media counterexample recorded in `qzone-media-grid-20261015.md`.
+## 反例
 
-Reused the running development WeQ's local MCP credential service. Credentials and wire responses were held in memory only. Remote JSON/JSONP/object literals were parsed as data with the existing non-executing parser; remote HTML/scripts were not executed. Public source recipes were checked against the reference's pinned QzonePhoto, onebot-qzone and QZoneExport versions. No private identifiers, body text, signed URLs or credentials are retained here.
+最初一个纯视频帖使用顶层 `video[]`，另一个已知 Live Photo 帖使用 `pic[].is_video=1/video_info`。但随后明确标注“普通视频、Live Photo、静态照片”的混合帖中，前两项均进入 `pic[]`，两者的字段集合相同，`videototal=0`。因此不能把 `pic[]`、`videototal`、封面配视频或 `pic_id` 的有无当分类规则。
 
-There were 15 content requests across 10 reference recipes, including the R01 anchor read and five R22 attempts. Total decoded response payload was 1,296,590 bytes. No retries of failed endpoints, continuation requests, media downloads, write endpoints, archive reads, app restarts, installations or pushes were performed. Small requested counts were not always honored: R13 returned metadata for 10 posts despite `showcount=1`; R14 returned 48 `friend_data` items despite `count=1`. Only the exact target post was analyzed for media classification. Do not describe these calls as retrieving only one post at the transport layer.
+对该混合帖的其它读取结果：
 
-## Results
-
-| Recipe | Actual result | Classification evidence / boundary |
+| 配方 | 有效观察 | 不能推出的结论 |
 | --- | --- | --- |
-| R01, list anchor | HTTP 200, `code=0`, `num=1` | Confirmed the same three-item post; both moving items share `pic[].is_video=1` and `video_info`. |
-| R04, attached pictures | HTTP 200, `result.code=0` | Returned one static photo in `imageUrls/images`, no moving-media type metadata. This envelope uses nested `result.code`, not top-level `code`; the supplement parser inspected at investigation start accepted only top-level `code`, identifying a compatibility gap. Other concurrent source edits were present at closeout and were not reviewed or committed here; this investigation does not certify their fix or tests. |
-| R03, old detail GET | HTTP 500, empty body | No usable response; no POST fallback or retry. This does not establish permanent endpoint failure. |
-| B02, mobile detail | HTTP 404, empty body | No usable response with the documented path and mobile headers; no alternate paths guessed. |
-| R13, home module | HTTP 200; extracted `_feedsdata.code` is an empty string, not numeric zero | Exact owner/post match in metadata and HTML demonstrates the target payload was present; do not describe the empty code as `code=0`. No verified Live Photo marker in the target media markup or metadata. |
-| R14, home activity | HTTP 200, `code=0` | Exact owner/post match in `friend_data`. All three target previews use the same popup markup. Provided popup topic and picture keys, but not a verified Live Photo type. |
-| R22, popup-context keys | Three HTTP 200 responses, `code=-4003` | Each reports invalid album ID. A popup `data-topicid` is not necessarily an album ID; do not pass it to the album reader as though the contexts were interchangeable. No repeated attempts with guessed IDs. |
-| R27, independent videos | HTTP 200, `code=0`, `count=3` | Both target moving items matched by exact video ID. Both `isNewFormat="true"`, `source=0`, `status=2`; being in this list does not distinguish ordinary video from Live Photo. |
-| R20, albums | HTTP 200, `code=0`, first 10 albums | No established target-album relationship in that page. Did not traverse the rest or select by similar album name. |
-| R15, own photo feed | HTTP 200, `code=0`, one response | Exact target matched by its post handle (`skey` here is a feed key, not the authentication skey). Three items: `photoType="1"`, `"1"`, `"0"`. Dynamic entries have empty `is_video`, `videourl`, `videokey`, `lloc`, `sloc`; empty `is_video` is not proof of a still image. Supplied an actual album reference. |
-| R21, referenced album | HTTP 200, `code=0`, first 3 media | Obtained real album media keys. Third item matched the known static photo's location key exactly. First two had `is_video=true`, `phototype=1`; these were subsequently bound to the known dynamic items by R22 video IDs, not by array position alone. |
-| R22, actual album keys | Two HTTP 200 responses, `code=0`, one photo each | Returned photos matched the requested `lloc/picKey`; nested `vid` exactly matched the known ordinary video and Live Photo respectively. Both had `phototype=1`, `is_video=true`, `video_info.video_type=0`, `format="f20"`, `status=2`, and reported `duration=0`. Both had the same field sets. |
+| R01/R02 | 两种动态项都含 `is_video/video_info` | 普通视频与 Live Photo 有不同已验证类型标记 |
+| R04 | 附图封套使用 `result.code`，返回静态图定位 | 顶层 `code` 足以判断所有接口成功 |
+| R13/R14 | 精确帖身份出现在主页元数据与 HTML 中 | popup topic 一定是相册 ID |
+| R15 → R21 → R22 | 由真实相册和照片键，经精确 vid 将两种动态项分别绑定 | 数组顺序或相似封面可替代身份绑定 |
+| R22 | 两者均为 `phototype=1`、`is_video=true`、`video_type=0`，还返回下载/尺寸信息 | 时长、格式、大小或下载 URL 是语义类型 |
+| R27 | 两种动态项均在独立视频列表中 | 视频模块收录即可排除 Live Photo |
 
-R22 exposed useful download/playback metadata (`download_url`, `video_url`, `size`, `cover_width/height`, `vid`), but those are not verified Live Photo discriminators. The two R21 EXIF objects had no populated values. Asset dimensions, size, IDs, names, timestamps, duration or URL differences must not be promoted to semantic type rules.
+R03 与移动端 B02 在该次读取失败，不证明端点永久不可用。R13 的空字符串业务码也不能写成数值 `code=0`。
 
-## Conclusion
+## 后续依据
 
-These tested web variants can distinguish static media from media carrying video, but do not expose a verified discriminator between the user's known ordinary video and Live Photo. In particular, `pic[]`, `videototal=0`, video-list membership, `photoType="1"`, `phototype=1`, and `video_type=0` all occur for both in this sample. This is a bounded observation, not a claim that no QQ endpoint or client protocol can preserve the original type.
+分类需要经已知普通视频/Live Photo 对照验证的官方类型字段或明确配对协议；不能硬编码样本身份、位置、时长或文件名。上述证据仅覆盖当时的 Web 变体，不声称所有 QQ 接口都缺乏类型。
 
-R05, interaction/visitor/statistics endpoints, friend-wide R16, and unrelated logs/diaries/favorites were not invoked because they do not provide an established target-media typing path. Old names in the reference's registration-only section were not probed with invented parameters. No mobile QQ protocol, native database metadata or original-file inspection was performed or implicitly authorized.
-
-No automatic Live Photo classification was added. A next investigation would require a documented current mobile/native type field or actual official-client network evidence for these known items. Do not implement classification by hardcoded sample identity/order or by duration thresholds.
-
-## Reload And Verification
-
-This batch changes investigation documentation only. No WeQ/QQ restart, renderer refresh or build is required. Validation consists of the real read-response codes and exact identity/key bindings above plus `git diff --check`; there is no new application behavior or GUI acceptance to claim.
+配方与固定版本来源见[Web 接口参考](qzone-web-api-reference-20261015.md)。本页保留匿名技术结论，不保留账号、正文、签名 URL、票据或原始私人响应。

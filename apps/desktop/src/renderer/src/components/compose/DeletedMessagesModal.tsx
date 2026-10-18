@@ -169,9 +169,9 @@ export function DeletedMessagesModal({
   }
 
   return (
-    <Modal presentation="panel" onClose={onClose} width={560} labelledBy="weq-deleted-title">
+    <Modal presentation="floating" onClose={onClose} width={560} labelledBy="weq-deleted-title">
       <div className="weq-deleted">
-        <header className="weq-compose-head">
+        <header className="weq-compose-head" data-window-drag-handle>
           <div className="weq-compose-titlewrap">
             <strong id="weq-deleted-title" className="weq-compose-title">
               删除列表

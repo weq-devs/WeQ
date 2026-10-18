@@ -20,6 +20,9 @@ import {
   RefreshCw,
   Plus,
   MessagesSquare,
+  BarChart3,
+  CloudDownload,
+  Download,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -27,7 +30,13 @@ import {
   ContactDirectoryContext,
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import {
+  conversationAnalysisTarget,
+  conversationExportSelection,
+  conversationRoamingTarget,
+} from '../../lib/conversationActions';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { WindowedList } from '../../components/WindowedList';
@@ -159,6 +168,13 @@ export function ConversationList({
   loadingMore?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const requestExport = useRequestContentExport();
+  const [actionMenu, setActionMenu] = useState<{
+    conversation: Conversation;
+    ids: string[];
+    x: number;
+    y: number;
+  } | null>(null);
   const [keyword, setKeyword] = useState('');
   const [scope, setScope] = useState<'all' | 'real' | 'virtual'>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -442,6 +458,44 @@ export function ConversationList({
               )}
               aria-pressed={selectionMode ? selectedIds.has(conversation.id) : undefined}
               {...multi.itemProps(conversation.id)}
+              onContextMenu={(event) => {
+                if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
+                if (
+                  !conversationExportSelection(conversation) ||
+                  directory?.virtual.some((item) => item.id === conversation.id)
+                )
+                  return;
+                event.preventDefault();
+                setActionMenu({
+                  conversation,
+                  ids:
+                    selectionMode && selectedIds.has(conversation.id)
+                      ? [...selectedIds]
+                      : [conversation.id],
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+                if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
+                if (
+                  !conversationExportSelection(conversation) ||
+                  directory?.virtual.some((item) => item.id === conversation.id)
+                )
+                  return;
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setActionMenu({
+                  conversation,
+                  ids:
+                    selectionMode && selectedIds.has(conversation.id)
+                      ? [...selectedIds]
+                      : [conversation.id],
+                  x: rect.left + 20,
+                  y: rect.top + 20,
+                });
+              }}
               onClick={(e) => {
                 const virtual = directory?.virtual.find((item) => item.id === conversation.id);
                 if (virtual) directory.onVirtual(virtual);
@@ -557,6 +611,68 @@ export function ConversationList({
         }}
       />
       {hasMore ? <ConversationListLoadMore loading={loadingMore} onLoadMore={onLoadMore} /> : null}
+      {actionMenu ? (
+        <ConversationActionsMenu
+          x={actionMenu.x}
+          y={actionMenu.y}
+          onClose={() => setActionMenu(null)}
+          actions={(() => {
+            const rows = new Map(
+              [...conversations, ...(directory?.real ?? [])].map((row) => [row.id, row]),
+            );
+            const realOnly = actionMenu.ids.every(
+              (id) =>
+                !directory?.virtual.some((item) => item.id === id) &&
+                Boolean(rows.get(id) && conversationExportSelection(rows.get(id))),
+            );
+            const targets = actionMenu.ids
+              .map((id) => conversationRoamingTarget(rows.get(id)))
+              .filter(Boolean);
+            return [
+              ...(directory?.onAnalyze &&
+              actionMenu.ids.length === 1 &&
+              conversationAnalysisTarget(actionMenu.conversation)
+                ? [
+                    {
+                      label: '分析',
+                      icon: <BarChart3 size={16} />,
+                      action: () => directory.onAnalyze(actionMenu.conversation),
+                    },
+                  ]
+                : []),
+              ...(requestExport
+                ? [
+                    {
+                      label: actionMenu.ids.length > 1 ? '导出所选会话' : '导出',
+                      icon: <Download size={16} />,
+                      disabled: !realOnly,
+                      reason: !realOnly ? '所选会话包含非聊天内容，请重新选择' : undefined,
+                      action: () =>
+                        requestExport({
+                          owner: { kind: 'conversations', container: 'main-list' },
+                          scope: { type: 'items', ids: [...actionMenu.ids] },
+                        }),
+                    },
+                  ]
+                : []),
+              ...(directory?.onRoaming
+                ? [
+                    {
+                      label: actionMenu.ids.length > 1 ? '拉取所选会话漫游消息' : '拉取漫游消息',
+                      icon: <CloudDownload size={16} />,
+                      disabled: !realOnly || targets.length !== actionMenu.ids.length,
+                      reason:
+                        targets.length !== actionMenu.ids.length
+                          ? '所选会话包含不支持漫游拉取的对象'
+                          : undefined,
+                      action: () => directory.onRoaming(targets),
+                    },
+                  ]
+                : []),
+            ];
+          })()}
+        />
+      ) : null}
     </div>
   );
 }

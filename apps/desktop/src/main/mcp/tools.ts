@@ -7,8 +7,8 @@
  * — so the business logic lives here exactly once.
  *
  * Each tool's `run` resolves the *current* account's services via
- * `getAppContext().services`, so tools automatically follow account switches and
- * throw cleanly when no account is open. Results are converted to IPC-safe wire
+ * `getAppContext().services`, with assistant calls bound to their originating
+ * session so they cannot follow account switches. Results use IPC-safe wire
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
+import { assertAccountToolScope } from './account_scope';
 import {
   classifyChatType,
   datalineName,
@@ -96,8 +97,13 @@ export interface AiTool {
   assistantOnly?: boolean;
 }
 
+function toolContext(): ReturnType<typeof getAppContext> {
+  assertAccountToolScope();
+  return getAppContext();
+}
+
 function services(): AccountServices {
-  const svc = getAppContext().services;
+  const svc = toolContext().services;
   if (!svc) {
     throw new Error('当前没有已登录的账号，请先在 WeQ 里进入一个账号。');
   }
@@ -108,7 +114,7 @@ function services(): AccountServices {
 
 /** 当前账号的 QQ 进程 pid；离线 / 完全离线模式时抛可读错误。 */
 function onlinePid(): number {
-  const ctx = getAppContext();
+  const ctx = toolContext();
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
@@ -121,7 +127,7 @@ function onlinePid(): number {
 
 /** 当前账号的 uin（字符串形式）。 */
 function currentUin(): string {
-  const uin = getAppContext().account?.context.uin;
+  const uin = toolContext().account?.context.uin;
   if (!uin) throw new Error('当前没有已登录的账号。');
   return String(uin);
 }
@@ -138,7 +144,7 @@ function currentUin(): string {
 function ocrOnlineBlocker(): string | null {
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return '该账号的 QQ 未在线，走不了在线识别。';
-  if (getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (toolContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
     return '已开启完全离线模式（自动读取 QQ 内存 已关闭），在线识别不可用。';
   }
   const session = record.session;
@@ -173,7 +179,7 @@ function ocrBoxes(blocks: readonly OcrBlock[]): Array<Record<string, unknown>> {
  * bootstrap 没就绪时返回 null —— 缓存只是加速，拿不到就照常识别。
  */
 function ocrResultCache(): OcrResultCache | null {
-  const boot = getAppContext().bootstrap;
+  const boot = toolContext().bootstrap;
   if (!boot) return null;
   try {
     return ocrCacheFor(boot.userConfig.cacheDir('ocr'));
@@ -194,7 +200,7 @@ function ocrCacheKeyOf(md5: string, fileName: string): string | null {
 
 /** 原生 ntHelper 绑定（未加载时抛错）。 */
 function ntHelper() {
-  const nt = getAppContext().platform?.native.ntHelper;
+  const nt = toolContext().platform?.native.ntHelper;
   if (!nt) throw new Error('原生组件未加载。');
   return nt;
 }
@@ -591,7 +597,7 @@ async function resolveRedBagTarget(
   if (input.kind === 'group') {
     peerUin = input.conv;
   } else {
-    const peerUinFromConv = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+    const peerUinFromConv = String(toolContext().account?.uidMap.uinByUid(input.conv) ?? '');
     const selfUin = String((await svc.profile.getSelfProfile())?.uin ?? '');
     const msg = await svc.msgs.getC2cMessageById(input.conv, id);
     const sentBySelf = selfUin !== '' && msg !== null && String(msg.senderUin) === selfUin;
@@ -2254,7 +2260,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('要保护的会话清单（仅 mode=selected 时有意义）'),
     }),
     run: async ({ enabled, mode, targets }) => {
-      const ctx = getAppContext();
+      const ctx = toolContext();
       if (enabled && ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
       }
@@ -2576,7 +2582,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('可选：只转写该文件名的 ptt（同一消息带多个语音时用）'),
     }),
     run: async ({ kind, conv, msgId, fileName }) => {
-      const ctx = getAppContext();
+      const ctx = toolContext();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
       const row =

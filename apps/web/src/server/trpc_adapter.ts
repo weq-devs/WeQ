@@ -13,6 +13,7 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
+import { TRPCError } from '@trpc/server';
 import { WebSocketServer } from 'ws';
 import type { AppRouter } from '@weq/desktop/main/ipc/router';
 import type { AuthGate } from './auth';
@@ -54,13 +55,21 @@ export function attachWsHandler(server: Server, router: AppRouter, auth: AuthGat
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const unwatch = auth.watchSession(req, () => ws.terminate());
+      ws.once('close', unwatch);
+      wss.emit('connection', ws, req);
+    });
   });
 
   applyWSSHandler({
     wss,
     router,
-    createContext: () => ({}),
+    createContext: ({ req }) => ({
+      authorize: () => {
+        if (!auth.isAuthed(req)) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      },
+    }),
     onError({ error, path }) {
       console.error(`[trpc-ws] ${path ?? '<no path>'}:`, error.message);
     },

@@ -10,7 +10,7 @@
     "pack:release": "node scripts/pack-release.mjs",
     "check": "tsx scripts/check-electron-free.ts && tsx scripts/check-bundle.ts",
     "start": "node dist/server.mjs",
-    "test": "tsx src/server/auth.test.ts && tsx src/server/http.test.ts",
+    "test": "tsx src/server/auth.test.ts && tsx src/server/http.test.ts && tsx src/server/security.test.ts",
     "test:dist": "tsx scripts/smoke-dist.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json"
   },

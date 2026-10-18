@@ -1,5 +1,6 @@
 import {
   AtSign,
+  BarChart3,
   ChevronRight,
   Hand,
   MicOff,
@@ -38,6 +39,7 @@ const MUTE_DURATIONS: Array<{ label: string; seconds: number }> = [
 export function AvatarContextMenu({
   state,
   onMention,
+  onAnalyze,
   onPoke,
   pokeBlockedReason,
   onChangeCard,
@@ -53,6 +55,7 @@ export function AvatarContextMenu({
 }: {
   state: AvatarContextMenuState;
   onMention: (sender: User) => void;
+  onAnalyze?: (sender: User) => void;
   onPoke: (sender: User) => void;
   /** 非空 = 这条会话当前不能戳（QQ 未在线 / 完全离线模式），按钮置灰并显示原因。 */
   pokeBlockedReason?: string | null;
@@ -121,6 +124,12 @@ export function AvatarContextMenu({
         <span>戳一戳</span>
       </button>
 
+      {onAnalyze ? (
+        <button type="button" title="分析此成员" onClick={() => onAnalyze(state.sender)}>
+          <BarChart3 size={17} />
+          <span>分析此成员</span>
+        </button>
+      ) : null}
       {hasModeration ? <div className={cn('message-context-menu-separator')} /> : null}
 
       {showChangeCard && onChangeCard ? (

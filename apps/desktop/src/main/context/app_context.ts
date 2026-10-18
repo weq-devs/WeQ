@@ -40,6 +40,8 @@ import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
+import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
@@ -1121,6 +1123,10 @@ export function initAppContext(): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
+      this.scheduler?.stop();
+      this.scheduler = null;
       logger.info('opening account session', {
         event: 'open-account-start',
         accountUin: accountCtx.uin,
@@ -1135,6 +1141,7 @@ export function initAppContext(): AppContext {
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1340,7 +1347,30 @@ export function initAppContext(): AppContext {
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session),
+        unreadInfo: new UnreadInfoService(session, {
+          nt: platform.native.ntHelper,
+          enabled: () => userConfig.getSettings().reportReadEnabled,
+          resolvePid: () => {
+            if (
+              this.account !== session ||
+              this.accountIsStatic ||
+              userConfig.getSettings().autoAttachQq === false
+            )
+              return null;
+            const record = accountConfig.getRecord();
+            if (
+              !record?.qqOnline ||
+              !record.qqPid ||
+              record.session?.pid !== record.qqPid ||
+              !record.session.a2 ||
+              !record.session.d2 ||
+              !record.session.d2Key ||
+              !record.guid
+            )
+              return null;
+            return record.qqPid;
+          },
+        }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -1412,7 +1442,7 @@ export function initAppContext(): AppContext {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
-            run: runAssistantTool,
+            run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -1837,6 +1867,8 @@ export function initAppContext(): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
       logger.info('opening static account session', {
         event: 'open-static-account-start',
         accountUin: selfPreview.uin,
@@ -1851,6 +1883,7 @@ export function initAppContext(): AppContext {
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -2118,7 +2151,7 @@ export function initAppContext(): AppContext {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
-            run: runAssistantTool,
+            run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -2393,6 +2426,8 @@ export function initAppContext(): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
       logger.info('clearing account session', {
         event: 'clear-account',
         accountUin: this.account?.context.uin ?? null,
@@ -2423,6 +2458,7 @@ export function initAppContext(): AppContext {
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       this.account?.dispose();

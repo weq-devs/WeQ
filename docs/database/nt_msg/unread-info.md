@@ -163,7 +163,13 @@ interface UnreadHighlight {
 2. `markRead(chatType, uid, latestSeq?)` 把该会话标记为已读：
    - 把 `41002` 抬到会话最新 seq（`latestSeq`，缺省时从
      `recent_contact_v3_table.40003` 读）；
-   - 删除**所有** `50060` 高亮组（它们在 `50005.ext` 里，可能有多组，要深度查找）。
+   - 只删除确认水位以内的 `50040` 高亮条目；组内条目全部读完后删除对应 `50060` 组。
+     新到的提醒和无法识别序号的条目保留（组在 `50005.ext` 里，需要深度查找）。
+
+写回通过原 `48902` BLOB 比较更新，避免覆盖 QQ 在读取之后写入的新水位或提醒；
+冲突时重新读取并重算，最多尝试三次，耗尽后报错。目标水位在首次请求时固定，
+重试不会跟随新消息扩大已读范围。`addHighlight` 同样使用比较更新和有限重试，
+且不补写已读水位以内的晚到提醒。
 
 **关键：写回走 wire 级编辑树，不能用 schema 重编码。** `48902` 里有大量 WeQ 还没
 逆向的字段（`41024` 未读 seq 列表、`41027`/`41032`/`41037` 计数、`50006`/`50007` …），
@@ -172,8 +178,46 @@ interface UnreadHighlight {
 `encodeEditTree`：只改动 `41002` 与 `50060` 两条路径，其余节点**逐字节照抄原文**，
 未解析字段原样保留（回归见 `packages/db/test/unread_info.test.ts`）。
 
-幂等：已无高亮且 `41002 ≥ latestSeq` 时直接返回 `false`，不再写库。
+幂等：已无需要清理的高亮且 `41002 ≥ latestSeq` 时直接返回 `false`，不再写库。
 静态账号（离线快照）在 IPC 层直接短路 —— 写进去 QQ 也不会读。
+
+### 未读列表刷新
+
+`getUnreadInfos(targets)` 每批最多 256 个会话，一条 SQL 同时取已读 BLOB 和最近会话
+最新序号。目标去重，缺行返回空水位，单行解码失败用 `readError` 标记，不清除其旧状态，
+也不阻塞同批正常会话。临时会话等无法按标准类型关联最新序号时，前端保留最近会话列表水位兜底。
+
+桌面端把数据库通知合并为 100ms 的固定刷新窗口，执行中不并发，后续变化只补一轮。
+查询失败保留旧状态，按 1s 起步、最高 30s 的退避自动重试；恢复窗口可见或焦点时补刷。
+这不改变底层默认 1s 的文件轮询间隔，不承诺 100ms 端到端同步。
+标记已读的失败请求额外有限重试，切换会话、账号或隐藏窗口后停止下一次请求；
+成功后重新读取实际状态，不强行把并发新消息的未读数归零。
+
+### 可选服务端上报
+
+设置 → 账号接入与消息提供「同步已读状态到 QQ」，全局偏好 `reportReadEnabled` 默认关闭。
+开启后，桌面端已读入口在本地写入完成后异步请求
+`trpc.msg.msg_svc.MsgService.SsoReadedReport`，不阻塞聊天页，也不批量补报开启之前的阅读。
+关闭开关立即取消尚未发出的重试，但不能撤销已发出的网络请求。
+
+- 群聊：`group@1 { groupUin@1, sequence@2 }`。
+- 私聊：`c2c@2 { targetUid@2, timestamp@3, sequence@4 }`。序号取本地 `40003`，
+  时间取这个序号对应的原消息 `40050`，不使用 `clientSeq` 或当前时间；缺少消息则跳过。
+- 序号必须处于本地最近会话水位内；设备伪 UID、临时会话无法关联的水位与不支持的类型不猜测上报。
+- PC 签名白名单包含该命令，必须 `needSign=true`，复用已有 SSO 与本机 wrapper，不新增登录、
+  不为上报触发读内存或提权。完全离线、静态账号、缺少已登记的在线会话时不上报。
+- 同会话合并重复请求，较大水位等待在途请求后上报。传输异常最多尝试三次，退避 150ms / 450ms；
+  重试前检查开关、账号生命周期、PID 与 SSO 会话代次，切换后不再发送旧请求。
+- 空 SSO 应答记作 `acknowledged`，仅表示收到上报应答；未知非空响应记作 `unconfirmed`，
+  不猜业务成功，也不因未知响应直接重发。本地阅读结果与上报状态分别返回。
+
+设置页显示最近上报的等待、应答、未知、失败或不可用状态。没有持久化补报队列，
+重启后不会自动补报历史；后续在 WeQ 触发阅读时可再次尝试。
+**本地写入或空 SSO 应答都不代表 QQ 本体界面及手机等其它端已确认已读**，实际同步仍需真机验收。
+
+协议字段参考 [acidify 请求结构](https://github.com/LagrangeDev/acidify/blob/main/acidify-core/src/commonMain/kotlin/org/ntqqrev/acidify/internal/proto/message/action/SsoReadedReport.kt)
+及[服务实现](https://github.com/LagrangeDev/acidify/blob/main/acidify-core/src/commonMain/kotlin/org/ntqqrev/acidify/internal/service/message/ReportMessageRead.kt)；
+签名依据 [Lagrange.Core PC 白名单](https://github.com/LagrangeDev/Lagrange.Core/blob/master/Lagrange.Core/Common/BotSignProvider.cs)。
 
 ## 五之三、写入群提醒词高亮（`addHighlight`）
 

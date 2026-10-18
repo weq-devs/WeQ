@@ -286,7 +286,13 @@ export interface ScheduleConversation {
   total: number;
 }
 
-export type ScheduleOutcome = 'completed' | 'partial' | 'failed' | 'skipped' | 'cancelled';
+export type ScheduleOutcome =
+  | 'running'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled';
 
 /** One past fire of a schedule. The renderer shows these in the history line. */
 export interface ScheduleTrigger {
