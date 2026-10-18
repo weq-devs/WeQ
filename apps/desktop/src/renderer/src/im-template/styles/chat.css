@@ -812,54 +812,6 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	}
 }
 
-/* Floating "N new messages" pill — shown when live messages arrive while the
- * user is reading history. Click (or scrolling to the bottom) dismisses it.
- *
- * 贴在**输入框上方**：bottom 用 --composer-height 让开 composer 那一行，
- * 否则输入区露出来以后气泡会压在输入框上。
- */
-.new-message-pill {
-	position: absolute;
-	z-index: 10;
-	bottom: calc(var(--composer-height, 190px) + 14px);
-	right: 24px;
-	display: inline-flex;
-	height: 26px;
-	align-items: center;
-	justify-content: center;
-	gap: 4px;
-	padding: 0 10px;
-	border: 0;
-	border-radius: 999px;
-	background: var(--weq-accent-effective, #1598ff);
-	box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective, #1598ff) 32%, transparent);
-	color: #ffffff;
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 1;
-	cursor: pointer;
-	user-select: none;
-	transition:
-		box-shadow 120ms ease-out,
-		transform 120ms ease-out;
-}
-
-.new-message-pill:hover,
-.new-message-pill:focus-visible {
-	box-shadow: 0 6px 16px color-mix(in srgb, var(--weq-accent-effective, #1598ff) 42%, transparent);
-	outline: 0;
-	transform: translateY(-1px);
-}
-
-.new-message-pill svg {
-	flex: 0 0 auto;
-}
-
-/* Keep the bottom-right pill clear of the group-info side panel when open. */
-.chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
-	right: calc(var(--group-info-panel-width) + 16px);
-}
-
 .message-line {
 	display: flex;
 	min-width: 0;

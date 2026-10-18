@@ -4,7 +4,7 @@
  * 占位条（MessageGapDivider）点击后由宿主通过
  * `account.fetchGapMessages` 按 seq 窗口从 QQ 服务端拉取，再像普通消息一样
  * 完整渲染（头像 / 昵称 / 装扮 / 消息体）。渲染管线与撤回列表一致：直接复用
- * 主时间线的 MessageBubble + renderers。
+ * 主时间线的 MessageRow（灰条分流 / 气泡）与 renderers。
  *
  * 状态机：
  *   - loading     拉取中（首屏）
@@ -27,9 +27,8 @@ import { ArrowLeft, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
 import { cn } from '../../im-template/template/classNames';
-import { MessageBubble } from '../../im-template/template/messageBubble';
+import { MessageRow, grayTipOf } from '../../im-template/template/messageRow';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
-import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
 
@@ -52,6 +51,7 @@ export function GapMessagesModal({
   preview = false,
   embedded = false,
   onRetry,
+  title,
 }: {
   conversation: Conversation;
   user: User;
@@ -76,6 +76,7 @@ export function GapMessagesModal({
   /** 名片内预览复用消息列表，不创建额外浮窗。 */
   embedded?: boolean;
   onRetry?: () => void;
+  title?: string;
 }): ReactElement {
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
@@ -174,7 +175,7 @@ export function GapMessagesModal({
           ) : null}
           <div className="weq-compose-titlewrap">
             <strong id="weq-gap-messages-title" className="weq-compose-title">
-              {preview ? '预览私聊' : '缺失消息'}
+              {title ?? (preview ? '预览私聊' : '缺失消息')}
             </strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>
@@ -252,25 +253,25 @@ export function GapMessagesModal({
                   {messages.map((message) => {
                     const mine = message.senderId === user.id;
                     const sender = resolveMessageSender(message, conversation, user);
+                    const row = (
+                      <MessageRow
+                        message={message}
+                        conversation={conversation}
+                        user={user}
+                        sender={sender}
+                        showSenderName={showSenderNames}
+                        renderers={renderers}
+                      />
+                    );
+                    if (grayTipOf(message))
+                      return (
+                        <div key={message.id} className="weq-preview-system-row">
+                          {row}
+                        </div>
+                      );
                     return (
                       <div key={message.id} className={cn('weq-deleted-row', mine && 'is-mine')}>
-                        <div className="weq-deleted-bubble">
-                          <MessageBubble
-                            message={message}
-                            conversation={conversation}
-                            sender={sender}
-                            mine={mine}
-                            senderName={displayUserName(sender)}
-                            senderAvatarUrl={sender.avatarUrl}
-                            senderSeed={sender.identityValue}
-                            senderKind={sender.kind}
-                            showSenderName={showSenderNames}
-                            active={false}
-                            renderers={renderers}
-                            onContextMenu={noop}
-                            onLongPress={noop}
-                          />
-                        </div>
+                        <div className="weq-deleted-bubble">{row}</div>
                       </div>
                     );
                   })}

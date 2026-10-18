@@ -53,6 +53,9 @@ export function ChatMainContent({
   selectedToolId,
   loadingMessages,
   atLatest,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
@@ -139,6 +142,9 @@ export function ChatMainContent({
   loadingMessages: boolean;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
@@ -281,6 +287,9 @@ export function ChatMainContent({
       messageRenderers={messageRenderers}
       loading={loadingMessages}
       atLatest={atLatest}
+      latestMessageSeq={latestMessageSeq}
+      onPreviewLatest={onPreviewLatest}
+      onJumpToLatest={onJumpToLatest}
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}

@@ -77,6 +77,7 @@ export function CompositionWorkspace({
   onRequestsHandled,
   onForward,
   onSend,
+  onOpenTarget,
 }: {
   popup: Window | null;
   fallback: boolean;
@@ -94,6 +95,7 @@ export function CompositionWorkspace({
     signal: AbortSignal,
     binding: CompositionBinding,
   ) => Promise<void>;
+  onOpenTarget: (target: MfTarget) => void;
 }) {
   const locked = useAppLock((state) => state.locked);
   const visible = Boolean(popup || fallback) && !locked;
@@ -833,6 +835,7 @@ export function CompositionWorkspace({
         <SequentialForwardDialog
           messages={compositionMessages(send.draft)}
           targets={targets}
+          onOpenTarget={onOpenTarget}
           onSend={async (message, target, signal) => {
             if (!binding) throw new Error('合成窗口账号不可用');
             const node = send.draft.nodes.find((item) => item.id === message.id);

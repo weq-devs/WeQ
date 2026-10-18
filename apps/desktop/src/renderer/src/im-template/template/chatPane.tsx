@@ -27,6 +27,7 @@ import {
   ChevronsUp,
   CirclePlus,
   Download,
+  Eye,
   Search,
   Trash2,
   ListPlus,
@@ -178,6 +179,7 @@ import {
   writeMentionClipboard,
 } from '../../lib/mentionClipboard';
 import '../../styles/message-repeat.css';
+import '../../styles/new-message-preview.css';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -358,6 +360,9 @@ export function ChatPane({
   messageRenderers,
   loading,
   atLatest = true,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
@@ -418,13 +423,11 @@ export function ChatPane({
   composerActions?: Partial<ComposerActionRegistry>;
   messageRenderers?: MessageRenderer[];
   loading: boolean;
-  /**
-   * Whether `messages` is the live latest-anchored window. False while the host
-   * shows a detached history window (reply-jump context / downward history
-   * paging); in that mode tail changes are programmatic, not live arrivals, so
-   * the "new message" pill and auto-scroll-to-bottom are suppressed.
-   */
+  /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
@@ -780,6 +783,11 @@ export function ChatPane({
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
+  const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
+    conversationId: undefined,
+    seq: undefined,
+  });
+  const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
@@ -1054,6 +1062,24 @@ export function ChatPane({
     setNewMessagePill((current) => current + appended);
     return;
   }, [tabActive, visibleMessages, conversation?.id, loading, atLatest]);
+
+  // 分离的历史窗口不会追加实时消息，用会话水位识别新到记录，而非历史分页。
+  useEffect(() => {
+    const previous = latestSeqRef.current;
+    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq };
+    if (
+      atLatest ||
+      previous.conversationId !== conversation?.id ||
+      !previous.seq ||
+      !latestMessageSeq ||
+      !/^\d+$/.test(previous.seq) ||
+      !/^\d+$/.test(latestMessageSeq)
+    )
+      return;
+    const delta = BigInt(latestMessageSeq) - BigInt(previous.seq);
+    if (delta < 0n) latestSeqRef.current = previous;
+    if (delta > 0n) setNewMessagePill((count) => count + Number(delta > 100n ? 100n : delta));
+  }, [conversation?.id, latestMessageSeq, atLatest]);
 
   // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
   // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
@@ -3309,7 +3335,30 @@ export function ChatPane({
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
-  function jumpToBottomAndRead() {
+  async function jumpToBottomAndRead() {
+    if (jumpingToLatest) return;
+    if (!atLatest) {
+      if (!onJumpToLatest) return;
+      setJumpingToLatest(true);
+      try {
+        if (!(await onJumpToLatest())) return;
+        // 等最新窗口提交后再定位；失败时保留提示，供用户重试。
+        window.requestAnimationFrame(() => {
+          const current = readContextRef.current;
+          if (
+            current.conversation?.id !== conversation?.id ||
+            !current.atLatest ||
+            !current.tabActive
+          )
+            return;
+          scrollMessagesToBottomRef.current();
+          requestReadAtBottom();
+        });
+      } finally {
+        setJumpingToLatest(false);
+      }
+      return;
+    }
     scrollMessagesToBottom();
     // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
     requestReadAtBottom();
@@ -3355,7 +3404,7 @@ export function ChatPane({
     const bottom = isScrolledToBottom();
     atBottomRef.current = bottom;
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
-    if (bottom && newMessagePill > 0) {
+    if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
 
@@ -3980,10 +4029,30 @@ export function ChatPane({
       </div>
 
       {newMessagePill > 0 ? (
-        <button className={cn('new-message-pill')} type="button" onClick={jumpToBottomAndRead}>
-          <ChevronDown size={14} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
-        </button>
+        <div className="new-message-pill" role="group" aria-label="新消息">
+          {onPreviewLatest ? (
+            <button
+              className="new-message-preview"
+              type="button"
+              title="预览新消息"
+              aria-label="预览新消息"
+              onClick={() => onPreviewLatest(conversation)}
+            >
+              <Eye size={15} />
+            </button>
+          ) : null}
+          <button
+            className="new-message-bottom"
+            type="button"
+            title="定位到底部"
+            aria-label="定位到底部"
+            disabled={jumpingToLatest}
+            onClick={() => void jumpToBottomAndRead()}
+          >
+            {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
+            <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+          </button>
+        </div>
       ) : null}
 
       {/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}

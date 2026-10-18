@@ -6303,6 +6303,13 @@ export function MainView(): ReactElement {
   const [forwardBatch, setForwardBatch] = useState<{ account: string; messages: Message[] } | null>(
     null,
   );
+  const openForwardTarget = (target: MfTarget) => {
+    if (useViewState.getState().openedUin !== user.identityValue) {
+      pushToast({ tone: 'warning', message: '请先切回转发时的账号再打开对话' });
+      return;
+    }
+    shell.openConversation(target.id);
+  };
   repeatContext.current = selectedConversation?.id ?? null;
   useEffect(() => {
     repeatContext.current = selectedConversation?.id ?? null;
@@ -7351,6 +7358,7 @@ export function MainView(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
+    source: 'member' | 'latest';
     conversation: Conversation;
     rows: MessageWire[];
     loading: boolean;
@@ -7363,22 +7371,34 @@ export function MainView(): ReactElement {
     previewRequest.current++;
     setPrivatePreview(null);
   }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
+  useEffect(() => {
+    if (privatePreview?.source === 'latest' && privatePreview.conversation.id !== selectedUid) {
+      previewRequest.current++;
+      setPrivatePreview(null);
+    }
+  }, [privatePreview?.source, privatePreview?.conversation.id, selectedUid]);
   async function previewPrivateChat(peer: User) {
+    await previewConversation(
+      {
+        id: peer.id,
+        type: 'direct',
+        otherUser: peer,
+        group: null,
+        members: [],
+        updatedAt: new Date(0).toISOString(),
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: null,
+      },
+      'member',
+    );
+  }
+  async function previewConversation(conversation: Conversation, source: 'member' | 'latest') {
     const account = user.identityValue;
     const request = ++previewRequest.current;
-    let conversation: Conversation = {
-      id: peer.id,
-      type: 'direct',
-      otherUser: peer,
-      group: null,
-      members: [],
-      updatedAt: new Date(0).toISOString(),
-      preference: fallbackPreference,
-      unreadCount: 0,
-      lastMessage: null,
-    };
     setPrivatePreview({
       account,
+      source,
       conversation,
       rows: [],
       loading: true,
@@ -7387,19 +7407,34 @@ export function MainView(): ReactElement {
       hasMore: false,
     });
     try {
-      if (!peer.id && /^\d+$/.test(peer.identityValue)) {
-        const profile = await client.account.getProfileByUin.query({ uin: peer.identityValue });
-        if (profile?.uid) peer = { ...peer, id: profile.uid };
-        conversation = { ...conversation, id: peer.id, otherUser: peer };
+      if (
+        conversation.type === 'direct' &&
+        !conversation.id &&
+        /^\d+$/.test(conversation.otherUser.identityValue)
+      ) {
+        const profile = await client.account.getProfileByUin.query({
+          uin: conversation.otherUser.identityValue,
+        });
+        if (profile?.uid)
+          conversation = {
+            ...conversation,
+            id: profile.uid,
+            otherUser: { ...conversation.otherUser, id: profile.uid },
+          };
       }
-      if (!peer.id) throw new Error('缺少私聊身份');
+      if (!conversation.id) throw new Error('缺少会话身份');
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
-      const rows = await client.account.listLatest.query({ kind: 'c2c', conv: peer.id, limit: 50 });
+      const rows = await client.account.listLatest.query({
+        kind: conversation.type === 'group' ? 'group' : 'c2c',
+        conv: conversation.id,
+        limit: 50,
+      });
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
       setPrivatePreview({
         account,
+        source,
         conversation,
         rows: rows.map(toMessageWire).reverse(),
         loading: false,
@@ -7430,7 +7465,7 @@ export function MainView(): ReactElement {
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
       const rows = await client.account.listBefore.query({
-        kind: 'c2c',
+        kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
         conv: snapshot.conversation.id,
         beforeSeq: first.msgSeq,
         limit: 50,
@@ -7456,15 +7491,65 @@ export function MainView(): ReactElement {
     }
   }
 
-  const privatePreviewContent =
-    privatePreview && privatePreview.account === user.identityValue ? (
+  useEffect(() => {
+    if (privatePreview?.conversation.type !== 'group') return;
+    const group = privatePreview.conversation;
+    const account = privatePreview.account;
+    const known = new Set(
+      [...group.members, ...(selectedUid === group.id ? currentGroupMembers : [])].map(
+        (member) => member.id,
+      ),
+    );
+    resolvePreviewMembers(
+      group.id,
+      privatePreview.rows.flatMap((row) => [row.senderUid, ...extractGrayTipUids(row.elements)]),
+      known,
+      () => useViewState.getState().openedUin === account,
+    );
+  }, [privatePreview, currentGroupMembers, selectedUid, resolvePreviewMembers]);
+
+  const resolvedPreviewConversation = useMemo(() => {
+    const conversation = privatePreview?.conversation;
+    if (conversation?.type !== 'group') return conversation;
+    const members = new Map(
+      [
+        ...conversation.members,
+        ...(selectedUid === conversation.id ? currentGroupMembers : []),
+        ...Object.values(previewMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
+      ].map((member) => [member.id, member]),
+    );
+    return { ...conversation, members: [...members.values()] };
+  }, [
+    privatePreview?.conversation,
+    selectedUid,
+    currentGroupMembers,
+    previewMembers,
+    mapGroupMemberWire,
+  ]);
+
+  const previewMemberMap = useMemo(
+    () => new Map(resolvedPreviewConversation?.members.map((member) => [member.id, member]) ?? []),
+    [resolvedPreviewConversation?.members],
+  );
+  const conversationPreviewContent =
+    privatePreview &&
+    resolvedPreviewConversation &&
+    privatePreview.account === user.identityValue ? (
       <GapMessagesModal
         preview
-        embedded
-        conversation={privatePreview.conversation}
+        embedded={privatePreview.source === 'member'}
+        title={privatePreview.source === 'latest' ? '预览新消息' : undefined}
+        conversation={resolvedPreviewConversation}
         user={user}
         messages={privatePreview.rows.map((row) =>
-          messageToTemplate(row, privatePreview.conversation, user, undefined, botUids),
+          messageToTemplate(
+            row,
+            resolvedPreviewConversation,
+            user,
+            previewMemberMap,
+            botUids,
+            privatePreview.rows,
+          ),
         )}
         renderers={messageRenderers}
         loading={privatePreview.loading}
@@ -7474,13 +7559,7 @@ export function MainView(): ReactElement {
         moreFailed={Boolean(privatePreview.error)}
         totalCount={privatePreview.rows.length}
         onLoadMore={() => void loadPrivatePreview()}
-        onRetry={() =>
-          void previewPrivateChat(
-            privatePreview.conversation.type === 'direct'
-              ? privatePreview.conversation.otherUser
-              : user,
-          )
-        }
+        onRetry={() => void previewConversation(privatePreview.conversation, privatePreview.source)}
         onClose={() => {
           previewRequest.current++;
           setPrivatePreview(null);
@@ -7793,6 +7872,50 @@ export function MainView(): ReactElement {
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
                           atLatest={anchoredToLatest}
+                          latestMessageSeq={
+                            recentContactsData.find((contact) => contact.targetUid === selectedUid)
+                              ?.msgSeq
+                          }
+                          onPreviewLatest={(conversation) =>
+                            void previewConversation(conversation, 'latest')
+                          }
+                          onJumpToLatest={async () => {
+                            const selection = selectionRef.current;
+                            const previousWindow = windowRef.current;
+                            const account = user.identityValue;
+                            if (!selection) return false;
+                            try {
+                              const page = await client.account.listLatest.query({
+                                kind: selection.kind === 'group' ? 'group' : 'c2c',
+                                conv: selection.id,
+                                limit: PAGE_SIZE,
+                              });
+                              if (
+                                selectionRef.current !== selection ||
+                                windowRef.current !== previousWindow ||
+                                useViewState.getState().openedUin !== account
+                              )
+                                return false;
+                              const rows = page.map(toMessageWire).reverse();
+                              pendingScrollRestoreRef.current = null;
+                              windowRef.current = {
+                                minSeq: rows[0]?.msgSeq ?? null,
+                                anchored: true,
+                              };
+                              setLoaded(rows);
+                              setAnchoredToLatest(true);
+                              setHasNewer(false);
+                              setHasOlder(page.length >= PAGE_SIZE);
+                              return true;
+                            } catch (error) {
+                              pushToast({
+                                tone: 'error',
+                                message: '无法定位到最新消息',
+                                detail: error instanceof Error ? error.message : String(error),
+                              });
+                              return false;
+                            }
+                          }}
                           onReadCurrentConversation={(conv) => {
                             if (unreadSnapshotPendingRef.current !== conv.id)
                               void markVisibleConversationRead(conv);
@@ -8225,7 +8348,9 @@ export function MainView(): ReactElement {
                 );
               }}
               onPreviewChat={() => void previewPrivateChat(memberCard.member)}
-              previewContent={privatePreviewContent}
+              previewContent={
+                privatePreview?.source === 'member' ? conversationPreviewContent : null
+              }
             />
           ) : null}
           {addMessageConv ? (
@@ -8259,6 +8384,7 @@ export function MainView(): ReactElement {
             sendAvailable={mergeForwardSendAvailable}
             onClose={compositionWindow.close}
             onForward={forwardMergeDraft}
+            onOpenTarget={openForwardTarget}
             onSend={(message, target, signal, binding) =>
               forwardMessage(
                 message,
@@ -8305,6 +8431,7 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
+          {privatePreview?.source === 'latest' ? conversationPreviewContent : null}
           {unplacedRoaming ? (
             <GapMessagesModal
               conversation={unplacedRoaming.conversation}
@@ -8329,6 +8456,7 @@ export function MainView(): ReactElement {
               messages={forwardBatch.messages}
               targets={mergeForwardTargets}
               onSend={forwardMessage}
+              onOpenTarget={openForwardTarget}
               onClose={() => setForwardBatch(null)}
             />
           ) : null}

@@ -3,9 +3,60 @@ import {
   DEFAULT_FORWARD_OPTIONS,
   forwardDelay,
   forwardSequentially,
+  forwardMessageContent,
+  estimateForwardDuration,
 } from '../src/renderer/src/lib/sequentialForward';
 
 describe('逐条转发执行', () => {
+  it('文本默认每字 1 秒，混合媒体和卡片整条计非文本时长，不累计文字', () => {
+    expect(DEFAULT_FORWARD_OPTIONS.msPerCharacter).toBe(1000);
+    expect(DEFAULT_FORWARD_OPTIONS.nonTextMs).toBe(5000);
+    const options = { ...DEFAULT_FORWARD_OPTIONS, mode: 'text' as const };
+    expect(forwardDelay('甲😀乙', options)).toBe(3000);
+    const mixed = forwardMessageContent({
+      body: '很长的文字不计时',
+      qqElements: [
+        { type: 'text', data: { textContent: '很长的文字不计时' } },
+        { type: 'pic', data: {} },
+      ],
+    });
+    expect(forwardDelay(mixed, options)).toBe(options.nonTextMs);
+    for (const type of ['ark', 'multiMsg', 'face', 'file', 'ptt']) {
+      expect(
+        forwardDelay(
+          forwardMessageContent({ body: '卡片标题', qqElements: [{ type, data: {} }] }),
+          options,
+        ),
+      ).toBe(options.nonTextMs);
+    }
+    expect(forwardDelay(mixed, { ...options, nonTextMs: 123 })).toBe(123);
+  });
+  it('按文本长度逐条发送前等待，包含第一条和最后一条；预估累计所选目标和抖动范围', async () => {
+    const events: string[] = [];
+    const options = { ...DEFAULT_FORWARD_OPTIONS, mode: 'text' as const };
+    await forwardSequentially(['甲乙', '丙'], options, {
+      text: String,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      send: async (row) => {
+        events.push(row);
+      },
+      sleep: async (ms) => {
+        events.push(String(ms));
+      },
+    });
+    expect(events).toEqual(['2000', '甲乙', '1000', '丙']);
+    expect(
+      estimateForwardDuration(
+        ['甲乙', { text: '忽略', nonText: true }],
+        { ...options, jitterMs: 100 },
+        2,
+      ),
+    ).toEqual({ minMs: 13600, maxMs: 14400 });
+    expect(
+      estimateForwardDuration(['甲乙', '丙'], { ...DEFAULT_FORWARD_OPTIONS, intervalMs: 200 }, 2),
+    ).toEqual({ minMs: 400, maxMs: 400 });
+  });
   it('默认等待真实成功才发下一条，不插入间隔', async () => {
     let finish: (() => void) | undefined;
     const send = vi.fn(async (row: string) => {
