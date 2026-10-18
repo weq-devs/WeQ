@@ -18,6 +18,11 @@ import React, {
 } from 'react';
 import { trpc } from '../trpc/client';
 import {
+  loadGroupAssistantPins,
+  saveGroupAssistantPins,
+  sidebarConversationsWithoutAssistant,
+} from '../lib/groupAssistant';
+import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
   timelineRowKey,
@@ -2513,6 +2518,9 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  const [groupAssistantPins, setGroupAssistantPins] = useState(() =>
+    loadGroupAssistantPins(openedUin ?? ''),
+  );
   // 草稿直接读写 QQ 自己的 draft_storage_table_v1 —— WeQ 不再另存一份缓存。
   // 这里的内存副本只用来即时回显（边打边显示 / 会话列表的草稿标记），真正落库
   // 只在「离开会话 / 离开消息页 / 应用退出」时做，见 flushDrafts。
@@ -3618,6 +3626,10 @@ export function MainView(): ReactElement {
 
     for (const [id, entry] of Object.entries(temporaryConversations)) {
       const current = byId.get(id) ?? entry.conversation;
+      if (current.type === 'group' && groupAssistantIds.has(id)) {
+        byId.set(id, current);
+        continue;
+      }
       byId.set(id, {
         ...current,
         hidden: false,
@@ -3687,14 +3699,8 @@ export function MainView(): ReactElement {
     botUids,
   ]);
   const sidebarConversations = useMemo(
-    () =>
-      conversations.filter(
-        (conversation) =>
-          conversation.type !== 'group' ||
-          !groupAssistantIds.has(conversation.id) ||
-          Boolean(temporaryConversations[conversation.id]),
-      ),
-    [conversations, groupAssistantIds, temporaryConversations],
+    () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
+    [conversations, groupAssistantIds],
   );
 
   const specialContactSections = useMemo(() => {
@@ -7249,9 +7255,7 @@ export function MainView(): ReactElement {
       deletedConversationsById.get(id) ??
       candidate;
     const needsAppearance =
-      !recentContactsData.some((contact) => contact.targetUid === id) ||
-      hiddenUidSet.has(id) ||
-      groupAssistantIds.has(id);
+      !recentContactsData.some((contact) => contact.targetUid === id) || hiddenUidSet.has(id);
     if (needsAppearance)
       setTemporaryConversations((current) =>
         current[id]
@@ -7778,6 +7782,16 @@ export function MainView(): ReactElement {
                 kind={mergedPanel.kind}
                 conversations={conversations}
                 groupAssistantIds={groupAssistantIds}
+                groupAssistantPins={groupAssistantPins}
+                onGroupAssistantPin={(id, pinned) => {
+                  const next = { ...groupAssistantPins, [id]: pinned };
+                  try {
+                    saveGroupAssistantPins(user.identityValue, next);
+                    setGroupAssistantPins(next);
+                  } catch {
+                    pushToast({ tone: 'info', title: '群助手置顶保存失败，请重试' });
+                  }
+                }}
                 groupAssistantLoading={contacts.isFetching}
                 groupAssistantHasMore={Boolean(contacts.hasNextPage)}
                 onLoadMoreGroupAssistant={loadMoreContacts}
