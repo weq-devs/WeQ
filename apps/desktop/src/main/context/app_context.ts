@@ -1793,6 +1793,11 @@ export function initAppContext(): AppContext {
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+      });
 
       // Start the background login/pid monitor for this account. Injection +
       // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
@@ -1811,6 +1816,7 @@ export function initAppContext(): AppContext {
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
           emitDressChanged();
         },
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
       logger.info('opened account session', {
@@ -2426,6 +2432,11 @@ export function initAppContext(): AppContext {
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+      });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
         accountUin: session.context.uin,
@@ -2451,6 +2462,8 @@ export function initAppContext(): AppContext {
         accountConfig,
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
+        undefined,
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
 

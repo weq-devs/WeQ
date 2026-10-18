@@ -67,6 +67,9 @@ export class QQMailService {
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
   private readonly onNotice?: (notice: MailNotice) => void;
+  private showUnread = false;
+  private backgroundStopped = false;
+  private backgroundConnect: Promise<void> | null = null;
 
   constructor(
     nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
@@ -89,6 +92,44 @@ export class QQMailService {
 
   status(): MailStatus {
     return { ...this.state };
+  }
+
+  /** 账号打开后恢复偏好；不依赖渲染进程是否进入邮箱页。 */
+  startBackground(preferences: { notifications: boolean; showUnread: boolean }): void {
+    this.showUnread = preferences.showUnread;
+    this.backgroundStopped = false;
+    this.update({ notifications: preferences.notifications });
+    this.credentialsAvailable();
+  }
+
+  private get backgroundEnabled(): boolean {
+    return !this.closed && !this.backgroundStopped && (this.showUnread || this.state.notifications);
+  }
+
+  /** QQ 凭据刚就绪时立即连接，不必等离线重试计时器。 */
+  credentialsAvailable(): void {
+    if (!this.backgroundEnabled || this.backgroundConnect) return;
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    this.pollTimer = null;
+    this.backgroundConnect = this.connect()
+      .then(() => this.syncBackground())
+      .catch(() => this.scheduleNoticeRecovery())
+      .finally(() => {
+        this.backgroundConnect = null;
+      });
+  }
+
+  setShowUnread(enabled: boolean): void {
+    this.showUnread = enabled;
+    this.backgroundStopped = false;
+    if (this.backgroundEnabled) this.credentialsAvailable();
+    else this.stopNotifications();
+  }
+
+  private async syncBackground(): Promise<void> {
+    if (!this.backgroundEnabled) return;
+    if (!this.pollTimer) await this.syncNotice(false);
+    await this.openSocket();
   }
 
   private update(patch: Partial<MailStatus>): void {
@@ -123,7 +164,7 @@ export class QQMailService {
       } catch {
         if (this.auth === auth) this.update({ error: '邮箱已连接，提醒同步暂不可用。' });
       }
-      if (this.state.notifications)
+      if (this.backgroundEnabled)
         await this.openSocket().catch(() => this.scheduleNoticeRecovery());
       return this.status();
     } catch (error) {
@@ -347,8 +388,9 @@ export class QQMailService {
   }
 
   async setNotifications(enabled: boolean): Promise<MailStatus> {
+    this.backgroundStopped = false;
     this.update({ notifications: enabled });
-    if (!enabled) this.stopNotifications();
+    if (!this.backgroundEnabled) this.stopNotifications();
     else {
       await this.connect();
       try {
@@ -389,7 +431,7 @@ export class QQMailService {
       this.noticeQueryPrimed = true;
     } else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
     this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
-    if (this.state.notifications) {
+    if (this.backgroundEnabled) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
       const seconds = Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
       this.pollTimer = setTimeout(() => {
@@ -401,23 +443,23 @@ export class QQMailService {
   }
 
   private scheduleNoticeRecovery(): void {
-    if (this.closed || !this.state.notifications || this.pollTimer) return;
+    if (!this.backgroundEnabled || this.pollTimer) return;
     this.pollTimer = setTimeout(() => {
       this.pollTimer = null;
-      void this.syncNotice(false)
-        .then(() => this.openSocket())
+      void this.connect()
+        .then(() => this.syncBackground())
         .catch(() => this.scheduleNoticeRecovery());
     }, 5 * 60_000);
     this.pollTimer.unref();
   }
 
   private async openSocket(): Promise<void> {
-    if (this.closed || !this.state.notifications || this.socket) return;
+    if (!this.backgroundEnabled || this.socket) return;
     const auth = this.auth;
     const credentials = await this.scoped((current) =>
       current.socketCredentials(this.cursor.sequence),
     );
-    if (auth !== this.auth || !this.state.notifications || this.socket) return;
+    if (auth !== this.auth || !this.backgroundEnabled || this.socket) return;
     const socket = this.socketFactory({
       headers: { Cookie: credentials.cookie, Origin: 'https://wx.mail.qq.com' },
       handshakeTimeout: 10_000,
@@ -426,7 +468,7 @@ export class QQMailService {
     });
     this.socket = socket;
     socket.on('open', () => {
-      if (this.socket === socket && this.state.notifications) socket.send(credentials.frame);
+      if (this.socket === socket && this.backgroundEnabled) socket.send(credentials.frame);
       else socket.close();
     });
     socket.on('message', (bytes) => {
@@ -458,7 +500,7 @@ export class QQMailService {
     socket.on('close', () => {
       if (this.socket !== socket) return;
       this.socket = null;
-      if (this.closed || !this.state.notifications) return;
+      if (!this.backgroundEnabled) return;
       const delay = Math.min(300_000, 5000 * 2 ** Math.min(6, this.reconnectAttempt++));
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
@@ -483,6 +525,7 @@ export class QQMailService {
 
   disconnect(): void {
     if (this.closed) return;
+    this.backgroundStopped = true;
     this.stopNotifications();
     for (const transfer of this.transfers) transfer.abort();
     this.auth.dispose();

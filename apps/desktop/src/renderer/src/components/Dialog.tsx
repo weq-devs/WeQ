@@ -137,6 +137,7 @@ export function Modal({
   presentation = 'modal',
   title,
   anchor,
+  centered = false,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -151,6 +152,8 @@ export function Modal({
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating' | 'anchored';
   title?: string;
   anchor?: HTMLElement | null;
+  /** 强制居中遮罩，不沿用最近的触发点。 */
+  centered?: boolean;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -163,7 +166,7 @@ export function Modal({
     active && !windowed,
     presentation === 'popover' ||
       presentation === 'panel' ||
-      (presentation === 'modal' && !!onClose),
+      (presentation === 'modal' && !!onClose && !centered),
     anchor,
   );
   useSurfaceEscape(

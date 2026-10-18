@@ -5,6 +5,7 @@
 ## 安全与生命周期
 
 - `account/mail/` 管理账号级 CookieJar、ptlogin、sid、CGI、附件及提醒；票据只驻留主进程内存，不进入 DTO、配置或日志。
+- 账号打开并保存配置后调用 `startBackground`：提醒或未读角标任一开启即连接；`AccountMonitorService` 登记 QQ 凭据后调用 `credentialsAvailable`，跳过离线等待立即重试。未读同步复用实时连接与有界轮询，是否发送通知仍只由提醒开关决定；断开或销毁后不被凭据回调重新拉起。
 - 原生会话返回的 Cookie 头由 `MailAuth` 分别导入 `wx.mail.qq.com` 和 `mail.qq.com` 的 HTTPS host-only Cookie；不使用父域 Cookie 扩散到其它子域。普通附件和超大附件换票据共用这两个受信任入口，下载跨主机跳转仍清除 Cookie。
 - IPC 捕获当前账号及服务实例；切号、关闭账号和断开取消请求并销毁连接。晚到响应不能重新写入已销毁的 CookieJar。
 - HTML 经 DOMPurify、隔离 iframe 和 CSP 处理，默认阻断远程图片。主进程用 parse5 隐藏内嵌资源签名，图片以不透明句柄代理，不把凭据 URL 交给页面。

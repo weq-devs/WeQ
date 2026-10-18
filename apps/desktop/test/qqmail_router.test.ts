@@ -45,6 +45,7 @@ function fixture() {
     send: vi.fn(async () => ({ id: 'accepted-fixture', messageId: 'message-fixture' })),
     upload: vi.fn(),
     disconnect: vi.fn(),
+    setShowUnread: vi.fn(),
     events: new EventEmitter(),
     setNotifications: vi.fn(async (enabled: boolean) => ({
       state: 'ready',
@@ -92,6 +93,7 @@ describe('原生邮箱 IPC 边界', () => {
       false,
     );
     expect(preferences.setMailShowUnread).toHaveBeenCalledWith(false);
+    expect(mail.setShowUnread).toHaveBeenCalledWith(false);
     expect(preferences.setMailNotifications).not.toHaveBeenCalled();
     expect(mail.setNotifications).not.toHaveBeenCalled();
     await expect(api.preferences({ selfUin: '87654321' })).rejects.toThrow('账号已切换');

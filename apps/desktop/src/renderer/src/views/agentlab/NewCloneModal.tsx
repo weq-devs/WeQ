@@ -17,6 +17,7 @@ import { qqAvatarUrl } from '../../components/QqAvatar';
 import { Avatar } from '../export/widgets';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/export.css';
+import '../../styles/new-clone.css';
 
 export interface BuddyOption {
   uid: string;
@@ -126,7 +127,7 @@ export function NewCloneModal({
   }
 
   return (
-    <Modal onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520} centered labelledBy="weq-new-clone-title">
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           {target ? (
@@ -142,7 +143,12 @@ export function NewCloneModal({
               <Sparkles size={16} />
             </span>
           )}
-          <strong>{!target ? '选择要克隆的好友' : `配置克隆：${target.label}`}</strong>
+          <strong id="weq-new-clone-title">
+            {!target ? '选择要克隆的好友' : `配置克隆：${target.label}`}
+          </strong>
+          <button className="weq-set-iconbtn" type="button" aria-label="关闭" onClick={onClose}>
+            <X size={16} />
+          </button>
         </header>
 
         {/* step 1: 好友选择（视觉沿用导出页选择框，头像直连 CDN 不走缓存协议，避免 502） */}
