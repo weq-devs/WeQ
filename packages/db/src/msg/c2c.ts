@@ -491,6 +491,31 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  /** 私聊引用指针使用发送方的 client sequence；结合发送者和时间消除重号。 */
+  async resolveReplySeq(
+    part: C2cPartition,
+    clientSeq: bigint,
+    senderUin?: bigint,
+    sendTime?: bigint,
+  ): Promise<bigint | null> {
+    const { clause, value } = partitionWhere(part);
+    const params: SqlValue[] = [value, clientSeq];
+    const conditions = [clause, '"40005" = ?'];
+    if (senderUin && senderUin > 0n) {
+      conditions.push('"40033" = ?');
+      params.push(senderUin);
+    }
+    if (sendTime && sendTime > 0n) {
+      conditions.push('"40050" = ?');
+      params.push(sendTime);
+    }
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40003" FROM ${this.table} WHERE ${conditions.join(' AND ')} LIMIT 2`,
+      params,
+    );
+    return rows.length === 1 ? toBigint(rows[0]?.[0]) : null;
+  }
+
   /**
    * All rows for one peer carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native

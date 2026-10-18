@@ -13,6 +13,8 @@ export interface VirtualConversation {
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
   real?: Conversation[];
+  /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
+  groupAssistantIds?: ReadonlySet<string>;
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
   onCreate: () => void;

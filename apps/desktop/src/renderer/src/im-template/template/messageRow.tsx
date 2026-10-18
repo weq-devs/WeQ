@@ -180,6 +180,7 @@ export function MessageRow({
   onContextMenu,
   onLongPress,
   onAction,
+  onReedit,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
@@ -207,6 +208,7 @@ export function MessageRow({
   onContextMenu?: (event: unknown, message: Message) => void;
   onLongPress?: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onReedit?: (message: Message) => Promise<boolean>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
@@ -281,6 +283,7 @@ export function MessageRow({
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}
       onAction={onAction}
+      onReedit={onReedit}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}

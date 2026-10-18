@@ -10,8 +10,10 @@ export function DirectoryToolbar({
   selecting,
   onSelecting,
   count,
+  allSelected = false,
   onSelectAll,
   children,
+  separateSelectionBar = false,
 }: {
   noun: string;
   query: string;
@@ -19,23 +21,25 @@ export function DirectoryToolbar({
   selecting: boolean;
   onSelecting: (value: boolean) => void;
   count: number;
+  allSelected?: boolean;
   onSelectAll: () => void;
   children?: ReactNode;
+  separateSelectionBar?: boolean;
 }) {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (searching && !selecting) input.current?.focus();
-  }, [searching, selecting]);
+    if (searching && (!selecting || separateSelectionBar)) input.current?.focus();
+  }, [searching, selecting, separateSelectionBar]);
   const closeSearch = () => {
     onQuery('');
     setSearching(false);
   };
   return (
     <div
-      className={`weq-directory-toolbar${searching ? ' is-searching' : ''}${selecting ? ' is-selecting' : ''}`}
+      className={`weq-directory-toolbar${searching ? ' is-searching' : ''}${selecting && !separateSelectionBar ? ' is-selecting' : ''}`}
     >
-      {selecting ? (
+      {selecting && !separateSelectionBar ? (
         <div key="select" className="weq-directory-mode weq-directory-selection-mode">
           <ListChecks size={16} aria-hidden />
           <span className="weq-directory-selection-count" aria-live="polite">
@@ -43,8 +47,9 @@ export function DirectoryToolbar({
           </span>
           <button
             type="button"
-            title="全选当前结果"
-            aria-label="全选当前结果"
+            title={allSelected ? '取消全选当前结果' : '全选当前结果'}
+            aria-label={allSelected ? '取消全选当前结果' : '全选当前结果'}
+            aria-pressed={allSelected}
             onClick={onSelectAll}
           >
             <ListPlus size={16} />

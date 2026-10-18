@@ -18,6 +18,7 @@ import { QqArk } from '../src/renderer/src/components/ark/QqArk';
 import { QqDynamic } from '../src/renderer/src/components/QqDynamic';
 import { QzoneCardNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
+import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
@@ -326,31 +327,56 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('私聊预览没有输入框或修改入口，关闭不跳转', () => {
+  it('私聊预览留在名片内，没有新浮窗或输入框，返回不关闭名片', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const close = vi.fn();
+    const preview = vi.fn();
+    const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+    function Card() {
+      const [open, setOpen] = useState(false);
+      return h(MemberProfileCard, {
+        member: { ...conversation.otherUser!, identityLabel: 'QQ', identityValue: '123456' },
+        anchor: { x: 100, y: 100 },
+        onClose: close,
+        onPreviewChat: () => {
+          preview();
+          setOpen(true);
+        },
+        previewContent: open
+          ? h(GapMessagesModal, {
+              embedded: true,
+              preview: true,
+              conversation,
+              user: demo.user,
+              messages: [],
+              loading: false,
+              loadingMore: false,
+              error: null,
+              hasMore: false,
+              moreFailed: false,
+              totalCount: 0,
+              onLoadMore: vi.fn(),
+              onClose: () => setOpen(false),
+            })
+          : null,
+      });
+    }
     try {
-      fixture.render(
-        h(GapMessagesModal, {
-          preview: true,
-          conversation: demo.conversations.find((item) => item.type === 'direct')!,
-          user: demo.user,
-          messages: [],
-          loading: false,
-          loadingMore: false,
-          error: null,
-          hasMore: false,
-          moreFailed: false,
-          totalCount: 0,
-          onLoadMore: vi.fn(),
-          onClose: close,
-        }),
-      );
-      const modal = document.querySelector('[role="dialog"]')!;
+      fixture.render(h(Card));
+      const modal = document.querySelector('.weq-member-pop')!;
+      act(() => button(modal, '预览私聊').click());
+      expect(preview).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(document.querySelector('.weq-window-layer')).toBeNull();
       expect(modal.textContent).toContain('预览私聊');
+      expect(modal.textContent).toContain('没有本地聊天记录');
       expect(modal.querySelector('textarea, [contenteditable="true"]')).toBeNull();
-      act(() => modal.querySelector<HTMLButtonElement>('button[title="关闭"]')!.click());
+      act(() => button(modal, '返回资料').click());
+      expect(close).not.toHaveBeenCalled();
+      expect(modal.textContent).not.toContain('没有本地聊天记录');
+      act(() => button(modal, '关闭').click());
       expect(close).toHaveBeenCalledOnce();
     } finally {
       fixture.close();

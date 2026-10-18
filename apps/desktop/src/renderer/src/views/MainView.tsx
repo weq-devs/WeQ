@@ -17,6 +17,7 @@ import React, {
   type ReactElement,
 } from 'react';
 import { trpc } from '../trpc/client';
+import { findReplyPreview } from '../lib/replyPreview';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
@@ -331,6 +332,7 @@ type ServiceAccountWire = {
 };
 
 type MessageWire = {
+  localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
@@ -383,6 +385,7 @@ type MessageWire = {
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
+  localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
@@ -409,6 +412,7 @@ type ChatMsgWire = {
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
   return {
+    localSent: w.localSent,
     sourceFormat: w.sourceFormat,
     source: w.source,
     ntSeqVerified: w.ntSeqVerified,
@@ -1449,6 +1453,7 @@ function optimisticArkToTemplate(
   body: string;
   /** 渲染元素（`{type,data}`，与真实消息的 `qqElements` 同形）。 */
   elements: unknown[];
+  composerDraft?: Message['composerDraft'];
   /**
    * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
    * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。
@@ -1489,6 +1494,7 @@ function optimisticMessageToTemplate(
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
     optimisticError: item.error,
+    composerDraft: item.composerDraft,
     msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
@@ -1563,6 +1569,7 @@ function messageToTemplate(
   user: User,
   memberMap?: Map<string, GroupMember>,
   botUids?: Set<string>,
+  replySources?: MessageWire[],
 ): Message {
   const sender = messageSender(message, conversation, user, memberMap, botUids);
   // For any `reply` element in the message, resolve the ORIGINAL message
@@ -1571,7 +1578,13 @@ function messageToTemplate(
   // QqMessageContent's ReplyQuote can render it on the quote box's first line
   // without having to thread the renderer-side group lookup through React
   // context. Non-reply elements are passed through untouched.
-  const elements = enrichReplyElements(message.elements, conversation, user, memberMap);
+  const elements = enrichReplyElements(
+    message.elements,
+    conversation,
+    user,
+    memberMap,
+    replySources,
+  );
   // Recall reviser's display name: only needed when an admin recalled someone
   // else's message (sameSender === false). Group → memberMap by uid; c2c → the
   // peer (the only other party). Falls back to a generic label in the bubble.
@@ -1589,6 +1602,7 @@ function messageToTemplate(
   return {
     id: timelineRowKey(message),
     sourceFormat: message.sourceFormat,
+    localSent: message.localSent,
     conversationId: conversation.id,
     senderId: sender.id,
     sender,
@@ -1645,6 +1659,7 @@ function enrichReplyElements(
   conversation: Conversation,
   user: User,
   memberMap?: Map<string, GroupMember>,
+  replySources: MessageWire[] = [],
 ): unknown[] {
   if (!Array.isArray(elements) || elements.length === 0) return elements;
   let mutated = false;
@@ -1654,9 +1669,24 @@ function enrichReplyElements(
     if (el.type !== 'reply') return element;
     const data = (el.data ?? {}) as Record<string, unknown>;
     const nick = resolveOrigSenderNick(data, conversation, user, memberMap);
-    if (!nick) return element;
+    let preview: unknown[] | undefined;
+    if (!Array.isArray(data.origElements) || data.origElements.length === 0) {
+      preview = findReplyPreview(
+        conversation.type === 'group' ? 'group' : 'c2c',
+        data,
+        replySources,
+      );
+    }
+    if (!nick && !preview?.length) return element;
     mutated = true;
-    return { ...el, data: { ...data, origSenderDisplayName: nick } };
+    return {
+      ...el,
+      data: {
+        ...data,
+        ...(nick ? { origSenderDisplayName: nick } : {}),
+        ...(preview?.length ? { origElements: preview } : {}),
+      },
+    };
   });
   return mutated ? out : elements;
 }
@@ -4830,7 +4860,16 @@ export function MainView(): ReactElement {
 
     const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, selectedConversation, user, memberMap, botUids));
+      .map((message) =>
+        messageToTemplate(
+          message,
+          selectedConversation,
+          user,
+          memberMap,
+          botUids,
+          loadedMessageWires,
+        ),
+      );
     // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
     const pending = optimisticForwards
       .filter((item) => item.convId === selectedConversation.id)
@@ -5078,40 +5117,6 @@ export function MainView(): ReactElement {
       for (const timer of timers) clearTimeout(timer);
     };
   }, [pendingSyncKey, refreshWindow]);
-
-  /**
-   * 发送失败的乐观条目不要一直挂在会话末尾。
-   *
-   * 之前失败后会永久占位，视觉上像「这条一直在发送」；而且它没有 seq，永远被排到
-   * 队尾。这里在失败后按固定 TTL 自动收掉三条乐观队列（普通消息 / Ark 卡片 / 合并
-   * 转发）里的对应条目 —— toast 已经说明过失败原因，用户不会因此丢信息。发送中 /
-   * 已发送的条目不动。
-   */
-  useEffect(() => {
-    const FAILED_TTL_MS = 6000;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const now = Date.now();
-    const sweep = (items: { id: string; state: string; at: number }[]): void => {
-      for (const item of items) {
-        if (item.state !== 'failed') continue;
-        const remaining = Math.max(0, FAILED_TTL_MS - (now - item.at));
-        timers.push(
-          setTimeout(() => {
-            // 三个队列都过一遍：id 带前缀，互不冲突，命中哪个删哪个。
-            setOptimisticMessages((current) => current.filter((x) => x.id !== item.id));
-            setOptimisticArks((current) => current.filter((x) => x.id !== item.id));
-            setOptimisticForwards((current) => current.filter((x) => x.id !== item.id));
-          }, remaining),
-        );
-      }
-    };
-    sweep(optimisticMessages);
-    sweep(optimisticArks);
-    sweep(optimisticForwards);
-    return () => {
-      for (const timer of timers) clearTimeout(timer);
-    };
-  }, [optimisticMessages, optimisticArks, optimisticForwards]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -5541,10 +5546,27 @@ export function MainView(): ReactElement {
         });
       };
       const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
-      const rawSeq =
+      const positive = (value: unknown): string | undefined =>
+        /^\d+$/.test(String(value)) && BigInt(String(value)) > 0n ? String(value) : undefined;
+      let rawSeq =
         kind === 'group'
-          ? (jumpTarget.seq ?? jumpTarget.index)
-          : (jumpTarget.index ?? jumpTarget.seq);
+          ? (positive(jumpTarget.seq) ?? positive(jumpTarget.index))
+          : (positive(jumpTarget.index) ?? positive(jumpTarget.seq));
+      if (kind === 'c2c' && positive(jumpTarget.clientSeq) && !positive(jumpTarget.index)) {
+        try {
+          rawSeq =
+            (await client.account.resolveReplySeq.query({
+              conv: sel.id,
+              clientSeq: String(jumpTarget.clientSeq),
+              senderUin: positive(jumpTarget.senderUin),
+              sendTime: positive(jumpTarget.sendTime),
+            })) ?? undefined;
+        } catch (error) {
+          console.error('[reply-jump] resolution failed', error);
+          rawSeq = undefined;
+        }
+        if (selectionRef.current !== sel) return;
+      }
       if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
         notFound();
         return;
@@ -6272,8 +6294,8 @@ export function MainView(): ReactElement {
    *   - `file`     → `account.sendFile`（独立文件管线，需要本机路径）；
    *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊；**不做乐观渲染**）。
    *
-   * 失败一律**抛错**：composer 以「onSend 正常返回」为发送成功信号，返回成功会清空
-   * 输入框；抛错路径会保留原文。服务端拒绝（result≠0）也不算成功。
+   * 失败一律抛错，服务端拒绝也不算成功。输入区在提交时交接内容；失败消息保留
+   * 原稿与重新编辑入口，不自动回填或覆盖下一条草稿。
    */
   const repeatContext = useRef<string | null>(selectedConversation?.id ?? null);
   const [forwardBatch, setForwardBatch] = useState<{ account: string; messages: Message[] } | null>(
@@ -6415,6 +6437,41 @@ export function MainView(): ReactElement {
     );
   }
 
+  async function sendComposerMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
+    const conversation = selectedConversation;
+    const submission = { id: `optimistic-${mfId('msg')}`, draft: { body, locals } };
+    try {
+      await sendMessage(body, locals, undefined, undefined, undefined, undefined, submission);
+    } catch (error) {
+      if (conversation) {
+        // 在线条件或准备阶段失败也必须留下原稿，不能只有 toast 而丢掉编辑入口。
+        let render = { body: '消息未发送', elements: [] as unknown[] };
+        try {
+          render = buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+        } catch {
+          // 无法渲染的草稿仍可通过失败标志重新编辑。
+        }
+        setOptimisticMessages((current) =>
+          current.some((item) => item.id === submission.id)
+            ? current
+            : [
+                ...current,
+                {
+                  id: submission.id,
+                  convId: conversation.id,
+                  ...render,
+                  composerDraft: submission.draft,
+                  state: 'failed',
+                  error: error instanceof Error ? error.message : String(error),
+                  at: Date.now(),
+                },
+              ],
+        );
+      }
+      throw error;
+    }
+  }
+
   async function sendMessage(
     body: string,
     locals?: LocalMediaRef[],
@@ -6422,6 +6479,7 @@ export function MainView(): ReactElement {
     destination?: Conversation,
     isCurrent = () => repeatContext.current === selectedConversation?.id,
     expectedAccountConfigId?: string,
+    submission?: { id: string; draft: NonNullable<Message['composerDraft']> },
   ): Promise<void> {
     const conversation = destination ?? selectedConversation;
     if (!conversation) {
@@ -6477,7 +6535,7 @@ export function MainView(): ReactElement {
     // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
     // 照常乐观渲染。
     const optimistic = plan.kind !== 'aiVoice';
-    const optimisticId = `optimistic-${mfId('msg')}`;
+    const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
     if (optimistic) {
       const render = repeated
         ? { body, elements: repeated.elements }
@@ -6489,6 +6547,7 @@ export function MainView(): ReactElement {
           convId: conversation.id,
           body: render.body,
           elements: render.elements,
+          composerDraft: submission?.draft,
           state: 'sending',
           at: Date.now(),
         },
@@ -6584,6 +6643,14 @@ export function MainView(): ReactElement {
       patchOptimistic({ state: 'failed', error: reason });
       pushToast({ tone: 'error', message: '发送失败', detail: reason });
       throw new Error(reason);
+    }
+
+    if (outcome.hint?.includes('本地保存失败')) {
+      pushToast({
+        tone: 'warning',
+        message: '消息已发送，本地保存失败',
+        detail: '请勿重复发送；可稍后通过漫游拉取补回。',
+      });
     }
 
     // 回执里的 random / seq 用来对账与排序（与 Ark 同）。文件回执只有 random /
@@ -7290,6 +7357,10 @@ export function MainView(): ReactElement {
     hasMore: boolean;
   } | null>(null);
   const previewRequest = useRef(0);
+  useEffect(() => {
+    previewRequest.current++;
+    setPrivatePreview(null);
+  }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
   async function previewPrivateChat(peer: User) {
     const account = user.identityValue;
     const request = ++previewRequest.current;
@@ -7382,6 +7453,38 @@ export function MainView(): ReactElement {
         });
     }
   }
+
+  const privatePreviewContent =
+    privatePreview && privatePreview.account === user.identityValue ? (
+      <GapMessagesModal
+        preview
+        embedded
+        conversation={privatePreview.conversation}
+        user={user}
+        messages={privatePreview.rows.map((row) =>
+          messageToTemplate(row, privatePreview.conversation, user, undefined, botUids),
+        )}
+        renderers={messageRenderers}
+        loading={privatePreview.loading}
+        loadingMore={privatePreview.loadingMore}
+        error={privatePreview.rows.length ? null : privatePreview.error}
+        hasMore={privatePreview.hasMore}
+        moreFailed={Boolean(privatePreview.error)}
+        totalCount={privatePreview.rows.length}
+        onLoadMore={() => void loadPrivatePreview()}
+        onRetry={() =>
+          void previewPrivateChat(
+            privatePreview.conversation.type === 'direct'
+              ? privatePreview.conversation.otherUser
+              : user,
+          )
+        }
+        onClose={() => {
+          previewRequest.current++;
+          setPrivatePreview(null);
+        }}
+      />
+    ) : null;
 
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
@@ -7530,7 +7633,7 @@ export function MainView(): ReactElement {
                       conversations={
                         shell.view === 'contacts'
                           ? contactDirectoryConversations
-                          : sidebarView === 'messages' && !shell.query.trim()
+                          : sidebarView === 'messages'
                             ? sidebarConversations
                             : conversations
                       }
@@ -7708,7 +7811,7 @@ export function MainView(): ReactElement {
                           profileLoading={groupDetail.isLoading}
                           sendAvailable={sendAvailable}
                           onOpenNotificationSettings={noopAsync}
-                          onSend={sendMessage}
+                          onSend={sendComposerMessage}
                           onRepeatMessage={repeatMessage}
                           onResolveMentions={resolveMentions}
                           onSearchMentionMembers={async (query, conversation) => {
@@ -8110,6 +8213,7 @@ export function MainView(): ReactElement {
                 );
               }}
               onPreviewChat={() => void previewPrivateChat(memberCard.member)}
+              previewContent={privatePreviewContent}
             />
           ) : null}
           {addMessageConv ? (
@@ -8214,35 +8318,6 @@ export function MainView(): ReactElement {
               targets={mergeForwardTargets}
               onSend={forwardMessage}
               onClose={() => setForwardBatch(null)}
-            />
-          ) : null}
-          {privatePreview && privatePreview.account === user.identityValue ? (
-            <GapMessagesModal
-              preview
-              conversation={privatePreview.conversation}
-              user={user}
-              messages={privatePreview.rows.map((row) =>
-                messageToTemplate(row, privatePreview.conversation, user, undefined, botUids),
-              )}
-              renderers={messageRenderers}
-              loading={privatePreview.loading}
-              loadingMore={privatePreview.loadingMore}
-              error={privatePreview.rows.length ? null : privatePreview.error}
-              hasMore={privatePreview.hasMore}
-              moreFailed={Boolean(privatePreview.error)}
-              totalCount={privatePreview.rows.length}
-              onLoadMore={() => void loadPrivatePreview()}
-              onRetry={() =>
-                void previewPrivateChat(
-                  privatePreview.conversation.type === 'direct'
-                    ? privatePreview.conversation.otherUser
-                    : user,
-                )
-              }
-              onClose={() => {
-                previewRequest.current++;
-                setPrivatePreview(null);
-              }}
             />
           ) : null}
           {analysisReports.map((request) => (
@@ -8350,6 +8425,7 @@ export function MainView(): ReactElement {
             <ConversationDirectoryContext.Provider
               value={{
                 real: conversations,
+                groupAssistantIds,
                 virtual: virtualRows,
                 locate: conversationLocate,
                 onAnalyze: handleAnalyzeConversation,

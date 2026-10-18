@@ -1737,6 +1737,7 @@ export function initAppContext(): AppContext {
           resolveOnlinePid,
           // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+          (message) => gapHistory.retainForBatch([message]),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -2362,8 +2363,12 @@ export function initAppContext(): AppContext {
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
-        messageSend: new MessageSendService(platform.native.ntHelper, session, livePid, (packId) =>
-          emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+        messageSend: new MessageSendService(
+          platform.native.ntHelper,
+          session,
+          livePid,
+          (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+          (message) => gapHistory.retainForBatch([message]),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),

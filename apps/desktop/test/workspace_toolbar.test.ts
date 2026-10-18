@@ -68,10 +68,90 @@ vi.mock('../src/renderer/src/views/AgentLabView', () => ({
   AgentLabView: () => createElement('div', null, '合成助手夹具'),
 }));
 vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
-  RoamingBackfillPanel: () => createElement('div', null, '合成补全夹具'),
+  RoamingBackfillPanel: ({
+    targetMode,
+    initialTargets,
+  }: {
+    targetMode?: string;
+    initialTargets?: { conv: string }[];
+  }) =>
+    createElement(
+      'div',
+      {
+        'data-roaming-mode': targetMode,
+        'data-roaming-targets': initialTargets?.map((target) => target.conv).join(','),
+      },
+      '合成补全夹具',
+    ),
 }));
 
 describe('全局工具条范围', () => {
+  it.each<ContentSelection['owner']>([
+    { kind: 'conversations', container: 'main-list' },
+    { kind: 'messages', container: 'group:10001' },
+    { kind: 'contacts', container: 'friends' },
+    { kind: 'qzone-posts', container: '10001' },
+    { kind: 'collections', container: 'all' },
+  ])('多选 $kind 不自动展开，仍可手动打开和在外部点击关闭', (owner) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = () =>
+      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
+    try {
+      fixture.selection = null;
+      render();
+      fixture.selection = { owner, scope: { type: 'items', ids: [] } };
+      render();
+      expect(document.querySelector('.weq-tools-trigger')?.getAttribute('aria-expanded')).toBe(
+        'false',
+      );
+      fixture.selection = { owner, scope: { type: 'items', ids: ['fixture'] } };
+      render();
+      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      expect(document.querySelector('[aria-label="全局工具"]')).not.toBeNull();
+      act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
+    } finally {
+      fixture.selection = null;
+      act(() => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('会话漫游请求打开固定目标浮窗，不展开全局工具栏', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(WorkspaceTools, {
+            onOpenAnalysis: vi.fn(),
+            roamingRequest: {
+              targets: [{ kind: 'c2c', conv: 'u_fixture', name: '合成好友' }],
+              revision: 1,
+            },
+          }),
+        ),
+      );
+      const dialog = document.querySelector('[data-roaming-mode="fixed"]')!;
+      expect(dialog.getAttribute('data-roaming-targets')).toBe('u_fixture');
+      expect(dialog.closest('.weq-tools-modal')?.getAttribute('aria-modal')).not.toBe('true');
+      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
   it('内容页的显式导出请求打开同一个工具宿主，不需要旧独立弹窗', () => {
     const previousAccount = useViewState.getState().openedUin;
     useViewState.setState({ openedUin: '10002' });
@@ -157,7 +237,7 @@ describe('全局工具条范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it.each(['导出', '任务', '消息补全', 'WeQ 助手'])('%s 继续保留居中遮罩', (label) => {
+  it.each(['导出', 'WeQ 助手'])('%s 继续保留居中遮罩', (label) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -180,7 +260,7 @@ describe('全局工具条范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('任务恢复遮罩，关闭与切换工具仍保留任务现场', () => {
+  it('任务使用无模态锚定面板，关闭与切换工具仍保留任务现场', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     fixture.taskUnmounted.mockClear();
@@ -199,21 +279,21 @@ describe('全局工具条范围', () => {
     try {
       act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
       select('任务');
-      const dialog = document.querySelector<HTMLElement>('.weq-tools-modal')!;
-      expect(dialog.getAttribute('aria-modal')).toBe('true');
-      expect(dialog.parentElement!.classList.contains('weq-nonmodal-layer')).toBe(false);
-      expect(hasActiveModal()).toBe(true);
       const progress = document.querySelector<HTMLButtonElement>('[data-task-progress]')!;
+      const dialog = progress.closest<HTMLElement>('.weq-tools-modal')!;
+      expect(dialog.getAttribute('aria-modal')).not.toBe('true');
+      expect(dialog.classList.contains('is-anchored')).toBe(true);
+      expect(hasActiveModal()).toBe(false);
       act(() => progress.click());
       expect(progress.dataset.taskProgress).toBe('1');
       expect(dialog.closest('[hidden]')).toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭任务"]')!.click());
       expect(document.querySelector('[data-task-progress]')).toBe(progress);
       expect(fixture.taskUnmounted).not.toHaveBeenCalled();
       select('导出');
       expect(hasActiveModal()).toBe(true);
       select('任务');
-      expect(hasActiveModal()).toBe(true);
+      expect(hasActiveModal()).toBe(false);
       expect(document.querySelector('[data-task-progress]')).toBe(progress);
       expect(progress.dataset.taskProgress).toBe('1');
       expect(fixture.taskUnmounted).not.toHaveBeenCalled();
@@ -223,7 +303,7 @@ describe('全局工具条范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('仅保留全局工具并加入消息补全，不混入数据库或缓存维护', () => {
+  it('仅保留全局工具，漫游由会话入口打开，不混入数据库或缓存维护', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -245,12 +325,11 @@ describe('全局工具条范围', () => {
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
         '导出',
         '任务',
-        '消息补全',
         '分析与报告',
         'WeQ 助手',
         '合成聊天记录',
       ]);
-      act(() => buttons[3]!.click());
+      act(() => buttons[2]!.click());
       expect(analysis).not.toHaveBeenCalled();
       expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析与报告');
       expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();

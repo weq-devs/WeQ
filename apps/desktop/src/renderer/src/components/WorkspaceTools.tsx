@@ -162,12 +162,7 @@ export function WorkspaceTools({
     });
   return (
     <>
-      <FloatingToolsBar
-        items={items}
-        running={running}
-        hidden={hidden}
-        expandKey={selection ? `${selection.owner.kind}:${selection.owner.container}` : undefined}
-      />
+      <FloatingToolsBar items={items} running={running} hidden={hidden} />
       <Modal
         presentation="modal"
         open={open && tool !== 'tasks' && tool !== 'backfill'}
@@ -272,6 +267,7 @@ export function WorkspaceTools({
             <RoamingBackfillPanel
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
+              targetMode="fixed"
             />
           ) : null}
         </RetainedTabs>

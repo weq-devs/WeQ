@@ -30,6 +30,11 @@ import {
   sendForward as protocolSendForward,
   sendGroupFile,
   sendMessage,
+  decode,
+  decodeMessage,
+  encode,
+  PUSH_MSG_BODY,
+  SEND_MESSAGE_REQUEST,
   sendPrivateFile,
   SendAiVoice,
   SendLocationArk,
@@ -44,6 +49,7 @@ import {
   type SendScene,
 } from '@weq/protocol';
 import { getLogger } from '../common/logger';
+import { toGapMessage, type GapFetchedMessage } from './gap_history';
 
 const logger = getLogger().child({ scope: 'message-send' });
 
@@ -474,6 +480,7 @@ export class MessageSendService {
      * `145fb68a7df26c50`），收端靠它解密贴纸图；发空串对方解不出图。
      */
     private readonly marketFaceKey?: (packId: string) => Promise<string | null>,
+    private readonly retainSent?: (message: GapFetchedMessage) => Promise<void>,
   ) {}
 
   /**
@@ -884,6 +891,52 @@ export class MessageSendService {
     });
 
     const outcome = toOutcome(receipt, target, uploads);
+    const sequence = target.peerType === 'group' ? receipt.groupSequence : receipt.privateSequence;
+    if (outcome.ok && sequence > 0 && this.retainSent) {
+      try {
+        const request = decode(SEND_MESSAGE_REQUEST, receipt.requestBytes) as Record<
+          string,
+          unknown
+        >;
+        // 用实际发送（含上传结果）的正文复用收侧解码，不保存本地路径或临时草稿。
+        const raw = encode(PUSH_MSG_BODY, {
+          responseHead: {
+            fromUin: Number(this.selfUin()),
+            fromUid: this.session.selfUid,
+            toUin: target.uin,
+            toUid: target.uid,
+            ...(target.peerType === 'group' ? { grp: { groupUin: target.uin } } : {}),
+          },
+          contentHead: {
+            msgId: receipt.random,
+            sequence: target.peerType === 'group' ? sequence : receipt.clientSequence,
+            ...(target.peerType === 'c2c' ? { ntMsgSeq: sequence } : {}),
+            timestamp: receipt.timestamp,
+          },
+          body: request.messageBody,
+        });
+        const message = toGapMessage(
+          target.peerType,
+          target.peerType === 'group' ? String(target.uin) : target.uid || target.targetId,
+          decodeMessage(raw),
+        );
+        // 特殊互动元素尚未被收侧解码器支持时，保留原来的乐观预览等待 QQ 同步。
+        if (message.elements.length < elements.length) return outcome;
+        await this.retainSent({
+          ...message,
+          sourceFormat: 'protocol',
+          localSent: true,
+          msgRandom: String(receipt.random),
+        });
+      } catch (error) {
+        // 已发出的消息不能因本地写失败变成可重发的失败状态。
+        logger.warn('sent message persistence failed', {
+          event: 'sent-message-persistence',
+          error: String(error),
+        });
+        outcome.hint = `${outcome.hint ? `${outcome.hint}；` : ''}消息已发送，但本地保存失败。`;
+      }
+    }
     if (!outcome.ok) {
       logger.warn('send message rejected', {
         event: 'send-message-rejected',

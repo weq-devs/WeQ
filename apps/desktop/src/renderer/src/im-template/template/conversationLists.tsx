@@ -37,8 +37,11 @@ import {
   conversationRoamingTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
+import { ConversationSelectionToolbar } from '../../components/ConversationSelectionToolbar';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
@@ -185,7 +188,7 @@ export function ConversationList({
     kind: 'conversations',
     container: 'main-list',
   });
-  const listRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const menuRef = useRef<HTMLDivElement>(null);
   const virtualIds = useMemo(
@@ -205,19 +208,56 @@ export function ConversationList({
         !needle ||
         `${conversationTitle(row)} ${conversationSeed(row)}`.toLocaleLowerCase().includes(needle),
     );
-    return rows.sort(
+    // 完整目录可用于查找操作目标，但不能绕过主列表的群助手归属。
+    const visible = directory?.groupAssistantIds
+      ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
+      : rows;
+    return visible.sort(
       (first, second) =>
         Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
     );
-  }, [conversations, preferences, directory?.virtual, directory?.real, keyword, scope]);
+  }, [
+    conversations,
+    preferences,
+    directory?.virtual,
+    directory?.real,
+    directory?.groupAssistantIds,
+    keyword,
+    scope,
+  ]);
+  const filteredIds = filtered.map((item) => item.id);
+  const allSelected = allSelectionIdsSelected(filteredIds, selectedIds);
+  const toggleAll = () => setSelectedIds(toggleAllSelectionIds(filteredIds, selectedIds));
   const multi = useMultiSelection({
-    ids: filtered.map((item) => item.id),
+    ids: filteredIds,
     selected: selectedIds,
     onChange: setSelectedIds,
     enabled: selectionMode,
     onStart: () => setSelectionMode(true),
     onExit: () => setSelectionMode(false),
   });
+  const actionRows = useMemo(
+    () => new Map([...conversations, ...(directory?.real ?? [])].map((row) => [row.id, row])),
+    [conversations, directory?.real],
+  );
+  const selectedRows = [...selectedIds].map((id) =>
+    virtualIds.has(id) ? undefined : actionRows.get(id),
+  );
+  const selectedTargets = selectedRows.map(conversationRoamingTarget).filter(Boolean);
+  const exportReason = !selectedIds.size
+    ? '请先选择会话'
+    : !requestExport
+      ? '当前无法导出会话'
+      : selectedRows.some((row) => !conversationExportSelection(row))
+        ? '所选会话包含非聊天内容，请重新选择'
+        : undefined;
+  const roamingReason = !selectedIds.size
+    ? '请先选择会话'
+    : !directory?.onRoaming
+      ? '当前无法拉取漫游消息'
+      : selectedTargets.length !== selectedIds.size
+        ? '所选会话包含不支持漫游拉取的对象'
+        : undefined;
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
@@ -228,11 +268,11 @@ export function ConversationList({
   }, [locateId, locateRevision]);
   useEffect(() => {
     const measure = () => {
-      if (listRef.current) setListHeight(Math.max(62, listRef.current.clientHeight - 44));
+      if (viewportRef.current) setListHeight(Math.max(1, viewportRef.current.clientHeight));
     };
     measure();
     const observer = new ResizeObserver(measure);
-    if (listRef.current) observer.observe(listRef.current);
+    if (viewportRef.current) observer.observe(viewportRef.current);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
@@ -277,22 +317,17 @@ export function ConversationList({
   }, [createOpen]);
 
   return (
-    <div
-      className="list-stack weq-conversation-directory"
-      {...multi.rootProps}
-      ref={(element) => {
-        listRef.current = element;
-        multi.rootProps.ref(element);
-      }}
-    >
+    <div className="list-stack weq-conversation-directory" {...multi.rootProps}>
       <DirectoryToolbar
         noun="会话"
         query={keyword}
         onQuery={setKeyword}
         selecting={selectionMode}
+        separateSelectionBar
         onSelecting={setSelectionMode}
         count={selectedIds.size}
-        onSelectAll={() => setSelectedIds(new Set(filtered.map((item) => item.id)))}
+        allSelected={allSelected}
+        onSelectAll={toggleAll}
       >
         <div className="weq-directory-scope" ref={menuRef}>
           <button
@@ -386,240 +421,266 @@ export function ConversationList({
       {!loading && !filtered.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
-      <WindowedList
-        items={filtered}
-        rowHeight={62}
-        height={listHeight}
-        resetKey={`${scope}:${keyword}`}
-        itemKey={(item) => item.id}
-        scrollToKey={
-          multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
-            ? multi.focusRequest.id
-            : scope === 'all' && !keyword
-              ? locateId
-              : null
-        }
-        scrollRevision={Math.max(multi.focusRequest?.revision ?? 0, locateRevision ?? 0)}
-        onNearEnd={hasMore && !loadingMore ? onLoadMore : undefined}
-        className="weq-conversation-window"
-        renderItem={(conversation) => {
-          const active = conversation.id === activeConversationId;
-          const unreadCount = conversation.unreadCount ?? 0;
-          const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
-          const preview = conversationLastMessage(conversation, user);
-          // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
-          const highlightKinds = new Set((conversation.highlights ?? []).map((h) => h.kind));
-          // @我：优先用 48902 权威标记，回退到本地对消息正文的启发式解析。
-          const showMentionAlert =
-            unreadCount > 0 && (highlightKinds.has('atMe') || preview.mentionsMe);
-          // @全体成员：同属「找你」红色告警类。
-          const showAtAll = unreadCount > 0 && highlightKinds.has('atAll');
-          // 回复我：同属「找你」红色告警类。
-          const showReplyMe = unreadCount > 0 && highlightKinds.has('replyMe');
-          // 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
-          const showSpecialCare = unreadCount > 0 && highlightKinds.has('specialCare');
-          // 新文件：内容类提示（非「找你」告警），行首挂蓝色标记。
-          const showNewFile = unreadCount > 0 && highlightKinds.has('newFile');
-          // QQ红包：内容类提示，行首挂金色标记。
-          const showRedPacket = unreadCount > 0 && highlightKinds.has('redPacket');
-          // 群公告：内容类提示（群内广播），行首挂蓝色标记。
-          const showGroupAnnouncement = unreadCount > 0 && highlightKinds.has('groupAnnouncement');
-          // 群提醒词：命中用户设置的关注词，与「找你」同类，行首挂红色标记。
-          const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
-          // 命中的关键词（可能多个）；让「[群提醒词]」能区分是哪个词命中的。
-          const groupKeywordWords =
-            unreadCount > 0
-              ? [
-                  ...new Set(
-                    (conversation.highlights ?? [])
-                      .filter((h) => h.kind === 'groupKeyword' && h.text)
-                      .map((h) => h.text as string),
-                  ),
-                ]
-              : [];
-          // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
-          // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
-          const muted = Boolean(
-            {
-              ...conversation.preference,
-              ...preferences[conversation.id],
-            }.muted,
-          );
-          const pinned = isPinned(conversation, preferences);
+      <div className="weq-conversation-viewport" ref={viewportRef}>
+        <WindowedList
+          items={filtered}
+          rowHeight={62}
+          height={listHeight}
+          resetKey={`${scope}:${keyword}`}
+          itemKey={(item) => item.id}
+          scrollToKey={
+            multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
+              ? multi.focusRequest.id
+              : scope === 'all' && !keyword
+                ? locateId
+                : null
+          }
+          scrollRevision={Math.max(multi.focusRequest?.revision ?? 0, locateRevision ?? 0)}
+          onNearEnd={hasMore && !loadingMore ? onLoadMore : undefined}
+          className="weq-conversation-window"
+          renderItem={(conversation) => {
+            const active = conversation.id === activeConversationId;
+            const unreadCount = conversation.unreadCount ?? 0;
+            const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
+            const preview = conversationLastMessage(conversation, user);
+            // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
+            const highlightKinds = new Set((conversation.highlights ?? []).map((h) => h.kind));
+            // @我：优先用 48902 权威标记，回退到本地对消息正文的启发式解析。
+            const showMentionAlert =
+              unreadCount > 0 && (highlightKinds.has('atMe') || preview.mentionsMe);
+            // @全体成员：同属「找你」红色告警类。
+            const showAtAll = unreadCount > 0 && highlightKinds.has('atAll');
+            // 回复我：同属「找你」红色告警类。
+            const showReplyMe = unreadCount > 0 && highlightKinds.has('replyMe');
+            // 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
+            const showSpecialCare = unreadCount > 0 && highlightKinds.has('specialCare');
+            // 新文件：内容类提示（非「找你」告警），行首挂蓝色标记。
+            const showNewFile = unreadCount > 0 && highlightKinds.has('newFile');
+            // QQ红包：内容类提示，行首挂金色标记。
+            const showRedPacket = unreadCount > 0 && highlightKinds.has('redPacket');
+            // 群公告：内容类提示（群内广播），行首挂蓝色标记。
+            const showGroupAnnouncement =
+              unreadCount > 0 && highlightKinds.has('groupAnnouncement');
+            // 群提醒词：命中用户设置的关注词，与「找你」同类，行首挂红色标记。
+            const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
+            // 命中的关键词（可能多个）；让「[群提醒词]」能区分是哪个词命中的。
+            const groupKeywordWords =
+              unreadCount > 0
+                ? [
+                    ...new Set(
+                      (conversation.highlights ?? [])
+                        .filter((h) => h.kind === 'groupKeyword' && h.text)
+                        .map((h) => h.text as string),
+                    ),
+                  ]
+                : [];
+            // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
+            // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
+            const muted = Boolean(
+              {
+                ...conversation.preference,
+                ...preferences[conversation.id],
+              }.muted,
+            );
+            const pinned = isPinned(conversation, preferences);
 
-          return (
-            <button
-              key={conversation.id}
-              data-conversation-id={conversation.id}
-              className={cn(
-                listRowClass(!selectionMode && active, 'conversation-row'),
-                pinned && 'pinned',
-                selectionMode && selectedIds.has(conversation.id) && 'is-multiselected',
-              )}
-              aria-pressed={selectionMode ? selectedIds.has(conversation.id) : undefined}
-              {...multi.itemProps(conversation.id)}
-              onContextMenu={(event) => {
-                if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
-                if (
-                  !conversationExportSelection(conversation) ||
-                  directory?.virtual.some((item) => item.id === conversation.id)
-                )
-                  return;
-                event.preventDefault();
-                setActionMenu({
-                  conversation,
-                  ids:
-                    selectionMode && selectedIds.has(conversation.id)
-                      ? [...selectedIds]
-                      : [conversation.id],
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
-                if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
-                if (
-                  !conversationExportSelection(conversation) ||
-                  directory?.virtual.some((item) => item.id === conversation.id)
-                )
-                  return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                setActionMenu({
-                  conversation,
-                  ids:
-                    selectionMode && selectedIds.has(conversation.id)
-                      ? [...selectedIds]
-                      : [conversation.id],
-                  x: rect.left + 20,
-                  y: rect.top + 20,
-                });
-              }}
-              onClick={(e) => {
-                const virtual = directory?.virtual.find((item) => item.id === conversation.id);
-                if (virtual) directory.onVirtual(virtual);
-                else onSelect(conversation.id, e);
-              }}
-            >
-              {conversation.type === 'merged' ? (
-                <span className={cn('avatar', 'has-default', 'merged-avatar')}>
-                  {conversation.mergedKind === 'hidden' ? (
-                    <EyeOff size={20} strokeWidth={2} />
-                  ) : conversation.mergedKind === 'deleted' ? (
-                    <Trash2 size={20} strokeWidth={2} />
-                  ) : conversation.mergedKind === 'service' ||
-                    conversation.mergedKind === 'groupAssistant' ? (
-                    <Users size={20} strokeWidth={2} />
-                  ) : (
-                    <UserRound size={20} strokeWidth={2} />
-                  )}
-                </span>
-              ) : (
-                <Avatar
-                  name={conversationTitle(conversation)}
-                  avatarUrl={conversationAvatarUrl(conversation)}
-                  seed={conversationSeed(conversation)}
-                />
-              )}
-              <span className={cn('row-main')}>
-                <strong>
-                  <span className={cn('row-title-text')}>{conversationTitle(conversation)}</span>
-                  {virtualIds.has(conversation.id) ? (
-                    <small
-                      className="weq-conversation-virtual"
-                      title="虚拟会话"
-                      aria-label="虚拟会话"
-                    >
-                      <Bot size={12} />
-                    </small>
-                  ) : null}
-                  {isBotConversation(conversation) ? (
-                    <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                      <Bot size={12} strokeWidth={2.4} />
-                    </small>
-                  ) : null}
-                </strong>
-                <span className={cn('row-preview-line')}>
-                  {hasDraft ? (
-                    <span className={cn('row-draft')}>
-                      <PenLine size={15} />
-                      <span className={cn('row-draft-text')}>
-                        {formatDraftPreview(drafts[conversation.id])}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className={cn('row-message-preview')}>
-                      {showSpecialCare ? (
-                        <span className={cn('row-specialcare-alert')}>[特别关心]</span>
-                      ) : null}
-                      {showMentionAlert ? (
-                        <span className={cn('row-mention-alert')}>[有人@我]</span>
-                      ) : null}
-                      {showAtAll ? <span className={cn('row-mention-alert')}>[@全体]</span> : null}
-                      {showReplyMe ? (
-                        <span className={cn('row-mention-alert')}>[有人回复我]</span>
-                      ) : null}
-                      {showGroupKeyword ? (
-                        <span className={cn('row-mention-alert')}>
-                          {groupKeywordWords.length > 0
-                            ? `[群提醒词·${groupKeywordWords.join('、')}]`
-                            : '[群提醒词]'}
+            return (
+              <button
+                key={conversation.id}
+                data-conversation-id={conversation.id}
+                className={cn(
+                  listRowClass(!selectionMode && active, 'conversation-row'),
+                  pinned && 'pinned',
+                  selectionMode && selectedIds.has(conversation.id) && 'is-multiselected',
+                )}
+                aria-pressed={selectionMode ? selectedIds.has(conversation.id) : undefined}
+                {...multi.itemProps(conversation.id)}
+                onContextMenu={(event) => {
+                  if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
+                  if (
+                    !conversationExportSelection(conversation) ||
+                    directory?.virtual.some((item) => item.id === conversation.id)
+                  )
+                    return;
+                  event.preventDefault();
+                  setActionMenu({
+                    conversation,
+                    ids:
+                      selectionMode && selectedIds.has(conversation.id)
+                        ? [...selectedIds]
+                        : [conversation.id],
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    return;
+                  if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
+                  if (
+                    !conversationExportSelection(conversation) ||
+                    directory?.virtual.some((item) => item.id === conversation.id)
+                  )
+                    return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setActionMenu({
+                    conversation,
+                    ids:
+                      selectionMode && selectedIds.has(conversation.id)
+                        ? [...selectedIds]
+                        : [conversation.id],
+                    x: rect.left + 20,
+                    y: rect.top + 20,
+                  });
+                }}
+                onClick={(e) => {
+                  const virtual = directory?.virtual.find((item) => item.id === conversation.id);
+                  if (virtual) directory.onVirtual(virtual);
+                  else onSelect(conversation.id, e);
+                }}
+              >
+                {conversation.type === 'merged' ? (
+                  <span className={cn('avatar', 'has-default', 'merged-avatar')}>
+                    {conversation.mergedKind === 'hidden' ? (
+                      <EyeOff size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'deleted' ? (
+                      <Trash2 size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'service' ||
+                      conversation.mergedKind === 'groupAssistant' ? (
+                      <Users size={20} strokeWidth={2} />
+                    ) : (
+                      <UserRound size={20} strokeWidth={2} />
+                    )}
+                  </span>
+                ) : (
+                  <Avatar
+                    name={conversationTitle(conversation)}
+                    avatarUrl={conversationAvatarUrl(conversation)}
+                    seed={conversationSeed(conversation)}
+                  />
+                )}
+                <span className={cn('row-main')}>
+                  <strong>
+                    <span className={cn('row-title-text')}>{conversationTitle(conversation)}</span>
+                    {virtualIds.has(conversation.id) ? (
+                      <small
+                        className="weq-conversation-virtual"
+                        title="虚拟会话"
+                        aria-label="虚拟会话"
+                      >
+                        <Bot size={12} />
+                      </small>
+                    ) : null}
+                    {isBotConversation(conversation) ? (
+                      <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                        <Bot size={12} strokeWidth={2.4} />
+                      </small>
+                    ) : null}
+                  </strong>
+                  <span className={cn('row-preview-line')}>
+                    {hasDraft ? (
+                      <span className={cn('row-draft')}>
+                        <PenLine size={15} />
+                        <span className={cn('row-draft-text')}>
+                          {formatDraftPreview(drafts[conversation.id])}
                         </span>
-                      ) : null}
-                      {showNewFile ? (
-                        <span className={cn('row-newfile-alert')}>[新文件]</span>
-                      ) : null}
-                      {showGroupAnnouncement ? (
-                        <span className={cn('row-newfile-alert')}>[群公告]</span>
-                      ) : null}
-                      {showRedPacket ? (
-                        <span className={cn('row-redpacket-alert')}>[红包]</span>
-                      ) : null}
-                      {preview.nodes.length ? <PreviewNodes nodes={preview.nodes} /> : null}
-                    </span>
-                  )}
-                  {!unreadCount && muted ? <BellOff className={cn('row-muted')} size={15} /> : null}
+                      </span>
+                    ) : (
+                      <span className={cn('row-message-preview')}>
+                        {showSpecialCare ? (
+                          <span className={cn('row-specialcare-alert')}>[特别关心]</span>
+                        ) : null}
+                        {showMentionAlert ? (
+                          <span className={cn('row-mention-alert')}>[有人@我]</span>
+                        ) : null}
+                        {showAtAll ? (
+                          <span className={cn('row-mention-alert')}>[@全体]</span>
+                        ) : null}
+                        {showReplyMe ? (
+                          <span className={cn('row-mention-alert')}>[有人回复我]</span>
+                        ) : null}
+                        {showGroupKeyword ? (
+                          <span className={cn('row-mention-alert')}>
+                            {groupKeywordWords.length > 0
+                              ? `[群提醒词·${groupKeywordWords.join('、')}]`
+                              : '[群提醒词]'}
+                          </span>
+                        ) : null}
+                        {showNewFile ? (
+                          <span className={cn('row-newfile-alert')}>[新文件]</span>
+                        ) : null}
+                        {showGroupAnnouncement ? (
+                          <span className={cn('row-newfile-alert')}>[群公告]</span>
+                        ) : null}
+                        {showRedPacket ? (
+                          <span className={cn('row-redpacket-alert')}>[红包]</span>
+                        ) : null}
+                        {preview.nodes.length ? <PreviewNodes nodes={preview.nodes} /> : null}
+                      </span>
+                    )}
+                    {!unreadCount && muted ? (
+                      <BellOff className={cn('row-muted')} size={15} />
+                    ) : null}
+                  </span>
                 </span>
-              </span>
-              <span className={cn('row-meta')}>
-                <span className={cn('row-time-line')}>
-                  {pinned ? (
-                    <Pin
-                      className={cn('row-pinned')}
-                      size={12}
-                      aria-label="置顶"
-                      title="置顶会话"
-                    />
+                <span className={cn('row-meta')}>
+                  <span className={cn('row-time-line')}>
+                    {pinned ? (
+                      <Pin
+                        className={cn('row-pinned')}
+                        size={12}
+                        aria-label="置顶"
+                        title="置顶会话"
+                      />
+                    ) : null}
+                    {conversation.hidden ? (
+                      <EyeOff
+                        className={cn('row-hidden')}
+                        size={12}
+                        aria-label="隐藏会话"
+                        title="隐藏会话"
+                      />
+                    ) : null}
+                    {formatConversationTime(conversation.updatedAt)}
+                  </span>
+                  {unreadCount ? (
+                    <span className={cn(unreadClass(muted))}>{formatBadgeCount(unreadCount)}</span>
                   ) : null}
-                  {conversation.hidden ? (
-                    <EyeOff
-                      className={cn('row-hidden')}
-                      size={12}
-                      aria-label="隐藏会话"
-                      title="隐藏会话"
-                    />
-                  ) : null}
-                  {formatConversationTime(conversation.updatedAt)}
                 </span>
-                {unreadCount ? (
-                  <span className={cn(unreadClass(muted))}>{formatBadgeCount(unreadCount)}</span>
-                ) : null}
-              </span>
-            </button>
-          );
-        }}
-      />
+              </button>
+            );
+          }}
+        />
+      </div>
       {hasMore ? <ConversationListLoadMore loading={loadingMore} onLoadMore={onLoadMore} /> : null}
+      {selectionMode ? (
+        <ConversationSelectionToolbar
+          count={selectedIds.size}
+          allSelected={allSelected}
+          exportReason={exportReason}
+          roamingReason={roamingReason}
+          onSelectAll={toggleAll}
+          onExport={() => {
+            if (!exportReason)
+              requestExport?.({
+                owner: { kind: 'conversations', container: 'main-list' },
+                scope: { type: 'items', ids: [...selectedIds] },
+              });
+          }}
+          onRoaming={() => {
+            if (!roamingReason) directory?.onRoaming?.(selectedTargets);
+          }}
+          onExit={() => setSelectionMode(false)}
+        />
+      ) : null}
       {actionMenu ? (
         <ConversationActionsMenu
           x={actionMenu.x}
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           actions={(() => {
-            const rows = new Map(
-              [...conversations, ...(directory?.real ?? [])].map((row) => [row.id, row]),
-            );
+            const rows = actionRows;
             const realOnly = actionMenu.ids.every(
               (id) =>
                 !directory?.virtual.some((item) => item.id === id) &&

@@ -664,6 +664,20 @@ export class MsgService {
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
+  resolveC2cReplySeq(
+    conv: string,
+    clientSeq: bigint,
+    senderUin?: bigint,
+    sendTime?: bigint,
+  ): Promise<bigint | null> {
+    return this.c2cDbFor(conv).resolveReplySeq(
+      this.c2cPartition(conv),
+      clientSeq,
+      senderUin,
+      sendTime,
+    );
+  }
+
   calendar(kind: 'group' | 'c2c', conv: string) {
     return kind === 'group'
       ? this.session.groupMsgs.calendar(conv)

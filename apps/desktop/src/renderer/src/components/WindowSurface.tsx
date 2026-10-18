@@ -55,7 +55,7 @@ export function WindowSurface({
     }),
     [view],
   );
-  const fit = useCallback(
+  const fitViewport = useCallback(
     (value: Box): Box => {
       const size = viewport();
       const availableWidth = Math.max(1, size.width - margin * 2);
@@ -78,8 +78,8 @@ export function WindowSurface({
       mode === 'anchored' ? 540 : 680,
       size.height * (mode === 'anchored' ? 0.7 : 0.8),
     );
-    return fit({ x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h });
-  }, [viewport, width, mode, fit]);
+    return fitViewport({ x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h });
+  }, [viewport, width, mode, fitViewport]);
   const [box, setBox] = useState(initial);
   const latest = useRef(box);
   latest.current = box;
@@ -104,12 +104,12 @@ export function WindowSurface({
   }, [active, finish]);
   const place = useCallback(() => {
     setBox((current) => {
-      let next = fit(current);
+      let next = fitViewport(current);
       if (mode === 'anchored') {
         const target = anchor?.isConnected ? anchor : null;
         const size = viewport();
         if (!target)
-          next = fit({
+          next = fitViewport({
             ...next,
             x: size.width - next.width - 16,
             y: size.height - next.height - 64,
@@ -122,7 +122,7 @@ export function WindowSurface({
             rect.bottom + next.height + 8 <= size.height
               ? rect.bottom + 8
               : rect.bottom - next.height;
-          next = fit({ ...next, x, y });
+          next = fitViewport({ ...next, x, y });
         }
       }
       return next.x === current.x &&
@@ -132,7 +132,7 @@ export function WindowSurface({
         ? current
         : next;
     });
-  }, [anchor, mode, fit, viewport]);
+  }, [anchor, mode, fitViewport, viewport]);
   useLayoutEffect(() => {
     if (!active) return;
     place();
@@ -201,7 +201,7 @@ export function WindowSurface({
     const dx = event.clientX - current.x,
       dy = event.clientY - current.y;
     setBox(
-      fit(
+      fitViewport(
         current.resize
           ? { ...current.box, width: current.box.width + dx, height: current.box.height + dy }
           : { ...current.box, x: current.box.x + dx, y: current.box.y + dy },
@@ -257,7 +257,7 @@ export function WindowSurface({
               event.stopPropagation();
               const step = event.shiftKey ? 64 : 16;
               setBox((current) =>
-                fit({
+                fitViewport({
                   ...current,
                   width:
                     current.width +

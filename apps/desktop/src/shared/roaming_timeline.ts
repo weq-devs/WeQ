@@ -2,6 +2,7 @@ export interface TimelineRow {
   sourceFormat?: 'native' | 'protocol';
   sendTime?: string;
   msgRandom?: string;
+  localSent?: boolean;
   senderUid?: string;
   msgId: string;
   msgSeq: string;
@@ -51,21 +52,37 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   const result = local.filter((row) => row.source !== 'roaming');
   const localSeqs = new Set(result.map((row) => row.msgSeq));
   const localIds = new Set(result.map((row) => row.msgId));
+  const identity = (row: T): string | null =>
+    row.msgRandom && row.msgRandom !== '0' && row.senderUid
+      ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
+      : null;
+  const localIdentities = new Set(result.map(identity).filter(Boolean));
   const nativeRandoms = new Set(
     [...local, ...cached]
       .filter((row) => row.sourceFormat && row.msgRandom && row.msgRandom !== '0')
       .map((row) => `${row.msgSeq}:${row.msgRandom}:${row.senderUid ?? ''}`),
   );
   const added = new Set<string>();
-  for (const row of [...local.filter((item) => item.source === 'roaming'), ...cached]) {
+  const candidates = [...local.filter((item) => item.source === 'roaming'), ...cached];
+  const syncedIdentities = new Set(
+    candidates
+      .filter((row) => !row.localSent)
+      .map(identity)
+      .filter(Boolean),
+  );
+  for (const row of candidates) {
     const seq = timelineSeq(row.msgSeq);
     if (
       seq === null ||
+      (row.localSent && identity(row) !== null && syncedIdentities.has(identity(row))) ||
       (kind === 'c2c' && row.ntSeqVerified !== true) ||
       (options.min !== undefined && seq < options.min) ||
       (options.max !== undefined && seq > options.max) ||
       (row.sourceFormat
-        ? localIds.has(row.msgId)
+        ? localIds.has(row.msgId) ||
+          (row.sourceFormat === 'protocol' &&
+            identity(row) !== null &&
+            localIdentities.has(identity(row)))
         : localSeqs.has(row.msgSeq) ||
           nativeRandoms.has(
             `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,

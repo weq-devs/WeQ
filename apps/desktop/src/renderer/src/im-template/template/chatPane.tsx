@@ -147,7 +147,8 @@ import { GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow, grayTipOf } from './messageRow';
+import { MessageRow, grayTipOf, messageElements } from './messageRow';
+import { useDialog } from '../../components/Dialog';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
@@ -551,6 +552,9 @@ export function ChatPane({
   const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const composerSendRef = useRef<{ conversationId: string } | null>(null);
+  const composerTabActive = useRef(tabActive);
+  composerTabActive.current = tabActive;
   const [repeating, setRepeating] = useState(false);
   const repeatBusy = useRef(false);
   const mentionConversation = useRef(conversation?.id);
@@ -1502,6 +1506,8 @@ export function ChatPane({
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
   const inlineImagesRef = useRef<ComposerAttachment[]>([]);
+  const failedSendImagesRef = useRef<ComposerAttachment[]>([]);
+  const reeditLocalsRef = useRef<LocalMediaRef[]>([]);
   /** 释放所有内联图片的预览地址（发送成功 / 切会话 / 卸载时）。 */
   const releaseInlineImages = useCallback(() => {
     for (const item of inlineImagesRef.current) releaseAttachment(item);
@@ -1514,6 +1520,7 @@ export function ChatPane({
       return;
     }
     attachmentConversationRef.current = conversationId;
+    reeditLocalsRef.current = [];
     releaseInlineImages();
     setMediaAttachment((current) => {
       if (current) releaseAttachment(current);
@@ -1533,6 +1540,8 @@ export function ChatPane({
   useLayoutEffect(
     () => () => {
       releaseInlineImages();
+      for (const image of failedSendImagesRef.current) releaseAttachment(image);
+      failedSendImagesRef.current = [];
       if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
     },
     [releaseInlineImages],
@@ -2231,7 +2240,8 @@ export function ChatPane({
     } = {},
   ) {
     const editor = currentComposerEditor();
-    const nextBody = options.text ?? (editor ? serializeComposer(editor) : body);
+    const draftBody = editor ? serializeComposer(editor) : body;
+    const nextBody = options.text ?? draftBody;
     const trimmed = nextBody.trim();
     const singleToken = mediaAttachment
       ? attachmentToken(mediaAttachment)
@@ -2247,85 +2257,100 @@ export function ChatPane({
       ...(options.extraTokens ?? []),
     ];
     const text = singleToken ? '' : trimmed;
-    if ((!text && tokens.length === 0) || !sendAvailable || currentPreference.blocked || sending) {
+    if (
+      !conversation ||
+      (!text && tokens.length === 0) ||
+      !sendAvailable ||
+      currentPreference.blocked ||
+      sending ||
+      composerSendRef.current
+    ) {
       return;
     }
 
     const payloadBody = `${text}${tokens.join('')}`;
+    const request = { conversationId: conversation.id };
+    composerSendRef.current = request;
+    const clearsBody = !singleToken && !options.keepBody;
+    const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
+    let failed = false;
+    const initialFocus = document.activeElement;
+    const isCurrentComposer = () =>
+      mentionConversation.current === request.conversationId &&
+      composerEditorRef.current?.isConnected;
+    const restoreSendFocus = () => {
+      if (!isCurrentComposer() || !composerTabActive.current) return;
+      const focused = document.activeElement;
+      if (focused === composerEditorRef.current) return;
+      if (
+        focused !== initialFocus &&
+        focused !== editor &&
+        focused !== composerEditorRef.current &&
+        focused !== expandedComposerEditorRef.current &&
+        focused !== document.body
+      )
+        return;
+      focusComposerEnd(composerEditorRef.current);
+    };
     const readAfterSend = atLatest && isScrolledToBottom(2);
     if (readAfterSend) requestReadAtBottom();
     readGestureUntil.current = 0;
     setSending(true);
     try {
-      const locals = planNeedsLocalMedia(payloadBody)
-        ? await collectLocalMedia(options.locals ?? [])
+      // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
+      const localMedia = planNeedsLocalMedia(payloadBody)
+        ? collectLocalMedia([...(options.locals ?? []), ...reeditLocalsRef.current])
         : undefined;
+      if (clearsBody) {
+        inlineImagesRef.current = [];
+        reeditLocalsRef.current = [];
+        setComposerBody('');
+        onDraftClear(request.conversationId);
+        setPendingQuote(null);
+        for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
+          if (target) target.innerHTML = '';
+        }
+        composerSelectionRef.current = null;
+        setMentionMenu(null);
+        resetMobileComposerHeight();
+        setMobileComposerExpanded(false);
+        setEmojiOpen(false);
+        setToolsOpen(false);
+      }
+      restoreSendFocus();
+      window.requestAnimationFrame(restoreSendFocus);
+      const locals = localMedia ? await localMedia : undefined;
       await onSend(payloadBody, locals);
+      if (!isCurrentComposer()) return;
       if (readAfterSend) requestReadAtBottom();
+
+      // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
+      if (singleToken) {
+        setMediaAttachment((current) => {
+          if (current !== mediaAttachment) return current;
+          if (current) releaseAttachment(current);
+          return null;
+        });
+        setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
+      }
+      setVoiceOpen(false);
+      setAiVoiceOpen(false);
+      setBounceOpen(false);
+      setPokeOpen(false);
+      if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
     } catch (error) {
-      // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
-      // 不能因为一次失败就把用户打好的字吞掉。
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+      failed = true;
+      // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
+      if (composerEditorRef.current) failedSendImagesRef.current.push(...sentImages);
+      else for (const image of sentImages) releaseAttachment(image);
       console.error('[composer] send failed:', error);
-      return;
+    } finally {
+      if (!failed) for (const image of sentImages) releaseAttachment(image);
+      if (composerSendRef.current === request) {
+        composerSendRef.current = null;
+        setSending(false);
+      }
     }
-
-    // 视频 / 文件 / 超级表情单独发：只把这张卡片收掉，正文与草稿保持原样。
-    if (singleToken) {
-      setMediaAttachment((current) => {
-        if (current) releaseAttachment(current);
-        return null;
-      });
-      setPendingSuperEmoji(null);
-      setVoiceOpen(false);
-      setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-      return;
-    }
-
-    // 链接卡片同样独立于正文（它自己就是一条完整的卡片消息）：发完不清输入框，
-    // 用户正在打的字原样留着。
-    if (options.keepBody) {
-      setVoiceOpen(false);
-      setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-      return;
-    }
-
-    // 清空放在发送成功之后：失败时输入区保持原样，草稿、附件、引用也还在。
-    setComposerBody('');
-    releaseInlineImages();
-    setPendingQuote(null);
-    setVoiceOpen(false);
-    setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
-    if (conversation) {
-      onDraftClear(conversation.id);
-    }
-    if (editor) {
-      editor.innerHTML = '';
-      composerSelectionRef.current = null;
-    }
-    if (expandedComposerEditorRef.current && expandedComposerEditorRef.current !== editor) {
-      expandedComposerEditorRef.current.innerHTML = '';
-    }
-    if (composerEditorRef.current && composerEditorRef.current !== editor) {
-      composerEditorRef.current.innerHTML = '';
-    }
-    resetMobileComposerHeight();
-    setMobileComposerExpanded(false);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setSending(false);
-    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
   /** 语音面板「发送」：语音本身编成 ptt 元素 token；本地 blob 作为字节一并交出。 */
@@ -2972,10 +2997,72 @@ export function ChatPane({
   }
 
   function setComposerBody(value: string) {
+    bodyRef.current = value;
     setBody(value);
     if (conversation) {
       onDraftChange(conversation.id, value);
     }
+  }
+
+  async function reeditMessage(message: Message): Promise<boolean> {
+    if (!conversation || message.senderId !== user.id || sending) return false;
+    const sourceConversation = conversation.id;
+    const editor = currentComposerEditor();
+    const previous = editor ? serializeComposer(editor) : bodyRef.current;
+    const attachment = mediaAttachmentRef.current;
+    if (previous.trim() || attachment || pendingSuperEmoji || pendingQuote) {
+      const replace = await useDialog
+        .getState()
+        .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
+          okLabel: '替换并编辑',
+          cancelLabel: '保留草稿',
+        });
+      if (!replace) return false;
+    }
+    const currentEditor = currentComposerEditor();
+    if (
+      mentionConversation.current !== sourceConversation ||
+      !composerTabActive.current ||
+      !currentEditor?.isConnected ||
+      serializeComposer(currentEditor) !== previous ||
+      mediaAttachmentRef.current !== attachment
+    )
+      return false;
+    const elements = messageElements(message);
+    const text =
+      message.composerDraft?.body ??
+      (elements.length
+        ? elementsToComposerText(
+            elements.map((element) => ({ ...element.data, kind: element.type })),
+          )
+        : message.body);
+    if (!text) return false;
+    releaseInlineImages();
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setPendingSuperEmoji(null);
+    setPendingQuote(null);
+    reeditLocalsRef.current = message.composerDraft?.locals ?? [];
+    setComposerBody(text);
+    for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
+      if (target) restoreComposer(target, text);
+    }
+    composerSelectionRef.current = null;
+    setMobileComposerExpanded(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setPokeOpen(false);
+    scheduleMobileComposerMeasure();
+    window.requestAnimationFrame(() => {
+      if (mentionConversation.current === sourceConversation && composerTabActive.current)
+        focusComposerEnd(composerEditorRef.current);
+    });
+    return true;
   }
 
   function scheduleMobileComposerMeasure(editor = composerEditorRef.current) {
@@ -3780,6 +3867,7 @@ export function ChatPane({
                     onContextMenu={openMessageMenu}
                     onLongPress={openMobileMessageMenu}
                     onAction={onMessageAction}
+                    onReedit={reeditMessage}
                     repeatAction={
                       !selectionMode &&
                       onRepeatMessage &&
@@ -4380,8 +4468,8 @@ export function ChatPane({
           )}
           role="textbox"
           aria-multiline="true"
-          aria-disabled={currentPreference.blocked || sending}
-          contentEditable={!currentPreference.blocked && !sending}
+          aria-disabled={currentPreference.blocked}
+          contentEditable={!currentPreference.blocked}
           suppressContentEditableWarning
           onInput={() => syncComposerBody(composerEditorRef.current)}
           onKeyDown={handleComposerKeyDown}
@@ -4406,6 +4494,7 @@ export function ChatPane({
           title={sendTitle}
           aria-label={sendTitle}
           disabled={sendDisabled}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => void submitMessage()}
         >
           <SendHorizontal size={17} />
@@ -4443,8 +4532,8 @@ export function ChatPane({
               className={cn('composer-editor mobile-composer-expanded-editor')}
               role="textbox"
               aria-multiline="true"
-              aria-disabled={currentPreference.blocked || sending}
-              contentEditable={!currentPreference.blocked && !sending}
+              aria-disabled={currentPreference.blocked}
+              contentEditable={!currentPreference.blocked}
               suppressContentEditableWarning
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
               onKeyDown={handleComposerKeyDown}
@@ -4538,6 +4627,7 @@ export function ChatPane({
                 title={sendTitle}
                 aria-label={sendTitle}
                 disabled={sendDisabled}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void submitMessage()}
               >
                 <SendHorizontal size={28} />

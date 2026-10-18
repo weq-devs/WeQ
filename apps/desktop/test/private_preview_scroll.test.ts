@@ -38,6 +38,7 @@ it('私聊预览初次贴底，向上加载并按新增高度保持阅读锚点'
   const more = vi.fn();
   const props = {
     preview: true,
+    embedded: true,
     conversation,
     user: demo.user,
     messages,
@@ -52,6 +53,8 @@ it('私聊预览初次贴底，向上加载并按新增高度保持阅读锚点'
   };
   try {
     act(() => root.render(createElement(GapMessagesModal, props)));
+    expect(host.querySelector('.weq-private-preview-inline')).not.toBeNull();
+    expect(document.querySelector('.weq-window-layer')).toBeNull();
     const scroll = document.querySelector<HTMLElement>('.weq-deleted-scroll')!;
     expect(scroll.scrollTop).toBe(height);
     act(() => {

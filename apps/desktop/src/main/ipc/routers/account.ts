@@ -2407,6 +2407,40 @@ export const accountRouter = router({
     .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))
     .query(({ input }) => fetchLatest(input.kind, input.conv, input.limit)),
 
+  resolveReplySeq: procedure
+    .input(
+      z.object({
+        conv: z.string().min(1),
+        clientSeq: z.string().regex(/^[1-9]\d*$/),
+        senderUin: z
+          .string()
+          .regex(/^[1-9]\d*$/)
+          .optional(),
+        sendTime: z
+          .string()
+          .regex(/^[1-9]\d*$/)
+          .optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      const seq = await services.msgs.resolveC2cReplySeq(
+        input.conv,
+        BigInt(input.clientSeq),
+        input.senderUin ? BigInt(input.senderUin) : undefined,
+        input.sendTime ? BigInt(input.sendTime) : undefined,
+      );
+      return (
+        seq?.toString() ??
+        services.gapHistory.resolveReplySeq(
+          input.conv,
+          input.clientSeq,
+          input.senderUin,
+          input.sendTime,
+        )
+      );
+    }),
+
   /** The page just older than `beforeSeq` (scroll up), newest-first. */
   listBefore: procedure
     .input(

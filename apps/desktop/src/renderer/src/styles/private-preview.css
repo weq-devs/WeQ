@@ -2,3 +2,27 @@
 .weq-gap-history-top { min-height: 28px; color: var(--weq-fg-muted); }
 .weq-gap-history-top > span { display: inline-flex; align-items: center; gap: 6px; }
 html[data-theme="dark"] .weq-gap-history-top { color: var(--weq-fg-muted); }
+
+.weq-member-pop-scrim > .weq-member-pop.is-previewing-chat {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 20px));
+  max-width: calc(100vw - 20px);
+  height: min(600px, calc(100dvh - 72px));
+  overflow: hidden;
+  padding: 0;
+}
+.weq-private-preview-inline.weq-deleted {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.weq-private-preview-inline .weq-compose-head { flex: none; padding-right: 40px; }
+.weq-private-preview-inline .weq-deleted-scroll { flex: 1; height: auto; min-height: 0; }
+html[data-theme="dark"] .weq-private-preview-inline { color: var(--weq-fg-primary); }

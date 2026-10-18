@@ -59,12 +59,10 @@ export function FloatingToolsBar({
   items,
   running = 0,
   hidden = false,
-  expandKey,
 }: {
   items: FloatingToolItem[];
   running?: number;
   hidden?: boolean;
-  expandKey?: string;
 }) {
   const [position, setPosition] = useState(initialPosition);
   const [size, setSize] = useState(viewport);
@@ -92,9 +90,6 @@ export function FloatingToolsBar({
     },
     () => setExpanded(false),
   );
-  useEffect(() => {
-    if (expandKey && !hidden) setExpanded(true);
-  }, [expandKey, hidden]);
   useEffect(() => {
     if (!hidden) return;
     cancel();
@@ -151,7 +146,7 @@ export function FloatingToolsBar({
     return () => window.removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
-    if (!expanded || expandKey) return;
+    if (!expanded) return;
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) {
         cancel();
@@ -160,7 +155,7 @@ export function FloatingToolsBar({
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded, expandKey, cancel]);
+  }, [expanded, cancel]);
   const style = {
     left: docked && slotVisible && !dragging ? dockPosition.x : position.x,
     top: docked && slotVisible && !dragging ? dockPosition.y : position.y,
