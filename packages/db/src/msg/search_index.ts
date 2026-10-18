@@ -464,7 +464,7 @@ export class MsgSearchIndexDb {
         String(r[4] ?? ''),
         String(r[5] ?? ''),
         Number(r[6] ?? 0),
-        Number(r[7] ?? 0),
+        toBigint(r[7]),
         String(r[8] ?? ''),
         String(r[9] ?? ''),
       );
@@ -486,7 +486,7 @@ export class MsgSearchIndexDb {
     );
     const keyParams: SqlValue[] = [];
     for (const r of rows) {
-      keyParams.push(Number(r[7] ?? 0), String(r[0] ?? ''), Number(r[2] ?? 0));
+      keyParams.push(toBigint(r[7]), String(r[0] ?? ''), Number(r[2] ?? 0));
     }
     const keyValues = rows.map(() => '(?, ?, ?)').join(',');
     await this.nt.executeSqlWrite(
