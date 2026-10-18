@@ -6,6 +6,7 @@ directories:
   buildResources: build
 files:
   - "out/**/*"
+  - "!out/main/qqKernelRegistration.node"
   # Bare "package.json" was being resolved as a glob in this monorepo and
   # matched `../../packages/<name>/package.json` etc., which electron-builder
   # rejects ("must be under <appDir>"). Pin to the desktop app's own manifest.
@@ -76,6 +77,8 @@ extraResources:
   # 标准 SQLite 子进程（见 main/db/standard_worker.ts）：同样不能从 asar 里 fork。
   - from: out/main/standardDbWorker.mjs
     to: out/main/standardDbWorker.mjs
+  - from: out/main/qqKernelWorker.mjs
+    to: out/main/qqKernelWorker.mjs
   - from: node_modules/onnxruntime-common
     to: node_modules/onnxruntime-common
 
@@ -180,6 +183,8 @@ mac:
   icon: ../../resources/brand/logo.png
   # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
   extraResources:
+    - from: out/main/qqKernelRegistration.node
+      to: out/main/qqKernelRegistration.node
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
     # 本地 OCR 的推理引擎：只带 darwin/${arch} 那份（见顶部 extraResources 的说明）。

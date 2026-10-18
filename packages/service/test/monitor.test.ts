@@ -116,6 +116,19 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('运行时租约只在本监测器已登记、仍在运行且自动读取开启时有效', async () => {
+    const f = fixture();
+    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.hasSsoSessionLease(42)).toBe(true);
+    expect(f.monitor.hasSsoSessionLease(43)).toBe(false);
+    f.setEnabled(false);
+    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
+    f.setEnabled(true);
+    f.monitor.stop();
+    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
+  });
   it('凭据登记成功后立即通知后台服务，失败与停止后不通知', async () => {
     const ready = vi.fn();
     const f = fixture(false, ready);

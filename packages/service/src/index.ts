@@ -644,6 +644,20 @@ export type {
 export { GroupModerationService } from './account/group_moderation';
 export { AccountWriteService } from './account/account_write';
 export type { AccountWriteIdentity, AccountWriteOutcome } from './account/account_write';
+export { QQRuntimeManager, QQ_RUNTIME_MAX_RESTARTS } from './qq_runtime';
+export { createExternalQQRuntimeProbe } from './qq_runtime_external';
+export type { QQExternalRuntimeSource } from './qq_runtime_external';
+export type {
+  QQRuntimeMode,
+  QQRuntimePhase,
+  QQRuntimeAccount,
+  QQRuntimeCapabilities,
+  QQRuntimeObservation,
+  QQRuntimeSnapshot,
+  QQRuntimeBackendEvent,
+  ManagedQQRuntimeBackend,
+  QQRuntimeDependencies,
+} from './qq_runtime';
 export type {
   RecallMessageParams,
   SetMemberCardServiceParams,

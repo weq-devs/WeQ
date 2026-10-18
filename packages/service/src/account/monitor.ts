@@ -97,6 +97,19 @@ export class AccountMonitorService {
   private readonly ssoInflight = new Map<number, Promise<void>>();
   private readonly logger;
 
+  /** 仅确认本监测器登记的当前会话租约，不把同 PID 的其他账号物料当成本账号。 */
+  hasSsoSessionLease(pid: number): boolean {
+    const owner = this.ssoOwners.get(pid);
+    return (
+      this.running &&
+      !this.stopped &&
+      this.shouldAutoAttach() &&
+      owner !== undefined &&
+      this.ssoRegistrations.has(pid) &&
+      this.ssoState(pid).owner === owner
+    );
+  }
+
   /**
    * @param shouldAutoAttach Checked live before each attach — when it
    *   returns false (用户关掉了「自动 attach QQ」, 完全离线模式), online/pid

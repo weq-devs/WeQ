@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { buildQQKernelRegistration } from './build/qq_kernel_registration';
 
 /**
  * Workspace packages export TS source directly (no build step). They must
@@ -22,7 +23,15 @@ const EXCLUDE_FROM_EXTERNAL = [
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL })],
+    plugins: [
+      externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL }),
+      {
+        name: 'weq-qq-kernel-registration',
+        async writeBundle(output) {
+          await buildQQKernelRegistration(__dirname, resolve(__dirname, output.dir ?? 'out/main'));
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),
@@ -49,6 +58,7 @@ export default defineConfig({
           // 标准 SQLite 的独立进程：SQLite 的 pending byte 是进程级全局量，
           // 主进程固定 QQ layout，无 key 的库必须在另一个进程里打开。
           standardDbWorker: resolve(__dirname, 'src/main/db/standard_worker.ts'),
+          qqKernelWorker: resolve(__dirname, 'src/main/qq_runtime/worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
@@ -57,7 +67,8 @@ export default defineConfig({
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
             chunk.name === 'keyScanWorker' ||
-            chunk.name === 'standardDbWorker'
+            chunk.name === 'standardDbWorker' ||
+            chunk.name === 'qqKernelWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },
