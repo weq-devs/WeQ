@@ -45,11 +45,40 @@ html[data-theme="dark"] .weq-settings-dialog .weq-settings-nav-item.is-active {
   min-height: 0;
 }
 
-.weq-settings-scope {
-  flex-shrink: 0;
-  padding: 10px 24px 0;
-  color: var(--weq-fg-muted);
-  font-size: 12px;
+.weq-settings-scope,
+.group-keyword-title .weq-settings-scope {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 6%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.group-keyword-title .weq-settings-title-with-scope,
+.weq-settings-body .weq-set-head-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-settings-body .weq-set-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+html[data-theme="dark"] .weq-settings-scope {
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-fg-muted) 10%, transparent);
+  color: var(--weq-fg-secondary);
 }
 
 .weq-assistant-service-settings {

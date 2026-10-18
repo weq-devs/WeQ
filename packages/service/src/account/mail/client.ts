@@ -245,6 +245,7 @@ export class QQMailService {
       replyTo: entry.replyto ? mailAddress(entry.replyto) : null,
       attachments: this.attachments.fromMessage(entry, id),
     };
+    void this.refreshUnread(signal);
     this.events.emit('change', { type: 'changed' });
     return detail;
   }
@@ -254,7 +255,18 @@ export class QQMailService {
     await this.scoped(async (auth) => {
       await auth.cgi('/mgr/mailmgr', { mailid: ids, func: funcs[action] }, { signal, write: true });
     });
+    if (action === 'read' || action === 'unread' || action === 'trash')
+      void this.refreshUnread(signal);
     this.events.emit('change', { type: 'changed' });
+  }
+
+  private async refreshUnread(signal?: AbortSignal): Promise<void> {
+    try {
+      await this.syncNotice(false, signal);
+    } catch {
+      // 补刷失败不改变已成功的读信或标记结果，保留上次计数等待后续同步。
+      this.scheduleNoticeRecovery();
+    }
   }
 
   async send(

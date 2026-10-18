@@ -156,6 +156,70 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it.each(['open', 'read', 'unread', 'trash'] as const)(
+    '%s 成功后同步账号未读数并发布角标状态，不依赖开启提醒',
+    async (operation) => {
+      const transport = new FakeMailTransport(),
+        auth = new MailAuth(native, '12345678', () => 42, transport);
+      const query = vi
+        .spyOn(auth, 'notificationQuery')
+        .mockResolvedValueOnce({ unread: 2 })
+        .mockResolvedValue({ unread: operation === 'unread' ? 3 : 1 });
+      vi.spyOn(auth, 'cgi').mockResolvedValue({
+        item: { ret: 0, emailid: 'read-fixture', content: '正文' },
+      });
+      const service = new QQMailService(native, '12345678', () => 42, {
+        authFactory: () => auth,
+      });
+      const changed = vi.fn();
+      service.events.on('change', changed);
+      try {
+        await service.connect();
+        changed.mockClear();
+        if (operation === 'open') await service.read('read-fixture');
+        else await service.action(['read-fixture'], operation);
+        const unread = operation === 'unread' ? 3 : 1;
+        expect(query).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() =>
+          expect(service.status()).toMatchObject({ unread, notifications: false }),
+        );
+        expect(changed).toHaveBeenCalledWith({
+          type: 'status',
+          status: expect.objectContaining({ unread }),
+        });
+      } finally {
+        service.dispose();
+      }
+    },
+  );
+  it.each(['open', 'read'] as const)('未读数补刷失败不把 %s 成功报为失败', async (operation) => {
+    const transport = new FakeMailTransport(),
+      auth = new MailAuth(native, '12345678', () => 42, transport);
+    const query = vi
+      .spyOn(auth, 'notificationQuery')
+      .mockResolvedValueOnce({ unread: 2 })
+      .mockRejectedValue(new MailFailure('network', '同步失败'));
+    vi.spyOn(auth, 'cgi').mockResolvedValue({
+      item: { ret: 0, emailid: 'read-fixture', content: '正文' },
+    });
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+    });
+    const changed = vi.fn();
+    service.events.on('change', changed);
+    try {
+      await service.connect();
+      changed.mockClear();
+      if (operation === 'open')
+        await expect(service.read('read-fixture')).resolves.toMatchObject({ id: 'read-fixture' });
+      else await expect(service.action(['read-fixture'], 'read')).resolves.toBeUndefined();
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(service.status()).toMatchObject({ state: 'ready', unread: 2 });
+      expect(changed).toHaveBeenCalledWith({ type: 'changed' });
+    } finally {
+      service.dispose();
+    }
+  });
   it('面板票据不能被带到其他路径、主机或注入请求头', async () => {
     const transport = new MailHttp();
     try {

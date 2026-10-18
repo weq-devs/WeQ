@@ -5,12 +5,13 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('一级分类收敛为九类，模型统计留在模型与识别', () => {
+  it('空间与邮箱独立为一级分类，模型统计留在模型与识别', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '个性显示',
       '隐私与安全',
       '账号与消息',
+      '空间与邮箱',
       '数据与存储',
       '模型与识别',
       '服务与集成',
@@ -21,6 +22,9 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('credentials').id).toBe('advanced');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
+    expect(settingsGroupFor('mail').sections).toEqual(['qzone', 'mail']);
+    expect(settingsGroupFor('qzone').id).toBe('space-mail');
+    expect(settingsGroupFor('account').sections).not.toContain('qzone');
   });
 
   it('保留原分区深链，每个二级页只归属一个分类', () => {

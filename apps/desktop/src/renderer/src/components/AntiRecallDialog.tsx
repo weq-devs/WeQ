@@ -18,7 +18,7 @@ import { BellRing, ChevronRight, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
-import { Card, Row, Toggle } from './settings/controls';
+import { Card, Row, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -327,7 +327,10 @@ export function AntiRecallDialog({
             <ShieldCheck size={17} />
           </span>
           <div>
-            <strong>防撤回</strong>
+            <div className="weq-settings-title-with-scope">
+              <strong>防撤回</strong>
+              {embedded ? <SettingsScopeBadge /> : null}
+            </div>
             <span>撤回的记录留在这里，不向对方发送任何内容</span>
           </div>
         </div>

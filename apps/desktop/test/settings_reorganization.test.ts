@@ -71,10 +71,28 @@ function mount(initialSection: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('空间与邮箱有独立一级入口，空间标题不再带设置后缀', () => {
+    const f = mount('qzone');
+    try {
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '空间与邮箱',
+      );
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
+      ).toEqual(['QQ 空间', 'QQ 邮箱']);
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
+      expect(f.host.textContent).not.toContain('QQ 空间设置');
+      f.render('mail');
+      expect(f.body().querySelector('[aria-label="显示未读邮件数"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="新邮件提醒"]')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(9);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(10);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
@@ -145,6 +163,8 @@ describe('设置归位后的实际页面', () => {
         ),
       ).toEqual(['模型配置', '语音转写', '语音合成', '图片识别', '模型使用统计']);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();
+      expect(f.host.querySelector('.weq-settings-content > .weq-settings-scope')).toBeNull();
     } finally {
       f.close();
     }
@@ -183,6 +203,10 @@ describe('设置归位后的实际页面', () => {
     const f = mount('database');
     try {
       expect(f.body().textContent).toContain('宽容级别');
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
+        '账号与全局',
+      );
+      expect(f.body().textContent).toContain('损坏提醒为全局设置');
       expect(f.body().textContent).not.toContain('降级账本');
       f.render('database-status');
       expect(f.body().textContent).toContain('降级账本');

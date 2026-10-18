@@ -76,6 +76,8 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 export interface AccountConfig {
   /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
   mailNotifications?: boolean;
+  /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
+  mailShowUnread?: boolean;
   /**
    * Stable record id derived from (uin, dataDir). Filename is
    * `<configId>.json`. Older configs written before this field existed fall
@@ -325,6 +327,10 @@ export class AccountConfigService {
 
   setMailNotifications(enabled: boolean): void {
     this.patch({ mailNotifications: enabled });
+  }
+
+  setMailShowUnread(enabled: boolean): void {
+    this.patch({ mailShowUnread: enabled });
   }
 
   /** Update the online flag + pid without disturbing the rest of the record. */

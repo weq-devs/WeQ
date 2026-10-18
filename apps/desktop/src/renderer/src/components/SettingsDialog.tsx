@@ -25,6 +25,7 @@ import {
   HelpCircle,
   Lock,
   LockKeyhole,
+  Mail,
   Monitor,
   Moon,
   Package,
@@ -43,6 +44,7 @@ import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
+import { MailSettingsSection } from './settings/MailSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
@@ -54,7 +56,7 @@ import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
-import { SectionHeader, Toggle } from './settings/controls';
+import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
@@ -135,9 +137,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
   {
     id: 'qzone',
-    label: 'QQ 空间设置',
+    label: 'QQ 空间',
     icon: <Globe size={16} strokeWidth={1.8} />,
     render: () => <QzoneSettingsSection />,
+  },
+  {
+    id: 'mail',
+    label: 'QQ 邮箱',
+    icon: <Mail size={16} strokeWidth={1.8} />,
+    render: () => <MailSettingsSection />,
   },
   {
     id: 'database',
@@ -396,22 +404,21 @@ export function SettingsDialog({
               </button>
             ))}
           </nav>
-          {settingsScopeFor(active.id) ? (
-            <div className="weq-settings-scope">{settingsScopeFor(active.id)}</div>
-          ) : null}
           <div className="weq-settings-body" key={active.id}>
-            {active.id === 'anti-recall' ? (
-              <AntiRecallDialog
-                embedded
-                onClose={onClose}
-                onOpenRecalls={(kind, conv) => {
-                  onClose();
-                  onOpenRecalls(kind, conv);
-                }}
-              />
-            ) : (
-              active.render(onOpenMaintenance)
-            )}
+            <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+              {active.id === 'anti-recall' ? (
+                <AntiRecallDialog
+                  embedded
+                  onClose={onClose}
+                  onOpenRecalls={(kind, conv) => {
+                    onClose();
+                    onOpenRecalls(kind, conv);
+                  }}
+                />
+              ) : (
+                active.render(onOpenMaintenance)
+              )}
+            </SettingsScopeContext.Provider>
           </div>
         </div>
       </section>

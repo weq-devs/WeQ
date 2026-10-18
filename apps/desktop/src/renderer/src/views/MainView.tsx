@@ -2305,6 +2305,10 @@ export function MainView(): ReactElement {
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
   const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
+  const mailPreferences = trpc.mail.preferences.useQuery(
+    { selfUin: openedUin ?? '' },
+    { enabled: Boolean(openedUin), staleTime: 0, refetchOnMount: 'always' },
+  );
   const specialCare = trpc.account.specialCare.useQuery(
     { selfUin: openedUin ?? '' },
     {
@@ -7398,7 +7402,7 @@ export function MainView(): ReactElement {
             }
             messageBadgeCount={0}
             contactBadgeCount={0}
-            mailBadgeCount={mailUnread}
+            mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={
               <RailAccountFooter

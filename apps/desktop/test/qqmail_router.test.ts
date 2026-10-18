@@ -56,10 +56,18 @@ function fixture() {
   };
 }
 let mail: ReturnType<typeof fixture>;
-let preferences: { setMailNotifications: ReturnType<typeof vi.fn> };
+let preferences: {
+  setMailNotifications: ReturnType<typeof vi.fn>;
+  setMailShowUnread: ReturnType<typeof vi.fn>;
+  getRecord: ReturnType<typeof vi.fn>;
+};
 beforeEach(() => {
   mail = fixture();
-  preferences = { setMailNotifications: vi.fn() };
+  preferences = {
+    setMailNotifications: vi.fn(),
+    setMailShowUnread: vi.fn(),
+    getRecord: vi.fn(() => ({})),
+  };
   mocks.selectedFile = null;
   mocks.context = {
     services: { mail, accountConfig: preferences },
@@ -68,6 +76,30 @@ beforeEach(() => {
 });
 
 describe('原生邮箱 IPC 边界', () => {
+  it('旧配置默认显示未读数，并读取现有提醒偏好', async () => {
+    expect(await api.preferences({ selfUin: input.selfUin })).toEqual({
+      showUnread: true,
+      notifications: false,
+    });
+    preferences.getRecord.mockReturnValue({ mailShowUnread: false, mailNotifications: true });
+    expect(await api.preferences({ selfUin: input.selfUin })).toEqual({
+      showUnread: false,
+      notifications: true,
+    });
+  });
+  it('未读数显示开关独立保存，拒绝跨账号读取与写入', async () => {
+    await expect(api.setShowUnread({ selfUin: input.selfUin, enabled: false })).resolves.toBe(
+      false,
+    );
+    expect(preferences.setMailShowUnread).toHaveBeenCalledWith(false);
+    expect(preferences.setMailNotifications).not.toHaveBeenCalled();
+    expect(mail.setNotifications).not.toHaveBeenCalled();
+    await expect(api.preferences({ selfUin: '87654321' })).rejects.toThrow('账号已切换');
+    await expect(api.setShowUnread({ selfUin: '87654321', enabled: true })).rejects.toThrow(
+      '账号已切换',
+    );
+    expect(preferences.setMailShowUnread).toHaveBeenCalledOnce();
+  });
   it('提醒偏好只写入当前账号，断开连接同步清除偏好', async () => {
     await expect(api.notifications({ ...input, enabled: true })).resolves.toMatchObject({
       notifications: true,

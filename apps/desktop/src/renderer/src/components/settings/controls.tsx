@@ -6,8 +6,22 @@
  * switch but lives under its own `weq-set-*` classes so the two never couple.
  */
 
-import type { ButtonHTMLAttributes, ReactElement, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  type ButtonHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import type { SettingsScope } from './navigation';
+
+export const SettingsScopeContext = createContext<SettingsScope | null>(null);
+
+export function SettingsScopeBadge() {
+  const scope = useContext(SettingsScopeContext);
+  return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
+}
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
@@ -21,6 +35,7 @@ export function SectionHeader({
   icon?: ReactNode;
   titleClassName?: string;
 }): ReactElement {
+  const scope = useContext(SettingsScopeContext);
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
@@ -30,8 +45,10 @@ export function SectionHeader({
           </span>
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        <SettingsScopeBadge />
       </div>
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
+      {scope?.detail ? <p className="weq-set-desc">{scope.detail}</p> : null}
     </header>
   );
 }

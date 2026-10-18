@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
-  Bell,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -433,22 +432,6 @@ export function MailPage({
           </div>
         </div>
         <div className="weq-mail-top-actions">
-          <label className="weq-mail-notifications" title="新邮件提醒">
-            <input
-              type="checkbox"
-              aria-label="新邮件提醒"
-              checked={status.notifications}
-              disabled={status.state === 'connecting' || (!ready && !status.notifications)}
-              onChange={(event) => {
-                void api
-                  .notifications(event.target.checked)
-                  .then(setStatus)
-                  .catch((error) => setError(mailError(error)));
-              }}
-            />
-            <Bell size={16} />
-            <span>新邮件提醒</span>
-          </label>
           <button
             type="button"
             title="刷新邮箱"

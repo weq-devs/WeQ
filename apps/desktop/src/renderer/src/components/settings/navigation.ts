@@ -9,6 +9,7 @@ export type SectionId =
   | 'account'
   | 'anti-recall'
   | 'qzone'
+  | 'mail'
   | 'storage'
   | 'media'
   | 'database'
@@ -34,7 +35,8 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   { id: 'general', label: '常规', sections: ['global', 'startup', 'saving'] },
   { id: 'appearance', label: '个性显示', sections: ['appearance', 'message-display'] },
   { id: 'privacy', label: '隐私与安全', sections: ['applock'] },
-  { id: 'account', label: '账号与消息', sections: ['accounts', 'account', 'anti-recall', 'qzone'] },
+  { id: 'account', label: '账号与消息', sections: ['accounts', 'account', 'anti-recall'] },
+  { id: 'space-mail', label: '空间与邮箱', sections: ['qzone', 'mail'] },
   {
     id: 'data',
     label: '数据与存储',
@@ -50,9 +52,18 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   { id: 'help', label: '帮助与关于', sections: ['help', 'logs', 'version', 'updates'] },
 ];
 
-export function settingsScopeFor(section: SectionId): string | null {
-  if (['anti-recall', 'model-usage'].includes(section)) return '当前账号';
-  if (section === 'database') return '当前账号的容错级别与降级记录；损坏提醒为全局设置';
+export interface SettingsScope {
+  label: string;
+  detail?: string;
+}
+
+export function settingsScopeFor(section: SectionId): SettingsScope | null {
+  if (['anti-recall', 'model-usage', 'mail'].includes(section)) return { label: '当前账号' };
+  if (section === 'database')
+    return {
+      label: '账号与全局',
+      detail: '容错级别与降级记录仅影响当前账号；损坏提醒为全局设置。',
+    };
   return null;
 }
 

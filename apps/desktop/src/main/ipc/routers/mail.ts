@@ -58,6 +58,19 @@ async function perform<T>(
 }
 
 export const mailRouter = router({
+  preferences: procedure.input(account).query(({ input }) => {
+    service(input.selfUin);
+    const record = getAppContext().services?.accountConfig.getRecord();
+    return {
+      showUnread: record?.mailShowUnread ?? true,
+      notifications: record?.mailNotifications ?? false,
+    };
+  }),
+  setShowUnread: procedure.input(account.extend({ enabled: z.boolean() })).mutation(({ input }) => {
+    service(input.selfUin);
+    getAppContext().services?.accountConfig.setMailShowUnread(input.enabled);
+    return input.enabled;
+  }),
   status: procedure.input(account).query(({ input }) => service(input.selfUin).status()),
   connect: procedure
     .input(operation)
