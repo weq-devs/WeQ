@@ -1,7 +1,11 @@
 ﻿// @ts-nocheck
 import type { CSSProperties, ReactNode } from 'react';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
-import { useWorkspaceMainPageOpen, useWorkspacePageOpen } from '../../components/WorkspacePages';
+import {
+  useWorkspaceMainPageOpen,
+  useWorkspacePageOpen,
+  useWorkspaceSidecarOpen,
+} from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -103,8 +107,10 @@ export function ChatShell({
 }) {
   const pageOpen = useWorkspacePageOpen();
   const mainPageOpen = useWorkspaceMainPageOpen();
+  const sidecarOpen = useWorkspaceSidecarOpen();
+  const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
   const shellStyle = {
-    '--sidebar-width': `${mainPageOpen ? 0 : sidebarWidth}px`,
+    '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
 
   return (
@@ -149,7 +155,7 @@ export function ChatShell({
           hideAvatar={true}
         />
         <aside
-          hidden={mainPageOpen}
+          hidden={sidebarHidden}
           className={cn(
             'sidebar',
             view === 'home' && 'is-home-view',
@@ -185,7 +191,7 @@ export function ChatShell({
             {sidebarContent}
           </div>
         </aside>
-        {!mainPageOpen && (
+        {!sidebarHidden && (
           <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
         )}
         <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
