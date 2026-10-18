@@ -43,7 +43,7 @@ const MAX_DELTA = 500;
 /** For a conversation first seen after mount: push at most this many newest rows. */
 const NEW_CONV_CAP = 5;
 /** A recent-contact row counts as "live new message" when touched within this window. */
-const NEW_CONV_FRESH_SEC = 30;
+export const NEW_CONV_FRESH_SEC = 30;
 
 /** Newly-inserted messages since the last baseline, per chat type. */
 export interface NewMessages {

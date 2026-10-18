@@ -1,0 +1,250 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LocalUnreadStore } from '../src/account/local_unread';
+import { UnreadInfoService } from '../src/account/unread_info';
+import type { AccountSession } from '@weq/account';
+import type { NewMessages } from '../src/account/nt_msg_hook';
+import type { UnreadInfoSnapshot } from '@weq/db';
+
+const roots: string[] = [];
+afterEach(() => {
+  vi.useRealTimers();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe('未读服务事件与阅读', () => {
+  function setup(readOnly = false) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-19T02:00:00+08:00'));
+    const { path } = fixture();
+    const getUnreadInfos = vi.fn(async () => [snapshot('9000')]);
+    const markRead = vi.fn(async () => false);
+    const session = {
+      context: { uin: '10001' },
+      selfUid: 'u_self',
+      unreadInfo: { getUnreadInfos, markRead },
+    } as unknown as AccountSession;
+    const service = new UnreadInfoService(session, undefined, { statePath: path, readOnly });
+    const query = () => service.getUnreadInfos([{ chatType: 1, uid: 'u_fixture' }]);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const base = {
+      msgId: 1n,
+      msgSeq: 9001n,
+      targetUid: 'u_fixture',
+      targetUin: 10002n,
+      senderUid: 'u_fixture',
+      senderUin: 10002n,
+      sendTime: now,
+      elements: [],
+    };
+    const change: NewMessages = {
+      file: {
+        dbPath: '/fixture/nt_msg.db',
+        prevTotal: 0,
+        total: 1,
+        delta: 1,
+        files: [],
+        at: Date.now(),
+      },
+      c2c: [base],
+      group: [],
+    };
+    return { service, query, change, base, path, markRead, getUnreadInfos, session, now };
+  }
+
+  it('旧消息导入、自己发送、未来时间不计数；真实新消息重复推送只记一次', async () => {
+    const f = setup();
+    await f.query();
+    f.service.observeNewMessages({
+      ...f.change,
+      c2c: [
+        { ...f.base, msgSeq: 8999n, sendTime: f.now - 3600n },
+        { ...f.base, senderUid: 'u_self' },
+        { ...f.base, sendTime: f.now + 3600n },
+      ],
+    });
+    expect((await f.query())[0]?.unreadCount).toBe(0);
+    vi.advanceTimersByTime(120000);
+    f.service.observeNewMessages(f.change);
+    f.service.observeNewMessages(f.change);
+    expect((await f.query())[0]?.unreadCount).toBe(1);
+    const reopened = new UnreadInfoService(f.session, undefined, { statePath: f.path });
+    expect(
+      (await reopened.getUnreadInfos([{ chatType: 1, uid: 'u_fixture' }]))[0]?.unreadCount,
+    ).toBe(1);
+    await f.service.markReadAndReport(1, 'u_fixture', '9001');
+    expect((await f.query())[0]?.unreadCount).toBe(0);
+    expect(f.markRead).toHaveBeenCalledWith(1, 'u_fixture', '9001');
+  });
+
+  it('静态目录只写本地位置，群消息排除自己，关闭服务后不接收旧事件', async () => {
+    const f = setup(true);
+    f.service.observeNewMessages(f.change);
+    expect((await f.query())[0]?.unreadCount).toBe(0);
+    await f.service.markReadAndReport(1, 'u_fixture', '9000');
+    expect(f.markRead).not.toHaveBeenCalled();
+    const live = setup();
+    const msg = { ...live.base, targetGroupCode: '70001' };
+    live.service.observeNewMessages({
+      ...live.change,
+      c2c: [],
+      group: [
+        msg,
+        { ...msg, msgSeq: 9002n, senderUid: 'u_self' },
+        { ...msg, msgSeq: 9003n, senderUin: 10001n },
+      ],
+    });
+    const row = { ...snapshot('9003'), chatType: 2, uid: '70001', peer: '2_70001' };
+    live.getUnreadInfos.mockResolvedValue([row]);
+    expect((await live.query())[0]?.unreadCount).toBe(1);
+    live.service.dispose();
+    live.service.observeNewMessages({
+      ...live.change,
+      c2c: [],
+      group: [{ ...msg, msgSeq: 9004n }],
+    });
+    expect((await live.query())[0]?.readError).toBe(true);
+    expect(new LocalUnreadStore(live.path).resolve(row).unreadCount).toBe(1);
+  });
+
+  it('旧查询晚于阅读返回，不降低水位；损坏快照不自动标记已读', async () => {
+    const f = setup();
+    let release: ((rows: UnreadInfoSnapshot[]) => void) | undefined;
+    f.getUnreadInfos.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = f.query();
+    await f.service.markLocalRead(1, 'u_fixture', '9000');
+    release!([snapshot('9000', 8000)]);
+    expect((await pending)[0]?.unreadCount).toBe(0);
+    f.getUnreadInfos.mockResolvedValue([{ ...snapshot(), readError: true }]);
+    expect((await f.service.markReadAndReport(1, 'u_fixture', '9000')).report.state).toBe(
+      'unavailable',
+    );
+    expect(f.markRead).not.toHaveBeenCalled();
+  });
+});
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unread-'));
+  roots.push(root);
+  const path = join(root, 'read.json');
+  return { path, store: new LocalUnreadStore(path) };
+}
+function snapshot(latestSeq = '5000', msgSeq?: number): UnreadInfoSnapshot {
+  return { chatType: 1, uid: 'u_fixture', peer: '1_u_fixture', latestSeq, msgSeq };
+}
+const highlight = {
+  kind: 'atMe' as const,
+  rawKind: 1000,
+  msgSeq: 4999,
+  senderUid: 'u_peer',
+  sendTime: 1,
+  text: '',
+};
+
+describe('本地未读基线', () => {
+  it('缺少已读水位的历史会话首次安静对齐，导入抬高最新序号也不生成未读', () => {
+    const { store } = fixture();
+    expect(store.resolve(snapshot()).unreadCount).toBe(0);
+    expect(store.resolve(snapshot('9000')).unreadCount).toBe(0);
+    expect(store.resolve({ ...snapshot(), readError: true }).unreadCount).toBeUndefined();
+  });
+
+  it('只累计实时消息并按序号去重，重启保留未读，历史补齐不扩大数字', () => {
+    const { store, path } = fixture();
+    store.resolve(snapshot());
+    store.recordLive(1, 'u_fixture', '5001');
+    store.recordLive(1, 'u_fixture', '5001');
+    store.recordLive(1, 'u_fixture', '5003');
+    expect(store.resolve(snapshot('9000')).unreadCount).toBe(2);
+    store.flush();
+    const reopened = new LocalUnreadStore(path);
+    expect(reopened.resolve(snapshot('9000')).unreadCount).toBe(2);
+    expect(reopened.resolve(snapshot('9000')).readSeq).toBe('5000');
+    expect(
+      new LocalUnreadStore(join(path, '..', 'other.json')).resolve(snapshot()).unreadCount,
+    ).toBe(0);
+  });
+
+  it('实时事件先于首次快照或晚于快照均不丢失；阅读只清理固定水位内的消息', () => {
+    const { store } = fixture();
+    store.recordLive(1, 'u_fixture', '5001');
+    expect(store.resolve(snapshot('5001')).unreadCount).toBe(1);
+    store.markRead(1, 'u_fixture', '5001');
+    store.recordLive(1, 'u_fixture', '5002');
+    store.recordLive(1, 'u_fixture', '5001');
+    expect(store.resolve(snapshot('5002')).unreadCount).toBe(1);
+    store.markRead(1, 'u_fixture', '5000');
+    expect(store.resolve(snapshot('5002')).unreadCount).toBe(1);
+  });
+
+  it('缺水位仍保留明确提醒，同一消息多个提醒不重复计数，读后旧提醒不复活', () => {
+    const { store, path } = fixture();
+    const row = {
+      ...snapshot(),
+      highlights: [highlight, { ...highlight, kind: 'replyMe' as const }],
+    };
+    expect(store.resolve(row)).toMatchObject({ unreadCount: 1, readSeq: '4998' });
+    store.markRead(1, 'u_fixture', '5000');
+    store.flush();
+    expect(new LocalUnreadStore(path).resolve(row)).toMatchObject({
+      unreadCount: 0,
+      highlights: undefined,
+    });
+  });
+
+  it('可信 QQ 水位与本地阅读位置取较大者，QQ 水位后来出现或消失不恢复旧未读', () => {
+    const { store } = fixture();
+    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(10);
+    store.markRead(1, 'u_fixture', '4995');
+    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(5);
+    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(0);
+    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(0);
+    expect(store.resolve(snapshot('5000')).unreadCount).toBe(0);
+    expect(store.resolve(snapshot('5', 0)).unreadCount).toBe(0);
+    expect(
+      store.resolve({ ...snapshot('5', 0), uid: 'u_other', peer: '1_u_other' }).unreadCount,
+    ).toBe(5);
+  });
+
+  it('同 UID 的不同会话类型不串状态，损坏存储安全对齐', () => {
+    const { store, path } = fixture();
+    store.recordLive(1, 'u_fixture', '5001');
+    expect(store.resolve({ ...snapshot(), chatType: 2, peer: '2_u_fixture' }).unreadCount).toBe(0);
+    writeFileSync(path, '{broken');
+    expect(new LocalUnreadStore(path).resolve(snapshot()).unreadCount).toBe(0);
+    writeFileSync(path, JSON.stringify({ '1_u_fixture': { latestSeq: '-1', pending: ['bad'] } }));
+    expect(new LocalUnreadStore(path).resolve(snapshot()).unreadCount).toBe(0);
+  });
+
+  it('已有 QQ 水位时，最新序号刷新落后于实时事件或明确提醒也不吞掉未读', () => {
+    const { store } = fixture();
+    store.resolve(snapshot('5000', 5000));
+    store.recordLive(1, 'u_fixture', '5001');
+    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(1);
+    expect(
+      store.resolve({ ...snapshot('5000', 5000), highlights: [{ ...highlight, msgSeq: 5002 }] })
+        .unreadCount,
+    ).toBe(2);
+  });
+
+  it('未知基线之后 QQ 提供较旧水位，不重新计入历史，也不清掉基线内已捕获的实时提醒', () => {
+    const { store, path } = fixture();
+    store.resolve(snapshot());
+    store.recordLive(1, 'u_fixture', '5001');
+    store.resolve(snapshot('9000'));
+    store.flush();
+    const reopened = new LocalUnreadStore(path);
+    expect(reopened.resolve(snapshot('9000', 0))).toMatchObject({
+      unreadCount: 1,
+      readSeq: '5000',
+    });
+    expect(reopened.resolve(snapshot('9000', 5001)).unreadCount).toBe(0);
+    expect(reopened.resolve(snapshot('9001', 5001)).unreadCount).toBe(1);
+  });
+});

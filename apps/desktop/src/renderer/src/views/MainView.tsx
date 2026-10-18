@@ -4455,7 +4455,6 @@ export function MainView(): ReactElement {
       const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
       const succeeded = new Set<string>();
-      const latestByUid = new Map(list.map((contact) => [contact.targetUid, contact.msgSeq]));
       let failed = false;
       const targets = list.flatMap((contact) => {
         const kind = chatTypeKind(contact.chatType);
@@ -4481,9 +4480,7 @@ export function MainView(): ReactElement {
               failed = true;
               continue;
             }
-            const latest = BigInt(info.latestSeq ?? latestByUid.get(info.uid) ?? '0');
-            const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
-            counts[info.uid] = latest > read ? Number(latest - read) : 0;
+            counts[info.uid] = info.unreadCount ?? 0;
             succeeded.add(info.uid);
             if (info?.highlights?.length) {
               highlights[info.uid] = info.highlights as ConversationHighlight[];
@@ -5260,9 +5257,11 @@ export function MainView(): ReactElement {
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockConvRef = useRef<string | null>(null);
   const unreadSnapshotPendingRef = useRef<string | null>(null);
-  const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
+  const readRequestsRef = useRef(
+    new Map<string, { again: boolean; promise: Promise<void>; latestSeq: string | undefined }>(),
+  );
   const markVisibleConversationRead = useCallback(
-    async (conv: Conversation) => {
+    async (conv: Conversation, capturedLatestSeq?: string) => {
       const isCurrent = () =>
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
@@ -5270,25 +5269,27 @@ export function MainView(): ReactElement {
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
       const key = `${openedUin}:${conv.type}:${conv.id}`;
+      const latestSeq =
+        capturedLatestSeq ??
+        unreadContactsRef.current.find((contact) => contact.targetUid === conv.id)?.msgSeq;
       const existing = readRequestsRef.current.get(key);
       if (existing) {
         existing.again = true;
+        if (latestSeq !== undefined && BigInt(latestSeq) > BigInt(existing.latestSeq ?? '0'))
+          existing.latestSeq = latestSeq;
         return existing.promise;
       }
-      const entry = { again: false, promise: Promise.resolve() };
+      const entry = { again: false, promise: Promise.resolve(), latestSeq };
       entry.promise = (async () => {
         do {
           entry.again = false;
           if (!isCurrent()) break;
           try {
             // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
-            const latestSeq = unreadContactsRef.current.find(
-              (contact) => contact.targetUid === conv.id,
-            )?.msgSeq;
             const request = {
               chatType: conv.type === 'group' ? 2 : 1,
               uid: conv.id,
-              latestSeq,
+              latestSeq: entry.latestSeq,
               expectedAccountUin: openedUin ?? undefined,
             };
             const changed = await retryConversationRead(
@@ -5351,23 +5352,23 @@ export function MainView(): ReactElement {
 
     unreadSnapshotPendingRef.current = convId;
     (async () => {
-      let info: Awaited<ReturnType<typeof client.account.getUnreadInfo.query>> = null;
+      let info: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number] | undefined;
       try {
-        info = await client.account.getUnreadInfo.query({ chatType, uid: convId });
+        if (!openedUin) return;
+        [info] = await client.account.getUnreadInfos.query({
+          expectedAccountUin: openedUin,
+          targets: [{ chatType, uid: convId }],
+        });
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
         return;
       } finally {
         if (unreadSnapshotPendingRef.current === convId) unreadSnapshotPendingRef.current = null;
       }
-      if (!stillCurrent()) return;
+      if (!stillCurrent() || !info || info.readError) return;
 
-      const readSeq = info?.msgSeq ?? null;
-      // 未读总数用打开时的水位算：recent_contact 40003 − 41002。
-      const contact = recentContactsData.find((c) => c.targetUid === convId);
-      const latest = contact ? BigInt(contact.msgSeq || '0') : 0n;
-      const read = readSeq ? BigInt(readSeq) : 0n;
-      const unread = latest > read ? Number(latest - read) : 0;
+      const readSeq = info.readSeq ?? null;
+      const unread = info.unreadCount ?? 0;
 
       const dock = buildUnreadDock({
         highlights: info?.highlights ?? null,
@@ -5378,7 +5379,7 @@ export function MainView(): ReactElement {
 
       // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
       // 这样下次进来不会再重复弹跳转、红点也即时消失。
-      await markVisibleConversationRead(conv);
+      await markVisibleConversationRead(conv, info.latestSeq ?? undefined);
       if (!stillCurrent()) return;
       setUnreadDock(dock);
     })();
@@ -5390,6 +5391,7 @@ export function MainView(): ReactElement {
     loaded,
     recentContactsData,
     markVisibleConversationRead,
+    openedUin,
   ]);
 
   useEffect(() => {
@@ -7599,7 +7601,7 @@ export function MainView(): ReactElement {
               (shell.view === 'messages' && Boolean(arkFeedState)) ||
               (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget))
             }
-            messageBadgeCount={0}
+            messageBadgeCount={shell.messageUnreadCount}
             contactBadgeCount={0}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
