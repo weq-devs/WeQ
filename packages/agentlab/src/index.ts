@@ -22,6 +22,7 @@ export {
 export { selectStickerByEmotion, pickRandomSticker } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export {
+  CHAT_POS_WHITELIST,
   createJiebaSegmenter,
   setDefaultSegmenter,
   tokenizeText,

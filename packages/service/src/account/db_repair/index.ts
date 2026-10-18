@@ -32,6 +32,16 @@ export {
 } from './paths';
 export type { DbRepairPaths } from './paths';
 export { concludeCheckup } from './checkup';
+export {
+  LAYOUT_MIN_BYTES,
+  LAYOUT_PAGE_SIZE,
+  QQ_RESERVED_PAGE,
+  STANDARD_RESERVED_PAGE,
+  classifyLayoutPages,
+  detectHeaderOffset,
+  probeDbLayout,
+} from './layout_migration';
+export type { DbLayoutKind, DbLayoutPageState, DbLayoutProbe } from './layout_migration';
 export type {
   DbRepairCheckup,
   DbRepairCheckupIntegrity,
@@ -51,11 +61,13 @@ export type {
 export type {
   DbRepairAccountRef,
   DbRepairLockHolder,
+  DbRepairLayoutProbe,
   DbRepairPhase,
   DbRepairPreflight,
   DbRepairProgress,
   DbRepairReadiness,
   DbRepairRecord,
+  DbRepairRecordKind,
   DbRepairRecordState,
   DbRepairRecoverOptions,
   DbRepairRecoverPhaseTiming,

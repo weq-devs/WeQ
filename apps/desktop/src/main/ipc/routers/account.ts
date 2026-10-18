@@ -3192,6 +3192,8 @@ export const accountRouter = router({
           groupCode: z.string().min(1),
           rankingLimit: z.number().int().min(1).max(100).optional(),
           wordLimit: z.number().int().min(1).max(400).optional(),
+          recentYear: z.boolean().optional(),
+          skipTimeline: z.boolean().optional(),
         })
         .and(analyticsRangeInput),
     )
@@ -3204,6 +3206,8 @@ export const accountRouter = router({
         wordLimit: input.wordLimit,
         startTime: input.startTime,
         endTime: input.endTime,
+        recentYear: input.recentYear,
+        skipTimeline: input.skipTimeline,
       });
     }),
 
@@ -3248,7 +3252,11 @@ export const accountRouter = router({
 
   /** Full one-on-one (private chat) analytics for a single peer. */
   getBuddyAnalytics: procedure
-    .input(z.object({ peerUid: z.string().min(1) }).and(analyticsRangeInput))
+    .input(
+      z
+        .object({ peerUid: z.string().min(1), recentYear: z.boolean().optional() })
+        .and(analyticsRangeInput),
+    )
     .query(async ({ input }) => {
       return requireExpectedAccount(
         input.expectedAccountUin,

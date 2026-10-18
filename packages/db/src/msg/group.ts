@@ -1140,6 +1140,55 @@ export class GroupMsgDb {
   }
 
   /**
+   * 每个群在时间窗内**按周**的消息数 —— 年度报告「我的主场」群聊卡片的 sparkline。
+   *
+   * 只扫发送时间与群号两列，一次 `GROUP BY 群号, 周序号`；周序号以 `startTime`
+   * 所在周的周一为 0（本地时区），与渲染层的周柱状图同一套口径。不解码任何正文。
+   * 时间窗与报告其它页面一致，使用半开区间 [startTime, endTime)。
+   */
+  async countWeeklyByGroups(
+    groupCodes: string[],
+    opts: { startTime: number; endTime: number },
+  ): Promise<Array<{ groupCode: string; week: number; count: number }>> {
+    if (groupCodes.length === 0) return [];
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions = [`"40027" IN (${placeholders})`];
+    const whereParams: SqlValue[] = [...groupCodes];
+    if (opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      whereParams.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      whereParams.push(BigInt(opts.endTime));
+    }
+    let anchor = opts.startTime;
+    if (!(opts.startTime > 0)) {
+      const first = await this.qq.query(
+        `SELECT MIN("40050") FROM group_msg_table WHERE "40027" IN (${placeholders})`,
+        groupCodes,
+      );
+      anchor = Number(first[0]?.[0] ?? 0);
+    }
+    const firstWeek = weekStartDate(anchor);
+    const rows = await this.qq.query(
+      `SELECT "40027",
+              CAST((julianday(date("40050", 'unixepoch', 'localtime')) -
+                    julianday(?)) / 7 AS INTEGER) AS week,
+              COUNT(*)
+         FROM group_msg_table
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY "40027", week`,
+      [firstWeek, ...whereParams],
+    );
+    return rows.map((row) => ({
+      groupCode: String(row[0] ?? ''),
+      week: Number(row[1] ?? 0),
+      count: Number(row[2] ?? 0),
+    }));
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:
@@ -1184,6 +1233,16 @@ export class GroupMsgDb {
   close(): void {
     this.qq.close();
   }
+}
+
+/** unix 秒所在周的周一（本地时区）的 `YYYY-MM-DD`，给周序号 SQL 做固定锚点。 */
+function weekStartDate(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(
+    day.getDate(),
+  ).padStart(2, '0')}`;
 }
 
 function rowToGroupMsg(row: SqlRow): GroupMsg {

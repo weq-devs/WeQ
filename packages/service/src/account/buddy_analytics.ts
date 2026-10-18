@@ -14,8 +14,16 @@ import { segmentWords } from './text_segment';
 import {
   analyticsBrowseFilter,
   analyticsDayParts,
+  validateAnalyticsRange,
   type AnalyticsRange,
 } from '../common/analytics_time';
+import {
+  buildWeekKeys,
+  dailyToWeekly,
+  seriesForWeeks,
+  weekStartKey,
+  type WeeklyCount,
+} from './analytics_weeks';
 
 /** A silence longer than this splits two conversations (seconds). Replies that
  *  straddle a split are treated as a fresh initiation, not a reply — which is
@@ -28,6 +36,22 @@ export interface BuddyReplyStats {
   slowestSec: number;
   avgSec: number;
   count: number;
+}
+
+/** 全历史时间轴（不随所选区间变化）。 */
+export interface BuddyAnalyticsTimeline {
+  firstMessageTime: number | null;
+  lastMessageTime: number | null;
+  daily: Array<{ date: string; count: number }>;
+  weekly: WeeklyCount[];
+}
+
+/** 本次统计实际覆盖的区间（unix 秒；无数据时为 null）。 */
+export interface BuddyAnalyticsRange {
+  startTime: number | null;
+  endTime: number | null;
+  /** true = 调用方没传区间，服务层按「最近一年」自动确定。 */
+  defaulted: boolean;
 }
 
 export interface BuddyAnalytics {
@@ -52,7 +76,16 @@ export interface BuddyAnalytics {
   };
   hourlySelf: Record<number, number>;
   hourlyPeer: Record<number, number>;
+  /** 所选区间内每天的条数（随选择变化）。 */
   daily: Array<{ date: string; count: number }>;
+  /** 全历史时间轴（绿墙与 GitHub 式周柱状图用）。 */
+  timeline: BuddyAnalyticsTimeline;
+  range: BuddyAnalyticsRange;
+  /** 区间周序列（周一起点）。 */
+  weeks: string[];
+  /** 区间内双方每周消息数（与 weeks 对齐，成员卡 sparkline 用）。 */
+  weeklySelf: number[];
+  weeklyPeer: number[];
   initiation: { self: number; peer: number; total: number };
   reply: { self: BuddyReplyStats | null; peer: BuddyReplyStats | null };
   /** Consecutive days where BOTH sides spoke (QQ 火花). */
@@ -151,11 +184,31 @@ export class BuddyAnalyticsService {
     return items.map((row) => ({ ...row, name: row.name || row.uin || row.uid }));
   }
 
-  async getBuddyAnalytics(peerUid: string, range: AnalyticsRange = {}): Promise<BuddyAnalytics> {
+  async getBuddyAnalytics(
+    peerUid: string,
+    opts: AnalyticsRange & { recentYear?: boolean } = {},
+  ): Promise<BuddyAnalytics> {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);
-    const filter = analyticsBrowseFilter(range);
+    const range = validateAnalyticsRange(opts);
+    const filter = analyticsBrowseFilter({});
     const selfUin = String(this.session.context.uin ?? '');
+
+    // 默认「最近一年」：以最后一条消息为基准（不是 now），否则早就不聊的
+    // 会话打开就是空图。
+    let startTime = range.startTime;
+    let endTime = range.endTime;
+    let defaulted = false;
+    if (startTime === undefined && endTime === undefined) {
+      const latest = opts?.recentYear ? await db.listLatest(part, 1) : [];
+      const newest = latest[0] ? Number(latest[0].sendTime) : 0;
+      if (newest > 0) {
+        defaulted = true;
+        endTime = newest;
+        startTime = newest - 365 * 86400;
+      }
+    }
+    const hasRange = startTime !== undefined || endTime !== undefined;
 
     const stats = {
       totalMessages: 0,
@@ -175,6 +228,11 @@ export class BuddyAnalyticsService {
     }
 
     const daily = new Map<string, number>();
+    const globalDaily = new Map<string, number>();
+    const weeklySelfCounts = new Map<string, number>();
+    const weeklyPeerCounts = new Map<string, number>();
+    let timelineFirst: number | null = null;
+    let timelineLast: number | null = null;
     const selfDays = new Set<number>();
     const peerDays = new Set<number>();
 
@@ -205,6 +263,24 @@ export class BuddyAnalyticsService {
         if (!peerUin && msg.targetUin > 0n) peerUin = String(msg.targetUin);
 
         const sendTime = Number(msg.sendTime);
+
+        // 全历史时间轴：不管是否落在所选区间都记 —— 绿墙 / 顶部周图看的是全史。
+        const calendar = analyticsDayParts(sendTime);
+        if (calendar) {
+          const key = calendar.day;
+          globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
+          if (timelineFirst === null || sendTime < timelineFirst) timelineFirst = sendTime;
+          if (timelineLast === null || sendTime > timelineLast) timelineLast = sendTime;
+        }
+
+        if (
+          hasRange &&
+          (sendTime <= 0 ||
+            (startTime !== undefined && sendTime < startTime) ||
+            (endTime !== undefined && sendTime > endTime))
+        )
+          continue;
+
         stats.totalMessages++;
         if (isSelf) stats.selfMessages++;
         else stats.peerMessages++;
@@ -282,6 +358,9 @@ export class BuddyAnalyticsService {
           const key = date.day;
           daily.set(key, (daily.get(key) ?? 0) + 1);
           (isSelf ? selfDays : peerDays).add(date.dayIndex);
+          const week = weekStartKey(new Date(sendTime * 1000));
+          const weekMap = isSelf ? weeklySelfCounts : weeklyPeerCounts;
+          weekMap.set(week, (weekMap.get(week) ?? 0) + 1);
 
           // ---- conversation segmentation: initiation + reply latency ----
           const sender: 'self' | 'peer' = isSelf ? 'self' : 'peer';
@@ -327,6 +406,14 @@ export class BuddyAnalyticsService {
             count: a.count,
           };
 
+    const timelineDaily = [...globalDaily.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const timelineWeekly = dailyToWeekly(timelineDaily);
+    const weeks = hasRange
+      ? buildWeekKeys(startTime ?? timelineFirst ?? 0, endTime ?? timelineLast ?? 0)
+      : timelineWeekly.map((w) => w.weekStart);
+
     return {
       peer: { uid: peerUid, uin: peerUin },
       self: { uin: selfUin },
@@ -337,6 +424,20 @@ export class BuddyAnalyticsService {
       daily: [...daily.entries()]
         .map(([date, count]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date)),
+      timeline: {
+        firstMessageTime: timelineFirst,
+        lastMessageTime: timelineLast,
+        daily: timelineDaily,
+        weekly: timelineWeekly,
+      },
+      range: {
+        startTime: startTime ?? null,
+        endTime: endTime ?? null,
+        defaulted,
+      },
+      weeks,
+      weeklySelf: seriesForWeeks(weeks, weeklySelfCounts),
+      weeklyPeer: seriesForWeeks(weeks, weeklyPeerCounts),
       initiation,
       reply: { self: toReply(replyAgg.self), peer: toReply(replyAgg.peer) },
       streak,

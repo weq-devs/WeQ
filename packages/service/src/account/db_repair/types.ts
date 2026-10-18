@@ -87,6 +87,10 @@ export interface DbRepairRecoverOptions {
   recoverFreelist?: boolean;
   lostAndFoundName?: string;
   slowIndexes?: boolean;
+  /** 源库逻辑页布局（默认 `qq`；旧版误修复产物是 `standard`）。 */
+  sourceLayout?: 'qq' | 'standard';
+  /** 目标库逻辑页布局（迁移固定 `qq`）。 */
+  targetLayout?: 'qq' | 'standard';
 }
 
 /** native `recoverDatabase` 的产物自检。 */
@@ -123,6 +127,24 @@ export interface DbRepairRecoverReport {
   scannedCells: number;
   phases: DbRepairRecoverPhaseTiming[];
   verification: DbRepairRecoverVerification;
+  /** 源库逻辑页布局（旧记录可能没有这个字段）。 */
+  sourceLayout?: 'qq' | 'standard';
+  /** 产物逻辑页布局（旧记录可能没有这个字段）。 */
+  targetLayout?: 'qq' | 'standard';
+}
+
+/** 页布局检测的结论（与 `layout_migration.ts` 的 `DbLayoutProbe` 同一形状）。 */
+export interface DbRepairLayoutProbe {
+  dbPath: string;
+  fileBytes: number;
+  headerOffset: number;
+  pageSize: number;
+  pageCount: number;
+  page262144: 'data' | 'zero' | 'missing';
+  page262145: 'data' | 'zero' | 'missing';
+  layout: 'qq' | 'standard' | 'unknown';
+  needsMigration: boolean;
+  summary: string;
 }
 
 /** 锁持有者（`probeDbLock` 的产出）。 */
@@ -182,6 +204,9 @@ export interface DbRepairPreflight extends DbRepairTarget {
 }
 
 /** 一次修复记录（历史里的一条）。 */
+/** 这次任务做的是通用修复，还是把误修复的页布局迁回 QQ。 */
+export type DbRepairRecordKind = 'repair' | 'layout-migration';
+
 export type DbRepairRecordState =
   /** 已替换成功。 */
   | 'applied'
@@ -199,6 +224,8 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   dbName: string;
   dbPath: string;
   state: DbRepairRecordState;
+  /** 任务类型；旧记录没有这个字段，按 `repair` 处理。 */
+  kind?: DbRepairRecordKind;
   /** 失败/中止原因（`applied` 时为空）。 */
   error?: string;
   /** 备份文件绝对路径；没做备份时为 `null`。 */
@@ -220,6 +247,9 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   scannedCells: number | null;
   phases: DbRepairRecoverPhaseTiming[];
   verification: DbRepairRecoverVerification | null;
+  /** 源库 / 产物的逻辑页布局（旧记录没有）。 */
+  sourceLayout?: 'qq' | 'standard';
+  targetLayout?: 'qq' | 'standard';
   /**
    * 开始修复时源库未合并的 `-wal` 字节数（0 = 没有）。
    *

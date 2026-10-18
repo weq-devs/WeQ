@@ -480,7 +480,7 @@ async function* pageServiceBySeqlessRowId(
 
 /** Check if a message contains at least one ARK element. */
 function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
-  return m.elements.some((el) => 'elementType' in el && el.elementType === 'ark');
+  return m.elements.some((el) => el.type === 'ark');
 }
 
 /** Normalize a render message into the export record (bigints → strings). */

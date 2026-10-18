@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
+import { createDbRouter } from '../db/router';
 import { AnnualReportIndexDb } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -990,12 +991,18 @@ export function initAppContext(): AppContext {
   let readUidFromConfig: (uin: string) => string | null = () => null;
   const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
+  // 主进程固定 QQ layout；无 key 的标准 SQLite 调用由 router 转到独立子进程。
+  const bundle = {
+    ...result.bundle,
+    ntHelper: createDbRouter(result.bundle.ntHelper),
+  };
+
   const platform =
     process.platform === 'linux'
-      ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+      ? createLinuxPlatform(bundle, () => readDataRootOverride(), resolveUid)
       : process.platform === 'darwin'
-        ? createDarwinPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-        : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
+        ? createDarwinPlatform(bundle, () => readDataRootOverride(), resolveUid)
+        : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -1004,9 +1011,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
-  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
-  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
-  void warmJiebaDict(platform.jiebaDictDir());
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
+  // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {

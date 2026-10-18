@@ -403,6 +403,15 @@ export interface RecoverOptions {
   lostAndFoundName?: string;
   /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
   slowIndexes?: boolean;
+  /**
+   * 源库逻辑页布局（`qq` / `standard`，默认 `qq`）。
+   *
+   * 旧版修复把 standard SQLite 的页布局写进了带 QQ 头的库；迁移时传 `standard`，
+   * recover 会按显式页号读取源页，不再受当前进程 pager 布局影响。
+   */
+  sourceLayout?: 'qq' | 'standard';
+  /** 目标库逻辑页布局（默认 `qq`；迁移固定为 `qq`）。 */
+  targetLayout?: 'qq' | 'standard';
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -455,6 +464,10 @@ export interface RecoverReport {
   scannedCells: number;
   phases: RecoverPhaseTiming[];
   verification: RecoverVerification;
+  /** 源库逻辑页布局（`qq` / `standard`）。 */
+  sourceLayout: 'qq' | 'standard';
+  /** 产物逻辑页布局（迁移后应为 `qq`）。 */
+  targetLayout: 'qq' | 'standard';
 }
 
 // ---------- nt_helper.node — full surface --------------------------------
@@ -822,6 +835,24 @@ export interface NtHelperBinding {
   closeDb(dbPath: string): number;
   closeAllDb(): number;
   /**
+   * 选择本进程的 SQLite 布局，必须在打开任何数据库之前调用。
+   *
+   * SQLite 的 pending byte 是进程级全局量：QQ layout 的保留页是 262144，
+   * 标准 SQLite 是 262145。同一进程不能混用，因此主进程固定 `qq`，
+   * 标准 SQLite 由独立子进程固定 `standard`（没有该导出时视为旧产物）。
+   */
+  setDbLayout?(layout: 'qq' | 'standard'): void;
+  /** 当前进程的布局；尚未选择时为 `'unset'`。 */
+  getDbLayout?(): 'qq' | 'standard' | 'unset';
+  /**
+   * 把 `dbPath` 标记为“明文但 QQ layout”（解密产物的页号没有变）。
+   *
+   * 只由主进程的 DB router 实现：它记录路径并写一个旁路标记文件，后续
+   * `executeSql` / `executeSqlWrite` / salvage 对这条路径走 QQ lane。
+   * 原生 addon 没有这个方法，调用方用可选链。
+   */
+  markQqLayout?(dbPath: string): void;
+  /**
    * 只释放该 dbPath 的宽容（salvage）只读连接，严格连接一律不动。
    * 用户把宽容级别调回严格时用它。返回释放的连接数。
    */
@@ -886,6 +917,11 @@ export interface NtHelperBinding {
 
   // --- bulk decrypt ---
   fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
+  /**
+   * 解密产物是**明文但仍保持 QQ 页号**的 SQLite（保留页 262144）。调用方应随后用
+   * {@link markQqLayout} 标记输出路径，让后续无 key 查询继续走 QQ lane；否则
+   * 1GiB 以上的明文库会被标准 SQLite 误判。
+   */
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
 
   // --- database repair ---

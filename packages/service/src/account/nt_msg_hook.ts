@@ -38,7 +38,7 @@ import { classifyChatType } from '@weq/codec';
 import type { C2cMsg, GroupMsg } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
 
-/** Max rows pulled per conversation per change — guards against a stale watermark. */
+/** Page size for reading a conversation's new rows without truncating a burst. */
 const MAX_DELTA = 500;
 /** For a conversation first seen after mount: push at most this many newest rows. */
 const NEW_CONV_CAP = 5;
@@ -160,6 +160,39 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
   };
 }
 
+/**
+ * Drain every row newer than the previous watermark in indexed pages.
+ * A full page may end inside a repeated msgSeq (e.g. a gray-tip sharing the
+ * seq of a real message), so include any remaining rows of that boundary seq
+ * before advancing the exclusive seq cursor.
+ */
+async function drainAfter<T extends { msgSeq: bigint; msgId: bigint }>(
+  afterSeq: bigint,
+  listPage: (seq: bigint) => Promise<T[]>,
+  listBoundary: (seq: bigint) => Promise<T[]>,
+): Promise<T[]> {
+  const collected: T[] = [];
+  let cursor = afterSeq;
+  for (;;) {
+    const page = await listPage(cursor);
+    if (page.length === 0) break;
+    collected.push(...page);
+    if (page.length < MAX_DELTA) break;
+
+    const boundarySeq = page[page.length - 1]!.msgSeq;
+    if (boundarySeq <= cursor) throw new Error('新消息分页游标未前进');
+
+    const seen = new Set(page.filter((m) => m.msgSeq === boundarySeq).map((m) => m.msgId));
+    for (const m of await listBoundary(boundarySeq)) {
+      if (m.msgSeq !== boundarySeq || seen.has(m.msgId)) continue;
+      seen.add(m.msgId);
+      collected.push(m);
+    }
+    cursor = boundarySeq;
+  }
+  return collected;
+}
+
 /** Fetch rows strictly newer than `afterSeq` for one conversation (indexed). */
 async function fetchAfter(
   session: AccountSession,
@@ -169,11 +202,25 @@ async function fetchAfter(
 ): Promise<Fetched | null> {
   const kind = classifyChatType(chatType);
   if (kind === 'group') {
-    return { kind: 'group', msgs: await session.groupMsgs.listAfter(uid, afterSeq, MAX_DELTA) };
+    return {
+      kind: 'group',
+      msgs: await drainAfter(
+        afterSeq,
+        (cursor) => session.groupMsgs.listAfter(uid, cursor, MAX_DELTA),
+        (seq) => session.groupMsgs.listBySeqsInPartition(uid, [seq]),
+      ),
+    };
   }
   if (kind === 'direct') {
     const part = c2cPartition(session, uid);
-    return { kind: 'c2c', msgs: await session.c2cMsgs.listAfter(part, afterSeq, MAX_DELTA) };
+    return {
+      kind: 'c2c',
+      msgs: await drainAfter(
+        afterSeq,
+        (cursor) => session.c2cMsgs.listAfter(part, cursor, MAX_DELTA),
+        (seq) => session.c2cMsgs.listBySeqsInPartition(part, [seq]),
+      ),
+    };
   }
   // dataline / service / official / unknown — not wired.
   return null;
