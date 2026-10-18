@@ -1,6 +1,8 @@
 /** Wire shapes for the unified sidebar search (mirror @weq/service UnifiedSearchService). */
 
 import type { SearchCategory } from '@weq/service';
+import { DEFAULT_SEARCH_CATEGORIES, searchNameRank } from '@weq/service/search-policy';
+export { DEFAULT_SEARCH_CATEGORIES } from '@weq/service/search-policy';
 export type { SearchCategory } from '@weq/service';
 import type { GeneratedSearchHit } from '@weq/service';
 import type { CollectionSearchHit } from '@weq/service';
@@ -147,8 +149,10 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   collection: { label: '收藏', plural: '收藏' },
   cloneMessage: { label: '克隆消息', plural: '克隆消息' },
   assistantMessage: { label: '助手对话', plural: '助手对话' },
-  qzonePost: { label: '空间说说', plural: '空间说说' },
-  qzoneAlbum: { label: '空间相册', plural: '空间相册' },
+  qzonePost: { label: '个人空间说说', plural: '个人空间说说' },
+  qzoneAlbum: { label: '个人空间相册', plural: '个人空间相册' },
+  otherQzonePost: { label: '他人空间说说', plural: '他人空间说说' },
+  otherQzoneAlbum: { label: '他人空间相册', plural: '他人空间相册' },
   groupAlbum: { label: '群相册', plural: '群相册' },
   groupFile: { label: '群文件', plural: '群文件' },
   mailMessage: { label: '邮件', plural: '邮件' },
@@ -159,6 +163,8 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
 export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
   'qzonePost',
   'qzoneAlbum',
+  'otherQzonePost',
+  'otherQzoneAlbum',
   'groupAlbum',
   'groupFile',
   'mailMessage',
@@ -167,16 +173,29 @@ export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
 ];
 
 export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
-  'conversation',
-  'friend',
-  'groupMember',
-  'chatRecord',
-  'file',
-  'collection',
+  ...DEFAULT_SEARCH_CATEGORIES,
   'cloneMessage',
   'assistantMessage',
-  ...CONTENT_CATEGORY_ORDER,
+  'marketEmoji',
 ];
+
+export function searchHitNameRank(hit: SearchHit, keyword: string): number {
+  switch (hit.category) {
+    case 'conversation':
+    case 'chatRecord':
+      return searchNameRank(keyword, hit.name);
+    case 'friend':
+      return searchNameRank(keyword, hit.remark, hit.nick, hit.uin);
+    case 'groupMember':
+      return searchNameRank(keyword, hit.memberDisplay, hit.memberUin);
+    case 'file':
+      return searchNameRank(keyword, hit.fileName);
+    case 'collection':
+      return searchNameRank(keyword, hit.title);
+    default:
+      return searchNameRank(keyword, hit.title);
+  }
+}
 
 export function isSlowSearchCategory(category: SearchCategory): boolean {
   return !['conversation', 'friend', 'groupMember'].includes(category);
@@ -201,6 +220,8 @@ export function searchHitKey(hit: SearchHit): string {
       return JSON.stringify([hit.category, hit.kind, hit.ownerId, hit.sessionId, hit.messageId]);
     case 'qzonePost':
     case 'qzoneAlbum':
+    case 'otherQzonePost':
+    case 'otherQzoneAlbum':
     case 'groupAlbum':
     case 'groupFile':
     case 'mailMessage':

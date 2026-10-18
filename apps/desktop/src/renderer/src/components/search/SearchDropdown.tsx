@@ -14,12 +14,34 @@ import {
   contentCoverageText,
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
+  searchHitNameRank,
   isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
   type QuickSearchResult,
   type SlowSearchResult,
 } from './types';
+
+const scopeOptions = SEARCH_CATEGORY_ORDER.flatMap((category) => {
+  if (category === 'qzoneAlbum' || category === 'otherQzoneAlbum') return [];
+  return [
+    {
+      id: category,
+      label:
+        category === 'qzonePost'
+          ? '个人空间'
+          : category === 'otherQzonePost'
+            ? '他人空间'
+            : CATEGORY_META[category].label,
+      categories:
+        category === 'qzonePost'
+          ? (['qzonePost', 'qzoneAlbum'] as SearchCategory[])
+          : category === 'otherQzonePost'
+            ? (['otherQzonePost', 'otherQzoneAlbum'] as SearchCategory[])
+            : [category],
+    },
+  ];
+});
 
 export function SearchDropdown({
   keyword,
@@ -100,10 +122,16 @@ export function SearchDropdown({
     !slowLoading &&
     slow?.indexStatus === 'building';
   const scopeSelection = useMultiSelection({
-    ids: SEARCH_CATEGORY_ORDER,
-    selected: new Set(categories),
+    ids: scopeOptions.map((option) => option.id),
+    selected: new Set(
+      scopeOptions
+        .filter((option) => option.categories.every((category) => categories.includes(category)))
+        .map((option) => option.id),
+    ),
     onChange: (next) =>
-      onCategoriesChange(SEARCH_CATEGORY_ORDER.filter((category) => next.has(category))),
+      onCategoriesChange(
+        scopeOptions.filter((option) => next.has(option.id)).flatMap((option) => option.categories),
+      ),
   });
   const failedFor = (category: SearchCategory) =>
     isSlowSearchCategory(category)
@@ -119,7 +147,18 @@ export function SearchDropdown({
           : 0;
   const orderedCategories = SEARCH_CATEGORY_ORDER.filter((category) =>
     categories.includes(category),
-  ).sort((left, right) => weight(right) - weight(left));
+  ).sort(
+    (left, right) =>
+      weight(right) - weight(left) ||
+      Math.max(
+        0,
+        ...(sections.get(right)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
+      ) -
+        Math.max(
+          0,
+          ...(sections.get(left)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
+        ),
+  );
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>
@@ -145,10 +184,14 @@ export function SearchDropdown({
           />
           全部
         </label>
-        {SEARCH_CATEGORY_ORDER.map((category) => (
-          <label key={category} {...scopeSelection.itemProps(category)}>
-            <input type="checkbox" checked={categories.includes(category)} readOnly />
-            {CATEGORY_META[category].label}
+        {scopeOptions.map((option) => (
+          <label key={option.id} {...scopeSelection.itemProps(option.id)}>
+            <input
+              type="checkbox"
+              checked={option.categories.every((category) => categories.includes(category))}
+              readOnly
+            />
+            {option.label}
           </label>
         ))}
       </div>

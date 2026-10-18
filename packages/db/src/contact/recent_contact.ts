@@ -197,9 +197,12 @@ export class RecentContactDb {
         `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
           WHERE "40094" LIKE ? ESCAPE '\\' AND "40094" != ''
             AND "40010" NOT IN (${blocked})
-          ORDER BY "40050" DESC
+          ORDER BY CASE
+            WHEN "40094" = ? COLLATE NOCASE THEN 0
+            WHEN "40094" LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END,
+            "40050" DESC, "40021" ASC, "40010" ASC
           LIMIT ? OFFSET ?`,
-        [like, BigInt(limit), BigInt(offset)],
+        [like, needle, `${escapeLike(needle)}%`, BigInt(limit), BigInt(offset)],
       ),
     ]);
     return {

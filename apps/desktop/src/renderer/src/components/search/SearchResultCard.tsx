@@ -152,6 +152,8 @@ export function SearchResultCard({
   switch (hit.category) {
     case 'qzonePost':
     case 'qzoneAlbum':
+    case 'otherQzonePost':
+    case 'otherQzoneAlbum':
     case 'groupAlbum':
     case 'groupFile':
     case 'mailMessage':
@@ -166,7 +168,7 @@ export function SearchResultCard({
               ? Hash
               : hit.category === 'marketEmoji'
                 ? Smile
-                : hit.category === 'qzonePost'
+                : hit.target.kind === 'qzonePost'
                   ? Globe
                   : Images;
       media = (

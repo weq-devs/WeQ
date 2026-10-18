@@ -1,9 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { searchNameRank } from './search_policy';
 
 export const CONTENT_SEARCH_CATEGORIES = [
   'qzonePost',
   'qzoneAlbum',
+  'otherQzonePost',
+  'otherQzoneAlbum',
   'groupAlbum',
   'groupFile',
   'mailMessage',
@@ -267,8 +270,23 @@ export class ContentSearchStore {
     keyword: string,
     limit: number,
     offset = 0,
+    ownUin?: string,
   ): ContentSearchPage {
-    const pool = [...this.records.values()].filter((row) => row.category === category);
+    const otherSpace = category === 'otherQzonePost' || category === 'otherQzoneAlbum';
+    const sourceCategory =
+      category === 'otherQzonePost'
+        ? 'qzonePost'
+        : category === 'otherQzoneAlbum'
+          ? 'qzoneAlbum'
+          : category;
+    const pool = [...this.records.values()].filter(
+      (row) =>
+        row.category === sourceCategory &&
+        (!('uin' in row.target) ||
+          (otherSpace
+            ? ownUin !== undefined && row.target.uin !== ownUin
+            : ownUin === undefined || row.target.uin === ownUin)),
+    );
     const needle = keyword.trim().toLocaleLowerCase();
     const ranked = needle
       ? pool
@@ -276,19 +294,24 @@ export class ContentSearchStore {
             `${row.title}\n${row.sourceName}\n${row.content}`.toLocaleLowerCase().includes(needle),
           )
           .sort(
-            (a, b) => b.time - a.time || b.observedAt - a.observedAt || a.id.localeCompare(b.id),
+            (a, b) =>
+              searchNameRank(needle, b.title) - searchNameRank(needle, a.title) ||
+              b.time - a.time ||
+              b.observedAt - a.observedAt ||
+              a.id.localeCompare(b.id),
           )
       : [];
     return {
       items: ranked.slice(offset, offset + limit).map((row) => ({
         ...structuredClone(row),
+        category,
         content: contentSearchSnippet(row.content, needle),
       })),
       total: ranked.length,
       coverage: {
         scope: 'observed-cache',
         records: pool.length,
-        limited: this.limited.has(category),
+        limited: this.limited.has(sourceCategory),
         updatedAt: pool.reduce<number | null>((at, row) => Math.max(at ?? 0, row.observedAt), null),
         ...(this.persistenceFailed ? { persistenceFailed: true } : {}),
       },

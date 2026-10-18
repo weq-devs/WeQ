@@ -5,6 +5,7 @@ import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import {
   SEARCH_CATEGORY_ORDER,
+  DEFAULT_SEARCH_CATEGORIES,
   type QuickSearchResult,
   type SearchCategory,
 } from '../src/renderer/src/components/search/types';
@@ -212,6 +213,110 @@ describe('全局搜索请求生命周期', () => {
 });
 
 describe('搜索范围与失败界面', () => {
+  it('默认只勾选个人来源，生成对话与公共商城仍可手动选择', () => {
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('marketEmoji');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('cloneMessage');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('assistantMessage');
+    expect(SEARCH_CATEGORY_ORDER).toHaveLength(new Set(SEARCH_CATEGORY_ORDER).size);
+    expect(SEARCH_CATEGORY_ORDER).toEqual(
+      expect.arrayContaining([
+        ...DEFAULT_SEARCH_CATEGORIES,
+        'marketEmoji',
+        'cloneMessage',
+        'assistantMessage',
+      ]),
+    );
+  });
+
+  it('个人空间和他人空间各有独立选项，默认同时选择，每次切换包含说说与相册', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const change = vi.fn();
+    try {
+      act(() =>
+        root.render(
+          createElement(SearchDropdown, {
+            keyword: 'needle',
+            quick: quickResult,
+            slow: slowResult,
+            quickLoading: false,
+            slowLoading: false,
+            categories: DEFAULT_SEARCH_CATEGORIES,
+            onCategoriesChange: change,
+            onSelect: vi.fn(),
+            onMore: vi.fn(),
+          }),
+        ),
+      );
+      const labels = [...host.querySelectorAll('label')];
+      for (const name of ['个人空间', '他人空间']) {
+        expect(
+          labels.find((node) => node.textContent === name)?.querySelector('input')?.checked,
+        ).toBe(true);
+      }
+      act(() =>
+        labels
+          .find((node) => node.textContent === '他人空间')!
+          .querySelector('input')!
+          .click(),
+      );
+      const selected = change.mock.lastCall![0] as SearchCategory[];
+      expect(selected).toContain('qzonePost');
+      expect(selected).toContain('qzoneAlbum');
+      expect(selected).not.toContain('otherQzonePost');
+      expect(selected).not.toContain('otherQzoneAlbum');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it('名称精确命中的分组优先于普通包含命中，不按结果条数挤占顺序', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(SearchDropdown, {
+            keyword: '报告',
+            quick: {
+              ...quickResult,
+              friends: [{ ...quickResult.friends[0]!, nick: '报告的作者' }],
+            },
+            slow: {
+              ...slowResult,
+              files: [
+                {
+                  category: 'file',
+                  source: 'group',
+                  partition: '1',
+                  targetUid: '1',
+                  targetUin: '0',
+                  fileName: '报告',
+                  msgId: '1',
+                  msgSeq: '1',
+                  sendTime: '1',
+                  convName: '群',
+                },
+              ],
+            },
+            quickLoading: false,
+            slowLoading: false,
+            categories: ['friend', 'file'],
+            onCategoriesChange: vi.fn(),
+            onSelect: vi.fn(),
+            onMore: vi.fn(),
+          }),
+        ),
+      );
+      expect(
+        [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
+      ).toEqual(['文件', '好友']);
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it('使用复选框调整范围、全部为混合态，失败只替代对应类别并可重试', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

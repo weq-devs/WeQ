@@ -29,6 +29,7 @@ function fixture() {
     },
   } as unknown as AccountSession;
   return {
+    session,
     service: new UnifiedSearchService(session),
     recent,
     friends,
@@ -41,6 +42,62 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('文件精确名称优先于较新的包含命中，同档仍按时间排序', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({
+      items: [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: 'x报告',
+          content: '',
+          sendTime: 100n,
+        },
+        {
+          msgId: 2n,
+          msgSeq: 2n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告',
+          content: '',
+          sendTime: 1n,
+        },
+      ],
+      total: 2,
+    });
+    const result = await f.service.moreSearch('file', '报告', 0, 10);
+    expect(result.items.map((hit) => ('msgId' in hit ? hit.msgId : ''))).toEqual(['2', '1']);
+  });
+  it('默认不扫描公共商城和生成对话，显式选择仍可检索', async () => {
+    const searchContent = vi.fn(
+      async (_category: string, _keyword: string, _limit: number, _offset: number) => ({
+        items: [],
+        total: 0,
+        coverage: {
+          scope: 'observed-cache' as const,
+          records: 0,
+          limited: false,
+          updatedAt: null,
+        },
+      }),
+    );
+    const generatedSources = vi.fn();
+    const f = fixture();
+    const service = new UnifiedSearchService(f.session, {
+      searchContent,
+      generatedSources,
+    });
+    await service.slowSearch('needle');
+    expect(searchContent.mock.calls.some(([category]) => category === 'marketEmoji')).toBe(false);
+    expect(generatedSources).not.toHaveBeenCalled();
+    await service.slowSearch('needle', 3, ['marketEmoji', 'cloneMessage']);
+    expect(searchContent).toHaveBeenLastCalledWith('marketEmoji', 'needle', 3, 0);
+    expect(generatedSources).toHaveBeenCalledOnce();
+  });
   it('同名文件保留不同会话和不同消息，重复索引行只出现一次并按时间排序', async () => {
     const f = fixture();
     const hit = (id: bigint, targetUid: string, sendTime: bigint): BuddyMsgFtsHit => ({

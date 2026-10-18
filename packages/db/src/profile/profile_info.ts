@@ -287,8 +287,21 @@ export class ProfileInfoDb {
          FROM buddy_list b
          LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
          WHERE ${where}
+         ORDER BY CASE
+           WHEN CAST(b."1002" AS TEXT) = ? OR p."20002" = ? COLLATE NOCASE THEN 0
+           WHEN CAST(b."1002" AS TEXT) LIKE ? ESCAPE '\\' OR p."20002" LIKE ? ESCAPE '\\' THEN 1
+           ELSE 2 END, b."1000" ASC
          LIMIT ? OFFSET ?`,
-        [like, like, BigInt(limit), BigInt(offset)],
+        [
+          like,
+          like,
+          needle,
+          needle,
+          `${escapeLike(needle)}%`,
+          `${escapeLike(needle)}%`,
+          BigInt(limit),
+          BigInt(offset),
+        ],
       ),
     ]);
     return {
@@ -561,5 +574,5 @@ function toBigint(v: SqlValue | undefined): bigint {
 }
 
 function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (m) => `${m}`);
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
 }

@@ -119,7 +119,7 @@ import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
 import {
-  SEARCH_CATEGORY_ORDER,
+  DEFAULT_SEARCH_CATEGORIES,
   isGeneratedSearchHit,
   isContentSearchHit,
 } from '../components/search/types';
@@ -3133,7 +3133,7 @@ export function MainView(): ReactElement {
   const loadingNewerRef = useRef(false);
 
   const [searchCategories, setSearchCategories] = useState<SearchCategory[]>(() => [
-    ...SEARCH_CATEGORY_ORDER,
+    ...DEFAULT_SEARCH_CATEGORIES,
   ]);
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);

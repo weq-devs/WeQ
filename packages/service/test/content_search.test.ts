@@ -33,6 +33,41 @@ const post = (tid: string, content: string, uin = '10001'): ContentSearchRecord 
   content,
   time: 1,
 });
+it('个人与他人空间按作者分开检索，标题匹配优先于较新的正文命中', () => {
+  const f = fixture();
+  f.store.remember([
+    { ...post('body', 'needle'), time: 100 },
+    { ...post('title', '正文'), title: 'needle', time: 1 },
+    { ...post('other', 'needle', '10002'), time: 200 },
+  ]);
+  const result = f.store.search('qzonePost', 'needle', 10, 0, '10001');
+  expect(result.items.map((item) => item.target)).toEqual([
+    { kind: 'qzonePost', uin: '10001', tid: 'title' },
+    { kind: 'qzonePost', uin: '10001', tid: 'body' },
+  ]);
+  expect(result.coverage.records).toBe(2);
+  const other = f.store.search('otherQzonePost', 'needle', 10, 0, '10001');
+  expect(other.items).toMatchObject([
+    { category: 'otherQzonePost', target: { kind: 'qzonePost', uin: '10002', tid: 'other' } },
+  ]);
+  expect(other.coverage.records).toBe(1);
+  f.store.remember(
+    ['10001', '10002'].map((uin) => ({
+      target: { kind: 'qzoneAlbum' as const, uin, albumId: 'album' },
+      title: 'needle',
+      content: '',
+      sourceName: '空间',
+      time: 1,
+    })),
+  );
+  expect(f.store.search('qzoneAlbum', 'needle', 1, 0, '10001').items[0]?.target).toMatchObject({
+    uin: '10001',
+  });
+  expect(f.store.search('otherQzoneAlbum', 'needle', 1, 0, '10001').items[0]).toMatchObject({
+    category: 'otherQzoneAlbum',
+    target: { kind: 'qzoneAlbum', uin: '10002' },
+  });
+});
 it('未知版本原件不被覆盖，新观察内容仍可在内存检索', () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-content-version-'));
   roots.push(root);

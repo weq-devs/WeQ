@@ -258,8 +258,21 @@ export class GroupMemberDb {
       this.qq.query(
         `SELECT "60001","1000","1002","20002","64003" FROM group_member3
          WHERE ${where}
+         ORDER BY CASE
+           WHEN CAST("1002" AS TEXT) = ? OR "20002" = ? COLLATE NOCASE THEN 0
+           WHEN CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\' THEN 1
+           ELSE 2 END, "60001" ASC, "1000" ASC
          LIMIT ? OFFSET ?`,
-        [like, like, BigInt(limit), BigInt(offset)],
+        [
+          like,
+          like,
+          needle,
+          needle,
+          `${escapeLike(needle)}%`,
+          `${escapeLike(needle)}%`,
+          BigInt(limit),
+          BigInt(offset),
+        ],
       ),
     ]);
     return {

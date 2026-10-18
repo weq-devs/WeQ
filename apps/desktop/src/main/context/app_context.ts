@@ -1398,7 +1398,15 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
           searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(contentSearch, guildDirect, category, keyword, limit, offset),
+            searchAccountContent(
+              contentSearch,
+              guildDirect,
+              category,
+              keyword,
+              limit,
+              offset,
+              String(session.context.uin),
+            ),
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
           generatedSources: () => generatedSources,
@@ -2108,7 +2116,15 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
           searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(contentSearch, guildDirect, category, keyword, limit, offset),
+            searchAccountContent(
+              contentSearch,
+              guildDirect,
+              category,
+              keyword,
+              limit,
+              offset,
+              String(session.context.uin),
+            ),
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。

@@ -17,6 +17,7 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
+import { DEFAULT_SEARCH_CATEGORIES, searchNameRank } from './search_policy';
 import {
   CONTENT_SEARCH_CATEGORIES,
   type ContentSearchCategory,
@@ -437,7 +438,7 @@ export class UnifiedSearchService {
   ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
     const enabled = (category: SearchCategory) =>
-      Boolean(needle && (categories === undefined || categories.includes(category)));
+      Boolean(needle && (categories ?? DEFAULT_SEARCH_CATEGORIES).includes(category));
     const failures = new Set<SearchCategory>();
     const read = async <T>(
       category: SearchCategory,
@@ -507,6 +508,8 @@ export class UnifiedSearchService {
     switch (category) {
       case 'qzonePost':
       case 'qzoneAlbum':
+      case 'otherQzonePost':
+      case 'otherQzoneAlbum':
       case 'groupAlbum':
       case 'groupFile':
       case 'mailMessage':
@@ -816,7 +819,13 @@ export class UnifiedSearchService {
       count: t.count,
     }));
 
-    const value = [...buddyHits, ...groupHits].sort((a, b) => b.count - a.count);
+    const value = [...buddyHits, ...groupHits].sort(
+      (a, b) =>
+        searchNameRank(keyword, b.name) - searchNameRank(keyword, a.name) ||
+        b.count - a.count ||
+        a.source.localeCompare(b.source) ||
+        a.partition.localeCompare(b.partition),
+    );
     this.chatRecordCache.set(keyword, {
       at: Date.now(),
       value,
@@ -858,7 +867,13 @@ export class UnifiedSearchService {
       seen.add(key);
       out.push(await this.fileHit(h, source));
     }
-    const value = out.sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
+    const value = out.sort(
+      (a, b) =>
+        searchNameRank(keyword, b.fileName) - searchNameRank(keyword, a.fileName) ||
+        Number(b.sendTime) - Number(a.sendTime) ||
+        a.source.localeCompare(b.source) ||
+        a.msgId.localeCompare(b.msgId),
+    );
     this.fileCache.set(keyword, {
       at: Date.now(),
       value,

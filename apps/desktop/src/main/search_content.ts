@@ -16,9 +16,10 @@ export function searchAccountContent(
   keyword: string,
   limit: number,
   offset: number,
+  ownUin?: string,
 ): ContentSearchPage | Promise<ContentSearchPage> {
   if (category === 'guildMessage') return guild.search(keyword, limit, offset);
-  if (category !== 'marketEmoji') return store.search(category, keyword, limit, offset);
+  if (category !== 'marketEmoji') return store.search(category, keyword, limit, offset, ownUin);
   const page = searchCatalog({ keyword, limit, cursor: String(offset) });
   const records = searchCatalog({ limit: 1 }).total;
   return {
