@@ -16,7 +16,14 @@ import { TabActivity } from './RetainedTabs';
 import '../styles/workspace-surfaces.css';
 
 type Placement = 'main' | 'sidecar';
-type Page = { id: string; title: string; placement: Placement; close: () => void };
+type Page = {
+  id: string;
+  title: string;
+  placement: Placement;
+  close: () => void;
+  retainOnNavigate?: boolean;
+  closable?: boolean;
+};
 const PagesContext = createContext<{
   host: HTMLDivElement | null;
   setHost: (host: HTMLDivElement | null) => void;
@@ -24,21 +31,24 @@ const PagesContext = createContext<{
   setSidecarHost: (host: HTMLDivElement | null) => void;
   pages: Page[];
   active: string | null;
-  select: (id: string) => void;
+  select: (id: string | null) => void;
   activeSidecar: string | null;
   selectSidecar: (id: string) => void;
   register: (page: Page) => () => void;
 } | null>(null);
 
 export function useWorkspacePageOpen(): boolean {
-  return Boolean(useContext(PagesContext)?.pages.length);
+  const context = useContext(PagesContext);
+  return Boolean(
+    context?.pages.some((page) => page.id === context.active || page.placement === 'sidecar'),
+  );
 }
 
 export function useWorkspaceSidecarOpen(): boolean {
   const context = useContext(PagesContext);
   return (
     Boolean(context?.pages.some((page) => page.placement === 'sidecar')) &&
-    !context?.pages.some((page) => page.placement === 'main')
+    !context?.pages.some((page) => page.placement === 'main' && page.id === context.active)
   );
 }
 
@@ -64,7 +74,8 @@ export function WorkspacePages({
   useEffect(() => {
     if (previousNavigation.current === navigationKey) return;
     previousNavigation.current = navigationKey;
-    for (const page of pagesRef.current) page.close();
+    for (const page of pagesRef.current) if (!page.retainOnNavigate) page.close();
+    select(null);
     navigateRef.current?.();
   }, [navigationKey]);
   const register = useCallback((page: Page) => {
@@ -107,9 +118,16 @@ function WorkspaceTabs({
   onSelect: (id: string) => void;
   label: string;
 }) {
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    tabsRef.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.closest('.weq-workspace-tab')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [selected]);
   if (!pages.length) return null;
   return (
-    <div className="weq-workspace-tabs" role="tablist" aria-label={label}>
+    <div ref={tabsRef} className="weq-workspace-tabs" role="tablist" aria-label={label}>
       {pages.map((page) => (
         <div className="weq-workspace-tab" key={page.id}>
           <button
@@ -143,14 +161,16 @@ function WorkspaceTabs({
           >
             {page.title}
           </button>
-          <button
-            type="button"
-            title={`关闭${page.title}`}
-            aria-label={`关闭${page.title}`}
-            onClick={page.close}
-          >
-            <X size={14} />
-          </button>
+          {page.closable !== false && (
+            <button
+              type="button"
+              title={`关闭${page.title}`}
+              aria-label={`关闭${page.title}`}
+              onClick={page.close}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -161,26 +181,39 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
   const context = useContext(PagesContext);
   const pages = context?.pages.filter((page) => page.placement === 'main') ?? [];
   const sidecars = context?.pages.filter((page) => page.placement === 'sidecar') ?? [];
+  const mainOpen = pages.some((page) => page.id === context?.active);
+  const tabs = pages.some((page) => page.retainOnNavigate)
+    ? [
+        {
+          id: 'workspace-base',
+          title: '当前内容',
+          placement: 'main' as const,
+          close: () => {},
+          closable: false,
+        },
+        ...pages,
+      ]
+    : pages;
   return (
     <div className="weq-workspace-content">
       {context && (
         <WorkspaceTabs
-          pages={pages}
-          selected={context.active ?? pages.at(-1)?.id}
-          onSelect={context.select}
+          pages={tabs}
+          selected={context.active ?? 'workspace-base'}
+          onSelect={(id) => context.select(id === 'workspace-base' ? null : id)}
           label="内容页面"
         />
       )}
       <div className="weq-workspace-split">
         <div className="weq-workspace-primary">
-          <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!pages.length} />
-          <div className="weq-workspace-base" hidden={Boolean(pages.length)}>
+          <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!mainOpen} />
+          <div id="workspace-base-page" className="weq-workspace-base" hidden={mainOpen}>
             {children}
           </div>
         </div>
         <aside
           className="weq-workspace-sidecar"
-          hidden={!sidecars.length || pages.length > 0}
+          hidden={!sidecars.length || mainOpen}
           aria-label="会话附属内容"
         >
           {context && (
@@ -203,11 +236,13 @@ export function WorkspacePage({
   onClose,
   children,
   placement = 'main',
+  retainOnNavigate = false,
 }: {
   title: string;
   onClose?: () => void;
   children: ReactNode;
   placement?: Placement;
+  retainOnNavigate?: boolean;
 }) {
   const context = useContext(PagesContext);
   const id = useId();
@@ -216,16 +251,19 @@ export function WorkspacePage({
   const ref = useRef<HTMLDivElement>(null);
   const register = context?.register;
   useLayoutEffect(
-    () => register?.({ id, title, placement, close: () => closeRef.current?.() }),
-    [register, id, title, placement],
+    () => register?.({ id, title, placement, retainOnNavigate, close: () => closeRef.current?.() }),
+    [register, id, title, placement, retainOnNavigate],
   );
   const selected =
-    (placement === 'sidecar' ? context?.activeSidecar : context?.active) ??
-    context?.pages.filter((page) => page.placement === placement).at(-1)?.id;
+    placement === 'sidecar'
+      ? (context?.activeSidecar ??
+        context?.pages.filter((page) => page.placement === 'sidecar').at(-1)?.id)
+      : context?.active;
   const host = placement === 'sidecar' ? context?.sidecarHost : context?.host;
   const active =
     (!context || selected === id) &&
-    (placement !== 'sidecar' || !context?.pages.some((page) => page.placement === 'main'));
+    (placement !== 'sidecar' ||
+      !context?.pages.some((page) => page.placement === 'main' && page.id === context.active));
   useSurfaceEscape(ref, onClose, active, false);
   const content = (
     <div

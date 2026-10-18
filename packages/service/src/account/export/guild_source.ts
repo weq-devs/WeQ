@@ -16,6 +16,7 @@ import type { Element, MsgDecoration } from '@weq/codec';
 import type { GuildDirectService, RenderGuildDirectMsg } from '../guild_direct';
 import type { RenderC2cMsg } from '../msg';
 import type { MessageFilter } from '../message_filter';
+import type { GuildMessageCursor } from '@weq/db';
 
 /** 频道私聊导出任务的身份快照（全部 JSON 可序列化，随任务持久化）。 */
 export interface GuildExportTaskMeta {
@@ -82,13 +83,32 @@ export class GuildMsgSource {
     return [];
   }
 
+  async *exportC2cMessages(_peerUid: string, pageSize: number): AsyncGenerator<RenderC2cMsg> {
+    let cursor: GuildMessageCursor | undefined;
+    for (;;) {
+      this.exportSignal?.throwIfAborted();
+      const page = await this.svc.getStablePage(this.meta.nodeId, cursor, pageSize);
+      for (const message of page.items) yield toC2cRender(message, this.meta);
+      if (page.items.length < pageSize) return;
+      if (
+        !page.cursor ||
+        (cursor &&
+          page.cursor.seq === cursor.seq &&
+          page.cursor.time === cursor.time &&
+          page.cursor.id === cursor.id)
+      )
+        throw new Error('频道导出游标没有前进。');
+      cursor = page.cursor;
+    }
+  }
+
   /** 比 afterSeq 更新的一页（seq 升序）——与 iterateC2cMessages 的游标契约一致。 */
   async getC2cAfter(_peerUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const page = await this.svc.getAfter(this.meta.nodeId, afterSeq, limit);
     return page.map((m) => toC2cRender(m, this.meta));
   }
 
-  /** 频道消息没有 seq-less（安卓迁移）块，恒空。 */
+  /** 旧消息源接口保持兼容；正式导出通过完整游标同时包含无 seq 的本地行。 */
   async getC2cSeqlessAfterRowId(): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
     return [];
   }

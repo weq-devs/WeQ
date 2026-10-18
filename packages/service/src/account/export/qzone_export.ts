@@ -87,6 +87,7 @@ export interface QzoneExportDeps {
 export type QzoneFormat = 'json' | 'txt' | 'html';
 
 export interface QzoneExportOpts {
+  tids?: string[];
   /** 目标空间 uin（好友或自己）。 */
   targetUin: string;
   /** 展示名（写进文件头 / 进度）。 */
@@ -152,6 +153,7 @@ export interface QzoneInteractionCoverage {
 
 /** 一次拉取的说说数据（含互动 / 配图统计）—— 多格式产物共用，避免重复翻页 / 重复拉互动。 */
 export interface QzoneExportData {
+  selection?: { tids: string[] };
   /** 时间窗过滤后的说说；拉过互动则 `comments` / `likes` 已挂上（否则缺失）。 */
   rows: EmotionWithInteraction[];
   /** 拉过互动时的统计（未开启为 undefined）。 */
@@ -171,6 +173,8 @@ export interface QzoneExportData {
 
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
+  /** 精确离散条目；空数组不等于整空间，且不叠加日期范围。 */
+  tids?: string[];
   onRawInteraction?: (capture: {
     kind: QzoneRawKind;
     tid?: string;
@@ -1318,23 +1322,65 @@ export async function collectQzone(
   deps: QzoneExportDeps,
 ): Promise<QzoneExportData> {
   opts.onProgress(0, 0, '拉取说说…');
-  const fetched = await fetchQzoneEmotionRange(
-    deps,
-    opts.targetUin,
-    opts.range,
-    opts.onProgress,
-    opts.signal,
-    opts,
-  );
+  const selected = opts.tids === undefined ? undefined : [...new Set(opts.tids)];
+  const details = new Map<string, ReturnType<typeof parseQzonePostDetail>>();
+  let fetched: QzoneEmotion[];
+  if (selected !== undefined) {
+    fetched = [];
+    if (selected.length && !deps.fetchPostDetail)
+      throw new Error('精确说说导出需要按 tid 读取详情的能力。');
+    for (const tid of selected) {
+      opts.signal?.throwIfAborted();
+      const detail = await deps.fetchPostDetail!(
+        opts.targetUin,
+        tid,
+        opts.signal,
+        opts.onRawInteraction
+          ? (response) => opts.onRawInteraction!({ kind: 'detail', tid, response })
+          : undefined,
+      );
+      opts.signal?.throwIfAborted();
+      if (detail.post.tid !== tid) throw new Error(`说说详情 ID 不匹配：${tid}`);
+      details.set(tid, detail);
+      fetched.push(
+        structuredClone({
+          ...detail.post,
+          content: detail.content,
+          contentTruncated: detail.contentHasMore ?? detail.post.contentTruncated,
+        }),
+      );
+      opts.onProgress(
+        fetched.length,
+        selected.length,
+        `读取已选说说 ${fetched.length}/${selected.length}`,
+      );
+      if (fetched.length < selected.length) await sleep(PAGE_DELAY_MS);
+    }
+  } else {
+    fetched = await fetchQzoneEmotionRange(
+      deps,
+      opts.targetUin,
+      opts.range,
+      opts.onProgress,
+      opts.signal,
+      opts,
+    );
+  }
   // 互动字段挂在 EmotionWithInteraction 上；不带互动时数组元素仍是合法 QzoneEmotion。
-  const rows: EmotionWithInteraction[] = fetched.filter((e) => inRange(e, opts.range));
+  const rows: EmotionWithInteraction[] = fetched.filter(
+    (e) => selected !== undefined || inRange(e, opts.range),
+  );
 
   // 只对列表明确截断/缺图的条目补读，复用原生空间页的精确 tid 接口。
   let blocked = false;
   for (const row of rows) {
     opts.signal?.throwIfAborted();
     row.contentEvidence = {
-      body: row.contentTruncated ? 'truncated' : 'observed',
+      body: details.get(row.tid)?.contentComplete
+        ? 'complete'
+        : row.contentTruncated
+          ? 'truncated'
+          : 'observed',
       images: 'observed',
     };
     const capture = (kind: QzoneRawKind) =>
@@ -1347,12 +1393,9 @@ export async function collectQzone(
       (row.contentTruncated || row.repost?.contentTruncated)
     ) {
       try {
-        const detail = await deps.fetchPostDetail(
-          opts.targetUin,
-          row.tid,
-          opts.signal,
-          capture('detail'),
-        );
+        const detail =
+          details.get(row.tid) ??
+          (await deps.fetchPostDetail(opts.targetUin, row.tid, opts.signal, capture('detail')));
         opts.signal?.throwIfAborted();
         if (detail.post.tid !== row.tid) throw new Error('说说补全 ID 不匹配。');
         if (detail.contentComplete || detail.content.length >= row.content.length)
@@ -1412,7 +1455,7 @@ export async function collectQzone(
 
   // 补全互动（评论 + 点赞）：批量拉一次，各格式产物共用。
   let interaction: QzoneInteractionSummary | undefined;
-  if (opts.includeInteraction && !opts.signal?.aborted) {
+  if (opts.includeInteraction && rows.length && !opts.signal?.aborted) {
     const { failed, interactionPosts, missingPosts, likesFailed } = await attachInteractions(
       rows,
       deps,
@@ -1444,6 +1487,7 @@ export async function collectQzone(
   }
 
   return {
+    ...(selected !== undefined ? { selection: { tids: selected } } : {}),
     rows,
     mediaOk,
     mediaFailed,
@@ -1505,6 +1549,7 @@ export async function writeQzone(
           repostTruncated: row.repost?.contentTruncated ?? null,
         })),
         history: data.history ?? null,
+        selection: data.selection ?? null,
       },
       null,
       2,
@@ -1520,6 +1565,7 @@ export async function exportQzone(
   const data = await collectQzone(
     {
       targetUin: opts.targetUin,
+      tids: opts.tids,
       range: opts.range,
       mediaRoot: opts.mediaRoot,
       includeInteraction: opts.includeInteraction,

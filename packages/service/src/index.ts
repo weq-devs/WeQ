@@ -304,6 +304,28 @@ export { MsgSearchService } from './account/msg_search';
 export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
 export type { CollectionSearchHit } from './account/collection_search';
 export type { GeneratedSearchHit, GeneratedSearchSources } from './account/generated_search';
+export {
+  ContentSearchStore,
+  CONTENT_SEARCH_CATEGORIES,
+  contentSearchKey,
+} from './account/content_search';
+export { htmlPlainText } from './common/html_text';
+export { qzoneFeedSearchRecord } from './account/content_search_projection';
+export type {
+  ContentSearchHit,
+  ContentSearchTarget,
+  ContentSearchCategory,
+  ContentSearchRecord,
+  ContentSearchPage,
+  ContentSearchCoverage,
+} from './account/content_search';
+export { listGeneratedConversations, captureGeneratedContent } from './account/generated_content';
+export type {
+  GeneratedContentTarget,
+  GeneratedContentSnapshot,
+  GeneratedConversation,
+} from './account/generated_content';
+export { GENERATED_EXPORT_FORMATS } from './account/export/generated_export';
 export type {
   SearchCategory,
   FtsSource,

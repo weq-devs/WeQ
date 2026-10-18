@@ -99,6 +99,40 @@ it('sender UID/UIN and inclusive date bounds combine using bound SQL parameters'
   expect(await group.browse('777', { sender: "123' OR 1=1 --" })).toEqual([]);
 });
 
+it('正序浏览按时间与行号完整翻页，不遗漏空序号或同时间记录', async () => {
+  const { c2c, group } = fixture();
+  const first = await c2c.browse({ uid: 'u_peer' }, {}, undefined, 2, 'newer');
+  expect(first.map((row) => String(row.message.msgId))).toEqual(['6', '7']);
+  const last = first.at(-1)!;
+  const second = await c2c.browse(
+    { uid: 'u_peer' },
+    {},
+    { time: Number(last.message.sendTime), rowId: last.rowId },
+    2,
+    'newer',
+  );
+  expect(second.map((row) => String(row.message.msgId))).toEqual(['1', '2']);
+  const anchor = second.at(-1)!;
+  expect(
+    (
+      await group.browse(
+        '777',
+        {},
+        { time: Number(anchor.message.sendTime), rowId: anchor.rowId },
+        2,
+        'newer',
+      )
+    ).map((row) => String(row.message.msgId)),
+  ).toEqual(['3', '4']);
+  const timeline = await group.browseSenderTimeline('777', {}, undefined, 2);
+  expect(timeline.map((row) => row.rowId)).toEqual(first.map((row) => row.rowId));
+  const midnight = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  expect(await group.countBySenders('777', { start: midnight, end: midnight })).toEqual({
+    u_alice: 1,
+    u_bob: 1,
+  });
+});
+
 it('私聊行把 40005 映射成 clientSeq，且不挤动 40002/40801 的位置', async () => {
   const { c2c } = fixture();
   const rows = await c2c.listLatest({ uid: 'u_peer2' }, 20);

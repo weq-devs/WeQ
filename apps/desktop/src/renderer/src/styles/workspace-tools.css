@@ -20,6 +20,8 @@
   background: var(--weq-bg-surface);
 }
 
+.weq-titlebar-search.has-return:not(.is-expanded) { width: 62px; }
+
 .weq-titlebar-search > button {
   display: grid;
   place-items: center;

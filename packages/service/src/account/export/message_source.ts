@@ -322,13 +322,16 @@ export async function* iterateC2cMessages(
   peerUid: string,
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
+  if (msgs.exportFilter?.messageIds?.length === 0) return;
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   const matches = compileMessageFilter(msgs.exportFilter);
   const salvage = opts.salvage ?? msgs.salvage;
-  let merged: AsyncGenerator<RenderC2cMsg> = mergeBySendTime(
-    pageC2cBySeq(msgs, peerUid, pageSize, salvage),
-    pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
-  );
+  let merged: AsyncGenerator<RenderC2cMsg> =
+    msgs.exportC2cMessages?.(peerUid, pageSize) ??
+    mergeBySendTime(
+      pageC2cBySeq(msgs, peerUid, pageSize, salvage),
+      pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
+    );
   if (opts.roam) {
     merged = mergeBySendTime(merged, roamMessageStream<RenderC2cMsg>(peerUid, opts.roam));
   }

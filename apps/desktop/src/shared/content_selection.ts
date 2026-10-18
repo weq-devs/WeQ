@@ -19,6 +19,43 @@ export interface ContentOwner {
   container: string;
 }
 
+export interface GeneratedContentIdentity {
+  kind: 'persona' | 'group' | 'assistant';
+  ownerId: string;
+  sessionId: string | null;
+}
+
+export function generatedContentContainer(target: GeneratedContentIdentity): string {
+  return JSON.stringify([target.kind, target.ownerId, target.sessionId]);
+}
+
+export function generatedContentIdentity(
+  selection?: ContentSelection,
+): GeneratedContentIdentity | null {
+  if (selection?.owner.kind !== 'clone-messages' && selection?.owner.kind !== 'assistant-messages')
+    return null;
+  try {
+    const value: unknown = JSON.parse(selection.owner.container);
+    if (!Array.isArray(value) || value.length !== 3) return null;
+    const [kind, ownerId, sessionId] = value;
+    if (
+      (kind !== 'persona' && kind !== 'group' && kind !== 'assistant') ||
+      typeof ownerId !== 'string' ||
+      !ownerId ||
+      (sessionId !== null && (typeof sessionId !== 'string' || !sessionId))
+    )
+      return null;
+    if (
+      (selection.owner.kind === 'assistant-messages') !== (kind === 'assistant') ||
+      (kind === 'assistant' && (ownerId !== 'assistant' || sessionId === null))
+    )
+      return null;
+    return { kind, ownerId, sessionId };
+  } catch {
+    return null;
+  }
+}
+
 export type ContentFilterValue = string | number | boolean | null;
 
 export type ContentScope =

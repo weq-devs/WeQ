@@ -33,7 +33,13 @@ import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
 import { rewriteVoiceTranscripts } from './voice_rewrite';
-import { collectQzone, type QzoneExportDeps, writeQzone } from './qzone_export';
+import {
+  collectQzone,
+  type QzoneExportDeps,
+  type QzonePageCapture,
+  type QzoneRawKind,
+  writeQzone,
+} from './qzone_export';
 import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bundle';
 import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
@@ -127,6 +133,12 @@ import type {
   GroupExportOptions,
 } from './types';
 import { GuildMsgSource, type GuildExportTaskMeta } from './guild_source';
+import type { GeneratedContentSnapshot } from '../generated_content';
+import {
+  GENERATED_EXPORT_FORMATS,
+  writeGeneratedContent,
+  type GeneratedExportFormat,
+} from './generated_export';
 import type { GuildDirectService } from '../guild_direct';
 
 /** 每个任务保留的任务日志行数上限（内存环形缓冲，防列表 IPC 膨胀）。 */
@@ -311,6 +323,7 @@ export interface ExportTask {
   chatlab?: boolean;
   /** 好友 QQ 空间说说导出（`conv` = 好友 uin；走独立的 Web 拉取流水线）。 */
   qzone?: boolean;
+  qzoneTids?: string[];
   /** 好友空间导出：按 tid 补全评论 / 点赞（空间动态页 HTML 解析，best-effort）。 */
   qzoneInteractions?: boolean;
   /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
@@ -333,6 +346,8 @@ export interface ExportTask {
   filter?: MessageFilter;
   /** 频道私聊导出任务（kind 仍为 'c2c'，conv = peerTinyId，消息源走 guild_msg.db）。 */
   guild?: GuildExportTaskMeta;
+  /** 确认时复制的本地生成记录，不通过 QQ 消息管线回读。 */
+  generated?: GeneratedContentSnapshot;
   /** Bundle folder (message file + avatars/ + media/) when avatars or media are on. */
   bundleDir?: string;
   /** Number of avatars written, when avatars were exported. */
@@ -354,7 +369,8 @@ export interface TaskProgress {
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
-export interface ExportTaskView extends ExportTask {
+export interface ExportTaskView extends Omit<ExportTask, 'generated'> {
+  generated?: Omit<GeneratedContentSnapshot, 'messages'> & { messageCount: number };
   logs: TaskLogLine[];
   canResume: boolean;
   resumeMode?: 'checkpoint' | 'restart';
@@ -608,10 +624,22 @@ export class ExportTaskManager extends EventEmitter {
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((task): ExportTaskView => {
         const canResume = this.canResume(task);
+        // 列表轮询只投影身份与计数，完整过程和正文留在服务端持久快照中。
+        let summary: ExportTaskView['generated'];
+        if (task.generated) {
+          const { messages, ...metadata } = task.generated;
+          summary = { ...metadata, messageCount: messages.length };
+        }
         return {
           ...task,
+          generated: summary,
           canResume,
-          ...(canResume ? { resumeMode: task.contacts ? 'restart' : 'checkpoint' } : {}),
+          ...(canResume
+            ? {
+                resumeMode:
+                  task.contacts || task.generated || task.qzone ? 'restart' : 'checkpoint',
+              }
+            : {}),
           logs: this.taskLogs.get(task.id) ?? [],
         };
       });
@@ -696,6 +724,7 @@ export class ExportTaskManager extends EventEmitter {
     chatlab?: boolean;
     /** 好友 QQ 空间说说导出（走独立流水线）。 */
     qzone?: boolean;
+    qzoneTids?: string[];
     /** 好友空间导出：按 tid 补全评论 / 点赞（需在线 QQ；deps.qzone.fetchInteractions）。 */
     qzoneInteractions?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
@@ -709,6 +738,7 @@ export class ExportTaskManager extends EventEmitter {
     filter?: MessageFilter;
     /** 频道私聊导出：会话身份快照（消息源走 guild_msg.db，无漫游补全）。 */
     guild?: GuildExportTaskMeta;
+    generated?: GeneratedContentSnapshot;
   }): Promise<string> {
     // 清洗 conv (uid/uin/groupCode) 以避免 Windows 文件名非法字符（陌生人 uid 含 *）
     const safeConv = sanitizeSegment(opts.conv, 'conversation');
@@ -722,6 +752,44 @@ export class ExportTaskManager extends EventEmitter {
     const wantDress = Boolean(
       opts.dress && (opts.dress.bubble || opts.dress.font || opts.dress.widget),
     );
+
+    if (opts.generated) {
+      const formats = [...new Set(opts.formats?.length ? opts.formats : [opts.format])];
+      if (
+        formats.some((format) => !(GENERATED_EXPORT_FORMATS as readonly string[]).includes(format))
+      )
+        throw new Error('本地生成对话不支持该导出格式。');
+      const snapshot = structuredClone(opts.generated);
+      const task: ExportTask = {
+        id,
+        kind: opts.kind,
+        conv: opts.conv,
+        name: opts.name,
+        format: formats[0]!,
+        formats,
+        generated: snapshot,
+        status: 'pending',
+        current: 0,
+        progress: 0,
+        total: snapshot.messages.length,
+        stages: [
+          {
+            key: 'message',
+            label: '导出本地生成对话',
+            status: 'pending',
+            current: 0,
+            total: snapshot.messages.length,
+          },
+        ],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.registerTask(task, opts.savePolicy);
+      this.log(id, 'task', `任务已创建：本地生成对话「${opts.name}」`);
+      this.saveTasks();
+      this.enqueue(() => this.runGeneratedTask(id));
+      return id;
+    }
 
     // 收藏导出是独立流水线（单文件表格产物，无媒体 / 头像），不复用消息流水线。
     if (opts.collection) {
@@ -798,15 +866,16 @@ export class ExportTaskManager extends EventEmitter {
         conv: opts.conv,
         name: opts.name,
         format: opts.format,
-        ...(opts.formats?.length ? { formats: opts.formats } : {}),
+        ...(opts.formats?.length ? { formats: [...opts.formats] } : {}),
         status: 'pending',
         progress: 0,
         current: 0,
-        total: opts.total,
+        total: opts.qzoneTids === undefined ? opts.total : new Set(opts.qzoneTids).size,
         qzone: true,
+        ...(opts.qzoneTids !== undefined ? { qzoneTids: [...new Set(opts.qzoneTids)] } : {}),
         ...(opts.qzoneInteractions ? { qzoneInteractions: true } : {}),
-        ...(opts.media ? { media: opts.media } : {}),
-        ...(opts.range ? { range: opts.range } : {}),
+        ...(opts.media ? { media: structuredClone(opts.media) } : {}),
+        ...(opts.range && opts.qzoneTids === undefined ? { range: { ...opts.range } } : {}),
         stages: qStages,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -2568,8 +2637,9 @@ export class ExportTaskManager extends EventEmitter {
       bundle = createAtomicExportBundle(this.cacheDir, id);
       const outDir = bundle.stageDir;
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
-      const history = new QzoneHistoryStore(this.cacheDir, task.conv);
-      const resume = history.resumeState();
+      const history =
+        task.qzoneTids === undefined ? new QzoneHistoryStore(this.cacheDir, task.conv) : null;
+      const resume = history?.resumeState();
 
       this.touchStage(
         task,
@@ -2585,7 +2655,8 @@ export class ExportTaskManager extends EventEmitter {
       const data = await collectQzone(
         {
           targetUin: task.conv,
-          range: task.range,
+          tids: task.qzoneTids,
+          range: task.qzoneTids === undefined ? task.range : undefined,
           mediaRoot,
           includeInteraction: wantInteraction,
           onProgress: (current, total, note) => {
@@ -2627,20 +2698,27 @@ export class ExportTaskManager extends EventEmitter {
               }
             : {}),
           relocateCursor: true,
-          onPage: async (page) => history.savePage(page),
-          onRawInteraction: async (capture) => history.saveInteractionRaw(capture),
+          ...(history
+            ? {
+                onPage: async (page: QzonePageCapture) => history.savePage(page),
+                onRawInteraction: async (capture: {
+                  kind: QzoneRawKind;
+                  tid?: string;
+                  response: string;
+                }) => history.saveInteractionRaw(capture),
+              }
+            : {}),
           signal: abort.signal,
         },
         qzone,
       );
       if (aborted()) {
-        task.status = 'cancelled';
+        if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
         return;
       }
       const count = data.rows.length;
-      const totalCount = count * formats.length;
       const { mediaOk, mediaFailed } = data;
-      data.history = history.summary();
+      data.history = history?.summary();
       const interactionSummary = data.interaction
         ? data.interaction.failed
           ? '互动拉取失败（正文已导出）'
@@ -2651,7 +2729,9 @@ export class ExportTaskManager extends EventEmitter {
       if (interactionSummary) this.log(id, 'message', interactionSummary);
 
       let firstFilePath = '';
+      task.formatCounts = {};
       for (let i = 0; i < formats.length; i += 1) {
+        abort.signal.throwIfAborted();
         const format = formats[i]!;
         const outPath = join(
           outDir,
@@ -2665,30 +2745,33 @@ export class ExportTaskManager extends EventEmitter {
           outputPath: outPath,
           localMedia: Boolean(mediaRoot),
         });
+        task.formatCounts[format] = count;
         if (formats.length > 1) {
           this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${count} 条说说`);
         }
       }
 
-      history.writeSnapshot(join(outDir, 'qzone-history.json'));
+      abort.signal.throwIfAborted();
+      history?.writeSnapshot(join(outDir, 'qzone-history.json'));
       bundle.publish();
       const publishedDir = bundle.finalDir;
       firstFilePath = join(publishedDir, firstFilePath.slice(outDir.length + 1));
 
       task.filePath = firstFilePath;
-      task.current = totalCount;
+      task.current = count;
+      task.total = count;
       task.bundleDir = publishedDir;
+      task.status = 'completed';
+      task.progress = 100;
       this.touchStage(
         task,
         'message',
         {
           status: 'completed',
-          current: totalCount,
-          total: totalCount,
+          current: count,
+          total: count,
           note: [
-            formats.length > 1
-              ? `${totalCount} 条 × ${formats.length} 种格式`
-              : `${totalCount} 条说说`,
+            formats.length > 1 ? `${count} 条 · ${formats.length} 种格式` : `${count} 条说说`,
             ...(interactionSummary ? [interactionSummary] : []),
           ].join(' · '),
         },
@@ -2711,6 +2794,10 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
+      if (aborted()) {
+        if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
+        return;
+      }
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
@@ -2729,7 +2816,12 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
+        message:
+          task.status === 'completed'
+            ? '导出完成'
+            : this.tasks.get(id)?.status === 'paused'
+              ? '已暂停'
+              : (task.error ?? '已取消'),
       });
     }
   }
@@ -2938,10 +3030,72 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
-  /**
-   * 收藏导出：翻页拉全收藏 → 写表格文件。独立于消息流水线；拉取能力走注入的
-   * `deps.collection`（返回已拍平的行）。无媒体 / 头像阶段，单文件产物。
-   */
+  /** 只写任务创建时的生成记录快照，不回读模型或真实 QQ 消息源。 */
+  private async runGeneratedTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task?.generated || task.status === 'cancelled') return;
+    task.status = 'running';
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    this.saveTasks();
+    let bundle: AtomicExportBundle | null = null;
+    try {
+      bundle = createAtomicExportBundle(this.cacheDir, id);
+      this.touchStage(
+        task,
+        'message',
+        { status: 'running', current: 0, note: '写入本地生成记录快照' },
+        { persist: true },
+      );
+      const formats = (task.formats ?? [task.format]) as GeneratedExportFormat[];
+      const stem = sanitizeSegment(task.name, 'generated');
+      task.formatCounts = {};
+      for (const format of formats) {
+        abort.signal.throwIfAborted();
+        await writeGeneratedContent(
+          task.generated,
+          format,
+          join(bundle.stageDir, `${stem}.${format}`),
+        );
+        abort.signal.throwIfAborted();
+        task.formatCounts[format] = task.generated.messages.length;
+      }
+      bundle.publish();
+      task.bundleDir = bundle.finalDir;
+      task.filePath = join(bundle.finalDir, `${stem}.${formats[0]}`);
+      task.current = task.generated.messages.length;
+      task.status = 'completed';
+      task.progress = 100;
+      this.touchStage(task, 'message', {
+        status: 'completed',
+        current: task.current,
+        total: task.current,
+        note: `${task.current} 条本地生成记录`,
+      });
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        task.status = 'failed';
+        task.error = error instanceof Error ? error.message : String(error);
+        this.touchStage(task, 'message', { status: 'failed', note: task.error });
+      }
+    } finally {
+      if (abort.signal.aborted && this.tasks.get(id)?.status !== 'paused')
+        task.status = 'cancelled';
+      if (task.status !== 'completed') bundle?.discard();
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '导出已停止'),
+      });
+    }
+  }
+
+  /** 收藏独立读取、写表，不复用聊天消息源。 */
   private async runCollectionTask(id: string): Promise<void> {
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
@@ -3871,7 +4025,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private canResume(task: ExportTask): boolean {
-    if (task.contacts)
+    if (task.contacts || task.generated || task.qzone)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
       ['paused', 'failed'].includes(task.status) &&
@@ -3893,7 +4047,7 @@ export class ExportTaskManager extends EventEmitter {
     task.error = undefined;
     task.updatedAt = Date.now();
     task.reportVersion = 1;
-    if (task.contacts) {
+    if (task.contacts || task.generated || task.qzone) {
       task.current = 0;
       task.progress = 0;
       task.formatCounts = {};
@@ -3907,7 +4061,15 @@ export class ExportTaskManager extends EventEmitter {
       }
     }
     this.saveTasks();
-    this.enqueue(() => (task.contacts ? this.runContactsTask(id) : this.runTask(id)));
+    this.enqueue(() =>
+      task.generated
+        ? this.runGeneratedTask(id)
+        : task.qzone
+          ? this.runQzoneTask(id)
+          : task.contacts
+            ? this.runContactsTask(id)
+            : this.runTask(id),
+    );
     return true;
   }
 

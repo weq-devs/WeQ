@@ -30,10 +30,18 @@ export interface GeneratedSearchSources {
   };
 }
 
-interface GeneratedMessage {
+export interface GeneratedMessage {
   id?: string;
   text: string;
   ts: number;
+  role?: 'user' | 'assistant';
+  senderId?: string;
+  senderKind?: 'user' | 'persona';
+  toolsUsed?: string[];
+  steps?: unknown[];
+  actions?: unknown[];
+  replyToId?: string;
+  mentions?: string[];
 }
 
 /** 仅遍历当前账号的内存态持久化记录，不调用模型、网络或创建会话。 */

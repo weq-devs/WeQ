@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Image, Loader2, Play, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
@@ -47,14 +47,25 @@ export function GroupAlbumDialog({
   groupCode,
   groupName,
   initialAlbums,
+  initialAlbumId,
   onClose,
 }: {
   groupCode: string;
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
+  initialAlbumId?: string;
   onClose: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
+  const alive = useRef(true);
+  const run = useRef(0);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      run.current++;
+    };
+  }, []);
   const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
   const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
   const [albumError, setAlbumError] = useState<string | null>(null);
@@ -92,19 +103,23 @@ export function GroupAlbumDialog({
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
 
   async function openAlbum(album: GroupAlbumWire): Promise<void> {
-    const access = await client.account.getGroupAlbumAccessState.query();
-    if (!access.qqOnline) {
-      dialog.error('无法查看群相册', '需要先登录该账号的 QQ 客户端。');
-      return;
-    }
-    setMediaState({ status: 'loading', album, items: [], error: null });
+    const revision = ++run.current;
     try {
+      const access = await client.account.getGroupAlbumAccessState.query();
+      if (!alive.current || revision !== run.current) return;
+      if (!access.qqOnline) {
+        dialog.error('无法查看群相册', '需要先登录该账号的 QQ 客户端。');
+        return;
+      }
+      setMediaState({ status: 'loading', album, items: [], error: null });
       const items = (await client.account.listGroupAlbumMedia.query({
         groupCode,
         albumId: album.id,
       })) as AlbumMediaWire[];
+      if (!alive.current || revision !== run.current) return;
       setMediaState({ status: 'ready', album, items, error: null });
     } catch (e) {
+      if (!alive.current || revision !== run.current) return;
       setMediaState({
         status: 'ready',
         album,
@@ -113,6 +128,18 @@ export function GroupAlbumDialog({
       });
     }
   }
+
+  const openRef = useRef(openAlbum);
+  openRef.current = openAlbum;
+  const handledSearch = useRef('');
+  useEffect(() => {
+    if (!initialAlbumId || loadingAlbums || albumError || handledSearch.current === initialAlbumId)
+      return;
+    handledSearch.current = initialAlbumId;
+    const album = albums.find((item) => item.id === initialAlbumId);
+    if (album) void openRef.current(album);
+    else setAlbumError('搜索命中的相册不存在或当前账号不可访问。');
+  }, [initialAlbumId, albums, loadingAlbums, albumError]);
 
   return (
     <OverlayLayer

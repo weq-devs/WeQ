@@ -85,8 +85,11 @@ import {
   initialConversationIds,
   initialExportMode,
   initialGuildScope,
+  initialQzoneScope,
 } from './export/exportScope';
 import { ContactScopePicker } from './export/ContactScopePicker';
+import { GeneratedExportPane } from './export/GeneratedExportPane';
+import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/unified-export.css';
 import { useTabActive } from '../components/RetainedTabs';
 
@@ -117,9 +120,15 @@ const MODES: ModeDef[] = [
     icon: <Radio size={18} />,
   },
   {
+    id: 'generated',
+    label: '克隆与助手对话',
+    desc: '本地生成记录',
+    icon: <MessagesSquare size={18} />,
+  },
+  {
     id: 'qzone',
     label: 'QQ空间导出',
-    desc: '导出好友 / 自己的空间说说',
+    desc: '空间说说 · JSON / TXT / HTML',
     icon: <Globe size={18} />,
   },
   {
@@ -319,6 +328,9 @@ export function ExportTool({
   const [mode, setMode] = useState<ExportMode>(
     initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
+  const qzoneAccount = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: active && surface === 'export' && mode === 'qzone',
+  });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: active && surface === 'export' && (mode === 'full' || mode === 'qzone'),
   });
@@ -336,7 +348,18 @@ export function ExportTool({
   const [chatSelection, setChatSelection] = useState<Set<string>>(
     () => new Set(initialConversationIds(initialSelection)),
   );
-  const [spaceSelection, setSpaceSelection] = useState<Set<string>>(new Set());
+  const [qzoneInitial] = useState(() => initialQzoneScope(initialSelection));
+  const [spaceSelection, setSpaceSelection] = useState<Set<string>>(
+    () => new Set(qzoneInitial.uin ? [qzoneInitial.uin] : []),
+  );
+  const [postSelections, setPostSelections] = useState<Record<string, string[]>>(() =>
+    qzoneInitial.uin && qzoneInitial.tids !== undefined
+      ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
+      : {},
+  );
+  const [spaceScopeUin, setSpaceScopeUin] = useState<string | null>(() =>
+    qzoneInitial.tids !== undefined ? (qzoneInitial.uin ?? null) : null,
+  );
   const convSelection = mode === 'qzone' ? spaceSelection : chatSelection;
   const setConvSelection = mode === 'qzone' ? setSpaceSelection : setChatSelection;
   const [messageSelections, setMessageSelections] = useState<Record<string, string[]>>(() => {
@@ -532,7 +555,7 @@ export function ExportTool({
       self?.uin && self.uin !== '0'
         ? [
             {
-              id: `self:${self.uin}`,
+              id: self.uin,
               name: self.nick?.trim() ? `${self.nick}（我）` : '我的空间',
               // 资料库存的头像是 `qh.qlogo.cn/g?b=qq&ek=...&s=`（空 s= 会 400，
               // 且该域已加进渲染层 CSP）—— 先补成 s=0 直接使用；没有存档头像
@@ -561,7 +584,7 @@ export function ExportTool({
         return c.targetUin && c.targetUin !== '0';
       })
       .map((c) => ({
-        id: c.targetUid,
+        id: c.targetUin,
         name: c.targetDisplayName || c.targetUid,
         avatarUrl: convAvatarUrl('c2c', c.targetUid, c.targetUin),
         kind: 'c2c' as const,
@@ -570,8 +593,20 @@ export function ExportTool({
         // 导出的内容是目标空间的说说，不是私聊消息 —— 别拿聊天条数当说明。
         meta: '好友空间 · 说说',
       }));
-    return [...mine, ...friends];
-  }, [conversations.data, selfProfile.data]);
+    const byUin = new Map<string, PickItem>();
+    for (const item of [...mine, ...friends]) if (!byUin.has(item.id)) byUin.set(item.id, item);
+    const items = [...byUin.values()];
+    if (qzoneInitial.uin && !items.some((item) => item.id === qzoneInitial.uin))
+      items.unshift({
+        id: qzoneInitial.uin,
+        uin: qzoneInitial.uin,
+        name: `空间 ${qzoneInitial.uin}`,
+        avatarUrl: convAvatarUrl('c2c', '', qzoneInitial.uin),
+        kind: 'c2c',
+        meta: '当前空间 · 说说',
+      });
+    return items;
+  }, [conversations.data, selfProfile.data, qzoneInitial.uin]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -643,6 +678,7 @@ export function ExportTool({
       isContacts: Boolean((t as { contacts?: unknown }).contacts),
       isCollection: Boolean((t as { collection?: unknown }).collection),
       isGuild: Boolean((t as { guild?: unknown }).guild),
+      isGenerated: Boolean((t as { generated?: unknown }).generated),
       // 沿用既有任务的商城表情内容标记，历史下载结果仍可读取。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
       // conv === 'emojipack' 是导出表情包任务的 sentinel（task_manager 内设定）。
@@ -812,22 +848,40 @@ export function ExportTool({
 
   /** QQ 空间导出：每个选中目标（好友 / 自己）起一个说说导出任务（json/txt/html 多选 + 配图）。 */
   async function runQzoneExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
-    const targets = friendItems.filter((it) => convSelection.has(it.id));
-    if (targets.length === 0) return;
+    const targets = friendItems
+      .filter((it) => convSelection.has(it.id))
+      .map((item) => ({
+        ...item,
+        tids: postSelections[item.id] === undefined ? undefined : [...postSelections[item.id]!],
+      }));
+    const account = qzoneAccount.data;
+    if (
+      targets.length === 0 ||
+      !account ||
+      qzoneAccount.isFetching ||
+      targets.some((target) => target.tids?.length === 0)
+    )
+      return;
+    const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     const ok = await preflightQqOnline(dialog);
     if (!ok) return;
 
-    const range = { start: options.range.start, end: options.range.end };
+    const range = targets.some((target) => target.tids !== undefined)
+      ? { start: null, end: null }
+      : { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave();
       if (!savePolicy) return;
       for (const t of targets) {
+        if (!isCurrent()) return;
         if (!t.uin) continue;
         const fmt0 = qzoneFormatOf(formats[0] ?? 'json');
         await client.account.startQzoneExport.mutate({
+          ...binding,
           savePolicy,
           targetUin: t.uin,
+          tids: t.tids,
           name: t.name,
           format: fmt0,
           formats: formats.map(qzoneFormatOf),
@@ -835,7 +889,7 @@ export function ExportTool({
           // （灯箱里也会锁定勾选）。
           downloadMedia: options.exportMedia || formats.includes('html'),
           includeInteraction: options.qzoneInteractions || formats.includes('html'),
-          range,
+          range: t.tids === undefined ? range : undefined,
         });
       }
       setConvSelection(new Set());
@@ -1284,7 +1338,9 @@ export function ExportTool({
     scopeConversationId &&
     convSelection.has(scopeConversationId)
       ? convItems.find((item) => item.id === scopeConversationId)
-      : undefined;
+      : mode === 'qzone' && spaceScopeUin && spaceSelection.has(spaceScopeUin)
+        ? friendItems.find((item) => item.id === spaceScopeUin)
+        : undefined;
 
   const primaryLabel =
     mode === 'full' && execution === 'scheduled'
@@ -1302,27 +1358,32 @@ export function ExportTool({
                 : '导出';
 
   const primaryDisabled =
-    mode === 'album'
-      ? !albumGroupId
-      : mode === 'groupfile'
-        ? !fileGroupId
-        : mode === 'contacts'
-          ? contactScope === 'group'
-            ? !contactGroupIds.size ||
-              [...contactGroupIds].some((id) => memberUids[id]?.length === 0)
-            : friendUids?.length === 0
-          : mode === 'collection'
-            ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
-            : mode === 'guild'
-              ? guildSelection.size === 0 ||
-                [...guildSelection].some((id) => guildMessageSelections[id]?.length === 0)
-              : convSelection.size === 0 ||
-                (mode === 'full' &&
-                  [...convSelection].some((id) =>
-                    execution === 'scheduled'
-                      ? messageSelections[id] !== undefined
-                      : messageSelections[id]?.length === 0,
-                  ));
+    mode === 'qzone'
+      ? !qzoneAccount.data ||
+        qzoneAccount.isFetching ||
+        !spaceSelection.size ||
+        [...spaceSelection].some((id) => postSelections[id]?.length === 0)
+      : mode === 'album'
+        ? !albumGroupId
+        : mode === 'groupfile'
+          ? !fileGroupId
+          : mode === 'contacts'
+            ? contactScope === 'group'
+              ? !contactGroupIds.size ||
+                [...contactGroupIds].some((id) => memberUids[id]?.length === 0)
+              : friendUids?.length === 0
+            : mode === 'collection'
+              ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
+              : mode === 'guild'
+                ? guildSelection.size === 0 ||
+                  [...guildSelection].some((id) => guildMessageSelections[id]?.length === 0)
+                : convSelection.size === 0 ||
+                  (mode === 'full' &&
+                    [...convSelection].some((id) =>
+                      execution === 'scheduled'
+                        ? messageSelections[id] !== undefined
+                        : messageSelections[id]?.length === 0,
+                    ));
 
   const preciseMemberGroups = [...contactGroupIds].filter((id) => memberUids[id] !== undefined);
   const memberScopeSummary = preciseMemberGroups.length
@@ -1436,7 +1497,14 @@ export function ExportTool({
             ) : null}
 
             <div className="weq-exp-pane-body">
-              {mode === 'database' ? (
+              {mode === 'generated' ? (
+                <GeneratedExportPane
+                  initialSelection={initialSelection}
+                  prepareSave={prepareSave}
+                  isCurrent={isCurrent}
+                  onStarted={refetchTasks}
+                />
+              ) : mode === 'database' ? (
                 accountUin ? (
                   <DatabasePlainExport key={accountUin} accountUin={accountUin} />
                 ) : (
@@ -1457,48 +1525,71 @@ export function ExportTool({
                     loading={conversations.isLoading}
                     selected={convSelection}
                     onChange={setConvSelection}
-                    scopeSelections={mode === 'full' ? messageSelections : undefined}
+                    scopeSelections={mode === 'full' ? messageSelections : postSelections}
+                    scopeLabel={mode === 'qzone' ? '说说范围' : '消息范围'}
+                    scopeUnit={mode === 'qzone' ? '条说说' : '条消息'}
                     onEditScope={
-                      mode === 'full' && execution === 'now'
+                      (mode === 'full' && execution === 'now') || mode === 'qzone'
                         ? (item) => {
                             setConvSelection(new Set([...convSelection, item.id]));
-                            setScopeConversationId(item.id);
+                            if (mode === 'qzone') setSpaceScopeUin(item.id);
+                            else setScopeConversationId(item.id);
                           }
                         : undefined
                     }
-                    emptyText={
-                      mode === 'qzone' ? '暂无好友（仅私聊会话可作为导出目标）' : undefined
-                    }
+                    emptyText={mode === 'qzone' ? '暂无空间目标' : undefined}
                   />
                   {scopeConversation ? (
-                    <section className="weq-export-scope-panel" aria-label="当前会话消息范围">
+                    <section
+                      className="weq-export-scope-panel"
+                      aria-label={mode === 'qzone' ? '当前空间说说范围' : '当前会话消息范围'}
+                    >
                       <header>
-                        <strong title={`${scopeConversation.name} · 消息范围`}>
-                          {scopeConversation.name} · 消息范围
+                        <strong title={scopeConversation.name}>
+                          {scopeConversation.name} · {mode === 'qzone' ? '说说范围' : '消息范围'}
                         </strong>
                         <button
                           type="button"
-                          aria-label="关闭消息范围"
-                          title="关闭消息范围"
-                          onClick={() => setScopeConversationId(null)}
+                          aria-label={mode === 'qzone' ? '关闭说说范围' : '关闭消息范围'}
+                          title={mode === 'qzone' ? '关闭说说范围' : '关闭消息范围'}
+                          onClick={() =>
+                            mode === 'qzone' ? setSpaceScopeUin(null) : setScopeConversationId(null)
+                          }
                         >
                           <X size={15} />
                         </button>
                       </header>
-                      <MessageScopePicker
-                        key={scopeConversation.id}
-                        kind={scopeConversation.kind ?? 'c2c'}
-                        conv={scopeConversation.id}
-                        selected={messageSelections[scopeConversation.id]}
-                        onChange={(ids) =>
-                          setMessageSelections((current) => {
-                            const next = { ...current };
-                            if (ids === undefined) delete next[scopeConversation.id];
-                            else next[scopeConversation.id] = [...ids];
-                            return next;
-                          })
-                        }
-                      />
+                      {mode === 'qzone' ? (
+                        <QzoneScopePicker
+                          key={scopeConversation.id}
+                          selfUin={qzoneAccount.data?.uin ?? ''}
+                          hostUin={scopeConversation.id}
+                          selected={postSelections[scopeConversation.id]}
+                          onChange={(ids) =>
+                            setPostSelections((current) => {
+                              const next = { ...current };
+                              if (ids === undefined) delete next[scopeConversation.id];
+                              else next[scopeConversation.id] = [...ids];
+                              return next;
+                            })
+                          }
+                        />
+                      ) : (
+                        <MessageScopePicker
+                          key={`chat:${scopeConversation.kind ?? 'c2c'}:${scopeConversation.id}`}
+                          kind={scopeConversation.kind ?? 'c2c'}
+                          conv={scopeConversation.id}
+                          selected={messageSelections[scopeConversation.id]}
+                          onChange={(ids) =>
+                            setMessageSelections((current) => {
+                              const next = { ...current };
+                              if (ids === undefined) delete next[scopeConversation.id];
+                              else next[scopeConversation.id] = [...ids];
+                              return next;
+                            })
+                          }
+                        />
+                      )}
                     </section>
                   ) : null}
                 </div>
@@ -1536,7 +1627,7 @@ export function ExportTool({
                         </button>
                       </header>
                       <MessageScopePicker
-                        key={guildScopeId}
+                        key={`guild:${guildScopeId}`}
                         kind="guild"
                         conv={guildScopeId}
                         selected={guildMessageSelections[guildScopeId]}
@@ -1710,7 +1801,7 @@ export function ExportTool({
             </div>
 
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
-            {mode !== 'emojipack' && mode !== 'database' ? (
+            {mode !== 'emojipack' && mode !== 'database' && mode !== 'generated' ? (
               <footer className="weq-exp-pane-foot">
                 {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
@@ -1875,25 +1966,33 @@ export function ExportTool({
         <ExportLightbox
           embedded
           scopeSummary={
-            lightbox === 'guild' &&
-            [...guildSelection].some((id) => guildMessageSelections[id] !== undefined)
-              ? [...guildSelection]
+            lightbox === 'qzone' &&
+            [...spaceSelection].some((id) => postSelections[id] !== undefined)
+              ? [...spaceSelection]
                   .map(
                     (id) =>
-                      `${guildItems.find((item) => item.id === id)?.name ?? id}：${guildMessageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${guildMessageSelections[id]!.length} 条消息`}`,
+                      `${friendItems.find((item) => item.id === id)?.name ?? id}：${postSelections[id] === undefined ? '空间全部说说' : `精确选中 ${postSelections[id]!.length} 条说说`}`,
                   )
                   .join('；')
-              : lightbox === 'contacts' && contactScope === 'group'
-                ? memberScopeSummary
-                : lightbox === 'full' &&
-                    [...convSelection].some((id) => messageSelections[id] !== undefined)
-                  ? [...convSelection]
-                      .map(
-                        (id) =>
-                          `${convItems.find((item) => item.id === id)?.name ?? id}：${messageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${messageSelections[id]!.length} 条消息`}`,
-                      )
-                      .join('；')
-                  : undefined
+              : lightbox === 'guild' &&
+                  [...guildSelection].some((id) => guildMessageSelections[id] !== undefined)
+                ? [...guildSelection]
+                    .map(
+                      (id) =>
+                        `${guildItems.find((item) => item.id === id)?.name ?? id}：${guildMessageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${guildMessageSelections[id]!.length} 条消息`}`,
+                    )
+                    .join('；')
+                : lightbox === 'contacts' && contactScope === 'group'
+                  ? memberScopeSummary
+                  : lightbox === 'full' &&
+                      [...convSelection].some((id) => messageSelections[id] !== undefined)
+                    ? [...convSelection]
+                        .map(
+                          (id) =>
+                            `${convItems.find((item) => item.id === id)?.name ?? id}：${messageSelections[id] === undefined ? '会话全部消息' : `精确选中 ${messageSelections[id]!.length} 条消息`}`,
+                        )
+                        .join('；')
+                    : undefined
           }
           variant={lightbox}
           headline={lightboxHeadline}

@@ -1,4 +1,4 @@
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { X } from 'lucide-react';
@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
   contactPreview: vi.fn(),
   nativeReads: vi.fn(),
   startGuild: vi.fn(async (_input: { nodeId: string; messageIds?: string[] }) => 'guild-task'),
+  startQzone: vi.fn(async (_input: { targetUin: string; tids?: string[] }) => 'qzone-task'),
   friends: ['a', 'b', 'c'].map((id, index) => ({
     uid: `friend-${id}`,
     uin: String(10001 + index),
@@ -69,6 +70,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ account: { listExportTasks: { invalidate: vi.fn() } } }),
     account: {
+      getAccountConfig: {
+        useQuery: () => ({ data: { uin: '10002', configId: 'fixture-config' }, isFetching: false }),
+      },
       listConversationsWithCount: {
         useQuery: (_input: undefined, options: { enabled: boolean }) => {
           if (options.enabled) fixture.nativeReads('conversations');
@@ -118,6 +122,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       onExportProgress: { subscribe: () => ({ unsubscribe: vi.fn() }) },
       startContactsExport: { mutate: fixture.startContacts },
       guildDirectStartExport: { mutate: fixture.startGuild },
+      startQzoneExport: { mutate: fixture.startQzone },
     },
   },
 }));
@@ -190,12 +195,22 @@ vi.mock('../src/renderer/src/views/export/ConversationPicker', async (importOrig
   };
 });
 vi.mock('../src/renderer/src/views/export/MessageScopePicker', () => ({
-  MessageScopePicker: ({ onChange }: { onChange: (ids: string[]) => void }) =>
-    createElement(
-      'button',
-      { 'data-scope-picker': '', onClick: () => onChange(['2']) },
-      '夹具改消息选择',
-    ),
+  MessageScopePicker: ({ onChange, kind }: { onChange: (ids: string[]) => void; kind: string }) => {
+    const [seed] = useState(kind);
+    return createElement(
+      'div',
+      { 'data-scope-picker': '', 'data-scope-seed': seed },
+      createElement('button', { onClick: () => onChange(['2']) }, '夹具改消息选择'),
+    );
+  },
+}));
+vi.mock('../src/renderer/src/views/export/QzoneScopePicker', () => ({
+  QzoneScopePicker: ({ onChange }: { onChange: (ids: string[]) => void }) =>
+    createElement('button', { onClick: () => onChange(['other']) }, '夹具改说说选择'),
+}));
+vi.mock('../src/renderer/src/views/export/preflight', () => ({
+  preflightQqOnline: vi.fn(async () => true),
+  ocrReadiness: vi.fn(async () => ({ filterReady: true })),
 }));
 vi.mock('../src/renderer/src/views/export/chatExport', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/views/export/chatExport')>()),
@@ -230,6 +245,7 @@ afterEach(() => {
   fixture.contactPreview.mockClear();
   fixture.nativeReads.mockClear();
   fixture.startGuild.mockClear();
+  fixture.startQzone.mockClear();
 });
 function click(host: HTMLElement, text: string) {
   const button = [...host.querySelectorAll('button')].find((item) => item.textContent === text)!;
@@ -270,6 +286,117 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('普通群与频道节点数值相同，往返模式也不复用另一来源的范围读取现场', async () => {
+    const original = fixture.conversations;
+    fixture.conversations = [{ ...original[0]!, chatType: 2, targetUid: '100' }];
+    const f = mount({
+      initialSelection: {
+        owner: { kind: 'messages', container: 'group:100' },
+        scope: { type: 'items', ids: ['1'] },
+      },
+    });
+    const mode = (value: string) =>
+      act(() => {
+        const select = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
+        'group',
+      );
+      mode('guild');
+      click(f.host, '夹具调整范围');
+      expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
+        'guild',
+      );
+      mode('full');
+      expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
+        'group',
+      );
+    } finally {
+      f.close();
+      fixture.conversations = original;
+    }
+  });
+  it('空间列表按 UIN 去重，普通会话不能覆盖自己的空间身份', async () => {
+    const original = fixture.conversations;
+    fixture.conversations = [
+      { ...original[0]!, targetUin: '10002', targetDisplayName: '不应覆盖自己' },
+    ];
+    fixture.realPicker = true;
+    const f = mount({
+      initialSelection: {
+        owner: { kind: 'qzone-posts', container: '10002' },
+        scope: { type: 'all' },
+      },
+    });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelectorAll('.weq-exp-row')).toHaveLength(1);
+      expect(f.host.querySelector('.weq-exp-row')!.textContent).toContain('自己（我）');
+      expect(f.host.textContent).not.toContain('不应覆盖自己');
+    } finally {
+      f.close();
+      fixture.conversations = original;
+    }
+  });
+  it('非好友空间精确集合按 UIN 带入，保存准备期间修改草稿不改写确认目标', async () => {
+    let release!: (policy: { mode: 'after' }) => void;
+    fixture.prepare.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const selection = {
+      owner: { kind: 'qzone-posts' as const, container: '19999' },
+      scope: { type: 'items' as const, ids: ['a', 'c'] },
+    };
+    const f = mount({ initialSelection: selection });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
+        'qzone',
+      );
+      expect(f.host.querySelector('[aria-label="当前空间说说范围"]')).not.toBeNull();
+      click(f.host, '导出空间');
+      expect(f.host.querySelector('[data-export-summary]')!.textContent).toContain(
+        '精确选中 2 条说说',
+      );
+      await act(async () => click(f.host, '夹具确认导出'));
+      click(f.host, '夹具关闭配置');
+      click(f.host, '夹具改说说选择');
+      expect(fixture.startQzone).not.toHaveBeenCalled();
+      await act(async () => release({ mode: 'after' }));
+      expect(fixture.startQzone).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetUin: '19999',
+          tids: ['a', 'c'],
+          range: undefined,
+          expectedAccountUin: '10002',
+          expectedAccountConfigId: 'fixture-config',
+        }),
+      );
+      expect(selection.scope.ids).toEqual(['a', 'c']);
+    } finally {
+      f.close();
+    }
+  });
+  it('空间精确空集合禁止提交，不自动变成整空间', async () => {
+    const f = mount({
+      initialSelection: {
+        owner: { kind: 'qzone-posts', container: '19999' },
+        scope: { type: 'items', ids: [] },
+      },
+    });
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(true);
+    } finally {
+      f.close();
+    }
+  });
   it('频道离散选择进入独立导出草稿，确认后改动不影响待创建任务', async () => {
     let release!: (policy: { mode: 'after' }) => void;
     fixture.prepare.mockReturnValueOnce(

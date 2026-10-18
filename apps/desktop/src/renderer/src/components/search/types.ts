@@ -4,6 +4,8 @@ import type { SearchCategory } from '@weq/service';
 export type { SearchCategory } from '@weq/service';
 import type { GeneratedSearchHit } from '@weq/service';
 import type { CollectionSearchHit } from '@weq/service';
+import type { ContentSearchHit, ContentSearchCategory, ContentSearchCoverage } from '@weq/service';
+export type { ContentSearchHit, ContentSearchTarget } from '@weq/service';
 export type { GeneratedSearchHit } from '@weq/service';
 export type SearchFtsSource = 'buddy' | 'group';
 
@@ -64,7 +66,21 @@ export type SearchHit =
   | ChatRecordSearchHit
   | FileSearchHit
   | GeneratedSearchHit
-  | CollectionSearchHit;
+  | CollectionSearchHit
+  | ContentSearchHit;
+export function isContentSearchHit(hit: SearchHit): hit is ContentSearchHit {
+  return isContentSearchCategory(hit.category);
+}
+export function isContentSearchCategory(
+  category: SearchCategory,
+): category is ContentSearchCategory {
+  return CONTENT_CATEGORY_ORDER.some((item) => item === category);
+}
+export function contentCoverageText(coverage: ContentSearchCoverage): string {
+  if (coverage.available === false)
+    return coverage.scope === 'offline-catalog' ? '离线目录尚不可用' : '本地来源尚不可用';
+  return `${coverage.scope === 'observed-cache' ? '已缓存内容' : coverage.scope === 'offline-catalog' ? '离线目录' : '本地数据库'} · ${coverage.records} 条${coverage.limited ? ' · 缓存有回收或截断' : ''}${coverage.persistenceFailed ? ' · 缓存尚未保存' : ''}`;
+}
 
 export function isGeneratedSearchHit(hit: SearchHit): hit is GeneratedSearchHit {
   return hit.category === 'cloneMessage' || hit.category === 'assistantMessage';
@@ -77,6 +93,8 @@ export interface QuickSearchResult {
 }
 
 export interface SlowSearchResult {
+  contentHits?: ContentSearchHit[];
+  contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
   collections: CollectionSearchHit[];
   failedCategories?: SearchCategory[];
   chatRecords: ChatRecordSearchHit[];
@@ -88,6 +106,7 @@ export interface SlowSearchResult {
 }
 
 export interface MoreSearchResult {
+  coverage?: ContentSearchCoverage;
   category: SearchCategory;
   items: SearchHit[];
   total: number;
@@ -128,7 +147,24 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   collection: { label: '收藏', plural: '收藏' },
   cloneMessage: { label: '克隆消息', plural: '克隆消息' },
   assistantMessage: { label: '助手对话', plural: '助手对话' },
+  qzonePost: { label: '空间说说', plural: '空间说说' },
+  qzoneAlbum: { label: '空间相册', plural: '空间相册' },
+  groupAlbum: { label: '群相册', plural: '群相册' },
+  groupFile: { label: '群文件', plural: '群文件' },
+  mailMessage: { label: '邮件', plural: '邮件' },
+  marketEmoji: { label: '商城表情', plural: '商城表情' },
+  guildMessage: { label: '频道私聊', plural: '频道私聊' },
 };
+
+export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
+  'qzonePost',
+  'qzoneAlbum',
+  'groupAlbum',
+  'groupFile',
+  'mailMessage',
+  'marketEmoji',
+  'guildMessage',
+];
 
 export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
   'conversation',
@@ -139,16 +175,11 @@ export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
   'collection',
   'cloneMessage',
   'assistantMessage',
+  ...CONTENT_CATEGORY_ORDER,
 ];
 
 export function isSlowSearchCategory(category: SearchCategory): boolean {
-  return (
-    category === 'chatRecord' ||
-    category === 'file' ||
-    category === 'collection' ||
-    category === 'cloneMessage' ||
-    category === 'assistantMessage'
-  );
+  return !['conversation', 'friend', 'groupMember'].includes(category);
 }
 
 export function searchHitKey(hit: SearchHit): string {
@@ -168,5 +199,13 @@ export function searchHitKey(hit: SearchHit): string {
     case 'cloneMessage':
     case 'assistantMessage':
       return JSON.stringify([hit.category, hit.kind, hit.ownerId, hit.sessionId, hit.messageId]);
+    case 'qzonePost':
+    case 'qzoneAlbum':
+    case 'groupAlbum':
+    case 'groupFile':
+    case 'mailMessage':
+    case 'marketEmoji':
+    case 'guildMessage':
+      return hit.id;
   }
 }

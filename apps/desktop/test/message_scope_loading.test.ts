@@ -45,7 +45,7 @@ it('频道范围按原始 seq 分页，保留列表外的离散已选身份，�
       ),
     );
     expect(rpc.query).not.toHaveBeenCalled();
-    expect(rpc.latest).toHaveBeenCalledWith({ nodeId: '100', limit: 50 });
+    expect(rpc.latest).toHaveBeenCalledWith({ nodeId: '100', limit: 50, stablePaging: true });
     expect(host.textContent).toContain('当前列表之外的已选消息');
     const more = [...host.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('加载更多'),
@@ -54,6 +54,7 @@ it('频道范围按原始 seq 分页，保留列表外的离散已选身份，�
     expect(rpc.before).toHaveBeenCalledWith({
       nodeId: '100',
       beforeSeq: '9007199254741050',
+      beforeMsgId: '51',
       limit: 50,
     });
     expect(host.querySelectorAll('.weq-message-scope-rows > label')).toHaveLength(51);

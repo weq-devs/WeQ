@@ -168,3 +168,7 @@
 .weq-qzn-feed-link-body small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .weq-qzn-feed-link-external { color: var(--muted-foreground); }
 @media (max-width: 650px) { .weq-qzn .weq-qzn-feed-link { grid-template-columns: 64px minmax(0, 1fr) 16px; gap: 10px; padding: 10px; }.weq-qzn-feed-link-cover { width: 64px; height: 64px; } }
+.weq-qzn-selection-controls { display: flex; align-items: center; gap: 10px; color: var(--weq-fg-secondary); }
+.weq-qzn-selection-controls button { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--weq-border-subtle); border-radius: 4px; background: transparent; color: var(--weq-fg-primary); cursor: pointer; }
+.weq-qzn-post.is-selected { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface)); }
+html[data-theme="dark"] .weq-qzn-post.is-selected { background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface)); }

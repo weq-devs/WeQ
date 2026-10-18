@@ -66,3 +66,25 @@ html[data-theme="dark"] .weq-search-scope,
 html[data-theme="dark"] .weq-search-failure button {
   border-color: var(--weq-border-strong);
 }
+.weq-search-section .weq-search-index-hint,
+.weq-search-more-modal > .weq-search-index-hint {
+  margin: 0;
+  padding: 2px 12px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+.weq-search-dropdown > .weq-search-index-hint {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  color: var(--weq-fg-muted);
+}
+.weq-search-dropdown .weq-search-row:hover,
+.weq-search-more-modal .weq-search-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+html[data-theme="dark"] .weq-search-dropdown .weq-search-row:hover,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+.weq-search-refresh { margin-left: auto; margin-right: 8px; }

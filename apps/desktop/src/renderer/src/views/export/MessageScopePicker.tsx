@@ -9,7 +9,7 @@ interface MessageChoice {
   content: string;
   senderName: string;
 }
-type Cursor = { time: number; rowId: string };
+type Cursor = { time: number; rowId: string; msgId?: string };
 
 export function MessageScopePicker({
   kind,
@@ -47,9 +47,14 @@ export function MessageScopePicker({
             ? client.account.guildDirectBefore.query({
                 nodeId: conv,
                 beforeSeq: cursor.rowId,
+                beforeMsgId: cursor.msgId,
                 limit: 50,
               })
-            : client.account.guildDirectLatest.query({ nodeId: conv, limit: 50 })
+            : client.account.guildDirectLatest.query({
+                nodeId: conv,
+                limit: 50,
+                stablePaging: true,
+              })
           ).then((items) => ({
             items: items.map((row) => ({
               msgId: row.msgId,
@@ -59,7 +64,10 @@ export function MessageScopePicker({
                 .join(' '),
               senderName: row.sendType === '0' ? '对方' : '我',
             })),
-            cursor: items.length >= 50 ? { time: 0, rowId: items.at(-1)!.msgSeq } : null,
+            cursor:
+              items.length >= 50
+                ? { time: 0, rowId: items.at(-1)!.msgSeq, msgId: items.at(-1)!.msgId }
+                : null,
           }))
         : client.account.browseConversation.query({
             kind,

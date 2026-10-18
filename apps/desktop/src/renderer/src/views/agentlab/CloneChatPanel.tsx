@@ -13,6 +13,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { ChatBubble, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
+import { useGeneratedSelection } from './useGeneratedSelection';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -92,7 +93,9 @@ export function CloneChatPanel({
 
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
+  const [animating, setAnimating] = useState(false);
   const seeded = useRef(false);
+  const lastPersisted = useRef(conversation.data);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
@@ -101,6 +104,11 @@ export function CloneChatPanel({
     searchMessageId,
     conversation.isSuccess && !conversation.isFetching,
     history,
+  );
+  const selection = useGeneratedSelection(
+    { kind: 'persona', ownerId: personaId, sessionId: legacy ? null : sessionIdRef.current },
+    history,
+    Boolean((legacy || sessionIdRef.current) && history.some((item) => item.id)),
   );
 
   const scrollTranscriptToBottom = useCallback((): void => {
@@ -118,22 +126,29 @@ export function CloneChatPanel({
 
   // 首次加载持久化对话（真实会话）。
   useEffect(() => {
-    if (!seeded.current && conversation.data && !conversation.isFetching) {
+    if (
+      !animating &&
+      conversation.data &&
+      !conversation.isFetching &&
+      (!seeded.current || lastPersisted.current !== conversation.data)
+    ) {
       setHistory(
         conversation.data.map((t) => ({ id: t.id, role: t.role, text: t.text, ts: t.ts })),
       );
       seeded.current = true;
+      lastPersisted.current = conversation.data;
     }
-  }, [conversation.data, conversation.isFetching, searchTarget]);
+  }, [conversation.data, conversation.isFetching, searchTarget, animating]);
 
   useEffect(() => {
     scrollTranscriptToBottom();
   }, [history, chat.isLoading, scrollTranscriptToBottom]);
 
   async function onSend(): Promise<void> {
-    if (legacy || !personaId || !input.trim() || chat.isLoading) return;
+    if (legacy || !personaId || !input.trim() || chat.isLoading || animating) return;
     setSearchMessageId(null);
     const text = input.trim();
+    setAnimating(true);
     setInput('');
     if (composerRef.current) composerRef.current.style.height = 'auto';
     const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
@@ -194,6 +209,8 @@ export function CloneChatPanel({
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
       setInput(text);
+    } finally {
+      setAnimating(false);
     }
   }
 
@@ -216,6 +233,7 @@ export function CloneChatPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
+          {selection.control}
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
@@ -235,7 +253,14 @@ export function CloneChatPanel({
         </div>
       </header>
 
-      <div className="weq-agentlab-transcript" ref={transcriptRef}>
+      <div
+        className="weq-agentlab-transcript"
+        {...selection.rootProps}
+        ref={(element) => {
+          transcriptRef.current = element;
+          selection.rootProps.ref(element);
+        }}
+      >
         <GeneratedSearchNotice
           missing={missingSearch}
           error={Boolean(searchMessageId && conversation.isError)}
@@ -265,8 +290,9 @@ export function CloneChatPanel({
             return (
               <div
                 key={item.id ?? `${item.role}-${index}`}
+                {...selection.itemProps(item.id)}
                 data-generated-message-id={item.id}
-                className={`weq-generated-message${item.id === searchMessageId ? ' is-search-hit' : ''}`}
+                className={`weq-generated-message${item.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(item.id) ? ' is-selected' : ''}`}
               >
                 {shouldShowChatTime(prevTs, item.ts) ? <ChatTimeDivider ts={item.ts} /> : null}
                 {bubble}
@@ -293,13 +319,13 @@ export function CloneChatPanel({
           placeholder={
             legacy ? '旧版对话（只读）' : '输入一句话测试克隆效果（Enter 发送，Shift+Enter 换行）'
           }
-          disabled={legacy || chat.isLoading}
+          disabled={legacy || chat.isLoading || animating}
         />
         <button
           type="button"
           className="weq-set-btn"
           onClick={() => void onSend()}
-          disabled={legacy || chat.isLoading || !input.trim()}
+          disabled={legacy || chat.isLoading || animating || !input.trim()}
         >
           <Send size={14} />
           发送

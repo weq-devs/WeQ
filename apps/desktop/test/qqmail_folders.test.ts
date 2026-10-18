@@ -65,16 +65,25 @@ function fixture() {
   return { api, list };
 }
 afterEach(() => vi.unstubAllGlobals());
-async function mount(api: MailApi) {
+async function mount(
+  api: MailApi,
+  searchTarget?: { id: string; folderId: number; revision: string },
+) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () =>
-    root.render(createElement(MailPage, { api, selfEmail: 'self@example.invalid' })),
+    root.render(createElement(MailPage, { api, selfEmail: 'self@example.invalid', searchTarget })),
   );
   return {
     host,
+    search: (target: { id: string; folderId: number; revision: string }) =>
+      act(async () =>
+        root.render(
+          createElement(MailPage, { api, selfEmail: 'self@example.invalid', searchTarget: target }),
+        ),
+      ),
     clickInbox: () =>
       act(async () =>
         host.querySelector<HTMLButtonElement>('.weq-mail-folders [title="收件箱"]')!.click(),
@@ -87,6 +96,26 @@ async function mount(api: MailApi) {
 }
 
 describe('邮箱文件夹重复选择', () => {
+  it('搜索命中直接读取不透明邮件 id，不依赖当前列表的第一页', async () => {
+    const { api, list } = fixture();
+    const view = await mount(api, {
+      id: '@opaque-mail-id',
+      folderId: 5,
+      revision: 'search-fixture',
+    });
+    try {
+      expect(api.read).toHaveBeenCalledWith('@opaque-mail-id', expect.any(AbortSignal));
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ folderId: 5 }),
+        expect.any(AbortSignal),
+      );
+      expect(api.read).not.toHaveBeenCalledWith('fixture-mail', expect.anything());
+      await view.search({ id: '@opaque-mail-id', folderId: 5, revision: 'search-again' });
+      expect(api.read).toHaveBeenCalledTimes(2);
+    } finally {
+      view.close();
+    }
+  });
   it('重复点击当前收件箱会重新加载，不留下空列表，也不重建会话订阅', async () => {
     const { api, list } = fixture(),
       view = await mount(api);

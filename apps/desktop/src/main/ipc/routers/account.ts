@@ -72,6 +72,9 @@ import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
+  captureGeneratedContent,
+  listGeneratedConversations,
+  GENERATED_EXPORT_FORMATS,
   buildPtlogin2JumpUrl,
   buildGroupWpaDeepLink,
   resolveGroupShareAuthKey,
@@ -290,6 +293,16 @@ const exactMessageIdsInput = z
   .array(z.string().regex(/^(?:roaming:(?:(?:native|protocol):)?\d+:)?-?\d+$/))
   .optional();
 
+const generatedTargetInput = z.object({
+  kind: z.enum(['persona', 'group', 'assistant']),
+  ownerId: z.string().min(1),
+  sessionId: z.string().min(1).nullable(),
+});
+const generatedAccountInput = z.object({
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
+});
+
 const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
@@ -304,6 +317,21 @@ const pageInput = z.object({
 const groupPageInput = pageInput.extend({
   groupCode: z.string().min(1),
 });
+
+const analyticsRangeInput = z
+  .object({
+    startTime: z.number().int().safe().nonnegative().optional(),
+    endTime: z.number().int().safe().nonnegative().optional(),
+    expectedAccountUin: z.string().min(1).optional(),
+    expectedAccountConfigId: z.string().min(1).optional(),
+  })
+  .refine(
+    (range) =>
+      range.startTime === undefined ||
+      range.endTime === undefined ||
+      range.startTime <= range.endTime,
+    { message: '分析开始时间不能晚于结束时间。' },
+  );
 
 const decryptDbInput = z.object({
   items: z
@@ -2387,12 +2415,30 @@ export const accountRouter = router({
     .input(
       z.object({
         nodeId: z.string().min(1),
+        stablePaging: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(async ({ input }) => {
-      const msgs = await requireServices().guildDirect.getLatest(input.nodeId, input.limit);
+      const guild = requireServices().guildDirect;
+      const msgs = await (input.stablePaging
+        ? guild.getStableLatest(input.nodeId, input.limit)
+        : guild.getLatest(input.nodeId, input.limit));
       return msgs.map(guildDirectMsgToWire);
+    }),
+
+  guildDirectAround: procedure
+    .input(
+      z.object({
+        nodeId: z.string().regex(/^-?\d+$/),
+        msgId: z.string().regex(/^-?\d+$/),
+        msgSeq: z.string().regex(/^-?\d+$/),
+      }),
+    )
+    .query(async ({ input }) => {
+      const guild = requireServices().guildDirect;
+      const result = await guild.aroundMessage(input.nodeId, input.msgId);
+      return { ...result, items: result.items.map(guildDirectMsgToWire) };
     }),
 
   /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
@@ -2401,26 +2447,78 @@ export const accountRouter = router({
       z.object({
         nodeId: z.string().min(1),
         beforeSeq: z.string().min(1),
+        beforeMsgId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(async ({ input }) => {
-      const msgs = await requireServices().guildDirect.getBefore(
-        input.nodeId,
-        BigInt(input.beforeSeq),
-        input.limit,
-      );
+      const guild = requireServices().guildDirect;
+      const msgs = await (input.beforeMsgId !== undefined
+        ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
+        : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
       return msgs.map(guildDirectMsgToWire);
     }),
 
-  /**
-   * 频道私聊导出（QQ 频道私聊 / guild_msg.db）。
-   *
-   * 与「完整消息格式」同款多格式 / 媒体 / 装扮 / 头像流水线，唯一差别：
-   * 不支持漫游消息补全（IPC 侧强制 completeMessages=false）。消息源按 nodeId
-   * 走 guild_msg_table，身份快照（对方 tinyId / 昵称 / 头像 + 自己 QQ 号 /
-   * 昵称）由服务端一次性组装并随任务持久化。
-   */
+  /** 生成记录读取与导出均绑定账号及数据源，不将旧草稿用于新账号。 */
+  generatedConversations: procedure.input(generatedAccountInput).query(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return listGeneratedConversations({
+      agentLab: services.agentLab,
+      assistant: services.assistant,
+    });
+  }),
+
+  generatedConversation: procedure
+    .input(generatedAccountInput.extend({ target: generatedTargetInput }))
+    .query(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return captureGeneratedContent(
+        { agentLab: services.agentLab, assistant: services.assistant },
+        input.target,
+      );
+    }),
+
+  startGeneratedExport: procedure
+    .input(
+      generatedAccountInput.extend({
+        target: generatedTargetInput,
+        messageIds: z.array(z.string().min(1)).optional(),
+        formats: z.array(z.enum(GENERATED_EXPORT_FORMATS)).min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const snapshot = captureGeneratedContent(
+        { agentLab: services.agentLab, assistant: services.assistant },
+        input.target,
+        input.messageIds,
+      );
+      return services.exportManager.startTask({
+        kind: 'c2c',
+        conv: 'local-generated',
+        name: `${snapshot.title}_${snapshot.sessionTitle}`,
+        format: input.formats[0]!,
+        formats: input.formats,
+        total: snapshot.messages.length,
+        generated: snapshot,
+        savePolicy: input.savePolicy,
+      });
+    }),
+
+  /** 频道私聊走 guild_msg.db 与通用多格式管线，但始终禁止漫游消息补全。 */
   guildDirectStartExport: procedure
     .input(
       z.object({
@@ -2960,15 +3058,18 @@ export const accountRouter = router({
   /** Detailed per-member analytics for a group. */
   getGroupMemberAnalytics: procedure
     .input(
-      z.object({
-        groupCode: z.string().min(1),
-        memberUid: z.string().min(1),
-        startTime: z.number().int().optional(),
-        endTime: z.number().int().optional(),
-      }),
+      z
+        .object({
+          groupCode: z.string().min(1),
+          memberUid: z.string().min(1),
+        })
+        .and(analyticsRangeInput),
     )
     .query(async ({ input }) => {
-      return requireServices().groupInfo.getGroupMemberAnalytics(
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).groupInfo.getGroupMemberAnalytics(
         BigInt(input.groupCode),
         input.memberUid,
         input.startTime,
@@ -3018,16 +3119,23 @@ export const accountRouter = router({
    */
   getGroupStatsReport: procedure
     .input(
-      z.object({
-        groupCode: z.string().min(1),
-        rankingLimit: z.number().int().min(1).max(100).optional(),
-        wordLimit: z.number().int().min(1).max(400).optional(),
-      }),
+      z
+        .object({
+          groupCode: z.string().min(1),
+          rankingLimit: z.number().int().min(1).max(100).optional(),
+          wordLimit: z.number().int().min(1).max(400).optional(),
+        })
+        .and(analyticsRangeInput),
     )
     .query(async ({ input }) => {
-      return requireServices().groupInfo.getGroupStatsReport(BigInt(input.groupCode), {
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).groupInfo.getGroupStatsReport(BigInt(input.groupCode), {
         rankingLimit: input.rankingLimit,
         wordLimit: input.wordLimit,
+        startTime: input.startTime,
+        endTime: input.endTime,
       });
     }),
 
@@ -3036,9 +3144,12 @@ export const accountRouter = router({
    * 只读成员表 + 一条按发送者聚合的 SQL，不扫消息正文。
    */
   getGroupJoinBatches: procedure
-    .input(z.object({ groupCode: z.string().min(1) }))
+    .input(z.object({ groupCode: z.string().min(1) }).and(analyticsRangeInput))
     .query(async ({ input }) => {
-      return requireServices().groupInfo.getGroupJoinBatches(BigInt(input.groupCode));
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).groupInfo.getGroupJoinBatches(BigInt(input.groupCode), input);
     }),
 
   /**
@@ -3047,24 +3158,34 @@ export const accountRouter = router({
    */
   getGroupConversationGraph: procedure
     .input(
-      z.object({
-        groupCode: z.string().min(1),
-        windowSeconds: z.number().int().min(30).max(3600).optional(),
-        maxEdges: z.number().int().min(20).max(2000).optional(),
-      }),
+      z
+        .object({
+          groupCode: z.string().min(1),
+          windowSeconds: z.number().int().min(30).max(3600).optional(),
+          maxEdges: z.number().int().min(20).max(2000).optional(),
+        })
+        .and(analyticsRangeInput),
     )
     .query(async ({ input }) => {
-      return requireServices().groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).groupInfo.getGroupConversationGraph(BigInt(input.groupCode), {
         windowSeconds: input.windowSeconds,
         maxEdges: input.maxEdges,
+        startTime: input.startTime,
+        endTime: input.endTime,
       });
     }),
 
   /** Full one-on-one (private chat) analytics for a single peer. */
   getBuddyAnalytics: procedure
-    .input(z.object({ peerUid: z.string().min(1) }))
+    .input(z.object({ peerUid: z.string().min(1) }).and(analyticsRangeInput))
     .query(async ({ input }) => {
-      return requireServices().buddyAnalytics.getBuddyAnalytics(input.peerUid);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).buddyAnalytics.getBuddyAnalytics(input.peerUid, input);
     }),
 
   /** Get formatted online status for a user. */
@@ -4721,7 +4842,17 @@ export const accountRouter = router({
     const services = requireServices();
     // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
     requireOnlineQqForWeb(services);
-    return services.webQuery.getGroupAlbumList(input.groupCode);
+    const albums = await services.webQuery.getGroupAlbumList(input.groupCode);
+    services.contentSearch?.remember(
+      albums.map((album) => ({
+        target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
+        title: album.title,
+        content: album.desc,
+        sourceName: `群 ${input.groupCode}`,
+        time: 0,
+      })),
+    );
+    return albums;
   }),
 
   /** List all media for one group album. Requires the saved online QQ pid. */
@@ -4791,7 +4922,22 @@ export const accountRouter = router({
   listGroupFiles: procedure.input(groupFileInput).query(async ({ input }) => {
     const services = requireServices();
     requireQqOnlineForAlbum(services);
-    return services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
+    const listing = await services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
+    services.contentSearch?.remember(
+      listing.files.map((file) => ({
+        target: {
+          kind: 'groupFile',
+          groupCode: input.groupCode,
+          folderId: listing.targetDirectory,
+          fileId: file.fileId,
+        },
+        title: file.fileName,
+        content: file.uploaderName,
+        sourceName: `群 ${input.groupCode} · ${listing.targetDirectory === '/' ? '根目录' : listing.targetDirectory}`,
+        time: file.uploadedTime,
+      })),
+    );
+    return listing;
   }),
 
   /** 换取单个群文件的下载直链 (OIDB 0x6D6_2)。链接有时效,点一次取一次。 */
@@ -5126,6 +5272,9 @@ export const accountRouter = router({
       z.object({
         savePolicy: exportSavePolicyInput.optional(),
         targetUin: z.string().min(1),
+        tids: z.array(z.string().trim().min(1).max(512)).optional(),
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'txt', 'html']),
         /** 多格式导出：json / txt / html 一次任务全出。 */
@@ -5137,10 +5286,15 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       requireQqOnlineForAlbum(services); // 硬性要求：在线 QQ 实例
+      const tids = input.tids === undefined ? undefined : [...new Set(input.tids)];
       return services.exportManager.startTask({
         qzone: true,
+        ...(tids !== undefined ? { qzoneTids: tids } : {}),
         savePolicy: input.savePolicy,
         kind: 'c2c',
         conv: input.targetUin,
@@ -5148,7 +5302,7 @@ export const accountRouter = router({
         format: input.format,
         ...(input.formats?.length ? { formats: input.formats } : {}),
         ...(input.includeInteraction ? { qzoneInteractions: true } : {}),
-        total: 0,
+        total: tids?.length ?? 0,
         media: {
           exportMedia: input.downloadMedia,
           completeMessages: false,
@@ -5158,7 +5312,7 @@ export const accountRouter = router({
           downloadPtt: false,
           transcribeVoice: false,
         },
-        ...(input.range ? { range: input.range } : {}),
+        ...(input.range && tids === undefined ? { range: input.range } : {}),
       });
     }),
 

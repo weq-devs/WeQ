@@ -20,6 +20,7 @@ import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
+import { useGeneratedSelection } from './useGeneratedSelection';
 
 interface PersonaLite {
   id: string;
@@ -91,6 +92,11 @@ export function GroupChatPanel({
     searchMessageId,
     conversation.isSuccess && !conversation.isFetching,
     history,
+  );
+  const selection = useGeneratedSelection(
+    { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
+    history,
+    Boolean((legacy || currentSessionId) && history.some((item) => item.id)),
   );
 
   const members = detail.data?.members ?? [];
@@ -307,6 +313,7 @@ export function GroupChatPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
+          {selection.control}
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
@@ -334,7 +341,14 @@ export function GroupChatPanel({
         </div>
       </header>
 
-      <div className="weq-agentlab-transcript" ref={transcriptRef}>
+      <div
+        className="weq-agentlab-transcript"
+        {...selection.rootProps}
+        ref={(element) => {
+          transcriptRef.current = element;
+          selection.rootProps.ref(element);
+        }}
+      >
         <GeneratedSearchNotice
           missing={missingSearch}
           error={Boolean(searchMessageId && conversation.isError)}
@@ -354,8 +368,9 @@ export function GroupChatPanel({
             return (
               <div
                 key={m.id || `${m.senderId}-${index}`}
+                {...selection.itemProps(m.id)}
                 data-generated-message-id={m.id}
-                className={`weq-generated-message${m.id === searchMessageId ? ' is-search-hit' : ''}`}
+                className={`weq-generated-message${m.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(m.id) ? ' is-selected' : ''}`}
               >
                 {shouldShowChatTime(prevTs, m.ts) ? <ChatTimeDivider ts={m.ts} /> : null}
                 <ChatBubble

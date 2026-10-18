@@ -80,12 +80,14 @@ export function MailPage({
   active = true,
   onUnreadChange,
   onOpenRequested,
+  searchTarget,
 }: {
   api: MailApi;
   selfEmail: string;
   active?: boolean;
   onUnreadChange?: (unread: number) => void;
   onOpenRequested?: () => void;
+  searchTarget?: { id: string; folderId: number; revision: string } | null;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
@@ -136,6 +138,32 @@ export function MailPage({
     // 重选当前文件夹时查询参数不变，也必须显式重新读取列表。
     setRevision((value) => value + 1);
   }, []);
+  const handledSearch = useRef('');
+  const [searchReadRevision, setSearchReadRevision] = useState(0);
+  const currentSearch = useRef(searchTarget);
+  currentSearch.current = searchTarget;
+  useEffect(() => {
+    if (!active || !ready || !searchTarget || handledSearch.current === searchTarget.revision)
+      return;
+    handledSearch.current = searchTarget.revision;
+    void (async () => {
+      if (
+        showCompose &&
+        composeDirty &&
+        !(await useDialog
+          .getState()
+          .confirm('打开搜索命中的邮件？', '当前写信内容尚未保存，确认后将退出写信。', {
+            okLabel: '打开邮件',
+            tone: 'warning',
+          }))
+      )
+        return;
+      if (!mounted.current || currentSearch.current?.revision !== searchTarget.revision) return;
+      chooseFolder(searchTarget.folderId);
+      setSelectedId(searchTarget.id);
+      setSearchReadRevision((value) => value + 1);
+    })();
+  }, [active, ready, searchTarget, chooseFolder, showCompose, composeDirty]);
 
   const connect = useCallback(async () => {
     setError('');
@@ -263,7 +291,7 @@ export function MailPage({
         if (!controller.signal.aborted && sequence === readSequence.current) setReading(false);
       });
     return () => controller.abort();
-  }, [api, selectedId, ready]);
+  }, [api, selectedId, ready, searchReadRevision]);
 
   async function openMail(item: MailSummary): Promise<void> {
     setThreadRoot(null);

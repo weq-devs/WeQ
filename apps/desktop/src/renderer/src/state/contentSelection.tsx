@@ -13,11 +13,14 @@ import {
   sameContentOwner,
   type ContentOwner,
   type ContentSelection,
+  copyContentScope,
 } from '../../../shared/content_selection';
 
 interface SelectionContextValue {
   selection: ContentSelection | null;
   setSelection: Dispatch<SetStateAction<ContentSelection | null>>;
+  exportRequest: { selection: ContentSelection; revision: number } | null;
+  requestExport: (selection: ContentSelection) => void;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -25,8 +28,28 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
 /** 随账号工作区挂载和销毁，不写全局单例或持久存储，避免静态/在线同号串选择。 */
 export function ContentSelectionProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<ContentSelection | null>(null);
-  const value = useMemo(() => ({ selection, setSelection }), [selection]);
+  const [exportRequest, setExportRequest] = useState<SelectionContextValue['exportRequest']>(null);
+  const requestExport = useCallback(
+    (next: ContentSelection) =>
+      setExportRequest((previous) => ({
+        selection: { owner: { ...next.owner }, scope: copyContentScope(next.scope) },
+        revision: (previous?.revision ?? 0) + 1,
+      })),
+    [],
+  );
+  const value = useMemo(
+    () => ({ selection, setSelection, exportRequest, requestExport }),
+    [selection, exportRequest, requestExport],
+  );
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
+}
+
+export function useContentExportRequest() {
+  return useContext(SelectionContext)?.exportRequest ?? null;
+}
+
+export function useRequestContentExport() {
+  return useContext(SelectionContext)?.requestExport ?? null;
 }
 
 export function useCurrentContentSelection(): ContentSelection | null {

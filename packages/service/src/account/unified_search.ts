@@ -18,12 +18,25 @@ import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
 import {
+  CONTENT_SEARCH_CATEGORIES,
+  type ContentSearchCategory,
+  type ContentSearchCoverage,
+  type ContentSearchHit,
+  type ContentSearchPage,
+} from './content_search';
+import {
   searchGeneratedMessages,
   type GeneratedSearchHit,
   type GeneratedSearchSources,
 } from './generated_search';
 
 export interface UnifiedSearchServiceOptions {
+  searchContent?: (
+    category: ContentSearchCategory,
+    keyword: string,
+    limit: number,
+    offset: number,
+  ) => Promise<ContentSearchPage> | ContentSearchPage;
   searchCollections?: (
     keyword: string,
     limit: number,
@@ -48,6 +61,7 @@ export const SEARCH_CATEGORIES = [
   'collection',
   'cloneMessage',
   'assistantMessage',
+  ...CONTENT_SEARCH_CATEGORIES,
 ] as const;
 export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
 export type FtsSource = 'buddy' | 'group';
@@ -178,6 +192,8 @@ export interface SearchHistoryHit {
 }
 
 export interface SlowSearchResult {
+  contentHits?: ContentSearchHit[];
+  contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
   collections: CollectionSearchHit[];
   failedCategories?: SearchCategory[];
   chatRecords: ChatRecordSearchHit[];
@@ -189,6 +205,7 @@ export interface SlowSearchResult {
 }
 
 export interface MoreSearchResult {
+  coverage?: ContentSearchCoverage;
   category: SearchCategory;
   items: Array<
     | ConversationSearchHit
@@ -198,6 +215,7 @@ export interface MoreSearchResult {
     | FileSearchHit
     | GeneratedSearchHit
     | CollectionSearchHit
+    | ContentSearchHit
   >;
   total: number;
   hasMore: boolean;
@@ -439,6 +457,16 @@ export class UnifiedSearchService {
       const sources = this.options.generatedSources?.();
       return sources ? searchGeneratedMessages(sources, category, needle).slice(0, limit) : [];
     };
+    const contentCoverage: Partial<Record<ContentSearchCategory, ContentSearchCoverage>> = {};
+    const content = Promise.all(
+      CONTENT_SEARCH_CATEGORIES.map((category) =>
+        read<ContentSearchHit>(category, async () => {
+          const page = await this.options.searchContent?.(category, needle, limit, 0);
+          if (page) contentCoverage[category] = page.coverage;
+          return page?.items ?? [];
+        }),
+      ),
+    );
     const [chatRecords, files, collections, cloneMessages, assistantMessages] = await Promise.all([
       read('chatRecord', () => this.topChatRecordConversations(needle, limit)),
       read('file', () => this.topFiles(needle, limit)),
@@ -450,6 +478,9 @@ export class UnifiedSearchService {
       read('assistantMessage', () => generated('assistantMessage')),
     ]);
     return {
+      ...(this.options.searchContent
+        ? { contentHits: (await content).flat(), contentCoverage }
+        : {}),
       chatRecords,
       files,
       collections,
@@ -474,6 +505,22 @@ export class UnifiedSearchService {
     const page = Math.max(1, limit);
 
     switch (category) {
+      case 'qzonePost':
+      case 'qzoneAlbum':
+      case 'groupAlbum':
+      case 'groupFile':
+      case 'mailMessage':
+      case 'marketEmoji':
+      case 'guildMessage': {
+        const result = await this.options.searchContent?.(category, needle, page, offset);
+        return {
+          category,
+          items: result?.items ?? [],
+          total: result?.total ?? 0,
+          hasMore: result ? offset + result.items.length < result.total : false,
+          coverage: result?.coverage,
+        };
+      }
       case 'collection': {
         const result = (await this.options.searchCollections?.(needle, page, offset)) ?? {
           items: [],

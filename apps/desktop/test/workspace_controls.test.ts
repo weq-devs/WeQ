@@ -36,6 +36,38 @@ function pointer(target: Element, type: string, options: PointerEventInit = {}) 
 }
 
 describe('标题栏全局搜索', () => {
+  it('返回更多页后再次打开搜索仍正常聚焦输入框', () => {
+    const view = mount(
+      createElement(TitleBarSearch, {
+        query: '原词',
+        onQueryChange: vi.fn(),
+        onReturn: () => false,
+      }),
+    );
+    try {
+      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+      expect(document.activeElement).toBe(view.host.querySelector('input'));
+    } finally {
+      view.dispose();
+    }
+  });
+  it('返回搜索入口可恢复下拉且不会把命中行焦点抢回输入框', () => {
+    const onReturn = vi.fn(() => true);
+    const view = mount(
+      createElement(TitleBarSearch, { query: '原词', onQueryChange: vi.fn(), onReturn }),
+    );
+    try {
+      const back = view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!;
+      expect(back).not.toBeNull();
+      act(() => back.click());
+      expect(onReturn).toHaveBeenCalledOnce();
+      expect(view.host.querySelector('input')!.disabled).toBe(false);
+      expect(document.activeElement).not.toBe(view.host.querySelector('input'));
+    } finally {
+      view.dispose();
+    }
+  });
   it('默认图标，悬停临时展开，点击固定与收起，Escape 不清除关键词', () => {
     const onFocus = vi.fn();
     const view = mount(

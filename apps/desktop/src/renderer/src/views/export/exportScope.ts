@@ -3,8 +3,13 @@ import type { ExportMode } from './types';
 
 export function initialExportMode(selection?: ContentSelection): ExportMode {
   switch (selection?.owner.kind) {
+    case 'clone-messages':
+    case 'assistant-messages':
+      return 'generated';
     case 'guild-direct':
       return 'guild';
+    case 'qzone-posts':
+      return 'qzone';
     case 'collections':
       return 'collection';
     case 'contacts':
@@ -12,6 +17,14 @@ export function initialExportMode(selection?: ContentSelection): ExportMode {
     default:
       return 'full';
   }
+}
+
+export function initialQzoneScope(selection?: ContentSelection): { uin?: string; tids?: string[] } {
+  if (selection?.owner.kind !== 'qzone-posts') return {};
+  return {
+    uin: selection.owner.container,
+    ...(selection.scope.type === 'items' ? { tids: [...new Set(selection.scope.ids)] } : {}),
+  };
 }
 
 export function initialGuildScope(selection?: ContentSelection): {

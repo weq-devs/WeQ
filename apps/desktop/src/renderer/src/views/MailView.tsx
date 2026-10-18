@@ -8,12 +8,14 @@ export const MailWorkspace = memo(function MailWorkspace({
   onUnreadChange,
   enabled = false,
   onOpenRequested,
+  searchTarget,
 }: {
   active: boolean;
   selfUin: string;
   onUnreadChange: (count: number) => void;
   enabled?: boolean;
   onOpenRequested?: () => void;
+  searchTarget?: { id: string; folderId: number; revision: string } | null;
 }) {
   const [visited, setVisited] = useState(active);
   const api = useMemo(() => createMailApi(selfUin), [selfUin]);
@@ -29,6 +31,7 @@ export const MailWorkspace = memo(function MailWorkspace({
         active={active}
         onUnreadChange={onUnreadChange}
         onOpenRequested={onOpenRequested}
+        searchTarget={searchTarget}
       />
     </div>
   ) : null;

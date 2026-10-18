@@ -7,6 +7,10 @@ import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import type { GeneratedSearchHit } from '../src/renderer/src/components/search/types';
 import { isGeneratedSearchHit } from '../src/renderer/src/components/search/types';
+import {
+  ContentSelectionProvider,
+  useCurrentContentSelection,
+} from '../src/renderer/src/state/contentSelection';
 
 const fixture = vi.hoisted(() => ({
   query: vi.fn(),
@@ -15,6 +19,7 @@ const fixture = vi.hoisted(() => ({
   missing: false,
   fetching: false,
   sessionless: false,
+  messageId: 'message-hit',
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: vi.fn(), confirm: vi.fn(), prompt: vi.fn() }),
@@ -23,7 +28,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const data = (name: string) => {
     const message = fixture.fetching
       ? { id: 'cached-old', role: 'user', text: '缓存旧数据', ts: 0 }
-      : { id: 'message-hit', role: 'user', text: '合成搜索命中', ts: 1 };
+      : { id: fixture.messageId, role: 'user', text: '合成搜索命中', ts: 1 };
     switch (name) {
       case 'listAgentLabPersonas':
         return [
@@ -88,6 +93,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               fixture.missing,
               fixture.fetching,
               fixture.sessionless,
+              fixture.messageId,
             ]);
             if (!cache.has(key)) cache.set(key, data(name));
             return {
@@ -141,6 +147,7 @@ afterEach(() => {
   fixture.missing = false;
   fixture.fetching = false;
   fixture.sessionless = false;
+  fixture.messageId = 'message-hit';
   vi.clearAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -171,6 +178,76 @@ function mount() {
 }
 
 describe('生成内容搜索定位', () => {
+  it.each(['persona', 'assistant'] as const)(
+    '%s 更新后的持久身份可用于多选，不停留在第一次的历史快照',
+    async (kind) => {
+      const f = mount();
+      const props = {
+        mode: kind === 'assistant' ? ('assistant' as const) : ('clones' as const),
+        searchTarget: target(kind),
+      };
+      try {
+        act(() => f.root.render(createElement(AgentLabView, props)));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        fixture.messageId = 'new-persisted-id';
+        act(() => f.root.render(createElement(AgentLabView, props)));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(
+          f.host.querySelector('[data-generated-message-id="new-persisted-id"]'),
+        ).not.toBeNull();
+        expect(f.host.querySelector('[data-generated-message-id="message-hit"]')).toBeNull();
+      } finally {
+        f.close();
+      }
+    },
+  );
+  it.each(['persona', 'group', 'assistant'] as const)(
+    '%s 持久消息多选交接真实对象和会话身份，不调用生成接口',
+    async (kind) => {
+      const f = mount();
+      const hit = target(kind);
+      function Probe() {
+        return createElement('output', null, JSON.stringify(useCurrentContentSelection()));
+      }
+      try {
+        act(() =>
+          f.root.render(
+            createElement(
+              ContentSelectionProvider,
+              null,
+              createElement(AgentLabView, {
+                mode: kind === 'assistant' ? 'assistant' : 'clones',
+                searchTarget: hit,
+              }),
+              createElement(Probe),
+            ),
+          ),
+        );
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
+        act(() =>
+          f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
+        );
+        expect(JSON.parse(f.host.querySelector('output')!.textContent!)).toEqual({
+          owner: {
+            kind: kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
+            container: JSON.stringify([kind, hit.ownerId, hit.sessionId]),
+          },
+          scope: { type: 'items', ids: ['message-hit'] },
+        });
+        expect(f.host.querySelector('.weq-generated-message.is-selected')).not.toBeNull();
+        expect(fixture.mutate).not.toHaveBeenCalled();
+      } finally {
+        f.close();
+      }
+    },
+  );
   it.each(['persona', 'group'] as const)('%s 没有新会话时恢复旧版记录并保持只读', async (kind) => {
     fixture.sessionless = true;
     const f = mount();

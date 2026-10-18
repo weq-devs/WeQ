@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabActive } from '../../components/RetainedTabs';
+import { hasActiveModal } from '../../lib/overlayStack';
 
 const DESIGN_WIDTH = 960;
 const DESIGN_HEIGHT = 640;
@@ -43,6 +45,7 @@ export function AnnualReportStage({
   guard?: (direction: 1 | -1) => boolean;
   children: ReactNode;
 }): ReactElement {
+  const tabActive = useTabActive();
   const hostRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<{
     y: number;
@@ -72,6 +75,7 @@ export function AnnualReportStage({
   );
 
   useEffect(() => {
+    if (!tabActive) return;
     const host = hostRef.current;
     if (!host) return undefined;
     const resize = (): void => {
@@ -87,10 +91,18 @@ export function AnnualReportStage({
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [tabActive]);
 
   useEffect(() => {
+    if (!tabActive) return;
     function onKeyDown(event: KeyboardEvent): void {
+      if (
+        event.defaultPrevented ||
+        hasActiveModal() ||
+        (event.target instanceof Element &&
+          event.target.closest('input, textarea, select, button, a, [contenteditable="true"]'))
+      )
+        return;
       if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault();
         move(1);
@@ -107,7 +119,7 @@ export function AnnualReportStage({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [count, move, onIndexChange]);
+  }, [count, move, onIndexChange, tabActive]);
 
   function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
     event.preventDefault();

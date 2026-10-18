@@ -6,6 +6,7 @@ import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { GuildExportTaskMeta } from '../src/account/export/guild_source';
 import type { GuildDirectService, RenderGuildDirectMsg } from '../src/account/guild_direct';
 import type { MsgService } from '../src/account/msg';
+import type { GuildMessageCursor } from '@weq/db';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -41,6 +42,20 @@ it.each([{ ids: ['9007199254740993', '5'] }, { ids: [] as string[] }])(
       elements: [{ type: 'text', data: { textContent: `fixture-${id}` } }],
     })) as RenderGuildDirectMsg[];
     const guild = {
+      getStablePage: async (
+        node: string,
+        cursor: GuildMessageCursor | undefined,
+        limit: number,
+      ) => {
+        expect(node).toBe(meta.nodeId);
+        const start = cursor ? rows.findIndex((row) => row.msgId === cursor.id) + 1 : 0;
+        const items = rows.slice(start, start + limit);
+        const last = items.at(-1);
+        return {
+          items,
+          cursor: last ? { seq: last.msgSeq, time: last.sendTime, id: last.msgId } : null,
+        };
+      },
       getAfter: async (node: string, after: bigint, limit: number) => {
         expect(node).toBe(meta.nodeId);
         return rows.filter((row) => row.msgSeq > after).slice(0, limit);

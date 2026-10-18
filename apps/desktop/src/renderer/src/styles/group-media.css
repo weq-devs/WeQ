@@ -469,3 +469,5 @@
 	width: 0 !important;
 	height: 0 !important;
 }
+.group-file-dialog .is-search-hit { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+html[data-theme="dark"] .group-file-dialog .is-search-hit { background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent); }

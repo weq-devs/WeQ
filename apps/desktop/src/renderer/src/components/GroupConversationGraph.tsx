@@ -12,6 +12,9 @@
  * 交互参考联系人关系网：拖节点、滚轮缩放、悬停高亮这个人的圈子和连线。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTabActive } from './RetainedTabs';
+import { useThemeStore } from '../state/theme';
+import { usePrefersReducedMotion } from '../views/annual-report/Odometer';
 import * as d3 from 'd3';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { formatNumber } from './analyticsCharts';
@@ -94,8 +97,9 @@ const COMMUNITY_COLORS = [
   '#d98c4a',
 ];
 
-function communityColor(community: number): string {
-  return COMMUNITY_COLORS[community % COMMUNITY_COLORS.length]!;
+function communityColor(community: number, accent = 'var(--weq-accent-effective)'): string {
+  const index = community % COMMUNITY_COLORS.length;
+  return index === 0 ? accent : COMMUNITY_COLORS[index]!;
 }
 
 function personAvatar(uin: string): string | null {
@@ -214,12 +218,17 @@ function buildModel(report: ConversationGraphReport): {
 
 export function GroupConversationGraph({
   report,
-  instant = false,
+  instant: forceInstant = false,
 }: {
   report: ConversationGraphReport;
   /** 离屏导出舞台用：一把算完布局，不等动画降温。 */
   instant?: boolean;
 }) {
+  const tabActive = useTabActive();
+  const reduce = usePrefersReducedMotion();
+  const instant = forceInstant || reduce;
+  const theme = useThemeStore((state) => state.resolved);
+  const accentSetting = useThemeStore((state) => state.accent);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
@@ -290,6 +299,7 @@ export function GroupConversationGraph({
 
   // 图变化时重建模拟：复用上一次的坐标，避免节点满屏乱飞。
   useEffect(() => {
+    if (!tabActive) return;
     const { w, h } = sizeRef.current;
     const prevSim = simulationRef.current;
     if (prevSim) {
@@ -341,9 +351,10 @@ export function GroupConversationGraph({
         drawRafRef.current = 0;
       }
     };
-  }, [model, instant]);
+  }, [model, instant, tabActive]);
 
   useEffect(() => {
+    if (!tabActive) return;
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
     if (!wrap || !canvas) return undefined;
@@ -377,7 +388,11 @@ export function GroupConversationGraph({
     ro.observe(wrap);
     return () => ro.disconnect();
     // `instant` 决定首次定完尺寸后是「直接算完」还是「让力图自己降温」，所以它变了得重挂。
-  }, [instant]);
+  }, [instant, tabActive]);
+
+  useEffect(() => {
+    if (tabActive) drawRef.current();
+  }, [theme, accentSetting, tabActive]);
 
   function draw() {
     const canvas = canvasRef.current;
@@ -388,9 +403,11 @@ export function GroupConversationGraph({
 
     const { w, h, dpr } = sizeRef.current;
     const v = viewRef.current;
-    const dark = document.documentElement.dataset.theme === 'dark';
-    const labelFill = dark ? '#c8d0da' : '#33455a';
-    const labelHalo = dark ? 'rgba(8,10,13,0.85)' : 'rgba(255,255,255,0.85)';
+    const styles = getComputedStyle(canvas);
+    const accent = styles.getPropertyValue('--weq-accent-effective').trim();
+    const labelFill = styles.getPropertyValue('--weq-fg-primary').trim();
+    const labelHalo = styles.getPropertyValue('--weq-bg-surface').trim();
+    const neutral = styles.getPropertyValue('--weq-border-strong').trim();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -420,7 +437,8 @@ export function GroupConversationGraph({
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = active ? 'rgba(0,153,255,0.6)' : 'rgba(120,140,165,0.16)';
+      ctx.strokeStyle = active ? accent : neutral;
+      ctx.globalAlpha = active ? 0.6 : 0.4;
       ctx.lineWidth = active ? 1 + t01 * 3 : 0.5 + t01 * 2.4;
       ctx.stroke();
     }
@@ -428,7 +446,7 @@ export function GroupConversationGraph({
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (const n of nodes) {
-      const color = communityColor(n.community);
+      const color = communityColor(n.community, accent);
       const dim = focus && n.id !== focus && !focusNeighbours.has(n.id);
       const r = n.radius;
       ctx.globalAlpha = dim ? 0.3 : 1;
@@ -447,14 +465,14 @@ export function GroupConversationGraph({
         ctx.drawImage(img, n.x - r, n.y - r, r * 2, r * 2);
         ctx.restore();
       } else {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `600 ${Math.round(r)}px var(--font-sans, sans-serif)`;
+        ctx.fillStyle = styles.getPropertyValue('--primary-foreground').trim();
+        ctx.font = `600 ${Math.round(r)}px ${styles.fontFamily}`;
         ctx.fillText((n.label || '?').slice(0, 1), n.x, n.y + 1);
       }
 
       const isFocus = n.id === focus;
       ctx.lineWidth = isFocus ? 3 : 1.5;
-      ctx.strokeStyle = isFocus ? '#0099ff' : color;
+      ctx.strokeStyle = isFocus ? accent : color;
       ctx.globalAlpha = dim ? 0.35 : 1;
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -463,7 +481,7 @@ export function GroupConversationGraph({
       if (!dim && (isFocus || focusNeighbours.has(n.id) || r >= 20 || v.scale >= 1.1)) {
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
-        ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
+        ctx.font = `500 ${fontPx}px ${styles.fontFamily}`;
         const label = n.label.length > 10 ? `${n.label.slice(0, 10)}…` : n.label;
         ctx.lineWidth = 3 / v.scale;
         ctx.strokeStyle = labelHalo;

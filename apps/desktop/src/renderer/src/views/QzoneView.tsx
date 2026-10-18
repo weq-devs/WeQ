@@ -15,6 +15,7 @@ import {
 } from 'react';
 import {
   AtSign,
+  CheckSquare,
   Download,
   ChevronDown,
   Eye,
@@ -35,7 +36,12 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
-import { QzoneExportLightbox } from './export/QzoneExportLightbox';
+import {
+  useContentMultiSelect,
+  useCurrentContentSelection,
+  useRequestContentExport,
+} from '../state/contentSelection';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
@@ -377,7 +383,8 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
-  const [exportTarget, setExportTarget] = useState<{ uin: string; name: string } | null>(null);
+  const requestExport = useRequestContentExport();
+  const contentSelection = useCurrentContentSelection();
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
   const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => {
@@ -469,15 +476,15 @@ export function QzoneView({
               type="button"
               title="导出说说"
               aria-label="导出说说"
+              disabled={!requestExport}
               onClick={() => {
                 const uin = tab === 'space' ? hostUin : selfUin;
-                setExportTarget({
-                  uin,
-                  name:
-                    uin === selfUin
-                      ? nickname
-                      : ownerNames[uin] || spaceNames[uin] || people.names[uin] || uin,
-                });
+                requestExport?.(
+                  contentSelection?.owner.kind === 'qzone-posts' &&
+                    contentSelection.owner.container === uin
+                    ? contentSelection
+                    : { owner: { kind: 'qzone-posts', container: uin }, scope: { type: 'all' } },
+                );
               }}
             >
               <Download size={17} />
@@ -627,9 +634,6 @@ export function QzoneView({
             onOwnerNickname={rememberOwnerName}
           />
         ))}
-        {exportTarget && active ? (
-          <QzoneExportLightbox target={exportTarget} onClose={() => setExportTarget(null)} />
-        ) : null}
         {compose && active ? (
           <Composer
             selfUin={selfUin}
@@ -1017,6 +1021,16 @@ function Posts({
   const { refresh } = useContext(QzonePageContext);
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
+  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
+  const requestExport = useRequestContentExport();
+  const multi = useMultiSelection({
+    ids: posts.map((post) => post.tid),
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
   const [offset, setOffset] = useState(0);
   const lastOffset = useRef(offset);
   const headRequest = useRef(false);
@@ -1111,8 +1125,36 @@ function Posts({
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
-    <div className="weq-qzn-timeline">
+    <div className="weq-qzn-timeline" {...multi.rootProps}>
       <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
+      <div className="weq-qzn-selection-controls">
+        <button
+          type="button"
+          aria-label={selection.selectionMode ? '退出说说多选' : '多选说说'}
+          title={selection.selectionMode ? '退出说说多选' : '多选说说'}
+          aria-pressed={selection.selectionMode}
+          onClick={() => selection.setSelectionMode(!selection.selectionMode)}
+        >
+          {selection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
+        </button>
+        {selection.selectionMode ? <span>已选 {selection.selectedIds.size} 条说说</span> : null}
+        <button
+          type="button"
+          title="导出说说范围"
+          aria-label="导出说说范围"
+          disabled={!requestExport || (selection.selectionMode && !selection.selectedIds.size)}
+          onClick={() =>
+            requestExport?.({
+              owner: { kind: 'qzone-posts', container: hostUin },
+              scope: selection.selectionMode
+                ? { type: 'items', ids: [...selection.selectedIds] }
+                : { type: 'all' },
+            })
+          }
+        >
+          <Download size={16} />
+        </button>
+      </div>
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}
@@ -1123,6 +1165,8 @@ function Posts({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          selectionProps={multi.itemProps(post.tid)}
+          selected={selection.selectedIds.has(post.tid)}
           ownerSpace
           onSpace={onSpace}
         />
@@ -1211,6 +1255,8 @@ function Post({
   links = [],
   focusComment,
   readComments,
+  selectionProps,
+  selected = false,
 }: {
   selfUin: string;
   hostUin: string;
@@ -1223,6 +1269,8 @@ function Post({
   links?: ReturnType<typeof projectQzoneFeed>['links'];
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  selectionProps?: MultiSelectionItemProps;
+  selected?: boolean;
 }) {
   const localRef = useRef<HTMLElement>(null);
   const ref = articleRef ?? localRef;
@@ -1376,7 +1424,12 @@ function Post({
       )
     : post.videos;
   return (
-    <article ref={ref} className="weq-qzn-post">
+    <article
+      ref={ref}
+      {...selectionProps}
+      data-qzone-tid={post.tid}
+      className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
+    >
       <div className="weq-qzn-post-head">
         <button
           type="button"

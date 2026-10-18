@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GeneratedSearchHit } from './search/types';
 import {
   BarChart3,
@@ -16,19 +16,22 @@ import { RetainedTabs } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
 import { AgentLabView } from '../views/AgentLabView';
 import { trpc } from '../trpc/client';
-import { useCurrentContentSelection } from '../state/contentSelection';
+import { useContentExportRequest, useCurrentContentSelection } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
 import { RoamingBackfillPanel } from './RoamingBackfillPanel';
 import { DaemonSection } from './settings/DaemonSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
+import { AnalysisTool } from '../views/analysis/AnalysisTool';
+import type { AnalysisReportRequest } from '../views/analysis/model';
 
-type Tool = 'export' | 'tasks' | 'assistant' | 'backfill';
+type Tool = 'export' | 'tasks' | 'assistant' | 'backfill' | 'analysis';
 const TITLES: Record<Tool, string> = {
   export: '导出',
   tasks: '任务',
   assistant: 'WeQ 助手',
   backfill: '消息补全',
+  analysis: '分析与报告',
 };
 
 export function WorkspaceTools({
@@ -37,7 +40,7 @@ export function WorkspaceTools({
   assistantSearchTarget,
   hidden = false,
 }: {
-  onOpenAnalysis: () => void;
+  onOpenAnalysis: (report: AnalysisReportRequest) => void;
   onOpenComposition?: () => void;
   assistantSearchTarget?: GeneratedSearchHit | null;
   hidden?: boolean;
@@ -47,6 +50,19 @@ export function WorkspaceTools({
   const [assistantSettings, setAssistantSettings] = useState(false);
   const accountKey = useViewState((state) => state.openedUin);
   const [exportDraft, setExportDraft] = useState<{ key: string; draft: ToolDraft } | null>(null);
+  const exportRequest = useContentExportRequest();
+  const handledExportRequest = useRef<typeof exportRequest>(null);
+  useEffect(() => {
+    if (!accountKey || !exportRequest || handledExportRequest.current === exportRequest) return;
+    handledExportRequest.current = exportRequest;
+    setExportDraft({
+      key: JSON.stringify([accountKey, exportRequest.selection]),
+      draft: createToolDraft(accountKey, exportRequest.selection),
+    });
+    setTool('export');
+    setAssistantSettings(false);
+    setOpen(true);
+  }, [accountKey, exportRequest]);
   useEffect(() => {
     if (assistantSearchTarget) {
       setTool('assistant');
@@ -88,7 +104,7 @@ export function WorkspaceTools({
       id: 'analysis',
       label: '分析与报告',
       icon: <BarChart3 size={20} />,
-      action: () => leave(onOpenAnalysis),
+      action: () => select('analysis'),
     },
     {
       id: 'assistant',
@@ -163,6 +179,8 @@ export function WorkspaceTools({
               </>
             ) : tool === 'backfill' ? (
               <RoamingBackfillPanel />
+            ) : tool === 'analysis' ? (
+              <AnalysisTool onGenerate={(report) => leave(() => onOpenAnalysis(report))} />
             ) : null
           ) : null}
         </RetainedTabs>

@@ -9,8 +9,13 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { CONVERSATION_GAP_SECONDS, type C2cMsg, type C2cPartition } from '@weq/db';
+import { CONVERSATION_GAP_SECONDS, type BrowseCursor, type C2cPartition } from '@weq/db';
 import { segmentWords } from './text_segment';
+import {
+  analyticsBrowseFilter,
+  analyticsDayParts,
+  type AnalyticsRange,
+} from '../common/analytics_time';
 
 /** A silence longer than this splits two conversations (seconds). Replies that
  *  straddle a split are treated as a fresh initiation, not a reply — which is
@@ -61,21 +66,6 @@ export interface BuddyAnalytics {
 
 type EmojiTally = Map<string, { faceId: number; faceText: string; count: number }>;
 
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
-}
-
-/** Calendar day index (local) for streak adjacency checks. */
-function dayIndex(dateStr: string): number {
-  const parts = dateStr.split('-');
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  return Math.floor(new Date(y, m - 1, d).getTime() / 86400000);
-}
-
 function bumpEmoji(tally: EmojiTally, faceId: number, faceText: string): void {
   const key = String(faceId);
   const prev = tally.get(key);
@@ -120,9 +110,10 @@ export class BuddyAnalyticsService {
     return sortNo !== undefined ? { sortNo } : { uid: peerUid };
   }
 
-  async getBuddyAnalytics(peerUid: string): Promise<BuddyAnalytics> {
+  async getBuddyAnalytics(peerUid: string, range: AnalyticsRange = {}): Promise<BuddyAnalytics> {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);
+    const filter = analyticsBrowseFilter(range);
     const selfUin = String(this.session.context.uin ?? '');
 
     const stats = {
@@ -143,8 +134,8 @@ export class BuddyAnalyticsService {
     }
 
     const daily = new Map<string, number>();
-    const selfDays = new Set<string>();
-    const peerDays = new Set<string>();
+    const selfDays = new Set<number>();
+    const peerDays = new Set<number>();
 
     const phrasesSelf = new Map<string, number>();
     const phrasesPeer = new Map<string, number>();
@@ -162,12 +153,12 @@ export class BuddyAnalyticsService {
     let prevSender: 'self' | 'peer' | null = null;
     let prevTime = 0;
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch: C2cMsg[] = await db.listAfter(part, afterSeq, 500);
+      const batch = await db.browse(part, filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
 
-      for (const msg of batch) {
+      for (const { message: msg } of batch) {
         const isSelf = msg.senderUid !== peerUid;
         if (!isSelf && !peerUin && msg.senderUin > 0n) peerUin = String(msg.senderUin);
         if (!peerUin && msg.targetUin > 0n) peerUin = String(msg.targetUin);
@@ -235,21 +226,21 @@ export class BuddyAnalyticsService {
         else messageTypes.other++;
 
         // ---- time-based aggregates --------------------------------------
-        if (sendTime > 0) {
+        const date = analyticsDayParts(sendTime);
+        if (date) {
           if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
             stats.firstMessageTime = sendTime;
           }
           if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
             stats.lastMessageTime = sendTime;
           }
-          const d = new Date(sendTime * 1000);
-          const hour = d.getHours();
+          const hour = date.hour;
           if (isSelf) hourlySelf[hour] = (hourlySelf[hour] ?? 0) + 1;
           else hourlyPeer[hour] = (hourlyPeer[hour] ?? 0) + 1;
 
-          const key = ymd(d);
+          const key = date.day;
           daily.set(key, (daily.get(key) ?? 0) + 1);
-          (isSelf ? selfDays : peerDays).add(key);
+          (isSelf ? selfDays : peerDays).add(date.dayIndex);
 
           // ---- conversation segmentation: initiation + reply latency ----
           const sender: 'self' | 'peer' = isSelf ? 'self' : 'peer';
@@ -271,7 +262,8 @@ export class BuddyAnalyticsService {
         }
       }
 
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 
@@ -280,7 +272,7 @@ export class BuddyAnalyticsService {
     // Mutual-active days → 火花 streak.
     const mutualDays: number[] = [];
     for (const day of selfDays) {
-      if (peerDays.has(day)) mutualDays.push(dayIndex(day));
+      if (peerDays.has(day)) mutualDays.push(day);
     }
     const streak = longestRun(mutualDays);
 

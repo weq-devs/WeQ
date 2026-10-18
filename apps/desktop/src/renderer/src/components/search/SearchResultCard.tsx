@@ -1,11 +1,22 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { Bookmark, Bot, MessagesSquare } from 'lucide-react';
+import {
+  Bookmark,
+  Bot,
+  MessagesSquare,
+  File,
+  Globe,
+  Hash,
+  Images,
+  Mail,
+  Smile,
+} from 'lucide-react';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveAvatar } from '../../lib/avatarResolver';
 import type { SearchHit } from './types';
+import { searchHitKey } from './types';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -139,6 +150,38 @@ export function SearchResultCard({
   let subtitle: ReactElement;
 
   switch (hit.category) {
+    case 'qzonePost':
+    case 'qzoneAlbum':
+    case 'groupAlbum':
+    case 'groupFile':
+    case 'mailMessage':
+    case 'marketEmoji':
+    case 'guildMessage': {
+      const Icon =
+        hit.category === 'mailMessage'
+          ? Mail
+          : hit.category === 'groupFile'
+            ? File
+            : hit.category === 'guildMessage'
+              ? Hash
+              : hit.category === 'marketEmoji'
+                ? Smile
+                : hit.category === 'qzonePost'
+                  ? Globe
+                  : Images;
+      media = (
+        <span className="weq-search-avatar weq-search-source-icon">
+          <Icon size={22} />
+        </span>
+      );
+      title = hit.title;
+      subtitle = (
+        <span className="weq-search-muted">
+          {hit.sourceName} · {highlightText(hit.content, keyword)}
+        </span>
+      );
+      break;
+    }
     case 'collection': {
       media = (
         <span className="weq-search-avatar weq-search-source-icon">
@@ -234,7 +277,13 @@ export function SearchResultCard({
   }
 
   return (
-    <button type="button" className="weq-search-row" role="option" onClick={() => onSelect?.(hit)}>
+    <button
+      type="button"
+      className="weq-search-row"
+      role="option"
+      data-search-hit-key={searchHitKey(hit)}
+      onClick={() => onSelect?.(hit)}
+    >
       {media}
       <span className="weq-search-text">
         <span className="weq-search-row-top">

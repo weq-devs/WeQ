@@ -12,9 +12,28 @@ export function exportReport(task: ExportTask) {
     executionStatus: task.status,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
-    conversation: { kind: task.kind, id: task.conv },
+    conversation: task.generated ? null : { kind: task.kind, id: task.conv },
+    generated: task.generated
+      ? {
+          origin: task.generated.origin,
+          target: task.generated.target,
+          capturedAt: task.generated.capturedAt,
+          selectedIds: task.generated.selectedIds ?? null,
+          records: task.generated.messages.length,
+        }
+      : null,
     formats: task.formats ?? [task.format],
     range: task.range ?? null,
+    qzone: task.qzone ? { targetUin: task.conv, tids: task.qzoneTids ?? null } : null,
+    guild: task.guild
+      ? {
+          kind: 'guild-direct',
+          nodeId: task.guild.nodeId,
+          guildId: task.guild.guildId,
+          peerTinyId: task.guild.peerTinyId,
+          selfTinyId: task.guild.selfTinyId,
+        }
+      : null,
     filter: task.filter ?? null,
     contacts: task.contacts
       ? {
@@ -50,9 +69,15 @@ export function exportReport(task: ExportTask) {
     source: {
       binding: task.resumeBinding ?? null,
       changedDuringExport: task.sourceChanged ?? null,
-      proof: task.contacts
-        ? 'local cached contact reads collected once per execution; not a database transaction snapshot'
-        : 'database-and-WAL file identity/size/mtime/ctime; not a historical snapshot',
+      proof: task.generated
+        ? 'immutable local generated-conversation snapshot captured at task creation; not QQ server records'
+        : task.guild
+          ? 'guild_msg.db local reads with stable seq/time/msgId paging; not a transaction snapshot'
+          : task.qzone
+            ? 'sequential Qzone online reads; not a server transaction snapshot'
+            : task.contacts
+              ? 'local cached contact reads collected once per execution; not a database transaction snapshot'
+              : 'database-and-WAL file identity/size/mtime/ctime; not a historical snapshot',
     },
     roaming: {
       requested: !!task.media?.completeMessages,

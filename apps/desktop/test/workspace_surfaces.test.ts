@@ -2,7 +2,11 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Modal, DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
-import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
+import {
+  WorkspaceContent,
+  WorkspacePage,
+  WorkspacePages,
+} from '../src/renderer/src/components/WorkspacePages';
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
@@ -28,6 +32,47 @@ function fixture() {
 }
 
 describe('非模态内容工作区', () => {
+  it('报告标签保留到显式关闭，普通导航返回内容但不销毁报告现场', () => {
+    const app = fixture();
+    let navigate = () => {};
+    function View() {
+      const [nav, setNav] = useState('chat-a');
+      const [report, setReport] = useState(true);
+      navigate = () => setNav('chat-b');
+      return h(
+        WorkspacePages,
+        { navigationKey: nav },
+        h(WorkspaceContent, null, h('div', { 'data-base': true }, nav)),
+        report &&
+          h(
+            WorkspacePage,
+            { title: '合成报告', retainOnNavigate: true, onClose: () => setReport(false) },
+            h('input', { 'data-report-draft': true }),
+          ),
+      );
+    }
+    try {
+      act(() => app.root.render(h(View)));
+      const input = app.host.querySelector<HTMLInputElement>('[data-report-draft]')!;
+      input.value = '报告现场';
+      act(() => navigate());
+      expect(app.host.querySelector('[data-base]')!.closest('[hidden]')).toBeNull();
+      expect(app.host.querySelector('[data-base]')?.textContent).toBe('chat-b');
+      expect(app.host.querySelector('[data-report-draft]')).toBe(input);
+      act(() =>
+        [...app.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((node) => node.textContent === '合成报告')!
+          .click(),
+      );
+      expect(input.closest('[hidden]')).toBeNull();
+      expect(input.value).toBe('报告现场');
+      act(() => app.host.querySelector<HTMLButtonElement>('[aria-label="关闭合成报告"]')!.click());
+      expect(app.host.querySelector('[data-report-draft]')).toBeNull();
+      expect(app.host.querySelector('[data-base]')!.closest('[hidden]')).toBeNull();
+    } finally {
+      app.close();
+    }
+  });
   it('全局页面临时隐藏会话右栏，返回后恢复右栏内容和原聊天', () => {
     const app = fixture();
     let openSettings = () => {};

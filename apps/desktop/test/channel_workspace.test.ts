@@ -12,6 +12,20 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 
 const rpc = vi.hoisted(() => ({
+  around: vi.fn(async () => ({
+    found: true,
+    hasMore: true,
+    items: [
+      {
+        msgId: '9007199254740993',
+        msgSeq: '3',
+        senderTinyId: '42',
+        sendType: '0',
+        sendTime: '1700000000',
+        elements: [],
+      },
+    ],
+  })),
   sessions: vi.fn(async () => [
     {
       nodeId: 'synthetic-node',
@@ -39,6 +53,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       guildDirectListSessions: { query: rpc.sessions },
       guildDirectLatest: { query: rpc.latest },
+      guildDirectAround: { query: rpc.around },
       guildDirectBefore: { query: vi.fn(async () => []) },
     },
   },
@@ -73,6 +88,80 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 
 describe('QQ 频道内的私聊工作区', () => {
+  it('频道无有效时间的记录不伪造 1970 年分隔日期', async () => {
+    rpc.latest.mockResolvedValueOnce([
+      { msgId: '1', msgSeq: '0', senderTinyId: '42', sendType: '0', sendTime: '0', elements: [] },
+    ]);
+    const f = mount(
+      createElement(ChannelView, {
+        selfUser: createTemplateDemoData().user,
+        initialDirectOpen: true,
+      }),
+    );
+    try {
+      await act(async () => {});
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
+      );
+      expect(f.host.querySelector('.message-time-divider')).toBeNull();
+      expect(f.host.textContent).not.toContain('1970');
+    } finally {
+      f.close();
+    }
+  });
+  it('频道搜索按 nodeId/seq/msgId 直接读取历史窗口，不退回最新页', async () => {
+    rpc.sessions.mockResolvedValueOnce([
+      {
+        nodeId: '100',
+        peerTinyId: '42',
+        peerNick: '合成频道好友',
+        lastTime: '1700000000',
+        lastSeq: '60',
+        guildName: '合成频道',
+        preview: null,
+      },
+    ]);
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const f = mount(
+      createElement(ChannelView, {
+        selfUser: createTemplateDemoData().user,
+        searchTarget: {
+          nodeId: '100',
+          msgId: '9007199254740993',
+          msgSeq: '3',
+          revision: 'fixture-search',
+        },
+      }),
+    );
+    try {
+      await act(async () => {});
+      expect(rpc.around).toHaveBeenCalledWith({
+        nodeId: '100',
+        msgId: '9007199254740993',
+        msgSeq: '3',
+      });
+      expect(rpc.latest).not.toHaveBeenCalled();
+      expect(
+        f.host
+          .querySelector('.weq-guild-direct-msg.is-search-hit')
+          ?.getAttribute('data-guild-msg-id'),
+      ).toBe('9007199254740993');
+      await act(async () => {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+      expect(scroll).toHaveBeenCalledOnce();
+      await act(async () =>
+        f.host.querySelector('.weq-guild-direct-msgs')!.dispatchEvent(new Event('scroll')),
+      );
+      await act(async () => {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+      expect(scroll).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+      vi.restoreAllMocks();
+    }
+  });
   it('消息读取失败保留重试入口，不将失败当作已成功读取', async () => {
     rpc.latest.mockRejectedValueOnce(new Error('合成读取失败'));
     const f = mount(
@@ -198,7 +287,11 @@ describe('QQ 频道内的私聊工作区', () => {
       await act(async () =>
         f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
       );
-      expect(rpc.latest).toHaveBeenCalledWith({ nodeId: 'synthetic-node', limit: 50 });
+      expect(rpc.latest).toHaveBeenCalledWith({
+        nodeId: 'synthetic-node',
+        limit: 50,
+        stablePaging: true,
+      });
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="返回 QQ 频道"]')!.click());
       expect(f.host.querySelector<HTMLElement>('.weq-channel-browser')!.hidden).toBe(false);

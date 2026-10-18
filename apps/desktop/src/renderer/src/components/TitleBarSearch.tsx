@@ -7,18 +7,20 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Search } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 
 export function TitleBarSearch({
   query,
   onQueryChange,
   onSearchFocus,
   results,
+  onReturn,
 }: {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
   results?: ReactNode;
+  onReturn?: () => boolean;
 }) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -27,10 +29,12 @@ export function TitleBarSearch({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const returning = useRef(false);
   const expanded = pinned || (hovered && !suppressHover);
 
   useEffect(() => {
-    if (pinned) input.current?.focus();
+    if (pinned && !returning.current) input.current?.focus();
+    returning.current = false;
   }, [pinned]);
 
   useLayoutEffect(() => {
@@ -70,7 +74,7 @@ export function TitleBarSearch({
   return (
     <div
       ref={root}
-      className={`weq-titlebar-search${expanded ? ' is-expanded' : ''}`}
+      className={`weq-titlebar-search${expanded ? ' is-expanded' : ''}${onReturn ? ' has-return' : ''}`}
       onPointerEnter={() => {
         setHovered(true);
         setSuppressHover(false);
@@ -88,6 +92,22 @@ export function TitleBarSearch({
         }
       }}
     >
+      {onReturn ? (
+        <button
+          type="button"
+          title="返回搜索结果"
+          aria-label="返回搜索结果"
+          onClick={() => {
+            const expand = onReturn();
+            returning.current = expand && !pinned;
+            setPinned(expand);
+            setHovered(false);
+            setSuppressHover(true);
+          }}
+        >
+          <ArrowLeft size={18} />
+        </button>
+      ) : null}
       <button
         type="button"
         title={pinned ? '收起全局搜索' : '全局搜索'}

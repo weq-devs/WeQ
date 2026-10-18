@@ -35,6 +35,12 @@ import { useMultiSelection } from '../hooks/useMultiSelection';
 import '../styles/channel.css';
 
 const PAGE = 50;
+export interface GuildSearchTarget {
+  nodeId: string;
+  msgId: string;
+  msgSeq: string;
+  revision: string;
+}
 
 /** 40013 之外的值（观察为 2）= 本账号设备发的消息；0 = 对方。 */
 function isSelfSent(sendType: string): boolean {
@@ -85,14 +91,16 @@ const noop = (): void => {};
 
 function toIsoTime(seconds: string): string {
   const secs = Number(seconds);
-  if (!Number.isFinite(secs) || secs <= 0) return new Date(0).toISOString();
-  return new Date(secs * 1000).toISOString();
+  if (!Number.isFinite(secs) || secs <= 0) return '';
+  const date = new Date(secs * 1000);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
 }
 
 function formatListTime(seconds: string): string {
   const secs = Number(seconds);
   if (!Number.isFinite(secs) || secs <= 0) return '';
   const d = new Date(secs * 1000);
+  if (!Number.isFinite(d.getTime())) return '';
   const now = new Date();
   const sameDay =
     d.getFullYear() === now.getFullYear() &&
@@ -171,6 +179,7 @@ export function GuildDirectDialog({
   selfUser,
   renderers,
   embedded = false,
+  searchTarget,
 }: {
   open: boolean;
   onClose: () => void;
@@ -179,6 +188,7 @@ export function GuildDirectDialog({
   /** 与主聊天相同的渲染器（qqMessageRenderer 等）。 */
   renderers?: MessageRenderer[];
   embedded?: boolean;
+  searchTarget?: GuildSearchTarget | null;
 }): ReactElement | null {
   const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(null);
   const [selected, setSelected] = useState<GuildDirectSessionWire | null>(null);
@@ -192,6 +202,11 @@ export function GuildDirectDialog({
   const [messageError, setMessageError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const runRef = useRef(0);
+  const [searchMessageId, setSearchMessageId] = useState<string | null>(null);
+  const [searchNotice, setSearchNotice] = useState('');
+  const handledSearch = useRef('');
+  const scrolledSearch = useRef('');
+  const [searchRetry, setSearchRetry] = useState(0);
   const selection = useContentMultiSelect({
     kind: 'guild-direct',
     container: selected?.nodeId ?? '',
@@ -238,6 +253,8 @@ export function GuildDirectDialog({
 
   // 选中会话 → 加载最新一页（seq 大到小），反转成升序渲染。
   const openSession = useCallback((session: GuildDirectSessionWire) => {
+    setSearchMessageId(null);
+    setSearchNotice('');
     const run = ++runRef.current;
     setSelected(session);
     setMessages([]);
@@ -246,7 +263,7 @@ export function GuildDirectDialog({
     setOlderLoading(false);
     setMessageError(null);
     void client.account.guildDirectLatest
-      .query({ nodeId: session.nodeId, limit: PAGE })
+      .query({ nodeId: session.nodeId, limit: PAGE, stablePaging: true })
       .then((rows) => {
         if (run !== runRef.current) return;
         const asc = ((rows as GuildDirectMsgWire[]) ?? []).slice().reverse();
@@ -262,6 +279,69 @@ export function GuildDirectDialog({
         setLatestLoading(false);
       });
   }, []);
+  useEffect(() => {
+    if (
+      !open ||
+      listLoading ||
+      !sessions ||
+      !searchTarget ||
+      handledSearch.current === searchTarget.revision
+    )
+      return;
+    handledSearch.current = searchTarget.revision;
+    const session = sessions.find((item) => item.nodeId === searchTarget.nodeId);
+    if (!session) {
+      setSelected(null);
+      setMessages([]);
+      setSearchNotice('搜索命中的频道私聊会话已删除或本地不可用。');
+      return;
+    }
+    const run = ++runRef.current;
+    setSelected(session);
+    setMessages([]);
+    setHasMore(false);
+    setLatestLoading(true);
+    setOlderLoading(false);
+    setMessageError(null);
+    setSearchNotice('');
+    setSearchMessageId(searchTarget.msgId);
+    void client.account.guildDirectAround
+      .query({
+        nodeId: searchTarget.nodeId,
+        msgId: searchTarget.msgId,
+        msgSeq: searchTarget.msgSeq,
+      })
+      .then((result) => {
+        if (run !== runRef.current) return;
+        if (!result.found) {
+          setMessageError('搜索命中的消息已删除或本地不可用。');
+          return;
+        }
+        setMessages(result.items as GuildDirectMsgWire[]);
+        setHasMore(result.hasMore);
+      })
+      .catch((error: unknown) => {
+        if (run === runRef.current)
+          setMessageError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (run === runRef.current) setLatestLoading(false);
+      });
+  }, [open, sessions, listLoading, searchTarget, searchRetry]);
+  useEffect(() => {
+    if (!searchMessageId || latestLoading) return;
+    const key = JSON.stringify([searchTarget?.revision, searchMessageId]);
+    if (scrolledSearch.current === key) return;
+    const frame = requestAnimationFrame(() => {
+      const row = [
+        ...(scrollRef.current?.querySelectorAll<HTMLElement>('[data-guild-msg-id]') ?? []),
+      ].find((node) => node.dataset.guildMsgId === searchMessageId);
+      if (!row) return;
+      scrolledSearch.current = key;
+      row.scrollIntoView({ block: 'center' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchMessageId, latestLoading, messages, searchTarget?.revision]);
 
   // 切换会话 / 最新页落地后滚到底部（贴最新）。
   useLayoutEffect(() => {
@@ -284,6 +364,7 @@ export function GuildDirectDialog({
       const rows = (await client.account.guildDirectBefore.query({
         nodeId: selected.nodeId,
         beforeSeq: oldest.msgSeq,
+        beforeMsgId: oldest.msgId,
         limit: PAGE,
       })) as GuildDirectMsgWire[];
       if (run !== runRef.current) return;
@@ -319,7 +400,7 @@ export function GuildDirectDialog({
     return messages.map((raw) => {
       const row = buildRow(raw, selected, selfUser);
       const entry = { row, previous };
-      previous = row.message;
+      if (row.message.createdAt) previous = row.message;
       return entry;
     });
   }, [messages, selected, selfUser]);
@@ -355,6 +436,7 @@ export function GuildDirectDialog({
         </button>
       </header>
 
+      {searchNotice ? <p role="status">{searchNotice}</p> : null}
       <div className="weq-guild-direct-body">
         <aside className="weq-guild-direct-side">
           <div className="weq-guild-direct-side-title">会话列表</div>
@@ -488,7 +570,14 @@ export function GuildDirectDialog({
                     title="重试读取消息"
                     aria-label="重试读取消息"
                     onClick={() => {
-                      if (messages.length) void loadOlder();
+                      if (
+                        searchTarget &&
+                        searchMessageId === searchTarget.msgId &&
+                        !messages.length
+                      ) {
+                        handledSearch.current = '';
+                        setSearchRetry((value) => value + 1);
+                      } else if (messages.length) void loadOlder();
                       else openSession(selected);
                     }}
                   >
@@ -514,16 +603,18 @@ export function GuildDirectDialog({
                       ) : rows.length === 0 ? (
                         <div className="weq-guild-direct-empty">
                           <Inbox size={26} />
-                          <span>该会话没有本地消息</span>
+                          <span>{messageError ? '无法读取指定消息' : '该会话没有本地消息'}</span>
                         </div>
                       ) : (
                         rows.map(({ row, previous }) => (
                           <div
                             key={row.message.id}
+                            data-guild-msg-id={row.message.id}
                             {...multi.itemProps(row.message.id)}
                             className={cn(
                               'weq-guild-direct-msg',
                               selection.selectedIds.has(row.message.id) && 'is-selected',
+                              row.message.id === searchMessageId && 'is-search-hit',
                             )}
                             aria-selected={
                               selection.selectionMode

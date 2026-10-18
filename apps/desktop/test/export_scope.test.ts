@@ -4,10 +4,26 @@ import {
   initialConversationIds,
   initialExportMode,
   initialGuildScope,
+  initialQzoneScope,
 } from '../src/renderer/src/views/export/exportScope';
 import type { ContentSelection } from '../src/shared/content_selection';
 
 describe('统一导出的上下文草稿', () => {
+  it('空间按 UIN 与精确 tid 复制，非好友和空集合都不退回普通聊天', () => {
+    const selection: ContentSelection = {
+      owner: { kind: 'qzone-posts', container: '19999' },
+      scope: { type: 'items', ids: ['a', 'c', 'a'] },
+    };
+    expect(initialExportMode(selection)).toBe('qzone');
+    const scope = initialQzoneScope(selection);
+    expect(scope).toEqual({ uin: '19999', tids: ['a', 'c'] });
+    scope.tids!.push('b');
+    expect(selection.scope.type === 'items' && selection.scope.ids).toEqual(['a', 'c', 'a']);
+    expect(initialQzoneScope({ ...selection, scope: { type: 'items', ids: [] } })).toEqual({
+      uin: '19999',
+      tids: [],
+    });
+  });
   it('频道私聊按 nodeId 和离散消息身份复制，空集合不扩大为全部消息', () => {
     const selection: ContentSelection = {
       owner: { kind: 'guild-direct', container: '987654321' },

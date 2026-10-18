@@ -173,6 +173,8 @@ export class MsgService {
    * （见 {@link takeSalvageSkips}）。只记不写盘：落盘那份由账号级账本负责。
    */
   private readonly salvageSkips: ExportSkippedRanges[] = [];
+  /** 特殊消息源可提供自己的稳定遍历；过滤、时间范围与取消仍由通用导出迭代器处理。 */
+  exportC2cMessages?: (peerUid: string, pageSize: number) => AsyncGenerator<RenderC2cMsg>;
 
   constructor(
     private readonly session: AccountSession,

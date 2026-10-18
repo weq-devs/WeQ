@@ -8,12 +8,13 @@ import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
 import { QzoneShareLightbox } from '../QzoneShareLightbox';
+import type { AnalysisScope } from '../../analysis/model';
 
 type ExportKind = 'long' | 'html' | 'pdf';
 
 /** 一条协议 URL → base64 → data URI。解析失败返回 null（该处退回排印）。 */
-async function resolveAssetDataUri(url: string): Promise<string | null> {
-  const base64 = await client.account.annualReport.resolveMediaBase64.mutate({ url });
+async function resolveAssetDataUri(url: string, scope?: AnalysisScope): Promise<string | null> {
+  const base64 = await client.account.annualReport.resolveMediaBase64.mutate({ url, ...scope });
   if (!base64) return null;
   // 按 base64 前缀挑 MIME：png / jpeg / gif / webp（协议层只回图片字节）。
   const mime = base64.startsWith('iVBOR')
@@ -44,7 +45,7 @@ const EXPORT_OPTIONS: Array<{
  * 与开篇同一套排印语言：出血描边字衬底、发丝线、逐层浮现。
  */
 export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): ReactElement {
-  const { year, slides } = useReportView();
+  const { year, slides, readScope } = useReportView();
   const pushToast = useToast((s) => s.push);
   const [busy, setBusy] = useState<ExportKind | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -82,17 +83,17 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      await preloadReportAssets(slides, resolveAssetDataUri);
+      await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, readScope));
       if (!cancelled) setHtml(buildReportHtml(year, slides));
     })();
     return () => {
       cancelled = true;
     };
-  }, [year, slides]);
+  }, [year, slides, readScope]);
 
   /** 预热 + 拼 HTML（runExport 的兜底路径，正常时 html state 已就绪）。 */
   async function buildHtmlWithAssets(): Promise<string> {
-    await preloadReportAssets(slides, resolveAssetDataUri);
+    await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, readScope));
     return buildReportHtml(year, slides);
   }
 
@@ -106,6 +107,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         const result = await client.account.annualReport.exportHtml.mutate({
           year,
           html: payload,
+          ...readScope,
         });
         pushToast({
           tone: result.saved ? 'success' : 'info',
@@ -117,6 +119,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         const result = await client.account.annualReport.exportPdf.mutate({
           year,
           html: payload,
+          ...readScope,
         });
         pushToast({
           tone: result.saved ? 'success' : 'info',
@@ -129,6 +132,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         const result = await client.account.annualReport.exportLongImage.mutate({
           year,
           html: payload,
+          ...readScope,
         });
         pushToast({
           tone: result.saved ? 'success' : 'info',

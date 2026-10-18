@@ -259,3 +259,7 @@ html[data-theme="dark"] .weq-export-tool .weq-exp-sched-card {
 @media (prefers-reduced-motion: reduce) {
   .weq-export-tool .weq-exp-seg button { transition: none; }
 }
+.weq-qzone-scope-row { display: flex; align-items: center; gap: 8px; height: 100%; padding: 8px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-qzone-scope-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.weq-qzone-scope-row:has(input:checked) { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+html[data-theme="dark"] .weq-qzone-scope-row:has(input:checked) { background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent); }

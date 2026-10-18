@@ -13,6 +13,7 @@ import { classifyChatType } from '@weq/codec';
 export type ExportMode =
   | 'full'
   | 'guild'
+  | 'generated'
   | 'qzone'
   | 'contacts'
   | 'collection'

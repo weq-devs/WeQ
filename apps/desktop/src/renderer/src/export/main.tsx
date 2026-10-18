@@ -73,6 +73,7 @@ function ExportCard({ payload }: { payload: AnalyticsExportPayload | null }) {
           groupCode={payload.groupCode ?? ''}
           groupName={payload.groupName ?? payload.title}
           memberCount={payload.memberCount}
+          periodLabel={payload.periodLabel}
           avatarUrl={payload.avatarUrl ?? null}
           onClose={noop}
           exportMode
@@ -82,6 +83,7 @@ function ExportCard({ payload }: { payload: AnalyticsExportPayload | null }) {
         <BuddyAnalyticsDialog
           peerUid={payload.peerUid ?? ''}
           peerName={payload.title}
+          periodLabel={payload.periodLabel}
           onClose={noop}
           exportMode
           initialData={initialData}
@@ -90,6 +92,7 @@ function ExportCard({ payload }: { payload: AnalyticsExportPayload | null }) {
         <MemberAnalyticsDialog
           groupCode={payload.groupCode ?? ''}
           groupName={payload.groupName ?? payload.title}
+          periodLabel={payload.periodLabel}
           member={payload.member ?? { uid: '', name: payload.title }}
           onClose={noop}
           exportMode

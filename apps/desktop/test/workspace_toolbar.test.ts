@@ -9,10 +9,12 @@ import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 
 const fixture = vi.hoisted(() => ({
   selection: null as ContentSelection | null,
+  exportRequest: null as { selection: ContentSelection; revision: number } | null,
   taskUnmounted: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
   useCurrentContentSelection: () => fixture.selection,
+  useContentExportRequest: () => fixture.exportRequest,
 }));
 
 vi.mock('../src/renderer/src/views/ExportView', () => ({
@@ -35,6 +37,7 @@ vi.mock('../src/renderer/src/views/ExportView', () => ({
       'div',
       { 'data-export-ids': seed?.scope.type === 'items' ? seed.scope.ids.join(',') : '' },
       '合成导出夹具',
+      createElement('input', { 'aria-label': '合成导出草稿', defaultValue: '' }),
       surface === 'tasks' &&
         createElement(
           'button',
@@ -69,6 +72,48 @@ vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
 }));
 
 describe('全局工具条范围', () => {
+  it('内容页的显式导出请求打开同一个工具宿主，不需要旧独立弹窗', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      fixture.exportRequest = {
+        selection: {
+          owner: { kind: 'qzone-posts', container: '19999' },
+          scope: { type: 'items', ids: ['a', 'c'] },
+        },
+        revision: 1,
+      };
+      fixture.selection = fixture.exportRequest.selection;
+      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
+      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
+        'a,c',
+      );
+      expect(document.querySelector('#weq-tools-title')?.textContent).toBe('导出');
+      const draft = document.querySelector<HTMLInputElement>('[aria-label="合成导出草稿"]')!;
+      draft.value = '工具内调整后的范围';
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      if (!document.querySelector('[role="toolbar"]'))
+        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      act(() =>
+        document.querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="导出"]')!.click(),
+      );
+      expect(document.querySelector<HTMLInputElement>('[aria-label="合成导出草稿"]')!.value).toBe(
+        '工具内调整后的范围',
+      );
+    } finally {
+      fixture.exportRequest = null;
+      fixture.selection = null;
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
   it('已经打开过导出后，新一轮内容多选仍会交接为独立草稿', () => {
     const previousAccount = useViewState.getState().openedUin;
     useViewState.setState({ openedUin: '10002' });
@@ -206,8 +251,11 @@ describe('全局工具条范围', () => {
         '合成聊天记录',
       ]);
       act(() => buttons[3]!.click());
-      expect(analysis).toHaveBeenCalledOnce();
+      expect(analysis).not.toHaveBeenCalled();
+      expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析与报告');
+      expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();
       expect(document.querySelector('[role="toolbar"]')).toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
       act(() =>
         document

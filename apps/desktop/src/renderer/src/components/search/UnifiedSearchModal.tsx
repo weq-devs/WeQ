@@ -1,18 +1,28 @@
 /** Large horizontal "more" modal: full paginated results for one search category. */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { RotateCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
 import {
   CATEGORY_META,
+  contentCoverageText,
   searchHitKey,
   type MoreSearchResult,
   type SearchCategory,
   type SearchHit,
 } from './types';
 import { client } from '../../trpc/client';
+import { SearchPositionRestore, type SearchPosition } from './searchPosition';
+
+export interface SearchMoreSnapshot extends SearchPosition {
+  category: SearchCategory;
+  keyword: string;
+  data: MoreSearchResult & { changed?: boolean };
+  nextOffset: number;
+  error: 'more' | null;
+}
 
 export function UnifiedSearchModal({
   category,
@@ -20,21 +30,32 @@ export function UnifiedSearchModal({
   onClose,
   onSelect,
   onOpenChatRecords,
+  initialSnapshot,
+  onNavigate,
 }: {
   category: SearchCategory;
   initialKeyword: string;
   onClose: () => void;
   onSelect: (hit: SearchHit) => void;
   onOpenChatRecords: (hit: SearchHit) => void;
+  initialSnapshot?: SearchMoreSnapshot;
+  onNavigate?: (snapshot: SearchMoreSnapshot) => void;
 }): ReactElement {
-  const [keyword, setKeyword] = useState(initialKeyword);
-  const [data, setData] = useState<MoreSearchResult | null>(null);
+  const restored = useRef(initialSnapshot?.category === category ? initialSnapshot : undefined);
+  const [keyword, setKeyword] = useState(restored.current?.keyword ?? initialKeyword);
+  const [data, setData] = useState<(MoreSearchResult & { changed?: boolean }) | null>(
+    restored.current?.data ?? null,
+  );
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<'initial' | 'more' | null>(null);
+  const [error, setError] = useState<'initial' | 'more' | null>(restored.current?.error ?? null);
   const runRef = useRef(0);
   const pending = useRef(false);
+  const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const restoredRequest = useRef(
+    restored.current ? JSON.stringify([category, restored.current.keyword]) : null,
+  );
 
   const fetchPage = useCallback(
     async (pageKeyword: string, offset: number, append: boolean) => {
@@ -51,9 +72,20 @@ export function UnifiedSearchModal({
           limit: 30,
         })) as MoreSearchResult;
         if (run !== runRef.current) return;
+        nextOffset.current = offset + result.items.length;
         setData((prev) => {
           if (!append || !prev) return result;
-          return { ...result, items: [...prev.items, ...result.items] };
+          const items = [
+            ...new Map(
+              [...prev.items, ...result.items].map((hit) => [searchHitKey(hit), hit]),
+            ).values(),
+          ];
+          const changed =
+            prev.changed ||
+            items.length !== prev.items.length + result.items.length ||
+            prev.total !== result.total ||
+            prev.coverage?.updatedAt !== result.coverage?.updatedAt;
+          return { ...result, items, changed };
         });
       } catch (err) {
         if (run !== runRef.current) return;
@@ -71,9 +103,16 @@ export function UnifiedSearchModal({
   );
 
   // Reset + fetch first page when the keyword settles.
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (restoredRequest.current === JSON.stringify([category, keyword])) {
+      return () => {
+        ++runRef.current;
+      };
+    }
+    restoredRequest.current = null;
     ++runRef.current;
     pending.current = false;
+    nextOffset.current = 0;
     setData(null);
     setError(null);
     setLoadingMore(false);
@@ -90,14 +129,14 @@ export function UnifiedSearchModal({
       pending.current = false;
       window.clearTimeout(timer);
     };
-  }, [keyword, fetchPage]);
+  }, [keyword, fetchPage, category]);
 
   // Infinite scroll: fetch the next page near the bottom.
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || pending.current || error || loading || loadingMore || !data?.hasMore) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
-      void fetchPage(keyword.trim(), data.items.length, true);
+      void fetchPage(keyword.trim(), nextOffset.current, true);
     }
   }, [data, keyword, error, loading, loadingMore, fetchPage]);
 
@@ -111,7 +150,7 @@ export function UnifiedSearchModal({
         onClick={() =>
           void fetchPage(
             keyword.trim(),
-            error === 'more' ? (data?.items.length ?? 0) : 0,
+            error === 'more' ? nextOffset.current : 0,
             error === 'more',
           )
         }
@@ -134,6 +173,19 @@ export function UnifiedSearchModal({
           <h3 id="weq-search-more-title" className="weq-search-more-title">
             {CATEGORY_META[category].label}搜索
           </h3>
+          <button
+            type="button"
+            className="weq-dialog-x weq-search-refresh"
+            title="重新搜索"
+            aria-label="重新搜索"
+            disabled={loading || !keyword.trim()}
+            onClick={() => {
+              scrollRef.current?.scrollTo(0, 0);
+              void fetchPage(keyword.trim(), 0, false);
+            }}
+          >
+            <RotateCw size={16} />
+          </button>
           <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
             <X size={16} strokeWidth={1.9} aria-hidden />
           </button>
@@ -145,6 +197,9 @@ export function UnifiedSearchModal({
           placeholder={`搜索${CATEGORY_META[category].label}`}
           autoFocus
         />
+        {data?.coverage ? (
+          <div className="weq-search-index-hint">{contentCoverageText(data.coverage)}</div>
+        ) : null}
         <div className="weq-search-more-body" ref={scrollRef} onScroll={onScroll}>
           {error === 'initial' ? (
             retry
@@ -155,16 +210,43 @@ export function UnifiedSearchModal({
           ) : data ? (
             <>
               <div className="weq-search-more-total">
-                {data.limited
-                  ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
-                  : `共 ${data.total} 条结果`}
+                {data.changed
+                  ? `已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`
+                  : data.limited
+                    ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
+                    : `共 ${data.total} 条结果`}
               </div>
+              {data.changed ? (
+                <div className="weq-search-failure" role="status">
+                  <span>来源已更新</span>
+                  <button
+                    type="button"
+                    title="刷新搜索结果"
+                    aria-label="刷新搜索结果"
+                    onClick={() => {
+                      scrollRef.current?.scrollTo(0, 0);
+                      void fetchPage(keyword.trim(), 0, false);
+                    }}
+                  >
+                    <RotateCw size={14} />
+                  </button>
+                </div>
+              ) : null}
               {data.items.map((hit) => (
                 <SearchResultCard
                   key={searchHitKey(hit)}
                   hit={hit}
                   keyword={keyword.trim()}
                   onSelect={(selected) => {
+                    onNavigate?.({
+                      category,
+                      keyword,
+                      data,
+                      nextOffset: nextOffset.current,
+                      scrollTop: scrollRef.current?.scrollTop ?? 0,
+                      focusKey: searchHitKey(selected),
+                      error: error === 'more' ? 'more' : null,
+                    });
                     // 点击结果跳转会话 / 打开聊天记录时,关闭"更多"模态。
                     if (selected.category === 'chatRecord') onOpenChatRecords(selected);
                     else onSelect(selected);
@@ -182,6 +264,7 @@ export function UnifiedSearchModal({
             </>
           ) : null}
         </div>
+        <SearchPositionRestore container={scrollRef} position={restored.current} />
       </div>
     </Modal>
   );

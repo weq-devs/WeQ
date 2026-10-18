@@ -115,16 +115,28 @@ import { RecalledMessagesModal } from '../components/compose/RecalledMessagesMod
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
-import { SEARCH_CATEGORY_ORDER, isGeneratedSearchHit } from '../components/search/types';
+import {
+  SEARCH_CATEGORY_ORDER,
+  isGeneratedSearchHit,
+  isContentSearchHit,
+} from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
+import { useSearchReturn } from '../hooks/useSearchReturn';
+import { AnalysisReportPage } from './analysis/AnalysisReportPage';
+import type { AnalysisReportRequest } from './analysis/model';
+import { createMediaId } from '../im-template/template/composerMedia';
 import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
-import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
+import {
+  UnifiedSearchModal,
+  type SearchMoreSnapshot,
+} from '../components/search/UnifiedSearchModal';
 import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
 import type {
   ChatRecordSearchHit,
   GeneratedSearchHit,
   SearchCategory,
   SearchHit,
+  ContentSearchTarget,
 } from '../components/search/types';
 import type { SearchHistoryHit } from '@weq/service';
 import { AgentLabView } from './AgentLabView';
@@ -2536,16 +2548,32 @@ export function MainView(): ReactElement {
   >({});
   const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
+  const [marketSearchTarget, setMarketSearchTarget] = useState<{
+    packId: string;
+    name: string;
+    revision: string;
+  } | null>(null);
+  const [mailSearchTarget, setMailSearchTarget] = useState<
+    (Extract<ContentSearchTarget, { kind: 'mailMessage' }> & { revision: string }) | null
+  >(null);
+  const [guildSearchTarget, setGuildSearchTarget] = useState<
+    (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
+  >(null);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
   useDressSkin();
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
     groupName: string;
+    initialAlbumId?: string;
+    searchRevision?: string;
   } | null>(null);
   const [groupFileDialog, setGroupFileDialog] = useState<{
     groupCode: string;
     groupName: string;
+    initialFolderId?: string;
+    initialFileId?: string;
+    searchRevision?: string;
   } | null>(null);
   const [analyticsDialog, setAnalyticsDialog] = useState<{
     groupCode: string;
@@ -3138,6 +3166,7 @@ export function MainView(): ReactElement {
   const [searchCategories, setSearchCategories] = useState<SearchCategory[]>(() => [
     ...SEARCH_CATEGORY_ORDER,
   ]);
+  const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   const [cloneSearchTarget, setCloneSearchTarget] = useState<GeneratedSearchHit | null>(null);
   const [collectionSearchTarget, setCollectionSearchTarget] = useState<{
     cid: string;
@@ -3164,6 +3193,7 @@ export function MainView(): ReactElement {
   const [searchMore, setSearchMore] = useState<{
     category: SearchCategory;
     keyword: string;
+    snapshot?: SearchMoreSnapshot;
   } | null>(null);
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
@@ -5585,6 +5615,7 @@ export function MainView(): ReactElement {
 
   const searchQuery = shell.query.trim();
   const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin);
+  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories);
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -5613,7 +5644,6 @@ export function MainView(): ReactElement {
   const jumpToConvSeq = useCallback(
     (kind: 'group' | 'c2c', conv: string, seq?: string, toastOnMissingSeq = false): void => {
       setSearchDismissed(true);
-      shell.setQuery('');
       if (!conv) return;
       setArkFeedState(null);
       if (!seq) {
@@ -5645,16 +5675,66 @@ export function MainView(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
+      setSearchDismissed(true);
+      setSearchFocused(false);
+      if (isContentSearchHit(hit)) {
+        setSearchDismissed(true);
+        const target = hit.target;
+        const revision = createMediaId('search');
+        switch (target.kind) {
+          case 'qzonePost':
+          case 'qzoneAlbum':
+            setQzoneSpaceRequest({
+              accountUin: user.identityValue,
+              uin: target.uin,
+              revision,
+              target:
+                target.kind === 'qzonePost'
+                  ? { kind: 'post', uin: target.uin, tid: target.tid }
+                  : { kind: 'album', uin: target.uin, topicId: target.albumId },
+            });
+            shell.switchView('qzone');
+            break;
+          case 'mailMessage':
+            setMailSearchTarget({ ...target, revision });
+            shell.switchView('mail');
+            break;
+          case 'guildMessage':
+            setGuildSearchTarget({ ...target, revision });
+            shell.switchView('channel');
+            break;
+          case 'marketEmoji':
+            setMarketSearchTarget({ packId: target.packId, name: hit.title, revision });
+            setMarketBrowserOpen(true);
+            break;
+          case 'groupAlbum':
+            setAlbumDialog({
+              groupCode: target.groupCode,
+              groupName: hit.sourceName,
+              initialAlbumId: target.albumId,
+              searchRevision: revision,
+            });
+            break;
+          case 'groupFile':
+            setGroupFileDialog({
+              groupCode: target.groupCode,
+              groupName: hit.sourceName,
+              initialFolderId: target.folderId,
+              initialFileId: target.fileId,
+              searchRevision: revision,
+            });
+            break;
+        }
+        return;
+      }
       if (hit.category === 'collection') {
         setSearchDismissed(true);
-        shell.setQuery('');
         setCollectionSearchTarget({ cid: hit.cid, revision: Date.now() });
         shell.switchView('collections');
         return;
       }
       if (isGeneratedSearchHit(hit)) {
         setSearchDismissed(true);
-        shell.setQuery('');
         if (hit.category === 'assistantMessage') setAssistantSearchTarget({ ...hit });
         else {
           setCloneSearchTarget({ ...hit });
@@ -5692,13 +5772,14 @@ export function MainView(): ReactElement {
         jumpToConvSeq(kind, conv);
       }
     },
-    [jumpToConvSeq, searchQuery, shell],
+    [jumpToConvSeq, searchQuery, shell, user.identityValue],
   );
 
   // 「最近搜索」命中点击 → 直接开那个会话。文件命中只有 msgId、没有会话内 seq，
   // 所以只打开会话（不弹「未找到该消息位置」）。
   const openHistoryHit = useCallback(
     (entry: SearchHistoryHit): void => {
+      shell.setQuery('');
       setSearchFocused(false);
       if (entry.kind === 'file') {
         const group = entry.chatType === 2;
@@ -5708,7 +5789,7 @@ export function MainView(): ReactElement {
       const conv = entry.kind === 'friend' ? entry.uid : entry.groupCode;
       jumpToConvSeq(entry.kind === 'friend' ? 'c2c' : 'group', conv);
     },
-    [jumpToConvSeq],
+    [jumpToConvSeq, shell],
   );
 
   // 群关键词通知被点击：主进程唤起窗口并记下一个「打开该群、跳到该 seq」的请求，
@@ -7395,7 +7476,30 @@ export function MainView(): ReactElement {
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
             onOpenInvite={noopAsync}
-            onQueryChange={shell.setQuery}
+            onQueryChange={(query) => {
+              searchReturn.clear();
+              shell.setQuery(query);
+            }}
+            onSearchReturn={
+              searchReturn.target
+                ? () => {
+                    const target = searchReturn.target!;
+                    setSearchFocused(false);
+                    if (target.kind === 'more') {
+                      setSearchDismissed(true);
+                      setSearchMore({
+                        category: target.snapshot.category,
+                        keyword: target.snapshot.keyword,
+                        snapshot: target.snapshot,
+                      });
+                      return false;
+                    }
+                    setSearchMore(null);
+                    setSearchDismissed(false);
+                    return true;
+                  }
+                : undefined
+            }
             onSearchFocus={() => {
               setSearchFocused(true);
               setSearchDismissed(false);
@@ -7416,6 +7520,12 @@ export function MainView(): ReactElement {
                   onCategoriesChange={setSearchCategories}
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
+                  initialPosition={
+                    searchReturn.target?.kind === 'dropdown'
+                      ? searchReturn.target.position
+                      : undefined
+                  }
+                  onNavigate={(position) => searchReturn.remember({ kind: 'dropdown', position })}
                   onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
                 />
               ) : searchFocused && !searchQuery && searchHistory && searchHistory.length > 0 ? (
@@ -7501,6 +7611,7 @@ export function MainView(): ReactElement {
                     Boolean(mailPreference.data?.notifications)
                   }
                   onOpenRequested={openMailView}
+                  searchTarget={mailSearchTarget}
                 />
                 <QzoneWorkspace
                   key={user.identityValue}
@@ -7556,6 +7667,7 @@ export function MainView(): ReactElement {
                       sidebarWidth={shell.sidebarWidth}
                       renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
+                      searchTarget={guildSearchTarget}
                     />
                   ) : shell.view === 'annual' ? (
                     <AnnualReportView />
@@ -7774,7 +7886,7 @@ export function MainView(): ReactElement {
           <WorkspaceTools
             onOpenComposition={compositionWindow.open}
             assistantSearchTarget={assistantSearchTarget}
-            onOpenAnalysis={() => shell.switchView('annual')}
+            onOpenAnalysis={(request) => setAnalysisReports((previous) => [...previous, request])}
           />
           <QzoneAlbumDialog
             selfUin={user.identityValue}
@@ -7799,13 +7911,23 @@ export function MainView(): ReactElement {
             }}
           />
           {marketBrowserOpen ? (
-            <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
+            <MarketEmojiBrowserLightbox
+              key={marketSearchTarget?.revision ?? 'catalog'}
+              initialPackId={marketSearchTarget?.packId}
+              initialPackName={marketSearchTarget?.name}
+              onClose={() => {
+                setMarketBrowserOpen(false);
+                setMarketSearchTarget(null);
+              }}
+            />
           ) : null}
           {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
           {albumDialog ? (
             <GroupAlbumDialog
+              key={`${albumDialog.groupCode}:${albumDialog.initialAlbumId ?? ''}:${albumDialog.searchRevision ?? ''}`}
               groupCode={albumDialog.groupCode}
               groupName={albumDialog.groupName}
+              initialAlbumId={albumDialog.initialAlbumId}
               onClose={() => setAlbumDialog(null)}
             />
           ) : null}
@@ -7832,8 +7954,11 @@ export function MainView(): ReactElement {
           ) : null}
           {groupFileDialog ? (
             <GroupFileDialog
+              key={`${groupFileDialog.groupCode}:${groupFileDialog.initialFolderId ?? ''}:${groupFileDialog.initialFileId ?? ''}:${groupFileDialog.searchRevision ?? ''}`}
               groupCode={groupFileDialog.groupCode}
               groupName={groupFileDialog.groupName}
+              initialFolderId={groupFileDialog.initialFolderId}
+              initialFileId={groupFileDialog.initialFileId}
               onClose={() => setGroupFileDialog(null)}
             />
           ) : null}
@@ -8138,10 +8263,21 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
+          {analysisReports.map((request) => (
+            <AnalysisReportPage
+              key={request.id}
+              request={request}
+              onClose={() =>
+                setAnalysisReports((previous) => previous.filter((item) => item.id !== request.id))
+              }
+            />
+          ))}
           {searchMore ? (
             <UnifiedSearchModal
               category={searchMore.category}
               initialKeyword={searchMore.keyword}
+              initialSnapshot={searchMore.snapshot}
+              onNavigate={(snapshot) => searchReturn.remember({ kind: 'more', snapshot })}
               onClose={() => setSearchMore(null)}
               onSelect={openSearchHit}
               onOpenChatRecords={(hit) => {

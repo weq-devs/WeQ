@@ -45,7 +45,12 @@ import {
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
-import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
+import {
+  browseConditions,
+  type BrowseFilter,
+  type BrowseCursor,
+  type BrowseDirection,
+} from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -103,10 +108,17 @@ export class GroupMsgDb {
     return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode);
   }
 
-  async browse(conv: string, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
-    const query = browseConditions('"40027"=?', conv, filter, cursor);
+  async browse(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor, direction);
+    const order = direction === 'older' ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
       [...query.params, BigInt(limit)],
     );
     return rows.map((row) => ({ rowId: String(row[0]), message: rowToGroupMsg(row.slice(1)) }));
@@ -1050,12 +1062,16 @@ export class GroupMsgDb {
    * 「活人团」还得看发言量；走 SQL 聚合比 {@link GroupMsgDb.listBatch} 逐条读
    * 40800 再在 JS 里数便宜一个量级。空 uid（本地系统消息 / 灰条等）不计入。
    */
-  async countBySenders(targetGroupCode: string): Promise<Record<string, number>> {
+  async countBySenders(
+    targetGroupCode: string,
+    filter: BrowseFilter = {},
+  ): Promise<Record<string, number>> {
+    const query = browseConditions('"40027"=?', targetGroupCode, filter);
     const rows = await this.qq.query(
       `SELECT "40020", COUNT(*) FROM group_msg_table
-       WHERE "40027" = ? AND "40020" != ''
+       WHERE ${query.clause} AND "40020" != ''
        GROUP BY "40020"`,
-      [targetGroupCode],
+      query.params,
     );
     const result: Record<string, number> = {};
     for (const row of rows) {
@@ -1090,6 +1106,25 @@ export class GroupMsgDb {
       uid: String(row[0] ?? ''),
       sendTime: Number(row[1] ?? 0),
       seq: toBigint(row[2]),
+    }));
+  }
+
+  async browseSenderTimeline(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 2000,
+  ) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor, 'newer');
+    const rows = await this.qq.query(
+      `SELECT rowid,"40020",COALESCE("40050",0) FROM group_msg_table WHERE ${query.clause} AND "40020" != '' ORDER BY COALESCE("40050",0) ASC,rowid ASC LIMIT ?`,
+      [...query.params, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      rowId: String(row[0]),
+      uid: String(row[1] ?? ''),
+      sendTime: Number(row[2] ?? 0),
+      cursorTime: toBigint(row[2]),
     }));
   }
 

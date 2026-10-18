@@ -44,7 +44,12 @@ import {
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
-import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
+import {
+  browseConditions,
+  type BrowseFilter,
+  type BrowseCursor,
+  type BrowseDirection,
+} from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) and 40005 (clientSeq) are appended LAST on purpose: every row
@@ -120,11 +125,18 @@ export class C2cMsgDb {
     return queryMessageDays(this.qq, this.table, clause, value);
   }
 
-  async browse(part: C2cPartition, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
+  async browse(
+    part: C2cPartition,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
     const { clause, value } = partitionWhere(part);
-    const query = browseConditions(clause, value, filter, cursor);
+    const query = browseConditions(clause, value, filter, cursor, direction);
+    const order = direction === 'older' ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
       [...query.params, BigInt(limit)],
     );
     return rows.map((row) => ({ rowId: String(row[0]), message: rowToC2cMsg(row.slice(1)) }));

@@ -771,7 +771,17 @@ export function ExportLightbox({
               {/* 左列：时间范围 + 补全选项 */}
               <div className="weq-exp-col">
                 {!isContacts ? (
-                  <Card title={scopeSummary ? '精确消息范围' : '时间范围'}>
+                  <Card
+                    title={
+                      scopeSummary
+                        ? isQzone
+                          ? '精确说说范围'
+                          : isContacts
+                            ? '精确联系人范围'
+                            : '精确消息范围'
+                        : '时间范围'
+                    }
+                  >
                     {scopeSummary ? (
                       <p>{scopeSummary}</p>
                     ) : (

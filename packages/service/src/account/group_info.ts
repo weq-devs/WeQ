@@ -11,6 +11,7 @@ import type {
   GroupMember,
   GroupNotify,
   GroupExt,
+  BrowseCursor,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
 import {
@@ -26,6 +27,11 @@ import {
   type ConversationGraphEdge,
 } from './conversation_graph';
 import { segmentWords } from './text_segment';
+import {
+  analyticsBrowseFilter,
+  analyticsDayParts,
+  type AnalyticsRange,
+} from '../common/analytics_time';
 
 /** Message count ranking entry. */
 export interface GroupMessageRankingItem {
@@ -662,6 +668,7 @@ export class GroupInfoService {
     endTime?: number,
   ): Promise<GroupMemberAnalytics> {
     const db = this.session.groupMsgs;
+    const filter = { ...analyticsBrowseFilter({ startTime, endTime }), sender: memberUid };
     const stats = {
       totalMessages: 0,
       textMessages: 0,
@@ -681,11 +688,11 @@ export class GroupInfoService {
     const phraseCounts = new Map<string, number>();
     const emojiCounts = new Map<string, { faceId: number; faceText: string; count: number }>();
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
-      for (const msg of batch) {
+      for (const { message: msg } of batch) {
         if (msg.senderUid !== memberUid) continue;
 
         const sendTime = Number(msg.sendTime);
@@ -752,20 +759,21 @@ export class GroupInfoService {
           stats.otherMessages++;
         }
 
-        if (sendTime > 0) {
+        const date = analyticsDayParts(sendTime);
+        if (date) {
           if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
             stats.firstMessageTime = sendTime;
           }
           if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
             stats.lastMessageTime = sendTime;
           }
-          const d = new Date(sendTime * 1000);
-          const hour = d.getHours();
+          const hour = date.hour;
           hourly[hour] = (hourly[hour] ?? 0) + 1;
-          dailySet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+          dailySet.add(date.day);
         }
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 
@@ -867,25 +875,37 @@ export class GroupInfoService {
    *
    * 于是整个接口只读两次库（成员表一次，消息表一次聚合），打开卡片几乎不卡。
    */
-  async getGroupJoinBatches(groupCode: bigint): Promise<GroupJoinBatchReport> {
+  async getGroupJoinBatches(
+    groupCode: bigint,
+    range: AnalyticsRange = {},
+  ): Promise<GroupJoinBatchReport> {
+    const filter = analyticsBrowseFilter(range);
     const [briefs, countByUid, detail] = await Promise.all([
       this.session.groupMembers.listMemberJoinBriefs(groupCode),
-      this.session.groupMsgs.countBySenders(String(groupCode)),
+      this.session.groupMsgs.countBySenders(String(groupCode), filter),
       this.session.groupDetail.getDetail(groupCode).catch(() => null),
     ]);
     const groupMessageTotal = Object.values(countByUid).reduce((sum, n) => sum + n, 0);
+    const bounded = filter.start !== undefined || filter.end !== undefined;
 
-    const members = briefs.map((b) => ({
-      uid: b.uid,
-      uin: b.uin,
-      displayName: b.card || b.nick || b.uin || b.uid,
-      joinTime: b.joinTime,
-      lastSpeakTime: b.lastSpeakTime,
-      memberLevel: b.memberLevel,
-      messageCount: countByUid[b.uid] ?? 0,
-    }));
+    const members = briefs
+      .filter(
+        (b) =>
+          (!bounded || b.joinTime > 0) &&
+          (filter.start === undefined || b.joinTime >= filter.start) &&
+          (filter.end === undefined || b.joinTime <= filter.end),
+      )
+      .map((b) => ({
+        uid: b.uid,
+        uin: b.uin,
+        displayName: b.card || b.nick || b.uin || b.uid,
+        joinTime: b.joinTime,
+        lastSpeakTime: b.lastSpeakTime,
+        memberLevel: b.memberLevel,
+        messageCount: countByUid[b.uid] ?? 0,
+      }));
 
-    const memberTotal = detail && detail.memberCount > 0 ? detail.memberCount : members.length;
+    const memberTotal = detail && detail.memberCount > 0 ? detail.memberCount : briefs.length;
     return buildJoinBatchReport(members, groupMessageTotal, memberTotal, JOIN_BATCH_WINDOW_SECONDS);
   }
 
@@ -893,26 +913,32 @@ export class GroupInfoService {
    * 「小团体」分析：把群消息切成会话（相邻两条间隔超过 5 分钟就是新对话），算出
    * 两个人之间的拉力（同一会话里两人发言条数之积，跨会话求和），前端据此画力图。
    *
-   * 扫描走 {@link GroupMsgDb.listSenderTimeline}（只读发送者 + 时间，不解码正文），
+   * 扫描走 {@link GroupMsgDb.browseSenderTimeline}（只读发送者 + 时间，不解码正文），
    * 所以即使翻完整个群的历史，也比逐条读正文的接口便宜一个量级。名字只对最终留在
    * 图上的节点批量查一次成员表。
    */
   async getGroupConversationGraph(
     groupCode: bigint,
-    opts?: { windowSeconds?: number; maxEdges?: number },
+    opts?: { windowSeconds?: number; maxEdges?: number } & AnalyticsRange,
   ): Promise<GroupConversationGraphReport> {
     const PAGE = 2000;
     const timeline: ConversationMessage[] = [];
-    let afterSeq = 0n;
+    const filter = analyticsBrowseFilter(opts ?? {});
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch = await this.session.groupMsgs.listSenderTimeline(
+      const batch = await this.session.groupMsgs.browseSenderTimeline(
         String(groupCode),
-        afterSeq,
+        filter,
+        cursor,
         PAGE,
       );
       if (batch.length === 0) break;
-      for (const row of batch) timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
-      afterSeq = batch[batch.length - 1]!.seq;
+      for (const row of batch) {
+        if (analyticsDayParts(row.sendTime))
+          timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+      }
+      const last = batch.at(-1)!;
+      cursor = { time: last.cursorTime, rowId: last.rowId };
       if (batch.length < PAGE) break;
     }
 
@@ -997,7 +1023,7 @@ export class GroupInfoService {
   }
 
   /**
-   * One-pass aggregate of a group's whole chat history — backs the「群数据周报」推文
+   * One-pass aggregate of a group's selected history — backs the「群数据周报」推文
    * snapshot. Reproduces, in a SINGLE table scan, what getGroupMessageRanking /
    * getGroupActiveHours / getGroupDailyActivity / getGroupWordCloud each compute
    * on their own (they scan the group once apiece); folding them together keeps
@@ -1006,9 +1032,10 @@ export class GroupInfoService {
    */
   async getGroupStatsReport(
     groupCode: bigint,
-    opts?: { rankingLimit?: number; wordLimit?: number },
+    opts?: { rankingLimit?: number; wordLimit?: number } & AnalyticsRange,
   ): Promise<GroupStatsReport> {
     const db = this.session.groupMsgs;
+    const filter = analyticsBrowseFilter(opts ?? {});
 
     const counts = new Map<string, number>(); // uid → message count
     const uins = new Map<string, string>(); // uid → uin
@@ -1031,11 +1058,11 @@ export class GroupInfoService {
       lastMessageTime: null as number | null,
     };
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500);
+      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
-      for (const msg of batch) {
+      for (const { message: msg } of batch) {
         totals.totalMessages++;
 
         const uid = msg.senderUid || '';
@@ -1086,12 +1113,10 @@ export class GroupInfoService {
         if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
 
         const sendTime = Number(msg.sendTime);
-        if (sendTime > 0) {
-          const d = new Date(sendTime * 1000);
-          hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-            d.getDate(),
-          ).padStart(2, '0')}`;
+        const date = analyticsDayParts(sendTime);
+        if (date) {
+          hourly[date.hour] = (hourly[date.hour] ?? 0) + 1;
+          const key = date.day;
           daily.set(key, (daily.get(key) ?? 0) + 1);
           if (totals.firstMessageTime === null || sendTime < totals.firstMessageTime) {
             totals.firstMessageTime = sendTime;
@@ -1101,7 +1126,8 @@ export class GroupInfoService {
           }
         }
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 

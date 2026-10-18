@@ -95,3 +95,4 @@ html[data-theme="dark"] .weq-channel-direct-trigger {
     cursor: pointer;
   }
 }
+.weq-guild-direct-msg.is-search-hit { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }

@@ -7,6 +7,7 @@ import { getHost } from '@weq/service';
 import { MailFailure, type MailEvent, type QQMailService } from '@weq/service/mail';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { rememberMail } from '../../search_content';
 
 const account = z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) });
 const operation = account.extend({ requestId: z.string().uuid() });
@@ -79,10 +80,18 @@ export const mailRouter = router({
         keyword: z.string().max(200).optional(),
       }),
     )
-    .query(({ input }) => perform(input, (mail, signal) => mail.list(input, signal))),
-  read: procedure
-    .input(operation.extend({ id: mailId }))
-    .mutation(({ input }) => perform(input, (mail, signal) => mail.read(input.id, signal))),
+    .query(async ({ input }) => {
+      const contentSearch = getAppContext().services?.contentSearch;
+      const page = await perform(input, (mail, signal) => mail.list(input, signal));
+      rememberMail(contentSearch, page.items);
+      return page;
+    }),
+  read: procedure.input(operation.extend({ id: mailId })).mutation(async ({ input }) => {
+    const contentSearch = getAppContext().services?.contentSearch;
+    const detail = await perform(input, (mail, signal) => mail.read(input.id, signal));
+    rememberMail(contentSearch, [detail, ...(detail.thread ?? [])]);
+    return detail;
+  }),
   image: procedure
     .input(operation.extend({ id: z.string().uuid() }))
     .query(({ input }) => perform(input, (mail, signal) => mail.image(input.id, signal))),
@@ -93,9 +102,15 @@ export const mailRouter = router({
         action: z.enum(['read', 'unread', 'star', 'unstar', 'trash']),
       }),
     )
-    .mutation(({ input }) =>
-      perform(input, (mail, signal) => mail.action(input.ids, input.action, signal)),
-    ),
+    .mutation(async ({ input }) => {
+      const contentSearch = getAppContext().services?.contentSearch;
+      const result = await perform(input, (mail, signal) =>
+        mail.action(input.ids, input.action, signal),
+      );
+      if (input.action === 'trash')
+        for (const id of input.ids) contentSearch?.remove({ kind: 'mailMessage', id, folderId: 0 });
+      return result;
+    }),
   send: procedure
     .input(
       operation.extend({

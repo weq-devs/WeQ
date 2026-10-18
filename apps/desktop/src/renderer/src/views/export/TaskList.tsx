@@ -123,6 +123,7 @@ export interface UiTask {
   isCollection?: boolean;
   /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
   isGuild?: boolean;
+  isGenerated?: boolean;
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -156,6 +157,7 @@ function taskTypeLabel(t: UiTask): string {
   if (t.isContacts) return '联系人导出';
   if (t.isCollection) return '收藏导出';
   if (t.isGuild) return '消息导出 · 频道私聊';
+  if (t.isGenerated) return '本地生成对话导出';
   return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
 }
 

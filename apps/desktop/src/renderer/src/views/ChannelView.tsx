@@ -3,9 +3,9 @@
  * （对方站点禁 iframe），改成开新标签（见 ExternalSiteView）。
  */
 
-import { useState, type CSSProperties, type ReactElement } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
 import { Hash, MessagesSquare } from 'lucide-react';
-import { GuildDirectDialog } from '../components/GuildDirectDialog';
+import { GuildDirectDialog, type GuildSearchTarget } from '../components/GuildDirectDialog';
 import type { User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import { EmbeddedBrowserView } from './EmbeddedBrowserView';
@@ -18,14 +18,22 @@ export function ChannelView({
   renderers,
   initialDirectOpen = false,
   sidebarWidth = 362,
+  searchTarget,
 }: {
   selfUser: User;
   renderers?: MessageRenderer[];
   initialDirectOpen?: boolean;
   sidebarWidth?: number;
+  searchTarget?: GuildSearchTarget | null;
 }): ReactElement {
   const [directOpen, setDirectOpen] = useState(initialDirectOpen);
   const [visited, setVisited] = useState(initialDirectOpen);
+  useEffect(() => {
+    if (searchTarget) {
+      setVisited(true);
+      setDirectOpen(true);
+    }
+  }, [searchTarget]);
   return (
     <section
       className="weq-channel-workspace"
@@ -63,6 +71,7 @@ export function ChannelView({
             embedded
             selfUser={selfUser}
             renderers={renderers}
+            searchTarget={searchTarget}
             onClose={() => setDirectOpen(false)}
           />
         </div>

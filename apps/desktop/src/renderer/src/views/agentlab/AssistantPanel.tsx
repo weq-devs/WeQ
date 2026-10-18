@@ -49,6 +49,7 @@ import {
 import type { FlatModels } from './NewCloneModal';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
+import { useGeneratedSelection } from './useGeneratedSelection';
 
 interface Turn {
   id?: string;
@@ -500,6 +501,7 @@ export function AssistantPanel({
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const seeded = useRef(false);
+  const lastPersisted = useRef(conversation.data);
   const runIdRef = useRef<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -520,6 +522,11 @@ export function AssistantPanel({
   );
 
   const busy = turns.some((t) => t.running);
+  const selection = useGeneratedSelection(
+    { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
+    turns,
+    Boolean(currentSessionId && turns.some((turn) => turn.id)),
+  );
   const resumable = !busy && resumeQuery.data?.resumable === true;
 
   // 轮次结束（final / aborted / error）后 busy 转 false，把「停止中」复位。
@@ -556,7 +563,12 @@ export function AssistantPanel({
 
   // 首次加载持久化对话（含历史的折叠过程）。
   useEffect(() => {
-    if (!seeded.current && conversation.data && (!searchTarget || !conversation.isFetching)) {
+    if (
+      !busy &&
+      conversation.data &&
+      !conversation.isFetching &&
+      (!seeded.current || lastPersisted.current !== conversation.data)
+    ) {
       setTurns(
         conversation.data.map((t) => ({
           id: t.id,
@@ -566,8 +578,9 @@ export function AssistantPanel({
         })),
       );
       seeded.current = true;
+      lastPersisted.current = conversation.data;
     }
-  }, [conversation.data, conversation.isFetching, searchTarget]);
+  }, [conversation.data, conversation.isFetching, searchTarget, busy]);
 
   // 实时过程流：累积进"运行中"的最后一条助手回合。镜像 UpdateCard 的订阅范式。
   //
@@ -783,6 +796,7 @@ export function AssistantPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
+          {selection.control}
           <button
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => setSettingsOpen(true)}
@@ -817,7 +831,15 @@ export function AssistantPanel({
         </div>
       ) : null}
 
-      <div className="weq-agentlab-transcript" ref={transcriptRef} onScroll={onTranscriptScroll}>
+      <div
+        className="weq-agentlab-transcript"
+        {...selection.rootProps}
+        ref={(element) => {
+          transcriptRef.current = element;
+          selection.rootProps.ref(element);
+        }}
+        onScroll={onTranscriptScroll}
+      >
         <GeneratedSearchNotice
           missing={missingSearch}
           error={Boolean(searchMessageId && conversation.isError)}
@@ -849,8 +871,9 @@ export function AssistantPanel({
           turns.map((t, i) => (
             <div
               key={t.id ?? `${t.role}-${i}`}
+              {...selection.itemProps(t.id)}
               data-generated-message-id={t.id}
-              className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}`}
+              className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(t.id) ? ' is-selected' : ''}`}
             >
               {t.role === 'user' ? (
                 <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />

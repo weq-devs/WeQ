@@ -1,7 +1,7 @@
 import type { SqlValue } from '@weq/native';
 
 export interface BrowseCursor {
-  time: number;
+  time: number | bigint;
   rowId: string;
 }
 export interface BrowseFilter {
@@ -9,12 +9,14 @@ export interface BrowseFilter {
   end?: number;
   sender?: string;
 }
+export type BrowseDirection = 'older' | 'newer';
 
 export function browseConditions(
   clause: string,
   value: SqlValue,
   filter: BrowseFilter,
   cursor?: BrowseCursor,
+  direction: BrowseDirection = 'older',
 ) {
   const where = [clause];
   const params: SqlValue[] = [value];
@@ -31,7 +33,10 @@ export function browseConditions(
     params.push(filter.sender, filter.sender);
   }
   if (cursor) {
-    where.push('(COALESCE("40050",0)<? OR (COALESCE("40050",0)=? AND rowid<?))');
+    const comparison = direction === 'older' ? '<' : '>';
+    where.push(
+      `(COALESCE("40050",0)${comparison}? OR (COALESCE("40050",0)=? AND rowid${comparison}?))`,
+    );
     params.push(BigInt(cursor.time), BigInt(cursor.time), BigInt(cursor.rowId));
   }
   return { clause: where.join(' AND '), params };

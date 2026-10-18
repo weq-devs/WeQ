@@ -193,7 +193,15 @@ function PackListItem({
   );
 }
 
-export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void }): ReactElement {
+export function MarketEmojiBrowserLightbox({
+  onClose,
+  initialPackId,
+  initialPackName,
+}: {
+  onClose: () => void;
+  initialPackId?: string;
+  initialPackName?: string;
+}): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const save = useExportSavePolicy();
@@ -219,7 +227,10 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialPackId ?? null);
+  useEffect(() => {
+    if (initialPackId) setSelectedId(initialPackId);
+  }, [initialPackId]);
   const packMulti = useMultiSelection({
     ids: entries.map((entry) => entry.id),
     selected: selection.selectedIds,
@@ -550,7 +561,10 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
             {selectedId ? (
               <PackDetailPane
                 packId={selectedId}
-                name={entries.find((e) => e.id === selectedId)?.name ?? ''}
+                name={
+                  entries.find((e) => e.id === selectedId)?.name ??
+                  (selectedId === initialPackId ? (initialPackName ?? '') : '')
+                }
                 description={entries.find((entry) => entry.id === selectedId)?.mark ?? ''}
                 busy={downloading || save.picking}
                 onDownload={download}

@@ -43,6 +43,7 @@ import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
+import { searchAccountContent } from '../search_content';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
@@ -88,6 +89,7 @@ import {
   EmojiService,
   MsgSearchService,
   UnifiedSearchService,
+  ContentSearchStore,
   type GeneratedSearchSources,
   OnlineStatusService,
   AgentLabService,
@@ -687,6 +689,7 @@ export interface AccountServices {
   profile: ProfileService;
   msgSearch: MsgSearchService;
   unifiedSearch: UnifiedSearchService;
+  contentSearch: ContentSearchStore;
   onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
@@ -1321,12 +1324,16 @@ export function initAppContext(): AppContext {
         gapHistory,
       );
       // 只捕获本账号的服务，不在查询时读取可能已切号的 this.services。
+      const contentSearch = new ContentSearchStore(
+        join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
+      );
       let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
         recentContacts: new RecentContactService(session),
         guildDirect,
+        contentSearch,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
@@ -1359,6 +1366,8 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchContent: (category, keyword, limit, offset) =>
+            searchAccountContent(contentSearch, guildDirect, category, keyword, limit, offset),
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
           generatedSources: () => generatedSources,
@@ -2012,12 +2021,16 @@ export function initAppContext(): AppContext {
         msgs,
         gapHistory,
       );
+      const contentSearch = new ContentSearchStore(
+        join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
+      );
       let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
         recentContacts: new RecentContactService(session),
         guildDirect,
+        contentSearch,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
@@ -2050,6 +2063,8 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchContent: (category, keyword, limit, offset) =>
+            searchAccountContent(contentSearch, guildDirect, category, keyword, limit, offset),
           searchCollections: (keyword, limit, offset) =>
             collectionSvc.searchLocal(keyword, limit, offset),
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
@@ -2387,6 +2402,8 @@ export function initAppContext(): AppContext {
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
       this.services?.mail.dispose();
+      this.services?.contentSearch.close();
+      this.services?.guildDirect.cancelSearch();
       this.account?.dispose();
       this.account = null;
       this.services = null;
