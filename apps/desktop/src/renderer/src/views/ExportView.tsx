@@ -679,6 +679,7 @@ export function ExportTool({
       isCollection: Boolean((t as { collection?: unknown }).collection),
       isGuild: Boolean((t as { guild?: unknown }).guild),
       isGenerated: Boolean((t as { generated?: unknown }).generated),
+      generatedResources: t.generatedResources,
       // 沿用既有任务的商城表情内容标记，历史下载结果仍可读取。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
       // conv === 'emojipack' 是导出表情包任务的 sentinel（task_manager 内设定）。

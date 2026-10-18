@@ -20,6 +20,7 @@ export function exportReport(task: ExportTask) {
           capturedAt: task.generated.capturedAt,
           selectedIds: task.generated.selectedIds ?? null,
           records: task.generated.messages.length,
+          resources: task.generatedResourceReport ?? null,
         }
       : null,
     formats: task.formats ?? [task.format],

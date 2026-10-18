@@ -8,6 +8,8 @@ export interface BrowseFilter {
   start?: number;
   end?: number;
   sender?: string;
+  /** 已确认的同一人的 QQ 号，兼容缺 UID 的旧消息；与 sender 取并集。 */
+  senderUin?: string;
 }
 export type BrowseDirection = 'older' | 'newer';
 
@@ -28,7 +30,15 @@ export function browseConditions(
     where.push('"40050"<=?');
     params.push(BigInt(filter.end));
   }
-  if (filter.sender) {
+  if (filter.senderUin) {
+    if (filter.sender) {
+      where.push('("40020"=? OR "40033"=?)');
+      params.push(filter.sender, filter.senderUin);
+    } else {
+      where.push('"40033"=?');
+      params.push(filter.senderUin);
+    }
+  } else if (filter.sender) {
     where.push('("40020"=? OR "40033"=?)');
     params.push(filter.sender, filter.sender);
   }

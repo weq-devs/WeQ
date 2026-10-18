@@ -477,6 +477,95 @@ export class GroupInfoService {
     return [...groups.values()];
   }
 
+  async listAnalysisGroups() {
+    const [directory, current, codes] = await Promise.all([
+      this.listExportGroups(),
+      this.listGroupDirectory(),
+      this.session.groupMsgs.listGroupCodes(),
+    ]);
+    const groups = new Map(
+      codes.map((groupCode) => [
+        groupCode,
+        {
+          groupCode,
+          groupName: groupCode,
+          memberCount: 0,
+          source: 'messages' as 'directory' | 'messages',
+        },
+      ]),
+    );
+    for (const row of current)
+      groups.set(row.groupCode, {
+        groupCode: row.groupCode,
+        groupName: row.groupCode,
+        memberCount: row.memberCount,
+        source: 'directory',
+      });
+    for (const row of directory)
+      groups.set(row.groupCode, {
+        ...row,
+        groupName: row.groupName || row.groupCode,
+        source: 'directory',
+      });
+    return [...groups.values()];
+  }
+
+  async listAnalysisMembers(groupCode: bigint) {
+    const [directory, senders] = await Promise.all([
+      this.session.groupMembers.listAnalysisMembers(groupCode),
+      this.session.groupMsgs.listSenderIdentities(String(groupCode)),
+    ]);
+    const members = new Map<
+      string,
+      { id: string; uid: string; uin: string; name: string; source: 'directory' | 'messages' }
+    >();
+    const uidByUin = new Map<string, string>();
+    const uinsByUid = new Map<string, Set<string>>();
+    const ambiguousUins = new Set<string>();
+    for (const row of [...directory, ...senders]) {
+      if (!row.uid || !row.uin) continue;
+      const uins = uinsByUid.get(row.uid) ?? new Set<string>();
+      uins.add(row.uin);
+      uinsByUid.set(row.uid, uins);
+      const known = uidByUin.get(row.uin);
+      if (known && known !== row.uid) ambiguousUins.add(row.uin);
+      uidByUin.set(row.uin, row.uid);
+    }
+    for (const [uin, uid] of uidByUin)
+      if (ambiguousUins.has(uin) || (uinsByUid.get(uid)?.size ?? 0) > 1) uidByUin.delete(uin);
+    for (const row of senders) {
+      const uid = row.uid || uidByUin.get(row.uin) || '';
+      const id = uid ? `uid:${uid}` : `uin:${row.uin}`;
+      members.set(id, {
+        id,
+        uid,
+        uin: row.uin || members.get(id)?.uin || '',
+        name: '',
+        source: 'messages',
+      });
+    }
+    for (const row of directory) {
+      if (!row.uid && !row.uin) continue;
+      const uid = row.uid || uidByUin.get(row.uin) || '';
+      const id = uid ? `uid:${uid}` : `uin:${row.uin}`;
+      members.set(id, {
+        id,
+        uid,
+        uin: row.uin || members.get(id)?.uin || '',
+        name: row.card || row.nick,
+        source: 'directory',
+      });
+    }
+    return [...members.values()].map((row) => ({
+      ...row,
+      uin:
+        row.uid && (ambiguousUins.has(row.uin) || (uinsByUid.get(row.uid)?.size ?? 0) > 1)
+          ? ''
+          : row.uin,
+      name: row.name || row.uin || row.uid,
+    }));
+  }
+
   async listExportMembers(groupCode: bigint) {
     const members = new Map<
       string,
@@ -666,9 +755,16 @@ export class GroupInfoService {
     memberUid: string,
     startTime?: number,
     endTime?: number,
+    memberUin?: string,
   ): Promise<GroupMemberAnalytics> {
+    if (!memberUid && !memberUin) throw new Error('成员身份不能为空。');
+    if (memberUin && !/^[1-9]\d*$/.test(memberUin)) throw new Error('成员 QQ 号无效。');
     const db = this.session.groupMsgs;
-    const filter = { ...analyticsBrowseFilter({ startTime, endTime }), sender: memberUid };
+    const filter = {
+      ...analyticsBrowseFilter({ startTime, endTime }),
+      sender: memberUid,
+      senderUin: memberUin,
+    };
     const stats = {
       totalMessages: 0,
       textMessages: 0,
@@ -693,7 +789,11 @@ export class GroupInfoService {
       const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
       for (const { message: msg } of batch) {
-        if (msg.senderUid !== memberUid) continue;
+        if (
+          !(memberUid && msg.senderUid === memberUid) &&
+          !(memberUin && String(msg.senderUin) === memberUin)
+        )
+          continue;
 
         const sendTime = Number(msg.sendTime);
         stats.totalMessages++;

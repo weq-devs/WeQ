@@ -23,6 +23,7 @@ type Page = {
   close: () => void;
   retainOnNavigate?: boolean;
   closable?: boolean;
+  standalone?: boolean;
 };
 const PagesContext = createContext<{
   host: HTMLDivElement | null;
@@ -179,9 +180,11 @@ function WorkspaceTabs({
 
 export function WorkspaceContent({ children }: { children: ReactNode }) {
   const context = useContext(PagesContext);
-  const pages = context?.pages.filter((page) => page.placement === 'main') ?? [];
+  const mainPages = context?.pages.filter((page) => page.placement === 'main') ?? [];
+  const pages = mainPages.filter((page) => !page.standalone);
   const sidecars = context?.pages.filter((page) => page.placement === 'sidecar') ?? [];
-  const mainOpen = pages.some((page) => page.id === context?.active);
+  const mainOpen = mainPages.some((page) => page.id === context?.active);
+  const standaloneOpen = mainPages.some((page) => page.id === context?.active && page.standalone);
   const tabs = pages.some((page) => page.retainOnNavigate)
     ? [
         {
@@ -196,7 +199,7 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
     : pages;
   return (
     <div className="weq-workspace-content">
-      {context && (
+      {context && !standaloneOpen && (
         <WorkspaceTabs
           pages={tabs}
           selected={context.active ?? 'workspace-base'}
@@ -237,12 +240,14 @@ export function WorkspacePage({
   children,
   placement = 'main',
   retainOnNavigate = false,
+  standalone = false,
 }: {
   title: string;
   onClose?: () => void;
   children: ReactNode;
   placement?: Placement;
   retainOnNavigate?: boolean;
+  standalone?: boolean;
 }) {
   const context = useContext(PagesContext);
   const id = useId();
@@ -251,8 +256,16 @@ export function WorkspacePage({
   const ref = useRef<HTMLDivElement>(null);
   const register = context?.register;
   useLayoutEffect(
-    () => register?.({ id, title, placement, retainOnNavigate, close: () => closeRef.current?.() }),
-    [register, id, title, placement, retainOnNavigate],
+    () =>
+      register?.({
+        id,
+        title,
+        placement,
+        retainOnNavigate,
+        standalone,
+        close: () => closeRef.current?.(),
+      }),
+    [register, id, title, placement, retainOnNavigate, standalone],
   );
   const selected =
     placement === 'sidecar'
@@ -270,9 +283,9 @@ export function WorkspacePage({
       ref={ref}
       id={`${id}-page`}
       className={`weq-workspace-page${placement === 'sidecar' ? ' weq-workspace-sidecar-page' : ''}${context ? '' : ' weq-workspace-page-fallback'}`}
-      role="tabpanel"
+      role={standalone ? 'region' : 'tabpanel'}
       aria-label={title}
-      aria-labelledby={context ? `${id}-tab` : undefined}
+      aria-labelledby={context && !standalone ? `${id}-tab` : undefined}
       hidden={!active}
       tabIndex={-1}
     >

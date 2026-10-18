@@ -12,7 +12,14 @@ export type AnalysisReportRequest = RequestBase &
     | { kind: 'annual'; year: number }
     | { kind: 'buddy'; peerUid: string; name: string }
     | { kind: 'group'; groupCode: string; name: string }
-    | { kind: 'member'; groupCode: string; groupName: string; memberUid: string; name: string }
+    | {
+        kind: 'member';
+        groupCode: string;
+        groupName: string;
+        memberUid: string;
+        memberUin?: string;
+        name: string;
+      }
   );
 export type AnalysisKind = AnalysisReportRequest['kind'];
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {

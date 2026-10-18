@@ -48,7 +48,7 @@ export function AnalysisReportPage({
             <MemberAnalyticsDialog
               groupCode={request.groupCode}
               groupName={request.groupName}
-              member={{ uid: request.memberUid, name: request.name }}
+              member={{ uid: request.memberUid, uin: request.memberUin, name: request.name }}
               scope={request.scope}
               periodLabel={`${request.period} · 成员资料：当前本地缓存`}
               embedded

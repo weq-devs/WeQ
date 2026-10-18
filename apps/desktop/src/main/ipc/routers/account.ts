@@ -3053,15 +3053,44 @@ export const accountRouter = router({
       );
     }),
 
+  /** 分析目录按打开工具时的账号分派，包含名册外的本地记录。 */
+  analysisPeerDirectory: procedure
+    .input(z.object({ expectedAccountUin: z.string().min(1) }))
+    .query(({ input }) =>
+      requireExpectedAccount(input.expectedAccountUin).buddyAnalytics.listAnalysisPeers(),
+    ),
+  analysisGroupDirectory: procedure
+    .input(z.object({ expectedAccountUin: z.string().min(1) }))
+    .query(({ input }) =>
+      requireExpectedAccount(input.expectedAccountUin).groupInfo.listAnalysisGroups(),
+    ),
+  analysisMemberDirectory: procedure
+    .input(
+      z.object({
+        groupCode: z.string().regex(/^[1-9]\d*$/),
+        expectedAccountUin: z.string().min(1),
+      }),
+    )
+    .query(({ input }) =>
+      requireExpectedAccount(input.expectedAccountUin).groupInfo.listAnalysisMembers(
+        BigInt(input.groupCode),
+      ),
+    ),
+
   /** Detailed per-member analytics for a group. */
   getGroupMemberAnalytics: procedure
     .input(
       z
         .object({
           groupCode: z.string().min(1),
-          memberUid: z.string().min(1),
+          memberUid: z.string(),
+          memberUin: z
+            .string()
+            .regex(/^[1-9]\d*$/)
+            .optional(),
         })
-        .and(analyticsRangeInput),
+        .and(analyticsRangeInput)
+        .refine((input) => Boolean(input.memberUid || input.memberUin), '成员身份不能为空。'),
     )
     .query(async ({ input }) => {
       return requireExpectedAccount(
@@ -3072,6 +3101,7 @@ export const accountRouter = router({
         input.memberUid,
         input.startTime,
         input.endTime,
+        input.memberUin,
       );
     }),
 

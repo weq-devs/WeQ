@@ -282,6 +282,12 @@ function ReportDeckView({
   const rootRef = useRef<HTMLDivElement>(null);
   /** 报告内的浮层宿主（目前只有 QQ 空间分享灯箱）—— 详见 ReportViewContextValue。 */
   const overlayHostRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!tabActive || !rootRef.current?.querySelector('[data-layout="reading"]')) return;
+    rootRef.current
+      .querySelector<HTMLElement>('.weq-report-tick[aria-current="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [index, tabActive]);
   /** 由 fullscreenchange 同步，不自己猜：Esc 退出时按钮文案也要跟着回正。 */
   const [isFullscreen, setIsFullscreen] = useState(false);
   /** 摘页时要知道 pageId 在当前 deck 里的位置；放在 ref 里避免让 loadPage 随页变化重建。 */
@@ -608,6 +614,8 @@ function ReportDeckView({
               className={`weq-report-slide${index === 0 ? ' is-active' : ''}`}
               style={slideStyle(0, index)}
               aria-hidden={index !== 0}
+              inert={index !== 0}
+              tabIndex={index === 0 ? 0 : -1}
             >
               <div className="weq-report-entry-wrap">
                 <AnnualReportEntry
@@ -633,6 +641,8 @@ function ReportDeckView({
                 key={page.id}
                 style={slideStyle(virtualIndex, index)}
                 aria-hidden={!active}
+                inert={!active}
+                tabIndex={active ? 0 : -1}
               >
                 {state.status === 'loading' || state.status === 'idle' ? (
                   <ReportPageLoading

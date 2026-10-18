@@ -109,15 +109,18 @@ function AnalysisToolForm({
   const years = trpc.account.annualReport.getAvailableYears.useQuery(undefined, {
     enabled: active && kind === 'annual',
   });
-  const friends = trpc.account.contactsExportPreview.useQuery(
-    { scope: 'friends' },
+  const friends = trpc.account.analysisPeerDirectory.useQuery(
+    { expectedAccountUin: account ?? '' },
     { enabled: active && kind === 'buddy' },
   );
-  const groups = trpc.account.exportGroupDirectory.useQuery(undefined, {
-    enabled: active && (kind === 'group' || kind === 'member'),
-  });
-  const memberList = trpc.account.contactsExportPreview.useQuery(
-    { scope: 'group', groupCode: group ?? '1' },
+  const groups = trpc.account.analysisGroupDirectory.useQuery(
+    { expectedAccountUin: account ?? '' },
+    {
+      enabled: active && (kind === 'group' || kind === 'member'),
+    },
+  );
+  const memberList = trpc.account.analysisMemberDirectory.useQuery(
+    { groupCode: group ?? '1', expectedAccountUin: account ?? '' },
     { enabled: active && kind === 'member' && Boolean(group) && !chooseGroup },
   );
   const groupRows = groups.data ?? [],
@@ -125,18 +128,26 @@ function AnalysisToolForm({
     memberRows = memberList.data ?? [];
   const pickedGroup = groupRows.find((row) => row.groupCode === group);
   const pickedFriend = friendRows.find((row) => row.uid === peer);
-  const pickedMember = memberRows.find((row) => row.uid === (group ? members[group] : null));
+  const pickedMember = memberRows.find((row) => row.id === (group ? members[group] : null));
   const source =
     kind === 'buddy' ? friends : kind === 'member' && !chooseGroup && group ? memberList : groups;
   const items: Choice[] =
     kind === 'buddy'
-      ? friendRows.map((row) => ({ id: row.uid, name: row.name, detail: row.uin || row.uid }))
+      ? friendRows.map((row) => ({
+          id: row.uid,
+          name: row.name,
+          detail: `${row.uin || row.uid} · ${row.source === 'directory' ? '好友名册' : '仅有本地记录'}`,
+        }))
       : kind === 'member' && !chooseGroup && group
-        ? memberRows.map((row) => ({ id: row.uid, name: row.name, detail: row.uin || row.uid }))
+        ? memberRows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            detail: `${row.uin || row.uid} · ${row.source === 'directory' ? '缓存名册' : '仅有本地记录'}`,
+          }))
         : groupRows.map((row) => ({
             id: row.groupCode,
             name: row.groupName,
-            detail: row.groupCode,
+            detail: `${row.groupCode} · ${row.source === 'directory' ? '缓存群资料' : '仅有本地记录'}`,
           }));
   const selected =
     kind === 'buddy'
@@ -174,6 +185,7 @@ function AnalysisToolForm({
                 groupCode: pickedGroup!.groupCode,
                 groupName: pickedGroup!.groupName,
                 memberUid: pickedMember!.uid,
+                memberUin: pickedMember!.uin || undefined,
                 name: pickedMember!.name,
               };
     const period =

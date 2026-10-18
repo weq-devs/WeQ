@@ -135,6 +135,14 @@ import type {
 import { GuildMsgSource, type GuildExportTaskMeta } from './guild_source';
 import type { GeneratedContentSnapshot } from '../generated_content';
 import {
+  bundleGeneratedResources,
+  discoverGeneratedResources,
+  type GeneratedResourceCache,
+  type GeneratedResourceManifest,
+  type GeneratedResourceReference,
+  type GeneratedResourceSource,
+} from './generated_resources';
+import {
   GENERATED_EXPORT_FORMATS,
   writeGeneratedContent,
   type GeneratedExportFormat,
@@ -348,6 +356,8 @@ export interface ExportTask {
   guild?: GuildExportTaskMeta;
   /** 确认时复制的本地生成记录，不通过 QQ 消息管线回读。 */
   generated?: GeneratedContentSnapshot;
+  generatedResourceCache?: GeneratedResourceCache[];
+  generatedResourceReport?: GeneratedResourceManifest;
   /** Bundle folder (message file + avatars/ + media/) when avatars or media are on. */
   bundleDir?: string;
   /** Number of avatars written, when avatars were exported. */
@@ -369,7 +379,9 @@ export interface TaskProgress {
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
-export interface ExportTaskView extends Omit<ExportTask, 'generated'> {
+export interface ExportTaskView
+  extends Omit<ExportTask, 'generated' | 'generatedResourceCache' | 'generatedResourceReport'> {
+  generatedResources?: { total: number; copied: number; missing: number };
   generated?: Omit<GeneratedContentSnapshot, 'messages'> & { messageCount: number };
   logs: TaskLogLine[];
   canResume: boolean;
@@ -445,6 +457,10 @@ export interface MediaDeps {
   marketpack?: MarketPackDeps;
   /** 导出表情包能力（由 app 注入，桥接 EmojiService + 平台表情目录）。 */
   emojipack?: EmojiPackDeps;
+  /** 当前账号生成资源的既有句柄解析器；只读本地，不调用模型或隐式下载。 */
+  generatedResource?: (
+    ref: GeneratedResourceReference,
+  ) => GeneratedResourceSource | null | Promise<GeneratedResourceSource | null>;
   /**
    * 商城表情「单张贴图」解析（桥接 EmojiService.getMarketFace）：返回该贴图的
    * 本地解密路径（weq 缓存 → QQ 本地缓存 → CDN 明文 GIF/PNG）。HTML 导出把
@@ -519,7 +535,7 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
-  private saveTasks(): void {
+  private saveTasks(): boolean {
     try {
       mkdirSync(this.cacheDir, { recursive: true });
       for (const task of this.tasks.values()) {
@@ -540,8 +556,10 @@ export class ExportTaskManager extends EventEmitter {
         }
       }
       writeFileAtomicSync(this.persistPath, JSON.stringify([...this.tasks.values()], null, 2));
+      return true;
     } catch (e) {
       console.error('[ExportTaskManager] failed to save tasks:', e);
+      return false;
     }
   }
 
@@ -630,9 +648,25 @@ export class ExportTaskManager extends EventEmitter {
           const { messages, ...metadata } = task.generated;
           summary = { ...metadata, messageCount: messages.length };
         }
+        const view = { ...task };
+        delete view.generatedResourceCache;
+        delete view.generatedResourceReport;
         return {
-          ...task,
+          ...view,
           generated: summary,
+          ...(task.generatedResourceReport
+            ? {
+                generatedResources: {
+                  total: task.generatedResourceReport.entries.length,
+                  copied: task.generatedResourceReport.entries.filter(
+                    (entry) => entry.status === 'copied',
+                  ).length,
+                  missing: task.generatedResourceReport.entries.filter(
+                    (entry) => entry.status === 'missing',
+                  ).length,
+                },
+              }
+            : {}),
           canResume,
           ...(canResume
             ? {
@@ -760,6 +794,7 @@ export class ExportTaskManager extends EventEmitter {
       )
         throw new Error('本地生成对话不支持该导出格式。');
       const snapshot = structuredClone(opts.generated);
+      const resources = discoverGeneratedResources(snapshot).map((reference) => ({ reference }));
       const task: ExportTask = {
         id,
         kind: opts.kind,
@@ -768,11 +803,23 @@ export class ExportTaskManager extends EventEmitter {
         format: formats[0]!,
         formats,
         generated: snapshot,
+        generatedResourceCache: resources,
         status: 'pending',
         current: 0,
         progress: 0,
         total: snapshot.messages.length,
         stages: [
+          ...(resources.length
+            ? [
+                {
+                  key: 'media' as const,
+                  label: '保存生成资源',
+                  status: 'pending' as const,
+                  current: 0,
+                  total: resources.length,
+                },
+              ]
+            : []),
           {
             key: 'message',
             label: '导出本地生成对话',
@@ -3041,6 +3088,74 @@ export class ExportTaskManager extends EventEmitter {
     let bundle: AtomicExportBundle | null = null;
     try {
       bundle = createAtomicExportBundle(this.cacheDir, id);
+      if (!task.generatedResourceCache)
+        task.generatedResourceCache = discoverGeneratedResources(task.generated).map(
+          (reference) => ({ reference }),
+        );
+      const resourceCache = task.generatedResourceCache;
+      if (resourceCache.length && !this.stage(task, 'media'))
+        task.stages.unshift({
+          key: 'media',
+          label: '保存生成资源',
+          status: 'pending',
+          current: 0,
+          total: resourceCache.length,
+        });
+      const privateDirectory = join(
+        this.cacheDir,
+        `generated-resources-${sanitizeSegment(id, 'generated')}`,
+      );
+      if (resourceCache.length)
+        this.touchStage(
+          task,
+          'media',
+          { status: 'running', current: 0, total: resourceCache.length, note: '复制本地生成资源' },
+          { persist: true },
+        );
+      const resources = await bundleGeneratedResources({
+        cache: resourceCache,
+        privateDirectory,
+        outputDirectory: bundle.stageDir,
+        resolve: this.deps.generatedResource,
+        signal: abort.signal,
+        checkpoint: (current) => {
+          this.touchStage(
+            task,
+            'media',
+            { status: 'running', current, total: resourceCache.length },
+            { persist: true },
+          );
+        },
+      });
+      task.generatedResourceReport = resources.manifest;
+      writeFileAtomicSync(
+        join(bundle.stageDir, 'generated-resources.json'),
+        JSON.stringify(resources.manifest, null, 2),
+      );
+      const missingResources = resources.manifest.entries.filter(
+        (entry) => entry.status === 'missing',
+      ).length;
+      if (resourceCache.length)
+        this.touchStage(
+          task,
+          'media',
+          {
+            status: 'completed',
+            current: resourceCache.length,
+            total: resourceCache.length,
+            failed: missingResources,
+            failures: resources.manifest.entries
+              .filter((entry) => entry.status === 'missing')
+              .slice(0, 200)
+              .map((entry) => ({
+                stage: 'media',
+                fileName: entry.name,
+                error: entry.error ?? '本地资源缺失',
+              })),
+            note: `${resourceCache.length - missingResources} 项已保存，${missingResources} 项缺失`,
+          },
+          { persist: true },
+        );
       this.touchStage(
         task,
         'message',
@@ -3056,6 +3171,7 @@ export class ExportTaskManager extends EventEmitter {
           task.generated,
           format,
           join(bundle.stageDir, `${stem}.${format}`),
+          resources.manifest,
         );
         abort.signal.throwIfAborted();
         task.formatCounts[format] = task.generated.messages.length;
@@ -3066,12 +3182,26 @@ export class ExportTaskManager extends EventEmitter {
       task.current = task.generated.messages.length;
       task.status = 'completed';
       task.progress = 100;
+      for (const item of resourceCache) {
+        const relative = resources.published.get(item.reference.key);
+        if (item.snapshot && relative) item.snapshot.directory = join(bundle.finalDir, relative);
+      }
       this.touchStage(task, 'message', {
         status: 'completed',
         current: task.current,
         total: task.current,
         note: `${task.current} 条本地生成记录`,
       });
+      if (
+        this.saveTasks() &&
+        resourceCache.every((item) => !item.snapshot || resources.published.has(item.reference.key))
+      ) {
+        try {
+          rmSync(privateDirectory, { recursive: true, force: true });
+        } catch {
+          this.log(id, 'task', '导出结果已保存，临时资源将在删除任务时清理。', 'warn');
+        }
+      }
     } catch (error) {
       if (!abort.signal.aborted) {
         task.status = 'failed';
@@ -3090,7 +3220,12 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : (task.error ?? '导出已停止'),
+        message:
+          task.status === 'completed'
+            ? task.generatedResourceReport?.complete === false
+              ? '导出完成，部分生成资源缺失，请查看资源清单'
+              : '导出完成'
+            : (task.error ?? '导出已停止'),
       });
     }
   }
@@ -4076,6 +4211,11 @@ export class ExportTaskManager extends EventEmitter {
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
     try {
+      if (task.generated)
+        rmSync(
+          join(this.cacheDir, `generated-resources-${sanitizeSegment(task.id, 'generated')}`),
+          { recursive: true, force: true },
+        );
       if (task.bundleDir && existsSync(task.bundleDir)) {
         rmSync(task.bundleDir, { recursive: true, force: true });
       } else if (task.filePath && existsSync(task.filePath)) {
@@ -4086,6 +4226,10 @@ export class ExportTaskManager extends EventEmitter {
         : join(this.cacheDir, `report-${task.id}.json`);
       if (task.contacts && task.reportPath === contactReportPath && existsSync(contactReportPath))
         unlinkSync(contactReportPath);
+      if (task.generated) {
+        const cachedReport = join(this.cacheDir, `report-${task.id}.json`);
+        if (existsSync(cachedReport)) unlinkSync(cachedReport);
+      }
     } catch {}
   }
 

@@ -320,6 +320,7 @@ export type {
   ContentSearchCoverage,
 } from './account/content_search';
 export { listGeneratedConversations, captureGeneratedContent } from './account/generated_content';
+export { resolveGeneratedResource } from './account/export/generated_resources';
 export type {
   GeneratedContentTarget,
   GeneratedContentSnapshot,

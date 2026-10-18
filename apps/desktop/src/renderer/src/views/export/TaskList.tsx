@@ -124,6 +124,7 @@ export interface UiTask {
   /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
   isGuild?: boolean;
   isGenerated?: boolean;
+  generatedResources?: { total: number; copied: number; missing: number };
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -338,7 +339,7 @@ function TaskCard({
       type="button"
       className={`weq-exp-card is-${task.status}${active ? ' is-active' : ''}`}
       onClick={onSelect}
-      title={`${taskTypeLabel(task)} · ${task.name}`}
+      title={`${taskTypeLabel(task)} · ${task.name}${task.generatedResources?.missing ? ' · 部分资源缺失' : ''}`}
     >
       {idle ? (
         <span className="weq-exp-card-skeleton" aria-hidden />
@@ -389,6 +390,7 @@ function TaskDetail({
 }): ReactElement {
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
+  const resourceMissing = (t.generatedResources?.missing ?? 0) > 0;
   const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
@@ -415,11 +417,19 @@ function TaskDetail({
             {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
           </span>
         </div>
-        <span className={`weq-exp-detail-status is-${t.status}`}>
-          <StatusIcon status={t.status} />
-          {t.status === 'paused' && t.isContacts && !t.canResume
+        <span
+          className={`weq-exp-detail-status is-${resourceMissing && t.status === 'completed' ? 'failed' : t.status}`}
+        >
+          {resourceMissing && t.status === 'completed' ? (
+            <CircleAlert size={14} />
+          ) : (
+            <StatusIcon status={t.status} />
+          )}
+          {t.status === 'paused' && (t.isContacts || t.isGenerated || t.isQzone) && !t.canResume
             ? '暂停收尾中'
-            : STATUS_LABEL[t.status]}
+            : t.status === 'completed' && resourceMissing
+              ? '已完成 · 资源缺失'
+              : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
@@ -495,6 +505,18 @@ function TaskDetail({
               : t.save?.status === 'failed' || t.save?.status === 'interrupted'
                 ? `导出已完成，尚未保存：${t.save.error}`
                 : '导出已完成，结果保留在任务中，等待选择保存位置'}
+        </p>
+      ) : null}
+
+      {t.status === 'completed' && t.generatedResources && t.generatedResources.total > 0 ? (
+        <p
+          className={`weq-exp-detail-complete${resourceMissing ? ' is-warn' : ''}`}
+          role={resourceMissing ? 'alert' : 'status'}
+        >
+          生成资源已保存 {fmtCount(t.generatedResources.copied)} 项
+          {resourceMissing
+            ? ` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`
+            : ''}
         </p>
       ) : null}
 
@@ -610,6 +632,9 @@ export function TaskList({
 
   const selected = tasks.find((t) => t.id === selectedId) ?? tasks[0];
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
+  const hasMissingResources = tasks.some(
+    (task) => task.status === 'completed' && (task.generatedResources?.missing ?? 0) > 0,
+  );
   const hasTasks = tasks.length > 0;
 
   // 收拢时的总进度条（所有任务的加权平均）
@@ -639,7 +664,7 @@ export function TaskList({
         ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
           <span className="weq-exp-tasks-mini-status is-done">
             <CircleCheck size={12} />
-            全部完成
+            {hasMissingResources ? '已完成 · 部分资源缺失' : '全部完成'}
           </span>
         ) : !isExpanded && hasTasks ? (
           <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>

@@ -162,6 +162,9 @@ export function ConversationList({
   const [keyword, setKeyword] = useState('');
   const [scope, setScope] = useState<'all' | 'real' | 'virtual'>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+  const createTriggerRef = useRef<HTMLButtonElement>(null);
   const { selectionMode, selectedIds, setSelectedIds, setSelectionMode } = useContentMultiSelect({
     kind: 'conversations',
     container: 'main-list',
@@ -235,6 +238,27 @@ export function ConversationList({
       document.removeEventListener('keydown', handleEscape);
     };
   }, [scopeOpen]);
+  useEffect(() => {
+    if (!createOpen) return;
+    createMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Node && !createMenuRef.current?.contains(event.target))
+        setCreateOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCreateOpen(false);
+      createTriggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', closeOnEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', closeOnEscape, true);
+    };
+  }, [createOpen]);
 
   return (
     <div
@@ -261,7 +285,10 @@ export function ConversationList({
             aria-label="显示范围"
             aria-haspopup="menu"
             aria-expanded={scopeOpen}
-            onClick={() => setScopeOpen(!scopeOpen)}
+            onClick={() => {
+              setCreateOpen(false);
+              setScopeOpen(!scopeOpen);
+            }}
           >
             {scope === 'all' ? (
               <MessagesSquare size={16} />
@@ -295,15 +322,49 @@ export function ConversationList({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          title="添加会话克隆"
-          aria-label="添加会话克隆"
-          disabled={!directory}
-          onClick={() => directory?.onCreate()}
-        >
-          <Plus size={16} />
-        </button>
+        <div className="weq-directory-scope" ref={createMenuRef}>
+          <button
+            ref={createTriggerRef}
+            type="button"
+            title="添加会话"
+            aria-label="添加会话"
+            aria-haspopup="menu"
+            aria-expanded={createOpen}
+            disabled={!directory}
+            onClick={() => {
+              setScopeOpen(false);
+              setCreateOpen(!createOpen);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowDown') return;
+              event.preventDefault();
+              setScopeOpen(false);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus size={16} />
+          </button>
+          {createOpen ? (
+            <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
+              <button
+                type="button"
+                role="menuitem"
+                onKeyDown={(event) => {
+                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                    event.preventDefault();
+                  if (event.key === 'Tab') setCreateOpen(false);
+                }}
+                onClick={() => {
+                  setCreateOpen(false);
+                  directory?.onCreate();
+                }}
+              >
+                <Bot size={16} />
+                新建好友克隆
+              </button>
+            </div>
+          ) : null}
+        </div>
       </DirectoryToolbar>
       {loading ? <ListSkeleton rows={9} /> : null}
       {!loading && !filtered.length ? (

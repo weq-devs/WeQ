@@ -61,7 +61,10 @@ interface SourceOutput {
   reportPath?: string;
 }
 
-async function inventory(root: string, signal?: AbortSignal): Promise<Map<string, string>> {
+export async function inventoryExportOutput(
+  root: string,
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
   const entries = new Map<string, string>();
   async function visit(path: string): Promise<void> {
     signal?.throwIfAborted();
@@ -104,7 +107,7 @@ export async function saveExportOutput(
   );
   try {
     signal?.throwIfAborted();
-    const sourceInventory = await inventory(sourcePath, signal);
+    const sourceInventory = await inventoryExportOutput(sourcePath, signal);
     if (output.bundleDir) {
       for (const name of await readdir(sourcePath)) {
         signal?.throwIfAborted();
@@ -127,7 +130,7 @@ export async function saveExportOutput(
     }
     signal?.throwIfAborted();
     if (output.bundleDir) {
-      const copied = await inventory(bundle.stageDir, signal);
+      const copied = await inventoryExportOutput(bundle.stageDir, signal);
       if (
         sourceInventory.size !== copied.size ||
         [...sourceInventory].some(([path, hash]) => copied.get(path) !== hash)
@@ -142,7 +145,7 @@ export async function saveExportOutput(
       )
         throw new Error('导出文件保存校验失败，未发布目标。');
     }
-    const after = await inventory(sourcePath, signal);
+    const after = await inventoryExportOutput(sourcePath, signal);
     if (
       sourceInventory.size !== after.size ||
       [...sourceInventory].some(([path, hash]) => after.get(path) !== hash)

@@ -32,6 +32,48 @@ function fixture() {
 }
 
 describe('非模态内容工作区', () => {
+  it('独立整页不生成标签，覆盖报告标签栏但保留报告现场，关闭后恢复', () => {
+    const app = fixture();
+    let open = () => {};
+    let close = () => {};
+    function View() {
+      const [shown, setShown] = useState(false);
+      open = () => setShown(true);
+      close = () => setShown(false);
+      return h(
+        WorkspacePages,
+        { navigationKey: 'chat' },
+        h(WorkspaceContent, null, h('input', { 'data-chat': true })),
+        h(
+          WorkspacePage,
+          { title: '报告', retainOnNavigate: true },
+          h('input', { 'data-report': true }),
+        ),
+        shown &&
+          h(
+            WorkspacePage,
+            { title: '设置', standalone: true, onClose: close },
+            h('div', null, '设置内容'),
+          ),
+      );
+    }
+    try {
+      act(() => app.root.render(h(View)));
+      const report = app.host.querySelector('[data-report]');
+      act(() => open());
+      expect(app.host.querySelector('[aria-label="内容页面"]')).toBeNull();
+      expect(app.host.querySelector('[role="region"][aria-label="设置"]')).not.toBeNull();
+      expect(app.host.querySelector('[aria-label="设置"]')?.hasAttribute('aria-labelledby')).toBe(
+        false,
+      );
+      expect(app.host.querySelector('[data-report]')).toBe(report);
+      act(() => close());
+      expect(app.host.querySelector('[aria-label="内容页面"]')).not.toBeNull();
+      expect(app.host.querySelector('[data-chat]')?.closest('[hidden]')).toBeNull();
+    } finally {
+      app.close();
+    }
+  });
   it('报告标签保留到显式关闭，普通导航返回内容但不销毁报告现场', () => {
     const app = fixture();
     let navigate = () => {};
