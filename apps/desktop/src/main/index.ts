@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -428,7 +429,11 @@ function registerMediaExportIpc(): void {
         if (input?.mode === 'clipboard') {
           const image = nativeImage.createFromBuffer(bytes);
           if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          clipboard.writeImage(image);
+          await clipboard.write([
+            new ClipboardItem({
+              'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+            }),
+          ]);
           return { ok: true };
         }
 
@@ -521,7 +526,11 @@ function registerCaptureIpc(): void {
     try {
       const image = await win.webContents.capturePage();
       if (image.isEmpty()) return { ok: false, error: '截图为空' };
-      clipboard.writeImage(image);
+      await clipboard.write([
+        new ClipboardItem({
+          'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+        }),
+      ]);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

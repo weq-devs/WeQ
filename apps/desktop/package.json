@@ -75,7 +75,7 @@
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "electron": "^34.3.0",
+    "electron": "44.9.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
     "happy-dom": "^21.0.1",
