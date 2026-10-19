@@ -110,6 +110,9 @@ describe('群名片消息', () => {
     const external = vi.spyOn(window, 'open');
     act(() => f.host.querySelector<HTMLElement>('[title="查看群名片"]')!.click());
     const dialog = document.querySelector('[role="dialog"][aria-label="群资料"]')!;
+    expect(dialog.hasAttribute('aria-modal')).toBe(false);
+    expect(dialog.parentElement?.classList.contains('weq-nonmodal-layer')).toBe(true);
+    expect(dialog.parentElement?.classList.contains('is-popover')).toBe(true);
     expect(dialog.textContent).toContain(target.name);
     expect(dialog.textContent).toContain(code);
     expect(dialog.textContent).toContain('23');

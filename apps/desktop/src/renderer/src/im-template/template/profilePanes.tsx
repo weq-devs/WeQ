@@ -40,6 +40,7 @@ import { Avatar, EmptyState } from './primitives';
 import type { Contact, Conversation, ProfileExtInfo } from './types';
 import { displayUserName } from './user';
 import { relationMeta } from '../../lib/profileRelations';
+import '../../styles/group-profile.css';
 
 export { relationMeta } from '../../lib/profileRelations';
 
@@ -539,11 +540,14 @@ export function GroupProfileDialog({
   }
 
   return (
-    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="popover"
+      className="weq-profile-layer weq-group-profile-layer"
+      onClose={onClose}
+    >
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
-        aria-modal="true"
         aria-label="群资料"
         onMouseDown={(event) => event.stopPropagation()}
       >

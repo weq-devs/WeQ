@@ -63,6 +63,72 @@ function button(host: ParentNode, name: string) {
   return value;
 }
 describe('新增消息交互', () => {
+  it('私聊标题复用好友名片入口，并以标题下缘定位', () => {
+    const fixture = mount();
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+    const onOpenGroupMember = vi.fn();
+    try {
+      fixture.render(
+        h(ChatPane, {
+          user: demo.user,
+          conversation,
+          messages: [],
+          draft: '',
+          onOpenGroupMember,
+        }),
+      );
+      const title = fixture.host.querySelector<HTMLButtonElement>(
+        '.weq-conversation-title-profile',
+      )!;
+      expect(title.tagName).toBe('BUTTON');
+      expect(title.type).toBe('button');
+      expect(title.title).toBe('查看好友名片');
+      vi.spyOn(title, 'getBoundingClientRect').mockReturnValue({
+        left: 180,
+        bottom: 72,
+      } as DOMRect);
+      act(() => title.click());
+      expect(onOpenGroupMember).toHaveBeenCalledWith(
+        conversation.type === 'direct' ? conversation.otherUser : undefined,
+        { x: 180, y: 72 },
+      );
+    } finally {
+      fixture.close();
+    }
+  });
+
+  it('群聊标题打开现有群名片，支持关闭且切换会话后不残留', () => {
+    const fixture = mount();
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const render = (selected = conversation) =>
+      fixture.render(
+        h(ChatPane, { user: demo.user, conversation: selected, messages: [], draft: '' }),
+      );
+    try {
+      render();
+      const title = fixture.host.querySelector<HTMLButtonElement>(
+        '.weq-conversation-title-profile',
+      )!;
+      expect(title.title).toBe('查看群名片');
+      act(() => title.click());
+      const card = document.querySelector('[role="dialog"][aria-label="群资料"]')!;
+      expect(card.querySelector('.weq-profile-name')?.textContent).toBe(
+        conversation.type === 'group' ? conversation.group.name : undefined,
+      );
+      act(() => card.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      act(() => title.click());
+      render(demo.conversations.find((item) => item.type === 'direct')!);
+      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      render();
+      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+    } finally {
+      fixture.close();
+    }
+  });
+
   it('会话资源占用右侧时临时收起旧群资料栏，关闭后恢复且不重建聊天', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();

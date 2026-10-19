@@ -11,6 +11,8 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import '../../styles/message-selection-toolbar.css';
+import '../../styles/conversation-title.css';
+import { GroupProfileDialog } from './profilePanes';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
@@ -791,6 +793,7 @@ export function ChatPane({
   });
   const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
+  const [titleProfileGroupId, setTitleProfileGroupId] = useState<string | null>(null);
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
@@ -808,6 +811,7 @@ export function ChatPane({
   useEffect(() => {
     selectionAnchor.current = null;
     setSelectionMenu(null);
+    setTitleProfileGroupId(null);
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
@@ -3820,7 +3824,29 @@ export function ChatPane({
         </button>
         <div className={cn('chat-title')}>
           <strong>
-            <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+            {conversation.type === 'group' ||
+            (conversation.type === 'direct' && onOpenGroupMember) ? (
+              <button
+                className={cn('chat-title-text', 'weq-conversation-title-profile')}
+                type="button"
+                title={conversation.type === 'group' ? '查看群名片' : '查看好友名片'}
+                onClick={(event) => {
+                  if (conversation.type === 'group') {
+                    setTitleProfileGroupId(conversation.id);
+                  } else if (conversation.type === 'direct') {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onOpenGroupMember?.(conversation.otherUser, {
+                      x: rect.left,
+                      y: rect.bottom,
+                    });
+                  }
+                }}
+              >
+                {chatHeaderTitle(conversation)}
+              </button>
+            ) : (
+              <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+            )}
             {isBotConversation(conversation) ? (
               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                 <Bot size={12} strokeWidth={2.4} />
@@ -3903,6 +3929,12 @@ export function ChatPane({
           ) : null}
         </div>
       </header>
+      {conversation.type === 'group' && titleProfileGroupId === conversation.id ? (
+        <GroupProfileDialog
+          conversation={conversation}
+          onClose={() => setTitleProfileGroupId(null)}
+        />
+      ) : null}
 
       <div
         className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
