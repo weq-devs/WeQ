@@ -12,13 +12,20 @@ import { Bell, Users, X } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 import { formatProfileDate } from '../im-template/template/format';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
-import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
+import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { OverlayLayer } from './OverlayLayer';
 import { RequestActions, useNoticeOperations } from './qq-actions/RequestActions';
 import { withQQAccountScope } from './qq-actions/shared';
 import { bindNoticeOperations, type NoticeOperation } from '../lib/contactNotice';
+import { avatarFromUin } from '../lib/avatarResolver';
 import '../styles/contact-notices.css';
+
+export type NoticeProfileHandler = (
+  user: User,
+  anchor: { x: number; y: number },
+  group?: { code: string; name: string },
+) => void;
 
 /**
  * 好友通知灯箱。沿用 weq 设计：遮罩 + 居中卡片，固定标题 + 可滚动列表。
@@ -28,10 +35,12 @@ function ContactNoticeDialogBody({
   open,
   requests,
   onClose,
+  onOpenProfile,
 }: {
   open: boolean;
   requests: ContactRequest[];
   onClose: () => void;
+  onOpenProfile?: NoticeProfileHandler;
 }) {
   const inbox = useNoticeOperations(false, open);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
@@ -85,11 +94,7 @@ function ContactNoticeDialogBody({
                   className={cn('notice-card', 'notice-card-request', badge?.tone)}
                   key={request.id}
                 >
-                  <Avatar
-                    name={who}
-                    avatarUrl={request.user.avatarUrl}
-                    seed={request.user.identityValue}
-                  />
+                  <NoticeAvatar user={request.user} onOpenProfile={onOpenProfile} />
                   <div className="notice-copy">
                     <p className="notice-line-head">
                       <span className="notice-who" title={who}>
@@ -133,6 +138,7 @@ function ContactNoticeDialogBody({
               <OnlineRequestCard
                 key={`${operation.kind}:${operation.token}`}
                 operation={operation}
+                onOpenProfile={onOpenProfile}
               />
             ))}
         </div>
@@ -187,10 +193,12 @@ function GroupNoticeDialogBody({
   open,
   requests,
   onClose,
+  onOpenProfile,
 }: {
   open: boolean;
   requests: GroupJoinRequest[];
   onClose: () => void;
+  onOpenProfile?: NoticeProfileHandler;
 }) {
   const inbox = useNoticeOperations(true, open);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
@@ -244,10 +252,10 @@ function GroupNoticeDialogBody({
                   className={cn('notice-card', 'notice-card-request', badge?.tone)}
                   key={request.id}
                 >
-                  <Avatar
-                    name={who}
-                    avatarUrl={request.user.avatarUrl}
-                    seed={request.user.identityValue}
+                  <NoticeAvatar
+                    user={request.user}
+                    group={{ code: request.group.id, name: request.group.name }}
+                    onOpenProfile={onOpenProfile}
                   />
                   <div className={cn('notice-copy')}>
                     <p className="notice-line-head">
@@ -303,6 +311,7 @@ function GroupNoticeDialogBody({
               <OnlineRequestCard
                 key={`${operation.kind}:${operation.token}`}
                 operation={operation}
+                onOpenProfile={onOpenProfile}
               />
             ))}
         </div>
@@ -312,10 +321,30 @@ function GroupNoticeDialogBody({
 }
 
 /** 在线收件箱里的新申请尚未同步进本地通知库时，也使用相同卡片。 */
-function OnlineRequestCard({ operation }: { operation: NoticeOperation }) {
+function OnlineRequestCard({
+  operation,
+  onOpenProfile,
+}: {
+  operation: NoticeOperation;
+  onOpenProfile?: NoticeProfileHandler;
+}) {
+  const user: User = {
+    id: operation.uid,
+    username: operation.uid,
+    identityLabel: operation.uin ? 'QQ' : 'UID',
+    identityValue: operation.uin || operation.uid,
+    displayName: operation.name,
+    avatarUrl: avatarFromUin(operation.uin),
+  };
   return (
     <article className="notice-card notice-card-request is-pending">
-      <Avatar name={operation.name} seed={operation.uid || operation.uin} />
+      <NoticeAvatar
+        user={user}
+        group={
+          operation.groupId ? { code: operation.groupId, name: operation.groupName } : undefined
+        }
+        onOpenProfile={onOpenProfile}
+      />
       <div className="notice-copy">
         <p className="notice-line-head">
           <span className="notice-who">{operation.name}</span>
@@ -338,6 +367,39 @@ function OnlineRequestCard({ operation }: { operation: NoticeOperation }) {
         <div className="notice-doubt-mark" />
       )}
     </article>
+  );
+}
+
+function NoticeAvatar({
+  user,
+  group,
+  onOpenProfile,
+}: {
+  user: User;
+  group?: { code: string; name: string };
+  onOpenProfile?: NoticeProfileHandler;
+}) {
+  const name = displayUserName(user);
+  const avatar = <Avatar name={name} avatarUrl={user.avatarUrl} seed={user.identityValue} />;
+  if (!onOpenProfile || (!user.id && !user.identityValue)) return avatar;
+  return (
+    <button
+      type="button"
+      className="notice-avatar-button"
+      title={`查看 ${name} 的名片`}
+      aria-label={`查看 ${name} 的名片`}
+      onClick={(event) => {
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        const anchor =
+          event.detail === 0
+            ? { x: rect.right, y: rect.bottom }
+            : { x: event.clientX, y: event.clientY };
+        onOpenProfile(user, anchor, group);
+      }}
+    >
+      {avatar}
+    </button>
   );
 }
 

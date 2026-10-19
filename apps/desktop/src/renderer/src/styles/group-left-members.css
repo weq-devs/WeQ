@@ -8,4 +8,5 @@
 .weq-group-left-members header { padding: 12px; }
 .weq-group-left-members header strong { font-size: 14px; }
 .weq-group-left-members .group-left-member-body { padding: 6px 12px 12px; }
+.weq-group-left-members .member-display-name { color: var(--weq-fg-primary); }
 html[data-theme="dark"] .weq-group-left-members { border-color: var(--weq-border-strong); }

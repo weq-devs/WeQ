@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
@@ -515,7 +516,12 @@ function CollectionCard({
             readOnly
           />
         ) : null}
-        <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+        <ProfileAvatar
+          enabled={!selecting}
+          target={{ identity: it.authorUin, name: it.authorName }}
+        >
+          <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+        </ProfileAvatar>
         <span className="weq-col-card-who">
           <span className="weq-col-card-name">{it.authorName || '未知'}</span>
           {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
@@ -1169,7 +1175,9 @@ export function CollectionDialog({
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">
-                <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                <ProfileAvatar target={{ identity: selected.authorUin, name: selected.authorName }}>
+                  <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                </ProfileAvatar>
                 <span>
                   {selected.authorName || '未知'}
                   {selected.groupName ? ` · ${selected.groupName}` : ''}

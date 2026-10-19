@@ -12,6 +12,7 @@ import { Avatar, GroupMembersSkeleton } from '../im-template/template/primitives
 import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
 import '../styles/group-left-members.css';
+import { ProfileAvatar } from './ProfileAvatar';
 
 /** 一行已退群成员（MainView 从 `listGroupLeftMembers` 的 wire 映射过来）。 */
 export interface GroupLeftMemberRow {
@@ -25,12 +26,14 @@ export interface GroupLeftMemberRow {
 }
 
 export function GroupLeftMembersDialog({
+  groupCode,
   groupName,
   members,
   loading,
   error,
   onClose,
 }: {
+  groupCode?: string;
   groupName: string;
   members: GroupLeftMemberRow[];
   loading: boolean;
@@ -73,11 +76,21 @@ export function GroupLeftMembersDialog({
             rows.map((member) => (
               <div className={cn('group-info-member-row')} key={member.id}>
                 <div className="member-avatar-wrap">
-                  <Avatar
-                    name={member.displayName}
-                    avatarUrl={member.avatarUrl}
-                    seed={member.identity}
-                  />
+                  <ProfileAvatar
+                    target={{
+                      identity: member.id,
+                      uin: member.identity,
+                      name: member.displayName,
+                      avatarUrl: member.avatarUrl,
+                      group: groupCode ? { code: groupCode, name: groupName } : undefined,
+                    }}
+                  >
+                    <Avatar
+                      name={member.displayName}
+                      avatarUrl={member.avatarUrl}
+                      seed={member.identity}
+                    />
+                  </ProfileAvatar>
                 </div>
                 <span className="member-name-text">
                   <span className="member-name-with-badge">

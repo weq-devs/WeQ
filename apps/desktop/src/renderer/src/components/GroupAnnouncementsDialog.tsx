@@ -5,6 +5,7 @@ import { OverlayLayer } from './OverlayLayer';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { GroupNoticeActions } from './qq-actions/GroupNoticeActions';
+import { ProfileAvatar } from './ProfileAvatar';
 
 export interface GroupBulletinImage {
   id: string;
@@ -80,11 +81,20 @@ export function GroupAnnouncementsDialog({
                 return (
                   <article key={bulletin.fid} className="group-bulletin-item">
                     <div className="group-bulletin-layout">
-                      <Avatar
-                        name={bulletin.publisherName || bulletin.publisherUid || '未知'}
-                        avatarUrl={bulletin.publisherAvatar}
-                        seed={bulletin.publisherUid}
-                      />
+                      <ProfileAvatar
+                        target={{
+                          identity: bulletin.publisherUid,
+                          name: bulletin.publisherName || bulletin.publisherUid,
+                          avatarUrl: bulletin.publisherAvatar,
+                          group: { code: groupCode, name: groupName },
+                        }}
+                      >
+                        <Avatar
+                          name={bulletin.publisherName || bulletin.publisherUid || '未知'}
+                          avatarUrl={bulletin.publisherAvatar}
+                          seed={bulletin.publisherUid}
+                        />
+                      </ProfileAvatar>
                       <div className="group-bulletin-main">
                         <div className="group-bulletin-header">
                           <span className="group-bulletin-publisher-name">

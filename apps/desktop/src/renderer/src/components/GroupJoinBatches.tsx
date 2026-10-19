@@ -15,6 +15,8 @@ import type { CSSProperties } from 'react';
 import { CalendarClock, Users } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import { ACCENT_SERIES, formatNumber } from './analyticsCharts';
+import { ProfileAvatar } from './ProfileAvatar';
+import type { ProfileGroup } from '../lib/profileNavigation';
 
 interface BatchMember {
   uid: string;
@@ -109,7 +111,15 @@ function sampleEven<T>(list: T[], max: number): T[] {
 }
 
 /** 头像堆叠行：最多 10 张，多了折成 +N。 */
-function FaceRow({ members, tone }: { members: BatchMember[]; tone: string }) {
+function FaceRow({
+  members,
+  tone,
+  group,
+}: {
+  members: BatchMember[];
+  tone: string;
+  group?: ProfileGroup;
+}) {
   const show = members.slice(0, 10);
   return (
     <div className="gc-faces">
@@ -119,7 +129,18 @@ function FaceRow({ members, tone }: { members: BatchMember[]; tone: string }) {
           key={m.uid}
           title={`${m.displayName} · ${momentText(m.joinTime)} 入群`}
         >
-          <Avatar name={m.displayName} avatarUrl={avatarUrlOf(m.uin)} seed={m.uid} />
+          <ProfileAvatar
+            enabled={Boolean(group)}
+            target={{
+              identity: m.uid,
+              uin: m.uin,
+              name: m.displayName,
+              avatarUrl: avatarUrlOf(m.uin),
+              group,
+            }}
+          >
+            <Avatar name={m.displayName} avatarUrl={avatarUrlOf(m.uin)} seed={m.uid} />
+          </ProfileAvatar>
         </span>
       ))}
       {members.length > show.length ? (
@@ -214,7 +235,13 @@ function BatchTimeline({ report }: { report: JoinBatchReport }) {
   );
 }
 
-export function GroupJoinBatches({ report }: { report: JoinBatchReport }) {
+export function GroupJoinBatches({
+  report,
+  group,
+}: {
+  report: JoinBatchReport;
+  group?: ProfileGroup;
+}) {
   const shown = report.batches.slice(0, MAX_CARDS);
   const hidden = report.batches.length - shown.length;
   const bySize = report.memberTotal > 0 ? report.memberTotal : 1;
@@ -257,7 +284,7 @@ export function GroupJoinBatches({ report }: { report: JoinBatchReport }) {
                   </span>
                 </div>
 
-                <FaceRow members={batch.members} tone={tone} />
+                <FaceRow members={batch.members} tone={tone} group={group} />
 
                 <div className="gc-metrics">
                   <Metric
@@ -279,11 +306,22 @@ export function GroupJoinBatches({ report }: { report: JoinBatchReport }) {
                 <div className="gc-card-foot">
                   {batch.topSpeaker ? (
                     <span className="gc-top" title="这批人里发言最多的一位">
-                      <Avatar
-                        name={batch.topSpeaker.displayName}
-                        avatarUrl={avatarUrlOf(batch.topSpeaker.uin)}
-                        seed={batch.topSpeaker.uid}
-                      />
+                      <ProfileAvatar
+                        enabled={Boolean(group)}
+                        target={{
+                          identity: batch.topSpeaker.uid,
+                          uin: batch.topSpeaker.uin,
+                          name: batch.topSpeaker.displayName,
+                          avatarUrl: avatarUrlOf(batch.topSpeaker.uin),
+                          group,
+                        }}
+                      >
+                        <Avatar
+                          name={batch.topSpeaker.displayName}
+                          avatarUrl={avatarUrlOf(batch.topSpeaker.uin)}
+                          seed={batch.topSpeaker.uid}
+                        />
+                      </ProfileAvatar>
                       <span className="gc-top-name" title={batch.topSpeaker.displayName}>
                         {batch.topSpeaker.displayName}
                       </span>

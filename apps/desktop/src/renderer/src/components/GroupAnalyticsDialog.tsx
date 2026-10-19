@@ -438,7 +438,10 @@ export function GroupAnalyticsDialog({
           </div>
         ) : (
           <div className={batchesLoading ? 'gc-stale' : undefined}>
-            <GroupJoinBatches report={batches} />
+            <GroupJoinBatches
+              report={batches}
+              group={forExport ? undefined : { code: groupCode, name: groupName }}
+            />
           </div>
         )}
       </section>
@@ -487,6 +490,17 @@ export function GroupAnalyticsDialog({
             {ranking.map((item, idx) => (
               <PersonWeekCard
                 key={item.uid}
+                profile={
+                  forExport
+                    ? undefined
+                    : {
+                        identity: item.uid,
+                        uin: item.uin,
+                        name: item.displayName,
+                        avatarUrl: avatarUrlOf(item.uin),
+                        group: { code: groupCode, name: groupName },
+                      }
+                }
                 name={item.displayName}
                 avatarUrl={avatarUrlOf(item.uin)}
                 count={item.messageCount}

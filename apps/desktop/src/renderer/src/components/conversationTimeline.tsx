@@ -20,6 +20,8 @@ import {
 } from 'react';
 import { formatNumber } from './analyticsCharts';
 import { beijingDay, daySeconds } from '../lib/messageCalendar';
+import { ProfileAvatar } from './ProfileAvatar';
+import type { ProfileTarget } from '../lib/profileNavigation';
 
 const DAY_SECONDS = 86400;
 /** 拖动选择的最小跨度：一天。 */
@@ -454,6 +456,7 @@ export function PersonWeekCard({
   rank,
   accent,
   subtitle,
+  profile,
 }: {
   name: string;
   avatarUrl?: string | null;
@@ -462,6 +465,7 @@ export function PersonWeekCard({
   rank?: number;
   accent?: string;
   subtitle?: string;
+  profile?: ProfileTarget;
 }): ReactElement {
   return (
     <div
@@ -470,11 +474,13 @@ export function PersonWeekCard({
     >
       <div className="ca-person-head">
         <span className="ca-person-avatar">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" loading="lazy" />
-          ) : (
-            <span aria-hidden>{name.slice(0, 1)}</span>
-          )}
+          <ProfileAvatar target={profile}>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" loading="lazy" />
+            ) : (
+              <span aria-hidden>{name.slice(0, 1)}</span>
+            )}
+          </ProfileAvatar>
         </span>
         <span className="ca-person-meta">
           <strong title={name}>{name}</strong>

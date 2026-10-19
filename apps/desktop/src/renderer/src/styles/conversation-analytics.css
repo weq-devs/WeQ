@@ -258,6 +258,16 @@
   object-fit: cover;
 }
 
+.ca-person-avatar .weq-profile-avatar-button {
+  width: 100%;
+  height: 100%;
+}
+
+.ca-person-avatar .weq-profile-avatar-button:hover,
+.ca-person-avatar .weq-profile-avatar-button:focus-visible {
+  outline-offset: -2px;
+}
+
 .ca-person-meta {
   display: flex;
   flex: 1;
