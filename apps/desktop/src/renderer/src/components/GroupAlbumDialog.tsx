@@ -7,6 +7,7 @@ import { albumMediaUrl } from '../lib/resourceUrl';
 import { openLightbox } from './ImageLightbox';
 import { openVideoLightbox } from './VideoLightbox';
 import { OverlayLayer } from './OverlayLayer';
+import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 
 export interface GroupAlbumWire {
   id: string;
@@ -168,6 +169,10 @@ export function GroupAlbumDialog({
           {mediaState.album ? (
             <AlbumMediaView
               state={mediaState}
+              groupCode={groupCode}
+              onChanged={() => {
+                if (mediaState.album) void openAlbum(mediaState.album);
+              }}
               onBack={() => setMediaState({ status: 'idle', album: null, items: [], error: null })}
             />
           ) : (
@@ -258,9 +263,13 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
 function AlbumMediaView({
   state,
   onBack,
+  groupCode,
+  onChanged,
 }: {
   state: MediaState;
   onBack: () => void;
+  groupCode: string;
+  onChanged: () => void;
 }): ReactElement {
   const items = state.items;
   const countText = useMemo(() => {
@@ -278,6 +287,15 @@ function AlbumMediaView({
         </button>
         <span>{countText}</span>
       </div>
+      {state.album && (
+        <GroupAlbumUpload
+          key={state.album.id}
+          groupId={Number(groupCode)}
+          albumId={state.album.id}
+          albumName={state.album.title}
+          onChanged={onChanged}
+        />
+      )}
       {state.status === 'loading' ? (
         <div className="group-album-state">
           <Loader2 size={18} className="weq-spin" />
@@ -289,36 +307,50 @@ function AlbumMediaView({
         <div className="group-album-state">这个相册没有可预览的图片</div>
       ) : (
         <div className="group-album-media-grid">
-          {items.map((item, index) => {
+          {items.map((item) => {
             const src = item.previewUrl || item.originalUrl;
             const full = item.originalUrl || item.previewUrl;
             const proxiedFull = full ? albumMediaUrl(full) : '';
             const isVideo = item.kind === 'video';
             return (
-              <button
-                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                key={`${item.batchId}:${item.fileName}:${index}`}
-                type="button"
-                className={`group-album-media-card${isVideo ? ' is-video' : ''}`}
-                onClick={() => {
-                  if (!proxiedFull) return;
-                  // 视频走 <video> 灯箱,图片走图片灯箱。
-                  if (isVideo) {
-                    openVideoLightbox(
-                      proxiedFull,
-                      src ? albumMediaUrl(src) : undefined,
-                      item.fileName,
-                    );
-                  } else openLightbox(proxiedFull, item.fileName || '群相册图片');
-                }}
+              <div
+                className="weq-qq-album-item"
+                key={item.image?.lloc || item.originalUrl || `${item.batchId}:${item.fileName}`}
               >
-                <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />
-                {isVideo ? (
-                  <span className="group-album-media-play" aria-hidden>
-                    <Play size={18} />
-                  </span>
-                ) : null}
-              </button>
+                <button
+                  type="button"
+                  className={`group-album-media-card${isVideo ? ' is-video' : ''}`}
+                  onClick={() => {
+                    if (!proxiedFull) return;
+                    // 视频走 <video> 灯箱,图片走图片灯箱。
+                    if (isVideo) {
+                      openVideoLightbox(
+                        proxiedFull,
+                        src ? albumMediaUrl(src) : undefined,
+                        item.fileName,
+                      );
+                    } else openLightbox(proxiedFull, item.fileName || '群相册图片');
+                  }}
+                >
+                  <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                  {isVideo ? (
+                    <span className="group-album-media-play" aria-hidden>
+                      <Play size={18} />
+                    </span>
+                  ) : null}
+                </button>
+                {state.album && item.image?.lloc && /^\d+$/.test(item.batchId) && (
+                  <GroupAlbumMediaActions
+                    groupId={Number(groupCode)}
+                    albumId={state.album.id}
+                    mediaId={item.image.lloc}
+                    batchId={item.batchId}
+                    uploaderUin={item.uploader}
+                    uploadTime={Number(item.uploadTime)}
+                    onChanged={onChanged}
+                  />
+                )}
+              </div>
             );
           })}
         </div>

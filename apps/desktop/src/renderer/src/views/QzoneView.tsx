@@ -43,6 +43,7 @@ import {
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
+import { QzoneWriteActions } from '../components/qq-actions/MediaActions';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import {
   projectQzoneFeed,
@@ -1611,6 +1612,7 @@ function PostActions({
   const [loading, setLoading] = useState(false);
   const { refresh } = useContext(QzonePageContext);
   const summaryRefresh = useRef<number | null>(null);
+  const [writeRevision, setWriteRevision] = useState(0);
   const readsPaused = useContext(QzoneReadPauseContext);
   const [commentCount, setCommentCount] = useState(post.commentNum);
   useEffect(() => {
@@ -1652,7 +1654,18 @@ function PostActions({
       live = false;
       cancel();
     };
-  }, [readsPaused, visible, selfUin, hostUin, post.tid, post.commentNum, refresh, run, cancel]);
+  }, [
+    readsPaused,
+    visible,
+    selfUin,
+    hostUin,
+    post.tid,
+    post.commentNum,
+    refresh,
+    run,
+    cancel,
+    writeRevision,
+  ]);
   const likeCount = likes?.reportedTotal ?? initialLikeCount;
   return (
     <div ref={ref}>
@@ -1680,6 +1693,17 @@ function PostActions({
         </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
       </div>
+      <QzoneWriteActions
+        key={`${hostUin}:${post.tid}`}
+        hostUin={hostUin}
+        tid={post.tid}
+        time={post.time}
+        onChanged={() => {
+          summaryRefresh.current = null;
+          setExpanded(null);
+          setWriteRevision((value) => value + 1);
+        }}
+      />
       {expanded ? (
         <Interaction
           key={expanded}
