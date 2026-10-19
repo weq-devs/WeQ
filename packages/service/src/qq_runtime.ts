@@ -142,12 +142,14 @@ export class QQRuntimeManager {
   }
   private fail(generation: number, error: unknown): void {
     if (generation !== this.generation) return;
+    const pid = this.driver?.pid;
     this.publish({
       phase: 'failed',
+      mode: this.driver?.owned ? 'managed' : this.value.mode,
       error: error instanceof Error ? error.message : String(error),
       capabilities: noCapabilities(),
       qr: null,
-      pid: this.driver?.pid ?? null,
+      pid: pid !== undefined && Number.isSafeInteger(pid) && pid > 0 ? pid : null,
       owned: this.driver?.owned === true,
     });
   }
@@ -194,9 +196,9 @@ export class QQRuntimeManager {
           if (driver.owned) await driver.close();
           return this.snapshot();
         }
+        if (driver.owned) this.driver = driver;
         if (!driver.owned || !Number.isSafeInteger(driver.pid) || driver.pid <= 0)
           throw new Error('托管后端没有有效的真实进程');
-        this.driver = driver;
         this.publish({ pid: driver.pid, owned: true });
         this.unsubscribe = driver.subscribe((event) => {
           if (generation !== this.generation) return;
@@ -253,7 +255,8 @@ export class QQRuntimeManager {
     const generation = this.generation,
       uin = this.expectedUin,
       signal = this.abort?.signal;
-    if (this.value.mode !== 'external' || !uin || !signal) return Promise.resolve(this.snapshot());
+    if (this.value.mode !== 'external' || this.driver || !uin || !signal)
+      return Promise.resolve(this.snapshot());
     return this.serial(async () =>
       generation === this.generation
         ? this.inspectExternal(uin, generation, signal)
@@ -404,6 +407,10 @@ export class QQRuntimeManager {
     await this.driver.refreshQr();
   }
   async resume(): Promise<void> {
+    if (this.value.mode === 'external' && !this.driver) {
+      await this.refreshExternal();
+      return;
+    }
     const driver = this.driver,
       generation = this.generation;
     if (driver && this.value.owned) {

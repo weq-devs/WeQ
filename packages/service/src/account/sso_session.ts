@@ -17,7 +17,7 @@ import type { AppidInfo, NtHelperBinding, SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getLogger } from '../common/logger';
-import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
+import { queueSsoWork, ssoWorkState, readManagedRuntimeMaterial } from './sso_lifecycle';
 
 /**
  * 兜底 `subAppId`：**仅**在 `major.node` 读不出 appid 时用。
@@ -365,6 +365,13 @@ export async function attachAndRegisterSsoSession(
   uin: string,
   identity: { uid?: string | null; guid?: string | null },
 ): Promise<{ material: SessionMaterial; registered: boolean }> {
+  if (ssoWorkState(nt, pid).managedRuntime) {
+    const owned = await readManagedRuntimeMaterial(nt, pid, uin, () => nt.hasSsoSession(pid));
+    if (!owned) throw new Error('托管 QQ 会话已切换');
+    if (identity.uid && identity.uid !== owned.identity.uid)
+      throw new Error('托管 QQ 账号身份不匹配');
+    return { material: owned.material, registered: true };
+  }
   const material = await attachHook.ensure(pid, uin);
   const uid = identity.uid ?? null;
   const guid = identity.guid ?? null;

@@ -628,7 +628,11 @@ function createWindow(): BrowserWindow {
       return;
     }
     // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
-    win.webContents.send('window:confirm-close', { canMinimizeToTray: Boolean(tray) });
+    const runtime = getAppContext().qqRuntime?.snapshot();
+    win.webContents.send('window:confirm-close', {
+      canMinimizeToTray: Boolean(tray),
+      managedQQ: runtime?.mode === 'managed' && runtime.phase !== 'stopped',
+    });
   });
 
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {

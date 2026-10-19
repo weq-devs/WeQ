@@ -25,6 +25,8 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const backHome = useViewState((s) => s.backHome);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
+  const managedAutoId = useViewState((s) => s.managedAutoEnterConfigId);
+  const consumeManagedAuto = useViewState((s) => s.consumeManagedAuto);
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
@@ -103,9 +105,13 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       return;
     }
     setSelectedKey((prev) =>
-      prev && accounts.some((a) => a.key === prev) ? prev : accounts[0]!.key,
+      managedAutoId && accounts.some((a) => a.key === managedAutoId)
+        ? managedAutoId
+        : prev && accounts.some((a) => a.key === prev)
+          ? prev
+          : accounts[0]!.key,
     );
-  }, [accounts]);
+  }, [accounts, managedAutoId]);
 
   const selected = accounts.find((a) => a.key === selectedKey) ?? null;
 
@@ -188,6 +194,10 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               installRoot={root}
               autoTarget={autoTarget.data ?? null}
               onEntered={onEntered}
+              autoStartManaged={Boolean(
+                managedAutoId && selected?.configId === managedAutoId && selected.managed,
+              )}
+              onManagedAutoStart={consumeManagedAuto}
             />
           )}
         </section>

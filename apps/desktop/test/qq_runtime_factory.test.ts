@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Platform } from '@weq/platform';
 import type { QQKernelSessionHooks } from '../src/main/qq_runtime/process_backend';
 import { createDesktopQQRuntime } from '../src/main/qq_runtime/factory';
+import { accountConfigId, type QQRuntimeBackendEvent } from '@weq/service';
 
 const captured = vi.hoisted(() => ({ hooks: null as QQKernelSessionHooks | null }));
 vi.mock('@weq/native', async (original) => ({
@@ -28,15 +29,26 @@ vi.mock('../src/main/qq_runtime/process_backend', () => ({
     hooks: QQKernelSessionHooks,
   ) => {
     captured.hooks = hooks;
+    let running = true;
+    const listeners = new Set<(event: QQRuntimeBackendEvent) => void>();
     return {
       pid: 123,
       owned: true,
-      subscribe: () => () => {},
+      isRunning: () => running,
+      subscribe: (listener: (event: QQRuntimeBackendEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       initialize: async () => {},
       login: async () => {},
       refreshQr: async () => {},
       health: async () => {},
-      close: async () => hooks.release(),
+      close: async () => {
+        if (!running) return;
+        await hooks.release();
+        running = false;
+        for (const listener of listeners) listener({ type: 'exit', code: 0, signal: null });
+      },
     };
   },
 }));
@@ -44,7 +56,7 @@ const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-async function fixture() {
+async function fixture(binding?: 'same' | 'other') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'weq-runtime-factory-')));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, 'nt_db'));
@@ -63,12 +75,19 @@ async function fixture() {
     })),
   };
   const open = vi.fn(async () => ({ database: true, push: false }));
+  let target =
+    binding === 'same'
+      ? accountConfigId('10001', root)
+      : binding === 'other'
+        ? 'other-config'
+        : null;
   const runtime = createDesktopQQRuntime({
     platform: { native: { ntHelper: nt } } as unknown as Platform,
     dataRoot: root,
     moduleDir: root,
     inspectExternal: async () => null,
     openAccount: open,
+    expectedConfigId: () => target,
   });
   cleanup.push(async () => {
     await runtime.stop();
@@ -81,9 +100,42 @@ async function fixture() {
     { ...identity, material: { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16) } },
     signal,
   );
-  return { root, dbPath, nt, open, runtime, hooks, identity, signal };
+  return {
+    root,
+    dbPath,
+    nt,
+    open,
+    runtime,
+    hooks,
+    identity,
+    signal,
+    setTarget: (value: string) => {
+      target = value;
+    },
+  };
 }
 describe('桌面托管工厂的数据库交接', () => {
+  it('同 QQ 号的其他配置不能冒充选定数据源', async () => {
+    const f = await fixture('other');
+    await expect(
+      f.hooks.openDatabase!(
+        { ...f.identity, dbPath: f.dbPath, dbKey: 'FixtureKey123456' },
+        f.signal,
+      ),
+    ).rejects.toThrow(/选定配置/);
+    expect(f.nt.testDatabaseKey).not.toHaveBeenCalled();
+    expect(f.open).not.toHaveBeenCalled();
+  });
+  it('实例保存创建时的目标快照，不被后续启动偏好改写', async () => {
+    const f = await fixture('same');
+    f.setTarget('new-target');
+    expect(
+      await f.hooks.openDatabase!(
+        { ...f.identity, dbPath: f.dbPath, dbKey: 'FixtureKey123456' },
+        f.signal,
+      ),
+    ).toEqual({ database: true, push: false });
+  });
   it('使用原口令复验后才交给账号打开流程，公开运行时不带密钥', async () => {
     const f = await fixture();
     expect(

@@ -30,14 +30,16 @@ function ipc():
 export function CloseConfirmDialog(): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [canTray, setCanTray] = useState(true);
+  const [managedQQ, setManagedQQ] = useState(false);
   const [remember, setRemember] = useState(false);
   const setBehavior = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const utils = trpc.useUtils();
 
   useEffect(() => {
     const off = ipc()?.on('window:confirm-close', (...args: unknown[]) => {
-      const payload = args[1] as { canMinimizeToTray?: boolean } | undefined;
+      const payload = args[1] as { canMinimizeToTray?: boolean; managedQQ?: boolean } | undefined;
       setCanTray(payload?.canMinimizeToTray !== false);
+      setManagedQQ(payload?.managedQQ === true);
       setRemember(false);
       setOpen(true);
     });
@@ -89,7 +91,11 @@ export function CloseConfirmDialog(): ReactElement | null {
               </span>
               <span className="weq-close-opt-text">
                 <strong>最小化到系统托盘</strong>
-                <span>保留后台进程，可从托盘图标随时恢复。</span>
+                <span>
+                  {managedQQ
+                    ? '保留 WeQ 与托管 QQ 的后台任务。'
+                    : '保留后台进程，可从托盘图标随时恢复。'}
+                </span>
               </span>
             </button>
           ) : null}
@@ -105,7 +111,9 @@ export function CloseConfirmDialog(): ReactElement | null {
             </span>
             <span className="weq-close-opt-text">
               <strong>完全退出</strong>
-              <span>结束 WeQ 进程，停止所有后台服务。</span>
+              <span>
+                {managedQQ ? '停止 WeQ 与本次托管 QQ。' : '结束 WeQ 进程，停止所有后台服务。'}
+              </span>
             </span>
           </button>
         </div>

@@ -317,10 +317,20 @@ export class QQKernelHost {
     this.requestedUin = undefined;
     if (uin) {
       this.authenticationRequested = true;
-      const result = object(await call(this.login, 'quickLoginWithUin', uin), '快速登录结果');
-      if (this.stopped) return;
-      if (String(result.result) === '0') return;
+      let result: Handle;
+      try {
+        result = object(await call(this.login, 'quickLoginWithUin', uin), '快速登录结果');
+      } catch {
+        if (!this.stopped) this.refreshQr();
+        return;
+      }
+      if (this.stopped || this.account) return;
       const error = result.loginErrorInfo ? object(result.loginErrorInfo, '验证信息') : {};
+      if (
+        String(result.result) === '0' &&
+        !(typeof error.errMsg === 'string' && error.errMsg.trim())
+      )
+        return;
       const url = verificationUrl(error.proofWaterUrl) ?? verificationUrl(error.jumpUrl);
       if (url) {
         this.emit({ type: 'verification', url });

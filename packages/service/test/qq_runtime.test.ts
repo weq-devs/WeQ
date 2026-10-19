@@ -54,6 +54,58 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe('QQ 运行时生命周期', () => {
+  it('唤醒时只刷新外部 QQ 观察，不接管或启动进程', async () => {
+    const f = fixture(),
+      inspect = vi.fn(async () => null);
+    f.deps.inspectExternal = inspect;
+    await f.manager.connectExternal('10001');
+    await f.manager.resume();
+    expect(inspect).toHaveBeenCalledTimes(2);
+    expect(f.backends).toHaveLength(0);
+    await f.manager.stop();
+  });
+  it('切到外部模式前清理失败仍准确保留托管句柄，不冒充外部就绪', async () => {
+    const f = fixture();
+    await f.manager.startManaged('10001');
+    f.backends[0]!.close.mockRejectedValueOnce(new Error('fixture-close'));
+    const inspect = vi.fn(async () => null);
+    f.deps.inspectExternal = inspect;
+    expect(await f.manager.connectExternal('10002')).toMatchObject({
+      phase: 'failed',
+      mode: 'managed',
+      pid: 100,
+      owned: true,
+    });
+    await f.manager.refreshExternal();
+    expect(inspect).not.toHaveBeenCalled();
+    await f.manager.stop();
+  });
+  it('无效 PID 后端清理失败仍保留可重试句柄，但不向界面发布该 PID', async () => {
+    const f = fixture(),
+      invalid = new Backend(0);
+    invalid.close.mockRejectedValueOnce(new Error('fixture-cleanup'));
+    f.deps.createManaged = async () => invalid;
+    expect(await f.manager.startManaged()).toMatchObject({
+      phase: 'failed',
+      pid: null,
+      owned: true,
+    });
+    await f.manager.stop();
+    expect(invalid.close).toHaveBeenCalledTimes(2);
+    expect(f.manager.snapshot()).toMatchObject({ phase: 'stopped', pid: null, owned: false });
+  });
+  it('后端返回无效 PID 时仍清理已创建的自有句柄，不发布虚构进程', async () => {
+    const f = fixture(),
+      invalid = new Backend(0);
+    f.deps.createManaged = async () => invalid;
+    expect(await f.manager.startManaged()).toMatchObject({
+      phase: 'failed',
+      pid: null,
+      owned: false,
+    });
+    expect(invalid.close).toHaveBeenCalledOnce();
+    expect(invalid.initialize).not.toHaveBeenCalled();
+  });
   it('外部 QQ 能力可刷新，同一实例保持 ID，失联时清空旧能力', async () => {
     const f = fixture();
     let sequence = 0;

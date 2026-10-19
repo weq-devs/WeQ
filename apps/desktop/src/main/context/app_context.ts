@@ -83,6 +83,7 @@ import {
   UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
+  createRuntimeAwareAttachHook,
   createExternalQQRuntimeProbe,
   type QQRuntimeManager,
   MediaDownloadService,
@@ -818,6 +819,7 @@ export interface AppContext {
   qqRuntime: QQRuntimeManager | null;
   /** 私有托管数据源，不通过 IPC 序列化。 */
   managedQQ: ManagedQQAccountSource | null;
+  managedStartConfigId: string | null;
   /** null when native failed to load — check `nativeError` first. */
   platform: Platform | null;
   /** null when native failed to load. */
@@ -954,6 +956,7 @@ export function initAppContext(): AppContext {
     cached = {
       qqRuntime: null,
       managedQQ: null,
+      managedStartConfigId: null,
       platform: null,
       bootstrap: null,
       nativeError: { kind: result.kind, status: result.status, message: result.message },
@@ -1074,10 +1077,11 @@ export function initAppContext(): AppContext {
   // in-process first, escalate with sudo when the kernel refuses). Windows can
   // read in-process with no elevation. One shared instance so its per-pid
   // idempotency spans the bootstrap router and every account monitor.
-  const attachHook: AttachHook =
+  const externalAttachHook: AttachHook =
     process.platform === 'linux' || process.platform === 'darwin'
       ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
       : createDirectAttachHook(platform.native.ntHelper);
+  const attachHook = createRuntimeAwareAttachHook(platform.native.ntHelper, externalAttachHook);
 
   const linkPreview = new LinkPreviewService(userConfig);
 
@@ -1142,6 +1146,7 @@ export function initAppContext(): AppContext {
   const ctx: AppContext = {
     qqRuntime: null,
     managedQQ: null,
+    managedStartConfigId: null,
     platform,
     bootstrap,
     nativeError: null,
@@ -1160,6 +1165,7 @@ export function initAppContext(): AppContext {
     ): Promise<void> {
       if (managed?.signal.aborted) throw new Error('托管账号打开已取消');
       if (!managed && this.qqRuntime?.snapshot().mode === 'managed') await this.qqRuntime.stop();
+      if (!managed) this.managedStartConfigId = null;
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       this.managedQQ = managed ?? null;
@@ -1249,6 +1255,11 @@ export function initAppContext(): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
+        if (managed) {
+          const pid = platform.resolveQqPid(session.context.uin);
+          if (pid === null) throw new Error('托管 QQ 的在线会话尚未就绪');
+          return pid;
+        }
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -1983,6 +1994,7 @@ export function initAppContext(): AppContext {
     ): Promise<void> {
       await this.qqRuntime?.stop();
       this.managedQQ = null;
+      this.managedStartConfigId = null;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2583,6 +2595,7 @@ export function initAppContext(): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      this.managedStartConfigId = null;
       this.managedQQ = null;
       void this.qqRuntime?.stop().catch(() => {});
       invalidateAccountTools(this.account);
@@ -2821,6 +2834,7 @@ export function initAppContext(): AppContext {
     platform,
     dataRoot: join(platform.appDataRoot(), 'managed-qq'),
     moduleDir: dirname(fileURLToPath(import.meta.url)),
+    expectedConfigId: () => ctx.managedStartConfigId,
     inspectExternal: async (uin, signal) => {
       const session = ctx.account,
         monitor = accountMonitor;
@@ -2846,6 +2860,7 @@ export function initAppContext(): AppContext {
     },
     openAccount: async (source) => {
       if (source.signal.aborted) return { database: false, push: false };
+      ctx.managedStartConfigId = accountConfigId(source.uin, dirname(dirname(source.dbPath)));
       const current = ctx.managedQQ;
       if (
         current?.uin === source.uin &&
@@ -2871,6 +2886,22 @@ export function initAppContext(): AppContext {
     },
     onObserverError: () =>
       logger.warn('QQ 运行时状态订阅失败', { event: 'qq-runtime-observer-failed' }),
+  });
+  ctx.qqRuntime.subscribe((state) => {
+    const source = ctx.managedQQ,
+      services = ctx.services;
+    if (!source || !services || ctx.account?.context.uin !== source.uin) return;
+    const online =
+      state.mode === 'managed' &&
+      state.instanceId === source.instanceId &&
+      state.pid === source.pid &&
+      state.capabilities.sso &&
+      !source.signal.aborted &&
+      source.isSsoReady();
+    const pid = online ? source.pid : null,
+      record = services.accountConfig.getRecord();
+    if (record && (record.qqOnline !== online || record.qqPid !== pid))
+      services.accountConfig.setOnline(online, pid);
   });
 
   cached = ctx;

@@ -45,6 +45,34 @@ async function fixture(hostName = 'fixture', hooks?: QQKernelSessionHooks) {
 }
 
 describe('独立进程监督（仅本地测试子进程）', () => {
+  it('健康检查恢复私有读取，但健康回包本身不冒充 SSO 或数据库在线', async () => {
+    const hooks = {
+      accept: vi.fn<QQKernelSessionHooks['accept']>(async () => true),
+      release: vi.fn(async () => {}),
+    };
+    const f = await fixture('retry-session-health', hooks);
+    await f.backend.initialize(new AbortController().signal);
+    await f.backend.login('10001');
+    await vi.waitFor(() =>
+      expect(
+        f.events.some(
+          (event) => event.type === 'observation' && event.value.error?.includes('尚未就绪'),
+        ),
+      ).toBe(true),
+    );
+    expect(hooks.accept).not.toHaveBeenCalled();
+    await f.backend.health();
+    await vi.waitFor(() => expect(hooks.accept).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        f.events.some((event) => event.type === 'observation' && event.value.capabilities.sso),
+      ).toBe(true),
+    );
+    expect(
+      f.events.some((event) => event.type === 'observation' && event.value.capabilities.database),
+    ).toBe(false);
+    await f.backend.close();
+  });
   it('数据库只在主进程确认打开后就绪，密钥不进入观察事件', async () => {
     let finish: (result: { database: boolean; push: boolean }) => void = () => {};
     const hooks = {
@@ -207,6 +235,7 @@ describe('独立进程监督（仅本地测试子进程）', () => {
   it('绑定真实 PID/实例，忽略旧帧，内核就绪不冒充业务能力', async () => {
     const f = await fixture();
     expect(f.backend.pid).toBeGreaterThan(0);
+    expect(f.backend.isRunning()).toBe(true);
     await f.backend.initialize(new AbortController().signal);
     expect(f.events.filter((event) => event.type === 'observation')).toHaveLength(1);
     await f.backend.login('10001');
@@ -227,6 +256,7 @@ describe('独立进程监督（仅本地测试子进程）', () => {
     await f.backend.health();
     await f.backend.close();
     expect(f.events.at(-1)).toMatchObject({ type: 'exit', code: 0 });
+    expect(f.backend.isRunning()).toBe(false);
   });
 
   it('启动前取消不会发起登录，也不等待固定超时才退出', async () => {

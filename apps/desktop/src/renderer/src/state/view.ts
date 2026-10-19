@@ -23,11 +23,14 @@ interface ViewState {
   homeStage: HomeStage;
   /** 选择页当前模式。 */
   selectMode: SelectMode;
+  managedAutoEnterConfigId: string | null;
   goTo(view: View): void;
   setOpenedUin(uin: string | null): void;
   setHomeStage(stage: HomeStage): void;
   /** 进入选择页并指定模式。 */
   enterSelect(mode: SelectMode): void;
+  enterManagedAuto(configId: string): void;
+  consumeManagedAuto(): void;
   /** 回到主页。 */
   backHome(): void;
 }
@@ -37,9 +40,15 @@ export const useViewState = create<ViewState>((set) => ({
   openedUin: null,
   homeStage: 'booting',
   selectMode: 'new',
-  goTo: (view) => set({ view }),
+  managedAutoEnterConfigId: null,
+  goTo: (view) => set({ view, managedAutoEnterConfigId: null }),
   setOpenedUin: (openedUin) => set({ openedUin }),
-  setHomeStage: (homeStage) => set({ homeStage }),
-  enterSelect: (selectMode) => set({ selectMode, homeStage: 'select' }),
-  backHome: () => set({ homeStage: 'home' }),
+  setHomeStage: (homeStage) =>
+    set({ homeStage, ...(homeStage === 'home' ? { managedAutoEnterConfigId: null } : {}) }),
+  enterSelect: (selectMode) =>
+    set({ selectMode, homeStage: 'select', managedAutoEnterConfigId: null }),
+  enterManagedAuto: (configId) =>
+    set({ selectMode: 'existing', homeStage: 'select', managedAutoEnterConfigId: configId }),
+  consumeManagedAuto: () => set({ managedAutoEnterConfigId: null }),
+  backHome: () => set({ homeStage: 'home', managedAutoEnterConfigId: null }),
 }));

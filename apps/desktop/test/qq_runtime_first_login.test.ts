@@ -2,9 +2,16 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SelectScreen } from '../src/renderer/src/views/bootstrap/SelectScreen';
-import type { GlobalInstallInfo } from '@weq/service';
+import type { GlobalInstallInfo, AccountConfig } from '@weq/service';
 
-const fixture = vi.hoisted(() => ({ mode: 'new', mac: true, login: vi.fn(), noop: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  mode: 'new',
+  mac: true,
+  login: vi.fn(),
+  noop: vi.fn(),
+  autoId: null as string | null,
+  records: [] as AccountConfig[],
+}));
 vi.mock('../src/renderer/src/views/bootstrap/LoginPanel', () => ({
   LoginPanel: (props: unknown) => {
     fixture.login(props);
@@ -24,6 +31,8 @@ vi.mock('../src/renderer/src/state/view', () => ({
       backHome: fixture.noop,
       goTo: fixture.noop,
       setOpenedUin: fixture.noop,
+      managedAutoEnterConfigId: fixture.autoId,
+      consumeManagedAuto: fixture.noop,
     }),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -34,7 +43,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
     bootstrap: {
-      listAccountConfigs: { useQuery: () => ({ data: [], isLoading: false }) },
+      listAccountConfigs: { useQuery: () => ({ data: fixture.records, isLoading: false }) },
       listAccounts: { useQuery: () => ({ data: [], isLoading: false }) },
       countUserDataDirs: { useQuery: () => ({ data: 0 }) },
       getAutoEnter: { useQuery: () => ({ data: null }) },
@@ -47,6 +56,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.mode = 'new';
   fixture.mac = true;
+  fixture.autoId = null;
+  fixture.records = [];
   vi.clearAllMocks();
 });
 afterEach(() => {
@@ -67,6 +78,26 @@ function render() {
   return host;
 }
 describe('没有原 QQ 数据的托管首登', () => {
+  it('自动进入按配置 ID 选择目标，而不是同号列表中的第一条', () => {
+    fixture.mode = 'existing';
+    fixture.autoId = 'config-b';
+    fixture.records = ['a', 'b'].map((value) => ({
+      configId: `config-${value}`,
+      uin: '10001',
+      dbKey: 'fixture',
+      algos: {},
+      lastLoginAt: 1,
+      managed: true,
+      dataDir: `/fixture/${value}`,
+    }));
+    render();
+    expect(fixture.login).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selected: expect.objectContaining({ key: 'config-b' }),
+        autoStartManaged: true,
+      }),
+    );
+  });
   it('macOS 新的开始即使没有历史账号，也显示登录来源入口', () => {
     render();
     expect(fixture.login).toHaveBeenCalledWith(

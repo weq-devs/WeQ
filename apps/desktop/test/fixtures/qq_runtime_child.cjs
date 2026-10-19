@@ -1,6 +1,7 @@
 /* 仅模拟私有 IPC，不加载 QQ、不联网、不打开业务数据库。 */
 let options;
 let collections = 0;
+let healthRetryReads = 0;
 function emit(event, instanceId = options.instanceId, pid = process.pid, done) {
   process.send?.({ ...event, instanceId, pid }, done);
 }
@@ -41,6 +42,10 @@ process.on('message', (message) => {
     });
   }
   if (message.type === 'collect-session') {
+    if (options.device.hostName === 'retry-session-health' && healthRetryReads++ === 0) {
+      emit({ type: 'session-material-error', requestId: message.requestId });
+      return;
+    }
     const value = {
       type: 'session-material',
       requestId: message.requestId,

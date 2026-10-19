@@ -10,6 +10,8 @@ type Status = {
   state: QQRuntimeSnapshot;
   openedUin: string | null;
   openedInstanceId: string | null;
+  openedConfigId: string | null;
+  closeBehavior?: 'ask' | 'tray' | 'quit';
 };
 const mock = vi.hoisted(() => ({
   data: null as Status | null,
@@ -17,14 +19,27 @@ const mock = vi.hoisted(() => ({
   stop: vi.fn(async (_input: unknown) => {}),
   refresh: vi.fn(async (_input: unknown) => {}),
   enable: vi.fn(async (_input: unknown) => {}),
+  preference: vi.fn(async (_input: unknown) => true),
+  closeBehavior: vi.fn(async (_input: unknown) => true),
+  invalidateSettings: vi.fn(async () => {}),
+  invalidateAuto: vi.fn(async () => {}),
   official: vi.fn(async (_input: unknown) => {}),
   refetch: vi.fn(async () => {}),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { qqRuntime: { stop: { mutate: mock.stop } } },
   trpc: {
+    useUtils: () => ({
+      bootstrap: {
+        getSettings: { invalidate: mock.invalidateSettings },
+        getAutoEnter: { invalidate: mock.invalidateAuto },
+      },
+    }),
     bootstrap: {
       setAutoAttachQq: { useMutation: () => ({ mutateAsync: mock.enable, isLoading: false }) },
+      setWindowCloseBehavior: {
+        useMutation: () => ({ mutateAsync: mock.closeBehavior, isLoading: false }),
+      },
     },
     qqRuntime: {
       status: { useQuery: () => ({ data: mock.data, error: null, refetch: mock.refetch }) },
@@ -32,6 +47,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       stop: { useMutation: () => ({ mutateAsync: mock.stop, isLoading: false }) },
       refreshQr: { useMutation: () => ({ mutateAsync: mock.refresh, isLoading: false }) },
       openOfficial: { useMutation: () => ({ mutateAsync: mock.official, isLoading: false }) },
+      setAutoEnter: { useMutation: () => ({ mutateAsync: mock.preference, isLoading: false }) },
     },
   },
 }));
@@ -48,14 +64,17 @@ const stopped = (): QQRuntimeSnapshot => ({
   error: null,
   restarts: 0,
 });
-function fixture(expectedUin?: string) {
+function fixture(
+  expectedUin?: string,
+  options: Partial<Parameters<typeof ManagedQQPanel>[0]> = {},
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),
     entered = vi.fn();
   let closed = false;
   const render = () =>
-    act(() => root.render(h(ManagedQQPanel, { expectedUin, onEntered: entered })));
+    act(() => root.render(h(ManagedQQPanel, { expectedUin, onEntered: entered, ...options })));
   const close = () => {
     if (!closed) {
       closed = true;
@@ -76,6 +95,7 @@ beforeEach(() => {
     state: stopped(),
     openedUin: null,
     openedInstanceId: null,
+    openedConfigId: null,
   };
   mock.start.mockResolvedValue({
     ...stopped(),
@@ -91,6 +111,117 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('托管 QQ 登录入口', () => {
+  it('新二维码滚入可见区域，相同图片的状态轮询不反复抢滚动位置', () => {
+    const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView'),
+      scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scroll,
+    });
+    try {
+      mock.data = {
+        ...mock.data!,
+        state: {
+          ...stopped(),
+          phase: 'awaiting-login',
+          mode: 'managed',
+          qr: { pngBase64: 'fixture', url: '' },
+        },
+      };
+      const f = fixture();
+      expect(scroll).toHaveBeenCalledOnce();
+      f.render();
+      expect(scroll).toHaveBeenCalledOnce();
+    } finally {
+      if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+  });
+  it('关闭策略沿用全局设置，保存后刷新设置而不启动 QQ', async () => {
+    const f = fixture(),
+      select = f.host.querySelector<HTMLSelectElement>('[aria-label="关闭窗口时"]')!;
+    await act(async () => {
+      select.value = 'tray';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(mock.closeBehavior).toHaveBeenCalledWith({ behavior: 'tray' });
+    expect(mock.invalidateSettings).toHaveBeenCalledOnce();
+    expect(mock.start).not.toHaveBeenCalled();
+  });
+  it('外部 QQ 或缺少自有进程标记的快照不进入托管账号', () => {
+    mock.data = {
+      ...mock.data!,
+      openedUin: '10001',
+      openedInstanceId: 'instance-a',
+      state: {
+        ...stopped(),
+        instanceId: 'instance-a',
+        mode: 'external',
+        pid: 123,
+        owned: false,
+        phase: 'online',
+        account: { uin: '10001', uid: 'u_self' },
+        capabilities: { login: false, sso: true, database: true, push: false },
+      },
+    };
+    const f = fixture('10001');
+    expect(f.entered).not.toHaveBeenCalled();
+  });
+  it('显式自动进入目标只启动一次，并携带保存配置 ID', async () => {
+    const consumed = vi.fn();
+    const f = fixture('10001', {
+      expectedConfigId: 'owned-config',
+      autoStart: true,
+      onAutoStartConsumed: consumed,
+    });
+    await act(async () => {});
+    f.render();
+    expect(consumed).toHaveBeenCalledOnce();
+    expect(mock.start).toHaveBeenCalledOnce();
+    expect(mock.start).toHaveBeenCalledWith({
+      expectedInstanceId: null,
+      uin: '10001',
+      expectedAccountConfigId: 'owned-config',
+    });
+  });
+  it('自动进入不会擅自开启在线功能，消费意图后不会延迟触发', () => {
+    mock.data!.enabled = false;
+    const consumed = vi.fn(),
+      f = fixture('10001', { autoStart: true, onAutoStartConsumed: consumed });
+    expect(consumed).toHaveBeenCalledOnce();
+    expect(mock.start).not.toHaveBeenCalled();
+    expect(mock.enable).not.toHaveBeenCalled();
+    mock.data = { ...mock.data!, enabled: true };
+    f.render();
+    expect(mock.start).not.toHaveBeenCalled();
+  });
+  it('自动进入偏好只在数据库就绪后按本实例保存', async () => {
+    const f = fixture();
+    act(() => f.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1]!.click());
+    expect(mock.preference).not.toHaveBeenCalled();
+    mock.data = {
+      ...mock.data!,
+      openedUin: '10001',
+      openedInstanceId: 'instance-a',
+      openedConfigId: 'owned-config',
+      state: {
+        ...stopped(),
+        instanceId: 'instance-a',
+        mode: 'managed',
+        pid: 123,
+        owned: true,
+        phase: 'online',
+        account: { uin: '10001', uid: 'u_self' },
+        capabilities: { login: true, sso: true, database: true, push: false },
+      },
+    };
+    await act(async () => f.render());
+    expect(mock.preference).toHaveBeenCalledWith({
+      expectedInstanceId: 'instance-a',
+      enabled: true,
+    });
+    expect(f.entered).toHaveBeenCalledWith('10001');
+  });
   it('首登可明确开启在线开关，但不会随之自动启动 QQ', async () => {
     mock.data!.enabled = false;
     const f = fixture();

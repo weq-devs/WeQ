@@ -47,6 +47,8 @@ export function LoginPanel({
   autoTarget,
   onEntered,
   onDeleteAccount,
+  autoStartManaged,
+  onManagedAutoStart,
 }: {
   mode: 'new' | 'existing';
   accounts: UiAccount[];
@@ -56,6 +58,8 @@ export function LoginPanel({
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onDeleteAccount?: (acc: UiAccount) => void;
+  autoStartManaged?: boolean;
+  onManagedAutoStart?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
 
@@ -356,11 +360,25 @@ export function LoginPanel({
       )}
 
       {(mode === 'new' && source === 'managed') || selected?.managed ? (
-        <ManagedQQPanel
-          key={selected?.managed ? selected.key : 'new-managed'}
-          expectedUin={selected?.managed ? selected.uin : undefined}
-          onEntered={onEntered}
-        />
+        <>
+          {mode === 'existing' && (
+            <AccountSelector
+              accounts={accounts}
+              selected={selected}
+              onSelect={onSelect}
+              onDeleteAccount={onDeleteAccount}
+            />
+          )}
+          <ManagedQQPanel
+            key={selected?.managed ? selected.key : 'new-managed'}
+            expectedUin={selected?.managed ? selected.uin : undefined}
+            expectedConfigId={selected?.managed ? selected.configId : undefined}
+            autoStart={autoStartManaged}
+            onAutoStartConsumed={onManagedAutoStart}
+            defaultAutoEnter={sameTarget(autoTarget, selected)}
+            onEntered={onEntered}
+          />
+        </>
       ) : mode === 'new' && source === 'backup' ? (
         <StaticBackupPanel onEntered={onEntered} />
       ) : (

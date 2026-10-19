@@ -1,10 +1,16 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hostname, release } from 'node:os';
 import { realpath } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { darwinAccountDirName, type Platform } from '@weq/platform';
 import { resolveNtHelperPath } from '@weq/native';
-import { ManagedQQSsoSession, QQRuntimeManager, type QQRuntimeDependencies } from '@weq/service';
+import {
+  ManagedQQSsoSession,
+  QQRuntimeManager,
+  accountConfigId,
+  claimManagedQQProcess,
+  type QQRuntimeDependencies,
+} from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 import { discoverManagedQQInstallation } from './installation';
 import { createQQKernelProcessBackend } from './process_backend';
@@ -19,6 +25,7 @@ export interface DesktopQQRuntimeOptions {
   inspectExternal: QQRuntimeDependencies['inspectExternal'];
   onObserverError?: QQRuntimeDependencies['onObserverError'];
   openAccount?(source: ManagedQQAccountSource): Promise<{ database: boolean; push: boolean }>;
+  expectedConfigId?(): string | null;
 }
 
 /** 路径由主进程提供；渲染进程不能指定要载入的原生模块或启动程序。 */
@@ -28,6 +35,7 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
     inspectExternal: options.inspectExternal,
     onObserverError: options.onObserverError,
     createManaged: async ({ instanceId, expectedUin, signal }) => {
+      const expectedConfigId = options.expectedConfigId?.() ?? null;
       const installation = await discoverManagedQQInstallation(options.platform);
       const worker = resolveChildWorkerPath(
         'qqKernelWorker.mjs',
@@ -40,7 +48,7 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
         await previous?.close();
         if (session === previous) session = null;
       };
-      return createQQKernelProcessBackend(
+      const backend = await createQQKernelProcessBackend(
         {
           instanceId,
           nonce: randomBytes(32).toString('hex'),
@@ -84,6 +92,11 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
                   ]);
                   const path = relative(root, database);
                   if (
+                    expectedConfigId &&
+                    accountConfigId(uin, dirname(dirname(database))) !== expectedConfigId
+                  )
+                    throw new Error('托管数据源与选定配置不匹配');
+                  if (
                     path !== join('nt_db', 'nt_msg.db') &&
                     path !== join(darwinAccountDirName(uid), 'nt_db', 'nt_msg.db')
                   )
@@ -124,6 +137,22 @@ export function createDesktopQQRuntime(options: DesktopQQRuntimeOptions): QQRunt
             : {}),
         },
       );
+      if (backend.isRunning()) {
+        try {
+          const releaseOwnership = claimManagedQQProcess(
+            options.platform.native.ntHelper,
+            backend.pid,
+            () => session?.readTransportMaterial() ?? null,
+          );
+          backend.subscribe((event) => {
+            if (event.type === 'exit') releaseOwnership();
+          });
+        } catch (error) {
+          await backend.close();
+          throw error;
+        }
+      }
+      return backend;
     },
   });
 }

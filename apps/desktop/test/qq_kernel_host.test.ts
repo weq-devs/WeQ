@@ -75,6 +75,38 @@ async function fixture() {
 }
 
 describe('托管 QQ 内核宿主（不加载真实 QQ）', () => {
+  it('已收到有效登录身份后，迟到的快登结果不覆盖为验证页面', async () => {
+    const f = await fixture();
+    f.listener().onLoginConnected!();
+    f.login.quickLoginWithUin.mockImplementationOnce(async () => {
+      f.listener().onQRCodeLoginSucceed!({ uin: '10001', uid: 'u_self' });
+      return { result: '1', loginErrorInfo: { proofWaterUrl: 'https://ssl.qq.com/verify' } };
+    });
+    await f.host.startLogin('10001');
+    await vi.waitFor(() => expect(f.session.init).toHaveBeenCalledOnce());
+    expect(f.events.some((event) => event.type === 'verification')).toBe(false);
+    expect(f.login.getQRCodePicture).not.toHaveBeenCalled();
+    await f.host.stop();
+  });
+  it('缓存登录异常时回落到二维码，不停在无二维码的登录页', async () => {
+    const f = await fixture();
+    f.listener().onLoginConnected!();
+    f.login.quickLoginWithUin.mockRejectedValueOnce(new Error('fixture-expired-cache'));
+    await expect(f.host.startLogin('10001')).resolves.toBeUndefined();
+    expect(f.login.getQRCodePicture).toHaveBeenCalledOnce();
+    await f.host.stop();
+  });
+  it('返回码为零但仍带登录错误时不当作缓存登录成功', async () => {
+    const f = await fixture();
+    f.listener().onLoginConnected!();
+    f.login.quickLoginWithUin.mockResolvedValueOnce({
+      result: '0',
+      loginErrorInfo: { errMsg: 'fixture-login-failed' },
+    });
+    await f.host.startLogin('10001');
+    expect(f.login.getQRCodePicture).toHaveBeenCalledOnce();
+    await f.host.stop();
+  });
   it('未连接、未完成初始化、断线和停止时均不给出发包身份', async () => {
     const f = await fixture();
     expect(f.host.sessionForTransport()).toBeNull();

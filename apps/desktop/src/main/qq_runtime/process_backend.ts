@@ -130,6 +130,9 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+  isRunning(): boolean {
+    return !this.exited;
+  }
   private publish(patch: Partial<QQRuntimeObservation>): void {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners)
@@ -254,6 +257,11 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
       case 'health':
         this.healthWait?.resolve();
         this.healthWait = null;
+        if (event.connected === true) {
+          this.connected = true;
+          if (event.loggedIn === true && !this.state.capabilities.sso && !this.sessionRequestId)
+            this.requestSession();
+        }
         if (!event.connected) {
           this.connected = false;
           void this.revokeSession().catch(() => {});
@@ -475,12 +483,13 @@ export class QQKernelProcessBackend implements ManagedQQRuntimeBackend {
       ...(uin ? { uin } : {}),
     });
   }
-  refreshQr(): Promise<void> {
-    return this.send({
+  async refreshQr(): Promise<void> {
+    await this.send({
       type: 'refresh-qr',
       instanceId: this.options.instanceId,
       nonce: this.options.nonce,
     });
+    await this.health();
   }
   async health(): Promise<void> {
     if (this.healthWait) return this.healthWait.promise;
