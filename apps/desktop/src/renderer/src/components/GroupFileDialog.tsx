@@ -5,6 +5,7 @@ import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { OverlayLayer } from './OverlayLayer';
 import { fileIconUrl } from '../lib/resourceUrl';
+import { GroupFileActions } from './qq-actions/GroupFileActions';
 import {
   fileExtIcon,
   formatFileTime,
@@ -42,6 +43,7 @@ export function GroupFileDialog({
   );
   const root = useRef<HTMLElement>(null);
   const [searchMissing, setSearchMissing] = useState(false);
+  const [revision, setRevision] = useState(0);
   const [listing, setListing] = useState<GroupFileListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export function GroupFileDialog({
     return () => {
       cancelled = true;
     };
-  }, [groupCode, current.id]);
+  }, [groupCode, current.id, revision]);
   useEffect(() => {
     if (!initialFileId || loading || error || !listing || current.id !== (initialFolderId ?? '/')) {
       setSearchMissing(false);
@@ -161,6 +163,14 @@ export function GroupFileDialog({
             <span className="group-file-summary">{summary}</span>
           </div>
 
+          <GroupFileActions
+            key={`${groupCode}:${current.id}`}
+            groupId={Number(groupCode)}
+            directory={current.id}
+            files={loading ? [] : (listing?.files ?? [])}
+            folders={loading ? [] : (listing?.folders ?? [])}
+            onChanged={() => setRevision((value) => value + 1)}
+          />
           {loading ? (
             <div className="group-album-state">
               <Loader2 size={18} className="weq-spin" />

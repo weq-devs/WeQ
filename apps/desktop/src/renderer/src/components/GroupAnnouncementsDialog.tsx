@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { OverlayLayer } from './OverlayLayer';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { GroupNoticeActions } from './qq-actions/GroupNoticeActions';
 
 export interface GroupBulletinImage {
   id: string;
@@ -24,7 +25,7 @@ export interface GroupBulletinWire {
 }
 
 export function GroupAnnouncementsDialog({
-  groupCode: _groupCode,
+  groupCode,
   groupName,
   currentAnnouncement,
   bulletins,
@@ -59,6 +60,7 @@ export function GroupAnnouncementsDialog({
         </header>
 
         <div className="group-announcements-body">
+          <GroupNoticeActions key={groupCode} groupId={Number(groupCode)} />
           {currentAnnouncement?.trim() ? (
             <article className="group-bulletin-item is-current">
               <header className="group-bulletin-header">
