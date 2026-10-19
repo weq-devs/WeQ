@@ -53,7 +53,7 @@ export interface RecallMessageParams {
   random?: number;
   /** 该消息发送时间（unix 秒）；私聊撤回要用。 */
   timestamp?: number;
-  /** 私聊的 clientSeq；本地库里没有这一列，缺省 0。 */
+  /** 私聊的 clientSeq（本地库 40005）。 */
   clientSequence?: number;
 }
 

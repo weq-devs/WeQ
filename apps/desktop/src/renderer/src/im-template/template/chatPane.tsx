@@ -1938,10 +1938,16 @@ export function ChatPane({
     if (!conversation || grayTipOf(message)) {
       return { show: false, reason: null };
     }
-    const mine = message.senderId === user.id;
+    const mine = isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId);
     const elevated = conversation.type === 'group' && conversation.group.role !== 'member';
     if (!mine && !elevated) {
       return { show: false, reason: null };
+    }
+    if (
+      message.source === 'roaming' &&
+      !(conversation.type === 'direct' && message.ntSeqVerified === true)
+    ) {
+      return { show: true, reason: '漫游消息缺少已确认的撤回定位，等待 QQ 同步后重试' };
     }
     if (moderationBlockedReason) {
       return { show: true, reason: moderationBlockedReason };
@@ -1951,6 +1957,20 @@ export function ChatPane({
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
     if (!Number.isFinite(seq) || seq <= 0) {
       return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
+    }
+    if (conversation.type === 'direct') {
+      const clientSeq = Number(message.clientSeq);
+      const random = Number(message.msgRandom);
+      if (
+        !Number.isSafeInteger(clientSeq) ||
+        clientSeq <= 0 ||
+        !Number.isSafeInteger(random) ||
+        random < 0 ||
+        random > 0xffff_ffff ||
+        !Number.isFinite(Date.parse(message.createdAt))
+      ) {
+        return { show: true, reason: '这条私聊消息缺少完整定位信息，等待 QQ 同步后重试' };
+      }
     }
     if (elevated) {
       return { show: true, reason: null };
@@ -1966,7 +1986,7 @@ export function ChatPane({
   function recallMessageFor(message: Message) {
     setContextMenu(null);
     const current = visibleMessages.find((row) => row.id === message.id);
-    if (!current || grayTipOf(current) || current.source === 'roaming') return;
+    if (!current || grayTipOf(current)) return;
     message = current;
     const availability = recallAvailability(message);
     if (!availability.show || availability.reason) return;
@@ -1992,6 +2012,7 @@ export function ChatPane({
             kind: 'c2c' as const,
             conv: conversation.otherUser.id,
             sequence: seq,
+            clientSequence: Number(message.clientSeq),
             ...(random > 0 ? { random } : {}),
             ...(timestamp > 0 ? { timestamp } : {}),
           };
@@ -4951,11 +4972,7 @@ export function ChatPane({
           }
           removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
-          onRecall={
-            contextRecallInfo?.show && contextMenu.message.source !== 'roaming'
-              ? recallMessageFor
-              : undefined
-          }
+          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
         />
       ) : null}

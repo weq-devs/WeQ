@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { GroupModerationService } from '../src/account/group_moderation';
+import { RecallPrivate, decode } from '@weq/protocol';
 
 interface OidbCall {
   pid: number;
@@ -75,6 +76,7 @@ describe('GroupModerationService', () => {
     await makeService(nt).recallMessage({
       kind: 'c2c',
       conv: 'u_peer',
+      clientSequence: 17,
       sequence: 2,
       random: 3,
       timestamp: 4,
@@ -85,6 +87,10 @@ describe('GroupModerationService', () => {
     // 开头是 f1 type=1、f3 targetUid='u_peer'
     expect(Array.from(call.body.slice(0, 2))).toEqual([0x08, 0x01]);
     expect(new TextDecoder().decode(call.body)).toContain('u_peer');
+    expect(decode(RecallPrivate.reqSchema, call.body)).toMatchObject({
+      targetUid: 'u_peer',
+      info: { clientSequence: 17, messageSequence: 2, random: 3, timestamp: 4 },
+    });
   });
 
   it('setMemberCard 走 0x8fc_3，targetUid + card', async () => {

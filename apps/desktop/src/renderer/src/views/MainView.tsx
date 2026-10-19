@@ -44,6 +44,7 @@ import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
+import { isMineMessage } from '../lib/messageDirection';
 import {
   createUnreadRefresh,
   createUnreadUpdateGuard,
@@ -51,13 +52,7 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import {
-  classifyChatType,
-  datalineName,
-  isDatalineSelfUid,
-  isGroupTempChatType,
-  toChatTypeNumber,
-} from '@weq/codec';
+import { classifyChatType, datalineName, isGroupTempChatType, toChatTypeNumber } from '@weq/codec';
 import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -1273,40 +1268,7 @@ function contactToConversation(
   return null;
 }
 
-/**
- * Decide whether a wire message was sent by the current user.
- *
- * Primary signal is `senderUin === user.identityValue` — exact match against
- * the logged-in account's uin, which QQ NT sets on every outbound message in
- * both c2c and group chats.
- *
- * The legacy `data.isSender === true` fallback exists ONLY for messages where
- * `senderUin` is missing (historical receive paths). It is UNSAFE to trust
- * otherwise: a `multiMsg` (合并转发) carrier element itself carries
- * `isSender=true` in the local DB, and that flag does NOT reflect the carrier
- * message's own direction. Reading it at the top level misclassifies a forward
- * the peer sent you as "sent by me" (both c2c and group). So whenever a valid
- * `senderUin` is present we decide direction from it alone and never consult
- * `isSender`; the fallback is reached only when `senderUin` is absent/'0'.
- */
-function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
-  // 数据线：senderUin 是自己（各设备同号），无法区分方向；约定 PC 伪 uid = 本机，
-  // 由它发出的算"我发的"，手机/平板发来的算对端。这些伪 uid 只在数据线会话命中，
-  // 对普通好友/群成员 uid 返回 false，故可安全地放在最前面。
-  if (isDatalineSelfUid(message.senderUid)) return true;
-  if (datalineName(message.senderUid)) return false;
-  // senderUin 有效（存在且非哨兵 '0'）时以它为准判定方向，不再信任 element.isSender。
-  if (message.senderUin && message.senderUin !== '0') {
-    return message.senderUin === user.identityValue;
-  }
-  // senderUin 缺失时才 fallback 到 element 标志（旧/迁移消息兜底），仅限私聊。
-  if (conversation.type !== 'direct') return false;
-  return message.elements.some((element) => {
-    const data = (element as RenderElementWire | null)?.data;
-    return data?.isSender === true;
-  });
-}
-
+/** 按发送者身份解析气泡用户；群聊保留自己的群名片与等级。 */
 function messageSender(
   message: MessageWire,
   conversation: Conversation,
@@ -1627,6 +1589,7 @@ function messageToTemplate(
     // Per-conversation sequence, carried through so chatPane can spot the gaps
     // where messages QQ never synced locally would have been.
     msgSeq: message.msgSeq,
+    msgRandom: message.msgRandom,
     // Sender-local client sequence (column 40005); c2c-only, and what a private
     // chat reply has to quote (see composerQuote.composerQuoteElement).
     clientSeq: message.clientSeq,
