@@ -192,7 +192,11 @@ export function AppRail({
             </span>
             <span className={cn('rail-label')}>联系人</span>
             {contactBadgeCount > 0 ? (
-              <span className={cn('rail-badge')}>{formatBadgeCount(contactBadgeCount)}</span>
+              <span
+                className={cn('rail-badge rail-badge-dot')}
+                role="status"
+                aria-label="有新的好友或群通知"
+              />
             ) : null}
           </button>
           <button
