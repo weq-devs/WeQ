@@ -180,13 +180,18 @@ export function MsgDressEditor({
 
   return createPortal(
     <div
-      ref={ref}
       className="weq-mf-dress-layer"
       style={{ zIndex: layer }}
       role="presentation"
       onMouseDown={closeFromScrim(onClose)}
     >
-      <div className="weq-mf-dress-card" role="dialog" aria-modal="true" aria-label="编辑装扮">
+      <div
+        ref={ref}
+        className="weq-mf-dress-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="编辑装扮"
+      >
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">
             <Sparkles size={15} />
@@ -322,13 +327,18 @@ function DressMallPicker({
 
   return createPortal(
     <div
-      ref={ref}
       className="weq-mf-dress-layer weq-mf-dress-layer-sub"
       style={{ zIndex: layer }}
       role="presentation"
       onMouseDown={closeFromScrim(onBack)}
     >
-      <div className="weq-mf-mall-card" role="dialog" aria-modal="true" aria-label="选择装扮">
+      <div
+        ref={ref}
+        className="weq-mf-mall-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="选择装扮"
+      >
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">{KIND_META[kind].icon}</span>
           <strong>选择{KIND_META[kind].label}</strong>

@@ -386,12 +386,27 @@ describe('合成工作窗口', () => {
     try {
       expect(document.querySelector('[aria-label="编辑装扮"]')).toBeNull();
       expect(owner.querySelector('[aria-label="编辑装扮"]')).not.toBeNull();
-      act(() => owner.querySelector<HTMLButtonElement>('.weq-mf-dress-mall')!.click());
+      const mall = owner.querySelector<HTMLButtonElement>('.weq-mf-dress-mall')!;
+      act(() => {
+        mall.focus();
+        mall.click();
+      });
       expect(owner.querySelector('[aria-label="选择装扮"]')).not.toBeNull();
+      const back = owner.querySelector<HTMLButtonElement>('.weq-mf-mall-card button')!;
+      expect(owner.activeElement).toBe(back);
+      const tab = new popup.KeyboardEvent('keydown', {
+        key: 'Tab',
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => back.dispatchEvent(tab));
+      expect(tab.defaultPrevented).toBe(true);
+      expect(owner.activeElement).toBe(back);
       act(() =>
         owner.dispatchEvent(new popup.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
       expect(owner.querySelector('[aria-label="选择装扮"]')).toBeNull();
+      expect(owner.activeElement).toBe(mall);
       expect(close).not.toHaveBeenCalled();
       act(() =>
         owner.dispatchEvent(new popup.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
